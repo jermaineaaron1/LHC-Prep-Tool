@@ -859,25 +859,77 @@ function logRosterChange(duty, roleId, serviceDate, oldValue, newValue) {
 
 // Helper to log multiple changes
 function logRosterChanges_(entries) {
-  var historySheet;
-  try {
-    historySheet = getSpreadsheet_().getSheetByName(CONFIG.ROSTER_HISTORY_SHEET);
-  } catch (e) {
-    var ss = getSpreadsheet_();
+  var ss = getSpreadsheet_();
+  var now = new Date();
+  var userEmail = Session.getActiveUser().getEmail() || 'unknown';
+
+  // Map roleId to readable duty names
+  var dutyNames = {
+    'preacher': 'Preacher', 'liturgist': 'Liturgist',
+    'usher1': 'Usher 1', 'usher2': 'Usher 2',
+    'reader1': 'Reader 1', 'reader2': 'Reader 2',
+    'reading1': '1st Reading', 'psalm': 'Psalm', 'reading2': '2nd Reading', 'gospel': 'Gospel',
+    'communion1': 'Communion 1', 'communion2': 'Communion 2',
+    'altar1': 'Altar Guild 1', 'altar2': 'Altar Guild 2',
+    'pianist': 'Pianist', 'guitarist': 'Guitarist', 'bassist': 'Bassist', 'drummer': 'Drummer',
+    'singer1': 'Singer 1', 'singer2': 'Singer 2', 'singer3': 'Singer 3', 'singer4': 'Singer 4',
+    'lcd': 'LCD Operator', 'streaming': 'Live Streaming', 'pa': 'PA System',
+    'musicleader': 'Music Leader'
+  };
+
+  // 1) Log to RosterHistory sheet
+  var historySheet = ss.getSheetByName(CONFIG.ROSTER_HISTORY_SHEET);
+  if (!historySheet) {
     historySheet = ss.insertSheet(CONFIG.ROSTER_HISTORY_SHEET);
     historySheet.getRange(1, 1, 1, 5).setValues([['Role', 'Date', 'Value', 'OldValue', 'Timestamp']]);
     historySheet.getRange(1, 1, 1, 5).setFontWeight('bold');
   }
-  
-  var now = new Date();
-  var rows = entries.map(function(entry) {
+
+  var historyRows = entries.map(function(entry) {
     return [entry.roleId, entry.date, entry.newValue, entry.oldValue, now];
   });
-  
-  if (rows.length > 0) {
+
+  if (historyRows.length > 0) {
     var lastRow = historySheet.getLastRow();
-    historySheet.getRange(lastRow + 1, 1, rows.length, 5).setValues(rows);
+    historySheet.getRange(lastRow + 1, 1, historyRows.length, 5).setValues(historyRows);
   }
+
+  // 2) Also log to RosterChanges sheet (for sidebar updates)
+  var changesSheet = ss.getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
+  if (!changesSheet) {
+    // Create the sheet if it doesn't exist
+    changesSheet = ss.insertSheet(CONFIG.ROSTER_CHANGES_SHEET);
+    var headers = ['Duty', 'RoleID', 'ServiceDate', 'OldValue', 'NewValue', 'Timestamp', 'PrevTimestamp', 'ChangedBy'];
+    changesSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    changesSheet.getRange(1, 1, 1, headers.length).setBackground('#1e293b').setFontColor('#ffffff').setFontWeight('bold');
+  }
+
+  // Get existing data to find previous timestamps
+  var changesData = changesSheet.getDataRange().getValues();
+
+  entries.forEach(function(entry) {
+    var dutyName = dutyNames[entry.roleId] || entry.roleId;
+    var prevTimestamp = null;
+
+    // Find previous timestamp for this role+date
+    for (var i = changesData.length - 1; i >= 1; i--) {
+      if (changesData[i][1] === entry.roleId && changesData[i][2] === entry.date) {
+        prevTimestamp = changesData[i][5];
+        break;
+      }
+    }
+
+    changesSheet.appendRow([
+      dutyName,
+      entry.roleId,
+      entry.date,
+      entry.oldValue,
+      entry.newValue,
+      now,
+      prevTimestamp,
+      userEmail
+    ]);
+  });
 }
 
 // ================================================================
