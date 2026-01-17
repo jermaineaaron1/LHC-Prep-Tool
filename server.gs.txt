@@ -1,0 +1,1291 @@
+// ================================================================
+// LHC WORSHIP PREP - Server.gs (v2.8 COMPLETE)
+// Updated to match index_v2.8_FINAL.html
+// All functions from original + new v2.8 features
+// ================================================================
+
+var CONFIG = {
+  SONGS_SHEET: 'Songs',
+  ORDERS_SHEET: 'Orders',
+  ROSTER_SHEET: 'Roster',
+  ROSTER_CHANGES_SHEET: 'RosterChanges', // New for v2.8
+  ROSTER_HISTORY_SHEET: 'RosterHistory'  // New for v2.8
+};
+
+// ================================================================
+// SERVE WEB APP
+// ================================================================
+function doGet(e) {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('LHC Worship Prep')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+// ================================================================
+// GET SONGS (with statistics fields + MULTIPLE attachments support)
+// ================================================================
+function getSongs() {
+  var sheet = getSheet_(CONFIG.SONGS_SHEET);
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  // Core columns
+  var colId = findColumn_(idx, ['id', 'song id', 'song_id']);
+  var colTitle = findColumn_(idx, ['title', 'song title', 'name']);
+  var colArtist = findColumn_(idx, ['artist', 'composer']);
+  var colTheme = findColumn_(idx, ['themes', 'theme']);
+  var colKey = findColumn_(idx, ['keys', 'key']);
+  var colTempo = findColumn_(idx, ['mood', 'tempo', 'bpm', 'feel']);
+  var colStyle = findColumn_(idx, ['style', 'category', 'genre']);
+  var colSeason = findColumn_(idx, ['seasons', 'season']);
+  
+  // NEW v2.8: Support for multiple attachments
+  var colAttachments = findColumn_(idx, ['attachments', 'doclinks', 'doc links', 'docurl', 'documents']);
+  var colYouTubeUrls = findColumn_(idx, ['youtubeurls', 'youtube urls', 'youtubelinks', 'youtube links']);
+  
+  // Legacy single attachment columns (for backwards compatibility)
+  var colDocs = findColumn_(idx, ['lyricsurl', 'lyrics url', 'lead sheet', 'doc']);
+  var colYouTube = findColumn_(idx, ['youtube', 'youtube url', 'youtubeurl']);
+  
+  var colLyrics = findColumn_(idx, ['lyrics', 'lyrics & chords', 'lyrics and chords']);
+  
+  // Statistics columns
+  var colUseCount = findColumn_(idx, ['usecount', 'use count', 'use_count', 'times used', 'timesused']);
+  var colLastUsed = findColumn_(idx, ['lastused', 'last used', 'last_used', 'lastusedate']);
+  var colDateAdded = findColumn_(idx, ['dateadded', 'date added', 'date_added', 'created', 'createdate']);
+  var colLastEdited = findColumn_(idx, ['lastedited', 'last edited', 'last_edited', 'modified', 'lastmodified']);
+
+  var songs = [];
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var title = colTitle >= 0 ? asString_(row[colTitle]) : '';
+    if (!title) continue;
+
+    // Parse multiple attachments (v2.8 format: JSON array)
+    var attachments = [];
+    if (colAttachments >= 0 && row[colAttachments]) {
+      try {
+        attachments = JSON.parse(row[colAttachments]);
+      } catch (e) {
+        // If not JSON, treat as single URL string
+        var url = asString_(row[colAttachments]);
+        if (url) attachments = [{ url: url, name: 'Document', type: 'GDOC' }];
+      }
+    } else if (colDocs >= 0 && row[colDocs]) {
+      // Fallback to legacy single doc column
+      var url = asString_(row[colDocs]);
+      if (url) attachments = [{ url: url, name: 'Document', type: 'GDOC' }];
+    }
+    
+    // Parse multiple YouTube URLs (v2.8 format: JSON array)
+    var youtubeUrls = [];
+    if (colYouTubeUrls >= 0 && row[colYouTubeUrls]) {
+      try {
+        youtubeUrls = JSON.parse(row[colYouTubeUrls]);
+      } catch (e) {
+        // If not JSON, treat as single URL
+        var url = asString_(row[colYouTubeUrls]);
+        if (url) youtubeUrls = [url];
+      }
+    } else if (colYouTube >= 0 && row[colYouTube]) {
+      // Fallback to legacy single YouTube column
+      var url = asString_(row[colYouTube]);
+      if (url) youtubeUrls = [url];
+    }
+
+    songs.push({
+      id: colId >= 0 ? asString_(row[colId]) : 'row_' + r,
+      title: title,
+      artist: colArtist >= 0 ? asString_(row[colArtist]) : '',
+      theme: colTheme >= 0 ? asString_(row[colTheme]) : '',
+      key: colKey >= 0 ? asString_(row[colKey]) : '',
+      tempo: colTempo >= 0 ? asString_(row[colTempo]) : '',
+      style: colStyle >= 0 ? asString_(row[colStyle]) : '',
+      season: colSeason >= 0 ? asString_(row[colSeason]) : '',
+      
+      // v2.8: Multiple attachments support
+      attachments: attachments,
+      youtube: youtubeUrls, // Array of YouTube URLs
+      
+      // Legacy fields (for backwards compatibility)
+      lyricsUrl: attachments.length > 0 ? attachments[0].url : '',
+      
+      lyrics: colLyrics >= 0 ? asString_(row[colLyrics]) : '',
+      
+      // Statistics fields
+      useCount: colUseCount >= 0 ? parseInt(row[colUseCount]) || 0 : 0,
+      lastUsed: colLastUsed >= 0 ? formatDate_(row[colLastUsed]) : '',
+      dateAdded: colDateAdded >= 0 ? formatDate_(row[colDateAdded]) : '',
+      lastEdited: colLastEdited >= 0 ? formatDate_(row[colLastEdited]) : ''
+    });
+  }
+
+  return songs;
+}
+
+// ================================================================
+// CREATE SONG (v2.8 with multiple attachments)
+// ================================================================
+function createSong(song) {
+  if (!song || !song.title) throw new Error('Song title is required');
+
+  var sheet = getSheet_(CONFIG.SONGS_SHEET);
+  var data = sheet.getDataRange().getValues();
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  var colId = findColumn_(idx, ['id', 'song id', 'song_id']);
+  var colTitle = findColumn_(idx, ['title', 'song title', 'name']);
+  var colArtist = findColumn_(idx, ['artist', 'composer']);
+  var colTheme = findColumn_(idx, ['themes', 'theme']);
+  var colKey = findColumn_(idx, ['keys', 'key']);
+  var colTempo = findColumn_(idx, ['mood', 'tempo', 'bpm', 'feel']);
+  var colStyle = findColumn_(idx, ['style', 'category', 'genre']);
+  var colSeason = findColumn_(idx, ['seasons', 'season']);
+  
+  // v2.8: Multiple attachments columns
+  var colAttachments = findColumn_(idx, ['attachments', 'doclinks', 'doc links']);
+  var colYouTubeUrls = findColumn_(idx, ['youtubeurls', 'youtube urls', 'youtubelinks']);
+  
+  var colLyrics = findColumn_(idx, ['lyrics', 'lyrics & chords', 'lyrics and chords']);
+  var colDateAdded = findColumn_(idx, ['dateadded', 'date added', 'date_added', 'created']);
+  var colUseCount = findColumn_(idx, ['usecount', 'use count', 'use_count']);
+
+  var newId = 'song_' + new Date().getTime();
+  var newRow = [];
+  for (var i = 0; i < header.length; i++) newRow.push('');
+
+  if (colId >= 0) newRow[colId] = newId;
+  if (colTitle >= 0) newRow[colTitle] = song.title || '';
+  if (colArtist >= 0) newRow[colArtist] = song.artist || '';
+  if (colTheme >= 0) newRow[colTheme] = song.theme || '';
+  if (colKey >= 0) newRow[colKey] = song.key || '';
+  if (colTempo >= 0) newRow[colTempo] = song.tempo || '';
+  if (colStyle >= 0) newRow[colStyle] = song.category || song.style || '';
+  if (colSeason >= 0) newRow[colSeason] = song.season || '';
+  
+  // v2.8: Save attachments as JSON array
+  if (colAttachments >= 0) {
+    var attachments = song.attachments || [];
+    newRow[colAttachments] = JSON.stringify(attachments);
+  }
+  
+  // v2.8: Save YouTube URLs as JSON array
+  if (colYouTubeUrls >= 0) {
+    var youtubeUrls = song.youtube || [];
+    newRow[colYouTubeUrls] = JSON.stringify(youtubeUrls);
+  }
+  
+  if (colLyrics >= 0) newRow[colLyrics] = song.lyrics || '';
+  if (colDateAdded >= 0) newRow[colDateAdded] = new Date();
+  if (colUseCount >= 0) newRow[colUseCount] = 0;
+
+  sheet.appendRow(newRow);
+
+  return { success: true, id: newId };
+}
+
+// ================================================================
+// UPDATE SONG (v2.8 with multiple attachments)
+// ================================================================
+function updateSong(song) {
+  if (!song || !song.id) throw new Error('Song ID is required');
+
+  var sheet = getSheet_(CONFIG.SONGS_SHEET);
+  var data = sheet.getDataRange().getValues();
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  var colId = findColumn_(idx, ['id', 'song id', 'song_id']);
+  var colTitle = findColumn_(idx, ['title', 'song title', 'name']);
+  var colArtist = findColumn_(idx, ['artist', 'composer']);
+  var colTheme = findColumn_(idx, ['themes', 'theme']);
+  var colKey = findColumn_(idx, ['keys', 'key']);
+  var colTempo = findColumn_(idx, ['mood', 'tempo', 'bpm', 'feel']);
+  var colStyle = findColumn_(idx, ['style', 'category', 'genre']);
+  var colSeason = findColumn_(idx, ['seasons', 'season']);
+  
+  // v2.8: Multiple attachments
+  var colAttachments = findColumn_(idx, ['attachments', 'doclinks', 'doc links']);
+  var colYouTubeUrls = findColumn_(idx, ['youtubeurls', 'youtube urls', 'youtubelinks']);
+  
+  var colLyrics = findColumn_(idx, ['lyrics', 'lyrics & chords', 'lyrics and chords']);
+  var colLastEdited = findColumn_(idx, ['lastedited', 'last edited', 'last_edited', 'modified', 'lastmodified']);
+
+  if (colId < 0) throw new Error('ID column not found in sheet');
+
+  // Find the row
+  var rowIndex = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][colId]).trim() === String(song.id).trim()) {
+      rowIndex = r + 1;
+      break;
+    }
+  }
+  
+  if (rowIndex < 0) throw new Error('Song not found: ' + song.id);
+
+  // Update fields
+  if (colTitle >= 0 && song.title !== undefined) 
+    sheet.getRange(rowIndex, colTitle + 1).setValue(song.title || '');
+  if (colArtist >= 0 && song.artist !== undefined) 
+    sheet.getRange(rowIndex, colArtist + 1).setValue(song.artist || '');
+  if (colTheme >= 0 && song.theme !== undefined) 
+    sheet.getRange(rowIndex, colTheme + 1).setValue(song.theme || '');
+  if (colKey >= 0 && song.key !== undefined) 
+    sheet.getRange(rowIndex, colKey + 1).setValue(song.key || '');
+  if (colTempo >= 0 && song.tempo !== undefined) 
+    sheet.getRange(rowIndex, colTempo + 1).setValue(song.tempo || '');
+  if (colStyle >= 0 && (song.category !== undefined || song.style !== undefined)) 
+    sheet.getRange(rowIndex, colStyle + 1).setValue(song.category || song.style || '');
+  if (colSeason >= 0 && song.season !== undefined) 
+    sheet.getRange(rowIndex, colSeason + 1).setValue(song.season || '');
+  
+  // v2.8: Update attachments array
+  if (colAttachments >= 0 && song.attachments !== undefined) {
+    sheet.getRange(rowIndex, colAttachments + 1).setValue(JSON.stringify(song.attachments));
+  }
+  
+  // v2.8: Update YouTube URLs array
+  if (colYouTubeUrls >= 0 && song.youtube !== undefined) {
+    sheet.getRange(rowIndex, colYouTubeUrls + 1).setValue(JSON.stringify(song.youtube));
+  }
+  
+  if (colLyrics >= 0 && song.lyrics !== undefined) 
+    sheet.getRange(rowIndex, colLyrics + 1).setValue(song.lyrics || '');
+  
+  // Update timestamp
+  if (colLastEdited >= 0) 
+    sheet.getRange(rowIndex, colLastEdited + 1).setValue(new Date());
+
+  return { success: true, id: song.id };
+}
+
+// ================================================================
+// DELETE SONG
+// ================================================================
+function deleteSong(songId) {
+  if (!songId) throw new Error('Song ID is required');
+
+  var sheet = getSheet_(CONFIG.SONGS_SHEET);
+  var data = sheet.getDataRange().getValues();
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  var colId = findColumn_(idx, ['id', 'song id', 'song_id']);
+  if (colId < 0) throw new Error('ID column not found in sheet');
+
+  var rowIndex = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][colId]).trim() === String(songId).trim()) {
+      rowIndex = r + 1;
+      break;
+    }
+  }
+  
+  if (rowIndex < 0) throw new Error('Song not found: ' + songId);
+
+  sheet.deleteRow(rowIndex);
+
+  return { success: true, deletedId: songId };
+}
+
+// ================================================================
+// UPDATE SONG LYRICS
+// ================================================================
+function updateSongLyrics(songId, lyrics) {
+  if (!songId) throw new Error('Song ID is required');
+
+  var sheet = getSheet_(CONFIG.SONGS_SHEET);
+  var data = sheet.getDataRange().getValues();
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  var colId = findColumn_(idx, ['id', 'song id', 'song_id']);
+  var colLyrics = findColumn_(idx, ['lyrics', 'lyrics & chords', 'lyrics and chords']);
+  var colLastEdited = findColumn_(idx, ['lastedited', 'last edited', 'last_edited', 'modified', 'lastmodified']);
+
+  if (colId < 0) throw new Error('ID column not found');
+  if (colLyrics < 0) throw new Error('Lyrics column not found');
+
+  var rowIndex = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][colId]).trim() === String(songId).trim()) {
+      rowIndex = r + 1;
+      break;
+    }
+  }
+  
+  if (rowIndex < 0) throw new Error('Song not found: ' + songId);
+
+  sheet.getRange(rowIndex, colLyrics + 1).setValue(lyrics || '');
+  
+  if (colLastEdited >= 0) 
+    sheet.getRange(rowIndex, colLastEdited + 1).setValue(new Date());
+
+  return { success: true };
+}
+
+// ================================================================
+// INCREMENT USE COUNT
+// ================================================================
+function incrementSongUseCount(songId) {
+  if (!songId) return { success: false, error: 'Song ID is required' };
+
+  var sheet = getSheet_(CONFIG.SONGS_SHEET);
+  var data = sheet.getDataRange().getValues();
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  var colId = findColumn_(idx, ['id', 'song id', 'song_id']);
+  var colUseCount = findColumn_(idx, ['usecount', 'use count', 'use_count', 'times used', 'timesused']);
+  var colLastUsed = findColumn_(idx, ['lastused', 'last used', 'last_used', 'lastusedate']);
+
+  if (colId < 0) return { success: false, error: 'ID column not found' };
+
+  var rowIndex = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][colId]).trim() === String(songId).trim()) {
+      rowIndex = r + 1;
+      break;
+    }
+  }
+  
+  if (rowIndex < 0) return { success: false, error: 'Song not found' };
+
+  if (colUseCount >= 0) {
+    var currentCount = parseInt(data[rowIndex - 1][colUseCount]) || 0;
+    sheet.getRange(rowIndex, colUseCount + 1).setValue(currentCount + 1);
+  }
+  
+  if (colLastUsed >= 0) {
+    sheet.getRange(rowIndex, colLastUsed + 1).setValue(new Date());
+  }
+
+  return { success: true };
+}
+
+// ================================================================
+// GET ORDERS
+// ================================================================
+function getOrders() {
+  var sheet;
+  try {
+    sheet = getSheet_(CONFIG.ORDERS_SHEET);
+  } catch (e) {
+    return [];
+  }
+
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  var colId = findColumn_(idx, ['id', 'order id', 'order_id']);
+  var colTitle = findColumn_(idx, ['title', 'order title', 'name']);
+  var colDate = findColumn_(idx, ['date', 'service date', 'servicedate']);
+
+  var orders = [];
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var title = colTitle >= 0 ? asString_(row[colTitle]) : '';
+    if (!title) continue;
+    
+    orders.push({
+      id: colId >= 0 ? asString_(row[colId]) : 'order_' + r,
+      title: title,
+      serviceDate: colDate >= 0 ? formatDate_(row[colDate]) : ''
+    });
+  }
+
+  return orders;
+}
+
+// ================================================================
+// LOAD ORDER
+// ================================================================
+function loadOrder(orderId) {
+  var orders = getOrders();
+  for (var i = 0; i < orders.length; i++) {
+    if (orders[i].id === orderId) return orders[i];
+  }
+  return null;
+}
+
+// ================================================================
+// SAVE ORDER
+// ================================================================
+function saveOrder(payload) {
+  // TODO: Implement full order saving
+  return { success: true, id: payload.id || 'new_order' };
+}
+
+// ================================================================
+// GET ROSTER UPDATES (v2.8 - Returns recent changes for sidebar)
+// ================================================================
+function getRosterUpdates() {
+  try {
+    // First try the dedicated RosterChanges sheet
+    var changesSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
+    
+    if (!changesSheet) {
+      Logger.log('RosterChanges sheet not found - returning empty array (frontend will show mock data)');
+      return [];
+    }
+    
+    var data = changesSheet.getDataRange().getValues();
+    if (data.length < 2) return [];
+    
+    var header = data[0];
+    var idx = buildHeaderIndex_(header);
+    
+    var colDuty = findColumn_(idx, ['duty', 'role', 'rolename']);
+    var colRoleId = findColumn_(idx, ['roleid', 'role_id', 'role id']);
+    var colServiceDate = findColumn_(idx, ['servicedate', 'service date', 'date']);
+    var colOldValue = findColumn_(idx, ['oldvalue', 'old value', 'old_value', 'previous']);
+    var colNewValue = findColumn_(idx, ['newvalue', 'new value', 'new_value', 'value']);
+    var colTimestamp = findColumn_(idx, ['timestamp', 'updated', 'lastedited']);
+    var colPrevTimestamp = findColumn_(idx, ['prevtimestamp', 'prev timestamp', 'prev_timestamp']);
+    
+    // Set defaults if not found
+    if (colDuty < 0) colDuty = 0;
+    if (colRoleId < 0) colRoleId = 1;
+    if (colServiceDate < 0) colServiceDate = 2;
+    if (colOldValue < 0) colOldValue = 3;
+    if (colNewValue < 0) colNewValue = 4;
+    if (colTimestamp < 0) colTimestamp = 5;
+    if (colPrevTimestamp < 0) colPrevTimestamp = 6;
+    
+    var updates = [];
+    
+    // Get last 50 rows, reverse order (newest first)
+    var startRow = Math.max(1, data.length - 50);
+    for (var i = data.length - 1; i >= startRow; i--) {
+      var row = data[i];
+      
+      updates.push({
+        duty: String(row[colDuty] || 'Unknown').trim(),
+        roleId: String(row[colRoleId] || '').trim(),
+        serviceDate: String(row[colServiceDate] || '').trim(),
+        oldValue: String(row[colOldValue] || '').trim(),
+        newValue: String(row[colNewValue] || 'TBD').trim(),
+        timestamp: row[colTimestamp] ? (row[colTimestamp] instanceof Date ? row[colTimestamp].toISOString() : String(row[colTimestamp])) : new Date().toISOString(),
+        prevTimestamp: row[colPrevTimestamp] ? (row[colPrevTimestamp] instanceof Date ? row[colPrevTimestamp].toISOString() : String(row[colPrevTimestamp])) : null
+      });
+    }
+    
+    return updates;
+    
+  } catch (error) {
+    Logger.log('Error in getRosterUpdates: ' + error.toString());
+    return []; // Return empty, frontend will show mock data
+  }
+}
+
+// ================================================================
+// GET ROSTER HISTORY (v2.8 - For navigation arrows)
+// ================================================================
+function getRosterHistory(roleId, serviceDate) {
+  // First try RosterHistory sheet (dedicated history log)
+  var historySheet;
+  try {
+    historySheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ROSTER_HISTORY_SHEET);
+  } catch (e) {
+    historySheet = null;
+  }
+  
+  if (historySheet) {
+    return getRosterHistoryFromSheet_(historySheet, roleId, serviceDate);
+  }
+  
+  // Fallback: try RosterChanges sheet
+  try {
+    var changesSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
+    if (changesSheet) {
+      return getRosterHistoryFromSheet_(changesSheet, roleId, serviceDate);
+    }
+  } catch (e) {}
+  
+  // Last fallback: try main Roster sheet
+  try {
+    var rosterSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ROSTER_SHEET);
+    if (rosterSheet) {
+      return getRosterHistoryFromSheet_(rosterSheet, roleId, serviceDate);
+    }
+  } catch (e) {}
+  
+  return [];
+}
+
+// Helper function to get history from any sheet
+function getRosterHistoryFromSheet_(sheet, roleId, serviceDate) {
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  var colRole = findColumn_(idx, ['role', 'roleid', 'role_id', 'duty']);
+  var colDate = findColumn_(idx, ['date', 'sunday', 'service date', 'servicedate']);
+  var colValue = findColumn_(idx, ['value', 'name', 'assigned', 'person', 'newvalue', 'new value']);
+  var colTimestamp = findColumn_(idx, ['lastedited', 'last edited', 'timestamp', 'modified', 'updatedat', 'updated']);
+  var colOldValue = findColumn_(idx, ['oldvalue', 'old value', 'previous', 'prevvalue']);
+
+  if (colRole < 0) colRole = 0;
+  if (colDate < 0) colDate = 1;
+  if (colValue < 0) colValue = 2;
+  if (colTimestamp < 0) colTimestamp = 3;
+
+  var entries = [];
+  var targetRole = String(roleId).trim().toLowerCase();
+  var targetDate = String(serviceDate).trim().toLowerCase().replace(/\s+/g, '');
+
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var rowRole = String(row[colRole] || '').trim().toLowerCase();
+    var rowDateRaw = row[colDate];
+    var rowDate = '';
+    
+    // Handle date formatting
+    if (rowDateRaw instanceof Date) {
+      var months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+      rowDate = months[rowDateRaw.getMonth()] + rowDateRaw.getDate();
+    } else {
+      rowDate = String(rowDateRaw || '').trim().toLowerCase().replace(/\s+/g, '');
+    }
+    
+    if (rowRole === targetRole && rowDate === targetDate) {
+      var value = String(row[colValue] || '').trim();
+      var timestamp = '';
+      if (colTimestamp >= 0 && colTimestamp < row.length && row[colTimestamp]) {
+        if (row[colTimestamp] instanceof Date) {
+          timestamp = row[colTimestamp].toISOString();
+        } else {
+          timestamp = String(row[colTimestamp]);
+        }
+      }
+      
+      var oldValue = '';
+      if (colOldValue >= 0 && colOldValue < row.length) {
+        oldValue = String(row[colOldValue] || '').trim();
+      }
+      
+      entries.push({
+        value: value,
+        oldValue: oldValue,
+        timestamp: timestamp
+      });
+    }
+  }
+
+  // Sort by timestamp descending (newest first) and return top 10
+  entries.sort(function(a, b) {
+    return (b.timestamp || '').localeCompare(a.timestamp || '');
+  });
+
+  return entries.slice(0, 10);
+}
+
+// ================================================================
+// GET ROSTER DATA (load saved roster entries)
+// ================================================================
+function getRosterData(month, year) {
+  var sheet;
+  try {
+    sheet = getSheet_(CONFIG.ROSTER_SHEET);
+  } catch (e) {
+    Logger.log('Roster sheet not found');
+    return [];
+  }
+
+  var data = sheet.getDataRange().getValues();
+  Logger.log('Roster sheet has ' + data.length + ' rows');
+  
+  if (data.length < 2) return [];
+
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+  Logger.log('Header index: ' + JSON.stringify(idx));
+
+  var colRole = findColumn_(idx, ['role', 'roleid', 'role_id', 'duty']);
+  var colDate = findColumn_(idx, ['date', 'sunday', 'service date']);
+  var colValue = findColumn_(idx, ['value', 'name', 'assigned', 'person']);
+  var colMonth = findColumn_(idx, ['month']);
+  var colYear = findColumn_(idx, ['year']);
+  var colTimestamp = findColumn_(idx, ['lastedited', 'last edited', 'timestamp', 'modified']);
+
+  // Default column positions if not found
+  if (colRole < 0) colRole = 0;
+  if (colDate < 0) colDate = 1;
+  if (colValue < 0) colValue = 2;
+  if (colMonth < 0) colMonth = 3;
+  if (colYear < 0) colYear = 4;
+  if (colTimestamp < 0) colTimestamp = 5;
+
+  Logger.log('Looking for month=' + month + ', year=' + year);
+
+  var entries = [];
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var rowMonth = parseInt(row[colMonth]);
+    var rowYear = parseInt(row[colYear]);
+    
+    // Filter by month and year if provided
+    if (month !== undefined && month !== null && year !== undefined && year !== null) {
+      if (isNaN(rowMonth) || isNaN(rowYear)) continue;
+      if (rowMonth !== month || rowYear !== year) continue;
+    }
+    
+    var roleId = String(row[colRole] || '').trim();
+    var value = String(row[colValue] || '').trim();
+    
+    // Handle the date field - it might be a Date object or a string
+    var dateRaw = row[colDate];
+    var dateStr = '';
+    
+    if (dateRaw instanceof Date) {
+      // Convert Date object to "Mon D" format
+      var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      dateStr = months[dateRaw.getMonth()] + ' ' + dateRaw.getDate();
+      Logger.log('Converted Date object to: ' + dateStr);
+    } else {
+      dateStr = String(dateRaw || '').trim();
+    }
+    
+    if (!roleId || !dateStr) continue;
+    
+    Logger.log('Entry: role=' + roleId + ', date=' + dateStr + ', value=' + value);
+    
+    entries.push({
+      roleId: roleId,
+      date: dateStr,
+      value: value,
+      month: rowMonth,
+      year: rowYear,
+      timestamp: colTimestamp < row.length ? String(row[colTimestamp] || '') : ''
+    });
+  }
+
+  Logger.log('Returning ' + entries.length + ' entries for month ' + month + ', year ' + year);
+  return entries;
+}
+
+// ================================================================
+// SAVE ROSTER EDITS
+// ================================================================
+function saveRosterEdits(editsArray) {
+  if (!editsArray || !editsArray.length) return { success: true, updated: 0 };
+
+  var sheet;
+  try {
+    sheet = getSheet_(CONFIG.ROSTER_SHEET);
+  } catch (e) {
+    // Create sheet if it doesn't exist
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    sheet = ss.insertSheet(CONFIG.ROSTER_SHEET);
+    sheet.appendRow(['Role', 'Date', 'Value', 'Month', 'Year', 'LastEdited']);
+  }
+
+  var data = sheet.getDataRange().getValues();
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  var colRole = findColumn_(idx, ['role', 'roleid', 'role_id', 'duty']);
+  var colDate = findColumn_(idx, ['date', 'sunday', 'service date']);
+  var colValue = findColumn_(idx, ['value', 'name', 'assigned', 'person']);
+  var colMonth = findColumn_(idx, ['month']);
+  var colYear = findColumn_(idx, ['year']);
+  var colTimestamp = findColumn_(idx, ['lastedited', 'last edited', 'timestamp', 'modified']);
+
+  if (colRole < 0) colRole = 0;
+  if (colDate < 0) colDate = 1;
+  if (colValue < 0) colValue = 2;
+  if (colMonth < 0) colMonth = 3;
+  if (colYear < 0) colYear = 4;
+  if (colTimestamp < 0) colTimestamp = 5;
+
+  var updated = 0;
+  var historyEntries = [];
+  
+  editsArray.forEach(function(edit) {
+    var found = false;
+    var editRoleId = String(edit.roleId).trim().toLowerCase();
+    var editDate = String(edit.date).trim().toLowerCase();
+    var editMonth = parseInt(edit.month);
+    var editYear = parseInt(edit.year);
+    var oldValue = '';
+    
+    Logger.log('Saving: role=' + editRoleId + ', date=' + editDate + ', month=' + editMonth + ', year=' + editYear + ', value=' + edit.value);
+    
+    // Look for existing row
+    for (var r = 1; r < data.length; r++) {
+      var rowRole = String(data[r][colRole]).trim().toLowerCase();
+      var rowDate = String(data[r][colDate]).trim().toLowerCase();
+      var rowMonth = parseInt(data[r][colMonth]);
+      var rowYear = parseInt(data[r][colYear]);
+      
+      if (rowRole === editRoleId && rowDate === editDate && rowMonth === editMonth && rowYear === editYear) {
+        oldValue = String(data[r][colValue] || '').trim();
+        
+        Logger.log('Updating existing row ' + (r + 1) + ', old value: ' + oldValue);
+        sheet.getRange(r + 1, colValue + 1).setValue(edit.value);
+        sheet.getRange(r + 1, colTimestamp + 1).setValue(edit.timestamp || new Date().toISOString());
+        updated++;
+        found = true;
+        break;
+      }
+    }
+    
+    // Add new row if not found
+    if (!found) {
+      Logger.log('Adding new row');
+      var newRow = [];
+      for (var i = 0; i < Math.max(header.length, 6); i++) newRow.push('');
+      newRow[colRole] = edit.roleId;
+      newRow[colDate] = edit.date;
+      newRow[colValue] = edit.value;
+      newRow[colMonth] = edit.month;
+      newRow[colYear] = edit.year;
+      newRow[colTimestamp] = edit.timestamp || new Date().toISOString();
+      sheet.appendRow(newRow);
+      updated++;
+    }
+    
+    // Log to history if value changed
+    if (edit.value !== oldValue) {
+      historyEntries.push({
+        roleId: edit.roleId,
+        date: edit.date,
+        newValue: edit.value,
+        oldValue: oldValue
+      });
+    }
+  });
+  
+  // Log all changes to history sheet
+  if (historyEntries.length > 0) {
+    logRosterChanges_(historyEntries);
+  }
+
+  return { success: true, updated: updated };
+}
+
+// ================================================================
+// SETUP ROSTER CHANGES SHEET (v2.8 - Run once)
+// ================================================================
+function setupRosterChangesSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  var existingSheet = ss.getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
+  if (existingSheet) {
+    SpreadsheetApp.getUi().alert('✓ RosterChanges sheet already exists!');
+    return;
+  }
+  
+  var sheet = ss.insertSheet(CONFIG.ROSTER_CHANGES_SHEET);
+  
+  var headers = ['Duty', 'RoleID', 'ServiceDate', 'OldValue', 'NewValue', 'Timestamp', 'PrevTimestamp', 'ChangedBy'];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setBackground('#1e293b');
+  headerRange.setFontColor('#ffffff');
+  headerRange.setFontWeight('bold');
+  
+  var sampleData = [
+    ['Preacher', 'preacher', 'Jan 18', 'Rev Benedict', 'Pastor Ashley', new Date(), new Date(Date.now() - 14*24*60*60*1000), Session.getActiveUser().getEmail()],
+    ['Usher 1', 'usher1', 'Jan 25', 'John', 'Mary', new Date(Date.now() - 1*60*60*1000), new Date(Date.now() - 7*24*60*60*1000), Session.getActiveUser().getEmail()],
+    ['Reader', 'reader', 'Jan 11', 'Sarah', 'David', new Date(Date.now() - 3*60*60*1000), new Date(Date.now() - 10*24*60*60*1000), Session.getActiveUser().getEmail()],
+    ['Music Leader', 'musicleader', 'Feb 1', '', 'James', new Date(Date.now() - 5*60*60*1000), null, Session.getActiveUser().getEmail()]
+  ];
+  
+  sheet.getRange(2, 1, sampleData.length, sampleData[0].length).setValues(sampleData);
+  
+  SpreadsheetApp.getUi().alert('✅ RosterChanges sheet created!\n\nRefresh your web app to see updates in sidebar.');
+}
+
+// ================================================================
+// LOG ROSTER CHANGE (v2.8 - Call when editing)
+// ================================================================
+function logRosterChange(duty, roleId, serviceDate, oldValue, newValue) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var changesSheet = ss.getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
+    
+    if (!changesSheet) {
+      Logger.log('RosterChanges sheet not found. Run setupRosterChangesSheet() first.');
+      return { success: false, error: 'Changes sheet not found' };
+    }
+    
+    var data = changesSheet.getDataRange().getValues();
+    var prevTimestamp = null;
+    
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (data[i][1] === roleId && data[i][2] === serviceDate) {
+        prevTimestamp = data[i][5];
+        break;
+      }
+    }
+    
+    changesSheet.appendRow([
+      duty,
+      roleId,
+      serviceDate,
+      oldValue,
+      newValue,
+      new Date(),
+      prevTimestamp,
+      Session.getActiveUser().getEmail()
+    ]);
+    
+    return { success: true };
+    
+  } catch (error) {
+    Logger.log('Error logging change: ' + error.toString());
+    return { success: false, error: error.toString() };
+  }
+}
+
+// Helper to log multiple changes
+function logRosterChanges_(entries) {
+  var historySheet;
+  try {
+    historySheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ROSTER_HISTORY_SHEET);
+  } catch (e) {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    historySheet = ss.insertSheet(CONFIG.ROSTER_HISTORY_SHEET);
+    historySheet.getRange(1, 1, 1, 5).setValues([['Role', 'Date', 'Value', 'OldValue', 'Timestamp']]);
+    historySheet.getRange(1, 1, 1, 5).setFontWeight('bold');
+  }
+  
+  var now = new Date();
+  var rows = entries.map(function(entry) {
+    return [entry.roleId, entry.date, entry.newValue, entry.oldValue, now];
+  });
+  
+  if (rows.length > 0) {
+    var lastRow = historySheet.getLastRow();
+    historySheet.getRange(lastRow + 1, 1, rows.length, 5).setValues(rows);
+  }
+}
+
+// ================================================================
+// CLEANUP ROSTER DUPLICATES
+// ================================================================
+function cleanupRosterDuplicates() {
+  var sheet;
+  try {
+    sheet = getSheet_(CONFIG.ROSTER_SHEET);
+  } catch (e) {
+    Logger.log('Roster sheet not found');
+    return { success: false, error: 'Sheet not found' };
+  }
+
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 2) return { success: true, removed: 0 };
+
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  var colRole = findColumn_(idx, ['role', 'roleid', 'role_id', 'duty']);
+  var colDate = findColumn_(idx, ['date', 'sunday', 'service date']);
+  var colMonth = findColumn_(idx, ['month']);
+  var colYear = findColumn_(idx, ['year']);
+  var colTimestamp = findColumn_(idx, ['lastedited', 'last edited', 'timestamp', 'modified']);
+
+  if (colRole < 0) colRole = 0;
+  if (colDate < 0) colDate = 1;
+  if (colMonth < 0) colMonth = 3;
+  if (colYear < 0) colYear = 4;
+  if (colTimestamp < 0) colTimestamp = 5;
+
+  var uniqueMap = {};
+  var rowsToDelete = [];
+
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var role = String(row[colRole]).trim().toLowerCase();
+    var date = String(row[colDate]).trim().toLowerCase();
+    var month = String(row[colMonth]).trim();
+    var year = String(row[colYear]).trim();
+    var timestamp = row[colTimestamp] || '';
+
+    var key = role + '|' + date + '|' + month + '|' + year;
+
+    if (uniqueMap[key]) {
+      var existingTimestamp = uniqueMap[key].timestamp || '';
+      if (timestamp > existingTimestamp) {
+        rowsToDelete.push(uniqueMap[key].row);
+        uniqueMap[key] = { row: r, timestamp: timestamp };
+      } else {
+        rowsToDelete.push(r);
+      }
+    } else {
+      uniqueMap[key] = { row: r, timestamp: timestamp };
+    }
+  }
+
+  rowsToDelete.sort(function(a, b) { return b - a; });
+
+  Logger.log('Found ' + rowsToDelete.length + ' duplicate rows to delete');
+
+  rowsToDelete.forEach(function(rowIndex) {
+    sheet.deleteRow(rowIndex + 1);
+  });
+
+  return { success: true, removed: rowsToDelete.length };
+}
+
+// ================================================================
+// SCAN DOCUMENT FOR LYRICS (v2.8)
+// ================================================================
+function scanDocumentForLyrics(url) {
+  if (!url) return { lyrics: '', error: 'No URL provided' };
+  
+  try {
+    var fileIdMatch = url.match(/[-\w]{25,}/);
+    if (!fileIdMatch) {
+      return { lyrics: '', error: 'Could not extract file ID from URL' };
+    }
+    
+    var fileId = fileIdMatch[0];
+    var file;
+    
+    try {
+      file = DriveApp.getFileById(fileId);
+    } catch (e) {
+      return { lyrics: '', error: 'Could not access file. Make sure it is shared with "Anyone with the link" or the script has permission.' };
+    }
+    
+    var mimeType = file.getMimeType();
+    var lyrics = '';
+    
+    Logger.log('Scanning: ' + file.getName() + ' (' + mimeType + ')');
+    
+    if (mimeType === 'application/vnd.google-apps.document') {
+      try {
+        var doc = DocumentApp.openById(fileId);
+        lyrics = doc.getBody().getText();
+      } catch (e) {
+        return { lyrics: '', error: 'Could not open Google Doc: ' + e.toString() };
+      }
+      
+    } else if (mimeType === 'application/pdf') {
+      try {
+        var blob = file.getBlob();
+        var resource = {
+          title: 'temp_ocr_' + new Date().getTime(),
+          mimeType: 'application/vnd.google-apps.document'
+        };
+        
+        var tempFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'en' });
+        var doc = DocumentApp.openById(tempFile.id);
+        lyrics = doc.getBody().getText();
+        
+        Drive.Files.remove(tempFile.id);
+      } catch (e) {
+        return { lyrics: '', error: 'PDF extraction failed. Try copying text manually.' };
+      }
+      
+    } else if (mimeType.startsWith('image/')) {
+      try {
+        var blob = file.getBlob();
+        var resource = {
+          title: 'temp_ocr_' + new Date().getTime(),
+          mimeType: 'application/vnd.google-apps.document'
+        };
+        
+        var tempFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'en' });
+        var doc = DocumentApp.openById(tempFile.id);
+        lyrics = doc.getBody().getText();
+        
+        Drive.Files.remove(tempFile.id);
+      } catch (e) {
+        return { lyrics: '', error: 'Image OCR failed. Try a clearer image or copy text manually.' };
+      }
+      
+    } else if (mimeType === 'text/plain') {
+      try {
+        lyrics = file.getBlob().getDataAsString();
+      } catch (e) {
+        return { lyrics: '', error: 'Could not read text file' };
+      }
+      
+    } else {
+      return { lyrics: '', error: 'Unsupported file type: ' + mimeType };
+    }
+    
+    if (!lyrics || !lyrics.trim()) {
+      return { lyrics: '', error: 'No text could be extracted from this file.' };
+    }
+    
+    // Clean up and format the extracted text
+    lyrics = formatExtractedLyrics(lyrics);
+    
+    Logger.log('Extracted ' + lyrics.length + ' characters');
+    
+    return { lyrics: lyrics };
+    
+  } catch (e) {
+    Logger.log('Scan error: ' + e.toString());
+    return { lyrics: '', error: 'Scan failed: ' + e.toString() };
+  }
+}
+
+// ================================================================
+// GET FILE INFO FROM URL
+// ================================================================
+function getFileInfoFromUrl(url) {
+  if (!url) return { name: 'Unknown', type: 'FILE' };
+  
+  try {
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      var videoId = '';
+      if (url.includes('v=')) {
+        videoId = url.split('v=')[1].split('&')[0];
+      } else if (url.includes('youtu.be/')) {
+        videoId = url.split('youtu.be/')[1].split('?')[0];
+      }
+      
+      if (videoId) {
+        try {
+          var response = UrlFetchApp.fetch('https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=' + videoId + '&format=json', {muteHttpExceptions: true});
+          if (response.getResponseCode() === 200) {
+            var data = JSON.parse(response.getContentText());
+            return { name: data.title || 'YouTube Video', type: 'YOUTUBE', id: videoId };
+          }
+        } catch (e) {}
+        return { name: 'YouTube Video', type: 'YOUTUBE', id: videoId };
+      }
+      return { name: 'YouTube Video', type: 'YOUTUBE' };
+    }
+    
+    var fileIdMatch = url.match(/[-\w]{25,}/);
+    if (!fileIdMatch) {
+      return { name: 'External Link', type: 'LINK' };
+    }
+    
+    var fileId = fileIdMatch[0];
+    var file = DriveApp.getFileById(fileId);
+    var mimeType = file.getMimeType();
+    var name = file.getName();
+    
+    var type = 'FILE';
+    if (mimeType === 'application/vnd.google-apps.document') type = 'GDOC';
+    else if (mimeType === 'application/vnd.google-apps.spreadsheet') type = 'GSHEET';
+    else if (mimeType === 'application/vnd.google-apps.presentation') type = 'GSLIDE';
+    else if (mimeType === 'application/pdf') type = 'PDF';
+    else if (mimeType.startsWith('image/')) type = 'IMAGE';
+    else if (mimeType.startsWith('audio/')) type = 'AUDIO';
+    else if (mimeType.startsWith('video/')) type = 'VIDEO';
+    
+    return { name: name, type: type, mimeType: mimeType, id: fileId };
+    
+  } catch (e) {
+    return { name: 'Unknown File', type: 'FILE' };
+  }
+}
+
+// ================================================================
+// GET YOUTUBE VIDEO TITLE
+// ================================================================
+function getYouTubeVideoTitle(url) {
+  if (!url) return { title: 'Unknown Video' };
+  
+  try {
+    var videoId = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/))([^?&]+)/);
+    if (!videoId) return { title: 'YouTube Video' };
+    
+    // Try to fetch the page and extract title
+    try {
+      var response = UrlFetchApp.fetch('https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=' + videoId[1] + '&format=json');
+      var json = JSON.parse(response.getContentText());
+      return { title: json.title || 'YouTube Video', id: videoId[1] };
+    } catch (e) {
+      return { title: 'YouTube Video', id: videoId[1] };
+    }
+  } catch (e) {
+    return { title: 'YouTube Video' };
+  }
+}
+
+// ================================================================
+// FORMAT EXTRACTED LYRICS (Helper for scanDocumentForLyrics)
+// ================================================================
+function formatExtractedLyrics(text) {
+  if (!text) return '';
+  
+  // Clean up common OCR artifacts and normalize whitespace
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  
+  var lines = text.split('\n');
+  var formatted = [];
+  var lastWasEmpty = false;
+  
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var trimmed = line.trim();
+    
+    // Skip multiple consecutive empty lines
+    if (!trimmed) {
+      if (!lastWasEmpty) {
+        formatted.push('');
+        lastWasEmpty = true;
+      }
+      continue;
+    }
+    lastWasEmpty = false;
+    
+    // Detect section headers (case insensitive)
+    var sectionMatch = trimmed.match(/^(verse|chorus|bridge|pre-?chorus|intro|outro|ending|tag|coda|interlude|hook|vamp|refrain)(\s*\d*)?:?\s*$/i);
+    if (sectionMatch) {
+      var sectionName = sectionMatch[1].charAt(0).toUpperCase() + sectionMatch[1].slice(1).toLowerCase();
+      if (sectionMatch[2] && sectionMatch[2].trim()) {
+        sectionName += ' ' + sectionMatch[2].trim();
+      }
+      formatted.push('[' + sectionName + ']');
+      continue;
+    }
+    
+    // Also detect headers like "Verse 1:", "CHORUS", etc.
+    var headerMatch = trimmed.match(/^\[?(verse|chorus|bridge|pre-?chorus|intro|outro|ending)(\s*\d*)?\]?:?\s*$/i);
+    if (headerMatch && !trimmed.startsWith('[')) {
+      var sectionName = headerMatch[1].charAt(0).toUpperCase() + headerMatch[1].slice(1).toLowerCase();
+      if (headerMatch[2] && headerMatch[2].trim()) {
+        sectionName += ' ' + headerMatch[2].trim();
+      }
+      formatted.push('[' + sectionName + ']');
+      continue;
+    }
+    
+    // Check if line looks like chords (mostly capital letters A-G with modifiers)
+    var chordPattern = /^[\sA-G#bmdimaug7sus249\/\(\)\-\|]+$/;
+    var hasChord = /[A-G][#b]?(m|maj|min|dim|aug|sus|add)?[0-9]?/.test(trimmed);
+    
+    if (chordPattern.test(trimmed) && hasChord && trimmed.length < 60) {
+      // This looks like a chord line - preserve spacing
+      formatted.push('  ' + line.replace(/^\s+/, ''));
+    } else {
+      formatted.push(trimmed);
+    }
+  }
+  
+  // Remove leading/trailing empty lines
+  while (formatted.length > 0 && formatted[0] === '') formatted.shift();
+  while (formatted.length > 0 && formatted[formatted.length - 1] === '') formatted.pop();
+  
+  return formatted.join('\n');
+}
+
+// ================================================================
+// HELPER FUNCTIONS
+// ================================================================
+
+function getSheet_(name) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    throw new Error('Sheet not found: ' + name);
+  }
+  return sheet;
+}
+
+function buildHeaderIndex_(headerRow) {
+  var idx = {};
+  for (var c = 0; c < headerRow.length; c++) {
+    var key = String(headerRow[c]).toLowerCase().trim();
+    if (key) idx[key] = c;
+  }
+  return idx;
+}
+
+function findColumn_(idx, possibleNames) {
+  for (var i = 0; i < possibleNames.length; i++) {
+    var name = possibleNames[i].toLowerCase();
+    if (idx.hasOwnProperty(name)) return idx[name];
+  }
+  return -1;
+}
+
+function asString_(val) {
+  if (val == null) return '';
+  if (val instanceof Date) {
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[val.getMonth()] + ' ' + val.getDate();
+  }
+  return String(val).trim();
+}
+
+function formatDate_(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return val.toISOString();
+  }
+  try {
+    var d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString();
+    }
+  } catch (e) {}
+  return String(val).trim();
+}
+
+// ================================================================
+// TEST FUNCTIONS
+// ================================================================
+
+function testGetSongs() {
+  var songs = getSongs();
+  Logger.log('Found ' + songs.length + ' songs');
+  if (songs.length > 0) {
+    Logger.log('First song: ' + JSON.stringify(songs[0]));
+  }
+  return songs;
+}
+
+function testGetRosterData() {
+  var month = new Date().getMonth();
+  var year = new Date().getFullYear();
+  
+  Logger.log('Testing getRosterData for month=' + month + ', year=' + year);
+  
+  var entries = getRosterData(month, year);
+  Logger.log('Found ' + entries.length + ' entries');
+  
+  entries.forEach(function(entry, idx) {
+    Logger.log('Entry ' + idx + ': ' + JSON.stringify(entry));
+  });
+  
+  return entries;
+}
+
+function testRosterSheet() {
+  try {
+    var sheet = getSheet_(CONFIG.ROSTER_SHEET);
+    var data = sheet.getDataRange().getValues();
+    Logger.log('Roster sheet has ' + data.length + ' rows');
+    
+    for (var i = 0; i < Math.min(data.length, 10); i++) {
+      Logger.log('Row ' + i + ': ' + JSON.stringify(data[i]));
+    }
+    
+    return data;
+  } catch (e) {
+    Logger.log('Error: ' + e.message);
+    return null;
+  }
+}
+
+function testRosterUpdates() {
+  var updates = getRosterUpdates();
+  Logger.log('Found ' + updates.length + ' updates');
+  updates.forEach(function(u, i) {
+    Logger.log(i + ': ' + u.duty + ' on ' + u.serviceDate + ' - ' + u.oldValue + ' → ' + u.newValue);
+  });
+  return updates;
+}

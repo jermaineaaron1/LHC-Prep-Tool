@@ -1,0 +1,2753 @@
+<!-- ======================= END PART 4.5/6 ======================= -->
+<!-- ======================= LHC Worship Prep v2.8 — MISSING COMPONENTS ======================= -->
+<!-- This file contains ALL the components that were in v2.7 but missing from v2.8 -->
+
+<!-- ========================================== -->
+<!-- MISSING SIDEBAR SECTIONS -->
+<!-- ========================================== -->
+
+<!-- Song Stats Section (shown when Song Finder view is active) -->
+<div id="songStatsSection" class="lhc-sidebar-section" style="display: flex; flex-direction: column; background: linear-gradient(135deg, #4a6da7 0%, #6b9ac4 100%); border-radius: 16px; padding: 16px; margin-bottom: 16px;">
+  <h3 class="font-cinzel text-sm font-bold text-white/90 mb-3 flex items-center gap-2">
+    <i class="fa-solid fa-chart-line"></i> Song Stats
+  </h3>
+
+  <!-- Stat Tabs -->
+  <div class="flex gap-1 mb-3">
+    <button class="stat-tab-btn active flex-1 px-2 py-1.5 text-[0.65rem] font-medium rounded-lg bg-white/20 text-white/90 hover:bg-white/30 transition-all" data-stat="frequent">
+      🔥 Most Used
+    </button>
+    <button class="stat-tab-btn flex-1 px-2 py-1.5 text-[0.65rem] font-medium rounded-lg bg-white/10 text-white/70 hover:bg-white/20 transition-all" data-stat="recent">
+      🕐 Recent
+    </button>
+    <button class="stat-tab-btn flex-1 px-2 py-1.5 text-[0.65rem] font-medium rounded-lg bg-white/10 text-white/70 hover:bg-white/20 transition-all" data-stat="newest">
+      ✨ Newest
+    </button>
+  </div>
+
+  <!-- Stats Container -->
+  <div id="songStatsContainer" class="flex flex-col gap-2 max-h-[300px] overflow-y-auto">
+    <div class="text-xs text-white/60 text-center py-4">Loading stats...</div>
+  </div>
+</div>
+
+<!-- Roster Updates Section (shown when Worship Roster view is active) -->
+<div id="rosterUpdatesSection" class="lhc-sidebar-section" style="display: none; flex-direction: column; background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%); border-radius: 16px; padding: 16px; margin-bottom: 16px;">
+  <h3 class="font-cinzel text-sm font-bold text-white/90 mb-3 flex items-center gap-2">
+    <i class="fa-solid fa-clock-rotate-left"></i> Recent Updates
+  </h3>
+
+  <!-- Updates Container -->
+  <div id="rosterUpdatesContainer" class="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
+    <div class="text-xs text-white/60 text-center py-4">
+      <i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading updates...
+    </div>
+  </div>
+</div>
+
+<!-- CSS for sidebar sections -->
+<style>
+  .stat-tab-btn.active {
+    background: rgba(255, 255, 255, 0.25) !important;
+    color: white !important;
+  }
+
+  .roster-update-item {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .roster-update-item:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .roster-update-highlight {
+    animation: highlight-pulse 0.5s ease-in-out 3;
+    border-color: rgba(250, 204, 21, 0.5) !important;
+    background: rgba(250, 204, 21, 0.15) !important;
+  }
+
+  @keyframes highlight-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+  }
+
+  .lhc-sidebar-section::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .lhc-sidebar-section::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+  }
+
+  .lhc-sidebar-section::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+  }
+
+  #songStatsContainer::-webkit-scrollbar,
+  #rosterUpdatesContainer::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  #songStatsContainer::-webkit-scrollbar-track,
+  #rosterUpdatesContainer::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+  }
+
+  #songStatsContainer::-webkit-scrollbar-thumb,
+  #rosterUpdatesContainer::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+  }
+</style>
+
+<!-- ========================================== -->
+<!-- MISSING MODALS (4 modals × ~100 lines each) -->
+<!-- ========================================== -->
+
+<!-- MODAL: OLD PREVIEW (for backward compatibility) -->
+<div id="previewModal" class="modal-overlay">
+  <div class="modal-content" style="width: min(900px, 95%); height: 80vh; display: flex; flex-direction: column; padding: 0;">
+    <div class="flex items-center justify-between gap-4 p-4 border-b border-slate-200">
+      <h3 id="previewModalTitle" class="font-cinzel text-lg font-bold text-slate-800">
+        <i class="fa-solid fa-eye mr-2 text-indigo-500"></i> Preview
+      </h3>
+      <button id="closePreviewBtn" class="lhc-pill-button" title="Close">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <div class="flex-1 overflow-hidden">
+      <iframe id="previewFrame" class="w-full h-full border-0"></iframe>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: OLD LYRICS VIEWER (for viewing saved lyrics) -->
+<div id="lyricsModal" class="modal-overlay">
+  <div class="modal-content" style="width: min(900px, 95%); padding: 20px;">
+    <div class="flex items-center justify-between gap-4 mb-4">
+      <div>
+        <h3 id="lyricsModalTitle" class="font-cinzel text-xl font-bold text-slate-800">
+          <i class="fa-solid fa-file-lines mr-2 text-indigo-500"></i> Song Lyrics
+        </h3>
+        <p id="lyricsModalArtist" class="text-sm text-slate-500 mt-1"></p>
+      </div>
+      <button id="closeLyricsBtn" class="lhc-pill-button" title="Close">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+      <div class="flex gap-2">
+        <button id="lyricsModeOverall" class="lhc-pill-button lhc-pill-button-active text-sm">
+          <i class="fa-solid fa-file-lines mr-1"></i> Lyrics Only
+        </button>
+        <button id="lyricsModeChords" class="lhc-pill-button text-sm">
+          <i class="fa-solid fa-guitar mr-1"></i> Lyrics + Chords
+        </button>
+        <button id="lyricsModePresent" class="lhc-pill-button text-sm">
+          <i class="fa-solid fa-presentation-screen mr-1"></i> Present
+        </button>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="lyricsPrevSlide" class="lhc-pill-button text-sm" title="Previous Slide">
+          <i class="fa-solid fa-chevron-left"></i>
+        </button>
+        <span id="lyricsSlideCounter" class="text-sm text-slate-500 min-w-[60px] text-center">0 / 0</span>
+        <button id="lyricsNextSlide" class="lhc-pill-button text-sm" title="Next Slide">
+          <i class="fa-solid fa-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+
+    <div id="lyricsContentArea" class="bg-slate-50 rounded-xl p-5 min-h-[250px] max-h-[55vh] overflow-y-auto">
+      <div id="lyricsTextDisplay" class="preview-lyrics"></div>
+    </div>
+
+    <!-- Edit Area (hidden by default) -->
+    <div id="lyricsEditArea" class="hidden mt-4">
+      <textarea id="lyricsEditTextarea" class="form-textarea w-full min-h-[300px] font-mono text-sm"></textarea>
+    </div>
+
+    <div class="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+      <p class="text-xs text-slate-400">
+        <i class="fa-solid fa-keyboard mr-1"></i> Use arrow keys to navigate slides
+      </p>
+      <div class="flex gap-2">
+        <button id="lyricsEditBtn" class="lhc-pill-button text-sm" style="background: #fef3c7; color: #92400e; border-color: #fcd34d;">
+          <i class="fa-solid fa-pen mr-1"></i> Edit
+        </button>
+        <button id="lyricsSaveBtn" class="roster-action-btn primary hidden">
+          <i class="fa-solid fa-floppy-disk mr-1"></i> Save
+        </button>
+        <button id="lyricsCancelEditBtn" class="lhc-pill-button text-sm hidden">
+          <i class="fa-solid fa-xmark mr-1"></i> Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ROSTER HISTORY (created dynamically in Part 4.5 but needs definition) -->
+<!-- This is created dynamically by showRosterHistoryModal function -->
+
+<!-- MODAL: LYRICS SCAN (created dynamically) -->
+<!-- This is created dynamically by showLyricsScanModal function -->
+
+<!-- ========================================== -->
+<!-- MISSING CSS STYLES -->
+<!-- ========================================== -->
+
+<style>
+/* Link Selector Popup (for multiple YouTube/Doc links) */
+.link-selector-popup {
+  position: fixed;
+  z-index: 10000;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+  padding: 8px 0;
+  min-width: 200px;
+  max-width: 300px;
+}
+
+.link-selector-popup .link-selector-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+
+.link-selector-popup .link-selector-item:hover {
+  background: #f1f5f9;
+}
+</style>
+
+<!-- ========================================== -->
+<!-- MISSING JAVASCRIPT FUNCTIONS -->
+<!-- ========================================== -->
+
+<script>
+(function() {
+  "use strict";
+  
+  // ============================================================
+  // 1. MISSING HELPER FUNCTIONS
+  // ============================================================
+  
+  /**
+   * Format date to short format (e.g., "Jan 5")
+   */
+  window.formatDateShort = function(dateStr) {
+    if (!dateStr) return '';
+    try {
+      var d = new Date(dateStr);
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return months[d.getMonth()] + ' ' + d.getDate();
+    } catch (e) {
+      return dateStr.slice(0, 10);
+    }
+  };
+  
+  /**
+   * Fetch file name and type from URL via server
+   */
+  window.fetchFileName = function(url, callback) {
+    var callGAS = window.callGAS || (typeof google !== 'undefined' && google.script && google.script.run ? 
+      function(fn, args) {
+        return new Promise(function(resolve, reject) {
+          google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn].apply(null, args || []);
+        });
+      } : null);
+    
+    if (!callGAS) {
+      callback(null, null);
+      return;
+    }
+    
+    callGAS('getFileInfoFromUrl', [url]).then(function(result) {
+      if (result && result.name) {
+        callback(result.name, result.type);
+      } else {
+        callback(null, null);
+      }
+    }).catch(function() {
+      callback(null, null);
+    });
+  };
+  
+  // ============================================================
+  // 2. GOOGLE DRIVE PICKER
+  // ============================================================
+  
+  /**
+   * Open Google Drive picker instructions
+   */
+  window.openGoogleDrivePicker = function(mode) {
+    var modal = document.createElement('div');
+    modal.className = 'modal-overlay show';
+    modal.style.zIndex = '100000';
+    modal.innerHTML = '<div class="modal-content" style="width: min(450px, 90%); padding: 0; border-radius: 16px; overflow: hidden;">' +
+      '<div class="p-4 border-b border-slate-200 bg-gradient-to-r from-blue-500 to-indigo-500">' +
+      '<h4 class="font-semibold text-white flex items-center gap-2"><i class="fa-brands fa-google-drive"></i> Add from Google Drive</h4>' +
+      '</div>' +
+      '<div class="p-5">' +
+      '<p class="text-slate-600 mb-4">To add a file from Google Drive:</p>' +
+      '<ol class="list-decimal list-inside space-y-2 text-sm text-slate-600 mb-4">' +
+      '<li>Open <a href="https://drive.google.com" target="_blank" class="text-blue-500 underline">Google Drive</a> in a new tab</li>' +
+      '<li>Right-click on your file</li>' +
+      '<li>Select "Get link" or "Share"</li>' +
+      '<li>Copy the link</li>' +
+      '<li>Paste it in the URL field</li>' +
+      '</ol>' +
+      '<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">' +
+      '<i class="fa-solid fa-lightbulb mr-1"></i> <strong>Tip:</strong> Make sure the file is shared as "Anyone with the link can view"' +
+      '</div>' +
+      '</div>' +
+      '<div class="p-4 border-t border-slate-200 flex justify-end">' +
+      '<button class="px-4 py-2 bg-indigo-500 text-white rounded-lg font-medium hover:bg-indigo-600" onclick="this.closest(\'.modal-overlay\').remove()">Got it</button>' +
+      '</div>' +
+      '</div>';
+    document.body.appendChild(modal);
+    modal.onclick = function(e) {
+      if (e.target === modal) modal.remove();
+    };
+  };
+  
+  // ============================================================
+  // 3. LINK SELECTOR POPUP (for multiple URLs)
+  // ============================================================
+  
+  /**
+   * Show popup for selecting which link to open when there are multiple
+   */
+  window.showLinkSelectorPopup = function(event, urls, type, title) {
+    // Remove existing popup if any
+    var existing = document.getElementById('linkSelectorPopup');
+    if (existing) existing.remove();
+    
+    var popup = document.createElement('div');
+    popup.id = 'linkSelectorPopup';
+    popup.className = 'link-selector-popup';
+    popup.style.left = Math.min(event.clientX, window.innerWidth - 320) + 'px';
+    popup.style.top = Math.min(event.clientY, window.innerHeight - 200) + 'px';
+    
+    var html = '<div style="padding:8px 16px;font-size:11px;color:#64748b;font-weight:600;border-bottom:1px solid #e2e8f0;">SELECT ' + type.toUpperCase() + '</div>';
+    
+    urls.forEach(function(url, idx) {
+      var icon = type === 'youtube' ? 'fa-brands fa-youtube text-red-500' : 'fa-solid fa-file-lines text-blue-500';
+      var label = type === 'youtube' ? 'Video ' + (idx + 1) : 'Document ' + (idx + 1);
+      
+      // Try to get a better name from URL
+      if (url.includes('docs.google.com')) label = 'Google Doc ' + (idx + 1);
+      else if (url.includes('drive.google.com')) label = 'Drive File ' + (idx + 1);
+      
+      html += '<div class="link-selector-item" data-url="' + escapeHtml(url) + '">';
+      html += '<i class="' + icon + '"></i>';
+      html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + label + '</span>';
+      html += '</div>';
+    });
+    
+    popup.innerHTML = html;
+    document.body.appendChild(popup);
+    
+    // Bind clicks
+    popup.querySelectorAll('.link-selector-item').forEach(function(item) {
+      item.onclick = function() {
+        var url = item.dataset.url;
+        popup.remove();
+        if (type === 'youtube') {
+          openYoutubePreviewModal(url, title);
+        } else {
+          openDocPreviewModal(url, title);
+        }
+      };
+    });
+    
+    // Close on outside click
+    setTimeout(function() {
+      document.addEventListener('click', function closePopup(e) {
+        if (!popup.contains(e.target)) {
+          popup.remove();
+          document.removeEventListener('click', closePopup);
+        }
+      });
+    }, 100);
+  };
+  
+  // ============================================================
+  // 4. DOCUMENT PREVIEW MODAL
+  // ============================================================
+  
+  /**
+   * Open document preview modal
+   */
+  window.openDocPreviewModal = function(url, title) {
+    var modal = document.getElementById('docPreviewModal');
+    if (!modal) return;
+    
+    var titleEl = document.getElementById('docPreviewTitle');
+    if (titleEl) titleEl.textContent = title || 'Document';
+    
+    var frame = document.getElementById('docPreviewFrame');
+    if (frame) {
+      if (url.includes('drive.google.com/file/d/')) {
+        var fileId = url.match(/\/d\/([^\/\?]+)/);
+        if (fileId) {
+          frame.src = 'https://drive.google.com/file/d/' + fileId[1] + '/preview';
+        }
+      } else if (url.includes('docs.google.com')) {
+        frame.src = url.replace('/edit', '/preview').replace('/view', '/preview');
+      } else {
+        frame.src = url;
+      }
+    }
+    
+    // Store original URL for "Open in New Tab" button
+    var openBtn = document.getElementById('docPreviewOpenBtn');
+    if (openBtn) {
+      openBtn.onclick = function() {
+        window.open(url, '_blank');
+      };
+    }
+    
+    modal.classList.add('show');
+  };
+  
+  // ============================================================
+  // 5. YOUTUBE PREVIEW MODAL
+  // ============================================================
+  
+  /**
+   * Open YouTube preview modal
+   */
+  window.openYoutubePreviewModal = function(url, title) {
+    var modal = document.getElementById('youtubePreviewModal');
+    if (!modal) return;
+    
+    var titleEl = document.getElementById('youtubePreviewTitle');
+    if (titleEl) titleEl.textContent = title || 'Video';
+    
+    var videoId = extractYoutubeId(url);
+    var frame = document.getElementById('youtubePreviewFrame');
+    if (frame && videoId) {
+      frame.src = 'https://www.youtube.com/embed/' + videoId + '?autoplay=1';
+    }
+    
+    // Store original URL for "Open on YouTube" button
+    var openBtn = document.getElementById('youtubePreviewOpenBtn');
+    if (openBtn) {
+      openBtn.onclick = function() {
+        window.open(url, '_blank');
+      };
+    }
+    
+    modal.classList.add('show');
+  };
+  
+  /**
+   * Extract YouTube video ID from URL
+   */
+  function extractYoutubeId(url) {
+    var match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/))([^?&]+)/);
+    return match ? match[1] : '';
+  }
+  
+  /**
+   * Escape HTML for safe rendering
+   */
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+  
+  // ============================================================
+  // 6. OLD PREVIEW MODAL SETUP (backward compatibility)
+  // ============================================================
+  
+  /**
+   * Setup old preview modal
+   */
+  if (document.getElementById('closePreviewBtn')) {
+    document.getElementById('closePreviewBtn').onclick = function() {
+      var modal = document.getElementById('previewModal');
+      if (modal) modal.classList.remove('show');
+      var frame = document.getElementById('previewFrame');
+      if (frame) frame.src = '';
+    };
+  }
+  
+  // ============================================================
+  // 7. MAKE FUNCTIONS GLOBALLY ACCESSIBLE
+  // ============================================================
+  
+  // Ensure all functions are available globally
+  window.escapeHtml = escapeHtml;
+  window.extractYoutubeId = extractYoutubeId;
+  
+})();
+</script>
+
+<!-- ======================= END MISSING COMPONENTS ======================= -->
+<!-- ======================= IMPROVED LYRICS INPUT - BETTER ALTERNATIVES ======================= -->
+<!-- Replace the Scan Docs feature with more reliable options -->
+
+<script>
+(function() {
+  "use strict";
+  
+  console.log('🎵 Loading Improved Lyrics Input...');
+  
+  // ============================================================
+  // BETTER ALTERNATIVE TO SCAN DOCS
+  // ============================================================
+  
+  /**
+   * New approach: Smart Paste with Auto-Formatting
+   * User copies lyrics from anywhere, we format it properly
+   */
+  window.scanAttachmentsForLyrics = function() {
+    showSmartPasteModal();
+  };
+  
+  /**
+   * Show modal with multiple input options
+   */
+  function showSmartPasteModal() {
+    var html = '<div class="p-6">';
+    html += '<h4 class="font-semibold text-slate-700 mb-4 flex items-center gap-2">';
+    html += '<i class="fa-solid fa-paste text-teal-500"></i>';
+    html += 'Add Lyrics - Choose Method';
+    html += '</h4>';
+    
+    // Option 1: Paste from Clipboard
+    html += '<div class="space-y-3">';
+    html += '<button class="lyrics-input-option" data-method="paste">';
+    html += '<div class="flex items-start gap-4">';
+    html += '<div class="w-12 h-12 rounded-lg bg-gradient-to-br from-teal-400 to-cyan-500 flex items-center justify-center flex-shrink-0">';
+    html += '<i class="fa-solid fa-paste text-white text-xl"></i>';
+    html += '</div>';
+    html += '<div class="flex-1 text-left">';
+    html += '<div class="font-semibold text-slate-800 mb-1">Paste from Clipboard</div>';
+    html += '<div class="text-sm text-slate-500">Copy lyrics from any document, then click here to paste and auto-format</div>';
+    html += '</div>';
+    html += '<i class="fa-solid fa-chevron-right text-slate-300"></i>';
+    html += '</div>';
+    html += '</button>';
+    
+    // Option 2: Type/Edit Directly
+    html += '<button class="lyrics-input-option" data-method="type">';
+    html += '<div class="flex items-start gap-4">';
+    html += '<div class="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-400 to-pink-500 flex items-center justify-center flex-shrink-0">';
+    html += '<i class="fa-solid fa-keyboard text-white text-xl"></i>';
+    html += '</div>';
+    html += '<div class="flex-1 text-left">';
+    html += '<div class="font-semibold text-slate-800 mb-1">Type Directly</div>';
+    html += '<div class="text-sm text-slate-500">Just start typing in the editor - it\'s ready to use!</div>';
+    html += '</div>';
+    html += '<i class="fa-solid fa-chevron-right text-slate-300"></i>';
+    html += '</div>';
+    html += '</button>';
+    
+    // Option 3: Import from Text File
+    html += '<button class="lyrics-input-option" data-method="file">';
+    html += '<div class="flex items-start gap-4">';
+    html += '<div class="w-12 h-12 rounded-lg bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center flex-shrink-0">';
+    html += '<i class="fa-solid fa-file-arrow-up text-white text-xl"></i>';
+    html += '</div>';
+    html += '<div class="flex-1 text-left">';
+    html += '<div class="font-semibold text-slate-800 mb-1">Upload Text File</div>';
+    html += '<div class="text-sm text-slate-500">Upload .txt or .doc file from your device</div>';
+    html += '</div>';
+    html += '<i class="fa-solid fa-chevron-right text-slate-300"></i>';
+    html += '</div>';
+    html += '</button>';
+    
+    // Option 4: Use Template
+    html += '<button class="lyrics-input-option" data-method="template">';
+    html += '<div class="flex items-start gap-4">';
+    html += '<div class="w-12 h-12 rounded-lg bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center flex-shrink-0">';
+    html += '<i class="fa-solid fa-file-lines text-white text-xl"></i>';
+    html += '</div>';
+    html += '<div class="flex-1 text-left">';
+    html += '<div class="font-semibold text-slate-800 mb-1">Start with Template</div>';
+    html += '<div class="text-sm text-slate-500">Begin with a formatted song structure template</div>';
+    html += '</div>';
+    html += '<i class="fa-solid fa-chevron-right text-slate-300"></i>';
+    html += '</div>';
+    html += '</button>';
+    html += '</div>';
+    
+    html += '</div>';
+    
+    showLyricsScanModal(html);
+    
+    // Bind clicks
+    setTimeout(function() {
+      document.querySelectorAll('.lyrics-input-option').forEach(function(btn) {
+        btn.onclick = function() {
+          var method = btn.getAttribute('data-method');
+          closeScanModal();
+          handleLyricsInputMethod(method);
+        };
+      });
+    }, 100);
+  }
+  
+  /**
+   * Handle different input methods
+   */
+  function handleLyricsInputMethod(method) {
+    switch(method) {
+      case 'paste':
+        handleSmartPaste();
+        break;
+      case 'type':
+        focusLyricsEditor();
+        break;
+      case 'file':
+        handleFileUpload();
+        break;
+      case 'template':
+        insertTemplate();
+        break;
+    }
+  }
+  
+  /**
+   * Method 1: Smart Paste with Auto-Format
+   */
+  function handleSmartPaste() {
+    navigator.clipboard.readText().then(function(text) {
+      if (!text || !text.trim()) {
+        showToastScan('Clipboard is empty. Copy some lyrics first!', 'warning');
+        return;
+      }
+      
+      var formatted = autoFormatLyrics(text);
+      showPastePreview(formatted);
+      
+    }).catch(function(err) {
+      console.error('Clipboard error:', err);
+      showManualPasteBox();
+    });
+  }
+  
+  /**
+   * Auto-format pasted lyrics
+   */
+  function autoFormatLyrics(text) {
+    // Remove excessive blank lines
+    text = text.replace(/\n\n\n+/g, '\n\n');
+    
+    // Detect and format sections
+    var lines = text.split('\n');
+    var formatted = [];
+    
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      
+      // Skip empty lines
+      if (!line) {
+        formatted.push('');
+        continue;
+      }
+      
+      // Detect section headers (Verse, Chorus, Bridge, etc.)
+      var sectionMatch = line.match(/^(verse|chorus|bridge|pre-?chorus|intro|outro|interlude|tag|coda)[\s:]*(\d+)?/i);
+      if (sectionMatch) {
+        var section = sectionMatch[1].charAt(0).toUpperCase() + sectionMatch[1].slice(1).toLowerCase();
+        var num = sectionMatch[2] || '';
+        formatted.push('[' + section + (num ? ' ' + num : '') + ']');
+        continue;
+      }
+      
+      // Detect chords line (contains multiple capital letters or chord symbols)
+      var isChordLine = /[A-G](#|b)?(m|maj|min|sus|dim|aug)?[0-9]*/g.test(line) && 
+                        !line.match(/^[a-z]/i) &&
+                        line.replace(/[A-G]/g, '').length < line.length / 2;
+      
+      if (isChordLine) {
+        formatted.push('.' + line);  // Prefix chords with dot
+      } else {
+        formatted.push(line);
+      }
+    }
+    
+    return formatted.join('\n');
+  }
+  
+  /**
+   * Show preview of pasted content
+   */
+  function showPastePreview(formatted) {
+    var preview = formatted.length > 300 ? formatted.substring(0, 300) + '...' : formatted;
+    
+    var html = '<div class="p-5">';
+    html += '<h4 class="font-semibold text-slate-700 mb-2 flex items-center gap-2">';
+    html += '<i class="fa-solid fa-check-circle text-green-500"></i>';
+    html += 'Lyrics Ready to Insert';
+    html += '</h4>';
+    html += '<p class="text-sm text-slate-500 mb-4">Auto-formatted and ready to use</p>';
+    
+    html += '<div class="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 max-h-60 overflow-y-auto">';
+    html += '<pre class="text-xs text-slate-700 whitespace-pre-wrap font-mono">' + escapeHtmlScan(preview) + '</pre>';
+    html += '</div>';
+    
+    html += '<div class="flex gap-2">';
+    html += '<button class="flex-1 px-4 py-2.5 rounded-lg bg-indigo-500 text-white font-medium hover:bg-indigo-600" onclick="insertFormattedLyrics(\'' + escapeForJs(formatted) + '\', \'replace\')">Replace All</button>';
+    html += '<button class="flex-1 px-4 py-2.5 rounded-lg bg-teal-500 text-white font-medium hover:bg-teal-600" onclick="insertFormattedLyrics(\'' + escapeForJs(formatted) + '\', \'append\')">Append</button>';
+    html += '<button class="px-4 py-2.5 rounded-lg bg-white border-2 border-slate-300 text-slate-700 font-medium hover:bg-slate-50" onclick="closeScanModal()">Cancel</button>';
+    html += '</div>';
+    html += '</div>';
+    
+    showLyricsScanModal(html);
+  }
+  
+  /**
+   * Manual paste box (fallback)
+   */
+  function showManualPasteBox() {
+    var html = '<div class="p-5">';
+    html += '<h4 class="font-semibold text-slate-700 mb-2">Paste Lyrics Here</h4>';
+    html += '<p class="text-sm text-slate-500 mb-4">Copy your lyrics from any document and paste below:</p>';
+    html += '<textarea id="manualPasteArea" class="w-full h-64 px-3 py-2 border-2 border-slate-300 rounded-lg focus:border-indigo-500 focus:outline-none font-mono text-sm" placeholder="Paste your lyrics here..."></textarea>';
+    html += '<div class="flex gap-2 mt-4">';
+    html += '<button class="flex-1 px-4 py-2.5 rounded-lg bg-indigo-500 text-white font-medium hover:bg-indigo-600" onclick="processManualPaste()">Format & Insert</button>';
+    html += '<button class="px-4 py-2.5 rounded-lg bg-white border-2 border-slate-300 text-slate-700 font-medium hover:bg-slate-50" onclick="closeScanModal()">Cancel</button>';
+    html += '</div>';
+    html += '</div>';
+    
+    showLyricsScanModal(html);
+    
+    setTimeout(function() {
+      var textarea = document.getElementById('manualPasteArea');
+      if (textarea) textarea.focus();
+    }, 200);
+  }
+  
+  window.processManualPaste = function() {
+    var textarea = document.getElementById('manualPasteArea');
+    if (!textarea) return;
+    
+    var text = textarea.value.trim();
+    if (!text) {
+      showToastScan('Please paste some text first!', 'warning');
+      return;
+    }
+    
+    var formatted = autoFormatLyrics(text);
+    showPastePreview(formatted);
+  };
+  
+  /**
+   * Method 2: Focus on editor
+   */
+  function focusLyricsEditor() {
+    closeScanModal();
+    var editor = document.getElementById('lyricsEditorTextarea');
+    if (editor) {
+      editor.focus();
+      showToastScan('Editor ready - start typing!', 'success');
+    }
+  }
+  
+  /**
+   * Method 3: File upload
+   */
+  function handleFileUpload() {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.txt,.doc,.docx,text/plain';
+    
+    input.onchange = function(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      
+      var reader = new FileReader();
+      reader.onload = function(event) {
+        var text = event.target.result;
+        var formatted = autoFormatLyrics(text);
+        showPastePreview(formatted);
+      };
+      reader.readAsText(file);
+    };
+    
+    input.click();
+  }
+  
+  /**
+   * Method 4: Insert template
+   */
+  function insertTemplate() {
+    var template = `[Verse 1]
+.C              G           Am
+(Type your chords above lyrics)
+   F              G          C
+Type your lyrics here
+
+[Chorus]
+.C              G           Am
+Add chords with a dot at the start
+   F              G          C
+Lyrics go below without a dot
+
+[Verse 2]
+Add more verses as needed
+
+[Bridge]
+Special section before final chorus
+
+[Chorus]
+Repeat chorus sections`;
+    
+    showPastePreview(template);
+  }
+  
+  /**
+   * Insert formatted lyrics into editor
+   */
+  window.insertFormattedLyrics = function(text, mode) {
+    var textarea = document.getElementById('lyricsEditorTextarea');
+    if (!textarea) {
+      showToastScan('Editor not found!', 'error');
+      return;
+    }
+    
+    // Decode the escaped text
+    text = text.replace(/\\n/g, '\n').replace(/\\'/g, "'").replace(/\\"/g, '"');
+    
+    if (mode === 'replace') {
+      textarea.value = text;
+    } else if (mode === 'append') {
+      textarea.value = textarea.value.trim() + '\n\n' + text;
+    }
+    
+    if (typeof window.updateLyricsPreview === 'function') {
+      window.updateLyricsPreview();
+    }
+    
+    closeScanModal();
+    showToastScan('Lyrics inserted successfully!', 'success');
+  };
+  
+  // Helper functions
+  function escapeHtmlScan(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+  
+  function escapeForJs(str) {
+    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n');
+  }
+  
+  function showToastScan(msg, type) {
+    if (typeof window.showToast === 'function') {
+      window.showToast(msg, type);
+    } else {
+      console.log(msg);
+    }
+  }
+  
+  window.showLyricsScanModal = function(content) {
+    var modal = document.getElementById('lyricsScanModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'lyricsScanModal';
+      modal.className = 'modal-overlay';
+      modal.style.cssText = 'z-index: 100000 !important;';
+      modal.innerHTML = '<div class="modal-content" style="width: min(600px, 90%); max-height: 90vh; overflow-y: auto; padding: 0; z-index: 100001; border-radius: 16px; overflow: hidden;"><div class="flex items-center justify-between p-4 border-b border-slate-200 bg-gradient-to-r from-teal-500 to-cyan-500 sticky top-0"><h4 class="font-semibold text-white flex items-center gap-2"><i class="fa-solid fa-music"></i> Add Lyrics</h4><button onclick="closeScanModal()" class="text-white/80 hover:text-white transition"><i class="fa-solid fa-xmark text-lg"></i></button></div><div id="lyricsScanContent"></div></div>';
+      document.body.appendChild(modal);
+      
+      // Close on outside click
+      modal.onclick = function(e) {
+        if (e.target === modal) closeScanModal();
+      };
+    }
+    
+    document.getElementById('lyricsScanContent').innerHTML = content;
+    modal.classList.add('show');
+  };
+  
+  window.closeScanModal = function() {
+    var modal = document.getElementById('lyricsScanModal');
+    if (modal) modal.classList.remove('show');
+  };
+  
+  console.log('✅ Improved Lyrics Input loaded');
+  
+})();
+</script>
+
+<!-- Add CSS for new buttons -->
+<style>
+.lyrics-input-option {
+  width: 100%;
+  padding: 1rem;
+  border-radius: 12px;
+  background: white;
+  border: 2px solid #e2e8f0;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.lyrics-input-option:hover {
+  border-color: #3b82f6;
+  background: #f8fafc;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+#manualPasteArea:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+</style>
+
+<!-- ======================= END IMPROVED LYRICS INPUT ======================= -->
+<!-- ======================= ENHANCED ROSTER UPDATES WITH DEBUGGING ======================= -->
+<!-- Replace the previous roster updates fix with this enhanced version -->
+
+<script>
+(function() {
+  "use strict";
+  
+  console.log('🔧 Loading Enhanced Roster Updates...');
+  
+  // ============================================================
+  // ENHANCED ROSTER UPDATES - WITH DEBUGGING & FALLBACK
+  // ============================================================
+  
+  /**
+   * Override setActiveView to load roster updates when switching to roster
+   */
+  var originalSetActiveView = window.setActiveView;
+  
+  window.setActiveView = function(viewId) {
+    console.log('📍 setActiveView called with:', viewId);
+    
+    // Call original function
+    if (originalSetActiveView) {
+      originalSetActiveView(viewId);
+    }
+    
+    // Additional logic for roster view
+    if (viewId === 'worshipRosterView') {
+      console.log('📋 Switching to Roster view...');
+      
+      // Switch sidebar content
+      var songStatsSection = document.getElementById('songStatsSection');
+      var rosterUpdatesSection = document.getElementById('rosterUpdatesSection');
+      
+      console.log('Stats section:', songStatsSection ? 'found' : 'NOT FOUND');
+      console.log('Updates section:', rosterUpdatesSection ? 'found' : 'NOT FOUND');
+      
+      if (songStatsSection) {
+        songStatsSection.style.display = 'none';
+        console.log('✓ Hid song stats');
+      }
+      
+      if (rosterUpdatesSection) {
+        rosterUpdatesSection.style.display = 'flex';
+        console.log('✓ Showed roster updates section');
+      }
+      
+      // Load roster updates with delay to ensure DOM is ready
+      setTimeout(function() {
+        console.log('⏰ Calling loadRosterUpdates...');
+        if (typeof window.loadRosterUpdates === 'function') {
+          window.loadRosterUpdates();
+        } else {
+          console.error('❌ loadRosterUpdates function not found!');
+        }
+      }, 100);
+      
+      // Initialize RosterEngine if not already done
+      if (window.RosterEngine && typeof window.RosterEngine.init === 'function') {
+        console.log('✓ Initializing RosterEngine');
+        window.RosterEngine.init();
+      }
+    } else {
+      // Switch back to song stats for other views
+      var songStatsSection = document.getElementById('songStatsSection');
+      var rosterUpdatesSection = document.getElementById('rosterUpdatesSection');
+      
+      if (songStatsSection) songStatsSection.style.display = 'flex';
+      if (rosterUpdatesSection) rosterUpdatesSection.style.display = 'none';
+    }
+  };
+  
+  /**
+   * Enhanced loadRosterUpdates with debugging and mock data fallback
+   */
+  window.loadRosterUpdates = function() {
+    console.log('📡 loadRosterUpdates called');
+    
+    var container = document.getElementById('rosterUpdatesContainer');
+    if (!container) {
+      console.error('❌ Container not found!');
+      return;
+    }
+    
+    console.log('✓ Container found');
+    
+    container.innerHTML = '<div class="text-xs text-white/60 text-center py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading updates...</div>';
+    
+    var callGAS = window.callGAS || getCallGAS();
+    
+    if (!callGAS) {
+      console.warn('⚠️ No callGAS function - showing mock data');
+      // Show mock data for testing
+      showMockRosterUpdates(container);
+      return;
+    }
+    
+    console.log('✓ callGAS function found, calling server...');
+    
+    // Call server with error handling
+    callGAS('getRosterUpdates', [])
+      .then(function(updates) {
+        console.log('✓ Server response received:', updates);
+        
+        if (!updates || updates.length === 0) {
+          console.log('ℹ️ No updates from server, showing mock data');
+          showMockRosterUpdates(container);
+          return;
+        }
+        
+        if (typeof window.renderRosterUpdates === 'function') {
+          console.log('✓ Rendering updates...');
+          window.renderRosterUpdates(updates);
+        } else {
+          console.error('❌ renderRosterUpdates function not found!');
+        }
+      })
+      .catch(function(err) {
+        console.error('❌ Server error:', err);
+        console.log('ℹ️ Showing mock data due to error');
+        showMockRosterUpdates(container);
+      });
+  };
+  
+  /**
+   * Show mock data for testing/demonstration
+   */
+  function showMockRosterUpdates(container) {
+    var mockUpdates = [
+      {
+        duty: 'Preacher',
+        roleId: 'preacher',
+        serviceDate: 'Jan 18',
+        oldValue: 'Rev Benedict',
+        newValue: 'Pastor Ashley',
+        timestamp: new Date().toISOString(),
+        prevTimestamp: new Date(Date.now() - 14*24*60*60*1000).toISOString()
+      },
+      {
+        duty: 'Usher 1',
+        roleId: 'usher1',
+        serviceDate: 'Jan 25',
+        oldValue: 'John',
+        newValue: 'Mary',
+        timestamp: new Date(Date.now() - 1*60*60*1000).toISOString(),
+        prevTimestamp: new Date(Date.now() - 7*24*60*60*1000).toISOString()
+      },
+      {
+        duty: 'Reader',
+        roleId: 'reader',
+        serviceDate: 'Jan 11',
+        oldValue: 'Sarah',
+        newValue: 'David',
+        timestamp: new Date(Date.now() - 3*60*60*1000).toISOString(),
+        prevTimestamp: new Date(Date.now() - 10*24*60*60*1000).toISOString()
+      },
+      {
+        duty: 'Music Leader',
+        roleId: 'musicleader',
+        serviceDate: 'Feb 1',
+        oldValue: '',
+        newValue: 'James',
+        timestamp: new Date(Date.now() - 5*60*60*1000).toISOString(),
+        prevTimestamp: null
+      }
+    ];
+    
+    console.log('📊 Rendering mock updates:', mockUpdates);
+    
+    if (typeof window.renderRosterUpdates === 'function') {
+      window.renderRosterUpdates(mockUpdates);
+      
+      // Add mock data notice
+      setTimeout(function() {
+        var notice = document.createElement('div');
+        notice.className = 'px-3 py-2 mt-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30';
+        notice.innerHTML = '<div class="text-[0.65rem] text-yellow-200/90 flex items-start gap-2"><i class="fa-solid fa-flask text-yellow-300 mt-0.5"></i><div><b>Demo Data</b><br/>These are sample updates. Connect to your backend to see real data.</div></div>';
+        container.appendChild(notice);
+      }, 100);
+    }
+  }
+
+  /**
+   * Render roster updates to the sidebar container
+   */
+  window.renderRosterUpdates = function(updates) {
+    console.log('🎨 renderRosterUpdates called with', updates.length, 'updates');
+
+    var container = document.getElementById('rosterUpdatesContainer');
+    if (!container) {
+      console.error('❌ rosterUpdatesContainer not found!');
+      return;
+    }
+
+    if (!updates || updates.length === 0) {
+      container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">No recent updates</div>';
+      return;
+    }
+
+    var html = '';
+    updates.forEach(function(update) {
+      var timeAgo = getTimeAgo(update.timestamp);
+      var changeType = update.oldValue ? 'changed' : 'assigned';
+      var changeIcon = update.oldValue ? 'fa-arrow-right-arrow-left' : 'fa-plus';
+      var changeColor = update.oldValue ? 'text-amber-300' : 'text-emerald-300';
+
+      html += '<div class="roster-update-item p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-all cursor-pointer mb-2" ';
+      html += 'data-role="' + escapeUpdateHtml(update.roleId) + '" ';
+      html += 'data-date="' + escapeUpdateHtml(update.serviceDate) + '">';
+
+      // Header row with duty and time
+      html += '<div class="flex items-center justify-between mb-1">';
+      html += '<span class="text-xs font-semibold text-white/90">' + escapeUpdateHtml(update.duty) + '</span>';
+      html += '<span class="text-[0.65rem] text-white/50">' + timeAgo + '</span>';
+      html += '</div>';
+
+      // Service date
+      html += '<div class="text-[0.65rem] text-teal-300 mb-1.5">';
+      html += '<i class="fa-solid fa-calendar-day mr-1"></i>' + escapeUpdateHtml(update.serviceDate);
+      html += '</div>';
+
+      // Change details
+      html += '<div class="flex items-center gap-2 text-xs">';
+      html += '<i class="fa-solid ' + changeIcon + ' ' + changeColor + '"></i>';
+
+      if (update.oldValue) {
+        html += '<span class="text-white/50 line-through">' + escapeUpdateHtml(update.oldValue) + '</span>';
+        html += '<i class="fa-solid fa-arrow-right text-white/30 text-[0.6rem]"></i>';
+      }
+      html += '<span class="text-white/90 font-medium">' + escapeUpdateHtml(update.newValue || 'TBD') + '</span>';
+      html += '</div>';
+
+      html += '</div>';
+    });
+
+    container.innerHTML = html;
+    console.log('✓ Rendered', updates.length, 'updates');
+  };
+
+  /**
+   * Helper to format timestamp as relative time
+   */
+  function getTimeAgo(timestamp) {
+    if (!timestamp) return '';
+
+    try {
+      var date = new Date(timestamp);
+      var now = new Date();
+      var diffMs = now - date;
+      var diffMins = Math.floor(diffMs / 60000);
+      var diffHours = Math.floor(diffMs / 3600000);
+      var diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return 'just now';
+      if (diffMins < 60) return diffMins + 'm ago';
+      if (diffHours < 24) return diffHours + 'h ago';
+      if (diffDays < 7) return diffDays + 'd ago';
+
+      return date.toLocaleDateString();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
+   * Helper to escape HTML in updates
+   */
+  function escapeUpdateHtml(str) {
+    if (str == null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Helper for getting callGAS function
+  function getCallGAS() {
+    if (window.callGAS) return window.callGAS;
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      return function(fn, args) {
+        return new Promise(function(resolve, reject) {
+          google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn].apply(null, args || []);
+        });
+      };
+    }
+    return null;
+  }
+  
+  console.log('✅ Enhanced Roster Updates loaded successfully');
+  
+})();
+</script>
+
+<!-- ======================= END ENHANCED ROSTER UPDATES ======================= -->
+<!-- ======================= LHC Worship Prep v2.8 — PART 5/6 ======================= -->
+<!-- Part 5: Main JavaScript - Song Finder Logic (Preserved from v2.7) -->
+
+<script>
+(function() {
+  "use strict";
+
+  // ============================================================
+  // 1) GLOBAL STATE
+  // ============================================================
+  var STATE = {
+    songs: [],
+    orders: [],
+    currentOrder: null,
+    filters: { q: '', theme: '', key: '', style: '', tempo: '', season: '', sort: 'title-asc' },
+    lyricsMode: 'overall',
+    lyricsEditMode: false,
+    currentSong: null,
+    lyricsSlides: [],
+    currentSlideIndex: 0,
+    rosterMonth: new Date().getMonth(),
+    rosterYear: new Date().getFullYear(),
+    rosterEdits: new Map(),
+    rosterHasUnsaved: false,
+    rosterFilter: 'all',
+    rosterCellTimestamps: new Map()
+  };
+
+  // ============================================================
+  // 2) UTILITY HELPERS
+  // ============================================================
+  function $(id) { return document.getElementById(id); }
+  function escapeHtml(str) { if (!str) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+  function showLoader(visible) { var el = $('loadingIndicator'); if (el) el.classList.toggle('show', visible); }
+  function showToast(message, type) { var el = $('toastNotification'); if (!el) return; el.textContent = message; el.className = 'toast-notification show ' + (type || ''); clearTimeout(window._toastTimer); window._toastTimer = setTimeout(function() { el.classList.remove('show'); }, 3500); }
+  function debounce(func, wait) { var timeout; return function() { var context = this, args = arguments; clearTimeout(timeout); timeout = setTimeout(function() { func.apply(context, args); }, wait); }; }
+
+  function callGAS(functionName, args) {
+    return new Promise(function(resolve, reject) {
+      if (typeof google === 'undefined' || !google.script || !google.script.run) {
+        reject(new Error('Google Apps Script not available'));
+        return;
+      }
+      var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+      if (typeof runner[functionName] !== 'function') {
+        reject(new Error('Function not found: ' + functionName));
+        return;
+      }
+      runner[functionName].apply(runner, args || []);
+    });
+  }
+
+  function normalizeSong(song) {
+    if (!song || !song.title) return null;
+
+    // Handle youtube - could be array or string from backend
+    var youtube = song.youtube || [];
+    if (typeof youtube === 'string') {
+      youtube = youtube.split(/[,\s]+/).filter(Boolean);
+    } else if (!Array.isArray(youtube)) {
+      youtube = [];
+    }
+
+    // Handle attachments - use new array format or legacy lyricsUrl
+    var attachments = song.attachments || [];
+    if (!Array.isArray(attachments)) {
+      attachments = [];
+    }
+    if (attachments.length === 0 && song.lyricsUrl) {
+      var legacyUrls = String(song.lyricsUrl).split(/[,\s]+/).filter(Boolean);
+      attachments = legacyUrls.map(function(url) {
+        return { url: url, name: 'Document', type: 'GDOC' };
+      });
+    }
+
+    return {
+      id: song.id || '',
+      title: song.title || '',
+      artist: song.artist || '',
+      category: song.style || song.category || '',
+      key: song.key || '',
+      tempo: song.tempo || '',
+      theme: song.theme || '',
+      season: song.season || '',
+      youtube: youtube,
+      attachments: attachments,
+      lyricsUrl: song.lyricsUrl || '',
+      lyrics: song.lyrics || '',
+      lastEdited: song.lastEdited || '',
+      useCount: song.useCount || song.usageCount || 0
+    };
+  }
+
+  // ============================================================
+  // 3) VIEW SWITCHING
+  // ============================================================
+  function setActiveView(viewId) {
+    ['songFinderView', 'worshipRosterView', 'worshipOrderView'].forEach(function(id) {
+      var el = $(id);
+      if (el) el.style.display = (id === viewId) ? 'block' : 'none';
+    });
+
+    ['navSongFinderBtn', 'navRosterBtn', 'navOrdersBtn'].forEach(function(id) {
+      var btn = $(id);
+      if (btn) btn.classList.remove('lhc-pill-button-active');
+    });
+
+    if (viewId === 'songFinderView') {
+      var btn = $('navSongFinderBtn');
+      if (btn) btn.classList.add('lhc-pill-button-active');
+      $('songStatsSection').style.display = 'flex';
+      $('rosterUpdatesSection').style.display = 'none';
+    } else if (viewId === 'worshipRosterView') {
+      var btn = $('navRosterBtn');
+      if (btn) btn.classList.add('lhc-pill-button-active');
+      $('songStatsSection').style.display = 'none';
+      $('rosterUpdatesSection').style.display = 'flex';
+      if (typeof RosterEngine !== 'undefined' && RosterEngine.init) {
+        RosterEngine.init();
+      }
+    } else if (viewId === 'worshipOrderView') {
+      var btn = $('navOrdersBtn');
+      if (btn) btn.classList.add('lhc-pill-button-active');
+      $('songStatsSection').style.display = 'none';
+      $('rosterUpdatesSection').style.display = 'none';
+    }
+  }
+
+  // ============================================================
+  // 4) FILTER & RENDER SONGS
+  // ============================================================
+  function filterSongs() {
+    var filtered = STATE.songs.filter(function(song) {
+      if (STATE.filters.q) {
+        var q = STATE.filters.q.toLowerCase();
+        var title = (song.title || '').toLowerCase();
+        if (!title.startsWith(q)) return false;
+      }
+      if (STATE.filters.theme && song.theme && song.theme.toLowerCase().indexOf(STATE.filters.theme.toLowerCase()) === -1) return false;
+      if (STATE.filters.key && song.key !== STATE.filters.key) return false;
+      if (STATE.filters.style && song.category !== STATE.filters.style) return false;
+      if (STATE.filters.tempo && song.tempo !== STATE.filters.tempo) return false;
+      if (STATE.filters.season && song.season !== STATE.filters.season) return false;
+      return true;
+    });
+
+    var sortBy = STATE.filters.sort || 'title-asc';
+    if (sortBy === 'title-asc') filtered.sort(function(a, b) { return (a.title || '').localeCompare(b.title || ''); });
+    else if (sortBy === 'title-desc') filtered.sort(function(a, b) { return (b.title || '').localeCompare(a.title || ''); });
+    else if (sortBy === 'artist-asc') filtered.sort(function(a, b) { return (a.artist || '').localeCompare(b.artist || ''); });
+    else if (sortBy === 'artist-desc') filtered.sort(function(a, b) { return (b.artist || '').localeCompare(a.artist || ''); });
+
+    return filtered;
+  }
+
+  function renderSongs(hideEmptyState) {
+    var filtered = filterSongs();
+    var container = $('songListContainer');
+    var emptyState = $('songEmptyState');
+
+    $('resultCount').textContent = filtered.length;
+    $('totalCount').textContent = STATE.songs.length;
+
+    if (!hideEmptyState && !STATE.filters.q && !STATE.filters.theme && !STATE.filters.key && !STATE.filters.style && !STATE.filters.tempo && !STATE.filters.season) {
+      if (container) container.innerHTML = '';
+      if (emptyState) emptyState.style.display = 'block';
+      return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+
+    if (!container) return;
+
+    if (filtered.length === 0) {
+      container.innerHTML = '<div class="p-8 text-center text-slate-400"><i class="fa-solid fa-music text-4xl mb-3 opacity-50"></i><p>No songs match your filters. Try adjusting your search.</p></div>';
+      return;
+    }
+
+    var html = '';
+    filtered.forEach(function(song) {
+      html += '<div class="song-list-item">';
+      html += '<div class="flex-1 min-w-0">';
+      html += '<h4 class="font-semibold text-slate-800 mb-1 song-title-link" onclick="openEditSongModal(\'' + escapeHtml(song.id) + '\')">' + escapeHtml(song.title) + '</h4>';
+      if (song.artist) html += '<p class="text-xs text-slate-500 mb-2">' + escapeHtml(song.artist) + '</p>';
+      html += '<div class="flex flex-wrap gap-1.5">';
+      if (song.category) html += '<span class="meta-pill">' + escapeHtml(song.category) + '</span>';
+      if (song.key) html += '<span class="meta-pill">Key: ' + escapeHtml(song.key) + '</span>';
+      if (song.tempo) html += '<span class="meta-pill">' + escapeHtml(song.tempo) + '</span>';
+      if (song.theme) html += '<span class="meta-pill">' + escapeHtml(song.theme) + '</span>';
+      if (song.season) html += '<span class="meta-pill">' + escapeHtml(song.season) + '</span>';
+      html += '</div></div>';
+      
+      html += '<div class="flex gap-2 items-start">';
+      
+      // youtube is now an array from normalizeSong
+      var youtubeLinks = (song.youtube || []).filter(function(u) { return u && (u.includes('youtube') || u.includes('youtu.be')); });
+      // attachments is now an array of {url, name, type} objects from normalizeSong
+      var docLinks = (song.attachments || []).filter(function(a) { return a && a.url; });
+      var hasLyrics = song.lyrics && song.lyrics.trim();
+      
+      if (youtubeLinks.length > 0) {
+        html += '<div class="relative">';
+        html += '<button class="lhc-pill-button text-xs" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="openYoutubePreview(\'' + escapeHtml(song.id) + '\')" title="' + youtubeLinks.length + ' YouTube video(s)">';
+        html += '<i class="fa-brands fa-youtube"></i>';
+        if (youtubeLinks.length > 1) {
+          html += '<span class="link-count-badge">' + youtubeLinks.length + '</span>';
+        }
+        html += '</button></div>';
+      }
+      
+      if (docLinks.length > 0) {
+        html += '<div class="relative">';
+        html += '<button class="lhc-pill-button text-xs" style="background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;" onclick="openDocPreview(\'' + escapeHtml(song.id) + '\')" title="' + docLinks.length + ' attachment(s)">';
+        html += '<i class="fa-solid fa-paperclip"></i>';
+        if (docLinks.length > 1) {
+          html += '<span class="link-count-badge">' + docLinks.length + '</span>';
+        }
+        html += '</button></div>';
+      }
+      
+      if (hasLyrics) {
+        html += '<button class="lhc-pill-button text-xs" style="background:#f3e8ff;border-color:#d8b4fe;color:#7c3aed;" onclick="openLyricsPreview(\'' + escapeHtml(song.id) + '\')" title="View lyrics">';
+        html += '<i class="fa-solid fa-file-lines"></i>';
+        html += '</button>';
+      }
+      
+      html += '<button class="lhc-pill-button text-xs" onclick="openEditSongModal(\'' + escapeHtml(song.id) + '\')" title="Edit song">';
+      html += '<i class="fa-solid fa-pen-to-square"></i>';
+      html += '</button>';
+      html += '</div></div>';
+    });
+
+    container.innerHTML = html;
+  }
+
+  // ============================================================
+  // 5) FILTER DROPDOWNS POPULATION
+  // ============================================================
+  function populateFilterDropdowns() {
+    var themes = {}, keys = {}, styles = {}, tempos = {}, seasons = {};
+
+    STATE.songs.forEach(function(song) {
+      if (song.theme) themes[song.theme] = true;
+      if (song.key) keys[song.key] = true;
+      if (song.category) styles[song.category] = true;
+      if (song.tempo) tempos[song.tempo] = true;
+      if (song.season) seasons[song.season] = true;
+    });
+
+    var populate = function(selectId, obj, defaultText) {
+      var select = $(selectId);
+      if (!select) return;
+      var html = '<option value="">' + defaultText + '</option>';
+      Object.keys(obj).sort().forEach(function(val) {
+        html += '<option value="' + escapeHtml(val) + '">' + escapeHtml(val) + '</option>';
+      });
+      select.innerHTML = html;
+    };
+
+    populate('filterTheme', themes, 'All Themes');
+    populate('filterKey', keys, 'All Keys');
+    populate('filterStyle', styles, 'All Styles');
+    populate('filterTempo', tempos, 'All');
+    populate('filterSeason', seasons, 'All Seasons');
+  }
+
+  // ============================================================
+  // 6) SEARCH SUGGESTIONS
+  // ============================================================
+  var suggestionIndex = -1;
+
+  function renderSearchSuggestions(query) {
+    var container = $('searchSuggestions');
+    if (!container) return;
+    if (!query || query.length < 1) { container.classList.remove('show'); return; }
+
+    var matches = STATE.songs.filter(function(s) {
+      return (s.title || '').toLowerCase().startsWith(query.toLowerCase());
+    }).slice(0, 8);
+
+    if (matches.length === 0) { container.classList.remove('show'); return; }
+
+    var html = '';
+    matches.forEach(function(song, idx) {
+      html += '<div class="suggestion-item" data-index="' + idx + '" onclick="selectSuggestion(\'' + escapeHtml(song.title) + '\')">';
+      html += '<div class="font-semibold text-sm text-slate-800">' + escapeHtml(song.title) + '</div>';
+      if (song.artist) html += '<div class="text-xs text-slate-500">' + escapeHtml(song.artist) + '</div>';
+      html += '</div>';
+    });
+    container.innerHTML = html;
+    container.classList.add('show');
+    suggestionIndex = -1;
+  }
+
+  function selectSuggestion(title) {
+    var input = $('searchInput');
+    if (input) input.value = title;
+    STATE.filters.q = title;
+    $('searchSuggestions').classList.remove('show');
+    $('clearSearchBtn').classList.remove('hidden');
+    renderSongs(true);
+  }
+
+  function navSuggestions(direction) {
+    var container = $('searchSuggestions');
+    if (!container.classList.contains('show')) return;
+    var items = container.querySelectorAll('.suggestion-item');
+    if (items.length === 0) return;
+
+    items[suggestionIndex]?.classList.remove('active');
+    suggestionIndex += direction;
+    if (suggestionIndex < 0) suggestionIndex = items.length - 1;
+    if (suggestionIndex >= items.length) suggestionIndex = 0;
+    items[suggestionIndex].classList.add('active');
+    items[suggestionIndex].scrollIntoView({ block: 'nearest' });
+
+    var title = items[suggestionIndex].querySelector('.font-semibold').textContent;
+    $('searchInput').value = title;
+  }
+
+  window.selectSuggestion = selectSuggestion;
+
+  // ============================================================
+  // 7) SONG STATISTICS
+  // ============================================================
+  function renderSongStats() {
+    var container = $('songStatsContainer');
+    if (!container) return;
+
+    var activeTab = document.querySelector('.stat-tab-btn.active')?.dataset.stat || 'frequent';
+    var songs = [];
+
+    if (activeTab === 'frequent') {
+      songs = STATE.songs.slice().sort(function(a, b) { return (b.usageCount || 0) - (a.usageCount || 0); }).slice(0, 10);
+    } else if (activeTab === 'recent') {
+      songs = STATE.songs.slice().sort(function(a, b) {
+        var aDate = a.lastEdited ? new Date(a.lastEdited) : new Date(0);
+        var bDate = b.lastEdited ? new Date(b.lastEdited) : new Date(0);
+        return bDate - aDate;
+      }).slice(0, 10);
+    } else if (activeTab === 'newest') {
+      songs = STATE.songs.slice().reverse().slice(0, 10);
+    }
+
+    if (songs.length === 0) {
+      container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">No songs yet</div>';
+      return;
+    }
+
+    var html = '';
+    songs.forEach(function(song, idx) {
+      var icon = activeTab === 'frequent' ? '🔥' : (activeTab === 'recent' ? '🕐' : '✨');
+      html += '<div class="stat-song-item cursor-pointer p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-all" onclick="openEditSongModal(\'' + escapeHtml(song.id) + '\')">';
+      html += '<div class="flex items-start gap-2">';
+      html += '<span class="text-xs opacity-60">' + icon + '</span>';
+      html += '<div class="flex-1 min-w-0">';
+      html += '<div class="text-xs font-semibold text-white/90 truncate">' + escapeHtml(song.title) + '</div>';
+      if (song.artist) html += '<div class="text-[0.65rem] text-white/60 truncate">' + escapeHtml(song.artist) + '</div>';
+      html += '</div></div></div>';
+    });
+
+    container.innerHTML = html;
+  }
+
+  function bindStatTabs() {
+    document.querySelectorAll('.stat-tab-btn').forEach(function(btn) {
+      btn.onclick = function() {
+        document.querySelectorAll('.stat-tab-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        renderSongStats();
+      };
+    });
+  }
+
+  // ============================================================
+  // 8) MODALS SETUP
+  // ============================================================
+  function openModal(id) { var el = $(id); if (el) el.classList.add('show'); }
+  function closeModal(id) { var el = $(id); if (el) el.classList.remove('show'); }
+
+  function setupModalClose(modalId, closeBtnId, cancelBtnIds) {
+    var modal = $(modalId);
+    var closeBtn = $(closeBtnId);
+    if (closeBtn) closeBtn.onclick = function() { closeModal(modalId); };
+    if (cancelBtnIds) {
+      cancelBtnIds.forEach(function(id) {
+        var btn = $(id);
+        if (btn) btn.onclick = function() { closeModal(modalId); };
+      });
+    }
+    if (modal) {
+      modal.onclick = function(e) { if (e.target === modal) closeModal(modalId); };
+    }
+  }
+
+  // ============================================================
+  // 9) OPEN EDIT SONG MODAL
+  // ============================================================
+  function openEditSongModal(songId) {
+    var song = STATE.songs.find(function(s) { return s.id === songId; });
+    if (!song) return;
+
+    $('editSongId').value = song.id;
+    $('editSongTitle').value = song.title || '';
+    $('editSongArtist').value = song.artist || '';
+    $('editSongCategory').value = song.category || '';
+    $('editSongKey').value = song.key || '';
+    $('editSongTempo').value = song.tempo || '';
+    $('editSongSeason').value = song.season || '';
+
+    if (typeof window.loadEditSongData === 'function') {
+      window.loadEditSongData(song);
+    }
+
+    openModal('editSongModal');
+  }
+
+  window.openEditSongModal = openEditSongModal;
+
+  // ============================================================
+  // 10) SAVE EDIT SONG
+  // ============================================================
+  function saveEditSong() {
+    var id = $('editSongId').value;
+    var title = ($('editSongTitle').value || '').trim();
+    if (!title) { showToast('Song title is required', 'error'); return; }
+
+    var lyricsData = $('editSongLyricsData') ? $('editSongLyricsData').value : '';
+    var youtubeUrls = window.songData && window.songData.edit ? window.songData.edit.youtube.join(', ') : '';
+    var attachmentUrls = '';
+    if (window.songData && window.songData.edit && window.songData.edit.attachments.length) {
+      attachmentUrls = window.songData.edit.attachments.map(function(a) { return a.url; }).join(', ');
+    }
+
+    var songData = {
+      id: id,
+      title: title,
+      artist: $('editSongArtist').value || '',
+      category: $('editSongCategory').value || '',
+      key: $('editSongKey').value || '',
+      tempo: $('editSongTempo').value || '',
+      theme: $('editSongTheme').value || '',
+      season: $('editSongSeason').value || '',
+      youtube: youtubeUrls,
+      lyricsUrl: attachmentUrls,
+      lyrics: lyricsData
+    };
+
+    showLoader(true);
+    callGAS('updateSong', [songData]).then(function() {
+      showToast('Song updated successfully!', 'success');
+      closeModal('editSongModal');
+      loadSongs();
+    }).catch(function(err) {
+      console.error(err);
+      showToast('Failed to update song', 'error');
+    }).finally(function() {
+      showLoader(false);
+    });
+  }
+
+  // ============================================================
+  // 11) DELETE SONG
+  // ============================================================
+  function deleteSong() {
+    var id = $('editSongId').value;
+    if (!id) return;
+    if (!confirm('Are you sure you want to delete this song? This cannot be undone.')) return;
+
+    showLoader(true);
+    callGAS('deleteSong', [id]).then(function() {
+      showToast('Song deleted', 'success');
+      closeModal('editSongModal');
+      loadSongs();
+    }).catch(function(err) {
+      console.error(err);
+      showToast('Failed to delete song', 'error');
+    }).finally(function() {
+      showLoader(false);
+    });
+  }
+
+  // ============================================================
+  // 12) LYRICS PREVIEW
+  // ============================================================
+  function openLyricsPreview(songId) {
+    var song = STATE.songs.find(function(s) { return s.id === songId; });
+    if (!song) return;
+
+    if (typeof window.setLyricsPreviewSong === 'function') {
+      window.setLyricsPreviewSong(song);
+    }
+
+    var modal = $('lyricsPreviewModal');
+    if (modal) modal.classList.add('show');
+  }
+
+  window.openLyricsPreview = openLyricsPreview;
+
+  // ============================================================
+  // 13) DOC/YOUTUBE PREVIEW
+  // ============================================================
+  function openDocPreview(songId) {
+    var song = STATE.songs.find(function(s) { return s.id === songId; });
+    if (!song || !song.lyricsUrl) return;
+
+    var urls = song.lyricsUrl.split(/[,\s]+/).filter(function(u) { return u.trim(); });
+    if (urls.length === 0) return;
+
+    var url = urls[0];
+    var modal = $('docPreviewModal');
+    var frame = $('docPreviewFrame');
+    var openBtn = $('docPreviewOpenBtn');
+    var title = $('docPreviewTitle');
+
+    if (url.includes('drive.google.com/file/d/')) {
+      var match = url.match(/\/d\/([^\/\?]+)/);
+      if (match) {
+        frame.src = 'https://drive.google.com/file/d/' + match[1] + '/preview';
+      }
+    } else if (url.includes('docs.google.com')) {
+      frame.src = url.replace('/edit', '/preview').replace('/view', '/preview');
+    } else {
+      frame.src = url;
+    }
+
+    openBtn.onclick = function() { window.open(url, '_blank'); };
+    title.textContent = song.title || 'Document';
+    modal.classList.add('show');
+  }
+
+  function openYoutubePreview(songId) {
+    var song = STATE.songs.find(function(s) { return s.id === songId; });
+    if (!song || !song.youtube) return;
+
+    var urls = song.youtube.split(/[,\s]+/).filter(function(u) { return u.trim() && (u.includes('youtube') || u.includes('youtu.be')); });
+    if (urls.length === 0) return;
+
+    var url = urls[0];
+    var match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/))([^?&]+)/);
+    if (!match) return;
+
+    var videoId = match[1];
+    var modal = $('youtubePreviewModal');
+    var frame = $('youtubePreviewFrame');
+    var openBtn = $('youtubePreviewOpenBtn');
+    var title = $('youtubePreviewTitle');
+
+    frame.src = 'https://www.youtube.com/embed/' + videoId + '?autoplay=1';
+    openBtn.onclick = function() { window.open('https://www.youtube.com/watch?v=' + videoId, '_blank'); };
+    title.textContent = song.title || 'Video';
+    modal.classList.add('show');
+  }
+
+  window.openDocPreview = openDocPreview;
+  window.openYoutubePreview = openYoutubePreview;
+
+  // ============================================================
+  // 14) ADD NEW SONG
+  // ============================================================
+  function saveNewSong() {
+    var title = ($('newSongTitle').value || '').trim();
+    if (!title) {
+      showToast('Song title is required', 'error');
+      return;
+    }
+
+    var lyricsData = $('newSongLyricsData') ? $('newSongLyricsData').value : '';
+    var youtubeUrls = window.songData && window.songData.new ? window.songData.new.youtube.join(', ') : '';
+    var attachmentUrls = '';
+    if (window.songData && window.songData.new && window.songData.new.attachments.length) {
+      attachmentUrls = window.songData.new.attachments.map(function(a) { return a.url; }).join(', ');
+    }
+
+    var songData = {
+      title: title,
+      artist: $('newSongArtist').value || '',
+      category: $('newSongCategory').value || '',
+      key: $('newSongKey').value || '',
+      tempo: $('newSongTempo').value || '',
+      theme: $('newSongTheme').value || '',
+      season: $('newSongSeason').value || '',
+      youtube: youtubeUrls,
+      lyricsUrl: attachmentUrls,
+      lyrics: lyricsData
+    };
+
+    showLoader(true);
+    callGAS('createSong', [songData]).then(function(result) {
+      showToast('Song added successfully!', 'success');
+      closeModal('addSongModal');
+      
+      ['newSongTitle', 'newSongArtist', 'newSongCategory', 'newSongKey', 'newSongTempo', 
+       'newSongTheme', 'newSongSeason']
+        .forEach(function(id) { var el = $(id); if (el) el.value = ''; });
+      
+      if (typeof window.resetNewSongData === 'function') {
+        window.resetNewSongData();
+      }
+
+      loadSongs();
+    }).catch(function(err) {
+      console.error(err);
+      showToast('Failed to add song', 'error');
+    }).finally(function() {
+      showLoader(false);
+    });
+  }
+
+  // ============================================================
+  // 15) DATA LOADING
+  // ============================================================
+  function loadSongs() {
+    return callGAS('getSongs', []).then(function(songs) {
+      STATE.songs = (songs || []).map(normalizeSong).filter(Boolean);
+      populateFilterDropdowns();
+      renderSongs(false);
+      renderSongStats();
+      $('backendStatus').textContent = 'Backend: Connected ✓';
+      $('backendStatus').style.color = '#86efac';
+    }).catch(function(err) {
+      console.error('Failed to load songs:', err);
+      $('backendStatus').textContent = 'Backend: Error ✗';
+      $('backendStatus').style.color = '#fca5a5';
+      showToast('Failed to load songs', 'error');
+    });
+  }
+
+  function loadOrders() {
+    return callGAS('getOrders', []).then(function(orders) {
+      STATE.orders = orders || [];
+      renderOrdersList();
+    }).catch(function(err) {
+      console.error('Failed to load orders:', err);
+    });
+  }
+
+  function renderOrdersList() {
+    // Orders list is now replaced by Song Statistics
+    // This function kept for compatibility but does nothing visible
+  }
+
+  function loadOrderDetail(orderId) {
+    showLoader(true);
+    callGAS('loadOrder', [orderId]).then(function(order) {
+      STATE.currentOrder = order;
+      setActiveView('worshipOrderView');
+      renderOrderDetail();
+    }).catch(function(err) {
+      console.error(err);
+      showToast('Failed to load order', 'error');
+    }).finally(function() {
+      showLoader(false);
+    });
+  }
+
+  function renderOrderDetail() {
+    var order = STATE.currentOrder;
+    var container = $('orderSectionsContainer');
+    var emptyState = $('orderEmptyState');
+
+    if (!order) {
+      if (emptyState) emptyState.style.display = 'block';
+      if (container) container.innerHTML = '';
+      return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+
+    $('orderViewTitle').textContent = order.title || 'Worship Order';
+    $('orderViewDate').textContent = order.serviceDate ? 'Service Date: ' + order.serviceDate : '';
+
+    if (container) {
+      container.innerHTML = '<div class="p-4 bg-slate-50 rounded-xl text-center text-slate-500"><p>Order loaded. Song arrangement coming in Phase 2.</p></div>';
+    }
+  }
+
+  function loadAllData() {
+    showLoader(true);
+    Promise.all([loadSongs(), loadOrders()]).then(function() {
+      showToast('Data loaded!', 'success');
+    }).catch(function(err) {
+      console.error(err);
+    }).finally(function() {
+      showLoader(false);
+    });
+  }
+
+  // ============================================================
+  // 16) SHARE FUNCTIONALITY
+  // ============================================================
+  function setupShareModal() {
+    var waBtn = $('shareWhatsApp');
+    var cpBtn = $('shareCopyLink');
+
+    if (waBtn) waBtn.onclick = function() {
+      var link = window.location.href;
+      window.open('https://wa.me/?text=' + encodeURIComponent('LHC Worship Prep: ' + link), '_blank');
+    };
+
+    if (cpBtn) cpBtn.onclick = function() {
+      var link = window.location.href;
+      navigator.clipboard.writeText(link).then(function() {
+        showToast('Link copied!', 'success');
+      }).catch(function() {
+        showToast('Failed to copy', 'error');
+      });
+    };
+  }
+
+  // ============================================================
+  // 17) CORE EVENT BINDINGS
+  // ============================================================
+  function bindCoreEvents() {
+    var nsfb = $('navSongFinderBtn'); if (nsfb) nsfb.onclick = function() { setActiveView('songFinderView'); };
+    var nrb = $('navRosterBtn'); if (nrb) nrb.onclick = function() { setActiveView('worshipRosterView'); };
+    var nob = $('navOrdersBtn'); if (nob) nob.onclick = function() { setActiveView('worshipOrderView'); };
+
+    var rdb = $('refreshDataBtn'); if (rdb) rdb.onclick = loadAllData;
+
+    var si = $('searchInput');
+    if (si) {
+      si.oninput = debounce(function(e) {
+        STATE.filters.q = e.target.value.trim();
+        $('clearSearchBtn').classList.toggle('hidden', !STATE.filters.q);
+        renderSearchSuggestions(STATE.filters.q);
+        renderSongs(!!STATE.filters.q);
+      }, 200);
+
+      si.onkeydown = function(e) {
+        if (e.key === 'Enter') { $('searchSuggestions').classList.remove('show'); renderSongs(true); }
+        if (e.key === 'Escape') { $('searchSuggestions').classList.remove('show'); }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); navSuggestions(e.key === 'ArrowDown' ? 1 : -1); }
+      };
+
+      si.onfocus = function() { if (STATE.filters.q && STATE.filters.q.length >= 1) renderSearchSuggestions(STATE.filters.q); };
+    }
+
+    var cb = $('clearSearchBtn'); if (cb) cb.onclick = function() { $('searchInput').value = ''; STATE.filters.q = ''; $('clearSearchBtn').classList.add('hidden'); $('searchSuggestions').classList.remove('show'); renderSongs(false); };
+
+    document.onclick = function(e) { var sg = $('searchSuggestions'), si = $('searchInput'); if (sg && !sg.contains(e.target) && e.target !== si) sg.classList.remove('show'); };
+
+    ['filterTheme','filterKey','filterStyle','filterTempo','filterSeason','sortBy'].forEach(function(id) {
+      var el = $(id); if (el) el.onchange = function(e) { var k = id.replace('filter','').toLowerCase(); if (k === 'sortby') STATE.filters.sort = e.target.value; else STATE.filters[k] = e.target.value; renderSongs(true); };
+    });
+
+    var ab = $('openAddSongBtn'); if (ab) ab.onclick = function() { openModal('addSongModal'); };
+    var snb = $('saveNewSongBtn'); if (snb) snb.onclick = saveNewSong;
+    var seb = $('saveEditSongBtn'); if (seb) seb.onclick = saveEditSong;
+    var db = $('deleteSongBtn'); if (db) db.onclick = deleteSong;
+
+    var smb = $('openShareModalBtn'); if (smb) smb.onclick = function() { openModal('shareModal'); };
+    var hb = $('openHelpBtn'); if (hb) hb.onclick = function() { openModal('helpModal'); };
+    var cob = $('createOrderBtn'), nofv = $('newOrderFromViewBtn');
+    if (nofv) nofv.onclick = function() { openModal('createOrderModal'); };
+
+    document.onkeydown = function(e) {
+      if (e.key === 'Escape') ['addSongModal','editSongModal','lyricsPreviewModal','docPreviewModal','youtubePreviewModal','shareModal','helpModal','createOrderModal'].forEach(closeModal);
+    };
+
+    bindStatTabs();
+  }
+
+  // ============================================================
+  // 18) MODAL SETUP
+  // ============================================================
+  function setupAllModals() {
+    setupModalClose('addSongModal', 'closeAddSongBtn', ['cancelAddSongBtn']);
+    setupModalClose('editSongModal', 'closeEditSongBtn', ['cancelEditSongBtn']);
+    setupModalClose('shareModal', 'closeShareBtn');
+    setupModalClose('helpModal', 'closeHelpBtn');
+    setupModalClose('createOrderModal', 'closeCreateOrderBtn', ['cancelCreateOrderBtn']);
+    setupShareModal();
+  }
+
+  // ============================================================
+  // 19) INITIALIZATION
+  // ============================================================
+  function init() {
+    console.log('LHC Worship Prep v2.8 initializing...');
+    setupAllModals();
+    bindCoreEvents();
+    setActiveView('songFinderView');
+    loadAllData();
+    console.log('LHC Worship Prep initialized.');
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+  window.LHC_STATE = STATE;
+})();
+</script>
+
+<!-- ======================= END PART 5/6 ======================= -->
+<!-- ======================= LHC Worship Prep v2.8 — PART 6/6 ======================= -->
+<!-- Part 6: RosterEngine JavaScript (Preserved from v2.7) -->
+
+<script>
+(function() {
+  "use strict";
+  var STATE = window.LHC_STATE || { rosterMonth: new Date().getMonth(), rosterYear: new Date().getFullYear(), rosterEdits: new Map(), rosterHasUnsaved: false, rosterFilter: 'all', rosterCellTimestamps: new Map() };
+  if (!STATE.rosterCellTimestamps) STATE.rosterCellTimestamps = new Map();
+  if (!STATE.rosterFilter) STATE.rosterFilter = 'all';
+
+  var RosterEngine = {
+    MONTHS: ['January','February','March','April','May','June','July','August','September','October','November','December'],
+    MONTHS_SHORT: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+    SEASONS: {0:'Epiphany Season',1:'Epiphany Season',2:'Lenten Season',3:'Easter Season',4:'Easter Season',5:'Ordinary Time',6:'Ordinary Time',7:'Ordinary Time',8:'Ordinary Time',9:'Reformation / End Times',10:'End Times / Christ the King',11:'Advent Season'},
+    COLORS: {Green:'#22c55e',Purple:'#a855f7',White:'#f8fafc',Red:'#ef4444',Gold:'#eab308',Blue:'#3b82f6',Rose:'#f472b6'},
+    COLOR_NAMES: ['Green','Purple','White','Red','Gold','Blue','Rose'],
+    DEFAULT_COLORS: {0:'Green',1:'Green',2:'Purple',3:'White',4:'White',5:'Green',6:'Green',7:'Green',8:'Green',9:'Red',10:'Green',11:'Purple'},
+    
+    ROLES: [
+      {type:'liturgical',id:'liturgical',label:'📅 Liturgical Day',group:'all'},
+      {type:'role',id:'preacher',label:'⛪ Preacher',group:'all'},
+      {type:'role',id:'liturgist',label:'🕊️ Liturgist',group:'worship'},
+      {type:'header',id:'h_enablers',label:'⛪ WORSHIP ENABLERS',cls:'',group:'all'},
+      {type:'role',id:'usher1',label:'🚪 Usher 1',group:'all'},
+      {type:'role',id:'usher2',label:'🚪 Usher 2',group:'all'},
+      {type:'role',id:'reader1',label:'📖 Reader 1',group:'all'},
+      {type:'role',id:'reader2',label:'📖 Reader 2',group:'all'},
+      {type:'header',id:'h_scripture',label:'📖 SCRIPTURE READINGS',cls:'scripture-section',group:'all'},
+      {type:'scripture',id:'reading1',label:'📜 1st Reading',group:'all'},
+      {type:'scripture',id:'psalm',label:'🎵 Psalm',group:'all'},
+      {type:'scripture',id:'reading2',label:'📜 2nd Reading',group:'all'},
+      {type:'scripture',id:'gospel',label:'✝️ Gospel',group:'all'},
+      {type:'header',id:'h_communion',label:'🍞 HOLY COMMUNION',cls:'communion-section',group:'all'},
+      {type:'role',id:'communion1',label:'🍞 Communion 1',group:'all'},
+      {type:'role',id:'communion2',label:'🍞 Communion 2',group:'all'},
+      {type:'role',id:'altar1',label:'🕯️ Altar Guild 1',group:'all'},
+      {type:'role',id:'altar2',label:'🕯️ Altar Guild 2',group:'all'},
+      {type:'header',id:'h_music',label:'🎵 MUSIC MINISTRY',cls:'music-section',group:'worship'},
+      {type:'role',id:'pianist',label:'🎹 Pianist',group:'worship'},
+      {type:'role',id:'guitarist',label:'🎸 Guitarist',group:'worship'},
+      {type:'role',id:'bassist',label:'🎸 Bassist',group:'worship'},
+      {type:'role',id:'drummer',label:'🥁 Drummer',group:'worship'},
+      {type:'role',id:'singer1',label:'🎤 Singer 1',group:'worship'},
+      {type:'role',id:'singer2',label:'🎤 Singer 2',group:'worship'},
+      {type:'role',id:'singer3',label:'🎤 Singer 3',group:'worship'},
+      {type:'role',id:'singer4',label:'🎤 Singer 4',group:'worship'},
+      {type:'header',id:'h_tech',label:'🎬 TECH TEAM',cls:'tech-section',group:'worship'},
+      {type:'role',id:'lcd',label:'💻 LCD Operator',group:'worship'},
+      {type:'role',id:'streaming',label:'📹 Live Streaming',group:'all'},
+      {type:'role',id:'pa',label:'🔊 PA System',group:'all'}
+    ],
+
+    getSpecialDays: function(year, month) {
+      var specialDays = [];
+      var self = this;
+      var easter = this.calculateEaster(year);
+      
+      var ashWed = new Date(easter); ashWed.setDate(ashWed.getDate() - 46);
+      if (ashWed.getMonth() === month) {
+        specialDays.push({date:ashWed, name:'Ash Wednesday', displayName:'ASH WED (' + self.MONTHS_SHORT[ashWed.getMonth()] + ' ' + ashWed.getDate() + ')', color:'Purple', type:'special'});
+      }
+      
+      var maundyThu = new Date(easter); maundyThu.setDate(maundyThu.getDate() - 3);
+      if (maundyThu.getMonth() === month) {
+        specialDays.push({date:maundyThu, name:'Maundy Thursday', displayName:'MAUNDY THU (' + self.MONTHS_SHORT[maundyThu.getMonth()] + ' ' + maundyThu.getDate() + ')', color:'White', type:'special'});
+      }
+      
+      var goodFri = new Date(easter); goodFri.setDate(goodFri.getDate() - 2);
+      if (goodFri.getMonth() === month) {
+        specialDays.push({date:goodFri, name:'Good Friday', displayName:'GOOD FRI (' + self.MONTHS_SHORT[goodFri.getMonth()] + ' ' + goodFri.getDate() + ')', color:'Red', type:'special'});
+      }
+      
+      if (easter.getMonth() === month) {
+        specialDays.push({date:easter, name:'Easter Sunday', displayName:'EASTER (' + self.MONTHS_SHORT[easter.getMonth()] + ' ' + easter.getDate() + ')', color:'White', type:'special'});
+      }
+      
+      if (month === 11) {
+        specialDays.push({date:new Date(year,11,24), name:'Christmas Eve', displayName:'CHRISTMAS EVE (Dec 24)', color:'White', type:'special'});
+      }
+      
+      if (month === 11) {
+        specialDays.push({date:new Date(year,11,25), name:'Christmas Day', displayName:'CHRISTMAS DAY (Dec 25)', color:'White', type:'special'});
+      }
+      
+      return specialDays;
+    },
+
+    calculateEaster: function(year) {
+      var a = year % 19;
+      var b = Math.floor(year / 100);
+      var c = year % 100;
+      var d = Math.floor(b / 4);
+      var e = b % 4;
+      var f = Math.floor((b + 8) / 25);
+      var g = Math.floor((b - f + 1) / 3);
+      var h = (19 * a + b - d - g + 15) % 30;
+      var i = Math.floor(c / 4);
+      var k = c % 4;
+      var l = (32 + 2 * e + 2 * i - h - k) % 7;
+      var m = Math.floor((a + 11 * h + 22 * l) / 451);
+      var month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
+      var day = ((h + l - 7 * m + 114) % 31) + 1;
+      return new Date(year, month, day);
+    },
+
+    getServiceDays: function(year, month) {
+      var days = [];
+      var self = this;
+      var date = new Date(year, month, 1);
+      while (date.getDay() !== 0) date.setDate(date.getDate() + 1);
+      
+      while (date.getMonth() === month) {
+        days.push({date:new Date(date), dateStr:this.MONTHS_SHORT[month]+' '+date.getDate(), name:null, displayName:this.MONTHS_SHORT[month].toUpperCase()+' '+date.getDate(), color:this.DEFAULT_COLORS[month]||'Green', type:'sunday'});
+        date.setDate(date.getDate() + 7);
+      }
+      
+      if (month === 11) {
+        var dec31 = new Date(year, 11, 31);
+        if (dec31.getDay() === 0) {
+          var hasIt = days.some(function(d) { return d.date.getDate() === 31; });
+          if (!hasIt) {
+            days.push({date:dec31, dateStr:'Dec 31', name:null, displayName:'DEC 31', color:this.DEFAULT_COLORS[11]||'Purple', type:'sunday'});
+          }
+        }
+      }
+      
+      var specialDays = this.getSpecialDays(year, month);
+      specialDays.forEach(function(special) {
+        var existingIdx = -1;
+        days.forEach(function(d, idx) { if (d.date.getDate() === special.date.getDate()) existingIdx = idx; });
+        if (existingIdx >= 0) {
+          days[existingIdx].name = special.name;
+          days[existingIdx].displayName = special.displayName;
+          days[existingIdx].color = special.color;
+          days[existingIdx].type = 'special';
+        } else {
+          days.push({date:special.date, dateStr:self.MONTHS_SHORT[month]+' '+special.date.getDate(), name:special.name, displayName:special.displayName, color:special.color, type:'special'});
+        }
+      });
+      days.sort(function(a, b) { return a.date - b.date; });
+      return days;
+    },
+
+    init: function() {
+      var self = this;
+      this.renderFilterButtons();
+      this.renderMonthSelector();
+      this.loadRosterData().then(function() {
+        self.render();
+        self.bindEvents();
+        self.setupContextMenu();
+      }).catch(function(err) {
+        console.error('Failed to load roster data:', err);
+        self.render();
+        self.bindEvents();
+        self.setupContextMenu();
+      });
+    },
+
+    loadRosterData: function() {
+      var self = this;
+      console.log('Loading roster data for month=' + STATE.rosterMonth + ', year=' + STATE.rosterYear);
+      return this.callGAS('getRosterData', [STATE.rosterMonth, STATE.rosterYear]).then(function(entries) {
+        console.log('Received entries:', entries);
+        if (!entries || !entries.length) { console.log('No entries found'); return; }
+        entries.forEach(function(entry) {
+          if (!entry.roleId || !entry.date) return;
+          var key = entry.roleId + '__' + entry.date.replace(/\s/g, '_');
+          console.log('Setting key:', key, '= value:', entry.value);
+          var value = entry.value;
+          try { var parsed = JSON.parse(value); if (parsed && typeof parsed === 'object') value = parsed; } catch(e) {}
+          STATE.rosterEdits.set(key, value);
+          if (entry.timestamp) STATE.rosterCellTimestamps.set(key, entry.timestamp);
+        });
+        console.log('Loaded ' + entries.length + ' roster entries, STATE.rosterEdits has ' + STATE.rosterEdits.size + ' entries');
+      }).catch(function(err) { console.error('Error loading roster data:', err); });
+    },
+
+    renderMonthSelector: function() {
+      var self = this;
+      var monthTitle = document.getElementById('rosterMonthTitle');
+      if (!monthTitle) return;
+      var currentYear = new Date().getFullYear();
+      var html = '<select id="rosterMonthDropdown" class="roster-month-select">';
+      this.MONTHS.forEach(function(m, idx) {
+        html += '<option value="' + idx + '"' + (idx === STATE.rosterMonth ? ' selected' : '') + '>' + m + '</option>';
+      });
+      html += '</select> <select id="rosterYearDropdown" class="roster-year-select">';
+      for (var y = currentYear - 1; y <= currentYear + 2; y++) {
+        html += '<option value="' + y + '"' + (y === STATE.rosterYear ? ' selected' : '') + '>' + y + '</option>';
+      }
+      html += '</select>';
+      monthTitle.innerHTML = html;
+      document.getElementById('rosterMonthDropdown').onchange = function() { STATE.rosterMonth = parseInt(this.value); self.onMonthYearChange(); };
+      document.getElementById('rosterYearDropdown').onchange = function() { STATE.rosterYear = parseInt(this.value); self.onMonthYearChange(); };
+    },
+
+    onMonthYearChange: function() {
+      var self = this;
+      var seasonTitle = document.getElementById('rosterSeasonTitle');
+      if (seasonTitle) seasonTitle.textContent = this.SEASONS[STATE.rosterMonth] || '';
+      STATE.rosterEdits.clear();
+      STATE.rosterCellTimestamps.clear();
+      this.showLoader(true);
+      this.loadRosterData().then(function() { self.render(); }).catch(function(err) { console.error('Failed:', err); self.render(); }).finally(function() { self.showLoader(false); });
+    },
+
+    renderFilterButtons: function() {
+      var container = document.getElementById('rosterFilterContainer');
+      if (!container) return;
+      container.innerHTML = '<button class="roster-filter-btn ' + (STATE.rosterFilter === 'all' ? 'active' : '') + '" data-filter="all">All Roles</button><button class="roster-filter-btn ' + (STATE.rosterFilter === 'worship' ? 'active' : '') + '" data-filter="worship">Worship Team</button>';
+      var self = this;
+      container.querySelectorAll('.roster-filter-btn').forEach(function(btn) {
+        btn.onclick = function() {
+          container.querySelectorAll('.roster-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          STATE.rosterFilter = btn.dataset.filter;
+          self.render();
+        };
+      });
+    },
+
+    getFilteredRoles: function() {
+      if (STATE.rosterFilter === 'all') return this.ROLES;
+      return this.ROLES.filter(function(role) { return role.group === 'worship' || role.id === 'h_music' || role.id === 'h_tech'; });
+    },
+
+    render: function() {
+      var self = this;
+      var serviceDays = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      var roles = this.getFilteredRoles();
+      var seasonTitle = document.getElementById('rosterSeasonTitle');
+      var syncStatus = document.getElementById('rosterSyncStatus');
+      if (seasonTitle) seasonTitle.textContent = this.SEASONS[STATE.rosterMonth] || '';
+      if (syncStatus) syncStatus.textContent = 'Last synced: ' + new Date().toLocaleTimeString();
+
+      var thead = document.getElementById('rosterThead');
+      if (thead) {
+        var headerHtml = '<th>🏠 DUTIES</th>';
+        serviceDays.forEach(function(day) {
+          var specialClass = day.type === 'special' ? 'roster-special-day' : '';
+          var fullDate = day.dateStr + ' ' + STATE.rosterYear;
+          headerHtml += '<th class="roster-date-header ' + specialClass + '">';
+          headerHtml += '<div class="roster-date-chip roster-date-link" data-date="' + self.escapeHtml(fullDate) + '" data-name="' + self.escapeHtml(day.name || day.dateStr) + '" title="Click to open/create Worship Order">' + day.displayName + '</div>';
+          headerHtml += '<button class="roster-share-btn" data-date="' + self.escapeHtml(day.dateStr) + '" data-name="' + self.escapeHtml(day.name || day.dateStr) + '" title="Share via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>';
+          headerHtml += '</th>';
+        });
+        thead.innerHTML = headerHtml;
+      }
+
+      var tbody = document.getElementById('rosterTbody');
+      if (!tbody) return;
+      var bodyHtml = '';
+      roles.forEach(function(role) {
+        if (role.type === 'header') {
+          bodyHtml += '<tr class="roster-section-header ' + (role.cls || '') + '"><td colspan="' + (serviceDays.length + 1) + '" class="roster-section-cell">' + self.escapeHtml(role.label) + '</td></tr>';
+        } else {
+          var rowClass = role.type === 'liturgical' ? 'roster-liturgical-row' : (role.type === 'scripture' ? 'roster-scripture-row' : '');
+          bodyHtml += '<tr class="' + rowClass + '"><td>' + self.escapeHtml(role.label) + '</td>';
+          serviceDays.forEach(function(day, idx) {
+            var cellKey = role.id + '__' + day.dateStr.replace(/\s/g, '_');
+            var savedValue = STATE.rosterEdits.get(cellKey);
+            var timestamp = STATE.rosterCellTimestamps.get(cellKey) || '';
+            if (role.type === 'liturgical') {
+              var color = (savedValue && savedValue.color) ? savedValue.color : day.color;
+              var dayText = (savedValue && savedValue.day) ? savedValue.day : (day.name || self.getDefaultDayText(STATE.rosterMonth, idx));
+              var colorHex = self.COLORS[color] || self.COLORS.Green;
+              var borderStyle = color === 'White' ? 'border: 1px solid #cbd5e1;' : '';
+              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-color="' + color + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + (savedValue ? 'roster-cell-edited' : '') + '"><span class="altar-color-dot" style="background:' + colorHex + ';' + borderStyle + '" title="Click to change color"></span><span class="liturgical-text">' + self.escapeHtml(dayText) + '</span></td>';
+            } else {
+              var value = savedValue || 'TBD';
+              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + (savedValue ? 'roster-cell-edited' : '') + '">' + self.escapeHtml(value) + '</td>';
+            }
+          });
+          bodyHtml += '</tr>';
+        }
+      });
+      tbody.innerHTML = bodyHtml;
+      this.bindCellEvents();
+    },
+
+    getDefaultDayText: function(month, idx) {
+      var ordinals = ['1st','2nd','3rd','4th','5th','6th'];
+      return (ordinals[idx] || ((idx+1)+'th')) + ' Sunday - ' + (this.SEASONS[month] || 'Ordinary Time');
+    },
+
+    bindEvents: function() {
+      var self = this;
+      var prevBtn = document.getElementById('rosterPrevMonthBtn');
+      var nextBtn = document.getElementById('rosterNextMonthBtn');
+      var saveBtn = document.getElementById('rosterSaveBtn');
+      var csvBtn = document.getElementById('rosterDownloadCSVBtn');
+      var pdfBtn = document.getElementById('rosterDownloadPDFBtn');
+      if (prevBtn) prevBtn.onclick = function() { self.changeMonth(-1); };
+      if (nextBtn) nextBtn.onclick = function() { self.changeMonth(1); };
+      if (saveBtn) saveBtn.onclick = function() { self.saveChanges(); };
+      if (csvBtn) csvBtn.onclick = function() { self.downloadCSV(); };
+      if (pdfBtn) pdfBtn.onclick = function() { self.downloadPDF(); };
+    },
+
+    bindCellEvents: function() {
+      var self = this;
+      var tbody = document.getElementById('rosterTbody');
+      if (!tbody) return;
+      tbody.querySelectorAll('td[data-key]').forEach(function(td) {
+        td.ondblclick = function() { self.editCell(td); };
+        td.oncontextmenu = function(e) { e.preventDefault(); self.showContextMenu(e, td); };
+      });
+      tbody.querySelectorAll('.altar-color-dot').forEach(function(dot) {
+        dot.onclick = function(e) { e.stopPropagation(); var td = dot.closest('td'); if (td) self.cycleColor(td); };
+      });
+      var thead = document.getElementById('rosterThead');
+      if (thead) {
+        thead.querySelectorAll('.roster-share-btn').forEach(function(btn) {
+          btn.onclick = function(e) { e.stopPropagation(); self.shareWeekly(btn.getAttribute('data-date'), btn.getAttribute('data-name')); };
+        });
+        thead.querySelectorAll('.roster-date-link').forEach(function(link) {
+          link.onclick = function(e) {
+            e.stopPropagation();
+            var dateStr = link.getAttribute('data-date');
+            var dateName = link.getAttribute('data-name');
+            self.openOrCreateOrder(dateStr, dateName);
+          };
+        });
+      }
+    },
+
+    openOrCreateOrder: function(dateStr, dateName) {
+      if (typeof setActiveView === 'function') {
+        setActiveView('worshipOrderView');
+      }
+      
+      var orderTitle = dateName + ' - ' + dateStr;
+      
+      var orderTitleInput = document.getElementById('orderTitle');
+      var orderDateInput = document.getElementById('orderDate');
+      
+      if (orderTitleInput) {
+        orderTitleInput.value = orderTitle;
+      }
+      
+      if (orderDateInput && dateStr) {
+        try {
+          var parts = dateStr.match(/([A-Za-z]+)\s*(\d+)\s*(\d{4})?/);
+          if (parts) {
+            var months = {'jan':0,'feb':1,'mar':2,'apr':3,'may':4,'jun':5,'jul':6,'aug':7,'sep':8,'oct':9,'nov':10,'dec':11};
+            var month = months[parts[1].toLowerCase().substring(0,3)];
+            var day = parseInt(parts[2]);
+            var year = parts[3] ? parseInt(parts[3]) : STATE.rosterYear;
+            if (!isNaN(month) && !isNaN(day)) {
+              var isoDate = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+              orderDateInput.value = isoDate;
+            }
+          }
+        } catch(e) {
+          console.log('Could not parse date:', dateStr);
+        }
+      }
+      
+      var modal = document.getElementById('createOrderModal');
+      if (modal) {
+        modal.classList.add('show');
+      }
+      
+      this.showToast('Creating order for ' + dateName, 'success');
+    },
+
+    setupContextMenu: function() {
+      var self = this;
+      var menu = document.getElementById('rosterContextMenu');
+      document.addEventListener('click', function() { if (menu) menu.classList.remove('show'); });
+      var editBtn = document.getElementById('ctxEditCell');
+      var clearBtn = document.getElementById('ctxClearCell');
+      var changeLogBtn = document.getElementById('ctxSeeChangeLog');
+      if (editBtn) editBtn.onclick = function() { if (self._contextCell) self.editCell(self._contextCell); menu.classList.remove('show'); };
+      if (clearBtn) clearBtn.onclick = function() { if (self._contextCell) self.clearCell(self._contextCell); menu.classList.remove('show'); };
+      if (changeLogBtn) changeLogBtn.onclick = function() { 
+        if (self._contextCell) {
+          var roleId = self._contextCell.getAttribute('data-role');
+          var dateKey = self._contextCell.getAttribute('data-key');
+          self.highlightChangeLogInSidebar(roleId, dateKey);
+        }
+        menu.classList.remove('show'); 
+      };
+    },
+    
+    highlightChangeLogInSidebar: function(roleId, dateKey) {
+      var container = document.getElementById('rosterUpdatesContainer');
+      if (!container) return;
+      
+      container.querySelectorAll('.roster-update-highlight').forEach(function(el) {
+        el.classList.remove('roster-update-highlight');
+      });
+      
+      var dateParts = dateKey ? dateKey.split('__') : [];
+      var dateFromKey = dateParts.length > 1 ? dateParts[1].replace(/_/g, ' ') : '';
+      
+      var items = container.querySelectorAll('.roster-update-item');
+      var found = false;
+      items.forEach(function(item) {
+        var itemRole = item.getAttribute('data-role');
+        var itemDate = item.getAttribute('data-date');
+        
+        var roleMatches = itemRole && roleId && itemRole.toLowerCase() === roleId.toLowerCase();
+        var dateMatches = itemDate && dateFromKey && itemDate.toLowerCase().replace(/\s/g, '') === dateFromKey.toLowerCase().replace(/\s/g, '');
+        
+        if (roleMatches && dateMatches) {
+          item.classList.add('roster-update-highlight');
+          item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          found = true;
+          
+          setTimeout(function() {
+            item.classList.remove('roster-update-highlight');
+          }, 3000);
+        }
+      });
+      
+      if (!found) {
+        this.showToast('No change log found for this cell in recent updates', 'warning');
+      }
+    },
+
+    showContextMenu: function(e, td) {
+      var self = this;
+      var menu = document.getElementById('rosterContextMenu');
+      if (!menu) return;
+      this._contextCell = td;
+      var x = e.clientX, y = e.clientY;
+      if (x + 200 > window.innerWidth) x = window.innerWidth - 210;
+      if (y + 220 > window.innerHeight) y = window.innerHeight - 230;
+      menu.style.left = x + 'px';
+      menu.style.top = y + 'px';
+      var timestamp = td.getAttribute('data-timestamp');
+      var lastEditedEl = document.getElementById('ctxLastEdited');
+      if (lastEditedEl) {
+        if (timestamp) {
+          var d = new Date(timestamp);
+          lastEditedEl.innerHTML = '<i class="fa-solid fa-clock mr-1"></i> Last edited: ' + d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+        } else {
+          lastEditedEl.innerHTML = '<i class="fa-solid fa-clock mr-1"></i> Last edited: Never';
+        }
+      }
+      
+      var historySection = document.getElementById('ctxHistorySection');
+      var historyList = document.getElementById('ctxHistoryList');
+      if (historySection && historyList) {
+        historySection.classList.add('hidden');
+        var roleId = td.getAttribute('data-role');
+        var dateStr = td.getAttribute('data-date');
+        if (roleId && dateStr) {
+          this.callGAS('getRosterHistory', [roleId, dateStr]).then(function(entries) {
+            if (entries && entries.length > 0) {
+              historySection.classList.remove('hidden');
+              var html = '';
+              entries.forEach(function(entry) {
+                var dateDisplay = '';
+                if (entry.timestamp) {
+                  try { var d = new Date(entry.timestamp); dateDisplay = d.toLocaleDateString(); } catch(e) {}
+                }
+                html += '<div class="history-item" data-value="' + self.escapeHtml(entry.value) + '">' + self.escapeHtml(entry.value || 'Empty');
+                if (dateDisplay) html += '<span class="history-date">' + dateDisplay + '</span>';
+                html += '</div>';
+              });
+              historyList.innerHTML = html;
+              historyList.querySelectorAll('.history-item').forEach(function(item) {
+                item.onclick = function() {
+                  var val = item.getAttribute('data-value');
+                  if (val && self._contextCell) {
+                    self._contextCell.textContent = val;
+                    var key = self._contextCell.getAttribute('data-key');
+                    STATE.rosterEdits.set(key, val);
+                    STATE.rosterCellTimestamps.set(key, new Date().toISOString());
+                    self._contextCell.setAttribute('data-timestamp', new Date().toISOString());
+                    self._contextCell.classList.add('roster-cell-edited');
+                    self.markUnsaved();
+                    menu.classList.remove('show');
+                  }
+                };
+              });
+            }
+          }).catch(function(err) { console.error('History error:', err); });
+        }
+      }
+      
+      menu.classList.add('show');
+    },
+
+    clearCell: function(td) {
+      var key = td.getAttribute('data-key');
+      var isLiturgical = td.closest('tr') && td.closest('tr').classList.contains('roster-liturgical-row');
+      STATE.rosterEdits.delete(key);
+      STATE.rosterCellTimestamps.delete(key);
+      td.removeAttribute('data-timestamp');
+      td.classList.remove('roster-cell-edited');
+      if (isLiturgical) {
+        var color = this.DEFAULT_COLORS[STATE.rosterMonth] || 'Green';
+        td.setAttribute('data-color', color);
+        var colorHex = this.COLORS[color];
+        td.innerHTML = '<span class="altar-color-dot" style="background:' + colorHex + ';" title="Click to change color"></span><span class="liturgical-text">' + this.getDefaultDayText(STATE.rosterMonth, 0) + '</span>';
+      } else {
+        td.textContent = 'TBD';
+      }
+      this.markUnsaved();
+      this.bindCellEvents();
+    },
+
+    changeMonth: function(direction) {
+      STATE.rosterMonth += direction;
+      if (STATE.rosterMonth > 11) { STATE.rosterMonth = 0; STATE.rosterYear++; }
+      else if (STATE.rosterMonth < 0) { STATE.rosterMonth = 11; STATE.rosterYear--; }
+      var monthDD = document.getElementById('rosterMonthDropdown');
+      var yearDD = document.getElementById('rosterYearDropdown');
+      if (monthDD) monthDD.value = STATE.rosterMonth;
+      if (yearDD) yearDD.value = STATE.rosterYear;
+      this.onMonthYearChange();
+    },
+
+    editCell: function(td) {
+      var self = this;
+      if (td.querySelector('input')) return;
+      var isLiturgical = td.closest('tr') && td.closest('tr').classList.contains('roster-liturgical-row');
+      var key = td.getAttribute('data-key');
+      var currentValue = '';
+      if (isLiturgical) {
+        var textSpan = td.querySelector('.liturgical-text');
+        currentValue = textSpan ? textSpan.textContent : '';
+      } else {
+        currentValue = td.textContent.trim();
+        if (currentValue === 'TBD') currentValue = '';
+      }
+      var originalHtml = td.innerHTML;
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'roster-inline-editor';
+      input.value = currentValue;
+      if (isLiturgical) {
+        var dot = td.querySelector('.altar-color-dot');
+        td.innerHTML = '';
+        if (dot) td.appendChild(dot.cloneNode(true));
+        td.appendChild(input);
+      } else {
+        td.innerHTML = '';
+        td.appendChild(input);
+      }
+      input.focus();
+      input.select();
+      var save = function() {
+        var newValue = input.value.trim();
+        var timestamp = new Date().toISOString();
+        if (isLiturgical) {
+          var color = td.getAttribute('data-color') || 'Green';
+          STATE.rosterEdits.set(key, { day: newValue || self.getDefaultDayText(STATE.rosterMonth, 0), color: color });
+          var colorHex = self.COLORS[color] || self.COLORS.Green;
+          var borderStyle = color === 'White' ? 'border: 1px solid #cbd5e1;' : '';
+          td.innerHTML = '<span class="altar-color-dot" style="background:' + colorHex + ';' + borderStyle + '" title="Click to change color"></span><span class="liturgical-text">' + self.escapeHtml(newValue || self.getDefaultDayText(STATE.rosterMonth, 0)) + '</span>';
+        } else {
+          STATE.rosterEdits.set(key, newValue || 'TBD');
+          td.textContent = newValue || 'TBD';
+        }
+        STATE.rosterCellTimestamps.set(key, timestamp);
+        td.setAttribute('data-timestamp', timestamp);
+        td.classList.add('roster-cell-edited');
+        self.markUnsaved();
+        self.bindCellEvents();
+      };
+      var cancel = function() { td.innerHTML = originalHtml; self.bindCellEvents(); };
+      input.onkeydown = function(e) { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { e.preventDefault(); cancel(); } };
+      input.onblur = function() { setTimeout(save, 100); };
+    },
+
+    cycleColor: function(td) {
+      var currentColor = td.getAttribute('data-color') || 'Green';
+      var nextIndex = (this.COLOR_NAMES.indexOf(currentColor) + 1) % this.COLOR_NAMES.length;
+      var nextColor = this.COLOR_NAMES[nextIndex];
+      td.setAttribute('data-color', nextColor);
+      var dot = td.querySelector('.altar-color-dot');
+      if (dot) {
+        dot.style.background = this.COLORS[nextColor];
+        dot.style.border = nextColor === 'White' ? '1px solid #cbd5e1' : '';
+      }
+      var key = td.getAttribute('data-key');
+      var textSpan = td.querySelector('.liturgical-text');
+      var dayText = textSpan ? textSpan.textContent : '';
+      var timestamp = new Date().toISOString();
+      STATE.rosterEdits.set(key, { day: dayText, color: nextColor });
+      STATE.rosterCellTimestamps.set(key, timestamp);
+      td.setAttribute('data-timestamp', timestamp);
+      td.classList.add('roster-cell-edited');
+      this.markUnsaved();
+    },
+
+    markUnsaved: function() {
+      STATE.rosterHasUnsaved = true;
+      var indicator = document.getElementById('rosterUnsavedIndicator');
+      if (indicator) indicator.classList.remove('hidden');
+    },
+
+    clearUnsaved: function() {
+      STATE.rosterHasUnsaved = false;
+      var indicator = document.getElementById('rosterUnsavedIndicator');
+      if (indicator) indicator.classList.add('hidden');
+    },
+
+    saveChanges: function() {
+      var self = this;
+      if (!STATE.rosterEdits.size) { this.showToast('No changes to save', 'warning'); return; }
+      var edits = [];
+      STATE.rosterEdits.forEach(function(value, key) {
+        var parts = key.split('__');
+        edits.push({ roleId: parts[0], date: parts[1].replace(/_/g, ' '), value: typeof value === 'object' ? JSON.stringify(value) : value, month: STATE.rosterMonth, year: STATE.rosterYear, timestamp: STATE.rosterCellTimestamps.get(key) || '' });
+      });
+      this.showLoader(true);
+      this.callGAS('saveRosterEdits', [edits]).then(function() {
+        self.showToast('Changes saved successfully!', 'success');
+        self.clearUnsaved();
+        var syncStatus = document.getElementById('rosterSyncStatus');
+        if (syncStatus) syncStatus.textContent = 'Last synced: ' + new Date().toLocaleTimeString();
+      }).catch(function(err) { console.error('Save error:', err); self.showToast('Failed to save changes', 'error'); }).finally(function() { self.showLoader(false); });
+    },
+
+    downloadCSV: function() {
+      var self = this;
+      var serviceDays = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      var headers = serviceDays.map(function(d) { return d.name || d.dateStr; });
+      var csv = 'Worship Duty,' + headers.join(',') + '\n';
+      this.ROLES.filter(function(r) { return r.type !== 'header'; }).forEach(function(role) {
+        var rowData = [role.label];
+        serviceDays.forEach(function(day, idx) {
+          var key = role.id + '__' + day.dateStr.replace(/\s/g, '_');
+          var saved = STATE.rosterEdits.get(key);
+          var value = 'TBD';
+          if (role.type === 'liturgical') value = (saved && saved.day) ? saved.day : (day.name || self.getDefaultDayText(STATE.rosterMonth, idx));
+          else value = saved || 'TBD';
+          rowData.push('"' + String(value).replace(/"/g, '""') + '"');
+        });
+        csv += rowData.join(',') + '\n';
+      });
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      var link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'LHC_Roster_' + this.MONTHS[STATE.rosterMonth] + '_' + STATE.rosterYear + '.csv';
+      link.click();
+      this.showToast('CSV downloaded!', 'success');
+    },
+
+    downloadPDF: function() { window.print(); this.showToast('Print dialog opened', 'success'); },
+
+    shareWeekly: function(dateStr, dateName) {
+      var self = this;
+      var serviceDays = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      var dayInfo = serviceDays.find(function(d) { return d.dateStr === dateStr; });
+      var displayName = dateName || (dayInfo && dayInfo.name) || dateStr;
+      var fullDate = dayInfo ? dayInfo.date : new Date();
+      var dayOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][fullDate.getDay()];
+      var formattedDate = dayOfWeek + ', ' + this.MONTHS[fullDate.getMonth()] + ' ' + fullDate.getDate() + ', ' + fullDate.getFullYear();
+      
+      var lines = [
+        '🏛 *LUTHER HOUSE CHAPEL* *Worship Enablers*',
+        '📅 ' + formattedDate,
+        '━━━━━━━━━━━━━━━━━━━━━━'
+      ];
+      
+      var getValue = function(roleId) {
+        var key = roleId + '__' + dateStr.replace(/\s/g, '_');
+        return STATE.rosterEdits.get(key) || '';
+      };
+      
+      var addRole = function(label, roleId) {
+        var value = getValue(roleId);
+        if (value && value !== 'TBD') {
+          var paddedLabel = label + ':';
+          while (paddedLabel.length < 22) paddedLabel += ' ';
+          lines.push('• *' + label + ':*' + '              '.substring(0, 22 - label.length) + value);
+        }
+      };
+      
+      addRole('Preacher', 'preacher');
+      addRole('Liturgist', 'liturgist');
+      
+      var hasUshers = getValue('usher1') || getValue('usher2');
+      if (hasUshers) {
+        lines.push('');
+        addRole('Usher 1', 'usher1');
+        addRole('Usher 2', 'usher2');
+      }
+      
+      var hasReaders = getValue('reader1') || getValue('reader2');
+      if (hasReaders) {
+        lines.push('');
+        addRole('Reader 1', 'reader1');
+        addRole('Reader 2', 'reader2');
+      }
+      
+      var hasScripture = getValue('reading1') || getValue('psalm') || getValue('reading2') || getValue('gospel');
+      if (hasScripture) {
+        lines.push('');
+        addRole('1st Reading', 'reading1');
+        addRole('Psalm', 'psalm');
+        addRole('2nd Reading', 'reading2');
+        addRole('Gospel', 'gospel');
+      }
+      
+      var hasCommunion = getValue('communion1') || getValue('communion2') || getValue('altar1') || getValue('altar2');
+      if (hasCommunion) {
+        lines.push('');
+        addRole('Communion 1', 'communion1');
+        addRole('Communion 2', 'communion2');
+        addRole('Altar Guild 1', 'altar1');
+        addRole('Altar Guild 2', 'altar2');
+      }
+      
+      var hasMusic = getValue('pianist') || getValue('guitarist') || getValue('bassist') || getValue('drummer') || getValue('singer1') || getValue('singer2') || getValue('singer3') || getValue('singer4');
+      if (hasMusic) {
+        lines.push('');
+        addRole('Pianist', 'pianist');
+        addRole('Guitarist', 'guitarist');
+        addRole('Bassist', 'bassist');
+        addRole('Drummer', 'drummer');
+        addRole('Singer 1', 'singer1');
+        addRole('Singer 2', 'singer2');
+        addRole('Singer 3', 'singer3');
+        addRole('Singer 4', 'singer4');
+      }
+      
+      var hasTech = getValue('lcd') || getValue('streaming') || getValue('pa');
+      if (hasTech) {
+        lines.push('');
+        addRole('LCD Operator', 'lcd');
+        addRole('Live Streaming', 'streaming');
+        addRole('PA System', 'pa');
+      }
+      
+      lines.push('');
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━');
+      lines.push('_Sent from LHC Worship Prep_');
+      
+      var waUrl = 'https://wa.me/?text=' + encodeURIComponent(lines.join('\n'));
+      window.open(waUrl, '_blank');
+    },
+
+    escapeHtml: function(str) { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); },
+    showToast: function(message, type) { var el = document.getElementById('toastNotification'); if (!el) return; el.textContent = message; el.className = 'toast-notification show ' + (type || ''); clearTimeout(this._toastTimer); this._toastTimer = setTimeout(function() { el.classList.remove('show'); }, 3500); },
+    showLoader: function(show) { var el = document.getElementById('loadingIndicator'); if (el) el.classList.toggle('show', show); },
+    callGAS: function(functionName, args) { return new Promise(function(resolve, reject) { if (typeof google === 'undefined' || !google.script || !google.script.run) { reject(new Error('GAS not available')); return; } var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject); if (typeof runner[functionName] !== 'function') { reject(new Error('Function not found: ' + functionName)); return; } runner[functionName].apply(runner, args || []); }); }
+  };
+
+  window.RosterEngine = RosterEngine;
+})();
+</script>
+
+</body>
+</html>

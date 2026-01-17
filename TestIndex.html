@@ -1,0 +1,91 @@
+
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LHC – Customizer Test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{ --brand:#4a6da7; --bg:#f8f7f5; --ink:#333; }
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial}
+  .wrap{max-width:720px;margin:40px auto;padding:0 16px}
+  h1{margin:0 0 8px}
+  p.note{color:#6b7280;margin-top:0}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px 16px 18px}
+  .row{display:grid;grid-template-columns:160px 1fr;gap:10px;align-items:center;margin:10px 0}
+  input[type="text"]{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px;background:#f9fafb}
+  .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  button,a.btn{background:var(--brand);color:#fff;border:0;border-radius:10px;padding:10px 14px;text-decoration:none;cursor:pointer}
+  .ghost{background:#eef2ff;color:#1e3a8a}
+  .tiny{font-size:12px;color:#6b7280;margin-top:4px}
+  footer{margin-top:24px;color:#6b7280;font-size:12px;text-align:center}
+  code{background:#f3f4f6;padding:2px 6px;border-radius:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Customizer Test</h1>
+  <p class="note">Use this lightweight page to launch the Customizer and verify saving/PDF works.</p>
+
+  <div class="card">
+    <div class="row">
+      <label>Song title</label>
+      <input id="title" type="text" placeholder="e.g., Amazing Grace">
+    </div>
+    <div class="row">
+      <label>Drive fileId</label>
+      <input id="fileId" type="text" placeholder="Optional: Google Doc/PDF fileId for preview">
+    </div>
+    <div class="row">
+      <label>Song ID</label>
+      <input id="songId" type="text" placeholder="Optional: internal songId (for tagging)">
+    </div>
+
+    <div class="btns">
+      <button id="openCustomizer">Open Customizer</button>
+      <button class="ghost" id="openList">Open Arrangements List</button>
+      <button id="openCustomizerBlank">Open without fileId</button>
+    </div>
+
+    <div class="tiny">
+      Tip: For a Drive link like <code>https://drive.google.com/file/d/<b>FILE_ID</b>/view</code>, copy just the <b>FILE_ID</b>.
+    </div>
+  </div>
+
+  <footer>
+    Served by <code><?= scriptUrl ?></code>
+  </footer>
+</div>
+
+<script>
+  const SCRIPT_URL = "<?= scriptUrl ?>";
+  const $ = (id)=>document.getElementById(id);
+
+  function buildQuery(mode){
+    const qs = new URLSearchParams();
+    const title = $('title').value.trim();
+    const fileId = $('fileId').value.trim();
+    const songId = $('songId').value.trim();
+    if (title) qs.set('title', title);
+    if (fileId) qs.set('fileId', fileId);
+    if (songId) qs.set('songId', songId);
+    qs.set('page','customizer');
+    if (mode) qs.set('mode', mode);
+    return qs.toString();
+  }
+
+  $('openCustomizer').onclick = () => {
+    const u = `${SCRIPT_URL}?${buildQuery('')}`;
+    window.open(u, '_blank');
+  };
+  $('openList').onclick = () => {
+    const u = `${SCRIPT_URL}?${buildQuery('list')}`;
+    window.open(u, '_blank');
+  };
+  $('openCustomizerBlank').onclick = () => {
+    const qs = new URLSearchParams({ page:'customizer', title: $('title').value.trim() });
+    const u = `${SCRIPT_URL}?${qs.toString()}`;
+    window.open(u, '_blank');
+  };
+</script>
+</body>
+</html>

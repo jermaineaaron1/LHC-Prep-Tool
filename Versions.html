@@ -1,0 +1,99 @@
+
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Song Versions</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f7f7fb;margin:0}
+    .wrap{max-width:900px;margin:40px auto;background:#fff;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.08);overflow:hidden}
+    .hd{padding:18px 22px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+    .hd h2{margin:0;font-size:18px;color:#3a5d97}
+    .content{padding:16px 22px}
+    .row{display:grid;grid-template-columns:1fr 160px 220px;gap:10px;align-items:center;padding:10px 0;border-bottom:1px dashed #eee}
+    .row:last-child{border:none}
+    .btn{border:0;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer}
+    .btn.blue{background:#3a5d97;color:#fff}
+    .btn.gray{background:#e9eef6}
+    .btn.red{background:#f5d5d5;color:#8b2a2a}
+    .actions{display:flex;gap:6px;justify-content:flex-end}
+    .topbar{display:flex;gap:8px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hd">
+      <h2 id="title">Versions</h2>
+      <div class="topbar">
+        <button id="newBtn" class="btn blue">New arrangement</button>
+        <button id="backBtn" class="btn gray">Back</button>
+      </div>
+    </div>
+    <div class="content">
+      <div id="list"></div>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const SONG_ID = params.get('songId') || '';
+    const TITLE   = decodeURIComponent(params.get('title') || '');
+
+    document.getElementById('title').textContent = `Versions • ${TITLE || SONG_ID}`;
+    document.getElementById('backBtn').onclick = () => history.back();
+    document.getElementById('newBtn').onclick  = () => {
+      const url = `<?!= SCRIPT_URL ?>?view=editor&songId=${encodeURIComponent(SONG_ID)}&title=${encodeURIComponent(TITLE)}`;
+      window.location.href = url;
+    };
+
+    function render(items){
+      const list = document.getElementById('list');
+      if (!items || !items.length){
+        list.innerHTML = '<p style="color:#666;margin:8px 0">No versions yet.</p>';
+        return;
+      }
+      list.innerHTML = '';
+      items.forEach(it => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div><strong>${it.name}</strong></div>
+          <div style="color:#6b7280">${it.created}</div>
+          <div class="actions">
+            <button class="btn gray" data-open="${it.id}">Open</button>
+            <button class="btn blue" data-print="${it.id}">Print</button>
+            <button class="btn red"  data-del="${it.id}">Delete</button>
+          </div>
+        `;
+        list.appendChild(row);
+      });
+
+      list.addEventListener('click', (e)=>{
+        const id = e.target.dataset.open || e.target.dataset.print || e.target.dataset.del;
+        if (!id) return;
+
+        if (e.target.dataset.open){
+          const url = `<?!= SCRIPT_URL ?>?view=editor&songId=${encodeURIComponent(SONG_ID)}&title=${encodeURIComponent(TITLE)}&fileId=${encodeURIComponent(id)}`;
+          window.location.href = url;
+        } else if (e.target.dataset.print){
+          const w = window.open('about:blank','_blank');
+          google.script.run.withSuccessHandler(res=>{
+            w.location = res.pdfUrl || res.docUrl;
+          }).withFailureHandler(err=>{
+            w.close(); alert('Print failed: ' + (err?.message || err));
+          }).renderArrangementFromSaved(id);
+        } else if (e.target.dataset.del){
+          if (!confirm('Delete this version?')) return;
+          google.script.run.withSuccessHandler(()=>{
+            load();
+          }).deleteArrangement(id);
+        }
+      }, { once:true });
+    }
+
+    function load(){
+      google.script.run.withSuccessHandler(render).listArrangements(SONG_ID);
+    }
+    load();
+  </script>
+</body>
+</html>

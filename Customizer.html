@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Song Customizer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+  :root{ --brand:#4a6da7; --brand2:#6b9ac4; --bg:#f8f7f5; --ink:#333 }
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial}
+  .toolbar{position:sticky;top:0;z-index:20;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:8px;padding:10px 12px}
+  .toolbar .title{flex:1;display:flex;gap:8px;align-items:center}
+  .toolbar input[type="text"]{padding:6px 8px;border:1px solid #e5e7eb;border-radius:6px;min-width:140px;background:#f9fafb}
+  .btn{background:var(--brand);color:#fff;border:0;border-radius:8px;padding:8px 10px;cursor:pointer}
+  .btn.secondary{background:var(--brand2)}
+  .btn.ghost{background:#eef2ff;color:#1e3a8a}
+  .btn.icon{padding:8px;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px}
+  .split{display:grid;grid-template-columns:minmax(260px,36%) 1fr;gap:12px;padding:12px}
+  .panel{background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden}
+  .panel h3{margin:0;padding:10px 12px;border-bottom:1px solid #e5e7eb;background:#fafafa;font-weight:600}
+  .panel .body{padding:12px}
+  .meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:8px}
+  .meta input,.meta textarea,.meta select{width:100%;padding:8px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb}
+  .editor-wrap{display:grid;grid-template-columns:1fr;gap:8px}
+  .editor-toolbar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+  #chordsContent{border:1px dashed #cbd5e1;border-radius:8px;min-height:320px;padding:10px;white-space:pre-wrap}
+  #chordsContent .chord{font-weight:700;color:#1f2937}
+  #lyricsOnlyText{width:100%;min-height:220px}
+  .preview-iframe{width:100%;min-height:60vh;border:0;background:#fff}
+  .canvas-wrap{position:relative;border:1px dashed #cbd5e1;border-radius:8px;overflow:hidden}
+  #drawingCanvas{display:block;width:100%;height:420px;background:#fff}
+  .tools{display:flex;gap:6px;align-items:center;margin:6px 0}
+  .row{display:flex;align-items:center;gap:8px}
+  .spacer{flex:1}
+  .note{font-size:12px;color:#6b7280}
+  #toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#16a34a;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 10px 25px rgba(0,0,0,.2);opacity:0;pointer-events:none;transition:opacity .25s}
+  #toast.show{opacity:1}
+</style>
+</head>
+<body>
+<!-- Top toolbar -->
+<div class="toolbar">
+  <div class="title">
+    <button class="btn icon ghost" id="backBtn" title="Back"><i class="fa-solid fa-arrow-left"></i></button>
+    <input id="songTitle" type="text" placeholder="Song title">
+    <input id="artistName" type="text" placeholder="Artist">
+  </div>
+  <div class="row">
+    <button class="btn icon secondary" id="transposeDownBtn" title="Transpose -1"><i class="fa-solid fa-arrow-down"></i></button>
+    <button class="btn icon secondary" id="transposeUpBtn" title="Transpose +1"><i class="fa-solid fa-arrow-up"></i></button>
+    <button class="btn icon" id="saveBtn" title="Save (Drive)"><i class="fa-solid fa-church"></i></button>
+    <button class="btn ghost" id="printBtn" title="Export to PDF"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+  </div>
+</div>
+
+<div class="split">
+  <!-- Left: Original preview + Drawing -->
+  <div class="panel">
+    <h3>Original (Doc/PDF Preview)</h3>
+    <div class="body">
+      <iframe id="originalPreview" class="preview-iframe" src="about:blank"></iframe>
+      <p class="note">If you provide a Google Drive <em>fileId</em> via <code>?fileId=</code>, it previews here.</p>
+      <h3 style="margin-top:14px;">Draw Annotations</h3>
+      <div class="body">
+        <div class="tools">
+          <label>Pen</label>
+          <input type="color" id="penColor" value="#C62828">
+          <label>Size</label>
+          <input type="range" id="penSize" min="1" max="18" value="4">
+          <button class="btn ghost" id="eraserBtn"><i class="fa-solid fa-eraser"></i> Eraser</button>
+          <button class="btn ghost" id="clearCanvasBtn"><i class="fa-solid fa-trash"></i> Clear</button>
+          <div class="spacer"></div>
+          <span class="note">Sketch markings over the reference</span>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="drawingCanvas" width="1200" height="700"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Chords + Lyrics Editor -->
+  <div class="panel">
+    <h3>Chord & Lyrics Editor</h3>
+    <div class="body">
+      <div class="meta">
+        <input id="metaKey" placeholder="Key (e.g., C)">
+        <input id="metaTempo" placeholder="Tempo (e.g., 72)">
+        <input id="metaCapo" placeholder="Capo (e.g., 2)">
+        <input id="metaNotes" placeholder="Notes">
+      </div>
+      <div class="editor-wrap">
+        <div>
+          <div class="editor-toolbar">
+            <label class="note">Wrap chords in <code>&lt;span class="chord"&gt;C&lt;/span&gt;</code>.</label>
+            <button class="btn ghost" id="biggerFont"><i class="fa-solid fa-plus"></i> Font</button>
+            <button class="btn ghost" id="smallerFont"><i class="fa-solid fa-minus"></i> Font</button>
+          </div>
+          <div id="chordsContent" contenteditable="true" spellcheck="false"></div>
+        </div>
+        <div>
+          <label class="note">Lyrics only (optional)</label>
+          <textarea id="lyricsOnlyText" placeholder="Paste lyrics here…"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- URL Params ----------
+  var params   = new URLSearchParams(location.search);
+  var SONG_ID  = params.get('songId') || '';
+  var FILE_ID  = params.get('fileId') || '';
+  var TITLE    = decodeURIComponent(params.get('title') || '');
+  var MODE     = params.get('mode') || ''; // optional 'list'
+  var ARR_ID   = params.get('arrId') || '';
+
+  // ---------- Elements ----------
+  function el(id){ return document.getElementById(id); }
+  var chordsContent   = el('chordsContent');
+  var lyricsOnlyText  = el('lyricsOnlyText');
+  var originalPreview = el('originalPreview');
+  var toastEl         = el('toast');
+
+  function showToast(msg){
+    toastEl.textContent = String(msg||'');
+    toastEl.classList.add('show');
+    setTimeout(function(){ toastEl.classList.remove('show'); }, 1600);
+  }
+
+  // ---------- Init ----------
+  function init(){
+    if (TITLE) el('songTitle').value = TITLE;
+    if (FILE_ID) originalPreview.src = "https://drive.google.com/file/d/"+encodeURIComponent(FILE_ID)+"/preview";
+    wireToolbar();
+    setupCanvas();
+    if (MODE === 'list') showArrangementsList();
+    if (ARR_ID) loadArrangement(ARR_ID); // load if provided
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, {once:true});
+  } else {
+    init();
+  }
+
+  // ---------- Toolbar actions ----------
+  function wireToolbar(){
+    el('backBtn')?.addEventListener('click', function(){ history.back(); });
+    el('transposeUpBtn')?.addEventListener('click', function(){ transpose(+1); });
+    el('transposeDownBtn')?.addEventListener('click', function(){ transpose(-1); });
+    el('biggerFont')?.addEventListener('click', function(){ adjustFontSize(1); });
+    el('smallerFont')?.addEventListener('click', function(){ adjustFontSize(-1); });
+    el('saveBtn')?.addEventListener('click', saveArrangementClick);
+    el('printBtn')?.addEventListener('click', printPdfClick);
+  }
+
+  function adjustFontSize(delta){
+    var s = window.getComputedStyle(chordsContent).fontSize || '14px';
+    var cur = parseInt(s,10) || 14;
+    chordsContent.style.fontSize = Math.max(10, cur + delta) + 'px';
+  }
+
+  // ---------- Transpose ----------
+  var SHARP_ENH = {'DB':'C#','EB':'D#','GB':'F#','AB':'G#','BB':'A#'};
+  var LADDER    = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+  function normalizeRoot(root){
+    root = root.toUpperCase();
+    return SHARP_ENH[root] || root;
+  }
+
+  function transposeChord(ch, steps){
+    return ch.replace(/^([A-G](?:#|b)?)(.*)$/i, function(_, root, tail){
+      root = normalizeRoot(root);
+      var idx = LADDER.indexOf(root);
+      if (idx < 0) return ch;
+      idx = (idx + steps + 1200) % 12;
+      var out = LADDER[idx];
+
+      // slash bass note
+      if (/\/[A-G](#|b)?/i.test(tail)) {
+        tail = tail.replace(/\/([A-G](#|b)?)/i, function(_m, b){ return '/'+transposeChord(b, steps); });
+      }
+      return out + tail;
+    });
+  }
+
+  function transpose(steps){
+    chordsContent.querySelectorAll('.chord').forEach(function(span){
+      span.textContent = transposeChord(span.textContent.trim(), steps);
+    });
+    var k = el('metaKey').value.trim();
+    if (k) el('metaKey').value = transposeChord(k, steps);
+    showToast('Transposed ' + (steps>0?'+':'') + steps);
+  }
+
+  // ---------- Canvas drawing ----------
+  var drawing=false, erasing=false, last=null, penColor='#C62828', penSize=4;
+  function setupCanvas(){
+    var c = el('drawingCanvas');
+    var ctx = c.getContext('2d');
+    var ratio = window.devicePixelRatio || 1;
+
+    function resize(){
+      var rect = c.getBoundingClientRect();
+      // reset transforms before resizing to avoid compounding scale
+      ctx.setTransform(1,0,0,1,0,0);
+      c.width  = Math.max(1, Math.floor(rect.width * ratio));
+      c.height = Math.max(1, Math.floor(rect.height* ratio));
+      ctx.scale(ratio, ratio);
+      ctx.lineCap='round'; ctx.lineJoin='round';
+      ctx.strokeStyle = penColor; ctx.lineWidth = penSize;
+    }
+
+    try{
+      resize();
+      if (window.ResizeObserver) {
+        new ResizeObserver(function(){ resize(); }).observe(c.parentElement || c);
+      } else {
+        window.addEventListener('resize', resize);
+      }
+    }catch(_){}
+
+    c.addEventListener('pointerdown', function(e){ drawing=true; last=pos(e,c); drawPoint(ctx,last); });
+    c.addEventListener('pointermove', function(e){ if(!drawing) return; var p=pos(e,c); drawLine(ctx,last,p); last=p;});
+    window.addEventListener('pointerup', function(){ drawing=false; });
+
+    el('penColor')?.addEventListener('input', function(e){ penColor=e.target.value; erasing=false; });
+    el('penSize')?.addEventListener('input',  function(e){ penSize=+e.target.value; erasing=false; });
+    el('eraserBtn')?.addEventListener('click',function(){ erasing=!erasing; });
+    el('clearCanvasBtn')?.addEventListener('click',function(){ ctx.clearRect(0,0,c.width,c.height); });
+
+    function pos(e,canvas){
+      var r = canvas.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+    function drawPoint(ctx,p){
+      ctx.beginPath();
+      ctx.fillStyle = erasing ? '#ffffff' : penColor;
+      ctx.arc(p.x, p.y, Math.max(1, penSize/2), 0, Math.PI*2);
+      ctx.fill();
+    }
+    function drawLine(ctx,a,b){
+      ctx.beginPath();
+      ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+      ctx.strokeStyle = erasing ? '#ffffff' : penColor;
+      ctx.lineWidth = penSize;
+      ctx.stroke();
+    }
+  }
+
+  function canvasDataURL(){
+    try { return el('drawingCanvas').toDataURL('image/png'); } catch(_){ return ''; }
+  }
+
+  // ---------- Payload ----------
+  function collectPayload(){
+    return {
+      songId: SONG_ID,
+      title: el('songTitle').value || '',
+      artist: el('artistName').value || '',
+      lyrics: el('lyricsOnlyText').value || '',
+      html: chordsContent.innerHTML || '',
+      drawingDataURL: canvasDataURL(),
+      meta: {
+        key: el('metaKey').value || '',
+        tempo: el('metaTempo').value || '',
+        capo: Number(el('metaCapo').value || 0) || 0,
+        notes: el('metaNotes').value || ''
+      }
+    };
+  }
+
+  // ---------- Server calls (guarded) ----------
+  function haveGAS(){ return !!(window.google && google.script && google.script.run); }
+
+  function saveArrangementClick(){
+    if (!haveGAS()) { alert('This page must be served by Apps Script to save.'); return; }
+    var payload = collectPayload();
+    google.script.run
+      .withSuccessHandler(function(res){ showToast('Saved'); })
+      .withFailureHandler(function(err){ alert('Save failed: ' + (err && (err.message||err))); })
+      .saveArrangement(payload); // server.gs must implement
+  }
+
+  function printPdfClick(){
+    if (!haveGAS()) { alert('This page must be served by Apps Script to export PDF.'); return; }
+    var w = window.open('about:blank','_blank');
+    var payload = collectPayload();
+    google.script.run
+      .withSuccessHandler(function(res){ if(w) w.location = res.pdfUrl || res.docUrl || 'about:blank'; })
+      .withFailureHandler(function(err){ if(w) w.close(); alert('Export failed: ' + (err && (err.message||err))); })
+      .renderArrangementDoc(payload); // server.gs must implement
+  }
+
+  function loadArrangement(id){
+    if (!haveGAS()) return;
+    google.script.run
+      .withSuccessHandler(function(data){
+        try{
+          el('songTitle').value = data.title || '';
+          el('artistName').value = data.artist || '';
+          el('lyricsOnlyText').value = data.lyrics || '';
+          if (data.html) chordsContent.innerHTML = data.html;
+          var m = data.meta || {};
+          el('metaKey').value   = m.key || '';
+          el('metaTempo').value = m.tempo || '';
+          el('metaCapo').value  = (m.capo || 0);
+          el('metaNotes').value = m.notes || '';
+          showToast('Arrangement loaded');
+        }catch(e){ console.log(e); }
+      })
+      .withFailureHandler(function(err){ alert('Load failed: ' + (err && (err.message||err))); })
+      .getArrangement(id); // server.gs must implement
+  }
+
+  function showArrangementsList(){
+    if (!haveGAS()) return;
+    var container = document.createElement('div');
+    container.className = 'panel';
+    container.innerHTML = '<h3>Saved Arrangements</h3><div class="body" id="arrList">Loading…</div>';
+    var split = document.querySelector('.split');
+    split.innerHTML = '';
+    split.appendChild(container);
+
+    google.script.run
+      .withSuccessHandler(function(list){
+        var host = document.getElementById('arrList');
+        host.innerHTML = '';
+        if (!list || !list.length) { host.textContent = 'No saved arrangements yet.'; return; }
+        list.forEach(function(item){
+          var row = document.createElement('div');
+          row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0;';
+          row.innerHTML =
+            '<div>'
+            +  '<div style="font-weight:600">'+(item.name||'(Untitled)')+'</div>'
+            +  '<div class="note">'+new Date(item.updated).toLocaleString()+'</div>'
+            +'</div>'
+            +'<div style="display:flex;gap:6px;align-items:center">'
+            +  '<a class="btn ghost" target="_blank" href="'+item.url+'"><i class="fa-solid fa-download"></i></a>'
+            +  '<a class="btn" href="?page=customizer&arrId='+encodeURIComponent(item.id)+'&title='+encodeURIComponent(TITLE)+'"><i class="fa-solid fa-pen"></i> Edit</a>'
+            +'</div>';
+          host.appendChild(row);
+        });
+      })
+      .withFailureHandler(function(err){
+        var host = document.getElementById('arrList');
+        host.textContent = 'Error loading list: ' + (err && (err.message||err));
+      })
+      .listArrangements({ songId: SONG_ID, title: TITLE }); // server.gs must implement
+  }
+
+})();
+</script>
+</body>
+</html>
