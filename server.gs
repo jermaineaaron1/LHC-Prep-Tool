@@ -5,12 +5,18 @@
 // ================================================================
 
 var CONFIG = {
+  SPREADSHEET_ID: '13xnjS92van4qY39CObWOuC7ccqUcxNLWgaT4QZgC7Tw',
   SONGS_SHEET: 'Songs',
   ORDERS_SHEET: 'Orders',
   ROSTER_SHEET: 'Roster',
   ROSTER_CHANGES_SHEET: 'RosterChanges', // New for v2.8
   ROSTER_HISTORY_SHEET: 'RosterHistory'  // New for v2.8
 };
+
+// Get the spreadsheet (works for standalone scripts)
+function getSpreadsheet_() {
+  return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+}
 
 // ================================================================
 // SERVE WEB APP
@@ -431,7 +437,7 @@ function saveOrder(payload) {
 function getRosterUpdates() {
   try {
     // First try the dedicated RosterChanges sheet
-    var changesSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
+    var changesSheet = getSpreadsheet_().getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
     
     if (!changesSheet) {
       Logger.log('RosterChanges sheet not found - returning empty array (frontend will show mock data)');
@@ -494,7 +500,7 @@ function getRosterHistory(roleId, serviceDate) {
   // First try RosterHistory sheet (dedicated history log)
   var historySheet;
   try {
-    historySheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ROSTER_HISTORY_SHEET);
+    historySheet = getSpreadsheet_().getSheetByName(CONFIG.ROSTER_HISTORY_SHEET);
   } catch (e) {
     historySheet = null;
   }
@@ -505,7 +511,7 @@ function getRosterHistory(roleId, serviceDate) {
   
   // Fallback: try RosterChanges sheet
   try {
-    var changesSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
+    var changesSheet = getSpreadsheet_().getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
     if (changesSheet) {
       return getRosterHistoryFromSheet_(changesSheet, roleId, serviceDate);
     }
@@ -513,7 +519,7 @@ function getRosterHistory(roleId, serviceDate) {
   
   // Last fallback: try main Roster sheet
   try {
-    var rosterSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ROSTER_SHEET);
+    var rosterSheet = getSpreadsheet_().getSheetByName(CONFIG.ROSTER_SHEET);
     if (rosterSheet) {
       return getRosterHistoryFromSheet_(rosterSheet, roleId, serviceDate);
     }
@@ -686,7 +692,7 @@ function saveRosterEdits(editsArray) {
     sheet = getSheet_(CONFIG.ROSTER_SHEET);
   } catch (e) {
     // Create sheet if it doesn't exist
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = getSpreadsheet_();
     sheet = ss.insertSheet(CONFIG.ROSTER_SHEET);
     sheet.appendRow(['Role', 'Date', 'Value', 'Month', 'Year', 'LastEdited']);
   }
@@ -779,7 +785,7 @@ function saveRosterEdits(editsArray) {
 // SETUP ROSTER CHANGES SHEET (v2.8 - Run once)
 // ================================================================
 function setupRosterChangesSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet_();
   
   var existingSheet = ss.getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
   if (existingSheet) {
@@ -814,7 +820,7 @@ function setupRosterChangesSheet() {
 // ================================================================
 function logRosterChange(duty, roleId, serviceDate, oldValue, newValue) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = getSpreadsheet_();
     var changesSheet = ss.getSheetByName(CONFIG.ROSTER_CHANGES_SHEET);
     
     if (!changesSheet) {
@@ -855,9 +861,9 @@ function logRosterChange(duty, roleId, serviceDate, oldValue, newValue) {
 function logRosterChanges_(entries) {
   var historySheet;
   try {
-    historySheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ROSTER_HISTORY_SHEET);
+    historySheet = getSpreadsheet_().getSheetByName(CONFIG.ROSTER_HISTORY_SHEET);
   } catch (e) {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = getSpreadsheet_();
     historySheet = ss.insertSheet(CONFIG.ROSTER_HISTORY_SHEET);
     historySheet.getRange(1, 1, 1, 5).setValues([['Role', 'Date', 'Value', 'OldValue', 'Timestamp']]);
     historySheet.getRange(1, 1, 1, 5).setFontWeight('bold');
@@ -1187,7 +1193,7 @@ function formatExtractedLyrics(text) {
 // ================================================================
 
 function getSheet_(name) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet_();
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
     throw new Error('Sheet not found: ' + name);
