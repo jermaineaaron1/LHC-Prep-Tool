@@ -332,24 +332,25 @@
 
     /* ==================== ROSTER NAV BUTTONS ==================== */
     .roster-nav-btn {
-      background: linear-gradient(135deg, #5b6abf 0%, #7c5bb5 100%);
+      background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
       border: none;
       border-radius: 50%;
-      width: 44px;
-      height: 44px;
+      width: 52px;
+      height: 52px;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       transition: all 0.3s ease;
-      box-shadow: 0 4px 12px rgba(91, 106, 191, 0.3);
+      box-shadow: 0 4px 12px rgba(31, 41, 55, 0.4);
       color: white;
-      font-size: 20px;
+      font-size: 24px;
       font-weight: 700;
     }
     .roster-nav-btn:hover {
       transform: translateY(-2px) scale(1.05);
-      box-shadow: 0 8px 20px rgba(91, 106, 191, 0.4);
+      box-shadow: 0 8px 20px rgba(31, 41, 55, 0.5);
+      background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
     }
 
     /* ==================== ROSTER ACTION BUTTONS ==================== */
@@ -560,6 +561,47 @@
       box-shadow: 0 4px 12px rgba(20, 184, 166, 0.2);
       text-align: center;
     }
+    .roster-inline-select {
+      width: 100%;
+      border: 2px solid var(--roster-teal);
+      background: white;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 6px 8px;
+      border-radius: 8px;
+      outline: none;
+      box-shadow: 0 4px 12px rgba(20, 184, 166, 0.2);
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2314b8a6' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      padding-right: 24px;
+    }
+    .roster-inline-select:focus {
+      border-color: var(--roster-teal-dark);
+      box-shadow: 0 4px 16px rgba(20, 184, 166, 0.3);
+    }
+    .roster-inline-select option {
+      padding: 8px;
+      font-family: 'Poppins', sans-serif;
+    }
+    .roster-inline-select option[value="__ADD_NEW__"] {
+      font-style: italic;
+      color: var(--roster-teal-dark);
+      background: #f0fdfa;
+    }
+    .roster-dropdown-container {
+      position: relative;
+      width: 100%;
+    }
+    .roster-dropdown-container input {
+      font-family: 'Poppins', sans-serif;
+    }
+    .roster-dropdown-container button:hover {
+      opacity: 0.85;
+    }
 
     /* ==================== ROSTER LEGEND ==================== */
     .roster-legend {
@@ -725,7 +767,7 @@
         </p>
         
         <!-- Updates List Container -->
-        <div id="rosterUpdatesContainer" class="lhc-scroll-y flex-1 overflow-y-auto space-y-1.5 pr-1" style="max-height: 380px;">
+        <div id="rosterUpdatesContainer" class="lhc-scroll-y flex-1 overflow-y-auto space-y-1.5 pr-1" style="max-height: 900px;">
           <div class="text-xs text-white/60 text-center py-4">Loading updates...</div>
         </div>
       </div>
@@ -3723,87 +3765,206 @@ window.loadEditSongData = function(song) {
     });
   }
   
+  // Store grouped roster updates for navigation
+  var ROSTER_UPDATES_STATE = {
+    grouped: {},      // { "roleId__date": [changes...] }
+    currentIdx: {}    // { "roleId__date": currentIndex }
+  };
+
   function renderRosterUpdates(updates) {
     var container = $('rosterUpdatesContainer');
     if (!container) return;
-    
+
     if (!updates.length) {
-      container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">No recent updates</div>';
+      container.innerHTML = '<div class="text-sm text-white/80 text-center py-4">No recent updates</div>';
       return;
     }
-    
-    var html = '';
-    updates.slice(0, 10).forEach(function(update, idx) {
-      var updateDateStr = '';
-      var updateTimeStr = '';
-      if (update.timestamp) {
-        try {
-          var d = new Date(update.timestamp);
-          updateDateStr = d.getDate() + '/' + (d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(-2);
-          updateTimeStr = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        } catch(e) {}
+
+    // Group updates by role+date, keep last 5 for each
+    var grouped = {};
+    updates.forEach(function(update) {
+      var key = (update.roleId || 'unknown') + '__' + (update.serviceDate || 'unknown');
+      if (!grouped[key]) {
+        grouped[key] = [];
       }
-      
-      var prevDateStr = '';
-      if (update.prevTimestamp) {
-        try {
-          var pd = new Date(update.prevTimestamp);
-          prevDateStr = pd.getDate() + '/' + (pd.getMonth() + 1) + '/' + String(pd.getFullYear()).slice(-2);
-        } catch(e) {}
-      }
-      
-      var roleId = update.roleId || '';
-      var serviceDate = update.serviceDate || '';
-      
-      html += '<div class="roster-update-item px-3 py-2.5 rounded-lg bg-white/10 hover:bg-white/20 transition mb-2" data-role="' + escapeHtml(roleId) + '" data-date="' + escapeHtml(serviceDate) + '" data-idx="' + idx + '">';
-      
-      // Header row: Duty name, nav buttons, and Service date
-      html += '<div class="flex items-center justify-between gap-2 mb-1">';
-      html += '<div class="flex items-center gap-1">';
-      html += '<span class="text-[0.7rem] font-semibold text-amber-300">' + escapeHtml(update.duty || 'Unknown') + '</span>';
-      // Navigation buttons for history
-      html += '<div class="flex gap-0.5 ml-1">';
-      html += '<button class="roster-nav-btn" data-role="' + escapeHtml(roleId) + '" data-date="' + escapeHtml(serviceDate) + '" data-dir="prev" title="Previous change"><i class="fa-solid fa-chevron-left text-[8px]"></i></button>';
-      html += '<button class="roster-nav-btn" data-role="' + escapeHtml(roleId) + '" data-date="' + escapeHtml(serviceDate) + '" data-dir="next" title="Next change"><i class="fa-solid fa-chevron-right text-[8px]"></i></button>';
-      html += '</div>';
-      html += '</div>';
-      html += '<span class="text-[0.65rem] text-white/70 bg-white/10 px-2 py-0.5 rounded">' + escapeHtml(serviceDate) + '</span>';
-      html += '</div>';
-      
-      // Change row: Old → New
-      html += '<div class="text-[0.75rem] text-white/90 mb-1">';
-      if (update.oldValue && update.oldValue !== update.newValue) {
-        html += '<span class="text-white/50 line-through">' + escapeHtml(update.oldValue) + '</span>';
-        html += ' <i class="fa-solid fa-arrow-right text-[0.55rem] text-green-400 mx-1"></i> ';
-      }
-      html += '<span class="text-green-300 font-medium">' + escapeHtml(update.newValue || 'TBD') + '</span>';
-      html += '</div>';
-      
-      // Timestamp row
-      html += '<div class="flex items-center justify-between text-[0.6rem] text-white/40">';
-      if (prevDateStr && update.oldValue) {
-        html += '<span>Prev: ' + prevDateStr + '</span>';
-      } else {
-        html += '<span></span>';
-      }
-      if (updateDateStr) {
-        html += '<span>Updated: ' + updateDateStr + ' ' + updateTimeStr + '</span>';
-      }
-      html += '</div>';
-      
-      html += '</div>';
+      grouped[key].push(update);
     });
-    
+
+    // Sort each group by timestamp (newest first) and limit to 5
+    Object.keys(grouped).forEach(function(key) {
+      grouped[key].sort(function(a, b) {
+        return new Date(b.timestamp || 0) - new Date(a.timestamp || 0);
+      });
+      grouped[key] = grouped[key].slice(0, 5);
+    });
+
+    // Store in state
+    ROSTER_UPDATES_STATE.grouped = grouped;
+
+    // Get unique entries (most recent change per role+date), limit to 10 entries
+    var uniqueKeys = Object.keys(grouped).sort(function(a, b) {
+      var aTime = grouped[a][0] ? new Date(grouped[a][0].timestamp || 0) : new Date(0);
+      var bTime = grouped[b][0] ? new Date(grouped[b][0].timestamp || 0) : new Date(0);
+      return bTime - aTime;
+    }).slice(0, 10);
+
+    // Initialize current index for each
+    uniqueKeys.forEach(function(key) {
+      if (ROSTER_UPDATES_STATE.currentIdx[key] === undefined) {
+        ROSTER_UPDATES_STATE.currentIdx[key] = 0;
+      }
+    });
+
+    var html = '';
+    uniqueKeys.forEach(function(key) {
+      var history = grouped[key];
+      var idx = ROSTER_UPDATES_STATE.currentIdx[key] || 0;
+      var update = history[idx];
+      var totalCount = history.length;
+
+      html += renderSingleUpdate(key, update, idx, totalCount);
+    });
+
     container.innerHTML = html;
-    
-    // Bind navigation button clicks
-    container.querySelectorAll('.roster-nav-btn').forEach(function(btn) {
+    bindRosterUpdateNavigation();
+  }
+
+  function renderSingleUpdate(key, update, currentIdx, totalCount) {
+    var roleId = update.roleId || '';
+    var serviceDate = update.serviceDate || '';
+
+    // Clean service date - extract just "Jan 11" format if it contains full date string
+    function cleanServiceDate(dateStr) {
+      if (!dateStr) return '';
+      dateStr = String(dateStr).trim();
+      // If it looks like "Sun Jan 11 2026 08:00:00..." extract just "Jan 11"
+      var match = dateStr.match(/^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)?\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})/i);
+      if (match) {
+        return match[1] + ' ' + match[2];
+      }
+      // If it's already short like "Jan 11", return as is
+      if (dateStr.length <= 10) return dateStr;
+      // Otherwise truncate at first space after date-like content
+      return dateStr.split(/\s+\d{4}/)[0] || dateStr.substring(0, 10);
+    }
+
+    // Format timestamp as "00:00 am/pm, dd/mm/yy"
+    function formatDateTime(timestamp) {
+      if (!timestamp) return '';
+      try {
+        var d;
+        if (timestamp instanceof Date) {
+          d = timestamp;
+        } else if (typeof timestamp === 'string') {
+          // Handle ISO strings, Date.toString(), or other formats
+          d = new Date(timestamp);
+        } else if (typeof timestamp === 'number') {
+          d = new Date(timestamp);
+        } else {
+          return '';
+        }
+
+        // Check if date is valid
+        if (isNaN(d.getTime())) return '';
+
+        var hours = d.getHours();
+        var mins = d.getMinutes();
+        var ampm = hours >= 12 ? 'pm' : 'am';
+        hours = hours % 12;
+        hours = hours ? hours : 12;
+        var timeStr = (hours < 10 ? '0' : '') + hours + ':' + (mins < 10 ? '0' : '') + mins + ' ' + ampm;
+        var day = d.getDate();
+        var month = d.getMonth() + 1;
+        var year = String(d.getFullYear()).slice(-2);
+        var dateStr = (day < 10 ? '0' : '') + day + '/' + (month < 10 ? '0' : '') + month + '/' + year;
+        return timeStr + ', ' + dateStr;
+      } catch(e) {
+        return '';
+      }
+    }
+
+    var cleanedServiceDate = cleanServiceDate(serviceDate);
+    var dateTimeStr = formatDateTime(update.timestamp);
+
+    var html = '<div class="roster-update-item px-2 py-2 rounded-lg bg-white/15 hover:bg-white/25 transition mb-1.5 border border-white/10" data-key="' + escapeHtml(key) + '">';
+
+    // Header: Role - Date (yellow)
+    html += '<div class="text-xs font-bold text-yellow-300 mb-1">';
+    html += escapeHtml(update.duty || roleId) + ' - ' + escapeHtml(cleanedServiceDate);
+    html += '</div>';
+
+    // Current value (white, bigger)
+    html += '<div class="text-base text-white font-bold mb-1">';
+    html += escapeHtml(update.newValue || 'TBD');
+    html += '</div>';
+
+    // Previous value box with timestamp (teal)
+    if (update.oldValue && update.oldValue !== update.newValue) {
+      var prevTimeStr = formatDateTime(update.prevTimestamp || update.timestamp);
+      html += '<div class="text-xs bg-white/10 rounded px-1.5 py-1 mb-1 text-teal-300">';
+      html += '<span class="text-teal-400/70">Was:</span> ';
+      html += '<span class="font-medium">' + escapeHtml(update.oldValue) + '</span>';
+      if (prevTimeStr) {
+        html += ' <span class="text-teal-400/50">- ' + prevTimeStr + '</span>';
+      }
+      html += '</div>';
+    }
+
+    // Navigation row: arrows and current change timestamp
+    html += '<div class="flex items-center justify-between">';
+
+    // Navigation buttons
+    html += '<div class="flex items-center gap-0.5">';
+    var canGoPrev = currentIdx < totalCount - 1;
+    var canGoNext = currentIdx > 0;
+    html += '<button class="roster-hist-nav px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition text-[0.65rem] ' + (canGoPrev ? '' : 'opacity-30 cursor-not-allowed') + '" data-key="' + escapeHtml(key) + '" data-dir="prev" ' + (canGoPrev ? '' : 'disabled') + '>';
+    html += '<i class="fa-solid fa-chevron-left"></i></button>';
+    html += '<span class="text-[0.65rem] text-white/70 px-0.5">' + (currentIdx + 1) + '/' + totalCount + '</span>';
+    html += '<button class="roster-hist-nav px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition text-[0.65rem] ' + (canGoNext ? '' : 'opacity-30 cursor-not-allowed') + '" data-key="' + escapeHtml(key) + '" data-dir="next" ' + (canGoNext ? '' : 'disabled') + '>';
+    html += '<i class="fa-solid fa-chevron-right"></i></button>';
+    html += '</div>';
+
+    // Current change timestamp
+    html += '<span class="text-[0.65rem] text-white/60">' + dateTimeStr + '</span>';
+    html += '</div>';
+
+    html += '</div>';
+    return html;
+  }
+
+  function bindRosterUpdateNavigation() {
+    var container = $('rosterUpdatesContainer');
+    if (!container) return;
+
+    container.querySelectorAll('.roster-hist-nav').forEach(function(btn) {
       btn.onclick = function(e) {
         e.stopPropagation();
-        var roleId = btn.getAttribute('data-role');
-        var serviceDate = btn.getAttribute('data-date');
-        var direction = btn.getAttribute('data-dir');
-        navigateRosterHistory(roleId, serviceDate, direction);
+        if (btn.disabled) return;
+
+        var key = btn.getAttribute('data-key');
+        var dir = btn.getAttribute('data-dir');
+        var history = ROSTER_UPDATES_STATE.grouped[key];
+        if (!history) return;
+
+        var currentIdx = ROSTER_UPDATES_STATE.currentIdx[key] || 0;
+
+        if (dir === 'prev' && currentIdx < history.length - 1) {
+          currentIdx++;
+        } else if (dir === 'next' && currentIdx > 0) {
+          currentIdx--;
+        }
+
+        ROSTER_UPDATES_STATE.currentIdx[key] = currentIdx;
+
+        // Re-render just this item
+        var itemEl = container.querySelector('[data-key="' + key + '"]');
+        if (itemEl) {
+          var newHtml = renderSingleUpdate(key, history[currentIdx], currentIdx, history.length);
+          var temp = document.createElement('div');
+          temp.innerHTML = newHtml;
+          itemEl.replaceWith(temp.firstChild);
+          bindRosterUpdateNavigation(); // Rebind
+        }
       };
     });
   }
@@ -4588,6 +4749,92 @@ window.loadEditSongData = function(song) {
     from { box-shadow: 0 0 10px 2px rgba(251, 191, 36, 0.5); }
     to { box-shadow: 0 0 20px 5px rgba(251, 191, 36, 0.8); }
   }
+
+  /* ==================== PRINT STYLES - ROSTER TABLE ONLY ==================== */
+  @media print {
+    /* Hide everything except roster content */
+    body * {
+      visibility: hidden;
+    }
+
+    /* Show only the roster table container */
+    #rosterTableContainer,
+    #rosterTableContainer * {
+      visibility: visible;
+    }
+
+    /* Position the roster table at top of page */
+    #rosterTableContainer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      padding: 20px;
+    }
+
+    /* Hide navigation, buttons, sidebar, header */
+    .sidebar,
+    #sidebar,
+    .tab-content-area > div:not(#rosterSection),
+    .roster-nav-btn,
+    .roster-action-btn,
+    .roster-filter-btn,
+    #rosterSaveBtn,
+    #rosterDownloadCSVBtn,
+    #rosterDownloadPDFBtn,
+    .roster-controls,
+    .roster-legend,
+    .roster-header,
+    #rosterUnsavedIndicator,
+    #rosterSyncStatus,
+    .roster-share-btn,
+    button,
+    .tab-bar,
+    nav,
+    header,
+    footer,
+    .modal-overlay {
+      display: none !important;
+    }
+
+    /* Style the table for printing */
+    .roster-table {
+      width: 100% !important;
+      font-size: 10px !important;
+      border-collapse: collapse !important;
+    }
+
+    .roster-table th,
+    .roster-table td {
+      border: 1px solid #333 !important;
+      padding: 6px 8px !important;
+      background: white !important;
+      color: black !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .roster-table th {
+      background: #e5e7eb !important;
+      font-weight: bold !important;
+    }
+
+    .roster-section-header td {
+      background: #d1d5db !important;
+      font-weight: bold !important;
+    }
+
+    /* Add page title for print */
+    #rosterTableContainer::before {
+      content: "LHC Worship Duty Roster";
+      display: block;
+      font-size: 18px;
+      font-weight: bold;
+      text-align: center;
+      margin-bottom: 15px;
+      visibility: visible;
+    }
+  }
 </style>
 
 <div id="rosterContextMenu" class="roster-context-menu">
@@ -4609,6 +4856,53 @@ window.loadEditSongData = function(song) {
   var STATE = window.LHC_STATE || { rosterMonth: new Date().getMonth(), rosterYear: new Date().getFullYear(), rosterEdits: new Map(), rosterHasUnsaved: false, rosterFilter: 'all', rosterCellTimestamps: new Map() };
   if (!STATE.rosterCellTimestamps) STATE.rosterCellTimestamps = new Map();
   if (!STATE.rosterFilter) STATE.rosterFilter = 'all';
+
+  // Name options for roster dropdowns - stored in localStorage
+  var ROSTER_NAME_OPTIONS = (function() {
+    var stored = localStorage.getItem('lhc_roster_names');
+    if (stored) {
+      try { return JSON.parse(stored); } catch(e) { console.warn('Failed to parse stored names:', e); }
+    }
+    // Default names for each role category
+    return {
+      preacher: ['Pastor Smith', 'Pastor Johnson', 'Deacon Brown'],
+      liturgist: ['Elder Williams', 'Elder Davis', 'Deacon Miller'],
+      usher: ['John Doe', 'Jane Smith', 'Bob Wilson', 'Mary Johnson'],
+      reader: ['Sarah Connor', 'James White', 'Lisa Green', 'Mark Taylor'],
+      communion: ['Ruth Adams', 'Peter Clark', 'Anna Lee', 'David Kim'],
+      altar: ['Martha Jones', 'Elizabeth Brown', 'Grace Chen'],
+      musician: ['Michael Scott', 'Angela Martin', 'Kevin Malone', 'Andy Bernard'],
+      singer: ['Phyllis Vance', 'Stanley Hudson', 'Kelly Kapoor', 'Ryan Howard'],
+      tech: ['Jim Halpert', 'Dwight Schrute', 'Oscar Martinez'],
+      general: ['Member 1', 'Member 2', 'Member 3']
+    };
+  })();
+
+  function saveRosterNameOptions() {
+    localStorage.setItem('lhc_roster_names', JSON.stringify(ROSTER_NAME_OPTIONS));
+  }
+
+  function getRoleCategory(roleId) {
+    if (roleId === 'preacher') return 'preacher';
+    if (roleId === 'liturgist') return 'liturgist';
+    if (roleId.startsWith('usher')) return 'usher';
+    if (roleId.startsWith('reader')) return 'reader';
+    if (roleId.startsWith('communion')) return 'communion';
+    if (roleId.startsWith('altar')) return 'altar';
+    if (['pianist', 'guitarist', 'bassist', 'drummer'].includes(roleId)) return 'musician';
+    if (roleId.startsWith('singer')) return 'singer';
+    if (['lcd', 'streaming', 'pa'].includes(roleId)) return 'tech';
+    return 'general';
+  }
+
+  function addNameToRole(category, name) {
+    if (!ROSTER_NAME_OPTIONS[category]) ROSTER_NAME_OPTIONS[category] = [];
+    if (!ROSTER_NAME_OPTIONS[category].includes(name)) {
+      ROSTER_NAME_OPTIONS[category].push(name);
+      ROSTER_NAME_OPTIONS[category].sort();
+      saveRosterNameOptions();
+    }
+  }
 
   var RosterEngine = {
     MONTHS: ['January','February','March','April','May','June','July','August','September','October','November','December'],
@@ -5140,10 +5434,14 @@ window.loadEditSongData = function(song) {
 
     editCell: function(td) {
       var self = this;
-      if (td.querySelector('input')) return;
-      var isLiturgical = td.closest('tr') && td.closest('tr').classList.contains('roster-liturgical-row');
+      if (td.querySelector('input') || td.querySelector('select')) return;
+      var row = td.closest('tr');
+      var isLiturgical = row && row.classList.contains('roster-liturgical-row');
+      var isScripture = row && row.classList.contains('roster-scripture-row');
       var key = td.getAttribute('data-key');
+      var roleId = key ? key.split('__')[0] : '';
       var currentValue = '';
+
       if (isLiturgical) {
         var textSpan = td.querySelector('.liturgical-text');
         currentValue = textSpan ? textSpan.textContent : '';
@@ -5152,43 +5450,177 @@ window.loadEditSongData = function(song) {
         if (currentValue === 'TBD') currentValue = '';
       }
       var originalHtml = td.innerHTML;
-      var input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'roster-inline-editor';
-      input.value = currentValue;
-      if (isLiturgical) {
-        var dot = td.querySelector('.altar-color-dot');
-        td.innerHTML = '';
-        if (dot) td.appendChild(dot.cloneNode(true));
-        td.appendChild(input);
-      } else {
-        td.innerHTML = '';
-        td.appendChild(input);
-      }
-      input.focus();
-      input.select();
-      var save = function() {
-        var newValue = input.value.trim();
-        var timestamp = new Date().toISOString();
+
+      // Use text input for liturgical and scripture rows
+      if (isLiturgical || isScripture) {
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'roster-inline-editor';
+        input.value = currentValue;
         if (isLiturgical) {
-          var color = td.getAttribute('data-color') || 'Green';
-          STATE.rosterEdits.set(key, { day: newValue || self.getDefaultDayText(STATE.rosterMonth, 0), color: color });
-          var colorHex = self.COLORS[color] || self.COLORS.Green;
-          var borderStyle = color === 'White' ? 'border: 1px solid #cbd5e1;' : '';
-          td.innerHTML = '<span class="altar-color-dot" style="background:' + colorHex + ';' + borderStyle + '" title="Click to change color"></span><span class="liturgical-text">' + self.escapeHtml(newValue || self.getDefaultDayText(STATE.rosterMonth, 0)) + '</span>';
+          var dot = td.querySelector('.altar-color-dot');
+          td.innerHTML = '';
+          if (dot) td.appendChild(dot.cloneNode(true));
+          td.appendChild(input);
         } else {
-          STATE.rosterEdits.set(key, newValue || 'TBD');
-          td.textContent = newValue || 'TBD';
+          td.innerHTML = '';
+          td.appendChild(input);
         }
+        input.focus();
+        input.select();
+        var saveInput = function() {
+          var newValue = input.value.trim();
+          var timestamp = new Date().toISOString();
+          if (isLiturgical) {
+            var color = td.getAttribute('data-color') || 'Green';
+            STATE.rosterEdits.set(key, { day: newValue || self.getDefaultDayText(STATE.rosterMonth, 0), color: color });
+            var colorHex = self.COLORS[color] || self.COLORS.Green;
+            var borderStyle = color === 'White' ? 'border: 1px solid #cbd5e1;' : '';
+            td.innerHTML = '<span class="altar-color-dot" style="background:' + colorHex + ';' + borderStyle + '" title="Click to change color"></span><span class="liturgical-text">' + self.escapeHtml(newValue || self.getDefaultDayText(STATE.rosterMonth, 0)) + '</span>';
+          } else {
+            STATE.rosterEdits.set(key, newValue || 'TBD');
+            td.textContent = newValue || 'TBD';
+          }
+          STATE.rosterCellTimestamps.set(key, timestamp);
+          td.setAttribute('data-timestamp', timestamp);
+          td.classList.add('roster-cell-edited');
+          self.markUnsaved();
+          self.bindCellEvents();
+        };
+        var cancelInput = function() { td.innerHTML = originalHtml; self.bindCellEvents(); };
+        input.onkeydown = function(e) { if (e.key === 'Enter') { e.preventDefault(); saveInput(); } if (e.key === 'Escape') { e.preventDefault(); cancelInput(); } };
+        input.onblur = function() { setTimeout(saveInput, 100); };
+        return;
+      }
+
+      // Use dropdown for role cells
+      var category = getRoleCategory(roleId);
+      var names = ROSTER_NAME_OPTIONS[category] || ROSTER_NAME_OPTIONS.general || [];
+
+      var container = document.createElement('div');
+      container.className = 'roster-dropdown-container';
+      container.style.cssText = 'position:relative;width:100%;';
+
+      var select = document.createElement('select');
+      select.className = 'roster-inline-select';
+      select.style.cssText = 'width:100%;padding:4px 6px;border:2px solid #4a6da7;border-radius:6px;font-size:13px;background:#fff;cursor:pointer;';
+
+      // Add empty/TBD option
+      var emptyOpt = document.createElement('option');
+      emptyOpt.value = '';
+      emptyOpt.textContent = '-- Select --';
+      select.appendChild(emptyOpt);
+
+      // Add name options
+      names.forEach(function(name) {
+        var opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        if (name === currentValue) opt.selected = true;
+        select.appendChild(opt);
+      });
+
+      // If current value exists but not in list, add it
+      if (currentValue && !names.includes(currentValue)) {
+        var currentOpt = document.createElement('option');
+        currentOpt.value = currentValue;
+        currentOpt.textContent = currentValue;
+        currentOpt.selected = true;
+        select.appendChild(currentOpt);
+      }
+
+      // Add "Add new name" option
+      var addNewOpt = document.createElement('option');
+      addNewOpt.value = '__ADD_NEW__';
+      addNewOpt.textContent = '+ Add new name...';
+      addNewOpt.style.cssText = 'font-style:italic;color:#4a6da7;';
+      select.appendChild(addNewOpt);
+
+      td.innerHTML = '';
+      container.appendChild(select);
+      td.appendChild(container);
+      select.focus();
+
+      var saveSelect = function(newValue) {
+        var timestamp = new Date().toISOString();
+        STATE.rosterEdits.set(key, newValue || 'TBD');
+        td.textContent = newValue || 'TBD';
         STATE.rosterCellTimestamps.set(key, timestamp);
         td.setAttribute('data-timestamp', timestamp);
         td.classList.add('roster-cell-edited');
         self.markUnsaved();
         self.bindCellEvents();
       };
-      var cancel = function() { td.innerHTML = originalHtml; self.bindCellEvents(); };
-      input.onkeydown = function(e) { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { e.preventDefault(); cancel(); } };
-      input.onblur = function() { setTimeout(save, 100); };
+
+      var cancelSelect = function() { td.innerHTML = originalHtml; self.bindCellEvents(); };
+
+      var showAddNewInput = function() {
+        container.innerHTML = '';
+        var inputWrapper = document.createElement('div');
+        inputWrapper.style.cssText = 'display:flex;gap:4px;';
+
+        var newInput = document.createElement('input');
+        newInput.type = 'text';
+        newInput.placeholder = 'Enter new name';
+        newInput.className = 'roster-inline-editor';
+        newInput.style.cssText = 'flex:1;padding:4px 6px;border:2px solid #4a6da7;border-radius:6px;font-size:13px;';
+
+        var addBtn = document.createElement('button');
+        addBtn.textContent = '+';
+        addBtn.style.cssText = 'padding:4px 8px;background:#4a6da7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;';
+
+        var cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'x';
+        cancelBtn.style.cssText = 'padding:4px 8px;background:#e5e7eb;color:#333;border:none;border-radius:6px;cursor:pointer;';
+
+        inputWrapper.appendChild(newInput);
+        inputWrapper.appendChild(addBtn);
+        inputWrapper.appendChild(cancelBtn);
+        container.appendChild(inputWrapper);
+        newInput.focus();
+
+        var confirmAdd = function() {
+          var newName = newInput.value.trim();
+          if (newName) {
+            addNameToRole(category, newName);
+            saveSelect(newName);
+          } else {
+            cancelSelect();
+          }
+        };
+
+        addBtn.onclick = function(e) { e.stopPropagation(); confirmAdd(); };
+        cancelBtn.onclick = function(e) { e.stopPropagation(); cancelSelect(); };
+        newInput.onkeydown = function(e) {
+          if (e.key === 'Enter') { e.preventDefault(); confirmAdd(); }
+          if (e.key === 'Escape') { e.preventDefault(); cancelSelect(); }
+        };
+      };
+
+      select.onchange = function() {
+        var val = select.value;
+        if (val === '__ADD_NEW__') {
+          showAddNewInput();
+        } else {
+          saveSelect(val);
+        }
+      };
+
+      select.onkeydown = function(e) {
+        if (e.key === 'Escape') { e.preventDefault(); cancelSelect(); }
+      };
+
+      select.onblur = function(e) {
+        // Don't close if clicking on add new input
+        setTimeout(function() {
+          if (!container.querySelector('input')) {
+            var val = select.value;
+            if (val !== '__ADD_NEW__') {
+              saveSelect(val);
+            }
+          }
+        }, 150);
+      };
     },
 
     cycleColor: function(td) {
