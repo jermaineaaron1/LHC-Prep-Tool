@@ -548,6 +548,29 @@
       justify-content: center;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
+    /* Dropdown indicator for role cells */
+    .roster-role-cell {
+      position: relative;
+      cursor: pointer;
+    }
+    .roster-role-cell .roster-cell-value {
+      display: inline-block;
+      max-width: calc(100% - 18px);
+    }
+    .roster-cell-dropdown-icon {
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #64748b;
+      font-size: 10px;
+      opacity: 0.7;
+      transition: all 0.2s ease;
+    }
+    .roster-role-cell:hover .roster-cell-dropdown-icon {
+      color: var(--roster-teal);
+      opacity: 1;
+    }
     .roster-inline-editor {
       width: 100%;
       border: 2px solid var(--roster-teal);
@@ -918,8 +941,8 @@
         <div class="roster-header-card" style="margin-bottom: 16px;">
           <div class="flex items-center justify-center gap-6 flex-wrap">
             <!-- Previous Month Button -->
-            <button class="roster-nav-btn" id="rosterPrevMonthBtn" title="Previous Month">
-              <i class="fa-solid fa-chevron-left"></i>
+            <button class="roster-nav-btn" id="rosterPrevMonthBtn" title="Previous Month" style="background:#1f2937;width:56px;height:56px;border-radius:50%;border:3px solid #374151;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+              <i class="fa-solid fa-chevron-left" style="font-size:22px;color:#fff;"></i>
             </button>
 
             <!-- Month Title -->
@@ -934,8 +957,8 @@
             </div>
 
             <!-- Next Month Button -->
-            <button class="roster-nav-btn" id="rosterNextMonthBtn" title="Next Month">
-              <i class="fa-solid fa-chevron-right"></i>
+            <button class="roster-nav-btn" id="rosterNextMonthBtn" title="Next Month" style="background:#1f2937;width:56px;height:56px;border-radius:50%;border:3px solid #374151;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+              <i class="fa-solid fa-chevron-right" style="font-size:22px;color:#fff;"></i>
             </button>
           </div>
 
@@ -3894,18 +3917,18 @@ window.loadEditSongData = function(song) {
     html += '</div>';
 
     // Current value (white, bigger)
-    html += '<div class="text-base text-white font-bold mb-1">';
+    html += '<div style="font-size:16px;color:#ffffff;font-weight:700;margin-bottom:4px;">';
     html += escapeHtml(update.newValue || 'TBD');
     html += '</div>';
 
     // Previous value box with timestamp (teal)
     if (update.oldValue && update.oldValue !== update.newValue) {
       var prevTimeStr = formatDateTime(update.prevTimestamp || update.timestamp);
-      html += '<div class="text-xs bg-white/10 rounded px-1.5 py-1 mb-1 text-teal-300">';
-      html += '<span class="text-teal-400/70">Was:</span> ';
-      html += '<span class="font-medium">' + escapeHtml(update.oldValue) + '</span>';
+      html += '<div style="font-size:12px;background:rgba(255,255,255,0.1);border-radius:4px;padding:4px 8px;margin-bottom:4px;">';
+      html += '<span style="color:#5eead4;opacity:0.8;">Was: </span>';
+      html += '<span style="color:#2dd4bf;font-weight:600;">' + escapeHtml(update.oldValue) + '</span>';
       if (prevTimeStr) {
-        html += ' <span class="text-teal-400/50">- ' + prevTimeStr + '</span>';
+        html += ' <span style="color:#14b8a6;opacity:0.6;">- ' + prevTimeStr + '</span>';
       }
       html += '</div>';
     }
@@ -4752,87 +4775,144 @@ window.loadEditSongData = function(song) {
 
   /* ==================== PRINT STYLES - ROSTER TABLE ONLY ==================== */
   @media print {
-    /* Hide everything except roster content */
-    body * {
-      visibility: hidden;
+    /* Reset page */
+    * {
+      margin: 0 !important;
+      padding: 0 !important;
+      box-sizing: border-box !important;
     }
 
-    /* Show only the roster table container */
-    #rosterTableContainer,
-    #rosterTableContainer * {
-      visibility: visible;
+    body {
+      background: white !important;
+      padding: 10mm !important;
     }
 
-    /* Position the roster table at top of page */
-    #rosterTableContainer {
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: 100%;
-      padding: 20px;
-    }
-
-    /* Hide navigation, buttons, sidebar, header */
+    /* Hide everything first */
+    body > *:not(#worshipRosterView),
     .sidebar,
     #sidebar,
-    .tab-content-area > div:not(#rosterSection),
+    .roster-header-card,
     .roster-nav-btn,
     .roster-action-btn,
     .roster-filter-btn,
-    #rosterSaveBtn,
-    #rosterDownloadCSVBtn,
-    #rosterDownloadPDFBtn,
-    .roster-controls,
     .roster-legend,
-    .roster-header,
+    .roster-controls,
+    #rosterFilterContainer,
     #rosterUnsavedIndicator,
     #rosterSyncStatus,
     .roster-share-btn,
+    .roster-cell-dropdown-icon,
     button,
-    .tab-bar,
     nav,
     header,
     footer,
-    .modal-overlay {
+    .modal-overlay,
+    #rosterContextMenu {
       display: none !important;
+      visibility: hidden !important;
+    }
+
+    /* Show and style the roster section */
+    #worshipRosterView {
+      display: block !important;
+      position: relative !important;
+      width: 100% !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+
+    /* Print header */
+    #worshipRosterView::before {
+      content: "LHC Worship Duty Roster" !important;
+      display: block !important;
+      font-size: 20px !important;
+      font-weight: bold !important;
+      text-align: center !important;
+      margin-bottom: 10px !important;
+      padding-bottom: 10px !important;
+      border-bottom: 2px solid #333 !important;
+    }
+
+    /* Show the table container */
+    .roster-container,
+    .roster-table-wrapper {
+      display: block !important;
+      overflow: visible !important;
+      width: 100% !important;
     }
 
     /* Style the table for printing */
     .roster-table {
       width: 100% !important;
-      font-size: 10px !important;
+      font-size: 9px !important;
       border-collapse: collapse !important;
+      table-layout: auto !important;
+      page-break-inside: auto !important;
+    }
+
+    .roster-table thead {
+      display: table-header-group !important;
+    }
+
+    .roster-table tr {
+      page-break-inside: avoid !important;
+      page-break-after: auto !important;
     }
 
     .roster-table th,
     .roster-table td {
       border: 1px solid #333 !important;
-      padding: 6px 8px !important;
+      padding: 4px 6px !important;
       background: white !important;
       color: black !important;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
+      text-align: center !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
 
     .roster-table th {
-      background: #e5e7eb !important;
+      background: #d1d5db !important;
       font-weight: bold !important;
+      font-size: 8px !important;
+    }
+
+    .roster-table td:first-child,
+    .roster-table th:first-child {
+      text-align: left !important;
+      font-weight: 600 !important;
+      min-width: 100px !important;
     }
 
     .roster-section-header td {
-      background: #d1d5db !important;
+      background: #9ca3af !important;
       font-weight: bold !important;
+      color: white !important;
+      text-transform: uppercase !important;
+      font-size: 9px !important;
     }
 
-    /* Add page title for print */
-    #rosterTableContainer::before {
-      content: "LHC Worship Duty Roster";
-      display: block;
-      font-size: 18px;
-      font-weight: bold;
-      text-align: center;
-      margin-bottom: 15px;
-      visibility: visible;
+    /* Hide edit indicators in print */
+    .roster-cell-edited::after {
+      display: none !important;
+    }
+
+    /* Ensure date chips are visible */
+    .roster-date-chip {
+      background: #e5e7eb !important;
+      color: #333 !important;
+      padding: 2px 4px !important;
+      font-size: 7px !important;
+    }
+
+    /* Altar color dots */
+    .altar-color-dot {
+      width: 10px !important;
+      height: 10px !important;
+      display: inline-block !important;
+      border-radius: 50% !important;
+      margin-right: 3px !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
   }
 </style>
@@ -5173,7 +5253,10 @@ window.loadEditSongData = function(song) {
               bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-color="' + color + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + (savedValue ? 'roster-cell-edited' : '') + '"><span class="altar-color-dot" style="background:' + colorHex + ';' + borderStyle + '" title="Click to change color"></span><span class="liturgical-text">' + self.escapeHtml(dayText) + '</span></td>';
             } else {
               var value = savedValue || 'TBD';
-              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + (savedValue ? 'roster-cell-edited' : '') + '">' + self.escapeHtml(value) + '</td>';
+              var isRoleCell = role.type === 'role';
+              var cellClass = (savedValue ? 'roster-cell-edited' : '') + (isRoleCell ? ' roster-role-cell' : '');
+              var dropdownIcon = isRoleCell ? '<span class="roster-cell-dropdown-icon"><i class="fa-solid fa-caret-down"></i></span>' : '';
+              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + cellClass + '"><span class="roster-cell-value">' + self.escapeHtml(value) + '</span>' + dropdownIcon + '</td>';
             }
           });
           bodyHtml += '</tr>';
