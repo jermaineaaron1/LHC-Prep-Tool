@@ -1045,34 +1045,179 @@
 
       <!-- ==================== VIEW: WORSHIP ORDERS ==================== -->
       <section id="worshipOrderView" style="display: none;">
-        <div class="lhc-card" style="padding: 18px;">
-          <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
-            <div>
-              <p class="lhc-section-title">Service Planning</p>
-              <h3 id="orderViewTitle" class="font-cinzel text-lg font-bold text-slate-800">Worship Orders</h3>
-              <p id="orderViewDate" class="text-sm text-slate-500 mt-1">Select or create an order from the sidebar</p>
+        <div class="wo-container">
+          <!-- Main Menu Screen -->
+          <div class="wo-main-menu" id="woMainMenu">
+            <div class="wo-main-menu-header">
+              <h1>🌹 Worship Order Template ✝</h1>
+              <p>Create, Organize, and Present Beautiful Worship Services</p>
             </div>
-            <div class="flex gap-2 flex-wrap">
-              <button class="lhc-pill-button" id="newOrderFromViewBtn">
-                <i class="fa-solid fa-plus mr-1"></i> New Order
-              </button>
-              <button class="lhc-pill-button" id="saveOrderBtn" style="background: linear-gradient(135deg, #059669, #10b981); color: white; border-color: transparent;">
-                <i class="fa-solid fa-floppy-disk mr-1"></i> Save
-              </button>
-              <button class="lhc-pill-button" id="presentLiveBtn" style="background: linear-gradient(135deg, #dc2626, #ef4444); color: white; border-color: transparent;">
-                <i class="fa-solid fa-tv mr-1"></i> Go LIVE
-              </button>
+
+            <div class="wo-main-menu-content">
+              <div class="wo-menu-buttons">
+                <button class="wo-main-menu-btn wo-new-order-btn" onclick="WO.showNewOrderOptions()">
+                  <i class="fa-solid fa-plus mr-2"></i> New Worship Order
+                </button>
+                <button class="wo-main-menu-btn wo-load-order-btn" onclick="WO.showSavedOrders()">
+                  <i class="fa-solid fa-folder-open mr-2"></i> Created Worship Orders
+                </button>
+              </div>
+
+              <!-- New Order Options -->
+              <div class="wo-new-order-options" id="woNewOrderOptions" style="display: none;">
+                <h3>Choose Worship Order Type:</h3>
+                <div class="wo-order-type-buttons">
+                  <button class="wo-order-type-btn" onclick="WO.createNewOrder('traditional')">
+                    <i class="fa-solid fa-church"></i> Traditional Order
+                    <span class="wo-order-description">Classic liturgical structure with communion</span>
+                  </button>
+                  <button class="wo-order-type-btn" onclick="WO.createNewOrder('contemporary')">
+                    <i class="fa-solid fa-music"></i> Contemporary Order
+                    <span class="wo-order-description">Modern worship with praise songs</span>
+                  </button>
+                  <button class="wo-order-type-btn" onclick="WO.createNewOrder('special')">
+                    <i class="fa-solid fa-star"></i> Special Order
+                    <span class="wo-order-description">Custom order for special services</span>
+                  </button>
+                </div>
+                <button class="wo-back-btn" onclick="WO.hideNewOrderOptions()"><i class="fa-solid fa-arrow-left mr-2"></i> Back to Main Menu</button>
+              </div>
+
+              <!-- Saved Orders List -->
+              <div class="wo-saved-orders-list" id="woSavedOrdersList" style="display: none;">
+                <h3>Your Created Worship Orders:</h3>
+                <div class="wo-saved-orders-container" id="woSavedOrdersContainer">
+                  <div class="wo-empty-state">
+                    <i class="fa-solid fa-folder-open"></i>
+                    <p>No saved orders yet. Create your first worship order!</p>
+                  </div>
+                </div>
+                <button class="wo-back-btn" onclick="WO.hideSavedOrders()"><i class="fa-solid fa-arrow-left mr-2"></i> Back to Main Menu</button>
+              </div>
             </div>
           </div>
 
-          <!-- Order Sections Container -->
-          <div id="orderSectionsContainer" class="space-y-3"></div>
+          <!-- Worship Order Editor -->
+          <div class="wo-editor" id="woEditor" style="display: none;">
+            <div class="wo-header">
+              <div class="wo-header-content">
+                <h1><span class="wo-rose">🌹</span> Worship Order Template <span class="wo-cross">✝</span></h1>
+                <p>Add Worship Songs, Customize Liturgy and Project with Ease</p>
+                <div class="wo-current-order-info" id="woCurrentOrderInfo">
+                  Traditional Worship Order - Created Today
+                </div>
+              </div>
 
-          <!-- Empty State for Orders -->
-          <div id="orderEmptyState" class="text-center py-12">
-            <div class="text-4xl mb-3">📋</div>
-            <h4 class="font-semibold text-slate-700 mb-1">No order loaded</h4>
-            <p class="text-sm text-slate-500">Select an order from the sidebar or create a new one.</p>
+              <div class="wo-order-selector">
+                <div class="wo-order-controls">
+                  <button class="wo-control-btn wo-back-to-menu-btn" onclick="WO.backToMainMenu()"><i class="fa-solid fa-arrow-left mr-2"></i> Main Menu</button>
+                  <button class="wo-control-btn wo-save-order-btn" onclick="WO.saveCurrentOrder()"><i class="fa-solid fa-floppy-disk mr-2"></i> Save Order</button>
+                </div>
+                <div class="wo-order-title">Current Worship Order:</div>
+                <div class="wo-order-buttons">
+                  <button class="wo-order-btn" id="woServiceOrderBtn" onclick="WO.selectOrder('service')">Service Order</button>
+                  <button class="wo-order-btn active" id="woSongOrderBtn" onclick="WO.selectOrder('song')">Song Order</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="wo-main-content wo-song-order">
+              <div class="wo-worship-order" id="woWorshipOrder">
+                <div class="wo-song-order-intro">
+                  <h3><i class="fa-solid fa-music mr-2"></i> Song Order Management</h3>
+                  <p>Add songs from your library and assign them to specific service sections.</p>
+
+                  <div class="wo-song-order-actions">
+                    <button class="wo-song-library-btn" onclick="WO.openSongLibrary()">
+                      <i class="fa-solid fa-music mr-2"></i> Add Songs from Library
+                    </button>
+                  </div>
+
+                  <div id="woSongOrderSections">
+                    <p class="wo-empty-songs">No songs added yet. Use the button above to get started!</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="wo-preview-panel" id="woPreviewPanel" style="display: none;">
+                <div class="wo-preview-header">
+                  <div class="wo-preview-title"><i class="fa-solid fa-tv mr-2"></i> Projection Preview</div>
+                  <div class="wo-preview-actions">
+                    <button class="wo-live-present-btn" onclick="WO.goFullscreen()"><i class="fa-solid fa-expand mr-1"></i> Fullscreen</button>
+                    <button class="wo-live-present-btn" id="woLivePresentBtn" onclick="WO.toggleLivePresent()">LIVE Present</button>
+                  </div>
+                </div>
+                <div class="wo-preview-screen" id="woPreviewScreen">
+                  <div class="wo-preview-placeholder">Click any content box to see preview</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fullscreen Overlay -->
+        <div class="wo-fullscreen-overlay" id="woFullscreenOverlay">
+          <div class="wo-close-fullscreen" onclick="WO.closeFullscreen()"><i class="fa-solid fa-times"></i></div>
+          <div class="wo-fullscreen-content" id="woFullscreenContent"></div>
+        </div>
+
+        <!-- Undo Notification -->
+        <div class="wo-undo-notification" id="woUndoNotification">
+          <span>Content deleted</span>
+          <button class="wo-undo-btn" onclick="WO.undoDelete()">Undo</button>
+        </div>
+
+        <!-- Song Library Popup -->
+        <div class="wo-song-popup" id="woSongPopup">
+          <div class="wo-song-popup-content">
+            <div class="wo-song-popup-header">
+              <div class="wo-song-popup-title"><i class="fa-solid fa-music mr-2"></i> Song Library</div>
+              <button class="wo-close-popup" onclick="WO.closeSongPopup()"><i class="fa-solid fa-times"></i></button>
+            </div>
+
+            <div class="wo-song-search-section">
+              <input type="text" class="wo-song-search-input" id="woSongSearchInput" placeholder="Search songs by title, artist, or lyrics..." oninput="WO.searchSongs()">
+
+              <div class="wo-song-filters">
+                <select class="wo-song-filter" id="woSeasonFilter" onchange="WO.filterSongs()">
+                  <option value="">All Seasons</option>
+                  <option value="advent">Advent</option>
+                  <option value="christmas">Christmas</option>
+                  <option value="epiphany">Epiphany</option>
+                  <option value="lent">Lent</option>
+                  <option value="easter">Easter</option>
+                  <option value="pentecost">Pentecost</option>
+                  <option value="ordinary">Ordinary Time</option>
+                </select>
+
+                <select class="wo-song-filter" id="woThemeFilter" onchange="WO.filterSongs()">
+                  <option value="">All Themes</option>
+                  <option value="praise">Praise & Worship</option>
+                  <option value="prayer">Prayer</option>
+                  <option value="communion">Communion</option>
+                  <option value="sending">Sending/Closing</option>
+                  <option value="confession">Confession</option>
+                  <option value="thanksgiving">Thanksgiving</option>
+                </select>
+
+                <select class="wo-song-filter" id="woStyleFilter" onchange="WO.filterSongs()">
+                  <option value="">All Styles</option>
+                  <option value="hymn">Traditional Hymns</option>
+                  <option value="contemporary">Contemporary</option>
+                  <option value="gospel">Gospel</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="wo-song-results" id="woSongResults">
+              <!-- Song results populated by JS -->
+            </div>
+
+            <div class="wo-selected-songs" id="woSelectedSongs" style="display: none;">
+              <div class="wo-selected-songs-title">Selected Songs:</div>
+              <div id="woSelectedSongsList"></div>
+              <button class="wo-add-selected-songs-btn" onclick="WO.addSelectedSongs()">Add Selected Songs to Worship Order</button>
+            </div>
           </div>
         </div>
       </section>
@@ -4716,6 +4861,562 @@ window.loadEditSongData = function(song) {
 })();
 </script>
 
+<!-- ======================= WORSHIP ORDER ENGINE ======================= -->
+<script>
+var WO = (function() {
+  var currentOrderType = 'traditional';
+  var selectedSongs = [];
+  var currentOrderData = null;
+  var savedOrders = [];
+  var songOrderSections = [];
+  var currentSelectedBox = null;
+  var deletedBoxData = null;
+
+  // Order structures
+  var orderStructures = {
+    traditional: [
+      { title: '1. Invocation', type: 'single' },
+      { title: '2. Confession', type: 'single' },
+      { title: '3. Absolution', type: 'single' },
+      { title: '4. Entrance Hymn', type: 'single', special: 'songs' },
+      { title: '5. Kyrie', type: 'single' },
+      { title: '6. Prayer of the Day', type: 'single' },
+      { title: '7. Scripture Readings', type: 'group', subsections: ['First Reading', 'Psalm Reading', 'Second Reading', 'Gospel Reading'] },
+      { title: '8. Hymn of Preparation', type: 'single', special: 'songs' },
+      { title: '9. Sermon', type: 'single' },
+      { title: '10. Hymn of Response', type: 'single', special: 'songs' },
+      { title: '11. Affirmation of Faith', type: 'single', special: 'creed' },
+      { title: '12. Prayer of Intercession', type: 'single' },
+      { title: '13. Sharing of Peace', type: 'single' },
+      { title: '14. Offertory', type: 'group', subsections: ['Offertory Song', 'Offertory Prayer'] },
+      { title: '15. Holy Communion', type: 'group', subsections: ['Preface', 'Holy Holy Holy', 'Words of Institution', "Lord's Prayer"] },
+      { title: '16. Communion Distribution', type: 'single' },
+      { title: '17. Post Communion', type: 'group', subsections: ['Song of Thanksgiving', 'Post Communion Prayer'] },
+      { title: '18. Benediction', type: 'single' },
+      { title: '19. Announcements', type: 'single' },
+      { title: '20. Hymn of Dismissal', type: 'single', special: 'songs' }
+    ],
+    contemporary: [
+      { title: '1. Invocation', type: 'single' },
+      { title: '2. Praise & Worship', type: 'single', special: 'songs' },
+      { title: '3. Prayer of the Day', type: 'single' },
+      { title: '4. Scripture Readings', type: 'group', subsections: ['First Reading', 'Psalm', 'Second Reading', 'Gospel'] },
+      { title: '5. Song of Preparation', type: 'single', special: 'songs' },
+      { title: '6. Sermon', type: 'single' },
+      { title: '7. Song of Response', type: 'single', special: 'songs' },
+      { title: '8. Affirmation of Faith', type: 'single', special: 'creed' },
+      { title: '9. Sharing of Peace', type: 'single' },
+      { title: '10. Offertory', type: 'group', subsections: ['Offertory Song', 'Offertory Prayer'] },
+      { title: '11. Prayer of Intercession', type: 'single' },
+      { title: "12. Lord's Prayer", type: 'single' },
+      { title: '13. Benediction', type: 'single' },
+      { title: '14. Announcements', type: 'single' },
+      { title: '15. Closing Song', type: 'single', special: 'songs' }
+    ],
+    special: []
+  };
+
+  function $(id) { return document.getElementById(id); }
+
+  // Main Menu Functions
+  function showNewOrderOptions() {
+    $('woNewOrderOptions').style.display = 'block';
+    document.querySelector('.wo-menu-buttons').style.display = 'none';
+  }
+
+  function hideNewOrderOptions() {
+    $('woNewOrderOptions').style.display = 'none';
+    document.querySelector('.wo-menu-buttons').style.display = 'flex';
+  }
+
+  function showSavedOrders() {
+    $('woSavedOrdersList').style.display = 'block';
+    document.querySelector('.wo-menu-buttons').style.display = 'none';
+    renderSavedOrders();
+  }
+
+  function hideSavedOrders() {
+    $('woSavedOrdersList').style.display = 'none';
+    document.querySelector('.wo-menu-buttons').style.display = 'flex';
+  }
+
+  function renderSavedOrders() {
+    var container = $('woSavedOrdersContainer');
+    if (savedOrders.length === 0) {
+      container.innerHTML = '<div class="wo-empty-state"><i class="fa-solid fa-folder-open"></i><p>No saved orders yet. Create your first worship order!</p></div>';
+      return;
+    }
+    var html = savedOrders.map(function(order, idx) {
+      return '<div class="wo-saved-order-item" onclick="WO.loadOrder(' + idx + ')">' +
+        '<div class="wo-saved-order-title">' + order.title + '</div>' +
+        '<div class="wo-saved-order-date">' + order.type + ' - ' + new Date(order.createdDate).toLocaleDateString() + '</div>' +
+        '</div>';
+    }).join('');
+    container.innerHTML = html;
+  }
+
+  function createNewOrder(orderType) {
+    currentOrderType = orderType;
+    songOrderSections = [];
+    currentOrderData = {
+      type: orderType,
+      createdDate: new Date().toISOString(),
+      title: orderType.charAt(0).toUpperCase() + orderType.slice(1) + ' Worship Order'
+    };
+
+    $('woMainMenu').style.display = 'none';
+    $('woEditor').style.display = 'block';
+    $('woCurrentOrderInfo').textContent = currentOrderData.title + ' - Created Today';
+
+    selectOrder('song');
+  }
+
+  function loadOrder(idx) {
+    var order = savedOrders[idx];
+    if (order) {
+      currentOrderType = order.type;
+      currentOrderData = order;
+      songOrderSections = order.songs || [];
+      $('woMainMenu').style.display = 'none';
+      $('woEditor').style.display = 'block';
+      $('woCurrentOrderInfo').textContent = order.title;
+      selectOrder('song');
+    }
+  }
+
+  function backToMainMenu() {
+    $('woEditor').style.display = 'none';
+    $('woMainMenu').style.display = 'block';
+    hideNewOrderOptions();
+    hideSavedOrders();
+  }
+
+  function saveCurrentOrder() {
+    if (currentOrderData) {
+      currentOrderData.songs = songOrderSections;
+      var existingIdx = savedOrders.findIndex(function(o) { return o.createdDate === currentOrderData.createdDate; });
+      if (existingIdx >= 0) {
+        savedOrders[existingIdx] = currentOrderData;
+      } else {
+        savedOrders.push(currentOrderData);
+      }
+      localStorage.setItem('lhc_worship_orders', JSON.stringify(savedOrders));
+      showToast('Worship order saved!', 'success');
+    }
+  }
+
+  // Order Selection
+  function selectOrder(orderType) {
+    document.querySelectorAll('.wo-order-btn').forEach(function(btn) { btn.classList.remove('active'); });
+
+    if (orderType === 'song') {
+      $('woSongOrderBtn').classList.add('active');
+      document.querySelector('.wo-main-content').classList.add('wo-song-order');
+      $('woPreviewPanel').style.display = 'none';
+      initializeSongOrder();
+    } else {
+      $('woServiceOrderBtn').classList.add('active');
+      document.querySelector('.wo-main-content').classList.remove('wo-song-order');
+      $('woPreviewPanel').style.display = 'block';
+      initializeServiceOrder();
+    }
+  }
+
+  function initializeSongOrder() {
+    var container = $('woWorshipOrder');
+    var sectionsHtml = songOrderSections.length === 0
+      ? '<p class="wo-empty-songs">No songs added yet. Use the button above to get started!</p>'
+      : '';
+
+    container.innerHTML = '<div class="wo-song-order-intro">' +
+      '<h3><i class="fa-solid fa-music mr-2"></i> Song Order Management</h3>' +
+      '<p>Add songs from your library and assign them to specific service sections.</p>' +
+      '<div class="wo-song-order-actions">' +
+      '<button class="wo-song-library-btn" onclick="WO.openSongLibrary()"><i class="fa-solid fa-music mr-2"></i> Add Songs from Library</button>' +
+      '</div>' +
+      '<div id="woSongOrderSections">' + sectionsHtml + '</div>' +
+      '</div>';
+
+    songOrderSections.forEach(function(section) {
+      renderSongOrderSection(section);
+    });
+  }
+
+  function initializeServiceOrder() {
+    var container = $('woWorshipOrder');
+    container.innerHTML = '';
+    var structure = orderStructures[currentOrderType] || orderStructures.traditional;
+    structure.forEach(function(section, idx) {
+      container.insertAdjacentHTML('beforeend', createSectionHtml(section, idx));
+    });
+  }
+
+  function createSectionHtml(section, idx) {
+    var sectionId = 'wo-section-' + idx;
+    var specialContent = '';
+    if (section.special === 'songs') {
+      specialContent = '<button class="wo-song-library-btn" onclick="WO.openSongLibraryForSection(\'' + sectionId + '\')"><i class="fa-solid fa-music mr-1"></i> Choose Song</button>';
+    }
+
+    var subsectionContent = '';
+    if (section.type === 'group' && section.subsections) {
+      subsectionContent = section.subsections.map(function(sub, subIdx) {
+        return '<div class="wo-content-box" onclick="WO.editContent(this)" data-section="' + sectionId + '-' + subIdx + '">' +
+          '<div class="wo-content-placeholder">Click to add ' + sub + '</div>' +
+          '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
+          '</div>';
+      }).join('');
+    } else {
+      subsectionContent = '<div class="wo-content-box" onclick="WO.editContent(this)" data-section="' + sectionId + '">' +
+        '<div class="wo-content-placeholder">Click to add content</div>' +
+        '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
+        '</div>';
+    }
+
+    return '<div class="wo-worship-section">' +
+      '<div class="wo-section-header" onclick="WO.toggleSection(\'' + sectionId + '\')">' +
+      '<div style="display:flex;align-items:center;position:relative;">' +
+      '<div class="wo-section-number">' + (idx + 1) + '</div>' +
+      '<div class="wo-section-title">' + section.title + '</div>' +
+      '<span class="wo-expand-icon" style="margin-left:10px;">▶</span>' +
+      '</div>' +
+      '<button class="wo-add-btn" onclick="event.stopPropagation(); WO.addContentBox(\'' + sectionId + '\')">+</button>' +
+      '</div>' +
+      '<div class="wo-section-content" id="' + sectionId + '-content">' +
+      specialContent +
+      '<div class="wo-content-boxes" id="' + sectionId + '-boxes">' + subsectionContent + '</div>' +
+      '</div>' +
+      '</div>';
+  }
+
+  function renderSongOrderSection(songSection) {
+    var container = $('woSongOrderSections');
+    if (!container) return;
+    // Remove empty message if present
+    var emptyMsg = container.querySelector('.wo-empty-songs');
+    if (emptyMsg) emptyMsg.remove();
+
+    var html = '<div class="wo-song-order-card" id="' + songSection.id + '">' +
+      '<div class="wo-song-order-card-header">' +
+      '<div><div class="wo-song-order-card-title">' + escapeHtml(songSection.title) + '</div>' +
+      '<div class="wo-song-order-card-artist">by ' + escapeHtml(songSection.artist || 'Unknown') + '</div></div>' +
+      '<button class="wo-song-order-card-remove" onclick="WO.deleteSongOrderSection(\'' + songSection.id + '\')"><i class="fa-solid fa-trash mr-1"></i> Remove</button>' +
+      '</div>' +
+      '<div class="wo-song-order-card-content">' + escapeHtml(songSection.lyrics || 'No lyrics available') + '</div>' +
+      '</div>';
+    container.insertAdjacentHTML('beforeend', html);
+  }
+
+  function deleteSongOrderSection(sectionId) {
+    var el = $(sectionId);
+    if (el) el.remove();
+    songOrderSections = songOrderSections.filter(function(s) { return s.id !== sectionId; });
+    if (songOrderSections.length === 0) {
+      var container = $('woSongOrderSections');
+      if (container) container.innerHTML = '<p class="wo-empty-songs">No songs added yet. Use the button above to get started!</p>';
+    }
+  }
+
+  function toggleSection(sectionId) {
+    var content = $(sectionId + '-content');
+    var header = event.target.closest('.wo-section-header');
+    var icon = header ? header.querySelector('.wo-expand-icon') : null;
+    if (content) {
+      if (content.classList.contains('expanded')) {
+        content.classList.remove('expanded');
+        if (icon) icon.textContent = '▶';
+      } else {
+        content.classList.add('expanded');
+        if (icon) icon.textContent = '▼';
+      }
+    }
+  }
+
+  function addContentBox(sectionId) {
+    var container = $(sectionId + '-boxes');
+    if (!container) return;
+    var boxId = sectionId + '-' + Date.now();
+    var html = '<div class="wo-content-box" onclick="WO.editContent(this)" data-section="' + boxId + '">' +
+      '<div class="wo-content-placeholder">Click to add content</div>' +
+      '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
+      '</div>';
+    container.insertAdjacentHTML('beforeend', html);
+  }
+
+  function editContent(box) {
+    document.querySelectorAll('.wo-content-box').forEach(function(b) {
+      b.classList.remove('editing', 'selected');
+      var textarea = b.querySelector('.wo-content-textarea');
+      if (textarea) {
+        var text = textarea.value;
+        if (text.trim()) {
+          b.innerHTML = '<div class="wo-content-text">' + escapeHtml(text) + '</div>' +
+            '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>';
+          b.classList.add('has-content');
+        } else {
+          b.innerHTML = '<div class="wo-content-placeholder">Click to add content</div>' +
+            '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>';
+          b.classList.remove('has-content');
+        }
+      }
+    });
+
+    box.classList.add('editing', 'selected');
+    currentSelectedBox = box;
+
+    var existingText = box.querySelector('.wo-content-text') ? box.querySelector('.wo-content-text').textContent : '';
+    box.innerHTML = '<textarea class="wo-content-textarea" placeholder="Enter content..." style="width:100%;min-height:60px;border:none;outline:none;resize:none;font-family:Georgia,serif;font-size:0.85rem;">' + existingText + '</textarea>' +
+      '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>';
+
+    var textarea = box.querySelector('.wo-content-textarea');
+    textarea.focus();
+    updatePreview(existingText);
+
+    textarea.oninput = function(e) { updatePreview(e.target.value); };
+    textarea.onblur = function() {
+      var text = textarea.value;
+      if (text.trim()) {
+        box.innerHTML = '<div class="wo-content-text">' + escapeHtml(text) + '</div>' +
+          '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>';
+        box.classList.add('has-content');
+      } else {
+        box.innerHTML = '<div class="wo-content-placeholder">Click to add content</div>' +
+          '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>';
+        box.classList.remove('has-content');
+      }
+      box.classList.remove('editing');
+    };
+  }
+
+  function deleteContent(deleteBtn) {
+    var box = deleteBtn.closest('.wo-content-box');
+    if (box) box.remove();
+  }
+
+  function updatePreview(content) {
+    var screen = $('woPreviewScreen');
+    if (screen) {
+      if (content && content.trim()) {
+        screen.innerHTML = '<div class="wo-preview-content">' + escapeHtml(content) + '</div>';
+      } else {
+        screen.innerHTML = '<div class="wo-preview-placeholder">Click any content box to see preview</div>';
+      }
+    }
+  }
+
+  // Song Library Functions - Connected to STATE.songs
+  function openSongLibrary() {
+    $('woSongPopup').classList.add('show');
+    loadAllSongs();
+  }
+
+  function openSongLibraryForSection(sectionId) {
+    $('woSongPopup').classList.add('show');
+    $('woSongPopup').setAttribute('data-section', sectionId);
+    loadAllSongs();
+  }
+
+  function closeSongPopup() {
+    $('woSongPopup').classList.remove('show');
+    selectedSongs = [];
+    $('woSelectedSongs').style.display = 'none';
+  }
+
+  function loadAllSongs() {
+    // Use STATE.songs from the main app
+    var songs = (window.LHC_STATE && window.LHC_STATE.songs) || [];
+    displaySongs(songs);
+  }
+
+  function searchSongs() {
+    var searchTerm = ($('woSongSearchInput').value || '').toLowerCase();
+    var songs = (window.LHC_STATE && window.LHC_STATE.songs) || [];
+    var filtered = songs.filter(function(song) {
+      return (song.title || '').toLowerCase().includes(searchTerm) ||
+        (song.artist || '').toLowerCase().includes(searchTerm) ||
+        (song.lyrics || '').toLowerCase().includes(searchTerm);
+    });
+    displaySongs(filtered);
+  }
+
+  function filterSongs() {
+    var season = $('woSeasonFilter').value;
+    var theme = $('woThemeFilter').value;
+    var style = $('woStyleFilter').value;
+    var searchTerm = ($('woSongSearchInput').value || '').toLowerCase();
+    var songs = (window.LHC_STATE && window.LHC_STATE.songs) || [];
+
+    var filtered = songs.filter(function(song) {
+      var matchesSeason = !season || (song.season || '').toLowerCase() === season;
+      var matchesTheme = !theme || (song.themes || []).some(function(t) { return t.toLowerCase().includes(theme); });
+      var matchesStyle = !style || (song.style || song.category || '').toLowerCase() === style;
+      var matchesSearch = !searchTerm ||
+        (song.title || '').toLowerCase().includes(searchTerm) ||
+        (song.artist || '').toLowerCase().includes(searchTerm);
+      return matchesSeason && matchesTheme && matchesStyle && matchesSearch;
+    });
+    displaySongs(filtered);
+  }
+
+  function displaySongs(songs) {
+    var container = $('woSongResults');
+    if (!container) return;
+
+    if (songs.length === 0) {
+      container.innerHTML = '<div style="padding:20px;text-align:center;color:#6c757d;">No songs found. Try adjusting your search or add songs in the Songs tab.</div>';
+      return;
+    }
+
+    var html = songs.map(function(song) {
+      var themes = Array.isArray(song.themes) ? song.themes.join(', ') : (song.themes || '');
+      return '<div class="wo-song-item">' +
+        '<div class="wo-song-info">' +
+        '<div class="wo-song-title-popup">' + escapeHtml(song.title || 'Untitled') + '</div>' +
+        '<div class="wo-song-details">by ' + escapeHtml(song.artist || 'Unknown') + (themes ? ' • ' + escapeHtml(themes) : '') + '</div>' +
+        '</div>' +
+        '<button class="wo-add-song-btn" onclick="WO.selectSong(\'' + (song.id || song.title) + '\')">Select</button>' +
+        '</div>';
+    }).join('');
+    container.innerHTML = html;
+  }
+
+  function selectSong(songId) {
+    var songs = (window.LHC_STATE && window.LHC_STATE.songs) || [];
+    var song = songs.find(function(s) { return s.id === songId || s.title === songId; });
+    if (song && !selectedSongs.find(function(s) { return s.id === song.id || s.title === song.title; })) {
+      selectedSongs.push(song);
+      updateSelectedSongs();
+    }
+  }
+
+  function updateSelectedSongs() {
+    var container = $('woSelectedSongs');
+    var list = $('woSelectedSongsList');
+    if (!container || !list) return;
+
+    if (selectedSongs.length === 0) {
+      container.style.display = 'none';
+      return;
+    }
+
+    container.style.display = 'block';
+    var html = selectedSongs.map(function(song) {
+      return '<div class="wo-selected-song">' +
+        '<span>' + escapeHtml(song.title) + ' - ' + escapeHtml(song.artist || 'Unknown') + '</span>' +
+        '<button class="wo-remove-song-btn" onclick="WO.removeSong(\'' + (song.id || song.title) + '\')">Remove</button>' +
+        '</div>';
+    }).join('');
+    list.innerHTML = html;
+  }
+
+  function removeSong(songId) {
+    selectedSongs = selectedSongs.filter(function(s) { return s.id !== songId && s.title !== songId; });
+    updateSelectedSongs();
+  }
+
+  function addSelectedSongs() {
+    selectedSongs.forEach(function(song) {
+      var songSection = {
+        id: 'wo-song-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+        songId: song.id,
+        title: song.title,
+        artist: song.artist,
+        lyrics: song.lyrics || 'No lyrics available',
+        servicePosition: 'Unassigned'
+      };
+      songOrderSections.push(songSection);
+      renderSongOrderSection(songSection);
+    });
+    closeSongPopup();
+  }
+
+  // Presentation Functions
+  function goFullscreen() {
+    var content = document.querySelector('.wo-preview-content');
+    if (content) {
+      var overlay = $('woFullscreenOverlay');
+      var fullContent = $('woFullscreenContent');
+      fullContent.textContent = content.textContent;
+      overlay.classList.add('show');
+    }
+  }
+
+  function closeFullscreen() {
+    $('woFullscreenOverlay').classList.remove('show');
+  }
+
+  function toggleLivePresent() {
+    var btn = $('woLivePresentBtn');
+    if (btn.classList.contains('active')) {
+      btn.classList.remove('active');
+      btn.textContent = 'LIVE Present';
+    } else {
+      btn.classList.add('active');
+      btn.textContent = 'STOP Present';
+    }
+  }
+
+  function undoDelete() {
+    $('woUndoNotification').classList.remove('show');
+  }
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function showToast(msg, type) {
+    if (typeof window.showToast === 'function') {
+      window.showToast(msg, type);
+    } else {
+      alert(msg);
+    }
+  }
+
+  // Load saved orders on init
+  function init() {
+    try {
+      var stored = localStorage.getItem('lhc_worship_orders');
+      if (stored) savedOrders = JSON.parse(stored);
+    } catch(e) { console.warn('Failed to load saved orders:', e); }
+  }
+
+  init();
+
+  // Public API
+  return {
+    showNewOrderOptions: showNewOrderOptions,
+    hideNewOrderOptions: hideNewOrderOptions,
+    showSavedOrders: showSavedOrders,
+    hideSavedOrders: hideSavedOrders,
+    createNewOrder: createNewOrder,
+    loadOrder: loadOrder,
+    backToMainMenu: backToMainMenu,
+    saveCurrentOrder: saveCurrentOrder,
+    selectOrder: selectOrder,
+    toggleSection: toggleSection,
+    addContentBox: addContentBox,
+    editContent: editContent,
+    deleteContent: deleteContent,
+    deleteSongOrderSection: deleteSongOrderSection,
+    openSongLibrary: openSongLibrary,
+    openSongLibraryForSection: openSongLibraryForSection,
+    closeSongPopup: closeSongPopup,
+    searchSongs: searchSongs,
+    filterSongs: filterSongs,
+    selectSong: selectSong,
+    removeSong: removeSong,
+    addSelectedSongs: addSelectedSongs,
+    goFullscreen: goFullscreen,
+    closeFullscreen: closeFullscreen,
+    toggleLivePresent: toggleLivePresent,
+    undoDelete: undoDelete
+  };
+})();
+</script>
+
 <!-- ======================= END PART 5/6 ======================= -->
 <!-- ======================= LHC Worship Prep — index.html (PART 6/6) ======================= -->
 <!-- Part 6: IMPROVED RosterEngine v1.7 -->
@@ -4772,6 +5473,141 @@ window.loadEditSongData = function(song) {
     from { box-shadow: 0 0 10px 2px rgba(251, 191, 36, 0.5); }
     to { box-shadow: 0 0 20px 5px rgba(251, 191, 36, 0.8); }
   }
+
+  /* ==================== WORSHIP ORDER STYLES ==================== */
+  .wo-container { font-family: 'Poppins', Georgia, serif; min-height: 600px; }
+  .wo-main-menu { padding: 40px 20px; text-align: center; }
+  .wo-main-menu-header h1 { font-size: 2rem; font-weight: 700; color: #2c5aa0; margin: 0 0 10px 0; font-family: Georgia, serif; }
+  .wo-main-menu-header p { font-size: 1rem; color: #6c757d; font-style: italic; margin: 0; }
+  .wo-main-menu-content { max-width: 800px; margin: 30px auto 0; }
+  .wo-menu-buttons { display: flex; flex-direction: column; gap: 20px; align-items: center; margin-bottom: 30px; }
+  .wo-main-menu-btn { background: linear-gradient(135deg, #4169e1, #6495ed); color: white; border: none; padding: 18px 40px; border-radius: 15px; font-size: 1.1rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 6px 20px rgba(65, 105, 225, 0.3); min-width: 300px; font-family: 'Poppins', sans-serif; }
+  .wo-main-menu-btn:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(65, 105, 225, 0.4); }
+  .wo-new-order-btn { background: linear-gradient(135deg, #28a745, #20c997); }
+  .wo-new-order-btn:hover { background: linear-gradient(135deg, #20c997, #17a2b8); }
+  .wo-load-order-btn { background: linear-gradient(135deg, #6f42c1, #e83e8c); }
+  .wo-load-order-btn:hover { background: linear-gradient(135deg, #e83e8c, #fd7e14); }
+  .wo-new-order-options, .wo-saved-orders-list { background: white; border: 2px solid rgba(100, 149, 237, 0.3); border-radius: 16px; padding: 30px; margin-top: 20px; box-shadow: 0 6px 20px rgba(65, 105, 225, 0.1); }
+  .wo-new-order-options h3, .wo-saved-orders-list h3 { color: #2c5aa0; font-size: 1.4rem; margin: 0 0 25px 0; font-family: Georgia, serif; }
+  .wo-order-type-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 25px; }
+  .wo-order-type-btn { background: linear-gradient(145deg, #ffffff, #f8f9ff); border: 2px solid rgba(100, 149, 237, 0.3); border-radius: 12px; padding: 20px 15px; cursor: pointer; transition: all 0.3s ease; text-align: center; font-family: 'Poppins', sans-serif; font-size: 1rem; font-weight: 600; color: #2c5aa0; display: flex; flex-direction: column; gap: 8px; }
+  .wo-order-type-btn:hover { border-color: #4169e1; background: linear-gradient(145deg, #e6f3ff, #f0f8ff); transform: translateY(-2px); }
+  .wo-order-type-btn i { font-size: 1.5rem; color: #4169e1; }
+  .wo-order-description { font-size: 0.8rem; color: #6c757d; font-weight: 400; font-style: italic; }
+  .wo-back-btn { background: linear-gradient(135deg, #6c757d, #495057); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; font-family: 'Poppins', sans-serif; }
+  .wo-back-btn:hover { background: linear-gradient(135deg, #495057, #343a40); }
+  .wo-empty-state { text-align: center; color: #6c757d; padding: 40px 20px; }
+  .wo-empty-state i { font-size: 3rem; margin-bottom: 15px; opacity: 0.5; }
+
+  /* Worship Order Editor */
+  .wo-editor { width: 100%; }
+  .wo-header { background: linear-gradient(135deg, #4169e1, #6495ed, #87ceeb); color: white; padding: 20px; text-align: center; border-radius: 12px 12px 0 0; }
+  .wo-header h1 { margin: 0; font-size: 1.5rem; font-weight: 700; font-family: Georgia, serif; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .wo-header p { margin: 5px 0 0 0; font-size: 0.75rem; opacity: 0.9; font-style: italic; }
+  .wo-rose { font-size: 1.2rem; }
+  .wo-cross { font-size: 1.2rem; color: #ffd700; }
+  .wo-current-order-info { background: rgba(255,255,255,0.2); border-radius: 8px; padding: 8px 15px; margin-top: 12px; font-size: 0.8rem; display: inline-block; }
+  .wo-order-selector { margin-top: 15px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.2); }
+  .wo-order-controls { display: flex; gap: 10px; margin-bottom: 12px; justify-content: center; flex-wrap: wrap; }
+  .wo-control-btn { background: linear-gradient(135deg, #28a745, #20c997); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; font-family: 'Poppins', sans-serif; }
+  .wo-control-btn:hover { transform: translateY(-2px); }
+  .wo-back-to-menu-btn { background: linear-gradient(135deg, #6c757d, #495057); }
+  .wo-order-title { color: #f7fafc; font-size: 0.7rem; font-weight: 600; margin-bottom: 8px; }
+  .wo-order-buttons { display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
+  .wo-order-btn { background: rgba(255,255,255,0.2); color: white; border: 2px solid rgba(255,255,255,0.4); padding: 10px 20px; border-radius: 25px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; font-family: 'Poppins', sans-serif; }
+  .wo-order-btn:hover { background: rgba(255,255,255,0.3); }
+  .wo-order-btn.active { background: white; color: #4169e1; border-color: #ffd700; }
+
+  /* Main Content Area */
+  .wo-main-content { display: flex; min-height: 500px; background: white; border-radius: 0 0 12px 12px; }
+  .wo-main-content.wo-song-order { display: block; }
+  .wo-worship-order { flex: 1; padding: 20px; overflow-y: auto; }
+  .wo-main-content.wo-song-order .wo-worship-order { width: 100%; }
+  .wo-song-order-intro { text-align: center; padding: 30px; }
+  .wo-song-order-intro h3 { color: #2c5aa0; margin-bottom: 10px; font-family: Georgia, serif; }
+  .wo-song-order-intro p { color: #6c757d; margin-bottom: 25px; }
+  .wo-song-order-actions { display: flex; gap: 15px; justify-content: center; margin-bottom: 25px; }
+  .wo-song-library-btn { background: linear-gradient(135deg, #4169e1, #6495ed); color: white; border: none; padding: 12px 24px; border-radius: 10px; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; font-family: 'Poppins', sans-serif; }
+  .wo-song-library-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(65, 105, 225, 0.3); }
+  .wo-empty-songs { font-style: italic; color: #999; }
+
+  /* Preview Panel */
+  .wo-preview-panel { width: 350px; background: #1a1a1a; padding: 15px; }
+  .wo-preview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+  .wo-preview-title { color: white; font-size: 1rem; font-weight: 600; }
+  .wo-preview-actions { display: flex; gap: 8px; }
+  .wo-live-present-btn { background: linear-gradient(135deg, #0066ff, #0052cc); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.75rem; transition: all 0.3s ease; }
+  .wo-live-present-btn:hover { transform: translateY(-1px); }
+  .wo-live-present-btn.active { background: linear-gradient(135deg, #dc3545, #c82333); }
+  .wo-preview-screen { background: #000; border-radius: 8px; padding: 30px; min-height: 250px; display: flex; align-items: center; justify-content: center; color: white; font-size: 1.2rem; line-height: 1.6; text-align: center; font-family: Georgia, serif; }
+  .wo-preview-placeholder { color: #666; font-style: italic; font-size: 0.9rem; }
+
+  /* Worship Sections */
+  .wo-worship-section { background: white; border: 2px solid rgba(100, 149, 237, 0.3); border-radius: 12px; margin-bottom: 12px; overflow: hidden; transition: all 0.3s ease; }
+  .wo-worship-section:hover { border-color: #4169e1; box-shadow: 0 4px 15px rgba(65, 105, 225, 0.15); }
+  .wo-section-header { background: linear-gradient(135deg, #e6f3ff, #f0f8ff); padding: 12px 15px; border-bottom: 1px solid rgba(100, 149, 237, 0.2); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+  .wo-section-header::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: linear-gradient(135deg, #4169e1, #6495ed); }
+  .wo-section-number { background: linear-gradient(135deg, #4169e1, #6495ed); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; margin-right: 10px; }
+  .wo-section-title { font-weight: 600; color: #2c5aa0; font-size: 0.9rem; flex: 1; }
+  .wo-section-content { padding: 12px; display: none; }
+  .wo-section-content.expanded { display: block; }
+  .wo-content-box { border: 2px solid rgba(100, 149, 237, 0.3); border-radius: 8px; padding: 10px; background: #f8f9ff; cursor: pointer; transition: all 0.3s ease; margin-bottom: 8px; min-height: 40px; position: relative; }
+  .wo-content-box:hover { border-color: #4169e1; background: #e6f3ff; }
+  .wo-content-box.selected { border-color: #ffd700; background: #fffbf0; box-shadow: 0 0 10px rgba(255, 215, 0, 0.3); }
+  .wo-content-placeholder { color: #7b9bd1; font-style: italic; text-align: center; font-size: 0.8rem; }
+  .wo-content-text { font-family: Georgia, serif; font-size: 0.85rem; line-height: 1.5; color: #2c5aa0; white-space: pre-wrap; }
+  .wo-add-btn { background: linear-gradient(135deg, #4169e1, #6495ed); color: white; border: none; border-radius: 50%; width: 26px; height: 26px; font-size: 1rem; cursor: pointer; transition: all 0.3s ease; }
+  .wo-add-btn:hover { transform: scale(1.1) rotate(90deg); }
+  .wo-delete-btn { background: #dc3545; color: white; border: none; border-radius: 4px; width: 22px; height: 22px; font-size: 0.7rem; cursor: pointer; position: absolute; top: 5px; right: 5px; opacity: 0; transition: opacity 0.2s; }
+  .wo-content-box:hover .wo-delete-btn { opacity: 1; }
+
+  /* Fullscreen Overlay */
+  .wo-fullscreen-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: white; display: none; align-items: center; justify-content: center; z-index: 10000; font-family: Georgia, serif; font-size: 2.5rem; line-height: 1.6; padding: 40px; }
+  .wo-fullscreen-overlay.show { display: flex; }
+  .wo-close-fullscreen { position: absolute; top: 20px; right: 30px; font-size: 2rem; cursor: pointer; color: #ccc; }
+  .wo-close-fullscreen:hover { color: white; }
+  .wo-fullscreen-content { text-align: center; max-width: 90%; white-space: pre-wrap; }
+
+  /* Undo Notification */
+  .wo-undo-notification { position: fixed; bottom: 20px; right: 20px; background: #28a745; color: white; padding: 12px 18px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 10001; display: none; align-items: center; gap: 12px; }
+  .wo-undo-notification.show { display: flex; }
+  .wo-undo-btn { background: white; color: #28a745; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+
+  /* Song Popup */
+  .wo-song-popup { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 10002; padding: 20px; }
+  .wo-song-popup.show { display: flex; }
+  .wo-song-popup-content { background: white; border-radius: 12px; padding: 25px; width: 100%; max-width: 700px; max-height: 80vh; overflow-y: auto; }
+  .wo-song-popup-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #e9ecef; }
+  .wo-song-popup-title { font-size: 1.3rem; font-weight: 600; color: #2c5aa0; }
+  .wo-close-popup { background: none; border: none; font-size: 1.5rem; color: #6c757d; cursor: pointer; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .wo-close-popup:hover { background: #f8f9fa; color: #333; }
+  .wo-song-search-input { width: 100%; padding: 10px 15px; border: 2px solid #dee2e6; border-radius: 8px; font-size: 0.95rem; margin-bottom: 12px; font-family: 'Poppins', sans-serif; }
+  .wo-song-search-input:focus { outline: none; border-color: #4169e1; }
+  .wo-song-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 15px; }
+  .wo-song-filter { padding: 8px; border: 2px solid #dee2e6; border-radius: 6px; font-size: 0.85rem; font-family: 'Poppins', sans-serif; }
+  .wo-song-results { max-height: 250px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px; }
+  .wo-song-item { padding: 12px 15px; border-bottom: 1px solid #e9ecef; cursor: pointer; transition: background 0.2s; display: flex; justify-content: space-between; align-items: center; }
+  .wo-song-item:hover { background: #f8f9fa; }
+  .wo-song-item:last-child { border-bottom: none; }
+  .wo-song-info { flex: 1; }
+  .wo-song-title-popup { font-weight: 600; color: #2c5aa0; margin-bottom: 3px; }
+  .wo-song-details { font-size: 0.8rem; color: #6c757d; }
+  .wo-add-song-btn { background: linear-gradient(135deg, #4169e1, #6495ed); color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 600; transition: all 0.2s; }
+  .wo-add-song-btn:hover { transform: translateY(-1px); }
+  .wo-selected-songs { margin-top: 15px; padding-top: 15px; border-top: 2px solid #e9ecef; }
+  .wo-selected-songs-title { font-weight: 600; margin-bottom: 10px; color: #2c5aa0; }
+  .wo-selected-song { background: #e3f2fd; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; }
+  .wo-remove-song-btn { background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+  .wo-add-selected-songs-btn { background: linear-gradient(135deg, #28a745, #20c997); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 10px; width: 100%; transition: all 0.3s ease; }
+  .wo-add-selected-songs-btn:hover { transform: translateY(-2px); }
+
+  /* Song Order Section Card */
+  .wo-song-order-card { background: white; border: 2px solid rgba(100, 149, 237, 0.3); border-radius: 12px; margin-bottom: 12px; overflow: hidden; border-left: 5px solid #4169e1; }
+  .wo-song-order-card-header { background: linear-gradient(135deg, #e6f3ff, #f0f8ff); padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; }
+  .wo-song-order-card-title { font-weight: 600; color: #2c5aa0; font-size: 1rem; }
+  .wo-song-order-card-artist { font-size: 0.8rem; color: #6c757d; }
+  .wo-song-order-card-content { padding: 15px; background: #fafbff; white-space: pre-wrap; font-family: Georgia, serif; line-height: 1.6; font-size: 0.9rem; color: #333; max-height: 150px; overflow-y: auto; }
+  .wo-song-order-card-remove { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; }
 
   /* ==================== PRINT STYLES - ROSTER TABLE ONLY ==================== */
   @media print {
@@ -5796,9 +6632,8 @@ window.loadEditSongData = function(song) {
       tableClone.querySelectorAll('.roster-cell-dropdown-icon').forEach(function(el) { el.remove(); });
       tableClone.querySelectorAll('.roster-share-btn').forEach(function(el) { el.remove(); });
 
-      // Get month/year for title
-      var monthTitle = document.getElementById('rosterMonthTitle');
-      var titleText = monthTitle ? monthTitle.textContent : (this.MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear);
+      // Get month/year for title - use STATE directly for clean text
+      var titleText = this.MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear;
 
       // Create print window
       var printWindow = window.open('', '_blank', 'width=1000,height=800');
