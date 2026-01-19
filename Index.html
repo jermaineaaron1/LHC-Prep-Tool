@@ -5781,7 +5781,60 @@ window.loadEditSongData = function(song) {
       this.showToast('CSV downloaded!', 'success');
     },
 
-    downloadPDF: function() { window.print(); this.showToast('Print dialog opened', 'success'); },
+    downloadPDF: function() {
+      var self = this;
+      var table = document.getElementById('rosterTable');
+      if (!table) {
+        this.showToast('No roster table found', 'error');
+        return;
+      }
+
+      // Clone the table and clean it up for printing
+      var tableClone = table.cloneNode(true);
+
+      // Remove dropdown icons and edit indicators from the clone
+      tableClone.querySelectorAll('.roster-cell-dropdown-icon').forEach(function(el) { el.remove(); });
+      tableClone.querySelectorAll('.roster-share-btn').forEach(function(el) { el.remove(); });
+
+      // Get month/year for title
+      var monthTitle = document.getElementById('rosterMonthTitle');
+      var titleText = monthTitle ? monthTitle.textContent : (this.MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear);
+
+      // Create print window
+      var printWindow = window.open('', '_blank', 'width=1000,height=800');
+      printWindow.document.write('<!DOCTYPE html><html><head>');
+      printWindow.document.write('<title>LHC Roster - ' + titleText + '</title>');
+      printWindow.document.write('<style>');
+      printWindow.document.write('* { margin: 0; padding: 0; box-sizing: border-box; }');
+      printWindow.document.write('body { font-family: Arial, sans-serif; padding: 20px; background: white; }');
+      printWindow.document.write('.print-header { text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #333; }');
+      printWindow.document.write('.print-title { font-size: 24px; font-weight: bold; color: #1f2937; margin-bottom: 5px; }');
+      printWindow.document.write('.print-subtitle { font-size: 16px; color: #4b5563; }');
+      printWindow.document.write('table { width: 100%; border-collapse: collapse; font-size: 11px; }');
+      printWindow.document.write('th, td { border: 1px solid #333; padding: 6px 8px; text-align: center; }');
+      printWindow.document.write('th { background: #d1d5db; font-weight: bold; font-size: 10px; }');
+      printWindow.document.write('td:first-child, th:first-child { text-align: left; font-weight: 600; min-width: 120px; background: #f3f4f6; }');
+      printWindow.document.write('tr.roster-section-header td { background: #6b7280 !important; color: white !important; font-weight: bold; text-transform: uppercase; }');
+      printWindow.document.write('tr.roster-liturgical-row td:first-child { background: #fef3c7; }');
+      printWindow.document.write('.altar-color-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }');
+      printWindow.document.write('.roster-date-chip { display: block; font-size: 9px; background: #e5e7eb; padding: 2px 6px; border-radius: 4px; margin-bottom: 3px; }');
+      printWindow.document.write('@media print { body { padding: 10px; } @page { size: landscape; margin: 10mm; } }');
+      printWindow.document.write('</style></head><body>');
+      printWindow.document.write('<div class="print-header">');
+      printWindow.document.write('<div class="print-title">Luther House Chapel - Worship Duty Roster</div>');
+      printWindow.document.write('<div class="print-subtitle">' + titleText + '</div>');
+      printWindow.document.write('</div>');
+      printWindow.document.write(tableClone.outerHTML);
+      printWindow.document.write('</body></html>');
+      printWindow.document.close();
+
+      // Wait for content to load then print
+      setTimeout(function() {
+        printWindow.print();
+      }, 500);
+
+      this.showToast('Print dialog opened', 'success');
+    },
 
     shareWeekly: function(dateStr, dateName) {
       var self = this;
