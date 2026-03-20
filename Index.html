@@ -18781,9 +18781,9 @@ var WO = (function() {
     function applyImgErase() {
       var paths = (sbImgPaths[songId] && sbImgPaths[songId][fi]) || [];
       if (!paths.length || !erasePoints.length) return;
-      var eraserR = Math.max(6, sbDrawSize * 3);
       var r = wrap.getBoundingClientRect();
       var wW = r.width || 600, wH = r.height || 400;
+      var eraserR = Math.max(6, sbDrawSize * 3) * (sbZoom || 1); // screen-px to match wW/wH
       var newPaths = [];
       paths.forEach(function(path) {
         var pts = sbParsePathPoints(path.d);
@@ -18921,22 +18921,26 @@ var WO = (function() {
     var contSid     = found.dataset.contSid;
     var contOffset  = parseFloat(found.dataset.contOffset  || '0');
     var contScrollH = parseFloat(found.dataset.contScrollh || '0');
+    var _sz = sbZoom || 1; // current zoom scale (CSS transform factor)
     if (contSid) {
       sbDrawTargetSid  = contSid;
       sbDrawOffsetX    = wrapRect.left;
-      sbDrawOffsetY    = wrapRect.top - contOffset;
-      sbDrawWrapW      = wrapRect.width || 600;
-      sbDrawWrapH      = contScrollH || (wrapRect.height || 800);
+      sbDrawOffsetY    = wrapRect.top - contOffset * _sz; // contOffset is layout-px → scale to screen-px
+      sbDrawWrapW      = wrapRect.width || 600;            // wrapRect.width already in screen-px ✓
+      sbDrawWrapH      = contScrollH * _sz || (wrapRect.height || 800); // layout → screen-px
       sbDrawCurrentSvg = found.querySelector('.sb-draw-svg');
     } else {
       sbDrawTargetSid  = found.id.replace('sbCanvas-wrap-', '');
       sbDrawOffsetX    = wrapRect.left;
       sbDrawOffsetY    = wrapRect.top;
-      sbDrawWrapW      = wrapRect.width || 600;
+      sbDrawWrapW      = wrapRect.width || 600; // already screen-px ✓
       var _lyrEl       = document.getElementById('sbLyrics-' + sbDrawTargetSid);
-      sbDrawWrapH      = (_lyrEl && _lyrEl.scrollHeight > 0) ? _lyrEl.scrollHeight : (wrapRect.height || 800);
+      // _lyrLayoutH is in layout (CSS) px — used for SVG style.height
+      var _lyrLayoutH  = (_lyrEl && _lyrEl.scrollHeight > 0) ? _lyrEl.scrollHeight : Math.round((wrapRect.height || 800) / _sz);
+      // sbDrawWrapH must be in screen-px to match clientY distances
+      sbDrawWrapH      = _lyrLayoutH * _sz;
       sbDrawCurrentSvg = document.getElementById('sbCanvas-' + sbDrawTargetSid);
-      if (sbDrawCurrentSvg) sbDrawCurrentSvg.style.height = sbDrawWrapH + 'px';
+      if (sbDrawCurrentSvg) sbDrawCurrentSvg.style.height = _lyrLayoutH + 'px'; // SVG sized in layout-px
     }
     return found;
   }
@@ -19063,7 +19067,7 @@ var WO = (function() {
   function sbApplyErase(songId) {
     var paths = sbPaths[songId];
     if (!paths || !paths.length || !sbErasePoints.length) return;
-    var eraserR = Math.max(6, sbDrawSize * 3); // pixel radius (matches cursor)
+    var eraserR = Math.max(6, sbDrawSize * 3) * (sbZoom || 1); // screen-px radius to match wW/wH
     var wW = sbDrawWrapW, wH = sbDrawWrapH;
     var newPaths = [];
 
