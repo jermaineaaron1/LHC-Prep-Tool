@@ -4662,6 +4662,7 @@ I once was lost but now am found"
       <span id="sbFsZoomLabel" class="sbfs-zoom-label">65%</span>
       <button class="sbfs-btn" onclick="WO.sbFsZoomIn()" title="Zoom in (+)"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
       <button class="sbfs-btn sbfs-fit-btn" onclick="WO.sbFsFit()" title="Fit to screen">Fit</button>
+      <button class="sbfs-btn" id="sbFsTwoColBtn" onclick="WO.sbFsToggleTwoCol()" title="Two pages side by side">2-Col</button>
       <button class="sbfs-btn sbfs-close-btn" onclick="WO.sbFsClose()" title="Close (Esc / double-click)"><i class="fa-solid fa-times"></i></button>
     </div>
   </div>
@@ -17714,6 +17715,7 @@ var WO = (function() {
   var _sbFsPages = [];
   var _sbFsIdx = 0;
   var _sbFsZoom = 0.95;
+  var _sbFsTwoCol = false; // 481 — two-page side-by-side mode
   var _sbFsFitZoom = 0.95;
   var _sbFsPinching = false;
   var _sbFsPinchDist0 = 0;
@@ -18721,18 +18723,56 @@ var WO = (function() {
     var svg = wrap.querySelector('.sb-img-annot-svg');
     if (!svg) return;
     var drawing = false, pathEl = null, pathData = '';
+    var erasePoints = [];
+
     function getXY(e) {
       var src = (e.touches && e.touches.length > 0) ? e.touches[0] : e;
       var r = wrap.getBoundingClientRect();
-      return { x: ((src.clientX - r.left) / (r.width || 1)).toFixed(5), y: ((src.clientY - r.top) / (r.height || 1)).toFixed(5) };
+      return { x: ((src.clientX - r.left) / (r.width || 1)).toFixed(5),
+               y: ((src.clientY - r.top)  / (r.height || 1)).toFixed(5),
+               cx: src.clientX, cy: src.clientY };
     }
+
+    function applyImgErase() {
+      var paths = (sbImgPaths[songId] && sbImgPaths[songId][fi]) || [];
+      if (!paths.length || !erasePoints.length) return;
+      var eraserR = Math.max(6, sbDrawSize * 3);
+      var r = wrap.getBoundingClientRect();
+      var wW = r.width || 600, wH = r.height || 400;
+      var newPaths = [];
+      paths.forEach(function(path) {
+        var pts = sbParsePathPoints(path.d);
+        if (pts.length < 2) { newPaths.push(path); return; }
+        var erased = pts.map(function(p) {
+          return erasePoints.some(function(ep) {
+            var dx = (p.x - ep.x) * wW, dy = (p.y - ep.y) * wH;
+            return Math.sqrt(dx * dx + dy * dy) < eraserR;
+          });
+        });
+        var seg = [];
+        for (var i = 0; i < pts.length; i++) {
+          if (erased[i]) { if (seg.length >= 2) newPaths.push(_makePath(seg, path)); seg = []; }
+          else seg.push(pts[i]);
+        }
+        if (seg.length >= 2) newPaths.push(_makePath(seg, path));
+      });
+      if (!sbImgPaths[songId]) sbImgPaths[songId] = {};
+      sbImgPaths[songId][fi] = newPaths;
+      sbRedrawImgAnnotations(songId, fi);
+      var song = songOrderSections.find(function(s) { return s.id === songId; });
+      if (song) { if (!song.imgAnnotations) song.imgAnnotations = {}; song.imgAnnotations[fi] = newPaths.slice(); sbAutoSave(); }
+    }
+
     function onDown(e) {
       if (!sbDrawMode && !sbEraseMode) return;
       e.preventDefault(); e.stopPropagation();
-      drawing = true;
-      pathData = '';
-      pathEl = null;
+      drawing = true; pathData = ''; pathEl = null; erasePoints = [];
       var xy = getXY(e);
+      if (sbEraseMode) {
+        erasePoints.push({ x: parseFloat(xy.x), y: parseFloat(xy.y) });
+        sbShowEraseCursor(xy.cx, xy.cy);
+        return;
+      }
       svg.setAttribute('viewBox', '0 0 1 1');
       svg.setAttribute('preserveAspectRatio', 'none');
       pathData = 'M' + xy.x + ',' + xy.y;
@@ -18747,15 +18787,22 @@ var WO = (function() {
       svg.appendChild(pathEl);
     }
     function onMove(e) {
-      if (!drawing || !pathEl) return;
+      if (!drawing) return;
       e.preventDefault();
       var xy = getXY(e);
+      if (sbEraseMode) {
+        erasePoints.push({ x: parseFloat(xy.x), y: parseFloat(xy.y) });
+        sbShowEraseCursor(xy.cx, xy.cy);
+        return;
+      }
+      if (!pathEl) return;
       pathData += ' L' + xy.x + ',' + xy.y;
       pathEl.setAttribute('d', pathData);
     }
     function onUp(e) {
       if (!drawing) return;
       drawing = false;
+      if (sbEraseMode) { applyImgErase(); erasePoints = []; sbHideEraseCursor(); return; }
       if (pathEl && pathData && pathData.indexOf('L') !== -1) {
         var r = wrap.getBoundingClientRect();
         var newPath = { d: pathData, color: sbDrawColor, size: sbDrawSize, szPct: (sbDrawSize / (r.width || 600)).toFixed(6), fmt: 'pct' };
@@ -18765,11 +18812,7 @@ var WO = (function() {
         sbUndoStack.push({ sid: songId, path: newPath, isImg: true, fileIdx: fi });
         sbGlobalRedoStack = [];
         var song = songOrderSections.find(function(s) { return s.id === songId; });
-        if (song) {
-          if (!song.imgAnnotations) song.imgAnnotations = {};
-          song.imgAnnotations[fi] = sbImgPaths[songId][fi].slice();
-          sbAutoSave();
-        }
+        if (song) { if (!song.imgAnnotations) song.imgAnnotations = {}; song.imgAnnotations[fi] = sbImgPaths[songId][fi].slice(); sbAutoSave(); }
       }
       pathEl = null; pathData = '';
     }
@@ -20512,6 +20555,9 @@ var WO = (function() {
     if (!_sbFsPages.length) { showToast('No pages to show', 'warning'); return; }
     _sbFsIdx = 0;
     _sbFsZoom = 0.95;
+    _sbFsTwoCol = false; // reset to single-page on open
+    var twoColBtn = document.getElementById('sbFsTwoColBtn');
+    if (twoColBtn) twoColBtn.style.background = '';
     var overlay = document.getElementById('sbFsOverlay');
     overlay.style.display = 'flex';
     // Request true browser fullscreen
@@ -20697,6 +20743,43 @@ var WO = (function() {
       if (song.itemType === 'blank') return;
       songNum++;
 
+      // 480 — If any image panel is open for this song, skip lyrics and only show image pages
+      var sbFilesFsCheck = Array.isArray(song.sbFiles) ? song.sbFiles : [];
+      var hasOpenImgPanel = sbFilesFsCheck.some(function(f, fi) {
+        if (!(f.mimeType && f.mimeType.startsWith('image/'))) return false;
+        var panel = document.getElementById('sbFilePanel-' + song.id + '-' + fi);
+        return panel && panel.style.display !== 'none';
+      });
+      if (hasOpenImgPanel) {
+        // Jump straight to image pages — lyrics pages are skipped
+        sbFilesFsCheck.forEach(function(f, fi) {
+          var isImage = f.mimeType && f.mimeType.startsWith('image/');
+          if (!isImage) return;
+          var panel = document.getElementById('sbFilePanel-' + song.id + '-' + fi);
+          if (!panel || panel.style.display === 'none') return;
+          var fileId = f.fileId || sbGetDriveFileId(f.url || '');
+          var imgSrc = fileId
+            ? 'https://drive.google.com/thumbnail?id=' + escapeHtml(fileId) + '&sz=w1600'
+            : escapeHtml(f.url || '');
+          var imgAnnotPaths = (sbImgPaths && sbImgPaths[song.id] && sbImgPaths[song.id][fi]) || (song.imgAnnotations && song.imgAnnotations[fi]) || [];
+          var imgAnnotSvgStr = '';
+          if (imgAnnotPaths.length > 0) {
+            imgAnnotSvgStr = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" preserveAspectRatio="none" style="position:absolute;top:0;left:0;width:100%;height:100%;">' +
+              imgAnnotPaths.map(function(p) {
+                return '<path d="' + p.d + '" stroke="' + escapeHtml(p.color) + '" stroke-width="' + (p.szPct || p.size) + '" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+              }).join('') + '</svg>';
+          }
+          pages.push(extraStyle +
+            '<div style="height:' + A4H + 'px;overflow:hidden;position:relative;background:#000;display:flex;align-items:center;justify-content:center;">' +
+              '<div style="position:relative;max-width:794px;max-height:' + A4H + 'px;line-height:0;">' +
+                '<img src="' + imgSrc + '" style="max-width:794px;max-height:' + A4H + 'px;object-fit:contain;display:block;" alt="' + escapeHtml(f.name || 'Image') + '">' +
+                imgAnnotSvgStr +
+              '</div>' +
+            '</div>');
+        });
+        return; // skip lyrics processing
+      }
+
       var lyricsEl   = document.getElementById('sbLyrics-' + song.id);
       var lyricsHtml = lyricsEl ? lyricsEl.innerHTML : (song.richLyrics || (typeof formatLyricsWithHighlights === 'function' ? formatLyricsWithHighlights(song.lyrics || '') : escapeHtml(song.lyrics || '')));
       var sectionLabel = sbGetSectionLabel(song.sectionId || '');
@@ -20766,11 +20849,15 @@ var WO = (function() {
           '</div>');
       });
 
-      // 480 — Image pages: one fullscreen page per image sbFile attached to this song
+      // 480 — Image pages: show only image panels that are currently open/visible in the songbook.
+      // If any image panel is open → show ONLY those image pages (skip lyrics above).
+      // If no image panel is open → lyrics-only (no image pages added here).
       var sbFilesFs = Array.isArray(song.sbFiles) ? song.sbFiles : [];
       sbFilesFs.forEach(function(f, fi) {
         var isImage = f.mimeType && f.mimeType.startsWith('image/');
         if (!isImage) return;
+        var panel = document.getElementById('sbFilePanel-' + song.id + '-' + fi);
+        if (!panel || panel.style.display === 'none') return; // only add page if panel is open
         var fileId = f.fileId || sbGetDriveFileId(f.url || '');
         var imgSrc = fileId
           ? 'https://drive.google.com/thumbnail?id=' + escapeHtml(fileId) + '&sz=w1600'
@@ -20804,9 +20891,10 @@ var WO = (function() {
     if (!vp) return;
     var vw = vp.clientWidth || window.innerWidth;
     var vh = vp.clientHeight || window.innerHeight;
-    // Subtract bar height (56px) + small buffer so page never hides behind controls
+    // 481 — two-col uses double page width (794*2) for fit calc; first page always single
+    var pageW = (_sbFsTwoCol && _sbFsIdx > 0) ? 1588 : 794;
     var zoomH = (vh - 64) / 1123;
-    var zoomW = (vw - 16) / 794;
+    var zoomW = (vw - 16) / pageW;
     _sbFsFitZoom = Math.round(Math.min(zoomH, zoomW) * 1000) / 1000;
     _sbFsFitZoom = Math.max(0.2, _sbFsFitZoom);
   }
@@ -20817,15 +20905,36 @@ var WO = (function() {
     var numEl = document.getElementById('sbFsPageNum');
     var zoomEl = document.getElementById('sbFsZoomLabel');
     if (!page || !wrap) return;
-    page.innerHTML = _sbFsPages[_sbFsIdx] || '';
-    wrap.style.transform = 'scale(' + _sbFsZoom + ')';
-    wrap.style.transformOrigin = 'center center';
+    // 481 — two-col: show current + next page side by side (except index page at idx 0)
+    var isTwoCol = _sbFsTwoCol && _sbFsIdx > 0;
+    if (isTwoCol) {
+      var p1 = _sbFsPages[_sbFsIdx] || '';
+      var p2 = _sbFsPages[_sbFsIdx + 1] || '<div style="width:794px;height:1123px;background:#fff;"></div>';
+      page.innerHTML =
+        '<div style="display:flex;gap:0;">' +
+          '<div style="width:794px;height:1123px;overflow:hidden;flex-shrink:0;">' + p1 + '</div>' +
+          '<div style="width:794px;height:1123px;overflow:hidden;flex-shrink:0;">' + p2 + '</div>' +
+        '</div>';
+      wrap.style.width  = Math.round(1588 * _sbFsZoom) + 'px';
+    } else {
+      page.innerHTML = _sbFsPages[_sbFsIdx] || '';
+      wrap.style.width  = Math.round(794 * _sbFsZoom) + 'px';
+    }
+    wrap.style.transform       = 'scale(' + _sbFsZoom + ')';
+    wrap.style.transformOrigin = 'top center';
     wrap.style.height = Math.round(1123 * _sbFsZoom) + 'px';
-    wrap.style.width = Math.round(794 * _sbFsZoom) + 'px';
     if (numEl) numEl.textContent = (_sbFsIdx + 1) + ' / ' + _sbFsPages.length;
     if (zoomEl) zoomEl.textContent = Math.round(_sbFsZoom * 100) + '%';
     var vp = document.getElementById('sbFsViewport');
     if (vp) vp.scrollTop = 0;
+  }
+
+  function sbFsToggleTwoCol() {
+    _sbFsTwoCol = !_sbFsTwoCol;
+    var btn = document.getElementById('sbFsTwoColBtn');
+    if (btn) btn.style.background = _sbFsTwoCol ? 'rgba(255,255,255,0.25)' : '';
+    _sbFsCalcFit();
+    _sbFsRenderPage();
   }
 
   function sbFsClose() {
@@ -23992,6 +24101,7 @@ var WO = (function() {
     sbFsZoomIn: sbFsZoomIn,
     sbFsZoomOut: sbFsZoomOut,
     sbFsFit: sbFsFit,
+    sbFsToggleTwoCol: sbFsToggleTwoCol,
     sbSavePDF: sbSavePDF,
     sbOpenPrintModal: sbOpenPrintModal,
     sbClosePrintModal: sbClosePrintModal,
