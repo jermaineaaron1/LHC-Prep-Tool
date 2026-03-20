@@ -11241,6 +11241,7 @@ var WO = (function() {
                   customLyrics: customLyrics,
                   transposeSteps: transposeSteps,
                   annotations: cust.annotations || [],
+                  imgAnnotations: cust.imgAnnotations || {},
                   serviceSections: cust.serviceSections || [],
                   hasCustomLyrics: !!customLyrics,
                   youtube: (item.content ? item.content.youtube : null) || [],
@@ -11868,6 +11869,7 @@ var WO = (function() {
           masterLyrics: masterLyrics,
           transposeSteps: transposeSteps,
           annotations: songData.annotations || [],
+          imgAnnotations: songData.imgAnnotations || {},
           serviceSections: songData.serviceSections || [],
           customRichLyrics: songData.richLyrics || ''   // 343: persist Songbook-edited rich lyrics
         },
@@ -17683,8 +17685,9 @@ var WO = (function() {
   var sbCurrentPathData = '';
   var sbCurrentSongId = null;
   var sbPaths = {};          // songId -> [{d, color, size}]  (display-only, loaded from saved annotations)
+  var sbImgPaths = {};       // songId -> { fileIdx: [...paths] }  per-image annotation paths
   var sbRedoStack = {};      // songId -> [{d, color, size}] — redo history
-  // Per-stroke undo/redo stacks — each entry: { sid, path: {d, color, size} }
+  // Per-stroke undo/redo stacks — each entry: { sid, path: {d, color, size}, isImg?, fileIdx? }
   var sbUndoStack = [];
   var sbGlobalRedoStack = []; // redo stack (reused name for closeSongbook compat)
   var sbDrawTargetSid = null;   // song being drawn on (set at mousedown)
@@ -17710,8 +17713,8 @@ var WO = (function() {
   // ── Fullscreen viewer state ──
   var _sbFsPages = [];
   var _sbFsIdx = 0;
-  var _sbFsZoom = 0.65;
-  var _sbFsFitZoom = 0.65;
+  var _sbFsZoom = 0.95;
+  var _sbFsFitZoom = 0.95;
   var _sbFsPinching = false;
   var _sbFsPinchDist0 = 0;
   var _sbFsPinchZoom0 = 1;
@@ -17805,9 +17808,18 @@ var WO = (function() {
     sbZoom = 1; _sbPointerMap = {}; _sbPinching = false;
     // 343: seed sbPaths from stored annotations — clear first to avoid stale data
     sbPaths = {};
+    sbImgPaths = {};
     songOrderSections.forEach(function(song) {
       if (Array.isArray(song.annotations) && song.annotations.length > 0) {
         sbPaths[song.id] = song.annotations.slice();
+      }
+      if (song.imgAnnotations && typeof song.imgAnnotations === 'object') {
+        sbImgPaths[song.id] = {};
+        Object.keys(song.imgAnnotations).forEach(function(k) {
+          if (Array.isArray(song.imgAnnotations[k]) && song.imgAnnotations[k].length > 0) {
+            sbImgPaths[song.id][k] = song.imgAnnotations[k].slice();
+          }
+        });
       }
     });
     sbSetSaveStatus('');
@@ -18209,7 +18221,11 @@ var WO = (function() {
           var imgSrc = fileId
             ? 'https://drive.google.com/thumbnail?id=' + escapeHtml(fileId) + '&sz=w1600'
             : escapeHtml(f.url || '');
-          contentHtml = '<img style="width:100%;height:auto;display:block;" src="' + imgSrc + '" alt="' + escapeHtml(f.name || '') + '">';
+          // 480 — Annotation wrap: SVG overlay enables drawing on the image
+          contentHtml = '<div class="sb-img-annot-wrap" data-song-id="' + escapeHtml(sid) + '" data-file-idx="' + fi + '" style="position:relative;display:block;width:100%;">' +
+            '<img style="width:100%;height:auto;display:block;" src="' + imgSrc + '" alt="' + escapeHtml(f.name || '') + '">' +
+            '<svg class="sb-img-annot-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;"></svg>' +
+          '</div>';
         } else if (f.url) {
           contentHtml =
             '<div class="sb-panel-open-bar"><a href="' + escapeHtml(f.url) + '" target="_blank" rel="noopener" class="sb-panel-open-btn">' +
@@ -18281,6 +18297,12 @@ var WO = (function() {
     sbApplyZoom();
     // Re-draw any saved annotations
     Object.keys(sbPaths).forEach(function(sid) { sbRedrawSong(sid); });
+    // Re-draw saved image annotations
+    Object.keys(sbImgPaths).forEach(function(sid) {
+      Object.keys(sbImgPaths[sid]).forEach(function(fi) {
+        sbRedrawImgAnnotations(sid, parseInt(fi));
+      });
+    });
     // Attach pointer/touch listeners (pinch-zoom + draw/erase)
     sbAttachTouchListeners(body);
     sbAttachPinchHandlers(body);
@@ -18295,6 +18317,13 @@ var WO = (function() {
       });
       body.querySelectorAll('.sb-page-canvas-wrap').forEach(function(wrap) {
         wrap.style.touchAction = 'none'; // let JS handle all touch in annotation mode
+      });
+      // Also activate image annotation listeners
+      body.querySelectorAll('.sb-img-annot-wrap').forEach(function(wrap) {
+        var imgSvg = wrap.querySelector('.sb-img-annot-svg');
+        if (imgSvg) { imgSvg.style.pointerEvents = 'all'; imgSvg.style.cursor = 'crosshair'; }
+        wrap.style.cursor = 'crosshair';
+        sbAttachImgAnnotListeners(wrap);
       });
     }
   }
@@ -18623,6 +18652,14 @@ var WO = (function() {
         wrap.style.touchAction = active ? 'none' : '';  // 'none' lets JS handle all touch in annotation mode
         wrap.style.cursor = active ? 'crosshair' : '';
       });
+      // 480 — Enable/disable annotation on image panels
+      body.querySelectorAll('.sb-img-annot-wrap').forEach(function(wrap) {
+        var imgSvg = wrap.querySelector('.sb-img-annot-svg');
+        if (imgSvg) { imgSvg.style.pointerEvents = active ? 'all' : 'none'; imgSvg.style.cursor = active ? 'crosshair' : ''; }
+        wrap.style.cursor = active ? 'crosshair' : '';
+        if (active) sbAttachImgAnnotListeners(wrap);
+        else sbDetachImgAnnotListeners(wrap);
+      });
     }
 
     // Document-level mouse listeners — fire even when mouse moves outside a song SVG
@@ -18658,6 +18695,102 @@ var WO = (function() {
       }
       sbHideEraseCursor();
     }
+  }
+
+  // 480 — Image annotation helpers
+  function sbRedrawImgAnnotations(songId, fileIdx) {
+    var body = document.getElementById('sbBody');
+    if (!body) return;
+    var wrap = body.querySelector('.sb-img-annot-wrap[data-song-id="' + songId + '"][data-file-idx="' + fileIdx + '"]');
+    if (!wrap) return;
+    var svg = wrap.querySelector('.sb-img-annot-svg');
+    if (!svg) return;
+    var paths = (sbImgPaths[songId] && sbImgPaths[songId][fileIdx]) ? sbImgPaths[songId][fileIdx] : [];
+    if (!paths.length) { svg.innerHTML = ''; return; }
+    svg.setAttribute('viewBox', '0 0 1 1');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.innerHTML = paths.map(function(p) {
+      return '<path d="' + p.d + '" stroke="' + escapeHtml(p.color) + '" stroke-width="' + (p.szPct || p.size) + '" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+    }).join('');
+  }
+
+  function sbAttachImgAnnotListeners(wrap) {
+    if (wrap._sbImgOnDown) return; // already attached
+    var songId = wrap.dataset.songId;
+    var fi = parseInt(wrap.dataset.fileIdx);
+    var svg = wrap.querySelector('.sb-img-annot-svg');
+    if (!svg) return;
+    var drawing = false, pathEl = null, pathData = '';
+    function getXY(e) {
+      var src = (e.touches && e.touches.length > 0) ? e.touches[0] : e;
+      var r = wrap.getBoundingClientRect();
+      return { x: ((src.clientX - r.left) / (r.width || 1)).toFixed(5), y: ((src.clientY - r.top) / (r.height || 1)).toFixed(5) };
+    }
+    function onDown(e) {
+      if (!sbDrawMode && !sbEraseMode) return;
+      e.preventDefault(); e.stopPropagation();
+      drawing = true;
+      pathData = '';
+      pathEl = null;
+      var xy = getXY(e);
+      svg.setAttribute('viewBox', '0 0 1 1');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      pathData = 'M' + xy.x + ',' + xy.y;
+      pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      var r = wrap.getBoundingClientRect();
+      pathEl.setAttribute('d', pathData);
+      pathEl.setAttribute('stroke', sbDrawColor);
+      pathEl.setAttribute('stroke-width', (sbDrawSize / (r.width || 600)).toFixed(6));
+      pathEl.setAttribute('fill', 'none');
+      pathEl.setAttribute('stroke-linecap', 'round');
+      pathEl.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(pathEl);
+    }
+    function onMove(e) {
+      if (!drawing || !pathEl) return;
+      e.preventDefault();
+      var xy = getXY(e);
+      pathData += ' L' + xy.x + ',' + xy.y;
+      pathEl.setAttribute('d', pathData);
+    }
+    function onUp(e) {
+      if (!drawing) return;
+      drawing = false;
+      if (pathEl && pathData && pathData.indexOf('L') !== -1) {
+        var r = wrap.getBoundingClientRect();
+        var newPath = { d: pathData, color: sbDrawColor, size: sbDrawSize, szPct: (sbDrawSize / (r.width || 600)).toFixed(6), fmt: 'pct' };
+        if (!sbImgPaths[songId]) sbImgPaths[songId] = {};
+        if (!sbImgPaths[songId][fi]) sbImgPaths[songId][fi] = [];
+        sbImgPaths[songId][fi].push(newPath);
+        sbUndoStack.push({ sid: songId, path: newPath, isImg: true, fileIdx: fi });
+        sbGlobalRedoStack = [];
+        var song = songOrderSections.find(function(s) { return s.id === songId; });
+        if (song) {
+          if (!song.imgAnnotations) song.imgAnnotations = {};
+          song.imgAnnotations[fi] = sbImgPaths[songId][fi].slice();
+          sbAutoSave();
+        }
+      }
+      pathEl = null; pathData = '';
+    }
+    wrap._sbImgOnDown = onDown; wrap._sbImgOnMove = onMove; wrap._sbImgOnUp = onUp;
+    wrap.addEventListener('mousedown', onDown);
+    wrap.addEventListener('mousemove', onMove);
+    wrap.addEventListener('mouseup', onUp);
+    wrap.addEventListener('touchstart', onDown, { passive: false });
+    wrap.addEventListener('touchmove', onMove, { passive: false });
+    wrap.addEventListener('touchend', onUp);
+  }
+
+  function sbDetachImgAnnotListeners(wrap) {
+    if (!wrap._sbImgOnDown) return;
+    wrap.removeEventListener('mousedown', wrap._sbImgOnDown);
+    wrap.removeEventListener('mousemove', wrap._sbImgOnMove);
+    wrap.removeEventListener('mouseup', wrap._sbImgOnUp);
+    wrap.removeEventListener('touchstart', wrap._sbImgOnDown);
+    wrap.removeEventListener('touchmove', wrap._sbImgOnMove);
+    wrap.removeEventListener('touchend', wrap._sbImgOnUp);
+    wrap._sbImgOnDown = wrap._sbImgOnMove = wrap._sbImgOnUp = null;
   }
 
   function sbSetDrawColor(color, btn) {
@@ -18990,25 +19123,39 @@ var WO = (function() {
     if (!sbUndoStack.length) return;
     var entry = sbUndoStack.pop();
     sbGlobalRedoStack.push(entry);
-    var paths = sbPaths[entry.sid];
-    if (paths) {
-      var idx = paths.indexOf(entry.path);
-      if (idx >= 0) paths.splice(idx, 1);
+    if (entry.isImg) {
+      var imgArr = sbImgPaths[entry.sid] && sbImgPaths[entry.sid][entry.fileIdx];
+      if (imgArr) { var ii = imgArr.indexOf(entry.path); if (ii >= 0) imgArr.splice(ii, 1); }
+      sbRedrawImgAnnotations(entry.sid, entry.fileIdx);
+      var song2 = songOrderSections.find(function(s) { return s.id === entry.sid; });
+      if (song2) { if (!song2.imgAnnotations) song2.imgAnnotations = {}; song2.imgAnnotations[entry.fileIdx] = (sbImgPaths[entry.sid] && sbImgPaths[entry.sid][entry.fileIdx]) ? sbImgPaths[entry.sid][entry.fileIdx].slice() : []; sbAutoSave(); }
+    } else {
+      var paths = sbPaths[entry.sid];
+      if (paths) { var idx = paths.indexOf(entry.path); if (idx >= 0) paths.splice(idx, 1); }
+      sbRedrawSong(entry.sid);
+      var song = songOrderSections.find(function(s) { return s.id === entry.sid; });
+      if (song) { song.annotations = (sbPaths[entry.sid] || []).slice(); sbAutoSave(); }
     }
-    sbRedrawSong(entry.sid);
-    var song = songOrderSections.find(function(s) { return s.id === entry.sid; });
-    if (song) { song.annotations = (sbPaths[entry.sid] || []).slice(); sbAutoSave(); }
   }
 
   function sbRedo() {
     if (!sbGlobalRedoStack.length) return;
     var entry = sbGlobalRedoStack.pop();
     sbUndoStack.push(entry);
-    if (!sbPaths[entry.sid]) sbPaths[entry.sid] = [];
-    sbPaths[entry.sid].push(entry.path);
-    sbRedrawSong(entry.sid);
-    var song = songOrderSections.find(function(s) { return s.id === entry.sid; });
-    if (song) { song.annotations = sbPaths[entry.sid].slice(); sbAutoSave(); }
+    if (entry.isImg) {
+      if (!sbImgPaths[entry.sid]) sbImgPaths[entry.sid] = {};
+      if (!sbImgPaths[entry.sid][entry.fileIdx]) sbImgPaths[entry.sid][entry.fileIdx] = [];
+      sbImgPaths[entry.sid][entry.fileIdx].push(entry.path);
+      sbRedrawImgAnnotations(entry.sid, entry.fileIdx);
+      var song2 = songOrderSections.find(function(s) { return s.id === entry.sid; });
+      if (song2) { if (!song2.imgAnnotations) song2.imgAnnotations = {}; song2.imgAnnotations[entry.fileIdx] = sbImgPaths[entry.sid][entry.fileIdx].slice(); sbAutoSave(); }
+    } else {
+      if (!sbPaths[entry.sid]) sbPaths[entry.sid] = [];
+      sbPaths[entry.sid].push(entry.path);
+      sbRedrawSong(entry.sid);
+      var song = songOrderSections.find(function(s) { return s.id === entry.sid; });
+      if (song) { song.annotations = sbPaths[entry.sid].slice(); sbAutoSave(); }
+    }
   }
 
   function sbClearActiveDraw() {
@@ -19028,6 +19175,17 @@ var WO = (function() {
         song.annotations = [];
         sbRedrawSong(song.id);
       }
+    });
+    // Clear image annotations
+    Object.keys(sbImgPaths).forEach(function(sid) {
+      Object.keys(sbImgPaths[sid]).forEach(function(fi) {
+        sbImgPaths[sid][fi] = [];
+        sbRedrawImgAnnotations(sid, parseInt(fi));
+      });
+    });
+    sbImgPaths = {};
+    songOrderSections.forEach(function(song) {
+      if (song.imgAnnotations) { song.imgAnnotations = {}; }
     });
     sbAutoSave();
   }
@@ -19124,6 +19282,13 @@ var WO = (function() {
           if (Array.isArray(c.annotations)) {
             song.annotations = c.annotations;
             sbPaths[song.id] = c.annotations.slice();
+          }
+          if (c.imgAnnotations && typeof c.imgAnnotations === 'object') {
+            song.imgAnnotations = c.imgAnnotations;
+            sbImgPaths[song.id] = {};
+            Object.keys(c.imgAnnotations).forEach(function(k) {
+              if (Array.isArray(c.imgAnnotations[k])) sbImgPaths[song.id][k] = c.imgAnnotations[k].slice();
+            });
           }
           if (c.customRichLyrics != null) song.richLyrics = c.customRichLyrics;
           if (typeof c.transposeSteps === 'number') song.transposeSteps = c.transposeSteps;
@@ -19818,11 +19983,10 @@ var WO = (function() {
       } else {
         var allDocs    = (Array.isArray(song.attachments) ? song.attachments : []).concat(Array.isArray(song.customDocs) ? song.customDocs : []);
         var sbFilesArr = Array.isArray(song.sbFiles) ? song.sbFiles : [];
-        var allVideos  = (Array.isArray(song.youtube) ? song.youtube : (typeof song.youtube === 'string' && song.youtube.trim() ? song.youtube.split(/[,\n]+/).map(function(u){return u.trim();}).filter(Boolean) : [])).concat(Array.isArray(song.customYoutube) ? song.customYoutube : []);
 
         html += '<div style="font-size:0.88rem;font-weight:700;color:#1e293b;margin-bottom:6px;">' + (idx + 1) + '. ' + escapeHtml(song.title) + '</div>';
 
-        // Content checkboxes — only Lyrics checked by default
+        // Content checkboxes — only Lyrics checked by default (YouTube Video removed per 479)
         html += '<div style="display:flex;flex-wrap:wrap;gap:5px 14px;">';
         html += '<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.78rem;cursor:pointer;"><input type="checkbox" id="sbp-lyrics-' + idx + '" checked style="' + ckS + '"> <span style="color:#475569;">📝 Lyrics</span></label>';
         allDocs.forEach(function(att, di) {
@@ -19833,11 +19997,6 @@ var WO = (function() {
           var nm = f.name || ('File ' + (fi+1)); if (nm.length > 22) nm = nm.substring(0,22)+'…';
           var isImg = f.mimeType && f.mimeType.startsWith('image/');
           html += '<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.78rem;cursor:pointer;" title="' + escapeHtml(f.name||'') + '"><input type="checkbox" id="sbp-file-' + idx + '-' + fi + '" style="' + ckS + '"> <span style="color:#16a34a;">' + (isImg?'🖼️':'📎') + ' ' + escapeHtml(nm) + '</span></label>';
-        });
-        allVideos.forEach(function(url, vi) {
-          var info = window.detectMediaType ? window.detectMediaType(url) : null;
-          var lbl = info ? info.label : 'Video'; if (lbl.length > 18) lbl = lbl.substring(0,18)+'…';
-          html += '<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.78rem;cursor:pointer;" title="' + escapeHtml(url) + '"><input type="checkbox" id="sbp-vid-' + idx + '-' + vi + '" style="' + ckS + '"> <span style="color:#dc2626;">🎬 ' + escapeHtml(lbl) + '</span></label>';
         });
         // 385/390 — Song page links: snapshots checked by default (printable inline); plain links unchecked
         var sbLinksArr = Array.isArray(song.sbLinks) ? song.sbLinks : [];
@@ -20129,7 +20288,6 @@ var WO = (function() {
 
       var allDocs    = (Array.isArray(song.attachments) ? song.attachments : []).concat(Array.isArray(song.customDocs) ? song.customDocs : []);
       var sbFilesArr = Array.isArray(song.sbFiles) ? song.sbFiles : [];
-      var allVideos  = (Array.isArray(song.youtube) ? song.youtube : (typeof song.youtube === 'string' && song.youtube.trim() ? song.youtube.split(/[,\n]+/).map(function(u){return u.trim();}).filter(Boolean) : [])).concat(Array.isArray(song.customYoutube) ? song.customYoutube : []);
 
       // Lyrics HTML — pick up live songbook edits
       var lyricsEl  = $('sbLyrics-' + song.id);
@@ -20137,15 +20295,6 @@ var WO = (function() {
       if (includeLyrics) {
         lyricsHtml = lyricsEl ? lyricsEl.innerHTML : (song.richLyrics || formatLyricsWithHighlights(song.lyrics || ''));
       }
-
-      // Inline images from sbFiles (if checked)
-      sbFilesArr.forEach(function(f, fi) {
-        var isImage = f.mimeType && f.mimeType.startsWith('image/');
-        if (isImage && ($('sbp-file-' + idx + '-' + fi) || {checked:false}).checked) {
-          var imgSrc = f.url || '';
-          lyricsHtml += '<br><img style="max-width:100%;margin-top:16px;border-radius:6px;display:block;" src="' + escapeHtml(imgSrc) + '" alt="' + escapeHtml(f.name||'Image') + '">';
-        }
-      });
 
       // 390 — Inline snapshot images from sbLinks (checked snapshots embed here, in sequence with lyrics)
       var sbLinksArr2 = Array.isArray(song.sbLinks) ? song.sbLinks : [];
@@ -20159,47 +20308,38 @@ var WO = (function() {
         '</div>';
       });
 
-      // Inline SVG annotations
-      // Priority 1: copy exactly what the live SVG renders (including its viewBox),
-      //   and force the SVG to the SAME pixel height as the live canvas-wrap so
-      //   normalised coords (viewBox 0 0 1 1) map to identical positions in the PDF.
-      // Priority 2: fall back to sbPaths when the songbook is not open.
+      // 478 — Lyrics annotations: only include when printing lyrics (not with image-only output)
       var annotSvg = '';
-      var liveSvg   = $('sbCanvas-' + song.id);
-      var liveWrap  = $('sbCanvas-wrap-' + song.id);
-      // Use full unclipped lyrics scrollHeight — same basis as sbFCMouseDown/sbRedrawSong
-      var lyrElH    = $('sbLyrics-' + song.id);
-      var liveWrapH = (lyrElH && lyrElH.scrollHeight > 0)
-                      ? lyrElH.scrollHeight
-                      : (liveWrap ? Math.round(liveWrap.getBoundingClientRect().height) : 0);
-      if (liveSvg && liveSvg.innerHTML.trim()) {
-        // Copy viewBox + preserveAspectRatio from the live SVG so coord space matches.
-        // Explicitly set height = live wrap height so the PDF annotation lands at the
-        // same fractional position regardless of how tall sp-lyrics-wrap renders.
-        var _vb = liveSvg.getAttribute('viewBox') || '';
-        var _pa = liveSvg.getAttribute('preserveAspectRatio') || '';
-        var _svgAttrs = (_vb ? ' viewBox="' + _vb + '"' : '') +
-                        (_pa ? ' preserveAspectRatio="' + _pa + '"' : '');
-        var _inlineStyle = liveWrapH ? ' style="height:' + liveWrapH + 'px"' : '';
-        annotSvg = '<svg xmlns="http://www.w3.org/2000/svg" class="sb-annot-svg"' + _svgAttrs + _inlineStyle + '>' +
-          liveSvg.innerHTML + '</svg>';
-      } else {
-        var paths = sbPaths[song.id] || song.annotations || [];
-        if (paths.length > 0) {
-          var hasPctPaths = paths.some(function(p) { return p.fmt === 'pct'; });
-          var svgAttrs = hasPctPaths ? ' viewBox="0 0 1 1" preserveAspectRatio="none"' : '';
-          annotSvg = '<svg xmlns="http://www.w3.org/2000/svg" class="sb-annot-svg"' + svgAttrs + '>' +
-            paths.map(function(p) {
-              var strokeW = (p.fmt === 'pct' && p.szPct) ? p.szPct : p.size;
-              return '<path d="' + p.d + '" stroke="' + escapeHtml(p.color) +
-                '" stroke-width="' + strokeW + '" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
-            }).join('') + '</svg>';
+      if (includeLyrics) {
+        var liveSvg   = $('sbCanvas-' + song.id);
+        var liveWrap  = $('sbCanvas-wrap-' + song.id);
+        var lyrElH    = $('sbLyrics-' + song.id);
+        var liveWrapH = (lyrElH && lyrElH.scrollHeight > 0)
+                        ? lyrElH.scrollHeight
+                        : (liveWrap ? Math.round(liveWrap.getBoundingClientRect().height) : 0);
+        if (liveSvg && liveSvg.innerHTML.trim()) {
+          var _vb = liveSvg.getAttribute('viewBox') || '';
+          var _pa = liveSvg.getAttribute('preserveAspectRatio') || '';
+          var _svgAttrs = (_vb ? ' viewBox="' + _vb + '"' : '') + (_pa ? ' preserveAspectRatio="' + _pa + '"' : '');
+          var _inlineStyle = liveWrapH ? ' style="height:' + liveWrapH + 'px"' : '';
+          annotSvg = '<svg xmlns="http://www.w3.org/2000/svg" class="sb-annot-svg"' + _svgAttrs + _inlineStyle + '>' + liveSvg.innerHTML + '</svg>';
+        } else {
+          var lyrPaths = sbPaths[song.id] || song.annotations || [];
+          if (lyrPaths.length > 0) {
+            var hasPctPaths = lyrPaths.some(function(p) { return p.fmt === 'pct'; });
+            var svgAttrs = hasPctPaths ? ' viewBox="0 0 1 1" preserveAspectRatio="none"' : '';
+            annotSvg = '<svg xmlns="http://www.w3.org/2000/svg" class="sb-annot-svg"' + svgAttrs + '>' +
+              lyrPaths.map(function(p) {
+                var strokeW = (p.fmt === 'pct' && p.szPct) ? p.szPct : p.size;
+                return '<path d="' + p.d + '" stroke="' + escapeHtml(p.color) + '" stroke-width="' + strokeW + '" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+              }).join('') + '</svg>';
+          }
         }
       }
 
       var sectionLabel = sbGetSectionLabel(song.sectionId || '');
 
-      // Lyrics page
+      // Lyrics page (annotations only shown here — not on image pages)
       songPages += '<div class="sp-song" style="' + pageStyle + '">' +
         '<div class="sp-song-header">' +
           '<span class="sp-num">' + (idx + 1) + '</span>' +
@@ -20219,37 +20359,37 @@ var WO = (function() {
           textCache[idx + '_doc_' + di] || null, tabsToOpen);
       });
 
-      // ── sbFiles: images already inlined; non-images via sbPrintEmbedPage ──
+      // ── sbFiles: images get their own page with annotation overlay; non-images via sbPrintEmbedPage ──
       sbFilesArr.forEach(function(f, fi) {
         if (!($('sbp-file-' + idx + '-' + fi) || {checked:false}).checked) return;
         var isImage = f.mimeType && f.mimeType.startsWith('image/');
-        if (isImage) return; // already embedded above in lyricsHtml
-        songPages += sbPrintEmbedPage(song.title, f.name || 'File', f.url || '', f.mimeType || '',
-          textCache[idx + '_file_' + fi] || null, tabsToOpen);
-      });
-
-      // ── Videos: iframes don't print — show YouTube thumbnail reference page ──
-      allVideos.forEach(function(url, vi) {
-        if (!($('sbp-vid-' + idx + '-' + vi) || {checked:false}).checked) return;
-        var info  = window.detectMediaType ? window.detectMediaType(url) : null;
-        var lbl   = info ? info.label : 'Video';
-        var ytId  = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/);
-        var thumb = ytId
-          ? '<img src="https://img.youtube.com/vi/' + ytId[1] + '/mqdefault.jpg" style="max-width:280px;width:100%;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.15);" alt="Thumbnail">'
-          : '<div style="font-size:3.5rem;">\u25B6\uFE0F</div>';
-        songPages +=
-          '<div class="sp-doc-page" style="page-break-before:always;">' +
-            '<div class="sp-doc-page-label"><strong>' + escapeHtml(song.title) + '</strong>' +
-              '<span class="sp-doc-page-name">&#127902; ' + escapeHtml(lbl) + '</span>' +
-              '<a class="sp-doc-open-link" href="' + escapeHtml(url) + '" target="_blank">Open \u2197</a>' +
+        if (isImage) {
+          // 480 — Image print page: render image with its own annotation SVG (no lyrics annotations)
+          var imgSrc = f.url || '';
+          var imgAnnotPaths = (sbImgPaths[song.id] && sbImgPaths[song.id][fi]) || (song.imgAnnotations && song.imgAnnotations[fi]) || [];
+          var imgAnnotSvgStr = '';
+          if (imgAnnotPaths.length > 0) {
+            imgAnnotSvgStr = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" preserveAspectRatio="none" style="position:absolute;top:0;left:0;width:100%;height:100%;">' +
+              imgAnnotPaths.map(function(p) {
+                return '<path d="' + p.d + '" stroke="' + escapeHtml(p.color) + '" stroke-width="' + (p.szPct || p.size) + '" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+              }).join('') + '</svg>';
+          }
+          songPages += '<div class="sp-song" style="page-break-before:always;">' +
+            '<div class="sp-song-header">' +
+              '<span class="sp-num">' + (idx + 1) + '</span>' +
+              '<div class="sp-info"><div class="sp-title">' + escapeHtml(song.title) + '</div>' +
+              '<div class="sp-artist">' + escapeHtml(f.name || 'Image') + '</div></div>' +
             '</div>' +
-            '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:40px 32px;text-align:center;">' +
-              thumb +
-              '<div style="font-size:0.85rem;color:#64748b;word-break:break-all;max-width:500px;">' + escapeHtml(url) + '</div>' +
-            '</div>' +
-          '</div>';
-        tabsToOpen.push(url);
+            '<div style="position:relative;display:block;">' +
+              '<img src="' + escapeHtml(imgSrc) + '" style="max-width:100%;height:auto;display:block;border-radius:6px;" alt="' + escapeHtml(f.name || 'Image') + '">' +
+              imgAnnotSvgStr +
+            '</div></div>';
+        } else {
+          songPages += sbPrintEmbedPage(song.title, f.name || 'File', f.url || '', f.mimeType || '',
+            textCache[idx + '_file_' + fi] || null, tabsToOpen);
+        }
       });
+      // YouTube Video printing removed per 479
 
       // ── 385/390 — Song page links: snapshots already embedded above; plain links → ref page ──
       sbLinksArr2.forEach(function(lnk, li) {
@@ -20371,7 +20511,7 @@ var WO = (function() {
     _sbFsPages = _sbFsBuildPages();
     if (!_sbFsPages.length) { showToast('No pages to show', 'warning'); return; }
     _sbFsIdx = 0;
-    _sbFsZoom = 0.65;
+    _sbFsZoom = 0.95;
     var overlay = document.getElementById('sbFsOverlay');
     overlay.style.display = 'flex';
     // Request true browser fullscreen
@@ -20480,17 +20620,91 @@ var WO = (function() {
         '<table class="sp-idx-two-col"><tbody>' + indexRows + '</tbody></table>' +
       '</div>');
 
-    // Song pages
+    // Song pages — pixel-accurate pagination using a hidden measurement div
+    // with the EXACT same CSS+HTML as the fullscreen pages.
+    var A4H        = 1123; // px
+    var CONT_PAD   = 0;    // no top margin — use full page height
+    var BOTTOM_PAD = 0;    // no bottom margin — use full page height
+
+    // Raw CSS (no <style> tag) — shared between measurement and page rendering
+    var rawCss = '*{box-sizing:border-box;}' + css +
+      '.sb-annot-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}' +
+      '.sp-lyrics-wrap{position:relative;}';
+    var extraStyle  = '<style>' + rawCss + '</style>';
+
+    // Inject CSS into <head> once for the measurement pass
+    var _measureStyle = document.createElement('style');
+    _measureStyle.id  = 'sbfs-measure-css';
+    _measureStyle.textContent = rawCss;
+    document.head.appendChild(_measureStyle);
+
+    // Given a measurement div (already in DOM, styled, 794px wide),
+    // return the array of Y-offsets (page starts) using safe break rules.
+    function _sbFsBreaksFromDiv(mDiv) {
+      var totalH      = mDiv.scrollHeight;
+      if (totalH <= A4H) { return [0]; }
+
+      var lyricsWrap  = mDiv.querySelector('.sp-lyrics-wrap');
+      if (!lyricsWrap) {
+        var fb = [0]; for (var fy = A4H; fy < totalH; fy += A4H) fb.push(fy); return fb;
+      }
+
+      // offsetTop of lyricsWrap relative to mDiv (= visual header height in fullscreen render)
+      var lyrTop  = lyricsWrap.offsetTop;
+      var children = Array.from(lyricsWrap.children);
+
+      // Build item list with absolute Y positions (relative to mDiv top = page top)
+      var items = children.map(function(el) {
+        var top    = lyrTop + el.offsetTop;
+        var bottom = top + el.offsetHeight;
+        var cls    = el.getAttribute('class') || '';
+        var type   = cls.indexOf('chord')          !== -1 ? 'chord'  :
+                     cls.indexOf('lyric-line')     !== -1 ? 'lyric'  :
+                     cls.indexOf('empty')          !== -1 ? 'empty'  :
+                     cls.indexOf('section-header') !== -1 ? 'header' : 'other';
+        return { top: top, bottom: bottom, type: type };
+      });
+
+      var breaks    = [0];
+      var pageStart = 0;
+
+      while (pageStart < totalH - 20) {
+        var pageEnd = pageStart + A4H;
+        if (pageEnd >= totalH) break;
+
+        // Last safe break: after an empty-line or lyric-line that fits within this window.
+        // Never break after a chord (would orphan its lyric).
+        // Never let a section-header be the last thing on a page — push it forward.
+        var safeY = -1;
+        for (var si = 0; si < items.length; si++) {
+          if (items[si].bottom > pageEnd) break;
+          if (items[si].type === 'empty' || items[si].type === 'lyric') {
+            var nx = items[si + 1];
+            if (nx && nx.type === 'header' && nx.bottom <= pageEnd) continue; // orphan guard
+            safeY = items[si].bottom;
+          }
+        }
+
+        if (safeY <= pageStart) safeY = pageEnd; // fallback: no safe point found
+        breaks.push(safeY);
+        pageStart = safeY;
+      }
+      return breaks;
+    }
+
+    var songNum = 0;
     songOrderSections.forEach(function(song, idx) {
       if (song.itemType === 'blank') return;
-      var lyricsEl = document.getElementById('sbLyrics-' + song.id);
+      songNum++;
+
+      var lyricsEl   = document.getElementById('sbLyrics-' + song.id);
       var lyricsHtml = lyricsEl ? lyricsEl.innerHTML : (song.richLyrics || (typeof formatLyricsWithHighlights === 'function' ? formatLyricsWithHighlights(song.lyrics || '') : escapeHtml(song.lyrics || '')));
       var sectionLabel = sbGetSectionLabel(song.sectionId || '');
 
-      // Include annotations (same logic as print)
+      // Annotations
       var annotSvg = '';
-      var liveSvg = document.getElementById('sbCanvas-' + song.id);
-      var lyrElH = document.getElementById('sbLyrics-' + song.id);
+      var liveSvg  = document.getElementById('sbCanvas-' + song.id);
+      var lyrElH   = document.getElementById('sbLyrics-' + song.id);
       var liveWrapH = (lyrElH && lyrElH.scrollHeight > 0) ? lyrElH.scrollHeight : 0;
       if (liveSvg && liveSvg.innerHTML.trim()) {
         var _vb = liveSvg.getAttribute('viewBox') || '';
@@ -20509,20 +20723,79 @@ var WO = (function() {
         }
       }
 
-      pages.push(styleBlock +
-        '<style>.sb-annot-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}.sp-lyrics-wrap{position:relative;}</style>' +
-        '<div style="background:white;min-height:1123px;">' +
-          '<div class="sp-song-header">' +
-            '<span class="sp-num">' + (idx + 1) + '</span>' +
-            '<div class="sp-info">' +
-              '<div class="sp-title">' + escapeHtml(song.title) + '</div>' +
-              (song.artist ? '<div class="sp-artist">by ' + escapeHtml(song.artist) + '</div>' : '') +
-            '</div>' +
-            (sectionLabel ? '<span class="sp-section-pill">' + escapeHtml(sectionLabel) + '</span>' : '') +
+      var songHeaderHtml =
+        '<div class="sp-song-header">' +
+          '<span class="sp-num">' + songNum + '</span>' +
+          '<div class="sp-info">' +
+            '<div class="sp-title">' + escapeHtml(song.title) + '</div>' +
+            (song.artist ? '<div class="sp-artist">by ' + escapeHtml(song.artist) + '</div>' : '') +
           '</div>' +
-          '<div class="sp-lyrics-wrap">' + lyricsHtml + annotSvg + '</div>' +
-        '</div>');
+          (sectionLabel ? '<span class="sp-section-pill">' + escapeHtml(sectionLabel) + '</span>' : '') +
+        '</div>';
+      var songBodyHtml    = '<div class="sp-lyrics-wrap">' + lyricsHtml + annotSvg + '</div>';
+      var fullContentHtml = songHeaderHtml + songBodyHtml;
+
+      // ── Hidden measurement div ──────────────────────────────────────────
+      // Renders the EXACT same HTML at 794px width so offsetTop values match
+      // what the fullscreen viewer will actually show.
+      var mDiv = document.createElement('div');
+      mDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;' +
+                           'visibility:hidden;pointer-events:none;z-index:-1;';
+      mDiv.innerHTML = fullContentHtml;
+      document.body.appendChild(mDiv);
+      void mDiv.offsetHeight; // force synchronous layout
+
+      var pageBreaks = _sbFsBreaksFromDiv(mDiv);
+      var totalH     = mDiv.scrollHeight;
+
+      document.body.removeChild(mDiv);
+      // ────────────────────────────────────────────────────────────────────
+
+      // Render each page as: [top spacer] + [explicit clip div] + [bottom spacer].
+      // The clip div has a known height and overflow:hidden — no z-index covers needed.
+      // Content before breakY sits above the clip div (negative top → clipped).
+      // Content after clipH sits below the clip div (overflow:hidden → clipped).
+      pageBreaks.forEach(function(breakY) {
+        // Clip div is exactly A4H tall — content before breakY sits at negative y (hidden),
+        // content from breakY fills from y=0 downward. Safe break guarantees no chord/lyric split.
+        pages.push(extraStyle +
+          '<div style="height:' + A4H + 'px;overflow:hidden;position:relative;">' +
+            '<div style="position:absolute;top:' + (-breakY) + 'px;left:0;width:794px;">' +
+              fullContentHtml +
+            '</div>' +
+          '</div>');
+      });
+
+      // 480 — Image pages: one fullscreen page per image sbFile attached to this song
+      var sbFilesFs = Array.isArray(song.sbFiles) ? song.sbFiles : [];
+      sbFilesFs.forEach(function(f, fi) {
+        var isImage = f.mimeType && f.mimeType.startsWith('image/');
+        if (!isImage) return;
+        var fileId = f.fileId || sbGetDriveFileId(f.url || '');
+        var imgSrc = fileId
+          ? 'https://drive.google.com/thumbnail?id=' + escapeHtml(fileId) + '&sz=w1600'
+          : escapeHtml(f.url || '');
+        var imgAnnotPaths = (sbImgPaths && sbImgPaths[song.id] && sbImgPaths[song.id][fi]) || (song.imgAnnotations && song.imgAnnotations[fi]) || [];
+        var imgAnnotSvgStr = '';
+        if (imgAnnotPaths.length > 0) {
+          imgAnnotSvgStr = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" preserveAspectRatio="none" style="position:absolute;top:0;left:0;width:100%;height:100%;">' +
+            imgAnnotPaths.map(function(p) {
+              return '<path d="' + p.d + '" stroke="' + escapeHtml(p.color) + '" stroke-width="' + (p.szPct || p.size) + '" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+            }).join('') + '</svg>';
+        }
+        pages.push(extraStyle +
+          '<div style="height:' + A4H + 'px;overflow:hidden;position:relative;background:#000;display:flex;align-items:center;justify-content:center;">' +
+            '<div style="position:relative;max-width:794px;max-height:' + A4H + 'px;line-height:0;">' +
+              '<img src="' + imgSrc + '" style="max-width:794px;max-height:' + A4H + 'px;object-fit:contain;display:block;" alt="' + escapeHtml(f.name || 'Image') + '">' +
+              imgAnnotSvgStr +
+            '</div>' +
+          '</div>');
+      });
     });
+
+    // Remove measurement CSS now that all songs are processed
+    if (_measureStyle.parentNode) document.head.removeChild(_measureStyle);
+
     return pages;
   }
 
@@ -20531,10 +20804,10 @@ var WO = (function() {
     if (!vp) return;
     var vw = vp.clientWidth || window.innerWidth;
     var vh = vp.clientHeight || window.innerHeight;
-    // Fit to fill height (touch top to bottom), allow above 100%
-    var zoomH = (vh - 8) / 1123;
-    var zoomW = (vw - 8) / 794;
-    _sbFsFitZoom = Math.round(Math.min(zoomH, zoomW) * 100) / 100;
+    // Subtract bar height (56px) + small buffer so page never hides behind controls
+    var zoomH = (vh - 64) / 1123;
+    var zoomW = (vw - 16) / 794;
+    _sbFsFitZoom = Math.round(Math.min(zoomH, zoomW) * 1000) / 1000;
     _sbFsFitZoom = Math.max(0.2, _sbFsFitZoom);
   }
 
@@ -30166,8 +30439,9 @@ function filterLiturgyItems() {
 
   /* ── Songbook Fullscreen Viewer ── */
   #sbFsOverlay { background:#080810; font-family:'Lato',sans-serif; position:relative; overflow:hidden; }
-  .sbfs-viewport { position:absolute; inset:0; overflow:auto; display:flex; align-items:center; justify-content:center; }
-  .sbfs-page-wrap { transform-origin:center center; flex-shrink:0; }
+  .sbfs-viewport { position:absolute; inset:0; overflow:auto; display:flex; align-items:flex-start; justify-content:center; scrollbar-width:none; -ms-overflow-style:none; }
+  .sbfs-viewport::-webkit-scrollbar { display:none; }
+  .sbfs-page-wrap { transform-origin:top center; flex-shrink:0; }
   .sbfs-a4-page { width:794px; min-height:1123px; background:white; box-shadow:0 12px 64px rgba(0,0,0,0.8); position:relative; overflow:hidden; font-family:'Lato',sans-serif; box-sizing:border-box; }
   .sbfs-bar { position:absolute; bottom:0; left:0; right:0; z-index:20; display:flex; align-items:center; gap:8px; padding:10px 24px; background:rgba(6,6,16,0.82); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); height:56px; box-sizing:border-box; opacity:0; pointer-events:none; transition:opacity 0.35s ease; border-top:1px solid rgba(255,255,255,0.07); }
   .sbfs-bar.sbfs-bar--visible { opacity:1; pointer-events:auto; }
