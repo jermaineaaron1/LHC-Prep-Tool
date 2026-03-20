@@ -17711,6 +17711,9 @@ var WO = (function() {
   var _sbPinchDist0 = 0;
   var _sbPinchZoom0 = 1;
   var _sbPointerMap = {};   // pointerId → {x,y} — active pointer tracking for pinch
+  var _sbAnnotScrollLastY = 0; // last 2-finger midpoint Y for annotation-mode scroll
+  var _sbAnnotScrolling = false; // true when 2-finger scroll is active in annotation mode
+  var _sbIsTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
   // ── Fullscreen viewer state ──
   var _sbFsPages = [];
   var _sbFsIdx = 0;
@@ -18336,13 +18339,30 @@ var WO = (function() {
     if (window.PointerEvent) return;
     body.querySelectorAll('.sb-page-canvas-wrap').forEach(function(wrap) {
       var sid = wrap.dataset.contSid || wrap.id.replace('sbCanvas-wrap-', '');
+      var _touchScrollLastY = 0;
       wrap.addEventListener('touchstart', function(e) {
-        if (e.touches.length >= 2) return;  // 2-finger — let pinch handler take over
+        if (e.touches.length >= 2) {
+          // 2-finger in annotation mode → scroll; otherwise let default pinch happen
+          if (sbDrawMode || sbEraseMode) {
+            e.preventDefault();
+            if (sbDrawing) { sbDrawing = false; sbCurrentPath = null; sbCurrentPathData = ''; }
+            _touchScrollLastY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+          }
+          return;
+        }
         if (!sbDrawMode && !sbEraseMode) return;
         e.preventDefault();
         sbDrawStart(e, sid);
       }, { passive: false });
       wrap.addEventListener('touchmove', function(e) {
+        if (e.touches.length >= 2 && (sbDrawMode || sbEraseMode)) {
+          e.preventDefault();
+          var midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+          var sbBodyEl = document.getElementById('sbBody');
+          if (sbBodyEl) sbBodyEl.scrollTop += _touchScrollLastY - midY;
+          _touchScrollLastY = midY;
+          return;
+        }
         if (!sbDrawing) return;
         e.preventDefault();
         sbDrawMove(e);
@@ -18398,9 +18418,19 @@ var WO = (function() {
         var count = Object.keys(_sbPointerMap).length;
 
         if (count >= 2) {
-          // Two fingers: start/continue pinch — cancel any active draw stroke
           e.preventDefault();
+          // Cancel any active 1-finger draw stroke when second finger lands
           if (sbDrawing) { sbDrawing = false; sbCurrentPath = null; sbCurrentPathData = ''; }
+
+          // On touch devices in annotation mode: 2 fingers = scroll, not zoom
+          if (_sbIsTouchDevice && (sbDrawMode || sbEraseMode)) {
+            var ids = Object.keys(_sbPointerMap);
+            var midY = (_sbPointerMap[ids[0]].y + _sbPointerMap[ids[1]].y) / 2;
+            _sbAnnotScrollLastY = midY;
+            _sbAnnotScrolling = true;
+            return;
+          }
+
           _sbInitPinch();
           return;
         }
@@ -18416,8 +18446,22 @@ var WO = (function() {
         if (_sbPointerMap.hasOwnProperty(e.pointerId)) {
           _sbPointerMap[e.pointerId] = { x: e.clientX, y: e.clientY };
         }
-        if (Object.keys(_sbPointerMap).length >= 2 || _sbPinching) {
+        var activeCount = Object.keys(_sbPointerMap).length;
+
+        if (activeCount >= 2 || _sbPinching || _sbAnnotScrolling) {
           e.preventDefault();
+
+          // 2-finger scroll in annotation mode (touch devices only)
+          if (_sbAnnotScrolling && _sbIsTouchDevice && (sbDrawMode || sbEraseMode)) {
+            var ids2 = Object.keys(_sbPointerMap);
+            var midY2 = (_sbPointerMap[ids2[0]].y + (_sbPointerMap[ids2[1]] ? _sbPointerMap[ids2[1]].y : _sbPointerMap[ids2[0]].y)) / (ids2[1] ? 2 : 1);
+            var delta = _sbAnnotScrollLastY - midY2;
+            var sbBodyEl = document.getElementById('sbBody');
+            if (sbBodyEl) sbBodyEl.scrollTop += delta;
+            _sbAnnotScrollLastY = midY2;
+            return;
+          }
+
           _sbUpdatePinch();
           return;
         }
@@ -18429,12 +18473,12 @@ var WO = (function() {
 
       wrap.addEventListener('pointerup', function(e) {
         delete _sbPointerMap[e.pointerId];
-        if (Object.keys(_sbPointerMap).length < 2) _sbPinching = false;
+        if (Object.keys(_sbPointerMap).length < 2) { _sbPinching = false; _sbAnnotScrolling = false; }
         sbDrawEnd(e);
       });
       wrap.addEventListener('pointercancel', function(e) {
         delete _sbPointerMap[e.pointerId];
-        if (Object.keys(_sbPointerMap).length < 2) _sbPinching = false;
+        if (Object.keys(_sbPointerMap).length < 2) { _sbPinching = false; _sbAnnotScrolling = false; }
         sbDrawEnd(e);
       });
       wrap.addEventListener('pointerleave', function() { sbHideEraseCursor(); });
@@ -18634,6 +18678,7 @@ var WO = (function() {
   // Mouse drawing is handled via document-level listeners (works across song-card gaps).
   // Touch drawing is handled by canvas-wrap listeners (sbAttachTouchListeners).
   function sbSetFullCanvasActive(active) {
+    if (!active) { _sbAnnotScrolling = false; _sbPinching = false; }
     var fc = document.getElementById('sbFullCanvas');
     if (fc) {
       // Always pointer-events:none so touch events fall through to #sbBody for scrolling.
