@@ -2283,6 +2283,7 @@
                 <div class="wo-order-controls">
                   <button class="wo-control-btn wo-back-to-menu-btn" onclick="WO.backToMainMenu()"><i class="fa-solid fa-arrow-left mr-2"></i> Main Menu</button>
                   <button class="wo-control-btn wo-save-order-btn" onclick="WO.saveCurrentOrder()"><i class="fa-solid fa-floppy-disk mr-2"></i> Save Order</button>
+                  <span id="woAutoSaveStatus" style="font-size:0.72rem;color:#94a3b8;font-family:'Poppins',sans-serif;align-self:center;margin-left:2px;transition:color .3s;"></span>
                   <button class="wo-control-btn wo-save-as-btn" onclick="WO.saveOrderAs()" title="Save as new order"><i class="fa-solid fa-copy mr-1"></i> Save As</button>
                   <button class="wo-control-btn wo-print-btn" onclick="WO.generateLiturgyBook()" title="Generate full liturgy with songs"><i class="fa-solid fa-book-bible mr-1"></i> Liturgy Book</button>
                   <button class="wo-control-btn wo-print-btn" onclick="WO.openSongbook()" title="Open Worship Songbook"><i class="fa-solid fa-book-open mr-1"></i> Songbook</button>
@@ -11547,32 +11548,51 @@ var WO = (function() {
   }
 
   // Auto-save disabled - only save when Save button is pressed
-  function autoSaveOrder() {
-    // Disabled - do nothing
-    // User must click "Save Order" button to save changes
+  // Auto-save status indicator (shown next to Save Order button)
+  function _soSetSaveStatus(state) {
+    var el = $('woAutoSaveStatus');
+    if (!el) return;
+    if (!state)              { el.textContent = ''; return; }
+    if (state === 'pending') { el.textContent = '● Unsaved'; el.style.color = '#fbbf24'; }
+    if (state === 'saving')  { el.textContent = '↑ Saving…'; el.style.color = '#93c5fd'; }
+    if (state === 'saved')   { el.textContent = '✓ Saved';   el.style.color = '#86efac';
+      setTimeout(function() { el.textContent = ''; }, 3000); }
   }
 
-  function saveCurrentOrder() {
+  var _autoSaveTimer = null;
+  function autoSaveOrder() {
+    if (!currentOrderData) return;
+    _soSetSaveStatus('pending');
+    clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = setTimeout(function() {
+      _soSetSaveStatus('saving');
+      saveCurrentOrder(true); // silent = true
+    }, 2000);
+  }
+
+  function saveCurrentOrder(silent) {
     if (!currentOrderData) return;
 
-    showToast('Saving order...', 'info');
+    if (!silent) showToast('Saving order...', 'info');
 
-    // Debug: Log state BEFORE collecting
-    console.log('=== SAVE ORDER DEBUG ===');
-    console.log('songOrderSections.length:', songOrderSections.length);
-    if (songOrderSections.length > 0) {
-      console.log('First song:', songOrderSections[0].title, '| transposeSteps:', songOrderSections[0].transposeSteps);
+    if (!silent) {
+      console.log('=== SAVE ORDER DEBUG ===');
+      console.log('songOrderSections.length:', songOrderSections.length);
+      if (songOrderSections.length > 0) {
+        console.log('First song:', songOrderSections[0].title, '| transposeSteps:', songOrderSections[0].transposeSteps);
+      }
     }
 
     // Collect all items from the DOM (songs, liturgy, content boxes)
     var items = collectOrderItems();
 
-    // Debug: Log collected items
-    console.log('Items collected:', items.length);
-    if (items.length > 0) {
-      console.log('First item:', items[0].title, '| transposeSteps:', items[0].customizations ? items[0].customizations.transposeSteps : 'N/A');
+    if (!silent) {
+      console.log('Items collected:', items.length);
+      if (items.length > 0) {
+        console.log('First item:', items[0].title, '| transposeSteps:', items[0].customizations ? items[0].customizations.transposeSteps : 'N/A');
+      }
+      console.log('Items collected:', items.length, items.map(function(i) { return i.itemType + ':' + (i.title || i.id); }));
     }
-    console.log('Items collected:', items.length, items.map(function(i) { return i.itemType + ':' + (i.title || i.id); }));
 
     // Strip large binary data (base64 images) from items before saving to backend
     // Google Sheets has a 50000 char per cell limit - local slide images would exceed this
@@ -11622,7 +11642,7 @@ var WO = (function() {
       items: itemsForSave
     };
 
-    console.log('Order payload:', JSON.stringify(orderPayload, null, 2));
+    if (!silent) console.log('Order payload:', JSON.stringify(orderPayload, null, 2));
 
     // Save directly to Supabase (bypasses GAS proxy for ~100ms vs ~2-3s round-trip)
     SBQ.saveOrder(orderPayload).then(function(result) {
@@ -11721,17 +11741,25 @@ var WO = (function() {
           }
 
           var itemCount = result.itemsSaved || items.length;
-          showToast('Order saved! (' + itemCount + ' items)', 'success');
-          // 349: broadcast to Songbook viewers on same browser for instant sync
+          if (silent) {
+            _soSetSaveStatus('saved');
+          } else {
+            showToast('Order saved! (' + itemCount + ' items)', 'success');
+          }
+          // broadcast to Songbook viewers on same browser for instant sync
           sbBroadcastChange();
-          // Update Songbook save indicator if it's open
           sbSetSaveStatus('saved');
         } else {
-          showToast('Save failed: ' + (result.error || 'Unknown error'), 'error');
+          if (silent) {
+            _soSetSaveStatus('');
+          } else {
+            showToast('Save failed: ' + (result.error || 'Unknown error'), 'error');
+          }
         }
       }).catch(function(err) {
         console.error('Backend save failed:', err);
-        showToast('Failed to save. Please try again.', 'error');
+        if (!silent) showToast('Failed to save. Please try again.', 'error');
+        _soSetSaveStatus('');
       });
   }
 
