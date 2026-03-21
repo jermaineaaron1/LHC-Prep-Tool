@@ -20940,8 +20940,8 @@ var WO = (function() {
     if (!vp) return;
     var vw = vp.clientWidth || window.innerWidth;
     var vh = vp.clientHeight || window.innerHeight;
-    // 481 — two-col uses double page width (794*2) for fit calc; first page always single
-    var pageW = (_sbFsTwoCol && _sbFsIdx > 0) ? 1588 : 794;
+    // 483 — two-col: 794*2 + 12px gap between pages; first page (index) always single
+    var pageW = (_sbFsTwoCol && _sbFsIdx > 0) ? 1600 : 794;
     var zoomH = (vh - 64) / 1123;
     var zoomW = (vw - 16) / pageW;
     _sbFsFitZoom = Math.round(Math.min(zoomH, zoomW) * 1000) / 1000;
@@ -20954,20 +20954,27 @@ var WO = (function() {
     var numEl = document.getElementById('sbFsPageNum');
     var zoomEl = document.getElementById('sbFsZoomLabel');
     if (!page || !wrap) return;
-    // 481 — two-col: show current + next page side by side (except index page at idx 0)
+    // 483 — two-col: show current + next page side by side (except index page at idx 0)
     var isTwoCol = _sbFsTwoCol && _sbFsIdx > 0;
     if (isTwoCol) {
       var p1 = _sbFsPages[_sbFsIdx] || '';
       var p2 = _sbFsPages[_sbFsIdx + 1] || '<div style="width:794px;height:1123px;background:#fff;"></div>';
+      // Expand #sbFsPage beyond its CSS 794px so it doesn't clip the second page
+      page.style.width      = '1600px';   // 794 + 12 gap + 794
+      page.style.overflow   = 'visible';
+      page.style.background = 'transparent';
+      page.style.boxShadow  = 'none';
       page.innerHTML =
-        '<div style="display:flex;gap:0;">' +
-          '<div style="width:794px;height:1123px;overflow:hidden;flex-shrink:0;">' + p1 + '</div>' +
-          '<div style="width:794px;height:1123px;overflow:hidden;flex-shrink:0;">' + p2 + '</div>' +
+        '<div style="display:flex;gap:12px;">' +
+          '<div style="width:794px;height:1123px;overflow:hidden;flex-shrink:0;background:#fff;box-shadow:0 8px 48px rgba(0,0,0,0.75);">' + p1 + '</div>' +
+          '<div style="width:794px;height:1123px;overflow:hidden;flex-shrink:0;background:#fff;box-shadow:0 8px 48px rgba(0,0,0,0.75);">' + p2 + '</div>' +
         '</div>';
-      wrap.style.width  = Math.round(1588 * _sbFsZoom) + 'px';
+      wrap.style.width = Math.round(1600 * _sbFsZoom) + 'px';
     } else {
+      // Reset any two-col overrides
+      page.style.width = page.style.overflow = page.style.background = page.style.boxShadow = '';
       page.innerHTML = _sbFsPages[_sbFsIdx] || '';
-      wrap.style.width  = Math.round(794 * _sbFsZoom) + 'px';
+      wrap.style.width = Math.round(794 * _sbFsZoom) + 'px';
     }
     wrap.style.transform       = 'scale(' + _sbFsZoom + ')';
     wrap.style.transformOrigin = 'top center';
@@ -20982,6 +20989,11 @@ var WO = (function() {
     _sbFsTwoCol = !_sbFsTwoCol;
     var btn = document.getElementById('sbFsTwoColBtn');
     if (btn) btn.style.background = _sbFsTwoCol ? 'rgba(255,255,255,0.25)' : '';
+    // Align to pair boundary: two-col pairs are (1,2),(3,4),(5,6)...
+    // If currently on an even content page, step back 1 so pairs stay aligned
+    if (_sbFsTwoCol && _sbFsIdx > 0 && _sbFsIdx % 2 === 0) {
+      _sbFsIdx = Math.max(1, _sbFsIdx - 1);
+    }
     _sbFsCalcFit();
     _sbFsRenderPage();
   }
@@ -21009,11 +21021,19 @@ var WO = (function() {
   }
 
   function sbFsNext() {
-    if (_sbFsIdx < _sbFsPages.length - 1) { _sbFsIdx++; _sbFsRenderPage(); }
+    // In two-col mode advance by 2 pages (pairs: 1+2, 3+4 …); index page always single
+    var step = (_sbFsTwoCol && _sbFsIdx > 0) ? 2 : 1;
+    if (_sbFsIdx + step <= _sbFsPages.length - 1) { _sbFsIdx += step; }
+    else if (_sbFsIdx < _sbFsPages.length - 1) { _sbFsIdx = _sbFsPages.length - 1; }
+    _sbFsRenderPage();
     _sbFsShowBar();
   }
   function sbFsPrev() {
-    if (_sbFsIdx > 0) { _sbFsIdx--; _sbFsRenderPage(); }
+    if (_sbFsIdx <= 0) { _sbFsShowBar(); return; }
+    // In two-col mode go back by 2 pages (unless stepping back to index page)
+    var step = (_sbFsTwoCol && _sbFsIdx > 1) ? 2 : 1;
+    _sbFsIdx = Math.max(0, _sbFsIdx - step);
+    _sbFsRenderPage();
     _sbFsShowBar();
   }
   function sbFsZoomIn() { _sbFsZoom = Math.min(3, Math.round((_sbFsZoom + 0.1) * 100) / 100); _sbFsRenderPage(); _sbFsShowBar(); }
