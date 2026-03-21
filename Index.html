@@ -13094,12 +13094,11 @@ var WO = (function() {
     if (!rowId) rowId = songSection.id;
     if (displayIdx === undefined) displayIdx = songOrderSections.indexOf(songSection) + 1;
 
-    // Section label pill (shows the specific section for this row, not all sections)
+    // Section label pill — clickable: assigned = purple pill, unassigned = green "Set Order" button
+    var _secPillClick = 'onclick="event.stopPropagation();WO.openEditSectionsModal(\'' + escapeHtml(songSection.id) + '\')"';
     var sectionPill = sectionLabel
-      ? '<span class="wo-slr-section-pill">' + escapeHtml(sectionLabel) + '</span>'
-      : (!songSection.serviceSections || !songSection.serviceSections.length
-          ? '<span class="wo-slr-section-pill unassigned-pill">Unassigned</span>'
-          : '');
+      ? '<span class="wo-slr-section-pill wo-slr-section-pill--clickable" ' + _secPillClick + ' title="Change section">' + escapeHtml(sectionLabel) + '</span>'
+      : '<button class="wo-slr-set-order-btn" ' + _secPillClick + '><i class="fa-solid fa-plus"></i> Set Order</button>';
 
     // Count media items for the badge
     var _ytLinks = Array.isArray(songSection.youtube) ? songSection.youtube :
@@ -20434,7 +20433,8 @@ var WO = (function() {
       }).catch(function() { _sbPrintBuildAndOpen({}); });
   }
 
-  function _sbPrintBuildAndOpen(textCache) {
+  function _sbPrintBuildAndOpen(textCache, opts) {
+    opts = opts || {};
     var orderTitle  = currentOrderData ? (currentOrderData.orderName || currentOrderData.title || 'Worship Order') : 'Worship Songs';
     var serviceDate = currentOrderData ? (currentOrderData.serviceDate || '') : '';
     var tabsToOpen  = [];
@@ -20494,7 +20494,7 @@ var WO = (function() {
         '<td class="sp-idx-right">' + uRight + '</td></tr>';
     }
 
-    var indexPage =
+    var indexPage = opts.skipIndex ? '' :
       '<div class="sp-index-page">' +
         '<div class="sp-idx-header">' +
           '<div class="sp-idx-brand">&#128214;</div>' +
@@ -23942,7 +23942,7 @@ var WO = (function() {
     if (!song) return;
     var saved = songOrderSections;
     songOrderSections = [song];
-    _sbPrintBuildAndOpen({});
+    _sbPrintBuildAndOpen({}, { skipIndex: true });
     songOrderSections = saved;
   }
 
@@ -31100,6 +31100,10 @@ function filterLiturgyItems() {
   .wo-slr-artist { font-size:0.72rem; color:#94a3b8; }
   .wo-slr-section-pill { font-size:0.7rem; padding:2px 8px; border-radius:10px; background:#eef2ff; color:#6366f1; white-space:nowrap; flex-shrink:0; }
   .wo-slr-section-pill.unassigned-pill { background:#fef3c7; color:#b45309; }
+  .wo-slr-section-pill--clickable { cursor:pointer; border:1.5px solid #c7d2fe; transition:background .15s,border-color .15s; }
+  .wo-slr-section-pill--clickable:hover { background:#6366f1; color:#fff; border-color:#6366f1; }
+  .wo-slr-set-order-btn { display:inline-flex; align-items:center; gap:5px; padding:4px 14px; border-radius:20px; border:none; background:#16a34a; color:#fff; font-size:0.75rem; font-weight:700; cursor:pointer; flex-shrink:0; white-space:nowrap; transition:background .15s,transform .1s; box-shadow:0 1px 4px rgba(22,163,74,0.3); }
+  .wo-slr-set-order-btn:hover { background:#15803d; transform:scale(1.04); }
 
   /* 488 — Media count badge */
   .so-media-badge { display:inline-flex; align-items:center; gap:4px; font-size:0.7rem; font-weight:600; padding:2px 7px; border-radius:10px; background:#dbeafe; color:#1d4ed8; flex-shrink:0; white-space:nowrap; }
