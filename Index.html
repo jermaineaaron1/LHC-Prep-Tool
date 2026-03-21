@@ -2343,8 +2343,6 @@
         <div class="wo-fullscreen-overlay" id="woFullscreenOverlay">
           <div class="wofs-bg" id="wofsBg"></div>
           <div class="wo-fullscreen-content" id="woFullscreenContent"></div>
-          <button class="wofs-nav wofs-nav-left" onclick="WO.wofsPrev()"><i class="fa-solid fa-chevron-left"></i></button>
-          <button class="wofs-nav wofs-nav-right" onclick="WO.wofsNext()"><i class="fa-solid fa-chevron-right"></i></button>
           <div class="wofs-indicator" id="wofsIndicator"></div>
           <button class="wo-close-fullscreen" onclick="WO.closeFullscreen()" title="Close (Esc)"><i class="fa-solid fa-times"></i></button>
         </div>
@@ -23047,6 +23045,7 @@ var WO = (function() {
   var _wofsSlides = [];
   var _wofsIdx = 0;
   var _wofsTouchStartX = null;
+  var _wofsIndicatorTimer = null;
 
   function goFullscreen() {
     _wofsSlides = Array.from(document.querySelectorAll('.wo-slide-box'));
@@ -23085,7 +23084,11 @@ var WO = (function() {
     }).join('<br>');
 
     $('woFullscreenContent').innerHTML = htmlText;
-    $('wofsIndicator').textContent = (_wofsIdx + 1) + ' / ' + _wofsSlides.length;
+    var ind = $('wofsIndicator');
+    ind.textContent = (_wofsIdx + 1) + ' / ' + _wofsSlides.length;
+    ind.style.opacity = '1';
+    clearTimeout(_wofsIndicatorTimer);
+    _wofsIndicatorTimer = setTimeout(function() { ind.style.opacity = '0'; }, 1800);
 
     // Mirror to the side preview panel and projection window
     selectSlideBox(box);
@@ -24683,8 +24686,6 @@ var WO = (function() {
     addSelectedSongs: addSelectedSongs,
     goFullscreen: goFullscreen,
     closeFullscreen: closeFullscreen,
-    wofsNext: wofsNext,
-    wofsPrev: wofsPrev,
     toggleLivePresent: toggleLivePresent,
     undoDelete: undoDelete,
     // New functions for saved orders
@@ -29908,11 +29909,7 @@ function filterLiturgyItems() {
   .wo-fullscreen-content { position: relative; z-index: 1; text-align: center; max-width: 90%; white-space: pre-wrap; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); }
   .wo-close-fullscreen { position: absolute; top: 20px; right: 30px; font-size: 1.6rem; cursor: pointer; color: rgba(255,255,255,0.5); background: none; border: none; z-index: 2; transition: color .2s; }
   .wo-close-fullscreen:hover { color: white; }
-  .wofs-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); color: white; font-size: 1.8rem; width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2; transition: background .2s, opacity .2s; opacity: 0.5; }
-  .wofs-nav:hover { background: rgba(255,255,255,0.25); opacity: 1; }
-  .wofs-nav-left { left: 20px; }
-  .wofs-nav-right { right: 20px; }
-  .wofs-indicator { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 0.85rem; color: rgba(255,255,255,0.4); font-family: 'Poppins', sans-serif; z-index: 2; letter-spacing: .05em; }
+  .wofs-indicator { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 0.85rem; color: rgba(255,255,255,0.5); font-family: 'Poppins', sans-serif; z-index: 2; letter-spacing: .05em; transition: opacity 0.6s; }
 
   /* Undo Notification */
   .wo-undo-notification { position: fixed; bottom: 20px; right: 20px; background: #28a745; color: white; padding: 12px 18px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 10001; display: none; align-items: center; gap: 12px; }
