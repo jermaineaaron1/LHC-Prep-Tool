@@ -15665,28 +15665,39 @@ var WO = (function() {
     return '';
   }
 
-  // Open projection window for secondary display
+  // Open projection window for secondary display — EasyWorship-style:
+  // targets the external monitor, goes fullscreen there, keeps control on primary
   function openProjectionWindow() {
     if (projectionWindow && !projectionWindow.closed) {
       projectionWindow.focus();
-      // Sync current content
       syncProjectionWithPreview();
+      window.focus(); // Return to control window
       return;
     }
 
-    // Try to detect secondary monitor and position window there
-    var width = screen.width;
-    var height = screen.height;
-    var left = 0;
-    var top = 0;
+    function _launch(l, t, w, h) { createProjectionWindow(l, t, w, h); }
 
-    // Use screen.isExtended (no permission needed) to detect a secondary monitor
-    if (window.screen && window.screen.isExtended) {
-      // Position at right edge of primary screen to land on secondary display
-      left = screen.width;
+    // Window Management API — lets us know the exact position/size of each screen
+    if (window.getScreenDetails) {
+      window.getScreenDetails().then(function(sd) {
+        var sec = sd.screens.find(function(s) { return !s.isPrimary; });
+        if (sec) {
+          // Open directly on the secondary/external monitor at its full dimensions
+          _launch(sec.left, sec.top, sec.width, sec.height);
+        } else {
+          // Only one screen — open fullscreen on it
+          _launch(screen.availLeft || 0, screen.availTop || 0, screen.availWidth, screen.availHeight);
+        }
+      }).catch(function() {
+        // Permission denied — guess secondary is to the right of the primary
+        var l = (window.screen && window.screen.isExtended) ? screen.width : 0;
+        _launch(l, 0, screen.width, screen.height);
+      });
+    } else {
+      // No Window Management API — use isExtended hint
+      var l = (window.screen && window.screen.isExtended) ? screen.width : 0;
+      _launch(l, 0, screen.width, screen.height);
     }
-
-    createProjectionWindow(left, top, width, height);
   }
 
   // Helper: send data to projection window via direct function call (GAS-safe)
@@ -15732,7 +15743,7 @@ var WO = (function() {
       '<div class="projection-content" id="projContent">' +
       '<div class="projection-ready">Waiting for content...</div>' +
       '</div>' +
-      '<div id="fsHint"><span id="fsHintBtn">Click here · F11 · for fullscreen</span></div>' +
+      '<div id="fsHint" style="display:none;"><span id="fsHintBtn">Fullscreen blocked — click here or press F11</span></div>' +
       '<scr' + 'ipt>' +
       'function _hideHint() { var h = document.getElementById("fsHint"); if (h) { h.style.opacity = "0"; setTimeout(function(){ h.style.display="none"; }, 1000); } }' +
       // Click the hint button to attempt JS fullscreen; F11 always works as browser-native fallback
@@ -15747,19 +15758,17 @@ var WO = (function() {
       '  var h = document.getElementById("fsHint");' +
       '  if (!document.fullscreenElement && h) { h.style.display="block"; h.style.opacity="1"; setTimeout(_hideHint, 4000); }' +
       '});' +
-      // Auto-position on secondary screen using Window Management API (positioning only)
-      'async function _autoPosition() {' +
-      '  try {' +
-      '    if (!window.getScreenDetails) return;' +
-      '    var sd = await window.getScreenDetails();' +
-      '    var secondary = sd.screens.find(function(s) { return !s.isPrimary; });' +
-      '    if (secondary) {' +
-      '      window.moveTo(secondary.availLeft, secondary.availTop);' +
-      '      window.resizeTo(secondary.availWidth, secondary.availHeight);' +
-      '    }' +
-      '  } catch(e) {}' +
-      '}' +
-      'document.addEventListener("DOMContentLoaded", _autoPosition);' +
+      // Auto-fullscreen: opener already positioned us on the right screen.
+      // window.open() counts as a user gesture so requestFullscreen() is allowed here.
+      'window.addEventListener("load", function() {' +
+      '  setTimeout(function() {' +
+      '    document.documentElement.requestFullscreen().catch(function() {' +
+      '      // Auto-fullscreen was blocked — show hint so user can still do it manually' +
+      '      var h = document.getElementById("fsHint");' +
+      '      if (h) { h.style.display = "block"; h.style.opacity = "1"; }' +
+      '    });' +
+      '  }, 150);' +
+      '});' +
       // Global handler function callable from opener
       'window.handleProjectionData = function(data) {' +
       '  var content = document.getElementById("projContent");' +
