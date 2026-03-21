@@ -22566,10 +22566,7 @@ var WO = (function() {
       // Also push to fullscreen overlay if it's active
       var fsOverlay = $('woFullscreenOverlay');
       if (fsOverlay && fsOverlay.classList.contains('show')) {
-        var htmlLines = textarea.value.split('\n').map(function(line) {
-          return escapeHtml(line) || '&nbsp;';
-        }).join('<br>');
-        $('woFullscreenContent').innerHTML = htmlLines;
+        $('woFullscreenContent').innerHTML = _projectionHtml(textarea.value) || '&nbsp;';
       }
     });
   }
@@ -22740,6 +22737,42 @@ var WO = (function() {
     });
   }
 
+  // Shared projection text filter — strips chords, section headers, and annotations.
+  // Returns an HTML string (lines joined with <br>) safe for innerHTML.
+  function _projectionHtml(text) {
+    function isChordLine(line) {
+      var trimmed = line.trim();
+      if (!trimmed || trimmed.length > 80) return false;
+      var tokens = trimmed.split(/\s+/);
+      var chordCount = 0;
+      for (var i = 0; i < tokens.length; i++) {
+        var t = tokens[i].replace(/[()|\-:]/g, '');
+        if (/^[A-G][#b]?(m|M|maj|min|dim|aug|sus|add|dom)?[0-9]?(\/[A-G][#b]?)?$/.test(t)) chordCount++;
+      }
+      return tokens.length > 0 && (chordCount / tokens.length) >= 0.5;
+    }
+    function isSectionHeader(line) {
+      // Lines like [Verse 1], [Chorus], [Bridge], [Pre-Chorus], etc.
+      return /^\s*\[[^\]]+\]\s*$/.test(line);
+    }
+    return text.split('\n')
+      .filter(function(line) { return !isChordLine(line) && !isSectionHeader(line); })
+      .map(function(line) {
+        var escaped = escapeHtml(line);
+        // Scripture title marker (≡ Title ≡)
+        if (line.indexOf('≡ ') === 0 && line.lastIndexOf(' ≡') === line.length - 2) {
+          var titleText = escaped.replace(/^≡ /, '').replace(/ ≡$/, '');
+          return '<span style="font-family:Cinzel,serif;font-size:1.4em;font-weight:700;display:block;margin-bottom:8px;border-bottom:2px solid rgba(255,255,255,0.3);padding-bottom:6px;">' + titleText + '</span>';
+        }
+        // Scripture footnote marker (— Reference)
+        if (line.indexOf('— ') === 0) {
+          return '<span style="font-size:0.65em;opacity:0.6;font-style:italic;display:block;margin-top:8px;text-align:right;">' + escaped + '</span>';
+        }
+        return escaped;
+      })
+      .join('<br>');
+  }
+
   function updateProjectionPreview(text, skipBackgroundUpdate) {
     var screen = $('woPreviewScreen');
     if (screen) {
@@ -22758,35 +22791,7 @@ var WO = (function() {
       }
 
       if (text && text.trim()) {
-        // Filter out chord lines from projection (lyrics only)
-        function isChordLineForProjection(line) {
-          var trimmed = line.trim();
-          if (!trimmed || trimmed.length > 80) return false;
-          var tokens = trimmed.split(/\s+/);
-          var chordCount = 0;
-          for (var i = 0; i < tokens.length; i++) {
-            var t = tokens[i].replace(/[()|\-:]/g, '');
-            if (/^[A-G][#b]?(m|M|maj|min|dim|aug|sus|add|dom)?[0-9]?(\/[A-G][#b]?)?$/.test(t)) chordCount++;
-          }
-          return tokens.length > 0 && (chordCount / tokens.length) >= 0.5;
-        }
-
-        // Convert line breaks to <br> for proper display, skipping chord lines
-        var htmlText = text.split('\n').filter(function(line) {
-          return !isChordLineForProjection(line);
-        }).map(function(line) {
-          var escaped = escapeHtml(line);
-          // Style scripture title line (first slide marker)
-          if (line.indexOf('≡ ') === 0 && line.lastIndexOf(' ≡') === line.length - 2) {
-            var titleText = escaped.replace(/^≡ /, '').replace(/ ≡$/, '');
-            return '<span style="font-family:Cinzel,serif;font-size:1.4em;font-weight:700;display:block;margin-bottom:8px;border-bottom:2px solid rgba(255,255,255,0.3);padding-bottom:6px;">' + titleText + '</span>';
-          }
-          // Style scripture footnote (subsequent slides marker)
-          if (line.indexOf('— ') === 0) {
-            return '<span style="font-size:0.65em;opacity:0.6;font-style:italic;display:block;margin-top:8px;text-align:right;">' + escaped + '</span>';
-          }
-          return escaped;
-        }).join('<br>');
+        var htmlText = _projectionHtml(text);
 
         var contentEl = document.createElement('div');
         contentEl.className = 'wo-preview-content';
@@ -23102,14 +23107,13 @@ var WO = (function() {
     var box = _wofsSlides[_wofsIdx];
     if (!box) return;
 
-    // Extract text from slide lines
+    // Extract text from slide lines and filter chords/section headers
     var content = box.querySelector('.wo-slide-content');
     var lines = content
       ? Array.from(content.querySelectorAll('.wo-slide-line')).map(function(l) { return l.textContent; })
       : [];
-    var htmlText = lines.map(function(line) {
-      return escapeHtml(line) || '&nbsp;';
-    }).join('<br>');
+    var rawText = lines.join('\n');
+    var htmlText = _projectionHtml(rawText) || '&nbsp;';
 
     $('woFullscreenContent').innerHTML = htmlText;
     var ind = $('wofsIndicator');
