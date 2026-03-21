@@ -12561,6 +12561,29 @@ var WO = (function() {
       '</div>'
     );
 
+    // Pre-populate savedSlides on every song BEFORE rendering so addSongToServiceSection
+    // uses edited content instead of falling back to parseLyricsIntoSlides(original lyrics).
+    // Priority: in-session edits (song.slides) > snapshot (allItems) > nothing
+    (function() {
+      var snapMap = {};
+      if (currentOrderData && currentOrderData.allItems) {
+        currentOrderData.allItems.forEach(function(item) {
+          if (item.itemType === 'song' && item.slides && item.slides.length > 0) {
+            snapMap[item.id] = item.slides;
+          }
+        });
+      }
+      songOrderSections.forEach(function(song) {
+        if (snapMap[song.id]) {
+          // allItems was collected from the live DOM — complete and always up-to-date
+          song.savedSlides = snapMap[song.id];
+        } else if (song.slides && song.slides.length > 0) {
+          // Sparse in-session edit map — use as fallback only
+          song.savedSlides = song.slides;
+        }
+      });
+    })();
+
     // Auto-populate sections with songs from Song Order that have matching serviceSections
     songOrderSections.forEach(function(song) {
       if (song.serviceSections && song.serviceSections.length > 0) {
