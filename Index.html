@@ -4662,7 +4662,7 @@ I once was lost but now am found"
       <span id="sbFsZoomLabel" class="sbfs-zoom-label">65%</span>
       <button class="sbfs-btn" onclick="WO.sbFsZoomIn()" title="Zoom in (+)"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
       <button class="sbfs-btn sbfs-fit-btn" onclick="WO.sbFsFit()" title="Fit to screen">Fit</button>
-      <button class="sbfs-btn" id="sbFsTwoColBtn" onclick="WO.sbFsToggleTwoCol()" title="Two pages side by side">2-Col</button>
+      <button class="sbfs-btn sbfs-bookmode-btn" id="sbFsTwoColBtn" onclick="WO.sbFsToggleTwoCol()" title="Book mode — two pages side by side"><i class="fa-solid fa-book-open" style="font-size:0.85em;"></i> Book Mode</button>
       <button class="sbfs-btn sbfs-close-btn" onclick="WO.sbFsClose()" title="Close (Esc / double-click)"><i class="fa-solid fa-times"></i></button>
     </div>
   </div>
@@ -17717,9 +17717,9 @@ var WO = (function() {
   // ── Fullscreen viewer state ──
   var _sbFsPages = [];
   var _sbFsIdx = 0;
-  var _sbFsZoom = 0.95;
+  var _sbFsZoom = 0.85;
   var _sbFsTwoCol = false; // 481 — two-page side-by-side mode
-  var _sbFsFitZoom = 0.95;
+  var _sbFsFitZoom = 0.85;
   var _sbFsPinching = false;
   var _sbFsPinchDist0 = 0;
   var _sbFsPinchZoom0 = 1;
@@ -20603,10 +20603,10 @@ var WO = (function() {
     _sbFsPages = _sbFsBuildPages();
     if (!_sbFsPages.length) { showToast('No pages to show', 'warning'); return; }
     _sbFsIdx = 0;
-    _sbFsZoom = 0.95;
+    _sbFsZoom = 0.85;
     _sbFsTwoCol = false; // reset to single-page on open
     var twoColBtn = document.getElementById('sbFsTwoColBtn');
-    if (twoColBtn) twoColBtn.style.background = '';
+    if (twoColBtn) twoColBtn.classList.remove('active');
     var overlay = document.getElementById('sbFsOverlay');
     overlay.style.display = 'flex';
     // Request true browser fullscreen
@@ -20988,7 +20988,7 @@ var WO = (function() {
   function sbFsToggleTwoCol() {
     _sbFsTwoCol = !_sbFsTwoCol;
     var btn = document.getElementById('sbFsTwoColBtn');
-    if (btn) btn.style.background = _sbFsTwoCol ? 'rgba(255,255,255,0.25)' : '';
+    if (btn) btn.classList.toggle('active', _sbFsTwoCol);
     // Align to pair boundary: two-col pairs are (1,2),(3,4),(5,6)...
     // If currently on an even content page, step back 1 so pairs stay aligned
     if (_sbFsTwoCol && _sbFsIdx > 0 && _sbFsIdx % 2 === 0) {
@@ -21087,22 +21087,67 @@ var WO = (function() {
     var vp = document.getElementById('sbFsViewport');
     if (!vp || vp._sbFsPinchBound) return;
     vp._sbFsPinchBound = true;
+
+    // ── 1-finger swipe state ─────────────────────────────────────────────
+    var t1x = 0, t1y = 0, t1active = false;
+
+    // ── 2-finger pinch/scroll state ──────────────────────────────────────
+    var p2dist0 = 0, p2zoom0 = 1;
+    var p2isPinch = false; // true once distance change exceeds threshold
+
     vp.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 1) {
+        // Start tracking 1-finger for swipe navigation
+        t1x = e.touches[0].clientX;
+        t1y = e.touches[0].clientY;
+        t1active = true;
+        p2isPinch = false;
+        _sbFsPinching = false;
+      } else if (e.touches.length === 2) {
+        t1active = false; // cancel any pending 1-finger swipe
+        p2dist0 = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        p2zoom0 = _sbFsZoom;
+        p2isPinch = false;
+        _sbFsPinching = false;
+        // Don't preventDefault here — let the browser decide (pinch vs scroll)
+      }
+    }, { passive: true });
+
+    vp.addEventListener('touchmove', function(e) {
       if (e.touches.length === 2) {
-        _sbFsPinching = true;
-        _sbFsPinchDist0 = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-        _sbFsPinchZoom0 = _sbFsZoom;
-        e.preventDefault();
+        var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        // If distance changed >5% it's a pinch — take over from native scroll
+        if (!p2isPinch && Math.abs(dist / p2dist0 - 1) > 0.05) {
+          p2isPinch = true;
+          _sbFsPinching = true;
+        }
+        if (p2isPinch) {
+          _sbFsZoom = Math.min(3, Math.max(0.2, Math.round(p2zoom0 * (dist / p2dist0) * 100) / 100));
+          _sbFsRenderPage();
+          e.preventDefault(); // block native scroll only during confirmed pinch
+        }
+        // If not a pinch, 2-finger scroll is handled natively by the browser
       }
     }, { passive: false });
-    vp.addEventListener('touchmove', function(e) {
-      if (!_sbFsPinching || e.touches.length < 2) return;
-      var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-      _sbFsZoom = Math.min(3, Math.max(0.2, Math.round(_sbFsPinchZoom0 * (dist / _sbFsPinchDist0) * 100) / 100));
-      _sbFsRenderPage();
-      e.preventDefault();
-    }, { passive: false });
-    vp.addEventListener('touchend', function() { _sbFsPinching = false; });
+
+    vp.addEventListener('touchend', function(e) {
+      _sbFsPinching = false;
+      p2isPinch = false;
+      if (t1active && e.changedTouches.length > 0) {
+        var dx = e.changedTouches[0].clientX - t1x;
+        var dy = e.changedTouches[0].clientY - t1y;
+        // Horizontal swipe: must be clearly horizontal and ≥50px
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          if (dx < 0) sbFsNext(); // swipe left → next page
+          else         sbFsPrev(); // swipe right → prev page
+        }
+      }
+      if (e.touches.length === 0) t1active = false;
+    });
+
+    vp.addEventListener('touchcancel', function() {
+      t1active = false; _sbFsPinching = false; p2isPinch = false;
+    });
   }
 
   function generateLiturgyBook() {
@@ -30618,7 +30663,7 @@ function filterLiturgyItems() {
 
   /* ── Songbook Fullscreen Viewer ── */
   #sbFsOverlay { background:#080810; font-family:'Lato',sans-serif; position:relative; overflow:hidden; }
-  .sbfs-viewport { position:absolute; inset:0; overflow:auto; display:flex; align-items:flex-start; justify-content:center; scrollbar-width:none; -ms-overflow-style:none; }
+  .sbfs-viewport { position:absolute; inset:0; overflow:auto; display:flex; align-items:center; justify-content:center; padding:12px 8px 72px; box-sizing:border-box; scrollbar-width:none; -ms-overflow-style:none; }
   .sbfs-viewport::-webkit-scrollbar { display:none; }
   .sbfs-page-wrap { transform-origin:top center; flex-shrink:0; }
   .sbfs-a4-page { width:794px; min-height:1123px; background:white; box-shadow:0 12px 64px rgba(0,0,0,0.8); position:relative; overflow:hidden; font-family:'Lato',sans-serif; box-sizing:border-box; }
@@ -30632,6 +30677,9 @@ function filterLiturgyItems() {
   .sbfs-fit-btn { font-size:0.78rem; letter-spacing:0.03em; }
   .sbfs-close-btn { background:rgba(239,68,68,0.8) !important; border-color:rgba(239,68,68,0.6) !important; margin-left:8px; padding:6px 16px; }
   .sbfs-close-btn:hover { background:#ef4444 !important; }
+  .sbfs-bookmode-btn { background:rgba(160,110,55,0.72) !important; border-color:rgba(190,145,80,0.8) !important; color:#fff3dc !important; }
+  .sbfs-bookmode-btn:hover { background:rgba(180,128,65,0.9) !important; }
+  .sbfs-bookmode-btn.active { background:rgba(205,155,70,0.95) !important; box-shadow:0 0 0 2px rgba(210,160,75,0.55); }
 
   /* 352 — Media ribbon & dropdown */
   .wo-slr-media { position:relative; }
