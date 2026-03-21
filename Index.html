@@ -20940,8 +20940,8 @@ var WO = (function() {
     if (!vp) return;
     var vw = vp.clientWidth || window.innerWidth;
     var vh = vp.clientHeight || window.innerHeight;
-    // 483 — two-col: 794*2 + 12px gap between pages; first page (index) always single
-    var pageW = (_sbFsTwoCol && _sbFsIdx > 0) ? 1600 : 794;
+    // 483 — two-col: each page panel clipped to 70% width (556px) + 12px gap; index always single
+    var pageW = (_sbFsTwoCol && _sbFsIdx > 0) ? 1124 : 794; // 556+12+556
     var zoomH = (vh - 64) / 1123;
     var zoomW = (vw - 16) / pageW;
     _sbFsFitZoom = Math.round(Math.min(zoomH, zoomW) * 1000) / 1000;
@@ -20961,22 +20961,25 @@ var WO = (function() {
     // a page that starts at x=0 ends up shifted right after scaling.
     // Setting margin-left = (wrap_width - page_width) / 2 makes the page's
     // centre align with the wrap's centre so the visual result is screen-centred.
-    var naturalW = isTwoCol ? 1600 : 794;
+    // In book mode each panel is clipped to 70% of page width (right 30% hidden)
+    var _bookPanelW = Math.round(794 * 0.7); // 556px per panel
+    var naturalW = isTwoCol ? (_bookPanelW * 2 + 12) : 794; // 1124 or 794
     var wrapW    = Math.round(naturalW * _sbFsZoom);
     var centreML = Math.round((wrapW - naturalW) / 2); // negative when zoom < 1
 
     if (isTwoCol) {
       var p1 = _sbFsPages[_sbFsIdx] || '';
       var p2 = _sbFsPages[_sbFsIdx + 1] || '<div style="width:794px;height:1123px;background:#fff;"></div>';
-      page.style.width      = '1600px';
+      page.style.width      = naturalW + 'px';
       page.style.overflow   = 'visible';
       page.style.background = 'transparent';
       page.style.boxShadow  = 'none';
       page.style.marginLeft = centreML + 'px';
+      // Each panel is _bookPanelW wide with overflow:hidden — clips the right 30% of page content
       page.innerHTML =
         '<div style="display:flex;gap:12px;">' +
-          '<div style="width:794px;height:1123px;overflow:hidden;flex-shrink:0;background:#fff;box-shadow:0 8px 48px rgba(0,0,0,0.75);">' + p1 + '</div>' +
-          '<div style="width:794px;height:1123px;overflow:hidden;flex-shrink:0;background:#fff;box-shadow:0 8px 48px rgba(0,0,0,0.75);">' + p2 + '</div>' +
+          '<div style="width:' + _bookPanelW + 'px;height:1123px;overflow:hidden;flex-shrink:0;background:#fff;box-shadow:0 8px 48px rgba(0,0,0,0.75);">' + p1 + '</div>' +
+          '<div style="width:' + _bookPanelW + 'px;height:1123px;overflow:hidden;flex-shrink:0;background:#fff;box-shadow:0 8px 48px rgba(0,0,0,0.75);">' + p2 + '</div>' +
         '</div>';
     } else {
       page.style.width = page.style.overflow = page.style.background = page.style.boxShadow = '';
