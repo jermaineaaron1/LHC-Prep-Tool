@@ -21096,65 +21096,113 @@ var WO = (function() {
     if (!vp || vp._sbFsPinchBound) return;
     vp._sbFsPinchBound = true;
 
-    // ── 1-finger swipe state ─────────────────────────────────────────────
+    // ── 1-finger drag / page-peek state ─────────────────────────────────
     var t1x = 0, t1y = 0, t1active = false;
+    var t1Dir = null;  // null = undecided, true = horizontal, false = vertical
+    var vpW   = 0;     // viewport width captured at touchstart
 
     // ── 2-finger pinch/scroll state ──────────────────────────────────────
     var p2dist0 = 0, p2zoom0 = 1;
-    var p2isPinch = false; // true once distance change exceeds threshold
+    var p2isPinch = false;
+
+    function _wrap() { return document.getElementById('sbFsPageWrap'); }
+
+    function _snapBack() {
+      var w = _wrap(); if (!w) return;
+      w.style.transition = 'transform 0.28s ease-out';
+      w.style.transform  = 'scale(' + _sbFsZoom + ')';
+      setTimeout(function() { var w2 = _wrap(); if (w2) w2.style.transition = 'none'; }, 290);
+    }
 
     vp.addEventListener('touchstart', function(e) {
+      var w = _wrap();
       if (e.touches.length === 1) {
-        // Start tracking 1-finger for swipe navigation
         t1x = e.touches[0].clientX;
         t1y = e.touches[0].clientY;
         t1active = true;
-        p2isPinch = false;
-        _sbFsPinching = false;
+        t1Dir = null;
+        vpW = vp.clientWidth || window.innerWidth;
+        if (w) { w.style.transition = 'none'; }
+        p2isPinch = false; _sbFsPinching = false;
       } else if (e.touches.length === 2) {
-        t1active = false; // cancel any pending 1-finger swipe
-        p2dist0 = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        // Cancel any in-progress drag and snap back
+        if (t1active && t1Dir) _snapBack();
+        t1active = false; t1Dir = null;
+        p2dist0 = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                             e.touches[0].clientY - e.touches[1].clientY);
         p2zoom0 = _sbFsZoom;
-        p2isPinch = false;
-        _sbFsPinching = false;
-        // Don't preventDefault here — let the browser decide (pinch vs scroll)
+        p2isPinch = false; _sbFsPinching = false;
       }
     }, { passive: true });
 
     vp.addEventListener('touchmove', function(e) {
+      // ── 2-finger: pinch-zoom or native scroll ───────────────────────
       if (e.touches.length === 2) {
-        var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-        // If distance changed >5% it's a pinch — take over from native scroll
+        var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                              e.touches[0].clientY - e.touches[1].clientY);
         if (!p2isPinch && Math.abs(dist / p2dist0 - 1) > 0.05) {
-          p2isPinch = true;
-          _sbFsPinching = true;
+          p2isPinch = true; _sbFsPinching = true;
         }
         if (p2isPinch) {
           _sbFsZoom = Math.min(3, Math.max(0.2, Math.round(p2zoom0 * (dist / p2dist0) * 100) / 100));
           _sbFsRenderPage();
-          e.preventDefault(); // block native scroll only during confirmed pinch
+          e.preventDefault();
         }
-        // If not a pinch, 2-finger scroll is handled natively by the browser
+        return;
       }
+
+      if (!t1active || e.touches.length !== 1) return;
+      var dx = e.touches[0].clientX - t1x;
+      var dy = e.touches[0].clientY - t1y;
+
+      // Lock in gesture direction after first 8px of movement
+      if (t1Dir === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+        t1Dir = Math.abs(dx) > Math.abs(dy);
+      }
+
+      if (t1Dir === true) {
+        // Horizontal drag — move the wrap so the user can peek at the edge
+        e.preventDefault();
+        var w = _wrap();
+        if (w) w.style.transform = 'translateX(' + dx + 'px) scale(' + _sbFsZoom + ')';
+      }
+      // Vertical drag: let browser handle native scroll
     }, { passive: false });
 
     vp.addEventListener('touchend', function(e) {
-      _sbFsPinching = false;
-      p2isPinch = false;
-      if (t1active && e.changedTouches.length > 0) {
+      _sbFsPinching = false; p2isPinch = false;
+
+      if (t1active && t1Dir === true && e.changedTouches.length > 0) {
         var dx = e.changedTouches[0].clientX - t1x;
-        var dy = e.changedTouches[0].clientY - t1y;
-        // Horizontal swipe: must be clearly horizontal and ≥50px
-        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-          if (dx < 0) sbFsNext(); // swipe left → next page
-          else         sbFsPrev(); // swipe right → prev page
+        // Threshold: drag the page all the way to the edge (≥70% of viewport width)
+        var threshold = vpW * 0.70;
+
+        if (Math.abs(dx) >= threshold) {
+          // ── Page turn: fly the current page off screen, then navigate ──
+          var w = _wrap();
+          var offX = dx < 0 ? -(vpW + 300) : (vpW + 300);
+          if (w) {
+            w.style.transition = 'transform 0.22s ease-in';
+            w.style.transform  = 'translateX(' + offX + 'px) scale(' + _sbFsZoom + ')';
+          }
+          setTimeout(function() {
+            var w2 = _wrap();
+            if (w2) w2.style.transition = 'none'; // clear before re-render
+            if (dx < 0) sbFsNext();
+            else         sbFsPrev();
+          }, 220);
+        } else {
+          // ── Snap back — not far enough for a page turn ───────────────
+          _snapBack();
         }
       }
-      if (e.touches.length === 0) t1active = false;
+
+      if (e.touches.length === 0) { t1active = false; t1Dir = null; }
     });
 
     vp.addEventListener('touchcancel', function() {
-      t1active = false; _sbFsPinching = false; p2isPinch = false;
+      t1active = false; t1Dir = null; _sbFsPinching = false; p2isPinch = false;
+      _snapBack();
     });
   }
 
