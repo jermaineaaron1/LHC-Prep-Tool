@@ -2341,8 +2341,12 @@
 
         <!-- Fullscreen Overlay -->
         <div class="wo-fullscreen-overlay" id="woFullscreenOverlay">
-          <div class="wo-close-fullscreen" onclick="WO.closeFullscreen()"><i class="fa-solid fa-times"></i></div>
+          <div class="wofs-bg" id="wofsBg"></div>
           <div class="wo-fullscreen-content" id="woFullscreenContent"></div>
+          <button class="wofs-nav wofs-nav-left" onclick="WO.wofsPrev()"><i class="fa-solid fa-chevron-left"></i></button>
+          <button class="wofs-nav wofs-nav-right" onclick="WO.wofsNext()"><i class="fa-solid fa-chevron-right"></i></button>
+          <div class="wofs-indicator" id="wofsIndicator"></div>
+          <button class="wo-close-fullscreen" onclick="WO.closeFullscreen()" title="Close (Esc)"><i class="fa-solid fa-times"></i></button>
         </div>
 
         <!-- Undo Notification -->
@@ -15758,17 +15762,17 @@ var WO = (function() {
       '  var h = document.getElementById("fsHint");' +
       '  if (!document.fullscreenElement && h) { h.style.display="block"; h.style.opacity="1"; setTimeout(_hideHint, 4000); }' +
       '});' +
-      // Auto-fullscreen: opener already positioned us on the right screen.
-      // window.open() counts as a user gesture so requestFullscreen() is allowed here.
-      'window.addEventListener("load", function() {' +
-      '  setTimeout(function() {' +
-      '    document.documentElement.requestFullscreen().catch(function() {' +
-      '      // Auto-fullscreen was blocked — show hint so user can still do it manually' +
-      '      var h = document.getElementById("fsHint");' +
-      '      if (h) { h.style.display = "block"; h.style.opacity = "1"; }' +
-      '    });' +
-      '  }, 150);' +
-      '});' +
+      // Auto-fullscreen — synchronous call while user activation from window.open() is still live.
+      // No setTimeout: any async delay risks losing the activation context.
+      '(function() {' +
+      '  var el = document.documentElement;' +
+      '  var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;' +
+      '  if (!req) { var h = document.getElementById("fsHint"); if (h) { h.style.display="block"; h.style.opacity="1"; } return; }' +
+      '  var p = req.call(el);' +
+      '  if (p && p.catch) p.catch(function() {' +
+      '    var h = document.getElementById("fsHint"); if (h) { h.style.display="block"; h.style.opacity="1"; }' +
+      '  });' +
+      '})();' +
       // Global handler function callable from opener
       'window.handleProjectionData = function(data) {' +
       '  var content = document.getElementById("projContent");' +
@@ -22084,8 +22088,10 @@ var WO = (function() {
     box.classList.add('selected');
     selectedSlideBox = box;
 
-    // Scroll the selected slide into center view in the service order list
-    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Scroll the selected slide into center view (skip when fullscreen overlay is active)
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
 
     // Get global slide index for arrow-key navigation
     var allSlideBoxes = Array.from(document.querySelectorAll('.wo-slide-box'));
@@ -22531,6 +22537,14 @@ var WO = (function() {
     // Live-update projection preview while typing
     textarea.addEventListener('input', function() {
       updateProjectionPreview(textarea.value, true);
+      // Also push to fullscreen overlay if it's active
+      var fsOverlay = $('woFullscreenOverlay');
+      if (fsOverlay && fsOverlay.classList.contains('show')) {
+        var htmlLines = textarea.value.split('\n').map(function(line) {
+          return escapeHtml(line) || '&nbsp;';
+        }).join('<br>');
+        $('woFullscreenContent').innerHTML = htmlLines;
+      }
     });
   }
 
@@ -23029,19 +23043,114 @@ var WO = (function() {
   }
 
   // Presentation Functions
+  // ── Fullscreen slide presenter (497) ──────────────────────────────────────
+  var _wofsSlides = [];
+  var _wofsIdx = 0;
+  var _wofsTouchStartX = null;
+
   function goFullscreen() {
-    var content = document.querySelector('.wo-preview-content');
-    if (content) {
-      var overlay = $('woFullscreenOverlay');
-      var fullContent = $('woFullscreenContent');
-      // Use innerHTML to preserve line breaks (<br> tags)
-      fullContent.innerHTML = content.innerHTML;
-      overlay.classList.add('show');
+    _wofsSlides = Array.from(document.querySelectorAll('.wo-slide-box'));
+    if (!_wofsSlides.length) { showToast('No slides in this service order', 'warning'); return; }
+
+    // Start at the currently selected slide
+    _wofsIdx = selectedSlideBox ? Math.max(0, _wofsSlides.indexOf(selectedSlideBox)) : 0;
+
+    var overlay = $('woFullscreenOverlay');
+    overlay.classList.add('show');
+
+    // True browser fullscreen (works during user gesture)
+    var req = overlay.requestFullscreen || overlay.webkitRequestFullscreen || overlay.mozRequestFullScreen;
+    if (req) req.call(overlay).catch(function(){});
+
+    _wofsRender();
+
+    document.addEventListener('keydown', _wofsKeyHandler);
+    overlay.addEventListener('touchstart', _wofsTouchStart, { passive: true });
+    overlay.addEventListener('touchend', _wofsTouchEnd, { passive: true });
+    document.addEventListener('fullscreenchange', _wofsOnFsChange);
+    document.addEventListener('webkitfullscreenchange', _wofsOnFsChange);
+  }
+
+  function _wofsRender() {
+    var box = _wofsSlides[_wofsIdx];
+    if (!box) return;
+
+    // Extract text from slide lines
+    var content = box.querySelector('.wo-slide-content');
+    var lines = content
+      ? Array.from(content.querySelectorAll('.wo-slide-line')).map(function(l) { return l.textContent; })
+      : [];
+    var htmlText = lines.map(function(line) {
+      return escapeHtml(line) || '&nbsp;';
+    }).join('<br>');
+
+    $('woFullscreenContent').innerHTML = htmlText;
+    $('wofsIndicator').textContent = (_wofsIdx + 1) + ' / ' + _wofsSlides.length;
+
+    // Mirror to the side preview panel and projection window
+    selectSlideBox(box);
+  }
+
+  function wofsNext() {
+    if (_wofsIdx < _wofsSlides.length - 1) { _wofsIdx++; _wofsRender(); }
+  }
+
+  function wofsPrev() {
+    if (_wofsIdx > 0) { _wofsIdx--; _wofsRender(); }
+  }
+
+  function _wofsKeyHandler(e) {
+    var key = e.key;
+    if (key === 'ArrowRight' || key === 'ArrowDown' || key === 'PageDown') {
+      e.preventDefault(); wofsNext();
+    } else if (key === 'ArrowLeft' || key === 'ArrowUp' || key === 'PageUp') {
+      e.preventDefault(); wofsPrev();
+    } else if (key === 'Escape') {
+      closeFullscreen();
+    }
+  }
+
+  function _wofsTouchStart(e) { _wofsTouchStartX = e.touches[0].clientX; }
+  function _wofsTouchEnd(e) {
+    if (_wofsTouchStartX === null) return;
+    var dx = e.changedTouches[0].clientX - _wofsTouchStartX;
+    _wofsTouchStartX = null;
+    if (Math.abs(dx) > 50) { if (dx < 0) wofsNext(); else wofsPrev(); }
+  }
+
+  function _wofsOnFsChange() {
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      // OS-level Escape — clean up and land on last slide
+      _wofsCleanup();
+      $('woFullscreenOverlay').classList.remove('show');
+      var lastBox = _wofsSlides[_wofsIdx];
+      if (lastBox) lastBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  function _wofsCleanup() {
+    document.removeEventListener('keydown', _wofsKeyHandler);
+    document.removeEventListener('fullscreenchange', _wofsOnFsChange);
+    document.removeEventListener('webkitfullscreenchange', _wofsOnFsChange);
+    var overlay = $('woFullscreenOverlay');
+    if (overlay) {
+      overlay.removeEventListener('touchstart', _wofsTouchStart);
+      overlay.removeEventListener('touchend', _wofsTouchEnd);
     }
   }
 
   function closeFullscreen() {
+    _wofsCleanup();
     $('woFullscreenOverlay').classList.remove('show');
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      document.exitFullscreen().catch(function(){});
+    }
+    // Land back on the last navigated slide
+    var lastBox = _wofsSlides[_wofsIdx];
+    if (lastBox) {
+      selectSlideBox(lastBox);
+      lastBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   }
 
   function toggleLivePresent() {
@@ -24574,6 +24683,8 @@ var WO = (function() {
     addSelectedSongs: addSelectedSongs,
     goFullscreen: goFullscreen,
     closeFullscreen: closeFullscreen,
+    wofsNext: wofsNext,
+    wofsPrev: wofsPrev,
     toggleLivePresent: toggleLivePresent,
     undoDelete: undoDelete,
     // New functions for saved orders
@@ -29791,11 +29902,17 @@ function filterLiturgyItems() {
   .wo-song-info-banner i { font-size: 1rem; }
 
   /* Fullscreen Overlay */
-  .wo-fullscreen-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: white; display: none; align-items: center; justify-content: center; z-index: 10000; font-family: Georgia, serif; font-size: 2.5rem; line-height: 1.6; padding: 40px; }
+  .wo-fullscreen-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; color: white; display: none; align-items: center; justify-content: center; z-index: 10000; font-family: Georgia, serif; font-size: 2.8rem; line-height: 1.6; padding: 60px 100px; }
   .wo-fullscreen-overlay.show { display: flex; }
-  .wo-close-fullscreen { position: absolute; top: 20px; right: 30px; font-size: 2rem; cursor: pointer; color: #ccc; }
+  .wofs-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center; }
+  .wo-fullscreen-content { position: relative; z-index: 1; text-align: center; max-width: 90%; white-space: pre-wrap; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); }
+  .wo-close-fullscreen { position: absolute; top: 20px; right: 30px; font-size: 1.6rem; cursor: pointer; color: rgba(255,255,255,0.5); background: none; border: none; z-index: 2; transition: color .2s; }
   .wo-close-fullscreen:hover { color: white; }
-  .wo-fullscreen-content { text-align: center; max-width: 90%; white-space: pre-wrap; }
+  .wofs-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); color: white; font-size: 1.8rem; width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2; transition: background .2s, opacity .2s; opacity: 0.5; }
+  .wofs-nav:hover { background: rgba(255,255,255,0.25); opacity: 1; }
+  .wofs-nav-left { left: 20px; }
+  .wofs-nav-right { right: 20px; }
+  .wofs-indicator { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 0.85rem; color: rgba(255,255,255,0.4); font-family: 'Poppins', sans-serif; z-index: 2; letter-spacing: .05em; }
 
   /* Undo Notification */
   .wo-undo-notification { position: fixed; bottom: 20px; right: 20px; background: #28a745; color: white; padding: 12px 18px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 10001; display: none; align-items: center; gap: 12px; }
