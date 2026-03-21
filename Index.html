@@ -4570,6 +4570,21 @@ I once was lost but now am found"
     <div class="wom-body" id="womBody"></div>
   </div>
 
+  <!-- ==================== SONG LINKS MODAL (486/487) ==================== -->
+  <div id="songLinksModal" style="display:none;position:fixed;inset:0;z-index:2800;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;">
+    <div class="slm-panel">
+      <div class="slm-header">
+        <span class="slm-title" id="slmTitle"></span>
+        <button class="slm-close" onclick="WO.closeSongLinksModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="slm-body" id="slmBody"></div>
+      <div class="slm-footer">
+        <button class="slm-add-btn" onclick="WO.slmAddVideo()" title="Add YouTube / video link"><i class="fa-brands fa-youtube"></i> Add Video</button>
+        <button class="slm-add-btn" onclick="WO.slmAddDoc()" title="Add document / drive link"><i class="fa-solid fa-file-lines"></i> Add Doc</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== SONGBOOK PRINT SETUP MODAL ==================== -->
   <div id="sbPrintModal" style="display:none;position:fixed;inset:0;z-index:2300;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;">
     <div style="background:white;border-radius:14px;max-width:640px;width:95%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.35);">
@@ -12450,8 +12465,18 @@ var WO = (function() {
       '<div id="woSongOrderSections" class="wo-song-order-list"></div>' +
       '</div>';
 
-    // Render existing songs
-    songOrderSections.forEach(function(section) {
+    // Render songs sorted by their position in the service order (486)
+    var _soStruct = orderStructures[currentOrderType] || orderStructures.traditional;
+    var _soOrder  = {};
+    _soStruct.forEach(function(sec, i) { if (sec.serviceSectionId) _soOrder[sec.serviceSectionId] = i; });
+    var _soSorted = songOrderSections.slice().sort(function(a, b) {
+      var aKey = (a.serviceSections && a.serviceSections[0]) || a.sectionId || '';
+      var bKey = (b.serviceSections && b.serviceSections[0]) || b.sectionId || '';
+      var aIdx = _soOrder[aKey] !== undefined ? _soOrder[aKey] : 999;
+      var bIdx = _soOrder[bKey] !== undefined ? _soOrder[bKey] : 999;
+      return aIdx - bIdx;
+    });
+    _soSorted.forEach(function(section) {
       renderSongOrderSection(section);
     });
   }
@@ -13074,14 +13099,14 @@ var WO = (function() {
           '<span class="wo-slr-drag"><i class="fa-solid fa-grip-vertical"></i></span>' +
           '<span class="wo-slr-num">' + songIndex + '</span>' +
           '<div class="wo-slr-info">' +
-            '<span class="wo-slr-title" ondblclick="WO.enableLyricsEdit(\'' + escapeHtml(songSection.id) + '\')" title="Double-click to edit">' + escapeHtml(songSection.title) + '</span>' +
+            '<span class="wo-slr-title" onclick="WO.openSongLinksModal(\'' + escapeHtml(songSection.id) + '\')" title="Click to view media &amp; links" style="cursor:pointer;">' + escapeHtml(songSection.title) + '</span>' +
             '<span class="wo-slr-artist">by ' + escapeHtml(songSection.artist || 'Unknown') + '</span>' +
           '</div>' +
           sectionPill +
           mediaHtml +
           '<div class="wo-slr-actions">' +
             '<button class="wo-slr-btn sections" onclick="WO.openEditSectionsModal(\'' + escapeHtml(songSection.id) + '\')" title="Assign section"><i class="fa-solid fa-list-check"></i></button>' +
-            '<button class="wo-slr-btn pdf" onclick="WO.printSingleSong(\'' + escapeHtml(songSection.id) + '\')" title="Print/PDF"><i class="fa-solid fa-file-pdf"></i></button>' +
+            '<button class="wo-slr-btn pdf" onclick="WO.printSingleSongSongbookStyle(\'' + escapeHtml(songSection.id) + '\')" title="Print songbook-style PDF"><i class="fa-solid fa-file-pdf"></i></button>' +
             '<button class="wo-slr-btn remove" onclick="WO.deleteSongOrderSection(\'' + escapeHtml(songSection.id) + '\')" title="Remove song"><i class="fa-solid fa-trash"></i></button>' +
           '</div>' +
         '</div>' +
@@ -23418,6 +23443,165 @@ var WO = (function() {
     autoSaveOrder();
   }
 
+  // ── 486/487: Song Links Modal ─────────────────────────────────────────────
+  var _slmCurrentSongId = null;
+
+  function openSongLinksModal(songId) {
+    _slmCurrentSongId = songId;
+    var modal = $('songLinksModal');
+    if (!modal) return;
+    _slmRefresh(songId);
+    modal.style.display = 'flex';
+  }
+
+  function closeSongLinksModal() {
+    var modal = $('songLinksModal');
+    if (modal) modal.style.display = 'none';
+    _slmCurrentSongId = null;
+  }
+
+  // Close on backdrop click
+  document.addEventListener('click', function(e) {
+    var modal = $('songLinksModal');
+    if (modal && modal.style.display === 'flex' && e.target === modal) closeSongLinksModal();
+  });
+
+  function _slmRefresh(songId) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song) return;
+    var titleEl = $('slmTitle');
+    var bodyEl  = $('slmBody');
+    if (titleEl) titleEl.textContent = song.title;
+    if (!bodyEl) return;
+
+    var youtubeLinks  = Array.isArray(song.youtube)      ? song.youtube      : (typeof song.youtube === 'string' && song.youtube.trim() ? song.youtube.split(/[,\n]+/).map(function(u){ return u.trim(); }).filter(Boolean) : []);
+    var customYoutube = Array.isArray(song.customYoutube) ? song.customYoutube : [];
+    var attachments   = Array.isArray(song.attachments)   ? song.attachments   : [];
+    var customDocs    = Array.isArray(song.customDocs)     ? song.customDocs    : [];
+
+    var html = '';
+
+    // Video section
+    html += '<div class="slm-section-lbl"><i class="fa-brands fa-youtube" style="color:#ff0000;margin-right:4px;"></i>Videos</div>';
+    var hasVideos = youtubeLinks.length || customYoutube.length;
+    if (!hasVideos) {
+      html += '<div class="slm-empty">No videos added yet.</div>';
+    } else {
+      youtubeLinks.forEach(function(url, i) {
+        var label = 'YouTube ' + (i + 1);
+        html += '<div class="slm-item">' +
+          '<span class="slm-item-icon" style="color:#ff0000;"><i class="fa-brands fa-youtube"></i></span>' +
+          '<span class="slm-item-name" title="' + escapeHtml(url) + '">' + escapeHtml(label) + '</span>' +
+          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeHtml(url) + '\',\'YouTube ' + (i+1) + '\')" title="Play"><i class="fa-solid fa-play"></i></button>' +
+        '</div>';
+      });
+      customYoutube.forEach(function(url, i) {
+        html += '<div class="slm-item">' +
+          '<span class="slm-item-icon" style="color:#ff0000;"><i class="fa-brands fa-youtube"></i></span>' +
+          '<span class="slm-item-name" title="' + escapeHtml(url) + '">Custom Video ' + (i + 1) + ' <span class="slm-item-tag">custom</span></span>' +
+          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeHtml(url) + '\',\'Custom Video ' + (i+1) + '\')" title="Play"><i class="fa-solid fa-play"></i></button>' +
+          '<button class="slm-item-btn remove" onclick="WO.slmRemoveVideo(\'' + escapeHtml(songId) + '\',' + i + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
+        '</div>';
+      });
+    }
+
+    // Documents section
+    html += '<div class="slm-section-lbl"><i class="fa-solid fa-file-lines" style="color:#4285f4;margin-right:4px;"></i>Documents &amp; Links</div>';
+    var hasDocs = attachments.length || customDocs.length;
+    if (!hasDocs) {
+      html += '<div class="slm-empty">No documents added yet.</div>';
+    } else {
+      attachments.forEach(function(att, i) {
+        var nm = att.name || ('Document ' + (i + 1));
+        var icon = (att.type === 'image' || (att.mimeType && att.mimeType.startsWith('image/'))) ? '<i class="fa-solid fa-image" style="color:#16a34a;"></i>' : '<i class="fa-solid fa-file-lines" style="color:#4285f4;"></i>';
+        html += '<div class="slm-item">' +
+          '<span class="slm-item-icon">' + icon + '</span>' +
+          '<span class="slm-item-name" title="' + escapeHtml(att.url||'') + '">' + escapeHtml(nm) + '</span>' +
+          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeHtml(att.url||'') + '\',\'' + escapeHtml(nm) + '\')" title="Open"><i class="fa-solid fa-eye"></i></button>' +
+        '</div>';
+      });
+      customDocs.forEach(function(att, i) {
+        var nm = att.name || ('Custom Doc ' + (i + 1));
+        html += '<div class="slm-item">' +
+          '<span class="slm-item-icon"><i class="fa-solid fa-file-lines" style="color:#4285f4;"></i></span>' +
+          '<span class="slm-item-name" title="' + escapeHtml(att.url||'') + '">' + escapeHtml(nm) + ' <span class="slm-item-tag">custom</span></span>' +
+          '<button class="slm-item-btn play" onclick="WO.openMediaModal(\'' + escapeHtml(att.url||'') + '\',\'' + escapeHtml(nm) + '\')" title="Open"><i class="fa-solid fa-eye"></i></button>' +
+          '<button class="slm-item-btn remove" onclick="WO.slmRemoveDoc(\'' + escapeHtml(songId) + '\',' + i + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
+        '</div>';
+      });
+    }
+
+    bodyEl.innerHTML = html;
+  }
+
+  function slmAddVideo() {
+    if (!_slmCurrentSongId) return;
+    var sid = _slmCurrentSongId;
+    var song = songOrderSections.find(function(s) { return s.id === sid; });
+    if (!song) return;
+    openMediaAddModal({
+      context: 'worshipOrder', songId: sid, songTitle: song.title, mediaType: 'youtube',
+      onSave: function(mediaInfo) {
+        if (!song.customYoutube) song.customYoutube = [];
+        song.customYoutube.push(mediaInfo.url);
+        var mediaEl = $('slrMedia-' + sid);
+        if (mediaEl) mediaEl.outerHTML = buildSongMediaArea(song, sid);
+        updateQuickList();
+        _slmRefresh(sid);
+        showToast('Video added!', 'success');
+      }
+    });
+  }
+
+  function slmAddDoc() {
+    if (!_slmCurrentSongId) return;
+    var sid = _slmCurrentSongId;
+    var song = songOrderSections.find(function(s) { return s.id === sid; });
+    if (!song) return;
+    openMediaAddModal({
+      context: 'worshipOrder', songId: sid, songTitle: song.title, mediaType: 'doc',
+      onSave: function(mediaInfo) {
+        if (!song.customDocs) song.customDocs = [];
+        song.customDocs.push({ url: mediaInfo.url, name: mediaInfo.name || 'Document', type: mediaInfo.storageProvider || 'custom' });
+        var mediaEl = $('slrMedia-' + sid);
+        if (mediaEl) mediaEl.outerHTML = buildSongMediaArea(song, sid);
+        updateQuickList();
+        _slmRefresh(sid);
+        showToast('Document added!', 'success');
+      }
+    });
+  }
+
+  function slmRemoveVideo(songId, customIdx) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song || !Array.isArray(song.customYoutube)) return;
+    song.customYoutube.splice(customIdx, 1);
+    var mediaEl = $('slrMedia-' + songId);
+    if (mediaEl) mediaEl.outerHTML = buildSongMediaArea(song, songId);
+    _slmRefresh(songId);
+    autoSaveOrder();
+  }
+
+  function slmRemoveDoc(songId, customIdx) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song || !Array.isArray(song.customDocs)) return;
+    song.customDocs.splice(customIdx, 1);
+    var mediaEl = $('slrMedia-' + songId);
+    if (mediaEl) mediaEl.outerHTML = buildSongMediaArea(song, songId);
+    _slmRefresh(songId);
+    autoSaveOrder();
+  }
+
+  // Print single song in songbook (A4) format
+  function printSingleSongSongbookStyle(songId) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song) return;
+    var saved = songOrderSections;
+    songOrderSections = [song];
+    _sbPrintBuildAndOpen({});
+    songOrderSections = saved;
+  }
+
   // ── 354A: Blank editable pages in Songbook ──────────────────────────────────
 
   function sbAddBlankPage() {
@@ -24288,6 +24472,13 @@ var WO = (function() {
     sbToggleDoc: sbToggleDoc,
     sbAddLinkCancel: sbAddLinkCancel,
     sbAddLinkConfirm: sbAddLinkConfirm,
+    openSongLinksModal: openSongLinksModal,
+    closeSongLinksModal: closeSongLinksModal,
+    slmAddVideo: slmAddVideo,
+    slmAddDoc: slmAddDoc,
+    slmRemoveVideo: slmRemoveVideo,
+    slmRemoveDoc: slmRemoveDoc,
+    printSingleSongSongbookStyle: printSingleSongSongbookStyle,
     // Debug function - call from console: WO.debugLoadOrder('order_id')
     debugLoadOrder: function(orderId) {
       console.log('=== DEBUG: Loading order ' + orderId + ' ===');
@@ -30760,6 +30951,29 @@ function filterLiturgyItems() {
   .wo-slr-media-drop-actions { display:flex; gap:6px; padding:8px 12px 4px; border-top:1px solid #f1f5f9; margin-top:4px; }
 
   /* 351 — Full-page media modal */
+  /* ── Song Links Modal (486/487) ── */
+  .slm-panel { background:#fff; border-radius:14px; width:min(520px,95vw); max-height:80vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.4); overflow:hidden; }
+  .slm-header { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid #e2e8f0; flex-shrink:0; }
+  .slm-title { flex:1; font-family:'Cinzel',serif; font-size:1rem; font-weight:700; color:#1e293b; }
+  .slm-close { width:30px; height:30px; border:none; background:#f1f5f9; border-radius:6px; cursor:pointer; font-size:1rem; color:#64748b; display:flex; align-items:center; justify-content:center; }
+  .slm-close:hover { background:#e2e8f0; color:#1e293b; }
+  .slm-body { flex:1; overflow-y:auto; padding:12px 18px; display:flex; flex-direction:column; gap:4px; }
+  .slm-section-lbl { font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#94a3b8; margin:10px 0 4px; }
+  .slm-section-lbl:first-child { margin-top:0; }
+  .slm-item { display:flex; align-items:center; gap:8px; padding:8px 10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; }
+  .slm-item-icon { width:20px; flex-shrink:0; text-align:center; font-size:0.9rem; }
+  .slm-item-name { flex:1; font-size:0.82rem; color:#334155; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .slm-item-tag { font-size:0.65rem; background:#e2e8f0; color:#64748b; border-radius:4px; padding:1px 5px; flex-shrink:0; }
+  .slm-item-btn { width:26px; height:26px; border:none; border-radius:5px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:0.8rem; flex-shrink:0; }
+  .slm-item-btn.play { background:#dbeafe; color:#1d4ed8; }
+  .slm-item-btn.play:hover { background:#bfdbfe; }
+  .slm-item-btn.remove { background:#fee2e2; color:#dc2626; }
+  .slm-item-btn.remove:hover { background:#fecaca; }
+  .slm-empty { font-size:0.8rem; color:#94a3b8; text-align:center; padding:8px 0; }
+  .slm-footer { display:flex; gap:8px; padding:12px 18px; border-top:1px solid #e2e8f0; flex-shrink:0; }
+  .slm-add-btn { flex:1; padding:8px 12px; border:1.5px dashed #cbd5e1; border-radius:8px; background:#f8fafc; cursor:pointer; font-size:0.8rem; color:#475569; display:flex; align-items:center; justify-content:center; gap:6px; transition:border-color .15s,background .15s; }
+  .slm-add-btn:hover { border-color:#6366f1; background:#eef2ff; color:#4338ca; }
+
   #woMediaModal { display:none; position:fixed; inset:0; z-index:3000; background:rgba(0,0,0,0.92); flex-direction:column; }
   .wom-header { display:flex; align-items:center; gap:12px; padding:10px 16px; background:rgba(255,255,255,0.06); flex-shrink:0; }
   .wom-title { font-weight:600; color:white; flex:1; font-size:0.95rem; }
