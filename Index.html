@@ -22075,6 +22075,9 @@ var WO = (function() {
     box.classList.add('selected');
     selectedSlideBox = box;
 
+    // Scroll the selected slide into center view in the service order list
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
     // Get global slide index for arrow-key navigation
     var allSlideBoxes = Array.from(document.querySelectorAll('.wo-slide-box'));
     currentSlideIndex = allSlideBoxes.indexOf(box);
@@ -22515,6 +22518,11 @@ var WO = (function() {
     content.appendChild(hintBar);
     textarea.focus();
     textarea.select();
+
+    // Live-update projection preview while typing
+    textarea.addEventListener('input', function() {
+      updateProjectionPreview(textarea.value, true);
+    });
   }
 
   function saveSlideEdit(box) {
@@ -29552,7 +29560,7 @@ function filterLiturgyItems() {
   .wo-empty-songs { font-style: italic; color: #999; }
 
   /* Preview Panel - Projection Window for Congregation */
-  .wo-preview-panel { width: 450px; min-width: 400px; background: #1a1a1a; padding: 15px; display: flex; flex-direction: column; }
+  .wo-preview-panel { width: 450px; min-width: 400px; background: #1a1a1a; padding: 15px; display: flex; flex-direction: column; position: sticky; top: 16px; align-self: flex-start; max-height: calc(100vh - 32px); overflow-y: auto; }
   .wo-preview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
   .wo-preview-title { color: white; font-size: 1rem; font-weight: 600; }
   .wo-preview-actions { display: flex; gap: 8px; flex-wrap: wrap; }
