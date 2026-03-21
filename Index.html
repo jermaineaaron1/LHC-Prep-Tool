@@ -20956,29 +20956,37 @@ var WO = (function() {
     if (!page || !wrap) return;
     // 483 — two-col: show current + next page side by side (except index page at idx 0)
     var isTwoCol = _sbFsTwoCol && _sbFsIdx > 0;
+    // margin-left centres the page within the scaled wrap.
+    // Because transform: scale(zoom) pivots from the wrap's horizontal centre,
+    // a page that starts at x=0 ends up shifted right after scaling.
+    // Setting margin-left = (wrap_width - page_width) / 2 makes the page's
+    // centre align with the wrap's centre so the visual result is screen-centred.
+    var naturalW = isTwoCol ? 1600 : 794;
+    var wrapW    = Math.round(naturalW * _sbFsZoom);
+    var centreML = Math.round((wrapW - naturalW) / 2); // negative when zoom < 1
+
     if (isTwoCol) {
       var p1 = _sbFsPages[_sbFsIdx] || '';
       var p2 = _sbFsPages[_sbFsIdx + 1] || '<div style="width:794px;height:1123px;background:#fff;"></div>';
-      // Expand #sbFsPage beyond its CSS 794px so it doesn't clip the second page
-      page.style.width      = '1600px';   // 794 + 12 gap + 794
+      page.style.width      = '1600px';
       page.style.overflow   = 'visible';
       page.style.background = 'transparent';
       page.style.boxShadow  = 'none';
+      page.style.marginLeft = centreML + 'px';
       page.innerHTML =
         '<div style="display:flex;gap:12px;">' +
           '<div style="width:794px;height:1123px;overflow:hidden;flex-shrink:0;background:#fff;box-shadow:0 8px 48px rgba(0,0,0,0.75);">' + p1 + '</div>' +
           '<div style="width:794px;height:1123px;overflow:hidden;flex-shrink:0;background:#fff;box-shadow:0 8px 48px rgba(0,0,0,0.75);">' + p2 + '</div>' +
         '</div>';
-      wrap.style.width = Math.round(1600 * _sbFsZoom) + 'px';
     } else {
-      // Reset any two-col overrides
       page.style.width = page.style.overflow = page.style.background = page.style.boxShadow = '';
+      page.style.marginLeft = centreML + 'px';
       page.innerHTML = _sbFsPages[_sbFsIdx] || '';
-      wrap.style.width = Math.round(794 * _sbFsZoom) + 'px';
     }
+    wrap.style.width           = wrapW + 'px';
     wrap.style.transform       = 'scale(' + _sbFsZoom + ')';
     wrap.style.transformOrigin = 'top center';
-    wrap.style.height = Math.round(1123 * _sbFsZoom) + 'px';
+    wrap.style.height          = Math.round(1123 * _sbFsZoom) + 'px';
     if (numEl) numEl.textContent = (_sbFsIdx + 1) + ' / ' + _sbFsPages.length;
     if (zoomEl) zoomEl.textContent = Math.round(_sbFsZoom * 100) + '%';
     var vp = document.getElementById('sbFsViewport');
