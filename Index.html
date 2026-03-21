@@ -12465,19 +12465,36 @@ var WO = (function() {
       '<div id="woSongOrderSections" class="wo-song-order-list"></div>' +
       '</div>';
 
-    // Render songs sorted by their position in the service order (486)
+    // 488 — Render one row per section occurrence (supports duplicates, no drag-drop)
     var _soStruct = orderStructures[currentOrderType] || orderStructures.traditional;
-    var _soOrder  = {};
-    _soStruct.forEach(function(sec, i) { if (sec.serviceSectionId) _soOrder[sec.serviceSectionId] = i; });
-    var _soSorted = songOrderSections.slice().sort(function(a, b) {
-      var aKey = (a.serviceSections && a.serviceSections[0]) || a.sectionId || '';
-      var bKey = (b.serviceSections && b.serviceSections[0]) || b.sectionId || '';
-      var aIdx = _soOrder[aKey] !== undefined ? _soOrder[aKey] : 999;
-      var bIdx = _soOrder[bKey] !== undefined ? _soOrder[bKey] : 999;
-      return aIdx - bIdx;
+    var _soRenderList = [];  // [{song, sectionId, sectionLabel, rowId}]
+    var _soUsed = {};        // track which song+section combos have been added
+
+    _soStruct.forEach(function(sec) {
+      if (!sec.serviceSectionId) return;
+      var secLabel = sec.title.replace(/^\d+\.\s*/, '');
+      songOrderSections.forEach(function(s) {
+        var matches = Array.isArray(s.serviceSections) && s.serviceSections.length
+          ? s.serviceSections.indexOf(sec.serviceSectionId) !== -1
+          : sbResolveSectionId(s.sectionId || '') === sec.serviceSectionId;
+        if (!matches) return;
+        var key = s.id + '__' + sec.serviceSectionId;
+        if (_soUsed[key]) return;
+        _soUsed[key] = true;
+        _soRenderList.push({ song: s, sectionId: sec.serviceSectionId, sectionLabel: secLabel, rowId: key });
+      });
     });
-    _soSorted.forEach(function(section) {
-      renderSongOrderSection(section);
+
+    // Unassigned songs (not matched to any section) — append once
+    songOrderSections.forEach(function(s) {
+      var inAnySection = Object.keys(_soUsed).some(function(k) { return k.indexOf(s.id + '__') === 0; });
+      if (!inAnySection) {
+        _soRenderList.push({ song: s, sectionId: null, sectionLabel: null, rowId: s.id });
+      }
+    });
+
+    _soRenderList.forEach(function(item, idx) {
+      renderSongOrderSection(item.song, item.sectionId, item.sectionLabel, item.rowId, idx + 1);
     });
   }
 
@@ -13051,7 +13068,9 @@ var WO = (function() {
     '</div>';
   }
 
-  function renderSongOrderSection(songSection) {
+  // 488 — renderSongOrderSection(song, sectionId, sectionLabel, rowId, displayIdx)
+  // sectionId/sectionLabel/rowId passed for duplicate-per-section support
+  function renderSongOrderSection(songSection, sectionId, sectionLabel, rowId, displayIdx) {
     var container = $('woSongOrderSections');
     if (!container) return;
 
@@ -13071,47 +13090,53 @@ var WO = (function() {
       }
     }
 
-    // Get song index
-    var songIndex = songOrderSections.indexOf(songSection) + 1;
-    if (songIndex === 0) songIndex = songOrderSections.length;
+    // Defaults for backward-compat when called without new params
+    if (!rowId) rowId = songSection.id;
+    if (displayIdx === undefined) displayIdx = songOrderSections.indexOf(songSection) + 1;
 
-    // Section pill — show ALL assigned sections joined by " / "
-    var sectionPill = '';
-    if (songSection.serviceSections && songSection.serviceSections.length > 0) {
-      var labels = songSection.serviceSections.map(function(sid) {
-        var sec = SERVICE_SECTIONS.find(function(s) { return s.id === sid; });
-        return sec ? sec.label.replace('Song of ', '') : sid;
-      });
-      sectionPill = '<span class="wo-slr-section-pill">' + escapeHtml(labels.join(' / ')) + '</span>';
-    }
+    // Section label pill (shows the specific section for this row, not all sections)
+    var sectionPill = sectionLabel
+      ? '<span class="wo-slr-section-pill">' + escapeHtml(sectionLabel) + '</span>'
+      : (!songSection.serviceSections || !songSection.serviceSections.length
+          ? '<span class="wo-slr-section-pill unassigned-pill">Unassigned</span>'
+          : '');
 
-    // 352 — Compact media ribbon (replaces individual inline buttons)
-    var sid      = songSection.id;
-    var mediaHtml = buildSongMediaArea(songSection, sid);
+    // Count media items for the badge
+    var _ytLinks = Array.isArray(songSection.youtube) ? songSection.youtube :
+      (typeof songSection.youtube === 'string' && songSection.youtube.trim() ?
+        songSection.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []);
+    var _mediaCount = _ytLinks.length +
+      (Array.isArray(songSection.customYoutube) ? songSection.customYoutube.length : 0) +
+      (Array.isArray(songSection.attachments) ? songSection.attachments.length : 0) +
+      (Array.isArray(songSection.customDocs) ? songSection.customDocs.length : 0);
+    var mediaBadge = _mediaCount > 0
+      ? '<span class="so-media-badge"><i class="fa-solid fa-photo-film"></i> ' + _mediaCount + '</span>'
+      : '<span class="so-media-badge so-media-badge--empty"><i class="fa-solid fa-photo-film"></i></span>';
 
-    // Build compact list row (339: individual media buttons, no preview panel)
-    var isUnassigned = !songSection.serviceSections || songSection.serviceSections.length === 0;
+    var escapedSongId = escapeHtml(songSection.id);
+    var escapedRowId  = escapeHtml(rowId);
+    var isUnassigned  = !sectionId;
+
     var html =
-      '<div class="wo-song-list-row' + (isUnassigned ? ' unassigned' : '') + '" id="' + songSection.id + '" draggable="true"' +
-        ' ondragstart="WO.onSongDragStart(event)" ondragover="WO.onSongDragOver(event)" ondrop="WO.onSongDrop(event)" ondragend="WO.onSongDragEnd(event)">' +
+      '<div class="wo-song-list-row' + (isUnassigned ? ' unassigned' : '') + '" id="soRow-' + escapedRowId + '">' +
 
-        '<div class="wo-slr-main">' +
-          '<span class="wo-slr-drag"><i class="fa-solid fa-grip-vertical"></i></span>' +
-          '<span class="wo-slr-num">' + songIndex + '</span>' +
+        '<div class="wo-slr-main" onclick="WO.soToggleExpand(\'' + escapedRowId + '\')" style="cursor:pointer;">' +
+          '<span class="wo-slr-num">' + displayIdx + '</span>' +
           '<div class="wo-slr-info">' +
-            '<span class="wo-slr-title" onclick="WO.openSongLinksModal(\'' + escapeHtml(songSection.id) + '\')" title="Click to view media &amp; links" style="cursor:pointer;">' + escapeHtml(songSection.title) + '</span>' +
+            '<span class="wo-slr-title">' + escapeHtml(songSection.title) + '</span>' +
             '<span class="wo-slr-artist">by ' + escapeHtml(songSection.artist || 'Unknown') + '</span>' +
           '</div>' +
           sectionPill +
-          mediaHtml +
-          '<div class="wo-slr-actions">' +
-            '<button class="wo-slr-btn sections" onclick="WO.openEditSectionsModal(\'' + escapeHtml(songSection.id) + '\')" title="Assign section"><i class="fa-solid fa-list-check"></i></button>' +
-            '<button class="wo-slr-btn pdf" onclick="WO.printSingleSongSongbookStyle(\'' + escapeHtml(songSection.id) + '\')" title="Print songbook-style PDF"><i class="fa-solid fa-file-pdf"></i></button>' +
-            '<button class="wo-slr-btn remove" onclick="WO.deleteSongOrderSection(\'' + escapeHtml(songSection.id) + '\')" title="Remove song"><i class="fa-solid fa-trash"></i></button>' +
+          mediaBadge +
+          '<div class="wo-slr-actions" onclick="event.stopPropagation();">' +
+            '<button class="wo-slr-btn sections" onclick="WO.openEditSectionsModal(\'' + escapedSongId + '\')" title="Assign section"><i class="fa-solid fa-list-check"></i></button>' +
+            '<button class="wo-slr-btn pdf" onclick="WO.printSingleSongSongbookStyle(\'' + escapedSongId + '\')" title="Print songbook-style PDF"><i class="fa-solid fa-file-pdf"></i></button>' +
+            '<button class="wo-slr-btn remove" onclick="WO.deleteSongOrderSection(\'' + escapedSongId + '\')" title="Remove song"><i class="fa-solid fa-trash"></i></button>' +
           '</div>' +
+          '<span class="so-expand-chevron"><i class="fa-solid fa-chevron-down"></i></span>' +
         '</div>' +
 
-        '<div class="wo-slr-embed-row" id="' + escapeHtml(songSection.id) + '-embed" style="display:none"></div>' +
+        '<div class="so-expand-panel" id="soExpand-' + escapedRowId + '" style="display:none;" data-song-id="' + escapedSongId + '"></div>' +
 
       '</div>';
 
@@ -13843,8 +13868,14 @@ var WO = (function() {
   }
 
   function deleteSongOrderSection(sectionId) {
-    var el = $(sectionId);
-    if (el) el.remove();
+    // Remove all row elements for this song (handles duplicate rows per section)
+    document.querySelectorAll('[id^="soRow-"]').forEach(function(el) {
+      var panel = el.querySelector('.so-expand-panel');
+      if (panel && panel.getAttribute('data-song-id') === sectionId) el.remove();
+    });
+    // Legacy fallback (old row ID = sectionId)
+    var legacyEl = $(sectionId);
+    if (legacyEl) legacyEl.remove();
     songOrderSections = songOrderSections.filter(function(s) { return s.id !== sectionId; });
     updateQuickList();
     updateSongIndex();
@@ -18009,8 +18040,44 @@ var WO = (function() {
         '<div class="sb-page-break-line"></div></div></div>';
     }
 
-    songOrderSections.forEach(function(song, idx) {
-      var sid = escapeHtml(song.id);
+    // 488 — Build sbRenderItems: one entry per section occurrence + unassigned + blank pages
+    var sbRenderItems = [];  // [{song, sid (virtual), sectionLabel}]
+    var sbUsedKeys    = {};  // song.id + '__' + sectionId → true
+
+    structures.forEach(function(sec) {
+      if (!sec.serviceSectionId) return;
+      var secLabel = sec.title.replace(/^\d+\.\s*/, '');
+      songOrderSections.forEach(function(s) {
+        if (s.itemType === 'blank') return;
+        var matches = Array.isArray(s.serviceSections) && s.serviceSections.length
+          ? s.serviceSections.indexOf(sec.serviceSectionId) !== -1
+          : sbResolveSectionId(s.sectionId || '') === sec.serviceSectionId;
+        if (!matches) return;
+        var key = s.id + '__' + sec.serviceSectionId;
+        if (sbUsedKeys[key]) return;
+        sbUsedKeys[key] = true;
+        // Virtual ID: use song.id for first appearance, song.id__sectionId for duplicates
+        var alreadySeen = Object.keys(sbUsedKeys).filter(function(k) { return k.indexOf(s.id + '__') === 0; }).length > 1;
+        var virtualId = alreadySeen ? s.id + '__sb__' + sec.serviceSectionId : s.id;
+        sbRenderItems.push({ song: s, sid: virtualId, sectionLabel: secLabel });
+      });
+    });
+
+    // Unassigned songs (not matched to any section) — one entry each
+    songOrderSections.forEach(function(s) {
+      if (s.itemType === 'blank') return;
+      var inAny = Object.keys(sbUsedKeys).some(function(k) { return k.indexOf(s.id + '__') === 0; });
+      if (!inAny) sbRenderItems.push({ song: s, sid: s.id, sectionLabel: null });
+    });
+
+    // Blank/notes pages always last
+    songOrderSections.forEach(function(s) {
+      if (s.itemType === 'blank') sbRenderItems.push({ song: s, sid: s.id, sectionLabel: null });
+    });
+
+    sbRenderItems.forEach(function(item, idx) {
+      var song = item.song;
+      var sid  = escapeHtml(item.sid);
 
       // ── 354A — Blank page ─────────────────────────────────────────────────
       if (song.itemType === 'blank') {
@@ -18112,7 +18179,7 @@ var WO = (function() {
         });
         html += '</div>'; // .sb-song-page
         // Page break divider
-        if (idx < songOrderSections.length - 1) {
+        if (idx < sbRenderItems.length - 1) {
           var extra0 = sbPageMargins[song.id] || 0;
           html += '<div class="sb-page-break" id="sbBreak-' + sid + '" data-song-id="' + sid + '" style="margin-bottom:' + extra0 + 'px;">' +
             '<div class="sb-page-break-inner">' +
@@ -18130,7 +18197,7 @@ var WO = (function() {
       // ── Song page ─────────────────────────────────────────────────────────
       var lyricsHtml = song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
       var key = song.key || '';
-      var steps = sbTransposeSteps[song.id] || 0;
+      var steps = sbTransposeSteps[item.sid] || sbTransposeSteps[song.id] || 0;
       var keyDisplay = key ? (steps !== 0 ? key + ' (' + (steps > 0 ? '+' : '') + steps + ')' : key) : '';
 
       // Collect all docs for this song (filter out library docs the user removed from songbook)
@@ -18160,6 +18227,8 @@ var WO = (function() {
       html += '<div class="sb-page-info">';
       html += '<div class="sb-page-title">' + escapeHtml(song.title) + '</div>';
       if (song.artist) html += '<div class="sb-page-artist">by ' + escapeHtml(song.artist) + '</div>';
+      // 488 — Show section label on duplicate instances
+      if (item.sectionLabel) html += '<div class="sb-page-section-lbl">' + escapeHtml(item.sectionLabel) + '</div>';
       html += '</div>';
       // 386 — Action buttons in title row so they never wrap
       html += '<div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0;">';
@@ -18310,7 +18379,7 @@ var WO = (function() {
       html += '</div>'; // .sb-song-page
 
       // Page break divider between songs (357 — A4 visual + inline Add Page button)
-      if (idx < songOrderSections.length - 1) {
+      if (idx < sbRenderItems.length - 1) {
         var extra = sbPageMargins[song.id] || 0;
         html += '<div class="sb-page-break" id="sbBreak-' + sid + '" data-song-id="' + sid + '" style="margin-bottom:' + extra + 'px;">' +
           '<div class="sb-page-break-inner">' +
@@ -23592,6 +23661,217 @@ var WO = (function() {
     autoSaveOrder();
   }
 
+  // ── 488: Inline expand panel for song order rows ─────────────────────────
+  function soToggleExpand(rowId) {
+    var panel = $('soExpand-' + rowId);
+    if (!panel) return;
+    var row   = $('soRow-' + rowId);
+    var isOpen = panel.style.display !== 'none';
+
+    // Close all other panels
+    document.querySelectorAll('.so-expand-panel').forEach(function(p) { p.style.display = 'none'; });
+    document.querySelectorAll('.wo-song-list-row').forEach(function(r) { r.classList.remove('so-row-expanded'); });
+
+    if (!isOpen) {
+      var songId = panel.getAttribute('data-song-id');
+      soRenderExpandPanel(rowId, songId, panel);
+      panel.style.display = 'block';
+      if (row) row.classList.add('so-row-expanded');
+    }
+  }
+
+  function soRenderExpandPanel(rowId, songId, panel) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song) { panel.innerHTML = '<p style="padding:12px;color:#94a3b8;">Song not found.</p>'; return; }
+
+    var ytLinks     = Array.isArray(song.youtube) ? song.youtube :
+      (typeof song.youtube === 'string' && song.youtube.trim() ?
+        song.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []);
+    var customYt    = Array.isArray(song.customYoutube) ? song.customYoutube : [];
+    var attachments = Array.isArray(song.attachments)   ? song.attachments   : [];
+    var customDocs  = Array.isArray(song.customDocs)     ? song.customDocs    : [];
+
+    var allVideos = ytLinks.concat(customYt);
+    var allDocs   = attachments.concat(customDocs);
+    var hasAny    = allVideos.length || allDocs.length;
+
+    var esc = escapeHtml;
+    var escapedRowId  = esc(rowId);
+    var escapedSongId = esc(songId);
+
+    // Toolbar
+    var html = '<div class="so-expand-toolbar">' +
+      '<span class="so-expand-toolbar-label">Add:</span>' +
+      '<button class="so-expand-add-btn" onclick="WO.soAddMedia(\'' + escapedSongId + '\',\'youtube\')" title="Add YouTube or video link"><i class="fa-brands fa-youtube"></i> YouTube</button>' +
+      '<button class="so-expand-add-btn" onclick="WO.soAddMedia(\'' + escapedSongId + '\',\'link\')" title="Add website link"><i class="fa-solid fa-globe"></i> Link</button>' +
+      '<button class="so-expand-add-btn" onclick="WO.soAddMedia(\'' + escapedSongId + '\',\'doc\')" title="Add Google Drive document"><i class="fa-brands fa-google-drive"></i> Drive</button>' +
+      '<button class="so-expand-add-btn" onclick="WO.soAddMedia(\'' + escapedSongId + '\',\'image\')" title="Add image or picture"><i class="fa-solid fa-image"></i> Picture</button>' +
+    '</div>';
+
+    // Media preview grid
+    html += '<div class="so-media-grid" id="soGrid-' + escapedRowId + '">';
+
+    if (!hasAny) {
+      html += '<div class="so-media-empty">No media yet — click the buttons above to add YouTube videos, links, Drive documents, or pictures.</div>';
+    }
+
+    // YouTube cards (library links — no remove)
+    ytLinks.forEach(function(url, i) {
+      var ytId = soExtractYouTubeId(url);
+      var cardContent = ytId
+        ? '<iframe src="https://www.youtube.com/embed/' + esc(ytId) + '?rel=0" frameborder="0" allowfullscreen class="so-media-card-iframe"></iframe>'
+        : '<div class="so-media-card-nopreview"><i class="fa-brands fa-youtube" style="font-size:2rem;color:#ff0000;"></i></div>';
+      html += '<div class="so-media-card so-media-card--video">' +
+        '<div class="so-media-card-preview">' + cardContent + '</div>' +
+        '<div class="so-media-card-footer">' +
+          '<i class="fa-brands fa-youtube" style="color:#ff0000;flex-shrink:0;"></i>' +
+          '<span class="so-media-card-name" title="' + esc(url) + '">YouTube ' + (i + 1) + '</span>' +
+          '<a href="' + esc(url) + '" target="_blank" class="so-media-card-open" title="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>' +
+        '</div>' +
+      '</div>';
+    });
+
+    // Custom YouTube cards (removable)
+    customYt.forEach(function(url, i) {
+      var ytId2 = soExtractYouTubeId(url);
+      var cardContent2 = ytId2
+        ? '<iframe src="https://www.youtube.com/embed/' + esc(ytId2) + '?rel=0" frameborder="0" allowfullscreen class="so-media-card-iframe"></iframe>'
+        : '<div class="so-media-card-nopreview"><i class="fa-brands fa-youtube" style="font-size:2rem;color:#ff0000;"></i></div>';
+      html += '<div class="so-media-card so-media-card--video">' +
+        '<div class="so-media-card-preview">' + cardContent2 + '</div>' +
+        '<div class="so-media-card-footer">' +
+          '<i class="fa-brands fa-youtube" style="color:#ff0000;flex-shrink:0;"></i>' +
+          '<span class="so-media-card-name" title="' + esc(url) + '">Video ' + (ytLinks.length + i + 1) + '<span class="so-media-custom-tag">custom</span></span>' +
+          '<a href="' + esc(url) + '" target="_blank" class="so-media-card-open" title="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>' +
+          '<button class="so-media-card-remove" onclick="WO.soRemoveCustomVideo(\'' + escapedSongId + '\',' + i + ',\'' + escapedRowId + '\')" title="Remove"><i class="fa-solid fa-trash-can"></i></button>' +
+        '</div>' +
+      '</div>';
+    });
+
+    // Doc/attachment cards
+    attachments.forEach(function(att, i) {
+      html += soMakeDocCard(att, escapedSongId, i, false, null, escapedRowId);
+    });
+    customDocs.forEach(function(att, i) {
+      html += soMakeDocCard(att, escapedSongId, i, true, attachments.length, escapedRowId);
+    });
+
+    html += '</div>'; // .so-media-grid
+    panel.innerHTML = html;
+  }
+
+  function soExtractYouTubeId(url) {
+    if (!url) return null;
+    var m = url.match(/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/);
+    return m ? m[1] : null;
+  }
+
+  function soMakeDocCard(att, escapedSongId, idx, isCustom, libCount, escapedRowId) {
+    var url  = att.url || att || '';
+    var name = att.name || ('Doc ' + (idx + 1));
+    var info = window.detectMediaType ? window.detectMediaType(url) : null;
+    var isImage = (att.mimeType && att.mimeType.startsWith('image/')) || (info && info.type === 'image') || /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(url);
+    var isDrive = url.indexOf('drive.google.com') !== -1 || url.indexOf('docs.google.com') !== -1;
+    var isYouTube = info && info.type === 'youtube';
+
+    var previewHtml;
+    if (isImage) {
+      previewHtml = '<img src="' + escapeHtml(url) + '" class="so-media-card-img" alt="' + escapeHtml(name) + '">';
+    } else if (isYouTube && info.id) {
+      previewHtml = '<iframe src="https://www.youtube.com/embed/' + escapeHtml(info.id) + '?rel=0" frameborder="0" allowfullscreen class="so-media-card-iframe"></iframe>';
+    } else if (isDrive) {
+      var embedUrl = sbBuildEmbedUrl(url);
+      previewHtml = '<iframe src="' + escapeHtml(embedUrl) + '" frameborder="0" class="so-media-card-iframe"></iframe>';
+    } else {
+      var iconCls = (info && info.type === 'spotify') ? 'fa-brands fa-spotify' :
+                   (info && info.type === 'link')    ? 'fa-solid fa-globe'    : 'fa-solid fa-file-lines';
+      var iconColor = (info && info.type === 'spotify') ? '#1db954' : (isDrive ? '#4285f4' : '#6366f1');
+      previewHtml = '<div class="so-media-card-nopreview"><i class="' + iconCls + '" style="font-size:2rem;color:' + iconColor + ';"></i><div class="so-media-card-nopreview-url">' + escapeHtml(name) + '</div></div>';
+    }
+
+    var iconCls2 = isImage ? 'fa-solid fa-image' : (isDrive ? 'fa-brands fa-google-drive' : 'fa-solid fa-globe');
+    var iconColor2 = isImage ? '#16a34a' : (isDrive ? '#4285f4' : '#6366f1');
+    var removeBtn = isCustom
+      ? '<button class="so-media-card-remove" onclick="WO.soRemoveCustomDoc(\'' + escapedSongId + '\',' + idx + ',\'' + escapedRowId + '\')" title="Remove"><i class="fa-solid fa-trash-can"></i></button>'
+      : '';
+
+    return '<div class="so-media-card' + (isImage ? ' so-media-card--image' : ' so-media-card--doc') + '">' +
+      '<div class="so-media-card-preview">' + previewHtml + '</div>' +
+      '<div class="so-media-card-footer">' +
+        '<i class="' + iconCls2 + '" style="color:' + iconColor2 + ';flex-shrink:0;"></i>' +
+        '<span class="so-media-card-name" title="' + escapeHtml(url) + '">' + escapeHtml(name) + (isCustom ? '<span class="so-media-custom-tag">custom</span>' : '') + '</span>' +
+        '<a href="' + escapeHtml(url) + '" target="_blank" class="so-media-card-open" title="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>' +
+        removeBtn +
+      '</div>' +
+    '</div>';
+  }
+
+  function soAddMedia(songId, type) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song) return;
+    var mediaType = (type === 'youtube') ? 'youtube' : (type === 'image') ? 'file' : 'doc';
+    openMediaAddModal({
+      context: 'worshipOrder', songId: songId, songTitle: song.title, mediaType: mediaType,
+      onSave: function(mediaInfo) {
+        if (type === 'youtube' || (mediaInfo.url && soExtractYouTubeId(mediaInfo.url))) {
+          if (!song.customYoutube) song.customYoutube = [];
+          song.customYoutube.push(mediaInfo.url);
+        } else {
+          if (!song.customDocs) song.customDocs = [];
+          song.customDocs.push({ url: mediaInfo.url, name: mediaInfo.name || 'Media', type: mediaInfo.storageProvider || 'custom' });
+        }
+        _soRefreshAllExpandsFor(songId);
+        updateQuickList();
+        showToast('Media added!', 'success');
+      }
+    });
+  }
+
+  function soRemoveCustomVideo(songId, customIdx, rowId) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song || !Array.isArray(song.customYoutube)) return;
+    song.customYoutube.splice(customIdx, 1);
+    _soRefreshAllExpandsFor(songId);
+    autoSaveOrder();
+  }
+
+  function soRemoveCustomDoc(songId, customIdx, rowId) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song || !Array.isArray(song.customDocs)) return;
+    song.customDocs.splice(customIdx, 1);
+    _soRefreshAllExpandsFor(songId);
+    autoSaveOrder();
+  }
+
+  // Refresh all open expand panels for this song (handles duplicates)
+  function _soRefreshAllExpandsFor(songId) {
+    document.querySelectorAll('.so-expand-panel').forEach(function(panel) {
+      if (panel.getAttribute('data-song-id') === songId && panel.style.display !== 'none') {
+        var rowId = panel.id.replace('soExpand-', '');
+        soRenderExpandPanel(rowId, songId, panel);
+      }
+    });
+    // Also update media badges on all rows for this song
+    document.querySelectorAll('.so-media-badge').forEach(function(badge) {
+      var row = badge.closest('.wo-song-list-row');
+      if (!row) return;
+      var panelEl = row.querySelector('.so-expand-panel');
+      if (panelEl && panelEl.getAttribute('data-song-id') === songId) {
+        var song = songOrderSections.find(function(s) { return s.id === songId; });
+        if (!song) return;
+        var _ytL = Array.isArray(song.youtube) ? song.youtube : [];
+        var cnt = _ytL.length +
+          (Array.isArray(song.customYoutube) ? song.customYoutube.length : 0) +
+          (Array.isArray(song.attachments)   ? song.attachments.length   : 0) +
+          (Array.isArray(song.customDocs)    ? song.customDocs.length    : 0);
+        badge.className = cnt > 0 ? 'so-media-badge' : 'so-media-badge so-media-badge--empty';
+        badge.innerHTML = cnt > 0
+          ? '<i class="fa-solid fa-photo-film"></i> ' + cnt
+          : '<i class="fa-solid fa-photo-film"></i>';
+      }
+    });
+  }
+
   // Print single song in songbook (A4) format
   function printSingleSongSongbookStyle(songId) {
     var song = songOrderSections.find(function(s) { return s.id === songId; });
@@ -24479,6 +24759,10 @@ var WO = (function() {
     slmRemoveVideo: slmRemoveVideo,
     slmRemoveDoc: slmRemoveDoc,
     printSingleSongSongbookStyle: printSingleSongSongbookStyle,
+    soToggleExpand: soToggleExpand,
+    soAddMedia: soAddMedia,
+    soRemoveCustomVideo: soRemoveCustomVideo,
+    soRemoveCustomDoc: soRemoveCustomDoc,
     // Debug function - call from console: WO.debugLoadOrder('order_id')
     debugLoadOrder: function(orderId) {
       console.log('=== DEBUG: Loading order ' + orderId + ' ===');
@@ -30739,20 +31023,55 @@ function filterLiturgyItems() {
 
   /* Song Order List (compact rows) */
   .wo-song-order-list { display:flex; flex-direction:column; gap:0; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; }
-  .wo-song-list-row { background:white; border-bottom:1px solid #f1f5f9; }
+  .wo-song-list-row { background:white; border-bottom:1px solid #f1f5f9; transition:box-shadow .15s; }
   .wo-song-list-row:last-child { border-bottom:none; }
   .wo-song-list-row.unassigned { border-left:3px solid #f59e0b; }
-  .wo-song-list-row.dragging { opacity:0.5; }
-  .wo-song-list-row.drag-over { background:#eef2ff; }
+  .wo-song-list-row.so-row-expanded { box-shadow:0 2px 12px rgba(99,102,241,0.12); }
 
-  .wo-slr-main { display:flex; align-items:center; gap:8px; padding:10px 12px; flex-wrap:wrap; }
-  .wo-slr-drag { cursor:grab; color:#cbd5e1; flex-shrink:0; font-size:0.85rem; }
+  .wo-slr-main { display:flex; align-items:center; gap:8px; padding:10px 12px; flex-wrap:wrap; transition:background .12s; }
+  .wo-slr-main:hover { background:#f8fafc; }
   .wo-slr-num { width:22px; text-align:center; font-weight:700; font-size:0.85rem; color:#6366f1; flex-shrink:0; }
   .wo-slr-info { flex:1; min-width:0; }
-  .wo-slr-title { display:block; font-weight:600; font-size:0.9rem; color:#1e293b; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .wo-slr-title:hover { color:#6366f1; text-decoration:underline; }
+  .wo-slr-title { display:block; font-weight:600; font-size:0.9rem; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .wo-slr-artist { font-size:0.72rem; color:#94a3b8; }
   .wo-slr-section-pill { font-size:0.7rem; padding:2px 8px; border-radius:10px; background:#eef2ff; color:#6366f1; white-space:nowrap; flex-shrink:0; }
+  .wo-slr-section-pill.unassigned-pill { background:#fef3c7; color:#b45309; }
+
+  /* 488 — Media count badge */
+  .so-media-badge { display:inline-flex; align-items:center; gap:4px; font-size:0.7rem; font-weight:600; padding:2px 7px; border-radius:10px; background:#dbeafe; color:#1d4ed8; flex-shrink:0; white-space:nowrap; }
+  .so-media-badge--empty { background:#f1f5f9; color:#94a3b8; }
+
+  /* 488 — Expand chevron */
+  .so-expand-chevron { flex-shrink:0; font-size:0.7rem; color:#94a3b8; transition:transform .2s; }
+  .so-row-expanded .so-expand-chevron { transform:rotate(180deg); color:#6366f1; }
+
+  /* 488 — Inline expand panel */
+  .so-expand-panel { border-top:2px solid #e0e7ff; background:#f8faff; }
+  .so-expand-toolbar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #e0e7ff; flex-wrap:wrap; }
+  .so-expand-toolbar-label { font-size:0.7rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.08em; margin-right:2px; flex-shrink:0; }
+  .so-expand-add-btn { display:inline-flex; align-items:center; gap:5px; padding:5px 11px; border:1.5px solid #c7d2fe; border-radius:7px; background:white; cursor:pointer; font-size:0.78rem; color:#6366f1; transition:all .15s; flex-shrink:0; }
+  .so-expand-add-btn:hover { background:#6366f1; color:white; border-color:#6366f1; }
+
+  /* 488 — Media preview grid */
+  .so-media-grid { display:flex; gap:12px; padding:14px; overflow-x:auto; scrollbar-width:thin; }
+  .so-media-empty { padding:20px; color:#94a3b8; font-size:0.82rem; font-style:italic; text-align:center; width:100%; }
+  .so-media-card { width:220px; flex-shrink:0; background:white; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+  .so-media-card-preview { height:140px; background:#0f172a; overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .so-media-card--image .so-media-card-preview { background:#f1f5f9; }
+  .so-media-card-iframe { width:100%; height:100%; border:none; display:block; }
+  .so-media-card-img { width:100%; height:100%; object-fit:contain; display:block; }
+  .so-media-card-nopreview { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; height:100%; padding:12px; text-align:center; }
+  .so-media-card-nopreview-url { font-size:0.68rem; color:#94a3b8; word-break:break-all; max-height:48px; overflow:hidden; }
+  .so-media-card-footer { display:flex; align-items:center; gap:6px; padding:7px 9px; border-top:1px solid #f1f5f9; min-height:0; }
+  .so-media-card-name { flex:1; font-size:0.73rem; color:#334155; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .so-media-card-open { width:22px; height:22px; display:flex; align-items:center; justify-content:center; border-radius:4px; background:#f1f5f9; color:#475569; font-size:0.7rem; flex-shrink:0; text-decoration:none; }
+  .so-media-card-open:hover { background:#e0e7ff; color:#4338ca; }
+  .so-media-card-remove { width:22px; height:22px; border:none; border-radius:4px; background:#fee2e2; color:#dc2626; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:0.7rem; flex-shrink:0; }
+  .so-media-card-remove:hover { background:#dc2626; color:white; }
+  .so-media-custom-tag { font-size:0.6rem; background:#e0e7ff; color:#6366f1; border-radius:3px; padding:0 3px; margin-left:3px; }
+
+  /* 488 — Section label on songbook duplicate pages */
+  .sb-page-section-lbl { font-size:0.65rem; font-weight:600; color:#6366f1; text-transform:uppercase; letter-spacing:.07em; margin-top:1px; }
 
   /* 339 — Individual media play buttons */
   .wo-slr-media { display:flex; align-items:center; gap:4px; flex-wrap:wrap; flex-shrink:0; }
