@@ -16361,16 +16361,25 @@ var WO = (function() {
       // Update existing song's sections
       existingSong.serviceSections = selectedSections;
 
-      // Re-render the song card
-      var cardEl = $(existingSong.id);
-      if (cardEl) {
-        cardEl.remove();
-        renderSongOrderSection(existingSong);
-      }
+      // Remove all old rows for this song (new row IDs use soRow- prefix with rowId)
+      document.querySelectorAll('[id^="soRow-"]').forEach(function(el) {
+        var panel = el.querySelector('.so-expand-panel');
+        if (panel && panel.getAttribute('data-song-id') === existingSong.id) el.remove();
+      });
+
+      // Re-render the entire song order list to apply duplicates properly
+      initializeSongOrder();
 
       closeSectionModal();
       updateQuickList();
+      autoSaveOrder();
       showToast('Sections updated!', 'success');
+
+      // If songbook is open, re-render it to show the updated duplicates
+      var sbModal = $('songbookLiveModal');
+      if (sbModal && sbModal.classList.contains('open')) {
+        renderSongbookLive();
+      }
       return;
     }
 
@@ -18075,6 +18084,15 @@ var WO = (function() {
       if (s.itemType === 'blank') sbRenderItems.push({ song: s, sid: s.id, sectionLabel: null });
     });
 
+    // Seed sbPaths/sbTransposeSteps for virtual (duplicate) instances
+    sbRenderItems.forEach(function(item) {
+      if (item.song.itemType === 'blank') return;
+      if (item.sid === item.song.id) return; // primary instance already seeded in openSongbook()
+      var song = item.song;
+      sbPaths[item.sid] = ((song.sbSectionAnnotations && song.sbSectionAnnotations[item.sid]) || []).slice();
+      sbTransposeSteps[item.sid] = (song.sbSectionTranspose && song.sbSectionTranspose[item.sid]) || 0;
+    });
+
     sbRenderItems.forEach(function(item, idx) {
       var song = item.song;
       var sid  = escapeHtml(item.sid);
@@ -19128,8 +19146,17 @@ var WO = (function() {
       if (!sbPaths[sbDrawTargetSid]) sbPaths[sbDrawTargetSid] = [];
       sbPaths[sbDrawTargetSid].push(newPath);
       sbUndoStack.push({ sid: sbDrawTargetSid, path: newPath });
-      var song = songOrderSections.find(function(s) { return s.id === sbDrawTargetSid; });
-      if (song) { song.annotations = sbPaths[sbDrawTargetSid].slice(); sbAutoSave(); }
+      var _baseSid = sbDrawTargetSid.indexOf('__sb__') !== -1 ? sbDrawTargetSid.split('__sb__')[0] : sbDrawTargetSid;
+      var song = songOrderSections.find(function(s) { return s.id === _baseSid; });
+      if (song) {
+        if (_baseSid !== sbDrawTargetSid) {
+          if (!song.sbSectionAnnotations) song.sbSectionAnnotations = {};
+          song.sbSectionAnnotations[sbDrawTargetSid] = sbPaths[sbDrawTargetSid].slice();
+        } else {
+          song.annotations = sbPaths[sbDrawTargetSid].slice();
+        }
+        sbAutoSave();
+      }
     }
     sbDrawTargetSid  = null;
     sbDrawCurrentSvg = null;
@@ -19194,7 +19221,19 @@ var WO = (function() {
     sbPaths[songId] = newPaths;
     sbRedrawSong(songId);
     var song = songOrderSections.find(function(s) { return s.id === songId; });
-    if (song) { song.annotations = sbPaths[songId] || []; sbAutoSave(); }
+    if (song) {
+      var _eSid = songId.indexOf('__sb__') !== -1 ? songId.split('__sb__')[0] : songId;
+      var _eSong = _eSid !== songId ? songOrderSections.find(function(s) { return s.id === _eSid; }) : song;
+      if (_eSong) {
+        if (_eSid !== songId) {
+          if (!_eSong.sbSectionAnnotations) _eSong.sbSectionAnnotations = {};
+          _eSong.sbSectionAnnotations[songId] = sbPaths[songId] || [];
+        } else {
+          _eSong.annotations = sbPaths[songId] || [];
+        }
+        sbAutoSave();
+      }
+    }
   }
 
   function _makePath(pts, src) {
@@ -19320,7 +19359,19 @@ var WO = (function() {
       if (paths) { var idx = paths.indexOf(entry.path); if (idx >= 0) paths.splice(idx, 1); }
       sbRedrawSong(entry.sid);
       var song = songOrderSections.find(function(s) { return s.id === entry.sid; });
-      if (song) { song.annotations = (sbPaths[entry.sid] || []).slice(); sbAutoSave(); }
+      if (song) {
+        var _uSid = entry.sid.indexOf('__sb__') !== -1 ? entry.sid.split('__sb__')[0] : entry.sid;
+        var _uSong = _uSid !== entry.sid ? songOrderSections.find(function(s) { return s.id === _uSid; }) : song;
+        if (_uSong) {
+          if (_uSid !== entry.sid) {
+            if (!_uSong.sbSectionAnnotations) _uSong.sbSectionAnnotations = {};
+            _uSong.sbSectionAnnotations[entry.sid] = (sbPaths[entry.sid] || []).slice();
+          } else {
+            _uSong.annotations = (sbPaths[entry.sid] || []).slice();
+          }
+          sbAutoSave();
+        }
+      }
     }
   }
 
@@ -19433,15 +19484,20 @@ var WO = (function() {
 
   // 342 — Reset transpose for a song back to original key
   function sbResetTranspose(songId) {
-    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    var baseSongId = songId.indexOf('__sb__') !== -1 ? songId.split('__sb__')[0] : songId;
+    var song = songOrderSections.find(function(s) { return s.id === baseSongId; });
     if (!song) return;
     sbTransposeSteps[songId] = 0;
-    var orig = songOriginalRichLyrics[songId] || song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
-    var el = $('sbLyrics-' + songId);
-    if (el) el.innerHTML = orig;
+    var lyricsEl = $('sbLyrics-' + songId);
+    if (lyricsEl) lyricsEl.innerHTML = song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
     var keyEl = $('sbKey-' + songId);
     if (keyEl && song.key) keyEl.textContent = song.key;
-    song.transposeSteps = 0;
+    if (baseSongId !== songId) {
+      if (!song.sbSectionTranspose) song.sbSectionTranspose = {};
+      song.sbSectionTranspose[songId] = 0;
+    } else {
+      song.transposeSteps = 0;
+    }
     sbAutoSave();
   }
 
@@ -19869,9 +19925,11 @@ var WO = (function() {
   }
 
   function sbTranspose(songId, steps) {
-    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    // Support virtual IDs (e.g. 'song-xxx__sb__response' for duplicate songbook pages)
+    var baseSongId = songId.indexOf('__sb__') !== -1 ? songId.split('__sb__')[0] : songId;
+    var song = songOrderSections.find(function(s) { return s.id === baseSongId; });
     if (!song) return;
-    // Accumulate steps from original
+    // Accumulate steps from original (keyed by songId = virtual or primary)
     if (!songOriginalLyrics[songId]) {
       songOriginalLyrics[songId] = song.masterLyrics || song.lyrics || '';
     }
@@ -19893,7 +19951,13 @@ var WO = (function() {
     if (el) el.innerHTML = temp.innerHTML;
     var keyEl = $('sbKey-' + songId);
     if (keyEl && song.key) keyEl.textContent = semitones !== 0 ? song.key + ' (' + (semitones > 0 ? '+' : '') + semitones + ')' : song.key;
-    song.transposeSteps = semitones;
+    // Save independently: virtual instances store in song.sbSectionTranspose[virtualId]
+    if (baseSongId !== songId) {
+      if (!song.sbSectionTranspose) song.sbSectionTranspose = {};
+      song.sbSectionTranspose[songId] = semitones;
+    } else {
+      song.transposeSteps = semitones;
+    }
     sbAutoSave();
   }
 
@@ -31055,8 +31119,8 @@ function filterLiturgyItems() {
   /* 488 — Media preview grid */
   .so-media-grid { display:flex; gap:12px; padding:14px; overflow-x:auto; scrollbar-width:thin; }
   .so-media-empty { padding:20px; color:#94a3b8; font-size:0.82rem; font-style:italic; text-align:center; width:100%; }
-  .so-media-card { width:220px; flex-shrink:0; background:white; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
-  .so-media-card-preview { height:140px; background:#0f172a; overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .so-media-card { width:264px; flex-shrink:0; background:white; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+  .so-media-card-preview { height:168px; background:#0f172a; overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
   .so-media-card--image .so-media-card-preview { background:#f1f5f9; }
   .so-media-card-iframe { width:100%; height:100%; border:none; display:block; }
   .so-media-card-img { width:100%; height:100%; object-fit:contain; display:block; }
