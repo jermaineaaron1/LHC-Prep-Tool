@@ -2324,7 +2324,7 @@
                   <div class="wo-preview-actions">
                     <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
                     <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
-                    <button class="wo-project-btn" onclick="WO.openProjectionWindow()" title="Open in new window for projector"><i class="fa-solid fa-display mr-1"></i> Project</button>
+                    <button class="wo-project-btn" id="woProjectBtn" onclick="WO.openProjectionWindow()" title="Project to secondary monitor" style="display:none"><i class="fa-solid fa-display mr-1"></i> Project</button>
                     <button class="wo-live-present-btn" onclick="WO.goFullscreen()"><i class="fa-solid fa-expand mr-1"></i> Fullscreen</button>
                   </div>
                 </div>
@@ -6283,6 +6283,15 @@ document.addEventListener('DOMContentLoaded', function() {
   setupArrowKeyNavigation();
   setupPasteHandler();
   setupUniversalPasteHandler();
+  // Check for secondary monitor on load (shows/hides Project button)
+  if (window.WO && window.WO.checkSecondaryMonitor) {
+    window.WO.checkSecondaryMonitor();
+  } else {
+    // WO may not be defined yet — defer until scripts are fully loaded
+    window.addEventListener('load', function() {
+      if (window.WO && window.WO.checkSecondaryMonitor) window.WO.checkSecondaryMonitor();
+    });
+  }
 });
 
 // Transpose functionality
@@ -6964,6 +6973,10 @@ window.loadEditSongData = function(song) {
       window.LiturgyModule.init();
       // Always return to the welcome homepage when navigating to Liturgy
       window.LiturgyModule.selectOccasion(null);
+    }
+    if (viewId === 'worshipOrderView' && window.WO) {
+      // Re-check secondary monitor in case a display was connected/disconnected
+      window.WO.checkSecondaryMonitor();
     }
   }
 
@@ -15718,9 +15731,45 @@ var WO = (function() {
     return '';
   }
 
+  // Secondary monitor detection — Project button is only available when an external display is connected
+  var _hasSecondaryMonitor = false;
+  var _screenDetailsObj = null; // cached ScreenDetails for screenschange listener
+
+  function _updateProjectBtnVisibility() {
+    var btn = $('woProjectBtn');
+    if (btn) btn.style.display = _hasSecondaryMonitor ? '' : 'none';
+  }
+
+  function checkSecondaryMonitor() {
+    // Fast path: screen.isExtended requires no permission and works immediately
+    _hasSecondaryMonitor = !!(window.screen && window.screen.isExtended);
+    _updateProjectBtnVisibility();
+
+    // Accurate path: getScreenDetails() confirms and gives us screenschange events
+    if (window.getScreenDetails) {
+      window.getScreenDetails().then(function(sd) {
+        _screenDetailsObj = sd;
+        _hasSecondaryMonitor = sd.screens.some(function(s) { return !s.isPrimary; });
+        _updateProjectBtnVisibility();
+        // Keep in sync when monitors are plugged/unplugged
+        sd.addEventListener('screenschange', function() {
+          _hasSecondaryMonitor = sd.screens.some(function(s) { return !s.isPrimary; });
+          _updateProjectBtnVisibility();
+        });
+      }).catch(function() {
+        // Permission denied — isExtended result already applied above
+      });
+    }
+  }
+
   // Open projection window for secondary display — EasyWorship-style:
   // targets the external monitor, goes fullscreen there, keeps control on primary
   function openProjectionWindow() {
+    if (!_hasSecondaryMonitor) {
+      showToast('No secondary monitor detected. Connect an external display to enable projection.', 'warning');
+      return;
+    }
+
     if (projectionWindow && !projectionWindow.closed) {
       projectionWindow.focus();
       syncProjectionWithPreview();
@@ -15738,18 +15787,13 @@ var WO = (function() {
           // Open directly on the secondary/external monitor at its full dimensions
           _launch(sec.left, sec.top, sec.width, sec.height);
         } else {
-          // Only one screen — open fullscreen on it
-          _launch(screen.availLeft || 0, screen.availTop || 0, screen.availWidth, screen.availHeight);
+          showToast('No secondary monitor found. Connect an external display and try again.', 'warning');
         }
       }).catch(function() {
-        // Permission denied — guess secondary is to the right of the primary
-        var l = (window.screen && window.screen.isExtended) ? screen.width : 0;
-        _launch(l, 0, screen.width, screen.height);
+        showToast('Permission needed to detect monitors. Please allow screen access and try again.', 'warning');
       });
     } else {
-      // No Window Management API — use isExtended hint
-      var l = (window.screen && window.screen.isExtended) ? screen.width : 0;
-      _launch(l, 0, screen.width, screen.height);
+      showToast('Screen management not supported in this browser. Try Chrome or Edge.', 'warning');
     }
   }
 
@@ -24862,6 +24906,7 @@ var WO = (function() {
     nextLocalSlide: nextLocalSlide,
     projectLocalSlide: projectLocalSlide,
     openProjectionWindow: openProjectionWindow,
+    checkSecondaryMonitor: checkSecondaryMonitor,
     // Inline doc preview (199/200)
     docInlineZoom: docInlineZoom,
     _docContentCache: docContentCache,
