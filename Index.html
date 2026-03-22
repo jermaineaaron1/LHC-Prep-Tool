@@ -16391,9 +16391,11 @@ var WO = (function() {
     // Add individual slide boxes (like song slides)
     var firstSlideBox = null;
     slides.forEach(function(slideText, idx) {
-      var linesHtml = slideText.split('\n').map(function(line) {
-        return '<div class="wo-slide-line">' + escapeHtml(line) + '</div>';
-      }).join('');
+      var linesHtml = slideText.trim()
+        ? slideText.split('\n').map(function(line) {
+            return '<div class="wo-slide-line">' + escapeHtml(line) + '</div>';
+          }).join('')
+        : '<div class="wo-slide-line wo-slide-empty-hint" style="color:#9ca3af;font-style:italic;font-size:0.85rem;">Double-click to add content</div>';
 
       var boxHtml = '<div class="wo-content-box wo-slide-box wo-liturgy-slide" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-liturgy-id="' + item.id + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
         '<div class="wo-slide-box-header liturgy"><span class="wo-slide-box-number">Slide ' + (idx + 1) + '</span>' +
