@@ -22254,18 +22254,23 @@ var WO = (function() {
     // Pass true to skip background update since we already set it above
     var content = box.querySelector('.wo-slide-content');
     if (content) {
-      var lines = Array.from(content.querySelectorAll('.wo-slide-line'));
-      var text = lines.map(function(line) { return line.textContent; }).join('\n');
+      var text;
+      // If this slide is currently in edit mode, read from the textarea
+      var activeTextarea = content.querySelector('textarea');
+      if (activeTextarea) {
+        text = activeTextarea.value;
+      } else {
+        var lines = Array.from(content.querySelectorAll('.wo-slide-line'));
+        text = lines.map(function(line) { return line.textContent; }).join('\n');
 
-      // For scripture slides: include title (first slide) or footnote (other slides)
-      var scriptureTitle = content.querySelector('.wo-slide-scripture-title');
-      var scriptureFootnote = content.querySelector('.wo-slide-scripture-footnote');
-      if (scriptureTitle) {
-        // First slide — prepend bold title
-        text = '≡ ' + scriptureTitle.textContent + ' ≡\n\n' + text;
-      } else if (scriptureFootnote) {
-        // Subsequent slides — append small footnote
-        text = text + '\n— ' + scriptureFootnote.textContent;
+        // For scripture slides: include title (first slide) or footnote (other slides)
+        var scriptureTitle = content.querySelector('.wo-slide-scripture-title');
+        var scriptureFootnote = content.querySelector('.wo-slide-scripture-footnote');
+        if (scriptureTitle) {
+          text = '≡ ' + scriptureTitle.textContent + ' ≡\n\n' + text;
+        } else if (scriptureFootnote) {
+          text = text + '\n— ' + scriptureFootnote.textContent;
+        }
       }
 
       updateProjectionPreview(text, true); // Skip background update - already handled
@@ -22694,6 +22699,9 @@ var WO = (function() {
     content.appendChild(hintBar);
     textarea.focus();
     textarea.select();
+
+    // Immediately show current slide text in preview when entering edit mode
+    updateProjectionPreview(currentText, true);
 
     // Live-update projection preview while typing
     textarea.addEventListener('input', function() {
