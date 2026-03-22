@@ -15826,7 +15826,7 @@ var WO = (function() {
       'body { margin: 0; padding: 0; background: #000; color: white; font-family: Georgia, serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; cursor: none; }' +
       '#projBackground { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-size: cover; background-position: center; background-repeat: no-repeat; }' +
       '#projBackground video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }' +
-      '.projection-content { position: relative; z-index: 1; text-align: center; padding: 60px; max-width: 90%; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }' +
+      '.projection-content { position: relative; z-index: 1; text-align: center; padding: 40px 60px; max-width: 90%; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: visible; }' +
       '.projection-text { font-size: 5vw; line-height: 1.5; white-space: pre-wrap; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); }' +
       '.projection-slide { max-width: 100vw; max-height: 100vh; object-fit: contain; }' +
       '.projection-ready { color: #333; font-size: 2vw; }' +
@@ -15842,6 +15842,18 @@ var WO = (function() {
       '</div>' +
       '<div id="fsHint" style="display:none;"><span id="fsHintBtn">Fullscreen blocked — click here or press F11</span></div>' +
       '<scr' + 'ipt>' +
+      // Auto-scale projection text so all lines always fit within the viewport
+      'function _fitProjectionText() {' +
+      '  var textEl = document.querySelector(".projection-text");' +
+      '  if (!textEl) return;' +
+      '  var maxH = window.innerHeight - 80;' + // 40px padding top + bottom
+      '  var fs = 5;' + // start at 5vw
+      '  textEl.style.fontSize = fs + "vw";' +
+      '  while (textEl.scrollHeight > maxH && fs > 1.2) {' +
+      '    fs = Math.max(1.2, fs - 0.2);' +
+      '    textEl.style.fontSize = fs + "vw";' +
+      '  }' +
+      '}' +
       'function _hideHint() { var h = document.getElementById("fsHint"); if (h) { h.style.opacity = "0"; setTimeout(function(){ h.style.display="none"; }, 1000); } }' +
       // Click the hint button to attempt JS fullscreen; F11 always works as browser-native fallback
       'document.getElementById("fsHintBtn").addEventListener("click", function() {' +
@@ -15880,8 +15892,9 @@ var WO = (function() {
       '    style += "font-weight:" + (s.bold ? "bold" : "normal") + ";";' +
       '    style += "font-style:" + (s.italic ? "italic" : "normal") + ";";' +
       '    content.innerHTML = "<div class=\\"projection-text\\" style=\\"" + style + "\\">" + data.text + "</div>";' +
-      '    content.style.padding = "60px";' +
+      '    content.style.padding = "40px 60px";' +
       '    if (bgEl) bgEl.style.display = "block";' +
+      '    _fitProjectionText();' +
       '  } else if (data.type === "slide") {' +
       '    content.innerHTML = "<img class=\\"projection-slide\\" src=\\"" + data.data + "\\" alt=\\"Slide\\">";' +
       '    content.style.padding = "0";' +
@@ -22710,6 +22723,7 @@ var WO = (function() {
       var fsOverlay = $('woFullscreenOverlay');
       if (fsOverlay && fsOverlay.classList.contains('show')) {
         $('woFullscreenContent').innerHTML = _projectionHtml(textarea.value) || '&nbsp;';
+        _fitFullscreenText();
       }
     });
   }
@@ -22887,12 +22901,16 @@ var WO = (function() {
       var trimmed = line.trim();
       if (!trimmed || trimmed.length > 80) return false;
       var tokens = trimmed.split(/\s+/);
+      // Short lyric phrases (< 3 tokens) like "Am I", "Be still", "Grace alone"
+      // must never be mistaken for chord lines, even if a word matches a chord pattern
+      if (tokens.length < 3) return false;
       var chordCount = 0;
       for (var i = 0; i < tokens.length; i++) {
         var t = tokens[i].replace(/[()|\-:]/g, '');
         if (/^[A-G][#b]?(m|M|maj|min|dim|aug|sus|add|dom)?[0-9]?(\/[A-G][#b]?)?$/.test(t)) chordCount++;
       }
-      return tokens.length > 0 && (chordCount / tokens.length) >= 0.5;
+      // Require at least 2 chord tokens AND ≥60% of all tokens to be chords
+      return chordCount >= 2 && (chordCount / tokens.length) >= 0.6;
     }
     function isSectionHeader(line) {
       // Lines like [Verse 1], [Chorus], [Bridge], [Pre-Chorus], etc.
@@ -23246,19 +23264,40 @@ var WO = (function() {
     document.addEventListener('webkitfullscreenchange', _wofsOnFsChange);
   }
 
+  // Auto-scale fullscreen overlay text to fit within the viewport
+  function _fitFullscreenText() {
+    var contentEl = $('woFullscreenContent');
+    var overlay = $('woFullscreenOverlay');
+    if (!contentEl || !overlay) return;
+    var maxH = overlay.clientHeight - 120; // 60px padding × 2
+    var fs = 2.8;
+    contentEl.style.fontSize = fs + 'rem';
+    while (contentEl.scrollHeight > maxH && fs > 0.9) {
+      fs = Math.max(0.9, parseFloat((fs - 0.15).toFixed(2)));
+      contentEl.style.fontSize = fs + 'rem';
+    }
+  }
+
   function _wofsRender() {
     var box = _wofsSlides[_wofsIdx];
     if (!box) return;
 
-    // Extract text from slide lines and filter chords/section headers
+    // Extract text — read from textarea if slide is currently in edit mode
     var content = box.querySelector('.wo-slide-content');
-    var lines = content
-      ? Array.from(content.querySelectorAll('.wo-slide-line')).map(function(l) { return l.textContent; })
-      : [];
-    var rawText = lines.join('\n');
+    var rawText = '';
+    if (content) {
+      var activeTextarea = content.querySelector('textarea');
+      if (activeTextarea) {
+        rawText = activeTextarea.value;
+      } else {
+        rawText = Array.from(content.querySelectorAll('.wo-slide-line'))
+                    .map(function(l) { return l.textContent; }).join('\n');
+      }
+    }
     var htmlText = _projectionHtml(rawText) || '&nbsp;';
 
     $('woFullscreenContent').innerHTML = htmlText;
+    _fitFullscreenText();
     var ind = $('wofsIndicator');
     ind.textContent = (_wofsIdx + 1) + ' / ' + _wofsSlides.length;
     ind.style.opacity = '1';
