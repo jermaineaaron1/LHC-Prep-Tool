@@ -22585,6 +22585,74 @@ var WO = (function() {
 
     // Handle Enter key to save
     textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Backspace') {
+        var cursorPos = textarea.selectionStart;
+        var selEnd = textarea.selectionEnd;
+        var val = textarea.value;
+
+        // Only intercept when cursor is at the very start with no selection
+        if (cursorPos === 0 && selEnd === 0) {
+          e.preventDefault();
+
+          // Find this slide's group siblings
+          var sectionId = box.getAttribute('data-section') || '';
+          var songId = box.getAttribute('data-song-id') || '';
+          var liturgyId = box.getAttribute('data-liturgy-id') || '';
+          var groupId = liturgyId || songId;
+          var isLiturgy = box.classList.contains('wo-liturgy-slide');
+          var container = box.closest('.wo-content-boxes');
+          if (!container || !groupId) return;
+
+          var groupSelector = isLiturgy
+            ? '.wo-slide-box[data-liturgy-id="' + groupId + '"]'
+            : '.wo-slide-box[data-song-id="' + groupId + '"]';
+          var allGroupSlides = Array.from(container.querySelectorAll(groupSelector));
+          var myIdx = allGroupSlides.indexOf(box);
+          if (myIdx <= 0) return; // First slide in group — nowhere to merge up
+
+          var prevBox = allGroupSlides[myIdx - 1];
+
+          // Read previous slide's current text from its slide-line divs
+          var prevContent = prevBox.querySelector('.wo-slide-content');
+          var prevLines = Array.from(prevContent.querySelectorAll('.wo-slide-line'))
+                            .map(function(l) { return l.textContent; });
+          var prevText = prevLines.join('\n').trimEnd();
+
+          // mergePoint = where cursor lands in the previous slide (end of its existing text)
+          var mergePoint = prevText.length;
+
+          // Build merged text (empty slide: just prevText; non-empty: join with newline)
+          var mergedText = val === ''
+            ? prevText
+            : prevText + (prevText ? '\n' : '') + val;
+
+          // Clear editingSlideBox so editSlideBox on prevBox won't no-op
+          editingSlideBox = null;
+          box.classList.remove('editing');
+
+          // Remove this slide silently (skip the "last slide" guard — prevBox exists)
+          box.remove();
+          renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
+
+          // Pre-populate prevBox's content with merged text so editSlideBox reads it
+          var mergedLines = mergedText.split('\n');
+          prevContent.innerHTML = mergedLines.map(function(line) {
+            return '<div class="wo-slide-line">' + escapeHtml(line) + '</div>';
+          }).join('');
+
+          // Open prevBox in edit mode
+          editSlideBox(prevBox, { stopPropagation: function() {} });
+
+          // Move cursor to the merge point
+          setTimeout(function() {
+            var ta = prevBox.querySelector('textarea');
+            if (ta) { ta.selectionStart = ta.selectionEnd = mergePoint; }
+          }, 0);
+
+          autoSaveOrder();
+          return;
+        }
+      }
       if (e.key === 'Enter' && e.ctrlKey) {
         // Ctrl+Enter: insert newline at cursor (stay in same slide)
         e.preventDefault();
@@ -22618,7 +22686,7 @@ var WO = (function() {
     // Add hint bar for keyboard shortcuts
     var hintBar = document.createElement('div');
     hintBar.className = 'wo-slide-edit-hint';
-    hintBar.innerHTML = '<span><kbd>Enter</kbd> Save</span><span><kbd>Ctrl+Enter</kbd> New line</span><span><kbd>Shift+Enter</kbd> Split → new slide</span><span><kbd>Esc</kbd> Cancel</span>';
+    hintBar.innerHTML = '<span><kbd>Enter</kbd> Save</span><span><kbd>Ctrl+Enter</kbd> New line</span><span><kbd>Shift+Enter</kbd> Split → new slide</span><span><kbd>⌫ at start</kbd> Merge up</span><span><kbd>Esc</kbd> Cancel</span>';
 
     // Replace content with textarea and hint
     content.innerHTML = '';
