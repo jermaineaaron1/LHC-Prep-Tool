@@ -13678,7 +13678,9 @@ window.loadEditSongData = function(song) {
         var avatar = dateStr
           ? (function() { var p = dateStr.split(/[ \/\-]/); return (p[0]||'').substring(0,3).toUpperCase() + '<br>' + (p[1]||''); })()
           : title.substring(0,2).toUpperCase();
-        var orderId = String(o.id || i);
+        // Use the real DB id (string UUID) when available; fall back to numeric index
+        // so WO.loadOrder() can resolve it correctly for both cloud and local-only orders.
+        var orderId = o.id ? String(o.id) : i;
         return '<div class="spm-order-row" onclick="SharePickerModal._addToOrder(' + JSON.stringify(orderId) + ',this)">' +
           '<div class="spm-order-avatar">' + avatar + '</div>' +
           '<div class="spm-order-info">' +
@@ -17287,6 +17289,7 @@ var WO = (function() {
 
   function removeSharedLink(orderId, idx) {
     if (typeof ShareInbox !== 'undefined') ShareInbox.removeFromOrder(orderId, idx);
+    renderResourceSections();
     renderMediaRows();
   }
 
