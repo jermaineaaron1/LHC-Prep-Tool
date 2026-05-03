@@ -98,13 +98,46 @@ function getSpreadsheet_() {
 // SERVE WEB APP
 // ================================================================
 function doGet(e) {
+  // Serve dedicated projection screen when ?mode=proj is present
+  if (e && e.parameter && e.parameter.mode === 'proj') {
+    return HtmlService.createHtmlOutputFromFile('ProjectionScreen')
+      .setTitle('LHC Worship – Projection')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
+
+  // Serve presenter remote when ?mode=remote is present
+  if (e && e.parameter && e.parameter.mode === 'remote') {
+    return HtmlService.createHtmlOutputFromFile('SermonRemote')
+      .setTitle('LHC Worship – Presenter Remote')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1');
+  }
+
+  // ── Website proxy: fetch external URL server-side, strip X-Frame-Options ──
+  // Frontend embeds: {webAppUrl}?proxy=encodeURIComponent(targetUrl)
+  if (e && e.parameter && e.parameter.proxy) {
+    return handleWebProxy_(e.parameter.proxy);
+  }
+
   var template = HtmlService.createTemplateFromFile('Index');
   // Pass deep-link parameters for media sharing
   template.mediaUrl = (e && e.parameter && e.parameter.media) ? e.parameter.media : '';
   template.songHint = (e && e.parameter && e.parameter.song) ? e.parameter.song : '';
   // Pass deep-link parameters for order sharing
   template.deepLinkOrder = (e && e.parameter && e.parameter.order) ? e.parameter.order : '';
-  template.deepLinkView = (e && e.parameter && e.parameter.view) ? e.parameter.view : '';
+  template.deepLinkView  = (e && e.parameter && e.parameter.view)  ? e.parameter.view  : '';
+  // Pass deep-link for date-based order open/create (from roster WhatsApp share)
+  template.deepLinkDate  = (e && e.parameter && e.parameter.date)  ? e.parameter.date  : '';
+  template.deepLinkDname = (e && e.parameter && e.parameter.dname) ? e.parameter.dname : '';
+  // Pass deep-link parameter for playlist player
+  template.deepLinkPlaylist = (e && e.parameter && e.parameter.playlist) ? e.parameter.playlist : '';
+  // Pass deep-link parameter for songbook sharing (?sb=sb-ID or ?sb=order-ID)
+  template.deepLinkSongbook = (e && e.parameter && e.parameter.sb) ? e.parameter.sb : '';
+  // Pass share-inbox params (Web Share Target via PWA shell)
+  template.shareInboxUrl   = (e && e.parameter && e.parameter.shareInbox)   ? e.parameter.shareInbox   : '';
+  template.shareInboxTitle = (e && e.parameter && e.parameter.shareTitle)   ? e.parameter.shareTitle   : '';
+  template.shareInboxText  = (e && e.parameter && e.parameter.shareText)    ? e.parameter.shareText    : '';
   // Pass the webapp URL for sharing links
   template.webAppUrl = ScriptApp.getService().getUrl();
   return template.evaluate()
@@ -143,7 +176,8 @@ function getSongs() {
   var colYouTube = findColumn_(idx, ['youtube', 'youtube url', 'youtubeurl']);
   
   var colLyrics = findColumn_(idx, ['lyrics', 'lyrics & chords', 'lyrics and chords']);
-  
+  var colScripture = findColumn_(idx, ['scripture', 'scripture reference', 'scripturereference', 'bible reference']);
+
   // Statistics columns
   var colUseCount = findColumn_(idx, ['usecount', 'use count', 'use_count', 'times used', 'timesused']);
   var colLastUsed = findColumn_(idx, ['lastused', 'last used', 'last_used', 'lastusedate']);
@@ -213,7 +247,8 @@ function getSongs() {
       lyricsUrl: attachments.length > 0 ? attachments[0].url : '',
       
       lyrics: colLyrics >= 0 ? asString_(row[colLyrics]) : '',
-      
+      scripture: colScripture >= 0 ? asString_(row[colScripture]) : '',
+
       // Statistics fields
       useCount: colUseCount >= 0 ? parseInt(row[colUseCount]) || 0 : 0,
       lastUsed: colLastUsed >= 0 ? formatDate_(row[colLastUsed]) : '',
@@ -251,6 +286,7 @@ function createSong(song) {
   var colYouTube = findColumn_(idx, ['youtube', 'youtube url', 'youtubeurl']);
 
   var colLyrics = findColumn_(idx, ['lyrics', 'lyrics & chords', 'lyrics and chords']);
+  var colScripture = findColumn_(idx, ['scripture', 'scripture reference', 'scripturereference', 'bible reference']);
   var colDateAdded = findColumn_(idx, ['dateadded', 'date added', 'date_added', 'created']);
   var colUseCount = findColumn_(idx, ['usecount', 'use count', 'use_count']);
 
@@ -281,6 +317,7 @@ function createSong(song) {
   }
   
   if (colLyrics >= 0) newRow[colLyrics] = song.lyrics || '';
+  if (colScripture >= 0) newRow[colScripture] = song.scripture || '';
   if (colDateAdded >= 0) newRow[colDateAdded] = new Date();
   if (colUseCount >= 0) newRow[colUseCount] = 0;
 
@@ -315,6 +352,7 @@ function updateSong(song) {
   var colYouTube = findColumn_(idx, ['youtube', 'youtube url', 'youtubeurl']);
 
   var colLyrics = findColumn_(idx, ['lyrics', 'lyrics & chords', 'lyrics and chords']);
+  var colScripture = findColumn_(idx, ['scripture', 'scripture reference', 'scripturereference', 'bible reference']);
   var colLastEdited = findColumn_(idx, ['lastedited', 'last edited', 'last_edited', 'modified', 'lastmodified']);
 
   if (colId < 0) throw new Error('ID column not found in sheet');
@@ -360,9 +398,11 @@ function updateSong(song) {
     }
   }
   
-  if (colLyrics >= 0 && song.lyrics !== undefined) 
+  if (colLyrics >= 0 && song.lyrics !== undefined)
     sheet.getRange(rowIndex, colLyrics + 1).setValue(song.lyrics || '');
-  
+  if (colScripture >= 0 && song.scripture !== undefined)
+    sheet.getRange(rowIndex, colScripture + 1).setValue(song.scripture || '');
+
   // Update timestamp
   if (colLastEdited >= 0) 
     sheet.getRange(rowIndex, colLastEdited + 1).setValue(new Date());
@@ -6213,5 +6253,405 @@ function saveRosterNames(nameOptions) {
   } catch (e) {
     Logger.log('saveRosterNames error: ' + e.toString());
     return { success: false, error: e.toString() };
+  }
+}
+
+// ================================================================
+// 662 — FETCH PAGE TEXT: returns plain-text content of any URL (strips HTML)
+// Called from frontend via callGAS('getWebPageText', [url])
+// ================================================================
+function getWebPageText(url) {
+  if (!url || !/^https?:\/\//i.test(url)) return { error: 'Invalid URL' };
+  try {
+    var response = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      followRedirects: true,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+      }
+    });
+    var code = response.getResponseCode();
+    if (code >= 400) return { error: 'HTTP ' + code };
+    var html = response.getContentText('UTF-8');
+    // Remove scripts, styles, and non-content structural blocks
+    html = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '\n');
+    html = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+    html = html.replace(/<(nav|header|footer|aside|menu)[^>]*>[\s\S]*?<\/\1>/gi, '');
+    // Convert block-level elements and line-break tags to newlines
+    html = html.replace(/<br\s*\/?>/gi, '\n');
+    html = html.replace(/<\/?(p|div|h[1-6]|li|tr|td|article|section|blockquote|pre)[^>]*>/gi, '\n');
+    // Strip all remaining HTML tags
+    html = html.replace(/<[^>]+>/g, '');
+    // Decode common HTML entities (including hex like &#x27; &#x2019; from worshiptogether.com)
+    html = html
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&#x([0-9a-fA-F]+);/g, function(m, h) { try { return String.fromCharCode(parseInt(h,16)); } catch(e) { return ' '; } })
+      .replace(/&#(\d+);/g, function(m, n) { try { return String.fromCharCode(parseInt(n,10)); } catch(e) { return ' '; } })
+      // Normalize Unicode special chars that appear in copied text from lyric sites
+      .replace(/\u00a0/g, ' ')
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201c\u201d]/g, '"')
+      .replace(/\u2013/g, '-')
+      .replace(/\u2014/g, '--')
+      .replace(/[\u200b\u200c\u200d\ufeff]/g, '');
+    // Normalize: trim each line, collapse excessive blank lines
+    var lines = html.split('\n');
+    var out = [];
+    var blanks = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i].trim();
+      if (!l) {
+        if (blanks < 2) out.push('');
+        blanks++;
+      } else {
+        out.push(l);
+        blanks = 0;
+      }
+    }
+    // Trim leading/trailing blank lines
+    while (out.length && !out[0]) out.shift();
+    while (out.length && !out[out.length-1]) out.pop();
+    return { text: out.join('\n') };
+  } catch(e) {
+    return { error: e.toString() };
+  }
+}
+
+// ================================================================
+// 669 — AUTO SCREENSHOT: captures a full-page screenshot via screenshotone.com
+// Free tier: 100 screenshots/month — get key at https://screenshotone.com
+// Store key in Apps Script > Project Settings > Script Properties as SCREENSHOT_API_KEY
+// Image is uploaded to Supabase storage and a public URL returned.
+// ================================================================
+function getWebPageScreenshot(url) {
+  if (!url || !/^https?:\/\//i.test(url)) return { error: 'Invalid URL' };
+  var props = PropertiesService.getScriptProperties();
+  var apiKey = props.getProperty('SCREENSHOT_API_KEY');
+  if (!apiKey) return { error: 'NO_KEY' };
+  try {
+    // ── Step 1: capture via screenshotone.com ──
+    // Screenshot the original URL directly. The proxy approach caused screenshotone.com
+    // to hit a Google redirect and capture HTML source instead of a rendered page.
+    var apiUrl = 'https://api.screenshotone.com/take' +
+      '?access_key='            + encodeURIComponent(apiKey) +
+      '&url='                   + encodeURIComponent(url) +
+      '&full_page=true' +
+      '&format=jpg' +
+      '&image_quality=80' +
+      '&viewport_width=1280' +
+      '&viewport_height=900' +
+      '&timeout=30' +
+      '&delay=3' +
+      '&block_ads=true';
+    var response = UrlFetchApp.fetch(apiUrl, { muteHttpExceptions: true });
+    var code = response.getResponseCode();
+    if (code !== 200) {
+      var rawText = '';
+      try { rawText = response.getContentText(); } catch(x) {}
+      try {
+        var errBody = JSON.parse(rawText);
+        return { error: 'HTTP ' + code + ': ' + (errBody.message || errBody.error_code || rawText.substring(0, 300)) };
+      } catch(x) {}
+      return { error: 'HTTP ' + code + ': ' + rawText.substring(0, 300) };
+    }
+
+    // ── Step 2: upload image bytes to Supabase storage ──
+    var SUPABASE_URL    = 'https://jypzhumcdifxnazexdcu.supabase.co';
+    var SUPABASE_KEY    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp5cHpodW1jZGlmeG5hemV4ZGN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2OTA0MjQsImV4cCI6MjA4MzI2NjQyNH0.s3QxdQGmmEo44zlwdWsSQjjb1kkFQY2y_dVmNHM5_Sg';
+    var SUPABASE_BUCKET = 'Liturgy Files';
+    var filePath = 'snapshots/snap_' + new Date().getTime() + '.jpg';
+    var uploadUrl   = SUPABASE_URL + '/storage/v1/object/' +
+                      encodeURIComponent(SUPABASE_BUCKET) + '/' + filePath;
+    var uploadResp = UrlFetchApp.fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type':  'image/jpeg',
+        'x-upsert':      'true'
+      },
+      payload: response.getContent(),
+      muteHttpExceptions: true
+    });
+    var upCode = uploadResp.getResponseCode();
+    if (upCode < 200 || upCode >= 300) {
+      return { error: 'Upload failed: HTTP ' + upCode };
+    }
+
+    // ── Step 3: return public URL ──
+    var publicUrl = SUPABASE_URL + '/storage/v1/object/public/' +
+                    encodeURIComponent(SUPABASE_BUCKET) + '/' + filePath;
+    return { url: publicUrl };
+  } catch(e) {
+    return { error: e.toString() };
+  }
+}
+
+// Run this directly in Apps Script editor to diagnose screenshot failures.
+// Open Execution Log (View > Executions) after running to see the full output.
+function testScreenshot() {
+  var props = PropertiesService.getScriptProperties();
+  var apiKey = props.getProperty('SCREENSHOT_API_KEY');
+  Logger.log('API key present: ' + (apiKey ? 'YES (' + apiKey.length + ' chars)' : 'NO'));
+  var testUrl = 'https://example.com';
+  var base = 'https://api.screenshotone.com/take?access_key=' + encodeURIComponent(apiKey) +
+    '&url=' + encodeURIComponent(testUrl) +
+    '&format=jpg&image_quality=80&viewport_width=1280&viewport_height=900&timeout=30&delay=1';
+  var variants = [
+    ['base only', ''],
+    ['+ full_page', '&full_page=true'],
+    ['+ hide_cookie_banners', '&hide_cookie_banners=true'],
+    ['+ block_ads', '&block_ads=true'],
+    ['all three', '&full_page=true&hide_cookie_banners=true&block_ads=true']
+  ];
+  for (var i = 0; i < variants.length; i++) {
+    var label = variants[i][0], extra = variants[i][1];
+    var resp = UrlFetchApp.fetch(base + extra, { muteHttpExceptions: true });
+    var code = resp.getResponseCode();
+    if (code !== 200) {
+      Logger.log(label + ' → HTTP ' + code + ': ' + resp.getContentText().substring(0, 200));
+    } else {
+      Logger.log(label + ' → OK (' + resp.getContent().length + ' bytes)');
+    }
+  }
+}
+
+// ================================================================
+// WEBSITE PROXY — strips X-Frame-Options so sites embed in iframes
+// Called via doGet when ?proxy=<encodedUrl> is present.
+// ================================================================
+function handleWebProxy_(targetUrl) {
+  // Validate: only allow plain http/https URLs
+  if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+    return ContentService
+      .createTextOutput('<html><body style="font-family:sans-serif;padding:24px;color:#64748b;"><p>⚠️ Invalid URL.</p></body></html>')
+      .setMimeType(ContentService.MimeType.HTML);
+  }
+
+  try {
+    var response = UrlFetchApp.fetch(targetUrl, {
+      muteHttpExceptions: true,
+      followRedirects: true,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+      }
+    });
+
+    var statusCode = response.getResponseCode();
+    if (statusCode >= 400) {
+      return ContentService
+        .createTextOutput(
+          '<html><body style="font-family:sans-serif;padding:24px;color:#64748b;">' +
+          '<p>⚠️ Could not load page (HTTP ' + statusCode + ').</p>' +
+          '<p><a href="' + targetUrl + '" target="_blank" style="color:#3b82f6;">Open in new tab ↗</a></p>' +
+          '</body></html>'
+        )
+        .setMimeType(ContentService.MimeType.HTML);
+    }
+
+    var html = response.getContentText('UTF-8');
+
+    // Extract the base origin so the injected <base> tag resolves relative URLs
+    var originMatch = targetUrl.match(/^(https?:\/\/[^\/]+)/);
+    var origin = originMatch ? originMatch[1] : '';
+    // For path-relative URLs we need the directory, not just origin
+    var dirBase = targetUrl.replace(/[^\/]*$/, '');
+
+    // Inject <base href> so all relative links/images/CSS resolve to the original site
+    var baseTag = '<base href="' + origin + '/" target="_blank">';
+
+    // Inject banner-hiding CSS + link-targeting script.
+    // This cleans up cookie/consent/popup overlays both for iframe preview
+    // and for screenshotone.com when it screenshots the proxy URL.
+    var injectStyle =
+      '<style>' +
+        '/* LHC Proxy — auto-hide cookie/consent/popup overlays */' +
+        '[id*="cookie"],[class*="cookie"],' +
+        '[id*="consent"],[class*="consent"],' +
+        '[id*="gdpr"],[class*="gdpr"],' +
+        '[id*="popup"],[class*="popup"],' +
+        '[role="dialog"],[role="alertdialog"],' +
+        '[id*="overlay"],[class*="overlay"],' +
+        '[id*="modal"],[class*="modal"],' +
+        '[class*="announcement"],[class*="notification-bar"],' +
+        '[class*="promo-bar"],[class*="newsletter"],' +
+        '[class*="subscribe"],[class*="banner-notice"],' +
+        '#onetrust-consent-sdk,.cc-window,.cookieconsent,' +
+        '#CybotCookiebotDialog{' +
+          'display:none!important;visibility:hidden!important;' +
+          'opacity:0!important;pointer-events:none!important;}' +
+        'body{overflow:auto!important;overflow-x:hidden;}' +
+      '</style>' +
+      '<script>' +
+        '(function(){' +
+          'document.addEventListener("DOMContentLoaded",function(){' +
+            // Make all links open in new tab (prevents navigation away from proxy)
+            'document.querySelectorAll("a[href]").forEach(function(a){' +
+              'if(!a.target)a.target="_blank";' +
+            '});' +
+            // Remove any remaining fixed/sticky overlay elements
+            'document.querySelectorAll("*").forEach(function(el){' +
+              'var s=getComputedStyle(el);' +
+              'if((s.position==="fixed"||s.position==="sticky")&&' +
+                 's.zIndex>100&&el.getBoundingClientRect().height<200){' +
+                'el.style.display="none";' +
+              '}' +
+            '});' +
+          '});' +
+        '})();' +
+      '<\/script>';
+
+    if (/<head[^>]*>/i.test(html)) {
+      html = html.replace(/(<head[^>]*>)/i, '$1\n' + baseTag + '\n' + injectStyle);
+    } else if (/<html[^>]*>/i.test(html)) {
+      html = html.replace(/(<html[^>]*>)/i, '$1\n<head>' + baseTag + injectStyle + '</head>');
+    } else {
+      html = '<head>' + baseTag + injectStyle + '</head>\n' + html;
+    }
+
+    return ContentService.createTextOutput(html).setMimeType(ContentService.MimeType.HTML);
+
+  } catch (err) {
+    Logger.log('handleWebProxy_ error: ' + err.toString());
+    return ContentService
+      .createTextOutput(
+        '<html><body style="font-family:sans-serif;padding:24px;color:#64748b;">' +
+        '<p>⚠️ Could not load this page.</p>' +
+        '<p style="font-size:0.85rem;color:#94a3b8;">' + err.message + '</p>' +
+        '<p><a href="' + targetUrl + '" target="_blank" style="color:#3b82f6;">Open in new tab ↗</a></p>' +
+        '</body></html>'
+      )
+      .setMimeType(ContentService.MimeType.HTML);
+  }
+}
+
+// ================================================================
+// PPTX → GOOGLE SLIDES CONVERSION + SLIDE THUMBNAILS
+// ================================================================
+
+/**
+ * Returns the ordered pageIds (objectIds) for every slide in a presentation.
+ * Fast — no image fetching. Used to enable per-slide iframe navigation.
+ */
+function getSlidePageIds(presentationId) {
+  try {
+    var presentation = Slides.Presentations.get(presentationId, { fields: 'slides.objectId' });
+    if (!presentation || !presentation.slides) {
+      return { error: 'No slides found' };
+    }
+    return {
+      success: true,
+      pageIds: presentation.slides.map(function(s) { return s.objectId; }),
+      count: presentation.slides.length
+    };
+  } catch (e) {
+    Logger.log('getSlidePageIds error: ' + e.toString());
+    return { error: e.toString() };
+  }
+}
+
+/**
+ * Downloads a PPTX from Supabase, imports it as Google Slides,
+ * makes it readable by anyone, and returns the presentationId + embedUrl.
+ */
+function convertPptxToGoogleSlides(supabaseUrl, fileName) {
+  try {
+    var response = UrlFetchApp.fetch(supabaseUrl, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      return { error: 'Could not download file: HTTP ' + response.getResponseCode() };
+    }
+
+    var safeName = (fileName || 'Presentation').replace(/\.(pptx?|ppt)$/i, '');
+    var blob = response.getBlob().setName(safeName);
+
+    // Insert into Drive and convert to Google Slides in one step
+    var file = Drive.Files.insert(
+      { title: safeName, mimeType: 'application/vnd.google-apps.presentation' },
+      blob
+    );
+
+    // Share with anyone (view only, with link)
+    Drive.Permissions.insert(
+      { role: 'reader', type: 'anyone', withLink: true },
+      file.id
+    );
+
+    return {
+      success: true,
+      presentationId: file.id,
+      embedUrl: 'https://docs.google.com/presentation/d/' + file.id + '/embed?start=false&loop=false&delayms=3000',
+      slideCount: 0  // filled by getSlideImages
+    };
+  } catch (e) {
+    Logger.log('convertPptxToGoogleSlides error: ' + e.toString());
+    return { error: e.toString() };
+  }
+}
+
+/**
+ * Returns slide thumbnails as base64 data URLs (no expiry issue).
+ * Step 1: fetch all contentUrls in parallel via fetchAll.
+ * Step 2: download each image in parallel and encode as base64.
+ * Uses MEDIUM size (480×270) for speed; still crisp on a projector.
+ */
+function getSlideImages(presentationId) {
+  try {
+    var token = ScriptApp.getOAuthToken();
+    var presentation = Slides.Presentations.get(presentationId);
+    if (!presentation || !presentation.slides) {
+      return { error: 'No slides found in presentation' };
+    }
+
+    var slides = presentation.slides;
+
+    // Fetch thumbnail contentUrls in one parallel batch — return URLs directly
+    // so the browser loads images without GAS proxying them (avoids 50MB limit).
+    var thumbRequests = slides.map(function(slide) {
+      return {
+        url: 'https://slides.googleapis.com/v1/presentations/' + presentationId +
+             '/pages/' + slide.objectId +
+             '/thumbnail?thumbnailProperties.mimeType=PNG&thumbnailProperties.thumbnailSize=LARGE',
+        headers: { 'Authorization': 'Bearer ' + token },
+        muteHttpExceptions: true
+      };
+    });
+    var thumbResponses = UrlFetchApp.fetchAll(thumbRequests);
+
+    var thumbnails = [];
+    thumbResponses.forEach(function(resp, idx) {
+      if (resp.getResponseCode() === 200) {
+        try {
+          var d = JSON.parse(resp.getContentText());
+          if (d.contentUrl) {
+            thumbnails.push({ url: d.contentUrl, index: idx, pageId: slides[idx].objectId });
+          }
+        } catch (e) {}
+      }
+    });
+
+    if (thumbnails.length === 0) {
+      return { error: 'No thumbnails returned from Slides API' };
+    }
+
+    thumbnails.sort(function(a, b) { return a.index - b.index; });
+
+    return {
+      success: true,
+      thumbnails: thumbnails,
+      count: thumbnails.length,
+      presentationId: presentationId
+    };
+  } catch (e) {
+    Logger.log('getSlideImages error: ' + e.toString());
+    return { error: e.toString() };
   }
 }
