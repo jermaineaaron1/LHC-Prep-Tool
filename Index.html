@@ -13215,20 +13215,11 @@ window.loadEditSongData = function(song) {
       var _siUrl   = window.__SHARE_INBOX_URL.trim();
       var _siTitle = (window.__SHARE_INBOX_TITLE || '').trim();
       var _siText  = (window.__SHARE_INBOX_TEXT  || '').trim();
-      // Store the pending share immediately (don't wait for modules)
-      var _siDet = (function(u) {
-        if (/youtube\.com|youtu\.be/i.test(u)) return { type:'youtube', label:'YouTube Video', icon:'▶', playlist:true };
-        if (/spotify\.com/i.test(u))            return { type:'spotify', label:'Spotify',       icon:'♪', playlist:true };
-        return { type:'link', label:'Web Link', icon:'🔗', playlist:false };
-      })(_siUrl);
-      window._pendingShareItem = { url: _siUrl, title: _siTitle || _siUrl, text: _siText,
-        type: _siDet.type, label: _siDet.label, icon: _siDet.icon, playlist: _siDet.playlist,
-        addedAt: new Date().toISOString() };
-      // Navigate to Orders page so user can pick which order
-      setActiveView('worshipOrderView');
-      setTimeout(function() {
-        if (window.WO && window.WO.showSavedOrders) window.WO.showSavedOrders();
-      }, 300);
+      // Show the bottom sheet picker. SharePickerModal is defined above in the
+      // same IIFE so it is available here. WO isn't assigned yet so show()
+      // uses a 200ms timer internally for showSavedOrders, and falls back to a
+      // direct google.script.run call to fetch orders for the overlay.
+      SharePickerModal.show(_siUrl, _siTitle, _siText);
       // Tell the PWA shell the share was received so it clears the status bar
       try { window.parent.postMessage({ type: 'lhc-share-received' }, '*'); } catch(e) {}
     }
