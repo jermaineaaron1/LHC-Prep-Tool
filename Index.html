@@ -13722,10 +13722,22 @@ window.loadEditSongData = function(song) {
         };
       }
 
-      // ── 2. Navigate to orders page in background ────────────────────────
+      // ── 2. Warm-start short-circuit: order already open → drop into bar ──
+      // If the WO editor is visible with an active order, skip the picker and
+      // load the link straight into the messenger input bar (like WhatsApp).
+      var _editorEl = document.getElementById('woEditor');
+      var _editorOpen = _editorEl && _editorEl.style.display !== 'none';
+      if (_editorOpen && window.WO && typeof window.WO.activeOrderId === 'function' && window.WO.activeOrderId()) {
+        if (typeof setActiveView === 'function') setActiveView('worshipOrderView');
+        window.WO.selectOrder('song'); // switches to Song Order tab → initializeSongOrder picks up _pendingShareItem
+        try { window.parent.postMessage({ type: 'lhc-share-received' }, '*'); } catch(e) {}
+        return;
+      }
+
+      // ── 3. Navigate to orders page (cold start) ─────────────────────────
       if (typeof setActiveView === 'function') setActiveView('worshipOrderView');
 
-      // ── 3. Build and show the picker bottom sheet ───────────────────────
+      // ── 4. Build and show the picker bottom sheet ───────────────────────
       // Guard: if overlay is already showing (e.g. postMessage relay fires
       // after init already called show()), don't create a second one.
       if (document.getElementById('spmOverlay')) return;
@@ -13787,25 +13799,23 @@ window.loadEditSongData = function(song) {
                  addedAt: new Date().toISOString() };
       }
 
-      // Persist in ShareInbox localStorage
-      if (typeof ShareInbox !== 'undefined') {
-        ShareInbox.addToOrder(orderId, item);
-      }
+      // Stage item in _pendingShareItem — the messenger bar will commit it
+      // when the user taps send (instead of persisting immediately to ShareInbox).
+      window._pendingShareItem = item;
 
       // Visual confirmation on the row button
       if (rowEl) {
         var btn = rowEl.querySelector('.spm-order-add');
-        if (btn) { btn.textContent = '✓ Added'; btn.classList.add('spm-done'); btn.disabled = true; }
+        if (btn) { btn.textContent = '↗ Opening…'; btn.classList.add('spm-done'); btn.disabled = true; }
       }
 
       var orders    = _orders || (window.WO && window.WO.savedOrders) || [];
-      var orderObj  = orders.find(function(o) { return String(o.id || '') === orderId; });
+      var orderObj  = orders.find(function(o) { return String(o.id || '') === String(orderId); });
       var orderName = orderObj ? (orderObj.title || 'Order') : 'Order';
-      if (typeof showToast === 'function') showToast(det.icon + ' Added to "' + orderName + '"', 'success');
+      if (typeof showToast === 'function') showToast(det.icon + ' Opening "' + orderName + '"…', 'info');
 
-      // Close the sheet and open the order. loadOrder is async (Supabase fetch);
-      // openOrderInEditor calls selectOrder + renderResourceSections internally
-      // once the data arrives, so we don't need a separate timer for those.
+      // Close the sheet and open the order. openOrderInEditor calls selectOrder('song')
+      // → initializeSongOrder() → pre-fills the messenger bar with _pendingShareItem.
       setTimeout(function() {
         close();
         if (window.WO) {
@@ -16906,15 +16916,19 @@ var WO = (function() {
     // Render any existing media items for this order
     renderMediaRows();
 
-    // Pre-fill input bar if there's a pending share
+    // Pre-fill the messenger bar if a share is pending (warm-start or post-picker)
     setTimeout(function() {
       var inp = document.getElementById('woSoInput');
       if (!inp) return;
       var ps = window._pendingShareItem;
       if (ps) {
-        inp.value = ps.url || ps.name || ps.title || '';
+        var val = ps.url || ps.name || ps.title || '';
+        inp.value = val;
+        if (val) _soUpdatePreview(val); // show thumbnail preview card above bar
         inp.focus();
-        inp.select();
+        // Scroll the bar into view so user sees the link ready to send
+        var bar = document.getElementById('woSoChatBar');
+        if (bar) bar.scrollIntoView({ behavior: 'smooth', block: 'end' });
       }
     }, 150);
   }
@@ -17178,7 +17192,9 @@ var WO = (function() {
 
     inp.value = '';
     _soClearPreview();
+    window._pendingShareItem = null;
     if (typeof ShareInbox !== 'undefined') ShareInbox.addToOrder(orderId, item);
+    renderResourceSections();
     renderMediaRows();
     showToast((item.icon || '🔗') + ' Added to order', 'success');
   }
@@ -17241,6 +17257,7 @@ var WO = (function() {
   function _soDismissPreview() {
     var inp = document.getElementById('woSoInput');
     if (inp) inp.value = '';
+    window._pendingShareItem = null;
     _soClearPreview();
   }
 
@@ -36293,6 +36310,7 @@ var WO = (function() {
           console.error('Backend error:', err);
         });
     },
+    activeOrderId: function() { return (currentOrderData && currentOrderData.id) || null; },
     // Debug current state
     debugState: function() {
       console.log('=== DEBUG: Current WO State ===');
