@@ -13724,9 +13724,11 @@ window.loadEditSongData = function(song) {
       if (typeof setActiveView === 'function') setActiveView('worshipOrderView');
 
       // ── 3. Build and show the picker bottom sheet ───────────────────────
+      // Guard: if overlay is already showing (e.g. postMessage relay fires
+      // after init already called show()), don't create a second one.
+      if (document.getElementById('spmOverlay')) return;
+
       _injectStyles();
-      var existing = document.getElementById('spmOverlay');
-      if (existing) existing.remove();
       _orders = null; // force fresh fetch from WO cache / backend
 
       var det2 = _pendingFileData ? _detectFileType(_pendingFileData) : _detectType(_url);
@@ -13799,17 +13801,14 @@ window.loadEditSongData = function(song) {
       var orderName = orderObj ? (orderObj.title || 'Order') : 'Order';
       if (typeof showToast === 'function') showToast(det.icon + ' Added to "' + orderName + '"', 'success');
 
-      // Close the sheet and navigate to the order's Song Order tab after a beat
+      // Close the sheet and open the order. loadOrder is async (Supabase fetch);
+      // openOrderInEditor calls selectOrder + renderResourceSections internally
+      // once the data arrives, so we don't need a separate timer for those.
       setTimeout(function() {
         close();
         if (window.WO) {
           window.WO.loadOrder(orderId);
-          setTimeout(function() {
-            if (window.WO.selectOrder) window.WO.selectOrder('song');
-            if (window.WO.renderResourceSections) window.WO.renderResourceSections(orderId);
-          }, 500);
         } else {
-          // WO not loaded yet — navigate to worship order view and let it load
           if (typeof setActiveView === 'function') setActiveView('worshipOrderView');
         }
       }, 600);
