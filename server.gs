@@ -4244,6 +4244,57 @@ function getDashboardData() {
 }
 
 // ================================================================
+// GET APP NOTIFICATIONS (Phase 3 — unified notification feed)
+// ================================================================
+function getAppNotifications() {
+  var result = [];
+  var now = new Date();
+  var sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+  // 1. Recent roster changes (last 7 days)
+  try {
+    var updates = getRosterUpdates();
+    updates.forEach(function(u) {
+      if (!u.timestamp) return;
+      var ts = new Date(u.timestamp);
+      if (isNaN(ts) || (now - ts) > sevenDaysMs) return;
+      result.push({
+        id: 'roster__' + (u.roleId || '') + '__' + String(u.serviceDate || '').replace(/\s/g,'_') + '__' + ts.getTime(),
+        type: 'roster',
+        title: (u.duty || u.roleId || 'Roster Change'),
+        body: (u.serviceDate || '') + (u.oldValue && u.newValue ? ' • ' + u.oldValue + ' → ' + u.newValue : (u.newValue ? ' • ' + u.newValue : '')),
+        timestamp: u.timestamp
+      });
+    });
+  } catch(e) { Logger.log('getAppNotifications roster: ' + e); }
+
+  // 2. Active announcements
+  try {
+    var announcements = getAnnouncements();
+    announcements.forEach(function(a) {
+      result.push({
+        id: 'ann__' + String(a.id || a.title || '').replace(/\s+/g,'_').slice(0, 40),
+        type: 'announcement',
+        title: a.title || 'Announcement',
+        body: a.description || '',
+        timestamp: a.date || new Date().toISOString(),
+        priority: a.priority || 5
+      });
+    });
+  } catch(e) { Logger.log('getAppNotifications ann: ' + e); }
+
+  // Sort: announcements first (by priority), then roster changes newest first
+  result.sort(function(a, b) {
+    if (a.type === 'announcement' && b.type !== 'announcement') return -1;
+    if (a.type !== 'announcement' && b.type === 'announcement') return 1;
+    if (a.type === 'announcement') return (a.priority || 5) - (b.priority || 5);
+    return new Date(b.timestamp) - new Date(a.timestamp);
+  });
+
+  return result.slice(0, 30);
+}
+
+// ================================================================
 // HELPER FUNCTIONS
 // ================================================================
 

@@ -2207,6 +2207,209 @@
       .file-open-action { padding: 8px 10px; gap: 10px; }
     }
 
+    /* ==================== PHASE 3: NOTIFICATION BELL ==================== */
+    .lhc-notif-bell {
+      position: relative;
+      width: 36px; height: 36px;
+      border: 1px solid rgba(148,163,184,0.4);
+      border-radius: 10px;
+      background: white;
+      color: #475569;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+      -webkit-tap-highlight-color: transparent;
+      flex-shrink: 0;
+    }
+    .lhc-notif-bell:hover { background: #f1f5f9; color: var(--brand); border-color: var(--brand); }
+    .lhc-notif-bell.active { background: linear-gradient(135deg,var(--brand),var(--brand-2)); color: white; border-color: transparent; box-shadow: 0 4px 14px rgba(74,109,167,0.35); }
+    @keyframes bellRing {
+      0%,100% { transform: rotate(0); }
+      10%      { transform: rotate(20deg); }
+      20%      { transform: rotate(-16deg); }
+      30%      { transform: rotate(12deg); }
+      40%      { transform: rotate(-8deg); }
+      50%      { transform: rotate(4deg); }
+    }
+    .lhc-notif-bell.ringing { animation: bellRing 0.55s ease both; }
+    .lhc-notif-badge {
+      position: absolute;
+      top: -5px; right: -5px;
+      min-width: 17px; height: 17px;
+      background: #ef4444;
+      color: white;
+      border-radius: 999px;
+      font-size: 0.54rem;
+      font-weight: 700;
+      font-family: 'Poppins', sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 3px;
+      border: 2px solid white;
+      opacity: 0;
+      transform: scale(0);
+      transition: opacity 0.2s, transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      pointer-events: none;
+      line-height: 1;
+    }
+    .lhc-notif-badge.show { opacity: 1; transform: scale(1); }
+
+    /* ==================== PHASE 3: NOTIFICATION DRAWER ==================== */
+    #lhcNotifOverlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,0.28);
+      backdrop-filter: blur(3px);
+      z-index: 600;
+    }
+    #lhcNotifOverlay.open { display: block; animation: overlayFadeIn 0.22s ease both; }
+    @keyframes overlayFadeIn { from { opacity:0; } to { opacity:1; } }
+
+    #lhcNotifDrawer {
+      position: fixed;
+      top: 0; right: 0; bottom: 0;
+      width: 360px; max-width: 100vw;
+      background: white;
+      box-shadow: -6px 0 48px rgba(15,23,42,0.14);
+      z-index: 601;
+      display: flex; flex-direction: column;
+      transform: translateX(105%);
+      transition: transform 0.32s cubic-bezier(0.22,1,0.36,1);
+      border-radius: 16px 0 0 16px;
+      overflow: hidden;
+    }
+    #lhcNotifDrawer.open { transform: translateX(0); }
+    @media (max-width: 480px) { #lhcNotifDrawer { width: 100vw; border-radius: 0; } }
+
+    .notif-drawer-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 18px 13px;
+      border-bottom: 1px solid #f1f5f9;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .notif-drawer-title {
+      display: flex; align-items: center; gap: 8px;
+      font-family: 'Cinzel', serif;
+      font-size: 0.78rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: #334155;
+    }
+    .notif-drawer-title i { color: var(--brand); }
+    .notif-live-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 0 0 rgba(34,197,94,0.5);
+      animation: livePulse 2.2s ease infinite;
+    }
+    @keyframes livePulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+      50%      { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+    }
+    .notif-drawer-actions { display: flex; align-items: center; gap: 6px; }
+    .notif-mark-read-btn {
+      font-size: 0.63rem; font-family: 'Poppins',sans-serif; font-weight: 600;
+      color: var(--brand);
+      background: rgba(74,109,167,0.08); border: 1px solid rgba(74,109,167,0.2);
+      border-radius: 6px; padding: 4px 9px;
+      cursor: pointer; white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .notif-mark-read-btn:hover { background: rgba(74,109,167,0.16); }
+    .notif-close-btn {
+      width: 30px; height: 30px; border-radius: 8px;
+      border: 1px solid #e2e8f0; background: white; color: #64748b;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      font-size: 0.85rem; transition: all 0.15s;
+    }
+    .notif-close-btn:hover { background: #fee2e2; color: #ef4444; border-color: #fca5a5; }
+
+    .notif-perm-banner {
+      margin: 10px 14px 0;
+      background: linear-gradient(135deg,#eff6ff,#dbeafe);
+      border: 1px solid #bfdbfe; border-radius: 10px;
+      padding: 9px 12px;
+      display: flex; align-items: center; gap: 9px;
+      font-size: 0.7rem; color: #1d4ed8;
+      font-family: 'Poppins',sans-serif;
+      flex-shrink: 0;
+    }
+    .notif-perm-banner i { flex-shrink: 0; font-size: 0.95rem; }
+    .notif-perm-banner span { flex: 1; line-height: 1.4; }
+    .notif-perm-banner button {
+      background: var(--brand); color: white; border: none;
+      border-radius: 6px; padding: 5px 10px;
+      font-size: 0.63rem; font-family: 'Poppins',sans-serif; font-weight: 600;
+      cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .notif-perm-banner button:hover { background: #354266; }
+
+    .notif-list {
+      flex: 1; overflow-y: auto; padding: 6px 0;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(148,163,184,0.5) transparent;
+    }
+    .notif-section-label {
+      padding: 10px 18px 4px;
+      font-size: 0.58rem; font-family: 'Poppins',sans-serif;
+      font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+      color: #94a3b8;
+    }
+    .notif-item {
+      display: flex; gap: 12px; padding: 11px 18px;
+      cursor: pointer; transition: background 0.14s;
+      position: relative; border-bottom: 1px solid rgba(0,0,0,0.04);
+      animation: itemSlideIn 0.2s ease both;
+    }
+    .notif-item:hover { background: #f8fafc; }
+    .notif-item.unread { background: #f0f7ff; }
+    .notif-item.unread::before {
+      content: '';
+      position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+      width: 3px; height: 55%; border-radius: 0 3px 3px 0;
+      background: var(--brand);
+    }
+    .notif-item-icon {
+      width: 38px; height: 38px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.88rem; flex-shrink: 0;
+    }
+    .notif-item-icon.type-roster       { background: rgba(20,184,166,0.12); color: var(--roster-teal); }
+    .notif-item-icon.type-announcement { background: rgba(245,158,11,0.12);  color: #d97706; }
+    .notif-item-icon.type-song         { background: rgba(74,109,167,0.12);  color: var(--brand); }
+    .notif-item-body { flex: 1; min-width: 0; }
+    .notif-item-title {
+      font-size: 0.79rem; font-weight: 600; color: #1e293b;
+      line-height: 1.3; margin-bottom: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .notif-item-text {
+      font-size: 0.7rem; color: #64748b; line-height: 1.4;
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .notif-item-time {
+      font-size: 0.61rem; color: #94a3b8; margin-top: 3px;
+      font-family: 'Poppins',sans-serif;
+    }
+    .notif-empty {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 52px 24px; color: #94a3b8; text-align: center;
+    }
+    .notif-empty i { font-size: 2.4rem; margin-bottom: 14px; opacity: 0.35; }
+    .notif-empty p { font-size: 0.78rem; font-family: 'Poppins',sans-serif; line-height: 1.6; }
+    .notif-poll-footer {
+      padding: 6px 18px 10px; font-size: 0.59rem; color: #cbd5e1;
+      font-family: 'Poppins',sans-serif;
+      display: flex; align-items: center; gap: 5px;
+      border-top: 1px solid #f8fafc;
+      flex-shrink: 0;
+    }
+
     /* ==================== PHASE 2: TOP PROGRESS BAR ==================== */
     #lhcTopBar {
       position: fixed;
@@ -2921,6 +3124,10 @@
           </button>
         </nav>
         <div class="lhc-topnav-right">
+          <button class="lhc-notif-bell" id="notifBellBtn" onclick="LHC_Notif.toggle()" title="Notifications" aria-label="Notifications">
+            <i class="fa-solid fa-bell"></i>
+            <span class="lhc-notif-badge" id="notifBadge"></span>
+          </button>
           <button class="lhc-pill-button" id="refreshDataBtn">
             <i class="fa-solid fa-rotate-right mr-1"></i> <span class="hide-mobile">Refresh</span>
           </button>
@@ -13577,6 +13784,7 @@ window.loadEditSongData = function(song) {
     }
 
     loadAllData();
+    if (window.LHC_Notif) LHC_Notif.init();
 
     // Handle deep-link media parameter
     if (window.__DEEPLINK_MEDIA && window.__DEEPLINK_MEDIA.trim()) {
@@ -48521,6 +48729,227 @@ function filterLiturgyItems() {
   });
 })();
 </script>
+
+<!-- ==================== PHASE 3: NOTIFICATION SYSTEM ==================== -->
+<script>
+window.LHC_Notif = (function() {
+  var POLL_MS   = 30000;
+  var SEEN_KEY  = 'lhc_notif_seen_v1';
+  var _items    = [];
+  var _seenIds  = null;
+  var _timer    = null;
+  var _lastPoll = null;
+  var _open     = false;
+
+  function _seen() {
+    if (_seenIds) return _seenIds;
+    try { _seenIds = new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); }
+    catch(e) { _seenIds = new Set(); }
+    return _seenIds;
+  }
+  function _saveSeen() {
+    try { localStorage.setItem(SEEN_KEY, JSON.stringify(Array.from(_seen()))); } catch(e) {}
+  }
+  function _unreadCount() {
+    var s = _seen();
+    return _items.filter(function(n){ return !s.has(n.id); }).length;
+  }
+  function _timeAgo(ts) {
+    if (!ts) return '';
+    var d = new Date(ts); if (isNaN(d)) return '';
+    var m = Math.floor((Date.now() - d) / 60000);
+    if (m < 1)  return 'just now';
+    if (m < 60) return m + 'm ago';
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + 'h ago';
+    var days = Math.floor(h / 24);
+    if (days < 7) return days + 'd ago';
+    return d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+  }
+  function _esc(s) {
+    return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+  }
+
+  function _updateBadge() {
+    var badge = document.getElementById('notifBadge');
+    var bell  = document.getElementById('notifBellBtn');
+    if (!badge) return;
+    var n = _unreadCount();
+    if (n > 0) {
+      badge.textContent = n > 99 ? '99+' : String(n);
+      badge.classList.add('show');
+      if (bell && !_open) {
+        bell.classList.remove('ringing');
+        void bell.offsetWidth;
+        bell.classList.add('ringing');
+        setTimeout(function(){ bell.classList.remove('ringing'); }, 600);
+      }
+    } else {
+      badge.classList.remove('show');
+    }
+  }
+
+  function _renderList() {
+    var list = document.getElementById('notifList');
+    if (!list) return;
+    if (!_items.length) {
+      list.innerHTML = '<div class="notif-empty">'
+        + '<i class="fa-regular fa-bell-slash"></i>'
+        + '<p>No notifications yet.<br>Roster changes and announcements<br>will appear here.</p>'
+        + '</div>';
+    } else {
+      var s = _seen();
+      var iconMap = { roster:'fa-table', announcement:'fa-bullhorn', song:'fa-music' };
+      var anns  = _items.filter(function(n){ return n.type === 'announcement'; });
+      var rostr = _items.filter(function(n){ return n.type === 'roster'; });
+      var html  = '';
+      function block(label, arr) {
+        if (!arr.length) return;
+        html += '<div class="notif-section-label">' + label + '</div>';
+        arr.forEach(function(item, i) {
+          var unread = !s.has(item.id);
+          var icon   = iconMap[item.type] || 'fa-circle-info';
+          html += '<div class="notif-item ' + (unread ? 'unread' : '') + '" '
+               +   'data-nid="' + _esc(item.id) + '" '
+               +   'onclick="LHC_Notif.itemClick(this)" '
+               +   'style="animation-delay:' + (i * 28) + 'ms">'
+               +   '<div class="notif-item-icon type-' + _esc(item.type) + '">'
+               +     '<i class="fa-solid ' + icon + '"></i>'
+               +   '</div>'
+               +   '<div class="notif-item-body">'
+               +     '<div class="notif-item-title">' + _esc(item.title) + '</div>'
+               +     (item.body ? '<div class="notif-item-text">' + _esc(item.body) + '</div>' : '')
+               +     '<div class="notif-item-time">' + _timeAgo(item.timestamp) + '</div>'
+               +   '</div>'
+               + '</div>';
+        });
+      }
+      block('📢 Announcements', anns);
+      block('📅 Roster Changes', rostr);
+      list.innerHTML = html;
+    }
+    var footer = document.getElementById('notifPollFooter');
+    if (footer && _lastPoll) {
+      footer.innerHTML = '<i class="fa-solid fa-circle-dot" style="color:#22c55e;font-size:0.5rem;"></i>'
+                       + '&nbsp;Live · updated ' + _timeAgo(_lastPoll);
+    }
+  }
+
+  function _browserNotif(item) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (document.visibilityState === 'visible') return;
+    try {
+      var n = new Notification('LHC Worship — ' + (item.title || 'Update'), {
+        body: item.body || '',
+        tag:  'lhc-notif-' + (item.id || Date.now())
+      });
+      n.onclick = function(){ window.focus(); n.close(); close(); };
+    } catch(e) {}
+  }
+
+  function _poll() {
+    if (typeof callGAS !== 'function') return;
+    callGAS('getAppNotifications').then(function(items) {
+      var prevUnread = _unreadCount();
+      _items    = items || [];
+      _lastPoll = new Date().toISOString();
+      var nowUnread = _unreadCount();
+      _updateBadge();
+      if (_open) _renderList();
+      if (nowUnread > prevUnread) {
+        var newest = _items.find(function(n){ return !_seen().has(n.id); });
+        if (newest) _browserNotif(newest);
+      }
+    }).catch(function(){});
+  }
+
+  function open() {
+    _open = true;
+    var ov = document.getElementById('lhcNotifOverlay');
+    var dr = document.getElementById('lhcNotifDrawer');
+    var bell = document.getElementById('notifBellBtn');
+    if (ov) ov.classList.add('open');
+    if (dr) dr.classList.add('open');
+    if (bell) bell.classList.add('active');
+    _renderList();
+    var perm = document.getElementById('notifPermBanner');
+    if (perm) perm.style.display = ('Notification' in window && Notification.permission === 'default') ? 'flex' : 'none';
+  }
+
+  function close() {
+    _open = false;
+    var ov = document.getElementById('lhcNotifOverlay');
+    var dr = document.getElementById('lhcNotifDrawer');
+    var bell = document.getElementById('notifBellBtn');
+    if (ov) ov.classList.remove('open');
+    if (dr) dr.classList.remove('open');
+    if (bell) bell.classList.remove('active');
+  }
+
+  function toggle() { _open ? close() : open(); }
+
+  function markAllRead() {
+    var s = _seen();
+    _items.forEach(function(n){ s.add(n.id); });
+    _saveSeen();
+    _updateBadge();
+    _renderList();
+    if (window.showToast) showToast('All notifications marked as read', 'success');
+  }
+
+  function itemClick(el) {
+    var id = el.getAttribute('data-nid');
+    if (id) { _seen().add(id); _saveSeen(); el.classList.remove('unread'); _updateBadge(); }
+  }
+
+  function requestPermission() {
+    if (!('Notification' in window)) return;
+    Notification.requestPermission(function(p) {
+      var banner = document.getElementById('notifPermBanner');
+      if (banner) banner.style.display = 'none';
+      if (p === 'granted' && window.showToast) showToast('Browser notifications enabled!', 'success');
+    });
+  }
+
+  function init() {
+    _poll();
+    _timer = setInterval(_poll, POLL_MS);
+    document.addEventListener('visibilitychange', function(){
+      if (document.visibilityState === 'visible') _poll();
+    });
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'Escape' && _open) close();
+    });
+  }
+
+  return { init:init, toggle:toggle, open:open, close:close,
+           markAllRead:markAllRead, itemClick:itemClick,
+           requestPermission:requestPermission };
+})();
+</script>
+
+<!-- ==================== NOTIFICATION DRAWER ==================== -->
+<div id="lhcNotifOverlay" onclick="LHC_Notif.close()"></div>
+<div id="lhcNotifDrawer" role="dialog" aria-label="Notifications">
+  <div class="notif-drawer-header">
+    <div class="notif-drawer-title">
+      <i class="fa-solid fa-bell"></i>
+      <span>Notifications</span>
+      <span class="notif-live-dot"></span>
+    </div>
+    <div class="notif-drawer-actions">
+      <button class="notif-mark-read-btn" onclick="LHC_Notif.markAllRead()">Mark all read</button>
+      <button class="notif-close-btn" onclick="LHC_Notif.close()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+  </div>
+  <div class="notif-perm-banner" id="notifPermBanner" style="display:none">
+    <i class="fa-solid fa-bell-slash"></i>
+    <span>Enable browser notifications to get alerts when the app is in the background.</span>
+    <button onclick="LHC_Notif.requestPermission()">Enable</button>
+  </div>
+  <div id="notifList" class="notif-list"></div>
+  <div id="notifPollFooter" class="notif-poll-footer"></div>
+</div>
 
 <!-- ==================== BOTTOM NAVIGATION BAR (mobile/tablet) ==================== -->
 <nav id="lhcBottomNav" role="navigation" aria-label="Main navigation">
