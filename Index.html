@@ -2177,6 +2177,234 @@
       .file-open-modal { max-width: 95%; }
       .file-open-action { padding: 8px 10px; gap: 10px; }
     }
+
+    /* ==================== PHASE 1: BOTTOM NAV BAR ==================== */
+    #lhcBottomNav {
+      display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 500;
+      background: rgba(255,255,255,0.97);
+      backdrop-filter: blur(24px) saturate(1.8);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8);
+      border-top: 1px solid rgba(15,23,42,0.07);
+      box-shadow: 0 -4px 24px rgba(15,23,42,0.09);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      align-items: stretch;
+      justify-content: space-around;
+    }
+    .lhc-bn-btn {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      padding: 10px 4px 6px;
+      border: none;
+      background: transparent;
+      color: #94a3b8;
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.6rem;
+      font-weight: 500;
+      cursor: pointer;
+      position: relative;
+      -webkit-tap-highlight-color: transparent;
+      transition: color 0.2s;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .lhc-bn-icon {
+      width: 34px; height: 34px;
+      border-radius: 11px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.15rem;
+      transition: all 0.28s cubic-bezier(0.34,1.56,0.64,1);
+      background: transparent;
+    }
+    .lhc-bn-btn.active { color: var(--brand); }
+    .lhc-bn-btn.active .lhc-bn-icon {
+      background: rgba(74,109,167,0.13);
+      transform: translateY(-3px) scale(1.12);
+    }
+    .lhc-bn-btn:active .lhc-bn-icon { transform: scale(0.88); }
+    /* Active pill underline */
+    .lhc-bn-btn::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 50%;
+      transform: translateX(-50%) scaleX(0);
+      width: 28px; height: 3px;
+      border-radius: 0 0 4px 4px;
+      background: var(--brand);
+      transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .lhc-bn-btn.active::before { transform: translateX(-50%) scaleX(1); }
+    /* Touch ripple */
+    .lhc-bn-btn::after {
+      content: '';
+      position: absolute;
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      background: rgba(74,109,167,0.15);
+      top: 50%; left: 50%;
+      transform: translate(-50%,-50%) scale(0);
+      opacity: 0;
+      transition: transform 0.4s, opacity 0.4s;
+      pointer-events: none;
+    }
+    .lhc-bn-btn:active::after {
+      transform: translate(-50%,-50%) scale(1);
+      opacity: 1;
+      transition: 0s;
+    }
+
+    /* ==================== PHASE 1: VIEW TRANSITIONS ==================== */
+    @keyframes viewSlideIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .view-entering {
+      animation: viewSlideIn 0.3s cubic-bezier(0.22,1,0.36,1) both;
+    }
+
+    /* ==================== PHASE 1: MOBILE OVERRIDES (≤768px) ==================== */
+    @media (max-width: 768px) {
+      /* Show bottom nav */
+      #lhcBottomNav { display: flex; }
+
+      /* Push all content above bottom nav */
+      body { padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px)) !important; }
+
+      /* Top nav: navigation moves to bottom — hide pill nav links */
+      .lhc-topnav-links { display: none !important; }
+
+      /* Top bar — frosted glass, clean */
+      #topNavBar {
+        position: sticky !important;
+        top: 0;
+        z-index: 100;
+        border-radius: 0 !important;
+        border-left: none !important;
+        border-right: none !important;
+        border-top: none !important;
+        border-bottom: 1px solid rgba(15,23,42,0.07) !important;
+        box-shadow: 0 2px 16px rgba(15,23,42,0.07) !important;
+        background: rgba(255,255,255,0.96) !important;
+        backdrop-filter: blur(20px) saturate(1.6);
+        -webkit-backdrop-filter: blur(20px) saturate(1.6);
+        padding: calc(env(safe-area-inset-top, 8px) + 6px) 14px 10px !important;
+        gap: 10px;
+      }
+
+      /* Show brand name on mobile (override existing hide) */
+      .lhc-topnav-brand {
+        display: flex !important;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.88rem;
+      }
+
+      /* Top bar church icon badge */
+      .lhc-topnav-brand::before {
+        content: '⛪';
+        font-size: 1.1rem;
+      }
+
+      /* Right side: icon-only circular buttons */
+      .lhc-topnav-right {
+        display: flex !important;
+        gap: 5px;
+        align-items: center;
+      }
+      .lhc-topnav-right .lhc-pill-button {
+        width: 36px !important; height: 36px !important;
+        padding: 0 !important;
+        border-radius: 10px !important;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.9rem;
+        border-color: rgba(148,163,184,0.4) !important;
+      }
+      .lhc-topnav-right .lhc-pill-button i { margin: 0 !important; }
+      .lhc-topnav-right .hide-mobile { display: none !important; }
+
+      /* Sidebar toggle size */
+      .lhc-sidebar-toggle { width: 36px !important; height: 36px !important; border-radius: 10px !important; }
+
+      /* main-content-container: no outer padding — views handle their own padding */
+      #main-content-container { padding: 0 !important; gap: 0 !important; }
+
+      /* Each view section: inner padding */
+      #homeView, #songFinderView, #worshipRosterView,
+      #worshipOrderView, #liturgyView, #practiceGameView {
+        padding: 10px 10px 0 !important;
+      }
+    }
+
+    /* ==================== PHASE 1: TABLET LAYOUT (769–1024px) ==================== */
+    @media (min-width: 769px) and (max-width: 1024px) {
+      .lhc-root {
+        grid-template-columns: 230px 1fr !important;
+        gap: 1rem;
+        padding: 1rem;
+      }
+      .lhc-topnav-btn span { display: none; }
+      .lhc-topnav-btn { padding: 7px 11px; }
+      .lhc-topnav-links { gap: 1px; }
+      /* Ensure sidebar shows on tablet (not hidden by sidebar-collapsed logic) */
+      #playlistSidebar { display: flex !important; position: relative !important; transform: none !important; }
+    }
+
+    /* ==================== PHASE 1: SKELETON LOADERS ==================== */
+    @keyframes shimmer {
+      0%   { background-position: -400px 0; }
+      100% { background-position: 400px 0; }
+    }
+    .skeleton {
+      background: linear-gradient(90deg, #f1f5f9 25%, #e8edf3 50%, #f1f5f9 75%);
+      background-size: 400px 100%;
+      animation: shimmer 1.4s ease-in-out infinite;
+      border-radius: 6px;
+    }
+    .skeleton-line { height: 13px; border-radius: 4px; margin-bottom: 8px; }
+    .skeleton-line.lg { height: 18px; }
+    .skeleton-line.sm { height: 10px; }
+    .skeleton-avatar { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; }
+    .skeleton-card-wrap {
+      background: white;
+      border-radius: 12px;
+      padding: 14px;
+      border: 1px solid rgba(0,0,0,0.05);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* ==================== PHASE 1: MICRO-INTERACTIONS ==================== */
+    /* Button press scale */
+    .lhc-pill-button, .lhc-topnav-btn, .home-nav-card {
+      transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.15s ease, color 0.15s ease !important;
+    }
+    .lhc-pill-button:active, .home-nav-card:active { transform: scale(0.96); }
+    .lhc-topnav-btn:active { transform: scale(0.93); }
+
+    /* Home nav cards — lift on hover */
+    .home-nav-card {
+      transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease !important;
+    }
+    .home-nav-card:hover {
+      transform: translateY(-4px) scale(1.02);
+      box-shadow: 0 16px 32px rgba(15,23,42,0.14) !important;
+    }
+
+    /* Smooth view display */
+    #homeView, #songFinderView, #worshipRosterView,
+    #worshipOrderView, #liturgyView, #practiceGameView {
+      transition: opacity 0.2s ease;
+    }
+
   </style>
 </head>
 <!-- ======================= END PART 1/6 ======================= -->
@@ -8881,6 +9109,29 @@ window.loadEditSongData = function(song) {
       if (btn) btn.classList.toggle('active', btnId === topNavMap[viewId]);
     });
 
+    // Update bottom nav active state
+    var bnMap = {
+      'homeView': 'bnHome',
+      'songFinderView': 'bnSongs',
+      'worshipRosterView': 'bnRoster',
+      'worshipOrderView': 'bnOrders'
+    };
+    ['bnHome', 'bnSongs', 'bnRoster', 'bnOrders'].forEach(function(btnId) {
+      var btn = $(btnId);
+      if (btn) btn.classList.toggle('active', btnId === bnMap[viewId]);
+    });
+    // "More" btn: active when on Liturgy or Practice (not covered by main 4)
+    var bnMoreBtn = $('bnMore');
+    if (bnMoreBtn) bnMoreBtn.classList.toggle('active', viewId === 'liturgyView' || viewId === 'practiceGameView');
+
+    // View entrance animation
+    var enterEl = $(viewId);
+    if (enterEl) {
+      enterEl.classList.remove('view-entering');
+      void enterEl.offsetWidth; // force reflow
+      enterEl.classList.add('view-entering');
+    }
+
     // Switch sidebar content based on view
     var songStatsSection = $('songStatsSection');
     var rosterUpdatesSection = $('rosterUpdatesSection');
@@ -12241,7 +12492,9 @@ window.loadEditSongData = function(song) {
       { type:'header', label:'Sunday School Ministry' },
       { type:'role', id:'ssteacher1', label:'SS Teacher 1' },
       { type:'role', id:'ssteacher2', label:'SS Teacher 2' },
-      { type:'role', id:'ssteacher3', label:'SS Teacher 3' }
+      { type:'role', id:'ssteacher3', label:'SS Teacher 3' },
+      { type:'header', label:'Decorations' },
+      { type:'role', id:'flowerarrangement', label:'Flower Arrangement' }
     ];
 
     // Build lookup map from entries array: "roleId__date" → value
@@ -45003,7 +45256,9 @@ function filterLiturgyItems() {
       {type:'header',id:'h_sundayschool',label:_re.books+' SUNDAY SCHOOL MINISTRY',cls:'sundayschool-section',group:'all'},
       {type:'role',id:'ssteacher1',label:_re.books+' Sunday School Teacher 1',labelHtml:_re.books+' Sunday School<br>Teacher 1',wideCol:true,group:'all'},
       {type:'role',id:'ssteacher2',label:_re.books+' Sunday School Teacher 2',labelHtml:_re.books+' Sunday School<br>Teacher 2',wideCol:true,group:'all'},
-      {type:'role',id:'ssteacher3',label:_re.books+' Sunday School Teacher 3',labelHtml:_re.books+' Sunday School<br>Teacher 3',wideCol:true,group:'all'}
+      {type:'role',id:'ssteacher3',label:_re.books+' Sunday School Teacher 3',labelHtml:_re.books+' Sunday School<br>Teacher 3',wideCol:true,group:'all'},
+      {type:'header',id:'h_decorations',label:'🌸 DECORATIONS',cls:'decorations-section',group:'all'},
+      {type:'role',id:'flowerarrangement',label:'🌸 Flower Arrangement',group:'all'}
     ],
 
     getSpecialDays: function(year, month) {
@@ -46284,7 +46539,7 @@ function filterLiturgyItems() {
       return {
         labels:{active:'Active',unavailable:'Currently Unavailable',suspended:'Temporarily Suspended',inactive:'Inactive / Resigned',newly_joined:'Newly Joined'},
         icons:{active:'fa-circle-check',unavailable:'fa-calendar-xmark',suspended:'fa-circle-pause',inactive:'fa-circle-xmark',newly_joined:'fa-star'},
-        cats:{preacher:'Preacher',liturgist:'Liturgist',usher:'Usher',reader:'Reader',communion:'Communion',altar:'Altar Guild',pianist:'Pianist',guitarist:'Guitarist',bassist:'Bassist',drummer:'Drummer',singer:'Singer',lcd:'LCD Operator',pa:'PA System',livestream:'Live Streaming',tech:'Tech',sundayschool:'Sunday School Teacher',general:'General'}
+        cats:{preacher:'Preacher',liturgist:'Liturgist',usher:'Usher',reader:'Reader',communion:'Communion',altar:'Altar Guild',pianist:'Pianist',guitarist:'Guitarist',bassist:'Bassist',drummer:'Drummer',singer:'Singer',lcd:'LCD Operator',pa:'PA System',livestream:'Live Streaming',tech:'Tech',sundayschool:'Sunday School Teacher',flowerarrangement:'Flower Arrangement',general:'General'}
       };
     },
     openEnablersModal: function() {
@@ -48051,6 +48306,30 @@ function filterLiturgyItems() {
   });
 })();
 </script>
+
+<!-- ==================== BOTTOM NAVIGATION BAR (mobile/tablet) ==================== -->
+<nav id="lhcBottomNav" role="navigation" aria-label="Main navigation">
+  <button class="lhc-bn-btn" id="bnHome" onclick="setActiveView('homeView')" aria-label="Home">
+    <div class="lhc-bn-icon"><i class="fa-solid fa-house"></i></div>
+    <span>Home</span>
+  </button>
+  <button class="lhc-bn-btn" id="bnSongs" onclick="setActiveView('songFinderView')" aria-label="Songs">
+    <div class="lhc-bn-icon"><i class="fa-solid fa-music"></i></div>
+    <span>Songs</span>
+  </button>
+  <button class="lhc-bn-btn" id="bnRoster" onclick="setActiveView('worshipRosterView')" aria-label="Roster">
+    <div class="lhc-bn-icon"><i class="fa-solid fa-table"></i></div>
+    <span>Roster</span>
+  </button>
+  <button class="lhc-bn-btn" id="bnOrders" onclick="setActiveView('worshipOrderView')" aria-label="Orders">
+    <div class="lhc-bn-icon"><i class="fa-solid fa-calendar-days"></i></div>
+    <span>Orders</span>
+  </button>
+  <button class="lhc-bn-btn" id="bnMore" onclick="toggleSidebar()" aria-label="More">
+    <div class="lhc-bn-icon"><i class="fa-solid fa-grid-2"></i></div>
+    <span>More</span>
+  </button>
+</nav>
 
 </body>
 </html>
