@@ -760,27 +760,51 @@
     /* ==================== TOAST STYLES ==================== */
     .toast-notification {
       position: fixed;
-      bottom: 24px;
+      bottom: 28px;
       left: 50%;
-      transform: translateX(-50%) translateY(100px);
-      background: linear-gradient(135deg, #1a202c 0%, #2d3748 100%);
+      transform: translateX(-50%) translateY(120px) scale(0.92);
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
       color: white;
-      padding: 14px 24px;
-      border-radius: 12px;
+      padding: 13px 18px 18px;
+      border-radius: 16px;
       font-size: 13px;
       font-family: "Poppins", sans-serif;
       z-index: 99999;
       opacity: 0;
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: transform 0.38s cubic-bezier(0.34, 1.56, 0.64, 1),
+                  opacity 0.28s ease;
       pointer-events: none;
+      min-width: 220px;
+      max-width: 360px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.07) inset;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      overflow: hidden;
     }
     .toast-notification.show {
-      transform: translateX(-50%) translateY(0);
+      transform: translateX(-50%) translateY(0) scale(1);
       opacity: 1;
+      pointer-events: auto;
     }
-    .toast-notification.success { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
-    .toast-notification.error { background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); }
-    .toast-notification.warning { background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%); }
+    /* On mobile: float above bottom nav */
+    @media (max-width: 768px) {
+      .toast-notification { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+    }
+    .toast-icon { font-size: 1.1rem; flex-shrink: 0; opacity: 0.92; }
+    .toast-body { flex: 1; line-height: 1.4; font-size: 0.8rem; }
+    .toast-progress-bar {
+      position: absolute;
+      bottom: 0; left: 0;
+      height: 3px;
+      border-radius: 0 0 16px 16px;
+      background: rgba(255,255,255,0.38);
+      animation: toastDrain 3.5s linear forwards;
+    }
+    @keyframes toastDrain { from { width: 100%; } to { width: 0%; } }
+    .toast-notification.success { background: linear-gradient(135deg, #047857 0%, #059669 100%); }
+    .toast-notification.error   { background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%); }
+    .toast-notification.warning { background: linear-gradient(135deg, #b45309 0%, #d97706 100%); }
 
     /* ==================== FORM STYLES ==================== */
     .form-input {
@@ -1699,11 +1723,16 @@
       box-shadow: 0 25px 50px rgba(0,0,0,0.2);
       max-height: 90vh;
       overflow-y: auto;
-      animation: modalFadeIn 0.2s ease-out;
+      animation: modalSpringIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both;
     }
-    @keyframes modalFadeIn {
-      from { opacity: 0; transform: scale(0.95); }
-      to { opacity: 1; transform: scale(1); }
+    @keyframes modalSpringIn {
+      from { opacity: 0; transform: scale(0.88) translateY(16px); }
+      to   { opacity: 1; transform: scale(1)    translateY(0); }
+    }
+    /* Shared spring-in for other modal types */
+    .modal.show .modal-content,
+    .lhc-modal.show .lhc-modal-content {
+      animation: modalSpringIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both;
     }
 
     /* Base Modal Class - Fixed overlay centered */
@@ -2178,6 +2207,125 @@
       .file-open-action { padding: 8px 10px; gap: 10px; }
     }
 
+    /* ==================== PHASE 2: TOP PROGRESS BAR ==================== */
+    #lhcTopBar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      z-index: 99998;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    #lhcTopBar.active { opacity: 1; }
+    #lhcTopBarFill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--brand) 0%, #818cf8 50%, var(--brand-2) 100%);
+      background-size: 200% 100%;
+      animation: barShimmer 1.4s ease infinite;
+      box-shadow: 0 0 10px rgba(74,109,167,0.6), 0 0 20px rgba(129,140,248,0.3);
+      border-radius: 0 3px 3px 0;
+      transition: width 0.25s ease;
+    }
+    @keyframes barShimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ==================== PHASE 2: IMPROVED LOADING OVERLAY ==================== */
+    #loadingIndicator {
+      background: rgba(15,23,42,0.3) !important;
+      backdrop-filter: blur(8px) !important;
+    }
+    .lhc-loader-card {
+      background: white;
+      border-radius: 20px;
+      padding: 28px 36px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 24px 60px rgba(15,23,42,0.18);
+      animation: modalSpringIn 0.3s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    .lhc-loader-ring {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      border: 3px solid #e2e8f0;
+      border-top-color: var(--brand);
+      border-right-color: var(--brand-2);
+      animation: loaderSpin 0.7s linear infinite;
+    }
+    @keyframes loaderSpin { to { transform: rotate(360deg); } }
+    .lhc-loader-text {
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #475569;
+      letter-spacing: 0.02em;
+    }
+
+    /* ==================== PHASE 2: STAGGER LIST ANIMATION ==================== */
+    @keyframes itemSlideIn {
+      from { opacity: 0; transform: translateX(-8px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .stagger-item {
+      animation: itemSlideIn 0.22s ease both;
+    }
+
+    /* ==================== PHASE 2: INPUT FOCUS GLOW ==================== */
+    .form-input:focus,
+    input[type="text"]:focus,
+    input[type="search"]:focus,
+    input[type="email"]:focus,
+    input[type="url"]:focus,
+    input[type="number"]:focus,
+    select:focus,
+    textarea:focus {
+      outline: none !important;
+      border-color: var(--brand) !important;
+      box-shadow: 0 0 0 3px rgba(74,109,167,0.16),
+                  0 1px 3px rgba(0,0,0,0.06) !important;
+    }
+
+    /* ==================== PHASE 2: CARD ENHANCEMENTS ==================== */
+    /* Song stat rows in sidebar */
+    .stat-item-row {
+      transition: background 0.15s, transform 0.15s;
+    }
+    .stat-item-row:hover {
+      background: rgba(255,255,255,0.12) !important;
+      transform: translateX(3px);
+    }
+    /* Roster update rows */
+    .roster-update-row {
+      transition: background 0.15s, transform 0.15s;
+    }
+    .roster-update-row:hover {
+      background: rgba(255,255,255,0.1) !important;
+      transform: translateX(3px);
+    }
+
+    /* ==================== PHASE 2: SIDEBAR LOGO PULSE ==================== */
+    @keyframes logoPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.25); }
+      50%       { box-shadow: 0 0 0 8px rgba(255,255,255,0); }
+    }
+    #playlistSidebar .h-11 {
+      animation: logoPulse 3s ease-in-out infinite;
+    }
+
+    /* ==================== PHASE 2: HOME BANNER CROSSFADE ==================== */
+    #homeBannerText, #homeBannerSource {
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+    #homeBannerText.banner-fade, #homeBannerSource.banner-fade {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+
     /* ==================== PHASE 1: BOTTOM NAV BAR ==================== */
     #lhcBottomNav {
       display: none;
@@ -2413,11 +2561,16 @@
 
 <body class="antialiased">
 
+  <!-- ==================== TOP PROGRESS BAR ==================== -->
+  <div id="lhcTopBar" role="progressbar" aria-label="Loading">
+    <div id="lhcTopBarFill"></div>
+  </div>
+
   <!-- ==================== LOADING INDICATOR ==================== -->
   <div id="loadingIndicator">
-    <div class="lhc-card" style="padding: 24px 32px; display: flex; flex-direction: column; align-items: center; gap: 12px;">
-      <div style="font-size: 32px;" class="animate-bounce">🎵</div>
-      <div style="font-family: 'Poppins', sans-serif; font-weight: 600; color: #475569;">Loading worship data…</div>
+    <div class="lhc-loader-card">
+      <div class="lhc-loader-ring"></div>
+      <div class="lhc-loader-text">Loading worship data…</div>
     </div>
   </div>
 
@@ -8974,15 +9127,74 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 3) LOADER & TOAST
   // ============================================================
+  // Progress bar state
+  var _pbTimer = null;
+  var _pbPct   = 0;
+
+  function _pbSet(pct) {
+    var fill = $('lhcTopBarFill');
+    if (fill) fill.style.width = pct + '%';
+  }
+  function _pbStart() {
+    var bar = $('lhcTopBar');
+    if (bar) bar.classList.add('active');
+    _pbPct = 0; _pbSet(0);
+    clearInterval(_pbTimer);
+    _pbTimer = setInterval(function() {
+      _pbPct = _pbPct < 70 ? _pbPct + Math.random() * 9
+                           : _pbPct + (90 - _pbPct) * 0.06;
+      if (_pbPct > 90) _pbPct = 90;
+      _pbSet(_pbPct);
+    }, 180);
+  }
+  function _pbDone() {
+    clearInterval(_pbTimer);
+    _pbSet(100);
+    setTimeout(function() {
+      var bar = $('lhcTopBar');
+      if (bar) bar.classList.remove('active');
+      _pbSet(0);
+    }, 350);
+  }
+
   function showLoader(show) {
     var el = $('loadingIndicator');
     if (el) el.classList.toggle('show', show);
+    if (show) { _pbStart(); } else { _pbDone(); }
+  }
+
+  // Stagger list items with a slide-in animation
+  function _staggerListItems(container, selector) {
+    if (!container) return;
+    var items = container.querySelectorAll(selector || '.all-songs-row, .song-list-item');
+    var limit = 40;
+    items.forEach(function(el, i) {
+      if (i >= limit) { el.style.opacity = '1'; return; }
+      el.style.opacity = '0';
+      el.style.transform = 'translateX(-7px)';
+      el.style.transition = 'none';
+      var delay = i * 22;
+      setTimeout(function() {
+        el.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+        el.style.opacity = '1';
+        el.style.transform = 'translateX(0)';
+      }, delay);
+    });
   }
 
   function showToast(message, type) {
     var el = $('toastNotification');
     if (!el) return;
-    el.textContent = message;
+    var iconMap = {
+      success: '<i class="fa-solid fa-circle-check"></i>',
+      error:   '<i class="fa-solid fa-circle-xmark"></i>',
+      warning: '<i class="fa-solid fa-triangle-exclamation"></i>'
+    };
+    var icon = iconMap[type] || '<i class="fa-solid fa-circle-info"></i>';
+    var safeMsg = message ? String(message).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+    el.innerHTML = '<span class="toast-icon">' + icon + '</span>'
+                 + '<span class="toast-body">' + safeMsg + '</span>'
+                 + '<span class="toast-progress-bar"></span>';
     el.className = 'toast-notification show ' + (type || '');
     clearTimeout(showToast._timer);
     showToast._timer = setTimeout(function() { el.classList.remove('show'); }, 3500);
@@ -9418,6 +9630,7 @@ window.loadEditSongData = function(song) {
     if (container) {
       container.innerHTML = html;
       bindSongItemEvents();
+      _staggerListItems(container, '.song-list-item, .all-songs-row');
     }
   }
 
@@ -9507,6 +9720,7 @@ window.loadEditSongData = function(song) {
     if (container) {
       container.innerHTML = html;
       bindSongItemEvents();
+      _staggerListItems(container, '.all-songs-row');
     }
     updateResultCounts(sorted.length);
   }
@@ -33477,7 +33691,8 @@ var WO = (function() {
   }
 
   function showToastWO(msg, type) {
-    // Use the global toast element directly
+    // Delegate to global showToast for consistent rich formatting
+    if (window.showToast) { window.showToast(msg, type); return; }
     var el = document.getElementById('toastNotification');
     if (el) {
       el.textContent = msg;
