@@ -5,6 +5,188 @@
 // ================================================================
 
 // ================================================================
+// SUPABASE MIGRATION  (run once from the GAS editor)
+// Select migrateAllToSupabase() and click Run.
+// ================================================================
+var _SUPA_URL  = 'https://jypzhumcdifxnazexdcu.supabase.co';
+var _SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp5cHpodW1jZGlmeG5hemV4ZGN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2OTA0MjQsImV4cCI6MjA4MzI2NjQyNH0.s3QxdQGmmEo44zlwdWsSQjjb1kkFQY2y_dVmNHM5_Sg';
+
+function _supaPost_(table, rows, onConflict) {
+  if (!rows || rows.length === 0) return { ok: true, count: 0 };
+  var url = _SUPA_URL + '/rest/v1/' + table;
+  if (onConflict) url += '?on_conflict=' + encodeURIComponent(onConflict);
+  var resp = UrlFetchApp.fetch(url, {
+    method: 'POST',
+    headers: {
+      'apikey': _SUPA_ANON,
+      'Authorization': 'Bearer ' + _SUPA_ANON,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=ignore-duplicates,return=minimal'
+    },
+    payload: JSON.stringify(rows),
+    muteHttpExceptions: true
+  });
+  var code = resp.getResponseCode();
+  return { ok: code >= 200 && code < 300, code: code, body: resp.getContentText() };
+}
+
+function migrateSongsToSupabase() {
+  var songs = getSongs();
+  if (!songs || songs.length === 0) { Logger.log('No songs found in sheet'); return 'No songs'; }
+
+  var rows = songs.map(function(s) {
+    return {
+      id:          s.id          || ('song_' + new Date().getTime() + Math.random()),
+      title:       s.title       || '',
+      artist:      s.artist      || '',
+      theme:       s.theme       || '',
+      key:         s.key         || '',
+      tempo:       s.tempo       || '',
+      style:       s.style       || s.category || '',
+      season:      s.season      || '',
+      youtube:     s.youtube     || [],
+      attachments: s.attachments || [],
+      lyrics:      s.lyrics      || '',
+      scripture:   s.scripture   || '',
+      use_count:   s.useCount    || 0,
+      last_used:   s.lastUsed    ? new Date(s.lastUsed).toISOString()   : null,
+      date_added:  s.dateAdded   ? new Date(s.dateAdded).toISOString()  : new Date().toISOString(),
+      last_edited: s.lastEdited  ? new Date(s.lastEdited).toISOString() : new Date().toISOString()
+    };
+  });
+
+  // Insert in batches of 50 to stay under URL-fetch limits
+  var BATCH = 50; var ok = 0; var fail = 0;
+  for (var i = 0; i < rows.length; i += BATCH) {
+    var result = _supaPost_('songs', rows.slice(i, i + BATCH));
+    if (result.ok) { ok += Math.min(BATCH, rows.length - i); }
+    else { fail++; Logger.log('Batch error: ' + result.code + ' — ' + result.body); }
+  }
+  var msg = 'Songs migrated: ' + ok + ' OK, ' + fail + ' batch errors';
+  Logger.log(msg); return msg;
+}
+
+function clearRosterInSupabase() {
+  // DELETE all roster rows so we can re-insert cleanly
+  var resp = UrlFetchApp.fetch(_SUPA_URL + '/rest/v1/roster?id=gte.0', {
+    method: 'DELETE',
+    headers: {
+      'apikey': _SUPA_ANON,
+      'Authorization': 'Bearer ' + _SUPA_ANON,
+      'Prefer': 'return=minimal'
+    },
+    muteHttpExceptions: true
+  });
+  Logger.log('Clear roster: HTTP ' + resp.getResponseCode() + ' — ' + resp.getContentText());
+  return resp.getResponseCode();
+}
+
+function migrateRosterToSupabase() {
+  Logger.log('=== MIGRATE ROSTER TO SUPABASE ===');
+
+  // Read sheet directly — bypass getRosterData to avoid month/year filter issues
+  var sheet;
+  try { sheet = getSheet_(CONFIG.ROSTER_SHEET); }
+  catch(e) { Logger.log('Roster sheet not found: ' + e); return 'No sheet'; }
+
+  var data = sheet.getDataRange().getValues();
+  Logger.log('Sheet rows: ' + data.length);
+  if (data.length < 2) return 'Empty sheet';
+
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+
+  var colRole  = findColumn_(idx, ['role','roleid','role_id','duty']);   if (colRole  < 0) colRole  = 0;
+  var colDate  = findColumn_(idx, ['date','sunday','service date']);      if (colDate  < 0) colDate  = 1;
+  var colValue = findColumn_(idx, ['value','name','assigned','person']);  if (colValue < 0) colValue = 2;
+  var colMonth = findColumn_(idx, ['month']);                             if (colMonth < 0) colMonth = 3;
+  var colYear  = findColumn_(idx, ['year']);                              if (colYear  < 0) colYear  = 4;
+
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  // Collect unique rows — latest value wins for duplicate role+date combos
+  var seen = {};
+  var rows = [];
+
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+
+    var roleId = String(row[colRole] || '').trim();
+    if (!roleId) continue;
+
+    // Parse date — may be a Date object or a string
+    var dateRaw = row[colDate];
+    var dateStr = '';
+    if (dateRaw instanceof Date) {
+      dateStr = MONTHS[dateRaw.getMonth()] + ' ' + dateRaw.getDate();
+    } else {
+      dateStr = String(dateRaw || '').trim();
+    }
+    if (!dateStr) continue;
+
+    // Parse month/year — try sheet columns, then parse from date string
+    var month = parseInt(row[colMonth]);
+    var year  = parseInt(row[colYear]);
+
+    if (isNaN(month) || isNaN(year)) {
+      // Fall back: parse from the date string + guess year from current context
+      var parts = dateStr.split(' ');
+      var mIdx = MONTHS.indexOf(parts[0]);
+      if (mIdx >= 0) {
+        month = mIdx;
+        year  = isNaN(year) ? new Date().getFullYear() : year;
+      } else {
+        continue; // Can't determine date — skip
+      }
+    }
+
+    var value = String(row[colValue] || '').trim();
+    if (value.toUpperCase() === 'TBD') value = '';
+
+    var key = month + '_' + year + '_' + roleId.toLowerCase() + '_' + dateStr.toLowerCase();
+    seen[key] = { month: month, year: year, role_id: roleId, service_date: dateStr,
+                  value: value, updated_at: new Date().toISOString() };
+  }
+
+  rows = Object.keys(seen).map(function(k) { return seen[k]; });
+  Logger.log('Unique roster entries: ' + rows.length);
+
+  if (rows.length === 0) return 'No valid rows found';
+
+  // Clear existing roster rows first to avoid 409 conflicts
+  clearRosterInSupabase();
+
+  // Insert in batches of 100
+  var BATCH = 100; var ok = 0; var failCount = 0;
+  for (var i = 0; i < rows.length; i += BATCH) {
+    var batch = rows.slice(i, i + BATCH);
+    var result = _supaPost_('roster', batch, 'month,year,role_id,service_date');
+    if (result.ok) {
+      ok += batch.length;
+      Logger.log('Batch ' + Math.floor(i/BATCH+1) + ': inserted ' + batch.length + ' rows');
+    } else {
+      failCount++;
+      Logger.log('Batch error: HTTP ' + result.code + ' — ' + result.body);
+    }
+  }
+
+  var msg = '=== ROSTER DONE: ' + ok + ' inserted, ' + failCount + ' batch errors ===';
+  Logger.log(msg);
+  return msg;
+}
+
+// Run this to migrate everything at once
+function migrateAllToSupabase() {
+  Logger.log('=== Starting Supabase migration ===');
+  var r1 = migrateSongsToSupabase();
+  var r2 = migrateRosterToSupabase();
+  Logger.log('Songs:  ' + r1);
+  Logger.log('Roster: ' + r2);
+  Logger.log('=== Migration complete ===');
+  return { songs: r1, roster: r2 };
+}
+
+// ================================================================
 // RUN THIS FUNCTION FIRST TO AUTHORIZE DRIVE API
 // In the editor: Select this function and click "Run"
 // ================================================================
@@ -5503,85 +5685,7 @@ function migrateSongsToSupabase() {
   return results;
 }
 
-// ----------------------------------------------------------------
-// One-time migration: copy all Roster + RosterChanges rows to Supabase
-// Run once from Apps Script editor after creating the roster + roster_changes tables
-// ----------------------------------------------------------------
-function migrateRosterToSupabase() {
-  Logger.log('=== MIGRATE ROSTER TO SUPABASE ===');
-
-  // Migrate all years in sheet (no month/year filter → pass undefined)
-  var entries;
-  try {
-    entries = getRosterData(undefined, undefined);
-  } catch (e) {
-    return { total: 0, migrated: 0, failed: [{ error: 'getRosterData failed: ' + e.toString() }] };
-  }
-
-  var results = { total: entries.length, migrated: 0, failed: [] };
-
-  entries.forEach(function(entry) {
-    try {
-      var row = {
-        role_id:    entry.roleId,
-        date:       entry.date,
-        value:      entry.value || '',
-        month:      entry.month,
-        year:       entry.year,
-        updated_at: entry.timestamp ? new Date(entry.timestamp).toISOString() : new Date().toISOString()
-      };
-      supabaseRequest_('POST', 'roster', row, {
-        'Prefer': 'resolution=merge-duplicates,return=minimal'
-      });
-      results.migrated++;
-    } catch (e) {
-      results.failed.push({ roleId: entry.roleId, date: entry.date, error: e.toString() });
-      Logger.log('FAILED roster entry ' + entry.roleId + '/' + entry.date + ': ' + e.toString());
-    }
-  });
-
-  Logger.log('=== ROSTER MIGRATION COMPLETE: ' + results.migrated + '/' + results.total + ' ===');
-  if (results.failed.length > 0) Logger.log('Failed: ' + JSON.stringify(results.failed));
-
-  // Also migrate RosterChanges if sheet exists
-  var changesResults = { total: 0, migrated: 0, failed: [] };
-  try {
-    var ss = getSpreadsheet_();
-    var changesSheet = ss.getSheetByName('RosterChanges');
-    if (changesSheet) {
-      var cData = changesSheet.getDataRange().getValues();
-      if (cData.length > 1) {
-        var cHeader = cData[0];
-        var cIdx = buildHeaderIndex_(cHeader);
-        changesResults.total = cData.length - 1;
-        for (var r = 1; r < cData.length; r++) {
-          try {
-            var row = cData[r];
-            var changeRow = {
-              role_id:      String(row[cIdx['roleid'] !== undefined ? cIdx['roleid'] : 0] || ''),
-              service_date: String(row[cIdx['servicedate'] !== undefined ? cIdx['servicedate'] : 1] || ''),
-              old_value:    String(row[cIdx['oldvalue'] !== undefined ? cIdx['oldvalue'] : 2] || ''),
-              new_value:    String(row[cIdx['newvalue'] !== undefined ? cIdx['newvalue'] : 3] || ''),
-              month:        parseInt(row[cIdx['month'] !== undefined ? cIdx['month'] : 4]) || 0,
-              year:         parseInt(row[cIdx['year'] !== undefined ? cIdx['year'] : 5]) || 0
-            };
-            supabaseRequest_('POST', 'roster_changes', changeRow, {
-              'Prefer': 'return=minimal'
-            });
-            changesResults.migrated++;
-          } catch (e2) {
-            changesResults.failed.push({ row: r, error: e2.toString() });
-          }
-        }
-      }
-    }
-  } catch (e) {
-    Logger.log('RosterChanges migration skipped/failed: ' + e.toString());
-  }
-
-  Logger.log('=== ROSTER CHANGES MIGRATION: ' + changesResults.migrated + '/' + changesResults.total + ' ===');
-  return { roster: results, rosterChanges: changesResults };
-}
+// (migrateRosterToSupabase moved to top of file — see line ~84)
 
 // ================================================================
 // SETTINGS - Generic key-value store in Google Sheets
