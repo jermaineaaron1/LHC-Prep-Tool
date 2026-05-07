@@ -11,6 +11,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="LHC Worship" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="/manifest.json" />
   <base target="_top" />
 
   <!-- Deep-link parameters for media sharing -->
@@ -4051,6 +4052,18 @@
                 </button>
               </div>
               <button class="wo-back-btn" onclick="WO.hideNewOrderOptions()"><i class="fa-solid fa-arrow-left mr-2"></i> Back</button>
+            </div>
+
+            <!-- Idea Inbox — shared links waiting to be assigned -->
+            <div class="wo-inbox-section" id="woInboxSection" style="display:none;">
+              <div class="wo-inbox-header" id="woInboxHeader" onclick="WO_Inbox.toggle()">
+                <span class="wo-inbox-title">
+                  <i class="fa-solid fa-inbox"></i> Idea Inbox
+                  <span class="wo-inbox-badge" id="woInboxBadge"></span>
+                </span>
+                <i class="fa-solid fa-chevron-down wo-inbox-chevron" id="woInboxChevron"></i>
+              </div>
+              <div class="wo-inbox-list" id="woInboxList" style="display:none;"></div>
             </div>
 
             <!-- Always-visible orders panel -->
@@ -10148,6 +10161,9 @@ window.loadEditSongData = function(song) {
       // Always return to the welcome homepage when navigating to Liturgy
       window.LiturgyModule.selectOccasion(null);
     }
+    if (viewId === 'worshipOrderView' && window.WO_Inbox) {
+      window.WO_Inbox.load();
+    }
     if (viewId === 'worshipOrderView' && window.WO) {
       window.WO.checkSecondaryMonitor();
       // Auto-load the orders list whenever the Orders view is opened
@@ -14462,17 +14478,33 @@ window.loadEditSongData = function(song) {
       }, 500);
     }
 
-    // Handle ?shareInbox= param (Web Share Target via PWA shell)
+    // Handle ?shareInbox= param (Web Share Target — Android/Chrome shares URL to this app)
     if (window.__SHARE_INBOX_URL && window.__SHARE_INBOX_URL.trim()) {
       var _siUrl   = window.__SHARE_INBOX_URL.trim();
       var _siTitle = (window.__SHARE_INBOX_TITLE || '').trim();
       var _siText  = (window.__SHARE_INBOX_TEXT  || '').trim();
-      // Show the bottom sheet picker. SharePickerModal is defined above in the
-      // same IIFE so it is available here. WO isn't assigned yet so show()
-      // uses a 200ms timer internally for showSavedOrders, and falls back to a
-      // direct google.script.run call to fetch orders for the overlay.
+
+      // Detect link type for icon
+      var _siTypeMap = [
+        { re: /youtube\.com|youtu\.be/i, type: 'youtube' },
+        { re: /spotify\.com/i,           type: 'spotify'  },
+        { re: /docs\.google\.com/i,      type: 'gdoc'     },
+        { re: /drive\.google\.com/i,     type: 'gdrive'   },
+        { re: /canva\.com/i,             type: 'canva'    },
+      ];
+      var _siType = 'link';
+      for (var _i = 0; _i < _siTypeMap.length; _i++) {
+        if (_siTypeMap[_i].re.test(_siUrl)) { _siType = _siTypeMap[_i].type; break; }
+      }
+
+      // Save to Supabase idea_inbox immediately (stays pending until assigned)
+      if (typeof SBQ_INBOX !== 'undefined') {
+        SBQ_INBOX.add({ url: _siUrl, title: _siTitle, text: _siText, type: _siType })
+          .catch(function(e) { console.warn('idea_inbox save error:', e); });
+      }
+
+      // Show the order-picker bottom sheet so the user can assign it right away
       SharePickerModal.show(_siUrl, _siTitle, _siText);
-      // Tell the PWA shell the share was received so it clears the status bar
       try { window.parent.postMessage({ type: 'lhc-share-received' }, '*'); } catch(e) {}
     }
 
@@ -15894,6 +15926,240 @@ var SBQ_ROSTER = {
       });
   }
 };
+
+// ================================================================
+// SBQ_INBOX — Supabase-backed Idea Inbox (Web Share Target items)
+// ================================================================
+var SBQ_INBOX = {
+  _sb: function() { return getSupabaseClient(); },
+
+  _id: function() {
+    return 'idea_' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+  },
+
+  // All unprocessed (unassigned) items, newest first
+  getPending: function() {
+    var sb = SBQ_INBOX._sb();
+    if (!sb) return Promise.resolve([]);
+    return sb.from('idea_inbox').select('*')
+      .eq('processed', false)
+      .order('created_at', { ascending: false })
+      .then(function(r) { return r.error ? [] : (r.data || []); });
+  },
+
+  // Items assigned to a specific order
+  getForOrder: function(orderId) {
+    var sb = SBQ_INBOX._sb();
+    if (!sb) return Promise.resolve([]);
+    return sb.from('idea_inbox').select('*')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: false })
+      .then(function(r) { return r.error ? [] : (r.data || []); });
+  },
+
+  // Save a newly shared item (processed=false until assigned)
+  add: function(item) {
+    var sb = SBQ_INBOX._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    var row = {
+      id:         SBQ_INBOX._id(),
+      url:        item.url   || '',
+      title:      item.title || '',
+      text:       item.text  || '',
+      type:       item.type  || 'link',
+      notes:      item.notes || '',
+      processed:  false,
+      created_at: new Date().toISOString()
+    };
+    return sb.from('idea_inbox').insert(row)
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return row;
+      });
+  },
+
+  // Assign to an order and mark processed
+  assignToOrder: function(id, orderId) {
+    var sb = SBQ_INBOX._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('idea_inbox').update({
+      order_id:    orderId,
+      processed:   true,
+      assigned_at: new Date().toISOString()
+    }).eq('id', id)
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return { success: true };
+      });
+  },
+
+  // Delete an item entirely
+  remove: function(id) {
+    var sb = SBQ_INBOX._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('idea_inbox').delete().eq('id', id)
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return { success: true };
+      });
+  }
+};
+
+// ================================================================
+// WO_Inbox — UI controller for the Idea Inbox panel in Orders view
+// ================================================================
+var WO_Inbox = (function() {
+  var _open = false;
+  var _items = [];
+
+  var TYPE_MAP = [
+    { re: /youtube\.com|youtu\.be/i,           icon: '▶️', label: 'YouTube'      },
+    { re: /spotify\.com/i,                      icon: '🎵', label: 'Spotify'       },
+    { re: /docs\.google\.com\/document/i,       icon: '📄', label: 'Google Doc'    },
+    { re: /docs\.google\.com\/presentation/i,   icon: '📊', label: 'Slides'        },
+    { re: /drive\.google\.com/i,                icon: '☁️', label: 'Drive'         },
+    { re: /canva\.com/i,                        icon: '🎨', label: 'Canva'         },
+  ];
+
+  function _detect(url) {
+    for (var i = 0; i < TYPE_MAP.length; i++) {
+      if (TYPE_MAP[i].re.test(url)) return TYPE_MAP[i];
+    }
+    return { icon: '🔗', label: 'Link' };
+  }
+
+  function _timeAgo(iso) {
+    if (!iso) return '';
+    var diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (diff < 60)   return 'just now';
+    if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+    return Math.floor(diff/86400) + 'd ago';
+  }
+
+  function _updateBadge(count) {
+    var badge  = document.getElementById('woInboxBadge');
+    var section = document.getElementById('woInboxSection');
+    if (!section) return;
+    if (count > 0) {
+      section.style.display = '';
+      if (badge) badge.textContent = count;
+    } else {
+      section.style.display = 'none';
+    }
+    // dot on Orders nav buttons
+    ['navOrdersBtn','topNavOrders','bnOrders'].forEach(function(id) {
+      var btn = document.getElementById(id);
+      if (!btn) return;
+      btn.style.position = 'relative';
+      var dot = btn.querySelector('.wo-nav-inbox-dot');
+      if (count > 0 && !dot) {
+        var d = document.createElement('span');
+        d.className = 'wo-nav-inbox-dot';
+        btn.appendChild(d);
+      } else if (count === 0 && dot) {
+        dot.remove();
+      }
+    });
+  }
+
+  function _render() {
+    var list = document.getElementById('woInboxList');
+    var chevron = document.getElementById('woInboxChevron');
+    if (!list) return;
+    if (!_items.length) {
+      list.innerHTML = '<div class="wo-inbox-empty"><i class="fa-solid fa-inbox"></i><br>Inbox is empty</div>';
+      return;
+    }
+    list.innerHTML = _items.map(function(item, idx) {
+      var t = _detect(item.url);
+      var displayTitle = item.title || item.text || item.url || 'Shared link';
+      var shortUrl = (item.url || '').replace(/^https?:\/\//,'').substring(0, 60);
+      return '<div class="wo-inbox-item" id="wii_' + idx + '">'
+        + '<div class="wo-inbox-item-icon">' + t.icon + '</div>'
+        + '<div class="wo-inbox-item-body">'
+        +   '<div class="wo-inbox-item-title">' + _esc(displayTitle) + '</div>'
+        +   '<div class="wo-inbox-item-url">' + _esc(shortUrl) + '</div>'
+        +   '<div class="wo-inbox-item-time">' + t.label + ' · ' + _timeAgo(item.created_at) + '</div>'
+        +   '<div class="wo-inbox-item-actions">'
+        +     '<button class="wo-inbox-assign-btn" onclick="WO_Inbox.assign(\'' + _esc(item.id) + '\',\'' + _esc(item.url) + '\')"><i class="fa-solid fa-link"></i> Assign to Order</button>'
+        +     '<a class="wo-inbox-open-btn" href="' + _esc(item.url) + '" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square"></i> Open</a>'
+        +     '<button class="wo-inbox-dismiss-btn" onclick="WO_Inbox.dismiss(\'' + _esc(item.id) + '\')">Dismiss</button>'
+        +   '</div>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function _esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  function load() {
+    SBQ_INBOX.getPending().then(function(items) {
+      _items = items || [];
+      _updateBadge(_items.length);
+      if (_open) _render();
+    }).catch(function(e) { console.warn('WO_Inbox load error:', e); });
+  }
+
+  function toggle() {
+    _open = !_open;
+    var list    = document.getElementById('woInboxList');
+    var chevron = document.getElementById('woInboxChevron');
+    if (list)    list.style.display = _open ? '' : 'none';
+    if (chevron) chevron.classList.toggle('open', _open);
+    if (_open) _render();
+  }
+
+  function assign(id, url) {
+    // Build a quick order-picker overlay
+    var orders = [];
+    try {
+      if (window.WO && WO._getAllOrders) orders = WO._getAllOrders();
+    } catch(e) {}
+    if (!orders.length) {
+      showToast('No orders yet — create one first', 'warning');
+      return;
+    }
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;';
+    var sheet = document.createElement('div');
+    sheet.style.cssText = 'background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:540px;padding:24px 20px 32px;max-height:70vh;overflow-y:auto;';
+    sheet.innerHTML = '<div style="font-weight:700;font-size:1rem;margin-bottom:14px;font-family:Poppins,sans-serif;">📋 Assign to which order?</div>'
+      + orders.map(function(o) {
+          return '<button onclick="WO_Inbox._doAssign(\'' + _esc(id) + '\',\'' + _esc(o.id) + '\',\'' + _esc(url) + '\')" '
+            + 'style="display:block;width:100%;text-align:left;padding:11px 14px;margin-bottom:8px;border-radius:10px;border:1.5px solid #e2e8f0;background:#f8fafc;cursor:pointer;font-family:Poppins,sans-serif;font-size:.88rem;">'
+            + _esc(o.title || 'Untitled Order') + (o.service_date ? ' <span style="color:#9ca3af;font-size:.78rem;">· ' + _esc(o.service_date) + '</span>' : '')
+            + '</button>';
+        }).join('')
+      + '<button onclick="this.closest(\'[data-lhc-overlay]\').remove()" style="margin-top:6px;width:100%;padding:10px;border:none;background:none;color:#9ca3af;cursor:pointer;font-family:Poppins,sans-serif;">Cancel</button>';
+    overlay.setAttribute('data-lhc-overlay','1');
+    overlay.appendChild(sheet);
+    overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+  }
+
+  function _doAssign(id, orderId, url) {
+    document.querySelectorAll('[data-lhc-overlay]').forEach(function(el){ el.remove(); });
+    SBQ_INBOX.assignToOrder(id, orderId).then(function() {
+      _items = _items.filter(function(i){ return i.id !== id; });
+      _updateBadge(_items.length);
+      _render();
+      showToast('Added to order ✓', 'success');
+    }).catch(function(e) { showToast('Could not assign: ' + e.message, 'error'); });
+  }
+
+  function dismiss(id) {
+    SBQ_INBOX.remove(id).then(function() {
+      _items = _items.filter(function(i){ return i.id !== id; });
+      _updateBadge(_items.length);
+      _render();
+    }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+  }
+
+  return { load: load, toggle: toggle, assign: assign, _doAssign: _doAssign, dismiss: dismiss };
+})();
 
 // ================================================================
 // SBQ_SONGBOOKS — Supabase helpers for standalone Songbooks table
@@ -42697,6 +42963,31 @@ function filterLiturgyItems() {
   .wo-main-menu { padding: 24px 20px 16px; text-align: center; }
   .wo-main-menu-header h1 { font-size: 2rem; font-weight: 700; color: #2c5aa0; margin: 0 0 10px 0; font-family: Georgia, serif; }
   .wo-main-menu-header p { font-size: 1rem; color: #6c757d; font-style: italic; margin: 0 0 20px; }
+  /* ── Idea Inbox ───────────────────────────────────────────────────── */
+  .wo-inbox-section { max-width: 800px; margin: 0 auto 18px; border-radius: 14px; overflow: hidden; border: 1.5px solid #e2e8f0; background: #fff; box-shadow: 0 2px 12px rgba(74,109,167,.08); }
+  .wo-inbox-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; cursor: pointer; user-select: none; background: linear-gradient(135deg,#4a6da7 0%,#6b9ac4 100%); color: #fff; }
+  .wo-inbox-header:hover { filter: brightness(1.06); }
+  .wo-inbox-title { font-weight: 700; font-size: .95rem; display: flex; align-items: center; gap: 8px; font-family: 'Poppins',sans-serif; }
+  .wo-inbox-badge { background: #f59e0b; color: #fff; border-radius: 99px; font-size: .7rem; font-weight: 800; padding: 1px 7px; min-width: 20px; text-align: center; }
+  .wo-inbox-chevron { font-size: .85rem; transition: transform .25s; }
+  .wo-inbox-chevron.open { transform: rotate(180deg); }
+  .wo-inbox-list { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .wo-inbox-item { display: flex; align-items: flex-start; gap: 12px; background: #f8fafc; border-radius: 10px; padding: 12px 14px; border: 1px solid #e9eef5; }
+  .wo-inbox-item-icon { font-size: 1.6rem; flex-shrink: 0; line-height: 1; margin-top: 2px; }
+  .wo-inbox-item-body { flex: 1; min-width: 0; }
+  .wo-inbox-item-title { font-weight: 700; font-size: .88rem; color: #1f2933; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wo-inbox-item-url { font-size: .72rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .wo-inbox-item-time { font-size: .68rem; color: #9ca3af; margin-top: 4px; }
+  .wo-inbox-item-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .wo-inbox-assign-btn { background: #4a6da7; color: #fff; border: none; border-radius: 7px; padding: 5px 12px; font-size: .78rem; font-weight: 700; cursor: pointer; font-family: 'Poppins',sans-serif; }
+  .wo-inbox-assign-btn:hover { background: #3a5d97; }
+  .wo-inbox-open-btn { background: transparent; color: #4a6da7; border: 1.5px solid #4a6da7; border-radius: 7px; padding: 4px 10px; font-size: .78rem; font-weight: 600; cursor: pointer; text-decoration: none; font-family: 'Poppins',sans-serif; display: inline-flex; align-items: center; gap: 4px; }
+  .wo-inbox-dismiss-btn { background: transparent; color: #9ca3af; border: 1.5px solid #e5e7eb; border-radius: 7px; padding: 4px 10px; font-size: .78rem; cursor: pointer; font-family: 'Poppins',sans-serif; }
+  .wo-inbox-dismiss-btn:hover { color: #ef4444; border-color: #ef4444; }
+  .wo-inbox-empty { text-align: center; color: #9ca3af; font-size: .85rem; padding: 16px 0; }
+  /* badge on nav button */
+  .wo-nav-inbox-dot { position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; background: #f59e0b; border-radius: 50%; border: 1.5px solid #fff; }
+
   /* ── Always-visible orders panel ─────────────────────────────────── */
   .wo-orders-panel { max-width: 800px; margin: 0 auto; text-align: left; }
   .wo-orders-panel-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
@@ -49601,28 +49892,8 @@ window.LHC_Install = (function() {
   function dismissPermanent() { _markDismissed(); dismiss(); }
 
   function init() {
-    // Inject inline manifest as Blob URL so browsers recognise it as a web app
-    try {
-      var mData = {
-        name: 'LHC Worship Prep', short_name: 'LHC Worship',
-        description: 'Luther House Chapel worship planning app',
-        display: 'standalone', orientation: 'portrait-primary',
-        background_color: '#f4f5fb', theme_color: '#4a6da7',
-        start_url: window.location.href,
-        icons: [{
-          src: 'data:image/svg+xml,' + encodeURIComponent(
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
-            + '<rect width="100" height="100" rx="20" fill="#4a6da7"/>'
-            + '<text y="78" x="50" text-anchor="middle" font-size="64" fill="#fff">✝</text>'
-            + '</svg>'),
-          sizes: 'any', type: 'image/svg+xml'
-        }]
-      };
-      var blob = new Blob([JSON.stringify(mData)], { type: 'application/manifest+json' });
-      var mLink = document.createElement('link');
-      mLink.rel = 'manifest'; mLink.href = URL.createObjectURL(blob);
-      document.head.appendChild(mLink);
-    } catch(e) {}
+    // manifest.json is served as a real file from /manifest.json (Vercel static)
+    // — share_target and shortcuts are registered there.
 
     // Offline / online indicator
     var offDiv = document.createElement('div');
