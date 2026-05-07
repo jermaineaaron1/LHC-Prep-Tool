@@ -15,18 +15,372 @@
 
   <!-- Deep-link parameters for media sharing -->
   <script>
-    window.__DEEPLINK_MEDIA = '<?= mediaUrl ?>';
-    window.__DEEPLINK_SONG = '<?= songHint ?>';
-    window.__DEEPLINK_ORDER = '<?= deepLinkOrder ?>';
-    window.__DEEPLINK_VIEW = '<?= deepLinkView ?>';
-    window.__DEEPLINK_PLAYLIST  = '<?= deepLinkPlaylist ?>';
-    window.__DEEPLINK_SONGBOOK  = '<?= deepLinkSongbook ?>';
-    window.__DEEPLINK_DATE  = '<?= deepLinkDate ?>';
-    window.__DEEPLINK_DNAME = '<?= deepLinkDname ?>';
-    window.__WEBAPP_URL = '<?= webAppUrl ?>';
-    window.__SHARE_INBOX_URL   = '<?= shareInboxUrl ?>';
-    window.__SHARE_INBOX_TITLE = '<?= shareInboxTitle ?>';
-    window.__SHARE_INBOX_TEXT  = '<?= shareInboxText ?>';
+    /* GAS template params — overwritten by Supabase bridge URL-param reader below.
+       Keep as empty-string fallbacks so the app works on both GAS and static hosts. */
+    window.__DEEPLINK_MEDIA    = window.__DEEPLINK_MEDIA    || '';
+    window.__DEEPLINK_SONG     = window.__DEEPLINK_SONG     || '';
+    window.__DEEPLINK_ORDER    = window.__DEEPLINK_ORDER    || '';
+    window.__DEEPLINK_VIEW     = window.__DEEPLINK_VIEW     || '';
+    window.__DEEPLINK_PLAYLIST = window.__DEEPLINK_PLAYLIST || '';
+    window.__DEEPLINK_SONGBOOK = window.__DEEPLINK_SONGBOOK || '';
+    window.__DEEPLINK_DATE     = window.__DEEPLINK_DATE     || '';
+    window.__DEEPLINK_DNAME    = window.__DEEPLINK_DNAME    || '';
+    window.__WEBAPP_URL        = window.__WEBAPP_URL        || window.location.href;
+    window.__SHARE_INBOX_URL   = window.__SHARE_INBOX_URL   || '';
+    window.__SHARE_INBOX_TITLE = window.__SHARE_INBOX_TITLE || '';
+    window.__SHARE_INBOX_TEXT  = window.__SHARE_INBOX_TEXT  || '';
+  </script>
+
+  <!-- Supabase client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+  <!-- ================================================================
+       SUPABASE BRIDGE — replaces Google Apps Script backend.
+       Intercepts every google.script.run call and routes it to Supabase.
+       callGAS() in the main app uses google.script.run internally, so
+       this covers both callGAS() and raw google.script.run.xxx() calls.
+       ================================================================ -->
+  <script>
+  (function() {
+    var SUPA_URL  = 'https://jypzhumcdifxnazexdcu.supabase.co';
+    var SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp5cHpodW1jZGlmeG5hemV4ZGN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2OTA0MjQsImV4cCI6MjA4MzI2NjQyNH0.s3QxdQGmmEo44zlwdWsSQjjb1kkFQY2y_dVmNHM5_Sg';
+
+    // Initialise client (supabase-js v2 UMD exposes window.supabase)
+    var _db = window.supabase.createClient(SUPA_URL, SUPA_ANON);
+    window._supabase = _db; // expose for debugging
+
+    // ── Deep-link params from URL (replaces GAS template <?= var ?>) ──
+    (function() {
+      var p = new URLSearchParams(window.location.search);
+      window.__DEEPLINK_MEDIA    = p.get('media')        || '';
+      window.__DEEPLINK_SONG     = p.get('song')         || '';
+      window.__DEEPLINK_ORDER    = p.get('order')        || '';
+      window.__DEEPLINK_VIEW     = p.get('view')         || '';
+      window.__DEEPLINK_PLAYLIST = p.get('playlist')     || '';
+      window.__DEEPLINK_SONGBOOK = p.get('sb')           || '';
+      window.__DEEPLINK_DATE     = p.get('date')         || '';
+      window.__DEEPLINK_DNAME    = p.get('dname')        || '';
+      window.__WEBAPP_URL        = window.location.origin + window.location.pathname;
+      window.__SHARE_INBOX_URL   = p.get('shareInbox')   || '';
+      window.__SHARE_INBOX_TITLE = p.get('shareTitle')   || '';
+      window.__SHARE_INBOX_TEXT  = p.get('shareText')    || '';
+    })();
+
+    // ── Helper: normalise a songs row from Supabase to app format ──
+    function _normSong(row) {
+      return {
+        id:          row.id,
+        title:       row.title       || '',
+        artist:      row.artist      || '',
+        theme:       row.theme       || '',
+        key:         row.key         || '',
+        tempo:       row.tempo       || '',
+        style:       row.style       || '',
+        category:    row.style       || '',
+        season:      row.season      || '',
+        youtube:     Array.isArray(row.youtube)     ? row.youtube     : [],
+        attachments: Array.isArray(row.attachments) ? row.attachments : [],
+        lyricsUrl:   (row.attachments && row.attachments[0]) ? row.attachments[0].url : '',
+        lyrics:      row.lyrics      || '',
+        scripture:   row.scripture   || '',
+        useCount:    row.use_count   || 0,
+        lastUsed:    row.last_used   || '',
+        dateAdded:   row.date_added  || '',
+        lastEdited:  row.last_edited || ''
+      };
+    }
+
+    // ── Supabase bridge functions (mirror server.gs public API) ──
+    var _B = {
+
+      // SONGS ─────────────────────────────────────────────────────
+      getSongs: async function() {
+        var { data, error } = await _db.from('songs').select('*').order('title');
+        if (error) throw error;
+        return (data || []).map(_normSong);
+      },
+
+      createSong: async function(song) {
+        var id = 'song_' + Date.now();
+        var { error } = await _db.from('songs').insert({
+          id:          id,
+          title:       song.title       || '',
+          artist:      song.artist      || '',
+          theme:       song.theme       || '',
+          key:         song.key         || '',
+          tempo:       song.tempo       || '',
+          style:       song.category    || song.style || '',
+          season:      song.season      || '',
+          youtube:     song.youtube     || [],
+          attachments: song.attachments || [],
+          lyrics:      song.lyrics      || '',
+          scripture:   song.scripture   || '',
+          use_count:   0,
+          date_added:  new Date().toISOString()
+        });
+        if (error) throw error;
+        return { success: true, id: id };
+      },
+
+      updateSong: async function(song) {
+        var patch = {
+          title:       song.title,
+          artist:      song.artist      !== undefined ? song.artist      : undefined,
+          theme:       song.theme       !== undefined ? song.theme       : undefined,
+          key:         song.key         !== undefined ? song.key         : undefined,
+          tempo:       song.tempo       !== undefined ? song.tempo       : undefined,
+          style:       (song.category   !== undefined || song.style !== undefined)
+                         ? (song.category || song.style || '') : undefined,
+          season:      song.season      !== undefined ? song.season      : undefined,
+          youtube:     song.youtube     !== undefined ? song.youtube     : undefined,
+          attachments: song.attachments !== undefined ? song.attachments : undefined,
+          lyrics:      song.lyrics      !== undefined ? song.lyrics      : undefined,
+          scripture:   song.scripture   !== undefined ? song.scripture   : undefined,
+          last_edited: new Date().toISOString()
+        };
+        // Remove undefined keys so we don't clobber existing values
+        Object.keys(patch).forEach(function(k) { if (patch[k] === undefined) delete patch[k]; });
+        var { error } = await _db.from('songs').update(patch).eq('id', song.id);
+        if (error) throw error;
+        return { success: true, id: song.id };
+      },
+
+      deleteSong: async function(songId) {
+        var { error } = await _db.from('songs').delete().eq('id', songId);
+        if (error) throw error;
+        return { success: true, deletedId: songId };
+      },
+
+      updateSongLyrics: async function(songId, lyrics) {
+        var { error } = await _db.from('songs').update({
+          lyrics: lyrics, last_edited: new Date().toISOString()
+        }).eq('id', songId);
+        if (error) throw error;
+        return { success: true };
+      },
+
+      incrementSongUseCount: async function(songId) {
+        var { data } = await _db.from('songs').select('use_count').eq('id', songId).single();
+        var n = ((data && data.use_count) || 0) + 1;
+        var { error } = await _db.from('songs').update({
+          use_count: n, last_used: new Date().toISOString()
+        }).eq('id', songId);
+        return error ? { success: false, error: error.message } : { success: true };
+      },
+
+      // ROSTER ────────────────────────────────────────────────────
+      getRosterData: async function(month, year) {
+        var { data, error } = await _db.from('roster').select('*')
+          .eq('month', month).eq('year', year);
+        if (error) throw error;
+        return data || [];
+      },
+
+      saveRosterEdits: async function(edits) {
+        for (var i = 0; i < edits.length; i++) {
+          var e = edits[i];
+          var { data: existing } = await _db.from('roster').select('value')
+            .eq('month', e.month).eq('year', e.year)
+            .eq('role_id', e.roleId).eq('service_date', e.date).maybeSingle();
+          var oldVal = existing ? existing.value : '';
+          await _db.from('roster').upsert({
+            month: e.month, year: e.year,
+            role_id: e.roleId, service_date: e.date,
+            value: e.value, updated_at: new Date().toISOString()
+          }, { onConflict: 'month,year,role_id,service_date' });
+          if (oldVal !== e.value) {
+            await _db.from('roster_changes').insert({
+              role_id: e.roleId, service_date: e.date,
+              old_value: oldVal, new_value: e.value,
+              month: e.month, year: e.year,
+              changed_at: new Date().toISOString()
+            });
+          }
+        }
+        return { success: true };
+      },
+
+      getRosterUpdates: async function() {
+        var since = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+        var { data } = await _db.from('roster_changes').select('*')
+          .gte('changed_at', since).order('changed_at', { ascending: false }).limit(50);
+        return (data || []).map(function(r) {
+          return { duty: r.role_id, roleId: r.role_id, serviceDate: r.service_date,
+                   oldValue: r.old_value, newValue: r.new_value, timestamp: r.changed_at };
+        });
+      },
+
+      getRosterHistory: async function(roleId, date) {
+        var { data } = await _db.from('roster_changes').select('*')
+          .eq('role_id', roleId).eq('service_date', date)
+          .order('changed_at', { ascending: false }).limit(20);
+        return data || [];
+      },
+
+      // ORDERS ────────────────────────────────────────────────────
+      getOrders: async function() {
+        var { data, error } = await _db.from('orders')
+          .select('id,title,service_date,type,updated_at')
+          .order('updated_at', { ascending: false });
+        if (error) return [];
+        return (data || []).map(function(r) {
+          return { id: r.id, title: r.title, serviceDate: r.service_date,
+                   type: r.type, lastEdited: r.updated_at };
+        });
+      },
+
+      getOrderComplete: async function(orderId) {
+        var { data } = await _db.from('orders').select('*').eq('id', orderId).maybeSingle();
+        if (!data) return null;
+        return Object.assign({ id: data.id, title: data.title,
+                               serviceDate: data.service_date, type: data.type }, data.data || {});
+      },
+
+      loadOrder: async function(orderId) {
+        return _B.getOrderComplete(orderId);
+      },
+
+      saveOrderComplete: async function(orderData) {
+        var id = orderData.id || ('order_' + Date.now());
+        var { error } = await _db.from('orders').upsert({
+          id: id, title: orderData.title || 'Untitled Order',
+          type: orderData.type || 'traditional',
+          service_date: orderData.serviceDate || '',
+          data: orderData, updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+        if (error) throw error;
+        return { success: true, id: id, lastEdited: new Date().toISOString() };
+      },
+
+      updateOrderInSheet: async function(orderData) {
+        return _B.saveOrderComplete(orderData);
+      },
+
+      saveOrder: async function(payload) {
+        return _B.saveOrderComplete(payload);
+      },
+
+      renameOrder: async function(orderId, newTitle) {
+        var { data } = await _db.from('orders').select('data').eq('id', orderId).maybeSingle();
+        var updated = Object.assign({}, data ? data.data : {}, { title: newTitle, orderName: newTitle });
+        var { error } = await _db.from('orders').update({
+          title: newTitle, data: updated, updated_at: new Date().toISOString()
+        }).eq('id', orderId);
+        return error ? { success: false, error: error.message } : { success: true, newTitle: newTitle };
+      },
+
+      deleteOrder: async function(orderId) {
+        var { error } = await _db.from('orders').delete().eq('id', orderId);
+        return error ? { success: false, error: error.message } : { success: true };
+      },
+
+      getOrderChanges: async function(orderId, since) {
+        // Stub: return empty (no collaborative sync tracking yet)
+        return [];
+      },
+
+      // SONGBOOKS ─────────────────────────────────────────────────
+      getSongbooks: async function() {
+        var { data } = await _db.from('songbooks').select('*').order('created_at');
+        return data || [];
+      },
+
+      saveSongbook: async function(sb) {
+        var id = sb.id || ('sb_' + Date.now());
+        var { error } = await _db.from('songbooks').upsert({
+          id: id, name: sb.name || 'Untitled',
+          description: sb.description || '', songs: sb.songs || [],
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+        return error ? { success: false } : { success: true, id: id };
+      },
+
+      deleteSongbook: async function(id) {
+        var { error } = await _db.from('songbooks').delete().eq('id', id);
+        return error ? { success: false } : { success: true };
+      },
+
+      // NOTIFICATIONS ─────────────────────────────────────────────
+      getAppNotifications: async function() {
+        var result = [];
+        var since = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+        try {
+          var { data: changes } = await _db.from('roster_changes').select('*')
+            .gte('changed_at', since).order('changed_at', { ascending: false }).limit(20);
+          (changes || []).forEach(function(u) {
+            result.push({ id: 'roster__'+u.role_id+'__'+u.service_date+'__'+new Date(u.changed_at).getTime(),
+              type: 'roster', title: u.role_id,
+              body: u.service_date+' • '+(u.old_value||'—')+' → '+(u.new_value||'—'),
+              timestamp: u.changed_at });
+          });
+        } catch(e) {}
+        try {
+          var { data: anns } = await _db.from('announcements').select('*')
+            .eq('active', true).order('date', { ascending: false }).limit(10);
+          (anns || []).forEach(function(a) {
+            result.push({ id: 'ann__'+a.id, type: 'announcement',
+              title: a.title, body: a.description, timestamp: a.date, priority: a.priority });
+          });
+        } catch(e) {}
+        result.sort(function(a,b) {
+          if (a.type==='announcement' && b.type!=='announcement') return -1;
+          if (b.type==='announcement' && a.type!=='announcement') return 1;
+          return new Date(b.timestamp) - new Date(a.timestamp);
+        });
+        return result.slice(0, 30);
+      },
+
+      getAnnouncements: async function() {
+        var { data } = await _db.from('announcements').select('*')
+          .eq('active', true).order('date', { ascending: false });
+        return data || [];
+      },
+
+      getDashboardData: async function() {
+        var { data: songs } = await _db.from('songs')
+          .select('id,title,use_count,last_used,date_added').order('use_count', { ascending: false });
+        return { songs: songs || [], totalSongs: (songs || []).length };
+      },
+
+      getLiturgicalDay: async function(dateStr) {
+        // Stub: return empty (liturgical calc was done server-side in GAS)
+        return { color: 'green', season: 'Ordinary Time', name: dateStr };
+      },
+
+      // STUBS for GAS Drive functions (gracefully unavailable) ────
+      getFileInfoFromUrl:    async function() { return null; },
+      getDocAsText:          async function() { return ''; },
+      getYouTubeVideoTitle:  async function() { return ''; },
+      scanDocumentForLyrics: async function() { return ''; },
+      uploadFileToDrive:     async function() { return { success: false, error: 'File upload not yet available in standalone mode.' }; },
+      deleteCloudBackground: async function() { return { success: false }; },
+      getCloudBackgrounds:   async function() { return []; },
+      getSectionBackgrounds: async function() { return {}; },
+      saveSectionBackgrounds:async function() { return { success: true }; }
+    };
+
+    // ── Mock google.script.run (handles both callGAS and raw calls) ──
+    function _GASRunner() { this._sh = null; this._fh = null; }
+    _GASRunner.prototype.withSuccessHandler = function(fn) { this._sh = fn; return this; };
+    _GASRunner.prototype.withFailureHandler = function(fn) { this._fh = fn; return this; };
+
+    Object.keys(_B).forEach(function(fnName) {
+      _GASRunner.prototype[fnName] = function() {
+        var args = Array.prototype.slice.call(arguments);
+        var sh = this._sh, fh = this._fh;
+        this._sh = null; this._fh = null; // reset for next chain
+        _B[fnName].apply(null, args)
+          .then(function(r) { if (sh) sh(r); })
+          .catch(function(err) {
+            console.error('[Supabase bridge] ' + fnName + ':', err);
+            if (fh) fh(err);
+          });
+      };
+    });
+
+    window.google = { script: { run: new _GASRunner() } };
+    console.log('[LHC] Supabase bridge active →', SUPA_URL);
+  })();
   </script>
 
   <!-- Fonts -->
@@ -2755,6 +3109,163 @@
     #worshipOrderView, #liturgyView, #practiceGameView {
       transition: opacity 0.2s ease;
     }
+
+
+    /* ==================== PHASE 5: INSTALL BANNER ==================== */
+    #lhcInstallBanner {
+      position: fixed;
+      bottom: 0; left: 0; right: 0; z-index: 600;
+      background: #fff;
+      border-top: 1px solid #e2e8f0;
+      box-shadow: 0 -4px 28px rgba(0,0,0,0.11);
+      padding: 14px 16px calc(14px + env(safe-area-inset-bottom,0px));
+      display: flex; align-items: flex-start; gap: 12px;
+      transform: translateY(110%);
+      transition: transform 0.42s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    @media (max-width: 768px) {
+      #lhcInstallBanner { bottom: calc(68px + env(safe-area-inset-bottom,0px)); }
+    }
+    @media (min-width: 769px) {
+      #lhcInstallBanner {
+        left: auto; right: 20px; bottom: 20px;
+        max-width: 350px; border-radius: 18px; border-top: none;
+        padding: 16px 18px; box-shadow: 0 8px 32px rgba(0,0,0,0.13);
+      }
+    }
+    #lhcInstallBanner.show { transform: translateY(0); }
+    .lhc-install-icon {
+      width: 46px; height: 46px; flex-shrink: 0;
+      background: linear-gradient(135deg,#4a6da7,#6b9ac4);
+      border-radius: 12px; display: flex; align-items: center;
+      justify-content: center; color: #fff; font-size: 1.15em;
+      box-shadow: 0 3px 10px rgba(74,109,167,0.3);
+    }
+    .lhc-install-body { flex: 1; min-width: 0; }
+    .lhc-install-title { font-weight: 700; font-size: 0.87em; color: #1f2933; margin-bottom: 4px; }
+    .lhc-install-steps { font-size: 0.76em; color: #6b7280; line-height: 1.55; }
+    .lhc-install-steps b { color: #374151; }
+    .lhc-install-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .lhc-install-btn {
+      border: none; cursor: pointer; border-radius: 9px;
+      font-size: 0.78em; font-weight: 600; padding: 7px 14px;
+      transition: opacity 0.15s, transform 0.15s;
+    }
+    .lhc-install-btn:active { transform: scale(0.94); }
+    .lhc-install-btn.primary { background: #4a6da7; color: #fff; }
+    .lhc-install-btn.ghost { background: #f1f5f9; color: #64748b; }
+    .lhc-install-btn:hover { opacity: 0.83; }
+    .lhc-install-dismiss {
+      border: none; background: none; cursor: pointer; color: #94a3b8;
+      padding: 2px 4px; font-size: 0.9em; flex-shrink: 0; line-height: 1;
+      transition: color 0.15s; margin-top: 1px;
+    }
+    .lhc-install-dismiss:hover { color: #475569; }
+
+    /* ==================== PHASE 5: OFFLINE BANNER ==================== */
+    #lhcOfflineBanner {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 9998;
+      background: linear-gradient(90deg,#f59e0b,#d97706);
+      color: #1f2933; font-size: 0.78em; font-weight: 600;
+      padding: 8px 16px; display: flex; align-items: center;
+      justify-content: center; gap: 8px; letter-spacing: 0.01em;
+      transform: translateY(-100%);
+      transition: transform 0.3s cubic-bezier(0.22,1,0.36,1);
+    }
+    #lhcOfflineBanner.show { transform: translateY(0); }
+
+    /* ==================== PHASE 4: SHARE BOTTOM SHEET ==================== */
+    .share-sheet-overlay { padding: 0 !important; }
+    @media (max-width: 768px) {
+      .share-sheet-overlay { align-items: flex-end !important; }
+      .share-sheet-overlay .share-sheet-card {
+        border-radius: 24px 24px 0 0;
+        transform: translateY(100%);
+        transition: transform 0.42s cubic-bezier(0.34,1.56,0.64,1);
+        padding-bottom: calc(20px + env(safe-area-inset-bottom,0px));
+      }
+      .share-sheet-overlay.show .share-sheet-card { transform: translateY(0); }
+    }
+    @media (min-width: 769px) {
+      .share-sheet-overlay { align-items: center !important; padding: 16px !important; }
+      .share-sheet-overlay .share-sheet-card {
+        border-radius: 20px;
+        transform: scale(0.88) translateY(16px);
+        opacity: 0;
+        transition: transform 0.38s cubic-bezier(0.34,1.56,0.64,1), opacity 0.22s ease;
+      }
+      .share-sheet-overlay.show .share-sheet-card { transform: scale(1) translateY(0); opacity: 1; }
+      .share-sheet-handle { display: none !important; }
+    }
+    .share-sheet-card {
+      background: #fff;
+      width: 100%;
+      max-width: 420px;
+      padding: 10px 22px 28px;
+      box-shadow: 0 -4px 40px rgba(0,0,0,0.14);
+    }
+    .share-sheet-handle {
+      width: 38px; height: 4px;
+      background: #dde1ea; border-radius: 2px;
+      margin: 4px auto 18px;
+    }
+    .share-sheet-header {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+    }
+    .share-sheet-app-icon {
+      width: 46px; height: 46px;
+      background: linear-gradient(135deg, #4a6da7, #6b9ac4);
+      border-radius: 13px;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 1.25em; flex-shrink: 0;
+      box-shadow: 0 3px 10px rgba(74,109,167,0.32);
+    }
+    .share-sheet-title-block { flex: 1; min-width: 0; }
+    .share-sheet-title { font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.95em; color: #1f2933; }
+    .share-sheet-subtitle { font-size: 0.73em; color: #8896a5; margin-top: 1px; }
+    .share-sheet-close-btn {
+      width: 32px; height: 32px; border: none;
+      background: #f1f5f9; border-radius: 50%; cursor: pointer;
+      color: #64748b; display: flex; align-items: center; justify-content: center;
+      font-size: 0.85em; flex-shrink: 0; transition: background 0.15s, color 0.15s;
+    }
+    .share-sheet-close-btn:hover { background: #e2e8f0; color: #1f2933; }
+    .share-sheet-url-row {
+      background: #f8fafc; border: 1px solid #e8edf5;
+      border-radius: 10px; padding: 9px 13px;
+      margin-bottom: 22px; display: flex; align-items: center; gap: 8px;
+      overflow: hidden;
+    }
+    .share-sheet-url-text {
+      font-size: 0.73em; color: #4a6da7; font-family: monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+    }
+    .share-sheet-actions {
+      display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;
+    }
+    .share-sheet-btn {
+      display: flex; flex-direction: column; align-items: center; gap: 7px;
+      border: none; background: none; cursor: pointer; padding: 6px 10px;
+      border-radius: 14px; transition: background 0.15s, transform 0.15s;
+      min-width: 68px;
+    }
+    .share-sheet-btn:hover { background: #f1f5f9; }
+    .share-sheet-btn:active { transform: scale(0.91); }
+    .share-sheet-btn-icon {
+      width: 54px; height: 54px; border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.35em; color: #fff;
+      transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.13);
+    }
+    .share-sheet-btn:hover .share-sheet-btn-icon { transform: scale(1.1); box-shadow: 0 5px 16px rgba(0,0,0,0.18); }
+    .share-sheet-btn-label { font-size: 0.72em; color: #4b5563; font-weight: 500; }
+    .whatsapp-icon { background: linear-gradient(145deg,#25D366,#1aad52); }
+    .copy-icon { background: linear-gradient(145deg,#4a6da7,#6b9ac4); }
+    .email-icon { background: linear-gradient(145deg,#f59e0b,#d97706); }
+    .native-icon { background: linear-gradient(145deg,#667eea,#764ba2); }
+    @keyframes copyPop { 0%{transform:scale(1)} 45%{transform:scale(1.28)} 100%{transform:scale(1)} }
+    .copy-icon.copied { background: linear-gradient(145deg,#10b981,#059669) !important; animation: copyPop 0.38s cubic-bezier(0.34,1.56,0.64,1); }
 
   </style>
 </head>
@@ -6258,23 +6769,42 @@ I once was lost but now am found"
     </div>
   </div>
 
-  <!-- ==================== MODAL: SHARE ==================== -->
-  <div id="shareModal" class="modal-overlay">
-    <div class="modal-content" style="max-width: 400px; padding: 20px;">
-      <div class="flex items-center justify-between gap-4 mb-4">
-        <h3 class="font-cinzel text-lg font-bold text-slate-800">
-          <i class="fa-solid fa-share-nodes mr-2 text-green-500"></i> Share
-        </h3>
-        <button id="closeShareBtn" class="lhc-pill-button" title="Close">
+  <!-- ==================== MODAL: SHARE (Phase 4 — Bottom Sheet) ==================== -->
+  <div id="shareModal" class="modal-overlay share-sheet-overlay">
+    <div class="share-sheet-card">
+      <div class="share-sheet-handle"></div>
+      <div class="share-sheet-header">
+        <div class="share-sheet-app-icon">
+          <i class="fa-solid fa-church"></i>
+        </div>
+        <div class="share-sheet-title-block">
+          <div class="share-sheet-title">LHC Worship Prep</div>
+          <div class="share-sheet-subtitle">Luther House Chapel</div>
+        </div>
+        <button id="closeShareBtn" class="share-sheet-close-btn" title="Close">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
-      <div class="grid grid-cols-2 gap-3">
-        <button id="shareWhatsApp" class="lhc-pill-button w-full text-sm py-3" style="background: #25D366; color: white; border-color: #25D366;">
-          <i class="fa-brands fa-whatsapp mr-2"></i> WhatsApp
+      <div class="share-sheet-url-row">
+        <i class="fa-solid fa-link" style="color:#4a6da7;font-size:0.75em;flex-shrink:0;"></i>
+        <span class="share-sheet-url-text" id="shareLinkDisplay">lhc-worship-prep...</span>
+      </div>
+      <div class="share-sheet-actions">
+        <button class="share-sheet-btn" id="shareNativeBtn" style="display:none;">
+          <span class="share-sheet-btn-icon native-icon"><i class="fa-solid fa-share-nodes"></i></span>
+          <span class="share-sheet-btn-label">Share</span>
         </button>
-        <button id="shareCopyLink" class="lhc-pill-button w-full text-sm py-3">
-          <i class="fa-solid fa-link mr-2"></i> Copy Link
+        <button class="share-sheet-btn" id="shareWhatsAppBtn">
+          <span class="share-sheet-btn-icon whatsapp-icon"><i class="fa-brands fa-whatsapp"></i></span>
+          <span class="share-sheet-btn-label">WhatsApp</span>
+        </button>
+        <button class="share-sheet-btn" id="shareCopyLinkBtn">
+          <span class="share-sheet-btn-icon copy-icon" id="copyIconWrap"><i class="fa-solid fa-link" id="copyLinkIcon"></i></span>
+          <span class="share-sheet-btn-label" id="copyLinkLabel">Copy Link</span>
+        </button>
+        <button class="share-sheet-btn" id="shareEmailBtn">
+          <span class="share-sheet-btn-icon email-icon"><i class="fa-solid fa-envelope"></i></span>
+          <span class="share-sheet-btn-label">Email</span>
         </button>
       </div>
     </div>
@@ -13569,33 +14099,54 @@ window.loadEditSongData = function(song) {
   // 17) SHARE FUNCTIONALITY
   // ============================================================
   function setupShareModal() {
+    // Native share (Web Share API — mobile browsers)
+    var nativeBtn = $('shareNativeBtn');
+    if (nativeBtn) {
+      if (navigator.share) { nativeBtn.style.display = ''; }
+      nativeBtn.onclick = function() {
+        var link = window._shareLinkValue || window.location.href;
+        var ctx = window._shareContext || 'LHC Worship Prep';
+        navigator.share({ title: ctx, text: '✝️ ' + ctx + ' — Luther House Chapel', url: link })
+          .catch(function() {});
+      };
+    }
+
+    // WhatsApp — rich formatted message
     var waBtn = $('shareWhatsAppBtn');
-    var fbBtn = $('shareFacebookBtn');
-    var emBtn = $('shareEmailBtn');
-    var cpBtn = $('copyLinkBtn');
-
     if (waBtn) waBtn.onclick = function() {
-      var link = $('shareLinkInput').value || window.location.href;
-      window.open('https://wa.me/?text=' + encodeURIComponent('LHC Worship Prep: ' + link), '_blank');
+      var link = window._shareLinkValue || window.location.href;
+      var ctx = window._shareContext || 'LHC Worship Prep';
+      var msg = '✝️ *' + ctx + '*\n_Luther House Chapel_\n\n' + link;
+      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
     };
 
-    if (fbBtn) fbBtn.onclick = function() {
-      var link = $('shareLinkInput').value || window.location.href;
-      window.open('https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(link), '_blank');
-    };
-
-    if (emBtn) emBtn.onclick = function() {
-      var link = $('shareLinkInput').value || window.location.href;
-      window.location.href = 'mailto:?subject=' + encodeURIComponent('LHC Worship Prep') + '&body=' + encodeURIComponent(link);
-    };
-
+    // Copy link — animated check state
+    var cpBtn = $('shareCopyLinkBtn');
     if (cpBtn) cpBtn.onclick = function() {
-      var link = $('shareLinkInput').value || window.location.href;
+      var link = window._shareLinkValue || window.location.href;
+      var iconEl = $('copyLinkIcon');
+      var labelEl = $('copyLinkLabel');
+      var wrapEl = $('copyIconWrap');
       navigator.clipboard.writeText(link).then(function() {
+        if (iconEl) iconEl.className = 'fa-solid fa-check';
+        if (labelEl) labelEl.textContent = 'Copied!';
+        if (wrapEl) { wrapEl.classList.add('copied'); }
+        setTimeout(function() {
+          if (iconEl) iconEl.className = 'fa-solid fa-link';
+          if (labelEl) labelEl.textContent = 'Copy Link';
+          if (wrapEl) wrapEl.classList.remove('copied');
+        }, 2200);
         showToast('Link copied!', 'success');
-      }).catch(function() {
-        showToast('Failed to copy', 'error');
-      });
+      }).catch(function() { showToast('Failed to copy', 'error'); });
+    };
+
+    // Email
+    var emBtn = $('shareEmailBtn');
+    if (emBtn) emBtn.onclick = function() {
+      var link = window._shareLinkValue || window.location.href;
+      var ctx = window._shareContext || 'LHC Worship Prep';
+      window.location.href = 'mailto:?subject=' + encodeURIComponent(ctx + ' — Luther House Chapel')
+        + '&body=' + encodeURIComponent('Hi,\n\nCheck out ' + ctx + ' for Luther House Chapel:\n' + link + '\n\nGod bless!');
     };
   }
 
@@ -13660,7 +14211,13 @@ window.loadEditSongData = function(song) {
     if (ls) ls.onclick = saveLyricsEdit;
     if (lc) lc.onclick = function() { STATE.lyricsEditMode = false; updateLyricsDisplay(); };
 
-    var smb = $('openShareModalBtn'); if (smb) smb.onclick = function() { $('shareLinkInput').value = location.href; openModal('shareModal'); };
+    var smb = $('openShareModalBtn'); if (smb) smb.onclick = function() {
+      var link = window.location.href;
+      window._shareLinkValue = link;
+      window._shareContext = 'LHC Worship Prep';
+      var disp = $('shareLinkDisplay'); if (disp) disp.textContent = link;
+      openModal('shareModal');
+    };
     var hb = $('openHelpBtn'); if (hb) hb.onclick = function() { openModal('helpModal'); };
     var cob = $('createOrderBtn'), nofv = $('newOrderFromViewBtn');
     var openCreateOrderModal = function() {
@@ -13785,6 +14342,7 @@ window.loadEditSongData = function(song) {
 
     loadAllData();
     if (window.LHC_Notif) LHC_Notif.init();
+    if (window.LHC_Install) LHC_Install.init();
 
     // Handle deep-link media parameter
     if (window.__DEEPLINK_MEDIA && window.__DEEPLINK_MEDIA.trim()) {
@@ -48950,6 +49508,147 @@ window.LHC_Notif = (function() {
   <div id="notifList" class="notif-list"></div>
   <div id="notifPollFooter" class="notif-poll-footer"></div>
 </div>
+
+<!-- ==================== PHASE 5: INSTALL BANNER + OFFLINE DETECTION ==================== -->
+<script>
+window.LHC_Install = (function() {
+  var DISMISSED_KEY = 'lhc_install_dismissed_v1';
+  var _banner = null;
+
+  function _dismissed() {
+    try { return localStorage.getItem(DISMISSED_KEY) === '1'; } catch(e) { return false; }
+  }
+  function _markDismissed() {
+    try { localStorage.setItem(DISMISSED_KEY, '1'); } catch(e) {} }
+
+  function _getDevice() {
+    var ua = navigator.userAgent || '';
+    var isIOS = /iPhone|iPad|iPod/.test(ua) && !/CriOS|FxiOS/.test(ua);
+    var isAndroid = /Android/.test(ua);
+    var isStandalone = navigator.standalone === true
+      || window.matchMedia('(display-mode: standalone)').matches;
+    return { ios: isIOS, android: isAndroid, standalone: isStandalone };
+  }
+
+  function _steps(dev) {
+    if (dev.ios)
+      return '<b>1.</b> Tap the <b>Share</b> button <i class="fa-solid fa-arrow-up-from-bracket" style="color:#4a6da7;"></i> at the bottom of Safari<br>'
+           + '<b>2.</b> Scroll down and tap <b>"Add to Home Screen"</b>';
+    return '<b>1.</b> Tap the menu <i class="fa-solid fa-ellipsis-vertical" style="color:#4a6da7;"></i> in your browser<br>'
+         + '<b>2.</b> Tap <b>"Add to Home Screen"</b> or <b>"Install App"</b>';
+  }
+
+  function _buildManualBanner(dev) {
+    _banner = document.createElement('div');
+    _banner.id = 'lhcInstallBanner';
+    _banner.innerHTML =
+      '<div class="lhc-install-icon"><i class="fa-solid fa-church"></i></div>'
+      + '<div class="lhc-install-body">'
+      +   '<div class="lhc-install-title">Install LHC Worship Prep</div>'
+      +   '<div class="lhc-install-steps">' + _steps(dev) + '</div>'
+      +   '<div class="lhc-install-actions">'
+      +     '<button class="lhc-install-btn ghost" onclick="LHC_Install.dismiss()">Not now</button>'
+      +     '<button class="lhc-install-btn ghost" onclick="LHC_Install.dismissPermanent()">Don\'t show again</button>'
+      +   '</div>'
+      + '</div>'
+      + '<button class="lhc-install-dismiss" onclick="LHC_Install.dismiss()" title="Close">'
+      +   '<i class="fa-solid fa-xmark"></i>'
+      + '</button>';
+    document.body.appendChild(_banner);
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() { _banner.classList.add('show'); });
+    });
+  }
+
+  function dismiss() {
+    if (!_banner) return;
+    _banner.classList.remove('show');
+    setTimeout(function() {
+      if (_banner && _banner.parentNode) _banner.parentNode.removeChild(_banner);
+      _banner = null;
+    }, 460);
+  }
+
+  function dismissPermanent() { _markDismissed(); dismiss(); }
+
+  function init() {
+    // Inject inline manifest as Blob URL so browsers recognise it as a web app
+    try {
+      var mData = {
+        name: 'LHC Worship Prep', short_name: 'LHC Worship',
+        description: 'Luther House Chapel worship planning app',
+        display: 'standalone', orientation: 'portrait-primary',
+        background_color: '#f4f5fb', theme_color: '#4a6da7',
+        start_url: window.location.href,
+        icons: [{
+          src: 'data:image/svg+xml,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+            + '<rect width="100" height="100" rx="20" fill="#4a6da7"/>'
+            + '<text y="78" x="50" text-anchor="middle" font-size="64" fill="#fff">✝</text>'
+            + '</svg>'),
+          sizes: 'any', type: 'image/svg+xml'
+        }]
+      };
+      var blob = new Blob([JSON.stringify(mData)], { type: 'application/manifest+json' });
+      var mLink = document.createElement('link');
+      mLink.rel = 'manifest'; mLink.href = URL.createObjectURL(blob);
+      document.head.appendChild(mLink);
+    } catch(e) {}
+
+    // Offline / online indicator
+    var offDiv = document.createElement('div');
+    offDiv.id = 'lhcOfflineBanner';
+    offDiv.innerHTML = '<i class="fa-solid fa-wifi-slash"></i> You\'re offline — showing last loaded data';
+    document.body.insertBefore(offDiv, document.body.firstChild);
+    function _syncOnline() { offDiv.classList.toggle('show', !navigator.onLine); }
+    window.addEventListener('online',  _syncOnline);
+    window.addEventListener('offline', _syncOnline);
+    _syncOnline();
+
+    // Chrome / Edge A2HS prompt — intercept and surface it nicely
+    window.addEventListener('beforeinstallprompt', function(e) {
+      e.preventDefault();
+      if (_dismissed()) return;
+      _banner = document.createElement('div');
+      _banner.id = 'lhcInstallBanner';
+      _banner.innerHTML =
+        '<div class="lhc-install-icon"><i class="fa-solid fa-church"></i></div>'
+        + '<div class="lhc-install-body">'
+        +   '<div class="lhc-install-title">Install LHC Worship Prep</div>'
+        +   '<div class="lhc-install-steps">Add this app to your home screen for quick, full-screen access.</div>'
+        +   '<div class="lhc-install-actions">'
+        +     '<button class="lhc-install-btn primary" id="lhcInstallNowBtn">Install</button>'
+        +     '<button class="lhc-install-btn ghost" onclick="LHC_Install.dismissPermanent()">Not now</button>'
+        +   '</div>'
+        + '</div>'
+        + '<button class="lhc-install-dismiss" onclick="LHC_Install.dismiss()" title="Close">'
+        +   '<i class="fa-solid fa-xmark"></i>'
+        + '</button>';
+      document.body.appendChild(_banner);
+      requestAnimationFrame(function() {
+        requestAnimationFrame(function() { _banner.classList.add('show'); });
+      });
+      var btn = document.getElementById('lhcInstallNowBtn');
+      if (btn) btn.onclick = function() {
+        e.prompt();
+        e.userChoice.then(function(r) {
+          if (r.outcome === 'accepted') dismissPermanent(); else dismiss();
+        });
+      };
+    });
+
+    // iOS Safari / manual Android — show guide after 20s if not dismissed
+    setTimeout(function() {
+      if (_banner || _dismissed()) return;
+      var dev = _getDevice();
+      if (dev.standalone) return;
+      if (dev.ios || dev.android) _buildManualBanner(dev);
+    }, 20000);
+  }
+
+  return { init: init, dismiss: dismiss, dismissPermanent: dismissPermanent };
+})();
+</script>
 
 <!-- ==================== BOTTOM NAVIGATION BAR (mobile/tablet) ==================== -->
 <nav id="lhcBottomNav" role="navigation" aria-label="Main navigation">
