@@ -4062,19 +4062,14 @@
                 </button>
                 <div class="wo-orders-panel-actions">
                   <button class="wo-sync-btn" onclick="WO.syncOrdersFromBackend()" title="Refresh from cloud"><i class="fa-solid fa-cloud-arrow-down"></i></button>
-                  <button class="wo-inbox-toggle-btn" id="woInboxToggleBtn" onclick="WO_Inbox.toggle()" title="Idea Inbox" style="display:none;">
-                    <i class="fa-solid fa-inbox"></i>
-                    <span class="wo-inbox-btn-badge" id="woInboxBtnBadge">0</span>
-                  </button>
                   <button class="wo-select-all-btn" onclick="WO.toggleSelectAll()"><i class="fa-solid fa-check-double mr-1"></i> Select All</button>
                   <button class="wo-delete-selected-btn" onclick="WO.deleteSelectedOrders()"><i class="fa-solid fa-trash mr-1"></i> Delete</button>
                 </div>
               </div>
-
-              <!-- Idea Inbox slide-down panel -->
-              <div class="wo-inbox-panel" id="woInboxPanel" style="display:none;">
-                <div class="wo-inbox-panel-inner" id="woInboxPanelList"></div>
-              </div>
+              <!-- Hidden inbox elements (used by WO_Inbox module, not displayed in toolbar) -->
+              <span id="woInboxToggleBtn" style="display:none;"></span>
+              <span id="woInboxBtnBadge" style="display:none;"></span>
+              <div id="woInboxPanel" style="display:none;"><div id="woInboxPanelList"></div></div>
 
               <div class="wo-saved-orders-container" id="woSavedOrdersContainer">
                 <div class="wo-loading-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Loading orders…</p></div>
@@ -14880,17 +14875,16 @@ window.loadEditSongData = function(song) {
         cb(_orders);
         return;
       }
-      // Otherwise call the backend directly
-      if (typeof google !== 'undefined' && google.script && google.script.run) {
-        google.script.run
-          .withSuccessHandler(function(res) {
-            try {
-              _orders = (typeof res === 'string' ? JSON.parse(res) : res) || [];
-            } catch(e) { _orders = []; }
+      // Fall back to Supabase directly (covers cold-start from a share link)
+      if (typeof SBQ !== 'undefined' && SBQ.loadOrders) {
+        SBQ.loadOrders()
+          .then(function(orders) {
+            _orders = orders || [];
+            // Also populate WO.savedOrders so the rest of the app is in sync
+            if (window.WO && _orders.length) window.WO.savedOrders = _orders;
             cb(_orders);
           })
-          .withFailureHandler(function() { _orders = []; cb(_orders); })
-          .getOrdersList();
+          .catch(function() { _orders = []; cb(_orders); });
       } else {
         _orders = [];
         cb(_orders);
