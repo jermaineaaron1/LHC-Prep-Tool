@@ -17015,13 +17015,13 @@ var WO = (function() {
           playlist: ps.playlist, title: ps.title || ps.url,
           addedAt: new Date().toISOString() };
 
-    window._pendingShareItem = null;
     _closeShareConfirm();
 
     if (typeof ShareInbox !== 'undefined') ShareInbox.addToOrder(orderId, item);
     showToast((item.icon || '🔗') + ' Added to "' + (order.title || 'Order') + '"', 'success');
 
-    // Open the order and jump straight to Song Order tab
+    // Keep _pendingShareItem set — initializeSongOrder() will read it to pre-fill the
+    // messenger bar and then clear it itself after use.
     loadOrder(orderIdx);
     setTimeout(function() {
       if (typeof selectOrder === 'function') selectOrder('song');
