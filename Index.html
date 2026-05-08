@@ -14481,13 +14481,21 @@ window.loadEditSongData = function(song) {
       var _siTitle = (window.__SHARE_INBOX_TITLE || '').trim();
       var _siText  = (window.__SHARE_INBOX_TEXT  || '').trim();
 
-      // Detect link type for icon
+      // Detect link type — granular (matches SharePickerModal._detectType logic)
       var _siTypeMap = [
-        { re: /youtube\.com|youtu\.be/i, type: 'youtube' },
-        { re: /spotify\.com/i,           type: 'spotify'  },
-        { re: /docs\.google\.com/i,      type: 'gdoc'     },
-        { re: /drive\.google\.com/i,     type: 'gdrive'   },
-        { re: /canva\.com/i,             type: 'canva'    },
+        { re: /youtube\.com\/playlist/i,            type: 'youtube-playlist' },
+        { re: /(youtube\.com\/watch|youtu\.be\/).*[\?&]list=/i, type: 'youtube-playlist' },
+        { re: /youtube\.com|youtu\.be/i,            type: 'youtube'          },
+        { re: /open\.spotify\.com\/playlist/i,      type: 'spotify-playlist' },
+        { re: /open\.spotify\.com\/album/i,         type: 'spotify-album'    },
+        { re: /open\.spotify\.com\/track/i,         type: 'spotify-track'    },
+        { re: /open\.spotify\.com\/artist/i,        type: 'spotify-artist'   },
+        { re: /spotify\.com/i,                      type: 'spotify'          },
+        { re: /docs\.google\.com\/document/i,       type: 'gdoc'             },
+        { re: /docs\.google\.com\/presentation/i,   type: 'gslides'          },
+        { re: /docs\.google\.com\/spreadsheets/i,   type: 'gsheet'           },
+        { re: /drive\.google\.com/i,                type: 'gdrive'           },
+        { re: /canva\.com/i,                        type: 'canva'            },
       ];
       var _siType = 'link';
       for (var _i = 0; _i < _siTypeMap.length; _i++) {
@@ -14770,14 +14778,23 @@ window.loadEditSongData = function(song) {
     }
 
     function _detectType(url) {
-      if (/youtube\.com|youtu\.be/i.test(url))              return { type:'youtube', label:'YouTube Video',  icon:'▶', playlist:true  };
-      if (/spotify\.com/i.test(url))                         return { type:'spotify', label:'Spotify',        icon:'♪', playlist:true  };
-      if (/docs\.google\.com\/document/i.test(url))          return { type:'gdoc',    label:'Google Doc',     icon:'📄',playlist:false };
-      if (/docs\.google\.com\/presentation/i.test(url))      return { type:'gslides', label:'Google Slides',  icon:'📊',playlist:false };
-      if (/docs\.google\.com\/spreadsheets/i.test(url))      return { type:'gsheet',  label:'Google Sheet',   icon:'📋',playlist:false };
-      if (/drive\.google\.com/i.test(url))                   return { type:'gdrive',  label:'Google Drive',   icon:'☁',playlist:false };
-      if (/canva\.com/i.test(url))                           return { type:'canva',   label:'Canva Design',   icon:'🎨',playlist:false };
-      return                                                        { type:'link',    label:'Web Link',       icon:'🔗',playlist:false };
+      // YouTube — playlist first (URL contains list= param), then single video
+      if (/youtube\.com\/playlist/i.test(url))                                    return { type:'youtube-playlist', label:'YouTube Playlist', icon:'📋', playlist:true  };
+      if (/(youtube\.com\/watch|youtu\.be\/).*([\?&]list=)/i.test(url))           return { type:'youtube-playlist', label:'YouTube Playlist', icon:'📋', playlist:true  };
+      if (/youtube\.com|youtu\.be/i.test(url))                                    return { type:'youtube',          label:'YouTube Video',    icon:'▶',  playlist:false };
+      // Spotify — specific types first
+      if (/open\.spotify\.com\/playlist/i.test(url))                              return { type:'spotify-playlist', label:'Spotify Playlist', icon:'🎵', playlist:true  };
+      if (/open\.spotify\.com\/album/i.test(url))                                 return { type:'spotify-album',    label:'Spotify Album',    icon:'💿', playlist:true  };
+      if (/open\.spotify\.com\/track/i.test(url))                                 return { type:'spotify-track',    label:'Spotify Track',    icon:'🎵', playlist:false };
+      if (/open\.spotify\.com\/artist/i.test(url))                                return { type:'spotify-artist',   label:'Spotify Artist',   icon:'🎤', playlist:false };
+      if (/spotify\.com/i.test(url))                                              return { type:'spotify',          label:'Spotify',          icon:'🎵', playlist:true  };
+      // Google & others
+      if (/docs\.google\.com\/document/i.test(url))                               return { type:'gdoc',             label:'Google Doc',       icon:'📄', playlist:false };
+      if (/docs\.google\.com\/presentation/i.test(url))                           return { type:'gslides',          label:'Google Slides',    icon:'📊', playlist:false };
+      if (/docs\.google\.com\/spreadsheets/i.test(url))                           return { type:'gsheet',           label:'Google Sheet',     icon:'📋', playlist:false };
+      if (/drive\.google\.com/i.test(url))                                        return { type:'gdrive',           label:'Google Drive',     icon:'☁',  playlist:false };
+      if (/canva\.com/i.test(url))                                                return { type:'canva',            label:'Canva Design',     icon:'🎨', playlist:false };
+      return                                                                              { type:'link',             label:'Web Link',         icon:'🔗', playlist:false };
     }
 
     function _detectFileType(f) {
@@ -14882,6 +14899,7 @@ window.loadEditSongData = function(song) {
 
     // ── build preview card HTML ───────────────────────────────────────────
     function _buildPreview(url, title, det) {
+      // YouTube single video — show thumbnail
       var vid = _ytId(url);
       if (det.type === 'youtube' && vid) {
         return '<div class="spm-preview">' +
@@ -14895,6 +14913,33 @@ window.loadEditSongData = function(song) {
           '</div>' +
         '</div>';
       }
+      // YouTube playlist — red playlist banner
+      if (det.type === 'youtube-playlist') {
+        return '<div class="spm-preview">' +
+          '<div class="spm-generic-preview" style="background:linear-gradient(135deg,#ff0000 0%,#cc0000 100%);border-radius:10px 10px 0 0;">' +
+            '<div class="spm-generic-icon" style="font-size:2rem;color:#fff;">📋</div>' +
+            '<div class="spm-generic-info">' +
+              '<div class="spm-generic-type" style="color:rgba(255,255,255,.8);">YouTube Playlist</div>' +
+              '<div class="spm-generic-url" style="color:#fff;font-weight:600;">' + _esc(title || url) + '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }
+      // Spotify types — green branded card
+      if (/^spotify/.test(det.type)) {
+        var spIconMap = { 'spotify-playlist':'🎵', 'spotify-album':'💿', 'spotify-track':'🎵', 'spotify-artist':'🎤', 'spotify':'🎵' };
+        var spIcon = spIconMap[det.type] || '🎵';
+        return '<div class="spm-preview">' +
+          '<div class="spm-generic-preview" style="background:linear-gradient(135deg,#1db954 0%,#158a3e 100%);border-radius:10px 10px 0 0;">' +
+            '<div class="spm-generic-icon" style="font-size:2rem;color:#fff;">' + spIcon + '</div>' +
+            '<div class="spm-generic-info">' +
+              '<div class="spm-generic-type" style="color:rgba(255,255,255,.8);">' + _esc(det.label) + '</div>' +
+              '<div class="spm-generic-url" style="color:#fff;font-weight:600;">' + _esc(title || url) + '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }
+      // Generic fallback
       return '<div class="spm-preview">' +
         '<div class="spm-generic-preview">' +
           '<div class="spm-generic-icon">' + det.icon + '</div>' +
@@ -16010,12 +16055,22 @@ var WO_Inbox = (function() {
   var _items = [];   // cached pending items
 
   var TYPE_MAP = [
-    { re: /youtube\.com|youtu\.be/i,         type:'youtube', icon:'▶️',  label:'YouTube',     playlist:true  },
-    { re: /spotify\.com/i,                    type:'spotify', icon:'🎵',  label:'Spotify',     playlist:true  },
-    { re: /docs\.google\.com\/document/i,     type:'gdoc',    icon:'📄',  label:'Google Doc',  playlist:false },
-    { re: /docs\.google\.com\/presentation/i, type:'gslides', icon:'📊',  label:'Slides',      playlist:false },
-    { re: /drive\.google\.com/i,              type:'gdrive',  icon:'☁️',  label:'Drive',       playlist:false },
-    { re: /canva\.com/i,                      type:'canva',   icon:'🎨',  label:'Canva',       playlist:false },
+    // YouTube — playlist before generic
+    { re: /youtube\.com\/playlist/i,                           type:'youtube-playlist', icon:'📋', label:'YT Playlist',     playlist:true  },
+    { re: /(youtube\.com\/watch|youtu\.be\/).*[\?&]list=/i,    type:'youtube-playlist', icon:'📋', label:'YT Playlist',     playlist:true  },
+    { re: /youtube\.com|youtu\.be/i,                           type:'youtube',          icon:'▶️', label:'YouTube Video',   playlist:false },
+    // Spotify — specific types first
+    { re: /open\.spotify\.com\/playlist/i,                     type:'spotify-playlist', icon:'🎵', label:'Spotify Playlist',playlist:true  },
+    { re: /open\.spotify\.com\/album/i,                        type:'spotify-album',    icon:'💿', label:'Spotify Album',   playlist:true  },
+    { re: /open\.spotify\.com\/track/i,                        type:'spotify-track',    icon:'🎵', label:'Spotify Track',   playlist:false },
+    { re: /open\.spotify\.com\/artist/i,                       type:'spotify-artist',   icon:'🎤', label:'Spotify Artist',  playlist:false },
+    { re: /spotify\.com/i,                                     type:'spotify',          icon:'🎵', label:'Spotify',         playlist:true  },
+    // Google & others
+    { re: /docs\.google\.com\/document/i,                      type:'gdoc',             icon:'📄', label:'Google Doc',      playlist:false },
+    { re: /docs\.google\.com\/presentation/i,                  type:'gslides',          icon:'📊', label:'Slides',          playlist:false },
+    { re: /docs\.google\.com\/spreadsheets/i,                  type:'gsheet',           icon:'📋', label:'Google Sheet',    playlist:false },
+    { re: /drive\.google\.com/i,                               type:'gdrive',           icon:'☁️', label:'Drive',           playlist:false },
+    { re: /canva\.com/i,                                       type:'canva',            icon:'🎨', label:'Canva',           playlist:false },
   ];
 
   function _detect(url) {
