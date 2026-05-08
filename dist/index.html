@@ -16580,8 +16580,8 @@ var WO = (function() {
   function silentPreloadOrders() {
     if (_ordersPreloaded) return;
     _ordersPreloaded = true;
-    google.script.run
-      .withSuccessHandler(function(backendOrders) {
+    SBQ.loadOrders()
+      .then(function(backendOrders) {
         if (!backendOrders || !Array.isArray(backendOrders)) return;
         var localOnly = savedOrders.filter(function(o) { return !o.id; });
         var localCache = {};
@@ -16602,8 +16602,7 @@ var WO = (function() {
         // Update the DOM only if the orders panel is already showing
         if (document.getElementById('woSavedOrdersContainer')) renderSavedOrders();
       })
-      .withFailureHandler(function() { _ordersPreloaded = false; }) // allow retry
-      .getOrdersListFromSupabase();
+      .catch(function() { _ordersPreloaded = false; }); // allow retry
   }
 
   function showSavedOrders() {
@@ -16622,8 +16621,8 @@ var WO = (function() {
       container.innerHTML = '<div class="wo-loading-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Loading orders…</p></div>';
     }
 
-    google.script.run
-      .withSuccessHandler(function(backendOrders) {
+    SBQ.loadOrders()
+      .then(function(backendOrders) {
         if (!backendOrders || !Array.isArray(backendOrders)) backendOrders = [];
 
         var localOnlyOrders = savedOrders.filter(function(o) { return !o.id; });
@@ -16659,13 +16658,12 @@ var WO = (function() {
 
         renderSavedOrders();
       })
-      .withFailureHandler(function(err) {
+      .catch(function(err) {
         console.error('Failed to load orders:', err);
         savedOrders = _deduplicateOrders(savedOrders);
         renderSavedOrders();
         showToast('Could not connect to cloud. Showing cached orders.', 'warning');
-      })
-      .getOrdersListFromSupabase();
+      });
   }
 
   // Deduplicate orders by service date — keep the most recently edited per date.
