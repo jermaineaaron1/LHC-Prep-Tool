@@ -14344,6 +14344,14 @@ window.loadEditSongData = function(song) {
           window.__SHARE_INBOX_TITLE = decodeURIComponent(_siP.get('shareTitle') || _siP.get('share_title') || '');
           window.__SHARE_INBOX_TEXT  = decodeURIComponent(_siP.get('shareText')  || _siP.get('share_text')  || '');
         }
+        // DEBUG toast — remove once share flow confirmed working
+        setTimeout(function() {
+          if (_siP.toString()) {
+            showToast('DEBUG params: ' + decodeURIComponent(_siP.toString()).substring(0, 120), 'info', 8000);
+          } else {
+            showToast('DEBUG: no params. URL=' + window.location.href.substring(0, 80), 'warning', 8000);
+          }
+        }, 1500);
       } catch(e) {}
     }
 
