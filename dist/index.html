@@ -14497,7 +14497,33 @@ window.loadEditSongData = function(song) {
         if (_siTypeMap[_i].re.test(_siUrl)) { _siType = _siTypeMap[_i].type; break; }
       }
 
-      // Save to Supabase idea_inbox immediately; store id so _addToOrder can assign it
+      // Map type to icon + label for _pendingShareItem
+      var _siIconMap = {
+        'youtube-playlist': { icon:'📋', label:'YouTube Playlist' },
+        'youtube':          { icon:'▶',  label:'YouTube Video'    },
+        'spotify-playlist': { icon:'🎵', label:'Spotify Playlist' },
+        'spotify-album':    { icon:'💿', label:'Spotify Album'    },
+        'spotify-track':    { icon:'🎵', label:'Spotify Track'    },
+        'spotify-artist':   { icon:'🎤', label:'Spotify Artist'   },
+        'spotify':          { icon:'🎵', label:'Spotify'          },
+        'gdoc':             { icon:'📄', label:'Google Doc'       },
+        'gslides':          { icon:'📊', label:'Google Slides'    },
+        'gsheet':           { icon:'📋', label:'Google Sheet'     },
+        'gdrive':           { icon:'☁',  label:'Google Drive'     },
+        'canva':            { icon:'🎨', label:'Canva'            },
+        'link':             { icon:'🔗', label:'Link'             }
+      };
+      var _siMeta = _siIconMap[_siType] || _siIconMap['link'];
+
+      // Set _pendingShareItem BEFORE navigating so renderSavedOrders sees it
+      window._pendingShareItem = {
+        url: _siUrl, title: _siTitle || _siUrl, text: _siText,
+        type: _siType, icon: _siMeta.icon, label: _siMeta.label,
+        playlist: (_siType.indexOf('playlist') !== -1 || _siType === 'spotify-album'),
+        addedAt: new Date().toISOString()
+      };
+
+      // Save to Supabase idea_inbox (background — non-blocking)
       window.__lastShareInboxId = null;
       if (typeof SBQ_INBOX !== 'undefined') {
         SBQ_INBOX.add({ url: _siUrl, title: _siTitle, text: _siText, type: _siType })
@@ -14505,8 +14531,9 @@ window.loadEditSongData = function(song) {
           .catch(function(e) { console.warn('idea_inbox save error:', e); });
       }
 
-      // Show the order-picker bottom sheet so the user can assign it right away
-      SharePickerModal.show(_siUrl, _siTitle, _siText);
+      // Navigate to Orders — renderSavedOrders() reads _pendingShareItem and
+      // enters share mode automatically (Send buttons + pending strip banner)
+      setActiveView('worshipOrderView');
       try { window.parent.postMessage({ type: 'lhc-share-received' }, '*'); } catch(e) {}
     }
 
@@ -16674,11 +16701,18 @@ var WO = (function() {
 
     var container = $('woSavedOrdersContainer');
 
-    // If orders were already pre-loaded, show them immediately (no spinner)
-    if (_ordersPreloaded && savedOrders.length > 0) {
+    // Show immediately: preloaded orders OR cached localStorage orders (covers share cold-open)
+    if (savedOrders.length > 0) {
       renderSavedOrders();
     } else {
-      container.innerHTML = '<div class="wo-loading-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Loading orders…</p></div>';
+      // Try localStorage cache before showing spinner
+      try {
+        var _cached = JSON.parse(localStorage.getItem('lhc_worship_orders') || '[]');
+        if (_cached.length) { savedOrders = _cached; renderSavedOrders(); }
+        else { container.innerHTML = '<div class="wo-loading-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Loading orders…</p></div>'; }
+      } catch(e) {
+        container.innerHTML = '<div class="wo-loading-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Loading orders…</p></div>';
+      }
     }
 
     SBQ.loadOrders()
