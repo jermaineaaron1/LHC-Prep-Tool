@@ -4062,10 +4062,20 @@
                 </button>
                 <div class="wo-orders-panel-actions">
                   <button class="wo-sync-btn" onclick="WO.syncOrdersFromBackend()" title="Refresh from cloud"><i class="fa-solid fa-cloud-arrow-down"></i></button>
+                  <button class="wo-inbox-toggle-btn" id="woInboxToggleBtn" onclick="WO_Inbox.toggle()" title="Idea Inbox" style="display:none;">
+                    <i class="fa-solid fa-inbox"></i>
+                    <span class="wo-inbox-btn-badge" id="woInboxBtnBadge">0</span>
+                  </button>
                   <button class="wo-select-all-btn" onclick="WO.toggleSelectAll()"><i class="fa-solid fa-check-double mr-1"></i> Select All</button>
                   <button class="wo-delete-selected-btn" onclick="WO.deleteSelectedOrders()"><i class="fa-solid fa-trash mr-1"></i> Delete</button>
                 </div>
               </div>
+
+              <!-- Idea Inbox slide-down panel -->
+              <div class="wo-inbox-panel" id="woInboxPanel" style="display:none;">
+                <div class="wo-inbox-panel-inner" id="woInboxPanelList"></div>
+              </div>
+
               <div class="wo-saved-orders-container" id="woSavedOrdersContainer">
                 <div class="wo-loading-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Loading orders…</p></div>
               </div>
@@ -10153,6 +10163,8 @@ window.loadEditSongData = function(song) {
       window.WO.checkSecondaryMonitor();
       // Auto-load the orders list whenever the Orders view is opened
       if (window.WO.showSavedOrders) window.WO.showSavedOrders();
+      // Load idea inbox badge/items
+      if (window.WO_Inbox) WO_Inbox.load();
     }
     // Signal the extension separately — NOT gated on window.WO being ready
     if (viewId === 'worshipOrderView') {
@@ -15994,92 +16006,103 @@ var SBQ_INBOX = {
 // WO_Inbox — UI controller for the Idea Inbox panel in Orders view
 // ================================================================
 var WO_Inbox = (function() {
-  var _open = false;
-  var _items = [];
+  var _open  = false;
+  var _items = [];   // cached pending items
 
   var TYPE_MAP = [
-    { re: /youtube\.com|youtu\.be/i,           icon: '▶️', label: 'YouTube'      },
-    { re: /spotify\.com/i,                      icon: '🎵', label: 'Spotify'       },
-    { re: /docs\.google\.com\/document/i,       icon: '📄', label: 'Google Doc'    },
-    { re: /docs\.google\.com\/presentation/i,   icon: '📊', label: 'Slides'        },
-    { re: /drive\.google\.com/i,                icon: '☁️', label: 'Drive'         },
-    { re: /canva\.com/i,                        icon: '🎨', label: 'Canva'         },
+    { re: /youtube\.com|youtu\.be/i,         type:'youtube', icon:'▶️',  label:'YouTube',     playlist:true  },
+    { re: /spotify\.com/i,                    type:'spotify', icon:'🎵',  label:'Spotify',     playlist:true  },
+    { re: /docs\.google\.com\/document/i,     type:'gdoc',    icon:'📄',  label:'Google Doc',  playlist:false },
+    { re: /docs\.google\.com\/presentation/i, type:'gslides', icon:'📊',  label:'Slides',      playlist:false },
+    { re: /drive\.google\.com/i,              type:'gdrive',  icon:'☁️',  label:'Drive',       playlist:false },
+    { re: /canva\.com/i,                      type:'canva',   icon:'🎨',  label:'Canva',       playlist:false },
   ];
 
   function _detect(url) {
     for (var i = 0; i < TYPE_MAP.length; i++) {
       if (TYPE_MAP[i].re.test(url)) return TYPE_MAP[i];
     }
-    return { icon: '🔗', label: 'Link' };
+    return { type:'link', icon:'🔗', label:'Link', playlist:false };
   }
 
   function _timeAgo(iso) {
     if (!iso) return '';
     var diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-    if (diff < 60)   return 'just now';
-    if (diff < 3600) return Math.floor(diff/60) + 'm ago';
-    if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
-    return Math.floor(diff/86400) + 'd ago';
+    if (diff < 60)    return 'just now';
+    if (diff < 3600)  return Math.floor(diff / 60)   + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600)  + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
   }
 
+  function _esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                          .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  // ── Badge: updates the toolbar button + amber dot on nav buttons ──
   function _updateBadge(count) {
-    var badge  = document.getElementById('woInboxBadge');
-    var section = document.getElementById('woInboxSection');
-    if (!section) return;
-    if (count > 0) {
-      section.style.display = '';
-      if (badge) badge.textContent = count;
-    } else {
-      section.style.display = 'none';
-    }
-    // dot on Orders nav buttons
-    ['navOrdersBtn','topNavOrders','bnOrders'].forEach(function(id) {
-      var btn = document.getElementById(id);
-      if (!btn) return;
-      btn.style.position = 'relative';
-      var dot = btn.querySelector('.wo-nav-inbox-dot');
+    var btn   = document.getElementById('woInboxToggleBtn');
+    var badge = document.getElementById('woInboxBtnBadge');
+    if (btn)   btn.style.display   = count > 0 ? '' : 'none';
+    if (badge) badge.textContent   = count;
+    // amber dot on bottom nav / side nav buttons
+    ['navOrdersBtn','topNavOrders','bnOrders'].forEach(function(navId) {
+      var el = document.getElementById(navId);
+      if (!el) return;
+      el.style.position = 'relative';
+      var dot = el.querySelector('.wo-nav-inbox-dot');
       if (count > 0 && !dot) {
         var d = document.createElement('span');
         d.className = 'wo-nav-inbox-dot';
-        btn.appendChild(d);
+        el.appendChild(d);
       } else if (count === 0 && dot) {
         dot.remove();
       }
     });
   }
 
+  // ── Render item cards into the panel ──
   function _render() {
-    var list = document.getElementById('woInboxList');
-    var chevron = document.getElementById('woInboxChevron');
+    var list = document.getElementById('woInboxPanelList');
     if (!list) return;
     if (!_items.length) {
-      list.innerHTML = '<div class="wo-inbox-empty"><i class="fa-solid fa-inbox"></i><br>Inbox is empty</div>';
+      list.innerHTML = '<div class="wo-inbox-empty">📭 All ideas assigned</div>';
       return;
     }
-    list.innerHTML = _items.map(function(item, idx) {
-      var t = _detect(item.url);
+    list.innerHTML = _items.map(function(item) {
+      var t = _detect(item.url || '');
       var displayTitle = item.title || item.text || item.url || 'Shared link';
-      var shortUrl = (item.url || '').replace(/^https?:\/\//,'').substring(0, 60);
-      return '<div class="wo-inbox-item" id="wii_' + idx + '">'
+      var shortUrl = (item.url || '').replace(/^https?:\/\//, '').substring(0, 55);
+      var safeId = _esc(item.id);
+      return '<div class="wo-inbox-item">'
         + '<div class="wo-inbox-item-icon">' + t.icon + '</div>'
         + '<div class="wo-inbox-item-body">'
         +   '<div class="wo-inbox-item-title">' + _esc(displayTitle) + '</div>'
-        +   '<div class="wo-inbox-item-url">' + _esc(shortUrl) + '</div>'
-        +   '<div class="wo-inbox-item-time">' + t.label + ' · ' + _timeAgo(item.created_at) + '</div>'
+        +   '<div class="wo-inbox-item-url">'   + _esc(shortUrl)     + '</div>'
+        +   '<div class="wo-inbox-item-time">'  + t.label + ' · ' + _timeAgo(item.created_at) + '</div>'
         +   '<div class="wo-inbox-item-actions">'
-        +     '<button class="wo-inbox-assign-btn" onclick="WO_Inbox.assign(\'' + _esc(item.id) + '\',\'' + _esc(item.url) + '\')"><i class="fa-solid fa-link"></i> Assign to Order</button>'
-        +     '<a class="wo-inbox-open-btn" href="' + _esc(item.url) + '" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square"></i> Open</a>'
-        +     '<button class="wo-inbox-dismiss-btn" onclick="WO_Inbox.dismiss(\'' + _esc(item.id) + '\')">Dismiss</button>'
+        +     '<button class="wo-inbox-assign-btn" data-iid="' + safeId + '">'
+        +       '<i class="fa-solid fa-link"></i> Add to Order'
+        +     '</button>'
+        +     (item.url ? '<a class="wo-inbox-open-btn" href="' + _esc(item.url) + '" target="_blank" rel="noopener">'
+        +       '<i class="fa-solid fa-arrow-up-right-from-square"></i> Open'
+        +     '</a>' : '')
+        +     '<button class="wo-inbox-dismiss-btn" data-did="' + safeId + '">Dismiss</button>'
         +   '</div>'
         + '</div>'
         + '</div>';
     }).join('');
+
+    // Bind buttons using data attributes (avoids escaping issues with URLs in onclick)
+    list.querySelectorAll('.wo-inbox-assign-btn').forEach(function(btn) {
+      btn.onclick = function() { assign(btn.getAttribute('data-iid')); };
+    });
+    list.querySelectorAll('.wo-inbox-dismiss-btn').forEach(function(btn) {
+      btn.onclick = function() { dismiss(btn.getAttribute('data-did')); };
+    });
   }
 
-  function _esc(s) {
-    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  }
-
+  // ── Public: load pending items from Supabase ──
   function load() {
     SBQ_INBOX.getPending().then(function(items) {
       _items = items || [];
@@ -16088,62 +16111,110 @@ var WO_Inbox = (function() {
     }).catch(function(e) { console.warn('WO_Inbox load error:', e); });
   }
 
+  // ── Public: toggle the panel open/closed ──
   function toggle() {
     _open = !_open;
-    var list    = document.getElementById('woInboxList');
-    var chevron = document.getElementById('woInboxChevron');
-    if (list)    list.style.display = _open ? '' : 'none';
-    if (chevron) chevron.classList.toggle('open', _open);
+    var panel = document.getElementById('woInboxPanel');
+    if (panel) panel.style.display = _open ? '' : 'none';
     if (_open) _render();
   }
 
-  function assign(id, url) {
-    // Build a quick order-picker overlay
-    var orders = [];
-    try {
-      if (window.WO && WO.savedOrders && WO.savedOrders.length) orders = WO.savedOrders;
-    } catch(e) {}
+  // ── Public: show order picker for a given inbox item ──
+  function assign(id) {
+    var item = _items.find(function(i) { return i.id === id; });
+    if (!item) return;
+
+    var orders = (window.WO && window.WO.savedOrders) ? window.WO.savedOrders : [];
     if (!orders.length) {
       showToast('No orders yet — create one first', 'warning');
       return;
     }
+
+    // Bottom-sheet order picker
     var overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;';
+    overlay.setAttribute('data-lhc-inbox-overlay', '1');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);'
+      + 'display:flex;align-items:flex-end;justify-content:center;';
+
+    var det = _detect(item.url || '');
     var sheet = document.createElement('div');
-    sheet.style.cssText = 'background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:540px;padding:24px 20px 32px;max-height:70vh;overflow-y:auto;';
-    sheet.innerHTML = '<div style="font-weight:700;font-size:1rem;margin-bottom:14px;font-family:Poppins,sans-serif;">📋 Assign to which order?</div>'
-      + orders.map(function(o) {
-          return '<button onclick="WO_Inbox._doAssign(\'' + _esc(id) + '\',\'' + _esc(o.id) + '\',\'' + _esc(url) + '\')" '
-            + 'style="display:block;width:100%;text-align:left;padding:11px 14px;margin-bottom:8px;border-radius:10px;border:1.5px solid #e2e8f0;background:#f8fafc;cursor:pointer;font-family:Poppins,sans-serif;font-size:.88rem;">'
-            + _esc(o.title || 'Untitled Order') + (o.service_date ? ' <span style="color:#9ca3af;font-size:.78rem;">· ' + _esc(o.service_date) + '</span>' : '')
-            + '</button>';
-        }).join('')
-      + '<button onclick="this.closest(\'[data-lhc-overlay]\').remove()" style="margin-top:6px;width:100%;padding:10px;border:none;background:none;color:#9ca3af;cursor:pointer;font-family:Poppins,sans-serif;">Cancel</button>';
-    overlay.setAttribute('data-lhc-overlay','1');
+    sheet.style.cssText = 'background:#fff;border-radius:20px 20px 0 0;width:100%;'
+      + 'max-width:560px;padding:24px 20px 36px;max-height:75vh;overflow-y:auto;';
+    sheet.innerHTML =
+      '<div style="font-weight:800;font-size:1rem;margin-bottom:4px;font-family:Poppins,sans-serif;">'
+      + det.icon + ' Add to Order</div>'
+      + '<div style="font-size:.78rem;color:#6b7280;margin-bottom:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+      + _esc(item.title || item.url || '') + '</div>';
+
+    orders.forEach(function(o) {
+      var btn = document.createElement('button');
+      btn.style.cssText = 'display:block;width:100%;text-align:left;padding:12px 16px;'
+        + 'margin-bottom:8px;border-radius:10px;border:1.5px solid #e2e8f0;'
+        + 'background:#f8fafc;cursor:pointer;font-family:Poppins,sans-serif;font-size:.88rem;';
+      btn.innerHTML = '<strong>' + _esc(o.title || 'Untitled Order') + '</strong>'
+        + (o.service_date ? ' <span style="color:#9ca3af;font-size:.78rem;">· ' + _esc(o.service_date) + '</span>' : '');
+      btn.onclick = function() { _doAssign(id, o.id, item); };
+      sheet.appendChild(btn);
+    });
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.style.cssText = 'margin-top:6px;width:100%;padding:11px;border:none;'
+      + 'background:none;color:#9ca3af;cursor:pointer;font-family:Poppins,sans-serif;';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = function() { overlay.remove(); };
+    sheet.appendChild(cancelBtn);
+
     overlay.appendChild(sheet);
     overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
     document.body.appendChild(overlay);
   }
 
-  function _doAssign(id, orderId, url) {
-    document.querySelectorAll('[data-lhc-overlay]').forEach(function(el){ el.remove(); });
-    SBQ_INBOX.assignToOrder(id, orderId).then(function() {
-      _items = _items.filter(function(i){ return i.id !== id; });
-      _updateBadge(_items.length);
-      _render();
-      showToast('Added to order ✓', 'success');
-    }).catch(function(e) { showToast('Could not assign: ' + e.message, 'error'); });
+  // ── Internal: confirm assignment, stage pending item, open order ──
+  function _doAssign(id, orderId, item) {
+    // Remove all picker overlays
+    document.querySelectorAll('[data-lhc-inbox-overlay]').forEach(function(el) { el.remove(); });
+
+    // Stage the item so the order editor pre-fills the share bar (same path as SharePickerModal)
+    if (item && item.url) {
+      var det = _detect(item.url);
+      window._pendingShareItem = {
+        url:      item.url,
+        title:    item.title || item.url,
+        text:     item.text  || '',
+        type:     det.type,
+        label:    det.label,
+        icon:     det.icon,
+        playlist: det.playlist,
+        addedAt:  new Date().toISOString()
+      };
+    }
+
+    // Mark processed in Supabase (fire-and-forget)
+    SBQ_INBOX.assignToOrder(id, orderId)
+      .then(function() {
+        _items = _items.filter(function(i) { return i.id !== id; });
+        _updateBadge(_items.length);
+        _render();
+      })
+      .catch(function(e) { console.warn('inbox assign error:', e); });
+
+    // Open the order in the editor — the song-order bar will pick up _pendingShareItem
+    if (window.WO && window.WO.loadOrder) {
+      showToast('Opening order…', 'info');
+      window.WO.loadOrder(orderId);
+    }
   }
 
+  // ── Public: dismiss (delete) an item ──
   function dismiss(id) {
     SBQ_INBOX.remove(id).then(function() {
-      _items = _items.filter(function(i){ return i.id !== id; });
+      _items = _items.filter(function(i) { return i.id !== id; });
       _updateBadge(_items.length);
       _render();
     }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
   }
 
-  return { load: load, toggle: toggle, assign: assign, _doAssign: _doAssign, dismiss: dismiss };
+  return { load: load, toggle: toggle, assign: assign, dismiss: dismiss };
 })();
 
 // ================================================================
@@ -42949,29 +43020,27 @@ function filterLiturgyItems() {
   .wo-main-menu-header h1 { font-size: 2rem; font-weight: 700; color: #2c5aa0; margin: 0 0 10px 0; font-family: Georgia, serif; }
   .wo-main-menu-header p { font-size: 1rem; color: #6c757d; font-style: italic; margin: 0 0 20px; }
   /* ── Idea Inbox ───────────────────────────────────────────────────── */
-  .wo-inbox-section { max-width: 800px; margin: 0 auto 18px; border-radius: 14px; overflow: hidden; border: 1.5px solid #e2e8f0; background: #fff; box-shadow: 0 2px 12px rgba(74,109,167,.08); }
-  .wo-inbox-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; cursor: pointer; user-select: none; background: linear-gradient(135deg,#4a6da7 0%,#6b9ac4 100%); color: #fff; }
-  .wo-inbox-header:hover { filter: brightness(1.06); }
-  .wo-inbox-title { font-weight: 700; font-size: .95rem; display: flex; align-items: center; gap: 8px; font-family: 'Poppins',sans-serif; }
-  .wo-inbox-badge { background: #f59e0b; color: #fff; border-radius: 99px; font-size: .7rem; font-weight: 800; padding: 1px 7px; min-width: 20px; text-align: center; }
-  .wo-inbox-chevron { font-size: .85rem; transition: transform .25s; }
-  .wo-inbox-chevron.open { transform: rotate(180deg); }
-  .wo-inbox-list { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
-  .wo-inbox-item { display: flex; align-items: flex-start; gap: 12px; background: #f8fafc; border-radius: 10px; padding: 12px 14px; border: 1px solid #e9eef5; }
-  .wo-inbox-item-icon { font-size: 1.6rem; flex-shrink: 0; line-height: 1; margin-top: 2px; }
-  .wo-inbox-item-body { flex: 1; min-width: 0; }
-  .wo-inbox-item-title { font-weight: 700; font-size: .88rem; color: #1f2933; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .wo-inbox-item-url { font-size: .72rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-  .wo-inbox-item-time { font-size: .68rem; color: #9ca3af; margin-top: 4px; }
-  .wo-inbox-item-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-  .wo-inbox-assign-btn { background: #4a6da7; color: #fff; border: none; border-radius: 7px; padding: 5px 12px; font-size: .78rem; font-weight: 700; cursor: pointer; font-family: 'Poppins',sans-serif; }
-  .wo-inbox-assign-btn:hover { background: #3a5d97; }
-  .wo-inbox-open-btn { background: transparent; color: #4a6da7; border: 1.5px solid #4a6da7; border-radius: 7px; padding: 4px 10px; font-size: .78rem; font-weight: 600; cursor: pointer; text-decoration: none; font-family: 'Poppins',sans-serif; display: inline-flex; align-items: center; gap: 4px; }
-  .wo-inbox-dismiss-btn { background: transparent; color: #9ca3af; border: 1.5px solid #e5e7eb; border-radius: 7px; padding: 4px 10px; font-size: .78rem; cursor: pointer; font-family: 'Poppins',sans-serif; }
-  .wo-inbox-dismiss-btn:hover { color: #ef4444; border-color: #ef4444; }
-  .wo-inbox-empty { text-align: center; color: #9ca3af; font-size: .85rem; padding: 16px 0; }
-  /* badge on nav button */
-  .wo-nav-inbox-dot { position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; background: #f59e0b; border-radius: 50%; border: 1.5px solid #fff; }
+  .wo-inbox-toggle-btn { position:relative; background:#f59e0b; color:#fff; border:none; border-radius:8px; padding:7px 12px; font-size:.85rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; font-family:'Poppins',sans-serif; transition:background .15s; }
+  .wo-inbox-toggle-btn:hover { background:#d97706; }
+  .wo-inbox-btn-badge { background:#fff; color:#d97706; border-radius:99px; font-size:.7rem; font-weight:800; padding:1px 6px; min-width:18px; text-align:center; }
+  .wo-inbox-panel { background:#fffbeb; border:1.5px solid #fde68a; border-radius:12px; margin-bottom:14px; overflow:hidden; animation:inboxSlideIn .2s ease; }
+  @keyframes inboxSlideIn { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+  .wo-inbox-panel-inner { padding:10px 12px 12px; display:flex; flex-direction:column; gap:10px; }
+  .wo-inbox-item { display:flex; align-items:flex-start; gap:12px; background:#fff; border-radius:10px; padding:12px 14px; border:1px solid #fde68a; }
+  .wo-inbox-item-icon { font-size:1.5rem; flex-shrink:0; line-height:1; margin-top:2px; }
+  .wo-inbox-item-body { flex:1; min-width:0; }
+  .wo-inbox-item-title { font-weight:700; font-size:.88rem; color:#1f2933; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .wo-inbox-item-url { font-size:.72rem; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .wo-inbox-item-time { font-size:.68rem; color:#9ca3af; margin-top:4px; }
+  .wo-inbox-item-actions { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .wo-inbox-assign-btn { background:#4a6da7; color:#fff; border:none; border-radius:7px; padding:5px 12px; font-size:.78rem; font-weight:700; cursor:pointer; font-family:'Poppins',sans-serif; }
+  .wo-inbox-assign-btn:hover { background:#3a5d97; }
+  .wo-inbox-open-btn { background:transparent; color:#4a6da7; border:1.5px solid #4a6da7; border-radius:7px; padding:4px 10px; font-size:.78rem; font-weight:600; cursor:pointer; text-decoration:none; font-family:'Poppins',sans-serif; display:inline-flex; align-items:center; gap:4px; }
+  .wo-inbox-dismiss-btn { background:transparent; color:#9ca3af; border:1.5px solid #e5e7eb; border-radius:7px; padding:4px 10px; font-size:.78rem; cursor:pointer; font-family:'Poppins',sans-serif; }
+  .wo-inbox-dismiss-btn:hover { color:#ef4444; border-color:#ef4444; }
+  .wo-inbox-empty { text-align:center; color:#9ca3af; font-size:.85rem; padding:16px 0; }
+  /* amber dot on nav buttons when inbox has items */
+  .wo-nav-inbox-dot { position:absolute; top:2px; right:2px; width:8px; height:8px; background:#f59e0b; border-radius:50%; border:1.5px solid #fff; }
 
   /* ── Always-visible orders panel ─────────────────────────────────── */
   .wo-orders-panel { max-width: 800px; margin: 0 auto; text-align: left; }
