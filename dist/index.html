@@ -14497,9 +14497,11 @@ window.loadEditSongData = function(song) {
         if (_siTypeMap[_i].re.test(_siUrl)) { _siType = _siTypeMap[_i].type; break; }
       }
 
-      // Save to Supabase idea_inbox immediately (stays pending until assigned)
+      // Save to Supabase idea_inbox immediately; store id so _addToOrder can assign it
+      window.__lastShareInboxId = null;
       if (typeof SBQ_INBOX !== 'undefined') {
         SBQ_INBOX.add({ url: _siUrl, title: _siTitle, text: _siText, type: _siType })
+          .then(function(row) { window.__lastShareInboxId = row.id; })
           .catch(function(e) { console.warn('idea_inbox save error:', e); });
       }
 
@@ -15078,11 +15080,11 @@ window.loadEditSongData = function(song) {
           '<div class="spm-handle-wrap"><div class="spm-handle"></div></div>' +
           '<div class="spm-top">' +
             '<span class="spm-back-icon">&#128279;</span>' +
-            '<span class="spm-top-title">Add to worship order</span>' +
+            '<span class="spm-top-title">Save link to an order</span>' +
             '<button class="spm-close" onclick="SharePickerModal.close()">&times;</button>' +
           '</div>' +
           previewHtml +
-          '<div class="spm-section-label">Choose an order:</div>' +
+          '<div class="spm-section-label">Select a service order:</div>' +
           '<div class="spm-orders" id="spmOrdersList">' +
             '<div class="spm-loading"><div class="spm-spinner"></div><div>Loading orders&hellip;</div></div>' +
           '</div>' +
@@ -15099,17 +15101,12 @@ window.loadEditSongData = function(song) {
       if (_pendingFileData) {
         det  = _detectFileType(_pendingFileData);
         item = {
-          type:     det.type,
-          label:    det.label,
-          icon:     det.icon,
-          playlist: det.playlist,
-          isFile:   true,
-          name:     _pendingFileData.name || 'File',
-          mimeType: _pendingFileData.mimeType || '',
-          size:     _pendingFileData.size || 0,
-          title:    _pendingFileData.title || _pendingFileData.name || 'File',
-          data:     _pendingFileData.data || null,  // base64 data URL
-          addedAt:  new Date().toISOString()
+          type: det.type, label: det.label, icon: det.icon, playlist: det.playlist,
+          isFile: true, name: _pendingFileData.name || 'File',
+          mimeType: _pendingFileData.mimeType || '', size: _pendingFileData.size || 0,
+          title: _pendingFileData.title || _pendingFileData.name || 'File',
+          data: _pendingFileData.data || null,
+          addedAt: new Date().toISOString()
         };
       } else {
         if (!_url) return;
@@ -15119,31 +15116,45 @@ window.loadEditSongData = function(song) {
                  addedAt: new Date().toISOString() };
       }
 
-      // Stage item in _pendingShareItem — the messenger bar will commit it
-      // when the user taps send (instead of persisting immediately to ShareInbox).
-      window._pendingShareItem = item;
+      var orders   = _orders || (window.WO && window.WO.savedOrders) || [];
+      var orderObj = orders.find(function(o) { return String(o.id || '') === String(orderId); });
+      var orderName = orderObj ? (orderObj.title || 'Order') : 'Order';
 
-      // Visual confirmation on the row button
-      if (rowEl) {
-        var btn = rowEl.querySelector('.spm-order-add');
-        if (btn) { btn.textContent = '↗ Opening…'; btn.classList.add('spm-done'); btn.disabled = true; }
+      // ── 1. Save immediately into the order's inbox (localStorage) ──────────
+      if (typeof ShareInbox !== 'undefined') ShareInbox.addToOrder(orderId, item);
+
+      // ── 2. Mark the Supabase inbox item as assigned to this order ──────────
+      if (typeof SBQ_INBOX !== 'undefined' && window.__lastShareInboxId) {
+        SBQ_INBOX.assignToOrder(window.__lastShareInboxId, orderId)
+          .catch(function(e) { console.warn('inbox assign error:', e); });
+        window.__lastShareInboxId = null;
       }
 
-      var orders    = _orders || (window.WO && window.WO.savedOrders) || [];
-      var orderObj  = orders.find(function(o) { return String(o.id || '') === String(orderId); });
-      var orderName = orderObj ? (orderObj.title || 'Order') : 'Order';
-      if (typeof showToast === 'function') showToast(det.icon + ' Opening "' + orderName + '"…', 'info');
+      // ── 3. WhatsApp-style confirmation on the row ──────────────────────────
+      if (rowEl) {
+        // Turn the whole row green with a checkmark
+        rowEl.style.cssText += 'background:#f0fdf4;border-color:#86efac;transition:background .2s,border-color .2s;';
+        var btn = rowEl.querySelector('.spm-order-add');
+        if (btn) {
+          btn.innerHTML = '<span style="font-size:1rem">✓</span> Saved';
+          btn.style.cssText = 'background:#16a34a;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-weight:700;font-size:.78rem;';
+          btn.disabled = true;
+        }
+        // Show a "Sent" bubble like WhatsApp
+        var bubble = document.createElement('div');
+        bubble.style.cssText = 'position:absolute;right:16px;bottom:-30px;background:#16a34a;color:#fff;'
+          + 'border-radius:20px;padding:4px 14px;font-size:.75rem;font-weight:700;'
+          + 'box-shadow:0 2px 8px rgba(22,163,74,.4);pointer-events:none;white-space:nowrap;';
+        bubble.textContent = '✓ Saved to ' + orderName;
+        rowEl.style.position = 'relative';
+        rowEl.appendChild(bubble);
+      }
 
-      // Close the sheet and open the order. openOrderInEditor calls selectOrder('song')
-      // → initializeSongOrder() → pre-fills the messenger bar with _pendingShareItem.
+      // ── 4. Auto-close after brief confirmation — no need to open editor ────
       setTimeout(function() {
         close();
-        if (window.WO) {
-          window.WO.loadOrder(orderId);
-        } else {
-          if (typeof setActiveView === 'function') setActiveView('worshipOrderView');
-        }
-      }, 600);
+        if (typeof showToast === 'function') showToast(det.icon + ' Link saved to "' + orderName + '"', 'success');
+      }, 1400);
     }
 
     // ── public: close / dismiss ───────────────────────────────────────────
