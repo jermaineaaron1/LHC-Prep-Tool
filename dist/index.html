@@ -47643,7 +47643,13 @@ function filterLiturgyItems() {
 
         document.body.appendChild(floatingPanel);
         // Focus search input immediately
-        setTimeout(function() { if (searchInput) searchInput.focus(); }, 30);
+        // Only auto-focus on desktop — on mobile this triggers the keyboard
+        // immediately, which obscures the name list before the user can scroll it.
+        // Mobile users tap the search box or "New name..." input when they want to type.
+        var _isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        if (!_isTouchDevice) {
+          setTimeout(function() { if (searchInput) searchInput.focus(); }, 30);
+        }
       };
 
       // ── Unavailability management sub-panel ──
