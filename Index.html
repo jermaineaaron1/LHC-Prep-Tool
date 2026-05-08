@@ -14994,24 +14994,34 @@ window.loadEditSongData = function(song) {
         return;
       }
       list.innerHTML = orders.map(function(o, i) {
-        var title = o.title || o.name || ('Order ' + (i + 1));
+        var title   = o.title || o.name || ('Order ' + (i + 1));
         var dateStr = o.serviceDate || o.date || '';
-        // Avatar: first 2 chars of title or month/day from date
-        var avatar = dateStr
+        var avatar  = dateStr
           ? (function() { var p = dateStr.split(/[ \/\-]/); return (p[0]||'').substring(0,3).toUpperCase() + '<br>' + (p[1]||''); })()
           : title.substring(0,2).toUpperCase();
-        // Use the real DB id (string UUID) when available; fall back to numeric index
-        // so WO.loadOrder() can resolve it correctly for both cloud and local-only orders.
-        var orderId = o.id ? String(o.id) : i;
-        return '<div class="spm-order-row" onclick="SharePickerModal._addToOrder(' + JSON.stringify(orderId) + ',this)">' +
+        // Use data-oid to avoid quote-escaping issues with UUID strings in onclick
+        var orderId = o.id ? String(o.id) : String(i);
+        return '<div class="spm-order-row" data-oid="' + _esc(orderId) + '">' +
           '<div class="spm-order-avatar">' + avatar + '</div>' +
           '<div class="spm-order-info">' +
             '<div class="spm-order-title">' + _esc(title) + '</div>' +
             (dateStr ? '<div class="spm-order-date">' + _esc(dateStr) + '</div>' : '') +
           '</div>' +
-          '<button class="spm-order-add" onclick="event.stopPropagation();SharePickerModal._addToOrder(' + JSON.stringify(orderId) + ',this.closest(\'.spm-order-row\'))">Add</button>' +
+          '<button class="spm-order-add" data-oid="' + _esc(orderId) + '">Add</button>' +
         '</div>';
       }).join('');
+
+      // Bind clicks via event listeners — no inline onclick needed
+      list.querySelectorAll('.spm-order-row').forEach(function(row) {
+        row.addEventListener('click', function() {
+          _addToOrder(row.getAttribute('data-oid'), row);
+        });
+        var addBtn = row.querySelector('.spm-order-add');
+        if (addBtn) addBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          _addToOrder(row.getAttribute('data-oid'), row);
+        });
+      });
     }
 
     // ── public: show the order-picker bottom sheet ───────────────────────
