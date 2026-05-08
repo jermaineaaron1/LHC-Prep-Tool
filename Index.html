@@ -15126,45 +15126,90 @@ window.loadEditSongData = function(song) {
                  addedAt: new Date().toISOString() };
       }
 
-      var orders   = _orders || (window.WO && window.WO.savedOrders) || [];
-      var orderObj = orders.find(function(o) { return String(o.id || '') === String(orderId); });
+      var orders    = _orders || (window.WO && window.WO.savedOrders) || [];
+      var orderObj  = orders.find(function(o) { return String(o.id || '') === String(orderId); });
       var orderName = orderObj ? (orderObj.title || 'Order') : 'Order';
+      var orderDate = orderObj ? (orderObj.serviceDate || '') : '';
 
-      // ── 1. Save immediately into the order's inbox (localStorage) ──────────
-      if (typeof ShareInbox !== 'undefined') ShareInbox.addToOrder(orderId, item);
+      // ── Step 2: Replace sheet contents with preview + Send button ──────────
+      var sheet = document.querySelector('#spmOverlay .spm-sheet');
+      if (!sheet) return;
 
-      // ── 2. Mark the Supabase inbox item as assigned to this order ──────────
-      if (typeof SBQ_INBOX !== 'undefined' && window.__lastShareInboxId) {
-        SBQ_INBOX.assignToOrder(window.__lastShareInboxId, orderId)
-          .catch(function(e) { console.warn('inbox assign error:', e); });
-        window.__lastShareInboxId = null;
-      }
+      var previewHtml = _pendingFileData
+        ? _buildFilePreview(_pendingFileData, det)
+        : _buildPreview(_url || '', item.title, det);
 
-      // ── 3. WhatsApp-style confirmation on the row ──────────────────────────
-      if (rowEl) {
-        // Turn the whole row green with a checkmark
-        rowEl.style.cssText += 'background:#f0fdf4;border-color:#86efac;transition:background .2s,border-color .2s;';
-        var btn = rowEl.querySelector('.spm-order-add');
-        if (btn) {
-          btn.innerHTML = '<span style="font-size:1rem">✓</span> Saved';
-          btn.style.cssText = 'background:#16a34a;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-weight:700;font-size:.78rem;';
-          btn.disabled = true;
+      sheet.innerHTML =
+        '<div class="spm-handle-wrap"><div class="spm-handle"></div></div>' +
+        '<div class="spm-top">' +
+          '<button class="spm-close" id="spmBackBtn" style="padding:4px 10px;font-size:.85rem;">&#8592; Back</button>' +
+          '<span class="spm-top-title" style="flex:1;text-align:center;padding:0 8px;">' + _esc(orderName) + '</span>' +
+          '<button class="spm-close" onclick="SharePickerModal.close()">&times;</button>' +
+        '</div>' +
+        previewHtml +
+        '<div style="padding:12px 16px 8px;">' +
+          '<div style="font-size:.78rem;color:#6b7280;margin-bottom:12px;line-height:1.4;">' +
+            'This link will be added to the <strong>Song Order</strong> of ' +
+            '<strong>' + _esc(orderName) + '</strong>' +
+            (orderDate ? ' <span style="color:#9ca3af;">· ' + _esc(orderDate) + '</span>' : '') +
+          '</div>' +
+          '<button id="spmSendBtn" style="width:100%;background:#4a6da7;color:#fff;border:none;' +
+            'border-radius:12px;padding:15px;font-size:1rem;font-weight:700;cursor:pointer;' +
+            'font-family:Poppins,sans-serif;display:flex;align-items:center;justify-content:center;' +
+            'gap:10px;box-shadow:0 4px 16px rgba(74,109,167,.35);">' +
+            '<i class="fa-solid fa-paper-plane"></i> Send to Song Order' +
+          '</button>' +
+          '<div style="text-align:center;margin-top:10px;padding-bottom:8px;">' +
+            '<button onclick="SharePickerModal.close()" style="background:none;border:none;color:#9ca3af;font-size:.8rem;cursor:pointer;">Cancel</button>' +
+          '</div>' +
+        '</div>';
+
+      // Back button: rebuild the orders list
+      document.getElementById('spmBackBtn').addEventListener('click', function() {
+        _rebuildOrdersList(sheet);
+      });
+
+      // Send button: stage item + open the order in Song Order tab
+      document.getElementById('spmSendBtn').addEventListener('click', function() {
+        window._pendingShareItem = item;
+
+        // Also save to ShareInbox (localStorage) for the order's shared links panel
+        if (typeof ShareInbox !== 'undefined') ShareInbox.addToOrder(orderId, item);
+
+        // Mark the Supabase inbox item as assigned
+        if (typeof SBQ_INBOX !== 'undefined' && window.__lastShareInboxId) {
+          SBQ_INBOX.assignToOrder(window.__lastShareInboxId, orderId)
+            .catch(function(e) { console.warn('inbox assign error:', e); });
+          window.__lastShareInboxId = null;
         }
-        // Show a "Sent" bubble like WhatsApp
-        var bubble = document.createElement('div');
-        bubble.style.cssText = 'position:absolute;right:16px;bottom:-30px;background:#16a34a;color:#fff;'
-          + 'border-radius:20px;padding:4px 14px;font-size:.75rem;font-weight:700;'
-          + 'box-shadow:0 2px 8px rgba(22,163,74,.4);pointer-events:none;white-space:nowrap;';
-        bubble.textContent = '✓ Saved to ' + orderName;
-        rowEl.style.position = 'relative';
-        rowEl.appendChild(bubble);
-      }
 
-      // ── 4. Auto-close after brief confirmation — no need to open editor ────
-      setTimeout(function() {
         close();
-        if (typeof showToast === 'function') showToast(det.icon + ' Link saved to "' + orderName + '"', 'success');
-      }, 1400);
+        // Open the order → Song Order tab will pick up _pendingShareItem
+        if (window.WO) {
+          window.WO.loadOrder(orderId);
+        } else {
+          if (typeof setActiveView === 'function') setActiveView('worshipOrderView');
+        }
+      });
+    }
+
+    // Rebuild the orders list inside the sheet (used by Back button)
+    function _rebuildOrdersList(sheet) {
+      var det2 = _pendingFileData ? _detectFileType(_pendingFileData) : _detectType(_url);
+      var previewHtml = _pendingFileData ? _buildFilePreview(_pendingFileData, det2) : _buildPreview(_url, _title, det2);
+      sheet.innerHTML =
+        '<div class="spm-handle-wrap"><div class="spm-handle"></div></div>' +
+        '<div class="spm-top">' +
+          '<span class="spm-back-icon">&#128279;</span>' +
+          '<span class="spm-top-title">Save link to an order</span>' +
+          '<button class="spm-close" onclick="SharePickerModal.close()">&times;</button>' +
+        '</div>' +
+        previewHtml +
+        '<div class="spm-section-label">Select a service order:</div>' +
+        '<div class="spm-orders" id="spmOrdersList">' +
+          '<div class="spm-loading"><div>Loading&hellip;</div></div>' +
+        '</div>';
+      _fetchOrders(_renderOrders);
     }
 
     // ── public: close / dismiss ───────────────────────────────────────────
