@@ -14335,25 +14335,35 @@ window.loadEditSongData = function(song) {
 
     // Read shareInbox from the iframe's own URL params — works even without
     // GAS template variable redeployment and without postMessage relay.
-    if (!window.__SHARE_INBOX_URL) {
+    function _processShareParams() {
       try {
         var _siP = new URLSearchParams(window.location.search);
+
+        // Primary: use the dedicated shareInbox param
         var _siUrl = _siP.get('shareInbox') || _siP.get('share_url') || '';
-        if (_siUrl) {
-          window.__SHARE_INBOX_URL   = _siUrl;
-          window.__SHARE_INBOX_TITLE = decodeURIComponent(_siP.get('shareTitle') || _siP.get('share_title') || '');
-          window.__SHARE_INBOX_TEXT  = decodeURIComponent(_siP.get('shareText')  || _siP.get('share_text')  || '');
+
+        // Fallback: YouTube (and many apps) put the URL inside shareText or shareTitle
+        // rather than as a distinct URL field — extract it from wherever it appears
+        if (!_siUrl) {
+          var _rawCombo = (_siP.get('shareText') || '') + ' ' + (_siP.get('shareTitle') || '');
+          var _urlMatch = _rawCombo.match(/https?:\/\/[^\s]+/);
+          if (_urlMatch) _siUrl = _urlMatch[0].replace(/[.,;:!?)]+$/, ''); // trim trailing punctuation
         }
-        // DEBUG toast — remove once share flow confirmed working
-        setTimeout(function() {
-          if (_siP.toString()) {
-            showToast('DEBUG params: ' + decodeURIComponent(_siP.toString()).substring(0, 120), 'info', 8000);
-          } else {
-            showToast('DEBUG: no params. URL=' + window.location.href.substring(0, 80), 'warning', 8000);
-          }
-        }, 1500);
+
+        if (_siUrl && _siUrl !== (window.__SHARE_INBOX_URL || '')) {
+          // Clean title: use shareTitle but strip any embedded URL from it
+          var _rawTitle = decodeURIComponent(_siP.get('shareTitle') || _siP.get('share_title') || '').replace(/\+/g,' ');
+          var _cleanTitle = _rawTitle.replace(/https?:\/\/\S+/g, '').trim() || _siUrl;
+
+          window.__SHARE_INBOX_URL   = _siUrl;
+          window.__SHARE_INBOX_TITLE = _cleanTitle;
+          window.__SHARE_INBOX_TEXT  = decodeURIComponent(_siP.get('shareText') || _siP.get('share_text') || '').replace(/\+/g,' ');
+          return true; // new share detected
+        }
       } catch(e) {}
+      return false;
     }
+    if (!window.__SHARE_INBOX_URL) _processShareParams();
 
     setupAllModals();
     bindCoreEvents();
@@ -14544,6 +14554,63 @@ window.loadEditSongData = function(song) {
       setActiveView('worshipOrderView');
       try { window.parent.postMessage({ type: 'lhc-share-received' }, '*'); } catch(e) {}
     }
+
+    // Handle share when app is ALREADY RUNNING in background (no page reload)
+    // Android brings the PWA to foreground and updates window.location — we
+    // catch this with visibilitychange + a short poll for URL changes.
+    (function() {
+      var _lastHref = window.location.href;
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden) return;
+        var _newHref = window.location.href;
+        if (_newHref === _lastHref) return; // URL didn't change
+        _lastHref = _newHref;
+        // New URL — check for share params
+        var _found = _processShareParams();
+        if (!_found) return;
+        var _siUrl2 = window.__SHARE_INBOX_URL;
+        if (!_siUrl2) return;
+        // Trigger the same share flow as on cold start
+        var _det2 = (function(url) {
+          var _m = [
+            [/youtube\.com\/playlist/i,'youtube-playlist'],
+            [/(youtube\.com\/watch|youtu\.be\/).*[\?&]list=/i,'youtube-playlist'],
+            [/youtube\.com|youtu\.be/i,'youtube'],
+            [/open\.spotify\.com\/playlist/i,'spotify-playlist'],
+            [/open\.spotify\.com\/album/i,'spotify-album'],
+            [/open\.spotify\.com\/track/i,'spotify-track'],
+            [/open\.spotify\.com\/artist/i,'spotify-artist'],
+            [/spotify\.com/i,'spotify'],
+            [/docs\.google\.com\/document/i,'gdoc'],
+            [/drive\.google\.com/i,'gdrive'],
+            [/canva\.com/i,'canva']
+          ];
+          for (var i=0;i<_m.length;i++) { if (_m[i][0].test(url)) return _m[i][1]; }
+          return 'link';
+        })(_siUrl2);
+        var _meta2 = {
+          'youtube-playlist':{icon:'📋',label:'YouTube Playlist'},
+          'youtube':{icon:'▶',label:'YouTube Video'},
+          'spotify-playlist':{icon:'🎵',label:'Spotify Playlist'},
+          'spotify-album':{icon:'💿',label:'Spotify Album'},
+          'spotify-track':{icon:'🎵',label:'Spotify Track'},
+          'spotify-artist':{icon:'🎤',label:'Spotify Artist'},
+          'spotify':{icon:'🎵',label:'Spotify'},
+          'gdoc':{icon:'📄',label:'Google Doc'},
+          'gdrive':{icon:'☁',label:'Drive'},
+          'canva':{icon:'🎨',label:'Canva'},
+          'link':{icon:'🔗',label:'Link'}
+        }[_det2] || {icon:'🔗',label:'Link'};
+        window._pendingShareItem = {
+          url: _siUrl2, title: window.__SHARE_INBOX_TITLE || _siUrl2,
+          type: _det2, icon: _meta2.icon, label: _meta2.label,
+          playlist: (_det2.indexOf('playlist')!==-1||_det2==='spotify-album'),
+          addedAt: new Date().toISOString()
+        };
+        setActiveView('worshipOrderView');
+        if (window.WO && window.WO.showSavedOrders) window.WO.showSavedOrders();
+      });
+    })();
 
     console.log('LHC Worship Prep initialized.');
 
