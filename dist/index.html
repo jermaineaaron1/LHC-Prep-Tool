@@ -17022,9 +17022,15 @@ var WO = (function() {
 
     // Keep _pendingShareItem set — initializeSongOrder() will read it to pre-fill the
     // messenger bar and then clear it itself after use.
+    // Note: openOrderInEditor() called by loadOrder() will populate currentOrderData.mediaLinks
+    // from localStorage (which now includes this item), so renderMediaRows() will find it.
     loadOrder(orderIdx);
     setTimeout(function() {
       if (typeof selectOrder === 'function') selectOrder('song');
+      // Ensure in-memory mediaLinks is populated for the just-loaded order
+      if (currentOrderData && orderId && typeof ShareInbox !== 'undefined') {
+        currentOrderData.mediaLinks = ShareInbox.getForOrder(orderId);
+      }
       renderMediaRows();
     }, 700);
   }
@@ -17430,6 +17436,10 @@ var WO = (function() {
     currentOrderData = order;
     songOrderSections = order.songs || [];
     serviceSectionSongs = order.serviceSectionSongs || {};
+
+    // Populate in-memory mediaLinks from localStorage so renderResourceSections() always finds them
+    currentOrderData.mediaLinks = (order.id && typeof ShareInbox !== 'undefined')
+      ? ShareInbox.getForOrder(order.id) : [];
 
     console.log('=== songOrderSections ASSIGNED ===');
     songOrderSections.forEach(function(s, i) {
@@ -18679,7 +18689,40 @@ var WO = (function() {
           '<i class="fa-solid fa-chevron-down wo-parking-chevron" id="woParkingChevron"></i>' +
         '</div>' +
         '<div class="wo-parking-body" id="woParkingBody">' +
-          '<div id="woMediaRows" class="wo-parking-items"></div>' +
+
+          // ── Playlist sub-section (YouTube, audio, video) ────────────────
+          '<div class="wo-rs-section" id="woPlaylistSection">' +
+            '<div class="wo-rs-header">' +
+              '<span class="wo-rs-title"><i class="fa-brands fa-youtube" style="color:#ff0000"></i> Playlist <span class="wo-rs-badge" id="woPlaylistBadge" style="display:none">0</span></span>' +
+              '<button class="wo-rs-add-btn" onclick="event.stopPropagation();WO.toggleAddLinkInput(\'playlist\')">' +
+                '<i class="fa-solid fa-plus"></i> Add</button>' +
+            '</div>' +
+            '<div class="wo-rs-input-row" id="woPlaylistInputRow" style="display:none">' +
+              '<input id="woPlaylistInput" class="wo-rs-input" type="url" placeholder="YouTube or audio URL…">' +
+              '<button class="wo-rs-submit" onclick="WO.submitLinkInput(\'playlist\')">Add</button>' +
+              '<button class="wo-rs-cancel" onclick="WO.toggleAddLinkInput(\'playlist\')"><i class="fa-solid fa-xmark"></i></button>' +
+            '</div>' +
+            '<div class="wo-rs-items" id="woPlaylistItems"></div>' +
+          '</div>' +
+
+          // ── Docs & Links sub-section ────────────────────────────────────
+          '<div class="wo-rs-section" id="woLinksSection">' +
+            '<div class="wo-rs-header">' +
+              '<span class="wo-rs-title"><i class="fa-solid fa-link"></i> Docs &amp; Links <span class="wo-rs-badge" id="woLinksBadge" style="display:none">0</span></span>' +
+              '<button class="wo-rs-add-btn" onclick="event.stopPropagation();WO.toggleAddLinkInput(\'links\')">' +
+                '<i class="fa-solid fa-plus"></i> Add</button>' +
+            '</div>' +
+            '<div class="wo-rs-input-row" id="woLinksInputRow" style="display:none">' +
+              '<input id="woLinksInput" class="wo-rs-input" type="url" placeholder="Spotify, Google Doc, web URL…">' +
+              '<button class="wo-rs-submit" onclick="WO.submitLinkInput(\'links\')">Add</button>' +
+              '<button class="wo-rs-cancel" onclick="WO.toggleAddLinkInput(\'links\')"><i class="fa-solid fa-xmark"></i></button>' +
+            '</div>' +
+            '<div class="wo-rs-items" id="woLinksItems"></div>' +
+          '</div>' +
+
+          // Hidden stub — kept for backward compat (removeSharedLink uses idx from full list)
+          '<div id="woMediaRows" style="display:none"></div>' +
+
         '</div>' +
       '</div>' +
 
@@ -18765,7 +18808,10 @@ var WO = (function() {
     if (!playlistEl || !linksEl) return;
 
     var orderId = currentOrderData && currentOrderData.id;
-    var links   = (orderId && typeof ShareInbox !== 'undefined') ? ShareInbox.getForOrder(orderId) : [];
+    // Use in-memory mediaLinks (reliable, no race condition) with localStorage fallback
+    var links = (currentOrderData && currentOrderData.mediaLinks)
+      ? currentOrderData.mediaLinks
+      : ((orderId && typeof ShareInbox !== 'undefined') ? ShareInbox.getForOrder(orderId) : []);
     var safeId  = orderId ? escapeHtml(orderId).replace(/'/g, '&#39;') : '';
 
     var ytItems    = [];
@@ -18876,104 +18922,44 @@ var WO = (function() {
         '</div>';
       }).join('');
     }
-  }
 
-  // ── Render media items (links/files) as rows in the Song Order table ──
-  function renderMediaRows() {
-    var el = document.getElementById('woMediaRows');
-    if (!el) return;
-    var orderId = currentOrderData && currentOrderData.id;
-    var items   = (orderId && typeof ShareInbox !== 'undefined') ? ShareInbox.getForOrder(orderId) : [];
-
-    // Update badge + hint text
-    var _badge  = document.getElementById('woParkingBadge');
-    var _hint   = document.getElementById('woParkingHint');
-    if (_badge) { _badge.textContent = items.length; _badge.style.display = items.length ? 'inline-flex' : 'none'; }
-    if (_hint)  { _hint.textContent = items.length ? (items.length + ' link' + (items.length !== 1 ? 's' : '') + ' parked') : 'Links shared to this order park here'; }
-
-    if (!items.length) {
-      el.innerHTML =
-        '<div class="wo-parking-empty">' +
-          '<i class="fa-solid fa-inbox" style="font-size:1.6rem;color:#d1d5db;display:block;margin-bottom:8px"></i>' +
-          '<div style="font-weight:600;color:#9ca3af;margin-bottom:4px">Nothing parked yet</div>' +
-          '<div style="font-size:.78rem;color:#c0c7d0">Share a YouTube video, Spotify playlist, Google Doc,<br>or paste any URL in the bar below.</div>' +
-        '</div>';
-      return;
-    }
-
-    var safeId = orderId ? escapeHtml(String(orderId)) : '';
-
-    el.innerHTML = items.map(function(item, i) {
-      var vid = _ytVideoId && _ytVideoId(item.url || '');
-
-      // Domain
-      var domain = '';
-      try { domain = new URL(item.url || '').hostname.replace(/^www\./, ''); } catch(e) { domain = item.label || 'link'; }
-
-      // Thumbnail block
-      var thumbHtml = '';
-      if (item.isFile && item.mimeType) {
-        if (item.mimeType.startsWith('image/') && item.data) {
-          thumbHtml = '<img class="wo-cbubble-thumb" src="' + escapeHtml(item.data) + '" alt="">';
-        } else {
-          var fIcon = item.mimeType.startsWith('audio/') ? '🎵' : item.mimeType.startsWith('video/') ? '🎬' : '📎';
-          thumbHtml = '<div class="wo-cbubble-icon">' + fIcon + '</div>';
-        }
-      } else if (vid) {
-        thumbHtml = '<img class="wo-cbubble-thumb" src="https://img.youtube.com/vi/' + vid + '/mqdefault.jpg" onerror="this.style.display=\'none\'">';
-      } else {
-        thumbHtml = '<div class="wo-cbubble-icon">' + escapeHtml(item.icon || '🔗') + '</div>';
-      }
-
-      var rawTitle = item.title && item.title !== item.url ? item.title : domain;
-      var cardInner =
-        '<div class="wo-cbubble-domain">' + escapeHtml(domain) + '</div>' +
-        '<div class="wo-cbubble-title" id="soMBTitle-' + i + '">' + escapeHtml((rawTitle || '').substring(0, 80)) + '</div>' +
-        (item.url ? '<div class="wo-cbubble-url">' + escapeHtml(item.url.substring(0, 60)) + '</div>' : '');
-
-      var cardHtml = item.url
-        ? '<a class="wo-cbubble-card" href="' + escapeHtml(item.url) + '" target="_blank">' +
-            thumbHtml + '<div class="wo-cbubble-card-body">' + cardInner + '</div>' +
-          '</a>'
-        : '<div class="wo-cbubble-card">' + thumbHtml + '<div class="wo-cbubble-card-body">' + cardInner + '</div></div>';
-
-      var linkedSong = item.linkedSongId
-        ? (songOrderSections || []).find(function(s) { return s.id === item.linkedSongId; })
-        : null;
-      var linkedTag = linkedSong
-        ? '<span class="wo-cbubble-linked"><i class="fa-solid fa-music"></i> ' + escapeHtml((linkedSong.title || '').substring(0, 22)) + '</span>'
-        : '';
-      var time = item.addedAt ? _cbFormatTime(item.addedAt) : '';
-
-      return '<div class="wo-cbubble-row" id="soMediaRow-' + i + '" data-media-idx="' + i + '">' +
-        '<div class="wo-cbubble">' +
-          cardHtml +
-          '<div class="wo-cbubble-footer">' +
-            linkedTag +
-            '<span class="wo-cbubble-time">' + escapeHtml(time) + '</span>' +
-            '<div class="wo-cbubble-actions">' +
-              '<button class="wo-cbubble-btn" onclick="WO.linkMediaToSong(\'' + safeId + '\',' + i + ')" title="Link to song"><i class="fa-solid fa-music"></i></button>' +
-              '<button class="wo-cbubble-btn del" onclick="WO.removeSharedLink(\'' + safeId + '\',' + i + ')" title="Remove"><i class="fa-solid fa-trash"></i></button>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
-    }).join('');
-
-    // Async: fetch YouTube titles for items that still show URL as title
-    items.forEach(function(item, i) {
-      var vid2 = _ytVideoId && _ytVideoId(item.url || '');
+    // Async: fetch YouTube titles for playlist items that still show URL as title
+    ytItems.forEach(function(item) {
+      var l = item.l;
+      var vid2 = _ytVideoId && _ytVideoId(l.url || '');
       if (!vid2) return;
-      if (item.title && item.title !== item.url && item.title.length > 4) return;
-      fetch('https://noembed.com/embed?url=' + encodeURIComponent(item.url))
+      if (l.title && l.title !== l.url && l.title.length > 4) return;
+      fetch('https://noembed.com/embed?url=' + encodeURIComponent(l.url))
         .then(function(r) { return r.json(); })
         .then(function(d) {
           if (!d || !d.title) return;
-          var el2 = document.getElementById('soMBTitle-' + i);
-          if (el2) el2.textContent = d.title;
-          item.title = d.title;
+          l.title = d.title;
+          // Update just the title text in the rendered card if still visible
+          var card = playlistEl && playlistEl.querySelector('[data-item-idx="' + item.i + '"] .wo-rs-yt-title');
+          if (card) card.textContent = d.title.substring(0, 60);
         }).catch(function() {});
     });
+  }
+
+  // ── Render media items (links/files) as rows in the Song Order table ──
+  // renderMediaRows — updates the parking section badge and delegates visual
+  // rendering to renderResourceSections() which populates woPlaylistItems / woLinksItems.
+  function renderMediaRows() {
+    var items = (currentOrderData && currentOrderData.mediaLinks)
+      ? currentOrderData.mediaLinks
+      : ((currentOrderData && currentOrderData.id && typeof ShareInbox !== 'undefined')
+          ? ShareInbox.getForOrder(currentOrderData.id) : []);
+
+    // Update header badge + hint
+    var _badge = document.getElementById('woParkingBadge');
+    var _hint  = document.getElementById('woParkingHint');
+    if (_badge) { _badge.textContent = items.length; _badge.style.display = items.length ? 'inline-flex' : 'none'; }
+    if (_hint)  { _hint.textContent  = items.length
+      ? (items.length + ' link' + (items.length !== 1 ? 's' : '') + ' parked')
+      : 'Links shared to this order park here'; }
+
+    // Delegate visual rendering to renderResourceSections()
+    renderResourceSections();
   }
 
   function _cbFormatTime(iso) {
@@ -19026,7 +19012,13 @@ var WO = (function() {
     inp.value = '';
     _soClearPreview();
     window._pendingShareItem = null;
+    // Save to localStorage (persistence across sessions)
     if (typeof ShareInbox !== 'undefined') ShareInbox.addToOrder(orderId, item);
+    // Push into in-memory mediaLinks immediately so renderResourceSections() finds it reliably
+    if (currentOrderData) {
+      if (!currentOrderData.mediaLinks) currentOrderData.mediaLinks = [];
+      currentOrderData.mediaLinks.push(item);
+    }
     renderResourceSections();
     renderMediaRows();
     showToast((item.icon || '🔗') + ' Added to order', 'success');
@@ -19139,6 +19131,8 @@ var WO = (function() {
 
   function removeSharedLink(orderId, idx) {
     if (typeof ShareInbox !== 'undefined') ShareInbox.removeFromOrder(orderId, idx);
+    // Keep in-memory array in sync
+    if (currentOrderData && currentOrderData.mediaLinks) currentOrderData.mediaLinks.splice(idx, 1);
     renderResourceSections();
     renderMediaRows();
   }
@@ -19171,8 +19165,13 @@ var WO = (function() {
     var item = { url: url, type: det.type, label: det.label, icon: det.icon,
                  playlist: det.playlist, title: url, addedAt: new Date().toISOString() };
     ShareInbox.addToOrder(orderId, item);
+    // Keep in-memory array in sync
+    if (currentOrderData) {
+      if (!currentOrderData.mediaLinks) currentOrderData.mediaLinks = [];
+      currentOrderData.mediaLinks.push(item);
+    }
     toggleAddLinkInput(section);
-    renderResourceSections();
+    renderMediaRows();
     showToast(det.icon + ' Link added', 'success');
   }
 
