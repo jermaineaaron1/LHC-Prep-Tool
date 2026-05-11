@@ -14672,6 +14672,10 @@ window.loadEditSongData = function(song) {
       if (!db[orderId]) db[orderId] = [];
       db[orderId].push(item);
       _saveAll(db);
+      // Sync to Supabase (fire-and-forget)
+      if (typeof SBQ !== 'undefined' && SBQ.mediaLinks) {
+        SBQ.mediaLinks.save(orderId, db[orderId]).catch(function(){});
+      }
     }
 
     function getForOrder(orderId)      { return _getAll()[orderId] || []; }
@@ -14681,6 +14685,10 @@ window.loadEditSongData = function(song) {
       var db = _getAll();
       if (db[orderId]) { db[orderId].splice(idx, 1); if (!db[orderId].length) delete db[orderId]; }
       _saveAll(db);
+      // Sync to Supabase (fire-and-forget)
+      if (typeof SBQ !== 'undefined' && SBQ.mediaLinks) {
+        SBQ.mediaLinks.save(orderId, db[orderId] || []).catch(function(){});
+      }
     }
 
     function _injectStyles() {
@@ -15876,6 +15884,38 @@ function normalizeSongFromSupabase(row) {
   };
   return (typeof normalizeSong === 'function') ? normalizeSong(bridged) : bridged;
 }
+
+// ================================================================
+// SBQ.mediaLinks — Supabase-backed storage for Order Media Links
+// Requires table: order_media_links (order_id text PK, items jsonb)
+// ================================================================
+SBQ.mediaLinks = {
+  // Upsert all links for an order. Fire-and-forget.
+  save: function(orderId, items) {
+    var sb = getSupabaseClient();
+    if (!sb || !orderId) return Promise.resolve();
+    return sb.from('order_media_links')
+      .upsert({ order_id: orderId, items: items || [], updated_at: new Date().toISOString() },
+               { onConflict: 'order_id' })
+      .then(function(res) {
+        if (res.error) console.warn('[LHC] order_media_links save:', res.error.message);
+      });
+  },
+
+  // Load links for one order → Promise<item[]>
+  load: function(orderId) {
+    var sb = getSupabaseClient();
+    if (!sb || !orderId) return Promise.resolve([]);
+    return sb.from('order_media_links')
+      .select('items')
+      .eq('order_id', orderId)
+      .maybeSingle()
+      .then(function(res) {
+        if (res.error) { console.warn('[LHC] order_media_links load:', res.error.message); return []; }
+        return (res.data && Array.isArray(res.data.items)) ? res.data.items : [];
+      });
+  }
+};
 
 // ================================================================
 // SBQ_ROSTER — Direct Supabase queries for Roster data
@@ -17437,9 +17477,30 @@ var WO = (function() {
     songOrderSections = order.songs || [];
     serviceSectionSongs = order.serviceSectionSongs || {};
 
-    // Populate in-memory mediaLinks from localStorage so renderResourceSections() always finds them
+    // Populate in-memory mediaLinks — start with localStorage, then merge/replace from Supabase
     currentOrderData.mediaLinks = (order.id && typeof ShareInbox !== 'undefined')
       ? ShareInbox.getForOrder(order.id) : [];
+    // Async: load from Supabase and merge (Supabase is source of truth across devices)
+    if (order.id && typeof SBQ !== 'undefined' && SBQ.mediaLinks) {
+      SBQ.mediaLinks.load(order.id).then(function(remoteItems) {
+        if (!remoteItems || !remoteItems.length) return;
+        // Merge: add any Supabase items not already in localStorage
+        var local = (typeof ShareInbox !== 'undefined') ? ShareInbox.getForOrder(order.id) : [];
+        if (remoteItems.length >= local.length) {
+          // Supabase has equal/more — use it as source of truth
+          currentOrderData.mediaLinks = remoteItems;
+          // Back-fill localStorage
+          if (typeof ShareInbox !== 'undefined') {
+            try {
+              var db = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
+              db[order.id] = remoteItems;
+              localStorage.setItem('lhc_share_inbox', JSON.stringify(db));
+            } catch(e) {}
+          }
+          renderMediaRows();
+        }
+      }).catch(function(){});
+    }
 
     console.log('=== songOrderSections ASSIGNED ===');
     songOrderSections.forEach(function(s, i) {
@@ -19302,17 +19363,22 @@ var WO = (function() {
       '.wo-lc-video  {background:#f5f3ff;border:1.5px solid #c4b5fd;}',
       '.wo-lc-image  {background:#ecfdf5;border:1.5px solid #6ee7b7;}',
       '.wo-lc-file   {background:#f9fafb;border:1.5px solid #d1d5db;}',
-      '.wo-lc-thumb-wrap{flex-shrink:0;width:72px;height:46px;border-radius:6px;overflow:hidden;background:#111;}',
+      '.wo-lc-thumb-wrap{flex-shrink:0;width:64px;height:42px;border-radius:6px;overflow:hidden;background:#111;}',
       '.wo-lc-thumb{width:100%;height:100%;object-fit:cover;}',
-      '.wo-lc-icon-wrap{flex-shrink:0;width:44px;height:44px;border-radius:8px;background:rgba(0,0,0,.06);display:flex;align-items:center;justify-content:center;font-size:1.3rem;}',
-      '.wo-lc-yt     .wo-lc-icon-wrap{color:#ef4444;}',
-      '.wo-lc-spotify .wo-lc-icon-wrap{color:#22c55e;}',
-      '.wo-lc-doc    .wo-lc-icon-wrap{color:#3b82f6;}',
-      '.wo-lc-pdf    .wo-lc-icon-wrap{color:#a21caf;}',
-      '.wo-lc-audio  .wo-lc-icon-wrap{color:#d97706;}',
-      '.wo-lc-video  .wo-lc-icon-wrap{color:#7c3aed;}',
+      '.wo-lc-icon-wrap{flex-shrink:0;width:40px;height:40px;border-radius:7px;background:rgba(0,0,0,.06);display:flex;align-items:center;justify-content:center;font-size:1.2rem;}',
+      // Right-side large type icon
+      '.wo-lc-type-icon-wrap{flex-shrink:0;width:38px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.35rem;margin-right:2px;}',
+      '.wo-lc-yt-icon     {background:#fff0f0;color:#ef4444;}',
+      '.wo-lc-spotify-icon{background:#f0fff4;color:#22c55e;}',
+      '.wo-lc-doc-icon    {background:#eff6ff;color:#3b82f6;}',
+      '.wo-lc-gdoc-icon   {background:#eff6ff;color:#3b82f6;}',
+      '.wo-lc-pdf-icon    {background:#fdf4ff;color:#a21caf;}',
+      '.wo-lc-link-icon   {background:#f9fafb;color:#6b7280;}',
+      '.wo-lc-audio-icon  {background:#fffbeb;color:#d97706;}',
+      '.wo-lc-video-icon  {background:#f5f3ff;color:#7c3aed;}',
+      '.wo-lc-image-icon  {background:#ecfdf5;color:#059669;}',
+      '.wo-lc-file-icon   {background:#f9fafb;color:#6b7280;}',
       '.wo-lc-body{flex:1;min-width:0;}',
-      '.wo-lc-type-badge{font-size:.55rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:1px 5px;border-radius:4px;background:rgba(0,0,0,.07);color:#6b7280;display:inline-block;margin-bottom:3px;}',
       '.wo-lc-title{font-size:.8rem;font-weight:600;color:#1f2933;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
       '.wo-lc-linked-chip{background:#eff6ff;color:#4a6da7;border-radius:999px;padding:1px 7px;font-size:.66rem;font-weight:700;display:inline-flex;align-items:center;gap:3px;margin-top:3px;}',
       '.wo-lc-drag-hint{font-size:.65rem;color:#c0c9d8;display:inline-block;margin-top:3px;font-style:italic;}',
@@ -19442,10 +19508,10 @@ var WO = (function() {
         'ondragstart="WO._inboxDragStart(event,' + idx + ')" ondragend="WO._inboxDragEnd(event)">' +
         thumbHtml +
         '<div class="wo-lc-body">' +
-          '<span class="wo-lc-type-badge">' + type.toUpperCase() + '</span>' +
           '<div class="wo-lc-title">' + title + '</div>' +
           linkedChip +
         '</div>' +
+        '<div class="wo-lc-type-icon-wrap ' + cls + '-icon"><i class="' + icon + '"></i></div>' +
         '<div class="wo-lc-actions">' +
           (item.url ? '<a href="' + escapeHtml(item.url) + '" target="_blank" class="wo-lc-btn" title="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>' : '') +
           '<button class="wo-lc-btn wo-lc-del" onclick="WO.removeSharedLink(\'' + safeId + '\',' + idx + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
@@ -19496,45 +19562,70 @@ var WO = (function() {
     var item  = items[idx];
     if (!item) return;
 
+    // Mark as linked in inbox
     item.linkedSongId = songId;
 
+    // Find the song section
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song) return;
+
     var type = _lcType(item);
+
     if (type === 'youtube' && item.url) {
-      var song1 = songOrderSections.find(function(s) { return s.id === songId; });
-      if (song1) {
-        if (!Array.isArray(song1.customYoutube)) song1.customYoutube = [];
-        if (song1.customYoutube.indexOf(item.url) < 0) song1.customYoutube.push(item.url);
-        showToast('🎬 Added to ' + escapeHtml((song1.title || 'song').substring(0, 20)) + '\'s playlist', 'success');
+      // ── Add to song's custom YouTube list ─────────────────────────────
+      if (!Array.isArray(song.customYoutube)) song.customYoutube = [];
+      if (song.customYoutube.indexOf(item.url) < 0) song.customYoutube.push(item.url);
+      showToast('🎬 Added to "' + escapeHtml((song.title || 'Song').substring(0, 22)) + '"', 'success');
+    } else if (item.url) {
+      // ── Add to song's custom docs/links list ───────────────────────────
+      if (!Array.isArray(song.customDocs)) song.customDocs = [];
+      var alreadyThere = song.customDocs.some(function(d) { return (d.url || d) === item.url; });
+      if (!alreadyThere) {
+        var docLabel = item.title || item.name || item.url;
+        try { docLabel = new URL(item.url).hostname; } catch(ex) {}
+        song.customDocs.push({ url: item.url, name: (item.title || docLabel).substring(0, 55), type: type });
       }
-    } else {
-      var song2 = songOrderSections.find(function(s) { return s.id === songId; });
-      showToast('🔗 Linked to "' + (song2 ? escapeHtml((song2.title || 'song').substring(0, 24)) : 'song') + '"', 'success');
+      showToast('🔗 Added to "' + escapeHtml((song.title || 'Song').substring(0, 22)) + '"', 'success');
     }
 
-    // Persist updated items
+    // Auto-expand the song panel to reveal the newly added card
+    var panel = document.getElementById('soExpand-' + songId);
+    if (panel) {
+      if (panel.style.display === 'none') {
+        // Open it
+        soToggleExpand(songId);
+      } else {
+        // Already open — just re-render its content
+        _soRefreshAllExpandsFor(songId);
+      }
+    }
+
+    // Update media badge on the song row header
+    var badge = row ? row.querySelector('.so-media-badge') : null;
+    if (badge && song) {
+      var cnt = (Array.isArray(song.youtube) ? song.youtube.length : 0) +
+                (Array.isArray(song.customYoutube) ? song.customYoutube.length : 0) +
+                (Array.isArray(song.attachments)   ? song.attachments.length   : 0) +
+                (Array.isArray(song.customDocs)     ? song.customDocs.length    : 0);
+      badge.innerHTML = '<i class="fa-solid fa-photo-film"></i> ' + cnt;
+      badge.className = 'so-media-badge';
+    }
+
+    // Persist — localStorage + Supabase
     try {
       var orderId2 = currentOrderData && currentOrderData.id;
       if (orderId2) {
         var db = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
         db[orderId2] = items;
         localStorage.setItem('lhc_share_inbox', JSON.stringify(db));
+        if (typeof SBQ !== 'undefined' && SBQ.mediaLinks) SBQ.mediaLinks.save(orderId2, items);
       }
     } catch(ex) {}
 
+    // Auto-save the order so customYoutube / customDocs persist
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+
     _renderLinkInbox();
-    // Refresh song rows to show link chip
-    var soSections = document.getElementById('woSongOrderSections');
-    if (soSections) {
-      songOrderSections.forEach(function(s, i) {
-        var sId = s.sectionId || (s.serviceSectionId ? s.serviceSectionId + '-' + i : '');
-        renderSongOrderSection(s, sId, s.sectionLabel || '', s.id, i + 1);
-      });
-      // Re-render is additive so deduplicate by rebuilding
-      soSections.innerHTML = '';
-      songOrderSections.forEach(function(s, i) {
-        renderSongOrderSection(s, s.sectionId || '', s.sectionLabel || '', s.id, i + 1);
-      });
-    }
   }
 
   // ── YouTube Playlist modal ────────────────────────────────────────────
