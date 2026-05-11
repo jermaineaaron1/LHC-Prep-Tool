@@ -19387,8 +19387,27 @@ var WO = (function() {
       '.wo-lc-btn:hover{color:#4a6da7;background:rgba(74,109,167,.1);}',
       '.wo-lc-del:hover{color:#ef4444 !important;background:#fef2f2 !important;}',
 
-      // ── Song row drop zone ──────────────────────────────────────────────
-      '.wo-song-list-row.wo-slr-drop-over .wo-slr-main{background:#eff6ff;outline:2px dashed #4a6da7;border-radius:10px;}',
+      // ── Song row drop zone (desktop hover) ─────────────────────────────
+      '.wo-song-list-row{position:relative;}',
+      '.wo-song-list-row.wo-slr-drop-over{z-index:2;}',
+      '.wo-song-list-row.wo-slr-drop-over .wo-slr-main{' +
+        'background:linear-gradient(135deg,#dbeafe,#eff6ff) !important;' +
+        'outline:2.5px dashed #4a6da7;outline-offset:2px;border-radius:10px;' +
+        'box-shadow:0 0 0 4px rgba(74,109,167,.15);}',
+      // "Drop here" label that appears on the row during hover
+      '.wo-song-list-row.wo-slr-drop-over::after{' +
+        'content:"📥 Drop here";' +
+        'position:absolute;right:14px;top:50%;transform:translateY(-50%);' +
+        'background:#4a6da7;color:#fff;border-radius:999px;' +
+        'padding:3px 11px;font-size:.72rem;font-weight:700;' +
+        'font-family:"Poppins",sans-serif;pointer-events:none;z-index:3;' +
+        'animation:wo-drop-pulse .6s infinite alternate;}',
+      '@keyframes wo-drop-pulse{from{opacity:.8;transform:translateY(-50%) scale(1);}to{opacity:1;transform:translateY(-50%) scale(1.04);}}',
+      // When dragging is active, make song rows look like valid targets
+      'body.inbox-dragging .wo-song-list-row .wo-slr-main{' +
+        'cursor:copy;transition:background .12s,box-shadow .12s;}',
+      'body.inbox-dragging .wo-song-list-row:not(.wo-slr-drop-over) .wo-slr-main{' +
+        'box-shadow:inset 0 0 0 1.5px rgba(74,109,167,.25);}',
       '.wo-slr-linked-badge{background:#eff6ff;color:#4a6da7;border-radius:999px;padding:2px 7px;font-size:.63rem;font-weight:700;display:inline-flex;align-items:center;gap:3px;vertical-align:middle;margin-left:5px;}',
 
       // ── Playlist modal ──────────────────────────────────────────────────
@@ -19505,7 +19524,8 @@ var WO = (function() {
 
       return '<div class="wo-lc-card ' + cls + '" draggable="true" ' +
         'data-inbox-idx="' + idx + '" data-item-type="' + type + '" ' +
-        'ondragstart="WO._inboxDragStart(event,' + idx + ')" ondragend="WO._inboxDragEnd(event)">' +
+        'ondragstart="WO._inboxDragStart(event,' + idx + ')" ondragend="WO._inboxDragEnd(event)" ' +
+        'ontouchstart="WO._inboxTouchStart(event,' + idx + ')">' +
         thumbHtml +
         '<div class="wo-lc-body">' +
           '<div class="wo-lc-title">' + title + '</div>' +
@@ -19520,8 +19540,11 @@ var WO = (function() {
     }).join('');
   }
 
-  // ── Inbox → song drag handlers ────────────────────────────────────────
+  // ── Inbox → song drag/drop handlers (desktop + mobile touch) ────────
   var _draggingInboxIdx = -1;
+  var _touchDragIdx     = -1;
+  var _touchCloneEl     = null;
+  var _touchLastTarget  = null;
 
   function _inboxDragStart(e, idx) {
     _draggingInboxIdx = idx;
@@ -19529,30 +19552,123 @@ var WO = (function() {
     e.dataTransfer.setData('text/plain', String(idx));
     var card = e.currentTarget;
     if (card) { setTimeout(function() { card.classList.add('wo-lc-dragging'); }, 0); }
+    document.body.classList.add('inbox-dragging');
   }
 
   function _inboxDragEnd(e) {
     _draggingInboxIdx = -1;
     if (e.currentTarget) e.currentTarget.classList.remove('wo-lc-dragging');
+    document.body.classList.remove('inbox-dragging');
+    document.querySelectorAll('.wo-slr-drop-over').forEach(function(r) { r.classList.remove('wo-slr-drop-over'); });
   }
 
   function _songDragOver(e, songId) {
     if (_draggingInboxIdx < 0) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'link';
+    // Remove highlight from all rows, then highlight this one
+    document.querySelectorAll('.wo-slr-drop-over').forEach(function(r) { r.classList.remove('wo-slr-drop-over'); });
     var row = document.getElementById('soRow-' + songId);
     if (row) row.classList.add('wo-slr-drop-over');
   }
 
   function _songDragLeave(e, songId) {
+    // Only remove if leaving to outside the row (relatedTarget not inside the row)
     var row = document.getElementById('soRow-' + songId);
-    if (row) row.classList.remove('wo-slr-drop-over');
+    if (!row) return;
+    if (e.relatedTarget && row.contains(e.relatedTarget)) return;
+    row.classList.remove('wo-slr-drop-over');
+  }
+
+  // ── Touch drag (mobile) ───────────────────────────────────────────────
+  function _inboxTouchStart(e, idx) {
+    _touchDragIdx = idx;
+    var card = e.currentTarget;
+    if (!card) return;
+
+    // Create floating clone that follows the finger
+    _touchCloneEl = card.cloneNode(true);
+    var r = card.getBoundingClientRect();
+    _touchCloneEl.style.cssText =
+      'position:fixed;z-index:9999;opacity:.85;pointer-events:none;' +
+      'width:' + r.width + 'px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.28);' +
+      'left:' + r.left + 'px;top:' + r.top + 'px;transition:none;';
+    document.body.appendChild(_touchCloneEl);
+    card.style.opacity = '0.3';
+    document.body.classList.add('inbox-dragging');
+
+    document.addEventListener('touchmove',   _inboxTouchMove,   { passive: false });
+    document.addEventListener('touchend',    _inboxTouchEnd,    { passive: false });
+    document.addEventListener('touchcancel', _inboxTouchCancel, { passive: false });
+  }
+
+  function _inboxTouchMove(e) {
+    e.preventDefault();
+    var t = e.touches[0];
+
+    // Move clone to follow finger
+    if (_touchCloneEl) {
+      _touchCloneEl.style.left = (t.clientX - 60) + 'px';
+      _touchCloneEl.style.top  = (t.clientY - 30) + 'px';
+    }
+
+    // Find element under finger (hide clone temporarily so it doesn't block hit-test)
+    if (_touchCloneEl) _touchCloneEl.style.display = 'none';
+    var el = document.elementFromPoint(t.clientX, t.clientY);
+    if (_touchCloneEl) _touchCloneEl.style.display = '';
+
+    // Highlight song row under finger
+    var songRow = el ? el.closest('.wo-song-list-row') : null;
+    if (songRow !== _touchLastTarget) {
+      document.querySelectorAll('.wo-slr-drop-over').forEach(function(r) { r.classList.remove('wo-slr-drop-over'); });
+      if (songRow) songRow.classList.add('wo-slr-drop-over');
+      _touchLastTarget = songRow;
+    }
+  }
+
+  function _inboxTouchEnd(e) {
+    document.removeEventListener('touchmove',   _inboxTouchMove);
+    document.removeEventListener('touchend',    _inboxTouchEnd);
+    document.removeEventListener('touchcancel', _inboxTouchCancel);
+
+    // Find element under finger
+    var t = e.changedTouches[0];
+    if (_touchCloneEl) _touchCloneEl.style.display = 'none';
+    var el = document.elementFromPoint(t.clientX, t.clientY);
+
+    _inboxTouchCleanup();
+
+    var songRow = el ? el.closest('.wo-song-list-row') : null;
+    if (songRow && _touchDragIdx >= 0) {
+      var songId = songRow.id.replace('soRow-', '');
+      _draggingInboxIdx = _touchDragIdx;
+      _touchDragIdx = -1;
+      _songDrop({ preventDefault: function() {} }, songId);
+    } else {
+      _touchDragIdx = -1;
+    }
+  }
+
+  function _inboxTouchCancel() {
+    document.removeEventListener('touchmove',   _inboxTouchMove);
+    document.removeEventListener('touchend',    _inboxTouchEnd);
+    document.removeEventListener('touchcancel', _inboxTouchCancel);
+    _inboxTouchCleanup();
+    _touchDragIdx = -1;
+  }
+
+  function _inboxTouchCleanup() {
+    if (_touchCloneEl) { _touchCloneEl.remove(); _touchCloneEl = null; }
+    _touchLastTarget = null;
+    document.body.classList.remove('inbox-dragging');
+    document.querySelectorAll('.wo-lc-card').forEach(function(c) { c.style.opacity = ''; });
+    document.querySelectorAll('.wo-slr-drop-over').forEach(function(r) { r.classList.remove('wo-slr-drop-over'); });
   }
 
   function _songDrop(e, songId) {
     e.preventDefault();
-    var row = document.getElementById('soRow-' + songId);
-    if (row) row.classList.remove('wo-slr-drop-over');
+    document.body.classList.remove('inbox-dragging');
+    document.querySelectorAll('.wo-slr-drop-over').forEach(function(r) { r.classList.remove('wo-slr-drop-over'); });
 
     var idx = _draggingInboxIdx;
     _draggingInboxIdx = -1;
@@ -19592,13 +19708,16 @@ var WO = (function() {
     var panel = document.getElementById('soExpand-' + songId);
     if (panel) {
       if (panel.style.display === 'none') {
-        // Open it
+        // Panel is closed — open it (this also renders it with the new card)
         soToggleExpand(songId);
       } else {
-        // Already open — just re-render its content
-        _soRefreshAllExpandsFor(songId);
+        // Already open — force re-render so the new card appears immediately
+        soRenderExpandPanel(songId, songId, panel);
       }
     }
+    // Scroll the row into view so user sees the result
+    var _row = document.getElementById('soRow-' + songId);
+    if (_row) { setTimeout(function() { _row.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 120); }
 
     // Update media badge on the song row header
     var badge = row ? row.querySelector('.so-media-badge') : null;
@@ -38197,6 +38316,7 @@ var WO = (function() {
     _renderLinkInbox: _renderLinkInbox,
     _inboxDragStart: _inboxDragStart,
     _inboxDragEnd: _inboxDragEnd,
+    _inboxTouchStart: _inboxTouchStart,
     _songDragOver: _songDragOver,
     _songDragLeave: _songDragLeave,
     _songDrop: _songDrop,
