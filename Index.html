@@ -19528,9 +19528,12 @@ var WO = (function() {
         ? '<span class="wo-lc-linked-chip"><i class="fa-solid fa-music"></i> ' + escapeHtml((linkedSong.title || 'Song').substring(0, 20)) + '</span>'
         : '<span class="wo-lc-drag-hint"><i class="fa-solid fa-arrow-up"></i> drag to song</span>';
 
-      // Drag handle — touch-action:none stops iOS/Android scroll so our touchstart fires cleanly
+      // Drag handle — touch-action:none + Pointer Events for reliable mobile drag
       var dragHandle = '<div class="wo-lc-drag-handle" ' +
-        'ontouchstart="WO._inboxTouchStart(event,' + idx + ')" ' +
+        'onpointerdown="WO._inboxPointerDown(event,' + idx + ')" ' +
+        'onpointermove="WO._inboxPointerMove(event)" ' +
+        'onpointerup="WO._inboxPointerUp(event)" ' +
+        'onpointercancel="WO._inboxPointerCancel(event)" ' +
         'title="Hold &amp; drag to a song">' +
         '<i class="fa-solid fa-grip-vertical"></i>' +
       '</div>';
@@ -19593,51 +19596,59 @@ var WO = (function() {
     row.classList.remove('wo-slr-drop-over');
   }
 
-  // ── Touch drag (mobile) ───────────────────────────────────────────────
-  function _inboxTouchStart(e, idx) {
-    // e.currentTarget is the drag handle — find the parent card
+  // ── Pointer Events drag (works on iOS, Android, desktop) ────────────
+  // Uses setPointerCapture so the handle receives ALL pointer events even
+  // when the finger moves to a completely different part of the screen.
+  var _ptrDragIdx    = -1;
+  var _ptrCard       = null;
+  var _ptrPointerId  = null;
+
+  function _inboxPointerDown(e, idx) {
+    // Skip mouse on desktop — HTML5 DnD handles that
+    if (e.pointerType === 'mouse') return;
+    e.preventDefault();
+    e.stopPropagation();
+
     var handle = e.currentTarget;
     var card   = handle ? (handle.closest('.wo-lc-card') || handle.parentElement) : null;
     if (!card) return;
 
-    e.preventDefault(); // stop page scroll while dragging — safe because handle has touch-action:none in CSS
-    e.stopPropagation();
+    // Capture pointer → all move/up events route here even if finger wanders off element
+    handle.setPointerCapture(e.pointerId);
+    _ptrPointerId = e.pointerId;
+    _ptrDragIdx   = idx;
+    _ptrCard      = card;
 
-    _touchDragIdx = idx;
-
-    // Create floating clone that follows the finger
+    // Floating ghost clone
     var r = card.getBoundingClientRect();
     _touchCloneEl = card.cloneNode(true);
     _touchCloneEl.style.cssText =
-      'position:fixed;z-index:9999;opacity:.88;pointer-events:none;' +
+      'position:fixed;z-index:9999;opacity:.9;pointer-events:none;' +
       'width:' + r.width + 'px;border-radius:10px;' +
-      'box-shadow:0 10px 32px rgba(0,0,0,.32);' +
-      'left:' + r.left + 'px;top:' + r.top + 'px;transition:none;transform:scale(1.03);';
+      'box-shadow:0 12px 36px rgba(0,0,0,.35);' +
+      'left:' + r.left + 'px;top:' + r.top + 'px;' +
+      'transform:scale(1.04) rotate(-1deg);transition:none;';
     document.body.appendChild(_touchCloneEl);
-    card.style.opacity = '0.25';
-    document.body.classList.add('inbox-dragging');
 
-    document.addEventListener('touchmove',   _inboxTouchMove,   { passive: false });
-    document.addEventListener('touchend',    _inboxTouchEnd,    { passive: false });
-    document.addEventListener('touchcancel', _inboxTouchCancel, { passive: false });
+    card.style.opacity = '0.22';
+    document.body.classList.add('inbox-dragging');
   }
 
-  function _inboxTouchMove(e) {
+  function _inboxPointerMove(e) {
+    if (_ptrDragIdx < 0 || e.pointerType === 'mouse') return;
     e.preventDefault();
-    var t = e.touches[0];
 
-    // Move clone to follow finger
+    // Move ghost clone to follow finger/stylus
     if (_touchCloneEl) {
-      _touchCloneEl.style.left = (t.clientX - 60) + 'px';
-      _touchCloneEl.style.top  = (t.clientY - 30) + 'px';
+      _touchCloneEl.style.left = (e.clientX - 60) + 'px';
+      _touchCloneEl.style.top  = (e.clientY - 34) + 'px';
     }
 
-    // Find element under finger (hide clone temporarily so it doesn't block hit-test)
-    if (_touchCloneEl) _touchCloneEl.style.display = 'none';
-    var el = document.elementFromPoint(t.clientX, t.clientY);
-    if (_touchCloneEl) _touchCloneEl.style.display = '';
+    // Hit-test below the clone (make clone invisible briefly)
+    if (_touchCloneEl) _touchCloneEl.style.visibility = 'hidden';
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    if (_touchCloneEl) _touchCloneEl.style.visibility = '';
 
-    // Highlight song row under finger
     var songRow = el ? el.closest('.wo-song-list-row') : null;
     if (songRow !== _touchLastTarget) {
       document.querySelectorAll('.wo-slr-drop-over').forEach(function(r) { r.classList.remove('wo-slr-drop-over'); });
@@ -19646,44 +19657,44 @@ var WO = (function() {
     }
   }
 
-  function _inboxTouchEnd(e) {
-    document.removeEventListener('touchmove',   _inboxTouchMove);
-    document.removeEventListener('touchend',    _inboxTouchEnd);
-    document.removeEventListener('touchcancel', _inboxTouchCancel);
+  function _inboxPointerUp(e) {
+    if (_ptrDragIdx < 0 || e.pointerType === 'mouse') return;
+    e.preventDefault();
 
-    // Find element under finger
-    var t = e.changedTouches[0];
-    if (_touchCloneEl) _touchCloneEl.style.display = 'none';
-    var el = document.elementFromPoint(t.clientX, t.clientY);
+    // Hit-test once more at release point
+    if (_touchCloneEl) _touchCloneEl.style.visibility = 'hidden';
+    var el = document.elementFromPoint(e.clientX, e.clientY);
 
-    _inboxTouchCleanup();
+    _inboxPtrCleanup();
 
     var songRow = el ? el.closest('.wo-song-list-row') : null;
-    if (songRow && _touchDragIdx >= 0) {
-      var songId = songRow.id.replace('soRow-', '');
-      _draggingInboxIdx = _touchDragIdx;
-      _touchDragIdx = -1;
-      _songDrop({ preventDefault: function() {} }, songId);
+    if (songRow) {
+      var droppedSongId = songRow.id.replace('soRow-', '');
+      _draggingInboxIdx = _ptrDragIdx;
+      _ptrDragIdx = -1;
+      _songDrop({ preventDefault: function() {} }, droppedSongId);
     } else {
-      _touchDragIdx = -1;
+      _ptrDragIdx = -1;
     }
   }
 
-  function _inboxTouchCancel() {
-    document.removeEventListener('touchmove',   _inboxTouchMove);
-    document.removeEventListener('touchend',    _inboxTouchEnd);
-    document.removeEventListener('touchcancel', _inboxTouchCancel);
-    _inboxTouchCleanup();
-    _touchDragIdx = -1;
+  function _inboxPointerCancel(e) {
+    _ptrDragIdx = -1;
+    _inboxPtrCleanup();
   }
 
-  function _inboxTouchCleanup() {
+  function _inboxPtrCleanup() {
     if (_touchCloneEl) { _touchCloneEl.remove(); _touchCloneEl = null; }
+    if (_ptrCard)      { _ptrCard.style.opacity = ''; _ptrCard = null; }
     _touchLastTarget = null;
+    _ptrPointerId    = null;
     document.body.classList.remove('inbox-dragging');
     document.querySelectorAll('.wo-lc-card').forEach(function(c) { c.style.opacity = ''; });
     document.querySelectorAll('.wo-slr-drop-over').forEach(function(r) { r.classList.remove('wo-slr-drop-over'); });
   }
+
+  // Keep _inboxTouchStart as no-op alias so old references don't crash
+  function _inboxTouchStart(e, idx) { /* replaced by Pointer Events */ }
 
   function _songDrop(e, songId) {
     e.preventDefault();
@@ -19706,58 +19717,72 @@ var WO = (function() {
     if (!song) return;
 
     var type = _lcType(item);
+    var url  = item.url || '';
 
-    if (type === 'youtube' && item.url) {
-      // ── Add to song's custom YouTube list ─────────────────────────────
+    // ── Determine media type exactly as the ADD toolbar buttons do ─────
+    // YouTube / video → customYoutube[]
+    // Everything else (webpage, Google Doc, Drive, PDF, Spotify, image) → customDocs[]
+    var isYT = (type === 'youtube') || !!(url && soExtractYouTubeId(url));
+
+    if (!url && !item.data) { showToast('No URL in this link', 'warning'); return; }
+
+    if (isYT) {
       if (!Array.isArray(song.customYoutube)) song.customYoutube = [];
-      if (song.customYoutube.indexOf(item.url) < 0) song.customYoutube.push(item.url);
-      showToast('🎬 Added to "' + escapeHtml((song.title || 'Song').substring(0, 22)) + '"', 'success');
-    } else if (item.url) {
-      // ── Add to song's custom docs/links list ───────────────────────────
+      if (song.customYoutube.indexOf(url) < 0) song.customYoutube.push(url);
+      showToast('🎬 YouTube added to "' + escapeHtml((song.title || 'Song').substring(0, 20)) + '"', 'success');
+    } else if (url) {
       if (!Array.isArray(song.customDocs)) song.customDocs = [];
-      var alreadyThere = song.customDocs.some(function(d) { return (d.url || d) === item.url; });
-      if (!alreadyThere) {
-        var docLabel = item.title || item.name || item.url;
-        try { docLabel = new URL(item.url).hostname; } catch(ex) {}
-        song.customDocs.push({ url: item.url, name: (item.title || docLabel).substring(0, 55), type: type });
+      var exists = song.customDocs.some(function(d) { return (d.url || d) === url; });
+      if (!exists) {
+        // Build a rich name — prefer stored title, fall back to hostname
+        var docName = item.title || item.name || '';
+        if (!docName || docName === url) {
+          try { docName = new URL(url).hostname.replace(/^www\./, ''); } catch(ex2) { docName = url; }
+        }
+        // storageProvider mirrors what openMediaAddModal sets so soMakeDocCard renders correctly
+        var provider = (type === 'gdoc' || type === 'gdrive') ? 'google_drive'
+                     : (type === 'pdf')     ? 'pdf'
+                     : (type === 'spotify') ? 'spotify'
+                     : 'custom';
+        song.customDocs.push({ url: url, name: docName.substring(0, 55), type: provider });
       }
-      showToast('🔗 Added to "' + escapeHtml((song.title || 'Song').substring(0, 22)) + '"', 'success');
+      var typeLabel = { gdoc:'📄 Doc', gdrive:'☁️ Drive file', pdf:'📑 PDF',
+                        spotify:'🎵 Spotify', image:'🖼 Image', link:'🔗 Link' };
+      showToast((typeLabel[type] || '🔗 Link') + ' added to "' + escapeHtml((song.title || 'Song').substring(0, 20)) + '"', 'success');
     }
 
-    // Auto-expand the song panel to reveal the newly added card
-    var panel = document.getElementById('soExpand-' + songId);
-    if (panel) {
+    // ── Open / refresh the song expand panel so the new card is visible ──
+    var _openPanel = function() {
+      var panel = document.getElementById('soExpand-' + songId);
+      if (!panel) return;
       if (panel.style.display === 'none') {
-        // Panel is closed — open it (soToggleExpand renders it with the new card)
-        soToggleExpand(songId);
+        soToggleExpand(songId);     // opens + renders
       } else {
-        // Already open — force re-render immediately
-        soRenderExpandPanel(songId, songId, panel);
+        soRenderExpandPanel(songId, songId, panel);  // re-renders in-place
       }
-    }
-    // Backup: re-render after 80ms in case the first render beat the mutation
+    };
+    _openPanel();
+    // Double-tap safety: re-render 150ms later in case the first render ran
+    // before the mutation was visible (can happen if soToggleExpand closes first)
+    setTimeout(_openPanel, 150);
     setTimeout(function() {
-      var panel2 = document.getElementById('soExpand-' + songId);
-      if (panel2 && panel2.style.display !== 'none') {
-        soRenderExpandPanel(songId, songId, panel2);
-      }
-      // Scroll into view
-      var row2 = document.getElementById('soRow-' + songId);
-      if (row2) row2.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 120);
+      var r2 = document.getElementById('soRow-' + songId);
+      if (r2) r2.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 200);
 
-    // Update media badge on the song row header
-    var badge = row ? row.querySelector('.so-media-badge') : null;
-    if (badge && song) {
-      var cnt = (Array.isArray(song.youtube) ? song.youtube.length : 0) +
-                (Array.isArray(song.customYoutube) ? song.customYoutube.length : 0) +
-                (Array.isArray(song.attachments)   ? song.attachments.length   : 0) +
-                (Array.isArray(song.customDocs)     ? song.customDocs.length    : 0);
+    // ── Update the row media badge count ──────────────────────────────
+    var _row2 = document.getElementById('soRow-' + songId);
+    var badge = _row2 ? _row2.querySelector('.so-media-badge') : null;
+    if (badge) {
+      var cnt = (Array.isArray(song.youtube)       ? song.youtube.length       : 0) +
+                (Array.isArray(song.customYoutube)  ? song.customYoutube.length  : 0) +
+                (Array.isArray(song.attachments)    ? song.attachments.length    : 0) +
+                (Array.isArray(song.customDocs)     ? song.customDocs.length     : 0);
       badge.innerHTML = '<i class="fa-solid fa-photo-film"></i> ' + cnt;
       badge.className = 'so-media-badge';
     }
 
-    // Persist — localStorage + Supabase
+    // ── Persist inbox (linkedSongId) to localStorage + Supabase ──────
     try {
       var orderId2 = currentOrderData && currentOrderData.id;
       if (orderId2) {
@@ -19768,8 +19793,9 @@ var WO = (function() {
       }
     } catch(ex) {}
 
-    // Auto-save the order so customYoutube / customDocs persist
+    // Auto-save order so customYoutube / customDocs survive page reload
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof updateQuickList === 'function') updateQuickList();
 
     _renderLinkInbox();
   }
@@ -38344,6 +38370,10 @@ var WO = (function() {
     _inboxDragStart: _inboxDragStart,
     _inboxDragEnd: _inboxDragEnd,
     _inboxTouchStart: _inboxTouchStart,
+    _inboxPointerDown: _inboxPointerDown,
+    _inboxPointerMove: _inboxPointerMove,
+    _inboxPointerUp: _inboxPointerUp,
+    _inboxPointerCancel: _inboxPointerCancel,
     _songDragOver: _songDragOver,
     _songDragLeave: _songDragLeave,
     _songDrop: _songDrop,
