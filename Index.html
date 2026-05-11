@@ -19752,23 +19752,23 @@ var WO = (function() {
     }
 
     // ── Open / refresh the song expand panel so the new card is visible ──
-    var _openPanel = function() {
-      var panel = document.getElementById('soExpand-' + songId);
-      if (!panel) return;
-      if (panel.style.display === 'none') {
-        soToggleExpand(songId);     // opens + renders
-      } else {
-        soRenderExpandPanel(songId, songId, panel);  // re-renders in-place
-      }
-    };
-    _openPanel();
-    // Double-tap safety: re-render 150ms later in case the first render ran
-    // before the mutation was visible (can happen if soToggleExpand closes first)
-    setTimeout(_openPanel, 150);
+    // Use the same path as the ADD toolbar buttons (_soRefreshAllExpandsFor)
+    // to guarantee the new card renders correctly next to existing cards.
+    var panel = document.getElementById('soExpand-' + songId);
+    if (panel && panel.style.display === 'none') {
+      soToggleExpand(songId); // open the closed panel first
+    }
+    if (typeof _soRefreshAllExpandsFor === 'function') {
+      _soRefreshAllExpandsFor(songId);
+    }
+    // Backup refresh — ensures render even if toggle animation delays DOM update
     setTimeout(function() {
+      if (typeof _soRefreshAllExpandsFor === 'function') {
+        _soRefreshAllExpandsFor(songId);
+      }
       var r2 = document.getElementById('soRow-' + songId);
       if (r2) r2.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 200);
+    }, 180);
 
     // ── Update the row media badge count ──────────────────────────────
     var _row2 = document.getElementById('soRow-' + songId);
