@@ -19350,10 +19350,16 @@ var WO = (function() {
       '.wo-lc-empty{text-align:center;padding:24px 16px;color:#9ca3af;display:flex;flex-direction:column;align-items:center;gap:8px;}',
       '.wo-lc-empty i{font-size:2rem;opacity:.5;}',
       '.wo-lc-empty p{font-size:.8rem;margin:0;}',
-      '.wo-lc-card{display:flex;align-items:center;gap:10px;border-radius:10px;padding:9px 10px;cursor:grab;transition:transform .12s,box-shadow .12s,opacity .15s;position:relative;user-select:none;}',
+      '.wo-lc-card{display:flex;align-items:center;gap:8px;border-radius:10px;padding:8px 10px 8px 4px;transition:transform .12s,box-shadow .12s,opacity .15s;position:relative;user-select:none;}',
       '.wo-lc-card:hover{box-shadow:0 2px 10px rgba(0,0,0,.1);transform:translateY(-1px);}',
-      '.wo-lc-card:active{cursor:grabbing;}',
-      '.wo-lc-card.wo-lc-dragging{opacity:.4;transform:scale(.96);}',
+      '.wo-lc-card.wo-lc-dragging{opacity:.35;transform:scale(.96);}',
+      // Drag handle — visible grip strip on the left, touch-action:none stops iOS scroll from this element
+      '.wo-lc-drag-handle{flex-shrink:0;width:26px;height:100%;min-height:40px;display:flex;align-items:center;justify-content:center;' +
+        'color:#c9d3e0;cursor:grab;touch-action:none;border-radius:7px 0 0 7px;padding:0 2px;' +
+        'transition:color .12s,background .12s;}',
+      '.wo-lc-drag-handle:hover{color:#4a6da7;background:rgba(74,109,167,.08);}',
+      '.wo-lc-drag-handle:active{cursor:grabbing;color:#4a6da7;}',
+      '.wo-lc-drag-handle i{font-size:.85rem;}',
       '.wo-lc-yt     {background:#fff2f2;border:1.5px solid #fca5a5;}',
       '.wo-lc-spotify{background:#f0fff4;border:1.5px solid #6ee7b7;}',
       '.wo-lc-doc    {background:#eff6ff;border:1.5px solid #93c5fd;}',
@@ -19381,7 +19387,7 @@ var WO = (function() {
       '.wo-lc-body{flex:1;min-width:0;}',
       '.wo-lc-title{font-size:.8rem;font-weight:600;color:#1f2933;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
       '.wo-lc-linked-chip{background:#eff6ff;color:#4a6da7;border-radius:999px;padding:1px 7px;font-size:.66rem;font-weight:700;display:inline-flex;align-items:center;gap:3px;margin-top:3px;}',
-      '.wo-lc-drag-hint{font-size:.65rem;color:#c0c9d8;display:inline-block;margin-top:3px;font-style:italic;}',
+      '.wo-lc-drag-hint{font-size:.65rem;color:#94a3b8;display:inline-flex;align-items:center;gap:3px;margin-top:3px;font-style:italic;}',
       '.wo-lc-actions{display:flex;gap:2px;flex-shrink:0;}',
       '.wo-lc-btn{background:none;border:none;color:#9ca3af;cursor:pointer;padding:5px 7px;border-radius:6px;font-size:.8rem;text-decoration:none;display:inline-flex;align-items:center;transition:color .12s,background .12s;}',
       '.wo-lc-btn:hover{color:#4a6da7;background:rgba(74,109,167,.1);}',
@@ -19520,12 +19526,19 @@ var WO = (function() {
         : null;
       var linkedChip = linkedSong
         ? '<span class="wo-lc-linked-chip"><i class="fa-solid fa-music"></i> ' + escapeHtml((linkedSong.title || 'Song').substring(0, 20)) + '</span>'
-        : '<span class="wo-lc-drag-hint">drag → song</span>';
+        : '<span class="wo-lc-drag-hint"><i class="fa-solid fa-arrow-up"></i> drag to song</span>';
+
+      // Drag handle — touch-action:none stops iOS/Android scroll so our touchstart fires cleanly
+      var dragHandle = '<div class="wo-lc-drag-handle" ' +
+        'ontouchstart="WO._inboxTouchStart(event,' + idx + ')" ' +
+        'title="Hold &amp; drag to a song">' +
+        '<i class="fa-solid fa-grip-vertical"></i>' +
+      '</div>';
 
       return '<div class="wo-lc-card ' + cls + '" draggable="true" ' +
         'data-inbox-idx="' + idx + '" data-item-type="' + type + '" ' +
-        'ondragstart="WO._inboxDragStart(event,' + idx + ')" ondragend="WO._inboxDragEnd(event)" ' +
-        'ontouchstart="WO._inboxTouchStart(event,' + idx + ')">' +
+        'ondragstart="WO._inboxDragStart(event,' + idx + ')" ondragend="WO._inboxDragEnd(event)">' +
+        dragHandle +
         thumbHtml +
         '<div class="wo-lc-body">' +
           '<div class="wo-lc-title">' + title + '</div>' +
@@ -19582,19 +19595,26 @@ var WO = (function() {
 
   // ── Touch drag (mobile) ───────────────────────────────────────────────
   function _inboxTouchStart(e, idx) {
-    _touchDragIdx = idx;
-    var card = e.currentTarget;
+    // e.currentTarget is the drag handle — find the parent card
+    var handle = e.currentTarget;
+    var card   = handle ? (handle.closest('.wo-lc-card') || handle.parentElement) : null;
     if (!card) return;
 
+    e.preventDefault(); // stop page scroll while dragging — safe because handle has touch-action:none in CSS
+    e.stopPropagation();
+
+    _touchDragIdx = idx;
+
     // Create floating clone that follows the finger
-    _touchCloneEl = card.cloneNode(true);
     var r = card.getBoundingClientRect();
+    _touchCloneEl = card.cloneNode(true);
     _touchCloneEl.style.cssText =
-      'position:fixed;z-index:9999;opacity:.85;pointer-events:none;' +
-      'width:' + r.width + 'px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.28);' +
-      'left:' + r.left + 'px;top:' + r.top + 'px;transition:none;';
+      'position:fixed;z-index:9999;opacity:.88;pointer-events:none;' +
+      'width:' + r.width + 'px;border-radius:10px;' +
+      'box-shadow:0 10px 32px rgba(0,0,0,.32);' +
+      'left:' + r.left + 'px;top:' + r.top + 'px;transition:none;transform:scale(1.03);';
     document.body.appendChild(_touchCloneEl);
-    card.style.opacity = '0.3';
+    card.style.opacity = '0.25';
     document.body.classList.add('inbox-dragging');
 
     document.addEventListener('touchmove',   _inboxTouchMove,   { passive: false });
@@ -19708,16 +19728,23 @@ var WO = (function() {
     var panel = document.getElementById('soExpand-' + songId);
     if (panel) {
       if (panel.style.display === 'none') {
-        // Panel is closed — open it (this also renders it with the new card)
+        // Panel is closed — open it (soToggleExpand renders it with the new card)
         soToggleExpand(songId);
       } else {
-        // Already open — force re-render so the new card appears immediately
+        // Already open — force re-render immediately
         soRenderExpandPanel(songId, songId, panel);
       }
     }
-    // Scroll the row into view so user sees the result
-    var _row = document.getElementById('soRow-' + songId);
-    if (_row) { setTimeout(function() { _row.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 120); }
+    // Backup: re-render after 80ms in case the first render beat the mutation
+    setTimeout(function() {
+      var panel2 = document.getElementById('soExpand-' + songId);
+      if (panel2 && panel2.style.display !== 'none') {
+        soRenderExpandPanel(songId, songId, panel2);
+      }
+      // Scroll into view
+      var row2 = document.getElementById('soRow-' + songId);
+      if (row2) row2.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 120);
 
     // Update media badge on the song row header
     var badge = row ? row.querySelector('.so-media-badge') : null;
