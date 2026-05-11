@@ -18666,8 +18666,8 @@ var WO = (function() {
       '<div class="wo-song-order-toolbar-compact">' +
         '<button class="wo-toolbar-btn primary" onclick="WO.openSongLibrary()">' +
           '<i class="fa-solid fa-plus"></i> Add Songs</button>' +
-        '<button class="wo-toolbar-btn" onclick="WO.selectOrder(\'service\')">' +
-          '<i class="fa-solid fa-eye"></i> Service Order</button>' +
+        '<button class="wo-toolbar-btn wo-playlist-btn" onclick="WO.openPlaylistModal()">' +
+          '<i class="fa-solid fa-circle-play"></i> Playlist</button>' +
         '<button class="wo-toolbar-btn pdf" onclick="WO.openSongbook()">' +
           '<i class="fa-solid fa-book-open"></i> Songbook</button>' +
         '<button class="wo-toolbar-btn whatsapp" onclick="WO.shareOrderWhatsApp()">' +
@@ -18677,7 +18677,7 @@ var WO = (function() {
       // ── Song list ───────────────────────────────────────────────────────
       '<div id="woSongOrderSections" class="wo-song-order-list"></div>' +
 
-      // ── Media & Links parking section ──────────────────────────────────
+      // ── Media & Links parking section (color-coded draggable cards) ─────
       '<div class="wo-parking-wrap" id="woParkingWrap">' +
         '<div class="wo-parking-hdr" onclick="WO._toggleParking()">' +
           '<span class="wo-parking-hdr-left">' +
@@ -18685,44 +18685,15 @@ var WO = (function() {
             '<span class="wo-parking-lbl">Media &amp; Links</span>' +
             '<span class="wo-parking-badge" id="woParkingBadge" style="display:none">0</span>' +
           '</span>' +
-          '<span class="wo-parking-hint" id="woParkingHint">Links shared to this order park here</span>' +
+          '<span class="wo-parking-hint" id="woParkingHint">Drag a card onto a song to attach it</span>' +
           '<i class="fa-solid fa-chevron-down wo-parking-chevron" id="woParkingChevron"></i>' +
         '</div>' +
         '<div class="wo-parking-body" id="woParkingBody">' +
-
-          // ── Playlist sub-section (YouTube, audio, video) ────────────────
-          '<div class="wo-rs-section" id="woPlaylistSection">' +
-            '<div class="wo-rs-header">' +
-              '<span class="wo-rs-title"><i class="fa-brands fa-youtube" style="color:#ff0000"></i> Playlist <span class="wo-rs-badge" id="woPlaylistBadge" style="display:none">0</span></span>' +
-              '<button class="wo-rs-add-btn" onclick="event.stopPropagation();WO.toggleAddLinkInput(\'playlist\')">' +
-                '<i class="fa-solid fa-plus"></i> Add</button>' +
-            '</div>' +
-            '<div class="wo-rs-input-row" id="woPlaylistInputRow" style="display:none">' +
-              '<input id="woPlaylistInput" class="wo-rs-input" type="url" placeholder="YouTube or audio URL…">' +
-              '<button class="wo-rs-submit" onclick="WO.submitLinkInput(\'playlist\')">Add</button>' +
-              '<button class="wo-rs-cancel" onclick="WO.toggleAddLinkInput(\'playlist\')"><i class="fa-solid fa-xmark"></i></button>' +
-            '</div>' +
-            '<div class="wo-rs-items" id="woPlaylistItems"></div>' +
-          '</div>' +
-
-          // ── Docs & Links sub-section ────────────────────────────────────
-          '<div class="wo-rs-section" id="woLinksSection">' +
-            '<div class="wo-rs-header">' +
-              '<span class="wo-rs-title"><i class="fa-solid fa-link"></i> Docs &amp; Links <span class="wo-rs-badge" id="woLinksBadge" style="display:none">0</span></span>' +
-              '<button class="wo-rs-add-btn" onclick="event.stopPropagation();WO.toggleAddLinkInput(\'links\')">' +
-                '<i class="fa-solid fa-plus"></i> Add</button>' +
-            '</div>' +
-            '<div class="wo-rs-input-row" id="woLinksInputRow" style="display:none">' +
-              '<input id="woLinksInput" class="wo-rs-input" type="url" placeholder="Spotify, Google Doc, web URL…">' +
-              '<button class="wo-rs-submit" onclick="WO.submitLinkInput(\'links\')">Add</button>' +
-              '<button class="wo-rs-cancel" onclick="WO.toggleAddLinkInput(\'links\')"><i class="fa-solid fa-xmark"></i></button>' +
-            '</div>' +
-            '<div class="wo-rs-items" id="woLinksItems"></div>' +
-          '</div>' +
-
-          // Hidden stub — kept for backward compat (removeSharedLink uses idx from full list)
+          '<div id="woLinkInbox" class="wo-link-inbox"></div>' +
+          // Stubs for backward-compat with any lingering references
           '<div id="woMediaRows" style="display:none"></div>' +
-
+          '<div id="woPlaylistItems" style="display:none"></div>' +
+          '<div id="woLinksItems" style="display:none"></div>' +
         '</div>' +
       '</div>' +
 
@@ -18958,8 +18929,9 @@ var WO = (function() {
       ? (items.length + ' link' + (items.length !== 1 ? 's' : '') + ' parked')
       : 'Links shared to this order park here'; }
 
-    // Delegate visual rendering to renderResourceSections()
+    // Delegate visual rendering to renderResourceSections() and the card grid
     renderResourceSections();
+    _renderLinkInbox();
   }
 
   function _cbFormatTime(iso) {
@@ -19020,6 +18992,7 @@ var WO = (function() {
       currentOrderData.mediaLinks.push(item);
     }
     renderResourceSections();
+    _renderLinkInbox();
     renderMediaRows();
     showToast((item.icon || '🔗') + ' Added to order', 'success');
   }
@@ -19134,6 +19107,7 @@ var WO = (function() {
     // Keep in-memory array in sync
     if (currentOrderData && currentOrderData.mediaLinks) currentOrderData.mediaLinks.splice(idx, 1);
     renderResourceSections();
+    _renderLinkInbox();
     renderMediaRows();
   }
 
@@ -19309,6 +19283,74 @@ var WO = (function() {
       '.wo-cbubble-row:last-child{border-bottom:none;}',
       '.wo-cbubble{max-width:100%;width:100%;min-width:0;background:#f8faff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(74,109,167,.1);border:1px solid #e8eef8;}',
       '.wo-cbubble::after{display:none;}',
+
+      // ── Color-coded link card grid ──────────────────────────────────────
+      '.wo-link-inbox{padding:10px 12px;display:flex;flex-direction:column;gap:8px;}',
+      '.wo-lc-empty{text-align:center;padding:24px 16px;color:#9ca3af;display:flex;flex-direction:column;align-items:center;gap:8px;}',
+      '.wo-lc-empty i{font-size:2rem;opacity:.5;}',
+      '.wo-lc-empty p{font-size:.8rem;margin:0;}',
+      '.wo-lc-card{display:flex;align-items:center;gap:10px;border-radius:10px;padding:9px 10px;cursor:grab;transition:transform .12s,box-shadow .12s,opacity .15s;position:relative;user-select:none;}',
+      '.wo-lc-card:hover{box-shadow:0 2px 10px rgba(0,0,0,.1);transform:translateY(-1px);}',
+      '.wo-lc-card:active{cursor:grabbing;}',
+      '.wo-lc-card.wo-lc-dragging{opacity:.4;transform:scale(.96);}',
+      '.wo-lc-yt     {background:#fff2f2;border:1.5px solid #fca5a5;}',
+      '.wo-lc-spotify{background:#f0fff4;border:1.5px solid #6ee7b7;}',
+      '.wo-lc-doc    {background:#eff6ff;border:1.5px solid #93c5fd;}',
+      '.wo-lc-pdf    {background:#fdf4ff;border:1.5px solid #e879f9;}',
+      '.wo-lc-link   {background:#f9fafb;border:1.5px solid #d1d5db;}',
+      '.wo-lc-audio  {background:#fffbeb;border:1.5px solid #fcd34d;}',
+      '.wo-lc-video  {background:#f5f3ff;border:1.5px solid #c4b5fd;}',
+      '.wo-lc-image  {background:#ecfdf5;border:1.5px solid #6ee7b7;}',
+      '.wo-lc-file   {background:#f9fafb;border:1.5px solid #d1d5db;}',
+      '.wo-lc-thumb-wrap{flex-shrink:0;width:72px;height:46px;border-radius:6px;overflow:hidden;background:#111;}',
+      '.wo-lc-thumb{width:100%;height:100%;object-fit:cover;}',
+      '.wo-lc-icon-wrap{flex-shrink:0;width:44px;height:44px;border-radius:8px;background:rgba(0,0,0,.06);display:flex;align-items:center;justify-content:center;font-size:1.3rem;}',
+      '.wo-lc-yt     .wo-lc-icon-wrap{color:#ef4444;}',
+      '.wo-lc-spotify .wo-lc-icon-wrap{color:#22c55e;}',
+      '.wo-lc-doc    .wo-lc-icon-wrap{color:#3b82f6;}',
+      '.wo-lc-pdf    .wo-lc-icon-wrap{color:#a21caf;}',
+      '.wo-lc-audio  .wo-lc-icon-wrap{color:#d97706;}',
+      '.wo-lc-video  .wo-lc-icon-wrap{color:#7c3aed;}',
+      '.wo-lc-body{flex:1;min-width:0;}',
+      '.wo-lc-type-badge{font-size:.55rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:1px 5px;border-radius:4px;background:rgba(0,0,0,.07);color:#6b7280;display:inline-block;margin-bottom:3px;}',
+      '.wo-lc-title{font-size:.8rem;font-weight:600;color:#1f2933;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+      '.wo-lc-linked-chip{background:#eff6ff;color:#4a6da7;border-radius:999px;padding:1px 7px;font-size:.66rem;font-weight:700;display:inline-flex;align-items:center;gap:3px;margin-top:3px;}',
+      '.wo-lc-drag-hint{font-size:.65rem;color:#c0c9d8;display:inline-block;margin-top:3px;font-style:italic;}',
+      '.wo-lc-actions{display:flex;gap:2px;flex-shrink:0;}',
+      '.wo-lc-btn{background:none;border:none;color:#9ca3af;cursor:pointer;padding:5px 7px;border-radius:6px;font-size:.8rem;text-decoration:none;display:inline-flex;align-items:center;transition:color .12s,background .12s;}',
+      '.wo-lc-btn:hover{color:#4a6da7;background:rgba(74,109,167,.1);}',
+      '.wo-lc-del:hover{color:#ef4444 !important;background:#fef2f2 !important;}',
+
+      // ── Song row drop zone ──────────────────────────────────────────────
+      '.wo-song-list-row.wo-slr-drop-over .wo-slr-main{background:#eff6ff;outline:2px dashed #4a6da7;border-radius:10px;}',
+      '.wo-slr-linked-badge{background:#eff6ff;color:#4a6da7;border-radius:999px;padding:2px 7px;font-size:.63rem;font-weight:700;display:inline-flex;align-items:center;gap:3px;vertical-align:middle;margin-left:5px;}',
+
+      // ── Playlist modal ──────────────────────────────────────────────────
+      '.wo-playlist-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:3100;display:flex;align-items:center;justify-content:center;padding:12px;}',
+      '.wo-playlist-modal{background:#fff;border-radius:18px;width:100%;max-width:860px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 48px rgba(0,0,0,.38);}',
+      '.wo-plm-header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #f0f2f8;flex-shrink:0;}',
+      '.wo-plm-title{font-weight:700;font-size:.93rem;color:#1f2933;font-family:"Poppins",sans-serif;display:flex;align-items:center;gap:7px;flex:1;}',
+      '.wo-plm-title i{color:#ef4444;}',
+      '.wo-plm-counter{font-size:.78rem;color:#6b7280;font-weight:600;margin-right:4px;}',
+      '.wo-plm-close{background:none;border:none;color:#9ca3af;cursor:pointer;font-size:1rem;padding:5px 8px;border-radius:7px;transition:color .12s,background .12s;}',
+      '.wo-plm-close:hover{color:#ef4444;background:#fef2f2;}',
+      '.wo-plm-body{display:flex;flex:1;min-height:0;overflow:hidden;}',
+      '.wo-plm-player{flex:1;min-width:0;background:#000;min-height:280px;}',
+      '.wo-plm-sidebar{width:210px;flex-shrink:0;border-left:1px solid #f0f2f8;overflow-y:auto;background:#fafafa;}',
+      '.wo-plm-track-list{display:flex;flex-direction:column;}',
+      '.wo-plt-track{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;transition:background .12s;border-bottom:1px solid #f3f4f6;}',
+      '.wo-plt-track:hover{background:#f0f5ff;}',
+      '.wo-plt-track--active{background:#eff6ff;border-left:3px solid #4a6da7;}',
+      '.wo-plt-thumb{width:52px;height:34px;object-fit:cover;border-radius:4px;flex-shrink:0;background:#1f2937;}',
+      '.wo-plt-thumb--icon{display:flex;align-items:center;justify-content:center;color:#ef4444;font-size:.9rem;background:#1f2937;}',
+      '.wo-plt-track-title{font-size:.72rem;color:#374151;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;}',
+      '.wo-plm-controls{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid #f0f2f8;background:#f9fafb;flex-shrink:0;}',
+      '.wo-plm-btn{background:#4a6da7;color:#fff;border:none;border-radius:8px;padding:7px 13px;font-size:.8rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:background .12s;flex-shrink:0;}',
+      '.wo-plm-btn:hover:not([disabled]){background:#3a5d97;}',
+      '.wo-plm-track-title-main{flex:1;text-align:center;font-size:.79rem;font-weight:600;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px;}',
+      '.wo-plm-no-video{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#9ca3af;gap:12px;}',
+      '.wo-plm-no-video i{font-size:3rem;color:#ef4444;}',
+      '@media(max-width:600px){.wo-plm-sidebar{display:none;}.wo-plm-controls{flex-wrap:wrap;}}',
     ].join('');
     document.head.appendChild(s);
   }
@@ -19316,6 +19358,295 @@ var WO = (function() {
   function _toggleParking() {
     var wrap = document.getElementById('woParkingWrap');
     if (wrap) wrap.classList.toggle('collapsed');
+  }
+
+  // ── Link card type / class / icon helpers ─────────────────────────────
+  function _lcType(item) {
+    if (!item) return 'link';
+    if (item.isFile) {
+      if (item.mimeType && item.mimeType.startsWith('audio/')) return 'audio';
+      if (item.mimeType && item.mimeType.startsWith('video/')) return 'video';
+      if (item.mimeType && item.mimeType.startsWith('image/')) return 'image';
+      if (item.mimeType && item.mimeType.includes('pdf'))      return 'pdf';
+      return 'file';
+    }
+    var url = item.url || '';
+    if (/youtube\.com|youtu\.be/i.test(url))               return 'youtube';
+    if (/spotify\.com/i.test(url))                         return 'spotify';
+    if (/docs\.google\.com|drive\.google\.com/i.test(url)) return 'gdoc';
+    if (/\.pdf($|\?)/i.test(url))                          return 'pdf';
+    return 'link';
+  }
+
+  function _lcClass(type) {
+    var map = { youtube:'wo-lc-yt', spotify:'wo-lc-spotify', gdoc:'wo-lc-doc',
+                pdf:'wo-lc-pdf', audio:'wo-lc-audio', video:'wo-lc-video',
+                image:'wo-lc-image', file:'wo-lc-file', link:'wo-lc-link' };
+    return map[type] || 'wo-lc-link';
+  }
+
+  function _lcIcon(type) {
+    var map = { youtube:'fa-brands fa-youtube', spotify:'fa-brands fa-spotify',
+                gdoc:'fa-regular fa-file-word', pdf:'fa-regular fa-file-pdf',
+                audio:'fa-solid fa-music', video:'fa-solid fa-film',
+                image:'fa-regular fa-image', file:'fa-solid fa-paperclip', link:'fa-solid fa-link' };
+    return map[type] || 'fa-solid fa-link';
+  }
+
+  // ── Render color-coded draggable card grid in #woLinkInbox ───────────
+  function _renderLinkInbox() {
+    var el = document.getElementById('woLinkInbox');
+    if (!el) return;
+    var items = (currentOrderData && currentOrderData.mediaLinks)
+      ? currentOrderData.mediaLinks
+      : ((currentOrderData && currentOrderData.id && typeof ShareInbox !== 'undefined')
+          ? ShareInbox.getForOrder(currentOrderData.id) : []);
+    var orderId = currentOrderData && currentOrderData.id;
+    var safeId  = orderId ? escapeHtml(orderId) : '';
+
+    if (!items || items.length === 0) {
+      el.innerHTML =
+        '<div class="wo-lc-empty">' +
+          '<i class="fa-solid fa-inbox"></i>' +
+          '<p>No links yet — share YouTube, Spotify, PDFs or docs to this order</p>' +
+        '</div>';
+      return;
+    }
+
+    el.innerHTML = items.map(function(item, idx) {
+      var type  = _lcType(item);
+      var cls   = _lcClass(type);
+      var icon  = _lcIcon(type);
+      var title = escapeHtml((item.title || item.url || item.name || 'Link').substring(0, 50));
+      var vid   = type === 'youtube' ? _ytVideoId(item.url || '') : null;
+      var thumb = vid ? 'https://img.youtube.com/vi/' + vid + '/mqdefault.jpg' : '';
+
+      var thumbHtml;
+      if (thumb) {
+        thumbHtml = '<div class="wo-lc-thumb-wrap"><img class="wo-lc-thumb" src="' + escapeHtml(thumb) + '" loading="lazy"></div>';
+      } else if (item.isFile && item.mimeType && item.mimeType.startsWith('image/') && item.data) {
+        thumbHtml = '<div class="wo-lc-thumb-wrap"><img class="wo-lc-thumb" src="' + item.data + '"></div>';
+      } else {
+        thumbHtml = '<div class="wo-lc-icon-wrap"><i class="' + icon + '"></i></div>';
+      }
+
+      var linkedSong = item.linkedSongId
+        ? songOrderSections.find(function(s) { return s.id === item.linkedSongId; })
+        : null;
+      var linkedChip = linkedSong
+        ? '<span class="wo-lc-linked-chip"><i class="fa-solid fa-music"></i> ' + escapeHtml((linkedSong.title || 'Song').substring(0, 20)) + '</span>'
+        : '<span class="wo-lc-drag-hint">drag → song</span>';
+
+      return '<div class="wo-lc-card ' + cls + '" draggable="true" ' +
+        'data-inbox-idx="' + idx + '" data-item-type="' + type + '" ' +
+        'ondragstart="WO._inboxDragStart(event,' + idx + ')" ondragend="WO._inboxDragEnd(event)">' +
+        thumbHtml +
+        '<div class="wo-lc-body">' +
+          '<span class="wo-lc-type-badge">' + type.toUpperCase() + '</span>' +
+          '<div class="wo-lc-title">' + title + '</div>' +
+          linkedChip +
+        '</div>' +
+        '<div class="wo-lc-actions">' +
+          (item.url ? '<a href="' + escapeHtml(item.url) + '" target="_blank" class="wo-lc-btn" title="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>' : '') +
+          '<button class="wo-lc-btn wo-lc-del" onclick="WO.removeSharedLink(\'' + safeId + '\',' + idx + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // ── Inbox → song drag handlers ────────────────────────────────────────
+  var _draggingInboxIdx = -1;
+
+  function _inboxDragStart(e, idx) {
+    _draggingInboxIdx = idx;
+    e.dataTransfer.effectAllowed = 'link';
+    e.dataTransfer.setData('text/plain', String(idx));
+    var card = e.currentTarget;
+    if (card) { setTimeout(function() { card.classList.add('wo-lc-dragging'); }, 0); }
+  }
+
+  function _inboxDragEnd(e) {
+    _draggingInboxIdx = -1;
+    if (e.currentTarget) e.currentTarget.classList.remove('wo-lc-dragging');
+  }
+
+  function _songDragOver(e, songId) {
+    if (_draggingInboxIdx < 0) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'link';
+    var row = document.getElementById('soRow-' + songId);
+    if (row) row.classList.add('wo-slr-drop-over');
+  }
+
+  function _songDragLeave(e, songId) {
+    var row = document.getElementById('soRow-' + songId);
+    if (row) row.classList.remove('wo-slr-drop-over');
+  }
+
+  function _songDrop(e, songId) {
+    e.preventDefault();
+    var row = document.getElementById('soRow-' + songId);
+    if (row) row.classList.remove('wo-slr-drop-over');
+
+    var idx = _draggingInboxIdx;
+    _draggingInboxIdx = -1;
+    if (idx < 0) return;
+
+    var items = (currentOrderData && currentOrderData.mediaLinks) ? currentOrderData.mediaLinks : [];
+    var item  = items[idx];
+    if (!item) return;
+
+    item.linkedSongId = songId;
+
+    var type = _lcType(item);
+    if (type === 'youtube' && item.url) {
+      var song1 = songOrderSections.find(function(s) { return s.id === songId; });
+      if (song1) {
+        if (!Array.isArray(song1.customYoutube)) song1.customYoutube = [];
+        if (song1.customYoutube.indexOf(item.url) < 0) song1.customYoutube.push(item.url);
+        showToast('🎬 Added to ' + escapeHtml((song1.title || 'song').substring(0, 20)) + '\'s playlist', 'success');
+      }
+    } else {
+      var song2 = songOrderSections.find(function(s) { return s.id === songId; });
+      showToast('🔗 Linked to "' + (song2 ? escapeHtml((song2.title || 'song').substring(0, 24)) : 'song') + '"', 'success');
+    }
+
+    // Persist updated items
+    try {
+      var orderId2 = currentOrderData && currentOrderData.id;
+      if (orderId2) {
+        var db = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
+        db[orderId2] = items;
+        localStorage.setItem('lhc_share_inbox', JSON.stringify(db));
+      }
+    } catch(ex) {}
+
+    _renderLinkInbox();
+    // Refresh song rows to show link chip
+    var soSections = document.getElementById('woSongOrderSections');
+    if (soSections) {
+      songOrderSections.forEach(function(s, i) {
+        var sId = s.sectionId || (s.serviceSectionId ? s.serviceSectionId + '-' + i : '');
+        renderSongOrderSection(s, sId, s.sectionLabel || '', s.id, i + 1);
+      });
+      // Re-render is additive so deduplicate by rebuilding
+      soSections.innerHTML = '';
+      songOrderSections.forEach(function(s, i) {
+        renderSongOrderSection(s, s.sectionId || '', s.sectionLabel || '', s.id, i + 1);
+      });
+    }
+  }
+
+  // ── YouTube Playlist modal ────────────────────────────────────────────
+  var _playlistQueue = [];
+  var _playlistIdx   = 0;
+
+  function openPlaylistModal() {
+    var items = (currentOrderData && currentOrderData.mediaLinks) ? currentOrderData.mediaLinks : [];
+
+    // Collect YouTube links from inbox
+    _playlistQueue = [];
+    items.forEach(function(it) {
+      if (_lcType(it) === 'youtube' && it.url) {
+        _playlistQueue.push({ url: it.url, title: it.title || it.url });
+      }
+    });
+
+    // Also pull youtube from songs in the order
+    songOrderSections.forEach(function(s) {
+      var ytArr = Array.isArray(s.youtube) ? s.youtube :
+        (typeof s.youtube === 'string' && s.youtube.trim()
+          ? s.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []);
+      var cust = Array.isArray(s.customYoutube) ? s.customYoutube : [];
+      ytArr.concat(cust).forEach(function(url) {
+        if (url && !_playlistQueue.find(function(q) { return q.url === url; })) {
+          _playlistQueue.push({ url: url, title: (s.title || 'Song') + ' – YouTube' });
+        }
+      });
+    });
+
+    if (_playlistQueue.length === 0) {
+      showToast('No YouTube links in this order yet — add some via the inbox', 'warning');
+      return;
+    }
+
+    _playlistIdx = 0;
+    _renderPlaylistModal();
+  }
+
+  function _renderPlaylistModal() {
+    var existing = document.getElementById('woPlaylistModal');
+    if (existing) existing.remove();
+
+    var modal = document.createElement('div');
+    modal.id = 'woPlaylistModal';
+    modal.className = 'wo-playlist-modal-overlay';
+    modal.onclick = function(e) { if (e.target === modal) closePlaylistModal(); };
+
+    var total = _playlistQueue.length;
+    var cur   = _playlistQueue[_playlistIdx] || {};
+    var vid   = _ytVideoId(cur.url || '');
+    var embedSrc = vid ? 'https://www.youtube.com/embed/' + vid + '?autoplay=1&rel=0' : '';
+
+    var trackList = _playlistQueue.map(function(t, i) {
+      var active  = i === _playlistIdx ? ' wo-plt-track--active' : '';
+      var v2      = _ytVideoId(t.url || '');
+      var thumb2  = v2
+        ? '<img src="https://img.youtube.com/vi/' + v2 + '/default.jpg" class="wo-plt-thumb">'
+        : '<div class="wo-plt-thumb wo-plt-thumb--icon"><i class="fa-brands fa-youtube"></i></div>';
+      return '<div class="wo-plt-track' + active + '" onclick="WO._playlistJump(' + i + ')">' +
+        thumb2 +
+        '<div class="wo-plt-track-title">' + escapeHtml((t.title || t.url || '').substring(0, 45)) + '</div>' +
+      '</div>';
+    }).join('');
+
+    modal.innerHTML =
+      '<div class="wo-playlist-modal">' +
+        '<div class="wo-plm-header">' +
+          '<span class="wo-plm-title"><i class="fa-solid fa-circle-play"></i> Order Playlist</span>' +
+          '<span class="wo-plm-counter">' + (_playlistIdx + 1) + ' / ' + total + '</span>' +
+          '<button class="wo-plm-close" onclick="WO.closePlaylistModal()"><i class="fa-solid fa-xmark"></i></button>' +
+        '</div>' +
+        '<div class="wo-plm-body">' +
+          '<div class="wo-plm-player">' +
+            (embedSrc
+              ? '<iframe id="woPlaylistIframe" src="' + escapeHtml(embedSrc) + '" frameborder="0" ' +
+                'allowfullscreen allow="autoplay; encrypted-media" ' +
+                'style="width:100%;height:100%;border-radius:0;display:block;"></iframe>'
+              : '<div class="wo-plm-no-video"><i class="fa-brands fa-youtube"></i><p>Could not load video</p></div>') +
+          '</div>' +
+          '<div class="wo-plm-sidebar">' +
+            '<div class="wo-plm-track-list">' + trackList + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="wo-plm-controls">' +
+          '<button class="wo-plm-btn" onclick="WO._playlistPrev()"' + (_playlistIdx === 0 ? ' disabled style="opacity:.45"' : '') + '>' +
+            '<i class="fa-solid fa-backward-step"></i> Prev</button>' +
+          '<span class="wo-plm-track-title-main">' + escapeHtml((cur.title || '').substring(0, 38)) + '</span>' +
+          '<button class="wo-plm-btn" onclick="WO._playlistNext()"' + (_playlistIdx === total - 1 ? ' disabled style="opacity:.45"' : '') + '>' +
+            'Next <i class="fa-solid fa-forward-step"></i></button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(modal);
+  }
+
+  function _playlistJump(idx) {
+    _playlistIdx = Math.max(0, Math.min(idx, _playlistQueue.length - 1));
+    _renderPlaylistModal();
+  }
+
+  function _playlistPrev() {
+    if (_playlistIdx > 0) { _playlistIdx--; _renderPlaylistModal(); }
+  }
+
+  function _playlistNext() {
+    if (_playlistIdx < _playlistQueue.length - 1) { _playlistIdx++; _renderPlaylistModal(); }
+  }
+
+  function closePlaylistModal() {
+    var m = document.getElementById('woPlaylistModal');
+    if (m) m.remove();
   }
 
   function initializeServiceOrder() {
@@ -20080,13 +20411,23 @@ var WO = (function() {
     var escapedRowId  = escapeHtml(rowId);
     var isUnassigned  = !sectionId;
 
+    // Count inbox items linked to this song
+    var _inboxLinked = (currentOrderData && currentOrderData.mediaLinks || [])
+      .filter(function(it) { return it.linkedSongId === songSection.id; });
+    var linkedBadge = _inboxLinked.length
+      ? '<span class="wo-slr-linked-badge" title="' + _inboxLinked.length + ' link(s) attached"><i class="fa-solid fa-link"></i> ' + _inboxLinked.length + '</span>'
+      : '';
+
     var html =
-      '<div class="wo-song-list-row' + (isUnassigned ? ' unassigned' : '') + '" id="soRow-' + escapedRowId + '">' +
+      '<div class="wo-song-list-row' + (isUnassigned ? ' unassigned' : '') + '" id="soRow-' + escapedRowId + '"' +
+        ' ondragover="WO._songDragOver(event,\'' + escapedSongId + '\')"' +
+        ' ondragleave="WO._songDragLeave(event,\'' + escapedSongId + '\')"' +
+        ' ondrop="WO._songDrop(event,\'' + escapedSongId + '\')">' +
 
         '<div class="wo-slr-main" onclick="WO.soToggleExpand(\'' + escapedRowId + '\')" style="cursor:pointer;">' +
           '<span class="wo-slr-num">' + displayIdx + '</span>' +
           '<div class="wo-slr-info">' +
-            '<span class="wo-slr-title">' + escapeHtml(songSection.title) + '</span>' +
+            '<span class="wo-slr-title">' + escapeHtml(songSection.title) + linkedBadge + '</span>' +
             '<span class="wo-slr-artist">by ' + escapeHtml(songSection.artist || 'Unknown') + '</span>' +
           '</div>' +
           mediaBadge +
@@ -37758,6 +38099,22 @@ var WO = (function() {
     openSongLibrary: openSongLibrary,
     removeSharedLink: removeSharedLink,
     _toggleParking: _toggleParking,
+    // Inbox card helpers + drag-drop
+    _lcType: _lcType,
+    _lcClass: _lcClass,
+    _lcIcon: _lcIcon,
+    _renderLinkInbox: _renderLinkInbox,
+    _inboxDragStart: _inboxDragStart,
+    _inboxDragEnd: _inboxDragEnd,
+    _songDragOver: _songDragOver,
+    _songDragLeave: _songDragLeave,
+    _songDrop: _songDrop,
+    // Playlist modal
+    openPlaylistModal: openPlaylistModal,
+    closePlaylistModal: closePlaylistModal,
+    _playlistJump: _playlistJump,
+    _playlistPrev: _playlistPrev,
+    _playlistNext: _playlistNext,
     renderResourceSections: renderResourceSections,
     renderMediaRows: renderMediaRows,
     submitSoInput: submitSoInput,
