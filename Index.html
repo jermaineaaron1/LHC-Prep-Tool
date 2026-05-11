@@ -19752,23 +19752,30 @@ var WO = (function() {
     }
 
     // ── Open / refresh the song expand panel so the new card is visible ──
-    // Use the same path as the ADD toolbar buttons (_soRefreshAllExpandsFor)
-    // to guarantee the new card renders correctly next to existing cards.
-    var panel = document.getElementById('soExpand-' + songId);
-    if (panel && panel.style.display === 'none') {
-      soToggleExpand(songId); // open the closed panel first
+    // IMPORTANT: panel id = "soExpand-{rowId}" where rowId may be "songId__sectionId"
+    // for songs assigned to a section — NOT just "soExpand-{songId}".
+    // Always find the panel via data-song-id attribute.
+    var panel = document.querySelector('.so-expand-panel[data-song-id="' + songId + '"]');
+    if (panel) {
+      if (panel.style.display === 'none') {
+        // Panel is closed — extract the real rowId and open it.
+        // soToggleExpand renders the panel internally (song.customYoutube already updated).
+        var rowId = panel.id.replace('soExpand-', '');
+        soToggleExpand(rowId);
+      } else {
+        // Panel already open — re-render in-place to show the new card.
+        if (typeof _soRefreshAllExpandsFor === 'function') {
+          _soRefreshAllExpandsFor(songId);
+        }
+      }
     }
-    if (typeof _soRefreshAllExpandsFor === 'function') {
-      _soRefreshAllExpandsFor(songId);
-    }
-    // Backup refresh — ensures render even if toggle animation delays DOM update
+    // Backup refresh in case of any animation/timing race
     setTimeout(function() {
       if (typeof _soRefreshAllExpandsFor === 'function') {
         _soRefreshAllExpandsFor(songId);
       }
-      var r2 = document.getElementById('soRow-' + songId);
-      if (r2) r2.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 180);
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 200);
 
     // ── Update the row media badge count ──────────────────────────────
     var _row2 = document.getElementById('soRow-' + songId);
