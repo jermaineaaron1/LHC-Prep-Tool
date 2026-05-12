@@ -19635,13 +19635,16 @@ var WO = (function() {
     e.dataTransfer.dropEffect = 'link';
     // Remove highlight from all rows, then highlight this one
     document.querySelectorAll('.wo-slr-drop-over').forEach(function(r) { r.classList.remove('wo-slr-drop-over'); });
-    var row = document.getElementById('soRow-' + songId);
+    // Use data-song-id attribute so section-assigned songs (rowId = song_123__dismissal) are found correctly
+    var panel = document.querySelector('.so-expand-panel[data-song-id="' + songId + '"]');
+    var row = panel ? panel.closest('.wo-song-list-row') : document.getElementById('soRow-' + songId);
     if (row) row.classList.add('wo-slr-drop-over');
   }
 
   function _songDragLeave(e, songId) {
     // Only remove if leaving to outside the row (relatedTarget not inside the row)
-    var row = document.getElementById('soRow-' + songId);
+    var panel = document.querySelector('.so-expand-panel[data-song-id="' + songId + '"]');
+    var row = panel ? panel.closest('.wo-song-list-row') : document.getElementById('soRow-' + songId);
     if (!row) return;
     if (e.relatedTarget && row.contains(e.relatedTarget)) return;
     row.classList.remove('wo-slr-drop-over');
