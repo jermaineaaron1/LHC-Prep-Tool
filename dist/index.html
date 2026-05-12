@@ -17091,7 +17091,9 @@ var WO = (function() {
         currentOrderData.mediaLinks = ShareInbox.getForOrder(orderId);
       }
       renderMediaRows();
-      // Bake the new inbox item into the order's Supabase record immediately
+      // Immediate save to dedicated Supabase table (no debounce)
+      _inboxSaveNow();
+      // Also bake into order record
       if (typeof autoSaveOrder === 'function') autoSaveOrder();
     }, 700);
   }
@@ -17500,13 +17502,14 @@ var WO = (function() {
     serviceSectionSongs = order.serviceSectionSongs || {};
 
     // Populate in-memory mediaLinks.
-    // Priority: (1) Supabase-backed copy embedded in the order record (order.mediaLinks),
-    //           (2) localStorage fallback for items added this session.
+    // Priority: (1) dedicated order_media_links Supabase table (loaded async below),
+    //           (2) template._inbox embedded in the order record (fast sync fallback),
+    //           (3) localStorage for very recent adds not yet persisted.
     // This makes inbox items survive navigation, page reload, and iOS localStorage eviction.
     var _supabaseInbox  = Array.isArray(order.mediaLinks) ? order.mediaLinks : [];
     var _localInbox     = (order.id && typeof ShareInbox !== 'undefined')
       ? ShareInbox.getForOrder(order.id) : [];
-    // Use whichever has more items (Supabase wins for cross-device; local wins for very recent adds)
+    // Sync fallback: use whichever has more items right now
     currentOrderData.mediaLinks = _supabaseInbox.length >= _localInbox.length
       ? _supabaseInbox : _localInbox;
 
@@ -17528,6 +17531,37 @@ var WO = (function() {
         localStorage.setItem('lhc_share_inbox', JSON.stringify(_db));
       } catch(e) {}
     }
+
+    // Async: load from dedicated order_media_links table — this is the most reliable
+    // source and wins over template._inbox. Re-renders inbox when it arrives.
+    (function _loadInboxFromDedicatedTable(oid) {
+      if (!oid || typeof SBQ === 'undefined' || !SBQ.mediaLinks) return;
+      SBQ.mediaLinks.load(oid).then(function(rows) {
+        // Only update if this is still the same order and table has items
+        if (!currentOrderData || currentOrderData.id !== oid) return;
+        if (!Array.isArray(rows) || rows.length === 0) return;
+        // If dedicated table has more items, it wins (it's the most recent save)
+        if (rows.length >= currentOrderData.mediaLinks.length) {
+          // Back-fill IDs
+          rows.forEach(function(it) {
+            if (it && !it.id) it.id = 'li_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+          });
+          currentOrderData.mediaLinks = rows;
+          // Mirror to localStorage
+          try {
+            var _db2 = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
+            _db2[oid] = rows;
+            localStorage.setItem('lhc_share_inbox', JSON.stringify(_db2));
+          } catch(e) {}
+          // Re-render inbox with the authoritative data
+          if (typeof _renderLinkInbox === 'function') _renderLinkInbox();
+          if (typeof renderMediaRows === 'function') renderMediaRows();
+          if (typeof renderResourceSections === 'function') renderResourceSections();
+        }
+      }).catch(function(e) {
+        console.warn('[LHC] inbox load from order_media_links failed:', e);
+      });
+    })(order.id);
 
     console.log('=== songOrderSections ASSIGNED ===');
     songOrderSections.forEach(function(s, i) {
@@ -19087,7 +19121,9 @@ var WO = (function() {
     _renderLinkInbox();
     renderMediaRows();
     showToast((item.icon || '🔗') + ' Added to order', 'success');
-    // Save the updated mediaLinks into the order record so it survives navigation
+    // Immediate save to dedicated Supabase table (no debounce — survives navigation)
+    _inboxSaveNow();
+    // Also bake into the order record itself as secondary backup
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
@@ -19190,16 +19226,10 @@ var WO = (function() {
     items[itemIdx].linkedSongId = songId;
     // Keep in-memory array updated
     if (currentOrderData) currentOrderData.mediaLinks = items;
-    // Persist to localStorage
-    try {
-      var db = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
-      db[orderId] = items;
-      localStorage.setItem('lhc_share_inbox', JSON.stringify(db));
-    } catch(e) {}
-    // Sync to Supabase order_media_links table
-    if (typeof SBQ !== 'undefined' && SBQ.mediaLinks) SBQ.mediaLinks.save(orderId, items).catch(function(){});
+    // Immediate save to dedicated Supabase table + localStorage mirror
+    _inboxSaveNow();
     renderMediaRows();
-    // Persist linkedSongId into the order record itself
+    // Also update the order record
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     var song = songOrderSections.find(function(s) { return String(s.id || '') === String(songId); });
     showToast('Linked to "' + (song ? song.title : 'song') + '"', 'success');
@@ -19212,7 +19242,9 @@ var WO = (function() {
     renderResourceSections();
     _renderLinkInbox();
     renderMediaRows();
-    // Persist the updated (shorter) mediaLinks into the order record
+    // Immediate save to dedicated Supabase table so removal persists right away
+    _inboxSaveNow();
+    // Also update the order record
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
@@ -19252,6 +19284,9 @@ var WO = (function() {
     toggleAddLinkInput(section);
     renderMediaRows();
     showToast(det.icon + ' Link added', 'success');
+    // Immediate save to dedicated Supabase table
+    _inboxSaveNow();
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
   function _injectResourceStyles() {
@@ -19536,6 +19571,27 @@ var WO = (function() {
   }
 
   // ── Render color-coded draggable card grid in #woLinkInbox ───────────
+  // ── Inbox persistence helpers ─────────────────────────────────────────
+  // Saves currentOrderData.mediaLinks to the dedicated order_media_links
+  // Supabase table immediately (not debounced). Called after every mutation
+  // so items survive navigation even if autoSaveOrder() hasn't fired yet.
+  function _inboxSaveNow() {
+    var orderId = currentOrderData && currentOrderData.id;
+    if (!orderId) return;
+    var items = Array.isArray(currentOrderData.mediaLinks) ? currentOrderData.mediaLinks : [];
+    if (typeof SBQ !== 'undefined' && SBQ.mediaLinks) {
+      SBQ.mediaLinks.save(orderId, items).catch(function(e) {
+        console.warn('[LHC] inbox save error:', e);
+      });
+    }
+    // Also mirror to localStorage as secondary fallback
+    try {
+      var _db = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
+      _db[orderId] = items;
+      localStorage.setItem('lhc_share_inbox', JSON.stringify(_db));
+    } catch(e) {}
+  }
+
   function _renderLinkInbox() {
     var el = document.getElementById('woLinkInbox');
     if (!el) return;
@@ -19863,17 +19919,8 @@ var WO = (function() {
     // Do NOT also call getElementById('soRow-' + songId) here — that uses songId
     // not rowId, so it fails silently for songs assigned to a service section.
 
-    // ── Persist inbox (linkedSongId) to localStorage + Supabase ──────
-    try {
-      var orderId2 = currentOrderData && currentOrderData.id;
-      if (orderId2) {
-        var db = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
-        db[orderId2] = items;
-        localStorage.setItem('lhc_share_inbox', JSON.stringify(db));
-        if (typeof SBQ !== 'undefined' && SBQ.mediaLinks) SBQ.mediaLinks.save(orderId2, items);
-      }
-    } catch(ex) {}
-
+    // ── Persist inbox (linkedSongId update) immediately to Supabase ─────
+    _inboxSaveNow();
     // Auto-save order so customYoutube / customDocs survive page reload
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof updateQuickList === 'function') updateQuickList();
@@ -38498,6 +38545,7 @@ var WO = (function() {
     _lcClass: _lcClass,
     _lcIcon: _lcIcon,
     _renderLinkInbox: _renderLinkInbox,
+    _inboxSaveNow: _inboxSaveNow,
     _inboxDragStart: _inboxDragStart,
     _inboxDragEnd: _inboxDragEnd,
     _inboxTouchStart: _inboxTouchStart,
