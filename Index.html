@@ -15673,6 +15673,12 @@ var SBQ = {
 
   // Map Supabase snake_case row → camelCase order object
   _orderFromRow: function(o) {
+    var tpl = o.template || {};
+    // Extract mediaLinks saved in template._inbox (see saveOrder)
+    var mediaLinks = Array.isArray(tpl._inbox) ? tpl._inbox : [];
+    // Return template without the private _inbox key so UI never sees it as a setting
+    var cleanTemplate = Object.assign({}, tpl);
+    delete cleanTemplate._inbox;
     return {
       id:          o.id,
       title:       o.title       || 'Untitled Order',
@@ -15682,7 +15688,8 @@ var SBQ = {
       createdDate: o.created_date || '',
       lastEdited:  o.last_edited  || '',
       createdBy:   o.created_by   || '',
-      template:    o.template     || {}
+      template:    cleanTemplate,
+      mediaLinks:  mediaLinks     // restored inbox items
     };
   },
 
@@ -15739,12 +15746,19 @@ var SBQ = {
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
     var now = new Date().toISOString();
     var id = payload.id || ('order_' + Date.now());
+    // Merge mediaLinks into template._inbox so they survive page-reload,
+    // navigation away, and iOS Safari's aggressive localStorage eviction.
+    // The _inbox key is namespaced to avoid collision with actual template settings.
+    var templateWithInbox = Object.assign({}, payload.template || {});
+    if (Array.isArray(payload.mediaLinks) && payload.mediaLinks.length > 0) {
+      templateWithInbox._inbox = payload.mediaLinks;
+    }
     var orderRow = {
       id:           id,
       title:        payload.title       || 'Untitled Order',
       type:         payload.type        || 'traditional',
       service_date: payload.serviceDate || '',
-      template:     payload.template    || {},
+      template:     templateWithInbox,
       created_date: payload.createdDate || now,
       last_edited:  now,
       created_by:   payload.createdBy   || ''
@@ -17483,11 +17497,18 @@ var WO = (function() {
     songOrderSections = order.songs || [];
     serviceSectionSongs = order.serviceSectionSongs || {};
 
-    // Populate in-memory mediaLinks — start with localStorage, then merge/replace from Supabase
-    currentOrderData.mediaLinks = (order.id && typeof ShareInbox !== 'undefined')
+    // Populate in-memory mediaLinks.
+    // Priority: (1) Supabase-backed copy embedded in the order record (order.mediaLinks),
+    //           (2) localStorage fallback for items added this session.
+    // This makes inbox items survive navigation, page reload, and iOS localStorage eviction.
+    var _supabaseInbox  = Array.isArray(order.mediaLinks) ? order.mediaLinks : [];
+    var _localInbox     = (order.id && typeof ShareInbox !== 'undefined')
       ? ShareInbox.getForOrder(order.id) : [];
+    // Use whichever has more items (Supabase wins for cross-device; local wins for very recent adds)
+    currentOrderData.mediaLinks = _supabaseInbox.length >= _localInbox.length
+      ? _supabaseInbox : _localInbox;
 
-    // Back-fill IDs on any items that were saved before this fix
+    // Back-fill IDs on any items that pre-date this fix
     (function _ensureInboxIds(arr) {
       if (!Array.isArray(arr)) return;
       arr.forEach(function(it) {
@@ -17497,32 +17518,13 @@ var WO = (function() {
       });
     })(currentOrderData.mediaLinks);
 
-    // Async: load from Supabase and merge (Supabase is source of truth across devices)
-    if (order.id && typeof SBQ !== 'undefined' && SBQ.mediaLinks) {
-      SBQ.mediaLinks.load(order.id).then(function(remoteItems) {
-        if (!remoteItems || !remoteItems.length) return;
-        // Back-fill IDs on Supabase items too
-        remoteItems.forEach(function(it) {
-          if (it && !it.id) {
-            it.id = 'li_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-          }
-        });
-        // Merge: add any Supabase items not already in localStorage
-        var local = (typeof ShareInbox !== 'undefined') ? ShareInbox.getForOrder(order.id) : [];
-        if (remoteItems.length >= local.length) {
-          // Supabase has equal/more — use it as source of truth
-          currentOrderData.mediaLinks = remoteItems;
-          // Back-fill localStorage
-          if (typeof ShareInbox !== 'undefined') {
-            try {
-              var db = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
-              db[order.id] = remoteItems;
-              localStorage.setItem('lhc_share_inbox', JSON.stringify(db));
-            } catch(e) {}
-          }
-          renderMediaRows();
-        }
-      }).catch(function(){});
+    // Mirror to localStorage so ShareInbox helpers work correctly
+    if (order.id && typeof ShareInbox !== 'undefined' && currentOrderData.mediaLinks.length) {
+      try {
+        var _db = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
+        _db[order.id] = currentOrderData.mediaLinks;
+        localStorage.setItem('lhc_share_inbox', JSON.stringify(_db));
+      } catch(e) {}
     }
 
     console.log('=== songOrderSections ASSIGNED ===');
@@ -17907,7 +17909,10 @@ var WO = (function() {
       serviceDate: currentOrderData.serviceDate || '',
       template: currentOrderData.template || {},
       createdDate: currentOrderData.createdDate || new Date().toISOString(),
-      items: itemsForSave
+      items: itemsForSave,
+      // Persist inbox items inside the Supabase order record so they survive
+      // navigation, page reload, and iOS localStorage eviction.
+      mediaLinks: Array.isArray(currentOrderData.mediaLinks) ? currentOrderData.mediaLinks : []
     };
 
     if (!silent) console.log('Order payload:', JSON.stringify(orderPayload, null, 2));
@@ -19416,6 +19421,13 @@ var WO = (function() {
       '.wo-lc-btn{background:none;border:none;color:#9ca3af;cursor:pointer;padding:5px 7px;border-radius:6px;font-size:.8rem;text-decoration:none;display:inline-flex;align-items:center;transition:color .12s,background .12s;}',
       '.wo-lc-btn:hover{color:#4a6da7;background:rgba(74,109,167,.1);}',
       '.wo-lc-del:hover{color:#ef4444 !important;background:#fef2f2 !important;}',
+
+      // ── Song expand panel hint bar (replaces removed ADD toolbar) ──────
+      '.so-expand-hint{display:flex;align-items:center;gap:7px;padding:8px 14px;' +
+        'font-size:.75rem;color:#6b7280;background:#f8faff;border-bottom:1px solid #e8eef8;' +
+        'font-style:italic;}',
+      '.so-expand-hint i{color:#4a6da7;font-size:.8rem;}',
+      '.so-expand-hint strong{font-style:normal;color:#4a6da7;font-weight:700;}',
 
       // ── Song row drop zone (desktop hover) ─────────────────────────────
       '.wo-song-list-row{position:relative;}',
@@ -36452,20 +36464,22 @@ var WO = (function() {
     var escapedRowId  = esc(rowId);
     var escapedSongId = esc(songId);
 
-    // Toolbar
-    var html = '<div class="so-expand-toolbar">' +
-      '<span class="so-expand-toolbar-label">Add:</span>' +
-      '<button class="so-expand-add-btn" onclick="WO.soAddMedia(\'' + escapedSongId + '\',\'youtube\')" title="Add YouTube or video link"><i class="fa-brands fa-youtube"></i> YouTube</button>' +
-      '<button class="so-expand-add-btn" onclick="WO.soAddMedia(\'' + escapedSongId + '\',\'link\')" title="Add website link"><i class="fa-solid fa-globe"></i> Link</button>' +
-      '<button class="so-expand-add-btn" onclick="WO.soAddMedia(\'' + escapedSongId + '\',\'doc\')" title="Add Google Drive document"><i class="fa-brands fa-google-drive"></i> Drive</button>' +
-      '<button class="so-expand-add-btn" onclick="WO.soAddMedia(\'' + escapedSongId + '\',\'image\')" title="Add image or picture"><i class="fa-solid fa-image"></i> Picture</button>' +
-    '</div>';
+    // Hint bar — ADD buttons replaced by inbox drag-to-song workflow
+    var html = (!hasAny
+      ? ''
+      : '<div class="so-expand-hint">' +
+          '<i class="fa-solid fa-circle-arrow-down"></i>' +
+          ' Drag cards from <strong>Media &amp; Links</strong> below to add links here' +
+        '</div>');
 
     // Media preview grid
     html += '<div class="so-media-grid" id="soGrid-' + escapedRowId + '">';
 
     if (!hasAny) {
-      html += '<div class="so-media-empty">No media yet — click the buttons above to add YouTube videos, links, Drive documents, or pictures.</div>';
+      html += '<div class="so-media-empty">' +
+        '<i class="fa-solid fa-circle-arrow-down" style="font-size:1.6rem;color:#c7d2fe;display:block;margin-bottom:6px;"></i>' +
+        'No media yet — drag a card from <strong style="color:#4a6da7;">Media &amp; Links</strong> below onto this song to add it here.' +
+        '</div>';
     }
 
     // YouTube cards (library links — removable per-order)
