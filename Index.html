@@ -17091,6 +17091,8 @@ var WO = (function() {
         currentOrderData.mediaLinks = ShareInbox.getForOrder(orderId);
       }
       renderMediaRows();
+      // Bake the new inbox item into the order's Supabase record immediately
+      if (typeof autoSaveOrder === 'function') autoSaveOrder();
     }, 700);
   }
 
@@ -19085,6 +19087,8 @@ var WO = (function() {
     _renderLinkInbox();
     renderMediaRows();
     showToast((item.icon || '🔗') + ' Added to order', 'success');
+    // Save the updated mediaLinks into the order record so it survives navigation
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
   // ── Pre-send preview (shows link card above input as you type/paste) ──
@@ -19178,16 +19182,25 @@ var WO = (function() {
 
   function _doLinkMedia(orderId, itemIdx, songId, pickerEl) {
     if (pickerEl) pickerEl.remove();
-    var items = typeof ShareInbox !== 'undefined' ? ShareInbox.getForOrder(orderId) : [];
+    // Mutate the in-memory source of truth first
+    var items = (currentOrderData && currentOrderData.mediaLinks)
+      ? currentOrderData.mediaLinks
+      : (typeof ShareInbox !== 'undefined' ? ShareInbox.getForOrder(orderId) : []);
     if (!items[itemIdx]) return;
     items[itemIdx].linkedSongId = songId;
-    // Persist back
+    // Keep in-memory array updated
+    if (currentOrderData) currentOrderData.mediaLinks = items;
+    // Persist to localStorage
     try {
       var db = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
       db[orderId] = items;
       localStorage.setItem('lhc_share_inbox', JSON.stringify(db));
     } catch(e) {}
+    // Sync to Supabase order_media_links table
+    if (typeof SBQ !== 'undefined' && SBQ.mediaLinks) SBQ.mediaLinks.save(orderId, items).catch(function(){});
     renderMediaRows();
+    // Persist linkedSongId into the order record itself
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
     var song = songOrderSections.find(function(s) { return String(s.id || '') === String(songId); });
     showToast('Linked to "' + (song ? song.title : 'song') + '"', 'success');
   }
@@ -19199,6 +19212,8 @@ var WO = (function() {
     renderResourceSections();
     _renderLinkInbox();
     renderMediaRows();
+    // Persist the updated (shorter) mediaLinks into the order record
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
   function toggleAddLinkInput(section) {
