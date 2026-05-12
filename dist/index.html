@@ -14668,6 +14668,11 @@ window.loadEditSongData = function(song) {
     function _saveAll(data)   { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
 
     function addToOrder(orderId, item) {
+      // Ensure every inbox item has a stable unique ID so we can track it across
+      // saves, reloads, and when it's dropped onto a song.
+      if (!item.id) {
+        item.id = 'li_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      }
       var db = _getAll();
       if (!db[orderId]) db[orderId] = [];
       db[orderId].push(item);
@@ -17372,6 +17377,7 @@ var WO = (function() {
                   youtube: (item.content ? item.content.youtube : null) || [],
                   attachments: (item.content ? item.content.attachments : null) || [],
                   customYoutube: (item.content ? item.content.customYoutube : null) || [],
+                  customYoutubeMeta: (item.content ? item.content.customYoutubeMeta : null) || {},
                   customDocs: (item.content ? item.content.customDocs : null) || [],
                   sbFiles: (item.content ? item.content.sbFiles : null) || [],  // 354B
                   sbLinks: (item.content ? item.content.sbLinks : null) || [],  // 669: restore website/snapshot links
@@ -17480,10 +17486,27 @@ var WO = (function() {
     // Populate in-memory mediaLinks — start with localStorage, then merge/replace from Supabase
     currentOrderData.mediaLinks = (order.id && typeof ShareInbox !== 'undefined')
       ? ShareInbox.getForOrder(order.id) : [];
+
+    // Back-fill IDs on any items that were saved before this fix
+    (function _ensureInboxIds(arr) {
+      if (!Array.isArray(arr)) return;
+      arr.forEach(function(it) {
+        if (it && !it.id) {
+          it.id = 'li_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        }
+      });
+    })(currentOrderData.mediaLinks);
+
     // Async: load from Supabase and merge (Supabase is source of truth across devices)
     if (order.id && typeof SBQ !== 'undefined' && SBQ.mediaLinks) {
       SBQ.mediaLinks.load(order.id).then(function(remoteItems) {
         if (!remoteItems || !remoteItems.length) return;
+        // Back-fill IDs on Supabase items too
+        remoteItems.forEach(function(it) {
+          if (it && !it.id) {
+            it.id = 'li_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+          }
+        });
         // Merge: add any Supabase items not already in localStorage
         var local = (typeof ShareInbox !== 'undefined') ? ShareInbox.getForOrder(order.id) : [];
         if (remoteItems.length >= local.length) {
@@ -18151,7 +18174,8 @@ var WO = (function() {
           youtube: Array.isArray(songData.youtube) ? songData.youtube : (typeof songData.youtube === 'string' && songData.youtube.trim() ? songData.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []),
           attachments: Array.isArray(songData.attachments) ? songData.attachments : [],
           customYoutube: Array.isArray(songData.customYoutube) ? songData.customYoutube.slice() : [],
-          customDocs: Array.isArray(songData.customDocs) ? songData.customDocs.map(function(d) { return { url: d.url, name: d.name || 'Document', type: d.type || 'custom' }; }) : [],
+          customYoutubeMeta: (songData.customYoutubeMeta && typeof songData.customYoutubeMeta === 'object') ? songData.customYoutubeMeta : {},
+          customDocs: Array.isArray(songData.customDocs) ? songData.customDocs.map(function(d) { return { url: d.url, name: d.name || 'Document', type: d.type || 'custom', inboxId: d.inboxId || null, addedAt: d.addedAt || null }; }) : [],
           sbFiles: Array.isArray(songData.sbFiles) ? songData.sbFiles.slice() : [],  // 354B
           sbLinks: Array.isArray(songData.sbLinks) ? songData.sbLinks.slice() : [],  // 669: website/snapshot links
           removedLibraryDocUrls: Array.isArray(songData.removedLibraryDocUrls) ? songData.removedLibraryDocUrls.slice() : [],
@@ -19726,9 +19750,23 @@ var WO = (function() {
 
     if (!url && !item.data) { showToast('No URL in this link', 'warning'); return; }
 
+    // Ensure the inbox item has a stable id (older items pre-dating this fix may not)
+    if (!item.id) {
+      item.id = 'li_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    }
+
     if (isYT) {
       if (!Array.isArray(song.customYoutube)) song.customYoutube = [];
-      if (song.customYoutube.indexOf(url) < 0) song.customYoutube.push(url);
+      if (song.customYoutube.indexOf(url) < 0) {
+        song.customYoutube.push(url);
+        // Store rich metadata keyed by URL so the card can show a real title
+        if (!song.customYoutubeMeta) song.customYoutubeMeta = {};
+        song.customYoutubeMeta[url] = {
+          inboxId: item.id,
+          title:   item.title || null,
+          addedAt: new Date().toISOString()
+        };
+      }
       showToast('🎬 YouTube added to "' + escapeHtml((song.title || 'Song').substring(0, 20)) + '"', 'success');
     } else if (url) {
       if (!Array.isArray(song.customDocs)) song.customDocs = [];
@@ -19744,7 +19782,14 @@ var WO = (function() {
                      : (type === 'pdf')     ? 'pdf'
                      : (type === 'spotify') ? 'spotify'
                      : 'custom';
-        song.customDocs.push({ url: url, name: docName.substring(0, 55), type: provider });
+        // Store inboxId so we can trace this doc card back to its inbox item
+        song.customDocs.push({
+          url:     url,
+          name:    docName.substring(0, 55),
+          type:    provider,
+          inboxId: item.id,
+          addedAt: new Date().toISOString()
+        });
       }
       var typeLabel = { gdoc:'📄 Doc', gdrive:'☁️ Drive file', pdf:'📑 PDF',
                         spotify:'🎵 Spotify', image:'🖼 Image', link:'🔗 Link' };
@@ -19777,17 +19822,9 @@ var WO = (function() {
       if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, 200);
 
-    // ── Update the row media badge count ──────────────────────────────
-    var _row2 = document.getElementById('soRow-' + songId);
-    var badge = _row2 ? _row2.querySelector('.so-media-badge') : null;
-    if (badge) {
-      var cnt = (Array.isArray(song.youtube)       ? song.youtube.length       : 0) +
-                (Array.isArray(song.customYoutube)  ? song.customYoutube.length  : 0) +
-                (Array.isArray(song.attachments)    ? song.attachments.length    : 0) +
-                (Array.isArray(song.customDocs)     ? song.customDocs.length     : 0);
-      badge.innerHTML = '<i class="fa-solid fa-photo-film"></i> ' + cnt;
-      badge.className = 'so-media-badge';
-    }
+    // Note: badge update is handled by _soRefreshAllExpandsFor called above.
+    // Do NOT also call getElementById('soRow-' + songId) here — that uses songId
+    // not rowId, so it fails silently for songs assigned to a service section.
 
     // ── Persist inbox (linkedSongId) to localStorage + Supabase ──────
     try {
@@ -36449,7 +36486,12 @@ var WO = (function() {
     });
 
     // Custom YouTube cards (removable)
+    var _ytMeta = song.customYoutubeMeta || {};
     customYt.forEach(function(url, i) {
+      var meta2       = _ytMeta[url] || {};
+      var displayName = (meta2.title && meta2.title !== url)
+        ? meta2.title.substring(0, 40)
+        : ('Video ' + (ytLinks.length + i + 1));
       var ytId2 = soExtractYouTubeId(url);
       var cardContent2 = ytId2
         ? '<iframe src="https://www.youtube.com/embed/' + esc(ytId2) + '?rel=0" frameborder="0" allowfullscreen class="so-media-card-iframe"></iframe>'
@@ -36458,7 +36500,7 @@ var WO = (function() {
         '<div class="so-media-card-preview">' + cardContent2 + '</div>' +
         '<div class="so-media-card-footer">' +
           '<i class="fa-brands fa-youtube" style="color:#ff0000;flex-shrink:0;"></i>' +
-          '<span class="so-media-card-name" title="' + esc(url) + '">Video ' + (ytLinks.length + i + 1) + '<span class="so-media-custom-tag">custom</span></span>' +
+          '<span class="so-media-card-name" title="' + esc(url) + '">' + esc(displayName) + '<span class="so-media-custom-tag">custom</span></span>' +
           '<a href="' + esc(url) + '" target="_blank" class="so-media-card-open" title="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>' +
           '<button class="so-media-card-remove" onclick="WO.soRemoveCustomVideo(\'' + escapedSongId + '\',' + i + ',\'' + escapedRowId + '\')" title="Remove"><i class="fa-solid fa-trash-can"></i></button>' +
         '</div>' +
@@ -36599,7 +36641,12 @@ var WO = (function() {
   function soRemoveCustomVideo(songId, customIdx, rowId) {
     var song = songOrderSections.find(function(s) { return s.id === songId; });
     if (!song || !Array.isArray(song.customYoutube)) return;
+    var removedUrl = song.customYoutube[customIdx];
     song.customYoutube.splice(customIdx, 1);
+    // Clean up metadata entry so stale data doesn't accumulate
+    if (removedUrl && song.customYoutubeMeta) {
+      delete song.customYoutubeMeta[removedUrl];
+    }
     _soRefreshAllExpandsFor(songId);
     autoSaveOrder();
   }
