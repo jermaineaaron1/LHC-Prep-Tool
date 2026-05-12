@@ -19874,6 +19874,8 @@ var WO = (function() {
     // Auto-save order so customYoutube / customDocs survive page reload
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof updateQuickList === 'function') updateQuickList();
+    // Update playlist modal if open so new link appears in correct song position
+    _refreshPlaylistIfOpen();
 
     _renderLinkInbox();
   }
@@ -19882,36 +19884,70 @@ var WO = (function() {
   var _playlistQueue = [];
   var _playlistIdx   = 0;
 
-  function openPlaylistModal() {
-    var items = (currentOrderData && currentOrderData.mediaLinks) ? currentOrderData.mediaLinks : [];
+  // Build the playlist in service order:
+  //   1. Each song in songOrderSections order:
+  //        a. Library YouTube links (not removed)
+  //        b. Custom YouTube links (drag-dropped or manually added)
+  //   2. Any inbox YouTube links not yet attached to a song (parked)
+  function _buildPlaylistQueue() {
+    var queue    = [];
+    var seenUrls = {};
 
-    // Collect YouTube links from inbox
-    _playlistQueue = [];
-    items.forEach(function(it) {
-      if (_lcType(it) === 'youtube' && it.url) {
-        _playlistQueue.push({ url: it.url, title: it.title || it.url });
-      }
-    });
-
-    // Also pull youtube from songs in the order
     songOrderSections.forEach(function(s) {
-      var ytArr = Array.isArray(s.youtube) ? s.youtube :
+      var removedYt = Array.isArray(s.removedLibraryYoutubeUrls) ? s.removedLibraryYoutubeUrls : [];
+      var libYt = Array.isArray(s.youtube) ? s.youtube :
         (typeof s.youtube === 'string' && s.youtube.trim()
           ? s.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []);
-      var cust = Array.isArray(s.customYoutube) ? s.customYoutube : [];
-      ytArr.concat(cust).forEach(function(url) {
-        if (url && !_playlistQueue.find(function(q) { return q.url === url; })) {
-          _playlistQueue.push({ url: url, title: (s.title || 'Song') + ' – YouTube' });
-        }
+      var custYt = Array.isArray(s.customYoutube) ? s.customYoutube : [];
+      var ytMeta = s.customYoutubeMeta || {};
+
+      // Library links first (respecting per-order removals), then custom
+      var filtered = libYt.filter(function(u) { return removedYt.indexOf(u) < 0; });
+      filtered.concat(custYt).forEach(function(url) {
+        if (!url || seenUrls[url]) return;
+        seenUrls[url] = true;
+        var meta  = ytMeta[url] || {};
+        var title = (meta.title && meta.title !== url)
+          ? meta.title
+          : ((s.title || 'Song') + ' – YouTube');
+        queue.push({ url: url, songId: s.id, songTitle: s.title || '', title: title });
       });
     });
 
+    // Parked inbox links not yet attached to any song
+    var inboxItems = (currentOrderData && currentOrderData.mediaLinks) ? currentOrderData.mediaLinks : [];
+    inboxItems.forEach(function(it) {
+      if (_lcType(it) === 'youtube' && it.url && !seenUrls[it.url]) {
+        seenUrls[it.url] = true;
+        queue.push({ url: it.url, title: it.title || it.url });
+      }
+    });
+
+    return queue;
+  }
+
+  function openPlaylistModal() {
+    _playlistQueue = _buildPlaylistQueue();
     if (_playlistQueue.length === 0) {
       showToast('No YouTube links in this order yet — add some via the inbox', 'warning');
       return;
     }
-
     _playlistIdx = 0;
+    _renderPlaylistModal();
+  }
+
+  // Refresh the playlist modal if it is currently open (called after add/remove).
+  // Tries to stay on the same track; falls back to closest index.
+  function _refreshPlaylistIfOpen() {
+    if (!document.getElementById('woPlaylistModal')) return;
+    var prevUrl  = (_playlistQueue[_playlistIdx] || {}).url;
+    _playlistQueue = _buildPlaylistQueue();
+    if (_playlistQueue.length === 0) { closePlaylistModal(); return; }
+    var newIdx = -1;
+    for (var i = 0; i < _playlistQueue.length; i++) {
+      if (_playlistQueue[i].url === prevUrl) { newIdx = i; break; }
+    }
+    _playlistIdx = newIdx >= 0 ? newIdx : Math.min(_playlistIdx, _playlistQueue.length - 1);
     _renderPlaylistModal();
   }
 
@@ -36684,6 +36720,7 @@ var WO = (function() {
       delete song.customYoutubeMeta[removedUrl];
     }
     _soRefreshAllExpandsFor(songId);
+    _refreshPlaylistIfOpen(); // remove from playlist if modal is open
     autoSaveOrder();
   }
 
@@ -36701,6 +36738,7 @@ var WO = (function() {
     if (!Array.isArray(song.removedLibraryYoutubeUrls)) song.removedLibraryYoutubeUrls = [];
     if (song.removedLibraryYoutubeUrls.indexOf(url) < 0) song.removedLibraryYoutubeUrls.push(url);
     _soRefreshAllExpandsFor(songId);
+    _refreshPlaylistIfOpen(); // remove from playlist if modal is open
     autoSaveOrder();
   }
 
@@ -38471,6 +38509,7 @@ var WO = (function() {
     openPlaylistModal: openPlaylistModal,
     closePlaylistModal: closePlaylistModal,
     _playlistJump: _playlistJump,
+    _refreshPlaylistIfOpen: _refreshPlaylistIfOpen,
     _playlistPrev: _playlistPrev,
     _playlistNext: _playlistNext,
     renderResourceSections: renderResourceSections,
