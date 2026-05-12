@@ -19720,7 +19720,14 @@ var WO = (function() {
 
     var songRow = el ? el.closest('.wo-song-list-row') : null;
     if (songRow) {
-      var droppedSongId = songRow.id.replace('soRow-', '');
+      // Get the REAL songId from the expand panel's data-song-id attribute.
+      // songRow.id is "soRow-{rowId}" where rowId can be "songId__sectionId"
+      // for section-assigned songs — NOT the same as songId.
+      // The expand panel always carries data-song-id = actual songId.
+      var expandPanel = songRow.querySelector('.so-expand-panel');
+      var droppedSongId = expandPanel
+        ? (expandPanel.getAttribute('data-song-id') || songRow.id.replace('soRow-', ''))
+        : songRow.id.replace('soRow-', '');
       _draggingInboxIdx = _ptrDragIdx;
       _ptrDragIdx = -1;
       _songDrop({ preventDefault: function() {} }, droppedSongId);
