@@ -5569,37 +5569,51 @@
           <input id="newSongArtist" class="form-input" placeholder="Artist / Composer">
         </div>
         <div>
-          <label class="form-label" for="newSongCategory">Category / Style</label>
-          <select id="newSongCategory" class="form-input">
-            <option value="">Select category...</option>
-            <option value="Traditional Hymn">Traditional Hymn</option>
-            <option value="Contemporary Hymn">Contemporary Hymn</option>
-            <option value="Contemporary">Contemporary</option>
-          </select>
+          <label class="form-label">Style / Category</label>
+          <div class="theme-multiselect" style="position:relative;">
+            <div id="newSongStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleSongStyleDropdown('new')" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select style...</div>
+            <div id="newSongStyleDropdown" class="theme-dropdown hidden" style="z-index:500;min-width:240px;padding:6px 0;"></div>
+          </div>
+          <input type="hidden" id="newSongCategory" value="">
+          <!-- Era/decade — shown below when Contemporary selected -->
+          <div id="newSongEraRow" style="display:none;margin-top:6px;">
+            <label class="form-label" style="font-size:0.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;">Era / Decade</label>
+            <div id="newSongEraDropdown" style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 0;"></div>
+            <input type="hidden" id="newSongEra" value="">
+          </div>
         </div>
         <div>
           <label class="form-label" for="newSongKey">Key</label>
           <select id="newSongKey" class="form-input">
             <option value="">Select key...</option>
-            <option value="C">C Major</option>
-            <option value="C#">C# / Db Major</option>
-            <option value="D">D Major</option>
-            <option value="D#">D# / Eb Major</option>
-            <option value="E">E Major</option>
-            <option value="F">F Major</option>
-            <option value="F#">F# / Gb Major</option>
-            <option value="G">G Major</option>
-            <option value="G#">G# / Ab Major</option>
-            <option value="A">A Major</option>
-            <option value="A#">A# / Bb Major</option>
-            <option value="B">B Major</option>
-            <option value="Am">A minor</option>
-            <option value="Bm">B minor</option>
-            <option value="Cm">C minor</option>
-            <option value="Dm">D minor</option>
-            <option value="Em">E minor</option>
-            <option value="Fm">F minor</option>
-            <option value="Gm">G minor</option>
+            <optgroup label="Major Keys">
+              <option value="C">C Major</option>
+              <option value="C#">C# / Db Major</option>
+              <option value="D">D Major</option>
+              <option value="D#">D# / Eb Major</option>
+              <option value="E">E Major</option>
+              <option value="F">F Major</option>
+              <option value="F#">F# / Gb Major</option>
+              <option value="G">G Major</option>
+              <option value="G#">G# / Ab Major</option>
+              <option value="A">A Major</option>
+              <option value="A#">A# / Bb Major</option>
+              <option value="B">B Major</option>
+            </optgroup>
+            <optgroup label="Minor Keys">
+              <option value="Am">A minor</option>
+              <option value="A#m">A# / Bbm minor</option>
+              <option value="Bm">B minor</option>
+              <option value="Cm">C minor</option>
+              <option value="C#m">C# / Dbm minor</option>
+              <option value="Dm">D minor</option>
+              <option value="D#m">D# / Ebm minor</option>
+              <option value="Em">E minor</option>
+              <option value="Fm">F minor</option>
+              <option value="F#m">F# / Gbm minor</option>
+              <option value="Gm">G minor</option>
+              <option value="G#m">G# / Abm minor</option>
+            </optgroup>
           </select>
         </div>
         <div>
@@ -5649,31 +5663,46 @@
         <!-- Liturgical Season + Scripture Reference — side by side -->
         <div class="md:col-span-1">
           <label class="form-label">Liturgical Season</label>
-          <div class="theme-multiselect" id="newSongSeasonContainer">
+          <div class="theme-multiselect" id="newSongSeasonContainer" style="position:relative;">
             <button type="button" class="form-input text-left flex items-center justify-between w-full" onclick="toggleSeasonDropdown('new')" id="newSongSeasonBtn">
               <span id="newSongSeasonDisplay" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.875rem;">Select season...</span>
               <i class="fa-solid fa-chevron-down text-slate-400 ml-1" style="flex-shrink:0;"></i>
             </button>
-            <div id="newSongSeasonDropdown" class="theme-dropdown hidden">
-              <div class="theme-option"><label><input type="checkbox" value="Advent" onchange="updateSeasonSelection('new')"> Advent</label></div>
+            <div id="newSongSeasonDropdown" class="theme-dropdown hidden" style="z-index:400;">
+              <div class="theme-option"><label><input type="checkbox" value="All Seasons" onchange="updateSeasonSelection('new')"> All Seasons</label></div>
+              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Advent</div>
+              <div class="theme-option"><label><input type="checkbox" value="Advent 1st Sunday" onchange="updateSeasonSelection('new')"> Advent 1st Sunday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Advent 2nd Sunday" onchange="updateSeasonSelection('new')"> Advent 2nd Sunday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Advent 3rd Sunday" onchange="updateSeasonSelection('new')"> Advent 3rd Sunday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Advent 4th Sunday" onchange="updateSeasonSelection('new')"> Advent 4th Sunday</label></div>
+              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Christmas &amp; Epiphany</div>
               <div class="theme-option"><label><input type="checkbox" value="Christmas" onchange="updateSeasonSelection('new')"> Christmas</label></div>
               <div class="theme-option"><label><input type="checkbox" value="Epiphany" onchange="updateSeasonSelection('new')"> Epiphany</label></div>
+              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Lent &amp; Holy Week</div>
               <div class="theme-option"><label><input type="checkbox" value="Lent" onchange="updateSeasonSelection('new')"> Lent</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Holy Week" onchange="updateSeasonSelection('new')"> Holy Week</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Maundy Thursday" onchange="updateSeasonSelection('new')"> Maundy Thursday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Good Friday" onchange="updateSeasonSelection('new')"> Good Friday</label></div>
+              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Easter &amp; Beyond</div>
               <div class="theme-option"><label><input type="checkbox" value="Easter" onchange="updateSeasonSelection('new')"> Easter</label></div>
               <div class="theme-option"><label><input type="checkbox" value="Pentecost" onchange="updateSeasonSelection('new')"> Pentecost</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Ordinary Time" onchange="updateSeasonSelection('new')"> Ordinary Time</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="All Seasons" onchange="updateSeasonSelection('new')"> All Seasons</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Holy Trinity Sunday" onchange="updateSeasonSelection('new')"> Holy Trinity Sunday</label></div>
+              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Special Sundays</div>
+              <div class="theme-option"><label><input type="checkbox" value="Reformation Sunday" onchange="updateSeasonSelection('new')"> Reformation Sunday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Christ the King Sunday" onchange="updateSeasonSelection('new')"> Christ the King Sunday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Ordinary Sunday" onchange="updateSeasonSelection('new')"> Ordinary Sunday</label></div>
             </div>
           </div>
           <input type="hidden" id="newSongSeason" value="">
         </div>
 
-        <!-- Scripture Reference pill input -->
+        <!-- Scripture Reference — Bible picker -->
         <div class="md:col-span-2">
           <label class="form-label"><i class="fa-solid fa-book-open mr-1"></i> Scripture Reference</label>
-          <div id="newSongScripturePills" class="scripture-pill-input" onclick="focusScriptureInput('new')">
-            <input type="text" id="newSongScriptureTyping" class="scripture-typing-input" placeholder="Type reference, press comma or Enter..." onkeydown="handleScriptureKey(event,'new')" oninput="handleScriptureInput(event,'new')" onblur="handleScriptureBlur(event,'new')">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button type="button" onclick="openBiblePickerModal('new')" class="lhc-pill-button" style="font-size:0.8rem;flex-shrink:0;">
+              <i class="fa-solid fa-book-open mr-1"></i> Pick Passage(s)
+            </button>
+            <div id="newSongScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-height:28px;"></div>
           </div>
           <input type="hidden" id="newSongScripture" value="">
         </div>
@@ -5783,37 +5812,50 @@
           <input id="editSongArtist" class="form-input" placeholder="Artist / Composer">
         </div>
         <div>
-          <label class="form-label" for="editSongCategory">Category / Style</label>
-          <select id="editSongCategory" class="form-input">
-            <option value="">Select category...</option>
-            <option value="Traditional Hymn">Traditional Hymn</option>
-            <option value="Contemporary Hymn">Contemporary Hymn</option>
-            <option value="Contemporary">Contemporary</option>
-          </select>
+          <label class="form-label">Style / Category</label>
+          <div class="theme-multiselect" style="position:relative;">
+            <div id="editSongStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleSongStyleDropdown('edit')" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select style...</div>
+            <div id="editSongStyleDropdown" class="theme-dropdown hidden" style="z-index:500;min-width:240px;padding:6px 0;"></div>
+          </div>
+          <input type="hidden" id="editSongCategory" value="">
+          <div id="editSongEraRow" style="display:none;margin-top:6px;">
+            <label class="form-label" style="font-size:0.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;">Era / Decade</label>
+            <div id="editSongEraDropdown" style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 0;"></div>
+            <input type="hidden" id="editSongEra" value="">
+          </div>
         </div>
         <div>
           <label class="form-label" for="editSongKey">Key</label>
           <select id="editSongKey" class="form-input">
             <option value="">Select key...</option>
-            <option value="C">C Major</option>
-            <option value="C#">C# / Db Major</option>
-            <option value="D">D Major</option>
-            <option value="D#">D# / Eb Major</option>
-            <option value="E">E Major</option>
-            <option value="F">F Major</option>
-            <option value="F#">F# / Gb Major</option>
-            <option value="G">G Major</option>
-            <option value="G#">G# / Ab Major</option>
-            <option value="A">A Major</option>
-            <option value="A#">A# / Bb Major</option>
-            <option value="B">B Major</option>
-            <option value="Am">A minor</option>
-            <option value="Bm">B minor</option>
-            <option value="Cm">C minor</option>
-            <option value="Dm">D minor</option>
-            <option value="Em">E minor</option>
-            <option value="Fm">F minor</option>
-            <option value="Gm">G minor</option>
+            <optgroup label="Major Keys">
+              <option value="C">C Major</option>
+              <option value="C#">C# / Db Major</option>
+              <option value="D">D Major</option>
+              <option value="D#">D# / Eb Major</option>
+              <option value="E">E Major</option>
+              <option value="F">F Major</option>
+              <option value="F#">F# / Gb Major</option>
+              <option value="G">G Major</option>
+              <option value="G#">G# / Ab Major</option>
+              <option value="A">A Major</option>
+              <option value="A#">A# / Bb Major</option>
+              <option value="B">B Major</option>
+            </optgroup>
+            <optgroup label="Minor Keys">
+              <option value="Am">A minor</option>
+              <option value="A#m">A# / Bbm minor</option>
+              <option value="Bm">B minor</option>
+              <option value="Cm">C minor</option>
+              <option value="C#m">C# / Dbm minor</option>
+              <option value="Dm">D minor</option>
+              <option value="D#m">D# / Ebm minor</option>
+              <option value="Em">E minor</option>
+              <option value="Fm">F minor</option>
+              <option value="F#m">F# / Gbm minor</option>
+              <option value="Gm">G minor</option>
+              <option value="G#m">G# / Abm minor</option>
+            </optgroup>
           </select>
         </div>
         <div>
@@ -5863,31 +5905,46 @@
         <!-- Liturgical Season + Scripture Reference — side by side -->
         <div class="md:col-span-1">
           <label class="form-label">Liturgical Season</label>
-          <div class="theme-multiselect" id="editSongSeasonContainer">
+          <div class="theme-multiselect" id="editSongSeasonContainer" style="position:relative;">
             <button type="button" class="form-input text-left flex items-center justify-between w-full" onclick="toggleSeasonDropdown('edit')" id="editSongSeasonBtn">
               <span id="editSongSeasonDisplay" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.875rem;">Select season...</span>
               <i class="fa-solid fa-chevron-down text-slate-400 ml-1" style="flex-shrink:0;"></i>
             </button>
-            <div id="editSongSeasonDropdown" class="theme-dropdown hidden">
-              <div class="theme-option"><label><input type="checkbox" value="Advent" onchange="updateSeasonSelection('edit')"> Advent</label></div>
+            <div id="editSongSeasonDropdown" class="theme-dropdown hidden" style="z-index:400;">
+              <div class="theme-option"><label><input type="checkbox" value="All Seasons" onchange="updateSeasonSelection('edit')"> All Seasons</label></div>
+              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Advent</div>
+              <div class="theme-option"><label><input type="checkbox" value="Advent 1st Sunday" onchange="updateSeasonSelection('edit')"> Advent 1st Sunday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Advent 2nd Sunday" onchange="updateSeasonSelection('edit')"> Advent 2nd Sunday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Advent 3rd Sunday" onchange="updateSeasonSelection('edit')"> Advent 3rd Sunday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Advent 4th Sunday" onchange="updateSeasonSelection('edit')"> Advent 4th Sunday</label></div>
+              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Christmas &amp; Epiphany</div>
               <div class="theme-option"><label><input type="checkbox" value="Christmas" onchange="updateSeasonSelection('edit')"> Christmas</label></div>
               <div class="theme-option"><label><input type="checkbox" value="Epiphany" onchange="updateSeasonSelection('edit')"> Epiphany</label></div>
+              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Lent &amp; Holy Week</div>
               <div class="theme-option"><label><input type="checkbox" value="Lent" onchange="updateSeasonSelection('edit')"> Lent</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Holy Week" onchange="updateSeasonSelection('edit')"> Holy Week</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Maundy Thursday" onchange="updateSeasonSelection('edit')"> Maundy Thursday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Good Friday" onchange="updateSeasonSelection('edit')"> Good Friday</label></div>
+              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Easter &amp; Beyond</div>
               <div class="theme-option"><label><input type="checkbox" value="Easter" onchange="updateSeasonSelection('edit')"> Easter</label></div>
               <div class="theme-option"><label><input type="checkbox" value="Pentecost" onchange="updateSeasonSelection('edit')"> Pentecost</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Ordinary Time" onchange="updateSeasonSelection('edit')"> Ordinary Time</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="All Seasons" onchange="updateSeasonSelection('edit')"> All Seasons</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Holy Trinity Sunday" onchange="updateSeasonSelection('edit')"> Holy Trinity Sunday</label></div>
+              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Special Sundays</div>
+              <div class="theme-option"><label><input type="checkbox" value="Reformation Sunday" onchange="updateSeasonSelection('edit')"> Reformation Sunday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Christ the King Sunday" onchange="updateSeasonSelection('edit')"> Christ the King Sunday</label></div>
+              <div class="theme-option"><label><input type="checkbox" value="Ordinary Sunday" onchange="updateSeasonSelection('edit')"> Ordinary Sunday</label></div>
             </div>
           </div>
           <input type="hidden" id="editSongSeason" value="">
         </div>
 
-        <!-- Scripture Reference pill input -->
+        <!-- Scripture Reference — Bible picker -->
         <div class="md:col-span-2">
           <label class="form-label"><i class="fa-solid fa-book-open mr-1"></i> Scripture Reference</label>
-          <div id="editSongScripturePills" class="scripture-pill-input" onclick="focusScriptureInput('edit')">
-            <input type="text" id="editSongScriptureTyping" class="scripture-typing-input" placeholder="Type reference, press comma or Enter..." onkeydown="handleScriptureKey(event,'edit')" oninput="handleScriptureInput(event,'edit')" onblur="handleScriptureBlur(event,'edit')">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button type="button" onclick="openBiblePickerModal('edit')" class="lhc-pill-button" style="font-size:0.8rem;flex-shrink:0;">
+              <i class="fa-solid fa-book-open mr-1"></i> Pick Passage(s)
+            </button>
+            <div id="editSongScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-height:28px;"></div>
           </div>
           <input type="hidden" id="editSongScripture" value="">
         </div>
@@ -7235,7 +7292,154 @@ document.addEventListener('click', function(e) {
   if (dd && !dd.contains(e.target) && btn && !btn.contains(e.target)) {
     dd.classList.add('hidden');
   }
+  // Also close song modal style dropdowns when clicking outside
+  ['new', 'edit'].forEach(function(mode) {
+    var mdd = document.getElementById(mode + 'SongStyleDropdown');
+    var mbt = document.getElementById(mode + 'SongStyleDisplay');
+    if (mdd && !mdd.classList.contains('hidden') && !mdd.contains(e.target) && mbt && !mbt.contains(e.target)) {
+      mdd.classList.add('hidden');
+    }
+  });
 });
+
+// ============================================================
+// SONG MODAL — Style / Era dropdown helpers
+// ============================================================
+var _SONG_MODAL_ERAS = ['Pre-1900s','1950s–60s','1970s','1980s','1990s','2000s','2010s','2020s'];
+
+function toggleSongStyleDropdown(mode) {
+  var dd = document.getElementById(mode + 'SongStyleDropdown');
+  if (!dd) return;
+  var wasHidden = dd.classList.contains('hidden');
+  dd.classList.toggle('hidden');
+  if (wasHidden) populateSongStyleDropdown(mode);
+}
+
+function populateSongStyleDropdown(mode) {
+  var dd = document.getElementById(mode + 'SongStyleDropdown');
+  if (!dd) return;
+  var hiddenCat = document.getElementById(mode + 'SongCategory');
+  var curStyle = hiddenCat ? hiddenCat.value : '';
+  var hiddenEra = document.getElementById(mode + 'SongEra');
+  var curEras = hiddenEra ? (hiddenEra.value || '').split(',').map(function(v){return v.trim();}).filter(Boolean) : [];
+
+  var html = '';
+  html += '<div class="sf-style-row' + (!curStyle ? ' sf-style-active' : '') + '" onclick="setSongStyle(\'' + mode + '\',\'\')" style="padding:7px 14px;cursor:pointer;font-size:0.82rem;font-weight:' + (!curStyle ? '700' : '500') + ';color:' + (!curStyle ? '#4a6da7' : '#374151') + ';">' +
+    (!curStyle ? '✓ ' : '') + 'Not specified</div>';
+
+  html += '<div class="sf-style-row' + (curStyle === 'Traditional Hymn' ? ' sf-style-active' : '') + '" onclick="setSongStyle(\'' + mode + '\',\'Traditional Hymn\')" style="padding:7px 14px;cursor:pointer;font-size:0.82rem;font-weight:' + (curStyle === 'Traditional Hymn' ? '700' : '500') + ';color:' + (curStyle === 'Traditional Hymn' ? '#4a6da7' : '#374151') + ';border-top:1px solid #f3f4f6;">' +
+    (curStyle === 'Traditional Hymn' ? '✓ ' : '') + '⛪ Traditional Hymn</div>';
+
+  html += '<div style="border-top:1px solid #f3f4f6;padding:7px 14px 4px;font-size:0.75rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;cursor:default;">🎸 Contemporary</div>';
+
+  html += '<div class="sf-style-row' + (curStyle === 'Contemporary' ? ' sf-style-active' : '') + '" onclick="setSongStyle(\'' + mode + '\',\'Contemporary\')" style="padding:5px 14px 5px 22px;cursor:pointer;font-size:0.82rem;font-weight:' + (curStyle === 'Contemporary' ? '700' : '500') + ';color:' + (curStyle === 'Contemporary' ? '#4a6da7' : '#374151') + ';">' +
+    (curStyle === 'Contemporary' ? '✓ ' : '') + 'Contemporary</div>';
+
+  html += '<div class="sf-style-row' + (curStyle === 'Contemporary Hymn' ? ' sf-style-active' : '') + '" onclick="setSongStyle(\'' + mode + '\',\'Contemporary Hymn\')" style="padding:5px 14px 5px 22px;cursor:pointer;font-size:0.82rem;font-weight:' + (curStyle === 'Contemporary Hymn' ? '700' : '500') + ';color:' + (curStyle === 'Contemporary Hymn' ? '#7c3aed' : '#374151') + ';">' +
+    (curStyle === 'Contemporary Hymn' ? '✓ ' : '') + '🎵 Contemporary Hymn <span style="font-size:0.68rem;color:#9ca3af;font-weight:400;">(hymn-based)</span></div>';
+
+  // Era sub-rows — only shown when Contemporary or Contemporary Hymn selected
+  if (curStyle === 'Contemporary' || curStyle === 'Contemporary Hymn') {
+    html += '<div style="padding:6px 14px 4px 22px;font-size:0.72rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;">Era / Decade <span style="font-size:0.68rem;font-weight:400;">(optional, multi)</span></div>';
+    _SONG_MODAL_ERAS.forEach(function(era) {
+      var checked = curEras.indexOf(era) >= 0;
+      html += '<label style="display:flex;align-items:center;gap:7px;padding:4px 14px 4px 26px;cursor:pointer;font-size:0.8rem;color:' + (checked ? '#4a6da7' : '#374151') + ';font-weight:' + (checked ? '600' : '400') + ';">' +
+        '<input type="checkbox" value="' + era + '" ' + (checked ? 'checked' : '') + ' onchange="toggleSongStyleEra(\'' + mode + '\',this)" style="accent-color:#4a6da7;">' +
+        era + '</label>';
+    });
+  }
+
+  dd.innerHTML = html;
+}
+
+function setSongStyle(mode, val) {
+  var hiddenCat = document.getElementById(mode + 'SongCategory');
+  if (hiddenCat) hiddenCat.value = val;
+
+  // Clear era when switching away from contemporary
+  if (val !== 'Contemporary' && val !== 'Contemporary Hymn') {
+    var hiddenEra = document.getElementById(mode + 'SongEra');
+    if (hiddenEra) hiddenEra.value = '';
+  }
+
+  // Update display label
+  var disp = document.getElementById(mode + 'SongStyleDisplay');
+  if (disp) disp.textContent = val || 'Select style...';
+
+  // Show/hide era row
+  var eraRow = document.getElementById(mode + 'SongEraRow');
+  if (eraRow) eraRow.style.display = (val === 'Contemporary' || val === 'Contemporary Hymn') ? '' : 'none';
+
+  // Re-render era chips when row shown
+  if (val === 'Contemporary' || val === 'Contemporary Hymn') _renderSongEraChips(mode);
+
+  // Re-render dropdown to reflect new state
+  populateSongStyleDropdown(mode);
+}
+
+function toggleSongStyleEra(mode, cb) {
+  var hiddenEra = document.getElementById(mode + 'SongEra');
+  if (!hiddenEra) return;
+  var eras = (hiddenEra.value || '').split(',').map(function(v){return v.trim();}).filter(Boolean);
+  if (cb.checked) { if (eras.indexOf(cb.value) < 0) eras.push(cb.value); }
+  else { eras = eras.filter(function(e) { return e !== cb.value; }); }
+  hiddenEra.value = eras.join(', ');
+
+  // Update display label to show era summary
+  var disp = document.getElementById(mode + 'SongStyleDisplay');
+  var hiddenCat = document.getElementById(mode + 'SongCategory');
+  var base = hiddenCat && hiddenCat.value ? hiddenCat.value : 'Contemporary';
+  if (disp) disp.textContent = eras.length ? base + ': ' + eras.slice(0,2).join(', ') + (eras.length > 2 ? ' +' + (eras.length-2) + ' more' : '') : base;
+
+  _renderSongEraChips(mode);
+}
+
+function _renderSongEraChips(mode) {
+  var container = document.getElementById(mode + 'SongEraDropdown');
+  if (!container) return;
+  var hiddenEra = document.getElementById(mode + 'SongEra');
+  var selected = hiddenEra ? (hiddenEra.value || '').split(',').map(function(v){return v.trim();}).filter(Boolean) : [];
+  container.innerHTML = _SONG_MODAL_ERAS.map(function(era) {
+    var on = selected.indexOf(era) >= 0;
+    return '<span onclick="_toggleEraChip(\'' + mode + '\',\'' + era + '\')" style="display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:999px;font-size:0.72rem;font-weight:600;cursor:pointer;border:1.5px solid ' + (on ? '#4a6da7' : '#e5e7eb') + ';background:' + (on ? '#eff6ff' : '#f9fafb') + ';color:' + (on ? '#1d4ed8' : '#6b7280') + ';">' + (on ? '✓ ' : '') + era + '</span>';
+  }).join('');
+}
+
+function _toggleEraChip(mode, era) {
+  var hiddenEra = document.getElementById(mode + 'SongEra');
+  if (!hiddenEra) return;
+  var eras = (hiddenEra.value || '').split(',').map(function(v){return v.trim();}).filter(Boolean);
+  var idx = eras.indexOf(era);
+  if (idx >= 0) eras.splice(idx, 1);
+  else eras.push(era);
+  hiddenEra.value = eras.join(', ');
+
+  // Update display
+  var disp = document.getElementById(mode + 'SongStyleDisplay');
+  var hiddenCat = document.getElementById(mode + 'SongCategory');
+  var base = hiddenCat && hiddenCat.value ? hiddenCat.value : 'Contemporary';
+  if (disp) disp.textContent = eras.length ? base + ': ' + eras.slice(0,2).join(', ') + (eras.length > 2 ? ' +' + (eras.length-2) + ' more' : '') : base;
+
+  _renderSongEraChips(mode);
+  populateSongStyleDropdown(mode); // keep dropdown in sync if open
+}
+
+function initSongStyleDropdown(mode, styleVal, eraVal) {
+  var hiddenCat = document.getElementById(mode + 'SongCategory');
+  if (hiddenCat) hiddenCat.value = styleVal || '';
+  var hiddenEra = document.getElementById(mode + 'SongEra');
+  if (hiddenEra) hiddenEra.value = eraVal || '';
+  var disp = document.getElementById(mode + 'SongStyleDisplay');
+  var eras = (eraVal || '').split(',').map(function(v){return v.trim();}).filter(Boolean);
+  if (disp) {
+    if (!styleVal) { disp.textContent = 'Select style...'; }
+    else if (eras.length) { disp.textContent = styleVal + ': ' + eras.slice(0,2).join(', ') + (eras.length > 2 ? ' +' + (eras.length-2) + ' more' : ''); }
+    else { disp.textContent = styleVal; }
+  }
+  var eraRow = document.getElementById(mode + 'SongEraRow');
+  if (eraRow) eraRow.style.display = (styleVal === 'Contemporary' || styleVal === 'Contemporary Hymn') ? '' : 'none';
+  if (styleVal === 'Contemporary' || styleVal === 'Contemporary Hymn') _renderSongEraChips(mode);
+}
 
 // ============================================================
 // BIBLE PASSAGE PICKER — for Scripture filter
@@ -7252,11 +7456,20 @@ var BIBLE_BOOKS = {
     '1 John','2 John','3 John','Jude','Revelation']
 };
 
-var _bpState = { tab: 'OT', book: '', chapter: '', verseFrom: '', verseTo: '', search: '' };
+// mode: 'filter' (song filter), 'new' (add song modal), 'edit' (edit song modal)
+var _bpState = { tab: 'OT', book: '', chapter: '', verseFrom: '', verseTo: '', search: '', mode: 'filter' };
 
-function openBiblePickerModal() {
+function openBiblePickerModal(mode) {
   if (document.getElementById('biblePickerModal')) return;
-  _bpState = { tab: 'OT', book: '', chapter: '', verseFrom: '', verseTo: '', search: '' };
+  var m = mode || 'filter';
+  _bpState = { tab: 'OT', book: '', chapter: '', verseFrom: '', verseTo: '', search: '', mode: m };
+  // Pre-populate with existing passages for song modals
+  if (m === 'new' || m === 'edit') {
+    var hidden = document.getElementById(m + 'SongScripture');
+    _bpState._passages = hidden && hidden.value
+      ? hidden.value.split(';').map(function(v){return v.trim();}).filter(Boolean)
+      : [];
+  }
   var modal = document.createElement('div');
   modal.id = 'biblePickerModal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:4000;display:flex;align-items:center;justify-content:center;padding:16px;';
@@ -7302,8 +7515,13 @@ function _renderBiblePickerHtml() {
     }
   }
 
-  // Currently selected passages
-  var curPassages = (window.LHC_STATE && window.LHC_STATE.filters.scriptures) || [];
+  // Currently selected passages — depends on mode
+  var curPassages;
+  if (sel.mode === 'new' || sel.mode === 'edit') {
+    curPassages = Array.isArray(_bpState._passages) ? _bpState._passages : [];
+  } else {
+    curPassages = (window.LHC_STATE && window.LHC_STATE.filters.scriptures) || [];
+  }
   var chipsHtml = curPassages.map(function(p, i) {
     return '<span style="display:inline-flex;align-items:center;gap:4px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:2px 10px;font-size:0.75rem;font-weight:600;">' +
       p + '<button onclick="bpRemovePassage(' + i + ')" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:0.85rem;padding:0 0 0 2px;line-height:1;">×</button></span>';
@@ -7388,30 +7606,83 @@ function bpAddPassage() {
     passage += ':' + _bpState.verseFrom;
     if (_bpState.verseTo && _bpState.verseTo !== _bpState.verseFrom) passage += '–' + _bpState.verseTo;
   }
-  if (!window.LHC_STATE) return;
-  if (!Array.isArray(window.LHC_STATE.filters.scriptures)) window.LHC_STATE.filters.scriptures = [];
-  if (window.LHC_STATE.filters.scriptures.indexOf(passage) < 0) {
-    window.LHC_STATE.filters.scriptures.push(passage);
+  var mode = _bpState.mode || 'filter';
+  if (mode === 'new' || mode === 'edit') {
+    if (!Array.isArray(_bpState._passages)) _bpState._passages = [];
+    if (_bpState._passages.indexOf(passage) < 0) _bpState._passages.push(passage);
+    _updateSongScriptureDisplay(mode);
+  } else {
+    if (!window.LHC_STATE) return;
+    if (!Array.isArray(window.LHC_STATE.filters.scriptures)) window.LHC_STATE.filters.scriptures = [];
+    if (window.LHC_STATE.filters.scriptures.indexOf(passage) < 0) window.LHC_STATE.filters.scriptures.push(passage);
+    _updateScriptureDisplay();
+    window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
   }
   _bpState.book = ''; _bpState.chapter = ''; _bpState.verseFrom = ''; _bpState.verseTo = '';
-  _updateScriptureDisplay();
-  window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
   _bpRerender();
 }
 
 function bpRemovePassage(idx) {
-  if (!window.LHC_STATE || !Array.isArray(window.LHC_STATE.filters.scriptures)) return;
-  window.LHC_STATE.filters.scriptures.splice(idx, 1);
-  _updateScriptureDisplay();
-  window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
+  var mode = _bpState.mode || 'filter';
+  if (mode === 'new' || mode === 'edit') {
+    if (Array.isArray(_bpState._passages)) _bpState._passages.splice(idx, 1);
+    _updateSongScriptureDisplay(mode);
+  } else {
+    if (!window.LHC_STATE || !Array.isArray(window.LHC_STATE.filters.scriptures)) return;
+    window.LHC_STATE.filters.scriptures.splice(idx, 1);
+    _updateScriptureDisplay();
+    window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
+  }
   _bpRerender();
 }
 
 function bpClearAll() {
-  if (window.LHC_STATE) window.LHC_STATE.filters.scriptures = [];
-  _updateScriptureDisplay();
-  window.LHC_STATE && window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
+  var mode = _bpState.mode || 'filter';
+  if (mode === 'new' || mode === 'edit') {
+    _bpState._passages = [];
+    _updateSongScriptureDisplay(mode);
+  } else {
+    if (window.LHC_STATE) window.LHC_STATE.filters.scriptures = [];
+    _updateScriptureDisplay();
+    window.LHC_STATE && window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
+  }
   _bpRerender();
+}
+
+// Update song modal scripture chips + hidden field from _bpState._passages
+function _updateSongScriptureDisplay(mode) {
+  var passages = Array.isArray(_bpState._passages) ? _bpState._passages : [];
+  // Persist to hidden field (semicolon-separated)
+  var hidden = document.getElementById(mode + 'SongScripture');
+  if (hidden) hidden.value = passages.join('; ');
+  // Render chips
+  var chipsEl = document.getElementById(mode + 'SongScriptureChips');
+  if (chipsEl) {
+    chipsEl.innerHTML = passages.map(function(p, i) {
+      return '<span style="display:inline-flex;align-items:center;gap:3px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:2px 9px;font-size:0.73rem;font-weight:600;">' +
+        escapeHtml(p) +
+        '<button type="button" onclick="bpRemoveSongPassage(\'' + mode + '\',' + i + ')" style="background:none;border:none;color:#93c5fd;cursor:pointer;font-size:0.85rem;padding:0 0 0 3px;line-height:1;" title="Remove">×</button></span>';
+    }).join('');
+  }
+}
+
+// Remove passage chip directly from song modal (without bible picker open)
+function bpRemoveSongPassage(mode, idx) {
+  var hidden = document.getElementById(mode + 'SongScripture');
+  if (!hidden) return;
+  var passages = (hidden.value || '').split(';').map(function(v){return v.trim();}).filter(Boolean);
+  passages.splice(idx, 1);
+  hidden.value = passages.join('; ');
+  // Sync _bpState if picker is open for same mode
+  if (_bpState.mode === mode) _bpState._passages = passages;
+  var chipsEl = document.getElementById(mode + 'SongScriptureChips');
+  if (chipsEl) {
+    chipsEl.innerHTML = passages.map(function(p, i) {
+      return '<span style="display:inline-flex;align-items:center;gap:3px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:2px 9px;font-size:0.73rem;font-weight:600;">' +
+        escapeHtml(p) +
+        '<button type="button" onclick="bpRemoveSongPassage(\'' + mode + '\',' + i + ')" style="background:none;border:none;color:#93c5fd;cursor:pointer;font-size:0.85rem;padding:0 0 0 3px;line-height:1;" title="Remove">×</button></span>';
+    }).join('');
+  }
 }
 
 function _updateScriptureDisplay() {
@@ -12410,20 +12681,45 @@ window.loadEditSongData = function(song) {
     $('editSongId').value = song.id;
     $('editSongTitle').value = song.title || '';
     $('editSongArtist').value = song.artist || '';
-    $('editSongCategory').value = song.style || song.category || '';
     $('editSongKey').value = song.key || '';
     $('editSongTempo').value = song.tempo || '';
     $('editSongTheme').value = song.theme || '';
+
+    // Season multi-select
     if (typeof setSeasonSelection === 'function') setSeasonSelection('edit', song.season || '');
     else $('editSongSeason').value = song.season || '';
-    if (typeof setScriptureValue === 'function') setScriptureValue('edit', song.scripture || '');
-    else if ($('editSongScripture')) $('editSongScripture').value = song.scripture || '';
-    
-    // Load data into new modal structure
+
+    // Style / Era custom dropdown
+    var styleVal = song.style || song.category || '';
+    var eraVal   = song.era   || '';
+    if (typeof initSongStyleDropdown === 'function') {
+      initSongStyleDropdown('edit', styleVal, eraVal);
+    } else {
+      $('editSongCategory').value = styleVal;
+    }
+
+    // Scripture — restore chips from hidden field
+    var scriptureVal = song.scripture || '';
+    var editHidden = $('editSongScripture');
+    if (editHidden) editHidden.value = scriptureVal;
+    // Sync _bpState._passages so picker has context next time it opens
+    _bpState._passages = scriptureVal
+      ? scriptureVal.split(';').map(function(v){return v.trim();}).filter(Boolean)
+      : [];
+    // Render chips immediately
+    if (typeof _updateSongScriptureDisplay === 'function') {
+      // Temporarily set mode so helper writes to right chips element
+      var prevMode = _bpState.mode;
+      _bpState.mode = 'edit';
+      _updateSongScriptureDisplay('edit');
+      _bpState.mode = prevMode;
+    }
+
+    // Load data into new modal structure (YouTube, attachments, lyrics)
     if (typeof window.loadEditSongData === 'function') {
       window.loadEditSongData(song);
     }
-    
+
     openModal('editSongModal');
   }
 
@@ -12449,6 +12745,7 @@ window.loadEditSongData = function(song) {
       title: title,
       artist: $('editSongArtist').value || '',
       category: $('editSongCategory').value || '',
+      era: ($('editSongEra') ? $('editSongEra').value : '') || '',
       key: $('editSongKey').value || '',
       tempo: $('editSongTempo').value || '',
       theme: $('editSongTheme').value || '',
@@ -13417,6 +13714,7 @@ window.loadEditSongData = function(song) {
       title: title,
       artist: $('newSongArtist').value || '',
       category: $('newSongCategory').value || '',
+      era: ($('newSongEra') ? $('newSongEra').value : '') || '',
       key: $('newSongKey').value || '',
       tempo: $('newSongTempo').value || '',
       theme: $('newSongTheme').value || '',
@@ -13436,8 +13734,12 @@ window.loadEditSongData = function(song) {
       
       // Clear form and reset song data
       ['newSongTitle', 'newSongArtist', 'newSongCategory', 'newSongKey', 'newSongTempo',
-       'newSongTheme']
+       'newSongTheme', 'newSongEra', 'newSongScripture']
         .forEach(function(id) { var el = $(id); if (el) el.value = ''; });
+      // Reset style dropdown display
+      if (typeof initSongStyleDropdown === 'function') initSongStyleDropdown('new', '', '');
+      // Clear scripture chips
+      var schips = $('newSongScriptureChips'); if (schips) schips.innerHTML = '';
       
       if (typeof window.resetNewSongData === 'function') {
         window.resetNewSongData();
@@ -14567,7 +14869,14 @@ window.loadEditSongData = function(song) {
       var el = $(id); if (el) el.onchange = function(e) { var k = id.replace('filter','').toLowerCase(); if (k === 'sortby') STATE.filters.sort = e.target.value; else STATE.filters[k] = e.target.value; renderSongs(true); };
     });
 
-    var ab = $('openAddSongBtn'); if (ab) ab.onclick = function() { openModal('addSongModal'); };
+    var ab = $('openAddSongBtn'); if (ab) ab.onclick = function() {
+      openModal('addSongModal');
+      // Initialize the style dropdown for fresh state
+      if (typeof initSongStyleDropdown === 'function') initSongStyleDropdown('new', '', '');
+      // Clear scripture chips in case modal was used before
+      var schips = $('newSongScriptureChips'); if (schips) schips.innerHTML = '';
+      var shid = $('newSongScripture'); if (shid) shid.value = '';
+    };
     var snb = $('saveNewSongBtn'); if (snb) snb.onclick = saveNewSong;
     var seb = $('saveEditSongBtn'); if (seb) seb.onclick = saveEditSong;
     var db = $('deleteSongBtn'); if (db) db.onclick = deleteSong;
@@ -33692,6 +34001,9 @@ var WO = (function() {
     var m = document.getElementById('addSongModal');
     if (!m) return;
     openModal('addSongModal');
+    if (typeof initSongStyleDropdown === 'function') initSongStyleDropdown('new', '', '');
+    var schips = document.getElementById('newSongScriptureChips'); if (schips) schips.innerHTML = '';
+    var shid = document.getElementById('newSongScripture'); if (shid) shid.value = '';
   }
 
   function displaySongs(songs) {
