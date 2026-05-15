@@ -2530,6 +2530,12 @@
 
       /* ---- MODALS GENERAL ---- */
       .modal-content, .lhc-modal-content { width: 95% !important; max-width: 100% !important; margin: 10px auto; padding: 14px; border-radius: 12px; }
+      /* Add/Edit Song modal overrides — full-screen bottom sheet (asm-content media query handles it) */
+      #addSongModal .asm-content, #editSongModal .asm-content {
+        width: 100% !important; max-width: 100% !important;
+        margin: 0 !important; padding: 0 !important;
+        border-radius: 20px 20px 0 0 !important;
+      }
 
       /* Toast */
       #lhcToast { font-size: 0.75rem; max-width: 90vw; }
@@ -5545,233 +5551,337 @@
   .theme-add-new { padding: 10px 14px; border-top: 1px solid #e2e8f0; display: flex; gap: 8px; }
   .theme-add-new input { flex: 1; padding: 6px 10px; }
 
+  /* =========================================================
+     ADD / EDIT SONG MODAL — Responsive Section-Card Layout
+     ========================================================= */
+  .asm-content {
+    width: min(880px, 95%);
+    max-height: 95vh;
+    overflow-y: auto;
+    padding: 22px 24px 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .asm-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #eef0f6;
+    flex-shrink: 0;
+  }
+  .asm-scroll { flex: 1; overflow: visible; }
+  .asm-body { display: flex; flex-direction: column; gap: 12px; padding: 16px 0 4px; }
+  .asm-section {
+    background: linear-gradient(135deg, #f7f8fc 0%, #f2f4fb 100%);
+    border: 1px solid #e4e7f2;
+    border-radius: 14px;
+    padding: 14px 16px 16px;
+  }
+  .asm-section-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #4a6da7;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e4e7f2;
+  }
+  .asm-section-title i { font-size: 0.85rem; opacity: .85; }
+  .asm-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .asm-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .asm-dual  { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .asm-footer {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 0 20px;
+    border-top: 1px solid #eef0f6;
+    margin-top: 4px;
+  }
+  .asm-footer.has-delete { justify-content: space-between; }
+  /* Field spacing inside sections */
+  .asm-field { margin-bottom: 10px; }
+  .asm-field:last-child { margin-bottom: 0; }
+
+  /* ---- Mobile: full-screen bottom sheet ---- */
+  @media (max-width: 767px) {
+    #addSongModal, #editSongModal { padding: 0 !important; align-items: flex-end; }
+    #addSongModal .asm-content, #editSongModal .asm-content {
+      width: 100% !important; max-width: 100% !important;
+      max-height: 97dvh; height: 97dvh;
+      border-radius: 20px 20px 0 0 !important;
+      padding: 0 !important;
+      overflow: hidden;
+    }
+    .asm-header {
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid #eef0f6;
+      background: #fff;
+    }
+    .asm-scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1; padding: 0 14px 8px; }
+    .asm-body { padding: 12px 0 100px; }
+    .asm-footer {
+      position: sticky; bottom: 0;
+      background: #fff;
+      padding: 10px 16px 16px;
+      margin-top: 0;
+      border-top: 1px solid #eef0f6;
+      box-shadow: 0 -4px 20px rgba(0,0,0,.09);
+    }
+    /* Stack all grids to single column */
+    .asm-grid-2, .asm-grid-3, .asm-dual { grid-template-columns: 1fr !important; }
+    /* Prevent iOS zoom — must be exactly 16px */
+    .asm-content input:not([type=checkbox]):not([type=hidden]),
+    .asm-content select,
+    .asm-content textarea { font-size: 16px !important; }
+    /* Bigger touch targets */
+    .asm-content .form-input,
+    .asm-content select.form-input { min-height: 46px; }
+    .asm-content .lhc-pill-button { min-height: 42px; padding: 8px 14px; font-size: 0.82rem; }
+    .asm-content .lhc-pill-button i { display: inline !important; margin-right: 5px !important; }
+    .asm-content .roster-action-btn { min-height: 44px; font-size: 0.85rem; padding: 10px 18px; }
+  }
+
 </style>
 
   <!-- ==================== MODAL: ADD SONG ==================== -->
   <div id="addSongModal" class="modal-overlay" style="z-index:10005;">
-    <div class="modal-content" style="width: min(900px, 95%); max-height: 95vh; overflow-y: auto; padding: 20px;">
-      <div class="flex items-center justify-between gap-4 mb-4">
-        <h3 class="font-cinzel text-xl font-bold text-slate-800">
-          <i class="fa-solid fa-music mr-2 text-indigo-500"></i> Add New Song
+    <div class="modal-content asm-content">
+
+      <!-- Header -->
+      <div class="asm-header">
+        <h3 class="font-cinzel text-xl font-bold text-slate-800" style="display:flex;align-items:center;gap:8px;">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;background:linear-gradient(135deg,#6366f1,#818cf8);border-radius:10px;flex-shrink:0;">
+            <i class="fa-solid fa-music" style="color:#fff;font-size:0.9rem;"></i>
+          </span>
+          Add New Song
         </h3>
-        <button id="closeAddSongBtn" class="lhc-pill-button" title="Close">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
+        <button id="closeAddSongBtn" class="lhc-pill-button" title="Close" style="flex-shrink:0;"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label class="form-label" for="newSongTitle">Title *</label>
-          <input id="newSongTitle" class="form-input" placeholder="Song title (required)">
-        </div>
-        <div>
-          <label class="form-label" for="newSongArtist">Artist</label>
-          <input id="newSongArtist" class="form-input" placeholder="Artist / Composer">
-        </div>
-        <div>
-          <label class="form-label">Style / Category</label>
-          <div class="theme-multiselect" style="position:relative;">
-            <div id="newSongStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleSongStyleDropdown('new')" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select style...</div>
-            <div id="newSongStyleDropdown" class="theme-dropdown hidden" style="z-index:500;min-width:240px;padding:6px 0;"></div>
-          </div>
-          <input type="hidden" id="newSongCategory" value="">
-          <!-- Era/decade — shown below when Contemporary selected -->
-          <div id="newSongEraRow" style="display:none;margin-top:6px;">
-            <label class="form-label" style="font-size:0.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;">Era / Decade</label>
-            <div id="newSongEraDropdown" style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 0;"></div>
-            <input type="hidden" id="newSongEra" value="">
-          </div>
-        </div>
-        <div>
-          <label class="form-label" for="newSongKey">Key</label>
-          <select id="newSongKey" class="form-input">
-            <option value="">Select key...</option>
-            <optgroup label="Major Keys">
-              <option value="C">C Major</option>
-              <option value="C#">C# / Db Major</option>
-              <option value="D">D Major</option>
-              <option value="D#">D# / Eb Major</option>
-              <option value="E">E Major</option>
-              <option value="F">F Major</option>
-              <option value="F#">F# / Gb Major</option>
-              <option value="G">G Major</option>
-              <option value="G#">G# / Ab Major</option>
-              <option value="A">A Major</option>
-              <option value="A#">A# / Bb Major</option>
-              <option value="B">B Major</option>
-            </optgroup>
-            <optgroup label="Minor Keys">
-              <option value="Am">A minor</option>
-              <option value="A#m">A# / Bbm minor</option>
-              <option value="Bm">B minor</option>
-              <option value="Cm">C minor</option>
-              <option value="C#m">C# / Dbm minor</option>
-              <option value="Dm">D minor</option>
-              <option value="D#m">D# / Ebm minor</option>
-              <option value="Em">E minor</option>
-              <option value="Fm">F minor</option>
-              <option value="F#m">F# / Gbm minor</option>
-              <option value="Gm">G minor</option>
-              <option value="G#m">G# / Abm minor</option>
-            </optgroup>
-          </select>
-        </div>
-        <div>
-          <label class="form-label" for="newSongTempo">Tempo / Feel</label>
-          <select id="newSongTempo" class="form-input">
-            <option value="">Select tempo...</option>
-            <option value="Slow">Slow</option>
-            <option value="Moderate">Moderate</option>
-            <option value="Fast">Fast</option>
-            <option value="Ballad">Ballad</option>
-            <option value="Upbeat">Upbeat</option>
-            <option value="Meditative">Meditative</option>
-            <option value="Celebratory">Celebratory</option>
-          </select>
-        </div>
-        <div class="dropdown-with-add">
-          <label class="form-label" for="newSongTheme">Theme(s)</label>
-          <div class="theme-multiselect" id="newSongThemeContainer">
-            <button type="button" class="form-input text-left flex items-center justify-between" onclick="toggleThemeDropdown('new')" id="newSongThemeBtn">
-              <span id="newSongThemeDisplay">Select themes...</span>
-              <i class="fa-solid fa-chevron-down text-slate-400"></i>
-            </button>
-            <div id="newSongThemeDropdown" class="theme-dropdown hidden">
-              <div class="theme-option"><label><input type="checkbox" value="Praise" onchange="updateThemeSelection('new')"> Praise</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Worship" onchange="updateThemeSelection('new')"> Worship</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Grace" onchange="updateThemeSelection('new')"> Grace</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Hope" onchange="updateThemeSelection('new')"> Hope</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Love" onchange="updateThemeSelection('new')"> Love</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Faith" onchange="updateThemeSelection('new')"> Faith</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Peace" onchange="updateThemeSelection('new')"> Peace</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Joy" onchange="updateThemeSelection('new')"> Joy</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Thanksgiving" onchange="updateThemeSelection('new')"> Thanksgiving</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Repentance" onchange="updateThemeSelection('new')"> Repentance</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Healing" onchange="updateThemeSelection('new')"> Healing</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Comfort" onchange="updateThemeSelection('new')"> Comfort</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Commitment" onchange="updateThemeSelection('new')"> Commitment</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Salvation" onchange="updateThemeSelection('new')"> Salvation</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Servanthood" onchange="updateThemeSelection('new')"> Servanthood</label></div>
-              <div class="theme-add-new">
-                <input type="text" id="newThemeInput" placeholder="Add new theme..." class="form-input text-sm">
-                <button type="button" onclick="addCustomTheme('new')" class="lhc-pill-button text-xs">Add</button>
+      <!-- Scrollable body -->
+      <div class="asm-scroll">
+        <div class="asm-body">
+
+          <!-- § Basic Info -->
+          <div class="asm-section">
+            <div class="asm-section-title"><i class="fa-solid fa-tag"></i> Basic Info</div>
+            <div class="asm-grid-2">
+              <div>
+                <label class="form-label" for="newSongTitle">Title <span style="color:#ef4444;">*</span></label>
+                <input id="newSongTitle" class="form-input" placeholder="Song title (required)" autocomplete="off">
+              </div>
+              <div>
+                <label class="form-label" for="newSongArtist">Artist / Composer</label>
+                <input id="newSongArtist" class="form-input" placeholder="Artist or composer name" autocomplete="off">
               </div>
             </div>
           </div>
-          <input type="hidden" id="newSongTheme" value="">
-        </div>
-        <!-- Liturgical Season + Scripture Reference — side by side -->
-        <div class="md:col-span-1">
-          <label class="form-label">Liturgical Season</label>
-          <div class="theme-multiselect" id="newSongSeasonContainer" style="position:relative;">
-            <button type="button" class="form-input text-left flex items-center justify-between w-full" onclick="toggleSeasonDropdown('new')" id="newSongSeasonBtn">
-              <span id="newSongSeasonDisplay" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.875rem;">Select season...</span>
-              <i class="fa-solid fa-chevron-down text-slate-400 ml-1" style="flex-shrink:0;"></i>
-            </button>
-            <div id="newSongSeasonDropdown" class="theme-dropdown hidden" style="z-index:400;">
-              <div class="theme-option"><label><input type="checkbox" value="All Seasons" onchange="updateSeasonSelection('new')"> All Seasons</label></div>
-              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Advent</div>
-              <div class="theme-option"><label><input type="checkbox" value="Advent 1st Sunday" onchange="updateSeasonSelection('new')"> Advent 1st Sunday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Advent 2nd Sunday" onchange="updateSeasonSelection('new')"> Advent 2nd Sunday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Advent 3rd Sunday" onchange="updateSeasonSelection('new')"> Advent 3rd Sunday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Advent 4th Sunday" onchange="updateSeasonSelection('new')"> Advent 4th Sunday</label></div>
-              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Christmas &amp; Epiphany</div>
-              <div class="theme-option"><label><input type="checkbox" value="Christmas" onchange="updateSeasonSelection('new')"> Christmas</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Epiphany" onchange="updateSeasonSelection('new')"> Epiphany</label></div>
-              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Lent &amp; Holy Week</div>
-              <div class="theme-option"><label><input type="checkbox" value="Lent" onchange="updateSeasonSelection('new')"> Lent</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Maundy Thursday" onchange="updateSeasonSelection('new')"> Maundy Thursday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Good Friday" onchange="updateSeasonSelection('new')"> Good Friday</label></div>
-              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Easter &amp; Beyond</div>
-              <div class="theme-option"><label><input type="checkbox" value="Easter" onchange="updateSeasonSelection('new')"> Easter</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Pentecost" onchange="updateSeasonSelection('new')"> Pentecost</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Holy Trinity Sunday" onchange="updateSeasonSelection('new')"> Holy Trinity Sunday</label></div>
-              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Special Sundays</div>
-              <div class="theme-option"><label><input type="checkbox" value="Reformation Sunday" onchange="updateSeasonSelection('new')"> Reformation Sunday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Christ the King Sunday" onchange="updateSeasonSelection('new')"> Christ the King Sunday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Ordinary Sunday" onchange="updateSeasonSelection('new')"> Ordinary Sunday</label></div>
-            </div>
-          </div>
-          <input type="hidden" id="newSongSeason" value="">
-        </div>
 
-        <!-- Scripture Reference — Bible picker -->
-        <div class="md:col-span-2">
-          <label class="form-label"><i class="fa-solid fa-book-open mr-1"></i> Scripture Reference</label>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <button type="button" onclick="openBiblePickerModal('new')" class="lhc-pill-button" style="font-size:0.8rem;flex-shrink:0;">
-              <i class="fa-solid fa-book-open mr-1"></i> Pick Passage(s)
-            </button>
-            <div id="newSongScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-height:28px;"></div>
-          </div>
-          <input type="hidden" id="newSongScripture" value="">
-        </div>
+          <!-- § Musical + Liturgical — two cards side by side on desktop -->
+          <div class="asm-dual">
 
-        <!-- Media Links + Attachments — equal 50/50 -->
-        <div class="md:col-span-3" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div>
-            <label class="form-label">Media Links (YouTube, Spotify, Audio)</label>
-            <div class="flex gap-2">
-              <input id="newSongYoutubeInput" class="form-input flex-1" placeholder="Paste YouTube, Spotify, or audio URL...">
-              <button type="button" class="lhc-pill-button" onclick="addYoutubeLink('new')" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;">
-                <i class="fa-brands fa-youtube"></i> Add
-              </button>
+            <!-- Musical card -->
+            <div class="asm-section">
+              <div class="asm-section-title"><i class="fa-solid fa-guitar"></i> Musical</div>
+
+              <div class="asm-field">
+                <label class="form-label">Style / Category</label>
+                <div class="theme-multiselect" style="position:relative;">
+                  <div id="newSongStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleSongStyleDropdown('new')" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select style...</div>
+                  <div id="newSongStyleDropdown" class="theme-dropdown hidden" style="z-index:600;min-width:240px;padding:6px 0;"></div>
+                </div>
+                <input type="hidden" id="newSongCategory" value="">
+                <div id="newSongEraRow" style="display:none;margin-top:8px;">
+                  <label class="form-label" style="font-size:0.68rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Era / Decade</label>
+                  <div id="newSongEraDropdown" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+                  <input type="hidden" id="newSongEra" value="">
+                </div>
+              </div>
+
+              <div class="asm-grid-2 asm-field">
+                <div>
+                  <label class="form-label" for="newSongKey">Key</label>
+                  <select id="newSongKey" class="form-input">
+                    <option value="">Key...</option>
+                    <optgroup label="Major Keys">
+                      <option value="C">C Major</option><option value="C#">C# / Db</option>
+                      <option value="D">D Major</option><option value="D#">D# / Eb</option>
+                      <option value="E">E Major</option><option value="F">F Major</option>
+                      <option value="F#">F# / Gb</option><option value="G">G Major</option>
+                      <option value="G#">G# / Ab</option><option value="A">A Major</option>
+                      <option value="A#">A# / Bb</option><option value="B">B Major</option>
+                    </optgroup>
+                    <optgroup label="Minor Keys">
+                      <option value="Am">A minor</option><option value="A#m">A# / Bbm</option>
+                      <option value="Bm">B minor</option><option value="Cm">C minor</option>
+                      <option value="C#m">C# / Dbm</option><option value="Dm">D minor</option>
+                      <option value="D#m">D# / Ebm</option><option value="Em">E minor</option>
+                      <option value="Fm">F minor</option><option value="F#m">F# / Gbm</option>
+                      <option value="Gm">G minor</option><option value="G#m">G# / Abm</option>
+                    </optgroup>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="newSongTempo">Tempo / Feel</label>
+                  <select id="newSongTempo" class="form-input">
+                    <option value="">Tempo...</option>
+                    <option value="Slow">Slow</option><option value="Moderate">Moderate</option>
+                    <option value="Fast">Fast</option><option value="Ballad">Ballad</option>
+                    <option value="Upbeat">Upbeat</option><option value="Meditative">Meditative</option>
+                    <option value="Celebratory">Celebratory</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="asm-field dropdown-with-add">
+                <label class="form-label" for="newSongTheme">Theme(s)</label>
+                <div class="theme-multiselect" id="newSongThemeContainer">
+                  <button type="button" class="form-input text-left flex items-center justify-between" onclick="toggleThemeDropdown('new')" id="newSongThemeBtn">
+                    <span id="newSongThemeDisplay">Select themes...</span>
+                    <i class="fa-solid fa-chevron-down text-slate-400"></i>
+                  </button>
+                  <div id="newSongThemeDropdown" class="theme-dropdown hidden">
+                    <div class="theme-option"><label><input type="checkbox" value="Praise" onchange="updateThemeSelection('new')"> Praise</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Worship" onchange="updateThemeSelection('new')"> Worship</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Grace" onchange="updateThemeSelection('new')"> Grace</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Hope" onchange="updateThemeSelection('new')"> Hope</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Love" onchange="updateThemeSelection('new')"> Love</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Faith" onchange="updateThemeSelection('new')"> Faith</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Peace" onchange="updateThemeSelection('new')"> Peace</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Joy" onchange="updateThemeSelection('new')"> Joy</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Thanksgiving" onchange="updateThemeSelection('new')"> Thanksgiving</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Repentance" onchange="updateThemeSelection('new')"> Repentance</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Healing" onchange="updateThemeSelection('new')"> Healing</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Comfort" onchange="updateThemeSelection('new')"> Comfort</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Commitment" onchange="updateThemeSelection('new')"> Commitment</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Salvation" onchange="updateThemeSelection('new')"> Salvation</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Servanthood" onchange="updateThemeSelection('new')"> Servanthood</label></div>
+                    <div class="theme-add-new">
+                      <input type="text" id="newThemeInput" placeholder="Add new theme..." class="form-input text-sm">
+                      <button type="button" onclick="addCustomTheme('new')" class="lhc-pill-button text-xs">Add</button>
+                    </div>
+                  </div>
+                </div>
+                <input type="hidden" id="newSongTheme" value="">
+              </div>
+            </div><!-- end Musical -->
+
+            <!-- Liturgical card -->
+            <div class="asm-section">
+              <div class="asm-section-title"><i class="fa-solid fa-church"></i> Liturgical Context</div>
+
+              <div class="asm-field">
+                <label class="form-label">Liturgical Season</label>
+                <div class="theme-multiselect" id="newSongSeasonContainer" style="position:relative;">
+                  <button type="button" class="form-input text-left flex items-center justify-between w-full" onclick="toggleSeasonDropdown('new')" id="newSongSeasonBtn">
+                    <span id="newSongSeasonDisplay" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.875rem;">Select season...</span>
+                    <i class="fa-solid fa-chevron-down text-slate-400 ml-1" style="flex-shrink:0;"></i>
+                  </button>
+                  <div id="newSongSeasonDropdown" class="theme-dropdown hidden" style="z-index:400;">
+                    <div class="theme-option"><label><input type="checkbox" value="All Seasons" onchange="updateSeasonSelection('new')"> All Seasons</label></div>
+                    <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Advent</div>
+                    <div class="theme-option"><label><input type="checkbox" value="Advent 1st Sunday" onchange="updateSeasonSelection('new')"> Advent 1st Sunday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Advent 2nd Sunday" onchange="updateSeasonSelection('new')"> Advent 2nd Sunday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Advent 3rd Sunday" onchange="updateSeasonSelection('new')"> Advent 3rd Sunday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Advent 4th Sunday" onchange="updateSeasonSelection('new')"> Advent 4th Sunday</label></div>
+                    <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Christmas &amp; Epiphany</div>
+                    <div class="theme-option"><label><input type="checkbox" value="Christmas" onchange="updateSeasonSelection('new')"> Christmas</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Epiphany" onchange="updateSeasonSelection('new')"> Epiphany</label></div>
+                    <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Lent &amp; Holy Week</div>
+                    <div class="theme-option"><label><input type="checkbox" value="Lent" onchange="updateSeasonSelection('new')"> Lent</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Maundy Thursday" onchange="updateSeasonSelection('new')"> Maundy Thursday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Good Friday" onchange="updateSeasonSelection('new')"> Good Friday</label></div>
+                    <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Easter &amp; Beyond</div>
+                    <div class="theme-option"><label><input type="checkbox" value="Easter" onchange="updateSeasonSelection('new')"> Easter</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Pentecost" onchange="updateSeasonSelection('new')"> Pentecost</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Holy Trinity Sunday" onchange="updateSeasonSelection('new')"> Holy Trinity Sunday</label></div>
+                    <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Special Sundays</div>
+                    <div class="theme-option"><label><input type="checkbox" value="Reformation Sunday" onchange="updateSeasonSelection('new')"> Reformation Sunday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Christ the King Sunday" onchange="updateSeasonSelection('new')"> Christ the King Sunday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Ordinary Sunday" onchange="updateSeasonSelection('new')"> Ordinary Sunday</label></div>
+                  </div>
+                </div>
+                <input type="hidden" id="newSongSeason" value="">
+              </div>
+
+              <div class="asm-field">
+                <label class="form-label"><i class="fa-solid fa-book-open mr-1" style="color:#4a6da7;"></i> Scripture Reference</label>
+                <button type="button" onclick="openBiblePickerModal('new')" class="lhc-pill-button" style="width:100%;justify-content:center;font-size:0.82rem;margin-bottom:8px;background:linear-gradient(135deg,#eff6ff,#e0ecff);border-color:#bfdbfe;color:#1d4ed8;">
+                  <i class="fa-solid fa-book-open mr-2"></i> Pick Passage(s)
+                </button>
+                <div id="newSongScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;min-height:22px;"></div>
+                <input type="hidden" id="newSongScripture" value="">
+              </div>
+            </div><!-- end Liturgical -->
+
+          </div><!-- end asm-dual -->
+
+          <!-- § Media & Attachments -->
+          <div class="asm-section">
+            <div class="asm-section-title"><i class="fa-solid fa-photo-film"></i> Media &amp; Attachments</div>
+            <div class="asm-grid-2">
+              <div>
+                <label class="form-label"><i class="fa-brands fa-youtube mr-1" style="color:#dc2626;"></i> Media Links</label>
+                <div class="flex gap-2">
+                  <input id="newSongYoutubeInput" class="form-input flex-1" placeholder="YouTube, Spotify or audio URL…" autocomplete="off">
+                  <button type="button" class="lhc-pill-button" onclick="addYoutubeLink('new')" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;flex-shrink:0;">
+                    <i class="fa-solid fa-plus"></i> Add
+                  </button>
+                </div>
+                <div id="newSongYoutubeList" class="link-list"></div>
+              </div>
+              <div>
+                <label class="form-label"><i class="fa-solid fa-paperclip mr-1" style="color:#0369a1;"></i> Docs &amp; Links</label>
+                <div class="flex gap-2">
+                  <input id="newSongDocUrl" class="form-input flex-1" placeholder="Paste doc URL or web link…" autocomplete="off">
+                  <button type="button" class="lhc-pill-button" onclick="addAttachment('new')" style="background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;flex-shrink:0;">
+                    <i class="fa-solid fa-plus"></i> Add
+                  </button>
+                </div>
+                <div id="newSongAttachments" class="link-list"></div>
+              </div>
             </div>
-            <div id="newSongYoutubeList" class="link-list"></div>
           </div>
-          <div>
-            <label class="form-label">Attachments &amp; Web Links (Docs, Images, URLs)</label>
-            <div class="flex gap-2">
-              <input id="newSongDocUrl" class="form-input flex-1" placeholder="Paste URL or multiple URLs (one per line)...">
-              <button type="button" class="lhc-pill-button" onclick="addAttachment('new')" style="background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;">
-                <i class="fa-solid fa-plus"></i> Add
-              </button>
+
+          <!-- § Lyrics / Chords -->
+          <div class="asm-section">
+            <div class="asm-section-title"><i class="fa-solid fa-file-lines"></i> Lyrics / Chords</div>
+            <button type="button" class="lyrics-edit-trigger" onclick="openLyricsEditor('new')">
+              <i class="fa-solid fa-pen-to-square"></i><span>Open Lyrics Editor</span>
+            </button>
+            <div id="newSongLyricsSummary" class="lyrics-summary hidden">
+              <i class="fa-solid fa-check-circle"></i>
+              <span id="newSongLyricsInfo">Lyrics saved</span>
             </div>
-            <div id="newSongAttachments" class="link-list"></div>
+            <input type="hidden" id="newSongLyricsData" value="">
+            <div class="preview-section" style="margin-top:10px;">
+              <div class="preview-buttons">
+                <button type="button" class="preview-btn" onclick="showSongPreview('new','lyrics')"><i class="fa-solid fa-file-lines"></i> Lyrics Only</button>
+                <button type="button" class="preview-btn" onclick="showSongPreview('new','chords')"><i class="fa-solid fa-guitar"></i> + Chords</button>
+                <button type="button" class="preview-btn" onclick="showSongPreview('new','docs')"><i class="fa-solid fa-paperclip"></i> Attachments</button>
+              </div>
+              <div id="newSongPreviewContent" class="preview-content hidden"></div>
+            </div>
           </div>
-        </div>
-        
-        <!-- Lyrics Section - Button to Open Editor -->
-        <div class="md:col-span-3">
-          <label class="form-label">Lyrics / Chords</label>
-          <button type="button" class="lyrics-edit-trigger" onclick="openLyricsEditor('new')">
-            <i class="fa-solid fa-pen-to-square"></i>
-            <span>Open Lyrics Editor</span>
-          </button>
-          <div id="newSongLyricsSummary" class="lyrics-summary hidden">
-            <i class="fa-solid fa-check-circle"></i>
-            <span id="newSongLyricsInfo">Lyrics saved</span>
-          </div>
-          <!-- Hidden field to store lyrics data -->
-          <input type="hidden" id="newSongLyricsData" value="">
-        </div>
-        
-        <!-- Preview Section -->
-        <div class="md:col-span-3 preview-section">
-          <h4><i class="fa-solid fa-eye mr-2"></i> Preview</h4>
-          <div class="preview-buttons">
-            <button type="button" class="preview-btn" onclick="showSongPreview('new', 'lyrics')">
-              <i class="fa-solid fa-file-lines"></i> Lyrics Only
-            </button>
-            <button type="button" class="preview-btn" onclick="showSongPreview('new', 'chords')">
-              <i class="fa-solid fa-guitar"></i> Lyrics + Chords
-            </button>
-            <button type="button" class="preview-btn" onclick="showSongPreview('new', 'docs')">
-              <i class="fa-solid fa-paperclip"></i> Attachments
-            </button>
-          </div>
-          <div id="newSongPreviewContent" class="preview-content hidden"></div>
-        </div>
+
+        </div><!-- end asm-body -->
+      </div><!-- end asm-scroll -->
+
+      <!-- Footer -->
+      <div class="asm-footer">
+        <button id="cancelAddSongBtn" class="lhc-pill-button"><i class="fa-solid fa-xmark mr-1"></i> Cancel</button>
+        <button id="saveNewSongBtn" class="roster-action-btn primary"><i class="fa-solid fa-floppy-disk mr-1"></i> Save Song</button>
       </div>
 
-      <div class="flex justify-end gap-3 mt-5 pt-4 border-t border-slate-200">
-        <button id="cancelAddSongBtn" class="lhc-pill-button">
-          <i class="fa-solid fa-xmark mr-1"></i> Cancel
-        </button>
-        <button id="saveNewSongBtn" class="roster-action-btn primary">
-          <i class="fa-solid fa-floppy-disk mr-1"></i> Save Song
-        </button>
-      </div>
     </div>
   </div>
 
@@ -5790,234 +5900,241 @@
 
   <!-- ==================== MODAL: EDIT SONG ==================== -->
   <div id="editSongModal" class="modal-overlay">
-    <div class="modal-content" style="width: min(900px, 95%); max-height: 95vh; overflow-y: auto; padding: 20px;">
-      <div class="flex items-center justify-between gap-4 mb-4">
-        <h3 class="font-cinzel text-xl font-bold text-slate-800">
-          <i class="fa-solid fa-pen-to-square mr-2 text-amber-500"></i> Edit Song
+    <div class="modal-content asm-content">
+
+      <!-- Header -->
+      <div class="asm-header">
+        <h3 class="font-cinzel text-xl font-bold text-slate-800" style="display:flex;align-items:center;gap:8px;">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;background:linear-gradient(135deg,#f59e0b,#fbbf24);border-radius:10px;flex-shrink:0;">
+            <i class="fa-solid fa-pen-to-square" style="color:#fff;font-size:0.9rem;"></i>
+          </span>
+          Edit Song
         </h3>
-        <button id="closeEditSongBtn" class="lhc-pill-button" title="Close">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
+        <button id="closeEditSongBtn" class="lhc-pill-button" title="Close" style="flex-shrink:0;"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
       <input type="hidden" id="editSongId">
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label class="form-label" for="editSongTitle">Title *</label>
-          <input id="editSongTitle" class="form-input" placeholder="Song title (required)">
-        </div>
-        <div>
-          <label class="form-label" for="editSongArtist">Artist</label>
-          <input id="editSongArtist" class="form-input" placeholder="Artist / Composer">
-        </div>
-        <div>
-          <label class="form-label">Style / Category</label>
-          <div class="theme-multiselect" style="position:relative;">
-            <div id="editSongStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleSongStyleDropdown('edit')" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select style...</div>
-            <div id="editSongStyleDropdown" class="theme-dropdown hidden" style="z-index:500;min-width:240px;padding:6px 0;"></div>
-          </div>
-          <input type="hidden" id="editSongCategory" value="">
-          <div id="editSongEraRow" style="display:none;margin-top:6px;">
-            <label class="form-label" style="font-size:0.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;">Era / Decade</label>
-            <div id="editSongEraDropdown" style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 0;"></div>
-            <input type="hidden" id="editSongEra" value="">
-          </div>
-        </div>
-        <div>
-          <label class="form-label" for="editSongKey">Key</label>
-          <select id="editSongKey" class="form-input">
-            <option value="">Select key...</option>
-            <optgroup label="Major Keys">
-              <option value="C">C Major</option>
-              <option value="C#">C# / Db Major</option>
-              <option value="D">D Major</option>
-              <option value="D#">D# / Eb Major</option>
-              <option value="E">E Major</option>
-              <option value="F">F Major</option>
-              <option value="F#">F# / Gb Major</option>
-              <option value="G">G Major</option>
-              <option value="G#">G# / Ab Major</option>
-              <option value="A">A Major</option>
-              <option value="A#">A# / Bb Major</option>
-              <option value="B">B Major</option>
-            </optgroup>
-            <optgroup label="Minor Keys">
-              <option value="Am">A minor</option>
-              <option value="A#m">A# / Bbm minor</option>
-              <option value="Bm">B minor</option>
-              <option value="Cm">C minor</option>
-              <option value="C#m">C# / Dbm minor</option>
-              <option value="Dm">D minor</option>
-              <option value="D#m">D# / Ebm minor</option>
-              <option value="Em">E minor</option>
-              <option value="Fm">F minor</option>
-              <option value="F#m">F# / Gbm minor</option>
-              <option value="Gm">G minor</option>
-              <option value="G#m">G# / Abm minor</option>
-            </optgroup>
-          </select>
-        </div>
-        <div>
-          <label class="form-label" for="editSongTempo">Tempo / Feel</label>
-          <select id="editSongTempo" class="form-input">
-            <option value="">Select tempo...</option>
-            <option value="Slow">Slow</option>
-            <option value="Moderate">Moderate</option>
-            <option value="Fast">Fast</option>
-            <option value="Ballad">Ballad</option>
-            <option value="Upbeat">Upbeat</option>
-            <option value="Meditative">Meditative</option>
-            <option value="Celebratory">Celebratory</option>
-          </select>
-        </div>
-        <div class="dropdown-with-add">
-          <label class="form-label" for="editSongTheme">Theme(s)</label>
-          <div class="theme-multiselect" id="editSongThemeContainer">
-            <button type="button" class="form-input text-left flex items-center justify-between" onclick="toggleThemeDropdown('edit')" id="editSongThemeBtn">
-              <span id="editSongThemeDisplay">Select themes...</span>
-              <i class="fa-solid fa-chevron-down text-slate-400"></i>
-            </button>
-            <div id="editSongThemeDropdown" class="theme-dropdown hidden">
-              <div class="theme-option"><label><input type="checkbox" value="Praise" onchange="updateThemeSelection('edit')"> Praise</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Worship" onchange="updateThemeSelection('edit')"> Worship</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Grace" onchange="updateThemeSelection('edit')"> Grace</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Hope" onchange="updateThemeSelection('edit')"> Hope</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Love" onchange="updateThemeSelection('edit')"> Love</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Faith" onchange="updateThemeSelection('edit')"> Faith</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Peace" onchange="updateThemeSelection('edit')"> Peace</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Joy" onchange="updateThemeSelection('edit')"> Joy</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Thanksgiving" onchange="updateThemeSelection('edit')"> Thanksgiving</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Repentance" onchange="updateThemeSelection('edit')"> Repentance</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Healing" onchange="updateThemeSelection('edit')"> Healing</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Comfort" onchange="updateThemeSelection('edit')"> Comfort</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Commitment" onchange="updateThemeSelection('edit')"> Commitment</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Salvation" onchange="updateThemeSelection('edit')"> Salvation</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Servanthood" onchange="updateThemeSelection('edit')"> Servanthood</label></div>
-              <div class="theme-add-new">
-                <input type="text" id="editThemeInput" placeholder="Add new theme..." class="form-input text-sm">
-                <button type="button" onclick="addCustomTheme('edit')" class="lhc-pill-button text-xs">Add</button>
+      <!-- Scrollable body -->
+      <div class="asm-scroll">
+        <div class="asm-body">
+
+          <!-- § Basic Info -->
+          <div class="asm-section">
+            <div class="asm-section-title"><i class="fa-solid fa-tag"></i> Basic Info</div>
+            <div class="asm-grid-2">
+              <div>
+                <label class="form-label" for="editSongTitle">Title <span style="color:#ef4444;">*</span></label>
+                <input id="editSongTitle" class="form-input" placeholder="Song title (required)" autocomplete="off">
+              </div>
+              <div>
+                <label class="form-label" for="editSongArtist">Artist / Composer</label>
+                <input id="editSongArtist" class="form-input" placeholder="Artist or composer name" autocomplete="off">
               </div>
             </div>
           </div>
-          <input type="hidden" id="editSongTheme" value="">
-        </div>
-        <!-- Liturgical Season + Scripture Reference — side by side -->
-        <div class="md:col-span-1">
-          <label class="form-label">Liturgical Season</label>
-          <div class="theme-multiselect" id="editSongSeasonContainer" style="position:relative;">
-            <button type="button" class="form-input text-left flex items-center justify-between w-full" onclick="toggleSeasonDropdown('edit')" id="editSongSeasonBtn">
-              <span id="editSongSeasonDisplay" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.875rem;">Select season...</span>
-              <i class="fa-solid fa-chevron-down text-slate-400 ml-1" style="flex-shrink:0;"></i>
-            </button>
-            <div id="editSongSeasonDropdown" class="theme-dropdown hidden" style="z-index:400;">
-              <div class="theme-option"><label><input type="checkbox" value="All Seasons" onchange="updateSeasonSelection('edit')"> All Seasons</label></div>
-              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Advent</div>
-              <div class="theme-option"><label><input type="checkbox" value="Advent 1st Sunday" onchange="updateSeasonSelection('edit')"> Advent 1st Sunday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Advent 2nd Sunday" onchange="updateSeasonSelection('edit')"> Advent 2nd Sunday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Advent 3rd Sunday" onchange="updateSeasonSelection('edit')"> Advent 3rd Sunday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Advent 4th Sunday" onchange="updateSeasonSelection('edit')"> Advent 4th Sunday</label></div>
-              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Christmas &amp; Epiphany</div>
-              <div class="theme-option"><label><input type="checkbox" value="Christmas" onchange="updateSeasonSelection('edit')"> Christmas</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Epiphany" onchange="updateSeasonSelection('edit')"> Epiphany</label></div>
-              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Lent &amp; Holy Week</div>
-              <div class="theme-option"><label><input type="checkbox" value="Lent" onchange="updateSeasonSelection('edit')"> Lent</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Maundy Thursday" onchange="updateSeasonSelection('edit')"> Maundy Thursday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Good Friday" onchange="updateSeasonSelection('edit')"> Good Friday</label></div>
-              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Easter &amp; Beyond</div>
-              <div class="theme-option"><label><input type="checkbox" value="Easter" onchange="updateSeasonSelection('edit')"> Easter</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Pentecost" onchange="updateSeasonSelection('edit')"> Pentecost</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Holy Trinity Sunday" onchange="updateSeasonSelection('edit')"> Holy Trinity Sunday</label></div>
-              <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Special Sundays</div>
-              <div class="theme-option"><label><input type="checkbox" value="Reformation Sunday" onchange="updateSeasonSelection('edit')"> Reformation Sunday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Christ the King Sunday" onchange="updateSeasonSelection('edit')"> Christ the King Sunday</label></div>
-              <div class="theme-option"><label><input type="checkbox" value="Ordinary Sunday" onchange="updateSeasonSelection('edit')"> Ordinary Sunday</label></div>
+
+          <!-- § Musical + Liturgical -->
+          <div class="asm-dual">
+
+            <!-- Musical card -->
+            <div class="asm-section">
+              <div class="asm-section-title"><i class="fa-solid fa-guitar"></i> Musical</div>
+
+              <div class="asm-field">
+                <label class="form-label">Style / Category</label>
+                <div class="theme-multiselect" style="position:relative;">
+                  <div id="editSongStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleSongStyleDropdown('edit')" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select style...</div>
+                  <div id="editSongStyleDropdown" class="theme-dropdown hidden" style="z-index:600;min-width:240px;padding:6px 0;"></div>
+                </div>
+                <input type="hidden" id="editSongCategory" value="">
+                <div id="editSongEraRow" style="display:none;margin-top:8px;">
+                  <label class="form-label" style="font-size:0.68rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Era / Decade</label>
+                  <div id="editSongEraDropdown" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+                  <input type="hidden" id="editSongEra" value="">
+                </div>
+              </div>
+
+              <div class="asm-grid-2 asm-field">
+                <div>
+                  <label class="form-label" for="editSongKey">Key</label>
+                  <select id="editSongKey" class="form-input">
+                    <option value="">Key...</option>
+                    <optgroup label="Major Keys">
+                      <option value="C">C Major</option><option value="C#">C# / Db</option>
+                      <option value="D">D Major</option><option value="D#">D# / Eb</option>
+                      <option value="E">E Major</option><option value="F">F Major</option>
+                      <option value="F#">F# / Gb</option><option value="G">G Major</option>
+                      <option value="G#">G# / Ab</option><option value="A">A Major</option>
+                      <option value="A#">A# / Bb</option><option value="B">B Major</option>
+                    </optgroup>
+                    <optgroup label="Minor Keys">
+                      <option value="Am">A minor</option><option value="A#m">A# / Bbm</option>
+                      <option value="Bm">B minor</option><option value="Cm">C minor</option>
+                      <option value="C#m">C# / Dbm</option><option value="Dm">D minor</option>
+                      <option value="D#m">D# / Ebm</option><option value="Em">E minor</option>
+                      <option value="Fm">F minor</option><option value="F#m">F# / Gbm</option>
+                      <option value="Gm">G minor</option><option value="G#m">G# / Abm</option>
+                    </optgroup>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="editSongTempo">Tempo / Feel</label>
+                  <select id="editSongTempo" class="form-input">
+                    <option value="">Tempo...</option>
+                    <option value="Slow">Slow</option><option value="Moderate">Moderate</option>
+                    <option value="Fast">Fast</option><option value="Ballad">Ballad</option>
+                    <option value="Upbeat">Upbeat</option><option value="Meditative">Meditative</option>
+                    <option value="Celebratory">Celebratory</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="asm-field dropdown-with-add">
+                <label class="form-label" for="editSongTheme">Theme(s)</label>
+                <div class="theme-multiselect" id="editSongThemeContainer">
+                  <button type="button" class="form-input text-left flex items-center justify-between" onclick="toggleThemeDropdown('edit')" id="editSongThemeBtn">
+                    <span id="editSongThemeDisplay">Select themes...</span>
+                    <i class="fa-solid fa-chevron-down text-slate-400"></i>
+                  </button>
+                  <div id="editSongThemeDropdown" class="theme-dropdown hidden">
+                    <div class="theme-option"><label><input type="checkbox" value="Praise" onchange="updateThemeSelection('edit')"> Praise</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Worship" onchange="updateThemeSelection('edit')"> Worship</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Grace" onchange="updateThemeSelection('edit')"> Grace</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Hope" onchange="updateThemeSelection('edit')"> Hope</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Love" onchange="updateThemeSelection('edit')"> Love</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Faith" onchange="updateThemeSelection('edit')"> Faith</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Peace" onchange="updateThemeSelection('edit')"> Peace</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Joy" onchange="updateThemeSelection('edit')"> Joy</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Thanksgiving" onchange="updateThemeSelection('edit')"> Thanksgiving</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Repentance" onchange="updateThemeSelection('edit')"> Repentance</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Healing" onchange="updateThemeSelection('edit')"> Healing</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Comfort" onchange="updateThemeSelection('edit')"> Comfort</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Commitment" onchange="updateThemeSelection('edit')"> Commitment</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Salvation" onchange="updateThemeSelection('edit')"> Salvation</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Servanthood" onchange="updateThemeSelection('edit')"> Servanthood</label></div>
+                    <div class="theme-add-new">
+                      <input type="text" id="editThemeInput" placeholder="Add new theme..." class="form-input text-sm">
+                      <button type="button" onclick="addCustomTheme('edit')" class="lhc-pill-button text-xs">Add</button>
+                    </div>
+                  </div>
+                </div>
+                <input type="hidden" id="editSongTheme" value="">
+              </div>
+            </div><!-- end Musical -->
+
+            <!-- Liturgical card -->
+            <div class="asm-section">
+              <div class="asm-section-title"><i class="fa-solid fa-church"></i> Liturgical Context</div>
+
+              <div class="asm-field">
+                <label class="form-label">Liturgical Season</label>
+                <div class="theme-multiselect" id="editSongSeasonContainer" style="position:relative;">
+                  <button type="button" class="form-input text-left flex items-center justify-between w-full" onclick="toggleSeasonDropdown('edit')" id="editSongSeasonBtn">
+                    <span id="editSongSeasonDisplay" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.875rem;">Select season...</span>
+                    <i class="fa-solid fa-chevron-down text-slate-400 ml-1" style="flex-shrink:0;"></i>
+                  </button>
+                  <div id="editSongSeasonDropdown" class="theme-dropdown hidden" style="z-index:400;">
+                    <div class="theme-option"><label><input type="checkbox" value="All Seasons" onchange="updateSeasonSelection('edit')"> All Seasons</label></div>
+                    <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Advent</div>
+                    <div class="theme-option"><label><input type="checkbox" value="Advent 1st Sunday" onchange="updateSeasonSelection('edit')"> Advent 1st Sunday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Advent 2nd Sunday" onchange="updateSeasonSelection('edit')"> Advent 2nd Sunday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Advent 3rd Sunday" onchange="updateSeasonSelection('edit')"> Advent 3rd Sunday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Advent 4th Sunday" onchange="updateSeasonSelection('edit')"> Advent 4th Sunday</label></div>
+                    <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Christmas &amp; Epiphany</div>
+                    <div class="theme-option"><label><input type="checkbox" value="Christmas" onchange="updateSeasonSelection('edit')"> Christmas</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Epiphany" onchange="updateSeasonSelection('edit')"> Epiphany</label></div>
+                    <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Lent &amp; Holy Week</div>
+                    <div class="theme-option"><label><input type="checkbox" value="Lent" onchange="updateSeasonSelection('edit')"> Lent</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Maundy Thursday" onchange="updateSeasonSelection('edit')"> Maundy Thursday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Good Friday" onchange="updateSeasonSelection('edit')"> Good Friday</label></div>
+                    <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Easter &amp; Beyond</div>
+                    <div class="theme-option"><label><input type="checkbox" value="Easter" onchange="updateSeasonSelection('edit')"> Easter</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Pentecost" onchange="updateSeasonSelection('edit')"> Pentecost</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Holy Trinity Sunday" onchange="updateSeasonSelection('edit')"> Holy Trinity Sunday</label></div>
+                    <div style="padding:4px 10px;font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;border-top:1px solid #f3f4f6;margin-top:2px;">Special Sundays</div>
+                    <div class="theme-option"><label><input type="checkbox" value="Reformation Sunday" onchange="updateSeasonSelection('edit')"> Reformation Sunday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Christ the King Sunday" onchange="updateSeasonSelection('edit')"> Christ the King Sunday</label></div>
+                    <div class="theme-option"><label><input type="checkbox" value="Ordinary Sunday" onchange="updateSeasonSelection('edit')"> Ordinary Sunday</label></div>
+                  </div>
+                </div>
+                <input type="hidden" id="editSongSeason" value="">
+              </div>
+
+              <div class="asm-field">
+                <label class="form-label"><i class="fa-solid fa-book-open mr-1" style="color:#4a6da7;"></i> Scripture Reference</label>
+                <button type="button" onclick="openBiblePickerModal('edit')" class="lhc-pill-button" style="width:100%;justify-content:center;font-size:0.82rem;margin-bottom:8px;background:linear-gradient(135deg,#eff6ff,#e0ecff);border-color:#bfdbfe;color:#1d4ed8;">
+                  <i class="fa-solid fa-book-open mr-2"></i> Pick Passage(s)
+                </button>
+                <div id="editSongScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;min-height:22px;"></div>
+                <input type="hidden" id="editSongScripture" value="">
+              </div>
+            </div><!-- end Liturgical -->
+
+          </div><!-- end asm-dual -->
+
+          <!-- § Media & Attachments -->
+          <div class="asm-section">
+            <div class="asm-section-title"><i class="fa-solid fa-photo-film"></i> Media &amp; Attachments</div>
+            <div class="asm-grid-2">
+              <div>
+                <label class="form-label"><i class="fa-brands fa-youtube mr-1" style="color:#dc2626;"></i> Media Links</label>
+                <div class="flex gap-2">
+                  <input id="editSongYoutubeInput" class="form-input flex-1" placeholder="YouTube, Spotify or audio URL…" autocomplete="off">
+                  <button type="button" class="lhc-pill-button" onclick="addYoutubeLink('edit')" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;flex-shrink:0;">
+                    <i class="fa-solid fa-plus"></i> Add
+                  </button>
+                </div>
+                <div id="editSongYoutubeList" class="link-list"></div>
+              </div>
+              <div>
+                <label class="form-label"><i class="fa-solid fa-paperclip mr-1" style="color:#0369a1;"></i> Docs &amp; Links</label>
+                <div class="flex gap-2">
+                  <input id="editSongDocUrl" class="form-input flex-1" placeholder="Paste doc URL or web link…" autocomplete="off">
+                  <button type="button" class="lhc-pill-button" onclick="addAttachment('edit')" style="background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;flex-shrink:0;">
+                    <i class="fa-solid fa-plus"></i> Add
+                  </button>
+                </div>
+                <div id="editSongAttachments" class="link-list"></div>
+              </div>
             </div>
           </div>
-          <input type="hidden" id="editSongSeason" value="">
-        </div>
 
-        <!-- Scripture Reference — Bible picker -->
-        <div class="md:col-span-2">
-          <label class="form-label"><i class="fa-solid fa-book-open mr-1"></i> Scripture Reference</label>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <button type="button" onclick="openBiblePickerModal('edit')" class="lhc-pill-button" style="font-size:0.8rem;flex-shrink:0;">
-              <i class="fa-solid fa-book-open mr-1"></i> Pick Passage(s)
+          <!-- § Lyrics / Chords -->
+          <div class="asm-section">
+            <div class="asm-section-title"><i class="fa-solid fa-file-lines"></i> Lyrics / Chords</div>
+            <button type="button" class="lyrics-edit-trigger" onclick="openLyricsEditor('edit')">
+              <i class="fa-solid fa-pen-to-square"></i><span>Open Lyrics Editor</span>
             </button>
-            <div id="editSongScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-height:28px;"></div>
-          </div>
-          <input type="hidden" id="editSongScripture" value="">
-        </div>
-
-        <!-- Media Links + Attachments — equal 50/50 -->
-        <div class="md:col-span-3" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div>
-            <label class="form-label">Media Links (YouTube, Spotify, Audio)</label>
-            <div class="flex gap-2">
-              <input id="editSongYoutubeInput" class="form-input flex-1" placeholder="Paste YouTube, Spotify, or audio URL...">
-              <button type="button" class="lhc-pill-button" onclick="addYoutubeLink('edit')" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;">
-                <i class="fa-brands fa-youtube"></i> Add
-              </button>
+            <div id="editSongLyricsSummary" class="lyrics-summary hidden">
+              <i class="fa-solid fa-check-circle"></i>
+              <span id="editSongLyricsInfo">Lyrics saved</span>
             </div>
-            <div id="editSongYoutubeList" class="link-list"></div>
-          </div>
-          <div>
-            <label class="form-label">Attachments &amp; Web Links (Docs, Images, URLs)</label>
-            <div class="flex gap-2">
-              <input id="editSongDocUrl" class="form-input flex-1" placeholder="Paste URL or multiple URLs (one per line)...">
-              <button type="button" class="lhc-pill-button" onclick="addAttachment('edit')" style="background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;">
-                <i class="fa-solid fa-plus"></i> Add
-              </button>
+            <input type="hidden" id="editSongLyricsData" value="">
+            <div class="preview-section" style="margin-top:10px;">
+              <div class="preview-buttons">
+                <button type="button" class="preview-btn" onclick="showSongPreview('edit','lyrics')"><i class="fa-solid fa-file-lines"></i> Lyrics Only</button>
+                <button type="button" class="preview-btn" onclick="showSongPreview('edit','chords')"><i class="fa-solid fa-guitar"></i> + Chords</button>
+                <button type="button" class="preview-btn" onclick="showSongPreview('edit','docs')"><i class="fa-solid fa-paperclip"></i> Attachments</button>
+              </div>
+              <div id="editSongPreviewContent" class="preview-content hidden"></div>
             </div>
-            <div id="editSongAttachments" class="link-list"></div>
           </div>
-        </div>
-        
-        <!-- Lyrics Section -->
-        <div class="md:col-span-3">
-          <label class="form-label">Lyrics / Chords</label>
-          <button type="button" class="lyrics-edit-trigger" onclick="openLyricsEditor('edit')">
-            <i class="fa-solid fa-pen-to-square"></i>
-            <span>Open Lyrics Editor</span>
-          </button>
-          <div id="editSongLyricsSummary" class="lyrics-summary hidden">
-            <i class="fa-solid fa-check-circle"></i>
-            <span id="editSongLyricsInfo">Lyrics saved</span>
-          </div>
-          <input type="hidden" id="editSongLyricsData" value="">
-        </div>
-        
-        <!-- Preview Section -->
-        <div class="md:col-span-3 preview-section">
-          <h4><i class="fa-solid fa-eye mr-2"></i> Preview</h4>
-          <div class="preview-buttons">
-            <button type="button" class="preview-btn" onclick="showSongPreview('edit', 'lyrics')">
-              <i class="fa-solid fa-file-lines"></i> Lyrics Only
-            </button>
-            <button type="button" class="preview-btn" onclick="showSongPreview('edit', 'chords')">
-              <i class="fa-solid fa-guitar"></i> Lyrics + Chords
-            </button>
-            <button type="button" class="preview-btn" onclick="showSongPreview('edit', 'docs')">
-              <i class="fa-solid fa-paperclip"></i> Attachments
-            </button>
-          </div>
-          <div id="editSongPreviewContent" class="preview-content hidden"></div>
-        </div>
-      </div>
 
-      <div class="flex justify-between gap-3 mt-5 pt-4 border-t border-slate-200">
-        <button id="deleteSongBtn" class="roster-action-btn danger">
-          <i class="fa-solid fa-trash mr-1"></i> Delete Song
+        </div><!-- end asm-body -->
+      </div><!-- end asm-scroll -->
+
+      <!-- Footer — delete on left, save/cancel on right -->
+      <div class="asm-footer has-delete">
+        <button id="deleteSongBtn" class="roster-action-btn danger" style="display:flex;align-items:center;gap:6px;">
+          <i class="fa-solid fa-trash"></i> Delete
         </button>
-        <div class="flex gap-3">
-          <button id="cancelEditSongBtn" class="lhc-pill-button">
-            <i class="fa-solid fa-xmark mr-1"></i> Cancel
-          </button>
-          <button id="saveEditSongBtn" class="roster-action-btn primary">
-            <i class="fa-solid fa-floppy-disk mr-1"></i> Save Changes
-          </button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button id="cancelEditSongBtn" class="lhc-pill-button"><i class="fa-solid fa-xmark mr-1"></i> Cancel</button>
+          <button id="saveEditSongBtn" class="roster-action-btn primary"><i class="fa-solid fa-floppy-disk mr-1"></i> Save Changes</button>
         </div>
       </div>
+
     </div>
   </div>
 
