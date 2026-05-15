@@ -3378,13 +3378,13 @@
         
         <!-- Stats Tabs -->
         <div class="flex gap-1 mb-3 flex-wrap">
-          <button class="stat-tab-btn active text-[0.65rem] px-2 py-1 rounded-lg" data-stat="frequent">
-            🔥 Most Used
+          <button class="stat-tab-btn active text-[0.65rem] px-2 py-1 rounded-lg" data-stat="frequent" title="Top 20 songs most used across all orders">
+            🔥 Trending
           </button>
-          <button class="stat-tab-btn text-[0.65rem] px-2 py-1 rounded-lg" data-stat="recent">
+          <button class="stat-tab-btn text-[0.65rem] px-2 py-1 rounded-lg" data-stat="recent" title="Top 20 songs most recently used in orders">
             🕐 Recent
           </button>
-          <button class="stat-tab-btn text-[0.65rem] px-2 py-1 rounded-lg" data-stat="newest">
+          <button class="stat-tab-btn text-[0.65rem] px-2 py-1 rounded-lg" data-stat="newest" title="Latest 25 songs added to the library">
             ✨ New
           </button>
         </div>
@@ -3835,10 +3835,13 @@
               </div>
             </div>
             <div>
-              <label class="form-label" for="filterStyle">Style</label>
-              <select id="filterStyle" class="form-input form-select text-sm py-2">
-                <option value="">All Styles</option>
-              </select>
+              <label class="form-label">Style</label>
+              <div class="theme-multiselect" style="position:relative;">
+                <div id="filterStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterStyleDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Styles</div>
+                <div id="filterStyleDropdown" class="theme-dropdown hidden" style="z-index:300;min-width:240px;padding:8px 0;">
+                  <!-- populated by populateStyleFilterDropdown() -->
+                </div>
+              </div>
             </div>
             <div>
               <label class="form-label" for="filterTempo">Feel/Tempo</label>
@@ -3857,9 +3860,10 @@
             </div>
             <div>
               <label class="form-label">Scripture</label>
-              <div class="theme-multiselect" style="position:relative;">
-                <div id="filterScriptureDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterScriptureDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Scripture</div>
-                <div id="filterScriptureDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:200px;max-height:220px;overflow-y:auto;"></div>
+              <div id="filterScriptureWrap" style="position:relative;">
+                <div id="filterScriptureDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="openBiblePickerModal()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Scripture</div>
+                <!-- Selected passage chips shown below -->
+                <div id="filterScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;"></div>
               </div>
             </div>
             <div>
@@ -7143,6 +7147,287 @@ function populateScriptureFilterDropdown(refs) {
   dd.innerHTML = _buildMultiSelectHtml(refs, selected, 'All Scripture', 'filter-scripture-cb');
 }
 
+// ============================================================
+// STYLE FILTER — Hymn / Contemporary custom dropdown
+// ============================================================
+function toggleFilterStyleDropdown() {
+  var dd = document.getElementById('filterStyleDropdown');
+  if (!dd) return;
+  dd.classList.toggle('hidden');
+}
+
+function populateStyleFilterDropdown() {
+  var dd = document.getElementById('filterStyleDropdown');
+  if (!dd) return;
+  var f = window.LHC_STATE && window.LHC_STATE.filters;
+  var curStyle = f ? f.style : '';
+  var curEras  = (f && f.styleEras) ? f.styleEras : [];
+
+  var ERAS = ['Pre-1900s','1950s–60s','1970s','1980s','1990s','2000s','2010s','2020s'];
+
+  var html = '';
+  // "All Styles" option
+  html += '<div class="sf-style-row' + (!curStyle ? ' sf-style-active' : '') + '" onclick="setStyleFilter(\'\')" style="padding:7px 14px;cursor:pointer;font-size:0.82rem;font-weight:' + (!curStyle ? '700' : '500') + ';color:' + (!curStyle ? '#4a6da7' : '#374151') + ';">' +
+    (!curStyle ? '✓ ' : '') + 'All Styles</div>';
+
+  // Traditional Hymn
+  html += '<div class="sf-style-row' + (curStyle === 'traditional-hymn' ? ' sf-style-active' : '') + '" onclick="setStyleFilter(\'traditional-hymn\')" style="padding:7px 14px;cursor:pointer;font-size:0.82rem;font-weight:' + (curStyle === 'traditional-hymn' ? '700' : '500') + ';color:' + (curStyle === 'traditional-hymn' ? '#4a6da7' : '#374151') + ';border-top:1px solid #f3f4f6;">' +
+    (curStyle === 'traditional-hymn' ? '✓ ' : '') + '⛪ Traditional Hymn</div>';
+
+  // Contemporary header (clickable to set base filter)
+  var isContemp = curStyle === 'contemporary' || curStyle === 'contemporary-hymn';
+  html += '<div style="border-top:1px solid #f3f4f6;padding:7px 14px 4px;font-size:0.75rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;cursor:default;">🎸 Contemporary</div>';
+
+  html += '<div class="sf-style-row' + (curStyle === 'contemporary' ? ' sf-style-active' : '') + '" onclick="setStyleFilter(\'contemporary\')" style="padding:5px 14px 5px 22px;cursor:pointer;font-size:0.82rem;font-weight:' + (curStyle === 'contemporary' ? '700' : '500') + ';color:' + (curStyle === 'contemporary' ? '#4a6da7' : '#374151') + ';">' +
+    (curStyle === 'contemporary' ? '✓ ' : '') + 'Contemporary</div>';
+
+  html += '<div class="sf-style-row' + (curStyle === 'contemporary-hymn' ? ' sf-style-active' : '') + '" onclick="setStyleFilter(\'contemporary-hymn\')" style="padding:5px 14px 5px 22px;cursor:pointer;font-size:0.82rem;font-weight:' + (curStyle === 'contemporary-hymn' ? '700' : '500') + ';color:' + (curStyle === 'contemporary-hymn' ? '#7c3aed' : '#374151') + ';">' +
+    (curStyle === 'contemporary-hymn' ? '✓ ' : '') + '🎵 Contemporary Hymn <span style="font-size:0.68rem;color:#9ca3af;font-weight:400;">(hymn-based)</span></div>';
+
+  // Era sub-filter — only shown when Contemporary or Contemporary Hymn selected
+  if (curStyle === 'contemporary' || curStyle === 'contemporary-hymn') {
+    html += '<div style="padding:6px 14px 4px 22px;font-size:0.72rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em;">Era / Decade <span style="font-size:0.68rem;font-weight:400;">(optional, multi)</span></div>';
+    ERAS.forEach(function(era) {
+      var checked = curEras.indexOf(era) >= 0;
+      html += '<label style="display:flex;align-items:center;gap:7px;padding:4px 14px 4px 26px;cursor:pointer;font-size:0.8rem;color:' + (checked ? '#4a6da7' : '#374151') + ';font-weight:' + (checked ? '600' : '400') + ';">' +
+        '<input type="checkbox" value="' + era + '" ' + (checked ? 'checked' : '') + ' onchange="toggleStyleEra(this)" style="accent-color:#4a6da7;">' +
+        era + '</label>';
+    });
+  }
+
+  dd.innerHTML = html;
+}
+
+function setStyleFilter(val) {
+  if (!window.LHC_STATE) return;
+  window.LHC_STATE.filters.style = val;
+  if (val !== 'contemporary' && val !== 'contemporary-hymn') {
+    window.LHC_STATE.filters.styleEras = []; // clear era when not contemporary
+  }
+  var disp = document.getElementById('filterStyleDisplay');
+  if (disp) {
+    var labels = { '': 'All Styles', 'traditional-hymn': 'Traditional Hymn', 'contemporary': 'Contemporary', 'contemporary-hymn': 'Contemporary Hymn' };
+    disp.textContent = labels[val] || 'All Styles';
+  }
+  populateStyleFilterDropdown(); // re-render to show/hide era sub-options
+  window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
+}
+
+function toggleStyleEra(cb) {
+  if (!window.LHC_STATE) return;
+  var f = window.LHC_STATE.filters;
+  if (!Array.isArray(f.styleEras)) f.styleEras = [];
+  if (cb.checked) { if (f.styleEras.indexOf(cb.value) < 0) f.styleEras.push(cb.value); }
+  else { f.styleEras = f.styleEras.filter(function(e) { return e !== cb.value; }); }
+  // Update display label
+  var disp = document.getElementById('filterStyleDisplay');
+  if (disp) {
+    var base = f.style === 'contemporary-hymn' ? 'Contemporary Hymn' : 'Contemporary';
+    disp.textContent = f.styleEras.length ? base + ': ' + f.styleEras.slice(0,2).join(', ') + (f.styleEras.length > 2 ? ' +' + (f.styleEras.length-2) + ' more' : '') : base;
+  }
+  window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
+}
+
+// Close style dropdown when clicking outside
+document.addEventListener('click', function(e) {
+  var dd = document.getElementById('filterStyleDropdown');
+  var btn = document.getElementById('filterStyleDisplay');
+  if (dd && !dd.contains(e.target) && btn && !btn.contains(e.target)) {
+    dd.classList.add('hidden');
+  }
+});
+
+// ============================================================
+// BIBLE PASSAGE PICKER — for Scripture filter
+// ============================================================
+var BIBLE_BOOKS = {
+  OT: ['Genesis','Exodus','Leviticus','Numbers','Deuteronomy','Joshua','Judges','Ruth',
+    '1 Samuel','2 Samuel','1 Kings','2 Kings','1 Chronicles','2 Chronicles','Ezra','Nehemiah',
+    'Esther','Job','Psalms','Proverbs','Ecclesiastes','Song of Solomon','Isaiah','Jeremiah',
+    'Lamentations','Ezekiel','Daniel','Hosea','Joel','Amos','Obadiah','Jonah','Micah',
+    'Nahum','Habakkuk','Zephaniah','Haggai','Zechariah','Malachi'],
+  NT: ['Matthew','Mark','Luke','John','Acts','Romans','1 Corinthians','2 Corinthians',
+    'Galatians','Ephesians','Philippians','Colossians','1 Thessalonians','2 Thessalonians',
+    '1 Timothy','2 Timothy','Titus','Philemon','Hebrews','James','1 Peter','2 Peter',
+    '1 John','2 John','3 John','Jude','Revelation']
+};
+
+var _bpState = { tab: 'OT', book: '', chapter: '', verseFrom: '', verseTo: '', search: '' };
+
+function openBiblePickerModal() {
+  if (document.getElementById('biblePickerModal')) return;
+  _bpState = { tab: 'OT', book: '', chapter: '', verseFrom: '', verseTo: '', search: '' };
+  var modal = document.createElement('div');
+  modal.id = 'biblePickerModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:4000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e) { if (e.target === modal) closeBiblePickerModal(); };
+  modal.innerHTML = _renderBiblePickerHtml();
+  document.body.appendChild(modal);
+}
+
+function closeBiblePickerModal() {
+  var m = document.getElementById('biblePickerModal');
+  if (m) m.remove();
+}
+
+function _renderBiblePickerHtml() {
+  var sel = _bpState;
+  var books = BIBLE_BOOKS[sel.tab] || [];
+  var query = (sel.search || '').toLowerCase();
+  if (query) books = books.filter(function(b) { return b.toLowerCase().indexOf(query) >= 0; });
+
+  var booksHtml = books.map(function(b) {
+    var active = b === sel.book;
+    return '<div onclick="bpSelectBook(\'' + b.replace(/'/g, "\\'") + '\')" style="padding:6px 12px;cursor:pointer;font-size:0.82rem;border-radius:6px;margin:1px 0;background:' + (active ? '#eff6ff' : 'transparent') + ';color:' + (active ? '#1d4ed8' : '#374151') + ';font-weight:' + (active ? '700' : '400') + ';">' + b + '</div>';
+  }).join('');
+
+  // Chapters (1-150 for Psalms, sensible defaults otherwise)
+  var chMax = sel.book === 'Psalms' ? 150 : sel.book === 'Revelation' ? 22
+    : sel.book === 'Isaiah' ? 66 : sel.book === 'Matthew' ? 28 : sel.book === 'Acts' ? 28
+    : sel.book === 'Romans' ? 16 : sel.book === 'Genesis' ? 50 : sel.book ? 30 : 0;
+  var chapHtml = '';
+  if (sel.book && chMax > 0) {
+    for (var c = 1; c <= chMax; c++) {
+      var ca = String(c) === sel.chapter;
+      chapHtml += '<span onclick="bpSelectChapter(\'' + c + '\')" style="display:inline-block;min-width:32px;text-align:center;padding:4px 2px;margin:2px;cursor:pointer;border-radius:5px;font-size:0.8rem;background:' + (ca ? '#4a6da7' : '#f3f4f6') + ';color:' + (ca ? '#fff' : '#374151') + ';font-weight:' + (ca ? '700' : '400') + ';">' + c + '</span>';
+    }
+  }
+
+  var passagePreview = '';
+  if (sel.book && sel.chapter) {
+    passagePreview = sel.book + ' ' + sel.chapter;
+    if (sel.verseFrom) {
+      passagePreview += ':' + sel.verseFrom;
+      if (sel.verseTo && sel.verseTo !== sel.verseFrom) passagePreview += '–' + sel.verseTo;
+    }
+  }
+
+  // Currently selected passages
+  var curPassages = (window.LHC_STATE && window.LHC_STATE.filters.scriptures) || [];
+  var chipsHtml = curPassages.map(function(p, i) {
+    return '<span style="display:inline-flex;align-items:center;gap:4px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:2px 10px;font-size:0.75rem;font-weight:600;">' +
+      p + '<button onclick="bpRemovePassage(' + i + ')" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:0.85rem;padding:0 0 0 2px;line-height:1;">×</button></span>';
+  }).join('');
+
+  return '<div style="background:#fff;border-radius:16px;width:100%;max-width:600px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.25);">' +
+    // Header
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f0f2f8;flex-shrink:0;">' +
+      '<span style="font-weight:700;font-size:1rem;color:#1f2933;font-family:\'Poppins\',sans-serif;"><i class="fa-solid fa-book-open" style="color:#4a6da7;margin-right:7px;"></i>Choose Scripture Passage</span>' +
+      '<button onclick="closeBiblePickerModal()" style="background:none;border:none;font-size:1.1rem;color:#9ca3af;cursor:pointer;padding:4px 8px;border-radius:7px;">✕</button>' +
+    '</div>' +
+    // OT / NT tabs
+    '<div style="display:flex;gap:0;padding:10px 18px 0;flex-shrink:0;">' +
+      '<button onclick="bpSetTab(\'OT\')" style="padding:6px 18px;border:none;border-radius:7px 7px 0 0;cursor:pointer;font-size:0.82rem;font-weight:700;background:' + (sel.tab === 'OT' ? '#4a6da7' : '#f3f4f6') + ';color:' + (sel.tab === 'OT' ? '#fff' : '#6b7280') + ';">Old Testament</button>' +
+      '<button onclick="bpSetTab(\'NT\')" style="padding:6px 18px;border:none;border-radius:7px 7px 0 0;cursor:pointer;font-size:0.82rem;font-weight:700;background:' + (sel.tab === 'NT' ? '#4a6da7' : '#f3f4f6') + ';color:' + (sel.tab === 'NT' ? '#fff' : '#6b7280') + ';">New Testament</button>' +
+    '</div>' +
+    // Body
+    '<div style="display:flex;flex:1;min-height:0;overflow:hidden;">' +
+      // Book list
+      '<div style="width:180px;flex-shrink:0;border-right:1px solid #f0f2f8;display:flex;flex-direction:column;">' +
+        '<div style="padding:8px 10px;flex-shrink:0;border-bottom:1px solid #f0f2f8;">' +
+          '<input id="bpSearchInput" type="text" placeholder="Search book…" value="' + (sel.search || '') + '" oninput="bpSearch(this.value)" style="width:100%;padding:5px 9px;border:1px solid #e5e7eb;border-radius:7px;font-size:0.78rem;outline:none;">' +
+        '</div>' +
+        '<div style="overflow-y:auto;flex:1;padding:4px 6px;">' + booksHtml + '</div>' +
+      '</div>' +
+      // Chapter + verse
+      '<div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">' +
+        (sel.book
+          ? '<div style="padding:10px 14px;border-bottom:1px solid #f0f2f8;flex-shrink:0;font-weight:700;color:#4a6da7;font-size:0.88rem;">' + sel.book + '</div>' +
+            '<div style="padding:8px 12px;flex:1;overflow-y:auto;">' +
+              '<div style="font-size:0.72rem;font-weight:700;color:#9ca3af;text-transform:uppercase;margin-bottom:6px;">Chapter</div>' +
+              '<div style="display:flex;flex-wrap:wrap;">' + chapHtml + '</div>' +
+              (sel.chapter
+                ? '<div style="margin-top:12px;">' +
+                    '<div style="font-size:0.72rem;font-weight:700;color:#9ca3af;text-transform:uppercase;margin-bottom:6px;">Verse(s) — optional</div>' +
+                    '<div style="display:flex;align-items:center;gap:8px;">' +
+                      '<input type="number" id="bpVerseFrom" value="' + (sel.verseFrom || '') + '" min="1" placeholder="From" oninput="bpVerseFrom(this.value)" style="width:68px;padding:5px 8px;border:1.5px solid #e5e7eb;border-radius:7px;font-size:0.82rem;outline:none;">' +
+                      '<span style="color:#9ca3af;">–</span>' +
+                      '<input type="number" id="bpVerseTo" value="' + (sel.verseTo || '') + '" min="1" placeholder="To" oninput="bpVerseTo(this.value)" style="width:68px;padding:5px 8px;border:1.5px solid #e5e7eb;border-radius:7px;font-size:0.82rem;outline:none;">' +
+                    '</div>' +
+                  '</div>'
+                : '') +
+            '</div>'
+          : '<div style="display:flex;align-items:center;justify-content:center;flex:1;color:#9ca3af;font-size:0.85rem;">← Select a book</div>') +
+      '</div>' +
+    '</div>' +
+    // Preview + Add
+    '<div style="padding:12px 18px;border-top:1px solid #f0f2f8;flex-shrink:0;background:#f9fafb;">' +
+      (passagePreview
+        ? '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
+            '<span style="font-size:0.85rem;font-weight:600;color:#1d4ed8;"><i class="fa-solid fa-bookmark" style="margin-right:6px;"></i>' + passagePreview + '</span>' +
+            '<button onclick="bpAddPassage()" style="padding:6px 18px;background:#4a6da7;color:#fff;border:none;border-radius:8px;font-size:0.82rem;font-weight:700;cursor:pointer;">+ Add Passage</button>' +
+          '</div>'
+        : '<div style="font-size:0.78rem;color:#9ca3af;">Select a book and chapter above, then click Add Passage</div>') +
+      (curPassages.length ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:5px;">' + chipsHtml + '</div>' : '') +
+    '</div>' +
+    // Done
+    '<div style="padding:10px 18px;border-top:1px solid #f0f2f8;flex-shrink:0;display:flex;justify-content:flex-end;gap:8px;">' +
+      '<button onclick="bpClearAll()" style="padding:6px 14px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;color:#6b7280;font-size:0.8rem;cursor:pointer;">Clear All</button>' +
+      '<button onclick="closeBiblePickerModal()" style="padding:6px 18px;background:#1f2933;color:#fff;border:none;border-radius:8px;font-size:0.82rem;font-weight:700;cursor:pointer;">Done</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function _bpRerender() {
+  var m = document.getElementById('biblePickerModal');
+  if (!m) return;
+  m.innerHTML = _renderBiblePickerHtml();
+}
+
+function bpSetTab(tab) { _bpState.tab = tab; _bpState.book = ''; _bpState.chapter = ''; _bpState.verseFrom = ''; _bpState.verseTo = ''; _bpRerender(); }
+function bpSearch(val) { _bpState.search = val; _bpRerender(); }
+function bpSelectBook(book) { _bpState.book = book; _bpState.chapter = ''; _bpState.verseFrom = ''; _bpState.verseTo = ''; _bpRerender(); }
+function bpSelectChapter(ch) { _bpState.chapter = String(ch); _bpState.verseFrom = ''; _bpState.verseTo = ''; _bpRerender(); }
+function bpVerseFrom(v) { _bpState.verseFrom = v; _updateScriptureDisplay(); }
+function bpVerseTo(v)   { _bpState.verseTo = v;   _updateScriptureDisplay(); }
+
+function bpAddPassage() {
+  if (!_bpState.book || !_bpState.chapter) return;
+  var passage = _bpState.book + ' ' + _bpState.chapter;
+  if (_bpState.verseFrom) {
+    passage += ':' + _bpState.verseFrom;
+    if (_bpState.verseTo && _bpState.verseTo !== _bpState.verseFrom) passage += '–' + _bpState.verseTo;
+  }
+  if (!window.LHC_STATE) return;
+  if (!Array.isArray(window.LHC_STATE.filters.scriptures)) window.LHC_STATE.filters.scriptures = [];
+  if (window.LHC_STATE.filters.scriptures.indexOf(passage) < 0) {
+    window.LHC_STATE.filters.scriptures.push(passage);
+  }
+  _bpState.book = ''; _bpState.chapter = ''; _bpState.verseFrom = ''; _bpState.verseTo = '';
+  _updateScriptureDisplay();
+  window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
+  _bpRerender();
+}
+
+function bpRemovePassage(idx) {
+  if (!window.LHC_STATE || !Array.isArray(window.LHC_STATE.filters.scriptures)) return;
+  window.LHC_STATE.filters.scriptures.splice(idx, 1);
+  _updateScriptureDisplay();
+  window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
+  _bpRerender();
+}
+
+function bpClearAll() {
+  if (window.LHC_STATE) window.LHC_STATE.filters.scriptures = [];
+  _updateScriptureDisplay();
+  window.LHC_STATE && window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
+  _bpRerender();
+}
+
+function _updateScriptureDisplay() {
+  var passages = (window.LHC_STATE && window.LHC_STATE.filters.scriptures) || [];
+  var disp = document.getElementById('filterScriptureDisplay');
+  if (disp) disp.textContent = passages.length === 0 ? 'All Scripture' : passages.length <= 2 ? passages.join(', ') : passages.slice(0,2).join(', ') + ' +' + (passages.length - 2) + ' more';
+  // Update chips below the display
+  var chipsEl = document.getElementById('filterScriptureChips');
+  if (chipsEl) {
+    chipsEl.innerHTML = passages.map(function(p, i) {
+      return '<span style="display:inline-flex;align-items:center;gap:3px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:2px 9px;font-size:0.72rem;font-weight:600;">' +
+        p + '<button onclick="bpRemovePassage(' + i + ')" style="background:none;border:none;color:#93c5fd;cursor:pointer;font-size:0.85rem;padding:0 0 0 2px;line-height:1;" title="Remove">×</button></span>';
+    }).join('');
+  }
+}
+
 // ============ Liturgical Season Multi-Select ============
 function toggleSeasonDropdown(mode) {
   var dd = document.getElementById(mode + 'SongSeasonDropdown');
@@ -9851,7 +10136,7 @@ window.loadEditSongData = function(song) {
     songs: [],
     filteredSongs: [],
     songMeta: { themes: [], keys: [], styles: [], tempos: [], seasons: [], scriptures: [] },
-    filters: { q: '', themes: [], keys: [], style: '', tempo: '', seasons: [], scriptures: [], sort: 'title-asc' },
+    filters: { q: '', themes: [], keys: [], style: '', styleEras: [], tempo: '', seasons: [], scriptures: [], sort: 'title-asc' },
     orders: [],
     currentOrder: null,
     rosterMonth: new Date().getMonth(),
@@ -9863,7 +10148,8 @@ window.loadEditSongData = function(song) {
     lyricsSlides: [],
     lyricsSlideIndex: 0,
     lyricsEditMode: false,
-    currentStatTab: 'frequent'
+    currentStatTab: 'frequent',
+    usageStats: { counts: {}, lastUsed: {} }   // populated from order_items
   };
 
   // ============================================================
@@ -10269,14 +10555,29 @@ window.loadEditSongData = function(song) {
     return Object.keys(set).sort();
   }
 
+  // Fixed list of all 12 chromatic keys (each entry covers both enharmonic spellings)
+  var FIXED_KEYS = ['C', 'C# / D♭', 'D', 'D# / E♭', 'E', 'F', 'F# / G♭', 'G', 'G# / A♭', 'A', 'A# / B♭', 'B'];
+
+  // Fixed liturgical seasons used at LHC
+  var FIXED_SEASONS = [
+    'All Seasons',
+    'Advent 1st Sunday', 'Advent 2nd Sunday', 'Advent 3rd Sunday', 'Advent 4th Sunday',
+    'Christmas', 'Epiphany',
+    'Lent', 'Maundy Thursday', 'Good Friday', 'Easter',
+    'Pentecost', 'Holy Trinity Sunday',
+    'Reformation Sunday', 'Christ the King Sunday',
+    'Ordinary Sunday'
+  ];
+
   function populateFilterDropdowns() {
     var songs = STATE.songs;
     STATE.songMeta.themes = getUniqueValues(songs, 'theme');
-    STATE.songMeta.keys = getUniqueValues(songs, 'key');
-    STATE.songMeta.styles = getUniqueValues(songs, 'style');
+    // Keys: always show all 12 chromatic keys (not extracted from songs)
+    STATE.songMeta.keys = FIXED_KEYS;
     STATE.songMeta.tempos = getUniqueValues(songs, 'tempo');
-    STATE.songMeta.seasons = getUniqueValues(songs, 'season');
-    // Scripture: split comma-separated refs into individual values
+    // Seasons: fixed liturgical calendar (not extracted from songs)
+    STATE.songMeta.seasons = FIXED_SEASONS.filter(function(s) { return s !== 'All Seasons'; });
+    // Scripture: collect existing refs from songs (used as quick-pick suggestions)
     var scriptureSet = {};
     songs.forEach(function(s) {
       String(s.scripture || '').split(/[,;]+/).forEach(function(r) {
@@ -10285,12 +10586,14 @@ window.loadEditSongData = function(song) {
       });
     });
     STATE.songMeta.scriptures = Object.keys(scriptureSet).sort(function(a,b){ return a.localeCompare(b); });
+
     populateThemeFilterDropdown(STATE.songMeta.themes);
     populateKeyFilterDropdown(STATE.songMeta.keys);
-    fillSelectOptions($('filterStyle'), STATE.songMeta.styles, 'All Styles');
+    populateStyleFilterDropdown(); // custom style dropdown (Hymn / Contemporary)
     fillSelectOptions($('filterTempo'), STATE.songMeta.tempos, 'All');
     populateSeasonFilterDropdown(STATE.songMeta.seasons);
-    populateScriptureFilterDropdown(STATE.songMeta.scriptures);
+    // Scripture: initialise the bible picker display
+    _updateScriptureDisplay();
   }
 
   function fillSelectOptions(selectEl, options, placeholder) {
@@ -10325,13 +10628,37 @@ window.loadEditSongData = function(song) {
       return f.themes.some(function(sel) { return songThemes.indexOf(sel.toLowerCase()) >= 0; });
     });
     if (f.keys && f.keys.length > 0) result = result.filter(function(s) {
-      var songKeys = String(s.key || '').split(/[,;\/]+/).map(function(k) { return k.trim(); });
-      return f.keys.some(function(k) { return songKeys.indexOf(k) >= 0; });
+      var songKeys = String(s.key || '').split(/[,;\/]+/).map(function(k) { return k.trim().toLowerCase(); });
+      return f.keys.some(function(fk) {
+        // Each filter key may be "C# / D♭" — split and test each enharmonic spelling
+        var parts = fk.split(/[\/]+/).map(function(p) { return p.trim().toLowerCase().replace('♭','b').replace('♯','#'); });
+        return parts.some(function(p) { return songKeys.some(function(sk) { return sk.replace('♭','b').replace('♯','#').replace('b','b') === p || sk === p; }); });
+      });
     });
-    if (f.style) result = result.filter(function(s) {
-      var styles = String(s.style || '').toLowerCase().split(/[,;\/]+/).map(function(t) { return t.trim().toLowerCase(); });
-      return styles.indexOf(f.style.toLowerCase()) >= 0 || s.style === f.style;
-    });
+    if (f.style) {
+      result = result.filter(function(s) {
+        var rawStyle = String(s.style || s.category || '').toLowerCase().trim();
+        if (f.style === 'traditional-hymn') {
+          // Match "traditional hymn", "hymn" but NOT "contemporary hymn"
+          return rawStyle.indexOf('hymn') >= 0 && rawStyle.indexOf('contemporary') < 0;
+        }
+        if (f.style === 'contemporary-hymn') {
+          return rawStyle.indexOf('contemporary') >= 0 && rawStyle.indexOf('hymn') >= 0;
+        }
+        if (f.style === 'contemporary') {
+          return rawStyle.indexOf('contemporary') >= 0;
+        }
+        return rawStyle.indexOf(f.style.toLowerCase()) >= 0;
+      });
+      // Optional era sub-filter on contemporary songs (era stored in song.era or song.decade field)
+      if ((f.style === 'contemporary' || f.style === 'contemporary-hymn') && f.styleEras && f.styleEras.length > 0) {
+        result = result.filter(function(s) {
+          var songEra = String(s.era || s.decade || '').toLowerCase();
+          if (!songEra) return true; // permissive — show if no era data tagged
+          return f.styleEras.some(function(era) { return songEra.indexOf(era.toLowerCase().replace(/s$/, '')) >= 0; });
+        });
+      }
+    }
     if (f.tempo) result = result.filter(function(s) {
       var tempos = String(s.tempo || '').toLowerCase().split(/[,;\/]+/).map(function(t) { return t.trim().toLowerCase(); });
       return tempos.indexOf(f.tempo.toLowerCase()) >= 0 || s.tempo === f.tempo;
@@ -11222,23 +11549,24 @@ window.loadEditSongData = function(song) {
     STATE.filters.themes = [];
     STATE.filters.keys = [];
     STATE.filters.style = '';
+    STATE.filters.styleEras = [];
     STATE.filters.tempo = '';
     STATE.filters.seasons = [];
     STATE.filters.scriptures = [];
     var filterTempo = $('filterTempo');
     if (filterTempo) filterTempo.value = '';
-    var filterStyle = $('filterStyle');
-    if (filterStyle) filterStyle.value = '';
     // Reset multi-select display labels
     var d;
     d = document.getElementById('filterThemeDisplay'); if (d) d.textContent = 'All Themes';
     d = document.getElementById('filterKeyDisplay'); if (d) d.textContent = 'All Keys';
+    d = document.getElementById('filterStyleDisplay'); if (d) d.textContent = 'All Styles';
     d = document.getElementById('filterSeasonDisplay'); if (d) d.textContent = 'All Seasons';
     d = document.getElementById('filterScriptureDisplay'); if (d) d.textContent = 'All Scripture';
+    d = document.getElementById('filterScriptureChips'); if (d) d.innerHTML = '';
     // Re-populate dropdowns to reset checkboxes
     populateKeyFilterDropdown(STATE.songMeta.keys);
     populateSeasonFilterDropdown(STATE.songMeta.seasons);
-    populateScriptureFilterDropdown(STATE.songMeta.scriptures);
+    populateStyleFilterDropdown();
     populateThemeFilterDropdown(STATE.songMeta.themes);
     renderSongs(false);
   }
@@ -11691,42 +12019,53 @@ window.loadEditSongData = function(song) {
 
     var songs = STATE.songs.slice();
     var statSongs = [];
+    var usageCounts  = (STATE.usageStats && STATE.usageStats.counts)  || {};
+    var usageLastUsed = (STATE.usageStats && STATE.usageStats.lastUsed) || {};
 
     if (STATE.currentStatTab === 'frequent') {
-      // Top 10 most used songs
-      statSongs = songs.filter(function(s) { return (s.useCount || 0) > 0; })
-        .sort(function(a, b) { return (b.useCount || 0) - (a.useCount || 0); }).slice(0, 10);
-      // Fallback: if no usage data, show all songs alphabetically
-      if (!statSongs.length) {
-        statSongs = songs.sort(function(a, b) { return a.title.localeCompare(b.title); }).slice(0, 10);
+      // Top 20 trending — ranked by how many times added across ALL orders
+      var songsWithCount = songs.map(function(s) {
+        return { song: s, count: usageCounts[s.id] || s.useCount || 0 };
+      }).filter(function(x) { return x.count > 0; })
+        .sort(function(a, b) { return b.count - a.count; })
+        .slice(0, 20);
+      // Fallback if no order data yet
+      if (!songsWithCount.length) {
+        songsWithCount = songs.sort(function(a, b) {
+          return (b.useCount || 0) - (a.useCount || 0) || a.title.localeCompare(b.title);
+        }).slice(0, 20).map(function(s) { return { song: s, count: s.useCount || 0 }; });
       }
+      statSongs = songsWithCount.map(function(x) { return Object.assign({ _count: x.count }, x.song); });
+
     } else if (STATE.currentStatTab === 'recent') {
-      // Top 10 recently used/edited - use lastUsed, fallback to lastEdited
-      statSongs = songs.slice().sort(function(a, b) {
-        var aDate = a.lastUsed || a.lastEdited || '';
-        var bDate = b.lastUsed || b.lastEdited || '';
-        return bDate.localeCompare(aDate);
-      });
-      statSongs = statSongs.filter(function(s) { return s.lastUsed || s.lastEdited; }).slice(0, 10);
-      // Fallback: show most recently added
-      if (!statSongs.length) {
-        statSongs = songs.slice().reverse().slice(0, 10);
+      // Top 20 recently used in an order (by lastUsed from order_items)
+      var songsWithDate = songs.map(function(s) {
+        return { song: s, date: usageLastUsed[s.id] || s.lastUsed || s.lastEdited || '' };
+      }).filter(function(x) { return x.date; })
+        .sort(function(a, b) { return b.date.localeCompare(a.date); })
+        .slice(0, 20);
+      // Fallback
+      if (!songsWithDate.length) {
+        songsWithDate = songs.slice().sort(function(a, b) {
+          return (b.lastUsed || b.lastEdited || '').localeCompare(a.lastUsed || a.lastEdited || '');
+        }).slice(0, 20).map(function(s) { return { song: s, date: s.lastUsed || s.lastEdited || '' }; });
       }
+      statSongs = songsWithDate.map(function(x) { return Object.assign({ _recentDate: x.date }, x.song); });
+
     } else if (STATE.currentStatTab === 'newest') {
-      // Top 20 newest songs - use dateAdded, fallback to order in list (newest last)
+      // Latest 25 songs added to the system by dateAdded
       statSongs = songs.slice().sort(function(a, b) {
         var aDate = a.dateAdded || '';
         var bDate = b.dateAdded || '';
         if (aDate && bDate) return bDate.localeCompare(aDate);
         if (bDate) return 1;
         if (aDate) return -1;
-        return 0; // keep original order
+        return 0;
       });
       if (!statSongs.some(function(s) { return s.dateAdded; })) {
-        // No dateAdded data - show last 20 in reverse order (assuming newer songs at end)
         statSongs = songs.slice().reverse();
       }
-      statSongs = statSongs.slice(0, 20);
+      statSongs = statSongs.slice(0, 25);
     }
 
     if (!statSongs.length) {
@@ -11738,18 +12077,15 @@ window.loadEditSongData = function(song) {
     statSongs.forEach(function(song, idx) {
       var badge = '';
       if (STATE.currentStatTab === 'frequent') {
-        if (song.useCount) {
-          badge = '<span class="text-[0.6rem] bg-amber-400/30 text-amber-200 px-1.5 py-0.5 rounded-full">' + song.useCount + 'x</span>';
-        }
+        var cnt = song._count || 0;
+        badge = cnt > 0
+          ? '<span class="text-[0.6rem] bg-amber-400/30 text-amber-200 px-1.5 py-0.5 rounded-full" title="Used in orders">' + cnt + 'x</span>'
+          : '';
       } else if (STATE.currentStatTab === 'recent') {
-        var recentDate = song.lastUsed || song.lastEdited || '';
-        if (recentDate) {
-          badge = '<span class="text-[0.6rem] bg-blue-400/30 text-blue-200 px-1.5 py-0.5 rounded-full">' + formatDateShort(recentDate) + '</span>';
-        }
+        var rd = song._recentDate || '';
+        if (rd) badge = '<span class="text-[0.6rem] bg-blue-400/30 text-blue-200 px-1.5 py-0.5 rounded-full">' + formatDateShort(rd) + '</span>';
       } else if (STATE.currentStatTab === 'newest') {
-        if (song.dateAdded) {
-          badge = '<span class="text-[0.6rem] bg-green-400/30 text-green-200 px-1.5 py-0.5 rounded-full">' + formatDateShort(song.dateAdded) + '</span>';
-        }
+        if (song.dateAdded) badge = '<span class="text-[0.6rem] bg-green-400/30 text-green-200 px-1.5 py-0.5 rounded-full">' + formatDateShort(song.dateAdded) + '</span>';
       }
 
       html += '<div class="stat-song-item flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 cursor-pointer transition" data-id="' + escapeHtml(song.id) + '">';
@@ -11763,7 +12099,6 @@ window.loadEditSongData = function(song) {
 
     container.innerHTML = html;
 
-    // Bind clicks to search for that song
     container.querySelectorAll('.stat-song-item').forEach(function(item) {
       item.onclick = function() {
         var song = STATE.songs.find(function(s) { return s.id === item.dataset.id; });
@@ -13136,6 +13471,13 @@ window.loadEditSongData = function(song) {
       renderSongStats();
       $('backendStatus').textContent = 'Backend: Connected ✓';
       $('backendStatus').style.color = '#86efac';
+      // Load usage stats from order_items in background (non-blocking)
+      if (typeof SBQ !== 'undefined' && SBQ.getSongUsageStats) {
+        SBQ.getSongUsageStats().then(function(stats) {
+          STATE.usageStats = stats || { counts: {}, lastUsed: {} };
+          renderSongStats(); // re-render sidebar with real order-based counts
+        }).catch(function() {});
+      }
     }).catch(function(err) {
       console.error('Failed to load songs:', err);
       $('backendStatus').textContent = 'Backend: Error ✗';
@@ -14220,7 +14562,8 @@ window.loadEditSongData = function(song) {
 
     document.onclick = function(e) { var sg = $('searchSuggestions'), si = $('searchInput'); if (sg && !sg.contains(e.target) && e.target !== si) sg.classList.remove('show'); };
 
-    ['filterKey','filterStyle','filterTempo','filterSeason','sortBy'].forEach(function(id) {
+    // filterStyle is now a custom dropdown (not a <select>) — handled by setStyleFilter()
+    ['filterTempo','sortBy'].forEach(function(id) {
       var el = $(id); if (el) el.onchange = function(e) { var k = id.replace('filter','').toLowerCase(); if (k === 'sortby') STATE.filters.sort = e.target.value; else STATE.filters[k] = e.target.value; renderSongs(true); };
     });
 
@@ -15956,6 +16299,30 @@ SBQ.mediaLinks = {
         return (res.data && Array.isArray(res.data.items)) ? res.data.items : [];
       });
   }
+};
+
+// ================================================================
+// SBQ.getSongUsageStats — count how many times each song has been
+// added across ALL orders. Returns { counts:{songId:N}, lastUsed:{songId:isoDate} }
+// ================================================================
+SBQ.getSongUsageStats = function() {
+  var sb = getSupabaseClient();
+  if (!sb) return Promise.resolve({ counts: {}, lastUsed: {} });
+  return sb.from('order_items')
+    .select('source_id, created_at')
+    .eq('item_type', 'song')
+    .then(function(res) {
+      if (res.error) { console.warn('[LHC] getSongUsageStats:', res.error.message); return { counts: {}, lastUsed: {} }; }
+      var counts = {}, lastUsed = {};
+      (res.data || []).forEach(function(row) {
+        if (!row.source_id) return;
+        counts[row.source_id] = (counts[row.source_id] || 0) + 1;
+        if (!lastUsed[row.source_id] || (row.created_at && row.created_at > lastUsed[row.source_id])) {
+          lastUsed[row.source_id] = row.created_at || '';
+        }
+      });
+      return { counts: counts, lastUsed: lastUsed };
+    });
 };
 
 // ================================================================
