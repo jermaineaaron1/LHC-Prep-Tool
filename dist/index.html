@@ -7796,10 +7796,35 @@ var BIBLE_BOOKS = {
 // mode: 'filter' (song filter), 'new' (add song modal), 'edit' (edit song modal)
 var _bpState = { tab: 'OT', book: '', chapter: '', verseFrom: '', verseTo: '', search: '', mode: 'filter' };
 
+// Complete chapter counts for every canonical book
+var BIBLE_CHAPTER_COUNTS = {
+  // Old Testament
+  'Genesis':50,'Exodus':40,'Leviticus':27,'Numbers':36,'Deuteronomy':34,
+  'Joshua':24,'Judges':21,'Ruth':4,'1 Samuel':31,'2 Samuel':24,
+  '1 Kings':22,'2 Kings':25,'1 Chronicles':29,'2 Chronicles':36,
+  'Ezra':10,'Nehemiah':13,'Esther':10,'Job':42,'Psalms':150,
+  'Proverbs':31,'Ecclesiastes':12,'Song of Solomon':8,'Isaiah':66,
+  'Jeremiah':52,'Lamentations':5,'Ezekiel':48,'Daniel':12,
+  'Hosea':14,'Joel':3,'Amos':9,'Obadiah':1,'Jonah':4,'Micah':7,
+  'Nahum':3,'Habakkuk':3,'Zephaniah':3,'Haggai':2,'Zechariah':14,'Malachi':4,
+  // New Testament
+  'Matthew':28,'Mark':16,'Luke':24,'John':21,'Acts':28,
+  'Romans':16,'1 Corinthians':16,'2 Corinthians':13,'Galatians':6,
+  'Ephesians':6,'Philippians':4,'Colossians':4,
+  '1 Thessalonians':5,'2 Thessalonians':3,
+  '1 Timothy':6,'2 Timothy':4,'Titus':3,'Philemon':1,
+  'Hebrews':13,'James':5,'1 Peter':5,'2 Peter':3,
+  '1 John':5,'2 John':1,'3 John':1,'Jude':1,'Revelation':22
+};
+
 function openBiblePickerModal(mode) {
-  if (document.getElementById('biblePickerModal')) return;
+  // Remove any stale instance first
+  var existing = document.getElementById('biblePickerModal');
+  if (existing) existing.remove();
+
   var m = mode || 'filter';
   _bpState = { tab: 'OT', book: '', chapter: '', verseFrom: '', verseTo: '', search: '', mode: m };
+
   // Pre-populate with existing passages for song modals
   if (m === 'new' || m === 'edit') {
     var hidden = document.getElementById(m + 'SongScripture');
@@ -7807,12 +7832,27 @@ function openBiblePickerModal(mode) {
       ? hidden.value.split(';').map(function(v){return v.trim();}).filter(Boolean)
       : [];
   }
+
   var modal = document.createElement('div');
   modal.id = 'biblePickerModal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:4000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  // z-index MUST be above song modals (10005) and splash (99999 already gone)
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50000;display:flex;align-items:flex-end;justify-content:center;padding:0;';
   modal.onclick = function(e) { if (e.target === modal) closeBiblePickerModal(); };
   modal.innerHTML = _renderBiblePickerHtml();
   document.body.appendChild(modal);
+  // Slide in from bottom
+  var inner = modal.querySelector('#bpInner');
+  if (inner) {
+    inner.style.transform = 'translateY(30px)';
+    inner.style.opacity = '0';
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        inner.style.transition = 'transform .32s cubic-bezier(.34,1.4,.64,1), opacity .28s ease';
+        inner.style.transform = 'translateY(0)';
+        inner.style.opacity = '1';
+      });
+    });
+  }
 }
 
 function closeBiblePickerModal() {
@@ -7822,119 +7862,204 @@ function closeBiblePickerModal() {
 
 function _renderBiblePickerHtml() {
   var sel = _bpState;
-  var books = BIBLE_BOOKS[sel.tab] || [];
-  var query = (sel.search || '').toLowerCase();
-  if (query) books = books.filter(function(b) { return b.toLowerCase().indexOf(query) >= 0; });
+  var isMobile = window.innerWidth < 640;
+
+  // ---- Books list ----
+  var allBooks = BIBLE_BOOKS[sel.tab] || [];
+  var query = (sel.search || '').toLowerCase().trim();
+  var books = query ? allBooks.filter(function(b) { return b.toLowerCase().indexOf(query) >= 0; }) : allBooks;
 
   var booksHtml = books.map(function(b) {
     var active = b === sel.book;
-    return '<div onclick="bpSelectBook(\'' + b.replace(/'/g, "\\'") + '\')" style="padding:6px 12px;cursor:pointer;font-size:0.82rem;border-radius:6px;margin:1px 0;background:' + (active ? '#eff6ff' : 'transparent') + ';color:' + (active ? '#1d4ed8' : '#374151') + ';font-weight:' + (active ? '700' : '400') + ';">' + b + '</div>';
+    return '<div onclick="bpSelectBook(\'' + b.replace(/'/g, "\\'") + '\')" style="padding:8px 12px;cursor:pointer;font-size:0.83rem;border-radius:8px;margin:1px 0;transition:background .12s;' +
+      'background:' + (active ? 'linear-gradient(135deg,#eff6ff,#dbeafe)' : 'transparent') + ';' +
+      'color:' + (active ? '#1d4ed8' : '#374151') + ';' +
+      'font-weight:' + (active ? '700' : '400') + ';' +
+      'border-left:3px solid ' + (active ? '#4a6da7' : 'transparent') + ';">' + b + '</div>';
   }).join('');
 
-  // Chapters (1-150 for Psalms, sensible defaults otherwise)
-  var chMax = sel.book === 'Psalms' ? 150 : sel.book === 'Revelation' ? 22
-    : sel.book === 'Isaiah' ? 66 : sel.book === 'Matthew' ? 28 : sel.book === 'Acts' ? 28
-    : sel.book === 'Romans' ? 16 : sel.book === 'Genesis' ? 50 : sel.book ? 30 : 0;
+  // ---- Chapter grid ----
+  var chMax = (sel.book && BIBLE_CHAPTER_COUNTS[sel.book]) ? BIBLE_CHAPTER_COUNTS[sel.book] : 0;
   var chapHtml = '';
   if (sel.book && chMax > 0) {
     for (var c = 1; c <= chMax; c++) {
       var ca = String(c) === sel.chapter;
-      chapHtml += '<span onclick="bpSelectChapter(\'' + c + '\')" style="display:inline-block;min-width:32px;text-align:center;padding:4px 2px;margin:2px;cursor:pointer;border-radius:5px;font-size:0.8rem;background:' + (ca ? '#4a6da7' : '#f3f4f6') + ';color:' + (ca ? '#fff' : '#374151') + ';font-weight:' + (ca ? '700' : '400') + ';">' + c + '</span>';
+      chapHtml += '<span onclick="bpSelectChapter(\'' + c + '\')" style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;padding:0 4px;margin:3px;cursor:pointer;border-radius:8px;font-size:0.82rem;font-weight:' + (ca ? '700' : '500') + ';' +
+        'background:' + (ca ? '#4a6da7' : '#f3f4f6') + ';' +
+        'color:' + (ca ? '#fff' : '#374151') + ';' +
+        'box-shadow:' + (ca ? '0 2px 8px rgba(74,109,167,.35)' : 'none') + ';' +
+        'transition:background .12s;">' + c + '</span>';
     }
   }
 
-  var passagePreview = '';
-  if (sel.book && sel.chapter) {
-    passagePreview = sel.book + ' ' + sel.chapter;
-    if (sel.verseFrom) {
-      passagePreview += ':' + sel.verseFrom;
-      if (sel.verseTo && sel.verseTo !== sel.verseFrom) passagePreview += '–' + sel.verseTo;
-    }
-  }
-
-  // Currently selected passages — depends on mode
+  // ---- Currently selected passages ----
   var curPassages;
   if (sel.mode === 'new' || sel.mode === 'edit') {
     curPassages = Array.isArray(_bpState._passages) ? _bpState._passages : [];
   } else {
     curPassages = (window.LHC_STATE && window.LHC_STATE.filters.scriptures) || [];
   }
+
   var chipsHtml = curPassages.map(function(p, i) {
-    return '<span style="display:inline-flex;align-items:center;gap:4px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:2px 10px;font-size:0.75rem;font-weight:600;">' +
-      p + '<button onclick="bpRemovePassage(' + i + ')" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:0.85rem;padding:0 0 0 2px;line-height:1;">×</button></span>';
+    return '<span style="display:inline-flex;align-items:center;gap:5px;background:#eff6ff;color:#1d4ed8;border:1.5px solid #bfdbfe;border-radius:999px;padding:4px 11px;font-size:0.75rem;font-weight:600;">' +
+      '<i class="fa-solid fa-bookmark" style="font-size:0.62rem;opacity:.7;"></i>' + p +
+      '<button onclick="bpRemovePassage(' + i + ')" style="background:none;border:none;color:#93c5fd;cursor:pointer;font-size:0.9rem;padding:0 0 0 2px;line-height:1;display:flex;align-items:center;" title="Remove">×</button></span>';
   }).join('');
 
-  return '<div style="background:#fff;border-radius:16px;width:100%;max-width:600px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.25);">' +
-    // Header
-    '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f0f2f8;flex-shrink:0;">' +
-      '<span style="font-weight:700;font-size:1rem;color:#1f2933;font-family:\'Poppins\',sans-serif;"><i class="fa-solid fa-book-open" style="color:#4a6da7;margin-right:7px;"></i>Choose Scripture Passage</span>' +
-      '<button onclick="closeBiblePickerModal()" style="background:none;border:none;font-size:1.1rem;color:#9ca3af;cursor:pointer;padding:4px 8px;border-radius:7px;">✕</button>' +
+  // ---- Passage preview ----
+  var passagePreview = '';
+  if (sel.book && sel.chapter) {
+    passagePreview = sel.book + ' ' + sel.chapter;
+    if (sel.verseFrom) {
+      passagePreview += ':' + sel.verseFrom;
+      if (sel.verseTo && String(sel.verseTo) !== String(sel.verseFrom)) passagePreview += '–' + sel.verseTo;
+    }
+  }
+
+  // ---- Verse section (shown after chapter selected) ----
+  var verseHtml = sel.chapter
+    ? '<div style="margin-top:16px;padding-top:14px;border-top:1px solid #f0f2f8;">' +
+        '<div style="font-size:0.7rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;"><i class="fa-solid fa-hashtag" style="margin-right:4px;"></i>Verses — optional</div>' +
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+          '<label style="font-size:0.78rem;color:#6b7280;font-weight:500;">From</label>' +
+          '<input type="number" id="bpVerseFrom" value="' + (sel.verseFrom || '') + '" min="1" max="176" placeholder="e.g. 1" oninput="bpVerseFrom(this.value)" style="width:72px;padding:7px 10px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:0.85rem;outline:none;text-align:center;" onclick="event.stopPropagation();">' +
+          '<label style="font-size:0.78rem;color:#6b7280;font-weight:500;">To</label>' +
+          '<input type="number" id="bpVerseTo" value="' + (sel.verseTo || '') + '" min="1" max="176" placeholder="e.g. 12" oninput="bpVerseTo(this.value)" style="width:72px;padding:7px 10px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:0.85rem;outline:none;text-align:center;" onclick="event.stopPropagation();">' +
+          (passagePreview
+            ? '<span style="font-size:0.82rem;font-weight:700;color:#4a6da7;padding:5px 12px;background:#eff6ff;border-radius:8px;border:1px solid #bfdbfe;">' + passagePreview + '</span>'
+            : '') +
+        '</div>' +
+      '</div>'
+    : '';
+
+  var S = { // style shortcuts
+    hdr: 'display:flex;align-items:center;justify-content:space-between;padding:14px 18px 12px;border-bottom:1px solid #f0f2f8;flex-shrink:0;background:#fff;',
+    tabs: 'display:flex;gap:4px;padding:10px 16px 0;flex-shrink:0;background:#fafbfe;border-bottom:1px solid #f0f2f8;',
+    tab: function(active) { return 'padding:7px 16px;border:none;border-radius:8px 8px 0 0;cursor:pointer;font-size:0.82rem;font-weight:700;transition:all .15s;background:' + (active ? '#4a6da7' : 'transparent') + ';color:' + (active ? '#fff' : '#6b7280') + ';'; },
+    body: 'display:flex;flex:1;min-height:0;overflow:hidden;',
+    bookCol: 'width:' + (isMobile ? '140px' : '175px') + ';flex-shrink:0;border-right:1px solid #f0f2f8;display:flex;flex-direction:column;background:#fafbfe;',
+    chapCol: 'flex:1;display:flex;flex-direction:column;overflow:hidden;',
+    footer: 'padding:12px 18px;border-top:1px solid #f0f2f8;flex-shrink:0;background:#f8f9fc;',
+    actions: 'padding:10px 16px 14px;border-top:1px solid #f0f2f8;flex-shrink:0;display:flex;justify-content:space-between;align-items:center;gap:8px;background:#fff;'
+  };
+
+  return '<div id="bpInner" style="background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:640px;' +
+    'max-height:92dvh;display:flex;flex-direction:column;overflow:hidden;' +
+    'box-shadow:0 -8px 40px rgba(0,0,0,.22);margin:0 auto;">' +
+
+    // ── Header
+    '<div style="' + S.hdr + '">' +
+      '<div style="display:flex;align-items:center;gap:10px;">' +
+        '<span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:linear-gradient(135deg,#4a6da7,#6b9ac4);border-radius:9px;">' +
+          '<i class="fa-solid fa-book-open" style="color:#fff;font-size:0.85rem;"></i></span>' +
+        '<div>' +
+          '<div style="font-weight:700;font-size:0.95rem;color:#1f2933;font-family:\'Poppins\',sans-serif;line-height:1.2;">Choose Scripture</div>' +
+          '<div style="font-size:0.68rem;color:#9ca3af;font-family:\'Poppins\',sans-serif;">' +
+            (sel.mode === 'filter' ? 'Filter songs by passage' : 'Add passage reference to song') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<button onclick="closeBiblePickerModal()" style="background:#f3f4f6;border:none;width:30px;height:30px;border-radius:8px;font-size:1rem;color:#6b7280;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>' +
     '</div>' +
-    // OT / NT tabs
-    '<div style="display:flex;gap:0;padding:10px 18px 0;flex-shrink:0;">' +
-      '<button onclick="bpSetTab(\'OT\')" style="padding:6px 18px;border:none;border-radius:7px 7px 0 0;cursor:pointer;font-size:0.82rem;font-weight:700;background:' + (sel.tab === 'OT' ? '#4a6da7' : '#f3f4f6') + ';color:' + (sel.tab === 'OT' ? '#fff' : '#6b7280') + ';">Old Testament</button>' +
-      '<button onclick="bpSetTab(\'NT\')" style="padding:6px 18px;border:none;border-radius:7px 7px 0 0;cursor:pointer;font-size:0.82rem;font-weight:700;background:' + (sel.tab === 'NT' ? '#4a6da7' : '#f3f4f6') + ';color:' + (sel.tab === 'NT' ? '#fff' : '#6b7280') + ';">New Testament</button>' +
+
+    // ── OT / NT tabs
+    '<div style="' + S.tabs + '">' +
+      '<button onclick="bpSetTab(\'OT\')" style="' + S.tab(sel.tab === 'OT') + '"><i class="fa-solid fa-scroll" style="margin-right:5px;font-size:0.78rem;"></i>Old Testament</button>' +
+      '<button onclick="bpSetTab(\'NT\')" style="' + S.tab(sel.tab === 'NT') + '"><i class="fa-solid fa-cross" style="margin-right:5px;font-size:0.78rem;"></i>New Testament</button>' +
     '</div>' +
-    // Body
-    '<div style="display:flex;flex:1;min-height:0;overflow:hidden;">' +
-      // Book list
-      '<div style="width:180px;flex-shrink:0;border-right:1px solid #f0f2f8;display:flex;flex-direction:column;">' +
+
+    // ── Body: book list + chapter/verse panel
+    '<div style="' + S.body + '">' +
+
+      // Book column
+      '<div style="' + S.bookCol + '">' +
         '<div style="padding:8px 10px;flex-shrink:0;border-bottom:1px solid #f0f2f8;">' +
-          '<input id="bpSearchInput" type="text" placeholder="Search book…" value="' + (sel.search || '') + '" oninput="bpSearch(this.value)" style="width:100%;padding:5px 9px;border:1px solid #e5e7eb;border-radius:7px;font-size:0.78rem;outline:none;">' +
+          '<div style="position:relative;">' +
+            '<i class="fa-solid fa-magnifying-glass" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:0.72rem;pointer-events:none;"></i>' +
+            '<input id="bpSearchInput" type="text" placeholder="Search…" value="' + (sel.search || '') + '" oninput="bpSearch(this.value)" onclick="event.stopPropagation();" style="width:100%;padding:6px 8px 6px 26px;border:1px solid #e5e7eb;border-radius:7px;font-size:0.78rem;outline:none;background:#fff;">' +
+          '</div>' +
         '</div>' +
         '<div style="overflow-y:auto;flex:1;padding:4px 6px;">' + booksHtml + '</div>' +
       '</div>' +
-      // Chapter + verse
-      '<div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">' +
+
+      // Chapter + verse column
+      '<div style="' + S.chapCol + '">' +
         (sel.book
-          ? '<div style="padding:10px 14px;border-bottom:1px solid #f0f2f8;flex-shrink:0;font-weight:700;color:#4a6da7;font-size:0.88rem;">' + sel.book + '</div>' +
-            '<div style="padding:8px 12px;flex:1;overflow-y:auto;">' +
-              '<div style="font-size:0.72rem;font-weight:700;color:#9ca3af;text-transform:uppercase;margin-bottom:6px;">Chapter</div>' +
+          ? '<div style="padding:10px 14px 8px;border-bottom:1px solid #f0f2f8;flex-shrink:0;display:flex;align-items:center;gap:8px;">' +
+              '<i class="fa-solid fa-book" style="color:#4a6da7;font-size:0.82rem;"></i>' +
+              '<span style="font-weight:700;color:#1f2933;font-size:0.9rem;">' + sel.book + '</span>' +
+              '<span style="font-size:0.7rem;color:#9ca3af;font-weight:500;margin-left:auto;">' + chMax + (chMax === 1 ? ' chapter' : ' chapters') + '</span>' +
+            '</div>' +
+            '<div style="padding:10px 12px;flex:1;overflow-y:auto;">' +
+              '<div style="font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;"><i class="fa-solid fa-list-ol" style="margin-right:4px;"></i>Chapter</div>' +
               '<div style="display:flex;flex-wrap:wrap;">' + chapHtml + '</div>' +
-              (sel.chapter
-                ? '<div style="margin-top:12px;">' +
-                    '<div style="font-size:0.72rem;font-weight:700;color:#9ca3af;text-transform:uppercase;margin-bottom:6px;">Verse(s) — optional</div>' +
-                    '<div style="display:flex;align-items:center;gap:8px;">' +
-                      '<input type="number" id="bpVerseFrom" value="' + (sel.verseFrom || '') + '" min="1" placeholder="From" oninput="bpVerseFrom(this.value)" style="width:68px;padding:5px 8px;border:1.5px solid #e5e7eb;border-radius:7px;font-size:0.82rem;outline:none;">' +
-                      '<span style="color:#9ca3af;">–</span>' +
-                      '<input type="number" id="bpVerseTo" value="' + (sel.verseTo || '') + '" min="1" placeholder="To" oninput="bpVerseTo(this.value)" style="width:68px;padding:5px 8px;border:1.5px solid #e5e7eb;border-radius:7px;font-size:0.82rem;outline:none;">' +
-                    '</div>' +
-                  '</div>'
-                : '') +
+              verseHtml +
             '</div>'
-          : '<div style="display:flex;align-items:center;justify-content:center;flex:1;color:#9ca3af;font-size:0.85rem;">← Select a book</div>') +
+          : '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:10px;color:#9ca3af;padding:20px;">' +
+              '<i class="fa-solid fa-hand-pointer" style="font-size:1.8rem;opacity:.3;"></i>' +
+              '<span style="font-size:0.82rem;text-align:center;">Select a book<br>from the left</span>' +
+            '</div>') +
+      '</div>' +
+
+    '</div>' +
+
+    // ── Selected passages row
+    (curPassages.length
+      ? '<div style="' + S.footer + '">' +
+          '<div style="font-size:0.68rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;"><i class="fa-solid fa-bookmark" style="margin-right:4px;"></i>Selected (' + curPassages.length + ')</div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:5px;">' + chipsHtml + '</div>' +
+        '</div>'
+      : '') +
+
+    // ── Add passage + done actions
+    '<div style="' + S.actions + '">' +
+      (passagePreview
+        ? '<div style="display:flex;align-items:center;gap:10px;flex:1;">' +
+            '<span style="font-size:0.85rem;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:6px 14px;display:flex;align-items:center;gap:6px;">' +
+              '<i class="fa-solid fa-bookmark" style="font-size:0.75rem;"></i>' + passagePreview +
+            '</span>' +
+            '<button onclick="bpAddPassage()" style="padding:8px 20px;background:linear-gradient(135deg,#4a6da7,#5b82c4);color:#fff;border:none;border-radius:10px;font-size:0.85rem;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(74,109,167,.35);white-space:nowrap;">' +
+              '<i class="fa-solid fa-plus" style="margin-right:5px;"></i>Add' +
+            '</button>' +
+          '</div>'
+        : '<span style="font-size:0.78rem;color:#9ca3af;font-style:italic;">Select book → chapter → (optional verse)</span>') +
+      '<div style="display:flex;gap:8px;flex-shrink:0;">' +
+        (curPassages.length ? '<button onclick="bpClearAll()" style="padding:7px 12px;border:1.5px solid #e5e7eb;border-radius:9px;background:#fff;color:#6b7280;font-size:0.78rem;cursor:pointer;">Clear</button>' : '') +
+        '<button onclick="closeBiblePickerModal()" style="padding:7px 18px;background:#1f2933;color:#fff;border:none;border-radius:9px;font-size:0.82rem;font-weight:700;cursor:pointer;">Done</button>' +
       '</div>' +
     '</div>' +
-    // Preview + Add
-    '<div style="padding:12px 18px;border-top:1px solid #f0f2f8;flex-shrink:0;background:#f9fafb;">' +
-      (passagePreview
-        ? '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
-            '<span style="font-size:0.85rem;font-weight:600;color:#1d4ed8;"><i class="fa-solid fa-bookmark" style="margin-right:6px;"></i>' + passagePreview + '</span>' +
-            '<button onclick="bpAddPassage()" style="padding:6px 18px;background:#4a6da7;color:#fff;border:none;border-radius:8px;font-size:0.82rem;font-weight:700;cursor:pointer;">+ Add Passage</button>' +
-          '</div>'
-        : '<div style="font-size:0.78rem;color:#9ca3af;">Select a book and chapter above, then click Add Passage</div>') +
-      (curPassages.length ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:5px;">' + chipsHtml + '</div>' : '') +
-    '</div>' +
-    // Done
-    '<div style="padding:10px 18px;border-top:1px solid #f0f2f8;flex-shrink:0;display:flex;justify-content:flex-end;gap:8px;">' +
-      '<button onclick="bpClearAll()" style="padding:6px 14px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;color:#6b7280;font-size:0.8rem;cursor:pointer;">Clear All</button>' +
-      '<button onclick="closeBiblePickerModal()" style="padding:6px 18px;background:#1f2933;color:#fff;border:none;border-radius:8px;font-size:0.82rem;font-weight:700;cursor:pointer;">Done</button>' +
-    '</div>' +
+
   '</div>';
 }
 
 function _bpRerender() {
   var m = document.getElementById('biblePickerModal');
   if (!m) return;
+  // Preserve book-list scroll position across re-renders
+  var inner = m.querySelector('#bpInner');
+  var bookScroll = 0;
+  if (inner) {
+    var bookList = inner.querySelectorAll('[style*="overflow-y:auto"]');
+    if (bookList.length) bookScroll = bookList[0].scrollTop;
+  }
   m.innerHTML = _renderBiblePickerHtml();
+  // Restore scroll
+  var newInner = m.querySelector('#bpInner');
+  if (newInner && bookScroll > 0) {
+    var newBookList = newInner.querySelectorAll('[style*="overflow-y:auto"]');
+    if (newBookList.length) newBookList[0].scrollTop = bookScroll;
+  }
+  // Re-focus search input if it was focused
+  var searchEl = document.getElementById('bpSearchInput');
+  if (searchEl && document.activeElement && document.activeElement.id === 'bpSearchInput') searchEl.focus();
 }
 
 function bpSetTab(tab) { _bpState.tab = tab; _bpState.book = ''; _bpState.chapter = ''; _bpState.verseFrom = ''; _bpState.verseTo = ''; _bpRerender(); }
 function bpSearch(val) { _bpState.search = val; _bpRerender(); }
 function bpSelectBook(book) { _bpState.book = book; _bpState.chapter = ''; _bpState.verseFrom = ''; _bpState.verseTo = ''; _bpRerender(); }
 function bpSelectChapter(ch) { _bpState.chapter = String(ch); _bpState.verseFrom = ''; _bpState.verseTo = ''; _bpRerender(); }
-function bpVerseFrom(v) { _bpState.verseFrom = v; _updateScriptureDisplay(); }
-function bpVerseTo(v)   { _bpState.verseTo = v;   _updateScriptureDisplay(); }
+function bpVerseFrom(v) { _bpState.verseFrom = v; _bpRerender(); }
+function bpVerseTo(v)   { _bpState.verseTo = v;   _bpRerender(); }
 
 function bpAddPassage() {
   if (!_bpState.book || !_bpState.chapter) return;
