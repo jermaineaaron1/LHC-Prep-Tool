@@ -18898,21 +18898,79 @@ var WO = (function() {
     // Render any existing media items for this order
     renderMediaRows();
 
-    // Pre-fill the messenger bar if a share is pending (warm-start or post-picker)
+    // Auto-submit any pending shared link straight into the inbox.
+    // This handles: OS share sheet, "Send to order" from picker, and
+    // any link/file shared while the app was in the background.
+    // Links that are already part of song library links are skipped
+    // (they live in the song card expand panel, not the inbox).
     setTimeout(function() {
-      var inp = document.getElementById('woSoInput');
-      if (!inp) return;
       var ps = window._pendingShareItem;
-      if (ps) {
-        var val = ps.url || ps.name || ps.title || '';
-        inp.value = val;
-        if (val) _soUpdatePreview(val); // show thumbnail preview card above bar
-        inp.focus();
-        // Scroll the bar into view so user sees the link ready to send
-        var bar = document.getElementById('woSoChatBar');
-        if (bar) bar.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      if (!ps) return;
+
+      var orderId = currentOrderData && currentOrderData.id;
+      if (!orderId) {
+        // No order saved yet — fall back to pre-filling the bar so user can Save first
+        var inp2 = document.getElementById('woSoInput');
+        if (inp2) {
+          var val2 = ps.url || ps.name || ps.title || '';
+          inp2.value = val2;
+          if (val2) _soUpdatePreview(val2);
+          inp2.focus();
+          var bar2 = document.getElementById('woSoChatBar');
+          if (bar2) bar2.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+        return;
       }
-    }, 150);
+
+      // Check if this URL is already a library link in one of the songs
+      // (i.e. came from the Songs page, not shared externally)
+      var sharedUrl = ps.url || '';
+      var alreadyInSong = sharedUrl && songOrderSections.some(function(s) {
+        var libYt = Array.isArray(s.youtube) ? s.youtube
+          : (typeof s.youtube === 'string' && s.youtube.trim() ? s.youtube.split(/[,\n]+/).map(function(u){return u.trim();}) : []);
+        var libDocs = Array.isArray(s.attachments) ? s.attachments.map(function(a){return a.url||'';}) : [];
+        return libYt.indexOf(sharedUrl) !== -1 || libDocs.indexOf(sharedUrl) !== -1;
+      });
+
+      if (alreadyInSong) {
+        // Already in a song's library — don't duplicate in inbox, just clear
+        window._pendingShareItem = null;
+        showToast('Link already in a song\'s media — see the song card below', 'info');
+        return;
+      }
+
+      // Build the inbox item
+      var item = ps.isFile
+        ? { isFile: true, name: ps.name, mimeType: ps.mimeType, size: ps.size,
+            title: ps.title || ps.name, data: ps.data || null,
+            type: ps.type, label: ps.label, icon: ps.icon || '📎', playlist: ps.playlist || false,
+            addedAt: new Date().toISOString() }
+        : { url: sharedUrl, type: ps.type, label: ps.label, icon: ps.icon || '🔗',
+            playlist: ps.playlist || false, title: ps.title || sharedUrl,
+            addedAt: new Date().toISOString() };
+
+      window._pendingShareItem = null;
+
+      // Add to localStorage mirror
+      if (typeof ShareInbox !== 'undefined') ShareInbox.addToOrder(orderId, item);
+      // Push into in-memory array
+      if (!currentOrderData.mediaLinks) currentOrderData.mediaLinks = [];
+      currentOrderData.mediaLinks.push(item);
+      // Render + persist
+      renderResourceSections();
+      _renderLinkInbox();
+      renderMediaRows();
+      showToast((item.icon || '🔗') + ' Added to inbox', 'success');
+      _inboxSaveNow();
+      if (typeof autoSaveOrder === 'function') autoSaveOrder();
+      // Expand inbox so user sees the new card
+      var body = document.getElementById('woParkingBody');
+      var chevron = document.getElementById('woParkingChevron');
+      if (body && body.style.display === 'none') {
+        body.style.display = '';
+        if (chevron) chevron.style.transform = '';
+      }
+    }, 200);
   }
 
   function _ytVideoId(url) {
@@ -19535,22 +19593,36 @@ var WO = (function() {
       '.wo-plm-close{background:none;border:none;color:#9ca3af;cursor:pointer;font-size:1rem;padding:5px 8px;border-radius:7px;transition:color .12s,background .12s;}',
       '.wo-plm-close:hover{color:#ef4444;background:#fef2f2;}',
       '.wo-plm-body{display:flex;flex:1;min-height:0;overflow:hidden;}',
-      '.wo-plm-player{flex:1;min-width:0;background:#000;min-height:280px;}',
-      '.wo-plm-sidebar{width:210px;flex-shrink:0;border-left:1px solid #f0f2f8;overflow-y:auto;background:#fafafa;}',
-      '.wo-plm-track-list{display:flex;flex-direction:column;}',
-      '.wo-plt-track{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;transition:background .12s;border-bottom:1px solid #f3f4f6;}',
+      '.wo-plm-player{flex:1;min-width:0;background:#000;min-height:260px;}',
+      /* Sidebar — track index panel */
+      '.wo-plm-sidebar{width:230px;flex-shrink:0;border-left:1px solid #f0f2f8;display:flex;flex-direction:column;background:#fafafa;}',
+      '.wo-plm-index-hdr{padding:7px 12px;font-size:.7rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;background:#f3f4f6;border-bottom:1px solid #e5e7eb;flex-shrink:0;}',
+      '.wo-plm-track-list{display:flex;flex-direction:column;overflow-y:auto;flex:1;}',
+      '.wo-plt-track{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:pointer;transition:background .12s;border-bottom:1px solid #f3f4f6;position:relative;}',
       '.wo-plt-track:hover{background:#f0f5ff;}',
-      '.wo-plt-track--active{background:#eff6ff;border-left:3px solid #4a6da7;}',
-      '.wo-plt-thumb{width:52px;height:34px;object-fit:cover;border-radius:4px;flex-shrink:0;background:#1f2937;}',
-      '.wo-plt-thumb--icon{display:flex;align-items:center;justify-content:center;color:#ef4444;font-size:.9rem;background:#1f2937;}',
-      '.wo-plt-track-title{font-size:.72rem;color:#374151;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;}',
+      '.wo-plt-track--active{background:#eff6ff;}',
+      '.wo-plt-track--active::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#4a6da7;border-radius:0 2px 2px 0;}',
+      '.wo-plt-num{font-size:.68rem;font-weight:700;color:#9ca3af;min-width:18px;text-align:center;flex-shrink:0;}',
+      '.wo-plt-track--active .wo-plt-num{color:#4a6da7;}',
+      '.wo-plt-thumb{width:46px;height:30px;object-fit:cover;border-radius:4px;flex-shrink:0;background:#1f2937;}',
+      '.wo-plt-thumb--icon{display:flex;align-items:center;justify-content:center;color:#ef4444;font-size:.85rem;background:#1f2937;}',
+      '.wo-plt-track-info{display:flex;flex-direction:column;gap:2px;min-width:0;}',
+      '.wo-plt-track-title{font-size:.71rem;color:#374151;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3;}',
+      '.wo-plt-track--active .wo-plt-track-title{color:#1d4ed8;font-weight:600;}',
+      '.wo-plt-song-badge{font-size:.62rem;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
       '.wo-plm-controls{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid #f0f2f8;background:#f9fafb;flex-shrink:0;}',
       '.wo-plm-btn{background:#4a6da7;color:#fff;border:none;border-radius:8px;padding:7px 13px;font-size:.8rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:background .12s;flex-shrink:0;}',
       '.wo-plm-btn:hover:not([disabled]){background:#3a5d97;}',
       '.wo-plm-track-title-main{flex:1;text-align:center;font-size:.79rem;font-weight:600;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px;}',
       '.wo-plm-no-video{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#9ca3af;gap:12px;}',
       '.wo-plm-no-video i{font-size:3rem;color:#ef4444;}',
-      '@media(max-width:600px){.wo-plm-sidebar{display:none;}.wo-plm-controls{flex-wrap:wrap;}}',
+      /* Mobile: stack player above track index list */
+      '@media(max-width:600px){',
+        '.wo-plm-body{flex-direction:column;}',
+        '.wo-plm-player{min-height:200px;flex:0 0 200px;}',
+        '.wo-plm-sidebar{width:100%;border-left:none;border-top:1px solid #f0f2f8;max-height:200px;}',
+        '.wo-plm-controls{flex-wrap:wrap;}',
+      '}',
     ].join('');
     document.head.appendChild(s);
   }
@@ -20048,14 +20120,23 @@ var WO = (function() {
     var embedSrc = vid ? 'https://www.youtube.com/embed/' + vid + '?autoplay=1&rel=0' : '';
 
     var trackList = _playlistQueue.map(function(t, i) {
-      var active  = i === _playlistIdx ? ' wo-plt-track--active' : '';
-      var v2      = _ytVideoId(t.url || '');
-      var thumb2  = v2
-        ? '<img src="https://img.youtube.com/vi/' + v2 + '/default.jpg" class="wo-plt-thumb">'
+      var isActive = i === _playlistIdx;
+      var active   = isActive ? ' wo-plt-track--active' : '';
+      var v2       = _ytVideoId(t.url || '');
+      var thumb2   = v2
+        ? '<img src="https://img.youtube.com/vi/' + v2 + '/default.jpg" class="wo-plt-thumb" loading="lazy">'
         : '<div class="wo-plt-thumb wo-plt-thumb--icon"><i class="fa-brands fa-youtube"></i></div>';
-      return '<div class="wo-plt-track' + active + '" onclick="WO._playlistJump(' + i + ')">' +
+      var songBadge = t.songTitle
+        ? '<div class="wo-plt-song-badge"><i class="fa-solid fa-music" style="font-size:.55rem;margin-right:2px;"></i>' + escapeHtml(t.songTitle.substring(0, 28)) + '</div>'
+        : '';
+      var activeId  = isActive ? ' id="wo-plt-active"' : '';
+      return '<div class="wo-plt-track' + active + '"' + activeId + ' onclick="WO._playlistJump(' + i + ')">' +
+        '<span class="wo-plt-num">' + (i + 1) + '</span>' +
         thumb2 +
-        '<div class="wo-plt-track-title">' + escapeHtml((t.title || t.url || '').substring(0, 45)) + '</div>' +
+        '<div class="wo-plt-track-info">' +
+          '<div class="wo-plt-track-title">' + escapeHtml((t.title || t.url || '').substring(0, 48)) + '</div>' +
+          songBadge +
+        '</div>' +
       '</div>';
     }).join('');
 
@@ -20075,7 +20156,8 @@ var WO = (function() {
               : '<div class="wo-plm-no-video"><i class="fa-brands fa-youtube"></i><p>Could not load video</p></div>') +
           '</div>' +
           '<div class="wo-plm-sidebar">' +
-            '<div class="wo-plm-track-list">' + trackList + '</div>' +
+            '<div class="wo-plm-index-hdr"><i class="fa-solid fa-list-ol" style="margin-right:5px;"></i>Track Index (' + total + ')</div>' +
+            '<div class="wo-plm-track-list" id="wo-plt-list">' + trackList + '</div>' +
           '</div>' +
         '</div>' +
         '<div class="wo-plm-controls">' +
@@ -20088,6 +20170,12 @@ var WO = (function() {
       '</div>';
 
     document.body.appendChild(modal);
+
+    // Auto-scroll the active track into view inside the sidebar list
+    setTimeout(function() {
+      var activeEl = document.getElementById('wo-plt-active');
+      if (activeEl) activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 80);
   }
 
   function _playlistJump(idx) {
