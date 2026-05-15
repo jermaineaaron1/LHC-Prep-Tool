@@ -15908,6 +15908,28 @@ function normalizeSongFromSupabase(row) {
 // SBQ.mediaLinks — Supabase-backed storage for Order Media Links
 // Requires table: order_media_links (order_id text PK, items jsonb)
 // ================================================================
+// Lightweight immediate patch — updates ONLY template._inbox in the orders table.
+// Uses the in-memory template so no SELECT round-trip is needed.
+// Called by _inboxSaveNow() after every inbox mutation (non-debounced).
+SBQ.patchInbox = function(orderId, items) {
+  var sb = SBQ._sb();
+  if (!sb || !orderId) return Promise.resolve();
+  // Merge _inbox into the current in-memory template
+  var tpl = Object.assign({}, (window.currentOrderData && window.currentOrderData.template) || {});
+  if (items && items.length > 0) {
+    tpl._inbox = items;
+  } else {
+    delete tpl._inbox; // clean up when inbox is emptied
+  }
+  return sb.from('orders')
+    .update({ template: tpl, last_edited: new Date().toISOString() })
+    .eq('id', orderId)
+    .then(function(res) {
+      if (res.error) console.warn('[LHC] patchInbox failed:', res.error.message);
+      else console.log('[LHC] inbox patched → orders.template._inbox', (items || []).length, 'items');
+    });
+};
+
 SBQ.mediaLinks = {
   // Upsert all links for an order. Fire-and-forget.
   save: function(orderId, items) {
@@ -17331,6 +17353,7 @@ var WO = (function() {
               serviceDate: result.order.serviceDate || '',
               occasion: result.order.occasion || '',
               template: result.order.template || {},
+              mediaLinks: result.order.mediaLinks || [],  // inbox items from template._inbox
               createdDate: result.order.createdDate || order.createdDate,
               lastEdited: result.order.lastEdited || '',
               createdBy: result.order.createdBy || '',
@@ -19572,19 +19595,28 @@ var WO = (function() {
 
   // ── Render color-coded draggable card grid in #woLinkInbox ───────────
   // ── Inbox persistence helpers ─────────────────────────────────────────
-  // Saves currentOrderData.mediaLinks to the dedicated order_media_links
-  // Supabase table immediately (not debounced). Called after every mutation
-  // so items survive navigation even if autoSaveOrder() hasn't fired yet.
+  // Saves currentOrderData.mediaLinks immediately (non-debounced) so items
+  // survive navigation even if autoSaveOrder() (debounced 2s) hasn't fired.
+  //
+  // Primary path: SBQ.patchInbox → patches orders.template._inbox directly.
+  //   This is the same field _orderFromRow reads on load, so no extra table needed.
+  // Secondary path: SBQ.mediaLinks.save → order_media_links table (belt-and-suspenders).
+  // Mirror: localStorage for same-session instant access.
   function _inboxSaveNow() {
     var orderId = currentOrderData && currentOrderData.id;
     if (!orderId) return;
     var items = Array.isArray(currentOrderData.mediaLinks) ? currentOrderData.mediaLinks : [];
-    if (typeof SBQ !== 'undefined' && SBQ.mediaLinks) {
-      SBQ.mediaLinks.save(orderId, items).catch(function(e) {
-        console.warn('[LHC] inbox save error:', e);
+    // PRIMARY: patch orders.template._inbox immediately
+    if (typeof SBQ !== 'undefined' && SBQ.patchInbox) {
+      SBQ.patchInbox(orderId, items).catch(function(e) {
+        console.warn('[LHC] patchInbox error:', e);
       });
     }
-    // Also mirror to localStorage as secondary fallback
+    // SECONDARY: also save to order_media_links table
+    if (typeof SBQ !== 'undefined' && SBQ.mediaLinks) {
+      SBQ.mediaLinks.save(orderId, items).catch(function(){});
+    }
+    // MIRROR: localStorage for same-session instant reads
     try {
       var _db = JSON.parse(localStorage.getItem('lhc_share_inbox') || '{}');
       _db[orderId] = items;
