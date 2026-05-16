@@ -25540,7 +25540,11 @@ var WO = (function() {
       '<div class="projection-content" id="projContent">' +
       '<div class="projection-ready">Waiting for content...</div>' +
       '</div>' +
-      '<div id="fsHint" style="display:none;"><span id="fsHintBtn">Fullscreen blocked — click here or press F11</span></div>' +
+      '<div id="fsOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-family:Georgia,serif;">' +
+      '<div style="font-size:4vw;color:#fff;margin-bottom:1.2vw;opacity:0.9;">⛶</div>' +
+      '<div style="font-size:2.2vw;color:#fff;font-weight:bold;margin-bottom:0.8vw;">Click anywhere to go fullscreen</div>' +
+      '<div style="font-size:1.2vw;color:rgba(255,255,255,0.5);">or press F11</div>' +
+      '</div>' +
       '<scr' + 'ipt>' +
       // Auto-scale projection text so all lines always fit within the viewport
       'function _fitProjectionText() {' +
@@ -25554,49 +25558,48 @@ var WO = (function() {
       '    textEl.style.fontSize = fs + "vw";' +
       '  }' +
       '}' +
-      'function _hideHint() { var h = document.getElementById("fsHint"); if (h) { h.style.opacity = "0"; setTimeout(function(){ h.style.display="none"; }, 1000); } }' +
-      // Click the hint button to attempt JS fullscreen; F11 always works as browser-native fallback
-      'document.getElementById("fsHintBtn").addEventListener("click", function() {' +
+      // Fullscreen overlay — click anywhere to go fullscreen (requires user gesture inside this window)
+      'function _dismissFsOverlay() {' +
+      '  var ov = document.getElementById("fsOverlay");' +
+      '  if (!ov) return;' +
       '  document.documentElement.requestFullscreen().catch(function(){});' +
-      '  _hideHint();' +
-      '});' +
-      // Auto-hide hint after 6 seconds
-      'setTimeout(_hideHint, 6000);' +
-      // Re-show hint briefly whenever fullscreen is exited (so user can re-enter)
+      '  ov.style.transition = "opacity 0.4s";' +
+      '  ov.style.opacity = "0";' +
+      '  setTimeout(function() { if (ov.parentNode) ov.parentNode.removeChild(ov); }, 420);' +
+      '}' +
+      'var _fsOv = document.getElementById("fsOverlay");' +
+      'if (_fsOv) _fsOv.addEventListener("click", _dismissFsOverlay);' +
+      // Re-show a small hint when fullscreen is exited
       'document.addEventListener("fullscreenchange", function() {' +
-      '  var h = document.getElementById("fsHint");' +
-      '  if (!document.fullscreenElement && h) { h.style.display="block"; h.style.opacity="1"; setTimeout(_hideHint, 4000); }' +
+      '  if (!document.fullscreenElement) {' +
+      '    var hint = document.createElement("div");' +
+      '    hint.id = "fsRehint";' +
+      '    hint.style.cssText = "position:fixed;bottom:3vh;left:50%;transform:translateX(-50%);z-index:9999;background:rgba(0,0,0,0.7);color:#fff;padding:0.6em 1.8em;border-radius:999px;font-family:Georgia,serif;font-size:1.4vw;cursor:pointer;border:1px solid rgba(255,255,255,0.25);";' +
+      '    hint.textContent = "Click to re-enter fullscreen";' +
+      '    hint.addEventListener("click", function() {' +
+      '      document.documentElement.requestFullscreen().catch(function(){});' +
+      '      hint.remove();' +
+      '    });' +
+      '    document.body.appendChild(hint);' +
+      '    setTimeout(function() { if (hint.parentNode) hint.remove(); }, 5000);' +
+      '  }' +
       '});' +
       // Move to target screen then go fullscreen.
       // moveTo/resizeTo place the window on the correct monitor even if window.open()
       // clamped it to the primary screen. requestFullscreen then fills that monitor.
+      // Move/resize to place window on the correct monitor (Chrome may clamp to primary on open)
       '(function() {' +
-      '  var targetLeft = ' + left + ';' +
-      '  var targetTop = ' + top + ';' +
-      '  var targetW = ' + width + ';' +
-      '  var targetH = ' + height + ';' +
-      '  function _doFullscreen() {' +
-      '    var el = document.documentElement;' +
-      '    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;' +
-      '    if (!req) { var h = document.getElementById("fsHint"); if (h) { h.style.display="block"; h.style.opacity="1"; } return; }' +
-      '    var p = req.call(el);' +
-      '    if (p && p.catch) p.catch(function() {' +
-      '      var h = document.getElementById("fsHint"); if (h) { h.style.display="block"; h.style.opacity="1"; }' +
-      '    });' +
-      '  }' +
       '  try {' +
-      '    window.moveTo(targetLeft, targetTop);' +
-      '    window.resizeTo(targetW, targetH);' +
+      '    window.moveTo(' + left + ', ' + top + ');' +
+      '    window.resizeTo(' + width + ', ' + height + ');' +
       '  } catch(e) {}' +
-      '  // Small delay lets the move settle before requesting fullscreen' +
-      '  setTimeout(_doFullscreen, 120);' +
       '})();' +
       // Global handler function callable from opener
       'window.handleProjectionData = function(data) {' +
       '  var content = document.getElementById("projContent");' +
       '  var bgEl = document.getElementById("projBackground");' +
       '  if (!content) return;' +
-      '  if (data.type === "text" || data.type === "slide" || data.type === "video") _hideHint();' +
+      '  if (data.type === "text" || data.type === "slide" || data.type === "video") { var _ov = document.getElementById("fsOverlay"); if (_ov) _ov.remove(); }' +
       '  if (data.type === "text") {' +
       '    var s = window._textSettings || {};' +
       '    var style = "font-family:" + (s.fontFamily || "Georgia, serif") + ";";' +
@@ -25693,6 +25696,7 @@ var WO = (function() {
       '} catch(e) {}' +
       '</scr' + 'ipt></body></html>';
 
+    projectionWindow.document.open('text/html', 'replace');
     projectionWindow.document.write(projectionHtml);
     projectionWindow.document.close();
 
