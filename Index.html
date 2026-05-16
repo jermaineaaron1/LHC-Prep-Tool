@@ -4518,10 +4518,9 @@
                   <div class="wo-preview-actions">
                     <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
                     <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
-                    <button class="wo-golive-btn" id="woGoLiveBtn" onclick="WO.openProjectionWindow()" title="Go Live on HDMI secondary monitor">
-                      <i class="fa-solid fa-circle-play"></i>
-                      <span class="wo-golive-label">Go Live</span>
-                      <span class="wo-golive-dot" id="woGoLiveDot"></span>
+                    <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
+                      <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
+                      <span class="wo-golive-label" id="woBlankLabel">Blank</span>
                     </button>
                     <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Fullscreen"><i class="fa-solid fa-expand"></i></button>
                   </div>
@@ -4531,7 +4530,7 @@
                   <div class="wo-preview-placeholder">Click any content box to see preview</div>
                 </div>
                 <div class="wo-preview-hint">
-                  <i class="fa-solid fa-keyboard"></i> Arrow keys navigate slides &nbsp;|&nbsp; <strong>Go Live</strong> opens projection window
+                  <i class="fa-solid fa-keyboard"></i> Arrow keys navigate slides &nbsp;|&nbsp; <strong>Blank</strong> blacks out the projection screen
                 </div>
                 <!-- Quick slide nav controls always visible in preview panel -->
               </div>
@@ -25415,6 +25414,31 @@ var WO = (function() {
     showToast('Projection window opened — drag it to your HDMI screen and press F11 for fullscreen', 'info');
   }
 
+  // Blank / unblank the projection screen
+  var _projBlanked = false;
+  function blankProjection() {
+    if (!projectionWindow || projectionWindow.closed) {
+      showToast('No projection window open — use the ⛶ button to open one first', 'warning');
+      return;
+    }
+    _projBlanked = !_projBlanked;
+    var btn  = document.getElementById('woBlankBtn');
+    var icon = document.getElementById('woBlankIcon');
+    var lbl  = document.getElementById('woBlankLabel');
+    if (_projBlanked) {
+      sendToProjectionWindow({ type: 'blank', on: true });
+      if (btn)  btn.classList.add('blanked');
+      if (icon) { icon.className = 'fa-solid fa-eye'; }
+      if (lbl)  lbl.textContent = 'Unblank';
+    } else {
+      sendToProjectionWindow({ type: 'blank', on: false });
+      if (btn)  btn.classList.remove('blanked');
+      if (icon) { icon.className = 'fa-solid fa-eye-slash'; }
+      if (lbl)  lbl.textContent = 'Blank';
+      syncProjectionWithPreview();
+    }
+  }
+
   // Update the Go Live button dot: green = live, grey = offline
   function _setGoLiveDot(live) {
     var dot = document.getElementById('woGoLiveDot');
@@ -25507,7 +25531,7 @@ var WO = (function() {
     }
   }
 
-  function createProjectionWindow(left, top, width, height) {
+  function createProjectionWindow(left, top, width, height, targetScreen) {
     // Open the popup — Chrome may clamp it to the primary screen, but the popup's own
     // script will immediately call moveTo+resizeTo to place itself on the correct screen,
     // then requestFullscreen so it fills that display.
@@ -25635,6 +25659,22 @@ var WO = (function() {
       '  } else if (data.type === "clear") {' +
       '    content.innerHTML = "<div class=\\"projection-ready\\">Waiting for content...</div>";' +
       '    content.style.padding = "60px";' +
+      '  } else if (data.type === "blank") {' +
+      '    var blankEl = document.getElementById("projBlank");' +
+      '    if (data.on) {' +
+      '      if (!blankEl) {' +
+      '        blankEl = document.createElement("div");' +
+      '        blankEl.id = "projBlank";' +
+      '        blankEl.style.cssText = "position:fixed;inset:0;background:#000;z-index:99999;transition:opacity 0.5s;opacity:0;";' +
+      '        document.body.appendChild(blankEl);' +
+      '        requestAnimationFrame(function() { blankEl.style.opacity = "1"; });' +
+      '      }' +
+      '    } else {' +
+      '      if (blankEl) {' +
+      '        blankEl.style.opacity = "0";' +
+      '        setTimeout(function() { if (blankEl.parentNode) blankEl.parentNode.removeChild(blankEl); }, 520);' +
+      '      }' +
+      '    }' +
       '  } else if (data.type === "requestFullscreen") {' +
       '    if (!document.fullscreenElement) {' +
       '      document.documentElement.requestFullscreen().catch(function(err) { console.log("Fullscreen request failed:", err); });' +
@@ -25699,6 +25739,18 @@ var WO = (function() {
     projectionWindow.document.open('text/html', 'replace');
     projectionWindow.document.write(projectionHtml);
     projectionWindow.document.close();
+
+    // Request fullscreen from the opener while the user gesture is still active.
+    // Passing { screen } (Window Management API) targets the exact monitor when available.
+    // This is called synchronously (no setTimeout) so the activation token hasn't expired.
+    try {
+      var _fsEl = projectionWindow.document.documentElement;
+      var _fsReq = _fsEl.requestFullscreen || _fsEl.webkitRequestFullscreen;
+      if (_fsReq) {
+        var _fsOpts = targetScreen ? { screen: targetScreen } : {};
+        _fsReq.call(_fsEl, _fsOpts).catch(function() {});
+      }
+    } catch(e) {}
 
     // Listen for navigation from projection window (only add once)
     if (!window._projectionListenerAdded) {
@@ -36962,8 +37014,9 @@ var WO = (function() {
         if (screen.isPrimary) {
           _doFullscreenOverlay();
         } else {
-          // Open dedicated projection window directly on the chosen monitor
-          createProjectionWindow(screen.left, screen.top, screen.width, screen.height);
+          // Open dedicated projection window directly on the chosen monitor,
+          // passing the ScreenDetailed object so requestFullscreen({ screen }) can target it
+          createProjectionWindow(screen.left, screen.top, screen.width, screen.height, screen);
           if (projectionWindow) {
             _setupProjectionChannel();
             _setGoLiveDot(true);
@@ -40166,6 +40219,7 @@ var WO = (function() {
     projectPptPage: projectPptPage,
     openSermonRemote: openSermonRemote,
     openProjectionWindow: openProjectionWindow,
+    blankProjection: blankProjection,
     autoProject: _autoProjectIfExtPresent,
     checkSecondaryMonitor: checkSecondaryMonitor,
     diagnoseScreens: diagnoseScreens,
@@ -45664,6 +45718,10 @@ function filterLiturgyItems() {
   .wo-golive-btn { display: flex; align-items: center; gap: 5px; background: linear-gradient(135deg, #059669, #10b981); color: white; border: none; padding: 6px 13px; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 0.78rem; letter-spacing: 0.02em; transition: all 0.2s ease; position: relative; }
   .wo-golive-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(16, 185, 129, 0.5); background: linear-gradient(135deg, #047857, #059669); }
   .wo-golive-btn:active { transform: translateY(0); }
+  .wo-blank-btn { background: linear-gradient(135deg, #374151, #4b5563) !important; }
+  .wo-blank-btn:hover { background: linear-gradient(135deg, #1f2937, #374151) !important; box-shadow: 0 4px 14px rgba(0,0,0,0.35) !important; }
+  .wo-blank-btn.blanked { background: linear-gradient(135deg, #1e3a5f, #2563eb) !important; }
+  .wo-blank-btn.blanked:hover { background: linear-gradient(135deg, #1e40af, #1d4ed8) !important; box-shadow: 0 4px 14px rgba(37,99,235,0.45) !important; }
   .wo-golive-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.35); flex-shrink: 0; transition: background 0.3s; }
   .wo-golive-dot.live { background: #fff; box-shadow: 0 0 5px rgba(255,255,255,0.8); animation: golive-pulse 1.8s ease-in-out infinite; }
   @keyframes golive-pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
