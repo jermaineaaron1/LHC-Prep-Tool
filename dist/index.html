@@ -25403,18 +25403,16 @@ var WO = (function() {
     _openWindowFallback(projUrl);
   }
 
-  // Opens the projection URL as a regular popup (no extension)
+  // Opens the projection window by writing minimal projection HTML directly (no app reload)
   function _openWindowFallback(projUrl) {
     var pw = window.screen.width;
     var ph = window.screen.height;
-    projectionWindow = window.open(projUrl, 'LHCProjection',
-      'width=' + pw + ',height=' + ph + ',menubar=no,toolbar=no,location=no,status=no,resizable=yes');
-    if (!projectionWindow) {
-      showToast('Please allow popups for this site to use the projection window', 'warning');
-      return;
-    }
+    // Use createProjectionWindow so we write clean projection HTML instead of reloading the app
+    createProjectionWindow(0, 0, pw, ph);
+    if (!projectionWindow) return; // createProjectionWindow already shows the toast
     _setupProjectionChannel();
-    showToast('Projection window opened — drag it to your HDMI screen, then click Go Fullscreen', 'info');
+    _setGoLiveDot(true);
+    showToast('Projection window opened — drag it to your HDMI screen and press F11 for fullscreen', 'info');
   }
 
   // Update the Go Live button dot: green = live, grey = offline
@@ -25462,7 +25460,9 @@ var WO = (function() {
     // Just add postMessage fallback listener and schedule a content sync.
     if (!window._projectionListenerAdded) {
       window.addEventListener('message', function(e) {
-        if (e.data && e.data.type === 'navigate') handleProjectionNavigate(e.data.direction);
+        if (!e.data) return;
+        if (e.data.type === 'navigate') handleProjectionNavigate(e.data.direction);
+        if (e.data.type === 'proj-ready') { _projWindowLive = true; _setGoLiveDot(true); }
       });
       window._projectionListenerAdded = true;
     }
@@ -25684,6 +25684,13 @@ var WO = (function() {
       '  if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function(){});' +
       '  else document.exitFullscreen();' +
       '});' +
+      // Announce to the main window that the projection window is ready
+      'try {' +
+      '  if (typeof BroadcastChannel !== "undefined") {' +
+      '    new BroadcastChannel("lhc-projection").postMessage({ type: "proj-ready" });' +
+      '  }' +
+      '  if (window.opener) window.opener.postMessage({ type: "proj-ready" }, "*");' +
+      '} catch(e) {}' +
       '</scr' + 'ipt></body></html>';
 
     projectionWindow.document.write(projectionHtml);
@@ -36951,8 +36958,13 @@ var WO = (function() {
         if (screen.isPrimary) {
           _doFullscreenOverlay();
         } else {
-          // Open dedicated projection window the user can place on that monitor
-          openProjectionWindow();
+          // Open dedicated projection window directly on the chosen monitor
+          createProjectionWindow(screen.left, screen.top, screen.width, screen.height);
+          if (projectionWindow) {
+            _setupProjectionChannel();
+            _setGoLiveDot(true);
+            showToast('Projecting on ' + (screen.label || 'external screen'), 'success');
+          }
         }
       });
     });
