@@ -26167,14 +26167,32 @@ var WO = (function() {
 
   function loadLiturgyItems() {
     allLiturgyItems = [];
+
+    // Seed immediately from LiturgyModule in-memory store (covers localStorage items)
+    if (typeof LiturgyModule !== 'undefined' && LiturgyModule.getAllItems) {
+      var memItems = LiturgyModule.getAllItems() || [];
+      allLiturgyItems = memItems
+        .filter(function(item) { return item.projectable; })
+        .map(function(item) {
+          return {
+            id: item.id, title: item.title || '', type: item.type || item.category || 'liturgy',
+            content: item.content || '', fileUrl: item.fileUrl || item.lyricsUrl || '',
+            projectable: true,
+            tags: item.tags || [], occasionId: item.occasionId || null,
+            occasionFolderId: item.occasionFolderId || null,
+            generalFolder: item.generalFolder || null
+          };
+        });
+    }
     renderLiturgyPopupResults();
-    // Load projectable items directly from Supabase (localStorage no longer used)
+
+    // Also load from Supabase and merge (Supabase rows are the authoritative source)
     var sb = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
     if (sb) {
       sb.from('liturgy_items').select('*').eq('projectable', true).order('title')
         .then(function(r) {
           if (r.error || !r.data) return;
-          allLiturgyItems = r.data.map(function(row) {
+          var sbItems = r.data.map(function(row) {
             return {
               id: row.id, title: row.title || '', type: row.category || 'liturgy',
               content: row.content || '', fileUrl: row.file_url || '',
@@ -26184,6 +26202,12 @@ var WO = (function() {
               generalFolder: row.general_folder || null
             };
           });
+          // Merge: Supabase items override any matching in-memory items by id
+          var sbIds = {};
+          sbItems.forEach(function(i) { sbIds[i.id] = true; });
+          var merged = allLiturgyItems.filter(function(i) { return !sbIds[i.id]; }).concat(sbItems);
+          merged.sort(function(a, b) { return a.title.localeCompare(b.title); });
+          allLiturgyItems = merged;
           renderLiturgyPopupResults();
         })
         .catch(function(e) { console.warn('WO: Supabase liturgy load failed', e); });
@@ -26198,6 +26222,22 @@ var WO = (function() {
     renderLiturgyPopupResults();
   }
 
+  function _populateYearFilterOptions(yf, folders) {
+    // Sort: numeric year names newest→oldest, then alphabetical
+    var sorted = folders.slice().sort(function(a, b) {
+      var na = parseInt(a.name), nb = parseInt(b.name);
+      if (!isNaN(na) && !isNaN(nb)) return nb - na;
+      return a.name.localeCompare(b.name);
+    });
+    sorted.forEach(function(f) {
+      var opt = document.createElement('option');
+      opt.value = f.id;
+      opt.textContent = f.name;
+      yf.appendChild(opt);
+    });
+    yf.style.display = '';
+  }
+
   function woLiturgySeasonChanged() {
     var sf = $('woLiturgySeasonFilter');
     var yf = $('woLiturgyYearFilter');
@@ -26205,23 +26245,34 @@ var WO = (function() {
     var seasonVal = sf.value;
     // Reset year dropdown
     yf.innerHTML = '<option value="">All Years</option>';
-    if (seasonVal && typeof LiturgyModule !== 'undefined' && LiturgyModule.getOccFoldersForOccasion) {
-      var folders = LiturgyModule.getOccFoldersForOccasion(seasonVal) || [];
-      if (folders.length > 0) {
-        folders.forEach(function(f) {
-          var opt = document.createElement('option');
-          opt.value = f.id;
-          opt.textContent = f.name;
-          yf.appendChild(opt);
-        });
-        yf.style.display = '';
-      } else {
-        yf.style.display = 'none';
+    yf.style.display = 'none';
+    if (!seasonVal) { renderLiturgyPopupResults(); return; }
+
+    // Fast path: LiturgyModule already has folders in memory (Liturgy tab was visited)
+    if (typeof LiturgyModule !== 'undefined' && LiturgyModule.getOccFoldersForOccasion) {
+      var cached = LiturgyModule.getOccFoldersForOccasion(seasonVal) || [];
+      if (cached.length > 0) {
+        _populateYearFilterOptions(yf, cached);
+        renderLiturgyPopupResults();
+        return;
       }
-    } else {
-      yf.style.display = 'none';
     }
-    renderLiturgyPopupResults();
+
+    // Fallback: query Supabase directly (LiturgyModule not yet initialised)
+    var sb = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
+    if (sb) {
+      sb.from('liturgy_occ_folders').select('*').eq('occasion_id', seasonVal).order('sort_order')
+        .then(function(r) {
+          if (!r.error && r.data && r.data.length > 0) {
+            var fetched = r.data.map(function(row) { return { id: row.id, name: row.name }; });
+            _populateYearFilterOptions(yf, fetched);
+          }
+          renderLiturgyPopupResults();
+        })
+        .catch(function() { renderLiturgyPopupResults(); });
+    } else {
+      renderLiturgyPopupResults();
+    }
   }
 
   function renderLiturgyPopupResults() {
