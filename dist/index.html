@@ -11269,6 +11269,13 @@ window.loadEditSongData = function(song) {
   // 5) VIEW ROUTING
   // ============================================================
   function setActiveView(viewId) {
+    // Save order immediately when navigating away from Orders so no content is lost
+    var _ordersEl = $('worshipOrderView');
+    var _leavingOrders = _ordersEl && _ordersEl.style.display !== 'none' && viewId !== 'worshipOrderView';
+    if (_leavingOrders && typeof WO !== 'undefined' && WO.saveImmediately) {
+      WO.saveImmediately();
+    }
+
     // Close sidebar on mobile when switching views
     closeSidebarOnMobile();
 
@@ -15960,6 +15967,25 @@ window.loadEditSongData = function(song) {
 
   document.addEventListener('DOMContentLoaded', init);
 
+  // ── Save-on-leave guards ─────────────────────────────────────────────────
+  // Save the current order immediately before the page is hidden or unloaded.
+  // This catches: browser back, closing the tab, PWA being backgrounded on mobile.
+  (function() {
+    function _flushOrderSave() {
+      try {
+        if (typeof WO !== 'undefined' && WO.saveImmediately) WO.saveImmediately();
+      } catch(e) {}
+    }
+    // Page visibility — fires when user backgrounds the app on mobile / switches tab
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'hidden') _flushOrderSave();
+    });
+    // beforeunload — fires on browser nav/close (desktop browsers)
+    window.addEventListener('beforeunload', function() { _flushOrderSave(); });
+    // pagehide — more reliable than beforeunload on iOS Safari
+    window.addEventListener('pagehide', function() { _flushOrderSave(); });
+  })();
+
   // ── Share Inbox ──────────────────────────────────────────────────────────
   // Receives links shared from YouTube, Spotify, Google Docs, etc. via the
   // PWA shell's Web Share Target, then lets the user assign them to an order.
@@ -19186,6 +19212,13 @@ var WO = (function() {
     }, 2000);
   }
 
+  // Bypass the 2s debounce — call before navigating away or on page hide
+  function saveImmediately() {
+    if (!currentOrderData || _sbStandaloneId) return;
+    clearTimeout(_autoSaveTimer);
+    saveCurrentOrder(true);
+  }
+
   function saveCurrentOrder(silent) {
     if (!currentOrderData) return;
 
@@ -21682,62 +21715,41 @@ var WO = (function() {
             addSongToServiceSection(item.sectionId, songEntry);
           }
         } else if (item.itemType === 'liturgy') {
-          // Only restore if this item is CURRENTLY assigned to this section in the
-          // Liturgy module AND compatible with this order's service type.
-          // This prevents: stale items from changed assignments, Traditional-only
-          // items appearing in Contemporary orders, and duplicates.
-          var _allLit = LiturgyModule.getAllItems();
-          if (_allLit.length === 0) {
-            // Module not ready — gap-fill retry covers this
-          } else {
-            // Find the live module record for this item
+          // Always restore liturgy items that were saved — the user deliberately placed
+          // them here (either auto-assigned or manually added via the popup).
+          // Use the live LiturgyModule record for latest content; fall back to the
+          // Supabase-saved slides if the module isn't loaded yet or the item was edited.
+          if (!document.querySelector('.wo-liturgy-banner-bar[data-liturgy-id="' + item.sourceId + '"]')) {
+            var _allLit = LiturgyModule.getAllItems ? LiturgyModule.getAllItems() : [];
             var _litRecord = _allLit.find(function(li) { return li.id === item.sourceId; });
-            if (!_litRecord) {
-              // Item deleted from module — skip ghost
-            } else {
-              // Service-type compatibility check on the item itself:
-              // Traditional-only items must never appear in Contemporary orders and vice-versa.
-              var _itemSt = (_litRecord.sectionAssignment && _litRecord.sectionAssignment.serviceType)
-                            || _litRecord.serviceType || '';
-              var _compatible = (_itemSt === 'both')
-                || (_itemSt === serviceType577)
-                || (_itemSt === ''); // unassigned items allowed
-              if (!_compatible) {
-                // Wrong service type — skip (gap-fill won't add it either since the
-                // section doesn't exist in this order type's structure)
-              } else {
-                // Confirm item is still assigned to this specific section
-                var _secIdx = parseInt((item.sectionId || '').replace('wo-section-', ''), 10);
-                var _structSec = (!isNaN(_secIdx)) ? structure[_secIdx] : null;
-                var _isAssigned = false;
-                if (_structSec && _structSec.liturgySectionId) {
-                  var _cur = LiturgyModule.getAssignedLiturgyForSection(serviceType577, _structSec.liturgySectionId);
-                  _isAssigned = _cur.some(function(a) { return a.id === item.sourceId; });
-                }
-                if (_isAssigned) {
-                  var liturgyItem = {
-                    id: item.sourceId,
-                    title: item.title,
-                    type: item.type || 'liturgy',
-                    content: item.slides ? item.slides.map(function(s) { return s.content; }).join('\n═══════════════════════════════════\n') : ''
-                  };
-                  if (!document.querySelector('.wo-liturgy-banner-bar[data-liturgy-id="' + item.sourceId + '"]')) {
-                    addLiturgyToSection(item.sectionId, liturgyItem);
-                    if (item.slides) {
-                      item.slides.forEach(function(slide, idx) {
-                        if (slide.background) {
-                          var slideBox = container.querySelector('.wo-slide-box[data-liturgy-id="' + item.sourceId + '"][data-slide-idx="' + idx + '"]');
-                          if (slideBox) {
-                            slideBox.setAttribute('data-background', slide.background);
-                            updateSlideBgIndicators();
-                          }
-                        }
-                      });
-                    }
+
+            // Build content: prefer live module record → fall back to saved slides
+            var _litContent = '';
+            if (_litRecord && _litRecord.content) {
+              _litContent = _litRecord.content;
+            } else if (item.slides && item.slides.length > 0) {
+              _litContent = item.slides.map(function(s) { return s.content; }).join('\n═══════════════════════════════════\n');
+            }
+
+            var liturgyItem = {
+              id: item.sourceId,
+              title: item.title,
+              type: (_litRecord && _litRecord.type) || (item.content && item.content.type) || 'liturgy',
+              content: _litContent
+            };
+            addLiturgyToSection(item.sectionId, liturgyItem);
+
+            // Re-apply any saved slide backgrounds
+            if (item.slides) {
+              item.slides.forEach(function(slide, idx) {
+                if (slide.background) {
+                  var slideBox = container.querySelector('.wo-slide-box[data-liturgy-id="' + item.sourceId + '"][data-slide-idx="' + idx + '"]');
+                  if (slideBox) {
+                    slideBox.setAttribute('data-background', slide.background);
+                    updateSlideBgIndicators();
                   }
                 }
-                // else: no longer assigned to this section — gap-fill adds current item
-              }
+              });
             }
           }
         } else if (item.itemType === 'content' && item.content && item.content.text) {
@@ -40188,6 +40200,7 @@ var WO = (function() {
     backToMainMenu: backToMainMenu,
     saveCurrentOrder: saveCurrentOrder,
     autoSaveOrder: autoSaveOrder,
+    saveImmediately: saveImmediately,
     saveOrderAs: saveOrderAs,
     closeSaveAsModal: closeSaveAsModal,
     confirmSaveAs: confirmSaveAs,
