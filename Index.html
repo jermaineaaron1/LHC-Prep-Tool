@@ -4475,17 +4475,53 @@
 
               <div class="wo-order-selector">
                 <div class="wo-order-controls">
-                  <button class="wo-control-btn wo-back-to-menu-btn" onclick="WO.backToMainMenu()"><i class="fa-solid fa-arrow-left mr-2"></i> Main Menu</button>
-                  <button class="wo-control-btn wo-save-order-btn" onclick="WO.saveCurrentOrder()"><i class="fa-solid fa-floppy-disk mr-2"></i> Save Order</button>
+                  <button class="wo-control-btn wo-back-to-menu-btn" onclick="WO.backToMainMenu()">
+                    <i class="fa-solid fa-arrow-left mr-2"></i> Main Menu
+                  </button>
+                  <button class="wo-control-btn wo-save-order-btn" onclick="WO.saveCurrentOrder()">
+                    <i class="fa-solid fa-floppy-disk mr-2"></i> Save Order
+                  </button>
                   <span id="woAutoSaveStatus" style="font-size:0.72rem;color:#94a3b8;font-family:'Poppins',sans-serif;align-self:center;margin-left:2px;transition:color .3s;"></span>
-                  <button class="wo-control-btn wo-save-as-btn" onclick="WO.saveOrderAs()" title="Save as new order"><i class="fa-solid fa-copy mr-1"></i> Save As</button>
-                  <button class="wo-control-btn wo-print-btn" onclick="WO.generateLiturgyBook()" title="Generate full liturgy with songs"><i class="fa-solid fa-book-bible mr-1"></i> Liturgy Book</button>
-                  <button class="wo-control-btn wo-print-btn" onclick="WO.openSongbook()" title="Open Worship Songbook"><i class="fa-solid fa-book-open mr-1"></i> Songbook</button>
+                  <button class="wo-control-btn wo-save-as-btn" onclick="WO.saveOrderAs()" title="Save as new order">
+                    <i class="fa-solid fa-copy mr-1"></i> Save As
+                  </button>
+                  <button class="wo-control-btn wo-print-btn" onclick="WO.generateLiturgyBook()" title="Generate full liturgy with songs">
+                    <i class="fa-solid fa-book-bible mr-1"></i> Liturgy Book
+                  </button>
+                  <button class="wo-control-btn wo-print-btn" onclick="WO.openSongbook()" title="Open Worship Songbook">
+                    <i class="fa-solid fa-book-open mr-1"></i> Songbook
+                  </button>
                 </div>
                 <div class="wo-order-title">Current Worship Order:</div>
                 <div class="wo-order-buttons">
-                  <button class="wo-order-btn" id="woServiceOrderBtn" onclick="WO.selectOrder('service')">Service Order</button>
-                  <button class="wo-order-btn active" id="woSongOrderBtn" onclick="WO.selectOrder('song')">Song Order</button>
+                  <button class="wo-order-btn" id="woServiceOrderBtn" onclick="WO.selectOrder('service')">
+                    <i class="fa-solid fa-display"></i>
+                    <span class="wo-order-btn-label">LCD Projection</span>
+                    <span class="wo-order-btn-sub">Service Order</span>
+                  </button>
+                  <button class="wo-order-btn active" id="woSongOrderBtn" onclick="WO.selectOrder('song')">
+                    <i class="fa-solid fa-music"></i>
+                    <span class="wo-order-btn-label">Song Order</span>
+                    <span class="wo-order-btn-sub">Music Team</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="wo-mode-landing" id="woModeLanding" style="display:none;">
+              <div class="wo-mode-landing-inner">
+                <p class="wo-mode-landing-eyebrow">What would you like to work on?</p>
+                <div class="wo-mode-landing-cards">
+                  <button class="wo-mode-card wo-mode-card--lcd" onclick="WO.selectOrder('service')">
+                    <div class="wo-mode-card-icon"><i class="fa-solid fa-display"></i></div>
+                    <div class="wo-mode-card-name">LCD Projection</div>
+                    <div class="wo-mode-card-sub">Build the service order, manage liturgy sections and project live to screen</div>
+                  </button>
+                  <button class="wo-mode-card wo-mode-card--song" onclick="WO.selectOrder('song')">
+                    <div class="wo-mode-card-icon"><i class="fa-solid fa-music"></i></div>
+                    <div class="wo-mode-card-name">Song Order</div>
+                    <div class="wo-mode-card-sub">Manage songs, keys, lyrics and prepare the music team for service</div>
+                  </button>
                 </div>
               </div>
             </div>
@@ -18554,7 +18590,7 @@ var WO = (function() {
     $('woEditor').style.display = 'block';
     $('woCurrentOrderInfo').textContent = currentOrderData.title + ' - Created Today';
 
-    selectOrder('song');
+    showOrderModeLanding();
   }
 
   function loadOrder(idxOrId) {
@@ -18960,7 +18996,7 @@ var WO = (function() {
     }
 
     // Render the order structure - items are restored when switching to Service Order view
-    selectOrder('song');
+    showOrderModeLanding();
   }
 
   // Reconstruct order items in the DOM from saved data
@@ -20062,7 +20098,20 @@ var WO = (function() {
     console.log('snapshotCurrentState - items:', items.length, '| serviceSectionItems sections:', Object.keys(rebuiltSSI).length);
   }
 
+  function showOrderModeLanding() {
+    var landing = $('woModeLanding');
+    var mainContent = document.querySelector('.wo-main-content');
+    if (landing) { landing.style.display = 'flex'; }
+    if (mainContent) { mainContent.style.display = 'none'; }
+  }
+
   function selectOrder(orderType) {
+    // Hide landing, show content
+    var landing = $('woModeLanding');
+    var mainContent = document.querySelector('.wo-main-content');
+    if (landing) landing.style.display = 'none';
+    if (mainContent) mainContent.style.display = '';
+
     // Snapshot current state before switching tabs so it can be restored
     snapshotCurrentState();
 
@@ -40009,6 +40058,7 @@ var WO = (function() {
     closeSaveAsModal: closeSaveAsModal,
     confirmSaveAs: confirmSaveAs,
     selectOrder: selectOrder,
+    showOrderModeLanding: showOrderModeLanding,
     toggleSection: toggleSection,
     addContentBox: addContentBox,
     editContent: editContent,
@@ -45645,9 +45695,44 @@ function filterLiturgyItems() {
   .wo-back-to-menu-btn { background: linear-gradient(135deg, #6c757d, #495057); }
   .wo-order-title { color: #f7fafc; font-size: 0.7rem; font-weight: 600; margin-bottom: 8px; }
   .wo-order-buttons { display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
-  .wo-order-btn { background: rgba(255,255,255,0.2); color: white; border: 2px solid rgba(255,255,255,0.4); padding: 10px 20px; border-radius: 25px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; font-family: 'Poppins', sans-serif; }
-  .wo-order-btn:hover { background: rgba(255,255,255,0.3); }
-  .wo-order-btn.active { background: white; color: #4169e1; border-color: #ffd700; }
+  .wo-order-btn { display:flex; flex-direction:column; align-items:center; gap:2px; background:#f1f5f9; border:2px solid #e2e8f0; border-radius:14px; padding:10px 22px; cursor:pointer; font-family:'Poppins',sans-serif; transition:all .2s ease; min-width:130px; }
+  .wo-order-btn i { font-size:1.3rem; color:#64748b; transition:color .2s; }
+  .wo-order-btn .wo-order-btn-label { font-size:0.82rem; font-weight:700; color:#374151; }
+  .wo-order-btn .wo-order-btn-sub { font-size:0.68rem; color:#94a3b8; }
+  .wo-order-btn:hover { border-color:#93c5fd; background:#eff6ff; }
+  .wo-order-btn:hover i { color:#3b82f6; }
+  .wo-order-btn.active { background:linear-gradient(135deg,#4a6da7,#6b9ac4); border-color:#4a6da7; color:#fff; box-shadow:0 4px 14px rgba(74,109,167,.35); }
+  .wo-order-btn.active i { color:#fff; }
+  .wo-order-btn.active .wo-order-btn-label { color:#fff; }
+  .wo-order-btn.active .wo-order-btn-sub { color:rgba(255,255,255,.7); }
+  @media (max-width:600px) {
+    .wo-order-btn { min-width:110px; padding:8px 14px; }
+    .wo-order-btn .wo-order-btn-label { font-size:0.75rem; }
+    .wo-order-controls { flex-wrap:wrap; }
+    .wo-order-buttons { flex-direction:column; align-items:center; }
+  }
+
+  /* Mode landing */
+  .wo-mode-landing { display:flex; align-items:center; justify-content:center; min-height:340px; padding:32px 20px; background:#fff; border-radius:0 0 12px 12px; }
+  .wo-mode-landing-inner { width:100%; max-width:640px; text-align:center; }
+  .wo-mode-landing-eyebrow { font-family:'Poppins',sans-serif; font-size:0.85rem; color:#94a3b8; text-transform:uppercase; letter-spacing:.08em; margin:0 0 20px; }
+  .wo-mode-landing-cards { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .wo-mode-card { background:#fff; border:2px solid #e5e7eb; border-radius:18px; padding:28px 20px 24px; cursor:pointer; transition:all .22s ease; text-align:center; display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .wo-mode-card:hover { transform:translateY(-3px); box-shadow:0 12px 32px rgba(0,0,0,.12); }
+  .wo-mode-card-icon { width:64px; height:64px; border-radius:16px; display:flex; align-items:center; justify-content:center; font-size:1.7rem; margin-bottom:4px; }
+  .wo-mode-card--lcd .wo-mode-card-icon { background:linear-gradient(135deg,#1e40af,#3b82f6); color:#fff; }
+  .wo-mode-card--lcd { border-color:#bfdbfe; }
+  .wo-mode-card--lcd:hover { border-color:#3b82f6; background:#eff6ff; }
+  .wo-mode-card--song .wo-mode-card-icon { background:linear-gradient(135deg,#6d28d9,#a78bfa); color:#fff; }
+  .wo-mode-card--song { border-color:#ddd6fe; }
+  .wo-mode-card--song:hover { border-color:#7c3aed; background:#f5f3ff; }
+  .wo-mode-card-name { font-family:'Cinzel',serif; font-size:1.05rem; font-weight:700; color:#1f2933; }
+  .wo-mode-card-sub { font-family:'Poppins',sans-serif; font-size:0.78rem; color:#6b7280; line-height:1.5; }
+  @media (max-width:600px) {
+    .wo-mode-landing-cards { grid-template-columns:1fr; }
+    .wo-mode-card { flex-direction:row; text-align:left; padding:18px 16px; gap:14px; }
+    .wo-mode-card-icon { width:52px; height:52px; font-size:1.4rem; flex-shrink:0; }
+  }
 
   /* Main Content Area */
   .wo-main-content { display: flex; min-height: 500px; background: white; border-radius: 0 0 12px 12px; }
