@@ -4664,6 +4664,23 @@
                   <option value="creed">Creeds</option>
                   <option value="media">Media</option>
                 </select>
+                <select class="wo-liturgy-filter" id="woLiturgySeasonFilter" onchange="WO.filterLiturgyInPopup()">
+                  <option value="">All Seasons</option>
+                  <option value="ordinary-traditional">Ordinary Sunday (Traditional)</option>
+                  <option value="ordinary-contemporary">Ordinary Sunday (Contemporary)</option>
+                  <option value="advent">Advent</option>
+                  <option value="christmas-eve">Christmas Eve</option>
+                  <option value="christmas-day">Christmas Day</option>
+                  <option value="watchnight">Watchnight / New Year</option>
+                  <option value="ash-wednesday">Ash Wednesday</option>
+                  <option value="palm-sunday">Palm Sunday</option>
+                  <option value="maundy-thursday">Maundy Thursday</option>
+                  <option value="good-friday">Good Friday</option>
+                  <option value="easter">Easter</option>
+                  <option value="pentecost">Pentecost</option>
+                  <option value="thanksgiving">Thanksgiving</option>
+                  <option value="special">Special Service</option>
+                </select>
               </div>
             </div>
 
@@ -26128,6 +26145,10 @@ var WO = (function() {
       popup.classList.add('show');
       popup.setAttribute('data-section', sectionId);
       var c = popup.querySelector('.wo-liturgy-popup-content'); if (c) c.scrollTop = 0;
+      // Reset filters on each open
+      var tf = $('woLiturgyTypeFilter'); if (tf) tf.value = '';
+      var sf = $('woLiturgySeasonFilter'); if (sf) sf.value = '';
+      var si = $('woLiturgySearchInput'); if (si) si.value = '';
       loadLiturgyItems();
     }
   }
@@ -26178,16 +26199,19 @@ var WO = (function() {
 
     var searchInput = $('woLiturgySearchInput');
     var typeFilter = $('woLiturgyTypeFilter');
+    var seasonFilter = $('woLiturgySeasonFilter');
 
     var query = searchInput ? searchInput.value.toLowerCase().trim() : '';
     var typeVal = typeFilter ? typeFilter.value : '';
+    var seasonVal = seasonFilter ? seasonFilter.value : '';
 
     var filtered = allLiturgyItems.filter(function(item) {
       var matchesSearch = !query ||
         item.title.toLowerCase().includes(query) ||
         (item.content && item.content.toLowerCase().includes(query));
       var matchesType = !typeVal || item.type === typeVal;
-      return matchesSearch && matchesType;
+      var matchesSeason = !seasonVal || item.occasionId === seasonVal;
+      return matchesSearch && matchesType && matchesSeason;
     });
 
     if (filtered.length === 0) {
