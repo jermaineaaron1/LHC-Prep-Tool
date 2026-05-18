@@ -4664,7 +4664,7 @@
                   <option value="creed">Creeds</option>
                   <option value="media">Media</option>
                 </select>
-                <select class="wo-liturgy-filter" id="woLiturgySeasonFilter" onchange="WO.filterLiturgyInPopup()">
+                <select class="wo-liturgy-filter" id="woLiturgySeasonFilter" onchange="WO.woLiturgySeasonChanged()">
                   <option value="">All Seasons</option>
                   <option value="ordinary-traditional">Ordinary Sunday (Traditional)</option>
                   <option value="ordinary-contemporary">Ordinary Sunday (Contemporary)</option>
@@ -4680,6 +4680,9 @@
                   <option value="pentecost">Pentecost</option>
                   <option value="thanksgiving">Thanksgiving</option>
                   <option value="special">Special Service</option>
+                </select>
+                <select class="wo-liturgy-filter" id="woLiturgyYearFilter" onchange="WO.filterLiturgyInPopup()" style="display:none;">
+                  <option value="">All Years</option>
                 </select>
               </div>
             </div>
@@ -26148,6 +26151,7 @@ var WO = (function() {
       // Reset filters on each open
       var tf = $('woLiturgyTypeFilter'); if (tf) tf.value = '';
       var sf = $('woLiturgySeasonFilter'); if (sf) sf.value = '';
+      var yf = $('woLiturgyYearFilter'); if (yf) { yf.value = ''; yf.innerHTML = '<option value="">All Years</option>'; yf.style.display = 'none'; }
       var si = $('woLiturgySearchInput'); if (si) si.value = '';
       loadLiturgyItems();
     }
@@ -26176,6 +26180,7 @@ var WO = (function() {
               content: row.content || '', fileUrl: row.file_url || '',
               projectable: row.projectable || false,
               tags: row.tags || [], occasionId: row.occasion_id || null,
+              occasionFolderId: row.occasion_folder_id || null,
               generalFolder: row.general_folder || null
             };
           });
@@ -26193,6 +26198,32 @@ var WO = (function() {
     renderLiturgyPopupResults();
   }
 
+  function woLiturgySeasonChanged() {
+    var sf = $('woLiturgySeasonFilter');
+    var yf = $('woLiturgyYearFilter');
+    if (!sf || !yf) { renderLiturgyPopupResults(); return; }
+    var seasonVal = sf.value;
+    // Reset year dropdown
+    yf.innerHTML = '<option value="">All Years</option>';
+    if (seasonVal && typeof LiturgyModule !== 'undefined' && LiturgyModule.getOccFoldersForOccasion) {
+      var folders = LiturgyModule.getOccFoldersForOccasion(seasonVal) || [];
+      if (folders.length > 0) {
+        folders.forEach(function(f) {
+          var opt = document.createElement('option');
+          opt.value = f.id;
+          opt.textContent = f.name;
+          yf.appendChild(opt);
+        });
+        yf.style.display = '';
+      } else {
+        yf.style.display = 'none';
+      }
+    } else {
+      yf.style.display = 'none';
+    }
+    renderLiturgyPopupResults();
+  }
+
   function renderLiturgyPopupResults() {
     var resultsContainer = $('woLiturgyResults');
     if (!resultsContainer) return;
@@ -26200,10 +26231,12 @@ var WO = (function() {
     var searchInput = $('woLiturgySearchInput');
     var typeFilter = $('woLiturgyTypeFilter');
     var seasonFilter = $('woLiturgySeasonFilter');
+    var yearFilter = $('woLiturgyYearFilter');
 
     var query = searchInput ? searchInput.value.toLowerCase().trim() : '';
     var typeVal = typeFilter ? typeFilter.value : '';
     var seasonVal = seasonFilter ? seasonFilter.value : '';
+    var yearVal = yearFilter ? yearFilter.value : '';
 
     var filtered = allLiturgyItems.filter(function(item) {
       var matchesSearch = !query ||
@@ -26211,7 +26244,8 @@ var WO = (function() {
         (item.content && item.content.toLowerCase().includes(query));
       var matchesType = !typeVal || item.type === typeVal;
       var matchesSeason = !seasonVal || item.occasionId === seasonVal;
-      return matchesSearch && matchesType && matchesSeason;
+      var matchesYear = !yearVal || item.occasionFolderId === yearVal;
+      return matchesSearch && matchesType && matchesSeason && matchesYear;
     });
 
     if (filtered.length === 0) {
@@ -40160,6 +40194,7 @@ var WO = (function() {
     closeLiturgyPopup: closeLiturgyPopup,
     searchLiturgyInPopup: searchLiturgyInPopup,
     filterLiturgyInPopup: filterLiturgyInPopup,
+    woLiturgySeasonChanged: woLiturgySeasonChanged,
     selectLiturgyItem: selectLiturgyItem,
     selectSong: selectSong,
     removeSong: removeSong,
@@ -45497,7 +45532,8 @@ var LiturgyModule = (function() {
     forcePushToCloud: forcePushToCloud,
     syncFromBackend: syncFromBackend,
     syncAll: syncAll,
-    preloadItems: preloadItems
+    preloadItems: preloadItems,
+    getOccFoldersForOccasion: getOccFoldersForOccasion
   };
 })();
 
