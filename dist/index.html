@@ -26350,6 +26350,36 @@ var WO = (function() {
     autoSaveOrder();
   }
 
+  // ----------------------------------------------------------------
+  // Shared slide box header builder — "Slide N / M" + nav + all-slides
+  // ----------------------------------------------------------------
+  function _buildSlideBoxHeader(idx, total, type, groupId, sectionId) {
+    var totalStr = (total > 0) ? ' / ' + total : '';
+    var headerCls = (type === 'liturgy') ? ' liturgy' : '';
+    var eG = (groupId  || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    var eS = (sectionId|| '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+
+    var navHtml = '';
+    if (type === 'song' && groupId && sectionId) {
+      navHtml =
+        '<button class="wo-slide-hdr-nav" onclick="event.stopPropagation(); WO.navigateSectionSlide(\'' + eS + '\', -1)" title="Previous slide"><i class="fa-solid fa-chevron-up"></i></button>' +
+        '<button class="wo-slide-hdr-nav" onclick="event.stopPropagation(); WO.navigateSectionSlide(\'' + eS + '\', 1)"  title="Next slide"><i class="fa-solid fa-chevron-down"></i></button>' +
+        '<button class="wo-slide-hdr-allslides" onclick="event.stopPropagation(); WO.openAllSlidesModal(\'song\', \'' + eG + '\', \'' + eS + '\', this)" title="All Slides"><i class="fa-solid fa-table-cells-large"></i></button>';
+    } else if (type === 'liturgy' && groupId && sectionId) {
+      navHtml =
+        '<button class="wo-slide-hdr-nav" onclick="event.stopPropagation(); WO.navigateLiturgySlideInSection(\'' + eS + '\', \'' + eG + '\', -1)" title="Previous slide"><i class="fa-solid fa-chevron-up"></i></button>' +
+        '<button class="wo-slide-hdr-nav" onclick="event.stopPropagation(); WO.navigateLiturgySlideInSection(\'' + eS + '\', \'' + eG + '\', 1)"  title="Next slide"><i class="fa-solid fa-chevron-down"></i></button>' +
+        '<button class="wo-slide-hdr-allslides" onclick="event.stopPropagation(); WO.openAllSlidesModal(\'liturgy\', \'' + eG + '\', \'' + eS + '\', this)" title="All Slides"><i class="fa-solid fa-table-cells-large"></i></button>';
+    }
+
+    return '<div class="wo-slide-box-header' + headerCls + '">' +
+      '<span class="wo-slide-box-number">Slide ' + (idx + 1) + totalStr + '</span>' +
+      '<div class="wo-slide-hdr-actions">' + navHtml +
+        '<button class="wo-slide-box-remove" onclick="event.stopPropagation(); WO.removeSlideBox(this.closest(\'.wo-slide-box\'))" title="Remove slide"><i class="fa-solid fa-times"></i></button>' +
+      '</div>' +
+    '</div>';
+  }
+
   function addLiturgyToSection(sectionId, item) {
     var container = $(sectionId + '-boxes');
     if (!container) return;
@@ -26386,8 +26416,7 @@ var WO = (function() {
         : '<div class="wo-slide-line wo-slide-empty-hint" style="color:#9ca3af;font-style:italic;font-size:0.85rem;">Double-click to add content</div>';
 
       var boxHtml = '<div class="wo-content-box wo-slide-box wo-liturgy-slide" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-liturgy-id="' + item.id + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
-        '<div class="wo-slide-box-header liturgy"><span class="wo-slide-box-number">Slide ' + (idx + 1) + '</span>' +
-        '<button class="wo-slide-box-remove" onclick="event.stopPropagation(); WO.removeSlideBox(this.closest(\'.wo-slide-box\'))" title="Remove slide"><i class="fa-solid fa-times"></i></button></div>' +
+        _buildSlideBoxHeader(idx, slides.length, 'liturgy', item.id, sectionId) +
         '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background for this slide"><i class="fa-solid fa-image"></i></button>' +
         '<div class="wo-slide-content">' + linesHtml + '</div>' +
       '</div>';
@@ -26857,8 +26886,7 @@ var WO = (function() {
         var linesHtml = slide.lines.map(function(line) { return _slideLineHtml(line); }).join('');
         var bgAttr = backgrounds[idx] ? ' data-background="' + escapeHtml(backgrounds[idx]) + '"' : '';
         slidesHtml += '<div class="wo-content-box wo-slide-box" data-slide-idx="' + idx + '" data-section="' + escapeHtml(sectionId) + '" data-song-id="' + escapeHtml(songId) + '"' + bgAttr + ' onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
-          '<div class="wo-slide-box-header"><span class="wo-slide-box-number">Slide ' + (idx + 1) + '</span>' +
-          '<button class="wo-slide-box-remove" onclick="event.stopPropagation(); WO.removeSlideBox(this.closest(\'.wo-slide-box\'))" title="Remove slide"><i class="fa-solid fa-times"></i></button></div>' +
+          _buildSlideBoxHeader(idx, newSlides.length, 'song', songId, sectionId) +
           '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background for this slide"><i class="fa-solid fa-image"></i></button>' +
           headerHtml +
           '<div class="wo-slide-content">' + linesHtml + '</div>' +
@@ -32096,8 +32124,7 @@ var WO = (function() {
         : '';
       var linesHtml = slide.lines.map(function(line) { return _slideLineHtml(line); }).join('');
       var boxHtml = '<div class="wo-content-box wo-slide-box" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-song-id="' + songId + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
-        '<div class="wo-slide-box-header"><span class="wo-slide-box-number">Slide ' + (idx + 1) + '</span>' +
-        '<button class="wo-slide-box-remove" onclick="event.stopPropagation(); WO.removeSlideBox(this.closest(\'.wo-slide-box\'))" title="Remove slide"><i class="fa-solid fa-times"></i></button></div>' +
+        _buildSlideBoxHeader(idx, newSlides.length, 'song', songId, sectionId) +
         '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background for this slide"><i class="fa-solid fa-image"></i></button>' +
         headerHtml +
         '<div class="wo-slide-content">' + linesHtml + '</div>' +
@@ -35012,8 +35039,7 @@ var WO = (function() {
       }).join('');
 
       var boxHtml = '<div class="wo-content-box wo-slide-box" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-song-id="' + songSection.id + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
-        '<div class="wo-slide-box-header"><span class="wo-slide-box-number">Slide ' + (idx + 1) + '</span>' +
-        '<button class="wo-slide-box-remove" onclick="event.stopPropagation(); WO.removeSlideBox(this.closest(\'.wo-slide-box\'))" title="Remove slide"><i class="fa-solid fa-times"></i></button></div>' +
+        _buildSlideBoxHeader(idx, slides.length, 'song', songSection.id, sectionId) +
         '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background for this slide"><i class="fa-solid fa-image"></i></button>' +
         headerHtml +
         '<div class="wo-slide-content">' + linesHtml + '</div>' +
@@ -36012,8 +36038,7 @@ var WO = (function() {
     if (songId) dataAttrs += ' data-song-id="' + songId + '"';
 
     var boxHtml = '<div class="wo-content-box wo-slide-box' + extraClasses + '"' + dataAttrs + ' onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
-      '<div class="wo-slide-box-header' + headerClass + '"><span class="wo-slide-box-number">New</span>' +
-      '<button class="wo-slide-box-remove" onclick="event.stopPropagation(); WO.removeSlideBox(this.closest(\'.wo-slide-box\'))" title="Remove slide"><i class="fa-solid fa-times"></i></button></div>' +
+      _buildSlideBoxHeader(0, 0, isLiturgy ? 'liturgy' : 'song', liturgyId || songId, sectionId) +
       '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background for this slide"><i class="fa-solid fa-image"></i></button>' +
       '<div class="wo-slide-content">' + (linesHtml || '<div class="wo-slide-line"></div>') + '</div>' +
     '</div>';
@@ -36357,10 +36382,7 @@ var WO = (function() {
           'data-section="' + sectionId + '" ' +
           dataAttr + ' ' +
           'onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
-          '<div class="wo-slide-box-header' + headerCls + '">' +
-            '<span class="wo-slide-box-number">Slide ' + (idx + 1) + '</span>' +
-            '<button class="wo-slide-box-remove" onclick="event.stopPropagation(); WO.removeSlideBox(this.closest(\'.wo-slide-box\'))" title="Remove slide"><i class="fa-solid fa-times"></i></button>' +
-          '</div>' +
+          _buildSlideBoxHeader(idx, slideLineArrays.length, _allSlidesCtx.type, _allSlidesCtx.groupId, _allSlidesCtx.sectionId) +
           '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background"><i class="fa-solid fa-image"></i></button>' +
           '<div class="wo-slide-content">' + linesHtml + '</div>' +
         '</div>';
@@ -36489,11 +36511,10 @@ var WO = (function() {
       : '.wo-slide-box[data-song-id="' + groupId + '"]';
     var groupSlides = container.querySelectorAll(selector);
 
+    var total = groupSlides.length;
     groupSlides.forEach(function(box, idx) {
       var numberEl = box.querySelector('.wo-slide-box-number');
-      if (numberEl) {
-        numberEl.textContent = 'Slide ' + (idx + 1);
-      }
+      if (numberEl) numberEl.textContent = 'Slide ' + (idx + 1) + ' / ' + total;
       box.setAttribute('data-slide-idx', idx);
     });
   }
@@ -40032,11 +40053,9 @@ var WO = (function() {
         ? '<div class="wo-slide-scripture-title">' + escapeHtml(title) + '</div>'
         : '<div class="wo-slide-scripture-footnote">' + escapeHtml(title) + '</div>';
       var linesHtml = slideText.split('\n').map(function(line) { return _slideLineHtml(line); }).join('');
+      var totalSlides = slides.length + (/gospel/i.test(subLabel) ? 1 : 0);
       return '<div class="wo-slide-box" data-source="scripture" data-scripture-title="' + escapeHtml(title) + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
-        '<div class="wo-slide-box-header">' +
-          '<span class="wo-slide-box-number">Slide ' + (idx + 1) + '</span>' +
-          '<button class="wo-slide-box-remove" onclick="event.stopPropagation(); WO.removeSlideBox(this.closest(\'.wo-slide-box\'))" title="Remove slide"><i class="fa-solid fa-times"></i></button>' +
-        '</div>' +
+        _buildSlideBoxHeader(idx, totalSlides, 'scripture', null, null) +
         '<div class="wo-slide-content">' + (idx === 0 ? refHtml : '') + linesHtml + (idx > 0 ? refHtml : '') + '</div>' +
       '</div>';
     }).join('');
@@ -40044,11 +40063,9 @@ var WO = (function() {
     // Gospel Response ending slide (337) — appended for Gospel readings
     var gospelEndingHtml = '';
     if (/gospel/i.test(subLabel)) {
+      var totalWithGospel = slides.length + 1;
       gospelEndingHtml = '<div class="wo-slide-box" data-source="scripture" data-scripture-title="Gospel Response" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
-        '<div class="wo-slide-box-header">' +
-          '<span class="wo-slide-box-number">Slide ' + (slides.length + 1) + '</span>' +
-          '<button class="wo-slide-box-remove" onclick="event.stopPropagation(); WO.removeSlideBox(this.closest(\'.wo-slide-box\'))" title="Remove slide"><i class="fa-solid fa-times"></i></button>' +
-        '</div>' +
+        _buildSlideBoxHeader(slides.length, totalWithGospel, 'scripture', null, null) +
         '<div class="wo-slide-content">' +
           '<div class="wo-slide-scripture-title">Gospel Response</div>' +
           '<div class="wo-slide-line">P: This is the Gospel of our Lord</div>' +
@@ -40107,10 +40124,7 @@ var WO = (function() {
       }
       var linesHtml = slideText.split('\n').map(function(line) { return _slideLineHtml(line); }).join('');
       return '<div class="wo-slide-box" data-source="scripture" data-scripture-title="' + escapeHtml(title) + '" data-section="' + escapeHtml(sectionId) + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
-        '<div class="wo-slide-box-header">' +
-          '<span class="wo-slide-box-number">Slide ' + (idx + 1) + '</span>' +
-          '<button class="wo-slide-box-remove" onclick="event.stopPropagation(); WO.removeSlideBox(this.closest(\'.wo-slide-box\'))" title="Remove slide"><i class="fa-solid fa-times"></i></button>' +
-        '</div>' +
+        _buildSlideBoxHeader(idx, slides.length, 'scripture', null, null) +
         '<div class="wo-slide-content">' + (idx === 0 ? refHtml : '') + linesHtml + (idx > 0 ? refHtml : '') + '</div>' +
       '</div>';
     }).join('');
@@ -46906,23 +46920,37 @@ function filterLiturgyItems() {
     letter-spacing: 0.5px;
   }
   .wo-slide-box-header.liturgy .wo-slide-box-number { color: #a78bfa; }
-  .wo-slide-box-remove {
+  /* Slide header action cluster (nav + all-slides + remove) */
+  .wo-slide-hdr-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.18s;
+  }
+  .wo-slide-box:hover .wo-slide-hdr-actions { opacity: 1; }
+  .wo-slide-box.selected .wo-slide-hdr-actions { opacity: 1; }
+  .wo-slide-hdr-nav, .wo-slide-hdr-allslides, .wo-slide-box-remove {
     width: 20px;
     height: 20px;
     border: none;
     background: transparent;
-    color: #cbd5e1;
+    color: #94a3b8;
     cursor: pointer;
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 4px;
-    transition: all 0.2s;
-    opacity: 0;
+    transition: all 0.15s;
+    padding: 0;
   }
-  .wo-slide-box:hover .wo-slide-box-remove { opacity: 1; }
+  .wo-slide-hdr-nav:hover { background: #e2e8f0; color: #475569; }
+  .wo-slide-hdr-allslides { font-size: 0.6rem; }
+  .wo-slide-hdr-allslides:hover { background: #ede9fe; color: #7c3aed; }
   .wo-slide-box-remove:hover { background: #fee2e2; color: #ef4444; }
+  /* Legacy: keep remove visible on hover for backwards compat */
+  .wo-slide-box-remove { opacity: 1; }
 
   /* Add Slide button row */
   .wo-add-slide-row {
