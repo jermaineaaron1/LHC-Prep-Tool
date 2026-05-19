@@ -5955,6 +5955,68 @@
     font-size: 14px;
   }
   
+  /* Paste button in lyrics toolbar */
+  .lyrics-paste-btn {
+    width: auto !important;
+    padding: 0 10px !important;
+    gap: 5px;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+    border-color: #4f46e5 !important;
+    color: white !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+  }
+  .lyrics-paste-btn:hover {
+    background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%) !important;
+    color: white !important;
+  }
+  .lyrics-paste-label { font-size: 12px; }
+
+  /* ── Lyrics Editor — Mobile / small screen ─────────────────────────── */
+  @media (max-width: 768px) {
+    .lyrics-editor-modal { padding: 0; align-items: flex-end; }
+    .lyrics-editor-content {
+      border-radius: 16px 16px 0 0;
+      max-height: 96vh;
+      height: 96vh;
+    }
+    /* Hide the right-side slide preview panel on mobile — the editor is the focus */
+    .lyrics-editor-right { display: none !important; }
+    .lyrics-editor-body { padding: 10px; gap: 10px; }
+    .lyrics-editor-wrapper { min-height: 0; flex: 1; }
+    .lyrics-rich-editor { min-height: 220px; font-size: 15px; padding: 14px; }
+
+    /* Section buttons: scroll horizontally instead of wrapping */
+    .section-buttons {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 4px;
+      gap: 5px;
+      margin-bottom: 8px;
+    }
+    .section-buttons::-webkit-scrollbar { height: 3px; }
+    .section-buttons::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .section-btn { flex-shrink: 0; padding: 8px 13px; font-size: 12px; min-height: 36px; }
+
+    /* Transpose row: tighter but still touchable */
+    .transpose-controls { gap: 6px; }
+    .transpose-btn { width: 36px; height: 36px; font-size: 16px; }
+    .transpose-select { height: 36px; font-size: 13px; padding: 0 6px; }
+
+    /* Format toolbar: larger touch targets */
+    .lyrics-format-toolbar { gap: 6px; padding: 6px 0; }
+    .format-btn { width: 36px; height: 36px; font-size: 14px; }
+    .format-select { height: 36px; font-size: 12px; }
+    .lyrics-paste-btn { min-height: 36px; padding: 0 14px !important; font-size: 13px !important; }
+    .lyrics-paste-label { font-size: 13px; }
+
+    /* Footer buttons */
+    .lyrics-editor-footer { padding: 10px 14px; gap: 8px; }
+    .lyrics-editor-footer .roster-action-btn { flex: 1; justify-content: center; min-height: 44px; font-size: 14px; }
+    .lyrics-editor-footer .lhc-pill-button { min-height: 44px; padding: 0 16px; font-size: 14px; }
+  }
+
   /* Scan Modal - must be on top */
   #lyricsScanModal {
     z-index: 100000 !important;
@@ -6640,6 +6702,12 @@
             <div class="format-group">
               <button type="button" class="format-btn" onclick="lyricsUndo()" title="Undo"><i class="fa-solid fa-rotate-left"></i></button>
               <button type="button" class="format-btn" onclick="lyricsRedo()" title="Redo"><i class="fa-solid fa-rotate-right"></i></button>
+            </div>
+            <div class="format-group lyrics-paste-group">
+              <button type="button" class="format-btn lyrics-paste-btn" onclick="lyricsEditorPaste()" title="Paste from clipboard">
+                <i class="fa-solid fa-clipboard"></i>
+                <span class="lyrics-paste-label">Paste</span>
+              </button>
             </div>
           </div>
           <div class="lyrics-editor-wrapper">
@@ -8714,6 +8782,53 @@ function lyricsRedo() {
   }
 }
 
+// Clipboard Paste button for Lyrics Editor — works on mobile where long-press paste is awkward
+function lyricsEditorPaste() {
+  var richEditor = document.getElementById('lyricsRichEditor');
+  var textarea   = document.getElementById('lyricsEditorTextarea');
+  if (!richEditor) return;
+
+  function _doInsert(text) {
+    if (!text) return;
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    var existing = textarea ? (textarea.value || '') : getPlainTextFromRichEditor();
+    // Find insertion point — use saved caret pos or end of content
+    var insertAt = existing.length;
+    if (richEditor._savedCaretPos != null) {
+      insertAt = richEditor._savedCaretPos;
+    } else {
+      try {
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount && document.activeElement === richEditor) {
+          insertAt = getCaretCharacterOffsetWithin(richEditor);
+        }
+      } catch(e) {}
+    }
+    var merged = existing.slice(0, insertAt) + text + existing.slice(insertAt);
+    renderRichEditor(merged);
+    if (textarea) textarea.value = merged;
+    var newPos = insertAt + text.length;
+    richEditor.focus();
+    requestAnimationFrame(function() {
+      try { setCaretPosition(richEditor, newPos); } catch(e) {}
+    });
+    richEditor.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    navigator.clipboard.readText().then(function(text) {
+      _doInsert(text);
+    }).catch(function() {
+      // Clipboard read was denied — let the user know
+      showToast('Clipboard access denied. Long-press → Paste manually.', 'error');
+    });
+  } else {
+    // Fallback for older browsers: focus editor, user can then use Ctrl+V / long-press
+    richEditor.focus();
+    showToast('Tap in the editor then long-press → Paste', 'info');
+  }
+}
+
 function applyLyricsFormat(type, value) {
   var textarea = document.getElementById('lyricsEditorTextarea');
   if (!textarea) return;
@@ -10080,10 +10195,25 @@ function setupPasteHandler() {
     richEditor.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
-  // Re-apply syntax highlighting when focus leaves (safe — cursor is already gone)
+  // Re-apply syntax highlighting when focus leaves.
+  // Save the caret position first so we can restore it when the user
+  // taps/clicks back into the editor (prevents the cursor jumping to 0).
   richEditor.addEventListener('blur', function() {
+    richEditor._savedCaretPos = getCaretCharacterOffsetWithin(richEditor);
     var text = getPlainTextFromRichEditor();
     renderRichEditor(text);
+  });
+
+  // Restore saved caret position after focus returns.
+  richEditor.addEventListener('focus', function() {
+    if (richEditor._savedCaretPos != null) {
+      var pos = richEditor._savedCaretPos;
+      richEditor._savedCaretPos = null;
+      // requestAnimationFrame ensures the DOM is settled before we move the caret
+      requestAnimationFrame(function() {
+        try { setCaretPosition(richEditor, pos); } catch(e) {}
+      });
+    }
   });
 
   // Undo/redo — let browser handle natively, just sync preview after
