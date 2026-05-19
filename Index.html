@@ -5628,9 +5628,9 @@
   .lyrics-summary i { margin-right: 6px; }
   
   /* Lyrics Editor Modal */
-  .lyrics-editor-modal { position: fixed; inset: 0; z-index: 20000; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; padding: 20px; }
+  .lyrics-editor-modal { position: fixed; inset: 0; z-index: 20000; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
   .lyrics-editor-modal.show { display: flex; }
-  .lyrics-editor-content { background: white; border-radius: 16px; width: 100%; max-width: 1350px; max-height: 95vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px rgba(0,0,0,0.25); }
+  .lyrics-editor-content { background: white; border-radius: 16px; width: 100%; max-width: 1350px; max-height: 95vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px rgba(0,0,0,0.25); box-sizing: border-box; overflow: hidden; }
   .lyrics-editor-header { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; }
   .lyrics-editor-header h3 { font-size: 18px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 10px; }
   .lyrics-editor-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; gap: 20px; }
@@ -5974,17 +5974,21 @@
 
   /* ── Lyrics Editor — Mobile / small screen ─────────────────────────── */
   @media (max-width: 768px) {
-    .lyrics-editor-modal { padding: 0; align-items: flex-end; }
+    .lyrics-editor-modal { padding: 0; align-items: flex-end; overflow: hidden; }
     .lyrics-editor-content {
       border-radius: 16px 16px 0 0;
       max-height: 96vh;
       height: 96vh;
+      width: 100vw;
+      max-width: 100vw;
+      overflow: hidden;
     }
     /* Hide the right-side slide preview panel on mobile — the editor is the focus */
     .lyrics-editor-right { display: none !important; }
-    .lyrics-editor-body { padding: 10px; gap: 10px; }
-    .lyrics-editor-wrapper { min-height: 0; flex: 1; }
-    .lyrics-rich-editor { min-height: 220px; font-size: 15px; padding: 14px; }
+    .lyrics-editor-body { padding: 10px; gap: 10px; overflow-x: hidden; }
+    .lyrics-editor-left { min-width: 0; overflow-x: hidden; }
+    .lyrics-editor-wrapper { min-height: 0; flex: 1; overflow: hidden; }
+    .lyrics-rich-editor { min-height: 220px; font-size: 15px; padding: 14px; max-width: 100%; }
 
     /* Section buttons: scroll horizontally instead of wrapping */
     .section-buttons {
