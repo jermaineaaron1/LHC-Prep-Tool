@@ -21641,6 +21641,10 @@ var WO = (function() {
       '.wo-plm-share-btn{display:flex;align-items:center;justify-content:center;gap:5px;background:#25d366;color:#fff;border:none;cursor:pointer;font-size:.82rem;font-weight:600;padding:5px 11px;border-radius:20px;transition:background .15s,transform .1s;white-space:nowrap;}',
       '.wo-plm-share-btn i{font-size:1rem;}',
       '.wo-plm-share-btn:hover{background:#1ebe5a;transform:scale(1.03);}',
+      '.wo-plm-copy-btn{display:flex;align-items:center;justify-content:center;gap:5px;background:#e5e7eb;color:#374151;border:none;cursor:pointer;font-size:.82rem;font-weight:600;padding:5px 11px;border-radius:20px;transition:background .15s,color .15s,transform .1s;white-space:nowrap;}',
+      '.wo-plm-copy-btn i{font-size:.9rem;}',
+      '.wo-plm-copy-btn:hover{background:#d1d5db;transform:scale(1.03);}',
+      '.wo-plm-copy-btn.copied{background:#4a6da7;color:#fff;}',
       '.wo-plm-close{background:none;border:none;color:#9ca3af;cursor:pointer;font-size:1rem;padding:5px 8px;border-radius:7px;transition:color .12s,background .12s;}',
       '.wo-plm-close:hover{color:#ef4444;background:#fef2f2;}',
       '.wo-plm-body{display:flex;flex:1;min-height:0;overflow:hidden;}',
@@ -22406,6 +22410,9 @@ var WO = (function() {
         '<div class="wo-plm-header">' +
           '<span class="wo-plm-title"><i class="fa-solid fa-circle-play"></i> Order Playlist</span>' +
           '<div class="wo-plm-header-right">' +
+            '<button class="wo-plm-copy-btn" id="woPLMCopyBtn" onclick="WO._copyPlaylistLink(this)" title="Copy playlist link">' +
+              '<i class="fa-solid fa-link"></i>' +
+            '</button>' +
             '<button class="wo-plm-share-btn" onclick="WO._sharePlaylist()" title="Share playlist via WhatsApp">' +
               '<i class="fa-brands fa-whatsapp"></i>' +
             '</button>' +
@@ -22493,6 +22500,48 @@ var WO = (function() {
 
     var waUrl = 'https://wa.me/?text=' + encodeURIComponent(msg);
     window.open(waUrl, '_blank');
+  }
+
+  function _copyPlaylistLink(btn) {
+    if (!_playlistQueue || !_playlistQueue.length) return;
+    var videoIds = [];
+    _playlistQueue.forEach(function(t) {
+      var vid = _ytVideoId(t.url || '');
+      if (vid) videoIds.push(vid);
+    });
+    if (!videoIds.length) { showToast('No YouTube links in this playlist', 'warn'); return; }
+    var ytPlaylistUrl = 'https://www.youtube.com/watch_videos?video_ids=' + videoIds.join(',');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ytPlaylistUrl).then(function() {
+        _showCopyConfirm(btn);
+      }).catch(function() {
+        _copyFallback(ytPlaylistUrl, btn);
+      });
+    } else {
+      _copyFallback(ytPlaylistUrl, btn);
+    }
+  }
+
+  function _copyFallback(text, btn) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); _showCopyConfirm(btn); } catch(e) { showToast('Could not copy link', 'error'); }
+    document.body.removeChild(ta);
+  }
+
+  function _showCopyConfirm(btn) {
+    if (!btn) { showToast('Playlist link copied!', 'success'); return; }
+    btn.classList.add('copied');
+    btn.innerHTML = '<i class="fa-solid fa-check"></i>';
+    btn.title = 'Copied!';
+    setTimeout(function() {
+      btn.classList.remove('copied');
+      btn.innerHTML = '<i class="fa-solid fa-link"></i>';
+      btn.title = 'Copy playlist link';
+    }, 2000);
   }
 
   function initializeServiceOrder() {
@@ -41445,6 +41494,7 @@ var WO = (function() {
     _playlistPrev: _playlistPrev,
     _playlistNext: _playlistNext,
     _sharePlaylist: _sharePlaylist,
+    _copyPlaylistLink: _copyPlaylistLink,
     renderResourceSections: renderResourceSections,
     renderMediaRows: renderMediaRows,
     submitSoInput: submitSoInput,
