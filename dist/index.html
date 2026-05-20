@@ -19671,8 +19671,30 @@ var WO = (function() {
       }
     }
 
-    // Collect all items from the DOM (songs, liturgy, content boxes)
-    var items = collectOrderItems();
+    // Collect all items from the DOM (songs, liturgy, content boxes).
+    // If the service order sections are NOT currently in the DOM (i.e., the user is
+    // on the Song Order tab), collectOrderItems() would return only songs and miss all
+    // liturgy/content.  In that case, merge songs from a fresh collection with the
+    // non-song items preserved in currentOrderData.allItems (captured by the most
+    // recent snapshotCurrentState() call while service sections were visible).
+    var _serviceSectionsVisible = document.querySelectorAll('.wo-worship-section').length > 0;
+    var items;
+    if (_serviceSectionsVisible) {
+      items = collectOrderItems();
+    } else {
+      // Service sections are gone (Song Order tab is active).
+      // Collect songs/blank-pages from the live song list but keep liturgy/content/
+      // slides/video/scripture from the last known-good snapshot.
+      var _songItems = collectOrderItems(); // songs only (service DOM absent)
+      var _prevItems = (currentOrderData && Array.isArray(currentOrderData.allItems))
+        ? currentOrderData.allItems : [];
+      var _songIds = {};
+      _songItems.forEach(function(it) { if (it.itemType === 'song' || it.itemType === 'blank') _songIds[it.id] = true; });
+      // Start with non-song items from the snapshot, then add current song items
+      items = _prevItems.filter(function(it) {
+        return it.itemType !== 'song' && it.itemType !== 'blank';
+      }).concat(_songItems);
+    }
 
     if (!silent) {
       console.log('Items collected:', items.length);
