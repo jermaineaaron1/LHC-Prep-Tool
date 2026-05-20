@@ -35863,10 +35863,17 @@ var WO = (function() {
   function openNewSongFromWO() {
     var m = document.getElementById('addSongModal');
     if (!m) return;
+    // Close the Song Library popup first so the add-song form has full focus
+    closeSongPopup();
     openModal('addSongModal');
     if (typeof initSongStyleDropdown === 'function') initSongStyleDropdown('new', '', '');
     var schips = document.getElementById('newSongScriptureChips'); if (schips) schips.innerHTML = '';
     var shid = document.getElementById('newSongScripture'); if (shid) shid.value = '';
+    // Auto-focus the title field so the user can start typing immediately
+    setTimeout(function() {
+      var titleInput = document.getElementById('newSongTitle');
+      if (titleInput) titleInput.focus();
+    }, 120);
   }
 
   function displaySongs(songs) {
