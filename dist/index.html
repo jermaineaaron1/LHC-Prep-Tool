@@ -1179,6 +1179,13 @@
     .toast-notification.success { background: linear-gradient(135deg, #047857 0%, #059669 100%); }
     .toast-notification.error   { background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%); }
     .toast-notification.warning { background: linear-gradient(135deg, #b45309 0%, #d97706 100%); }
+    .toast-action-btn {
+      background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.35);
+      color: white; border-radius: 8px; padding: 4px 12px; font-size: 0.75rem;
+      font-family: 'Poppins', sans-serif; font-weight: 600; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0; transition: background 0.15s;
+    }
+    .toast-action-btn:hover { background: rgba(255,255,255,0.35); }
 
     /* ==================== FORM STYLES ==================== */
     .form-input {
@@ -11411,7 +11418,7 @@ window.loadEditSongData = function(song) {
     });
   }
 
-  function showToast(message, type) {
+  function showToast(message, type, opts) {
     var el = $('toastNotification');
     if (!el) return;
     var iconMap = {
@@ -11421,12 +11428,22 @@ window.loadEditSongData = function(song) {
     };
     var icon = iconMap[type] || '<i class="fa-solid fa-circle-info"></i>';
     var safeMsg = message ? String(message).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+    var duration = (opts && opts.duration) || 3500;
+    var actionBtn = '';
+    if (opts && opts.action && opts.onAction) {
+      showToast._actionCb = opts.onAction;
+      actionBtn = '<button class="toast-action-btn" onclick="showToast._actionCb&&showToast._actionCb();document.getElementById(\'toastNotification\').classList.remove(\'show\')">'
+                + opts.action + '</button>';
+    } else {
+      showToast._actionCb = null;
+    }
     el.innerHTML = '<span class="toast-icon">' + icon + '</span>'
                  + '<span class="toast-body">' + safeMsg + '</span>'
+                 + actionBtn
                  + '<span class="toast-progress-bar"></span>';
     el.className = 'toast-notification show ' + (type || '');
     clearTimeout(showToast._timer);
-    showToast._timer = setTimeout(function() { el.classList.remove('show'); }, 3500);
+    showToast._timer = setTimeout(function() { el.classList.remove('show'); }, duration);
   }
 
   // ============================================================
@@ -19372,6 +19389,7 @@ var WO = (function() {
   }
 
   function backToMainMenu() {
+    saveImmediately(); // flush pending autosave so deletions aren't lost
     $('woEditor').style.display = 'none';
     $('woMainMenu').style.display = 'block';
     hideNewOrderOptions();
@@ -20328,9 +20346,12 @@ var WO = (function() {
       });
     }
 
-    // Safety net: preserve any non-song items from the last Supabase load that weren't
-    // captured above (e.g. when SSI is incomplete after a fresh load or page refresh).
-    if (currentOrderData && Array.isArray(currentOrderData.allItems)) {
+    // Safety net (Song Order mode only): preserve non-song items from the last
+    // Supabase load that weren't captured by SSI above — e.g. scripture/slides/video
+    // that weren't in window.serviceSectionItems yet after a fresh page load.
+    // IMPORTANT: only run when the service order DOM doesn't exist (sections.length === 0).
+    // Running it when DOM sections are present would resurrect items the user deleted.
+    if (sections.length === 0 && currentOrderData && Array.isArray(currentOrderData.allItems)) {
       currentOrderData.allItems.forEach(function(pi) {
         if (!pi.sectionId) return;
         if (pi.itemType === 'song') return; // songs already handled via songOrderSections
@@ -22452,12 +22473,27 @@ var WO = (function() {
   function removeSection(sectionId) {
     var section = $(sectionId);
     if (!section) return;
-    if (!confirm('Remove this section?')) return;
-    // Remove from song mapping if it has a song
+    // Replace native confirm() with an inline undo-style toast
+    var sectionTitle = '';
+    var titleEl = section.querySelector('.wo-section-badge-title');
+    if (titleEl) sectionTitle = ' "' + titleEl.textContent.trim() + '"';
+
+    // Actually remove the section
     delete serviceSectionSongs[sectionId];
     section.remove();
     updateSectionNumbers();
-    showToast('Section removed', 'success');
+    autoSaveOrder();
+
+    // Undo toast — user has 4s to undo
+    showToast('Section' + sectionTitle + ' removed', 'info', {
+      action: 'Undo',
+      duration: 4000,
+      onAction: function() {
+        // Re-init the service order from current saved state to restore
+        initializeServiceOrder();
+        showToast('Restored', 'success');
+      }
+    });
   }
 
   // Add a new section to the service order
