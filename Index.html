@@ -22649,13 +22649,35 @@ var WO = (function() {
     // Gap-fill: for each section that has a liturgySectionId but NO liturgy already
     // rendered (i.e. new order or section never saved), pull from the Liturgy module.
     // Sections that already have liturgy from the allItems restore are left untouched.
+
+    // Build a snapshot of sectionIds that have SAVED liturgy in allItems.
+    // This is used by _gapFillLiturgy() as a definitive guard: if allItems already
+    // has a custom liturgy choice for a section, the default must never overwrite it
+    // (regardless of whether the DOM banner was actually rendered yet).
+    var _sectionsWithSavedLiturgy = {};
+    if (currentOrderData && Array.isArray(currentOrderData.allItems)) {
+      currentOrderData.allItems.forEach(function(item) {
+        if (item.itemType === 'liturgy' && item.sectionId) {
+          _sectionsWithSavedLiturgy[item.sectionId] = true;
+        }
+      });
+    }
+
     function _gapFillLiturgy() {
       structure.forEach(function(section, idx) {
         if (!section.liturgySectionId) return;
         var sectionId = 'wo-section-' + idx;
-        // 579 — If this section already has ANY liturgy banner, skip it entirely.
+        // Guard 1 — If this section already has ANY liturgy banner in the DOM, skip.
         // The saved order owns those items; we must not add or replace them.
         if (document.querySelector('#' + sectionId + '-boxes .wo-liturgy-banner-bar')) return;
+        // Guard 2 — If allItems has a saved liturgy for this section, the user chose
+        // something specific. Don't overwrite with the default even if the banner
+        // hasn't been rendered yet (e.g., LiturgyModule was still loading).
+        if (_sectionsWithSavedLiturgy[sectionId]) return;
+        // Guard 3 — If the user explicitly cleared this section, respect that choice.
+        if (currentOrderData && Array.isArray(currentOrderData.clearedSections)) {
+          if (currentOrderData.clearedSections.some(function(c) { return c.sectionId === sectionId; })) return;
+        }
         var assignedLiturgy = LiturgyModule.getAssignedLiturgyForSection(serviceType577, section.liturgySectionId);
         if (!assignedLiturgy || assignedLiturgy.length === 0) return;
         assignedLiturgy.forEach(function(liturgyItem) {
@@ -22676,6 +22698,45 @@ var WO = (function() {
         if (_gapFillAttempts > 10) { clearInterval(_gapFillTimer); return; }
         if (LiturgyModule.getAllItems().length > 0) {
           clearInterval(_gapFillTimer);
+          // Re-run the allItems restore for liturgy items that had no content when
+          // initializeServiceOrder() first ran (LiturgyModule wasn't loaded yet).
+          // Now that it's available we can properly populate the slides.
+          if (currentOrderData && Array.isArray(currentOrderData.allItems)) {
+            currentOrderData.allItems.forEach(function(item) {
+              if (item.itemType !== 'liturgy' || !item.sectionId) return;
+              // Skip if a banner already exists with content (slides present)
+              var _existingBanner = document.querySelector('.wo-liturgy-banner-bar[data-liturgy-id="' + item.sourceId + '"]');
+              var _bxCtr = $(item.sectionId + '-boxes');
+              if (!_bxCtr) return;
+              var _allLit2 = LiturgyModule.getAllItems();
+              var _litRec2 = _allLit2.find(function(li) { return li.id === item.sourceId; });
+              if (!_litRec2) return; // liturgy record not in module — nothing to improve
+              // If banner exists but was created with empty content, remove it so we can
+              // re-add with the now-available module content (correct slides).
+              if (_existingBanner) {
+                var _existingSlides = _bxCtr.querySelectorAll('.wo-slide-box[data-liturgy-id="' + item.sourceId + '"]');
+                if (_existingSlides.length > 0) return; // already has content slides — leave alone
+                // Remove the empty placeholder banner/slides so addLiturgyToSection can re-add properly
+                _existingBanner.remove();
+                _bxCtr.querySelectorAll('.wo-add-slide-row[data-liturgy-id="' + item.sourceId + '"]').forEach(function(el){ el.remove(); });
+              }
+              addLiturgyToSection(item.sectionId, {
+                id: item.sourceId,
+                title: item.title,
+                type: _litRec2.type || (item.content && item.content.type) || 'liturgy',
+                content: _litRec2.content || ''
+              });
+            });
+          }
+          // Re-build the saved-liturgy map since we may have just added banners above
+          var _rebuSaved = {};
+          if (currentOrderData && Array.isArray(currentOrderData.allItems)) {
+            currentOrderData.allItems.forEach(function(item) {
+              if (item.itemType === 'liturgy' && item.sectionId) _rebuSaved[item.sectionId] = true;
+            });
+          }
+          // Temporarily update the closure variable so _gapFillLiturgy uses fresh data
+          _sectionsWithSavedLiturgy = _rebuSaved;
           _gapFillLiturgy();
           document.querySelectorAll('.wo-worship-section').forEach(function(sec) {
             var bx = sec.querySelector('.wo-content-boxes');
