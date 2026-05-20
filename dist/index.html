@@ -36160,8 +36160,12 @@ var WO = (function() {
       var existingInOrder = songOrderSections.find(function(s) { return s.songId === song.id || s.title === song.title; });
 
       if (existingInOrder) {
-        // Song already in Song Order — just add it to this service section
+        // Song already in Song Order — re-add to this section.
+        // Refresh lyrics from the library and clear any in-session slide edits so the
+        // song renders with its ORIGINAL slide count (not a previously trimmed version).
         existingInOrder.sectionId = targetSectionId;
+        existingInOrder.lyrics = song.lyrics || existingInOrder.lyrics;
+        existingInOrder.savedSlides = null; // force re-parse from original lyrics
         addSongToServiceSection(targetSectionId, existingInOrder);
       } else {
         // Create a song section object and add to BOTH songOrderSections and service section
