@@ -17516,6 +17516,13 @@ var SBQ = {
               }
               return row;
             });
+            // Deduplicate rows by id — safety net against "ON CONFLICT DO UPDATE a second time"
+            var _seenRowIds = {};
+            rows = rows.filter(function(row) {
+              if (_seenRowIds[row.id]) { console.warn('[SBQ.saveOrder] Duplicate item id skipped:', row.id); return false; }
+              _seenRowIds[row.id] = true;
+              return true;
+            });
             // Insert in batches of 50 to avoid Supabase payload limits
             var batchSize = 50;
             var batches = [];
@@ -20630,19 +20637,11 @@ var WO = (function() {
     // (e.g., snapshotting from Song Order tab where service sections are not in DOM)
     var serviceSectionsInDom = document.querySelectorAll('.wo-worship-section').length > 0;
 
-    // Capture the full section layout (including user-added/duplicated sections and renamed
-    // titles) whenever the service order DOM is visible.  This is used by initializeServiceOrder()
-    // to restore custom sections that are not part of the fixed orderStructures template.
+    // Capture the full section layout (including user-added/duplicated sections, renamed
+    // titles, and serviceSectionId) whenever the service order DOM is visible.
+    // Use _captureCurrentLayout() so serviceSectionId is always preserved.
     if (serviceSectionsInDom) {
-      var _capturedLayout = [];
-      document.querySelectorAll('.wo-worship-section').forEach(function(sec) {
-        var _titleEl = sec.querySelector('.wo-section-title');
-        _capturedLayout.push({
-          id: sec.id,
-          title: _titleEl ? _titleEl.textContent.trim() : ''
-        });
-      });
-      currentOrderData.sectionLayout = _capturedLayout;
+      _captureCurrentLayout();
     }
 
     if (!serviceSectionsInDom && prevItems.length > 0) {
@@ -20846,11 +20845,32 @@ var WO = (function() {
           matches = sbResolveSectionId(s.sectionId || '') === sec.serviceSectionId;
         }
         if (!matches) return;
-        // Use the actual saved section title from sectionLayout (covers renamed sections)
+        // Use the actual saved section title from sectionLayout (covers renamed sections).
+        // Priority: find the specific sectionLayout entry that maps to THIS serviceSectionId
+        // (so two entries for the same song show different section names when it's in two
+        // sections that share a serviceSectionId).
         var songLabel = secLabel;
         if (currentOrderData && Array.isArray(currentOrderData.sectionLayout)) {
-          // Prefer the exact section the song was placed in, then fall back to same serviceSectionId
-          var _lle = currentOrderData.sectionLayout.find(function(l) { return l.id === s.sectionId; });
+          var _lle = null;
+          // 1. Find the serviceSections entry that resolves to this serviceSectionId
+          if (Array.isArray(s.serviceSections) && s.serviceSections.length) {
+            for (var _ssi = 0; _ssi < s.serviceSections.length; _ssi++) {
+              var _sref = s.serviceSections[_ssi];
+              // Check by layout serviceSectionId or by direct resolution
+              var _candidate = currentOrderData.sectionLayout.find(function(l) {
+                return l.id === _sref && l.serviceSectionId === sec.serviceSectionId;
+              });
+              if (!_candidate) {
+                _candidate = (sbResolveSectionId(_sref) === sec.serviceSectionId)
+                  ? currentOrderData.sectionLayout.find(function(l) { return l.id === _sref; })
+                  : null;
+              }
+              if (_candidate) { _lle = _candidate; break; }
+            }
+          }
+          // 2. Fallback: find by song's own sectionId
+          if (!_lle) _lle = currentOrderData.sectionLayout.find(function(l) { return l.id === s.sectionId; });
+          // 3. Fallback: any entry with this serviceSectionId
           if (!_lle) _lle = currentOrderData.sectionLayout.find(function(l) { return l.serviceSectionId === sec.serviceSectionId; });
           if (_lle && _lle.title) songLabel = _lle.title;
         }
@@ -22562,16 +22582,23 @@ var WO = (function() {
       });
     })();
 
-    // Auto-populate sections with songs from Song Order that have matching serviceSections
+    // Auto-populate sections with songs from Song Order that have matching serviceSections.
+    // serviceSections may store DOM section IDs (new format: 'wo-section-0' or 'wo-section-TIMESTAMP')
+    // or legacy serviceSectionId values ('welcome', 'preparation', …).  Handle both.
     songOrderSections.forEach(function(song) {
       if (song.serviceSections && song.serviceSections.length > 0) {
-        song.serviceSections.forEach(function(serviceSectionId) {
-          var domSections = serviceSectionMap[serviceSectionId];
+        song.serviceSections.forEach(function(sectionRef) {
+          // New: direct DOM section ID — boxes container exists
+          if ($(sectionRef + '-boxes')) {
+            addSongToServiceSection(sectionRef, song, true);
+            return;
+          }
+          // Legacy: serviceSectionId → dom section ID via serviceSectionMap
+          var domSections = serviceSectionMap[sectionRef];
           if (domSections && domSections.length > 0) {
-            // Add to the first matching DOM section
             var targetSectionId = domSections[0];
             if ($(targetSectionId + '-boxes')) {
-              addSongToServiceSection(targetSectionId, song, true); // silent during init
+              addSongToServiceSection(targetSectionId, song, true);
             }
           }
         });
