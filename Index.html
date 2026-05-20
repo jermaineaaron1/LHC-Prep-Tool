@@ -20517,6 +20517,22 @@ var WO = (function() {
     // Preserve non-song items from previous snapshot when service DOM doesn't exist
     // (e.g., snapshotting from Song Order tab where service sections are not in DOM)
     var serviceSectionsInDom = document.querySelectorAll('.wo-worship-section').length > 0;
+
+    // Capture the full section layout (including user-added/duplicated sections and renamed
+    // titles) whenever the service order DOM is visible.  This is used by initializeServiceOrder()
+    // to restore custom sections that are not part of the fixed orderStructures template.
+    if (serviceSectionsInDom) {
+      var _capturedLayout = [];
+      document.querySelectorAll('.wo-worship-section').forEach(function(sec) {
+        var _titleEl = sec.querySelector('.wo-section-title');
+        _capturedLayout.push({
+          id: sec.id,
+          title: _titleEl ? _titleEl.textContent.trim() : ''
+        });
+      });
+      currentOrderData.sectionLayout = _capturedLayout;
+    }
+
     if (!serviceSectionsInDom && prevItems.length > 0) {
       prevItems.forEach(function(pi) {
         if ((pi.itemType === 'slides' || pi.itemType === 'video' || pi.itemType === 'scripture' || pi.itemType === 'liturgy') && pi.sectionId) {
@@ -22337,6 +22353,58 @@ var WO = (function() {
       '</div>'
     );
 
+    // Restore user-added/duplicated sections and renamed template sections from the layout
+    // captured when the user last navigated away from the Service Order tab.
+    // Three passes: (1) create missing custom sections, (2) update renamed titles,
+    // (3) re-order all sections to match the saved DOM order.
+    if (currentOrderData && currentOrderData.sectionLayout && currentOrderData.sectionLayout.length > 0) {
+      var _tplIds = {};
+      structure.forEach(function(s, i) { _tplIds['wo-section-' + i] = true; });
+
+      // Pass 1 — create any custom (non-template) sections that are not yet in the DOM
+      currentOrderData.sectionLayout.forEach(function(def) {
+        if (_tplIds[def.id]) return; // already built from template
+        if ($(def.id)) return;       // already exists (safety)
+        var _secDef = { title: def.title || 'Section', type: 'single' };
+        var _html = createSectionHtml(_secDef, 0, def.id);
+        var _tmp = document.createElement('div');
+        _tmp.innerHTML = _html.trim();
+        var _newSec = _tmp.firstChild;
+        var _addBtn = container.querySelector('.wo-add-section-btn-container');
+        if (_addBtn) {
+          container.insertBefore(_newSec, _addBtn);
+        } else {
+          container.appendChild(_newSec);
+        }
+      });
+
+      // Pass 2 — update titles of renamed template sections
+      currentOrderData.sectionLayout.forEach(function(def) {
+        if (!_tplIds[def.id] || !def.title) return;
+        var _sec = $(def.id);
+        if (!_sec) return;
+        var _titleEl = _sec.querySelector('.wo-section-title');
+        if (_titleEl && _titleEl.textContent.trim() !== def.title) {
+          _titleEl.textContent = def.title;
+        }
+      });
+
+      // Pass 3 — re-order all sections in the DOM to match the saved layout
+      // (insertBefore moves existing elements — no cloning)
+      var _addBtnEl = container.querySelector('.wo-add-section-btn-container');
+      currentOrderData.sectionLayout.forEach(function(def) {
+        var _el = $(def.id);
+        if (!_el) return;
+        if (_addBtnEl) {
+          container.insertBefore(_el, _addBtnEl);
+        } else {
+          container.appendChild(_el);
+        }
+      });
+
+      updateSectionNumbers();
+    }
+
     // Pre-populate savedSlides on every song BEFORE rendering so addSongToServiceSection
     // uses edited content instead of falling back to parseLyricsIntoSlides(original lyrics).
     // Priority: in-session edits (song.slides) > snapshot (allItems) > nothing
@@ -22619,8 +22687,8 @@ var WO = (function() {
     addLiturgyToSection(sectionId, item);
   }
 
-  function createSectionHtml(section, idx) {
-    var sectionId = 'wo-section-' + idx;
+  function createSectionHtml(section, idx, explicitSectionId) {
+    var sectionId = explicitSectionId || ('wo-section-' + idx);
 
     var subsectionContent = '';
     var isScriptureGroup = section.serviceSectionId === 'scripture';
