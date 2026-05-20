@@ -22679,6 +22679,10 @@ var WO = (function() {
         if (icon) icon.textContent = '▾';
       }
     });
+
+    // Snapshot the final layout (including any restored custom sections) so that
+    // immediate duplicate/navigate sequences always have an up-to-date baseline.
+    _captureCurrentLayout();
   }
 
   // Add liturgy item to a service order section
@@ -22803,8 +22807,9 @@ var WO = (function() {
         container.insertBefore(draggedSection, targetSection);
       }
 
-      // Update section numbers
+      // Update section numbers and persist the new order
       updateSectionNumbers();
+      _captureCurrentLayout();
     }
     document.querySelectorAll('.wo-worship-section').forEach(function(s) {
       s.classList.remove('drag-over');
@@ -22829,6 +22834,22 @@ var WO = (function() {
     });
   }
 
+  // Capture the current section layout to currentOrderData immediately.
+  // Called after any section add/remove/rename/reorder so the layout is always
+  // up-to-date before the user navigates away (snapshotCurrentState only fires
+  // on tab-switch, leaving a gap if the user acts quickly).
+  function _captureCurrentLayout() {
+    if (!currentOrderData) return;
+    var _secs = document.querySelectorAll('.wo-worship-section');
+    if (_secs.length === 0) return;
+    var _layout = [];
+    _secs.forEach(function(sec) {
+      var _t = sec.querySelector('.wo-section-title');
+      _layout.push({ id: sec.id, title: _t ? _t.textContent.trim() : '' });
+    });
+    currentOrderData.sectionLayout = _layout;
+  }
+
   // Section management functions
   function duplicateSection(sectionId) {
     var section = $(sectionId);
@@ -22840,6 +22861,7 @@ var WO = (function() {
     clone.innerHTML = clone.innerHTML.replace(new RegExp(sectionId, 'g'), newId);
     section.insertAdjacentElement('afterend', clone);
     updateSectionNumbers();
+    _captureCurrentLayout(); // persist layout immediately so tab-switch restores it
     showToast('Section duplicated', 'success');
   }
 
@@ -22851,6 +22873,7 @@ var WO = (function() {
     window.customPrompt('Rename Section', 'Enter a new title for this section:', titleEl.textContent).then(function(newTitle) {
       if (newTitle && newTitle.trim()) {
         titleEl.textContent = newTitle.trim();
+        _captureCurrentLayout(); // persist renamed title
         showToast('Section renamed!', 'success');
       }
     });
@@ -22868,6 +22891,7 @@ var WO = (function() {
     delete serviceSectionSongs[sectionId];
     section.remove();
     updateSectionNumbers();
+    _captureCurrentLayout(); // persist layout after removal
     autoSaveOrder();
 
     // Undo toast — user has 4s to undo
@@ -22890,10 +22914,9 @@ var WO = (function() {
       var container = $('woWorshipOrder');
       if (!container) return;
 
-      // Find the next section number
-      var existingSections = container.querySelectorAll('.wo-worship-section');
-      var newIdx = existingSections.length;
-      var sectionId = 'wo-section-' + newIdx;
+      // Use a timestamp-based ID (same as duplicateSection) so it's always a
+      // "custom" section and never clashes with wo-section-N template IDs.
+      var sectionId = 'wo-section-' + Date.now();
 
       // Create new section
       var newSection = {
@@ -22901,9 +22924,16 @@ var WO = (function() {
         type: 'single'
       };
 
-      var sectionHtml = createSectionHtml(newSection, newIdx);
-      container.insertAdjacentHTML('beforeend', sectionHtml);
+      var sectionHtml = createSectionHtml(newSection, 0, sectionId);
+      // Insert before the "Add Section" button (not at end of container)
+      var addBtn = container.querySelector('.wo-add-section-btn-container');
+      if (addBtn) {
+        addBtn.insertAdjacentHTML('beforebegin', sectionHtml);
+      } else {
+        container.insertAdjacentHTML('beforeend', sectionHtml);
+      }
       updateSectionNumbers();
+      _captureCurrentLayout(); // persist layout immediately
       showToast('Section added!', 'success');
     });
   }
