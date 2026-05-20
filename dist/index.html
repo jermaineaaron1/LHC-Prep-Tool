@@ -22363,6 +22363,23 @@ var WO = (function() {
         }
       });
 
+      // Pass 4 — remove any template section the user explicitly deleted.
+      // Step 1 (above) unconditionally builds every section in `structure`, but the
+      // saved sectionLayout only contains sections the user kept.  Any template section
+      // ID missing from sectionLayout was deliberately removed and must be purged now.
+      var _layoutIds = {};
+      currentOrderData.sectionLayout.forEach(function(def) { _layoutIds[def.id] = true; });
+      structure.forEach(function(s, i) {
+        var _tplId = 'wo-section-' + i;
+        if (!_layoutIds[_tplId]) {
+          var _tplEl = $(_tplId);
+          if (_tplEl) {
+            delete serviceSectionSongs[_tplId];
+            _tplEl.remove();
+          }
+        }
+      });
+
       updateSectionNumbers();
     }
 
