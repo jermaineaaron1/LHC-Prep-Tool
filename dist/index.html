@@ -19726,6 +19726,11 @@ var WO = (function() {
   function saveCurrentOrder(silent) {
     if (!currentOrderData) return;
 
+    // Flush any open slide editor before collecting — editSlideBox replaces .wo-slide-line
+    // elements with a textarea (content.innerHTML = ''), so collectOrderItems() would capture
+    // empty content if a slide is still in edit mode when save is triggered.
+    if (editingSlideBox) { saveSlideEdit(editingSlideBox); }
+
     // Standalone songbooks — save song ID list + full item data (transpositions, custom lyrics, etc.)
     // Never write to the orders table or they'll appear as phantom blue orders.
     if (_sbStandaloneId) {
@@ -20611,6 +20616,9 @@ var WO = (function() {
   // Snapshot current tab state before switching tabs (preserves liturgy/content/songs)
   function snapshotCurrentState() {
     if (!currentOrderData) return;
+
+    // Flush any open slide edit before snapshotting — same reason as saveCurrentOrder
+    if (editingSlideBox) { saveSlideEdit(editingSlideBox); }
 
     // Collect current items from whichever tab is active
     var items = collectOrderItems();
