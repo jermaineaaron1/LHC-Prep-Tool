@@ -22308,7 +22308,7 @@ var WO = (function() {
             // Add to the first matching DOM section
             var targetSectionId = domSections[0];
             if ($(targetSectionId + '-boxes')) {
-              addSongToServiceSection(targetSectionId, song);
+              addSongToServiceSection(targetSectionId, song, true); // silent during init
             }
           }
         });
@@ -22324,12 +22324,12 @@ var WO = (function() {
         if (Array.isArray(songSection)) {
           songSection.forEach(function(s) {
             if (!document.querySelector('[data-song-id="' + s.id + '"]')) {
-              addSongToServiceSection(sectionId, s);
+              addSongToServiceSection(sectionId, s, true); // silent during init
             }
           });
         } else {
           if (!document.querySelector('[data-song-id="' + songSection.id + '"]')) {
-            addSongToServiceSection(sectionId, songSection);
+            addSongToServiceSection(sectionId, songSection, true); // silent during init
           }
         }
       }
@@ -22377,7 +22377,7 @@ var WO = (function() {
           if (songEntry && !document.querySelector('.wo-song-banner[data-song-id="' + songEntry.id + '"]')) {
             // Store slides with backgrounds for restoration
             songEntry.savedSlides = item.slides || [];
-            addSongToServiceSection(item.sectionId, songEntry);
+            addSongToServiceSection(item.sectionId, songEntry, true); // silent during init
           }
         } else if (item.itemType === 'liturgy') {
           // Always restore liturgy items that were saved — the user deliberately placed
@@ -35690,7 +35690,8 @@ var WO = (function() {
   }
 
   // Add song to service order section
-  function addSongToServiceSection(sectionId, songSection) {
+  // silent=true suppresses the duplicate toast (used during initialization)
+  function addSongToServiceSection(sectionId, songSection, silent) {
     var boxesContainer = $(sectionId + '-boxes');
     if (!boxesContainer) return;
 
@@ -35704,13 +35705,14 @@ var WO = (function() {
       serviceSectionSongs[sectionId] = [serviceSectionSongs[sectionId]];
     }
 
-    // Check if this song (by songId or title) is already in this section
+    // Check by order-entry id (unique per entry) — allows the same library
+    // song to appear twice if the user deliberately added it twice.
     var isDuplicate = serviceSectionSongs[sectionId].some(function(existingSong) {
-      return existingSong && (existingSong.songId === songSection.songId || existingSong.title === songSection.title);
+      return existingSong && existingSong.id === songSection.id;
     });
 
     if (isDuplicate) {
-      showToast(songSection.title + ' is already in this section', 'warning');
+      if (!silent) showToast(songSection.title + ' is already in this section', 'warning');
       return;
     }
 
