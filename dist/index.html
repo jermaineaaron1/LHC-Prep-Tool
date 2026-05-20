@@ -20828,14 +20828,36 @@ var WO = (function() {
       if (!sec.serviceSectionId) return;
       var secLabel = sec.title.replace(/^\d+\.\s*/, '');
       songOrderSections.forEach(function(s) {
-        var matches = Array.isArray(s.serviceSections) && s.serviceSections.length
-          ? s.serviceSections.indexOf(sec.serviceSectionId) !== -1
-          : sbResolveSectionId(s.sectionId || '') === sec.serviceSectionId;
+        var matches;
+        if (Array.isArray(s.serviceSections) && s.serviceSections.length) {
+          matches = s.serviceSections.some(function(val) {
+            // Legacy: value is already a serviceSectionId
+            if (val === sec.serviceSectionId) return true;
+            // New: value is a DOM section ID — resolve to serviceSectionId
+            if (sbResolveSectionId(val) === sec.serviceSectionId) return true;
+            // New: timestamp DOM ID — look up serviceSectionId from sectionLayout
+            if (currentOrderData && Array.isArray(currentOrderData.sectionLayout)) {
+              var _le = currentOrderData.sectionLayout.find(function(l) { return l.id === val; });
+              if (_le && _le.serviceSectionId === sec.serviceSectionId) return true;
+            }
+            return false;
+          });
+        } else {
+          matches = sbResolveSectionId(s.sectionId || '') === sec.serviceSectionId;
+        }
         if (!matches) return;
+        // Use the actual saved section title from sectionLayout (covers renamed sections)
+        var songLabel = secLabel;
+        if (currentOrderData && Array.isArray(currentOrderData.sectionLayout)) {
+          // Prefer the exact section the song was placed in, then fall back to same serviceSectionId
+          var _lle = currentOrderData.sectionLayout.find(function(l) { return l.id === s.sectionId; });
+          if (!_lle) _lle = currentOrderData.sectionLayout.find(function(l) { return l.serviceSectionId === sec.serviceSectionId; });
+          if (_lle && _lle.title) songLabel = _lle.title;
+        }
         var key = s.id + '__' + sec.serviceSectionId;
         if (_soUsed[key]) return;
         _soUsed[key] = true;
-        _soRenderList.push({ song: s, sectionId: sec.serviceSectionId, sectionLabel: secLabel, rowId: key });
+        _soRenderList.push({ song: s, sectionId: sec.serviceSectionId, sectionLabel: songLabel, rowId: key });
       });
     });
 
@@ -20848,7 +20870,9 @@ var WO = (function() {
         if (/^wo-section-\d+$/.test(layoutSec.id)) return;
         var secLabel = layoutSec.title || layoutSec.id;
         songOrderSections.forEach(function(s) {
-          if (s.sectionId !== layoutSec.id) return;
+          var directMatch = s.sectionId === layoutSec.id;
+          var serviceMatch = Array.isArray(s.serviceSections) && s.serviceSections.indexOf(layoutSec.id) !== -1;
+          if (!directMatch && !serviceMatch) return;
           var key = s.id + '__' + layoutSec.id;
           if (_soUsed[key]) return;
           _soUsed[key] = true;
@@ -27516,15 +27540,22 @@ var WO = (function() {
         '<div class="wo-section-song-artist">by ' + escapeHtml(song.artist || 'Unknown') + '</div>';
     }
 
-    // Only show sections where songs are meaningful — keyed to the actual
-    // LCD Projection sections that accept song content.
-    var SONG_SECTIONS = ['preparation', 'song-of-preparation', 'response', 'sharing-peace', 'dismissal'];
-    var checkboxesHtml = SERVICE_SECTIONS.filter(function(s) {
-      return SONG_SECTIONS.indexOf(s.id) !== -1;
-    }).map(function(section) {
+    // Build section list from the actual LCD Projection layout (accurate names + custom sections)
+    var _addSectionItems = [];
+    if (currentOrderData && Array.isArray(currentOrderData.sectionLayout) && currentOrderData.sectionLayout.length > 0) {
+      _addSectionItems = currentOrderData.sectionLayout.map(function(e) {
+        return { id: e.id, label: e.title || e.id };
+      });
+    } else {
+      var _addStruct = orderStructures[currentOrderType] || orderStructures.traditional;
+      _addStruct.forEach(function(s, i) {
+        _addSectionItems.push({ id: 'wo-section-' + i, label: s.title.replace(/^\d+\.\s*/, '') });
+      });
+    }
+    var checkboxesHtml = _addSectionItems.map(function(section) {
       return '<label class="wo-section-checkbox-item" onclick="this.querySelector(\'input\').click(); event.stopPropagation();">' +
-        '<input type="checkbox" value="' + section.id + '" onclick="event.stopPropagation(); WO.toggleSectionCheckbox(this.parentElement)">' +
-        '<span class="wo-section-checkbox-label">' + section.label + '</span>' +
+        '<input type="checkbox" value="' + escapeHtml(section.id) + '" onclick="event.stopPropagation(); WO.toggleSectionCheckbox(this.parentElement)">' +
+        '<span class="wo-section-checkbox-label">' + escapeHtml(section.label) + '</span>' +
         '</label>';
     }).join('');
 
@@ -27565,11 +27596,10 @@ var WO = (function() {
     var existingSong = songOrderSections.find(function(s) { return s.id === song.id; });
 
     if (existingSong) {
-      // Update existing song's sections
+      // Update existing song's sections (selectedSections now stores DOM section IDs)
       existingSong.serviceSections = selectedSections;
-      // Clear stale sectionId so Path 3 in initializeServiceOrder doesn't re-add to
-      // the old section — serviceSections is now the source of truth.
-      existingSong.sectionId = '';
+      // Set sectionId to the first selection so initializeServiceOrder can place it correctly
+      existingSong.sectionId = selectedSections.length > 0 ? selectedSections[0] : '';
 
       // Remove all old rows for this song (new row IDs use soRow- prefix with rowId)
       document.querySelectorAll('[id^="soRow-"]').forEach(function(el) {
@@ -35753,13 +35783,27 @@ var WO = (function() {
         '<div class="wo-section-song-artist">by ' + escapeHtml(song.artist || 'Unknown') + '</div>';
     }
 
-    // Build checkboxes with current selections
-    var currentSections = song.serviceSections || [];
-    var checkboxesHtml = SERVICE_SECTIONS.map(function(section) {
-      var isChecked = currentSections.indexOf(section.id) >= 0;
+    // Build checkboxes from actual LCD Projection layout (accurate names + custom sections)
+    var currentSections = Array.isArray(song.serviceSections) ? song.serviceSections : [];
+    var _editSectionItems = [];
+    if (currentOrderData && Array.isArray(currentOrderData.sectionLayout) && currentOrderData.sectionLayout.length > 0) {
+      _editSectionItems = currentOrderData.sectionLayout.map(function(e) {
+        return { id: e.id, label: e.title || e.id, serviceSectionId: e.serviceSectionId || '' };
+      });
+    } else {
+      var _editStruct = orderStructures[currentOrderType] || orderStructures.traditional;
+      _editStruct.forEach(function(s, i) {
+        _editSectionItems.push({ id: 'wo-section-' + i, label: s.title.replace(/^\d+\.\s*/, ''), serviceSectionId: s.serviceSectionId || '' });
+      });
+    }
+    var checkboxesHtml = _editSectionItems.map(function(section) {
+      // Match by DOM id (new), serviceSectionId (legacy), or song's direct sectionId
+      var isChecked = currentSections.indexOf(section.id) >= 0 ||
+        (section.serviceSectionId && currentSections.indexOf(section.serviceSectionId) >= 0) ||
+        (song.sectionId === section.id);
       return '<label class="wo-section-checkbox-item' + (isChecked ? ' selected' : '') + '" onclick="this.querySelector(\'input\').click(); event.stopPropagation();">' +
-        '<input type="checkbox" value="' + section.id + '"' + (isChecked ? ' checked' : '') + ' onclick="event.stopPropagation(); WO.toggleSectionCheckbox(this.parentElement)">' +
-        '<span class="wo-section-checkbox-label">' + section.label + '</span>' +
+        '<input type="checkbox" value="' + escapeHtml(section.id) + '"' + (isChecked ? ' checked' : '') + ' onclick="event.stopPropagation(); WO.toggleSectionCheckbox(this.parentElement)">' +
+        '<span class="wo-section-checkbox-label">' + escapeHtml(section.label) + '</span>' +
         '</label>';
     }).join('');
 
