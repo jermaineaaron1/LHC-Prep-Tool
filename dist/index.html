@@ -20839,6 +20839,24 @@ var WO = (function() {
       });
     });
 
+    // Custom/duplicate sections (timestamp IDs like wo-section-1747XXXXXXXX) are not in
+    // _soStruct so their songs would otherwise be "unassigned". Walk the saved sectionLayout
+    // and pick up any songs whose sectionId directly matches a custom section id.
+    if (currentOrderData && Array.isArray(currentOrderData.sectionLayout)) {
+      currentOrderData.sectionLayout.forEach(function(layoutSec) {
+        // Skip template sections — already handled by _soStruct loop above
+        if (/^wo-section-\d+$/.test(layoutSec.id)) return;
+        var secLabel = layoutSec.title || layoutSec.id;
+        songOrderSections.forEach(function(s) {
+          if (s.sectionId !== layoutSec.id) return;
+          var key = s.id + '__' + layoutSec.id;
+          if (_soUsed[key]) return;
+          _soUsed[key] = true;
+          _soRenderList.push({ song: s, sectionId: layoutSec.id, sectionLabel: secLabel, rowId: key });
+        });
+      });
+    }
+
     // Unassigned songs (not matched to any section) — append once
     songOrderSections.forEach(function(s) {
       var inAnySection = Object.keys(_soUsed).some(function(k) { return k.indexOf(s.id + '__') === 0; });
@@ -22440,7 +22458,7 @@ var WO = (function() {
       currentOrderData.sectionLayout.forEach(function(def) {
         if (_tplIds[def.id]) return; // already built from template
         if ($(def.id)) return;       // already exists (safety)
-        var _secDef = { title: def.title || 'Section', type: 'single' };
+        var _secDef = { title: def.title || 'Section', type: 'single', serviceSectionId: def.serviceSectionId || '' };
         var _html = createSectionHtml(_secDef, 0, def.id);
         var _tmp = document.createElement('div');
         _tmp.innerHTML = _html.trim();
@@ -22887,7 +22905,7 @@ var WO = (function() {
       (section.special === 'slides' ? '<button class="wo-section-add-btn" style="color:#ea580c;" onclick="event.stopPropagation();WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add Slides"><i class="fa-solid fa-file-powerpoint"></i></button>' : '') +
       (isScriptureGroup         ? '<button class="wo-section-add-btn" style="color:#3b82f6;" onclick="event.stopPropagation();WO.openBiblePickerForSection(\'' + sectionId + '\')" title="Browse Bible"><i class="fa-solid fa-book-bible"></i></button>' : '');
 
-    return '<div class="wo-worship-section" id="' + sectionId + '" draggable="true" ondragstart="WO.onDragStart(event)" ondragover="WO.onDragOver(event)" ondrop="WO.onDrop(event)" ondragend="WO.onDragEnd(event)">' +
+    return '<div class="wo-worship-section" id="' + sectionId + '" data-service-section-id="' + escapeHtml(section.serviceSectionId || '') + '" draggable="true" ondragstart="WO.onDragStart(event)" ondragover="WO.onDragOver(event)" ondrop="WO.onDrop(event)" ondragend="WO.onDragEnd(event)">' +
       '<div class="wo-section-row">' +
 
         /* LEFT — sticky badge column */
@@ -22995,10 +23013,21 @@ var WO = (function() {
     if (!currentOrderData) return;
     var _secs = document.querySelectorAll('.wo-worship-section');
     if (_secs.length === 0) return;
+    var _structures = orderStructures[currentOrderType] || orderStructures.traditional;
     var _layout = [];
     _secs.forEach(function(sec) {
       var _t = sec.querySelector('.wo-section-title');
-      _layout.push({ id: sec.id, title: _t ? _t.textContent.trim() : '' });
+      // Derive serviceSectionId: first from data attribute stamped at creation,
+      // then fall back to the wo-section-N index lookup.
+      var _ssid = sec.getAttribute('data-service-section-id') || '';
+      if (!_ssid) {
+        var _m = sec.id.match(/^wo-section-(\d+)$/);
+        if (_m) {
+          var _idx = parseInt(_m[1]);
+          _ssid = (_structures[_idx] && _structures[_idx].serviceSectionId) || '';
+        }
+      }
+      _layout.push({ id: sec.id, title: _t ? _t.textContent.trim() : '', serviceSectionId: _ssid });
     });
     currentOrderData.sectionLayout = _layout;
   }
