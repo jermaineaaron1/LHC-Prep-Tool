@@ -18343,6 +18343,15 @@ var WO = (function() {
   var isSyncing = false;
   var pendingSongForSection = null;  // Song being assigned to sections
 
+  // Song Order reorder drag-drop state
+  var _soCurrentRenderList   = [];   // Live render list — kept in sync by initializeSongOrder
+  var _soReorderSongId       = null; // songId being reorder-dragged (desktop HTML5 drag)
+  var _soReorderPtrId        = null; // captured pointer ID for touch reorder
+  var _soReorderCloneEl      = null; // ghost clone shown during touch drag
+  var _soReorderPtrDragId    = null; // songId for touch reorder drag
+  var _soReorderPtrDragRowId = null; // rowId for touch reorder drag
+  var _soReorderPtrDropTgt   = null; // {songId, isAbove} for touch drop
+
   // Slide navigation state for cascading backgrounds
   var currentSlideIndex = -1; // Track current slide index for cascading backgrounds
 
@@ -20712,6 +20721,9 @@ var WO = (function() {
       }
     });
 
+    // Persist render list so drag-drop reorder can validate section constraints
+    _soCurrentRenderList = _soRenderList.slice();
+
     _soRenderList.forEach(function(item, idx) {
       renderSongOrderSection(item.song, item.sectionId, item.sectionLabel, item.rowId, idx + 1);
     });
@@ -21406,6 +21418,30 @@ var WO = (function() {
         'box-shadow:inset 0 0 0 1.5px rgba(74,109,167,.25);}',
       '.wo-slr-linked-badge{background:#eff6ff;color:#4a6da7;border-radius:999px;padding:2px 7px;font-size:.63rem;font-weight:700;display:inline-flex;align-items:center;gap:3px;vertical-align:middle;margin-left:5px;}',
 
+      // ── Song reorder drag handle & states ───────────────────────────────────
+      '.wo-slr-drag-handle{display:none;align-items:center;justify-content:center;' +
+        'padding:10px 4px 10px 8px;color:#c5ccd8;cursor:grab;flex-shrink:0;' +
+        'touch-action:none;user-select:none;-webkit-user-select:none;' +
+        'transition:color .12s;}',
+      '.wo-song-list-row:hover .wo-slr-drag-handle{display:flex;}',
+      '.wo-slr-drag-handle:hover{color:#4a6da7;}',
+      '.wo-slr-drag-handle:active{cursor:grabbing;color:#4a6da7;}',
+      '.wo-slr-drag-handle i{font-size:.8rem;pointer-events:none;}',
+      '.wo-song-list-row.wo-slr-dragging-src > .wo-slr-main{opacity:.3;}',
+      '.wo-song-list-row.wo-slr-reorder-above{border-top:3px solid #4a6da7 !important;margin-top:-1px;}',
+      '.wo-song-list-row.wo-slr-reorder-below{border-bottom:3px solid #4a6da7 !important;}',
+      '.wo-song-list-row.wo-slr-reorder-rejected{animation:wo-reject-flash .3s ease;}',
+      '@keyframes wo-reject-flash{0%,100%{background:transparent}40%{background:rgba(239,68,68,.14)}}',
+      'body.so-reordering .wo-link-inbox{pointer-events:none;opacity:.5;}',
+      'body.so-reordering .wo-song-list-row .wo-slr-main{cursor:default;}',
+      '.wo-slr-reorder-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:.93;' +
+        'border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.28);' +
+        'background:#fff;border:2px solid #4a6da7;' +
+        'padding:9px 14px;font-size:.82rem;font-family:"Poppins",sans-serif;' +
+        'font-weight:600;color:#1f2933;display:flex;align-items:center;gap:8px;' +
+        'max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+      '.wo-slr-reorder-ghost i{color:#4a6da7;flex-shrink:0;}',
+
       // ── Playlist modal ──────────────────────────────────────────────────
       '.wo-playlist-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:3100;display:flex;align-items:center;justify-content:center;padding:12px;}',
       '.wo-playlist-modal{background:#fff;border-radius:18px;width:100%;max-width:860px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 48px rgba(0,0,0,.38);}',
@@ -21613,6 +21649,29 @@ var WO = (function() {
   }
 
   function _songDragOver(e, songId) {
+    // ── Reorder drag ───────────────────────────────────────────────────────
+    if (_soReorderSongId) {
+      if (_soReorderSongId === songId) return; // can't drop on itself
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      var panel2 = document.querySelector('.so-expand-panel[data-song-id="' + songId + '"]');
+      var row2   = panel2 ? panel2.closest('.wo-song-list-row') : null;
+      if (!row2) return;
+      var rect2  = row2.getBoundingClientRect();
+      var isAbove2 = e.clientY < (rect2.top + rect2.height / 2);
+      var dragS2 = songOrderSections.find(function(s) { return s.id === _soReorderSongId; });
+      var tgtS2  = songOrderSections.find(function(s) { return s.id === songId; });
+      document.querySelectorAll('.wo-slr-reorder-above,.wo-slr-reorder-below,.wo-slr-reorder-rejected').forEach(function(r) {
+        r.classList.remove('wo-slr-reorder-above','wo-slr-reorder-below','wo-slr-reorder-rejected');
+      });
+      if (dragS2 && tgtS2 && !_soReorderCheckValid(dragS2, tgtS2, isAbove2)) {
+        row2.classList.add('wo-slr-reorder-rejected');
+      } else {
+        row2.classList.add(isAbove2 ? 'wo-slr-reorder-above' : 'wo-slr-reorder-below');
+      }
+      return;
+    }
+    // ── Inbox drop ────────────────────────────────────────────────────────
     if (_draggingInboxIdx < 0) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'link';
@@ -21625,6 +21684,15 @@ var WO = (function() {
   }
 
   function _songDragLeave(e, songId) {
+    // Clear reorder indicators
+    if (_soReorderSongId) {
+      var panel3 = document.querySelector('.so-expand-panel[data-song-id="' + songId + '"]');
+      var row3   = panel3 ? panel3.closest('.wo-song-list-row') : null;
+      if (row3 && e.relatedTarget && !row3.contains(e.relatedTarget)) {
+        row3.classList.remove('wo-slr-reorder-above','wo-slr-reorder-below','wo-slr-reorder-rejected');
+      }
+      return;
+    }
     // Only remove if leaving to outside the row (relatedTarget not inside the row)
     var panel = document.querySelector('.so-expand-panel[data-song-id="' + songId + '"]');
     var row = panel ? panel.closest('.wo-song-list-row') : document.getElementById('soRow-' + songId);
@@ -21740,8 +21808,221 @@ var WO = (function() {
   // Keep _inboxTouchStart as no-op alias so old references don't crash
   function _inboxTouchStart(e, idx) { /* replaced by Pointer Events */ }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // Song Order — constrained drag-and-drop REORDER
+  // Constraint: a song assigned to a later service section cannot be dragged
+  // above a song from an earlier service section.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /** Return the 0-based index of a song's first matching section in orderStructures.
+   *  Returns -1 for unassigned songs (no constraint — can go anywhere). */
+  function _soGetSectionOrder(song) {
+    if (!song || !Array.isArray(song.serviceSections) || song.serviceSections.length === 0) return -1;
+    var struct = orderStructures[currentOrderType] || orderStructures.traditional;
+    for (var i = 0; i < struct.length; i++) {
+      if (song.serviceSections.indexOf(struct[i].serviceSectionId) !== -1) return i;
+    }
+    return -1;
+  }
+
+  /** Check whether placing dragSong above/below tgtSong respects section ordering. */
+  function _soReorderCheckValid(dragSong, tgtSong, isAbove) {
+    var dragOrd = _soGetSectionOrder(dragSong);
+    var tgtOrd  = _soGetSectionOrder(tgtSong);
+    if (dragOrd < 0 || tgtOrd < 0) return true; // unassigned — no constraint
+    if (dragOrd === tgtOrd)         return true; // same section — free reorder
+
+    // Build the render list without dragSong, find insertion neighbours
+    var listWithout = _soCurrentRenderList.filter(function(r) { return r.song.id !== dragSong.id; });
+    var newTgtIdx = -1;
+    for (var j = 0; j < listWithout.length; j++) {
+      if (listWithout[j].song.id === tgtSong.id) { newTgtIdx = j; break; }
+    }
+    if (newTgtIdx < 0) return true;
+    var insertAt = isAbove ? newTgtIdx : newTgtIdx + 1;
+
+    // Song immediately before insertion point
+    if (insertAt > 0) {
+      var prevOrd = _soGetSectionOrder(listWithout[insertAt - 1].song);
+      if (prevOrd >= 0 && prevOrd > dragOrd) return false;
+    }
+    // Song immediately after insertion point
+    if (insertAt < listWithout.length) {
+      var nextOrd = _soGetSectionOrder(listWithout[insertAt].song);
+      if (nextOrd >= 0 && nextOrd < dragOrd) return false;
+    }
+    return true;
+  }
+
+  /** Perform the reorder: splice render list and sort songOrderSections to match. */
+  function _soReorderDropFire(dragSongId, tgtSongId, isAbove) {
+    if (!dragSongId || !tgtSongId || dragSongId === tgtSongId) return;
+    var dragSong = songOrderSections.find(function(s) { return s.id === dragSongId; });
+    var tgtSong  = songOrderSections.find(function(s) { return s.id === tgtSongId;  });
+    if (!dragSong || !tgtSong) return;
+
+    if (!_soReorderCheckValid(dragSong, tgtSong, isAbove)) {
+      showToast('Can\'t place this song here — it would break the service order structure', 'warning');
+      return;
+    }
+
+    // Splice _soCurrentRenderList: move all entries of dragSong to new position
+    var srcItems    = _soCurrentRenderList.filter(function(r) { return r.song.id === dragSongId; });
+    var listWithout = _soCurrentRenderList.filter(function(r) { return r.song.id !== dragSongId; });
+    var insertAt    = -1;
+    for (var j = 0; j < listWithout.length; j++) {
+      if (listWithout[j].song.id === tgtSongId) { insertAt = isAbove ? j : j + 1; break; }
+    }
+    if (insertAt < 0) return;
+    Array.prototype.splice.apply(listWithout, [insertAt, 0].concat(srcItems));
+    _soCurrentRenderList = listWithout;
+
+    // Re-sort songOrderSections to match unique first-occurrence order in render list
+    var seenIds = {}, newOrder = [];
+    _soCurrentRenderList.forEach(function(r) {
+      if (!seenIds[r.song.id]) { seenIds[r.song.id] = true; newOrder.push(r.song.id); }
+    });
+    var orderMap = {};
+    newOrder.forEach(function(id, i) { orderMap[id] = i; });
+    songOrderSections.sort(function(a, b) {
+      var ai = orderMap[a.id] !== undefined ? orderMap[a.id] : 9999;
+      var bi = orderMap[b.id] !== undefined ? orderMap[b.id] : 9999;
+      return ai - bi;
+    });
+
+    initializeSongOrder();
+    autoSaveOrder();
+  }
+
+  // ── Desktop HTML5 reorder drag ─────────────────────────────────────────
+  function _soReorderDragStart(e, songId, rowId) {
+    _soReorderSongId = songId;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', 'reorder:' + songId);
+    var row = document.getElementById('soRow-' + rowId);
+    if (row) { setTimeout(function() { row.classList.add('wo-slr-dragging-src'); }, 0); }
+    document.body.classList.add('so-reordering');
+  }
+
+  function _soReorderDragEnd(e) {
+    _soReorderSongId = null;
+    document.body.classList.remove('so-reordering');
+    document.querySelectorAll('.wo-slr-dragging-src,.wo-slr-reorder-above,.wo-slr-reorder-below,.wo-slr-reorder-rejected')
+      .forEach(function(el) { el.classList.remove('wo-slr-dragging-src','wo-slr-reorder-above','wo-slr-reorder-below','wo-slr-reorder-rejected'); });
+  }
+
+  // ── Touch (Pointer Events) reorder drag ────────────────────────────────
+  function _soReorderPtrDown(e, songId, rowId) {
+    if (e.pointerType === 'mouse') return; // desktop: HTML5 DnD handles it
+    e.preventDefault();
+    e.stopPropagation();
+
+    var handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    _soReorderPtrId        = e.pointerId;
+    _soReorderPtrDragId    = songId;
+    _soReorderPtrDragRowId = rowId;
+    _soReorderPtrDropTgt   = null;
+
+    // Ghost clone
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    var label = song ? song.title.substring(0, 28) : rowId;
+    _soReorderCloneEl = document.createElement('div');
+    _soReorderCloneEl.className = 'wo-slr-reorder-ghost';
+    _soReorderCloneEl.innerHTML = '<i class="fa-solid fa-music"></i> ' + escapeHtml(label);
+    _soReorderCloneEl.style.left = (e.clientX - 100) + 'px';
+    _soReorderCloneEl.style.top  = (e.clientY - 24) + 'px';
+    document.body.appendChild(_soReorderCloneEl);
+
+    var srcRow = document.getElementById('soRow-' + rowId);
+    if (srcRow) srcRow.classList.add('wo-slr-dragging-src');
+    document.body.classList.add('so-reordering');
+
+    document.addEventListener('pointermove',   _soReorderPtrMoveGlobal);
+    document.addEventListener('pointerup',     _soReorderPtrUpGlobal);
+    document.addEventListener('pointercancel', _soReorderPtrCancelGlobal);
+  }
+
+  function _soReorderPtrMoveGlobal(e) {
+    if (e.pointerId !== _soReorderPtrId) return;
+    e.preventDefault();
+    if (_soReorderCloneEl) {
+      _soReorderCloneEl.style.left = (e.clientX - 100) + 'px';
+      _soReorderCloneEl.style.top  = (e.clientY - 24) + 'px';
+    }
+    // Temporarily hide ghost to hit-test underneath
+    if (_soReorderCloneEl) _soReorderCloneEl.style.visibility = 'hidden';
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    if (_soReorderCloneEl) _soReorderCloneEl.style.visibility = '';
+
+    document.querySelectorAll('.wo-slr-reorder-above,.wo-slr-reorder-below,.wo-slr-reorder-rejected')
+      .forEach(function(r) { r.classList.remove('wo-slr-reorder-above','wo-slr-reorder-below','wo-slr-reorder-rejected'); });
+    _soReorderPtrDropTgt = null;
+
+    var targetRow = el ? el.closest('.wo-song-list-row') : null;
+    if (!targetRow) return;
+    var panel5  = targetRow.querySelector('.so-expand-panel');
+    var tgtSongId = panel5 ? panel5.getAttribute('data-song-id') : null;
+    if (!tgtSongId || tgtSongId === _soReorderPtrDragId) return;
+
+    var rect5  = targetRow.getBoundingClientRect();
+    var isAbove5 = e.clientY < (rect5.top + rect5.height / 2);
+    var dragS5 = songOrderSections.find(function(s) { return s.id === _soReorderPtrDragId; });
+    var tgtS5  = songOrderSections.find(function(s) { return s.id === tgtSongId; });
+
+    if (dragS5 && tgtS5 && !_soReorderCheckValid(dragS5, tgtS5, isAbove5)) {
+      targetRow.classList.add('wo-slr-reorder-rejected');
+    } else {
+      targetRow.classList.add(isAbove5 ? 'wo-slr-reorder-above' : 'wo-slr-reorder-below');
+      _soReorderPtrDropTgt = { songId: tgtSongId, isAbove: isAbove5 };
+    }
+  }
+
+  function _soReorderPtrUpGlobal(e) {
+    if (e.pointerId !== _soReorderPtrId) return;
+    var dropTgt  = _soReorderPtrDropTgt;
+    var dragId   = _soReorderPtrDragId;
+    _soReorderPtrCleanup();
+    if (dropTgt && dragId) {
+      _soReorderDropFire(dragId, dropTgt.songId, dropTgt.isAbove);
+    }
+  }
+
+  function _soReorderPtrCancelGlobal(e) {
+    if (e.pointerId !== _soReorderPtrId) return;
+    _soReorderPtrCleanup();
+  }
+
+  function _soReorderPtrCleanup() {
+    document.removeEventListener('pointermove',   _soReorderPtrMoveGlobal);
+    document.removeEventListener('pointerup',     _soReorderPtrUpGlobal);
+    document.removeEventListener('pointercancel', _soReorderPtrCancelGlobal);
+    _soReorderPtrId        = null;
+    _soReorderPtrDragId    = null;
+    _soReorderPtrDragRowId = null;
+    _soReorderPtrDropTgt   = null;
+    if (_soReorderCloneEl) { _soReorderCloneEl.remove(); _soReorderCloneEl = null; }
+    document.querySelectorAll('.wo-slr-dragging-src,.wo-slr-reorder-above,.wo-slr-reorder-below,.wo-slr-reorder-rejected')
+      .forEach(function(el) { el.classList.remove('wo-slr-dragging-src','wo-slr-reorder-above','wo-slr-reorder-below','wo-slr-reorder-rejected'); });
+    document.body.classList.remove('so-reordering');
+  }
+
   function _songDrop(e, songId) {
     e.preventDefault();
+
+    // ── Reorder drop ──────────────────────────────────────────────────────
+    if (_soReorderSongId) {
+      var panel4  = document.querySelector('.so-expand-panel[data-song-id="' + songId + '"]');
+      var row4    = panel4 ? panel4.closest('.wo-song-list-row') : null;
+      var isAbove4 = row4 && row4.classList.contains('wo-slr-reorder-above');
+      document.querySelectorAll('.wo-slr-dragging-src,.wo-slr-reorder-above,.wo-slr-reorder-below,.wo-slr-reorder-rejected')
+        .forEach(function(el) { el.classList.remove('wo-slr-dragging-src','wo-slr-reorder-above','wo-slr-reorder-below','wo-slr-reorder-rejected'); });
+      document.body.classList.remove('so-reordering');
+      _soReorderDropFire(_soReorderSongId, songId, isAbove4);
+      _soReorderSongId = null;
+      return;
+    }
+
     document.body.classList.remove('inbox-dragging');
     document.querySelectorAll('.wo-slr-drop-over').forEach(function(r) { r.classList.remove('wo-slr-drop-over'); });
 
@@ -22126,6 +22407,17 @@ var WO = (function() {
         if (item.itemType === 'song') {
           // Find the song in songOrderSections
           var songEntry = songOrderSections.find(function(s) { return s.id === item.id; });
+
+          // Path 1 (serviceSections) already handled this song — skip to avoid false
+          // "already in this section" toast when a song was reassigned.
+          if (songEntry && Array.isArray(songEntry.serviceSections) && songEntry.serviceSections.length > 0) {
+            // serviceSections is the source of truth; Path 1 already rendered this song.
+            // Only update savedSlides so projection uses the latest content.
+            if (item.slides && item.slides.length > 0 && !songEntry.savedSlides) {
+              songEntry.savedSlides = item.slides;
+            }
+            return; // skip Path 3 addition
+          }
 
           // If not in songOrderSections, recreate from allItems data and add
           if (!songEntry && item.title) {
@@ -22789,6 +23081,13 @@ var WO = (function() {
         ' ondrop="WO._songDrop(event,\'' + escapedSongId + '\')">' +
 
         '<div class="wo-slr-main" onclick="WO.soToggleExpand(\'' + escapedRowId + '\')" style="cursor:pointer;">' +
+          '<div class="wo-slr-drag-handle" draggable="true" title="Drag to reorder"' +
+            ' onclick="event.stopPropagation()"' +
+            ' ondragstart="event.stopPropagation();WO._soReorderDragStart(event,\'' + escapedSongId + '\',\'' + escapedRowId + '\')"' +
+            ' ondragend="event.stopPropagation();WO._soReorderDragEnd(event)"' +
+            ' onpointerdown="WO._soReorderPtrDown(event,\'' + escapedSongId + '\',\'' + escapedRowId + '\')">' +
+            '<i class="fa-solid fa-grip-lines"></i>' +
+          '</div>' +
           '<span class="wo-slr-num">' + displayIdx + '</span>' +
           '<div class="wo-slr-info">' +
             '<span class="wo-slr-title">' + escapeHtml(songSection.title) + linkedBadge + '</span>' +
@@ -26987,6 +27286,9 @@ var WO = (function() {
     if (existingSong) {
       // Update existing song's sections
       existingSong.serviceSections = selectedSections;
+      // Clear stale sectionId so Path 3 in initializeServiceOrder doesn't re-add to
+      // the old section — serviceSections is now the source of truth.
+      existingSong.sectionId = '';
 
       // Remove all old rows for this song (new row IDs use soRow- prefix with rowId)
       document.querySelectorAll('[id^="soRow-"]').forEach(function(el) {
@@ -40727,6 +41029,10 @@ var WO = (function() {
     _songDragOver: _songDragOver,
     _songDragLeave: _songDragLeave,
     _songDrop: _songDrop,
+    // Song Order reorder drag-drop
+    _soReorderDragStart: _soReorderDragStart,
+    _soReorderDragEnd: _soReorderDragEnd,
+    _soReorderPtrDown: _soReorderPtrDown,
     // Playlist modal
     openPlaylistModal: openPlaylistModal,
     closePlaylistModal: closePlaylistModal,
