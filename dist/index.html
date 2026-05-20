@@ -19078,6 +19078,51 @@ var WO = (function() {
                   completeOrder.serviceSectionItems[item.sectionId] = [];
                 }
                 completeOrder.serviceSectionItems[item.sectionId].push(contentEntry);
+              } else if (item.itemType === 'scripture') {
+                var scriptureEntry = {
+                  id: item.id,
+                  type: 'scripture',
+                  sourceId: item.sourceId || '',
+                  title: item.title || 'Scripture',
+                  sectionId: item.sectionId,
+                  slides: item.slides || [],
+                  content: item.content || {}
+                };
+                if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
+                if (!completeOrder.serviceSectionItems[item.sectionId]) {
+                  completeOrder.serviceSectionItems[item.sectionId] = [];
+                }
+                completeOrder.serviceSectionItems[item.sectionId].push(scriptureEntry);
+              } else if (item.itemType === 'slides') {
+                var slidesEntry = {
+                  id: item.id,
+                  type: 'slides',
+                  sourceId: item.sourceId || '',
+                  title: item.title || 'Presentation',
+                  sectionId: item.sectionId,
+                  slides: item.slides || [],
+                  content: item.content || {}
+                };
+                if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
+                if (!completeOrder.serviceSectionItems[item.sectionId]) {
+                  completeOrder.serviceSectionItems[item.sectionId] = [];
+                }
+                completeOrder.serviceSectionItems[item.sectionId].push(slidesEntry);
+              } else if (item.itemType === 'video') {
+                var videoEntry = {
+                  id: item.id,
+                  type: 'video',
+                  sourceId: item.sourceId || '',
+                  title: item.title || 'Video',
+                  sectionId: item.sectionId,
+                  slides: [],
+                  content: item.content || {}
+                };
+                if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
+                if (!completeOrder.serviceSectionItems[item.sectionId]) {
+                  completeOrder.serviceSectionItems[item.sectionId] = [];
+                }
+                completeOrder.serviceSectionItems[item.sectionId].push(videoEntry);
               }
             });
 
@@ -20268,6 +20313,30 @@ var WO = (function() {
             });
           }
         });
+      });
+    }
+
+    // Safety net: preserve any non-song items from the last Supabase load that weren't
+    // captured above (e.g. when SSI is incomplete after a fresh load or page refresh).
+    if (currentOrderData && Array.isArray(currentOrderData.allItems)) {
+      currentOrderData.allItems.forEach(function(pi) {
+        if (!pi.sectionId) return;
+        if (pi.itemType === 'song') return; // songs already handled via songOrderSections
+        var alreadySaved = items.some(function(i) { return i.id === pi.id; });
+        if (!alreadySaved) {
+          items.push({
+            id: pi.id,
+            itemType: pi.itemType,
+            sectionId: pi.sectionId,
+            sortOrder: sortOrder++,
+            sourceId: pi.sourceId || '',
+            title: pi.title || '',
+            content: pi.content || {},
+            customizations: pi.customizations || {},
+            slides: pi.slides || [],
+            backgrounds: pi.backgrounds || {}
+          });
+        }
       });
     }
 
