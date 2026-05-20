@@ -18338,7 +18338,7 @@ var WO = (function() {
     traditional: [
       { title: '1. Invocation',            type: 'single',                                                                                                   serviceSectionId: 'welcome',          liturgySectionId: 'invocation'   },
       { title: '2. Confession',            type: 'single',                                                                                                   serviceSectionId: 'opening-prayer',   liturgySectionId: 'confession'   },
-      { title: '3. Absolution',            type: 'single',                                                                                                                                         liturgySectionId: 'confession'   },
+      { title: '3. Absolution',            type: 'single',                                                                                                                                         liturgySectionId: 'absolution'   },
       { title: '4. Entrance Hymn',         type: 'single', special: 'songs',                                                                                 serviceSectionId: 'preparation'                                        },
       { title: '5. Kyrie',                 type: 'single',                                                                                                                                         liturgySectionId: 'kyrie'        },
       { title: '6. Prayer of the Day',     type: 'single',                                                                                                   serviceSectionId: 'opening-prayer',   liturgySectionId: 'collect'      },
@@ -18359,7 +18359,7 @@ var WO = (function() {
     contemporary: [
       { title: '1. Invocation',            type: 'single',                                                                                                   serviceSectionId: 'welcome',          liturgySectionId: 'invocation'   },
       { title: '2. Confession',            type: 'single',                                                                                                   serviceSectionId: 'opening-prayer',   liturgySectionId: 'confession'   },
-      { title: '3. Absolution',            type: 'single',                                                                                                                                         liturgySectionId: 'confession'   },
+      { title: '3. Absolution',            type: 'single',                                                                                                                                         liturgySectionId: 'absolution'   },
       { title: '4. Praise & Worship',      type: 'single', special: 'songs',                                                                                serviceSectionId: 'preparation',      liturgySectionId: 'praise-worship'},
       { title: '5. Prayer of the Day',     type: 'single',                                                                                                   serviceSectionId: 'opening-prayer',   liturgySectionId: 'collect'      },
       { title: '6. Scripture Readings',    type: 'group',  subsections: ['First Reading', 'Psalm', 'Second Reading', 'Gospel'],                             serviceSectionId: 'scripture',        liturgySectionId: 'scripture'    },
@@ -19173,6 +19173,10 @@ var WO = (function() {
 
     currentOrderType = order.type || 'traditional';
     currentOrderData = order;
+    // Restore the list of sections where the user explicitly deleted liturgy
+    // so that _seed() won't re-inject default content into those sections.
+    currentOrderData.clearedSections = (order.template && Array.isArray(order.template.clearedSections))
+      ? order.template.clearedSections : [];
     songOrderSections = order.songs || [];
     serviceSectionSongs = order.serviceSectionSongs || {};
 
@@ -19263,10 +19267,14 @@ var WO = (function() {
         });
       }
       function _seed() {
+        var _cleared = currentOrderData && Array.isArray(currentOrderData.clearedSections)
+          ? currentOrderData.clearedSections : [];
         str.forEach(function(section, idx) {
           if (!section.liturgySectionId) return;
           var domSectionId = 'wo-section-' + idx;
           if (sectionsWithLiturgy[domSectionId]) return; // already saved — don't overwrite
+          // Skip sections where the user explicitly removed liturgy
+          if (_cleared.some(function(c) { return c.sectionId === domSectionId; })) return;
           var assigned = LiturgyModule.getAssignedLiturgyForSection(svcType, section.liturgySectionId);
           if (!assigned || assigned.length === 0) return;
           if (!window.serviceSectionItems[domSectionId]) window.serviceSectionItems[domSectionId] = [];
@@ -19690,7 +19698,11 @@ var WO = (function() {
       title: currentOrderData.title || 'Untitled Order',
       type: currentOrderData.type || 'traditional',
       serviceDate: currentOrderData.serviceDate || '',
-      template: currentOrderData.template || {},
+      // Embed clearedSections inside template so it survives Supabase round-trips
+      // without needing a new DB column.
+      template: Object.assign({}, currentOrderData.template || {}, {
+        clearedSections: Array.isArray(currentOrderData.clearedSections) ? currentOrderData.clearedSections : []
+      }),
       createdDate: currentOrderData.createdDate || new Date().toISOString(),
       items: itemsForSave,
       // Persist inbox items inside the Supabase order record so they survive
@@ -26773,6 +26785,14 @@ var WO = (function() {
 
     // Check if this liturgy is already added
     if (container.querySelector('.wo-liturgy-banner-bar[data-liturgy-id="' + item.id + '"]')) return;
+
+    // If the user is manually re-adding liturgy to a previously cleared section,
+    // remove the cleared-section record so _seed() can treat it normally going forward.
+    if (currentOrderData && Array.isArray(currentOrderData.clearedSections)) {
+      currentOrderData.clearedSections = currentOrderData.clearedSections.filter(function(c) {
+        return !(c.sectionId === sectionId && c.sourceId === item.id);
+      });
+    }
 
     // Remove placeholder if exists
     var placeholder = container.querySelector('.wo-content-placeholder');
@@ -35689,6 +35709,17 @@ var WO = (function() {
         '<div class="wo-content-placeholder">Click to add content</div>' +
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
         '</div>';
+    }
+    // Remember that this section had its liturgy explicitly cleared by the user,
+    // so _seed() won't restore the default content on the next reload.
+    if (currentOrderData) {
+      if (!Array.isArray(currentOrderData.clearedSections)) currentOrderData.clearedSections = [];
+      var _alreadyCleared = currentOrderData.clearedSections.some(function(c) {
+        return c.sectionId === sectionId && c.sourceId === liturgyId;
+      });
+      if (!_alreadyCleared) {
+        currentOrderData.clearedSections.push({ sectionId: sectionId, sourceId: liturgyId });
+      }
     }
     showToast('Liturgy removed from section', 'success');
     autoSaveOrder();
