@@ -19343,6 +19343,11 @@ var WO = (function() {
     // so that _seed() won't re-inject default content into those sections.
     currentOrderData.clearedSections = (order.template && Array.isArray(order.template.clearedSections))
       ? order.template.clearedSections : [];
+    // Restore section layout (renamed titles, custom sections, deleted sections, ordering).
+    // Stored inside template to avoid needing a new Supabase column.
+    if (order.template && Array.isArray(order.template.sectionLayout) && order.template.sectionLayout.length > 0) {
+      currentOrderData.sectionLayout = order.template.sectionLayout;
+    }
     songOrderSections = order.songs || [];
     serviceSectionSongs = order.serviceSectionSongs || {};
 
@@ -19828,6 +19833,9 @@ var WO = (function() {
     // non-song items preserved in currentOrderData.allItems (captured by the most
     // recent snapshotCurrentState() call while service sections were visible).
     var _serviceSectionsVisible = document.querySelectorAll('.wo-worship-section').length > 0;
+    // Always capture the latest section layout when the DOM is visible so renames,
+    // additions, and deletions are included in the saved payload.
+    if (_serviceSectionsVisible) { _captureCurrentLayout(); }
     var items;
     if (_serviceSectionsVisible) {
       items = collectOrderItems();
@@ -19897,10 +19905,13 @@ var WO = (function() {
       title: currentOrderData.title || 'Untitled Order',
       type: currentOrderData.type || 'traditional',
       serviceDate: currentOrderData.serviceDate || '',
-      // Embed clearedSections inside template so it survives Supabase round-trips
-      // without needing a new DB column.
+      // Embed clearedSections and sectionLayout inside template so they survive Supabase
+      // round-trips without needing new DB columns.
+      // sectionLayout captures every section's id/title/serviceSectionId so renames,
+      // added sections, deleted sections, and section order all restore correctly.
       template: Object.assign({}, currentOrderData.template || {}, {
-        clearedSections: Array.isArray(currentOrderData.clearedSections) ? currentOrderData.clearedSections : []
+        clearedSections: Array.isArray(currentOrderData.clearedSections) ? currentOrderData.clearedSections : [],
+        sectionLayout: Array.isArray(currentOrderData.sectionLayout) ? currentOrderData.sectionLayout : []
       }),
       createdDate: currentOrderData.createdDate || new Date().toISOString(),
       items: itemsForSave,
