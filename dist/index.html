@@ -27285,11 +27285,12 @@ var WO = (function() {
     // Check if this liturgy is already added
     if (container.querySelector('.wo-liturgy-banner-bar[data-liturgy-id="' + item.id + '"]')) return;
 
-    // If the user is manually re-adding liturgy to a previously cleared section,
-    // remove the cleared-section record so _seed() can treat it normally going forward.
+    // If the user is manually adding liturgy to a section, remove ALL cleared-section
+    // records for this sectionId — the user is actively placing content here, so any
+    // prior "clear" actions are now irrelevant regardless of which liturgy was cleared.
     if (currentOrderData && Array.isArray(currentOrderData.clearedSections)) {
       currentOrderData.clearedSections = currentOrderData.clearedSections.filter(function(c) {
-        return !(c.sectionId === sectionId && c.sourceId === item.id);
+        return c.sectionId !== sectionId;
       });
     }
 
