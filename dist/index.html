@@ -26536,6 +26536,24 @@ var WO = (function() {
     if (sel) sel.style.display = 'none';
   }
 
+  // Double-tap detector for touch devices — mirrors the ondblclick behaviour
+  var _songTapEl = null, _songTapTime = 0;
+  function _songItemTap(el, songId, e) {
+    e.preventDefault(); // prevent ghost click
+    var now = Date.now();
+    if (_songTapEl === el && (now - _songTapTime) < 400) {
+      _songTapEl = null;
+      addSongDirectly(songId);
+    } else {
+      // First tap — highlight the row so the user knows it's selected
+      if (_songTapEl && _songTapEl !== el) _songTapEl.classList.remove('tapped');
+      _songTapEl = el;
+      _songTapTime = now;
+      el.classList.add('tapped');
+      setTimeout(function() { el.classList.remove('tapped'); }, 380);
+    }
+  }
+
   // ================================================================
   // LITURGY LIBRARY POPUP (v2.9)
   // ================================================================
@@ -26856,8 +26874,12 @@ var WO = (function() {
         '<div class="wo-section-song-artist">by ' + escapeHtml(song.artist || 'Unknown') + '</div>';
     }
 
-    // Build checkboxes for service sections
-    var checkboxesHtml = SERVICE_SECTIONS.map(function(section) {
+    // Only show sections where songs are meaningful — keyed to the actual
+    // LCD Projection sections that accept song content.
+    var SONG_SECTIONS = ['preparation', 'song-of-preparation', 'response', 'sharing-peace', 'dismissal'];
+    var checkboxesHtml = SERVICE_SECTIONS.filter(function(s) {
+      return SONG_SECTIONS.indexOf(s.id) !== -1;
+    }).map(function(section) {
       return '<label class="wo-section-checkbox-item" onclick="this.querySelector(\'input\').click(); event.stopPropagation();">' +
         '<input type="checkbox" value="' + section.id + '" onclick="event.stopPropagation(); WO.toggleSectionCheckbox(this.parentElement)">' +
         '<span class="wo-section-checkbox-label">' + section.label + '</span>' +
@@ -35295,11 +35317,12 @@ var WO = (function() {
 
     var html = songs.map(function(song) {
       var themes = Array.isArray(song.themes) ? song.themes.join(', ') : (song.themes || '');
-      return '<div class="wo-song-item" ondblclick="WO.addSongDirectly(\'' + (song.id || song.title) + '\')">' +
+      var _sid = (song.id || song.title).replace(/'/g, "\\'");
+      return '<div class="wo-song-item" ondblclick="WO.addSongDirectly(\'' + _sid + '\')" ontouchend="WO._songItemTap(this,\'' + _sid + '\',event)">' +
         '<div class="wo-song-info">' +
         '<div class="wo-song-title-popup">' + escapeHtml(song.title || 'Untitled') + '</div>' +
         '<div class="wo-song-details">by ' + escapeHtml(song.artist || 'Unknown') + (themes ? ' • ' + escapeHtml(themes) : '') + '</div>' +
-        '<div class="wo-song-hint">Double-click to add</div>' +
+        '<div class="wo-song-hint">Double-click or double-tap to add</div>' +
         '</div>' +
         '</div>';
     }).join('');
@@ -35355,6 +35378,9 @@ var WO = (function() {
       showToast('Song already in Song Order', 'warning');
       return;
     }
+
+    // Close the song library popup first so the assignment dialog is immediately visible
+    closeSongPopup();
 
     // Show section assignment modal for Song Order tab
     openSectionModal(song);
@@ -40741,6 +40767,7 @@ var WO = (function() {
     addNewSection: addNewSection,
     // Song library direct add
     addSongDirectly: addSongDirectly,
+    _songItemTap: _songItemTap,
     // v2.9: Section assignment modal
     openSectionModal: openSectionModal,
     closeSectionModal: closeSectionModal,
@@ -46782,6 +46809,7 @@ function filterLiturgyItems() {
   .wo-ms-item input[type=checkbox] { cursor: pointer; accent-color: #3b82f6; flex-shrink: 0; }
   .wo-song-results { max-height: 253px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px; }
   .wo-song-item { padding: 12px 15px; border-bottom: 1px solid #e9ecef; cursor: pointer; transition: background 0.2s; display: flex; justify-content: space-between; align-items: center; }
+  .wo-song-item.tapped { background: #e0e7ff; }
   .wo-song-item:hover { background: #f8f9fa; }
   .wo-song-item:last-child { border-bottom: none; }
   .wo-song-info { flex: 1; }
