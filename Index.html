@@ -36572,6 +36572,7 @@ var WO = (function() {
       if (slide.richLines && slide.richLines.length) {
         // Restore rich HTML formatting
         linesHtml = slide.richLines.map(function(h) {
+          if (!h || !h.trim()) return _BLANK_SLIDE_LINE;
           return '<div class="wo-slide-line">' + h + '</div>';
         }).join('');
       } else {
@@ -36923,11 +36924,21 @@ var WO = (function() {
   var _currentSlideAlign = 'center'; // Projection text alignment: 'left'|'center'|'right'
   // 4-sided safe-zone barrier config (% from each edge).  global is the default; sections/slides
   // can override per-scope.  _getActiveBarrier(box) resolves the correct level.
-  var _barrierConfig = {
-    global:   { top: 5, right: 5, bottom: 5, left: 5 },
-    sections: {},   // keyed by sectionId string
-    slides:   {}    // keyed by "sectionId:slideIdx" string
-  };
+  // Load barrier config from localStorage (persists across page reloads)
+  var _barrierConfig = (function() {
+    var defaults = { global: { top: 5, right: 5, bottom: 5, left: 5 }, sections: {}, slides: {} };
+    try {
+      var stored = localStorage.getItem('lhc_barrier_config');
+      if (stored) {
+        var parsed = JSON.parse(stored);
+        if (parsed && parsed.global) return parsed;
+      }
+    } catch(e) {}
+    return defaults;
+  })();
+  function _saveBarrierConfig() {
+    try { localStorage.setItem('lhc_barrier_config', JSON.stringify(_barrierConfig)); } catch(e) {}
+  }
   var _selectedPptContainer = null; // Tracks active iframe PPT container
 
   function selectSlideBox(box) {
@@ -37612,6 +37623,7 @@ var WO = (function() {
         content.innerHTML = '<div class="wo-slide-line wo-slide-empty-hint" style="color:#9ca3af;font-style:italic;font-size:0.85rem;">Double-click to add content</div>';
       } else {
         content.innerHTML = parts.map(function(h) {
+          if (!h) return _BLANK_SLIDE_LINE;
           return '<div class="wo-slide-line">' + h + '</div>';
         }).join('');
       }
@@ -38014,6 +38026,7 @@ var WO = (function() {
     // Push to projection window
     sendToProjectionWindow({ type: 'barrierUpdate', barrier: _barrierConfig.global });
 
+    _saveBarrierConfig(); // persist to localStorage
     closeBarrierEditor();
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
@@ -38023,6 +38036,7 @@ var WO = (function() {
     _barrierConfig.global   = { top: 5, right: 5, bottom: 5, left: 5 };
     _barrierConfig.sections = {};
     _barrierConfig.slides   = {};
+    _saveBarrierConfig(); // persist reset to localStorage
     $('woBarrierTop').value    = 5;
     $('woBarrierBottom').value = 5;
     $('woBarrierLeft').value   = 5;
@@ -39566,9 +39580,12 @@ var WO = (function() {
     return div.innerHTML;
   }
 
-  // Build a wo-slide-line div, stripping parenthetical text for service order slide display
+  // Build a wo-slide-line div, stripping parenthetical text for service order slide display.
+  // Blank lines get an explicit inline min-height so they stay visible regardless of :empty CSS.
+  var _BLANK_SLIDE_LINE = '<div class="wo-slide-line" style="min-height:1em;display:block;"></div>';
   function _slideLineHtml(line) {
     var clean = line.replace(/\([^)]*\)/g, '').replace(/\s{2,}/g, ' ').trim();
+    if (!clean) return _BLANK_SLIDE_LINE;
     return '<div class="wo-slide-line">' + escapeHtml(clean) + '</div>';
   }
 
