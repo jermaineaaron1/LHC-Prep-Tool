@@ -20209,8 +20209,22 @@ var WO = (function() {
           var slideBoxes = container.querySelectorAll('.wo-slide-box[data-song-id="' + songData.id + '"]');
           slideBoxes.forEach(function(box, slideIdx) {
             var lineEls = Array.from(box.querySelectorAll('.wo-slide-line'));
-            var lines     = lineEls.map(function(el) { return el.textContent; });
-            var lineHtmls = lineEls.map(function(el) { return el.innerHTML; });
+            var lines, lineHtmls;
+            // If the box is in active edit mode the .wo-slide-line elements have been
+            // replaced by the contenteditable editor — read from it directly so spacing
+            // (Ctrl+Enter gaps) is not lost when a save fires while editing.
+            if (lineEls.length === 0 && box.classList.contains('editing')) {
+              var liveEditor = box.querySelector('.wo-slide-editor');
+              if (liveEditor) {
+                var liveRichHtml = _getEditorHtml(liveEditor);
+                var liveParts = liveRichHtml ? liveRichHtml.split(/<br\s*\/?>/gi) : [];
+                lines     = liveParts.map(function(p) { var t = document.createElement('div'); t.innerHTML = p; return t.textContent || ''; });
+                lineHtmls = liveParts;
+              } else { lines = []; lineHtmls = []; }
+            } else {
+              lines     = lineEls.map(function(el) { return el.textContent; });
+              lineHtmls = lineEls.map(function(el) { return el.innerHTML; });
+            }
             var headerEl  = box.querySelector('.wo-slide-section-header');
             var hasRich   = lineHtmls.some(function(h) { return /<[bBiIuU]\b|<span[^>]*style|<font/i.test(h); });
             slidesData.push({
@@ -20297,9 +20311,18 @@ var WO = (function() {
         var slides = [];
         var slideBoxes = boxesContainer.querySelectorAll('.wo-slide-box[data-song-id="' + songId + '"]');
         slideBoxes.forEach(function(box, idx) {
-          var lines = Array.from(box.querySelectorAll('.wo-slide-line')).map(function(el) {
-            return el.textContent;
-          });
+          var lineEls2 = Array.from(box.querySelectorAll('.wo-slide-line'));
+          var lines;
+          if (lineEls2.length === 0 && box.classList.contains('editing')) {
+            var liveEd2 = box.querySelector('.wo-slide-editor');
+            if (liveEd2) {
+              var liveH2 = _getEditorHtml(liveEd2);
+              var livePts2 = liveH2 ? liveH2.split(/<br\s*\/?>/gi) : [];
+              lines = livePts2.map(function(p) { var t = document.createElement('div'); t.innerHTML = p; return t.textContent || ''; });
+            } else { lines = []; }
+          } else {
+            lines = lineEls2.map(function(el) { return el.textContent; });
+          }
           var headerEl = box.querySelector('.wo-slide-section-header');
           slides.push({
             index: idx,
@@ -20353,9 +20376,18 @@ var WO = (function() {
         var slides = [];
         var slideBoxes = boxesContainer.querySelectorAll('.wo-slide-box[data-liturgy-id="' + liturgyId + '"]');
         slideBoxes.forEach(function(box, idx) {
-          var lines = Array.from(box.querySelectorAll('.wo-slide-line')).map(function(el) {
-            return el.textContent;
-          });
+          var litLineEls = Array.from(box.querySelectorAll('.wo-slide-line'));
+          var lines;
+          if (litLineEls.length === 0 && box.classList.contains('editing')) {
+            var litEd = box.querySelector('.wo-slide-editor');
+            if (litEd) {
+              var litH = _getEditorHtml(litEd);
+              var litPts = litH ? litH.split(/<br\s*\/?>/gi) : [];
+              lines = litPts.map(function(p) { var t = document.createElement('div'); t.innerHTML = p; return t.textContent || ''; });
+            } else { lines = []; }
+          } else {
+            lines = litLineEls.map(function(el) { return el.textContent; });
+          }
           var headerEl = box.querySelector('.wo-slide-section-header');
           slides.push({
             index: idx,
