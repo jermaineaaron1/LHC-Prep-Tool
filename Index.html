@@ -25284,9 +25284,13 @@ var WO = (function() {
   }
 
   function openBackgroundModal() {
+    var modal = $('woBgModal');
+    if (!modal) return;
+    // Move to body so position:fixed is always viewport-relative
+    if (modal.parentNode !== document.body) document.body.appendChild(modal);
     loadBackgrounds();
     updateCurrentBackgroundPreview();
-    $('woBgModal').classList.add('show');
+    modal.classList.add('show');
   }
 
   function closeBackgroundModal() {
@@ -25693,7 +25697,9 @@ var WO = (function() {
     $('woItalicBtn').classList.toggle('active', textSettings.italic);
 
     updateTextPreview();
-    $('woTextModal').classList.add('show');
+    var txtModal = $('woTextModal');
+    if (txtModal && txtModal.parentNode !== document.body) document.body.appendChild(txtModal);
+    if (txtModal) txtModal.classList.add('show');
   }
 
   function closeTextSettingsModal() {
@@ -26972,7 +26978,7 @@ var WO = (function() {
       'body { margin: 0; padding: 0; background: #000; color: white; font-family: Georgia, serif; width: 100vw; height: 100vh; overflow: hidden; cursor: none; position: relative; }' +
       '#projBackground { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-size: cover; background-position: center; background-repeat: no-repeat; }' +
       '#projBackground video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }' +
-      '.projection-content { position: absolute; z-index: 1; top: 5%; right: 5%; bottom: 5%; left: 5%; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: hidden; }' +
+      '.projection-content { position: absolute; z-index: 1; top: ' + _barrierConfig.global.top + '%; right: ' + _barrierConfig.global.right + '%; bottom: ' + _barrierConfig.global.bottom + '%; left: ' + _barrierConfig.global.left + '%; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: hidden; }' +
       '.projection-text { font-size: 5vw; line-height: 1.5; white-space: pre-wrap; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); text-align: center; }' +
       '.projection-slide { max-width: 100vw; max-height: 100vh; object-fit: contain; }' +
       '.projection-ready { color: #333; font-size: 2vw; }' +
@@ -37544,7 +37550,9 @@ var WO = (function() {
       _updateProjectionFromEditor(richHtml);
       var fsOverlay = $('woFullscreenOverlay');
       if (fsOverlay && fsOverlay.classList.contains('show')) {
-        $('woFullscreenContent').innerHTML = _projectionHtmlRich(richHtml) || '&nbsp;';
+        var fsCtxLive = $('woFullscreenContent');
+        _applyBarrierToFsContent(fsCtxLive);
+        fsCtxLive.innerHTML = _projectionHtmlRich(richHtml) || '&nbsp;';
         _fitFullscreenText();
       }
     });
@@ -37886,9 +37894,10 @@ var WO = (function() {
     // Apply to preview content
     var previewContent = document.querySelector('#woPreviewScreen .wo-preview-content');
     if (previewContent) { previewContent.style.textAlign = align; _applyBarrierToEl(previewContent, _barrierConfig.global); }
-    // Fullscreen overlay
+    // Fullscreen overlay — re-apply barrier so text-align change takes effect
+    var fsOvl = $('woFullscreenOverlay');
     var fsContent = $('woFullscreenContent');
-    if (fsContent) fsContent.style.textAlign = align;
+    if (fsOvl && fsOvl.classList.contains('show') && fsContent) _applyBarrierToFsContent(fsContent);
     // Projection window
     sendToProjectionWindow({ type: 'alignUpdate', align: align });
   }
@@ -37929,6 +37938,8 @@ var WO = (function() {
   function openBarrierEditor() {
     var modal = $('woBarrierModal');
     if (!modal) return;
+    // Move to body so position:fixed is always viewport-relative
+    if (modal.parentNode !== document.body) document.body.appendChild(modal);
     var b = _barrierConfig.global;
     $('woBarrierTop').value    = b.top;
     $('woBarrierBottom').value = b.bottom;
@@ -37992,6 +38003,14 @@ var WO = (function() {
     var previewContent = document.querySelector('#woPreviewScreen .wo-preview-content');
     if (previewContent) _applyBarrierToEl(previewContent, _barrierConfig.global);
 
+    // Push to fullscreen overlay if active
+    var fsOvl2 = $('woFullscreenOverlay');
+    var fsCtx2 = $('woFullscreenContent');
+    if (fsOvl2 && fsOvl2.classList.contains('show') && fsCtx2) {
+      _applyBarrierToFsContent(fsCtx2);
+      _fitFullscreenText();
+    }
+
     // Push to projection window
     sendToProjectionWindow({ type: 'barrierUpdate', barrier: _barrierConfig.global });
 
@@ -38015,6 +38034,22 @@ var WO = (function() {
   function closeBarrierEditor() {
     var modal = $('woBarrierModal');
     if (modal) modal.style.display = 'none';
+  }
+
+  // Apply barrier + alignment CSS to the fullscreen overlay content element
+  function _applyBarrierToFsContent(fsCtxEl) {
+    if (!fsCtxEl) return;
+    var b = _barrierConfig.global;
+    fsCtxEl.style.cssText =
+      'position:absolute;z-index:1;' +
+      'top:'    + b.top    + '%;' +
+      'right:'  + b.right  + '%;' +
+      'bottom:' + b.bottom + '%;' +
+      'left:'   + b.left   + '%;' +
+      'display:flex;align-items:center;justify-content:center;' +
+      'text-align:' + _currentSlideAlign + ';' +
+      'text-shadow:2px 2px 8px rgba(0,0,0,0.8);' +
+      'white-space:pre-wrap;overflow:hidden;box-sizing:border-box;';
   }
 
   // ── End barrier helpers ─────────────────────────────────────────────────
@@ -39232,12 +39267,13 @@ var WO = (function() {
   // Auto-scale fullscreen overlay text to fit within the viewport
   function _fitFullscreenText() {
     var contentEl = $('woFullscreenContent');
-    var overlay = $('woFullscreenOverlay');
-    if (!contentEl || !overlay) return;
-    var maxH = overlay.clientHeight - 120; // 60px padding × 2
+    if (!contentEl) return;
+    // Use the content element's own dimensions (set by barrier) instead of overlay padding
+    var maxH = (contentEl.offsetHeight || (window.innerHeight * 0.9)) - 4;
+    var maxW = (contentEl.offsetWidth  || (window.innerWidth  * 0.9)) - 4;
     var fs = 2.8;
     contentEl.style.fontSize = fs + 'rem';
-    while (contentEl.scrollHeight > maxH && fs > 0.9) {
+    while ((contentEl.scrollHeight > maxH || contentEl.scrollWidth > maxW) && fs > 0.9) {
       fs = Math.max(0.9, parseFloat((fs - 0.15).toFixed(2)));
       contentEl.style.fontSize = fs + 'rem';
     }
@@ -39309,11 +39345,11 @@ var WO = (function() {
       return;
     }
 
-    // Regular wo-slide-box — restore overlay default padding/styles
+    // Regular wo-slide-box — apply barrier positioning to the content element
     var fsOvlR = $('woFullscreenOverlay');
     var fsCtxR = $('woFullscreenContent');
-    if (fsOvlR) fsOvlR.style.padding = '';
-    if (fsCtxR) fsCtxR.style.cssText = '';
+    if (fsOvlR) fsOvlR.style.padding = '0';
+    _applyBarrierToFsContent(fsCtxR);
 
     var content = box.querySelector('.wo-slide-content');
     var rawText = '';
@@ -42392,6 +42428,7 @@ var WO = (function() {
     applyBarrierSettings: applyBarrierSettings,
     resetBarrier: resetBarrier,
     closeBarrierEditor: closeBarrierEditor,
+    _applyBarrierToFsContent: _applyBarrierToFsContent,
     // Song in service order
     removeSongFromSection: removeSongFromSection,
     sbRemoveSong: sbRemoveSong,
