@@ -35707,16 +35707,20 @@ var WO = (function() {
       '.dp-swatch.active{border-color:#7c3aed;box-shadow:0 0 0 2px #ede9fe;}',
       '.dp-color-pick{width:26px;height:26px;padding:0;border:1.5px solid #c4b5fd;border-radius:4px;cursor:pointer;background:none;vertical-align:middle;}',
       /* Floating Word-style selection toolbar */
-      '#lbFloatBar{display:none;position:fixed;z-index:10000;background:#1e3a5f;border-radius:9px;padding:6px 10px;box-shadow:0 6px 24px rgba(0,0,0,0.45);flex-direction:row;align-items:center;gap:5px;flex-wrap:wrap;max-width:600px;pointer-events:auto;}',
+      '#lbFloatBar{display:none;position:fixed;z-index:10000;background:#1e3a5f;border-radius:9px;padding:6px 10px;box-shadow:0 6px 24px rgba(0,0,0,0.45);flex-direction:row;align-items:center;gap:5px;flex-wrap:wrap;max-width:760px;pointer-events:auto;}',
       '#lbFloatBar.open{display:flex;}',
       '.lb-fb-lbl{font-size:.6em;color:rgba(255,255,255,.72);text-transform:uppercase;letter-spacing:.07em;font-family:Georgia,serif;white-space:nowrap;}',
       '.lb-fb-sep{width:1px;height:18px;background:rgba(255,255,255,.22);flex-shrink:0;}',
       '.lb-fb-btn{background:rgba(255,255,255,.13);color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:.82em;cursor:pointer;font-family:Georgia,serif;line-height:1.4;transition:background .12s;}',
       '.lb-fb-btn:hover{background:rgba(255,255,255,.28);}',
+      '.lb-fb-btn.active{background:rgba(255,255,255,.38)!important;outline:1.5px solid rgba(255,255,255,.6);}',
       '.lb-fb-sel{background:rgba(255,255,255,.13);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:4px;font-size:.78em;cursor:pointer;font-family:Georgia,serif;padding:2px 5px;max-width:90px;}',
       '.lb-fb-sel option{color:#111;background:#fff;}',
       '.lb-fb-col{width:22px;height:22px;padding:0;border:1.5px solid rgba(255,255,255,.35);border-radius:4px;cursor:pointer;background:none;flex-shrink:0;}',
       '.lb-fb-close{background:rgba(255,255,255,.08)!important;color:rgba(255,255,255,.65)!important;font-size:1em!important;padding:2px 7px!important;}',
+      /* contenteditable lbContent: no outline, cursor shows editability */
+      '#lbContent[contenteditable=true]{outline:none;cursor:text;}',
+      '#lbContent[contenteditable=true]:focus{outline:none;}',
       /* Highlight mode cursor */
       'body.hl-mode{cursor:crosshair;}',
       'body.hl-mode .print-controls,body.hl-mode .design-panel,body.hl-mode .print-controls *,body.hl-mode .design-panel *{cursor:default!important;}',
@@ -35812,117 +35816,79 @@ var WO = (function() {
         (occasion ? '<div class="doc-meta-occasion">' + escapeHtml(occasion) + '</div>' : '') +
       '</div>';
 
-    // 561 — JS embedded in popup: zoom control + Liturgist Notes modal + design panel + floating selection toolbar
+    // 561 — JS embedded in popup: zoom + Liturgist Notes + design panel + Word-style rich-text toolbar
     var lbDesignJson = JSON.stringify((currentOrderData && currentOrderData.liturgyBookDesign) || {});
     var popupJs = '<script>' +
-      /* Saved design injected from Supabase order data */
+      /* ── State vars ── */
       'var _savedDesign=' + lbDesignJson + ';' +
-      /* pt-based font size stepping */
       'var _lbPtSizes=[8,9,10,11,12,13,14,16,18,20,24];' +
       'var _lbCurPt=13;' +
-      /* Floating toolbar state */
-      'var _lbFB=null;var _lbSavedRange=null;' +
-      'function _applyFontSize(pt){' +
-        '_lbCurPt=pt;' +
-        'document.documentElement.style.setProperty("--lb-fs",pt+"pt");' +
-        'var el=document.getElementById("lbZoomLbl");if(el)el.textContent=pt+"pt";' +
-      '}' +
+      'var _lbFB=null;' +
+      'var _lbSavedRange=null;' +
+      'var _saveTimer=null;' +
+      /* ── Zoom ── */
+      'function _applyFontSize(pt){_lbCurPt=pt;document.documentElement.style.setProperty("--lb-fs",pt+"pt");var el=document.getElementById("lbZoomLbl");if(el)el.textContent=pt+"pt";}' +
       'function _lbNearestIdx(pt){var best=0,bd=999;_lbPtSizes.forEach(function(p,i){var d=Math.abs(p-pt);if(d<bd){bd=d;best=i;}});return best;}' +
       'function lbZoomIn(){var i=_lbNearestIdx(_lbCurPt);if(i<_lbPtSizes.length-1)_applyFontSize(_lbPtSizes[i+1]);}' +
       'function lbZoomOut(){var i=_lbNearestIdx(_lbCurPt);if(i>0)_applyFontSize(_lbPtSizes[i-1]);}' +
-      /* Liturgist Notes modal */
-      'function openLitNotes(btn){' +
-        'var song=btn.getAttribute("data-song");' +
-        'var notes=btn.getAttribute("data-notes");' +
-        'var m=document.getElementById("lnModal");' +
-        'var t=document.getElementById("lnModalSong");' +
-        'var b=document.getElementById("lnModalBody");' +
-        'if(t)t.textContent=song;' +
-        'if(b)b.textContent=notes;' +
-        'if(m){m.classList.add("open");m.onclick=function(e){if(e.target===m)closeLitNotes();}}' +
-      '}' +
+      /* ── Liturgist Notes modal ── */
+      'function openLitNotes(btn){var song=btn.getAttribute("data-song");var notes=btn.getAttribute("data-notes");var m=document.getElementById("lnModal");var t=document.getElementById("lnModalSong");var b=document.getElementById("lnModalBody");if(t)t.textContent=song;if(b)b.textContent=notes;if(m){m.classList.add("open");m.onclick=function(e){if(e.target===m)closeLitNotes();}}}' +
       'function closeLitNotes(){var m=document.getElementById("lnModal");if(m)m.classList.remove("open");}' +
-      /* DOMContentLoaded: assign stable IDs + restore saved design + wire floating toolbar */
+      /* ── Debounced auto-save (for direct typing in contenteditable) ── */
+      'function _debounceSave(){clearTimeout(_saveTimer);_saveTimer=setTimeout(_autoSaveDesign,900);}' +
+      /* ── DOMContentLoaded ── */
       'window.addEventListener("DOMContentLoaded",function(){' +
-        /* Assign data-lbid to every highlightable line element */
-        'var _i=0;' +
-        'document.querySelectorAll(".lyr-line,.lyr-sec,.lit-text,.scripture-text").forEach(function(el){' +
-          'el.setAttribute("data-lbid","lb"+(_i++));' +
-        '});' +
-        /* Restore document-level design */
+        'var _ce=document.getElementById("lbContent");' +
+        'if(_ce)_ce.addEventListener("input",_debounceSave);' +
         'if(_savedDesign.font)document.documentElement.style.setProperty("--lb-ff",_savedDesign.font);' +
-        'if(_savedDesign.fontSize){_lbCurPt=parseInt(_savedDesign.fontSize)||13;_applyFontSize(_lbCurPt);}' +
-        'else{_applyFontSize(13);}' +
+        'if(_savedDesign.fontSize){_lbCurPt=parseInt(_savedDesign.fontSize)||13;_applyFontSize(_lbCurPt);}else{_applyFontSize(13);}' +
         'if(_savedDesign.spacing)document.documentElement.style.setProperty("--lb-lh",_savedDesign.spacing);' +
         'if(_savedDesign.textColor)document.documentElement.style.setProperty("--lb-ink",_savedDesign.textColor);' +
         'if(_savedDesign.highlightColor)_hlColor=_savedDesign.highlightColor;' +
-        /* Restore per-line rich formatting (modifiedLines) or fall back to legacy highlights */
-        'if(_savedDesign.modifiedLines&&_savedDesign.modifiedLines.length){' +
-          '_savedDesign.modifiedLines.forEach(function(m){' +
-            'var el=document.querySelector(\'[data-lbid="\'+m.id+\'"]\');' +
-            'if(!el)return;' +
-            'if(m.html!=null)el.innerHTML=m.html;' +
-            'if(m.bg){el.classList.add("hl-marked");el.style.background=m.bg;}' +
-          '});' +
+        'if(_savedDesign.contentHtml&&_ce){_ce.innerHTML=_savedDesign.contentHtml;}' +
+        'else if(_savedDesign.modifiedLines&&_savedDesign.modifiedLines.length){' +
+          'var _mi=0;document.querySelectorAll(".lyr-line,.lyr-sec,.lit-text,.scripture-text").forEach(function(el){el.setAttribute("data-lbid","lb"+(_mi++));});' +
+          '_savedDesign.modifiedLines.forEach(function(m){var el=document.querySelector(\'[data-lbid="\'+m.id+\'"]\');if(!el)return;if(m.html!=null)el.innerHTML=m.html;if(m.bg){el.classList.add("hl-marked");el.style.background=m.bg;}});' +
         '}else if(_savedDesign.highlights&&_savedDesign.highlights.length){' +
-          '_savedDesign.highlights.forEach(function(h){' +
-            'var el=document.querySelector(\'[data-lbid="\'+h.id+\'"]\');' +
-            'if(el){el.classList.add("hl-marked");el.style.background=h.bg;}' +
-          '});' +
+          'var _hi=0;document.querySelectorAll(".lyr-line,.lyr-sec,.lit-text,.scripture-text").forEach(function(el){el.setAttribute("data-lbid","lb"+(_hi++));});' +
+          '_savedDesign.highlights.forEach(function(h){var el=document.querySelector(\'[data-lbid="\'+h.id+\'"]\');if(el){el.classList.add("hl-marked");el.style.background=h.bg;}});' +
         '}' +
-        /* Wire up floating toolbar controls */
         '_lbFB=document.getElementById("lbFloatBar");' +
         'if(_lbFB){' +
-          '_lbFB.addEventListener("mousedown",function(e){e.preventDefault();});' +
-          'document.getElementById("lbFbFont").onchange=function(e){_applyFmt("fontFamily",e.target.value);};' +
-          'document.getElementById("lbFbSize").onchange=function(e){_applyFmt("fontSize",e.target.value);};' +
-          'document.getElementById("lbFbBold").onclick=function(){_applyFmt("fontWeight","bold");};' +
-          'document.getElementById("lbFbItalic").onclick=function(){_applyFmt("fontStyle","italic");};' +
-          'document.getElementById("lbFbColor").oninput=function(e){_applyFmt("color",e.target.value);};' +
-          'document.getElementById("lbFbHl").oninput=function(e){_applyFmt("backgroundColor",e.target.value);};' +
-          'document.getElementById("lbFbClear").onclick=function(){_clearFmt();};' +
+          '_lbFB.addEventListener("mousedown",function(e){' +
+            'var tgt=e.target;' +
+            'if(tgt.tagName==="BUTTON"||tgt.closest("button")){e.preventDefault();}' +
+            'else{var s=window.getSelection();if(s&&s.rangeCount&&!s.isCollapsed)_lbSavedRange=s.getRangeAt(0).cloneRange();}' +
+          '});' +
+          'document.getElementById("lbFbFont").onchange=function(e){_fmt("fontName",e.target.value);};' +
+          'document.getElementById("lbFbSize").onchange=function(e){_fmt("fontSize",parseInt(e.target.value));};' +
+          'document.getElementById("lbFbBold").onclick=function(){_fmt("bold");};' +
+          'document.getElementById("lbFbItalic").onclick=function(){_fmt("italic");};' +
+          'document.getElementById("lbFbUnderline").onclick=function(){_fmt("underline");};' +
+          'document.getElementById("lbFbStrike").onclick=function(){_fmt("strikeThrough");};' +
+          'document.getElementById("lbFbColor").onchange=function(e){_fmt("foreColor",e.target.value);};' +
+          'document.getElementById("lbFbHl").onchange=function(e){_fmt("hiliteColor",e.target.value);};' +
+          'document.getElementById("lbFbBorder").onclick=function(){_fmtWrap("border:1.5px solid currentColor;padding:0 4px;border-radius:2px;");};' +
+          'document.getElementById("lbFbBox").onclick=function(){_fmtWrap("border:1.5px solid currentColor;padding:3px 10px;border-radius:5px;display:inline-block;");};' +
+          'document.getElementById("lbFbClear").onclick=function(){_fmtClear();};' +
           'document.getElementById("lbFbClose").onclick=function(){_hideFB();};' +
         '}' +
       '});' +
-      /* ── Design panel ────────────────────────────────────── */
+      /* ── Design panel (document-level) ── */
       'function toggleDesignPanel(){var p=document.getElementById("designPanel");p.classList.toggle("open");}' +
       'function _dpActive(parent,btn){Array.from(parent.querySelectorAll(".dp-chip,.dp-swatch")).forEach(function(b){b.classList.remove("active");});if(btn)btn.classList.add("active");}' +
-      /* Collect current design state for saving — stores modifiedLines with innerHTML for rich per-span formatting */
-      'function _collectDesign(){' +
-        'var modLines=[];' +
-        'document.querySelectorAll("[data-lbid]").forEach(function(el){' +
-          'var hasSpan=el.querySelector("span[style]");' +
-          'var hasBg=el.classList.contains("hl-marked")||!!el.style.background;' +
-          'if(hasSpan||hasBg){modLines.push({id:el.getAttribute("data-lbid"),html:el.innerHTML,bg:el.style.background||""});}' +
-        '});' +
-        'var rs=document.documentElement.style;' +
-        'return{' +
-          'font:rs.getPropertyValue("--lb-ff")||"",' +
-          'fontSize:rs.getPropertyValue("--lb-fs")||"13pt",' +
-          'spacing:rs.getPropertyValue("--lb-lh")||"",' +
-          'textColor:rs.getPropertyValue("--lb-ink")||"",' +
-          'modifiedLines:modLines,' +
-          'highlightColor:_hlColor' +
-        '};' +
-      '}' +
-      /* Send design back to main window → Supabase save */
-      'function _autoSaveDesign(){' +
-        'try{if(window.opener&&window.opener.WO&&window.opener.WO.saveLiturgyBookDesign)' +
-          'window.opener.WO.saveLiturgyBookDesign(_collectDesign());' +
-        '}catch(e){}' +
-      '}' +
+      'function _collectDesign(){var rs=document.documentElement.style;var ce=document.getElementById("lbContent");return{font:rs.getPropertyValue("--lb-ff")||"",fontSize:rs.getPropertyValue("--lb-fs")||"13pt",spacing:rs.getPropertyValue("--lb-lh")||"",textColor:rs.getPropertyValue("--lb-ink")||"",highlightColor:_hlColor,contentHtml:ce?ce.innerHTML:""};}' +
+      'function _autoSaveDesign(){try{if(window.opener&&window.opener.WO&&window.opener.WO.saveLiturgyBookDesign)window.opener.WO.saveLiturgyBookDesign(_collectDesign());}catch(e){}}' +
       'function setFont(ff,btn){document.documentElement.style.setProperty("--lb-ff",ff);_dpActive(btn.parentElement,btn);_autoSaveDesign();}' +
       'function setSpacing(lh,btn){document.documentElement.style.setProperty("--lb-lh",lh);_dpActive(btn.parentElement,btn);_autoSaveDesign();}' +
       'function setFontSize(pt,btn){_applyFontSize(parseInt(pt));_dpActive(btn.parentElement,btn);_autoSaveDesign();}' +
       'function setColor(c,btn){document.documentElement.style.setProperty("--lb-ink",c);_dpActive(btn.parentElement,btn);_autoSaveDesign();}' +
       'function setColorCustom(c){document.documentElement.style.setProperty("--lb-ink",c);_autoSaveDesign();}' +
-      'var _hlColor="#fff9c4";' +
-      'var _hlMode=false;' +
-      'function setHlColor(c,btn){_hlColor=c;_dpActive(btn.parentElement,btn);_autoSaveDesign();}' +
+      'var _hlColor="#fff9c4";var _hlMode=false;' +
+      'function setHlColor(c,btn){_hlColor=c;_dpActive(btn.parentElement,btn);}' +
       'function toggleHlMode(){_hlMode=!_hlMode;document.body.classList.toggle("hl-mode",_hlMode);var b=document.getElementById("hlModeBtn");if(b){b.textContent=_hlMode?"✏️ ON – click line to mark":"✏️ Highlight Mode";b.classList.toggle("active",_hlMode);}}' +
       'function clearHighlights(){document.querySelectorAll(".hl-marked").forEach(function(el){el.classList.remove("hl-marked");el.style.removeProperty("background");});_autoSaveDesign();}' +
       'function setColumns(n,btn){var c=document.getElementById("lbContent");if(c)c.classList.toggle("two-col",n===2);_dpActive(btn.parentElement,btn);}' +
-      /* Click-to-highlight: targets individual lines, not whole blocks */
       'document.addEventListener("click",function(e){' +
         'if(!_hlMode)return;' +
         'if(e.target.closest(".print-controls,.design-panel"))return;' +
@@ -35933,58 +35899,47 @@ var WO = (function() {
         'else{el.classList.add("hl-marked");el.style.background=_hlColor;}' +
         '_autoSaveDesign();' +
       '});' +
-      /* ── Floating selection toolbar ──────────────────────── */
-      /* Position toolbar near the right side of the selected text */
-      'function _showFB(x,y){' +
-        'if(!_lbFB)return;' +
-        '_lbFB.classList.add("open");' +
-        'var bw=_lbFB.offsetWidth||440;' +
-        'var vw=window.innerWidth;' +
-        'var left=x+14;' +
-        'if(left+bw>vw-8)left=Math.max(8,x-bw-14);' +
-        '_lbFB.style.left=left+"px";' +
-        '_lbFB.style.top=Math.max(8,y-42)+"px";' +
-      '}' +
+      /* ── Floating toolbar helpers ── */
+      'function _showFB(x,y){if(!_lbFB)return;_lbFB.classList.add("open");var bw=_lbFB.offsetWidth||580;var vw=window.innerWidth;var left=x+14;if(left+bw>vw-8)left=Math.max(8,x-bw-14);_lbFB.style.left=left+"px";_lbFB.style.top=Math.max(8,y-44)+"px";}' +
       'function _hideFB(){if(_lbFB)_lbFB.classList.remove("open");_lbSavedRange=null;}' +
-      /* Wrap selected text in a <span> with the given CSS property set */
-      'function _applyFmt(prop,val){' +
-        'var range=_lbSavedRange;' +
-        'if(!range){var s=window.getSelection();if(s&&s.rangeCount&&!s.isCollapsed)range=s.getRangeAt(0).cloneRange();}' +
-        'if(!range||range.collapsed)return;' +
-        'var sp=document.createElement("span");sp.style[prop]=val;' +
-        'var sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);' +
-        'try{range.surroundContents(sp);}' +
-        'catch(e){try{var f=range.extractContents();sp.appendChild(f);range.insertNode(sp);}catch(e2){}}' +
-        'sel.removeAllRanges();_lbSavedRange=null;_autoSaveDesign();' +
+      'function _restoreSel(){if(!_lbSavedRange)return false;var ce=document.getElementById("lbContent");if(ce)ce.focus();var sel=window.getSelection();sel.removeAllRanges();sel.addRange(_lbSavedRange);return!sel.isCollapsed;}' +
+      'function _fmt(cmd,val){' +
+        '_restoreSel();' +
+        'var sel=window.getSelection();if(!sel||sel.isCollapsed)return;' +
+        'if(cmd==="fontSize"){_applyFontSizePt(val);return;}' +
+        'if(cmd==="fontName"){document.execCommand("fontName",false,val);}' +
+        'else if(cmd==="foreColor"){document.execCommand("foreColor",false,val);}' +
+        'else if(cmd==="hiliteColor"){if(!document.execCommand("hiliteColor",false,val))document.execCommand("backColor",false,val);}' +
+        'else{document.execCommand(cmd,false,null);}' +
+        'var s2=window.getSelection();if(s2&&s2.rangeCount&&!s2.isCollapsed)_lbSavedRange=s2.getRangeAt(0).cloneRange();' +
+        '_autoSaveDesign();' +
       '}' +
-      /* Strip all inline formatting from the selected range */
-      'function _clearFmt(){' +
-        'var range=_lbSavedRange;' +
-        'if(!range){var s=window.getSelection();if(s&&s.rangeCount&&!s.isCollapsed)range=s.getRangeAt(0).cloneRange();}' +
-        'if(!range)return;' +
-        'var t=document.createTextNode(range.toString());' +
-        'var sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);' +
-        'range.deleteContents();range.insertNode(t);' +
-        'sel.removeAllRanges();_lbSavedRange=null;_hideFB();_autoSaveDesign();' +
+      'function _applyFontSizePt(pt){' +
+        'document.execCommand("fontSize",false,"7");' +
+        'var ce=document.getElementById("lbContent");if(!ce)return;' +
+        'ce.querySelectorAll(\'font[size="7"]\').forEach(function(f){var sp=document.createElement("span");sp.style.fontSize=pt+"pt";f.parentNode.insertBefore(sp,f);while(f.firstChild)sp.appendChild(f.firstChild);f.parentNode.removeChild(f);});' +
+        'var s2=window.getSelection();if(s2&&s2.rangeCount&&!s2.isCollapsed)_lbSavedRange=s2.getRangeAt(0).cloneRange();' +
+        '_autoSaveDesign();' +
       '}' +
-      /* Show toolbar after mouse-up when text is selected */
+      'function _fmtWrap(styleStr){' +
+        '_restoreSel();' +
+        'var sel=window.getSelection();if(!sel||sel.isCollapsed)return;' +
+        'var div=document.createElement("div");div.appendChild(sel.getRangeAt(0).cloneContents());' +
+        'document.execCommand("insertHTML",false,"<span style=\'"+styleStr+"\'>" + div.innerHTML + "<\/span>");' +
+        '_autoSaveDesign();' +
+      '}' +
+      'function _fmtClear(){' +
+        '_restoreSel();' +
+        'var sel=window.getSelection();if(!sel||sel.isCollapsed)return;' +
+        'document.execCommand("removeFormat",false,null);' +
+        '_hideFB();_autoSaveDesign();' +
+      '}' +
       'document.addEventListener("mouseup",function(e){' +
         'if(_lbFB&&_lbFB.contains(e.target))return;' +
         'if(e.target.closest&&e.target.closest(".print-controls,.design-panel"))return;' +
-        'setTimeout(function(){' +
-          'var sel=window.getSelection();' +
-          'if(!sel||sel.isCollapsed||!sel.toString().trim()){_hideFB();return;}' +
-          '_lbSavedRange=sel.getRangeAt(0).cloneRange();' +
-          'var rect=sel.getRangeAt(0).getBoundingClientRect();' +
-          '_showFB(rect.right,rect.top);' +
-        '},15);' +
+        'setTimeout(function(){var sel=window.getSelection();if(!sel||sel.isCollapsed||!sel.toString().trim()){_hideFB();return;}_lbSavedRange=sel.getRangeAt(0).cloneRange();var rect=sel.getRangeAt(0).getBoundingClientRect();_showFB(rect.right,rect.top);},15);' +
       '});' +
-      /* Hide toolbar when selection collapses (delay so toolbar clicks fire first) */
-      'document.addEventListener("selectionchange",function(){' +
-        'var sel=window.getSelection();' +
-        'if(sel&&!sel.isCollapsed&&sel.toString().trim())return;' +
-        'if(!_lbSavedRange)setTimeout(function(){if(!_lbSavedRange&&_lbFB)_lbFB.classList.remove("open");},180);' +
-      '});' +
+      'document.addEventListener("selectionchange",function(){var sel=window.getSelection();if(sel&&!sel.isCollapsed&&sel.toString().trim())return;if(!_lbSavedRange)setTimeout(function(){var s=window.getSelection();if(!s||s.isCollapsed)_hideFB();},180);});' +
       '<\/script>';
 
     // Floating Word-style selection formatting toolbar (lives inside popup window)
@@ -36002,19 +35957,24 @@ var WO = (function() {
         '<div class="lb-fb-sep"></div>' +
         '<label class="lb-fb-lbl">Size</label>' +
         '<select class="lb-fb-sel" id="lbFbSize">' +
-          [8,9,10,11,12,13,14,16,18,20].map(function(s){return '<option value="'+s+'pt">'+s+'</option>';}).join('') +
+          [8,9,10,11,12,13,14,16,18,20,24].map(function(s){return '<option value="'+s+'">'+s+'pt</option>';}).join('') +
         '</select>' +
         '<div class="lb-fb-sep"></div>' +
         '<button class="lb-fb-btn" id="lbFbBold" title="Bold"><b>B</b></button>' +
         '<button class="lb-fb-btn" id="lbFbItalic" title="Italic"><i>I</i></button>' +
+        '<button class="lb-fb-btn" id="lbFbUnderline" title="Underline" style="text-decoration:underline">U</button>' +
+        '<button class="lb-fb-btn" id="lbFbStrike" title="Strikethrough" style="text-decoration:line-through">S</button>' +
         '<div class="lb-fb-sep"></div>' +
         '<label class="lb-fb-lbl">Color</label>' +
         '<input type="color" class="lb-fb-col" id="lbFbColor" value="#1e2d3d" title="Text color">' +
         '<label class="lb-fb-lbl">Hl</label>' +
-        '<input type="color" class="lb-fb-col" id="lbFbHl" value="#fff9c4" title="Highlight color">' +
+        '<input type="color" class="lb-fb-col" id="lbFbHl" value="#fff9c4" title="Highlight">' +
         '<div class="lb-fb-sep"></div>' +
-        '<button class="lb-fb-btn" id="lbFbClear" title="Remove inline formatting">↩ Clear</button>' +
-        '<button class="lb-fb-btn lb-fb-close" id="lbFbClose" title="Close toolbar">&times;</button>' +
+        '<button class="lb-fb-btn" id="lbFbBorder" title="Underline border">▭ Border</button>' +
+        '<button class="lb-fb-btn" id="lbFbBox" title="Box around text">▣ Box</button>' +
+        '<div class="lb-fb-sep"></div>' +
+        '<button class="lb-fb-btn" id="lbFbClear" title="Clear all formatting">↩ Clear</button>' +
+        '<button class="lb-fb-btn lb-fb-close" id="lbFbClose" title="Close">&times;</button>' +
       '</div>';
 
     // 561 — Liturgist Notes modal HTML (lives inside the popup window)
@@ -36127,7 +36087,7 @@ var WO = (function() {
         '</div>' +
       '</div>' +
       headerHtml +
-      '<div id="lbContent">';
+      '<div id="lbContent" contenteditable="true" spellcheck="false">';
 
     // ── Helper: lyrics HTML with properly-aligned inline chords ─────────────
     // Chord lines are pre-rendered using buildInlineChordHtml so chord symbols
