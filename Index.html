@@ -35553,7 +35553,32 @@ var WO = (function() {
     var orderTitle  = currentOrderData ? (currentOrderData.orderName || currentOrderData.title || 'Worship Order') : 'Worship Service';
     var serviceDate = currentOrderData ? (currentOrderData.serviceDate || '') : '';
     var occasion    = currentOrderData ? (currentOrderData.occasion    || '') : '';
-    var structure   = orderStructures[currentOrderType] || orderStructures.traditional;
+
+    // Use the ACTUAL saved section layout (user renames / additions / deletions / order).
+    // Fall back to the template structure only for brand-new unsaved orders.
+    var sectionDefs;
+    if (currentOrderData && Array.isArray(currentOrderData.sectionLayout) && currentOrderData.sectionLayout.length > 0) {
+      sectionDefs = currentOrderData.sectionLayout.map(function(sl) {
+        return { id: sl.id, title: (sl.title || sl.id).replace(/^\d+\.\s*/, ''), serviceSectionId: sl.serviceSectionId || '' };
+      });
+    } else {
+      var _tpl = orderStructures[currentOrderType] || orderStructures.traditional;
+      sectionDefs = _tpl.map(function(s, idx) {
+        return { id: 'wo-section-' + idx, title: s.title.replace(/^\d+\.\s*/, ''), serviceSectionId: s.serviceSectionId || '' };
+      });
+    }
+
+    // Build a per-section ordered item map from allItems (the authoritative save state)
+    var allItemsBySection = {};
+    if (currentOrderData && Array.isArray(currentOrderData.allItems)) {
+      currentOrderData.allItems.slice()
+        .sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); })
+        .forEach(function(item) {
+          if (!item.sectionId) return;
+          if (!allItemsBySection[item.sectionId]) allItemsBySection[item.sectionId] = [];
+          allItemsBySection[item.sectionId].push(item);
+        });
+    }
 
     // ── CSS ─────────────────────────────────────────────────────────────────
     var css = [
@@ -35594,6 +35619,8 @@ var WO = (function() {
       '.lit-item{margin-bottom:12px;}',
       '.lit-item-title{font-size:.74em;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#4a6fa5;margin-bottom:4px;}',
       '.lit-text{white-space:pre-wrap;font-size:.97em;line-height:1.78;color:#1e2d3d;}',
+      '.lit-slide{margin-bottom:7px;padding-bottom:7px;border-bottom:1px dashed #e2e8f0;}',
+      '.lit-slide:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}',
 
       /* Songs */
       '.song-item{margin:4px 0 14px;padding:11px 15px;background:#f7f5ee;border-radius:6px;border-left:4px solid #4a6fa5;page-break-inside:avoid;}',
@@ -35620,8 +35647,13 @@ var WO = (function() {
       '.lyr-sec{display:inline-block;background:#dde4ef;color:#1e3a5f;padding:1px 9px;border-radius:3px;font-size:.76em;font-weight:700;margin:9px 0 3px;font-family:"Poppins",Georgia,sans-serif;letter-spacing:.04em;}',
       '.lyr-line{color:#1e2d3d;margin:0 0 1px;}',
       '.lyr-blank{height:9px;}',
-      '.lyr-chord{display:none;font-family:"Courier New",monospace;font-weight:700;color:#1e3a5f;font-size:.82em;margin:5px 0 0;letter-spacing:.02em;}',
-      '.show-chords .lyr-chord{display:block;}',
+      /* Inline chord layout — chord sits above its syllable, aligned by character position */
+      '.ci-line{display:block;margin-bottom:3px;}',
+      '.ci-word{display:inline-block;position:relative;padding-top:1.15em;vertical-align:bottom;line-height:1.5;}',
+      '.ci-gap{display:inline-block;padding-top:1.15em;vertical-align:bottom;line-height:1.5;}',
+      /* Chords hidden by default; .show-chords on body reveals them */
+      '.ci-chord{position:absolute;top:0;left:0;font-family:"Courier New",Courier,monospace;font-size:.76em;font-weight:700;color:#1e3a5f;white-space:nowrap;line-height:1.1;display:none;}',
+      '.show-chords .ci-chord{display:inline;}',
 
       /* Scripture group */
       '.scripture-group{margin-bottom:12px;}',
@@ -35714,16 +35746,26 @@ var WO = (function() {
       '</div>' +
       headerHtml;
 
-    // ── Helper: lyrics-only HTML (chords stripped, section headers kept) ─────
-    function _lyricsOnlyHtml(text) {
+    // ── Helper: lyrics HTML with properly-aligned inline chords ─────────────
+    // Chord lines are pre-rendered using buildInlineChordHtml so chord symbols
+    // sit exactly above the syllable they belong to. Chords are CSS-hidden by
+    // default and revealed when the user clicks "Show Chords" (adds .show-chords
+    // to <body>). Section headers and blank lines are preserved.
+    function _lyricsWithChordsHtml(text) {
       if (!text) return '<span class="no-content">No lyrics available</span>';
-      var isChordLine = isChordLineGlobal;
       var html = '';
-      text.split('\n').forEach(function(line) {
+      var lines = text.split('\n');
+      var i = 0;
+      while (i < lines.length) {
+        var line = lines[i];
         var trimmed = line.trim();
-        if (isChordLine(line)) {
-          html += '<div class="lyr-chord">' + escapeHtml(line) + '</div>'; // hidden unless .show-chords
-          return;
+        if (isChordLineGlobal(line)) {
+          // Pair with the immediately following lyric line (if any)
+          var nextLine = (i + 1 < lines.length && lines[i + 1].trim() && !isChordLineGlobal(lines[i + 1]))
+            ? lines[i + 1] : null;
+          html += buildInlineChordHtml(line, nextLine || '', 0);
+          i += (nextLine !== null ? 2 : 1);
+          continue;
         }
         var hdrMatch = trimmed.match(/^\[(.+)\]$/);
         if (hdrMatch) {
@@ -35735,23 +35777,50 @@ var WO = (function() {
         } else {
           html += '<div class="lyr-blank"></div>';
         }
-      });
+        i++;
+      }
       return html || '<span class="no-content">No lyrics available</span>';
     }
 
     // ── Helper: song block ───────────────────────────────────────────────────
     function _songBlock(entry) {
-      var rawLyrics = entry.customLyrics || entry.lyrics || '';
+      // Prefer masterLyrics (original with chords) over customLyrics (may be stripped)
+      var rawLyrics = entry.masterLyrics || entry.customLyrics || entry.lyrics || '';
       var notes = (entry.liturgistNotes || '').trim();
-      // 561 — Liturgist Notes button: only shown when notes exist
       var notesBtn = notes
         ? '<button class="lnotes-btn" data-song="' + escapeHtml(entry.title || '') + '" data-notes="' + escapeHtml(notes) + '" onclick="openLitNotes(this)">&#128278; Liturgist Notes</button>'
         : '';
       return '<div class="song-item">' +
         '<div class="song-name">&#9835; ' + escapeHtml(entry.title || 'Untitled Song') + notesBtn + '</div>' +
         (entry.artist ? '<div class="song-artist">by ' + escapeHtml(entry.artist) + '</div>' : '') +
-        '<div class="song-lyrics">' + _lyricsOnlyHtml(rawLyrics) + '</div>' +
+        '<div class="song-lyrics">' + _lyricsWithChordsHtml(rawLyrics) + '</div>' +
         '</div>';
+    }
+
+    // ── Helper: liturgy item block ────────────────────────────────────────────
+    function _liturgyItemBlock(item) {
+      var slides = item.slides || [];
+      var title = item.title || '';
+      var html = '<div class="lit-item">';
+      if (title) html += '<div class="lit-item-title">' + escapeHtml(title) + '</div>';
+      if (slides.length) {
+        slides.forEach(function(slide) {
+          var content = (slide.content || '').trim();
+          if (!content) return;
+          var headerPart = slide.header
+            ? '<span style="display:inline-block;font-size:.76em;font-weight:700;color:#4a6fa5;margin-bottom:2px;">' + escapeHtml(slide.header) + '</span><br>'
+            : '';
+          html += '<div class="lit-slide">' + headerPart + '<span style="white-space:pre-wrap;">' + escapeHtml(content) + '</span></div>';
+        });
+      } else {
+        var text = (item.content && item.content.text) ? item.content.text : '';
+        if (text) html += '<div class="lit-text">' + escapeHtml(text) + '</div>';
+      }
+      if (html === '<div class="lit-item">' + (title ? '<div class="lit-item-title">' + escapeHtml(title) + '</div>' : '')) {
+        return ''; // empty item, skip
+      }
+      html += '</div>';
+      return html;
     }
 
     // ── Helper: flatten slides to text ───────────────────────────────────────
@@ -35837,62 +35906,71 @@ var WO = (function() {
       return html;
     }
 
-    // ── Iterate sections ─────────────────────────────────────────────────────
+    // ── Iterate sections using saved layout (actual names, order, custom sections) ──
     var sectionNum = 0;
     var ssiData = window.serviceSectionItems || {};
 
-    structure.forEach(function(section, idx) {
-      if (section.special === 'slides') return; // skip Sermon / Announcements
-
+    sectionDefs.forEach(function(sdef) {
       sectionNum++;
-      var cleanTitle = section.title.replace(/^\d+\.\s*/, '');
-      var domId = 'wo-section-' + idx;
+      var domId = sdef.id;
 
       liturgyHtml +=
         '<div class="section">' +
           '<div class="sec-header">' +
             '<span class="sec-num">' + sectionNum + '</span>' +
-            '<span class="sec-title-text">' + escapeHtml(cleanTitle) + '</span>' +
+            '<span class="sec-title-text">' + escapeHtml(sdef.title) + '</span>' +
           '</div>' +
           '<div class="sec-body">';
 
       var bodyHtml = '';
 
-      // ── Song sections ────────────────────────────────────────────────────
-      if (section.special === 'songs') {
-        var secSongs = _songsForSection(domId, section.serviceSectionId);
-        secSongs.forEach(function(entry) { bodyHtml += _songBlock(entry); });
-        if (!bodyHtml) bodyHtml = '<span class="no-content">No song assigned</span>';
-      }
-
-      // ── Scripture group (subsections) ────────────────────────────────────
-      else if (section.type === 'group' && section.subsections) {
-        var domSec = document.getElementById(domId);
-        var allBoxes = domSec ? domSec.querySelectorAll('.wo-content-box') : [];
-        section.subsections.forEach(function(subLabel, subIdx) {
-          var scriptureText = '';
-          if (allBoxes[subIdx]) {
-            var textEl = allBoxes[subIdx].querySelector('.wo-content-text');
-            if (textEl) scriptureText = textEl.innerText.trim();
+      // ── Primary: allItems (saved authoritative state), in sort order ──────
+      var sectionItems = allItemsBySection[domId] || [];
+      sectionItems.forEach(function(item) {
+        if (item.itemType === 'song') {
+          // Prefer the live in-memory entry (has masterLyrics with chords)
+          var entry = songOrderSections.find(function(s) { return s.id === item.id; });
+          if (!entry) {
+            entry = {
+              id: item.id, title: item.title || '',
+              artist: (item.content && item.content.artist) || '',
+              masterLyrics: item.masterLyrics || '',
+              customLyrics: (item.customizations && item.customizations.customLyrics) || '',
+              lyrics: item.lyrics || '',
+              liturgistNotes: (item.customizations && item.customizations.liturgistNotes) || ''
+            };
           }
-          // Fallback to serviceSectionItems if DOM has no text
-          if (!scriptureText) {
-            var items = ssiData[domId] || [];
-            if (items[subIdx]) scriptureText = _slidesText(items[subIdx].slides) || items[subIdx].text || '';
-          }
-          bodyHtml +=
+          bodyHtml += _songBlock(entry);
+        } else if (item.itemType === 'liturgy') {
+          bodyHtml += _liturgyItemBlock(item);
+        } else if (item.itemType === 'content') {
+          var text = (item.content && item.content.text) || '';
+          if (text) bodyHtml += '<div class="lit-item"><div class="lit-text">' + escapeHtml(text) + '</div></div>';
+        } else if (item.itemType === 'scripture') {
+          var stext = (item.content && item.content.text) || _slidesText(item.slides || []);
+          if (stext) bodyHtml +=
             '<div class="scripture-group">' +
-              '<div class="scripture-label">' + escapeHtml(subLabel) + '</div>' +
-              (scriptureText
-                ? '<div class="scripture-text">' + escapeHtml(scriptureText) + '</div>'
-                : '<div class="scripture-text no-content">Not yet assigned</div>') +
+              (item.title ? '<div class="scripture-label">' + escapeHtml(item.title) + '</div>' : '') +
+              '<div class="scripture-text">' + escapeHtml(stext) + '</div>' +
             '</div>';
-        });
+        }
+      });
+
+      // ── Fallback: serviceSectionSongs (in-memory, pre-save) ───────────────
+      if (!bodyHtml) {
+        _songsForSection(domId, sdef.serviceSectionId)
+          .forEach(function(entry) { bodyHtml += _songBlock(entry); });
       }
 
-      // ── All other sections (liturgy text, creed, etc.) ───────────────────
-      else {
-        bodyHtml = _liturgyForSection(domId, ssiData);
+      // ── Fallback: serviceSectionItems (in-memory liturgy) ─────────────────
+      if (!bodyHtml) {
+        (ssiData[domId] || []).forEach(function(item) {
+          bodyHtml += _liturgyItemBlock({
+            title: item.title || '',
+            slides: item.slides || [],
+            content: { text: item.text || '' }
+          });
+        });
       }
 
       liturgyHtml +=
