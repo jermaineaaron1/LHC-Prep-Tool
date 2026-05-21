@@ -4663,6 +4663,18 @@
                     <span id="woPreviewToggleLabel">Show</span>
                   </button>
                   <div class="wo-preview-actions">
+                    <!-- Text alignment -->
+                    <div class="wo-align-group" title="Text alignment on projection">
+                      <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+                      <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+                      <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
+                    </div>
+                    <!-- Text barrier width -->
+                    <div class="wo-barrier-control" title="Text width barrier (constrains text from screen edges)">
+                      <span class="wo-barrier-label"><i class="fa-solid fa-text-width"></i></span>
+                      <input type="range" class="wo-barrier-slider" id="woBarrierSlider" min="40" max="100" value="90" oninput="WO.setTextBarrier(this.value)" title="Text width (% of screen)">
+                      <span class="wo-barrier-val" id="woBarrierVal">90%</span>
+                    </div>
                     <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
                     <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
                     <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
@@ -20119,14 +20131,16 @@ var WO = (function() {
         if (container) {
           var slideBoxes = container.querySelectorAll('.wo-slide-box[data-song-id="' + songData.id + '"]');
           slideBoxes.forEach(function(box, slideIdx) {
-            var lines = Array.from(box.querySelectorAll('.wo-slide-line')).map(function(el) {
-              return el.textContent;
-            });
-            var headerEl = box.querySelector('.wo-slide-section-header');
+            var lineEls = Array.from(box.querySelectorAll('.wo-slide-line'));
+            var lines     = lineEls.map(function(el) { return el.textContent; });
+            var lineHtmls = lineEls.map(function(el) { return el.innerHTML; });
+            var headerEl  = box.querySelector('.wo-slide-section-header');
+            var hasRich   = lineHtmls.some(function(h) { return /<[bBiIuU]\b|<span[^>]*style|<font/i.test(h); });
             slidesData.push({
-              index: slideIdx,
-              content: lines.join('\n'),
-              header: headerEl ? headerEl.textContent.trim() : '',
+              index:    slideIdx,
+              content:  lines.join('\n'),
+              richHtml: hasRich ? lineHtmls.join('<br>') : null,
+              header:   headerEl ? headerEl.textContent.trim() : '',
               background: box.getAttribute('data-background') || ''
             });
           });
@@ -26894,15 +26908,28 @@ var WO = (function() {
       '  var bgEl = document.getElementById("projBackground");' +
       '  if (!content) return;' +
       '  if (data.type === "text" || data.type === "slide" || data.type === "video") { var _ov = document.getElementById("fsOverlay"); if (_ov) _ov.remove(); }' +
-      '  if (data.type === "text") {' +
+      '  if (data.type === "alignUpdate") {' +
+      '    var textEl = document.querySelector(".projection-text");' +
+      '    if (textEl) textEl.style.textAlign = data.align;' +
+      '    window._projAlign = data.align;' +
+      '  } else if (data.type === "barrierUpdate") {' +
+      '    window._projBarrier = data.width;' +
+      '    var padPct = ((100 - data.width) / 2) + "%";' +
+      '    content.style.paddingLeft  = padPct;' +
+      '    content.style.paddingRight = padPct;' +
+      '    content.style.maxWidth = "100%";' +
+      '    var textEl2 = document.querySelector(".projection-text");' +
+      '    if (textEl2) textEl2.style.textAlign = window._projAlign || "center";' +
+      '  } else if (data.type === "text") {' +
       '    var s = window._textSettings || {};' +
       '    var style = "font-family:" + (s.fontFamily || "Georgia, serif") + ";";' +
       '    style += "font-size:" + (s.fontSize || 5) + "vw;";' +
       '    style += "color:" + (s.color || "#ffffff") + ";";' +
       '    style += "font-weight:" + (s.bold ? "bold" : "normal") + ";";' +
       '    style += "font-style:" + (s.italic ? "italic" : "normal") + ";";' +
+      '    style += "text-align:" + (data.align || window._projAlign || "center") + ";";' +
       '    content.innerHTML = "<div class=\\"projection-text\\" style=\\"" + style + "\\">" + data.text + "</div>";' +
-      '    content.style.padding = "40px 60px";' +
+      '    if (data.barrier) { var bPad = ((100 - data.barrier) / 2) + "%"; content.style.paddingLeft = bPad; content.style.paddingRight = bPad; content.style.maxWidth = "100%"; window._projBarrier = data.barrier; }' +
       '    if (bgEl) bgEl.style.display = "block";' +
       '    _fitProjectionText();' +
       '  } else if (data.type === "slide") {' +
@@ -36346,7 +36373,7 @@ var WO = (function() {
     var slides;
     var hasSavedSlides = songSection.savedSlides && songSection.savedSlides.length > 0;
     if (hasSavedSlides) {
-      // Convert savedSlides format {content, header, background} to rendering format {header, lines, background}
+      // Convert savedSlides format {content, header, background, richHtml?} to rendering format
       slides = songSection.savedSlides.map(function(saved) {
         var allLines = (saved.content || '').split('\n');
         var header = saved.header || '';
@@ -36356,9 +36383,11 @@ var WO = (function() {
           header = allLines[0].trim();
           contentLines = allLines.slice(1);
         }
+        var richLines = saved.richHtml ? saved.richHtml.split(/<br\s*\/?>/gi) : null;
         return {
-          header: header,
-          lines: contentLines,
+          header:    header,
+          lines:     contentLines,
+          richLines: richLines,
           background: saved.background || ''
         };
       });
@@ -36387,9 +36416,16 @@ var WO = (function() {
     slides.forEach(function(slide, idx) {
       var headerClass = getSectionTypeClass(slide.header);
       var headerHtml = slide.header ? '<div class="wo-slide-section-header ' + headerClass + '">' + escapeHtml(slide.header) + '</div>' : '';
-      var linesHtml = slide.lines.map(function(line) {
-        return _slideLineHtml(line);
-      }).join('');
+      var linesHtml;
+      if (slide.richLines && slide.richLines.length) {
+        linesHtml = slide.richLines.map(function(h) {
+          return '<div class="wo-slide-line">' + h + '</div>';
+        }).join('');
+      } else {
+        linesHtml = slide.lines.map(function(line) {
+          return _slideLineHtml(line);
+        }).join('');
+      }
 
       var boxHtml = '<div class="wo-content-box wo-slide-box" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-song-id="' + songSection.id + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
         _buildSlideBoxHeader(idx, slides.length, 'song', songSection.id, sectionId) +
@@ -36731,6 +36767,8 @@ var WO = (function() {
   var selectedSlideBox = null;
   var editingSlideBox = null;
   var currentSectionVideoId = null; // Track which section's video is playing
+  var _currentSlideAlign = 'center'; // Projection text alignment: 'left'|'center'|'right'
+  var _textBarrierWidth = 90;        // Projection text width % (barrier against edges)
   var _selectedPptContainer = null; // Tracks active iframe PPT container
 
   function selectSlideBox(box) {
@@ -37164,14 +37202,8 @@ var WO = (function() {
   // Double-click to edit slide
   function editSlideBox(box, event) {
     event.stopPropagation();
-
-    // If already editing, don't restart
     if (box.classList.contains('editing')) return;
-
-    // Save any other editing box first
-    if (editingSlideBox && editingSlideBox !== box) {
-      saveSlideEdit(editingSlideBox);
-    }
+    if (editingSlideBox && editingSlideBox !== box) { saveSlideEdit(editingSlideBox); }
 
     box.classList.add('editing');
     editingSlideBox = box;
@@ -37179,41 +37211,65 @@ var WO = (function() {
     var content = box.querySelector('.wo-slide-content');
     if (!content) return;
 
-    // Get current text
-    var lines = Array.from(content.querySelectorAll('.wo-slide-line')).map(function(el) {
-      return el.textContent;
-    });
-    var currentText = lines.join('\n');
+    var isMobile = ('ontouchstart' in window) || window.innerWidth < 768;
 
-    // Create textarea for editing
-    var textarea = document.createElement('textarea');
-    textarea.className = 'wo-slide-edit-textarea';
-    textarea.value = currentText;
-    textarea.style.width = '100%';
-    textarea.style.minHeight = '80px';
-    textarea.style.padding = '8px';
-    textarea.style.border = '2px solid #6366f1';
-    textarea.style.borderRadius = '6px';
-    textarea.style.fontSize = '0.9rem';
-    textarea.style.fontFamily = 'inherit';
-    textarea.style.resize = 'vertical';
+    // Read current content (preserve HTML formatting if present)
+    var lineEls = Array.from(content.querySelectorAll('.wo-slide-line'));
+    var isEmptyHint = lineEls.length === 1 && lineEls[0].classList.contains('wo-slide-empty-hint');
+    var editorHtml, plainSnapshot;
+    if (isEmptyHint || lineEls.length === 0) {
+      editorHtml = '';
+      plainSnapshot = '';
+    } else {
+      editorHtml = lineEls.map(function(el) { return el.innerHTML; }).join('<br>');
+      plainSnapshot = lineEls.map(function(el) { return el.textContent; }).join('\n');
+    }
 
-    // Handle Enter key to save
-    textarea.addEventListener('keydown', function(e) {
-      if (e.key === 'Backspace') {
-        var cursorPos = textarea.selectionStart;
-        var selEnd = textarea.selectionEnd;
-        var val = textarea.value;
+    // ── Formatting toolbar ──────────────────────────────────────────────
+    var toolbar = document.createElement('div');
+    toolbar.className = 'wo-slide-fmt-toolbar';
+    toolbar.innerHTML =
+      '<button class="wo-fmt-btn" title="Bold (Ctrl+B)" onmousedown="event.preventDefault();document.execCommand(\'bold\')"><b>B</b></button>' +
+      '<button class="wo-fmt-btn" title="Italic (Ctrl+I)" onmousedown="event.preventDefault();document.execCommand(\'italic\')"><em style="font-family:Georgia,serif;">I</em></button>' +
+      '<button class="wo-fmt-btn" title="Underline (Ctrl+U)" onmousedown="event.preventDefault();document.execCommand(\'underline\')"><u>U</u></button>' +
+      '<div class="wo-fmt-sep"></div>' +
+      '<select class="wo-fmt-size" title="Font size for selected text" onchange="WO._applyFontSize(this)">' +
+        '<option value="">Size</option>' +
+        '<option value="12px">XS</option>' +
+        '<option value="15px">S</option>' +
+        '<option value="19px">M</option>' +
+        '<option value="24px">L</option>' +
+        '<option value="30px">XL</option>' +
+        '<option value="38px">XXL</option>' +
+      '</select>' +
+      '<div class="wo-fmt-sep"></div>' +
+      '<button class="wo-fmt-btn" title="Undo (Ctrl+Z)" onmousedown="event.preventDefault();document.execCommand(\'undo\')"><i class="fa-solid fa-rotate-left" style="font-size:0.62rem;"></i></button>' +
+      '<button class="wo-fmt-btn" title="Redo (Ctrl+Y)" onmousedown="event.preventDefault();document.execCommand(\'redo\')"><i class="fa-solid fa-rotate-right" style="font-size:0.62rem;"></i></button>' +
+      (isMobile
+        ? '<div class="wo-fmt-sep"></div><button class="wo-fmt-spacing-btn" title="Insert blank spacing line" onmousedown="event.preventDefault();WO._insertSlideSpacing(this.closest(\'.wo-slide-content\').querySelector(\'.wo-slide-editor\'))"><i class="fa-solid fa-arrows-up-down" style="font-size:0.62rem;"></i> Space</button>'
+        : '');
 
-        // Only intercept when cursor is at the very start with no selection
-        if (cursorPos === 0 && selEnd === 0) {
+    // ── Contenteditable editor (2× height, rich text) ─────────────────
+    var editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    editor.className = 'wo-slide-editor';
+    editor.spellcheck = false;
+    editor.setAttribute('data-placeholder', 'Type slide content…');
+    editor.innerHTML = editorHtml || '';
+
+    editor.addEventListener('keydown', function(e) {
+
+      // ── Backspace at start of editor → merge into previous slide ────
+      if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey) {
+        if (_isAtEditorStart(editor)) {
           e.preventDefault();
+          var currentHtml = _getEditorHtml(editor);
+          var currentText = editor.innerText || '';
 
-          // Find this slide's group siblings
           var sectionId = box.getAttribute('data-section') || '';
-          var songId = box.getAttribute('data-song-id') || '';
+          var songId    = box.getAttribute('data-song-id') || '';
           var liturgyId = box.getAttribute('data-liturgy-id') || '';
-          var groupId = liturgyId || songId;
+          var groupId   = liturgyId || songId;
           var isLiturgy = box.classList.contains('wo-liturgy-slide');
           var container = box.closest('.wo-content-boxes');
           if (!container || !groupId) return;
@@ -37223,129 +37279,184 @@ var WO = (function() {
             : '.wo-slide-box[data-song-id="' + groupId + '"]';
           var allGroupSlides = Array.from(container.querySelectorAll(groupSelector));
           var myIdx = allGroupSlides.indexOf(box);
-          if (myIdx <= 0) return; // First slide in group — nowhere to merge up
+          if (myIdx <= 0) return;
 
-          var prevBox = allGroupSlides[myIdx - 1];
-
-          // Read previous slide's current text from its slide-line divs
+          var prevBox     = allGroupSlides[myIdx - 1];
           var prevContent = prevBox.querySelector('.wo-slide-content');
-          var prevLines = Array.from(prevContent.querySelectorAll('.wo-slide-line'))
-                            .map(function(l) { return l.textContent; });
-          var prevText = prevLines.join('\n').trimEnd();
+          var prevLineEls = Array.from(prevContent.querySelectorAll('.wo-slide-line'));
+          var prevHtml    = prevLineEls.map(function(l) { return l.innerHTML; }).join('<br>');
+          var prevText    = prevLineEls.map(function(l) { return l.textContent; }).join('\n').trimEnd();
+          var mergePoint  = prevText.length;
 
-          // mergePoint = where cursor lands in the previous slide (end of its existing text)
-          var mergePoint = prevText.length;
+          var mergedHtml = currentText.trim() === ''
+            ? prevHtml
+            : prevHtml + (prevHtml ? '<br>' : '') + currentHtml;
 
-          // Build merged text (empty slide: just prevText; non-empty: join with newline)
-          var mergedText = val === ''
-            ? prevText
-            : prevText + (prevText ? '\n' : '') + val;
-
-          // Clear editingSlideBox so editSlideBox on prevBox won't no-op
           editingSlideBox = null;
           box.classList.remove('editing');
-
-          // Remove this slide silently (skip the "last slide" guard — prevBox exists)
           box.remove();
           renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
 
-          // Pre-populate prevBox's content with merged text so editSlideBox reads it
-          var mergedLines = mergedText.split('\n');
-          prevContent.innerHTML = mergedLines.map(function(line) {
-            return _slideLineHtml(line);
+          // Pre-populate prevBox with merged HTML
+          var mergedParts = mergedHtml.split(/<br\s*\/?>/gi);
+          prevContent.innerHTML = mergedParts.map(function(h) {
+            return '<div class="wo-slide-line">' + h + '</div>';
           }).join('');
 
-          // Open prevBox in edit mode
           editSlideBox(prevBox, { stopPropagation: function() {} });
 
-          // Move cursor to the merge point
           setTimeout(function() {
-            var ta = prevBox.querySelector('textarea');
-            if (ta) { ta.selectionStart = ta.selectionEnd = mergePoint; }
+            var ed = prevBox.querySelector('.wo-slide-editor');
+            if (ed) _setCursorAtTextOffset(ed, mergePoint);
           }, 0);
 
           autoSaveOrder();
           return;
         }
       }
-      if (e.key === 'Enter' && e.ctrlKey) {
-        // Ctrl+Enter: insert newline at cursor (stay in same slide)
+
+      // ── Ctrl+Enter → insert blank-line spacing ───────────────────────
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        var pos = textarea.selectionStart;
-        var val = textarea.value;
-        textarea.value = val.substring(0, pos) + '\n' + val.substring(pos);
-        textarea.selectionStart = textarea.selectionEnd = pos + 1;
+        _insertSlideSpacing(editor);
+        _updateProjectionFromEditor(_getEditorHtml(editor));
         return;
       }
+
+      // ── Shift+Enter → split slide at cursor ─────────────────────────
       if (e.key === 'Enter' && e.shiftKey) {
-        // Shift+Enter: split at cursor into two slide boxes
         e.preventDefault();
-        var cursorPos = textarea.selectionStart;
-        var fullText = textarea.value;
-        var textBefore = fullText.substring(0, cursorPos).trimEnd();
-        var textAfter = fullText.substring(cursorPos).trimStart();
-        textarea.value = textBefore;
-        saveSlideEdit(box);
-        addSlideBoxAfter(box, textAfter);
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount) {
+          var range = sel.getRangeAt(0);
+          range.deleteContents();
+          var beforeRange = document.createRange();
+          beforeRange.setStart(editor, 0);
+          beforeRange.setEnd(range.startContainer, range.startOffset);
+          var frag = beforeRange.cloneContents();
+          var tmpDiv = document.createElement('div');
+          tmpDiv.appendChild(frag);
+          var beforeHtml = tmpDiv.innerHTML;
+
+          var afterRange = document.createRange();
+          afterRange.setStart(range.startContainer, range.startOffset);
+          afterRange.setEnd(editor, editor.childNodes.length);
+          var frag2 = afterRange.cloneContents();
+          var tmpDiv2 = document.createElement('div');
+          tmpDiv2.appendChild(frag2);
+          var afterHtml = tmpDiv2.innerHTML;
+
+          editor.innerHTML = beforeHtml || '';
+          var afterParts = afterHtml.split(/<br\s*\/?>/gi);
+          content.innerHTML = afterParts.map(function(h) {
+            return '<div class="wo-slide-line">' + h + '</div>';
+          }).join('') || '<div class="wo-slide-line"></div>';
+
+          box.classList.remove('editing');
+          editingSlideBox = null;
+          _saveEditorLines(afterParts, box);
+
+          var afterText = afterParts.map(function(h) {
+            var t = document.createElement('div'); t.innerHTML = h;
+            return t.textContent;
+          }).join('\n');
+          addSlideBoxAfter(box, afterText);
+        }
         return;
       }
-      if (e.key === 'Enter' && !e.shiftKey) {
+
+      // ── Enter → save ─────────────────────────────────────────────────
+      if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         saveSlideEdit(box);
+        return;
       }
+
+      // ── Escape → cancel ──────────────────────────────────────────────
       if (e.key === 'Escape') {
-        cancelSlideEdit(box, currentText);
+        cancelSlideEdit(box, plainSnapshot, editorHtml);
+        return;
       }
     });
 
-    // Add hint bar for keyboard shortcuts
-    var hintBar = document.createElement('div');
-    hintBar.className = 'wo-slide-edit-hint';
-    hintBar.innerHTML = '<span><kbd>Enter</kbd> Save</span><span><kbd>Ctrl+Enter</kbd> New line</span><span><kbd>Shift+Enter</kbd> Split → new slide</span><span><kbd>⌫ at start</kbd> Merge up</span><span><kbd>Esc</kbd> Cancel</span>';
-
-    // Replace content with textarea and hint
-    content.innerHTML = '';
-    content.appendChild(textarea);
-    content.appendChild(hintBar);
-    textarea.focus();
-    textarea.select();
-
-    // Immediately show current slide text in preview when entering edit mode
-    updateProjectionPreview(currentText, true);
-
-    // Live-update projection preview while typing
-    textarea.addEventListener('input', function() {
-      updateProjectionPreview(textarea.value, true);
-      // Also push to fullscreen overlay if it's active
+    // Live preview while typing
+    editor.addEventListener('input', function() {
+      var richHtml = _getEditorHtml(editor);
+      _updateProjectionFromEditor(richHtml);
       var fsOverlay = $('woFullscreenOverlay');
       if (fsOverlay && fsOverlay.classList.contains('show')) {
-        $('woFullscreenContent').innerHTML = _projectionHtml(textarea.value) || '&nbsp;';
+        $('woFullscreenContent').innerHTML = _projectionHtmlRich(richHtml) || '&nbsp;';
         _fitFullscreenText();
       }
     });
+
+    // ── Hint bar ────────────────────────────────────────────────────────
+    var hintBar = document.createElement('div');
+    hintBar.className = 'wo-slide-edit-hint';
+    hintBar.innerHTML =
+      '<span><kbd>Enter</kbd> Save</span>' +
+      '<span><kbd>Ctrl+Enter</kbd> Spacing</span>' +
+      '<span><kbd>Shift+Enter</kbd> Split → new slide</span>' +
+      '<span><kbd>⌫ at start</kbd> Merge up</span>' +
+      '<span><kbd>Esc</kbd> Cancel</span>';
+
+    content.innerHTML = '';
+    content.appendChild(toolbar);
+    content.appendChild(editor);
+    content.appendChild(hintBar);
+
+    editor.focus();
+    if (editorHtml) {
+      try {
+        var r = document.createRange();
+        r.selectNodeContents(editor);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+      } catch(e2) {}
+    }
+
+    _updateProjectionFromEditor(editorHtml || '');
   }
 
   function saveSlideEdit(box) {
     if (!box || !box.classList.contains('editing')) return;
 
     var content = box.querySelector('.wo-slide-content');
+    // Support both legacy textarea and new contenteditable editor
+    var editor  = content ? content.querySelector('.wo-slide-editor') : null;
     var textarea = content ? content.querySelector('textarea') : null;
-    if (!textarea) return;
+    if (!editor && !textarea) return;
 
-    var newText = textarea.value;
-    var lines = newText.split('\n');
+    var richHtml, plainText;
+    if (editor) {
+      richHtml  = _getEditorHtml(editor);
+      plainText = editor.innerText || '';
+    } else {
+      plainText = textarea.value;
+      richHtml  = null;
+    }
 
-    // Rebuild content
-    var linesHtml = lines.map(function(line) {
-      return _slideLineHtml(line);
-    }).join('');
-    content.innerHTML = linesHtml;
+    // Rebuild .wo-slide-line elements
+    if (richHtml !== null) {
+      var parts = richHtml.split(/<br\s*\/?>/gi);
+      if (parts.length === 0 || (parts.length === 1 && !parts[0].trim())) {
+        content.innerHTML = '<div class="wo-slide-line wo-slide-empty-hint" style="color:#9ca3af;font-style:italic;font-size:0.85rem;">Double-click to add content</div>';
+      } else {
+        content.innerHTML = parts.map(function(h) {
+          return '<div class="wo-slide-line">' + h + '</div>';
+        }).join('');
+      }
+    } else {
+      var lines = plainText.split('\n');
+      content.innerHTML = lines.map(function(line) { return _slideLineHtml(line); }).join('');
+    }
 
     box.classList.remove('editing');
     editingSlideBox = null;
 
-    // Update slide content in songOrderSections for persistence
-    var songId = box.getAttribute('data-song-id');
+    // Update in-memory songOrderSections for persistence
+    var songId   = box.getAttribute('data-song-id');
     var slideIdx = parseInt(box.getAttribute('data-slide-idx') || '0', 10);
     if (songId) {
       var song = songOrderSections.find(function(s) { return s.id === songId; });
@@ -37354,32 +37465,274 @@ var WO = (function() {
         if (!song.slides[slideIdx]) {
           song.slides[slideIdx] = { index: slideIdx, content: '', background: '' };
         }
-        song.slides[slideIdx].content = newText;
+        song.slides[slideIdx].content     = plainText;
+        song.slides[slideIdx].richHtml    = richHtml;
       }
     }
 
-    // Update preview
-    updateProjectionPreview(newText);
+    // Update projection preview
+    if (richHtml !== null) {
+      _updateProjectionFromEditor(richHtml);
+    } else {
+      updateProjectionPreview(plainText);
+    }
 
-    // Auto-save order after editing slide
     autoSaveOrder();
   }
 
-  function cancelSlideEdit(box, originalText) {
+  function cancelSlideEdit(box, originalPlainText, originalHtml) {
     if (!box) return;
-
     var content = box.querySelector('.wo-slide-content');
     if (!content) return;
 
-    var lines = originalText.split('\n');
-    var linesHtml = lines.map(function(line) {
-      return _slideLineHtml(line);
-    }).join('');
-    content.innerHTML = linesHtml;
+    if (originalHtml) {
+      var parts = originalHtml.split(/<br\s*\/?>/gi);
+      if (parts.length === 0 || (parts.length === 1 && !parts[0].trim())) {
+        content.innerHTML = '<div class="wo-slide-line wo-slide-empty-hint" style="color:#9ca3af;font-style:italic;font-size:0.85rem;">Double-click to add content</div>';
+      } else {
+        content.innerHTML = parts.map(function(h) {
+          return '<div class="wo-slide-line">' + h + '</div>';
+        }).join('');
+      }
+    } else if (originalPlainText) {
+      content.innerHTML = originalPlainText.split('\n').map(function(line) {
+        return _slideLineHtml(line);
+      }).join('');
+    } else {
+      content.innerHTML = '<div class="wo-slide-line wo-slide-empty-hint" style="color:#9ca3af;font-style:italic;font-size:0.85rem;">Double-click to add content</div>';
+    }
 
     box.classList.remove('editing');
     editingSlideBox = null;
   }
+
+  // ── Rich-editor helpers ─────────────────────────────────────────────────
+
+  // Is the cursor at the very start of the contenteditable editor?
+  function _isAtEditorStart(editor) {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !sel.isCollapsed) return false;
+    try {
+      var testRange = document.createRange();
+      testRange.setStart(editor, 0);
+      testRange.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
+      return testRange.toString().length === 0;
+    } catch(e) { return false; }
+  }
+
+  // Extract clean HTML from contenteditable (normalise browser <div>/<p> to <br>)
+  function _getEditorHtml(editor) {
+    var clone = editor.cloneNode(true);
+    clone.querySelectorAll('div:not([class]), p').forEach(function(el) {
+      if (el.previousSibling || el.parentNode !== clone) {
+        el.parentNode.insertBefore(document.createElement('br'), el);
+      }
+      while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
+      el.parentNode.removeChild(el);
+    });
+    var html = clone.innerHTML || '';
+    html = html.replace(/^(<br\s*\/?>)+/gi, '').replace(/(<br\s*\/?>)+$/gi, '');
+    return html;
+  }
+
+  // Insert a blank-line spacer at the cursor in a contenteditable editor
+  function _insertSlideSpacing(editor) {
+    if (!editor) return;
+    editor.focus();
+    try {
+      document.execCommand('insertHTML', false, '<br><br>');
+    } catch(e) {
+      var sel = window.getSelection();
+      if (sel && sel.rangeCount) {
+        var range = sel.getRangeAt(0);
+        range.deleteContents();
+        var frag = document.createDocumentFragment();
+        frag.appendChild(document.createElement('br'));
+        frag.appendChild(document.createElement('br'));
+        range.insertNode(frag);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+  }
+
+  // Apply font size to selected text using a <span>
+  function _applyFontSize(select) {
+    var size = select.value;
+    if (!size) return;
+    select.value = '';
+    document.execCommand('fontSize', false, '7');
+    var editorEl = document.querySelector('.wo-slide-editor');
+    if (!editorEl) return;
+    editorEl.querySelectorAll('font[size="7"]').forEach(function(font) {
+      var span = document.createElement('span');
+      span.style.fontSize = size;
+      span.innerHTML = font.innerHTML;
+      font.parentNode.replaceChild(span, font);
+    });
+  }
+
+  // Move cursor to a character offset (plain-text position) inside editor
+  function _setCursorAtTextOffset(editor, offset) {
+    var pos = 0;
+    var done = false;
+    function walk(node) {
+      if (done) return;
+      if (node.nodeType === 3) {
+        var end = pos + node.length;
+        if (offset <= end) {
+          var range = document.createRange();
+          range.setStart(node, offset - pos);
+          range.collapse(true);
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          done = true;
+        }
+        pos = end;
+      } else {
+        node.childNodes.forEach(walk);
+      }
+    }
+    walk(editor);
+  }
+
+  // Helper: write split-slide lines back into a box's slide-line divs
+  function _saveEditorLines(htmlParts, box) {
+    var songId   = box.getAttribute('data-song-id');
+    var slideIdx = parseInt(box.getAttribute('data-slide-idx') || '0', 10);
+    if (songId) {
+      var song = songOrderSections.find(function(s) { return s.id === songId; });
+      if (song && song.slides && song.slides[slideIdx]) {
+        song.slides[slideIdx].content  = htmlParts.map(function(h) {
+          var t = document.createElement('div'); t.innerHTML = h; return t.textContent;
+        }).join('\n');
+        song.slides[slideIdx].richHtml = htmlParts.join('<br>');
+      }
+    }
+  }
+
+  // Rich HTML → projection HTML (filters chord lines, keeps formatting spans)
+  function _projectionHtmlRich(html) {
+    if (!html || !html.trim()) return '';
+
+    var norm = html
+      .replace(/<div[^>]*>/gi, '<br>').replace(/<\/div>/gi, '')
+      .replace(/<p[^>]*>/gi,   '<br>').replace(/<\/p>/gi,   '');
+    var parts = norm.split(/<br\s*\/?>/gi);
+
+    function _isChord(t) {
+      var tr = t.trim();
+      if (!tr || tr.length > 80) return false;
+      var tok = tr.split(/\s+/);
+      if (tok.length < 3) return false;
+      var cc = 0;
+      tok.forEach(function(tk) { if (isChordToken(tk)) cc++; });
+      return cc >= 2 && (cc / tok.length) >= 0.6;
+    }
+    function _isHeader(t) { return /^\s*\[[^\]]+\]\s*$/.test(t); }
+
+    var result = [];
+    var prevWasBlank = false;
+
+    parts.forEach(function(part) {
+      var tmp = document.createElement('span');
+      tmp.innerHTML = part;
+      var text = (tmp.textContent || tmp.innerText || '').trim();
+
+      if (!text) {
+        if (result.length > 0 && !prevWasBlank) result.push(null);
+        prevWasBlank = true;
+        return;
+      }
+      prevWasBlank = false;
+      if (_isChord(text) || _isHeader(text)) return;
+
+      var clean = text.replace(/\([^)]*\)/g, '').replace(/\s{2,}/g, ' ').trim();
+      if (!clean) return;
+
+      if (clean.indexOf('≡ ') === 0 && clean.lastIndexOf(' ≡') === clean.length - 2) {
+        var titleText = escapeHtml(clean.replace(/^≡ /, '').replace(/ ≡$/, ''));
+        result.push('<span style="font-family:Cinzel,serif;font-size:1.4em;font-weight:700;display:block;margin-bottom:8px;border-bottom:2px solid rgba(255,255,255,0.3);padding-bottom:6px;">' + titleText + '</span>');
+        return;
+      }
+      if (clean.indexOf('— ') === 0) {
+        result.push('<span style="font-size:0.65em;opacity:0.6;font-style:italic;display:block;margin-top:8px;text-align:right;">' + escapeHtml(clean) + '</span>');
+        return;
+      }
+
+      if (/<[bBiIuU]\b|<span|<font/i.test(part)) {
+        result.push(part);
+      } else {
+        result.push(escapeHtml(clean));
+      }
+    });
+
+    while (result.length && result[result.length - 1] === null) result.pop();
+
+    return result.map(function(item) {
+      return item === null
+        ? '<span style="display:block;height:0.55em;"></span>'
+        : item;
+    }).join('<br>');
+  }
+
+  // Update projection preview from rich HTML (used during editing and on select)
+  function _updateProjectionFromEditor(richHtml) {
+    var screen = $('woPreviewScreen');
+    if (!screen) return;
+
+    Array.from(screen.children).forEach(function(child) {
+      if (child.id !== 'woPreviewBg') screen.removeChild(child);
+    });
+    var bgEl = $('woPreviewBg');
+    if (bgEl) bgEl.style.display = 'block';
+
+    var processed = _projectionHtmlRich(richHtml || '');
+    if (processed) {
+      var contentEl = document.createElement('div');
+      contentEl.className = 'wo-preview-content';
+      contentEl.style.textAlign = _currentSlideAlign;
+      contentEl.style.width     = _textBarrierWidth + '%';
+      contentEl.innerHTML = processed;
+      screen.appendChild(contentEl);
+      sendToProjectionWindow({ type: 'text', text: processed, align: _currentSlideAlign, barrier: _textBarrierWidth });
+    } else {
+      var ph = document.createElement('div');
+      ph.className = 'wo-preview-placeholder';
+      ph.textContent = 'Click any content box to see preview';
+      screen.appendChild(ph);
+    }
+  }
+
+  // Set projection text alignment (left / center / right)
+  function setSlideAlign(align) {
+    _currentSlideAlign = align;
+    ['left','center','right'].forEach(function(a) {
+      var btn = $('woAlign' + a.charAt(0).toUpperCase() + a.slice(1));
+      if (btn) btn.classList.toggle('active', a === align);
+    });
+    var previewContent = document.querySelector('#woPreviewScreen .wo-preview-content');
+    if (previewContent) previewContent.style.textAlign = align;
+    var fsContent = $('woFullscreenContent');
+    if (fsContent) fsContent.style.textAlign = align;
+    sendToProjectionWindow({ type: 'alignUpdate', align: align });
+  }
+
+  // Set text barrier width (constrains how wide the text block is on screen)
+  function setTextBarrier(pct) {
+    _textBarrierWidth = Math.max(40, Math.min(100, parseInt(pct, 10) || 90));
+    var valEl = $('woBarrierVal');
+    if (valEl) valEl.textContent = _textBarrierWidth + '%';
+    var slider = $('woBarrierSlider');
+    if (slider) slider.value = _textBarrierWidth;
+    var previewContent = document.querySelector('#woPreviewScreen .wo-preview-content');
+    if (previewContent) previewContent.style.width = _textBarrierWidth + '%';
+    sendToProjectionWindow({ type: 'barrierUpdate', width: _textBarrierWidth });
+  }
+
+  // ── End rich-editor helpers ─────────────────────────────────────────────
 
   // Add a new slide box after the current one (for Shift+Enter splitting)
   function addSlideBoxAfter(currentBox, initialText) {
@@ -37938,21 +38291,23 @@ var WO = (function() {
       if (bgEl) bgEl.style.display = 'block';
 
       // Only update background if not skipped (video backgrounds should persist)
-      // skipBackgroundUpdate is true when called from selectSlideBox (background already set)
       if (!skipBackgroundUpdate && !activeVideoElement) {
         applyBackgroundToPreview();
       }
 
       if (text && text.trim()) {
-        var htmlText = _projectionHtml(text);
+        var htmlText = (/<[bBiIuU]\b|<span[^>]*style|<font/i.test(text))
+          ? _projectionHtmlRich(text)
+          : _projectionHtml(text);
 
         var contentEl = document.createElement('div');
         contentEl.className = 'wo-preview-content';
+        contentEl.style.textAlign = _currentSlideAlign;
+        contentEl.style.width     = _textBarrierWidth + '%';
         contentEl.innerHTML = htmlText;
         screen.appendChild(contentEl);
 
-        // Also send to projection window if open (LIVE sync)
-        sendToProjection(htmlText);
+        sendToProjectionWindow({ type: 'text', text: htmlText, align: _currentSlideAlign, barrier: _textBarrierWidth });
       } else {
         var placeholder = document.createElement('div');
         placeholder.className = 'wo-preview-placeholder';
@@ -41737,6 +42092,12 @@ var WO = (function() {
     // Slide editing
     editSlideBox: editSlideBox,
     saveSlideEdit: saveSlideEdit,
+    // Rich slide editor helpers (called from toolbar HTML)
+    _applyFontSize: _applyFontSize,
+    _insertSlideSpacing: _insertSlideSpacing,
+    // Projection alignment + barrier
+    setSlideAlign: setSlideAlign,
+    setTextBarrier: setTextBarrier,
     // Song in service order
     removeSongFromSection: removeSongFromSection,
     sbRemoveSong: sbRemoveSong,
@@ -48238,6 +48599,149 @@ function filterLiturgyItems() {
     outline: none;
     border-color: #4f46e5;
   }
+
+  /* ── Rich slide editor (contenteditable) ───────────────────────────── */
+  .wo-slide-editor {
+    width: 100%;
+    min-height: 160px;
+    padding: 8px 10px;
+    border: 2px solid #6366f1;
+    border-top: 1px solid #c7d2fe;
+    border-radius: 0 0 6px 6px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    line-height: 1.65;
+    background: white;
+    color: #1e293b;
+    box-sizing: border-box;
+    overflow-y: auto;
+    outline: none;
+    cursor: text;
+  }
+  .wo-slide-editor:empty::before {
+    content: attr(data-placeholder);
+    color: #9ca3af;
+    font-style: italic;
+    pointer-events: none;
+  }
+  /* ── Formatting toolbar ─────────────────────────────────────────────── */
+  .wo-slide-fmt-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 4px 8px;
+    background: #f0f4ff;
+    border: 2px solid #6366f1;
+    border-bottom: 1px solid #c7d2fe;
+    border-radius: 6px 6px 0 0;
+    flex-wrap: wrap;
+  }
+  .wo-fmt-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 24px;
+    border: 1px solid #c7d2fe;
+    border-radius: 4px;
+    background: white;
+    color: #4338ca;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: Georgia, serif;
+    transition: background 0.1s, border-color 0.1s;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .wo-fmt-btn:hover { background: #e0e7ff; border-color: #6366f1; }
+  .wo-fmt-sep { width: 1px; height: 18px; background: #c7d2fe; margin: 0 2px; flex-shrink: 0; }
+  .wo-fmt-size {
+    height: 24px;
+    padding: 0 4px;
+    border: 1px solid #c7d2fe;
+    border-radius: 4px;
+    background: white;
+    font-size: 0.75rem;
+    color: #4338ca;
+    cursor: pointer;
+    outline: none;
+  }
+  .wo-fmt-spacing-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid #c7d2fe;
+    border-radius: 4px;
+    background: white;
+    color: #4338ca;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.1s;
+    flex-shrink: 0;
+  }
+  .wo-fmt-spacing-btn:hover { background: #e0e7ff; }
+
+  /* ── Alignment buttons in Projection Preview toolbar ────────────────── */
+  .wo-align-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 6px;
+    padding: 2px;
+    flex-shrink: 0;
+  }
+  .wo-align-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: rgba(255,255,255,0.65);
+    cursor: pointer;
+    font-size: 0.78rem;
+    transition: background 0.12s, color 0.12s;
+  }
+  .wo-align-btn:hover { background: rgba(255,255,255,0.18); color: white; }
+  .wo-align-btn.active { background: #6366f1; color: white; }
+
+  /* ── Text barrier (width) control ───────────────────────────────────── */
+  .wo-barrier-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 6px;
+    padding: 3px 7px;
+    flex-shrink: 0;
+  }
+  .wo-barrier-label {
+    font-size: 0.67rem;
+    color: rgba(255,255,255,0.6);
+    white-space: nowrap;
+    font-family: 'Poppins', sans-serif;
+  }
+  .wo-barrier-slider {
+    width: 58px;
+    height: 4px;
+    cursor: pointer;
+    accent-color: #818cf8;
+    vertical-align: middle;
+  }
+  .wo-barrier-val {
+    font-size: 0.67rem;
+    color: rgba(255,255,255,0.75);
+    min-width: 26px;
+    font-family: 'Poppins', sans-serif;
+  }
+
   .wo-slide-edit-hint {
     display: flex;
     gap: 16px;
