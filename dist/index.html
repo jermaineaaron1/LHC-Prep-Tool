@@ -4669,19 +4669,15 @@
                       <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
                       <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
                     </div>
-                    <!-- Text barrier width -->
-                    <div class="wo-barrier-control" title="Text width barrier (constrains text from screen edges)">
-                      <span class="wo-barrier-label"><i class="fa-solid fa-text-width"></i></span>
-                      <input type="range" class="wo-barrier-slider" id="woBarrierSlider" min="40" max="100" value="90" oninput="WO.setTextBarrier(this.value)" title="Text width (% of screen)">
-                      <span class="wo-barrier-val" id="woBarrierVal">90%</span>
-                    </div>
+                    <!-- Text barrier (safe zone) editor button -->
+                    <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
                     <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
                     <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
                     <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
                       <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
                       <span class="wo-golive-label" id="woBlankLabel">Blank</span>
                     </button>
-                    <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Fullscreen"><i class="fa-solid fa-expand"></i></button>
+                    <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
                   </div>
                 </div>
                 <div class="wo-preview-screen" id="woPreviewScreen">
@@ -5212,6 +5208,87 @@
           </div>
         </div>
       </section>
+
+      <!-- ==================== BARRIER / SAFE ZONE EDITOR MODAL ==================== -->
+      <div id="woBarrierModal" class="wo-barrier-modal-overlay" style="display:none;">
+        <div class="wo-barrier-modal-content">
+          <div class="wo-barrier-modal-header">
+            <div class="wo-barrier-modal-title"><i class="fa-solid fa-border-all mr-2"></i>Safe Zone Editor</div>
+            <button class="wo-barrier-modal-close" onclick="WO.closeBarrierEditor()"><i class="fa-solid fa-times"></i></button>
+          </div>
+          <div class="wo-barrier-modal-body">
+
+            <!-- 16:9 visual projection preview -->
+            <div class="wo-barrier-screen-wrap">
+              <div class="wo-barrier-screen-inner">
+                <!-- Excluded zones (shaded outside safe area) - updated by JS -->
+                <div id="woBarrierExcTop"    class="wo-barrier-excluded" style="top:0;left:0;right:0;"></div>
+                <div id="woBarrierExcBottom" class="wo-barrier-excluded" style="bottom:0;left:0;right:0;"></div>
+                <div id="woBarrierExcLeft"   class="wo-barrier-excluded" style="left:0;"></div>
+                <div id="woBarrierExcRight"  class="wo-barrier-excluded" style="right:0;"></div>
+                <!-- Safe zone -->
+                <div id="woBarrierSafeZone" class="wo-barrier-safe-zone" style="top:5%;right:5%;bottom:5%;left:5%;">
+                  <span class="wo-barrier-safe-label">Safe Zone</span>
+                </div>
+                <!-- Livestream corner hint -->
+                <div class="wo-barrier-stream-hint">
+                  <i class="fa-solid fa-video"></i>
+                  <span>livestream</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4 sliders -->
+            <div class="wo-barrier-sliders">
+              <div class="wo-barrier-slider-row">
+                <label>↑ Top</label>
+                <input type="range" id="woBarrierTop" min="0" max="45" value="5" oninput="WO.updateBarrierPreview()">
+                <span id="woBarrierTopVal">5%</span>
+              </div>
+              <div class="wo-barrier-slider-row">
+                <label>↓ Bottom</label>
+                <input type="range" id="woBarrierBottom" min="0" max="45" value="5" oninput="WO.updateBarrierPreview()">
+                <span id="woBarrierBottomVal">5%</span>
+              </div>
+              <div class="wo-barrier-slider-row">
+                <label>← Left</label>
+                <input type="range" id="woBarrierLeft" min="0" max="45" value="5" oninput="WO.updateBarrierPreview()">
+                <span id="woBarrierLeftVal">5%</span>
+              </div>
+              <div class="wo-barrier-slider-row">
+                <label>→ Right</label>
+                <input type="range" id="woBarrierRight" min="0" max="45" value="5" oninput="WO.updateBarrierPreview()">
+                <span id="woBarrierRightVal">5%</span>
+              </div>
+            </div>
+
+            <!-- Scope radios -->
+            <div class="wo-barrier-scope">
+              <span class="wo-barrier-scope-title">Apply to:</span>
+              <label><input type="radio" name="woBarrierScope" value="all" checked> All slides</label>
+              <label><input type="radio" name="woBarrierScope" value="section"> This section</label>
+              <label><input type="radio" name="woBarrierScope" value="slide"> This slide only</label>
+            </div>
+
+            <p style="font-size:0.72rem;color:#64748b;margin:0;">
+              <i class="fa-solid fa-circle-info mr-1"></i>
+              The <strong style="color:#818cf8;">dashed yellow box</strong> shows a typical livestream camera region in the bottom-right corner.
+              Increase the <strong>Bottom</strong> and <strong>Right</strong> margins to push text out of that zone.
+              Text that overflows the safe zone auto-shrinks in the projection window.
+            </p>
+          </div>
+          <div class="wo-barrier-modal-footer">
+            <button class="wo-barrier-reset-btn" onclick="WO.resetBarrier()">
+              <i class="fa-solid fa-rotate-left mr-1"></i>Reset
+            </button>
+            <div style="flex:1;"></div>
+            <button class="wo-barrier-cancel-btn" onclick="WO.closeBarrierEditor()">Cancel</button>
+            <button class="wo-barrier-apply-btn" onclick="WO.applyBarrierSettings()">
+              <i class="fa-solid fa-check mr-1"></i>Apply
+            </button>
+          </div>
+        </div>
+      </div>
 
       <!-- ==================== VIEW: LITURGY + THE WORD ==================== -->
       <section id="liturgyView" style="display: none;">
@@ -26831,11 +26908,11 @@ var WO = (function() {
     var projectionHtml = '<!DOCTYPE html>' +
       '<html><head><title>LHC Worship - Projection</title>' +
       '<style>' +
-      'body { margin: 0; padding: 0; background: #000; color: white; font-family: Georgia, serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; cursor: none; }' +
+      'body { margin: 0; padding: 0; background: #000; color: white; font-family: Georgia, serif; width: 100vw; height: 100vh; overflow: hidden; cursor: none; position: relative; }' +
       '#projBackground { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-size: cover; background-position: center; background-repeat: no-repeat; }' +
       '#projBackground video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }' +
-      '.projection-content { position: relative; z-index: 1; text-align: center; padding: 40px 60px; max-width: 90%; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: visible; }' +
-      '.projection-text { font-size: 5vw; line-height: 1.5; white-space: pre-wrap; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); }' +
+      '.projection-content { position: absolute; z-index: 1; top: 5%; right: 5%; bottom: 5%; left: 5%; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: hidden; }' +
+      '.projection-text { font-size: 5vw; line-height: 1.5; white-space: pre-wrap; text-shadow: 3px 3px 6px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.5); text-align: center; }' +
       '.projection-slide { max-width: 100vw; max-height: 100vh; object-fit: contain; }' +
       '.projection-ready { color: #333; font-size: 2vw; }' +
       '.projection-video { width: 100vw; height: 100vh; }' +
@@ -26858,11 +26935,14 @@ var WO = (function() {
       'function _fitProjectionText() {' +
       '  var textEl = document.querySelector(".projection-text");' +
       '  if (!textEl) return;' +
-      '  var maxH = window.innerHeight - 80;' + // 40px padding top + bottom
-      '  var fs = 5;' + // start at 5vw
+      '  var content = document.getElementById("projContent");' +
+      '  var maxH = content ? content.offsetHeight - 4 : window.innerHeight - 80;' +
+      '  var maxW = content ? content.offsetWidth  - 4 : window.innerWidth  - 80;' +
+      '  var s = window._textSettings || {};' +
+      '  var fs = s.fontSize || 5;' +
       '  textEl.style.fontSize = fs + "vw";' +
-      '  while (textEl.scrollHeight > maxH && fs > 1.2) {' +
-      '    fs = Math.max(1.2, fs - 0.2);' +
+      '  while ((textEl.scrollHeight > maxH || textEl.scrollWidth > maxW) && fs > 1.2) {' +
+      '    fs = Math.max(1.2, +(fs - 0.2).toFixed(1));' +
       '    textEl.style.fontSize = fs + "vw";' +
       '  }' +
       '}' +
@@ -26908,18 +26988,23 @@ var WO = (function() {
       '  var bgEl = document.getElementById("projBackground");' +
       '  if (!content) return;' +
       '  if (data.type === "text" || data.type === "slide" || data.type === "video") { var _ov = document.getElementById("fsOverlay"); if (_ov) _ov.remove(); }' +
+      '  function _applyBarrierToContent(b) {' +
+      '    if (!b) return;' +
+      '    if (typeof b === "object") {' +
+      '      content.style.top    = b.top    + "%";' +
+      '      content.style.right  = b.right  + "%";' +
+      '      content.style.bottom = b.bottom + "%";' +
+      '      content.style.left   = b.left   + "%";' +
+      '      window._projBarrier = b;' +
+      '    }' +
+      '  }' +
       '  if (data.type === "alignUpdate") {' +
       '    var textEl = document.querySelector(".projection-text");' +
       '    if (textEl) textEl.style.textAlign = data.align;' +
       '    window._projAlign = data.align;' +
       '  } else if (data.type === "barrierUpdate") {' +
-      '    window._projBarrier = data.width;' +
-      '    var padPct = ((100 - data.width) / 2) + "%";' +
-      '    content.style.paddingLeft  = padPct;' +
-      '    content.style.paddingRight = padPct;' +
-      '    content.style.maxWidth = "100%";' +
-      '    var textEl2 = document.querySelector(".projection-text");' +
-      '    if (textEl2) textEl2.style.textAlign = window._projAlign || "center";' +
+      '    _applyBarrierToContent(data.barrier);' +
+      '    _fitProjectionText();' +
       '  } else if (data.type === "text") {' +
       '    var s = window._textSettings || {};' +
       '    var style = "font-family:" + (s.fontFamily || "Georgia, serif") + ";";' +
@@ -26929,7 +27014,7 @@ var WO = (function() {
       '    style += "font-style:" + (s.italic ? "italic" : "normal") + ";";' +
       '    style += "text-align:" + (data.align || window._projAlign || "center") + ";";' +
       '    content.innerHTML = "<div class=\\"projection-text\\" style=\\"" + style + "\\">" + data.text + "</div>";' +
-      '    if (data.barrier) { var bPad = ((100 - data.barrier) / 2) + "%"; content.style.paddingLeft = bPad; content.style.paddingRight = bPad; content.style.maxWidth = "100%"; window._projBarrier = data.barrier; }' +
+      '    if (data.barrier) { _applyBarrierToContent(data.barrier); }' +
       '    if (bgEl) bgEl.style.display = "block";' +
       '    _fitProjectionText();' +
       '  } else if (data.type === "slide") {' +
@@ -36768,7 +36853,13 @@ var WO = (function() {
   var editingSlideBox = null;
   var currentSectionVideoId = null; // Track which section's video is playing
   var _currentSlideAlign = 'center'; // Projection text alignment: 'left'|'center'|'right'
-  var _textBarrierWidth = 90;        // Projection text width % (barrier against edges)
+  // 4-sided safe-zone barrier config (% from each edge).  global is the default; sections/slides
+  // can override per-scope.  _getActiveBarrier(box) resolves the correct level.
+  var _barrierConfig = {
+    global:   { top: 5, right: 5, bottom: 5, left: 5 },
+    sections: {},   // keyed by sectionId string
+    slides:   {}    // keyed by "sectionId:slideIdx" string
+  };
   var _selectedPptContainer = null; // Tracks active iframe PPT container
 
   function selectSlideBox(box) {
@@ -37697,10 +37788,10 @@ var WO = (function() {
       var contentEl = document.createElement('div');
       contentEl.className = 'wo-preview-content';
       contentEl.style.textAlign = _currentSlideAlign;
-      contentEl.style.width     = _textBarrierWidth + '%';
+      _applyBarrierToEl(contentEl, _barrierConfig.global);
       contentEl.innerHTML = processed;
       screen.appendChild(contentEl);
-      sendToProjectionWindow({ type: 'text', text: processed, align: _currentSlideAlign, barrier: _textBarrierWidth });
+      sendToProjectionWindow({ type: 'text', text: processed, align: _currentSlideAlign, barrier: _barrierConfig.global });
     } else {
       var ph = document.createElement('div');
       ph.className = 'wo-preview-placeholder';
@@ -37717,23 +37808,131 @@ var WO = (function() {
       if (btn) btn.classList.toggle('active', a === align);
     });
     var previewContent = document.querySelector('#woPreviewScreen .wo-preview-content');
-    if (previewContent) previewContent.style.textAlign = align;
+    if (previewContent) { previewContent.style.textAlign = align; _applyBarrierToEl(previewContent, _barrierConfig.global); }
     var fsContent = $('woFullscreenContent');
     if (fsContent) fsContent.style.textAlign = align;
     sendToProjectionWindow({ type: 'alignUpdate', align: align });
   }
 
-  // Set text barrier width (constrains how wide the text block is on screen)
-  function setTextBarrier(pct) {
-    _textBarrierWidth = Math.max(40, Math.min(100, parseInt(pct, 10) || 90));
-    var valEl = $('woBarrierVal');
-    if (valEl) valEl.textContent = _textBarrierWidth + '%';
-    var slider = $('woBarrierSlider');
-    if (slider) slider.value = _textBarrierWidth;
-    var previewContent = document.querySelector('#woPreviewScreen .wo-preview-content');
-    if (previewContent) previewContent.style.width = _textBarrierWidth + '%';
-    sendToProjectionWindow({ type: 'barrierUpdate', width: _textBarrierWidth });
+  // ── Barrier (safe-zone) helpers ─────────────────────────────────────────
+
+  // Resolve the active barrier for a given slide box element (or null → global)
+  function _getActiveBarrier(boxEl) {
+    if (boxEl) {
+      var sectionId = boxEl.getAttribute('data-section') || '';
+      var slideIdx  = boxEl.getAttribute('data-slide-idx') || '0';
+      var slideKey  = sectionId + ':' + slideIdx;
+      if (_barrierConfig.slides[slideKey])   return _barrierConfig.slides[slideKey];
+      if (_barrierConfig.sections[sectionId]) return _barrierConfig.sections[sectionId];
+    }
+    return _barrierConfig.global;
   }
+
+  // Apply barrier positioning to a preview content element (absolute within its relative parent)
+  function _applyBarrierToEl(el, barrier) {
+    if (!el || !barrier) return;
+    el.style.position   = 'absolute';
+    el.style.top        = barrier.top    + '%';
+    el.style.right      = barrier.right  + '%';
+    el.style.bottom     = barrier.bottom + '%';
+    el.style.left       = barrier.left   + '%';
+    el.style.width      = 'auto';
+    el.style.height     = 'auto';
+    el.style.maxWidth   = 'none';
+    el.style.display    = 'flex';
+    el.style.alignItems = 'center';
+    el.style.justifyContent = 'center';
+    el.style.boxSizing  = 'border-box';
+    el.style.overflow   = 'hidden';
+  }
+
+  // Open the barrier editor modal
+  function openBarrierEditor() {
+    var modal = $('woBarrierModal');
+    if (!modal) return;
+    var b = _barrierConfig.global;
+    $('woBarrierTop').value    = b.top;
+    $('woBarrierBottom').value = b.bottom;
+    $('woBarrierLeft').value   = b.left;
+    $('woBarrierRight').value  = b.right;
+    modal.style.display = 'flex';
+    updateBarrierPreview();
+  }
+
+  // Live-update the visual safe-zone preview as sliders are dragged
+  function updateBarrierPreview() {
+    var t = parseInt($('woBarrierTop').value,    10) || 0;
+    var b = parseInt($('woBarrierBottom').value, 10) || 0;
+    var l = parseInt($('woBarrierLeft').value,   10) || 0;
+    var r = parseInt($('woBarrierRight').value,  10) || 0;
+    $('woBarrierTopVal').textContent    = t + '%';
+    $('woBarrierBottomVal').textContent = b + '%';
+    $('woBarrierLeftVal').textContent   = l + '%';
+    $('woBarrierRightVal').textContent  = r + '%';
+    var zone = $('woBarrierSafeZone');
+    if (zone) {
+      zone.style.top    = t + '%';
+      zone.style.bottom = b + '%';
+      zone.style.left   = l + '%';
+      zone.style.right  = r + '%';
+    }
+    var exT = $('woBarrierExcTop');    if (exT) exT.style.height = t + '%';
+    var exB = $('woBarrierExcBottom'); if (exB) exB.style.height = b + '%';
+    var exL = $('woBarrierExcLeft');   if (exL) { exL.style.top = t + '%'; exL.style.bottom = b + '%'; exL.style.width = l + '%'; }
+    var exR = $('woBarrierExcRight');  if (exR) { exR.style.top = t + '%'; exR.style.bottom = b + '%'; exR.style.width = r + '%'; }
+  }
+
+  // Apply chosen barrier values and scope, then close the modal
+  function applyBarrierSettings() {
+    var t = parseInt($('woBarrierTop').value,    10) || 0;
+    var b = parseInt($('woBarrierBottom').value, 10) || 0;
+    var l = parseInt($('woBarrierLeft').value,   10) || 0;
+    var r = parseInt($('woBarrierRight').value,  10) || 0;
+    var barrier = { top: t, right: r, bottom: b, left: l };
+    var scopeEl = document.querySelector('input[name="woBarrierScope"]:checked');
+    var scope   = scopeEl ? scopeEl.value : 'all';
+
+    if (scope === 'all') {
+      _barrierConfig.global = barrier;
+    } else if (scope === 'section') {
+      var selBox = document.querySelector('.wo-slide-box.selected, .wo-slide-box.editing');
+      var sid    = selBox ? (selBox.getAttribute('data-section') || '') : '';
+      if (sid) _barrierConfig.sections[sid] = barrier;
+      else     _barrierConfig.global = barrier;
+    } else {
+      var selBox2 = document.querySelector('.wo-slide-box.selected, .wo-slide-box.editing');
+      var sid2    = selBox2 ? (selBox2.getAttribute('data-section') || '') : '';
+      var sidx    = selBox2 ? (selBox2.getAttribute('data-slide-idx') || '0') : '0';
+      if (sid2) _barrierConfig.slides[sid2 + ':' + sidx] = barrier;
+      else      _barrierConfig.global = barrier;
+    }
+
+    var previewContent = document.querySelector('#woPreviewScreen .wo-preview-content');
+    if (previewContent) _applyBarrierToEl(previewContent, _barrierConfig.global);
+    sendToProjectionWindow({ type: 'barrierUpdate', barrier: _barrierConfig.global });
+    closeBarrierEditor();
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+  }
+
+  // Reset barrier to defaults
+  function resetBarrier() {
+    _barrierConfig.global   = { top: 5, right: 5, bottom: 5, left: 5 };
+    _barrierConfig.sections = {};
+    _barrierConfig.slides   = {};
+    $('woBarrierTop').value    = 5;
+    $('woBarrierBottom').value = 5;
+    $('woBarrierLeft').value   = 5;
+    $('woBarrierRight').value  = 5;
+    updateBarrierPreview();
+  }
+
+  // Close the barrier modal
+  function closeBarrierEditor() {
+    var modal = $('woBarrierModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  // ── End barrier helpers ─────────────────────────────────────────────────
 
   // ── End rich-editor helpers ─────────────────────────────────────────────
 
@@ -38306,11 +38505,11 @@ var WO = (function() {
         var contentEl = document.createElement('div');
         contentEl.className = 'wo-preview-content';
         contentEl.style.textAlign = _currentSlideAlign;
-        contentEl.style.width     = _textBarrierWidth + '%';
+        _applyBarrierToEl(contentEl, _barrierConfig.global);
         contentEl.innerHTML = htmlText;
         screen.appendChild(contentEl);
 
-        sendToProjectionWindow({ type: 'text', text: htmlText, align: _currentSlideAlign, barrier: _textBarrierWidth });
+        sendToProjectionWindow({ type: 'text', text: htmlText, align: _currentSlideAlign, barrier: _barrierConfig.global });
       } else {
         var placeholder = document.createElement('div');
         placeholder.className = 'wo-preview-placeholder';
@@ -42098,9 +42297,14 @@ var WO = (function() {
     // Rich slide editor helpers (called from toolbar HTML)
     _applyFontSize: _applyFontSize,
     _insertSlideSpacing: _insertSlideSpacing,
-    // Projection alignment + barrier
+    // Projection alignment
     setSlideAlign: setSlideAlign,
-    setTextBarrier: setTextBarrier,
+    // Barrier (safe-zone) editor
+    openBarrierEditor: openBarrierEditor,
+    updateBarrierPreview: updateBarrierPreview,
+    applyBarrierSettings: applyBarrierSettings,
+    resetBarrier: resetBarrier,
+    closeBarrierEditor: closeBarrierEditor,
     // Song in service order
     removeSongFromSection: removeSongFromSection,
     sbRemoveSong: sbRemoveSong,
@@ -48715,35 +48919,109 @@ function filterLiturgyItems() {
   .wo-align-btn:hover { background: rgba(255,255,255,0.18); color: white; }
   .wo-align-btn.active { background: #6366f1; color: white; }
 
-  /* ── Text barrier (width) control ───────────────────────────────────── */
-  .wo-barrier-control {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 6px;
-    padding: 3px 7px;
-    flex-shrink: 0;
+  /* ── Barrier button (toolbar) ───────────────────────────────────────── */
+  .wo-barrier-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.25);
+    background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85);
+    font-size: 0.72rem; font-family: 'Poppins', sans-serif;
+    cursor: pointer; white-space: nowrap; transition: background 0.15s;
   }
-  .wo-barrier-label {
-    font-size: 0.67rem;
-    color: rgba(255,255,255,0.6);
-    white-space: nowrap;
+  .wo-barrier-btn:hover { background: rgba(255,255,255,0.18); color: #fff; }
+
+  /* ── Barrier modal ──────────────────────────────────────────────────── */
+  .wo-barrier-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    z-index: 2500; display: flex; align-items: center; justify-content: center;
+  }
+  .wo-barrier-modal-content {
+    background: #1e293b; color: #e2e8f0; border-radius: 12px;
+    width: min(560px, 96vw); max-height: 92vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5); display: flex; flex-direction: column;
+  }
+  .wo-barrier-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px 12px; border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  .wo-barrier-modal-title { font-size: 1rem; font-weight: 600; color: #c7d2fe; font-family: 'Poppins', sans-serif; }
+  .wo-barrier-modal-close {
+    width: 28px; height: 28px; border-radius: 50%; border: none;
+    background: rgba(255,255,255,0.1); color: #94a3b8; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-size: 0.85rem;
+  }
+  .wo-barrier-modal-close:hover { background: rgba(255,255,255,0.2); color: #fff; }
+  .wo-barrier-modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 16px; }
+  .wo-barrier-modal-footer {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 18px; border-top: 1px solid rgba(255,255,255,0.1);
+  }
+  /* Screen preview (16:9 ratio) */
+  .wo-barrier-screen-wrap {
+    position: relative; width: 100%; padding-bottom: 56.25%; /* 16:9 */
+    background: #000; border-radius: 8px; overflow: hidden;
+    border: 2px solid rgba(255,255,255,0.15);
+  }
+  .wo-barrier-screen-inner { position: absolute; inset: 0; }
+  .wo-barrier-safe-zone {
+    position: absolute; border: 2px solid #6366f1;
+    background: rgba(99,102,241,0.12);
+    display: flex; align-items: center; justify-content: center;
+    transition: top 0.1s, right 0.1s, bottom 0.1s, left 0.1s;
+  }
+  .wo-barrier-safe-label {
+    font-size: 0.65rem; color: rgba(99,102,241,0.9); font-family: 'Poppins', sans-serif;
+    font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; pointer-events: none;
+  }
+  .wo-barrier-stream-hint {
+    position: absolute; right: 1.5%; bottom: 1.5%; width: 28%; height: 22%;
+    border: 1.5px dashed rgba(251,191,36,0.7); border-radius: 3px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: rgba(251,191,36,0.8); font-size: 0.5rem; font-family: 'Poppins', sans-serif;
+    gap: 2px; pointer-events: none;
+  }
+  .wo-barrier-excluded {
+    position: absolute; background: rgba(255,255,255,0.04); pointer-events: none;
+  }
+  /* Slider rows */
+  .wo-barrier-sliders { display: flex; flex-direction: column; gap: 10px; }
+  .wo-barrier-slider-row {
+    display: grid; grid-template-columns: 80px 1fr 36px; align-items: center; gap: 8px;
+  }
+  .wo-barrier-slider-row label {
+    font-size: 0.78rem; color: #94a3b8; font-family: 'Poppins', sans-serif;
+  }
+  .wo-barrier-slider-row input[type="range"] {
+    width: 100%; height: 5px; cursor: pointer; accent-color: #6366f1;
+  }
+  .wo-barrier-slider-row span {
+    font-size: 0.75rem; color: #c7d2fe; text-align: right; font-family: 'Poppins', sans-serif; min-width: 32px;
+  }
+  /* Scope radios */
+  .wo-barrier-scope { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .wo-barrier-scope-title { font-size: 0.78rem; color: #94a3b8; font-family: 'Poppins', sans-serif; margin-right: 4px; }
+  .wo-barrier-scope label {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 0.8rem; color: #cbd5e1; cursor: pointer; font-family: 'Poppins', sans-serif;
+  }
+  /* Footer buttons */
+  .wo-barrier-reset-btn {
+    padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2);
+    background: transparent; color: #94a3b8; font-size: 0.78rem; cursor: pointer;
     font-family: 'Poppins', sans-serif;
   }
-  .wo-barrier-slider {
-    width: 58px;
-    height: 4px;
-    cursor: pointer;
-    accent-color: #818cf8;
-    vertical-align: middle;
-  }
-  .wo-barrier-val {
-    font-size: 0.67rem;
-    color: rgba(255,255,255,0.75);
-    min-width: 26px;
+  .wo-barrier-reset-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .wo-barrier-cancel-btn {
+    padding: 6px 14px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2);
+    background: transparent; color: #94a3b8; font-size: 0.8rem; cursor: pointer;
     font-family: 'Poppins', sans-serif;
   }
+  .wo-barrier-cancel-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .wo-barrier-apply-btn {
+    padding: 6px 18px; border-radius: 6px; border: none;
+    background: #6366f1; color: white; font-size: 0.82rem; font-weight: 600;
+    cursor: pointer; font-family: 'Poppins', sans-serif;
+  }
+  .wo-barrier-apply-btn:hover { background: #4f46e5; }
 
   .wo-slide-edit-hint {
     display: flex;
@@ -48781,6 +49059,7 @@ function filterLiturgyItems() {
   .wo-slide-section-header.ending { background: #fee2e2; color: #dc2626; }
   .wo-slide-content { font-size: 0.85rem; color: #334155; line-height: 1.5; }
   .wo-slide-line { margin: 2px 0; }
+  .wo-slide-line:empty { min-height: 1.2em; display: block; }
 
   /* Slide box header with number and remove button */
   .wo-slide-box-header {
