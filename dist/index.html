@@ -35671,9 +35671,11 @@ var WO = (function() {
     // ── CSS ─────────────────────────────────────────────────────────────────
     var css = [
       '@page{margin:2cm 2.5cm;}',
-      /* 561 — base font set via JS-controlled CSS var; defaults 13pt desktop, 32.5pt tablet/mobile */
-      ':root{--lb-scale:1;}',
-      'body{font-family:Georgia,"Times New Roman",serif;font-size:calc(13pt * var(--lb-scale));padding:0;margin:0;color:#1e2d3d;line-height:1.7;background:#fff;}',
+      /* 561 — base font set via JS-controlled CSS var; design vars added for font/spacing/color customisation */
+      ':root{--lb-scale:1;--lb-ff:Georgia,"Times New Roman",serif;--lb-lh:1.7;--lb-ink:#1e2d3d;}',
+      'body{font-family:var(--lb-ff);font-size:calc(13pt * var(--lb-scale));padding:0;margin:0;color:var(--lb-ink);line-height:var(--lb-lh);background:#fff;}',
+      /* cascade ink color to body-text elements that set it explicitly */
+      '.lit-text,.lyr-line,.scripture-text,.song-lyrics{color:var(--lb-ink);}',
       '.page-wrap{width:100%;box-sizing:border-box;padding:20px 16px 40px;}',
 
       /* Print controls (hidden when printing) */
@@ -35686,6 +35688,28 @@ var WO = (function() {
       '.zoom-btn{background:#1e3a5f;color:#fff;border:none;border-radius:4px;width:28px;height:28px;font-size:1.1em;cursor:pointer;line-height:1;display:inline-flex;align-items:center;justify-content:center;}',
       '.zoom-btn:hover{background:#2d547a;}',
       '.zoom-label{font-size:.85em;color:#1e3a5f;font-weight:bold;min-width:36px;text-align:center;font-family:Georgia,serif;}',
+      /* Design button + panel */
+      '.design-btn{padding:9px 20px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:.95em;cursor:pointer;font-family:Georgia,serif;}',
+      '.design-btn:hover{background:#6d28d9;}',
+      '.design-panel{background:#f8f5ff;border:1.5px solid #c4b5fd;border-radius:10px;padding:16px 20px;margin-bottom:24px;display:none;}',
+      '.design-panel.open{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start;}',
+      '.dp-group{display:flex;flex-direction:column;gap:6px;min-width:110px;}',
+      '.dp-label{font-size:.68em;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:#6d28d9;font-family:Georgia,serif;}',
+      '.dp-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center;}',
+      '.dp-chip{padding:3px 11px;background:#fff;border:1.5px solid #c4b5fd;border-radius:20px;font-size:.78em;cursor:pointer;font-family:Georgia,serif;color:#4b5563;transition:background .15s;}',
+      '.dp-chip:hover{background:#ede9fe;}',
+      '.dp-chip.active{background:#7c3aed;color:#fff;border-color:#7c3aed;}',
+      '.dp-swatch{width:22px;height:22px;border-radius:50%;border:2.5px solid #e5e7eb;cursor:pointer;flex-shrink:0;display:inline-block;vertical-align:middle;transition:transform .12s;}',
+      '.dp-swatch:hover{transform:scale(1.18);}',
+      '.dp-swatch.active{border-color:#7c3aed;box-shadow:0 0 0 2px #ede9fe;}',
+      '.dp-color-pick{width:26px;height:26px;padding:0;border:1.5px solid #c4b5fd;border-radius:4px;cursor:pointer;background:none;vertical-align:middle;}',
+      /* Highlight mode cursor */
+      'body.hl-mode{cursor:crosshair;}',
+      'body.hl-mode .print-controls,body.hl-mode .design-panel,body.hl-mode .print-controls *,body.hl-mode .design-panel *{cursor:default!important;}',
+      'button#hlModeBtn{cursor:pointer!important;}',
+      /* Two-column content */
+      '#lbContent.two-col{columns:2;column-gap:32px;}',
+      '#lbContent.two-col .section{break-inside:avoid;}',
 
       /* Page header */
       '.church-name{text-align:center;font-size:.8em;color:#4a6fa5;letter-spacing:.16em;text-transform:uppercase;margin-bottom:10px;}',
@@ -35753,6 +35777,7 @@ var WO = (function() {
       /* Print overrides */
       '@media print{',
       '.print-controls{display:none!important;}',
+      '.design-panel{display:none!important;}',
       '#lnModal{display:none!important;}',
       'body,.page-wrap{background:#fff;}',
       '.page-wrap{padding:0;}',
@@ -35800,6 +35825,29 @@ var WO = (function() {
       'window.addEventListener("DOMContentLoaded",function(){' +
         '_applyScale(_lbScale);' +
       '});' +
+      /* ── Design panel ─────────────────────────────────────── */
+      'function toggleDesignPanel(){var p=document.getElementById("designPanel");p.classList.toggle("open");}' +
+      'function _dpActive(parent,btn){Array.from(parent.querySelectorAll(".dp-chip,.dp-swatch")).forEach(function(b){b.classList.remove("active");});if(btn)btn.classList.add("active");}' +
+      'function setFont(ff,btn){document.documentElement.style.setProperty("--lb-ff",ff);_dpActive(btn.parentElement,btn);}' +
+      'function setSpacing(lh,btn){document.documentElement.style.setProperty("--lb-lh",lh);_dpActive(btn.parentElement,btn);}' +
+      'function setFontSize(s,btn){_applyScale(s);_dpActive(btn.parentElement,btn);}' +
+      'function setColor(c,btn){document.documentElement.style.setProperty("--lb-ink",c);_dpActive(btn.parentElement,btn);}' +
+      'function setColorCustom(c){document.documentElement.style.setProperty("--lb-ink",c);}' +
+      'var _hlColor="#fff9c4";' +
+      'var _hlMode=false;' +
+      'function setHlColor(c,btn){_hlColor=c;_dpActive(btn.parentElement,btn);}' +
+      'function toggleHlMode(){_hlMode=!_hlMode;document.body.classList.toggle("hl-mode",_hlMode);var b=document.getElementById("hlModeBtn");if(b){b.textContent=_hlMode?"✏️ ON – click text to mark":"✏️ Highlight Mode";b.classList.toggle("active",_hlMode);}}' +
+      'function clearHighlights(){document.querySelectorAll(".hl-marked").forEach(function(el){el.classList.remove("hl-marked");el.style.removeProperty("background");});}' +
+      'function setColumns(n,btn){var c=document.getElementById("lbContent");if(c)c.classList.toggle("two-col",n===2);_dpActive(btn.parentElement,btn);}' +
+      'document.addEventListener("click",function(e){' +
+        'if(!_hlMode)return;' +
+        'if(e.target.closest(".print-controls,.design-panel"))return;' +
+        'var sels=[".song-item",".lit-item",".scripture-group",".lit-text",".lyr-line",".scripture-text"];' +
+        'var el=null;for(var i=0;i<sels.length;i++){el=e.target.closest(sels[i]);if(el)break;}' +
+        'if(!el)return;' +
+        'if(el.classList.contains("hl-marked")){el.classList.remove("hl-marked");el.style.removeProperty("background");}' +
+        'else{el.classList.add("hl-marked");el.style.background=_hlColor;}' +
+      '});' +
       '<\/script>';
 
     // 561 — Liturgist Notes modal HTML (lives inside the popup window)
@@ -35832,9 +35880,81 @@ var WO = (function() {
           '<span id="lbZoomLbl" class="zoom-label">100%</span>' +
           '<button class="zoom-btn" onclick="lbZoomIn()" title="Zoom in">+</button>' +
         '</div>' +
+        '<button class="design-btn" onclick="toggleDesignPanel()" title="Customise font, colour, layout">🎨 Design</button>' +
         '<button class="close-btn" onclick="window.close()">Close</button>' +
       '</div>' +
-      headerHtml;
+      /* ── Design panel ────────────────────────────────────────── */
+      '<div id="designPanel" class="design-panel">' +
+        /* Font family */
+        '<div class="dp-group">' +
+          '<div class="dp-label">Font Style</div>' +
+          '<div class="dp-chips">' +
+            '<button class="dp-chip active" onclick="setFont(\'Georgia,serif\',this)">Serif</button>' +
+            '<button class="dp-chip" onclick="setFont(\'Palatino,serif\',this)">Palatino</button>' +
+            '<button class="dp-chip" onclick="setFont(\'Garamond,serif\',this)">Garamond</button>' +
+            '<button class="dp-chip" onclick="setFont(\'Arial,Helvetica,sans-serif\',this)">Sans</button>' +
+            '<button class="dp-chip" onclick="setFont(\'Verdana,Geneva,sans-serif\',this)">Verdana</button>' +
+          '</div>' +
+        '</div>' +
+        /* Font size */
+        '<div class="dp-group">' +
+          '<div class="dp-label">Size</div>' +
+          '<div class="dp-chips">' +
+            '<button class="dp-chip" onclick="setFontSize(0.75,this)">S</button>' +
+            '<button class="dp-chip active" onclick="setFontSize(1,this)">M</button>' +
+            '<button class="dp-chip" onclick="setFontSize(1.25,this)">L</button>' +
+            '<button class="dp-chip" onclick="setFontSize(1.6,this)">XL</button>' +
+          '</div>' +
+        '</div>' +
+        /* Line spacing */
+        '<div class="dp-group">' +
+          '<div class="dp-label">Spacing</div>' +
+          '<div class="dp-chips">' +
+            '<button class="dp-chip" onclick="setSpacing(1.4,this)">Tight</button>' +
+            '<button class="dp-chip active" onclick="setSpacing(1.7,this)">Normal</button>' +
+            '<button class="dp-chip" onclick="setSpacing(2.1,this)">Relaxed</button>' +
+            '<button class="dp-chip" onclick="setSpacing(2.6,this)">Wide</button>' +
+          '</div>' +
+        '</div>' +
+        /* Text color */
+        '<div class="dp-group">' +
+          '<div class="dp-label">Text Color</div>' +
+          '<div class="dp-chips">' +
+            '<button class="dp-swatch active" style="background:#1e2d3d" onclick="setColor(\'#1e2d3d\',this)" title="Navy"></button>' +
+            '<button class="dp-swatch" style="background:#111111" onclick="setColor(\'#111111\',this)" title="Black"></button>' +
+            '<button class="dp-swatch" style="background:#374151" onclick="setColor(\'#374151\',this)" title="Slate"></button>' +
+            '<button class="dp-swatch" style="background:#5b3a1a" onclick="setColor(\'#5b3a1a\',this)" title="Brown"></button>' +
+            '<button class="dp-swatch" style="background:#1a4731" onclick="setColor(\'#1a4731\',this)" title="Forest"></button>' +
+            '<button class="dp-swatch" style="background:#4a1d4e" onclick="setColor(\'#4a1d4e\',this)" title="Purple"></button>' +
+            '<input type="color" class="dp-color-pick" value="#1e2d3d" oninput="setColorCustom(this.value)" title="Custom colour">' +
+          '</div>' +
+        '</div>' +
+        /* Highlight */
+        '<div class="dp-group">' +
+          '<div class="dp-label">Highlight</div>' +
+          '<div class="dp-chips">' +
+            '<button class="dp-swatch active" style="background:#fff9c4" onclick="setHlColor(\'#fff9c4\',this)" title="Yellow"></button>' +
+            '<button class="dp-swatch" style="background:#d1fae5" onclick="setHlColor(\'#d1fae5\',this)" title="Green"></button>' +
+            '<button class="dp-swatch" style="background:#dbeafe" onclick="setHlColor(\'#dbeafe\',this)" title="Blue"></button>' +
+            '<button class="dp-swatch" style="background:#fce7f3" onclick="setHlColor(\'#fce7f3\',this)" title="Pink"></button>' +
+            '<button class="dp-swatch" style="background:#fef3c7" onclick="setHlColor(\'#fef3c7\',this)" title="Amber"></button>' +
+          '</div>' +
+          '<div class="dp-chips" style="margin-top:6px">' +
+            '<button class="dp-chip" id="hlModeBtn" onclick="toggleHlMode()" style="cursor:pointer!important">✏️ Highlight Mode</button>' +
+            '<button class="dp-chip" onclick="clearHighlights()">Clear All</button>' +
+          '</div>' +
+        '</div>' +
+        /* Layout */
+        '<div class="dp-group">' +
+          '<div class="dp-label">Layout</div>' +
+          '<div class="dp-chips">' +
+            '<button class="dp-chip active" onclick="setColumns(1,this)">1 Column</button>' +
+            '<button class="dp-chip" onclick="setColumns(2,this)">2 Columns</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      headerHtml +
+      '<div id="lbContent">';
 
     // ── Helper: lyrics HTML with properly-aligned inline chords ─────────────
     // Chord lines are pre-rendered using buildInlineChordHtml so chord symbols
@@ -36070,7 +36190,7 @@ var WO = (function() {
         '<hr class="section-divider">';
     });
 
-    liturgyHtml += '</div></body></html>'; // close .page-wrap
+    liturgyHtml += '</div></div></body></html>'; // close #lbContent + .page-wrap
 
     var printWin = window.open('', '_blank');
     if (!printWin) { showToast('Allow pop-ups to open Liturgy Book', 'warning'); return; }
