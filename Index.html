@@ -2585,7 +2585,7 @@
       .wo-preview-fab {
         display: flex !important;
         position: fixed;
-        bottom: 18px;
+        bottom: calc(68px + env(safe-area-inset-bottom, 0px) + 12px); /* clear bottom nav */
         right: 14px;
         z-index: 9999;
         align-items: center;
@@ -2631,8 +2631,11 @@
 
     /* ===== WO — PHONES ≤ 480px (extra-compact) ===== */
     @media (max-width: 480px) {
-      /* Hide secondary action buttons — keep only Main Menu + Save */
-      .wo-save-as-btn, .wo-print-btn { display: none !important; }
+      /* All header buttons visible — secondary ones go icon-only to fit the scrollable bar */
+      .wo-save-as-btn, .wo-print-btn { display: inline-flex !important; }
+      .wo-btn-lbl-secondary { display: none !important; }    /* hide text, keep icon */
+      .wo-autosave-status { display: none !important; }      /* save status hidden (no room) */
+      .wo-control-btn { padding: 7px 10px; font-size: 0.72rem; }
       .wo-header-content h1 { font-size: 0.9rem; }
       .wo-current-order-info { display: none; }
       /* Mode buttons: icon + label only, no sub-label */
@@ -2641,8 +2644,13 @@
       /* Section badge narrower */
       .wo-section-badge-col { width: 72px; }
       .wo-section-title { font-size: 0.65rem; }
-      /* FAB: smaller on tiny screens */
-      .wo-preview-fab { padding: 10px 14px; font-size: 0.75rem; bottom: 14px; right: 10px; }
+      /* FAB: smaller + above bottom nav */
+      .wo-preview-fab {
+        padding: 10px 14px;
+        font-size: 0.75rem;
+        bottom: calc(68px + env(safe-area-inset-bottom, 0px) + 10px);
+        right: 10px;
+      }
     }
 
     /* ===== WO — TABLET PORTRAIT/LANDSCAPE (769–1024px) ===== */
@@ -4588,21 +4596,21 @@
 
               <div class="wo-order-selector">
                 <div class="wo-order-controls">
-                  <button class="wo-control-btn wo-back-to-menu-btn" onclick="WO.backToMainMenu()">
-                    <i class="fa-solid fa-arrow-left mr-2"></i> Main Menu
+                  <button class="wo-control-btn wo-back-to-menu-btn" onclick="WO.backToMainMenu()" title="Main Menu">
+                    <i class="fa-solid fa-arrow-left"></i><span class="wo-btn-lbl"> Menu</span>
                   </button>
-                  <button class="wo-control-btn wo-save-order-btn" onclick="WO.saveCurrentOrder()">
-                    <i class="fa-solid fa-floppy-disk mr-2"></i> Save Order
+                  <button class="wo-control-btn wo-save-order-btn" onclick="WO.saveCurrentOrder()" title="Save Order">
+                    <i class="fa-solid fa-floppy-disk"></i><span class="wo-btn-lbl"> Save</span>
                   </button>
-                  <span id="woAutoSaveStatus" style="font-size:0.72rem;color:#94a3b8;font-family:'Poppins',sans-serif;align-self:center;margin-left:2px;transition:color .3s;"></span>
-                  <button class="wo-control-btn wo-save-as-btn" onclick="WO.saveOrderAs()" title="Save as new order">
-                    <i class="fa-solid fa-copy mr-1"></i> Save As
+                  <span id="woAutoSaveStatus" class="wo-autosave-status" style="font-size:0.72rem;color:#94a3b8;font-family:'Poppins',sans-serif;align-self:center;margin-left:2px;transition:color .3s;"></span>
+                  <button class="wo-control-btn wo-save-as-btn" onclick="WO.saveOrderAs()" title="Save As">
+                    <i class="fa-solid fa-copy"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Save As</span>
                   </button>
-                  <button class="wo-control-btn wo-print-btn" onclick="WO.generateLiturgyBook()" title="Generate full liturgy with songs">
-                    <i class="fa-solid fa-book-bible mr-1"></i> Liturgy Book
+                  <button class="wo-control-btn wo-print-btn wo-liturgy-btn" onclick="WO.generateLiturgyBook()" title="Liturgy Book">
+                    <i class="fa-solid fa-book-bible"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Liturgy Book</span>
                   </button>
-                  <button class="wo-control-btn wo-print-btn" onclick="WO.openSongbook()" title="Open Worship Songbook">
-                    <i class="fa-solid fa-book-open mr-1"></i> Songbook
+                  <button class="wo-control-btn wo-print-btn" onclick="WO.openSongbook()" title="Songbook">
+                    <i class="fa-solid fa-book-open"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Songbook</span>
                   </button>
                 </div>
                 <div class="wo-order-title">Current Worship Order:</div>
@@ -19793,11 +19801,40 @@ var WO = (function() {
       _mobilePreviewOpen = false;
       if (fab)       { fab.style.display = 'flex'; _updateFabLabel(false); }
       if (toggleBtn) { toggleBtn.style.display = 'flex'; _updateToggleBtnLabel(false); }
+      // Set up swipe gestures on the main content area
+      _initSwipePreview();
     } else {
       panel.classList.remove('wo-preview-collapsed');
       if (fab)       fab.style.display = 'none';
       if (toggleBtn) toggleBtn.style.display = 'none';
     }
+  }
+
+  var _swipeTouchStartX = 0, _swipeTouchStartY = 0, _swipeActive = false;
+  function _initSwipePreview() {
+    var worshipOrder = document.querySelector('.wo-worship-order');
+    if (!worshipOrder || worshipOrder._swipeInited) return;
+    worshipOrder._swipeInited = true;
+    worshipOrder.addEventListener('touchstart', function(e) {
+      _swipeTouchStartX = e.touches[0].clientX;
+      _swipeTouchStartY = e.touches[0].clientY;
+      _swipeActive = true;
+    }, { passive: true });
+    worshipOrder.addEventListener('touchend', function(e) {
+      if (!_swipeActive) return;
+      _swipeActive = false;
+      var dx = e.changedTouches[0].clientX - _swipeTouchStartX;
+      var dy = e.changedTouches[0].clientY - _swipeTouchStartY;
+      // Only count horizontal swipes (horizontal > vertical motion)
+      if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+      if (dx < 0 && !_mobilePreviewOpen) {
+        // Swipe left → open preview
+        toggleMobilePreview();
+      } else if (dx > 0 && _mobilePreviewOpen) {
+        // Swipe right → close preview
+        toggleMobilePreview();
+      }
+    }, { passive: true });
   }
 
   function toggleMobilePreview() {
@@ -35934,7 +35971,7 @@ var WO = (function() {
           'document.getElementById("lbFbStrike").onclick=function(){_fmt("strikeThrough");};' +
           'document.getElementById("lbFbColor").onchange=function(e){_fmt("foreColor",e.target.value);};' +
           'document.getElementById("lbFbHl").onchange=function(e){_fmt("hiliteColor",e.target.value);};' +
-          'document.getElementById("lbFbBorder").onclick=function(){_fmtWrap("border:1.5px solid currentColor;padding:0 4px;border-radius:2px;");};' +
+          'document.getElementById("lbFbBorder").onclick=function(){_fmtBorderLine();};' +
           'document.getElementById("lbFbBox").onclick=function(){_fmtWrap("border:1.5px solid currentColor;padding:3px 10px;border-radius:5px;display:inline-block;");};' +
           'document.getElementById("lbFbClear").onclick=function(){_fmtClear();};' +
           'document.getElementById("lbFbClose").onclick=function(){_hideFB();};' +
@@ -36004,12 +36041,28 @@ var WO = (function() {
         'var s2=window.getSelection();if(s2&&s2.rangeCount&&!s2.isCollapsed)_lbSavedRange=s2.getRangeAt(0).cloneRange();' +
         '_autoSaveDesign();' +
       '}' +
-      /* Wrap selected HTML in a <span> (for border / box) — uses insertHTML execCommand */
+      /* Wrap selected HTML in a <span> (for box) — uses insertHTML execCommand */
       'function _fmtWrap(styleStr){' +
         '_restoreSel();' +
         'var sel=window.getSelection();if(!sel||sel.isCollapsed)return;' +
         'var div=document.createElement("div");div.appendChild(sel.getRangeAt(0).cloneContents());' +
         'document.execCommand("insertHTML",false,"<span style=\'"+styleStr+"\'>" + div.innerHTML + "<\/span>");' +
+        '_autoSaveDesign();' +
+      '}' +
+      /* Border — applies/removes a border box around the ENTIRE parent line containing the selection */
+      'function _fmtBorderLine(){' +
+        'if(!_restoreSel()){var s=window.getSelection();if(!s||s.isCollapsed)return;}' +
+        'var sel=window.getSelection();if(!sel||!sel.rangeCount)return;' +
+        'var node=sel.getRangeAt(0).commonAncestorContainer;' +
+        'if(node.nodeType===3)node=node.parentNode;' +
+        'var lineEl=null;' +
+        'var lineArr=[".lyr-line",".lyr-sec",".lit-text",".scripture-text"];' +
+        'for(var i=0;i<lineArr.length;i++){var f=node.closest?node.closest(lineArr[i]):null;if(f){lineEl=f;break;}}' +
+        'if(!lineEl){var ce=document.getElementById("lbContent");if(ce&&ce.contains(node))lineEl=node;}' +
+        'if(!lineEl)return;' +
+        'var hasBorder=lineEl.style.border&&lineEl.style.border!=="none"&&lineEl.style.border!=="";' +
+        'if(hasBorder){lineEl.style.removeProperty("border");lineEl.style.removeProperty("border-radius");lineEl.style.removeProperty("padding");}' +
+        'else{lineEl.style.border="1.5px solid currentColor";lineEl.style.borderRadius="3px";lineEl.style.padding="2px 8px 2px 6px";}' +
         '_autoSaveDesign();' +
       '}' +
       /* Remove all inline formatting from selection */
