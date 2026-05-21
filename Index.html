@@ -2557,29 +2557,48 @@
       .wo-main-content { flex-direction: column !important; }
       .wo-worship-order { max-width: 100% !important; width: 100% !important; padding: 10px !important; }
 
-      /* ── Preview panel: full-width below service order ── */
+      /* ── Preview panel: fixed full-screen overlay — slides in from the right ── */
       .wo-preview-panel {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
         width: 100% !important;
         min-width: 0 !important;
-        position: relative !important;
-        top: 0 !important;
-        max-height: none !important;
-        border-top: 1px solid #2d2d2d;
-        border-radius: 0 0 8px 8px;
-        padding: 12px;
+        max-height: 100vh !important;
+        overflow-y: auto !important;
+        padding: 12px !important;
+        border-top: none !important;
+        border-radius: 0 !important;
+        transform: translateX(100%);
+        transition: transform 0.32s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
+        z-index: 500 !important;
       }
+      /* Collapsed = translated off-screen; opening removes the class */
+      .wo-preview-panel.wo-preview-collapsed { transform: translateX(100%) !important; }
+      .wo-preview-panel:not(.wo-preview-collapsed) { transform: translateX(0) !important; }
       .wo-preview-header { flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
       .wo-preview-actions { flex-wrap: nowrap; overflow-x: auto; gap: 6px; -webkit-overflow-scrolling: touch; padding-bottom: 3px; }
       .wo-preview-actions::-webkit-scrollbar { display: none; }
       .wo-text-btn, .wo-bg-btn, .wo-golive-btn, .wo-live-present-btn { flex-shrink: 0; padding: 7px 11px; font-size: 0.78rem; }
-      .wo-preview-screen { min-height: 180px !important; padding: 20px; }
+      .wo-preview-screen { min-height: 200px !important; padding: 20px; }
       .wo-preview-hint { font-size: 0.62rem; margin-top: 8px; }
-
-      /* ── Preview collapsed state (mobile default) ── */
-      .wo-preview-panel.wo-preview-collapsed .wo-preview-screen,
-      .wo-preview-panel.wo-preview-collapsed .wo-preview-hint { display: none; }
-      /* Toggle button inside the preview header */
+      /* ← Back button visible inside the preview panel */
       .wo-preview-panel .wo-preview-toggle-btn { display: flex; }
+
+      /* ── Order list cards: compact & slim ── */
+      .wo-saved-order-item { padding: 10px 12px !important; gap: 8px !important; border-radius: 8px !important; margin-bottom: 7px !important; align-items: flex-start !important; }
+      .wo-saved-order-info { min-width: 0; }
+      .wo-saved-order-title { font-size: 0.875rem !important; line-height: 1.35; word-break: break-word; white-space: normal; }
+      .wo-saved-order-date { font-size: 0.72rem !important; margin-top: 1px; white-space: normal; }
+      .wo-saved-order-checkbox { flex-shrink: 0 !important; width: 16px !important; height: 16px !important; margin-top: 3px; }
+      .wo-saved-order-actions { flex-shrink: 0; gap: 4px !important; }
+      .wo-saved-order-btn { padding: 5px 8px !important; font-size: 0.7rem !important; }
+
+      /* ── Song banner: let long titles wrap rather than overflow ── */
+      .wo-song-banner { flex-wrap: wrap; gap: 6px; }
+      .wo-song-banner-info { word-break: break-word; overflow-wrap: break-word; font-size: 0.8rem; }
+      .wo-song-banner-actions { flex-shrink: 0; }
 
       /* ── Mobile preview toggle FAB ── */
       .wo-preview-fab {
@@ -19828,10 +19847,34 @@ var WO = (function() {
       // Only count horizontal swipes (horizontal > vertical motion)
       if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
       if (dx < 0 && !_mobilePreviewOpen) {
-        // Swipe left → open preview
+        // Swipe left → open preview overlay
         toggleMobilePreview();
       } else if (dx > 0 && _mobilePreviewOpen) {
-        // Swipe right → close preview
+        // Swipe right → close preview overlay
+        toggleMobilePreview();
+      }
+    }, { passive: true });
+  }
+
+  /* Swipe-right from INSIDE the preview overlay to close it */
+  var _previewSwipeStartX = 0, _previewSwipeStartY = 0, _previewSwipeActive = false;
+  function _initSwipeOnPreviewPanel() {
+    var panel = document.getElementById('woPreviewPanel');
+    if (!panel || panel._previewSwipeInited) return;
+    panel._previewSwipeInited = true;
+    panel.addEventListener('touchstart', function(e) {
+      _previewSwipeStartX = e.touches[0].clientX;
+      _previewSwipeStartY = e.touches[0].clientY;
+      _previewSwipeActive = true;
+    }, { passive: true });
+    panel.addEventListener('touchend', function(e) {
+      if (!_previewSwipeActive) return;
+      _previewSwipeActive = false;
+      var dx = e.changedTouches[0].clientX - _previewSwipeStartX;
+      var dy = e.changedTouches[0].clientY - _previewSwipeStartY;
+      // Swipe right from the left edge (first 60px) to close the panel
+      if (_previewSwipeStartX > 60) return;
+      if (dx > 50 && Math.abs(dx) > Math.abs(dy) * 1.3 && _mobilePreviewOpen) {
         toggleMobilePreview();
       }
     }, { passive: true });
@@ -19843,10 +19886,9 @@ var WO = (function() {
     _mobilePreviewOpen = !_mobilePreviewOpen;
     if (_mobilePreviewOpen) {
       panel.classList.remove('wo-preview-collapsed');
-      // Smooth scroll to the panel so user sees it
-      setTimeout(function() {
-        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 50);
+      // On mobile the panel is a fixed overlay — CSS transition slides it in; no scrollIntoView needed
+      // Also initialise swipe-to-close on the preview panel itself
+      _initSwipeOnPreviewPanel();
     } else {
       panel.classList.add('wo-preview-collapsed');
     }
@@ -20951,9 +20993,27 @@ var WO = (function() {
       document.querySelector('.wo-main-content').classList.remove('wo-song-order');
       $('woPreviewPanel').style.display = 'block';
       initializeServiceOrder();
+      // Start preview blank — auto-selections during init should not project content
+      setTimeout(_clearPreviewToBlank, 0);
       // On mobile, start with the preview panel collapsed and show the FAB
       initMobilePreview();
     }
+  }
+
+  /* Reset the projection preview to the empty placeholder state (called after order loads) */
+  function _clearPreviewToBlank() {
+    // Deselect all slide boxes
+    document.querySelectorAll('.wo-slide-box.selected, .wo-liturgy-box.selected').forEach(function(b) {
+      b.classList.remove('selected');
+    });
+    selectedSlideBox = null;
+    currentSlideIndex = -1;
+    // Remove projecting badge
+    document.querySelectorAll('.wo-section-badge.projecting').forEach(function(b) {
+      b.classList.remove('projecting');
+    });
+    // Reset preview screen to placeholder
+    updateProjectionPreview('', false);
   }
 
   function initializeSongOrder() {
@@ -49306,6 +49366,7 @@ function filterLiturgyItems() {
     display: flex;
     align-items: center;
     flex: 1;
+    min-width: 0; /* prevent flex overflow — lets title wrap */
   }
   .wo-song-banner-actions {
     display: flex;
