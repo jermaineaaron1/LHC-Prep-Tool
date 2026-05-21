@@ -35905,7 +35905,7 @@ var WO = (function() {
           'document.getElementById("lbFbColor").onchange=function(e){_fmt("foreColor",e.target.value);};' +
           'document.getElementById("lbFbHl").onchange=function(e){_fmt("hiliteColor",e.target.value);};' +
           'document.getElementById("lbFbBorder").onclick=function(){_fmtBorderLine();};' +
-          'document.getElementById("lbFbBox").onclick=function(){_fmtWrap("border:1.5px solid currentColor;padding:3px 10px;border-radius:5px;display:inline-block;");};' +
+          'document.getElementById("lbFbBox").onclick=function(){_fmtBoxToggle();};' +
           'document.getElementById("lbFbClear").onclick=function(){_fmtClear();};' +
           'document.getElementById("lbFbClose").onclick=function(){_hideFB();};' +
         '}' +
@@ -35957,6 +35957,7 @@ var WO = (function() {
         'var s2=window.getSelection();if(s2&&s2.rangeCount&&!s2.isCollapsed)_lbSavedRange=s2.getRangeAt(0).cloneRange();' +
         '_autoSaveDesign();' +
       '}' +
+      /* Wrap selected HTML in a <span> (for box) — uses insertHTML execCommand */
       'function _fmtWrap(styleStr){' +
         '_restoreSel();' +
         'var sel=window.getSelection();if(!sel||sel.isCollapsed)return;' +
@@ -35964,7 +35965,30 @@ var WO = (function() {
         'document.execCommand("insertHTML",false,"<span style=\'"+styleStr+"\'>" + div.innerHTML + "<\/span>");' +
         '_autoSaveDesign();' +
       '}' +
-      /* Border — applies/removes a border box around the ENTIRE parent line containing the selection */
+      /* Box — toggles a box border around the selected text; clicking again unwraps it */
+      'function _fmtBoxToggle(){' +
+        '_restoreSel();' +
+        'var sel=window.getSelection();if(!sel||!sel.rangeCount)return;' +
+        'var node=sel.getRangeAt(0).commonAncestorContainer;' +
+        'if(node.nodeType===3)node=node.parentNode;' +
+        /* Walk up to find an existing box span inside lbContent */
+        'var boxEl=null;var p=node;' +
+        'while(p&&p.id!=="lbContent"&&p.tagName!=="BODY"){' +
+          'if(p.tagName==="SPAN"&&p.style&&p.style.border&&p.style.border!=="none"&&p.style.border!==""){boxEl=p;break;}' +
+          'p=p.parentNode;' +
+        '}' +
+        'if(boxEl){' +
+          /* Unwrap: hoist children out of the box span */
+          'var frag=document.createDocumentFragment();' +
+          'while(boxEl.firstChild)frag.appendChild(boxEl.firstChild);' +
+          'boxEl.parentNode.replaceChild(frag,boxEl);' +
+        '}else{' +
+          'var div=document.createElement("div");div.appendChild(sel.getRangeAt(0).cloneContents());' +
+          'document.execCommand("insertHTML",false,"<span style=\'border:1.5px solid currentColor;padding:3px 10px;border-radius:5px;display:inline-block;\'>" + div.innerHTML + "<\/span>");' +
+        '}' +
+        '_autoSaveDesign();' +
+      '}' +
+      /* Border — draws/removes a full-width underline beneath the entire parent line element */
       'function _fmtBorderLine(){' +
         'if(!_restoreSel()){var s=window.getSelection();if(!s||s.isCollapsed)return;}' +
         'var sel=window.getSelection();if(!sel||!sel.rangeCount)return;' +
@@ -35975,9 +35999,9 @@ var WO = (function() {
         'for(var i=0;i<lineArr.length;i++){var f=node.closest?node.closest(lineArr[i]):null;if(f){lineEl=f;break;}}' +
         'if(!lineEl){var ce=document.getElementById("lbContent");if(ce&&ce.contains(node))lineEl=node;}' +
         'if(!lineEl)return;' +
-        'var hasBorder=lineEl.style.border&&lineEl.style.border!=="none"&&lineEl.style.border!=="";' +
-        'if(hasBorder){lineEl.style.removeProperty("border");lineEl.style.removeProperty("border-radius");lineEl.style.removeProperty("padding");}' +
-        'else{lineEl.style.border="1.5px solid currentColor";lineEl.style.borderRadius="3px";lineEl.style.padding="2px 8px 2px 6px";}' +
+        'var hasUnderline=lineEl.style.borderBottom&&lineEl.style.borderBottom!=="none"&&lineEl.style.borderBottom!=="";' +
+        'if(hasUnderline){lineEl.style.removeProperty("border-bottom");lineEl.style.removeProperty("padding-bottom");}' +
+        'else{lineEl.style.borderBottom="2.5px solid currentColor";lineEl.style.paddingBottom="3px";}' +
         '_autoSaveDesign();' +
       '}' +
       'function _fmtClear(){' +
