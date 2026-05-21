@@ -35733,9 +35733,9 @@ var WO = (function() {
     // ── CSS ─────────────────────────────────────────────────────────────────
     var css = [
       '@page{margin:2cm 2.5cm;}',
-      /* 561 — base font set via JS-controlled CSS var; design vars added for font/spacing/color customisation */
-      ':root{--lb-scale:1;--lb-ff:Georgia,"Times New Roman",serif;--lb-lh:1.7;--lb-ink:#1e2d3d;}',
-      'body{font-family:var(--lb-ff);font-size:calc(13pt * var(--lb-scale));padding:0;margin:0;color:var(--lb-ink);line-height:var(--lb-lh);background:#fff;}',
+      /* 561 — design vars: --lb-fs (pt), --lb-ff (font family), --lb-lh (line-height), --lb-ink (text color) */
+      ':root{--lb-fs:13pt;--lb-ff:Georgia,"Times New Roman",serif;--lb-lh:1.7;--lb-ink:#1e2d3d;}',
+      'body{font-family:var(--lb-ff);font-size:var(--lb-fs);padding:0;margin:0;color:var(--lb-ink);line-height:var(--lb-lh);background:#fff;}',
       /* cascade ink color to body-text elements that set it explicitly */
       '.lit-text,.lyr-line,.scripture-text,.song-lyrics{color:var(--lb-ink);}',
       '.page-wrap{width:100%;box-sizing:border-box;padding:20px 16px 40px;}',
@@ -35857,56 +35857,101 @@ var WO = (function() {
         (occasion ? '<div class="doc-meta-occasion">' + escapeHtml(occasion) + '</div>' : '') +
       '</div>';
 
-    // 561 — JS embedded in popup: zoom control + Liturgist Notes modal logic
+    // 561 — JS embedded in popup: zoom control + Liturgist Notes modal + design panel
+    var lbDesignJson = JSON.stringify((currentOrderData && currentOrderData.liturgyBookDesign) || {});
     var popupJs = '<script>' +
-      'var _lbScale = 1;' +
-      'function _applyScale(s){' +
-        '_lbScale = Math.max(0.5, Math.min(5, Math.round(s*10)/10));' +
-        'document.documentElement.style.setProperty("--lb-scale", _lbScale);' +
-        'var el = document.getElementById("lbZoomLbl");' +
-        'if(el) el.textContent = Math.round(_lbScale*100)+"%";' +
+      /* Saved design injected from Supabase order data */
+      'var _savedDesign=' + lbDesignJson + ';' +
+      /* pt-based font size stepping */
+      'var _lbPtSizes=[8,9,10,11,12,13,14,16,18,20,24];' +
+      'var _lbCurPt=13;' +
+      'function _applyFontSize(pt){' +
+        '_lbCurPt=pt;' +
+        'document.documentElement.style.setProperty("--lb-fs",pt+"pt");' +
+        'var el=document.getElementById("lbZoomLbl");if(el)el.textContent=pt+"pt";' +
       '}' +
-      'function lbZoomIn(){_applyScale(_lbScale+0.25);}' +
-      'function lbZoomOut(){_applyScale(_lbScale-0.25);}' +
+      'function _lbNearestIdx(pt){var best=0,bd=999;_lbPtSizes.forEach(function(p,i){var d=Math.abs(p-pt);if(d<bd){bd=d;best=i;}});return best;}' +
+      'function lbZoomIn(){var i=_lbNearestIdx(_lbCurPt);if(i<_lbPtSizes.length-1)_applyFontSize(_lbPtSizes[i+1]);}' +
+      'function lbZoomOut(){var i=_lbNearestIdx(_lbCurPt);if(i>0)_applyFontSize(_lbPtSizes[i-1]);}' +
+      /* Liturgist Notes modal */
       'function openLitNotes(btn){' +
         'var song=btn.getAttribute("data-song");' +
         'var notes=btn.getAttribute("data-notes");' +
         'var m=document.getElementById("lnModal");' +
         'var t=document.getElementById("lnModalSong");' +
         'var b=document.getElementById("lnModalBody");' +
-        'if(t) t.textContent=song;' +
-        'if(b) b.textContent=notes;' +
+        'if(t)t.textContent=song;' +
+        'if(b)b.textContent=notes;' +
         'if(m){m.classList.add("open");m.onclick=function(e){if(e.target===m)closeLitNotes();}}' +
       '}' +
-      'function closeLitNotes(){' +
-        'var m=document.getElementById("lnModal");' +
-        'if(m) m.classList.remove("open");' +
-      '}' +
+      'function closeLitNotes(){var m=document.getElementById("lnModal");if(m)m.classList.remove("open");}' +
+      /* DOMContentLoaded: assign stable IDs + restore saved design */
       'window.addEventListener("DOMContentLoaded",function(){' +
-        '_applyScale(_lbScale);' +
+        /* Assign data-lbid to every highlightable line element */
+        'var _i=0;' +
+        'document.querySelectorAll(".lyr-line,.lyr-sec,.lit-text,.scripture-text").forEach(function(el){' +
+          'el.setAttribute("data-lbid","lb"+(_i++));' +
+        '});' +
+        /* Restore document-level design */
+        'if(_savedDesign.font)document.documentElement.style.setProperty("--lb-ff",_savedDesign.font);' +
+        'if(_savedDesign.fontSize){_lbCurPt=parseInt(_savedDesign.fontSize)||13;_applyFontSize(_lbCurPt);}' +
+        'else{_applyFontSize(13);}' +
+        'if(_savedDesign.spacing)document.documentElement.style.setProperty("--lb-lh",_savedDesign.spacing);' +
+        'if(_savedDesign.textColor)document.documentElement.style.setProperty("--lb-ink",_savedDesign.textColor);' +
+        'if(_savedDesign.highlightColor)_hlColor=_savedDesign.highlightColor;' +
+        /* Restore per-line highlights */
+        'if(_savedDesign.highlights&&_savedDesign.highlights.length){' +
+          '_savedDesign.highlights.forEach(function(h){' +
+            'var el=document.querySelector(\'[data-lbid="\'+h.id+\'"]\');' +
+            'if(el){el.classList.add("hl-marked");el.style.background=h.bg;}' +
+          '});' +
+        '}' +
       '});' +
-      /* ── Design panel ─────────────────────────────────────── */
+      /* ── Design panel ────────────────────────────────────── */
       'function toggleDesignPanel(){var p=document.getElementById("designPanel");p.classList.toggle("open");}' +
       'function _dpActive(parent,btn){Array.from(parent.querySelectorAll(".dp-chip,.dp-swatch")).forEach(function(b){b.classList.remove("active");});if(btn)btn.classList.add("active");}' +
-      'function setFont(ff,btn){document.documentElement.style.setProperty("--lb-ff",ff);_dpActive(btn.parentElement,btn);}' +
-      'function setSpacing(lh,btn){document.documentElement.style.setProperty("--lb-lh",lh);_dpActive(btn.parentElement,btn);}' +
-      'function setFontSize(s,btn){_applyScale(s);_dpActive(btn.parentElement,btn);}' +
-      'function setColor(c,btn){document.documentElement.style.setProperty("--lb-ink",c);_dpActive(btn.parentElement,btn);}' +
-      'function setColorCustom(c){document.documentElement.style.setProperty("--lb-ink",c);}' +
+      /* Collect current design state for saving */
+      'function _collectDesign(){' +
+        'var hls=[];' +
+        'document.querySelectorAll(".hl-marked[data-lbid]").forEach(function(el){' +
+          'hls.push({id:el.getAttribute("data-lbid"),bg:el.style.background});' +
+        '});' +
+        'var rs=document.documentElement.style;' +
+        'return{' +
+          'font:rs.getPropertyValue("--lb-ff")||"",' +
+          'fontSize:rs.getPropertyValue("--lb-fs")||"13pt",' +
+          'spacing:rs.getPropertyValue("--lb-lh")||"",' +
+          'textColor:rs.getPropertyValue("--lb-ink")||"",' +
+          'highlights:hls,highlightColor:_hlColor' +
+        '};' +
+      '}' +
+      /* Send design back to main window → Supabase save */
+      'function _autoSaveDesign(){' +
+        'try{if(window.opener&&window.opener.WO&&window.opener.WO.saveLiturgyBookDesign)' +
+          'window.opener.WO.saveLiturgyBookDesign(_collectDesign());' +
+        '}catch(e){}' +
+      '}' +
+      'function setFont(ff,btn){document.documentElement.style.setProperty("--lb-ff",ff);_dpActive(btn.parentElement,btn);_autoSaveDesign();}' +
+      'function setSpacing(lh,btn){document.documentElement.style.setProperty("--lb-lh",lh);_dpActive(btn.parentElement,btn);_autoSaveDesign();}' +
+      'function setFontSize(pt,btn){_applyFontSize(parseInt(pt));_dpActive(btn.parentElement,btn);_autoSaveDesign();}' +
+      'function setColor(c,btn){document.documentElement.style.setProperty("--lb-ink",c);_dpActive(btn.parentElement,btn);_autoSaveDesign();}' +
+      'function setColorCustom(c){document.documentElement.style.setProperty("--lb-ink",c);_autoSaveDesign();}' +
       'var _hlColor="#fff9c4";' +
       'var _hlMode=false;' +
-      'function setHlColor(c,btn){_hlColor=c;_dpActive(btn.parentElement,btn);}' +
-      'function toggleHlMode(){_hlMode=!_hlMode;document.body.classList.toggle("hl-mode",_hlMode);var b=document.getElementById("hlModeBtn");if(b){b.textContent=_hlMode?"✏️ ON – click text to mark":"✏️ Highlight Mode";b.classList.toggle("active",_hlMode);}}' +
-      'function clearHighlights(){document.querySelectorAll(".hl-marked").forEach(function(el){el.classList.remove("hl-marked");el.style.removeProperty("background");});}' +
+      'function setHlColor(c,btn){_hlColor=c;_dpActive(btn.parentElement,btn);_autoSaveDesign();}' +
+      'function toggleHlMode(){_hlMode=!_hlMode;document.body.classList.toggle("hl-mode",_hlMode);var b=document.getElementById("hlModeBtn");if(b){b.textContent=_hlMode?"✏️ ON – click line to mark":"✏️ Highlight Mode";b.classList.toggle("active",_hlMode);}}' +
+      'function clearHighlights(){document.querySelectorAll(".hl-marked").forEach(function(el){el.classList.remove("hl-marked");el.style.removeProperty("background");});_autoSaveDesign();}' +
       'function setColumns(n,btn){var c=document.getElementById("lbContent");if(c)c.classList.toggle("two-col",n===2);_dpActive(btn.parentElement,btn);}' +
+      /* Click-to-highlight: targets individual lines, not whole blocks */
       'document.addEventListener("click",function(e){' +
         'if(!_hlMode)return;' +
         'if(e.target.closest(".print-controls,.design-panel"))return;' +
-        'var sels=[".song-item",".lit-item",".scripture-group",".lit-text",".lyr-line",".scripture-text"];' +
+        'var sels=[".lyr-line",".lyr-sec",".lit-text",".scripture-text"];' +
         'var el=null;for(var i=0;i<sels.length;i++){el=e.target.closest(sels[i]);if(el)break;}' +
         'if(!el)return;' +
         'if(el.classList.contains("hl-marked")){el.classList.remove("hl-marked");el.style.removeProperty("background");}' +
         'else{el.classList.add("hl-marked");el.style.background=_hlColor;}' +
+        '_autoSaveDesign();' +
       '});' +
       '<\/script>';
 
@@ -35937,7 +35982,7 @@ var WO = (function() {
         // 561 — adjustable zoom control
         '<div class="zoom-group">' +
           '<button class="zoom-btn" onclick="lbZoomOut()" title="Zoom out">&minus;</button>' +
-          '<span id="lbZoomLbl" class="zoom-label">100%</span>' +
+          '<span id="lbZoomLbl" class="zoom-label">13pt</span>' +
           '<button class="zoom-btn" onclick="lbZoomIn()" title="Zoom in">+</button>' +
         '</div>' +
         '<button class="design-btn" onclick="toggleDesignPanel()" title="Customise font, colour, layout">🎨 Design</button>' +
@@ -35956,14 +36001,18 @@ var WO = (function() {
             '<button class="dp-chip" onclick="setFont(\'Verdana,Geneva,sans-serif\',this)">Verdana</button>' +
           '</div>' +
         '</div>' +
-        /* Font size */
+        /* Font size — pt values */
         '<div class="dp-group">' +
-          '<div class="dp-label">Size</div>' +
+          '<div class="dp-label">Size (pt)</div>' +
           '<div class="dp-chips">' +
-            '<button class="dp-chip" onclick="setFontSize(0.75,this)">S</button>' +
-            '<button class="dp-chip active" onclick="setFontSize(1,this)">M</button>' +
-            '<button class="dp-chip" onclick="setFontSize(1.25,this)">L</button>' +
-            '<button class="dp-chip" onclick="setFontSize(1.6,this)">XL</button>' +
+            '<button class="dp-chip" onclick="setFontSize(9,this)">9</button>' +
+            '<button class="dp-chip" onclick="setFontSize(10,this)">10</button>' +
+            '<button class="dp-chip" onclick="setFontSize(11,this)">11</button>' +
+            '<button class="dp-chip" onclick="setFontSize(12,this)">12</button>' +
+            '<button class="dp-chip active" onclick="setFontSize(13,this)">13</button>' +
+            '<button class="dp-chip" onclick="setFontSize(14,this)">14</button>' +
+            '<button class="dp-chip" onclick="setFontSize(16,this)">16</button>' +
+            '<button class="dp-chip" onclick="setFontSize(18,this)">18</button>' +
           '</div>' +
         '</div>' +
         /* Line spacing */
@@ -36257,6 +36306,15 @@ var WO = (function() {
     printWin.document.write(liturgyHtml);
     printWin.document.close();
     printWin.focus();
+  }
+
+  // Called from the Liturgy Book popup window when the user changes any design setting.
+  // Saves the design (font, size, spacing, color, per-line highlights) to the order
+  // in Supabase so it is restored the next time the book is opened.
+  function saveLiturgyBookDesign(designData) {
+    if (!currentOrderData) return;
+    currentOrderData.liturgyBookDesign = designData;
+    autoSaveOrder();
   }
 
   function printSingleSong(songId) {
@@ -42581,6 +42639,7 @@ var WO = (function() {
     songbookSetContent: songbookSetContent,
     printSongbook: printSongbook,
     generateLiturgyBook: generateLiturgyBook,
+    saveLiturgyBookDesign: saveLiturgyBookDesign,
     printSingleSong: printSingleSong,
     // Service order slide navigation
     selectSlideBox: selectSlideBox,
