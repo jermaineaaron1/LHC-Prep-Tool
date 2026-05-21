@@ -21946,8 +21946,10 @@ var WO = (function() {
         '<i class="fa-solid fa-grip-vertical"></i>' +
       '</div>';
 
+      /* Double-click a YouTube (or any URL) card to open/play it */
       return '<div class="wo-lc-card ' + cls + '" draggable="true" ' +
         'data-inbox-idx="' + idx + '" data-item-type="' + type + '" ' +
+        (item.url ? 'ondblclick="event.preventDefault();WO._inboxDblClick(\'' + escapeHtml(item.url) + '\')" title="Double-click to open / play" ' : '') +
         'ondragstart="WO._inboxDragStart(event,' + idx + ')" ondragend="WO._inboxDragEnd(event)">' +
         dragHandle +
         thumbHtml +
@@ -23653,7 +23655,8 @@ var WO = (function() {
             '<i class="fa-solid fa-grip-lines"></i>' +
           '</div>' +
           '<span class="wo-slr-num">' + displayIdx + '</span>' +
-          '<div class="wo-slr-info">' +
+          /* Double-click title → jump straight to that song in the Songbook */
+          '<div class="wo-slr-info" ondblclick="event.preventDefault();event.stopPropagation();WO.soOpenInSongbook(\'' + escapedSongId + '\')" title="Double-click to open in Songbook">' +
             '<span class="wo-slr-title">' + escapeHtml(songSection.title) + linkedBadge + '</span>' +
             '<span class="wo-slr-artist">by ' + escapeHtml(songSection.artist || 'Unknown') + '</span>' +
           '</div>' +
@@ -40389,6 +40392,18 @@ var WO = (function() {
   }
 
   // ── 488: Inline expand panel for song order rows ─────────────────────────
+  // Double-click a song title in the Song Order → open Songbook and jump to that song
+  function soOpenInSongbook(songId) {
+    openSongbook();
+    // Short delay so the modal is visible before we scroll
+    setTimeout(function() { sbScrollToSong(songId); }, 220);
+  }
+
+  // Double-click a Media & Links card → open the URL in a new tab
+  function _inboxDblClick(url) {
+    if (url) window.open(url, '_blank', 'noopener');
+  }
+
   function soToggleExpand(rowId) {
     var panel = $('soExpand-' + rowId);
     if (!panel) return;
@@ -42825,6 +42840,8 @@ var WO = (function() {
     slmRemoveDoc: slmRemoveDoc,
     printSingleSongSongbookStyle: printSingleSongSongbookStyle,
     soToggleExpand: soToggleExpand,
+    soOpenInSongbook: soOpenInSongbook,
+    _inboxDblClick: _inboxDblClick,
     soAddMedia: soAddMedia,
     soRemoveCustomVideo: soRemoveCustomVideo,
     soRemoveCustomDoc: soRemoveCustomDoc,
