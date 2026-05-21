@@ -35768,6 +35768,17 @@ var WO = (function() {
       '.dp-swatch:hover{transform:scale(1.18);}',
       '.dp-swatch.active{border-color:#7c3aed;box-shadow:0 0 0 2px #ede9fe;}',
       '.dp-color-pick{width:26px;height:26px;padding:0;border:1.5px solid #c4b5fd;border-radius:4px;cursor:pointer;background:none;vertical-align:middle;}',
+      /* Floating Word-style selection toolbar */
+      '#lbFloatBar{display:none;position:fixed;z-index:10000;background:#1e3a5f;border-radius:9px;padding:6px 10px;box-shadow:0 6px 24px rgba(0,0,0,0.45);flex-direction:row;align-items:center;gap:5px;flex-wrap:wrap;max-width:600px;pointer-events:auto;}',
+      '#lbFloatBar.open{display:flex;}',
+      '.lb-fb-lbl{font-size:.6em;color:rgba(255,255,255,.72);text-transform:uppercase;letter-spacing:.07em;font-family:Georgia,serif;white-space:nowrap;}',
+      '.lb-fb-sep{width:1px;height:18px;background:rgba(255,255,255,.22);flex-shrink:0;}',
+      '.lb-fb-btn{background:rgba(255,255,255,.13);color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:.82em;cursor:pointer;font-family:Georgia,serif;line-height:1.4;transition:background .12s;}',
+      '.lb-fb-btn:hover{background:rgba(255,255,255,.28);}',
+      '.lb-fb-sel{background:rgba(255,255,255,.13);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:4px;font-size:.78em;cursor:pointer;font-family:Georgia,serif;padding:2px 5px;max-width:90px;}',
+      '.lb-fb-sel option{color:#111;background:#fff;}',
+      '.lb-fb-col{width:22px;height:22px;padding:0;border:1.5px solid rgba(255,255,255,.35);border-radius:4px;cursor:pointer;background:none;flex-shrink:0;}',
+      '.lb-fb-close{background:rgba(255,255,255,.08)!important;color:rgba(255,255,255,.65)!important;font-size:1em!important;padding:2px 7px!important;}',
       /* Highlight mode cursor */
       'body.hl-mode{cursor:crosshair;}',
       'body.hl-mode .print-controls,body.hl-mode .design-panel,body.hl-mode .print-controls *,body.hl-mode .design-panel *{cursor:default!important;}',
@@ -35841,6 +35852,7 @@ var WO = (function() {
       '@media print{',
       '.print-controls{display:none!important;}',
       '.design-panel{display:none!important;}',
+      '#lbFloatBar{display:none!important;}',
       '#lnModal{display:none!important;}',
       'body,.page-wrap{background:#fff;}',
       '.page-wrap{padding:0;}',
@@ -35860,7 +35872,7 @@ var WO = (function() {
         (occasion ? '<div class="doc-meta-occasion">' + escapeHtml(occasion) + '</div>' : '') +
       '</div>';
 
-    // 561 — JS embedded in popup: zoom control + Liturgist Notes modal + design panel
+    // 561 — JS embedded in popup: zoom control + Liturgist Notes modal + design panel + floating selection toolbar
     var lbDesignJson = JSON.stringify((currentOrderData && currentOrderData.liturgyBookDesign) || {});
     var popupJs = '<script>' +
       /* Saved design injected from Supabase order data */
@@ -35868,6 +35880,8 @@ var WO = (function() {
       /* pt-based font size stepping */
       'var _lbPtSizes=[8,9,10,11,12,13,14,16,18,20,24];' +
       'var _lbCurPt=13;' +
+      /* Floating toolbar state */
+      'var _lbFB=null;var _lbSavedRange=null;' +
       'function _applyFontSize(pt){' +
         '_lbCurPt=pt;' +
         'document.documentElement.style.setProperty("--lb-fs",pt+"pt");' +
@@ -35888,7 +35902,7 @@ var WO = (function() {
         'if(m){m.classList.add("open");m.onclick=function(e){if(e.target===m)closeLitNotes();}}' +
       '}' +
       'function closeLitNotes(){var m=document.getElementById("lnModal");if(m)m.classList.remove("open");}' +
-      /* DOMContentLoaded: assign stable IDs + restore saved design */
+      /* DOMContentLoaded: assign stable IDs + restore saved design + wire floating toolbar */
       'window.addEventListener("DOMContentLoaded",function(){' +
         /* Assign data-lbid to every highlightable line element */
         'var _i=0;' +
@@ -35902,22 +35916,44 @@ var WO = (function() {
         'if(_savedDesign.spacing)document.documentElement.style.setProperty("--lb-lh",_savedDesign.spacing);' +
         'if(_savedDesign.textColor)document.documentElement.style.setProperty("--lb-ink",_savedDesign.textColor);' +
         'if(_savedDesign.highlightColor)_hlColor=_savedDesign.highlightColor;' +
-        /* Restore per-line highlights */
-        'if(_savedDesign.highlights&&_savedDesign.highlights.length){' +
+        /* Restore per-line rich formatting (modifiedLines) or fall back to legacy highlights */
+        'if(_savedDesign.modifiedLines&&_savedDesign.modifiedLines.length){' +
+          '_savedDesign.modifiedLines.forEach(function(m){' +
+            'var el=document.querySelector(\'[data-lbid="\'+m.id+\'"]\');' +
+            'if(!el)return;' +
+            'if(m.html!=null)el.innerHTML=m.html;' +
+            'if(m.bg){el.classList.add("hl-marked");el.style.background=m.bg;}' +
+          '});' +
+        '}else if(_savedDesign.highlights&&_savedDesign.highlights.length){' +
           '_savedDesign.highlights.forEach(function(h){' +
             'var el=document.querySelector(\'[data-lbid="\'+h.id+\'"]\');' +
             'if(el){el.classList.add("hl-marked");el.style.background=h.bg;}' +
           '});' +
         '}' +
+        /* Wire up floating toolbar controls */
+        '_lbFB=document.getElementById("lbFloatBar");' +
+        'if(_lbFB){' +
+          '_lbFB.addEventListener("mousedown",function(e){e.preventDefault();});' +
+          'document.getElementById("lbFbFont").onchange=function(e){_applyFmt("fontFamily",e.target.value);};' +
+          'document.getElementById("lbFbSize").onchange=function(e){_applyFmt("fontSize",e.target.value);};' +
+          'document.getElementById("lbFbBold").onclick=function(){_applyFmt("fontWeight","bold");};' +
+          'document.getElementById("lbFbItalic").onclick=function(){_applyFmt("fontStyle","italic");};' +
+          'document.getElementById("lbFbColor").oninput=function(e){_applyFmt("color",e.target.value);};' +
+          'document.getElementById("lbFbHl").oninput=function(e){_applyFmt("backgroundColor",e.target.value);};' +
+          'document.getElementById("lbFbClear").onclick=function(){_clearFmt();};' +
+          'document.getElementById("lbFbClose").onclick=function(){_hideFB();};' +
+        '}' +
       '});' +
       /* ── Design panel ────────────────────────────────────── */
       'function toggleDesignPanel(){var p=document.getElementById("designPanel");p.classList.toggle("open");}' +
       'function _dpActive(parent,btn){Array.from(parent.querySelectorAll(".dp-chip,.dp-swatch")).forEach(function(b){b.classList.remove("active");});if(btn)btn.classList.add("active");}' +
-      /* Collect current design state for saving */
+      /* Collect current design state for saving — stores modifiedLines with innerHTML for rich per-span formatting */
       'function _collectDesign(){' +
-        'var hls=[];' +
-        'document.querySelectorAll(".hl-marked[data-lbid]").forEach(function(el){' +
-          'hls.push({id:el.getAttribute("data-lbid"),bg:el.style.background});' +
+        'var modLines=[];' +
+        'document.querySelectorAll("[data-lbid]").forEach(function(el){' +
+          'var hasSpan=el.querySelector("span[style]");' +
+          'var hasBg=el.classList.contains("hl-marked")||!!el.style.background;' +
+          'if(hasSpan||hasBg){modLines.push({id:el.getAttribute("data-lbid"),html:el.innerHTML,bg:el.style.background||""});}' +
         '});' +
         'var rs=document.documentElement.style;' +
         'return{' +
@@ -35925,7 +35961,8 @@ var WO = (function() {
           'fontSize:rs.getPropertyValue("--lb-fs")||"13pt",' +
           'spacing:rs.getPropertyValue("--lb-lh")||"",' +
           'textColor:rs.getPropertyValue("--lb-ink")||"",' +
-          'highlights:hls,highlightColor:_hlColor' +
+          'modifiedLines:modLines,' +
+          'highlightColor:_hlColor' +
         '};' +
       '}' +
       /* Send design back to main window → Supabase save */
@@ -35956,7 +35993,89 @@ var WO = (function() {
         'else{el.classList.add("hl-marked");el.style.background=_hlColor;}' +
         '_autoSaveDesign();' +
       '});' +
+      /* ── Floating selection toolbar ──────────────────────── */
+      /* Position toolbar near the right side of the selected text */
+      'function _showFB(x,y){' +
+        'if(!_lbFB)return;' +
+        '_lbFB.classList.add("open");' +
+        'var bw=_lbFB.offsetWidth||440;' +
+        'var vw=window.innerWidth;' +
+        'var left=x+14;' +
+        'if(left+bw>vw-8)left=Math.max(8,x-bw-14);' +
+        '_lbFB.style.left=left+"px";' +
+        '_lbFB.style.top=Math.max(8,y-42)+"px";' +
+      '}' +
+      'function _hideFB(){if(_lbFB)_lbFB.classList.remove("open");_lbSavedRange=null;}' +
+      /* Wrap selected text in a <span> with the given CSS property set */
+      'function _applyFmt(prop,val){' +
+        'var range=_lbSavedRange;' +
+        'if(!range){var s=window.getSelection();if(s&&s.rangeCount&&!s.isCollapsed)range=s.getRangeAt(0).cloneRange();}' +
+        'if(!range||range.collapsed)return;' +
+        'var sp=document.createElement("span");sp.style[prop]=val;' +
+        'var sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);' +
+        'try{range.surroundContents(sp);}' +
+        'catch(e){try{var f=range.extractContents();sp.appendChild(f);range.insertNode(sp);}catch(e2){}}' +
+        'sel.removeAllRanges();_lbSavedRange=null;_autoSaveDesign();' +
+      '}' +
+      /* Strip all inline formatting from the selected range */
+      'function _clearFmt(){' +
+        'var range=_lbSavedRange;' +
+        'if(!range){var s=window.getSelection();if(s&&s.rangeCount&&!s.isCollapsed)range=s.getRangeAt(0).cloneRange();}' +
+        'if(!range)return;' +
+        'var t=document.createTextNode(range.toString());' +
+        'var sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);' +
+        'range.deleteContents();range.insertNode(t);' +
+        'sel.removeAllRanges();_lbSavedRange=null;_hideFB();_autoSaveDesign();' +
+      '}' +
+      /* Show toolbar after mouse-up when text is selected */
+      'document.addEventListener("mouseup",function(e){' +
+        'if(_lbFB&&_lbFB.contains(e.target))return;' +
+        'if(e.target.closest&&e.target.closest(".print-controls,.design-panel"))return;' +
+        'setTimeout(function(){' +
+          'var sel=window.getSelection();' +
+          'if(!sel||sel.isCollapsed||!sel.toString().trim()){_hideFB();return;}' +
+          '_lbSavedRange=sel.getRangeAt(0).cloneRange();' +
+          'var rect=sel.getRangeAt(0).getBoundingClientRect();' +
+          '_showFB(rect.right,rect.top);' +
+        '},15);' +
+      '});' +
+      /* Hide toolbar when selection collapses (delay so toolbar clicks fire first) */
+      'document.addEventListener("selectionchange",function(){' +
+        'var sel=window.getSelection();' +
+        'if(sel&&!sel.isCollapsed&&sel.toString().trim())return;' +
+        'if(!_lbSavedRange)setTimeout(function(){if(!_lbSavedRange&&_lbFB)_lbFB.classList.remove("open");},180);' +
+      '});' +
       '<\/script>';
+
+    // Floating Word-style selection formatting toolbar (lives inside popup window)
+    var floatBarHtml =
+      '<div id="lbFloatBar">' +
+        '<label class="lb-fb-lbl">Font</label>' +
+        '<select class="lb-fb-sel" id="lbFbFont">' +
+          '<option value="Georgia,serif">Serif</option>' +
+          '<option value="Palatino,serif">Palatino</option>' +
+          '<option value="Garamond,serif">Garamond</option>' +
+          '<option value="Arial,Helvetica,sans-serif">Sans</option>' +
+          '<option value="Verdana,Geneva,sans-serif">Verdana</option>' +
+          '<option value="\'Courier New\',monospace">Mono</option>' +
+        '</select>' +
+        '<div class="lb-fb-sep"></div>' +
+        '<label class="lb-fb-lbl">Size</label>' +
+        '<select class="lb-fb-sel" id="lbFbSize">' +
+          [8,9,10,11,12,13,14,16,18,20].map(function(s){return '<option value="'+s+'pt">'+s+'</option>';}).join('') +
+        '</select>' +
+        '<div class="lb-fb-sep"></div>' +
+        '<button class="lb-fb-btn" id="lbFbBold" title="Bold"><b>B</b></button>' +
+        '<button class="lb-fb-btn" id="lbFbItalic" title="Italic"><i>I</i></button>' +
+        '<div class="lb-fb-sep"></div>' +
+        '<label class="lb-fb-lbl">Color</label>' +
+        '<input type="color" class="lb-fb-col" id="lbFbColor" value="#1e2d3d" title="Text color">' +
+        '<label class="lb-fb-lbl">Hl</label>' +
+        '<input type="color" class="lb-fb-col" id="lbFbHl" value="#fff9c4" title="Highlight color">' +
+        '<div class="lb-fb-sep"></div>' +
+        '<button class="lb-fb-btn" id="lbFbClear" title="Remove inline formatting">↩ Clear</button>' +
+        '<button class="lb-fb-btn lb-fb-close" id="lbFbClose" title="Close toolbar">&times;</button>' +
+      '</div>';
 
     // 561 — Liturgist Notes modal HTML (lives inside the popup window)
     var litNotesModal =
@@ -35978,6 +36097,7 @@ var WO = (function() {
       '<title>Liturgy Book \u2013 ' + escapeHtml(orderTitle) + '</title>' +
       '<style>' + css + '</style>' + popupJs + '</head><body>' +
       litNotesModal +
+      floatBarHtml +
       '<div class="page-wrap">' +
       '<div class="print-controls">' +
         '<button class="print-btn" onclick="window.print()">\uD83D\uDDA8\uFE0F&nbsp; Print Liturgy Book</button>' +
