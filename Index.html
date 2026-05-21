@@ -37552,7 +37552,7 @@ var WO = (function() {
       if (fsOverlay && fsOverlay.classList.contains('show')) {
         var fsCtxLive = $('woFullscreenContent');
         _applyBarrierToFsContent(fsCtxLive);
-        fsCtxLive.innerHTML = _projectionHtmlRich(richHtml) || '&nbsp;';
+        fsCtxLive.innerHTML = '<div class="wofs-inner">' + (_projectionHtmlRich(richHtml) || '&nbsp;') + '</div>';
         _fitFullscreenText();
       }
     });
@@ -38036,7 +38036,8 @@ var WO = (function() {
     if (modal) modal.style.display = 'none';
   }
 
-  // Apply barrier + alignment CSS to the fullscreen overlay content element
+  // Apply barrier + alignment CSS to the fullscreen overlay content element.
+  // text-shadow / white-space live on .wofs-inner so scrollHeight is not measured here.
   function _applyBarrierToFsContent(fsCtxEl) {
     if (!fsCtxEl) return;
     var b = _barrierConfig.global;
@@ -38048,8 +38049,7 @@ var WO = (function() {
       'left:'   + b.left   + '%;' +
       'display:flex;align-items:center;justify-content:center;' +
       'text-align:' + _currentSlideAlign + ';' +
-      'text-shadow:2px 2px 8px rgba(0,0,0,0.8);' +
-      'white-space:pre-wrap;overflow:hidden;box-sizing:border-box;';
+      'overflow:hidden;box-sizing:border-box;';
   }
 
   // ── End barrier helpers ─────────────────────────────────────────────────
@@ -38583,7 +38583,8 @@ var WO = (function() {
       .filter(function(line) { return !isChordLine(line) && !isSectionHeader(line); })
       .map(function(line) {
         line = line.replace(/\([^)]*\)/g, '').replace(/\s{2,}/g, ' ').trim();
-        if (!line) return null;
+        // Blank line → visible spacing spacer (matches Ctrl+Enter gap in slide editor)
+        if (!line) return '<span style="display:block;height:0.55em;"></span>';
         var escaped = escapeHtml(line);
         // Scripture title marker (≡ Title ≡)
         if (line.indexOf('≡ ') === 0 && line.lastIndexOf(' ≡') === line.length - 2) {
@@ -38596,7 +38597,6 @@ var WO = (function() {
         }
         return escaped;
       })
-      .filter(Boolean)
       .join('<br>');
   }
 
@@ -39268,14 +39268,21 @@ var WO = (function() {
   function _fitFullscreenText() {
     var contentEl = $('woFullscreenContent');
     if (!contentEl) return;
-    // Use the content element's own dimensions (set by barrier) instead of overlay padding
-    var maxH = (contentEl.offsetHeight || (window.innerHeight * 0.9)) - 4;
-    var maxW = (contentEl.offsetWidth  || (window.innerWidth  * 0.9)) - 4;
+    var overlay = $('woFullscreenOverlay');
+    var b = _barrierConfig.global;
+    // Derive available safe-zone dimensions from the overlay (reliable) + barrier %
+    var ovH = overlay ? overlay.clientHeight : window.innerHeight;
+    var ovW = overlay ? overlay.clientWidth  : window.innerWidth;
+    var maxH = Math.max(100, ovH * (100 - b.top - b.bottom) / 100);
+    var maxW = Math.max(100, ovW * (100 - b.left - b.right) / 100);
+    // Measure the inner text wrapper (offsetHeight = actual text height, not container height)
+    var textEl = contentEl.querySelector('.wofs-inner') || contentEl;
     var fs = 2.8;
-    contentEl.style.fontSize = fs + 'rem';
-    while ((contentEl.scrollHeight > maxH || contentEl.scrollWidth > maxW) && fs > 0.9) {
+    textEl.style.fontSize = fs + 'rem';
+    // Only shrink when text genuinely exceeds the safe zone
+    while ((textEl.offsetHeight > maxH || textEl.offsetWidth > maxW) && fs > 0.9) {
       fs = Math.max(0.9, parseFloat((fs - 0.15).toFixed(2)));
-      contentEl.style.fontSize = fs + 'rem';
+      textEl.style.fontSize = fs + 'rem';
     }
   }
 
@@ -39364,7 +39371,7 @@ var WO = (function() {
     }
     var htmlText = _projectionHtml(rawText) || '&nbsp;';
 
-    $('woFullscreenContent').innerHTML = htmlText;
+    $('woFullscreenContent').innerHTML = '<div class="wofs-inner">' + htmlText + '</div>';
     _fitFullscreenText();
     ind.textContent = (_wofsIdx + 1) + ' / ' + _wofsSlides.length;
     ind.style.opacity = '1';
@@ -48377,6 +48384,8 @@ function filterLiturgyItems() {
   .wo-fullscreen-overlay.show { display: flex; }
   .wofs-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center; }
   .wo-fullscreen-content { position: relative; z-index: 1; text-align: center; max-width: 90%; white-space: pre-wrap; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); }
+  /* Inner text wrapper used by barrier-mode fullscreen for reliable size measurement */
+  .wofs-inner { display: inline-block; max-width: 100%; white-space: pre-wrap; text-shadow: 2px 2px 8px rgba(0,0,0,0.8); line-height: 1.6; }
   .wo-close-fullscreen { position: absolute; top: 20px; right: 30px; font-size: 1.6rem; cursor: pointer; color: rgba(255,255,255,0.5); background: none; border: none; z-index: 8; opacity: 0; transition: color .2s, opacity .3s; }
   .wo-fullscreen-overlay:hover .wo-close-fullscreen { opacity: 1; }
   .wo-close-fullscreen:hover { color: white; }
