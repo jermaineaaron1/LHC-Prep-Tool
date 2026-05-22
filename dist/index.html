@@ -30155,29 +30155,42 @@ var WO = (function() {
     } else {
       // ── Order-based songbook: two-column section/song table ──
 
-      // Resolve sectionId per song (handles serviceSections array + legacy wo-section-N fallback)
-      function songMatchesSection(song, serviceSectionId) {
+      // Prefer the actual saved sectionLayout (has real titles, handles renames/custom sections).
+      // Fall back to static orderStructures mapped to the same shape.
+      var sectionList = (currentOrderData && Array.isArray(currentOrderData.sectionLayout) && currentOrderData.sectionLayout.length > 0)
+        ? currentOrderData.sectionLayout
+        : structures.map(function(s) {
+            return { id: s.serviceSectionId || s.id || '', title: s.title || '', serviceSectionId: s.serviceSectionId || '' };
+          });
+
+      // Match a song to a section entry by:
+      //   1. Direct DOM section id (song.sectionId === section.id)  — primary key
+      //   2. serviceSections array (explicit multi-section assignment)
+      //   3. Legacy: resolve wo-section-N → serviceSectionId
+      function songMatchesSection(song, sectionEntry) {
         if (song.itemType === 'blank') return false;
-        if (Array.isArray(song.serviceSections) && song.serviceSections.length) {
-          return song.serviceSections.indexOf(serviceSectionId) !== -1;
+        if (song.sectionId && sectionEntry.id && song.sectionId === sectionEntry.id) return true;
+        if (Array.isArray(song.serviceSections) && song.serviceSections.length && sectionEntry.serviceSectionId) {
+          return song.serviceSections.indexOf(sectionEntry.serviceSectionId) !== -1;
         }
-        return sbResolveSectionId(song.sectionId || '') === serviceSectionId;
+        if (sectionEntry.serviceSectionId) {
+          return sbResolveSectionId(song.sectionId || '') === sectionEntry.serviceSectionId;
+        }
+        return false;
       }
 
       html += '<table class="sb-index-table sb-index-two-col"><tbody>';
       var songCounter = 0;
       var usedKeys = {};
 
-      structures.forEach(function(section) {
-        var sectionTitle = section.title.replace(/^\d+\.\s*/, '');
-        var sectionSongs = section.special === 'songs'
-          ? songOrderSections.filter(function(s) { return songMatchesSection(s, section.serviceSectionId); })
-          : [];
+      sectionList.forEach(function(sectionEntry) {
+        var sectionTitle = (sectionEntry.title || '').replace(/^\d+\.\s*/, '');
+        var sectionSongs = songOrderSections.filter(function(s) { return songMatchesSection(s, sectionEntry); });
         var hasSongs = sectionSongs.length > 0;
 
         var rightHtml = '';
         sectionSongs.forEach(function(song) {
-          var key = song.id + '__' + section.serviceSectionId;
+          var key = song.id + '__' + (sectionEntry.id || sectionEntry.serviceSectionId);
           if (!usedKeys[key]) { songCounter++; usedKeys[key] = songCounter; }
           var num = usedKeys[key];
           rightHtml += '<div class="sb-idx-song-entry" onclick="WO.sbScrollToSong(\'' + escapeHtml(song.id) + '\')">';
@@ -30230,21 +30243,30 @@ var WO = (function() {
     var sbRenderItems = [];  // [{song, sid (virtual), sectionLabel}]
     var sbUsedKeys    = {};  // song.id + '__' + sectionId → true
 
-    structures.forEach(function(sec) {
-      if (!sec.serviceSectionId) return;
-      var secLabel = sec.title.replace(/^\d+\.\s*/, '');
+    // Use sectionList (built above): sectionLayout if available, else structures-mapped fallback.
+    // Mirrors the index table matching logic so both use identical section resolution.
+    var _sbSectionList = (currentOrderData && Array.isArray(currentOrderData.sectionLayout) && currentOrderData.sectionLayout.length > 0)
+      ? currentOrderData.sectionLayout
+      : structures.map(function(s) {
+          return { id: s.serviceSectionId || s.id || '', title: s.title || '', serviceSectionId: s.serviceSectionId || '' };
+        });
+
+    _sbSectionList.forEach(function(sec) {
+      if (!sec.id && !sec.serviceSectionId) return;
+      var secLabel = (sec.title || '').replace(/^\d+\.\s*/, '');
       songOrderSections.forEach(function(s) {
         if (s.itemType === 'blank') return;
-        var matches = Array.isArray(s.serviceSections) && s.serviceSections.length
-          ? s.serviceSections.indexOf(sec.serviceSectionId) !== -1
-          : sbResolveSectionId(s.sectionId || '') === sec.serviceSectionId;
+        // 1. Direct DOM id match; 2. serviceSections array; 3. legacy resolve
+        var matches = (s.sectionId && sec.id && s.sectionId === sec.id)
+          || (Array.isArray(s.serviceSections) && s.serviceSections.length && sec.serviceSectionId && s.serviceSections.indexOf(sec.serviceSectionId) !== -1)
+          || (sec.serviceSectionId && sbResolveSectionId(s.sectionId || '') === sec.serviceSectionId);
         if (!matches) return;
-        var key = s.id + '__' + sec.serviceSectionId;
+        var key = s.id + '__' + (sec.id || sec.serviceSectionId);
         if (sbUsedKeys[key]) return;
         sbUsedKeys[key] = true;
         // Virtual ID: use song.id for first appearance, song.id__sectionId for duplicates
         var alreadySeen = Object.keys(sbUsedKeys).filter(function(k) { return k.indexOf(s.id + '__') === 0; }).length > 1;
-        var virtualId = alreadySeen ? s.id + '__sb__' + sec.serviceSectionId : s.id;
+        var virtualId = alreadySeen ? s.id + '__sb__' + (sec.id || sec.serviceSectionId) : s.id;
         sbRenderItems.push({ song: s, sid: virtualId, sectionLabel: secLabel });
       });
     });
