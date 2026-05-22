@@ -37382,8 +37382,10 @@ var WO = (function() {
 
     showToast('Slides restored to Song Order original', 'success');
 
-    // Primary: targeted row-level Supabase update — bypasses collectOrderItems/DOM-read
-    // entirely so timing, tab visibility, and _serviceSectionsVisible cannot interfere.
+    // Dual-path save for maximum reliability:
+    // Path A — targeted row-level UPDATE (fast, ~100ms, doesn't touch other rows)
+    // Path B — full saveCurrentOrder (comprehensive, handles all edge cases)
+    // Both fire in parallel so a silent "0 rows updated" from Path A is always covered.
     var _sbClient = (typeof SBQ !== 'undefined' && SBQ._sb) ? SBQ._sb() : null;
     if (_sbClient && currentOrderData && currentOrderData.id && !_sbStandaloneId) {
       _sbClient.from('order_items')
@@ -37392,26 +37394,19 @@ var WO = (function() {
         .eq('order_id', currentOrderData.id)
         .then(function(r) {
           if (r && r.error) {
-            console.error('[Restore] Direct slide update failed, falling back to full save:', r.error);
-            saveCurrentOrder(true);
+            console.error('[Restore] Direct slide update failed:', r.error);
           } else {
-            console.log('[Restore] Slides saved directly to Supabase order_items');
-            // Light follow-up: bump the order's last_edited so the order list refreshes
-            _sbClient.from('orders')
-              .update({ last_edited: new Date().toISOString() })
-              .eq('id', currentOrderData.id)
-              .then(function() {})
-              .catch(function() {});
+            console.log('[Restore] Direct row update completed for songId:', songId);
           }
         })
         .catch(function(err) {
-          console.error('[Restore] Direct update threw, falling back:', err);
-          saveCurrentOrder(true);
+          console.error('[Restore] Direct update threw:', err);
         });
-    } else {
-      // Standalone songbook or Supabase not ready — full order save
-      saveCurrentOrder(true);
     }
+    // Always run a full order save regardless of the direct update result.
+    // This is the definitive save — it reads the restored slides from the DOM
+    // and from in-memory savedSlides/allItems and writes them all to Supabase.
+    saveCurrentOrder(true);
   }
 
   // Navigate slides within a specific section
