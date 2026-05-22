@@ -30219,19 +30219,37 @@ var WO = (function() {
             return { id: s.serviceSectionId || s.id || '', title: s.title || '', serviceSectionId: s.serviceSectionId || '' };
           });
 
-      // Match a song to a section entry by:
-      //   1. Direct DOM section id (song.sectionId === section.id)  — primary key
-      //   2. serviceSections array (explicit multi-section assignment)
-      //   3. Legacy: resolve wo-section-N → serviceSectionId
+      // Match a song to a section entry — mirrors the Song Order initializeSongOrder() logic so
+      // any song that shows a section badge in Song Order also appears in the Songbook index.
       function songMatchesSection(song, sectionEntry) {
         if (song.itemType === 'blank') return false;
-        if (song.sectionId && sectionEntry.id && song.sectionId === sectionEntry.id) return true;
-        if (Array.isArray(song.serviceSections) && song.serviceSections.length && sectionEntry.serviceSectionId) {
-          return song.serviceSections.indexOf(sectionEntry.serviceSectionId) !== -1;
+        var secId  = sectionEntry.id || '';
+        var secSid = sectionEntry.serviceSectionId || '';
+
+        // A — Direct DOM id match (primary key for all sections)
+        if (song.sectionId && secId && song.sectionId === secId) return true;
+
+        // B — serviceSections array (may contain DOM ids OR legacy serviceSectionIds)
+        if (Array.isArray(song.serviceSections) && song.serviceSections.length) {
+          if (song.serviceSections.some(function(val) {
+            if (val === secId) return true;                            // B1: DOM id match
+            if (secSid && val === secSid) return true;                 // B2: direct serviceSectionId
+            if (secSid && sbResolveSectionId(val) === secSid) return true; // B3: resolve via structures
+            // B4: resolve via sectionLayout (custom sections share a serviceSectionId)
+            if (secSid && currentOrderData && Array.isArray(currentOrderData.sectionLayout)) {
+              var _le = currentOrderData.sectionLayout.find(function(l) { return l.id === val; });
+              if (_le && _le.serviceSectionId === secSid) return true;
+            }
+            return false;
+          })) return true;
         }
-        if (sectionEntry.serviceSectionId) {
-          return sbResolveSectionId(song.sectionId || '') === sectionEntry.serviceSectionId;
+
+        // C — Legacy sectionId-only matching (no serviceSections array)
+        if (song.sectionId) {
+          if (secSid && sbResolveSectionId(song.sectionId) === secSid) return true; // C1: resolve
+          if (secSid && song.sectionId === secSid) return true;                     // C2: IS the serviceSectionId
         }
+
         return false;
       }
 
@@ -30310,12 +30328,32 @@ var WO = (function() {
     _sbSectionList.forEach(function(sec) {
       if (!sec.id && !sec.serviceSectionId) return;
       var secLabel = (sec.title || '').replace(/^\d+\.\s*/, '');
+      var secId  = sec.id || '';
+      var secSid = sec.serviceSectionId || '';
       songOrderSections.forEach(function(s) {
         if (s.itemType === 'blank') return;
-        // 1. Direct DOM id match; 2. serviceSections array; 3. legacy resolve
-        var matches = (s.sectionId && sec.id && s.sectionId === sec.id)
-          || (Array.isArray(s.serviceSections) && s.serviceSections.length && sec.serviceSectionId && s.serviceSections.indexOf(sec.serviceSectionId) !== -1)
-          || (sec.serviceSectionId && sbResolveSectionId(s.sectionId || '') === sec.serviceSectionId);
+        // Mirrors initializeSongOrder matching so the same songs shown in Song Order appear here
+        var matches = false;
+        // A: direct DOM id
+        if (!matches && s.sectionId && secId && s.sectionId === secId) matches = true;
+        // B: serviceSections array
+        if (!matches && Array.isArray(s.serviceSections) && s.serviceSections.length) {
+          matches = s.serviceSections.some(function(val) {
+            if (val === secId) return true;
+            if (secSid && val === secSid) return true;
+            if (secSid && sbResolveSectionId(val) === secSid) return true;
+            if (secSid && currentOrderData && Array.isArray(currentOrderData.sectionLayout)) {
+              var _le = currentOrderData.sectionLayout.find(function(l) { return l.id === val; });
+              if (_le && _le.serviceSectionId === secSid) return true;
+            }
+            return false;
+          });
+        }
+        // C: legacy sectionId-only
+        if (!matches && s.sectionId) {
+          if (secSid && sbResolveSectionId(s.sectionId) === secSid) matches = true;
+          if (!matches && secSid && s.sectionId === secSid) matches = true;
+        }
         if (!matches) return;
         var key = s.id + '__' + (sec.id || sec.serviceSectionId);
         if (sbUsedKeys[key]) return;
