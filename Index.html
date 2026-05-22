@@ -17525,20 +17525,26 @@ var SBQ = {
     var tpl = o.template || {};
     // Extract mediaLinks saved in template._inbox (see saveOrder)
     var mediaLinks = Array.isArray(tpl._inbox) ? tpl._inbox : [];
-    // Return template without the private _inbox key so UI never sees it as a setting
+    // _inboxPresent = true means _inbox was explicitly saved (even as []).
+    // The load path uses this to skip the order_media_links table override so
+    // deliberately-deleted links are not restored from a stale table row.
+    var inboxPresent = tpl._inboxPresent === true || tpl.hasOwnProperty('_inbox');
+    // Return template without the private _inbox/_inboxPresent keys
     var cleanTemplate = Object.assign({}, tpl);
     delete cleanTemplate._inbox;
+    delete cleanTemplate._inboxPresent;
     return {
-      id:          o.id,
-      title:       o.title       || 'Untitled Order',
-      type:        o.type        || 'traditional',
-      serviceDate: o.service_date || '',
-      occasion:    o.occasion     || '',
-      createdDate: o.created_date || '',
-      lastEdited:  o.last_edited  || '',
-      createdBy:   o.created_by   || '',
-      template:    cleanTemplate,
-      mediaLinks:  mediaLinks     // restored inbox items
+      id:           o.id,
+      title:        o.title       || 'Untitled Order',
+      type:         o.type        || 'traditional',
+      serviceDate:  o.service_date || '',
+      occasion:     o.occasion     || '',
+      createdDate:  o.created_date || '',
+      lastEdited:   o.last_edited  || '',
+      createdBy:    o.created_by   || '',
+      template:     cleanTemplate,
+      mediaLinks:   mediaLinks,      // restored inbox items
+      _inboxPresent: inboxPresent    // tells load path not to let table override template
     };
   },
 
@@ -17599,9 +17605,11 @@ var SBQ = {
     // navigation away, and iOS Safari's aggressive localStorage eviction.
     // The _inbox key is namespaced to avoid collision with actual template settings.
     var templateWithInbox = Object.assign({}, payload.template || {});
-    if (Array.isArray(payload.mediaLinks) && payload.mediaLinks.length > 0) {
-      templateWithInbox._inbox = payload.mediaLinks;
-    }
+    // Always embed _inbox — even as [] — so that clearing all links is persisted.
+    // The _inboxPresent flag lets the load path know the template is authoritative
+    // and should not be overridden by stale rows in the order_media_links table.
+    templateWithInbox._inbox = Array.isArray(payload.mediaLinks) ? payload.mediaLinks : [];
+    templateWithInbox._inboxPresent = true;
     var orderRow = {
       id:           id,
       title:        payload.title       || 'Untitled Order',
@@ -17772,11 +17780,11 @@ SBQ.patchInbox = function(orderId, items) {
   if (!sb || !orderId) return Promise.resolve();
   // Merge _inbox into the current in-memory template
   var tpl = Object.assign({}, (window.currentOrderData && window.currentOrderData.template) || {});
-  if (items && items.length > 0) {
-    tpl._inbox = items;
-  } else {
-    delete tpl._inbox; // clean up when inbox is emptied
-  }
+  // Always set _inbox (even []) so that clearing all links is persisted as an
+  // explicit empty array rather than a missing key — prevents stale
+  // order_media_links table rows from restoring deleted items on next load.
+  tpl._inbox = Array.isArray(items) ? items : [];
+  tpl._inboxPresent = true;
   return sb.from('orders')
     .update({ template: tpl, last_edited: new Date().toISOString() })
     .eq('id', orderId)
@@ -19464,6 +19472,9 @@ var WO = (function() {
     if (order.template && Array.isArray(order.template.sectionLayout) && order.template.sectionLayout.length > 0) {
       currentOrderData.sectionLayout = order.template.sectionLayout;
     }
+    // Carry forward the _inboxPresent flag so _loadInboxFromDedicatedTable knows
+    // whether template._inbox is authoritative (i.e. was explicitly saved).
+    currentOrderData._inboxPresent = order._inboxPresent || false;
     songOrderSections = order.songs || [];
     serviceSectionSongs = order.serviceSectionSongs || {};
 
@@ -19506,6 +19517,10 @@ var WO = (function() {
         // Only update if this is still the same order and table has items
         if (!currentOrderData || currentOrderData.id !== oid) return;
         if (!Array.isArray(rows) || rows.length === 0) return;
+        // If template._inbox was explicitly saved (_inboxPresent flag set by saveOrder /
+        // patchInbox), treat it as authoritative — don't let a stale order_media_links
+        // row restore items that the user deliberately deleted.
+        if (currentOrderData._inboxPresent) return;
         // If dedicated table has more items, it wins (it's the most recent save)
         if (rows.length >= currentOrderData.mediaLinks.length) {
           // Back-fill IDs
@@ -20004,6 +20019,11 @@ var WO = (function() {
     // Always capture the latest section layout when the DOM is visible so renames,
     // additions, and deletions are included in the saved payload.
     if (_serviceSectionsVisible) { _captureCurrentLayout(); }
+    // When service sections are NOT visible (Song Order tab active), refresh
+    // currentOrderData.allItems now so any liturgy/content changes that occurred
+    // before the last tab-switch are not missed.  snapshotCurrentState() preserves
+    // all non-song items from prevItems even when the service DOM is absent.
+    else { snapshotCurrentState(); }
     var items;
     if (_serviceSectionsVisible) {
       items = collectOrderItems();
@@ -20158,7 +20178,11 @@ var WO = (function() {
             items: items,
             songs: songOrderSections.slice(), // Copy of current songs
             allItems: items,
-            serviceSectionItems: rebuiltSSI
+            serviceSectionItems: rebuiltSSI,
+            // Include inbox items so the local cache can restore them correctly
+            // without relying on a second Supabase fetch.
+            mediaLinks: Array.isArray(currentOrderData.mediaLinks) ? currentOrderData.mediaLinks.slice() : [],
+            _inboxPresent: true
           };
 
           // Update local cache for quick access
