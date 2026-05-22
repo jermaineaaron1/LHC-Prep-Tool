@@ -37341,20 +37341,36 @@ var WO = (function() {
         return { id: s.id, itemType: 'song', title: s.title, _song: s };
       }));
 
-      var rightHtml = '';
+      // Group consecutive items with the same label so 22 slides of one liturgy
+      // don't produce 22 index rows — show just one row with a "(N pages)" count.
+      var idxGroups = [];
       allItems.forEach(function(item) {
+        var rawLabel = item.title && item.title !== 'Untitled' ? item.title
+                     : (item.content && item.content.text ? item.content.text.replace(/<[^>]*>/g, '').substring(0, 50).trim() : '');
+        var label = rawLabel || (item.itemType === 'song' ? (item.title || 'Song') : 'Item');
+        var last = idxGroups[idxGroups.length - 1];
+        if (last && last.label === label && last.itemType === item.itemType) {
+          last.count++;
+        } else {
+          idxGroups.push({ item: item, label: label, itemType: item.itemType, count: 1 });
+        }
+      });
+
+      var rightHtml = '';
+      idxGroups.forEach(function(group) {
         idxCounter++;
+        var item = group.item;
         var icon = item.itemType === 'song'      ? 'fa-music'         :
                    item.itemType === 'liturgy'   ? 'fa-hands-praying' :
                    item.itemType === 'scripture' ? 'fa-bible'         :
                    item.itemType === 'slides'    ? 'fa-display'       :
                    item.itemType === 'video'     ? 'fa-video'         : 'fa-file-lines';
-        var label = item.title || (item.content && item.content.text ? item.content.text.substring(0, 40) : 'Item');
         var sid = _safeId(item.id);
         rightHtml += '<div class="lb2-idx-item" onclick="(function(){var p=document.getElementById(\'lb2Page-' + sid + '\');if(p)p.scrollIntoView({behavior:\'smooth\'});})();">';
         rightHtml += '<span class="lb2-idx-item-num">' + idxCounter + '</span>';
         rightHtml += '<i class="fa-solid ' + icon + ' lb2-idx-item-icon"></i>';
-        rightHtml += escapeHtml(label);
+        rightHtml += escapeHtml(group.label);
+        if (group.count > 1) rightHtml += ' <span style="color:#9ca3af;font-size:0.75rem;margin-left:4px;">(' + group.count + ' pages)</span>';
         rightHtml += '</div>';
       });
 
