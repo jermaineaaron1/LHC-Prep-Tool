@@ -33256,14 +33256,15 @@ var WO = (function() {
       sbBroadcastChange();  // same-browser tabs (BroadcastChannel)
     }, 150);
 
-    // Supabase persist (800ms) — fast enough to catch every gesture stroke
+    // Supabase persist — debounced to 1400ms so total idle time before save is ~2 seconds
+    // (sbOnLyricsChange has its own 600ms debounce before calling here, giving 600+1400=2000ms)
     clearTimeout(sbAutoSaveTimer);
     sbAutoSaveTimer = setTimeout(function() {
       sbSetSaveStatus('saving');
       _sbLastPollTs = Date.now(); // don't re-apply our own save on next poll
       saveCurrentOrder();
       // sbSetSaveStatus('saved') triggered by saveCurrentOrder() success handler
-    }, 800);
+    }, 1400);
   }
 
   // Show save status in Songbook header
@@ -37309,13 +37310,15 @@ var WO = (function() {
       return { index: idx, content: slide.lines.join('\n'), header: slide.header || '', background: '' };
     });
     songSection.slides = slidesData;
-    if (songInOrder) songInOrder.slides = slidesData;
+    songSection.savedSlides = slidesData; // ensure fallback in collectOrderItems uses restored state
+    if (songInOrder) { songInOrder.slides = slidesData; songInOrder.savedSlides = slidesData; }
 
     // Auto-select first slide
     if (firstSlideBox) selectSlideBox(firstSlideBox);
 
     showToast('Slides restored to Song Order original', 'success');
-    autoSaveOrder();
+    // Immediate save — bypass the 2-second debounce so the restore always persists on reload
+    saveCurrentOrder(true);
   }
 
   // Navigate slides within a specific section
