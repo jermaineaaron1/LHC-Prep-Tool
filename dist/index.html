@@ -30439,6 +30439,9 @@ var WO = (function() {
     }
     if (_sbResizeHandler) { window.removeEventListener('resize', _sbResizeHandler); _sbResizeHandler = null; }
     clearTimeout(_sbPendingRemoteRenderTimer); _sbPendingRemoteRenderTimer = null;
+    // Flush any pending 30-second auto-save so changes aren't lost when closing
+    if (sbAutoSaveTimer) { sbFlushSave(); }
+    clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
     sbStopFastSync();      // 349: stop BroadcastChannel + GAS polling
     sbStopRealtimeSync();  // disconnect Supabase Realtime channel
     var modal = $('songbookLiveModal');
@@ -33748,36 +33751,83 @@ var WO = (function() {
   }
 
   // 343/349 — Debounced auto-save + real-time broadcast on Songbook changes
-  function sbAutoSave() {
-    sbSetSaveStatus('pending');
+  //
+  // Two-tier design:
+  //   • Broadcast  (150ms debounce) — instant sync to all open devices via Supabase Realtime /
+  //     BroadcastChannel. Cheap WebSocket messages, no DB write.
+  //   • Supabase write (30 s idle debounce) — only persists after 30 s of no further activity.
+  //     Dramatically reduces DB load during active band-practice sessions while still guaranteeing
+  //     a save once things settle.  A live countdown in the header lets users see when it will fire,
+  //     and they can tap it to save immediately.
 
-    // Immediate broadcast (150ms debounce) — pushes to all devices via Supabase Realtime
-    // and same-browser tabs via BroadcastChannel, before the Supabase write completes
+  var _sbCountdownInterval = null;
+  var _sbSaveDeadline = 0;
+
+  function sbAutoSave() {
+    // Broadcast: 150ms debounce — pushes state to all devices via Supabase Realtime
+    // and same-browser tabs via BroadcastChannel, well before the DB write fires.
     clearTimeout(sbBroadcastDebounce);
     sbBroadcastDebounce = setTimeout(function() {
-      sbBroadcastPatch();   // cross-device (Supabase Realtime)
-      sbBroadcastChange();  // same-browser tabs (BroadcastChannel)
+      sbBroadcastPatch();
+      sbBroadcastChange();
     }, 150);
 
-    // Supabase persist — debounced to 1400ms so total idle time before save is ~2 seconds
-    // (sbOnLyricsChange has its own 600ms debounce before calling here, giving 600+1400=2000ms)
+    // Supabase persist: 30-second idle debounce.
+    var SAVE_DELAY = 30000;
+    _sbSaveDeadline = Date.now() + SAVE_DELAY;
     clearTimeout(sbAutoSaveTimer);
     sbAutoSaveTimer = setTimeout(function() {
+      clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
       sbSetSaveStatus('saving');
-      _sbLastPollTs = Date.now(); // don't re-apply our own save on next poll
+      _sbLastPollTs = Date.now();
       saveCurrentOrder();
-      // sbSetSaveStatus('saved') triggered by saveCurrentOrder() success handler
-    }, 1400);
+    }, SAVE_DELAY);
+
+    // Countdown ticker
+    if (!_sbCountdownInterval) {
+      sbSetSaveStatus('pending', 30);
+      _sbCountdownInterval = setInterval(function() {
+        var secs = Math.ceil((_sbSaveDeadline - Date.now()) / 1000);
+        if (secs <= 0) { clearInterval(_sbCountdownInterval); _sbCountdownInterval = null; return; }
+        sbSetSaveStatus('pending', secs);
+      }, 1000);
+    } else {
+      sbSetSaveStatus('pending', Math.ceil((_sbSaveDeadline - Date.now()) / 1000));
+    }
   }
 
-  // Show save status in Songbook header
-  function sbSetSaveStatus(state) {
+  function sbFlushSave() {
+    if (!sbAutoSaveTimer) return;
+    clearTimeout(sbAutoSaveTimer); sbAutoSaveTimer = null;
+    clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
+    sbSetSaveStatus('saving');
+    _sbLastPollTs = Date.now();
+    saveCurrentOrder();
+  }
+
+  function sbSetSaveStatus(state, countdown) {
     var el = $('sbSaveStatus');
     if (!el) return;
-    if (!state)               { el.textContent = '';                  return; }
-    if (state === 'pending')  { el.textContent = 'Unsaved…';         el.style.color = '#fbbf24'; }
-    if (state === 'saving')   { el.textContent = 'Saving…';          el.style.color = '#93c5fd'; }
-    if (state === 'saved')    { el.textContent = 'Saved ✓';          el.style.color = '#86efac'; }
+    if (!state) {
+      el.innerHTML = ''; el.style.color = ''; el.style.cursor = ''; el.title = '';
+      return;
+    }
+    if (state === 'pending') {
+      var secs = (typeof countdown === 'number') ? countdown : 30;
+      el.innerHTML = '● Unsaved <span style="opacity:0.65;font-size:0.68rem;font-weight:400;">(' + secs + 's)</span>';
+      el.style.color = '#fbbf24';
+      el.style.cursor = 'pointer';
+      el.title = 'Tap to save now';
+      el.onclick = function() { if (window.WO) window.WO.sbFlushSave(); };
+    }
+    if (state === 'saving') {
+      el.innerHTML = 'Saving…'; el.style.color = '#93c5fd';
+      el.style.cursor = ''; el.title = ''; el.onclick = null;
+    }
+    if (state === 'saved') {
+      el.innerHTML = 'Saved ✓'; el.style.color = '#86efac';
+      el.style.cursor = ''; el.title = ''; el.onclick = null;
+    }
   }
 
   // 349 — Start fast sync when Songbook is open
@@ -44373,6 +44423,7 @@ var WO = (function() {
     openSongbookStandalone: openSongbookStandalone,
     closeSongbook: closeSongbook,
     sbTranspose: sbTranspose,
+    sbFlushSave: sbFlushSave,
     sbCapturePreEdit: sbCapturePreEdit,
     sbOnLyricsChange: sbOnLyricsChange,
     sbOnLyricsPaste: sbOnLyricsPaste,
