@@ -37457,12 +37457,52 @@ var WO = (function() {
     songSection.savedSlides = slidesData; // ensure fallback in collectOrderItems uses restored state
     if (songInOrder) { songInOrder.slides = slidesData; songInOrder.savedSlides = slidesData; }
 
+    // Cancel any pending debounced saves so a stale timer can't overwrite the restore
+    clearTimeout(_autoSaveTimer);
+    if (typeof sbAutoSaveTimer !== 'undefined') clearTimeout(sbAutoSaveTimer);
+
+    // Keep currentOrderData.allItems in sync — prevents subsequent full-order saves from
+    // reverting to the old slides via the allItems-based fallback in collectOrderItems.
+    if (currentOrderData && Array.isArray(currentOrderData.allItems)) {
+      var _allItemEntry = currentOrderData.allItems.find(function(it) { return it.id === songId; });
+      if (_allItemEntry) { _allItemEntry.slides = slidesData; }
+    }
+
     // Auto-select first slide
     if (firstSlideBox) selectSlideBox(firstSlideBox);
 
     showToast('Slides restored to Song Order original', 'success');
-    // Immediate save — bypass the 2-second debounce so the restore always persists on reload
-    saveCurrentOrder(true);
+
+    // Primary: targeted row-level Supabase update — bypasses collectOrderItems/DOM-read
+    // entirely so timing, tab visibility, and _serviceSectionsVisible cannot interfere.
+    var _sbClient = (typeof SBQ !== 'undefined' && SBQ._sb) ? SBQ._sb() : null;
+    if (_sbClient && currentOrderData && currentOrderData.id && !_sbStandaloneId) {
+      _sbClient.from('order_items')
+        .update({ slides: slidesData })
+        .eq('id', songId)
+        .eq('order_id', currentOrderData.id)
+        .then(function(r) {
+          if (r && r.error) {
+            console.error('[Restore] Direct slide update failed, falling back to full save:', r.error);
+            saveCurrentOrder(true);
+          } else {
+            console.log('[Restore] Slides saved directly to Supabase order_items');
+            // Light follow-up: bump the order's last_edited so the order list refreshes
+            _sbClient.from('orders')
+              .update({ last_edited: new Date().toISOString() })
+              .eq('id', currentOrderData.id)
+              .then(function() {})
+              .catch(function() {});
+          }
+        })
+        .catch(function(err) {
+          console.error('[Restore] Direct update threw, falling back:', err);
+          saveCurrentOrder(true);
+        });
+    } else {
+      // Standalone songbook or Supabase not ready — full order save
+      saveCurrentOrder(true);
+    }
   }
 
   // Navigate slides within a specific section
