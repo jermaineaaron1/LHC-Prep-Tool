@@ -6570,6 +6570,8 @@
 .lb2-item-break { padding: 10px 0; }
 .lb2-item-break .lb2-page-break-line { background: repeating-linear-gradient(90deg, #bbf7d0 0, #bbf7d0 6px, transparent 6px, transparent 11px); height: 1px; }
 .lb2-item-break .lb2-page-break-handle { background: #f7fdf9; border-color: #bbf7d0; font-size: 0.62rem; padding: 2px 9px; }
+/* Divider between stacked content slides on the same page */
+.lb2-content-item-divider { border: none; border-top: 1px dashed #bbf7d0; margin: 14px 0; }
 
 @media print {
   .lb2-header, .lb2-page-break { display: none !important; }
@@ -37351,36 +37353,41 @@ var WO = (function() {
         return { id: s.id, itemType: 'song', title: s.title, _song: s };
       }));
 
-      // Group consecutive items with the same label so 22 slides of one liturgy
-      // don't produce 22 index rows — show just one row with a "(N pages)" count.
-      var idxGroups = [];
-      allItems.forEach(function(item) {
-        var rawLabel = item.title && item.title !== 'Untitled' ? item.title
-                     : (item.content && item.content.text ? item.content.text.replace(/<[^>]*>/g, '').substring(0, 50).trim() : '');
-        var label = rawLabel || (item.itemType === 'song' ? (item.title || 'Song') : 'Item');
-        var last = idxGroups[idxGroups.length - 1];
-        if (last && last.label === label && last.itemType === item.itemType) {
-          last.count++;
-        } else {
-          idxGroups.push({ item: item, label: label, itemType: item.itemType, count: 1 });
-        }
-      });
+      // Split: content items → ONE combined page; songs/liturgy/etc → own pages
+      var _idxContentItems  = allItems.filter(function(i) { return i.itemType === 'content'; });
+      var _idxFeaturedItems = allItems.filter(function(i) { return i.itemType !== 'content'; });
 
       var rightHtml = '';
-      idxGroups.forEach(function(group) {
+
+      // ONE index entry for ALL content items in this section (they share one page)
+      if (_idxContentItems.length > 0) {
         idxCounter++;
-        var item = group.item;
+        var _cLabel = _idxContentItems[0].content && _idxContentItems[0].content.text
+          ? _idxContentItems[0].content.text.replace(/<[^>]*>/g, '').trim().substring(0, 50)
+          : sec.title;
+        var _cSecKey = _safeId(sec.id);
+        rightHtml += '<div class="lb2-idx-item" onclick="(function(){var p=document.getElementById(\'lb2Page-content-' + _cSecKey + '\');if(p)p.scrollIntoView({behavior:\'smooth\'});})();">';
+        rightHtml += '<span class="lb2-idx-item-num">' + idxCounter + '</span>';
+        rightHtml += '<i class="fa-solid fa-file-lines lb2-idx-item-icon"></i>';
+        rightHtml += escapeHtml(_cLabel);
+        if (_idxContentItems.length > 1) rightHtml += ' <span style="color:#9ca3af;font-size:0.75rem;margin-left:4px;">(' + _idxContentItems.length + ' slides)</span>';
+        rightHtml += '</div>';
+      }
+
+      // Individual entry per song / liturgy / scripture / slides / video
+      _idxFeaturedItems.forEach(function(item) {
+        idxCounter++;
         var icon = item.itemType === 'song'      ? 'fa-music'         :
                    item.itemType === 'liturgy'   ? 'fa-hands-praying' :
                    item.itemType === 'scripture' ? 'fa-bible'         :
                    item.itemType === 'slides'    ? 'fa-display'       :
                    item.itemType === 'video'     ? 'fa-video'         : 'fa-file-lines';
+        var label = item.title || (item.content && item.content.text ? item.content.text.replace(/<[^>]*>/g, '').substring(0, 50).trim() : 'Item');
         var sid = _safeId(item.id);
         rightHtml += '<div class="lb2-idx-item" onclick="(function(){var p=document.getElementById(\'lb2Page-' + sid + '\');if(p)p.scrollIntoView({behavior:\'smooth\'});})();">';
         rightHtml += '<span class="lb2-idx-item-num">' + idxCounter + '</span>';
         rightHtml += '<i class="fa-solid ' + icon + ' lb2-idx-item-icon"></i>';
-        rightHtml += escapeHtml(group.label);
-        if (group.count > 1) rightHtml += ' <span style="color:#9ca3af;font-size:0.75rem;margin-left:4px;">(' + group.count + ' pages)</span>';
+        rightHtml += escapeHtml(label);
         rightHtml += '</div>';
       });
 
@@ -37418,111 +37425,140 @@ var WO = (function() {
       html += '<div class="lb2-page-break-line"></div>';
       html += '</div></div>';
 
-      allItems.forEach(function(item, iIdx) {
-        pageNum++;
-        var isSong   = item.itemType === 'song';
-        var itemKey  = _safeId(item.id);
-        var pageClass = 'lb2-page' + (isSong ? ' lb2-song-page-ro' : ' lb2-editable-page');
-        var badgeClass = 'lb2-item-badge lb2-item-badge--' + (item.itemType || 'content');
-        var badgeLabel = isSong ? 'Song' :
-                         item.itemType === 'liturgy'   ? 'Liturgy'   :
-                         item.itemType === 'scripture' ? 'Scripture' :
-                         item.itemType === 'slides'    ? 'Slides'    :
-                         item.itemType === 'video'     ? 'Video'     : 'Content';
+      // Separate content items (→ one combined page) from featured items (→ own pages each)
+      var _pgContentItems  = allItems.filter(function(i) { return i.itemType === 'content'; });
+      var _pgFeaturedItems = allItems.filter(function(i) { return i.itemType !== 'content'; });
 
-        // Item-level break between items in same section
-        if (iIdx > 0) {
-          var itemGapKey  = 'item_' + itemKey;
-          var itemGap     = _lb2PageMargins[itemGapKey] || 0;
-          html += '<div class="lb2-page-break lb2-item-break" id="lb2Break-item-' + itemKey + '" style="margin-bottom:' + itemGap + 'px;">';
-          html += '<div class="lb2-page-break-inner">';
-          html += '<div class="lb2-page-break-line"></div>';
-          html += '<div class="lb2-page-break-handle" onmousedown="WO.lb2ItemBreakDragStart(event,\'' + itemKey + '\')" title="Drag to adjust gap">';
+      // Build ordered list of page-entries to render
+      var _pageEntries = [];
+      if (_pgContentItems.length > 0) _pageEntries.push({ _t: 'content-group', items: _pgContentItems });
+      _pgFeaturedItems.forEach(function(item) { _pageEntries.push({ _t: 'featured', item: item }); });
+
+      _pageEntries.forEach(function(entry, eIdx) {
+        // Draggable break between page-entries (not before the first — that's the section break)
+        if (eIdx > 0) {
+          var _brkId  = entry._t === 'content-group' ? 'cgrp-' + secKey : 'feat-' + _safeId(entry.item.id);
+          var _brkGap = _lb2PageMargins[_brkId] || 0;
+          html += '<div class="lb2-page-break lb2-item-break" id="lb2Break-' + _brkId + '" style="margin-bottom:' + _brkGap + 'px;">';
+          html += '<div class="lb2-page-break-inner"><div class="lb2-page-break-line"></div>';
+          html += '<div class="lb2-page-break-handle" onmousedown="WO.lb2BreakDragStart(event,\'' + _brkId + '\')" title="Drag to adjust gap">';
           html += '<i class="fa-solid fa-arrows-up-down"></i>';
-          html += '<span id="lb2BreakLbl-item-' + itemKey + '" style="font-size:0.62rem;margin-left:4px;opacity:0.7;">' + (itemGap || 0) + 'px</span>';
-          html += '</div>';
-          html += '<div class="lb2-page-break-line"></div>';
-          html += '</div></div>';
+          html += '<span id="lb2BreakLbl-' + _brkId + '" style="font-size:0.62rem;margin-left:4px;opacity:0.7;">' + (_brkGap || 0) + 'px</span>';
+          html += '</div><div class="lb2-page-break-line"></div></div></div>';
         }
 
-        html += '<div class="' + pageClass + '" id="lb2Page-' + itemKey + '">';
-
-        // Page header
-        html += '<div class="lb2-page-hdr">';
-        html += '<div class="lb2-page-hdr-left">';
-        html += '<div class="lb2-sec-num">' + pageNum + '</div>';
-        html += '<div class="lb2-page-hdr-info">';
-        html += '<div class="lb2-page-title">' + escapeHtml(item.title || 'Untitled') + '</div>';
-        html += '<div class="lb2-page-sec-lbl">' + escapeHtml(sec.title) + '</div>';
-        html += '</div></div>';
-        html += '<div class="lb2-page-hdr-right">';
-        html += '<span class="' + badgeClass + '">' + badgeLabel + '</span>';
-        if (isSong) html += '<span class="lb2-readonly-hint"><i class="fa-solid fa-lock" style="font-size:0.65rem;"></i> Edit in Songbook</span>';
-        html += '</div>';
-        html += '</div>'; // lb2-page-hdr
-
-        // ── Song page (read-only) ────────────────────────────────────────────
-        if (isSong) {
-          var song = item._song;
-          html += '<div class="lb2-song-content-ro">';
-          if (song.artist) html += '<div class="lb2-song-artist-ro">by ' + escapeHtml(song.artist) + '</div>';
-          var slides = (song.savedSlides && song.savedSlides.length) ? song.savedSlides
-                     : (song.slides && song.slides.length)           ? song.slides : [];
-          if (slides.length) {
-            slides.forEach(function(slide) {
-              var txt = typeof slide === 'string' ? slide : (slide.content || slide.text || '');
-              if (!txt) return;
-              html += '<div class="lb2-song-slide-ro">' + escapeHtml(txt) + '</div>';
-            });
-          } else if (song.lyrics) {
-            var lines = song.lyrics.split('\n'), block = '';
-            lines.forEach(function(line) {
-              var l = line.trim();
-              if (!l) { if (block) { html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>'; block = ''; } }
-              else    { block += (block ? '\n' : '') + l; }
-            });
-            if (block) html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>';
-          } else {
-            html += '<div class="lb2-song-no-lyrics">No lyrics available &mdash; open in Songbook to add lyrics</div>';
-          }
-          html += '</div>';
-
-        // ── Video item ───────────────────────────────────────────────────────
-        } else if (item.itemType === 'video') {
+        // ── Combined content page (all section content boxes stacked) ────────
+        if (entry._t === 'content-group') {
+          pageNum++;
+          var _cItems = entry.items;
+          var _cTitle = _cItems[0].content && _cItems[0].content.text
+            ? _cItems[0].content.text.replace(/<[^>]*>/g, '').trim().substring(0, 60)
+            : sec.title;
+          html += '<div class="lb2-page lb2-editable-page" id="lb2Page-content-' + secKey + '">';
+          html += '<div class="lb2-page-hdr">';
+          html += '<div class="lb2-page-hdr-left"><div class="lb2-sec-num">' + pageNum + '</div>';
+          html += '<div class="lb2-page-hdr-info"><div class="lb2-page-title">' + escapeHtml(_cTitle) + '</div>';
+          html += '<div class="lb2-page-sec-lbl">' + escapeHtml(sec.title) + '</div></div></div>';
+          html += '<div class="lb2-page-hdr-right"><span class="lb2-item-badge lb2-item-badge--content">Content</span>';
+          if (_cItems.length > 1) html += '<span style="color:#6b7280;font-size:0.7rem;margin-left:6px;">' + _cItems.length + ' slides</span>';
+          html += '</div></div>'; // hdr-right + lb2-page-hdr
           html += '<div class="lb2-item-content">';
-          html += '<div class="lb2-video-ref"><i class="fa-solid fa-video"></i>';
-          html += '<span>' + escapeHtml((item.content && item.content.url) || item.title || 'Video') + '</span></div>';
-          html += '</div>';
+          _cItems.forEach(function(ci, ciIdx) {
+            var ciKey = _safeId(ci.id);
+            if (ciIdx > 0) html += '<hr class="lb2-content-item-divider">';
+            var ciSlides = ci.slides || [];
+            if (ciSlides.length) {
+              ciSlides.forEach(function(slide, sIdx) {
+                var st = slide.content || slide.text || '', sh = slide.header || '';
+                html += '<div class="lb2-slide-edit-wrap">';
+                if (sh) html += '<div class="lb2-slide-hdr-lbl">' + escapeHtml(sh) + '</div>';
+                html += '<div class="lb2-slide-edit" contenteditable="true" data-item-id="' + ciKey + '" data-slide-idx="' + sIdx + '"' +
+                  ' onblur="WO.lb2SaveSlideEdit(\'' + ciKey + '\',' + sIdx + ',this.innerText)">' + escapeHtml(st) + '</div>';
+                html += '</div>';
+              });
+            } else {
+              var ciFall = (ci.content && (ci.content.richContent || ci.content.text)) || '';
+              html += '<div class="lb2-slide-edit-wrap"><div class="lb2-slide-edit" contenteditable="true"' +
+                ' data-item-id="' + ciKey + '" data-slide-idx="0"' +
+                ' onblur="WO.lb2SaveSlideEdit(\'' + ciKey + '\',0,this.innerText)">' +
+                (ciFall.indexOf('<') !== -1 ? ciFall : escapeHtml(ciFall)) + '</div></div>';
+            }
+          });
+          html += '</div>'; // lb2-item-content
+          html += '</div>'; // .lb2-page
 
-        // ── Editable liturgy / content / scripture / slides ─────────────────
+        // ── Featured item page (song / liturgy / scripture / slides / video) ─
         } else {
-          html += '<div class="lb2-item-content">';
-          var slides2 = item.slides || [];
-          if (slides2.length) {
-            slides2.forEach(function(slide, sIdx) {
-              var slideText = slide.content || slide.text || '';
-              var slideHdr  = slide.header || '';
-              html += '<div class="lb2-slide-edit-wrap">';
-              if (slideHdr) html += '<div class="lb2-slide-hdr-lbl">' + escapeHtml(slideHdr) + '</div>';
-              html += '<div class="lb2-slide-edit" contenteditable="true"' +
-                ' data-item-id="' + itemKey + '" data-slide-idx="' + sIdx + '"' +
-                ' onblur="WO.lb2SaveSlideEdit(\'' + itemKey + '\',' + sIdx + ',this.innerText)">' +
-                escapeHtml(slideText) + '</div>';
-              html += '</div>';
-            });
+          var item    = entry.item;
+          pageNum++;
+          var isSong   = item.itemType === 'song';
+          var itemKey  = _safeId(item.id);
+          var pageClass = 'lb2-page' + (isSong ? ' lb2-song-page-ro' : ' lb2-editable-page');
+          var badgeClass = 'lb2-item-badge lb2-item-badge--' + (item.itemType || 'content');
+          var badgeLabel = isSong ? 'Song' :
+                           item.itemType === 'liturgy'   ? 'Liturgy'   :
+                           item.itemType === 'scripture' ? 'Scripture' :
+                           item.itemType === 'slides'    ? 'Slides'    :
+                           item.itemType === 'video'     ? 'Video'     : 'Content';
+
+          html += '<div class="' + pageClass + '" id="lb2Page-' + itemKey + '">';
+          html += '<div class="lb2-page-hdr"><div class="lb2-page-hdr-left"><div class="lb2-sec-num">' + pageNum + '</div>';
+          html += '<div class="lb2-page-hdr-info"><div class="lb2-page-title">' + escapeHtml(item.title || 'Untitled') + '</div>';
+          html += '<div class="lb2-page-sec-lbl">' + escapeHtml(sec.title) + '</div></div></div>';
+          html += '<div class="lb2-page-hdr-right"><span class="' + badgeClass + '">' + badgeLabel + '</span>';
+          if (isSong) html += '<span class="lb2-readonly-hint"><i class="fa-solid fa-lock" style="font-size:0.65rem;"></i> Edit in Songbook</span>';
+          html += '</div></div>'; // hdr-right + lb2-page-hdr
+
+          if (isSong) {
+            var song = item._song;
+            html += '<div class="lb2-song-content-ro">';
+            if (song.artist) html += '<div class="lb2-song-artist-ro">by ' + escapeHtml(song.artist) + '</div>';
+            var slides = (song.savedSlides && song.savedSlides.length) ? song.savedSlides
+                       : (song.slides && song.slides.length)           ? song.slides : [];
+            if (slides.length) {
+              slides.forEach(function(slide) {
+                var txt = typeof slide === 'string' ? slide : (slide.content || slide.text || '');
+                if (!txt) return;
+                html += '<div class="lb2-song-slide-ro">' + escapeHtml(txt) + '</div>';
+              });
+            } else if (song.lyrics) {
+              var lines = song.lyrics.split('\n'), block = '';
+              lines.forEach(function(line) {
+                var l = line.trim();
+                if (!l) { if (block) { html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>'; block = ''; } }
+                else    { block += (block ? '\n' : '') + l; }
+              });
+              if (block) html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>';
+            } else {
+              html += '<div class="lb2-song-no-lyrics">No lyrics available &mdash; open in Songbook to add lyrics</div>';
+            }
+            html += '</div>';
+          } else if (item.itemType === 'video') {
+            html += '<div class="lb2-item-content"><div class="lb2-video-ref"><i class="fa-solid fa-video"></i>';
+            html += '<span>' + escapeHtml((item.content && item.content.url) || item.title || 'Video') + '</span></div></div>';
           } else {
-            var fallText = (item.content && (item.content.richContent || item.content.text)) || '';
-            html += '<div class="lb2-slide-edit-wrap">';
-            html += '<div class="lb2-slide-edit" contenteditable="true"' +
-              ' data-item-id="' + itemKey + '" data-slide-idx="0"' +
-              ' onblur="WO.lb2SaveSlideEdit(\'' + itemKey + '\',0,this.innerText)">' +
-              (fallText.indexOf('<') !== -1 ? fallText : escapeHtml(fallText)) + '</div>';
+            html += '<div class="lb2-item-content">';
+            var slides2 = item.slides || [];
+            if (slides2.length) {
+              slides2.forEach(function(slide, sIdx) {
+                var st = slide.content || slide.text || '', sh = slide.header || '';
+                html += '<div class="lb2-slide-edit-wrap">';
+                if (sh) html += '<div class="lb2-slide-hdr-lbl">' + escapeHtml(sh) + '</div>';
+                html += '<div class="lb2-slide-edit" contenteditable="true" data-item-id="' + itemKey + '" data-slide-idx="' + sIdx + '"' +
+                  ' onblur="WO.lb2SaveSlideEdit(\'' + itemKey + '\',' + sIdx + ',this.innerText)">' + escapeHtml(st) + '</div>';
+                html += '</div>';
+              });
+            } else {
+              var fallText = (item.content && (item.content.richContent || item.content.text)) || '';
+              html += '<div class="lb2-slide-edit-wrap"><div class="lb2-slide-edit" contenteditable="true"' +
+                ' data-item-id="' + itemKey + '" data-slide-idx="0"' +
+                ' onblur="WO.lb2SaveSlideEdit(\'' + itemKey + '\',0,this.innerText)">' +
+                (fallText.indexOf('<') !== -1 ? fallText : escapeHtml(fallText)) + '</div></div>';
+            }
             html += '</div>';
           }
-          html += '</div>';
+          html += '</div>'; // .lb2-page
         }
-
-        html += '</div>'; // .lb2-page
       });
     });
 
