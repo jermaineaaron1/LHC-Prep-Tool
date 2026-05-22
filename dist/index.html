@@ -3261,6 +3261,8 @@
       .lhc-topnav-btn { padding: 7px 11px; }
       .lhc-topnav-links { gap: 1px; }
       .lhc-sidebar-toggle { display: flex !important; }
+      /* Topnav must sit above the backdrop overlay (z-index 999) so the toggle is always tappable */
+      .lhc-topnav { z-index: 1001 !important; }
       #main-content-container {
         padding: 0 !important;
         border-radius: 0 !important;
@@ -11170,6 +11172,18 @@ function setupUniversalPasteHandler() {
 // ============================================================
 // SIDEBAR TOGGLE (per screenshot 297)
 // ============================================================
+
+// True when the layout is in overlay-sidebar mode:
+// mobile (≤768px) OR portrait tablet (769–1200px portrait).
+// In overlay mode the sidebar slides over content instead of
+// sitting beside it, so it must default collapsed and must
+// close when the user taps outside it.
+function _isSidebarOverlayMode() {
+  if (window.innerWidth <= 768) return true;
+  if (window.innerWidth <= 1200 && window.matchMedia('(orientation: portrait)').matches) return true;
+  return false;
+}
+
 function toggleSidebar() {
   var root = document.querySelector('.lhc-root');
   var sidebar = document.getElementById('playlistSidebar');
@@ -11183,25 +11197,28 @@ function toggleSidebar() {
   }
 }
 
+// Close the sidebar whenever we are in overlay mode (mobile or portrait tablet).
+// Kept as closeSidebarOnMobile for backward compatibility with existing callers.
 function closeSidebarOnMobile() {
-  if (window.innerWidth <= 768) {
-    var root = document.querySelector('.lhc-root');
-    if (root && !root.classList.contains('sidebar-collapsed')) {
-      root.classList.add('sidebar-collapsed');
-      localStorage.setItem('lhc_sidebar_collapsed', '1');
-      var btn = document.getElementById('sidebarToggleBtn');
-      if (btn) btn.querySelector('i').className = 'fa-solid fa-bars';
-    }
+  if (!_isSidebarOverlayMode()) return;
+  var root = document.querySelector('.lhc-root');
+  if (root && !root.classList.contains('sidebar-collapsed')) {
+    root.classList.add('sidebar-collapsed');
+    localStorage.setItem('lhc_sidebar_collapsed', '1');
+    var btn = document.getElementById('sidebarToggleBtn');
+    if (btn) btn.querySelector('i').className = 'fa-solid fa-bars';
   }
 }
 
 function initSidebar() {
   var root = document.querySelector('.lhc-root');
   if (!root) return;
-  // On mobile (<=768px), default collapsed
-  var isMobile = window.innerWidth <= 768;
+
+  // Overlay mode (mobile + portrait tablet) defaults collapsed.
+  // Desktop / landscape tablet respects the saved preference.
   var saved = localStorage.getItem('lhc_sidebar_collapsed');
-  var shouldCollapse = isMobile ? (saved !== '0') : (saved === '1');
+  var shouldCollapse = _isSidebarOverlayMode() ? (saved !== '0') : (saved === '1');
+
   if (shouldCollapse) {
     root.classList.add('sidebar-collapsed');
     var btn = document.getElementById('sidebarToggleBtn');
@@ -11211,14 +11228,40 @@ function initSidebar() {
     var btn = document.getElementById('sidebarToggleBtn');
     if (btn) btn.querySelector('i').className = 'fa-solid fa-times';
   }
-  // Close sidebar when clicking the backdrop overlay on mobile
+
+  // Tap outside the sidebar to close it — works in ALL overlay modes
   root.addEventListener('click', function(e) {
-    if (window.innerWidth <= 768 && !root.classList.contains('sidebar-collapsed')) {
+    if (_isSidebarOverlayMode() && !root.classList.contains('sidebar-collapsed')) {
       var sidebar = document.getElementById('playlistSidebar');
       if (sidebar && !sidebar.contains(e.target) && !e.target.closest('#sidebarToggleBtn')) {
         closeSidebarOnMobile();
       }
     }
+  });
+
+  // Re-evaluate sidebar state on orientation change so flipping the tablet
+  // automatically collapses (portrait) or restores (landscape) the sidebar.
+  window.addEventListener('orientationchange', function() {
+    setTimeout(function() {
+      var root2 = document.querySelector('.lhc-root');
+      if (!root2) return;
+      var btn2 = document.getElementById('sidebarToggleBtn');
+      if (_isSidebarOverlayMode()) {
+        // Entered portrait/mobile overlay mode — collapse unless user explicitly opened it
+        var sv = localStorage.getItem('lhc_sidebar_collapsed');
+        if (sv !== '0') {
+          root2.classList.add('sidebar-collapsed');
+          if (btn2) btn2.querySelector('i').className = 'fa-solid fa-bars';
+        }
+      } else {
+        // Entered landscape/desktop mode — restore sidebar unless user explicitly closed it
+        var sv2 = localStorage.getItem('lhc_sidebar_collapsed');
+        if (sv2 !== '1') {
+          root2.classList.remove('sidebar-collapsed');
+          if (btn2) btn2.querySelector('i').className = 'fa-solid fa-times';
+        }
+      }
+    }, 300); // wait for orientation to settle before reading dimensions
   });
 }
 
