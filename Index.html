@@ -7498,9 +7498,10 @@ I once was lost but now am found"
   <!-- ==================== SONGBOOK FONT POPOVER ==================== -->
   <!-- ── Songbook floating text-format toolbar ──────────────────────────── -->
   <div id="sbFloatToolbar" style="display:none;position:fixed;z-index:3500;
-    background:#1e293b;border-radius:9px;padding:4px 7px;
-    box-shadow:0 4px 20px rgba(0,0,0,0.45),0 0 0 1px rgba(255,255,255,0.08);
-    align-items:center;gap:3px;pointer-events:auto;user-select:none;">
+    background:#1a2540;border-radius:10px;padding:5px 9px;
+    border:1.5px solid rgba(148,163,184,0.35);
+    box-shadow:0 6px 24px rgba(0,0,0,0.55),0 1px 0 rgba(255,255,255,0.06);
+    align-items:center;gap:4px;pointer-events:auto;user-select:none;">
     <button class="sbft-btn" id="sbftBold"   onclick="WO.sbToggleBold()"      title="Bold"><b>B</b></button>
     <button class="sbft-btn" id="sbftItalic" onclick="WO.sbToggleItalic()"    title="Italic"><em>I</em></button>
     <button class="sbft-btn" id="sbftUline"  onclick="WO.sbToggleUnderline()" title="Underline"><u>U</u></button>
@@ -32341,29 +32342,67 @@ var WO = (function() {
   var _sbFontSettings = { family: 'Georgia,serif', size: '1.05rem', lineHeight: '1.9' };
 
   // 555 — Apply style to current selection in a contenteditable div
+  // Return the single SPAN element that the range covers exactly, or null.
+  // Handles two cases produced by selectNode(span):
+  //   • range.startContainer is the parent element and its child at startOffset is a span
+  //   • range.startContainer is a text node entirely within a span
+  function _sbGetSelectedSpan(range) {
+    var sc = range.startContainer, ec = range.endContainer;
+    // Case A: parent element covers one child span   e.g. after selectNode(span)
+    if (sc.nodeType === 1 && sc === ec && range.startOffset + 1 === range.endOffset) {
+      var child = sc.childNodes[range.startOffset];
+      if (child && child.nodeType === 1 && child.tagName === 'SPAN') return child;
+    }
+    // Case B: text node fully covered, parent is a span
+    if (sc.nodeType === 3 && sc === ec &&
+        range.startOffset === 0 && range.endOffset === sc.length &&
+        sc.parentElement && sc.parentElement.tagName === 'SPAN') {
+      return sc.parentElement;
+    }
+    return null;
+  }
+
   function _sbApplySelectionStyle(styles) {
     var sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
-    // Only act if selection is inside an sb-page-lyrics
-    var node = sel.anchorNode;
+    var range = sel.getRangeAt(0);
+    var node = range.startContainer;
     var container = node ? (node.nodeType === 1 ? node : node.parentElement) : null;
     if (!container || !container.closest('.sb-page-lyrics')) return false;
-    var range = sel.getRangeAt(0);
-    var extracted = range.extractContents();
-    var span = document.createElement('span');
-    Object.keys(styles).forEach(function(k) { span.style[k] = styles[k]; });
-    span.appendChild(extracted);
-    range.insertNode(span);
-    sel.removeAllRanges();
-    var newRange = document.createRange();
-    newRange.selectNode(span);
-    sel.addRange(newRange);
+
+    var styleKeys = Object.keys(styles);
+    // ── In-place update: if the range exactly covers one span, just mutate its style ──
+    var existingSpan = _sbGetSelectedSpan(range);
+    if (existingSpan) {
+      styleKeys.forEach(function(k) { existingSpan.style[k] = styles[k]; });
+      // Re-select so subsequent clicks work on the same span
+      sel.removeAllRanges();
+      var nr = document.createRange(); nr.selectNode(existingSpan); sel.addRange(nr);
+    } else {
+      // ── Wrap: extract selection, clear conflicting inner styles, wrap in new span ──
+      var extracted = range.extractContents();
+      // Prevent nesting conflicts: strip the same properties from any inner spans
+      if (extracted.querySelectorAll) {
+        extracted.querySelectorAll('span').forEach(function(sp) {
+          styleKeys.forEach(function(k) { sp.style[k] = ''; });
+          // Unwrap span if it now has no style and no class
+          if (!sp.getAttribute('style') && !sp.className) {
+            var p = sp.parentNode;
+            if (p) { while (sp.firstChild) p.insertBefore(sp.firstChild, sp); p.removeChild(sp); }
+          }
+        });
+      }
+      var span = document.createElement('span');
+      styleKeys.forEach(function(k) { span.style[k] = styles[k]; });
+      span.appendChild(extracted);
+      range.insertNode(span);
+      sel.removeAllRanges();
+      var nr2 = document.createRange(); nr2.selectNode(span); sel.addRange(nr2);
+    }
+
     // Trigger auto-save via lyrics change
     var lyricsEl = container.closest('.sb-page-lyrics');
-    if (lyricsEl) {
-      var sid = lyricsEl.id.replace('sbLyrics-', '');
-      sbOnLyricsChange(sid);
-    }
+    if (lyricsEl) sbOnLyricsChange(lyricsEl.id.replace('sbLyrics-', ''));
     return true;
   }
 
@@ -32474,11 +32513,25 @@ var WO = (function() {
   function sbFtFontSize(deltaPx) {
     var sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-    var node = sel.anchorNode;
-    var container = node ? (node.nodeType === 1 ? node : node.parentElement) : null;
-    if (!container || !container.closest('.sb-page-lyrics')) return;
-    var currentPx = parseFloat(window.getComputedStyle(container).fontSize) || 17;
-    var newPx = Math.max(8, Math.min(72, Math.round(currentPx) + deltaPx));
+    var range = sel.getRangeAt(0);
+    var sc = range.startContainer;
+
+    // Find the innermost element at the selection start so we read the SPAN's
+    // font-size (not the parent div), enabling repeated clicks to stack correctly.
+    var startEl;
+    if (sc.nodeType === 3) {
+      startEl = sc.parentElement; // text node → owning element (could be a span)
+    } else if (sc.nodeType === 1 && range.startOffset < sc.childNodes.length) {
+      var ch = sc.childNodes[range.startOffset];
+      startEl = (ch && ch.nodeType === 1) ? ch : sc; // child span, or the element itself
+    } else {
+      startEl = sc;
+    }
+
+    if (!startEl || !startEl.closest('.sb-page-lyrics')) return;
+    var currentPx = parseFloat(window.getComputedStyle(startEl).fontSize) || 17;
+    // No hard upper cap — user can increase as many times as they like
+    var newPx = Math.max(4, Math.round(currentPx) + deltaPx);
     _sbApplySelectionStyle({ fontSize: newPx + 'px' });
   }
 
@@ -49704,29 +49757,31 @@ function filterLiturgyItems() {
   /* Songbook floating text-format toolbar */
   #sbFloatToolbar { transition: opacity 0.12s; }
   .sbft-btn {
-    min-width: 28px; height: 28px; padding: 0 5px;
-    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 5px; color: #e2e8f0; cursor: pointer;
-    font-size: 0.78rem; font-family: 'Poppins', sans-serif;
+    min-width: 30px; height: 30px; padding: 0 6px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(148,163,184,0.25);
+    border-radius: 6px; color: #e2e8f0; cursor: pointer;
+    font-size: 0.8rem; font-family: 'Poppins', sans-serif;
     display: flex; align-items: center; justify-content: center; gap: 1px;
-    transition: background 0.15s;
+    transition: background 0.15s, border-color 0.15s;
   }
-  .sbft-btn:hover { background: rgba(255,255,255,0.22); }
-  .sbft-btn.active { background: rgba(99,102,241,0.55); border-color: #818cf8; }
+  .sbft-btn:hover { background: rgba(255,255,255,0.18); border-color: rgba(148,163,184,0.5); }
+  .sbft-btn:active { background: rgba(255,255,255,0.28); }
+  .sbft-btn.active { background: rgba(99,102,241,0.55); border-color: #818cf8; color: #c7d2fe; }
   .sbft-color-btn {
-    width: 18px; height: 18px; border-radius: 50%;
-    border: 2px solid rgba(255,255,255,0.22);
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.25);
     cursor: pointer; padding: 0; flex-shrink: 0;
-    transition: transform 0.15s, border-color 0.15s;
+    transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
   }
-  .sbft-color-btn:hover { transform: scale(1.3); border-color: white; }
-  .sbft-sep { width: 1px; height: 20px; background: rgba(255,255,255,0.18); margin: 0 2px; flex-shrink: 0; }
-  .sbft-size-btn { font-size: 0.72rem; font-weight: 700; }
+  .sbft-color-btn:hover { transform: scale(1.35); border-color: white; box-shadow: 0 0 0 2px rgba(255,255,255,0.2); }
+  .sbft-sep { width: 1px; height: 22px; background: rgba(148,163,184,0.25); margin: 0 3px; flex-shrink: 0; }
+  .sbft-size-btn { font-size: 0.75rem; font-weight: 700; letter-spacing: -0.5px; }
   #sbFloatToolbarArrow {
-    position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
+    position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
     width: 0; height: 0; pointer-events: none;
-    border-left: 6px solid transparent; border-right: 6px solid transparent;
-    border-top: 6px solid #1e293b;
+    border-left: 7px solid transparent; border-right: 7px solid transparent;
+    border-top: 7px solid #1a2540;
+    filter: drop-shadow(0 1px 0 rgba(148,163,184,0.35));
   }
 
   /* Restore-to-original button on song banners in LCD Projection */
