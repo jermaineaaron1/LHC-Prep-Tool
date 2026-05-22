@@ -19919,6 +19919,7 @@ var WO = (function() {
 
           var boxHtml = '<div class="wo-content-box has-content" data-section="' + item.sectionId + '" ondblclick="WO.editContent(this)">' +
             '<div class="wo-content-text">' + escapeHtml(item.content.text) + '</div>' +
+            _mkCASBtn() +
             '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
             '</div>';
           container.insertAdjacentHTML('beforeend', boxHtml);
@@ -23406,6 +23407,7 @@ var WO = (function() {
           if (placeholder) placeholder.parentElement.remove();
           var boxHtml = '<div class="wo-content-box has-content" data-section="' + item.sectionId + '" ondblclick="WO.editContent(this)">' +
             '<div class="wo-content-text">' + escapeHtml(item.content.text) + '</div>' +
+            _mkCASBtn() +
             '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
             '</div>';
           container.insertAdjacentHTML('beforeend', boxHtml);
@@ -23617,12 +23619,14 @@ var WO = (function() {
         var extraAttrs = isScriptureGroup ? ' data-subsection-type="scripture" data-sub-label="' + escapeHtml(sub) + '"' : '';
         return '<div class="wo-content-box" ondblclick="WO.editContent(this)"' + extraAttrs + ' data-section="' + sectionId + '-' + subIdx + '">' +
           '<div class="wo-content-placeholder">Click to add ' + sub + '</div>' +
+          _mkCASBtn() +
           '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
           '</div>';
       }).join('');
     } else {
       subsectionContent = '<div class="wo-content-box" ondblclick="WO.editContent(this)" data-section="' + sectionId + '">' +
         '<div class="wo-content-placeholder">Click to add content</div>' +
+        _mkCASBtn() +
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
         '</div>';
     }
@@ -24888,6 +24892,7 @@ var WO = (function() {
     var boxId = sectionId + '-' + Date.now();
     var html = '<div class="wo-content-box" ondblclick="WO.editContent(this)" data-section="' + boxId + '">' +
       '<div class="wo-content-placeholder">Click to add content</div>' +
+      _mkCASBtn() +
       '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
       '</div>';
     container.insertAdjacentHTML('beforeend', html);
@@ -27826,10 +27831,12 @@ var WO = (function() {
     var text = textarea.value;
     if (text.trim()) {
       box.innerHTML = '<div class="wo-content-text">' + escapeHtml(text) + '</div>' +
+        _mkCASBtn() +
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>';
       box.classList.add('has-content');
     } else {
       box.innerHTML = '<div class="wo-content-placeholder">Click to add content</div>' +
+        _mkCASBtn() +
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>';
       box.classList.remove('has-content');
     }
@@ -27843,10 +27850,12 @@ var WO = (function() {
   function cancelContentEdit(box) {
     if (originalEditText.trim()) {
       box.innerHTML = '<div class="wo-content-text">' + escapeHtml(originalEditText) + '</div>' +
+        _mkCASBtn() +
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>';
       box.classList.add('has-content');
     } else {
       box.innerHTML = '<div class="wo-content-placeholder">Click to add content</div>' +
+        _mkCASBtn() +
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>';
       box.classList.remove('has-content');
     }
@@ -27866,6 +27875,7 @@ var WO = (function() {
     var newBoxHtml = '<div class="wo-content-box' + (hasText ? ' has-content' : '') +
       '" ondblclick="WO.editContent(this)" data-section="' + newBoxId + '">' +
       innerHtml +
+      _mkCASBtn() +
       '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
     '</div>';
 
@@ -39681,45 +39691,71 @@ var WO = (function() {
   // ================================================================
   var _allSlidesCtx = null; // { type, groupId, sectionId }
 
+  // Helper: "All Slides" button HTML for custom content boxes
+  function _mkCASBtn() {
+    return '<button class="wo-content-allslides-btn" onclick="event.stopPropagation();WO.openContentAllSlides(this)" title="All Slides — paste a chunk of text and split into slides"><i class="fa-solid fa-align-left"></i> All Slides</button>';
+  }
+
+  // Open All Slides modal for a custom content box section
+  function openContentAllSlides(triggerEl) {
+    var section = triggerEl ? triggerEl.closest('.wo-worship-section') : null;
+    if (!section) return;
+    openAllSlidesModal('content', section.id, section.id, triggerEl);
+  }
+
   function openAllSlidesModal(type, groupId, sectionId, triggerEl) {
     _allSlidesCtx = { type: type, groupId: groupId, sectionId: sectionId };
 
     var container = $(sectionId + '-boxes');
     if (!container) return;
 
-    var selector = type === 'liturgy'
-      ? '.wo-slide-box[data-liturgy-id="' + groupId + '"]'
-      : '.wo-slide-box[data-song-id="' + groupId + '"]';
+    var slideBoxes, slideHtmlParts, title;
 
-    var slideBoxes = Array.from(container.querySelectorAll(selector));
-
-    // Build per-slide HTML for the contenteditable editor
-    // Each .wo-slide-line becomes a <p> — preserves rich formatting stored in innerHTML
-    var slideHtmlParts = slideBoxes.map(function(box) {
-      var content = box.querySelector('.wo-slide-content');
-      if (!content) return '<p><br></p>';
-      var ta = content.querySelector('textarea');
-      if (ta) {
-        // Slide currently in edit mode — use plain text from textarea
-        return ta.value.split('\n').map(function(l) {
+    if (type === 'content') {
+      // Custom content boxes — treat each box as one slide
+      slideBoxes = Array.from(container.querySelectorAll('.wo-content-box:not(.wo-slide-box)'));
+      slideHtmlParts = (slideBoxes.length ? slideBoxes : [null]).map(function(box) {
+        if (!box) return '<p><br></p>';
+        var textEl = box.querySelector('.wo-content-text');
+        var text = textEl ? textEl.textContent : '';
+        if (!text.trim()) return '<p><br></p>';
+        return text.split('\n').map(function(l) {
           return '<p>' + (l ? escapeHtml(l) : '<br>') + '</p>';
         }).join('');
-      }
-      var lineEls = Array.from(content.querySelectorAll('.wo-slide-line'));
-      if (lineEls.length === 0) return '<p><br></p>';
-      return lineEls.map(function(l) {
-        if (l.classList.contains('wo-slide-empty-hint')) return '<p><br></p>';
-        var html = l.innerHTML.trim();
-        return '<p>' + (html || '<br>') + '</p>';
-      }).join('');
-    });
-
-    var bannerSelector = type === 'liturgy'
-      ? '.wo-liturgy-banner-bar[data-liturgy-id="' + groupId + '"]'
-      : '.wo-song-banner[data-song-id="' + groupId + '"]';
-    var banner = container.querySelector(bannerSelector);
-    var infoEl = banner ? banner.querySelector('.wo-song-banner-info, .wo-liturgy-banner-info') : null;
-    var title = infoEl ? infoEl.textContent.trim() : 'All Slides';
+      });
+      var _secEl2 = document.getElementById(sectionId);
+      title = _secEl2 ? ((_secEl2.querySelector('.wo-section-title') || {}).textContent || 'Custom Content').trim() : 'Custom Content';
+    } else {
+      var selector = type === 'liturgy'
+        ? '.wo-slide-box[data-liturgy-id="' + groupId + '"]'
+        : '.wo-slide-box[data-song-id="' + groupId + '"]';
+      slideBoxes = Array.from(container.querySelectorAll(selector));
+      // Build per-slide HTML for the contenteditable editor
+      // Each .wo-slide-line becomes a <p> — preserves rich formatting stored in innerHTML
+      slideHtmlParts = slideBoxes.map(function(box) {
+        var content = box.querySelector('.wo-slide-content');
+        if (!content) return '<p><br></p>';
+        var ta = content.querySelector('textarea');
+        if (ta) {
+          return ta.value.split('\n').map(function(l) {
+            return '<p>' + (l ? escapeHtml(l) : '<br>') + '</p>';
+          }).join('');
+        }
+        var lineEls = Array.from(content.querySelectorAll('.wo-slide-line'));
+        if (lineEls.length === 0) return '<p><br></p>';
+        return lineEls.map(function(l) {
+          if (l.classList.contains('wo-slide-empty-hint')) return '<p><br></p>';
+          var html = l.innerHTML.trim();
+          return '<p>' + (html || '<br>') + '</p>';
+        }).join('');
+      });
+      var bannerSelector = type === 'liturgy'
+        ? '.wo-liturgy-banner-bar[data-liturgy-id="' + groupId + '"]'
+        : '.wo-song-banner[data-song-id="' + groupId + '"]';
+      var banner = container.querySelector(bannerSelector);
+      var infoEl = banner ? banner.querySelector('.wo-song-banner-info, .wo-liturgy-banner-info') : null;
+      title = infoEl ? infoEl.textContent.trim() : 'All Slides';
+    }
 
     // Lazy-create modal — use position:fixed directly, no wrapper overlay needed
     var modal = $('woAllSlidesModal');
@@ -39960,6 +39996,29 @@ var WO = (function() {
 
     var container = $(sectionId + '-boxes');
     if (!container) { closeAllSlidesModal(); return; }
+
+    // ── Content-type: rebuild custom content boxes ────────────────────────────
+    if (type === 'content') {
+      Array.from(container.querySelectorAll('.wo-content-box:not(.wo-slide-box)')).forEach(function(b) { b.remove(); });
+      var _casBtnHtml = _mkCASBtn();
+      slideTexts.forEach(function(text, idx) {
+        var hasContent = text.trim() !== '';
+        var boxId = sectionId + '-cb-' + Date.now() + '-' + idx;
+        var innerHtml = hasContent
+          ? '<div class="wo-content-text">' + escapeHtml(text) + '</div>'
+          : '<div class="wo-content-placeholder">Click to add content</div>';
+        var boxHtml = '<div class="wo-content-box' + (hasContent ? ' has-content' : '') +
+          '" ondblclick="WO.editContent(this)" data-section="' + boxId + '">' +
+          innerHtml + _casBtnHtml +
+          '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
+          '</div>';
+        container.insertAdjacentHTML('beforeend', boxHtml);
+      });
+      closeAllSlidesModal();
+      showToast('Content slides updated', 'success');
+      autoSaveOrder();
+      return;
+    }
 
     var isLiturgy = type === 'liturgy';
     var slideSelector = isLiturgy
@@ -44024,6 +44083,7 @@ var WO = (function() {
     lb2ToggleFullscreen: lb2ToggleFullscreen,
     lb2OpenBookMode: lb2OpenBookMode,
     lb2BreakDragStart: lb2BreakDragStart,
+    openContentAllSlides: openContentAllSlides,
     lb2ItemBreakDragStart: lb2ItemBreakDragStart,
     lb2SaveSlideEdit: lb2SaveSlideEdit,
     printSingleSong: printSingleSong,
@@ -49987,6 +50047,16 @@ function filterLiturgyItems() {
   .wo-local-slides .wo-slides-header { background: linear-gradient(135deg, #7c3aed, #8b5cf6); }
   .wo-delete-btn { background: #dc3545; color: white; border: none; border-radius: 4px; width: 22px; height: 22px; font-size: 0.7rem; cursor: pointer; position: absolute; top: 5px; right: 5px; opacity: 0; transition: opacity 0.2s; }
   .wo-content-box:hover .wo-delete-btn { opacity: 1; }
+  .wo-content-allslides-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 9px; background: rgba(109,40,217,0.07);
+    border: 1px solid rgba(109,40,217,0.22); border-radius: 12px;
+    color: #7c3aed; font-size: 0.66rem; font-weight: 600; cursor: pointer;
+    font-family: 'Poppins', sans-serif; white-space: nowrap;
+    position: absolute; bottom: 5px; left: 8px;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .wo-content-box:hover .wo-content-allslides-btn { opacity: 1; }
 
   /* Auto-generated Lyrics Content Boxes */
   .wo-lyrics-box { background: #f0f4ff; }
