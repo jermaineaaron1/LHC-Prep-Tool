@@ -30077,9 +30077,34 @@ var WO = (function() {
     if (!window.SBQ || !window.SBQ.loadOrder) {
       showToast('Could not connect to order system', 'error'); return;
     }
-    showToast('Opening songbook…', 'info');
-    SBQ.loadOrder(orderId).then(function(result) {
-      if (!result || !result.order) { showToast('Order not found', 'error'); return; }
+    // Show the modal immediately with a loading spinner so team members see progress
+    // even on a slow network, rather than staring at a blank screen
+    var _sbLModal = $('songbookLiveModal');
+    var _sbLBody  = $('sbBody');
+    if (_sbLModal && _sbLBody) {
+      _sbLBody.innerHTML =
+        '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+        'min-height:60vh;gap:16px;color:#94a3b8;text-align:center;padding:40px;">' +
+        '<i class="fa-solid fa-book-open fa-spin" style="font-size:2.5rem;opacity:0.5;"></i>' +
+        '<p style="font-size:1rem;font-weight:600;color:#64748b;margin:0;">Loading songbook…</p>' +
+        '<p style="font-size:0.82rem;margin:0;opacity:0.7;">Fetching songs from the cloud</p>' +
+        '</div>';
+      _sbLModal.style.display = 'flex';
+    }
+    function _doRetry(attempts) {
+      SBQ.loadOrder(orderId).then(function(result) {
+        if (!result || !result.order) {
+          if (_sbLBody) _sbLBody.innerHTML =
+            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+            'min-height:60vh;gap:14px;color:#94a3b8;text-align:center;padding:40px;">' +
+            '<i class="fa-solid fa-circle-exclamation" style="font-size:2rem;color:#f87171;"></i>' +
+            '<p style="font-size:1rem;font-weight:600;color:#64748b;margin:0;">Order not found</p>' +
+            '<button onclick="WO.openSongbookByOrderId(\'' + escapeHtml(orderId) + '\')" ' +
+            'style="padding:8px 20px;background:#6366f1;color:white;border:none;border-radius:8px;' +
+            'font-size:0.85rem;font-weight:600;cursor:pointer;">Try Again</button>' +
+            '</div>';
+          return;
+        }
       var orderMeta = result.order;
       var items = (result.items || []).slice().sort(function(a, b) { return (a.sortOrder||0) - (b.sortOrder||0); });
       var songs = [];
@@ -30134,11 +30159,32 @@ var WO = (function() {
         createdBy: orderMeta.createdBy || ''
       };
       songOrderSections = songs;
-      openSongbook();
-    }).catch(function(err) {
-      showToast('Could not load songbook', 'error');
-      console.error('openSongbookByOrderId error:', err);
-    });
+        openSongbook();
+      }).catch(function(err) {
+        console.error('openSongbookByOrderId error:', err);
+        // Auto-retry up to 2 times before showing the error state
+        if (attempts < 2) {
+          setTimeout(function() { _doRetry(attempts + 1); }, 2000 * (attempts + 1));
+          if (_sbLBody) {
+            var retryMsg = _sbLBody.querySelector('p:last-of-type');
+            if (retryMsg) retryMsg.textContent = 'Retrying… (' + (attempts + 1) + '/2)';
+          }
+        } else {
+          if (_sbLBody) _sbLBody.innerHTML =
+            '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+            'min-height:60vh;gap:14px;color:#94a3b8;text-align:center;padding:40px;">' +
+            '<i class="fa-solid fa-wifi" style="font-size:2rem;color:#f87171;"></i>' +
+            '<p style="font-size:1rem;font-weight:600;color:#64748b;margin:0;">Could not load songbook</p>' +
+            '<p style="font-size:0.82rem;margin:0;opacity:0.7;">Check your connection and try again</p>' +
+            '<button onclick="WO.openSongbookByOrderId(\'' + escapeHtml(orderId) + '\')" ' +
+            'style="padding:8px 20px;background:#6366f1;color:white;border:none;border-radius:8px;' +
+            'font-size:0.85rem;font-weight:600;cursor:pointer;">Try Again</button>' +
+            '</div>';
+          showToast('Could not load songbook', 'error');
+        }
+      });
+    }
+    _doRetry(0);
   }
 
   // Open the full WO songbook for a standalone songbook (created from Song Finder).
@@ -30281,6 +30327,10 @@ var WO = (function() {
     // 343: seed sbPaths from stored annotations — clear first to avoid stale data
     sbPaths = {};
     sbImgPaths = {};
+    // Seed transpose tracking + clear stale lyric caches so re-opens start clean
+    sbTransposeSteps = {};
+    songOriginalLyrics = {};
+    songOriginalRichLyrics = {};
     songOrderSections.forEach(function(song) {
       if (Array.isArray(song.annotations) && song.annotations.length > 0) {
         sbPaths[song.id] = song.annotations.slice();
@@ -30294,6 +30344,11 @@ var WO = (function() {
           }
         });
       }
+      // Seed transpose steps from saved state so buttons work correctly from first click
+      if (song.transposeSteps) sbTransposeSteps[song.id] = song.transposeSteps;
+      // Cache original (un-transposed) lyrics as baseline for sbTranspose()
+      songOriginalLyrics[song.id] = song.masterLyrics || song.lyrics || '';
+      songOriginalRichLyrics[song.id] = song.richLyrics || formatLyricsWithHighlights(songOriginalLyrics[song.id]);
     });
     sbSetSaveStatus('');
 
@@ -30361,6 +30416,7 @@ var WO = (function() {
       _sbStandaloneId = null;
     }
     if (_sbResizeHandler) { window.removeEventListener('resize', _sbResizeHandler); _sbResizeHandler = null; }
+    clearTimeout(_sbPendingRemoteRenderTimer); _sbPendingRemoteRenderTimer = null;
     sbStopFastSync();      // 349: stop BroadcastChannel + GAS polling
     sbStopRealtimeSync();  // disconnect Supabase Realtime channel
     var modal = $('songbookLiveModal');
@@ -30382,6 +30438,31 @@ var WO = (function() {
     var drawExtras = $('sbDrawExtras');
     if (drawExtras) drawExtras.style.display = 'none';
     sbCurrentSongId = null;
+  }
+
+  // Apply N semitones of transposition to an HTML lyrics string.
+  // Mirrors the chord-line traversal logic in sbTranspose().
+  function _sbTransposeHtml(html, steps) {
+    if (!steps || !html) return html;
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    var walker = document.createTreeWalker(temp, NodeFilter.SHOW_TEXT, null, false);
+    var tNode;
+    while ((tNode = walker.nextNode())) {
+      var parentEl  = tNode.parentElement;
+      var cls = parentEl ? (parentEl.className || '') : '';
+      if (cls.indexOf('wo-lyrics-chord-line') >= 0) {
+        tNode.textContent = sbTransposeChordLine(tNode.textContent, steps);
+      } else if (cls.indexOf('wo-lyrics-lyric-line') >= 0 ||
+                 cls.indexOf('wo-lyrics-section-header') >= 0 ||
+                 cls.indexOf('wo-lyrics-empty-line') >= 0) {
+        // lyric text — do not transpose
+      } else {
+        // legacy inline format (no section class) — broad chord regex
+        tNode.textContent = transposeAllChords(tNode.textContent, steps);
+      }
+    }
+    return temp.innerHTML;
   }
 
   function renderSongbookLive() {
@@ -30779,10 +30860,13 @@ var WO = (function() {
       }
 
       // ── Song page ─────────────────────────────────────────────────────────
-      var lyricsHtml = song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
       var key = song.key || '';
       var steps = sbTransposeSteps[item.sid] || sbTransposeSteps[song.id] || 0;
       var keyDisplay = key ? (steps !== 0 ? key + ' (' + (steps > 0 ? '+' : '') + steps + ')' : key) : '';
+      // Always render from the un-transposed source, then apply saved steps so
+      // remote devices and page reloads show the correct transposition immediately.
+      var lyricsHtml = song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
+      if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
 
       // Collect all docs for this song (filter out library docs the user removed from songbook)
       var removedDocUrls = Array.isArray(song.removedLibraryDocUrls) ? song.removedLibraryDocUrls : [];
@@ -33872,9 +33956,10 @@ var WO = (function() {
         }
       }
 
-      // Transpose
+      // Transpose — also update sbTransposeSteps so buttons work correctly after sync
       if (typeof inc.transposeSteps === 'number' && inc.transposeSteps !== song.transposeSteps) {
         song.transposeSteps = inc.transposeSteps;
+        sbTransposeSteps[song.id] = inc.transposeSteps;
         needsRender = true;
       }
 
@@ -33899,8 +33984,25 @@ var WO = (function() {
       if (Array.isArray(inc.sbLinks))       { song.sbLinks       = inc.sbLinks;       needsRender = true; }
     });
 
-    if (needsRender) sbSyncFromRemote();
+    if (needsRender) {
+      // Don't clobber a lyrics field the user is actively typing in.
+      // Defer the re-render by 2.5s; if they're still editing then, skip it —
+      // their next auto-save will push a fresh broadcast that the devices can apply.
+      var _ae = document.activeElement;
+      var _editingLyrics = _ae && _ae.id && _ae.id.indexOf('sbLyrics-') === 0 && _ae.isContentEditable;
+      if (_editingLyrics) {
+        clearTimeout(_sbPendingRemoteRenderTimer);
+        _sbPendingRemoteRenderTimer = setTimeout(function() {
+          var ae2 = document.activeElement;
+          if (!ae2 || !ae2.id || ae2.id.indexOf('sbLyrics-') !== 0) sbSyncFromRemote();
+        }, 2500);
+      } else {
+        sbSyncFromRemote();
+      }
+    }
   }
+
+  var _sbPendingRemoteRenderTimer = null;
 
   // ─────────────────────────────────────────────────────────────────────────
 
