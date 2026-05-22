@@ -2671,7 +2671,8 @@
     }
 
     /* ===== WO — TABLET PORTRAIT/LANDSCAPE (769–1024px) ===== */
-    @media (min-width: 769px) and (max-width: 1024px) {
+    /* WO preview panel: only shrink to 300px in landscape tablet; portrait uses overlay */
+    @media (min-width: 769px) and (max-width: 1024px) and (orientation: landscape) {
       .wo-preview-panel { width: 300px !important; min-width: 260px !important; }
       .wo-worship-order { max-width: calc(100% - 300px) !important; }
       .wo-preview-fab { display: none !important; }
@@ -3210,8 +3211,8 @@
       }
     }
 
-    /* ==================== PHASE 1: TABLET LAYOUT (769–1024px) ==================== */
-    @media (min-width: 769px) and (max-width: 1024px) {
+    /* ==================== PHASE 1: TABLET LAYOUT (769–1024px, LANDSCAPE) ==================== */
+    @media (min-width: 769px) and (max-width: 1024px) and (orientation: landscape) {
       .lhc-root {
         grid-template-columns: 230px 1fr !important;
         gap: 1rem;
@@ -3220,8 +3221,84 @@
       .lhc-topnav-btn span { display: none; }
       .lhc-topnav-btn { padding: 7px 11px; }
       .lhc-topnav-links { gap: 1px; }
-      /* Ensure sidebar shows on tablet (not hidden by sidebar-collapsed logic) */
+      /* Ensure sidebar shows on landscape tablet (not hidden by sidebar-collapsed logic) */
       #playlistSidebar { display: flex !important; position: relative !important; transform: none !important; }
+    }
+
+    /* ==================== TABLET PORTRAIT (769–1200px, PORTRAIT) ==================== */
+    @media (orientation: portrait) and (min-width: 769px) and (max-width: 1200px) {
+      .lhc-root {
+        grid-template-columns: minmax(0, 1fr) !important;
+        padding: 0 !important;
+        gap: 0 !important;
+      }
+      #playlistSidebar {
+        position: fixed !important;
+        top: 0 !important; left: 0 !important; bottom: 0 !important;
+        width: 280px !important;
+        z-index: 1000 !important;
+        border-radius: 0 !important;
+        box-shadow: 4px 0 20px rgba(0,0,0,0.3) !important;
+        transition: transform 0.3s ease !important;
+      }
+      .sidebar-collapsed #playlistSidebar {
+        display: flex !important;
+        transform: translateX(-100%) !important;
+        pointer-events: none !important;
+      }
+      .lhc-root:not(.sidebar-collapsed) #playlistSidebar {
+        transform: translateX(0) !important;
+        pointer-events: auto !important;
+      }
+      .lhc-root:not(.sidebar-collapsed)::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.4);
+        z-index: 999;
+      }
+      .lhc-topnav-btn span { display: none; }
+      .lhc-topnav-btn { padding: 7px 11px; }
+      .lhc-topnav-links { gap: 1px; }
+      .lhc-sidebar-toggle { display: flex !important; }
+      #main-content-container {
+        padding: 0 !important;
+        border-radius: 0 !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+      }
+      #homeView, #songFinderView, #worshipRosterView,
+      #worshipOrderView, #liturgyView, #practiceGameView {
+        padding: 10px 12px 0 !important;
+      }
+      .home-content-grid { grid-template-columns: 1fr; gap: 10px; }
+      .home-btn-text { display: none; }
+      #homeUpcomingServices { overflow-x: hidden; }
+      .home-roster-table {
+        table-layout: fixed; width: 100%; min-width: unset; font-size: 0.78rem;
+      }
+      .home-roster-table th, .home-roster-table td { padding: 6px 5px; font-size: 0.78rem; }
+      .home-roster-table th:first-child, .home-roster-table td:first-child {
+        width: 27%; min-width: unset; max-width: unset; padding-left: 5px;
+        white-space: normal; word-break: break-word;
+      }
+      .home-roster-table th { white-space: normal; line-height: 1.3; vertical-align: top; }
+      .home-roster-table td:not(:first-child) { word-break: break-word; white-space: normal; }
+      .wo-main-content { flex-direction: column !important; }
+      .wo-worship-order { max-width: 100% !important; width: 100% !important; padding: 12px !important; }
+      .wo-preview-panel {
+        position: fixed !important;
+        top: 0 !important; right: 0 !important; bottom: 0 !important;
+        width: 100% !important; min-width: 0 !important;
+        max-height: 100vh !important; overflow-y: auto !important;
+        padding: 12px !important;
+        border-top: none !important; border-radius: 0 !important;
+        transform: translateX(100%) !important;
+        transition: transform 0.32s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
+        z-index: 500 !important;
+      }
+      .wo-preview-panel.panel-open { transform: translateX(0) !important; }
+      .wo-preview-fab { display: flex !important; }
     }
 
     /* ==================== PHASE 1: SKELETON LOADERS ==================== */
@@ -30229,8 +30306,7 @@ var WO = (function() {
     modal.style.display = 'flex';
     var goBtn = document.getElementById('sbGoToOrderBtn');
     if (goBtn) goBtn.style.display = 'none'; // standalone — no "Go to Order"
-    sbStartFastSync();
-    sbStartRealtimeSync();
+    setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); }, 2000);
   }
 
   function openSongbook() {
@@ -30308,12 +30384,14 @@ var WO = (function() {
       renderSongbookLive();
       sbLoadFontSettings();
       modal.style.display = 'flex';
+      _sbBindFloatToolbar(); // attach floating text-format toolbar
       // Show "Go to Order" button only for order-based songbooks
       var goBtn = document.getElementById('sbGoToOrderBtn');
       if (goBtn) goBtn.style.display = (_sbStandaloneId === null && currentOrderData && currentOrderData.id) ? 'flex' : 'none';
-      sbStartFastSync();
-      sbStartRealtimeSync();
-      _sbBindFloatToolbar(); // attach floating text-format toolbar
+      // Delay sync startup by 2s: lets the initial render settle and prevents the
+      // fast-sync poll + Realtime subscription from competing with the initial Supabase
+      // data load (which is especially important on slow/congested networks).
+      setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); }, 2000);
     }
 
     // Ensure occasion is populated before rendering so it always shows correctly
