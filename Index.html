@@ -18106,6 +18106,53 @@ var SBQ = {
         if (r.error) throw new Error(r.error.message);
         return { success: true };
       });
+  },
+
+  // Lightweight sync write — updates only customizations/content on order_items and
+  // bumps last_edited on the parent order so the 4-second poll on other devices sees
+  // a fresh timestamp and applies the change.  Much cheaper than the full saveOrder
+  // (no delete-and-reinsert) and called on a 4s idle debounce during Songbook use.
+  syncItems: function(orderId, snapshots) {
+    var sb = SBQ._sb();
+    if (!sb || !orderId || !snapshots || !snapshots.length) return Promise.resolve();
+    var now = new Date().toISOString();
+    var rows = snapshots
+      .filter(function(snap) { return !!snap.id; })
+      .map(function(snap) {
+        return {
+          id:             snap.id,
+          order_id:       orderId,
+          customizations: {
+            annotations:      snap.annotations     || [],
+            imgAnnotations:   snap.imgAnnotations   || {},
+            transposeSteps:   snap.transposeSteps   || 0,
+            liturgistNotes:   snap.liturgistNotes   || '',
+            customRichLyrics: snap.richLyrics != null ? snap.richLyrics : null
+          },
+          content: {
+            textAnnotations: snap.textAnnotations || [],
+            sbLyricsColumns: snap.sbLyricsColumns || 1,
+            customYoutube:   snap.customYoutube   || [],
+            customDocs:      snap.customDocs      || [],
+            sbLinks:         snap.sbLinks         || []
+          },
+          slides:      snap.slides || [],
+          last_edited: now
+        };
+      });
+    // Touch the order row's last_edited so the poll's timestamp check fires on other devices
+    return sb.from('orders')
+      .update({ last_edited: now })
+      .eq('id', orderId)
+      .then(function() {
+        if (!rows.length) return;
+        return sb.from('order_items')
+          .upsert(rows, { onConflict: 'id' })
+          .then(function(r) {
+            if (r.error) console.warn('[SyncItems] upsert error:', r.error.message);
+          });
+      })
+      .catch(function(e) { console.warn('[SyncItems] failed:', e); });
   }
 };
 
@@ -30146,6 +30193,8 @@ var WO = (function() {
   var sbBroadcastDebounce = null; // short debounce for Realtime broadcast
   var _sbLastPollTs = 0;         // epoch ms of last Supabase poll — skip own writes
   var _sbPolling = false;        // guard to prevent concurrent polls
+  var _sbSyncWriteTimer = null;  // 4-second debounce for lightweight sync write
+  var _sbLastRealtimeBroadcastTs = 0; // epoch ms of last received Realtime broadcast
 
   // Resolve 'wo-section-N' or a serviceSectionId to the canonical serviceSectionId
   function sbResolveSectionId(sectionId) {
@@ -30562,6 +30611,7 @@ var WO = (function() {
     }
     if (_sbResizeHandler) { window.removeEventListener('resize', _sbResizeHandler); _sbResizeHandler = null; }
     clearTimeout(_sbPendingRemoteRenderTimer); _sbPendingRemoteRenderTimer = null;
+    clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null; // cancel pending 4s sync write
     sbStopFastSync();      // 349: stop BroadcastChannel + GAS polling
     sbStopRealtimeSync();  // disconnect Supabase Realtime broadcast channel
     // Presence-aware save on close: only flush if we are the last user with this songbook open.
@@ -33898,37 +33948,54 @@ var WO = (function() {
   var _sbSaveDeadline = 0;         // timestamp when the pending save will fire
 
   function sbAutoSave() {
-    // Broadcast: 150ms debounce — pushes state to all devices via Supabase Realtime
-    // and same-browser tabs via BroadcastChannel, well before the DB write fires.
+    // ── Tier 1: Realtime broadcast (150ms) ─────────────────────────────────
+    // Instantly pushes the full song state to all connected devices.
+    // Falls through to Tier 2 as a guaranteed fallback for unreliable connections.
     clearTimeout(sbBroadcastDebounce);
     sbBroadcastDebounce = setTimeout(function() {
       sbBroadcastPatch();   // cross-device (Supabase Realtime)
       sbBroadcastChange();  // same-browser tabs (BroadcastChannel)
     }, 150);
 
-    // Supabase persist: 30-second idle debounce.
-    // Every new change resets the 30s clock so rapid activity (transposing, typing,
-    // colour picks, undo/redo) doesn't trigger a flood of DB writes.
-    var SAVE_DELAY = 30000;
+    // ── Tier 2: Lightweight sync write (4s idle) ────────────────────────────
+    // Writes only the per-song customizations to Supabase and bumps last_edited
+    // on the order row so the 4-second poll on other devices sees a fresh timestamp.
+    // This ensures cross-device sync within ~4s even when Realtime is unavailable.
+    clearTimeout(_sbSyncWriteTimer);
+    _sbSyncWriteTimer = setTimeout(function() {
+      if (!currentOrderData || !currentOrderData.id) return;
+      var snapshots = songOrderSections
+        .filter(function(s) { return !!s.id; })
+        .map(sbBuildSongSnapshot);
+      SBQ.syncItems(currentOrderData.id, snapshots)
+        .catch(function(e) { console.warn('[SyncWrite] failed:', e); });
+    }, 4000);
+
+    // ── Tier 3: Full persist (15s idle) ────────────────────────────────────
+    // Full saveCurrentOrder() — authoritative, includes all metadata, slides,
+    // media, etc.  The countdown in the header lets users see when it will fire
+    // and tap to save immediately.
+    var SAVE_DELAY = 15000;
     _sbSaveDeadline = Date.now() + SAVE_DELAY;
     clearTimeout(sbAutoSaveTimer);
     sbAutoSaveTimer = setTimeout(function() {
+      clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null; // full save covers Tier 2
       clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
       sbSetSaveStatus('saving');
       _sbLastPollTs = Date.now();
       saveCurrentOrder();
     }, SAVE_DELAY);
 
-    // Kick off (or reset) the countdown ticker so the header shows "Saving in 29s…"
+    // Countdown ticker — shows "● Unsaved (14s)" ticking down in the header
     if (!_sbCountdownInterval) {
-      sbSetSaveStatus('pending', 30);
+      sbSetSaveStatus('pending', 15);
       _sbCountdownInterval = setInterval(function() {
         var secs = Math.ceil((_sbSaveDeadline - Date.now()) / 1000);
         if (secs <= 0) { clearInterval(_sbCountdownInterval); _sbCountdownInterval = null; return; }
         sbSetSaveStatus('pending', secs);
       }, 1000);
     } else {
-      // Already ticking — just let the interval update naturally; no flicker needed
+      // Already ticking — just update the displayed seconds
       sbSetSaveStatus('pending', Math.ceil((_sbSaveDeadline - Date.now()) / 1000));
     }
   }
@@ -33937,6 +34004,7 @@ var WO = (function() {
   function sbFlushSave() {
     if (!sbAutoSaveTimer) return;
     clearTimeout(sbAutoSaveTimer); sbAutoSaveTimer = null;
+    clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null; // full save covers Tier 2
     clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
     sbSetSaveStatus('saving');
     _sbLastPollTs = Date.now();
@@ -33988,8 +34056,10 @@ var WO = (function() {
     if (!sbFastSyncInterval) {
       _sbLastPollTs = Date.now();
       sbFastSyncInterval = setInterval(function() {
-        // Only poll when Realtime is NOT connected and songbook is visible
-        if (sbRealtimeReady) return;
+        // Poll always runs as a guaranteed safety net.
+        // Skip only when Realtime delivered a broadcast very recently (within 6s) —
+        // that means the state is already current and a DB round-trip is unnecessary.
+        if (sbRealtimeReady && Date.now() - _sbLastRealtimeBroadcastTs < 6000) return;
         if (document.visibilityState !== 'visible') return;
         if (!currentOrderData || !currentOrderData.id || _sbPolling) return;
 
@@ -33997,8 +34067,10 @@ var WO = (function() {
         SBQ.loadOrder(currentOrderData.id).then(function(result) {
           _sbPolling = false;
           if (!result || !result.items) return;
-          // Check if remote updated_at is newer than our last poll
-          var remoteTs = result.updated_at ? new Date(result.updated_at).getTime() : 0;
+          // SBQ.loadOrder returns { order: { lastEdited, ... }, items: [...] }
+          // (NOT result.updated_at — that was the old broken check)
+          var remoteTs = (result.order && result.order.lastEdited)
+            ? new Date(result.order.lastEdited).getTime() : 0;
           if (remoteTs <= _sbLastPollTs) return;
           _sbLastPollTs = remoteTs;
 
@@ -34265,6 +34337,10 @@ var WO = (function() {
       if (Array.isArray(inc.customDocs))    { song.customDocs    = inc.customDocs;    needsRender = true; }
       if (Array.isArray(inc.sbLinks))       { song.sbLinks       = inc.sbLinks;       needsRender = true; }
     });
+
+    // Record that Realtime just delivered a broadcast so the 4s poll can skip its
+    // DB round-trip (state is already current).
+    _sbLastRealtimeBroadcastTs = Date.now();
 
     if (needsRender) {
       // Don't clobber a lyrics field the user is actively typing in.
