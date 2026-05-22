@@ -19660,11 +19660,32 @@ var WO = (function() {
   }
 
   function backToMainMenu() {
-    saveImmediately(); // flush pending autosave so deletions aren't lost
-    $('woEditor').style.display = 'none';
-    $('woMainMenu').style.display = 'block';
-    hideNewOrderOptions();
-    hideSavedOrders();
+    // Show a brief save overlay so the user knows their changes are being
+    // written before the editor closes — prevents data loss on fast navigation.
+    var overlay = document.createElement('div');
+    overlay.id = 'woSaveOverlay';
+    overlay.innerHTML =
+      '<div class="wso-icon"><i class="fa-solid fa-floppy-disk"></i></div>' +
+      '<div class="wso-text">Saving your order…</div>' +
+      '<div class="wso-sub">Just a moment, please don\'t close the app</div>';
+    document.body.appendChild(overlay);
+
+    function _doNavigate() {
+      var ov = document.getElementById('woSaveOverlay');
+      if (ov) ov.remove();
+      $('woEditor').style.display = 'none';
+      $('woMainMenu').style.display = 'block';
+      hideNewOrderOptions();
+      hideSavedOrders();
+    }
+
+    var _savePromise = null;
+    try { _savePromise = saveCurrentOrder(true); } catch(e) {}
+    var _timeout = setTimeout(_doNavigate, 2000);
+    if (_savePromise && typeof _savePromise.then === 'function') {
+      _savePromise.then(function() { clearTimeout(_timeout); _doNavigate(); })
+                  .catch(function() { clearTimeout(_timeout); _doNavigate(); });
+    }
   }
 
   function getOrders() {
@@ -20093,7 +20114,8 @@ var WO = (function() {
     if (!silent) console.log('Order payload:', JSON.stringify(orderPayload, null, 2));
 
     // Save directly to Supabase (bypasses GAS proxy for ~100ms vs ~2-3s round-trip)
-    SBQ.saveOrder(orderPayload).then(function(result) {
+    // Return the promise so callers (e.g. backToMainMenu) can chain .then()
+    return SBQ.saveOrder(orderPayload).then(function(result) {
         if (result && result.success) {
           currentOrderData.id = result.id;
           currentOrderData.lastEdited = result.lastEdited;
@@ -36958,6 +36980,7 @@ var WO = (function() {
       '<button class="wo-slide-nav-btn" onclick="event.stopPropagation(); WO.navigateSectionSlide(\'' + sectionId + '\', -1)" title="Previous slide"><i class="fa-solid fa-chevron-up"></i></button>' +
       '<button class="wo-slide-nav-btn" onclick="event.stopPropagation(); WO.navigateSectionSlide(\'' + sectionId + '\', 1)" title="Next slide"><i class="fa-solid fa-chevron-down"></i></button>' +
       '<button class="wo-all-slides-btn" onclick="event.stopPropagation(); WO.openAllSlidesModal(\'song\', \'' + songSection.id + '\', \'' + sectionId + '\', this)" title="View and edit all slides as text"><i class="fa-solid fa-align-left"></i> All Slides</button>' +
+      '<button class="wo-restore-slides-btn" onclick="event.stopPropagation(); WO.restoreSongSlides(\'' + sectionId + '\', \'' + songSection.id + '\')" title="Restore slides to original lyrics from Song Order"><i class="fa-solid fa-rotate-left"></i> Restore</button>' +
       '<button class="wo-song-banner-remove" onclick="event.stopPropagation(); WO.removeSongFromSection(this, \'' + sectionId + '\', \'' + songSection.id + '\')"><i class="fa-solid fa-times"></i></button>' +
       '</div>' +
       '</div>';
@@ -37042,6 +37065,79 @@ var WO = (function() {
     if (firstSlideBox) {
       selectSlideBox(firstSlideBox);
     }
+  }
+
+  // Restore a song's slides in LCD Projection back to the original lyrics stored
+  // in the Song Order entry (masterLyrics → customLyrics → lyrics fallback).
+  // Changes made in LCD Projection are discarded; Song Order is NOT affected.
+  function restoreSongSlides(sectionId, songId) {
+    var songSection = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!songSection) { showToast('Could not find song in Song Order', 'error'); return; }
+
+    var container = $(sectionId + '-boxes');
+    if (!container) return;
+
+    // Confirm with the user — this is destructive for LCD edits
+    if (!confirm('Restore "' + songSection.title + '" to original Song Order lyrics?\n\nAny changes made to slides in LCD Projection will be lost.')) return;
+
+    // Clear saved slides so fresh parse uses the original lyrics
+    songSection.savedSlides = null;
+    songSection.slides = null;
+    var songInOrder = songOrderSections.find(function(s) { return s.id === songId; });
+    if (songInOrder) { songInOrder.savedSlides = null; songInOrder.slides = null; }
+
+    // Source: use masterLyrics (untransposed, unedited) if available, else lyrics
+    var originalLyrics = songSection.masterLyrics || songSection.lyrics || '';
+    var slides = parseLyricsIntoSlides(originalLyrics);
+
+    // Remove existing slide elements for this song
+    container.querySelectorAll('.wo-slide-box[data-song-id="' + songId + '"]').forEach(function(el) { el.remove(); });
+    container.querySelectorAll('.wo-add-slide-row[data-song-id="' + songId + '"]').forEach(function(el) { el.remove(); });
+
+    // Find banner to insert after
+    var banner = container.querySelector('.wo-song-banner[data-song-id="' + songId + '"]');
+    var insertRef = banner;
+
+    // Re-render slides
+    var firstSlideBox = null;
+    slides.forEach(function(slide, idx) {
+      var headerClass = getSectionTypeClass(slide.header);
+      var headerHtml = slide.header ? '<div class="wo-slide-section-header ' + headerClass + '">' + escapeHtml(slide.header) + '</div>' : '';
+      var linesHtml = slide.lines.map(function(line) { return _slideLineHtml(line); }).join('');
+
+      var boxHtml = '<div class="wo-content-box wo-slide-box" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-song-id="' + songId + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
+        _buildSlideBoxHeader(idx, slides.length, 'song', songId, sectionId) +
+        '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background for this slide"><i class="fa-solid fa-image"></i></button>' +
+        headerHtml +
+        '<div class="wo-slide-content">' + linesHtml + '</div>' +
+        '</div>';
+
+      insertRef.insertAdjacentHTML('afterend', boxHtml);
+      insertRef = insertRef.nextElementSibling;
+      if (idx === 0) firstSlideBox = insertRef;
+    });
+
+    // Re-add "Add Slide" button
+    var addSlideBtnHtml = '<div class="wo-add-slide-row" data-song-id="' + songId + '" data-section="' + sectionId + '">' +
+      '<button class="wo-add-slide-btn" onclick="event.stopPropagation(); WO.addSlideToGroup(\'song\', \'' + songId + '\', \'' + sectionId + '\')">' +
+      '<i class="fa-solid fa-plus"></i> Add Slide</button>' +
+      '<span class="wo-add-slide-hint">or dbl-click slide → <kbd>Shift+Enter</kbd> to split</span></div>';
+    insertRef.insertAdjacentHTML('afterend', addSlideBtnHtml);
+
+    // Renumber slide headers
+    renumberSlideBoxes(container, 'song', songId);
+
+    // Update stored slides data
+    var slidesData = slides.map(function(slide, idx) {
+      return { index: idx, content: slide.lines.join('\n'), header: slide.header || '', background: '' };
+    });
+    songSection.slides = slidesData;
+    if (songInOrder) songInOrder.slides = slidesData;
+
+    if (firstSlideBox) selectSlideBox(firstSlideBox);
+
+    showToast('Slides restored to Song Order original', 'success');
+    autoSaveOrder();
   }
 
   // Navigate slides within a specific section
@@ -42838,6 +42934,7 @@ var WO = (function() {
     _applyBarrierToFsContent: _applyBarrierToFsContent,
     // Song in service order
     removeSongFromSection: removeSongFromSection,
+    restoreSongSlides: restoreSongSlides,
     sbRemoveSong: sbRemoveSong,
     sbGoToOrder: sbGoToOrder,
     sbDragStart: sbDragStart,
@@ -49295,6 +49392,37 @@ function filterLiturgyItems() {
     transition: all 0.2s;
   }
   .wo-song-banner-remove:hover { background: #ef4444; }
+
+  /* Restore-to-original button on song banners in LCD Projection */
+  .wo-restore-slides-btn {
+    height: 28px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 4px;
+    color: rgba(255,255,255,0.85);
+    cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
+    padding: 0 8px;
+    font-size: 0.65rem; font-weight: 600;
+    font-family: 'Poppins', sans-serif;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .wo-restore-slides-btn:hover { background: rgba(251,191,36,0.35); border-color: #fbbf24; color: #fde68a; }
+  .wo-restore-slides-btn i { font-size: 0.7rem; }
+
+  /* Full-screen save overlay — shown briefly when navigating away */
+  #woSaveOverlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(15,23,42,0.72);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px;
+    backdrop-filter: blur(3px);
+  }
+  #woSaveOverlay .wso-icon { font-size: 2rem; color: #34d399; animation: wso-pulse 0.9s ease-in-out infinite alternate; }
+  #woSaveOverlay .wso-text { color: #f1f5f9; font-size: 1rem; font-weight: 600; font-family: 'Poppins', sans-serif; }
+  #woSaveOverlay .wso-sub { color: #94a3b8; font-size: 0.78rem; font-family: 'Poppins', sans-serif; }
+  @keyframes wso-pulse { from { opacity: 0.7; } to { opacity: 1; } }
 
   /* Slide boxes in Service Order */
   .wo-slide-box {
