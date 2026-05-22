@@ -30021,6 +30021,8 @@ var WO = (function() {
   var sbSyncChannel = null;      // BroadcastChannel for same-browser instant sync (349)
   var sbRealtimeChannel = null;  // Supabase Realtime broadcast channel (cross-device)
   var sbRealtimeReady = false;   // true once channel is SUBSCRIBED
+  var _sbPresenceChannel = null; // Supabase Realtime Presence channel (tracks who has songbook open)
+  var _sbPresenceKey = null;     // unique key for this device/session
   var sbBroadcastDebounce = null; // short debounce for Realtime broadcast
   var _sbLastPollTs = 0;         // epoch ms of last Supabase poll — skip own writes
   var _sbPolling = false;        // guard to prevent concurrent polls
@@ -30306,7 +30308,7 @@ var WO = (function() {
     modal.style.display = 'flex';
     var goBtn = document.getElementById('sbGoToOrderBtn');
     if (goBtn) goBtn.style.display = 'none'; // standalone — no "Go to Order"
-    setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); }, 2000);
+    setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); sbJoinPresence(currentOrderData && currentOrderData.id); }, 2000);
   }
 
   function openSongbook() {
@@ -30391,7 +30393,7 @@ var WO = (function() {
       // Delay sync startup by 2s: lets the initial render settle and prevents the
       // fast-sync poll + Realtime subscription from competing with the initial Supabase
       // data load (which is especially important on slow/congested networks).
-      setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); }, 2000);
+      setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); sbJoinPresence(currentOrderData && currentOrderData.id); }, 2000);
     }
 
     // Ensure occasion is populated before rendering so it always shows correctly
@@ -30439,11 +30441,22 @@ var WO = (function() {
     }
     if (_sbResizeHandler) { window.removeEventListener('resize', _sbResizeHandler); _sbResizeHandler = null; }
     clearTimeout(_sbPendingRemoteRenderTimer); _sbPendingRemoteRenderTimer = null;
-    // Flush any pending 30-second auto-save so changes aren't lost when closing
-    if (sbAutoSaveTimer) { sbFlushSave(); }
-    clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
     sbStopFastSync();      // 349: stop BroadcastChannel + GAS polling
-    sbStopRealtimeSync();  // disconnect Supabase Realtime channel
+    sbStopRealtimeSync();  // disconnect Supabase Realtime broadcast channel
+    // Presence-aware save on close: only flush if we are the last user with this songbook open.
+    // If others are still present, they will handle the next save — no need to interrupt them.
+    sbLeavePresence(function(isLast) {
+      clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
+      if (!sbAutoSaveTimer) return; // nothing pending — nothing to do
+      if (isLast) {
+        console.log('[Presence] Last user out — flushing pending save');
+        sbFlushSave();
+      } else {
+        console.log('[Presence] Others still present — cancelling flush on close');
+        clearTimeout(sbAutoSaveTimer); sbAutoSaveTimer = null;
+        sbSetSaveStatus(null);
+      }
+    });
     var modal = $('songbookLiveModal');
     if (modal) modal.style.display = 'none';
     var fontPop = document.getElementById('sbFontPopover');
@@ -33943,6 +33956,76 @@ var WO = (function() {
       sbRealtimeChannel = null;
     }
   }
+
+  // ── Presence: track who has this songbook open ─────────────────────────────
+  // Uses a separate Realtime channel (Presence mode) so we can detect when the
+  // last user closes — only then do we flush the pending 30-second save.
+
+  function sbJoinPresence(orderId) {
+    var sb = SBQ._sb();
+    if (!sb || !orderId) return; // no-op for standalone songbooks
+    // Clean up any stale channel from a previous session
+    if (_sbPresenceChannel) {
+      try { sb.removeChannel(_sbPresenceChannel); } catch(e) {}
+      _sbPresenceChannel = null;
+    }
+    _sbPresenceKey = 'dev_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now();
+    _sbPresenceChannel = sb.channel('sb-presence-' + orderId, {
+      config: { presence: { key: _sbPresenceKey } }
+    });
+    _sbPresenceChannel.subscribe(function(status) {
+      if (status === 'SUBSCRIBED') {
+        _sbPresenceChannel.track({ key: _sbPresenceKey, joinedAt: Date.now() });
+        console.log('[Presence] Joined for order', orderId, '— key:', _sbPresenceKey);
+      }
+    });
+  }
+
+  function sbLeavePresence(callback) {
+    if (!_sbPresenceChannel) {
+      // No presence channel — treat as last user so nothing is accidentally skipped
+      if (callback) callback(true);
+      return;
+    }
+    var ch = _sbPresenceChannel;
+    var myKey = _sbPresenceKey;
+    _sbPresenceChannel = null;
+    _sbPresenceKey = null;
+
+    // Safety fallback: if Supabase takes too long to respond, treat as last user and save
+    var settled = false;
+    var safetyTimer = setTimeout(function() {
+      if (settled) return;
+      settled = true;
+      console.warn('[Presence] untrack timed out — treating as last user and saving');
+      try { var sb2 = SBQ._sb(); if (sb2) sb2.removeChannel(ch); } catch(e) {}
+      if (callback) callback(true);
+    }, 3000);
+
+    ch.untrack().then(function() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(safetyTimer);
+      // Count remaining users excluding ourselves (in case SDK hasn't removed us yet)
+      var state = ch.presenceState();
+      var otherCount = 0;
+      Object.values(state).forEach(function(presences) {
+        presences.forEach(function(p) { if (p.key !== myKey) otherCount++; });
+      });
+      var isLast = otherCount === 0;
+      console.log('[Presence] Left — other users still present:', otherCount, '— isLast:', isLast);
+      try { var sb2 = SBQ._sb(); if (sb2) sb2.removeChannel(ch); } catch(e) {}
+      if (callback) callback(isLast);
+    }).catch(function(err) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(safetyTimer);
+      console.warn('[Presence] untrack error — treating as last user:', err);
+      try { var sb2 = SBQ._sb(); if (sb2) sb2.removeChannel(ch); } catch(e) {}
+      if (callback) callback(true); // on any error, default to saving so no data is lost
+    });
+  }
+  // ── End Presence ───────────────────────────────────────────────────────────
 
   // Build a complete per-song state snapshot for broadcast / persistence
   function sbBuildSongSnapshot(s) {
@@ -44439,6 +44522,8 @@ var WO = (function() {
     sbToggleEraseMode: sbToggleEraseMode,
     sbStartRealtimeSync: sbStartRealtimeSync,
     sbStopRealtimeSync: sbStopRealtimeSync,
+    sbJoinPresence: sbJoinPresence,
+    sbLeavePresence: sbLeavePresence,
     sbToggleLiveFullscreen: sbToggleLiveFullscreen,
     sbFsRevealHeader: sbFsRevealHeader,
     sbSnapZoomStep: sbSnapZoomStep,
