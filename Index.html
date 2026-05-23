@@ -18108,27 +18108,22 @@ var SBQ = {
       });
   },
 
-  // Lightweight sync write — upserts all order_items (including full row fields so
-  // rows can be INSERTed on their first write, not just updated) and bumps last_edited
-  // on the parent order so the 2-second poll on other devices picks up the change.
-  // Called on a 2s idle debounce during Songbook use instead of a full saveOrder.
+  // Lightweight sync write — updates only the mutable per-song blobs on existing
+  // order_items rows and bumps last_edited on the parent order so the 2-second poll
+  // on other devices picks up the change.  Does NOT write identity columns
+  // (item_type, source_id, sort_order, title) to avoid accidentally corrupting rows
+  // that were already correctly saved by a full saveOrder(). Rows that do not yet
+  // exist are skipped — use sbSeedOrderItems() first if you need to ensure rows exist.
   syncItems: function(orderId, snapshots) {
     var sb = SBQ._sb();
     if (!sb || !orderId || !snapshots || !snapshots.length) return Promise.resolve();
     var now = new Date().toISOString();
     var rows = snapshots
       .filter(function(snap) { return !!snap.id; })
-      .map(function(snap, idx) {
+      .map(function(snap) {
         return {
-          // Required fields — present even when row doesn't exist yet so upsert can INSERT
           id:             snap.id,
           order_id:       orderId,
-          item_type:      snap.itemType   || (snap.songId ? 'song' : 'content'),
-          section_id:     snap.sectionId  || '',
-          sort_order:     typeof snap.sortOrder === 'number' ? snap.sortOrder : idx,
-          source_id:      snap.songId     || '',
-          title:          snap.title      || '',
-          // Customisation blobs
           customizations: {
             annotations:      snap.annotations     || [],
             imgAnnotations:   snap.imgAnnotations   || {},
@@ -30202,6 +30197,7 @@ var WO = (function() {
   var _sbPolling = false;        // guard to prevent concurrent polls
   var _sbSyncWriteTimer = null;  // 2-second debounce for lightweight sync write
   var _sbLastRealtimeBroadcastTs = 0; // epoch ms of last received Realtime broadcast
+  var _sbSeeded = false;         // true once we've verified/seeded order_items for this session
 
   // Resolve 'wo-section-N' or a serviceSectionId to the canonical serviceSectionId
   function sbResolveSectionId(sectionId) {
@@ -34044,6 +34040,17 @@ var WO = (function() {
         SBQ.loadOrder(currentOrderData.id).then(function(result) {
           _sbPolling = false;
           if (!result || !result.items) return;
+
+          // ── Seed guard: if DB has no items but we have songs in memory, the order
+          // was likely created via the old bridge schema and never written to order_items.
+          // Trigger a full save once so other devices can read the songs immediately.
+          if (result.items.length === 0 && songOrderSections.length > 0 && !_sbStandaloneId && !_sbSeeded) {
+            _sbSeeded = true;
+            console.log('[Poll] order_items empty — seeding DB with full save');
+            saveCurrentOrder(true);
+            return;
+          }
+
           // SBQ.loadOrder returns { order: { lastEdited, ... }, items: [...] }
           // (NOT result.updated_at — that was the old broken check)
           var remoteTs = (result.order && result.order.lastEdited)
@@ -34081,6 +34088,7 @@ var WO = (function() {
   function sbStopFastSync() {
     if (sbSyncChannel) { sbSyncChannel.close(); sbSyncChannel = null; }
     if (sbFastSyncInterval) { clearInterval(sbFastSyncInterval); sbFastSyncInterval = null; }
+    _sbSeeded = false; // reset so the next open re-checks whether order_items need seeding
   }
 
   // ── Supabase Realtime broadcast (cross-device instant sync) ──────────────
