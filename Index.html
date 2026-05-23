@@ -18108,20 +18108,27 @@ var SBQ = {
       });
   },
 
-  // Lightweight sync write — updates only customizations/content on order_items and
-  // bumps last_edited on the parent order so the 4-second poll on other devices sees
-  // a fresh timestamp and applies the change.  Much cheaper than the full saveOrder
-  // (no delete-and-reinsert) and called on a 4s idle debounce during Songbook use.
+  // Lightweight sync write — upserts all order_items (including full row fields so
+  // rows can be INSERTed on their first write, not just updated) and bumps last_edited
+  // on the parent order so the 2-second poll on other devices picks up the change.
+  // Called on a 2s idle debounce during Songbook use instead of a full saveOrder.
   syncItems: function(orderId, snapshots) {
     var sb = SBQ._sb();
     if (!sb || !orderId || !snapshots || !snapshots.length) return Promise.resolve();
     var now = new Date().toISOString();
     var rows = snapshots
       .filter(function(snap) { return !!snap.id; })
-      .map(function(snap) {
+      .map(function(snap, idx) {
         return {
+          // Required fields — present even when row doesn't exist yet so upsert can INSERT
           id:             snap.id,
           order_id:       orderId,
+          item_type:      snap.itemType   || (snap.songId ? 'song' : 'content'),
+          section_id:     snap.sectionId  || '',
+          sort_order:     typeof snap.sortOrder === 'number' ? snap.sortOrder : idx,
+          source_id:      snap.songId     || '',
+          title:          snap.title      || '',
+          // Customisation blobs
           customizations: {
             annotations:      snap.annotations     || [],
             imgAnnotations:   snap.imgAnnotations   || {},
@@ -30193,7 +30200,7 @@ var WO = (function() {
   var sbBroadcastDebounce = null; // short debounce for Realtime broadcast
   var _sbLastPollTs = 0;         // epoch ms of last Supabase poll — skip own writes
   var _sbPolling = false;        // guard to prevent concurrent polls
-  var _sbSyncWriteTimer = null;  // 4-second debounce for lightweight sync write
+  var _sbSyncWriteTimer = null;  // 2-second debounce for lightweight sync write
   var _sbLastRealtimeBroadcastTs = 0; // epoch ms of last received Realtime broadcast
 
   // Resolve 'wo-section-N' or a serviceSectionId to the canonical serviceSectionId
@@ -33956,23 +33963,23 @@ var WO = (function() {
       sbBroadcastChange();  // same-browser tabs (BroadcastChannel)
     }, 150);
 
-    // ── Tier 2: Lightweight sync write (4s idle) ──────────────────────────
+    // ── Tier 2: Lightweight sync write (2s idle) ──────────────────────────
     // Upserts per-song customizations to Supabase and bumps last_edited so
-    // the 4s poll on other devices picks up the change when Realtime is down.
+    // the 2s poll on other devices picks up the change when Realtime is down.
     clearTimeout(_sbSyncWriteTimer);
     sbSetSaveStatus('syncing');
     _sbSyncWriteTimer = setTimeout(function() {
       if (!currentOrderData || !currentOrderData.id) { sbSetSaveStatus(null); return; }
       var snapshots = songOrderSections
         .filter(function(s) { return !!s.id; })
-        .map(sbBuildSongSnapshot);
+        .map(function(s, idx) { return sbBuildSongSnapshot(s, idx); });
       SBQ.syncItems(currentOrderData.id, snapshots)
         .then(function() { sbSetSaveStatus(null); })
         .catch(function(e) {
           console.warn('[SyncWrite] failed:', e);
           sbSetSaveStatus(null);
         });
-    }, 4000);
+    }, 2000);
   }
 
   // Save immediately — called when the last user closes the Songbook so no
@@ -34022,15 +34029,14 @@ var WO = (function() {
       };
     }
 
-    // Supabase poll: every 4 seconds, check if order was updated by another device
-    // (Realtime is primary; this is the fallback for when Realtime drops)
+    // Supabase poll: every 2 seconds, check if order was updated by another device.
+    // Realtime is the primary path (instant broadcast); this poll is the fallback that
+    // guarantees mobile→desktop sync even when Realtime isn't connected on the sender.
     if (!sbFastSyncInterval) {
       _sbLastPollTs = Date.now();
       sbFastSyncInterval = setInterval(function() {
-        // Poll always runs as a guaranteed safety net.
-        // Skip only when Realtime delivered a broadcast very recently (within 6s) —
-        // that means the state is already current and a DB round-trip is unnecessary.
-        if (sbRealtimeReady && Date.now() - _sbLastRealtimeBroadcastTs < 6000) return;
+        // Always run the poll — never skip based on Realtime freshness.
+        // The timestamp guard (_sbLastPollTs) ensures we don't re-apply unchanged state.
         if (document.visibilityState !== 'visible') return;
         if (!currentOrderData || !currentOrderData.id || _sbPolling) return;
 
@@ -34068,7 +34074,7 @@ var WO = (function() {
             sbApplyBroadcast({ orderId: currentOrderData.id, songs: [incoming] });
           });
         }).catch(function() { _sbPolling = false; });
-      }, 4000);
+      }, 2000);
     }
   }
 
@@ -34197,10 +34203,18 @@ var WO = (function() {
   }
   // ── End Presence ───────────────────────────────────────────────────────────
 
-  // Build a complete per-song state snapshot for broadcast / persistence
-  function sbBuildSongSnapshot(s) {
+  // Build a complete per-song state snapshot for broadcast / persistence.
+  // idx is the position in songOrderSections — needed so syncItems can supply
+  // sort_order when upserting a row that may not exist in order_items yet.
+  function sbBuildSongSnapshot(s, idx) {
     return {
       id:              s.id,
+      // Row-identity fields (needed by syncItems to INSERT new order_items rows)
+      songId:          s.songId      || '',
+      title:           s.title       || '',
+      itemType:        s.itemType    || (s.songId ? 'song' : 'content'),
+      sortOrder:       typeof idx === 'number' ? idx : 0,
+      sectionId:       s.sectionId   || '',
       // Draw annotations
       annotations:     Array.isArray(s.annotations)   ? s.annotations   : [],
       imgAnnotations:  (s.imgAnnotations && typeof s.imgAnnotations === 'object') ? s.imgAnnotations : {},
