@@ -30536,17 +30536,15 @@ var WO = (function() {
     clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null; // cancel pending 4s sync write
     sbStopFastSync();      // 349: stop BroadcastChannel + GAS polling
     sbStopRealtimeSync();  // disconnect Supabase Realtime broadcast channel
-    // Presence-aware save on close: only flush if we are the last user with this songbook open.
-    // If others are still present, they will handle the next save — no need to interrupt them.
+    // Presence-aware save on close: only the LAST user to close triggers a full save.
+    // Others just leave — whoever stays open keeps syncing, and the last one out saves.
     sbLeavePresence(function(isLast) {
       clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
-      if (!sbAutoSaveTimer) return; // nothing pending — nothing to do
       if (isLast) {
-        console.log('[Presence] Last user out — flushing pending save');
+        console.log('[Presence] Last user out — saving on close');
         sbFlushSave();
       } else {
-        console.log('[Presence] Others still present — cancelling flush on close');
-        clearTimeout(sbAutoSaveTimer); sbAutoSaveTimer = null;
+        console.log('[Presence] Others still present — skipping save on close');
         sbSetSaveStatus(null);
       }
     });
@@ -33856,97 +33854,71 @@ var WO = (function() {
     });
   }
 
-  // 343/349 — Debounced auto-save + real-time broadcast on Songbook changes
+  // 343/349 — Real-time sync on Songbook changes (no periodic auto-save)
   //
-  // Three-tier design:
-  //   • Tier 1 Broadcast  (150ms debounce) — instant push to all connected devices via
-  //     Supabase Realtime / BroadcastChannel. Zero DB writes. Falls through to Tier 2 as fallback.
-  //   • Tier 2 Sync write (4 s idle debounce) — lightweight DB upsert of per-song customizations.
-  //     Bumps last_edited on the order so the 4-second poll on other devices picks up the change
-  //     even when Realtime is unavailable. Guarantees cross-device sync within ~4s.
-  //   • Tier 3 Full persist (15 s idle debounce) — full saveCurrentOrder(). Authoritative save.
-  //     Countdown shown in header; tappable for immediate save.
+  // Two-tier sync design — no full auto-save timer:
+  //   • Tier 1 — Broadcast (150ms debounce): instant push to all connected devices via
+  //     Supabase Realtime + BroadcastChannel. Zero DB writes.
+  //   • Tier 2 — Sync write (4s idle debounce): lightweight upsert of per-song
+  //     customizations so the 4s poll on other devices has fresh data even when
+  //     Realtime is unavailable. Guarantees sync within ~4s as a fallback.
+  //
+  // Full saveCurrentOrder() is only called when the LAST user closes the Songbook
+  // (handled by sbFlushSave() inside the presence-aware close handler).
 
-  var _sbCountdownInterval = null;
-  var _sbSaveDeadline = 0;
+  var _sbCountdownInterval = null; // kept for cleanup compatibility
+  var _sbSaveDeadline = 0;         // kept for cleanup compatibility
 
   function sbAutoSave() {
-    // ── Tier 1: Realtime broadcast (150ms) ─────────────────────────────────
+    // ── Tier 1: Realtime broadcast (150ms) ────────────────────────────────
     // Instantly pushes the full song state to all connected devices.
-    // Falls through to Tier 2 as a guaranteed fallback for unreliable connections.
     clearTimeout(sbBroadcastDebounce);
     sbBroadcastDebounce = setTimeout(function() {
       sbBroadcastPatch();   // cross-device (Supabase Realtime)
       sbBroadcastChange();  // same-browser tabs (BroadcastChannel)
     }, 150);
 
-    // ── Tier 2: Lightweight sync write (4s idle) ────────────────────────────
-    // Writes only the per-song customizations to Supabase and bumps last_edited
-    // on the order row so the 4-second poll on other devices sees a fresh timestamp.
-    // This ensures cross-device sync within ~4s even when Realtime is unavailable.
+    // ── Tier 2: Lightweight sync write (4s idle) ──────────────────────────
+    // Upserts per-song customizations to Supabase and bumps last_edited so
+    // the 4s poll on other devices picks up the change when Realtime is down.
     clearTimeout(_sbSyncWriteTimer);
+    sbSetSaveStatus('syncing');
     _sbSyncWriteTimer = setTimeout(function() {
-      if (!currentOrderData || !currentOrderData.id) return;
+      if (!currentOrderData || !currentOrderData.id) { sbSetSaveStatus(null); return; }
       var snapshots = songOrderSections
         .filter(function(s) { return !!s.id; })
         .map(sbBuildSongSnapshot);
       SBQ.syncItems(currentOrderData.id, snapshots)
-        .catch(function(e) { console.warn('[SyncWrite] failed:', e); });
+        .then(function() { sbSetSaveStatus(null); })
+        .catch(function(e) {
+          console.warn('[SyncWrite] failed:', e);
+          sbSetSaveStatus(null);
+        });
     }, 4000);
-
-    // ── Tier 3: Full persist (15s idle) ────────────────────────────────────
-    // Full saveCurrentOrder() — authoritative, includes all metadata, slides,
-    // media, etc.  The countdown in the header lets users see when it will fire
-    // and tap to save immediately.
-    var SAVE_DELAY = 15000;
-    _sbSaveDeadline = Date.now() + SAVE_DELAY;
-    clearTimeout(sbAutoSaveTimer);
-    sbAutoSaveTimer = setTimeout(function() {
-      clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null; // full save covers Tier 2
-      clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
-      sbSetSaveStatus('saving');
-      _sbLastPollTs = Date.now();
-      saveCurrentOrder();
-    }, SAVE_DELAY);
-
-    // Countdown ticker — shows "● Unsaved (14s)" ticking down in the header
-    if (!_sbCountdownInterval) {
-      sbSetSaveStatus('pending', 15);
-      _sbCountdownInterval = setInterval(function() {
-        var secs = Math.ceil((_sbSaveDeadline - Date.now()) / 1000);
-        if (secs <= 0) { clearInterval(_sbCountdownInterval); _sbCountdownInterval = null; return; }
-        sbSetSaveStatus('pending', secs);
-      }, 1000);
-    } else {
-      // Already ticking — just update the displayed seconds
-      sbSetSaveStatus('pending', Math.ceil((_sbSaveDeadline - Date.now()) / 1000));
-    }
   }
 
+  // Save immediately — called when the last user closes the Songbook so no
+  // changes are ever lost, even without a periodic auto-save timer.
   function sbFlushSave() {
-    if (!sbAutoSaveTimer) return;
     clearTimeout(sbAutoSaveTimer); sbAutoSaveTimer = null;
-    clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null; // full save covers Tier 2
+    clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null;
     clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
     sbSetSaveStatus('saving');
     _sbLastPollTs = Date.now();
     saveCurrentOrder();
   }
 
-  function sbSetSaveStatus(state, countdown) {
+  // Sync status indicator in Songbook header (subtle — no countdown).
+  function sbSetSaveStatus(state) {
     var el = $('sbSaveStatus');
     if (!el) return;
     if (!state) {
-      el.innerHTML = ''; el.style.color = ''; el.style.cursor = ''; el.title = '';
+      el.innerHTML = ''; el.style.color = ''; el.style.cursor = ''; el.title = ''; el.onclick = null;
       return;
     }
-    if (state === 'pending') {
-      var secs = (typeof countdown === 'number') ? countdown : 30;
-      el.innerHTML = '● Unsaved <span style="opacity:0.65;font-size:0.68rem;font-weight:400;">(' + secs + 's)</span>';
-      el.style.color = '#fbbf24';
-      el.style.cursor = 'pointer';
-      el.title = 'Tap to save now';
-      el.onclick = function() { if (window.WO) window.WO.sbFlushSave(); };
+    if (state === 'syncing') {
+      el.innerHTML = '● Syncing'; el.style.color = 'rgba(255,255,255,0.45)';
+      el.style.cursor = ''; el.title = ''; el.onclick = null;
     }
     if (state === 'saving') {
       el.innerHTML = 'Saving…'; el.style.color = '#93c5fd';
@@ -33954,6 +33926,12 @@ var WO = (function() {
     }
     if (state === 'saved') {
       el.innerHTML = 'Saved ✓'; el.style.color = '#86efac';
+      el.style.cursor = ''; el.title = ''; el.onclick = null;
+      setTimeout(function() { sbSetSaveStatus(null); }, 2000);
+    }
+    // legacy 'pending' state — map to syncing so old call-sites don't break
+    if (state === 'pending') {
+      el.innerHTML = '● Syncing'; el.style.color = 'rgba(255,255,255,0.45)';
       el.style.cursor = ''; el.title = ''; el.onclick = null;
     }
   }
