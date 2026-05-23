@@ -7773,6 +7773,9 @@ I once was lost but now am found"
     <div class="sbft-sep"></div>
     <button class="sbft-btn sbft-size-btn" onclick="WO.sbFtFontSize(-2)" title="Smaller text">A<sup>−</sup></button>
     <button class="sbft-btn sbft-size-btn" onclick="WO.sbFtFontSize(2)"  title="Larger text">A<sup>+</sup></button>
+    <div class="sbft-sep"></div>
+    <button class="sbft-btn sbft-xpose-btn" onclick="WO.sbFtTranspose(-1)" title="Flatten selected chords (♭)">&#9837;</button>
+    <button class="sbft-btn sbft-xpose-btn" onclick="WO.sbFtTranspose(1)"  title="Sharpen selected chords (♯)">&#9839;</button>
     <div id="sbFloatToolbarArrow"></div>
   </div>
 
@@ -33052,6 +33055,73 @@ var WO = (function() {
     _sbApplySelectionStyle({ fontSize: newPx + 'px' });
   }
 
+  // Transpose only the chord lines that fall within the current text selection.
+  // steps: +1 = sharpen (♯), -1 = flatten (♭).
+  // Only .wo-lyrics-chord-line elements that intersect the selection are changed;
+  // plain lyric lines are left untouched.
+  function sbFtTranspose(steps) {
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    var range = sel.getRangeAt(0);
+
+    // Walk up to find the .sb-page-lyrics div that owns the selection
+    var lyricsEl = null;
+    var node = range.commonAncestorContainer;
+    while (node) {
+      if (node.nodeType === 1 && node.classList && node.classList.contains('sb-page-lyrics')) {
+        lyricsEl = node; break;
+      }
+      node = node.parentElement;
+    }
+    if (!lyricsEl) return;
+
+    // Save selection endpoints so we can restore after mutation
+    var sc = range.startContainer, so = range.startOffset;
+    var ec = range.endContainer,   eo = range.endOffset;
+
+    var chordLines = lyricsEl.querySelectorAll('.wo-lyrics-chord-line');
+    var anyChanged = false;
+
+    chordLines.forEach(function(cl) {
+      // Check if this chord-line node intersects the selection range
+      try {
+        var nr = document.createRange();
+        nr.selectNodeContents(cl);
+        var startToEnd = range.compareBoundaryPoints(Range.END_TO_START, nr);
+        var endToStart = range.compareBoundaryPoints(Range.START_TO_END, nr);
+        if (startToEnd > 0 || endToStart < 0) return; // no overlap
+      } catch(e) { return; }
+
+      // Transpose all chord tokens on this line
+      var tNode = cl.firstChild;
+      while (tNode) {
+        if (tNode.nodeType === Node.TEXT_NODE) {
+          var transposed = sbTransposeChordLine(tNode.textContent, steps);
+          if (transposed !== tNode.textContent) {
+            tNode.textContent = transposed;
+            anyChanged = true;
+          }
+        }
+        tNode = tNode.nextSibling;
+      }
+    });
+
+    if (anyChanged) {
+      // Restore selection (mutations may move ranges)
+      try {
+        var newRange = document.createRange();
+        newRange.setStart(sc, so);
+        newRange.setEnd(ec, eo);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+      } catch(e) { /* selection may have shifted — not critical */ }
+
+      // Persist change via the normal lyrics-change pipeline
+      var songId = lyricsEl.id ? lyricsEl.id.replace('sbLyrics-', '') : null;
+      if (songId) { sbOnLyricsChange(songId); }
+    }
+  }
+
   function _sbBindFloatToolbar() {
     var sbBodyEl = document.getElementById('sbBody');
     if (!sbBodyEl || sbBodyEl._sbFtBound) return;
@@ -37656,23 +37726,38 @@ var WO = (function() {
         })();
 
     // Per-section liturgy/content/scripture/slides/video items (non-song, non-blank)
+    // Deduplicate by id AND by sourceId-within-section to prevent Liturgy Book
+    // from showing the same item multiple times when allItems has accidental duplicates.
     var itemsBySection = {};
     if (currentOrderData && Array.isArray(currentOrderData.allItems)) {
+      var _seenItemId  = {};  // guard: skip any item id seen more than once
+      var _seenSrcSec  = {};  // guard: skip sourceId that already appears in this section
       currentOrderData.allItems.slice()
         .sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); })
         .forEach(function(item) {
           if (!item.sectionId || item.itemType === 'blank' || item.itemType === 'song') return;
+          if (_seenItemId[item.id]) return;   // duplicate row id
+          _seenItemId[item.id] = true;
+          if (item.sourceId) {
+            var _srcKey = item.sectionId + ':' + item.sourceId;
+            if (_seenSrcSec[_srcKey]) return; // same liturgy source in same section twice
+            _seenSrcSec[_srcKey] = true;
+          }
           if (!itemsBySection[item.sectionId]) itemsBySection[item.sectionId] = [];
           itemsBySection[item.sectionId].push(item);
         });
     }
 
-    // Get songs assigned to a section (5-check matching, mirrors Songbook)
+    // Get songs assigned to a section (5-check matching, mirrors Songbook).
+    // _lb2UsedSongIds is shared across calls so a song that already appeared in an
+    // earlier section is not shown again (prevents cross-section duplication).
+    var _lb2UsedSongIds = {};
     function _lb2SongsForSection(sec) {
       var secId  = sec.id  || '';
       var secSid = sec.serviceSectionId || '';
-      return (typeof songOrderSections !== 'undefined' ? songOrderSections : []).filter(function(s) {
+      var matches = (typeof songOrderSections !== 'undefined' ? songOrderSections : []).filter(function(s) {
         if (s.itemType === 'blank') return false;
+        if (_lb2UsedSongIds[s.id]) return false; // already shown in a previous section
         if (s.sectionId && secId && s.sectionId === secId) return true;
         if (Array.isArray(s.serviceSections) && s.serviceSections.length) {
           if (s.serviceSections.some(function(val) {
@@ -37690,6 +37775,8 @@ var WO = (function() {
         if (s.sectionId && secSid && s.sectionId === secSid) return true;
         return false;
       });
+      matches.forEach(function(s) { _lb2UsedSongIds[s.id] = true; });
+      return matches;
     }
 
     function _safeId(id) { return (id || '').replace(/['"><&]/g, ''); }
@@ -44689,6 +44776,7 @@ var WO = (function() {
     sbToggleStrike: sbToggleStrike,
     sbFtColor: sbFtColor,
     sbFtFontSize: sbFtFontSize,
+    sbFtTranspose: sbFtTranspose,
     _sbConfirmOk: _sbConfirmOk,
     _sbConfirmCancel: _sbConfirmCancel,
     sbSetFontFamily: sbSetFontFamily,
@@ -51008,6 +51096,8 @@ function filterLiturgyItems() {
   .sbft-color-btn:hover { transform:scale(1.35);border-color:white;box-shadow:0 0 0 2px rgba(255,255,255,0.2); }
   .sbft-sep { width:1px;height:22px;background:rgba(148,163,184,0.25);margin:0 3px;flex-shrink:0; }
   .sbft-size-btn { font-size:0.75rem;font-weight:700;letter-spacing:-0.5px; }
+  .sbft-xpose-btn { font-size:1rem;font-weight:700;min-width:28px;color:#7dd3fc;border-color:rgba(125,211,252,0.3); }
+  .sbft-xpose-btn:hover { background:rgba(125,211,252,0.15);border-color:rgba(125,211,252,0.6); }
   #sbFloatToolbarArrow { position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);
     width:0;height:0;pointer-events:none;
     border-left:7px solid transparent;border-right:7px solid transparent;border-top:7px solid #1a2540;
