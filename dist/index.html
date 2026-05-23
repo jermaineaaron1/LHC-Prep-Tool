@@ -6614,6 +6614,19 @@
   background: #f9fafb; border-radius: 6px; white-space: pre-wrap;
 }
 .lb2-song-no-lyrics { font-size: 0.88rem; color: #9ca3af; font-style: italic; padding: 24px 0; text-align: center; }
+/* Liturgist notes block — shown before the song in the Liturgy Book */
+.lb2-liturg-notes {
+  margin-bottom: 14px; padding: 10px 14px;
+  background: #fffbeb; border-left: 3px solid #f59e0b; border-radius: 6px;
+}
+.lb2-liturg-notes-label {
+  font-size: 0.72rem; font-weight: 700; color: #92400e; letter-spacing: 0.06em;
+  text-transform: uppercase; margin-bottom: 5px; font-family: 'Poppins', sans-serif;
+}
+.lb2-liturg-notes-text {
+  font-size: 0.92rem; color: #78350f; line-height: 1.65; white-space: pre-wrap;
+  font-style: italic;
+}
 /* Editable liturgy/content page */
 .lb2-editable-page { border-top: 4px solid #4ade80; }
 .lb2-item-content { padding: 4px 0; }
@@ -37859,6 +37872,14 @@ var WO = (function() {
 
           if (isSong) {
             var song = item._song;
+            // Liturgist notes — shown as an amber callout block before the song lyrics
+            var _litNotes = (song.liturgistNotes || '').trim();
+            if (_litNotes) {
+              html += '<div class="lb2-liturg-notes">';
+              html += '<div class="lb2-liturg-notes-label"><i class="fa-solid fa-book-bookmark" style="margin-right:5px;"></i>Liturgist Notes</div>';
+              html += '<div class="lb2-liturg-notes-text">' + escapeHtml(_litNotes) + '</div>';
+              html += '</div>';
+            }
             html += '<div class="lb2-song-content-ro">';
             if (song.artist) html += '<div class="lb2-song-artist-ro">by ' + escapeHtml(song.artist) + '</div>';
             var slides = (song.savedSlides && song.savedSlides.length) ? song.savedSlides
