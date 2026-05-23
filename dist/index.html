@@ -23920,8 +23920,11 @@ var WO = (function() {
     var clone = section.cloneNode(true);
     var newId = 'wo-section-' + Date.now();
     clone.id = newId;
-    // Update all references to the new ID
+    // Update all references to the old DOM id inside the clone
     clone.innerHTML = clone.innerHTML.replace(new RegExp(sectionId, 'g'), newId);
+    // Give the duplicate its own unique serviceSectionId so songs assigned to it
+    // are independent from the original and don't bleed across sections.
+    clone.setAttribute('data-service-section-id', 'custom-' + Date.now());
     section.insertAdjacentElement('afterend', clone);
     updateSectionNumbers();
     _captureCurrentLayout(); // persist layout immediately so tab-switch restores it
@@ -30692,10 +30695,16 @@ var WO = (function() {
             if (val === secId) return true;                            // B1: DOM id match
             if (secSid && val === secSid) return true;                 // B2: direct serviceSectionId
             if (secSid && sbResolveSectionId(val) === secSid) return true; // B3: resolve via structures
-            // B4: resolve via sectionLayout (custom sections share a serviceSectionId)
+            // B4: resolve via sectionLayout — only for stale/legacy ids not present as a live section.
+            // If 'val' IS a live section id in sectionList, skip B4 and rely on B1 for that section.
+            // This prevents a song assigned to a duplicated section (which inherited the same
+            // serviceSectionId as the original) from falsely matching the original section too.
             if (secSid && currentOrderData && Array.isArray(currentOrderData.sectionLayout)) {
-              var _le = currentOrderData.sectionLayout.find(function(l) { return l.id === val; });
-              if (_le && _le.serviceSectionId === secSid) return true;
+              var _valIsLive = sectionList.some(function(sl) { return sl.id === val; });
+              if (!_valIsLive) {
+                var _le = currentOrderData.sectionLayout.find(function(l) { return l.id === val; });
+                if (_le && _le.serviceSectionId === secSid) return true;
+              }
             }
             return false;
           })) return true;
@@ -37767,9 +37776,14 @@ var WO = (function() {
             if (val === secId) return true;
             if (secSid && val === secSid) return true;
             if (secSid && sbResolveSectionId(val) === secSid) return true;
+            // Only resolve via sectionLayout for stale ids not present as a live section —
+            // prevents duplicated sections (sharing serviceSectionId) from double-matching.
             if (secSid && currentOrderData && Array.isArray(currentOrderData.sectionLayout)) {
-              var _le = currentOrderData.sectionLayout.find(function(l) { return l.id === val; });
-              if (_le && _le.serviceSectionId === secSid) return true;
+              var _valIsLive2 = sectionList.some(function(sl) { return sl.id === val; });
+              if (!_valIsLive2) {
+                var _le = currentOrderData.sectionLayout.find(function(l) { return l.id === val; });
+                if (_le && _le.serviceSectionId === secSid) return true;
+              }
             }
             return false;
           })) return true;
