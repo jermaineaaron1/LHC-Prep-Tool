@@ -37853,16 +37853,19 @@ var WO = (function() {
         });
     }
 
-    // Get songs assigned to a section (5-check matching, mirrors Songbook).
-    // _lb2UsedSongIds is shared across calls so a song that already appeared in an
-    // earlier section is not shown again (prevents cross-section duplication).
-    var _lb2UsedSongIds = {};
-    function _lb2SongsForSection(sec) {
+    // Pre-compute songs for every section ONCE (with cross-section dedup so the same
+    // song doesn't appear in multiple sections).  Both the index pass and the content
+    // pages pass then call _lb2SongsForSection() which just looks up the cached result,
+    // avoiding the bug where the first pass exhausted _lb2UsedSongIds and the second
+    // pass found nothing.
+    var _lb2UsedSongIds  = {};
+    var _lb2SectionSongs = {};   // secId → array of matched songs
+    sectionList.forEach(function(sec) {
       var secId  = sec.id  || '';
       var secSid = sec.serviceSectionId || '';
       var matches = (typeof songOrderSections !== 'undefined' ? songOrderSections : []).filter(function(s) {
         if (s.itemType === 'blank') return false;
-        if (_lb2UsedSongIds[s.id]) return false; // already shown in a previous section
+        if (_lb2UsedSongIds[s.id]) return false; // already assigned to an earlier section
         if (s.sectionId && secId && s.sectionId === secId) return true;
         if (Array.isArray(s.serviceSections) && s.serviceSections.length) {
           if (s.serviceSections.some(function(val) {
@@ -37881,7 +37884,10 @@ var WO = (function() {
         return false;
       });
       matches.forEach(function(s) { _lb2UsedSongIds[s.id] = true; });
-      return matches;
+      _lb2SectionSongs[sec.id] = matches;
+    });
+    function _lb2SongsForSection(sec) {
+      return _lb2SectionSongs[sec.id] || [];
     }
 
     function _safeId(id) { return (id || '').replace(/['"><&]/g, ''); }
