@@ -30140,6 +30140,7 @@ var WO = (function() {
   var _sbSyncWriteTimer = null;  // 2-second debounce for lightweight sync write
   var _sbLastRealtimeBroadcastTs = 0; // epoch ms of last received Realtime broadcast
   var _sbSeeded = false;         // true once we've verified/seeded order_items for this session
+  var _sbLastColsToggleTs = 0;   // epoch ms of last local sbLyricsColumns change (flicker guard)
 
   // Resolve 'wo-section-N' or a serviceSectionId to the canonical serviceSectionId
   function sbResolveSectionId(sectionId) {
@@ -33347,6 +33348,7 @@ var WO = (function() {
     var song = songOrderSections.find(function(s) { return s.id === songId; });
     if (!song) return;
     song.sbLyricsColumns = (song.sbLyricsColumns === 2) ? 1 : 2;
+    _sbLastColsToggleTs = Date.now(); // guard: suppress stale-DB remote reversal for ~6s
     var isTwoCol = song.sbLyricsColumns === 2;
     var btn = document.getElementById('sbColBtn-' + songId);
     if (btn) btn.classList.toggle('active', isTwoCol);
@@ -34329,10 +34331,14 @@ var WO = (function() {
         needsRender = true;
       }
 
-      // Columns layout
+      // Columns layout — skip if this device changed columns recently (avoids stale-DB flicker:
+      // the 2s poll can return the old value before the 2s sync-write has landed in the DB,
+      // causing a brief revert to 1-col before the next poll re-applies 2-col).
       if (typeof inc.sbLyricsColumns === 'number' && inc.sbLyricsColumns !== song.sbLyricsColumns) {
-        song.sbLyricsColumns = inc.sbLyricsColumns;
-        needsRender = true;
+        if (Date.now() - _sbLastColsToggleTs > 6000) {
+          song.sbLyricsColumns = inc.sbLyricsColumns;
+          needsRender = true;
+        }
       }
 
       // Liturgist notes
