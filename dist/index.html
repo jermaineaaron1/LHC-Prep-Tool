@@ -20440,6 +20440,29 @@ var WO = (function() {
       return;
     }
 
+    // ── Wipe guard for regular orders ───────────────────────────────────────
+    // If this is a silent/background save (tab switch, visibility change) and
+    // songOrderSections is empty, we may be in a race condition where the order
+    // hasn't finished loading yet.  Sending an empty items list to SBQ.saveOrder
+    // triggers a DELETE-then-no-reinsert, permanently wiping all order_items.
+    // Guard: skip the save if we have no sections but currentOrderData still
+    // records songs from the last successful load / snapshot.
+    if (silent && songOrderSections.length === 0) {
+      var _knownSongCount =
+        (currentOrderData.songs && currentOrderData.songs.length) ||
+        (Array.isArray(currentOrderData.allItems) &&
+          currentOrderData.allItems.filter(function(i) {
+            return i.itemType === 'song';
+          }).length) ||
+        0;
+      if (_knownSongCount > 0) {
+        console.warn('[WipeGuard] Skipping background save — songOrderSections empty ' +
+          'but order has', _knownSongCount, 'known song(s). Preventing accidental wipe.');
+        return;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     if (!silent) showToast('Saving order...', 'info');
 
     if (!silent) {
