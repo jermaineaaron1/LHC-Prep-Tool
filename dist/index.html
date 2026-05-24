@@ -33986,7 +33986,13 @@ var WO = (function() {
         .filter(function(s) { return !!s.id; })
         .map(function(s, idx) { return sbBuildSongSnapshot(s, idx); });
       SBQ.syncItems(currentOrderData.id, snapshots)
-        .then(function() { sbSetSaveStatus(null); })
+        .then(function() {
+          sbSetSaveStatus(null);
+          // Advance the poll baseline past our own write so the next poll cycle
+          // sees remoteTs ≤ _sbLastPollTs and skips re-applying our own data.
+          // The +3000ms buffer covers server clock skew and network round-trip.
+          _sbLastPollTs = Math.max(_sbLastPollTs, Date.now() + 3000);
+        })
         .catch(function(e) {
           console.warn('[SyncWrite] failed:', e);
           sbSetSaveStatus(null);
@@ -34308,8 +34314,9 @@ var WO = (function() {
         });
       }
 
-      // Text annotations
-      if (Array.isArray(inc.textAnnotations)) {
+      // Text annotations — only re-render if content actually changed
+      if (Array.isArray(inc.textAnnotations) &&
+          JSON.stringify(inc.textAnnotations) !== JSON.stringify(song.textAnnotations || [])) {
         song.textAnnotations = inc.textAnnotations;
         sbTextAnnots[song.id] = inc.textAnnotations.slice();
         needsRender = true;
@@ -34346,14 +34353,29 @@ var WO = (function() {
         song.liturgistNotes = inc.liturgistNotes;
       }
 
-      // Slides
-      if (Array.isArray(inc.slides))      { song.slides      = inc.slides;      needsRender = true; }
-      if (Array.isArray(inc.savedSlides)) { song.savedSlides  = inc.savedSlides; needsRender = true; }
+      // Slides — only re-render if content actually changed (Array.isArray alone is always true)
+      if (Array.isArray(inc.slides) &&
+          JSON.stringify(inc.slides) !== JSON.stringify(song.slides || [])) {
+        song.slides = inc.slides; needsRender = true;
+      }
+      if (Array.isArray(inc.savedSlides) &&
+          JSON.stringify(inc.savedSlides) !== JSON.stringify(song.savedSlides || [])) {
+        song.savedSlides = inc.savedSlides; needsRender = true;
+      }
 
-      // Media added in Songbook
-      if (Array.isArray(inc.customYoutube)) { song.customYoutube = inc.customYoutube; needsRender = true; }
-      if (Array.isArray(inc.customDocs))    { song.customDocs    = inc.customDocs;    needsRender = true; }
-      if (Array.isArray(inc.sbLinks))       { song.sbLinks       = inc.sbLinks;       needsRender = true; }
+      // Media added in Songbook — only re-render on actual change
+      if (Array.isArray(inc.customYoutube) &&
+          JSON.stringify(inc.customYoutube) !== JSON.stringify(song.customYoutube || [])) {
+        song.customYoutube = inc.customYoutube; needsRender = true;
+      }
+      if (Array.isArray(inc.customDocs) &&
+          JSON.stringify(inc.customDocs) !== JSON.stringify(song.customDocs || [])) {
+        song.customDocs = inc.customDocs; needsRender = true;
+      }
+      if (Array.isArray(inc.sbLinks) &&
+          JSON.stringify(inc.sbLinks) !== JSON.stringify(song.sbLinks || [])) {
+        song.sbLinks = inc.sbLinks; needsRender = true;
+      }
     });
 
     // Record that Realtime just delivered a broadcast so the 4s poll can skip its
