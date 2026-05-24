@@ -30142,7 +30142,9 @@ var WO = (function() {
   var _sbLastRealtimeBroadcastTs = 0; // epoch ms of last received Realtime broadcast
   var _sbSeeded = false;         // true once we've verified/seeded order_items for this session
   var _sbLastColsToggleTs = 0;   // epoch ms of last local sbLyricsColumns change (flicker guard)
-  var _sbVisListenerAdded = false; // guard: add visibilitychange listener only once
+  var _sbVisListenerAdded = false;   // guard: add visibilitychange listener only once
+  var _sbTypingTimers = {};          // per-song auto-hide timers for typing indicator
+  var _sbTypingBroadcastTimers = {}; // per-song debounce for sb_typing broadcast (~50ms)
 
   // Resolve 'wo-section-N' or a serviceSectionId to the canonical serviceSectionId
   function sbResolveSectionId(sectionId) {
@@ -34194,6 +34196,12 @@ var WO = (function() {
       .on('broadcast', { event: 'sb_patch' }, function(msg) {
         sbApplyBroadcast(msg.payload);
       })
+      .on('broadcast', { event: 'sb_typing' }, function(msg) {
+        var p = msg.payload;
+        if (!p || !p.songId) return;
+        if (p.orderId !== (currentOrderData && currentOrderData.id)) return;
+        sbShowTypingIndicator(p.songId);
+      })
       .subscribe(function(status, err) {
         if (status === 'SUBSCRIBED') {
           sbRealtimeReady = true;
@@ -34388,11 +34396,8 @@ var WO = (function() {
 
       // ── Rich lyrics ──────────────────────────────────────────────────────────
       if (inc.richLyrics != null && inc.richLyrics !== song.richLyrics) {
-        var lyricsEl = $('sbLyrics-' + song.id);
-        if (!lyricsEl || document.activeElement !== lyricsEl) {
-          song.richLyrics = inc.richLyrics;
-          p.lyrics = true;
-        }
+        song.richLyrics = inc.richLyrics;
+        p.lyrics = true;
       }
 
       // ── Transpose ────────────────────────────────────────────────────────────
@@ -34453,6 +34458,64 @@ var WO = (function() {
 
   var _sbPendingRemoteRenderTimer = null;
 
+  // ── Cursor position helpers for collaborative editing ────────────────────
+  function sbSaveCursor(el) {
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return -1;
+    var range = sel.getRangeAt(0);
+    if (!el.contains(range.startContainer)) return -1;
+    var pre = document.createRange();
+    pre.selectNodeContents(el);
+    pre.setEnd(range.startContainer, range.startOffset);
+    return pre.toString().length;
+  }
+
+  function sbRestoreCursor(el, offset) {
+    if (offset < 0) return;
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+    var rem = offset;
+    var node;
+    while ((node = walker.nextNode())) {
+      if (rem <= node.length) {
+        var r = document.createRange();
+        r.setStart(node, rem);
+        r.collapse(true);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        return;
+      }
+      rem -= node.length;
+    }
+    var r2 = document.createRange();
+    r2.selectNodeContents(el);
+    r2.collapse(false);
+    var s2 = window.getSelection();
+    s2.removeAllRanges();
+    s2.addRange(r2);
+  }
+
+  function sbShowTypingIndicator(songId) {
+    var page = document.getElementById('sbPage-' + songId);
+    if (!page) return;
+    var ind = document.getElementById('sbTypingInd-' + songId);
+    if (!ind) {
+      ind = document.createElement('span');
+      ind.id = 'sbTypingInd-' + songId;
+      ind.className = 'sb-typing-indicator';
+      ind.innerHTML =
+        '<span class="sb-typing-dots"><span></span><span></span><span></span></span>' +
+        '<span class="sb-typing-label">editing</span>';
+      var top = page.querySelector('.sb-page-header-top');
+      if (top) top.insertBefore(ind, top.lastElementChild);
+    }
+    ind.style.display = 'inline-flex';
+    clearTimeout(_sbTypingTimers[songId]);
+    _sbTypingTimers[songId] = setTimeout(function() {
+      ind.style.display = 'none';
+    }, 3000);
+  }
+
   // ── Surgical DOM patch (Google-Docs model) ───────────────────────────────
   function sbPatchSongDOM(songId, p) {
     if (!p) return;
@@ -34461,12 +34524,15 @@ var WO = (function() {
 
     if (p.lyrics) {
       var lyricsEl = document.getElementById('sbLyrics-' + songId);
-      if (lyricsEl && document.activeElement !== lyricsEl) {
+      if (lyricsEl) {
+        var _isEditing = document.activeElement === lyricsEl;
+        var _savedCursor = _isEditing ? sbSaveCursor(lyricsEl) : -1;
         var steps = sbTransposeSteps[songId] || 0;
         var newHtml = song.richLyrics || (typeof formatLyricsWithHighlights === 'function'
           ? formatLyricsWithHighlights(song.lyrics || '') : escapeHtml(song.lyrics || ''));
         if (steps !== 0 && typeof _sbTransposeHtml === 'function') newHtml = _sbTransposeHtml(newHtml, steps);
         lyricsEl.innerHTML = newHtml;
+        if (_isEditing && _savedCursor >= 0) sbRestoreCursor(lyricsEl, _savedCursor);
         var key = song.key || '';
         var keyDisplay = key ? (steps !== 0 ? key + ' (' + (steps > 0 ? '+' : '') + steps + ')' : key) : '';
         var keyEl = document.getElementById('sbKey-' + songId);
@@ -34720,6 +34786,17 @@ var WO = (function() {
     // Refresh A4 markers after typing settles (150 ms feels instant)
     clearTimeout(_sbRePageTimers[songId]);
     _sbRePageTimers[songId] = setTimeout(sbPaginateAll, 150);
+
+    // ── Typing-presence broadcast (50ms debounce) ──────────────────────────
+    clearTimeout(_sbTypingBroadcastTimers[songId]);
+    _sbTypingBroadcastTimers[songId] = setTimeout(function() {
+      if (sbRealtimeReady && sbRealtimeChannel && currentOrderData) {
+        sbRealtimeChannel.send({
+          type: 'broadcast', event: 'sb_typing',
+          payload: { orderId: currentOrderData.id, songId: songId, deviceId: _sbPresenceKey || 'anon' }
+        }).catch(function() {});
+      }
+    }, 50);
 
     // ── Fast typing broadcast (300ms debounce) ─────────────────────────────
     // Fires well before the 600ms save cycle so other devices see keystrokes
@@ -52729,6 +52806,30 @@ function filterLiturgyItems() {
   /* Fallback for non-embeddable website links */
   .sb-doc-panel-fallback { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:160px; gap:10px; color:#94a3b8; padding:32px; text-align:center; }
   .sb-doc-panel-fallback a { display:inline-flex; align-items:center; gap:6px; padding:8px 18px; background:#eff6ff; color:#3b82f6; border-radius:8px; text-decoration:none; font-size:0.9rem; }
+  /* ── Collaborative typing indicator ──────────────────────────────────── */
+  .sb-typing-indicator {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 500;
+    color: #0d9488;
+    background: rgba(20,184,166,0.10);
+    border: 1px solid rgba(20,184,166,0.30);
+    border-radius: 20px;
+    padding: 3px 10px;
+    flex-shrink: 0;
+    animation: sb-typing-fadein 0.25s ease;
+    pointer-events: none;
+    user-select: none;
+  }
+  .sb-typing-dots { display:inline-flex; align-items:center; gap:2px; }
+  .sb-typing-dots span { width:4px; height:4px; border-radius:50%; background:#14b8a6; display:inline-block; animation:sb-typing-bounce 1.2s ease-in-out infinite; }
+  .sb-typing-dots span:nth-child(2) { animation-delay:0.2s; }
+  .sb-typing-dots span:nth-child(3) { animation-delay:0.4s; }
+  @keyframes sb-typing-bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-4px)} }
+  @keyframes sb-typing-fadein { from{opacity:0;transform:scale(0.85)} to{opacity:1;transform:scale(1)} }
   .sb-page-title { font-size:1.4rem; font-weight:700; color:#1e293b; font-family:'Cinzel',Georgia,serif; line-height:1.2; }
   .sb-page-artist { font-size:0.85rem; color:#64748b; margin-top:3px; }
   .sb-page-transpose { display:flex; align-items:center; gap:3px; flex-shrink:0; }
