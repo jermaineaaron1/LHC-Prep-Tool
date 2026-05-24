@@ -31146,7 +31146,7 @@ var WO = (function() {
       html += '</div>';
       html += '</div>'; // .sb-page-header-top
       // Row 2: controls + media/doc buttons
-      html += '<div class="sb-page-header-btns">';
+      html += '<div class="sb-page-header-btns" id="sbHdrBtns-' + sid + '">';
       html += '<div class="sb-page-transpose">';
       html += '<button class="sb-xp-btn" onclick="WO.sbTranspose(\'' + sid + '\',-1)" title="Transpose down">&#9837;</button>';
       html += '<button class="sb-xp-btn ori" onclick="WO.sbResetTranspose(\'' + sid + '\')" title="Reset to original key">Ori</button>';
@@ -34355,28 +34355,36 @@ var WO = (function() {
     }).catch(function(e) { console.warn('[Realtime] Broadcast error:', e); });
   }
 
-  // Receive and apply a complete broadcast patch from another device
+  // Receive and apply a complete broadcast patch from another device.
+  // Google-Docs model: every field is patched surgically in the existing DOM —
+  // no full re-render, no page teardown. renderSongbookLive() is NEVER called
+  // from here; structural changes (song add/remove) come through a separate path.
   function sbApplyBroadcast(payload) {
     if (!payload || !payload.songs || !currentOrderData) return;
     if (payload.orderId !== currentOrderData.id) return;
     var modal = $('songbookLiveModal');
     if (!modal || modal.style.display === 'none') return;
 
-    var needsRender = false;
+    // Per-song change flags — collected during the loop, applied after
+    var patches = {}; // songId → { lyrics, cols, textAnnots, media, litNotes }
 
     payload.songs.forEach(function(inc) {
       var song = songOrderSections.find(function(s) { return s.id === inc.id; });
       if (!song) return;
+      var p = patches[song.id] || (patches[song.id] = {});
 
-      // Draw annotations — redraw SVG immediately (no full re-render needed)
-      if (Array.isArray(inc.annotations) && JSON.stringify(inc.annotations) !== JSON.stringify(song.annotations)) {
+      // ── Draw annotations ─────────────────────────────────────────────────────
+      // Already surgical (SVG redraw, no DOM teardown needed).
+      if (Array.isArray(inc.annotations) &&
+          JSON.stringify(inc.annotations) !== JSON.stringify(song.annotations || [])) {
         song.annotations = inc.annotations;
         sbPaths[song.id] = inc.annotations.slice();
         sbRedrawSong(song.id);
       }
 
-      // Image annotations — redraw per-image overlays
-      if (inc.imgAnnotations && typeof inc.imgAnnotations === 'object') {
+      // ── Image annotations ────────────────────────────────────────────────────
+      if (inc.imgAnnotations && typeof inc.imgAnnotations === 'object' &&
+          JSON.stringify(inc.imgAnnotations) !== JSON.stringify(song.imgAnnotations || {})) {
         song.imgAnnotations = inc.imgAnnotations;
         sbImgPaths[song.id] = {};
         Object.keys(inc.imgAnnotations).forEach(function(k) {
@@ -34387,93 +34395,253 @@ var WO = (function() {
         });
       }
 
-      // Text annotations — only re-render if content actually changed
+      // ── Text annotations ─────────────────────────────────────────────────────
       if (Array.isArray(inc.textAnnotations) &&
           JSON.stringify(inc.textAnnotations) !== JSON.stringify(song.textAnnotations || [])) {
         song.textAnnotations = inc.textAnnotations;
         sbTextAnnots[song.id] = inc.textAnnotations.slice();
-        needsRender = true;
+        p.textAnnots = true; // patch: sbRenderTextAnnots(songId)
       }
 
-      // Rich lyrics — skip if this device is actively editing that song
+      // ── Rich lyrics ──────────────────────────────────────────────────────────
+      // Skip if this device is actively editing this song's lyrics field.
       if (inc.richLyrics != null && inc.richLyrics !== song.richLyrics) {
         var lyricsEl = $('sbLyrics-' + song.id);
         if (!lyricsEl || document.activeElement !== lyricsEl) {
           song.richLyrics = inc.richLyrics;
-          if (lyricsEl) lyricsEl.innerHTML = inc.richLyrics;
+          p.lyrics = true; // patch: rebuild #sbLyrics-{id} innerHTML
         }
       }
 
-      // Transpose — also update sbTransposeSteps so buttons work correctly after sync
+      // ── Transpose ────────────────────────────────────────────────────────────
       if (typeof inc.transposeSteps === 'number' && inc.transposeSteps !== song.transposeSteps) {
         song.transposeSteps = inc.transposeSteps;
         sbTransposeSteps[song.id] = inc.transposeSteps;
-        needsRender = true;
+        p.lyrics = true; // patch: rebuild lyrics with new transposition + update key chip
       }
 
-      // Columns layout — skip if this device changed columns recently (avoids stale-DB flicker:
-      // the 2s poll can return the old value before the 2s sync-write has landed in the DB,
-      // causing a brief revert to 1-col before the next poll re-applies 2-col).
+      // ── Column layout ────────────────────────────────────────────────────────
+      // Guarded: skip for 6s after a local toggle to avoid stale-DB flicker.
       if (typeof inc.sbLyricsColumns === 'number' && inc.sbLyricsColumns !== song.sbLyricsColumns) {
         if (Date.now() - _sbLastColsToggleTs > 6000) {
           song.sbLyricsColumns = inc.sbLyricsColumns;
-          needsRender = true;
+          p.cols = true; // patch: toggle 2-col view surgically
         }
       }
 
-      // Liturgist notes
+      // ── Liturgist notes ──────────────────────────────────────────────────────
       if (inc.liturgistNotes != null && inc.liturgistNotes !== song.liturgistNotes) {
         song.liturgistNotes = inc.liturgistNotes;
+        p.litNotes = true; // patch: update Liturgist Notes button style
       }
 
-      // Slides — only re-render if content actually changed (Array.isArray alone is always true)
+      // ── Slides (stored data only — songbook view doesn't render slides inline) ─
       if (Array.isArray(inc.slides) &&
           JSON.stringify(inc.slides) !== JSON.stringify(song.slides || [])) {
-        song.slides = inc.slides; needsRender = true;
+        song.slides = inc.slides;
       }
       if (Array.isArray(inc.savedSlides) &&
           JSON.stringify(inc.savedSlides) !== JSON.stringify(song.savedSlides || [])) {
-        song.savedSlides = inc.savedSlides; needsRender = true;
+        song.savedSlides = inc.savedSlides;
       }
 
-      // Media added in Songbook — only re-render on actual change
+      // ── Media (videos, docs, links) ──────────────────────────────────────────
+      var mediaChanged = false;
       if (Array.isArray(inc.customYoutube) &&
           JSON.stringify(inc.customYoutube) !== JSON.stringify(song.customYoutube || [])) {
-        song.customYoutube = inc.customYoutube; needsRender = true;
+        song.customYoutube = inc.customYoutube; mediaChanged = true;
       }
       if (Array.isArray(inc.customDocs) &&
           JSON.stringify(inc.customDocs) !== JSON.stringify(song.customDocs || [])) {
-        song.customDocs = inc.customDocs; needsRender = true;
+        song.customDocs = inc.customDocs; mediaChanged = true;
       }
       if (Array.isArray(inc.sbLinks) &&
           JSON.stringify(inc.sbLinks) !== JSON.stringify(song.sbLinks || [])) {
-        song.sbLinks = inc.sbLinks; needsRender = true;
+        song.sbLinks = inc.sbLinks; mediaChanged = true;
       }
+      if (mediaChanged) p.media = true; // patch: rebuild header-btns HTML
     });
 
-    // Record that Realtime just delivered a broadcast so the 4s poll can skip its
-    // DB round-trip (state is already current).
+    // Record timestamp so poll can skip a DB round-trip when Realtime is fresh.
     _sbLastRealtimeBroadcastTs = Date.now();
 
-    if (needsRender) {
-      // Don't clobber a lyrics field the user is actively typing in.
-      // Defer the re-render by 2.5s; if they're still editing then, skip it —
-      // their next auto-save will push a fresh broadcast that the devices can apply.
-      var _ae = document.activeElement;
-      var _editingLyrics = _ae && _ae.id && _ae.id.indexOf('sbLyrics-') === 0 && _ae.isContentEditable;
-      if (_editingLyrics) {
-        clearTimeout(_sbPendingRemoteRenderTimer);
-        _sbPendingRemoteRenderTimer = setTimeout(function() {
-          var ae2 = document.activeElement;
-          if (!ae2 || !ae2.id || ae2.id.indexOf('sbLyrics-') !== 0) sbSyncFromRemote();
-        }, 2500);
+    // ── Apply surgical patches (Google-Docs style — no full re-render) ─────────
+    Object.keys(patches).forEach(function(songId) {
+      sbPatchSongDOM(songId, patches[songId]);
+    });
+  }
+
+  var _sbPendingRemoteRenderTimer = null;
+
+  // ── Surgical DOM patch (Google-Docs model) ───────────────────────────────
+  // Applies only the changed fields to the existing DOM — no page teardown.
+  // Called from sbApplyBroadcast after all field comparisons are done.
+  function sbPatchSongDOM(songId, p) {
+    if (!p) return;
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song) return;
+
+    // ── Lyrics / transpose ────────────────────────────────────────────────────
+    if (p.lyrics) {
+      var lyricsEl = document.getElementById('sbLyrics-' + songId);
+      if (lyricsEl && document.activeElement !== lyricsEl) {
+        var steps = sbTransposeSteps[songId] || 0;
+        var newHtml = song.richLyrics || (typeof formatLyricsWithHighlights === 'function'
+          ? formatLyricsWithHighlights(song.lyrics || '') : escapeHtml(song.lyrics || ''));
+        if (steps !== 0 && typeof _sbTransposeHtml === 'function') newHtml = _sbTransposeHtml(newHtml, steps);
+        lyricsEl.innerHTML = newHtml;
+        // Update key chip
+        var key = song.key || '';
+        var keyDisplay = key ? (steps !== 0 ? key + ' (' + (steps > 0 ? '+' : '') + steps + ')' : key) : '';
+        var keyEl = document.getElementById('sbKey-' + songId);
+        if (keyEl) keyEl.textContent = keyDisplay || key;
+        // Re-apply 2-col if active
+        if (song.sbLyricsColumns === 2) sbRenderTwoColSong(songId);
+        // Redraw annotations over new lyrics
+        sbRedrawSong(songId);
+        // Re-paginate (debounced)
+        clearTimeout(_sbRePageTimers[songId]);
+        _sbRePageTimers[songId] = setTimeout(sbPaginateAll, 150);
+      }
+    }
+
+    // ── Column layout ─────────────────────────────────────────────────────────
+    if (p.cols) {
+      var btn = document.getElementById('sbColBtn-' + songId);
+      var cbBtn = document.getElementById('sbColBreakBtn-' + songId);
+      if (song.sbLyricsColumns === 2) {
+        sbRenderTwoColSong(songId);
+        if (btn) btn.classList.add('active');
+        if (cbBtn) cbBtn.style.display = '';
       } else {
-        sbSyncFromRemote();
+        if (typeof _sbClearTwoColView === 'function') _sbClearTwoColView(songId);
+        if (btn) btn.classList.remove('active');
+        if (cbBtn) cbBtn.style.display = 'none';
+      }
+    }
+
+    // ── Text annotations ──────────────────────────────────────────────────────
+    if (p.textAnnots) {
+      sbRenderTextAnnots(songId);
+    }
+
+    // ── Media buttons (videos, docs, links) + liturgist notes button ─────────
+    // Rebuild just the #sbHdrBtns-{id} element innerHTML — small element, no flash.
+    if (p.media || p.litNotes) {
+      var hdrBtns = document.getElementById('sbHdrBtns-' + songId);
+      if (hdrBtns) {
+        hdrBtns.innerHTML = _sbBuildHdrBtnsHtml(song);
+        // Async-patch YouTube badge labels (fire-and-forget, same as renderSongbookLive)
+        if (typeof sbPatchYoutubeBadgeLabels === 'function') sbPatchYoutubeBadgeLabels();
       }
     }
   }
 
-  var _sbPendingRemoteRenderTimer = null;
+  // Builds the inner HTML for #sbHdrBtns-{sid} (mirrors the renderSongbookLive block).
+  // Used by sbPatchSongDOM to surgically rebuild just the header controls row.
+  function _sbBuildHdrBtnsHtml(song) {
+    var sid = song.id;
+    var key = song.key || '';
+    var steps = sbTransposeSteps[sid] || 0;
+    var keyDisplay = key ? (steps !== 0 ? key + ' (' + (steps > 0 ? '+' : '') + steps + ')' : key) : '';
+
+    var removedDocUrls = Array.isArray(song.removedLibraryDocUrls) ? song.removedLibraryDocUrls : [];
+    var filteredAttachments = (Array.isArray(song.attachments) ? song.attachments : [])
+      .filter(function(a) { return removedDocUrls.indexOf(a.url || '') === -1; });
+    var allDocs = filteredAttachments.concat(Array.isArray(song.customDocs) ? song.customDocs : []);
+    var sbFiles = Array.isArray(song.sbFiles) ? song.sbFiles : [];
+    var sbSongLinks = Array.isArray(song.sbLinks) ? song.sbLinks : [];
+    var removedVidUrls = Array.isArray(song.removedLibraryYoutubeUrls) ? song.removedLibraryYoutubeUrls : [];
+    var libVideos = (Array.isArray(song.youtube) ? song.youtube :
+      (typeof song.youtube === 'string' && song.youtube.trim() ?
+        song.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []))
+      .filter(function(u) { return removedVidUrls.indexOf(u) === -1; });
+    var allVideos = libVideos.concat(Array.isArray(song.customYoutube) ? song.customYoutube : []);
+
+    var h = '';
+    // Transpose controls
+    h += '<div class="sb-page-transpose">';
+    h += '<button class="sb-xp-btn" onclick="WO.sbTranspose(\'' + sid + '\',-1)" title="Transpose down">&#9837;</button>';
+    h += '<button class="sb-xp-btn ori" onclick="WO.sbResetTranspose(\'' + sid + '\')" title="Reset to original key">Ori</button>';
+    h += '<button class="sb-xp-btn" onclick="WO.sbTranspose(\'' + sid + '\',1)" title="Transpose up">&#9839;</button>';
+    h += '<span class="sb-xp-key" id="sbKey-' + sid + '">' + escapeHtml(keyDisplay || key) + '</span>';
+    h += '</div>';
+
+    // Videos badge
+    if (allVideos.length === 1) {
+      var info0 = window.detectMediaType ? window.detectMediaType(allVideos[0]) : null;
+      var mIcon0 = (info0 && info0.type === 'spotify') ? 'fa-brands fa-spotify' : 'fa-brands fa-youtube';
+      var vLbl0 = (info0 && info0.type === 'spotify') ? (info0.label || 'Spotify') :
+                  (info0 && info0.type === 'youtube') ? 'YouTube Video' : sbDomainLabel(allVideos[0]);
+      h += '<div class="sb-badge-rm-wrap"><button class="sb-doc-toggle-btn sb-vid-toggle-btn sb-badge-btn" id="sbVidBtn-' + sid + '-0" onclick="WO.sbToggleVideo(\'' + sid + '\',0)"><i class="' + mIcon0 + '"></i> ' + escapeHtml(vLbl0.length>25?vLbl0.substring(0,25)+'…':vLbl0) + '</button><button class="sb-badge-rm-btn" onclick="event.stopPropagation();WO.sbRemoveVideo(\'' + sid + '\',0)" title="Remove link"><i class="fa-solid fa-xmark"></i></button></div>';
+    } else if (allVideos.length > 1) {
+      h += '<div class="sb-badge-wrap" id="sbVidBadgeWrap-' + sid + '"><button class="sb-badge-btn sb-badge-video" id="sbVidBadgePill-' + sid + '" onclick="WO.sbToggleBadgeDrop(\'' + sid + '\',\'vid\')"><i class="fa-brands fa-youtube"></i> Videos<span class="sb-badge-count">' + allVideos.length + '</span><i class="fa-solid fa-caret-down sb-badge-caret" id="sbVidCaret-' + sid + '"></i></button><div class="sb-badge-drop" id="sbVidDrop-' + sid + '">';
+      allVideos.forEach(function(url, vi) {
+        var info = window.detectMediaType ? window.detectMediaType(url) : null;
+        var mIcon = (info && info.type === 'spotify') ? 'fa-brands fa-spotify' : 'fa-brands fa-youtube';
+        var label = (info && info.type === 'spotify') ? (info.label || 'Spotify') : (info && info.type === 'youtube') ? 'YouTube Video' : sbDomainLabel(url);
+        h += '<div class="sb-badge-drop-row"><button class="sb-badge-drop-item sb-doc-toggle-btn sb-vid-toggle-btn" id="sbVidBtn-' + sid + '-' + vi + '" onclick="WO.sbToggleVideo(\'' + sid + '\',' + vi + ');WO.sbCloseBadgeDrop(\'' + sid + '\',\'vid\')"><i class="' + mIcon + '"></i> ' + escapeHtml(label.length>25?label.substring(0,25)+'…':label) + '</button><button class="sb-badge-drop-rm" onclick="event.stopPropagation();WO.sbRemoveVideo(\'' + sid + '\',' + vi + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button></div>';
+      });
+      h += '</div></div>';
+    }
+
+    // Docs badge
+    var totalDocBadge = allDocs.length + sbFiles.length;
+    if (totalDocBadge === 1 && allDocs.length === 1) {
+      var att0 = allDocs[0];
+      var attInfo0 = window.detectMediaType ? window.detectMediaType(att0.url || '') : null;
+      var dIcon0 = (attInfo0 && attInfo0.type === 'link') ? 'fa-solid fa-globe' : 'fa-solid fa-file-lines';
+      var dName0 = att0.name || 'Doc';
+      h += '<div class="sb-badge-rm-wrap"><button class="sb-doc-toggle-btn sb-badge-btn" id="sbDocBtn-' + sid + '-0" onclick="WO.sbToggleDoc(\'' + sid + '\',0)"><i class="' + dIcon0 + '"></i> ' + escapeHtml(dName0.length>25?dName0.substring(0,25)+'…':dName0) + '</button><button class="sb-badge-rm-btn" onclick="event.stopPropagation();WO.sbRemoveDoc(\'' + sid + '\',0)" title="Remove doc"><i class="fa-solid fa-xmark"></i></button></div>';
+    } else if (totalDocBadge === 1 && sbFiles.length === 1) {
+      var f0 = sbFiles[0];
+      var isImg0 = f0.mimeType && f0.mimeType.startsWith('image/');
+      var fName0 = f0.name || (isImg0 ? 'Image' : 'File');
+      h += '<div class="sb-badge-rm-wrap"><button class="sb-doc-toggle-btn sb-file-toggle-btn sb-badge-btn" id="sbFileBtn-' + sid + '-0" onclick="WO.sbToggleFile(\'' + sid + '\',0)"><i class="fa-solid ' + (isImg0?'fa-image':'fa-file-pdf') + '"></i> ' + escapeHtml(fName0.length>25?fName0.substring(0,25)+'…':fName0) + '</button><button class="sb-badge-rm-btn" onclick="event.stopPropagation();WO.sbRemoveFile(\'' + sid + '\',0)" title="Remove file"><i class="fa-solid fa-xmark"></i></button></div>';
+    } else if (totalDocBadge > 1) {
+      h += '<div class="sb-badge-wrap" id="sbDocBadgeWrap-' + sid + '"><button class="sb-badge-btn sb-badge-doc" id="sbDocBadgePill-' + sid + '" onclick="WO.sbToggleBadgeDrop(\'' + sid + '\',\'doc\')"><i class="fa-solid fa-file-lines"></i> Docs<span class="sb-badge-count">' + totalDocBadge + '</span><i class="fa-solid fa-caret-down sb-badge-caret" id="sbDocCaret-' + sid + '"></i></button><div class="sb-badge-drop" id="sbDocDrop-' + sid + '">';
+      allDocs.forEach(function(att, di) {
+        var attInfo = window.detectMediaType ? window.detectMediaType(att.url || '') : null;
+        var dIcon = (attInfo && attInfo.type === 'link') ? 'fa-solid fa-globe' : 'fa-solid fa-file-lines';
+        var docName = att.name || ('Doc ' + (di + 1));
+        h += '<div class="sb-badge-drop-row"><button class="sb-badge-drop-item sb-doc-toggle-btn" id="sbDocBtn-' + sid + '-' + di + '" onclick="WO.sbToggleDoc(\'' + sid + '\',' + di + ');WO.sbCloseBadgeDrop(\'' + sid + '\',\'doc\')"><i class="' + dIcon + '"></i> ' + escapeHtml(docName.length>25?docName.substring(0,25)+'…':docName) + '</button><button class="sb-badge-drop-rm" onclick="event.stopPropagation();WO.sbRemoveDoc(\'' + sid + '\',' + di + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button></div>';
+      });
+      sbFiles.forEach(function(f, fi) {
+        var isImage = f.mimeType && f.mimeType.startsWith('image/');
+        var nm = f.name || (isImage ? 'Image' : 'File');
+        h += '<div class="sb-badge-drop-row"><button class="sb-badge-drop-item sb-doc-toggle-btn sb-file-toggle-btn" id="sbFileBtn-' + sid + '-' + fi + '" onclick="WO.sbToggleFile(\'' + sid + '\',' + fi + ');WO.sbCloseBadgeDrop(\'' + sid + '\',\'doc\')"><i class="fa-solid ' + (isImage?'fa-image':'fa-file-pdf') + '"></i> ' + escapeHtml(nm.length>25?nm.substring(0,25)+'…':nm) + '</button><button class="sb-badge-drop-rm" onclick="event.stopPropagation();WO.sbRemoveFile(\'' + sid + '\',' + fi + ')" title="Remove file"><i class="fa-solid fa-xmark"></i></button></div>';
+      });
+      h += '</div></div>';
+    }
+
+    // Links badge
+    if (sbSongLinks.length === 1) {
+      var lnk0 = sbSongLinks[0];
+      var lI0 = window.detectMediaType ? window.detectMediaType(lnk0.url) : null;
+      var lIco0 = (lI0 && lI0.type === 'youtube') ? 'fa-brands fa-youtube' : (lI0 && lI0.type === 'spotify') ? 'fa-brands fa-spotify' : 'fa-solid fa-globe';
+      var lLbl0 = (lI0 && lI0.type === 'youtube') ? 'YouTube Video' : (lI0 && lI0.type === 'spotify') ? (lI0.label || 'Spotify') : sbDomainLabel(lnk0.url);
+      h += '<div class="sb-badge-rm-wrap"><button class="sb-doc-toggle-btn sb-badge-link-btn sb-badge-btn" id="sbSongLinkBtn-' + sid + '-0" onclick="WO.sbToggleSongLink(\'' + sid + '\',0)"><i class="' + lIco0 + '"></i> ' + escapeHtml(lLbl0.length>25?lLbl0.substring(0,25)+'…':lLbl0) + '</button><button class="sb-badge-rm-btn" onclick="event.stopPropagation();WO.sbRemoveSongLink(\'' + sid + '\',0)" title="Remove link"><i class="fa-solid fa-xmark"></i></button></div>';
+    } else if (sbSongLinks.length > 1) {
+      h += '<div class="sb-badge-wrap" id="sbLinkBadgeWrap-' + sid + '"><button class="sb-badge-btn sb-badge-link" id="sbLinkBadgePill-' + sid + '" onclick="WO.sbToggleBadgeDrop(\'' + sid + '\',\'link\')"><i class="fa-solid fa-globe"></i> Links<span class="sb-badge-count">' + sbSongLinks.length + '</span><i class="fa-solid fa-caret-down sb-badge-caret" id="sbLinkCaret-' + sid + '"></i></button><div class="sb-badge-drop" id="sbLinkDrop-' + sid + '">';
+      sbSongLinks.forEach(function(lnk, li) {
+        var lI = window.detectMediaType ? window.detectMediaType(lnk.url) : null;
+        var lIco = (lI && lI.type === 'youtube') ? 'fa-brands fa-youtube' : (lI && lI.type === 'spotify') ? 'fa-brands fa-spotify' : 'fa-solid fa-globe';
+        var lLbl = (lI && lI.type === 'youtube') ? 'YouTube Video' : (lI && lI.type === 'spotify') ? (lI.label || 'Spotify') : sbDomainLabel(lnk.url);
+        h += '<div class="sb-badge-drop-row"><button class="sb-badge-drop-item sb-doc-toggle-btn sb-badge-link-btn" id="sbSongLinkBtn-' + sid + '-' + li + '" onclick="WO.sbToggleSongLink(\'' + sid + '\',' + li + ',false,true);WO.sbCloseBadgeDrop(\'' + sid + '\',\'link\')"><i class="' + lIco + '"></i> ' + escapeHtml(lLbl.length>25?lLbl.substring(0,25)+'…':lLbl) + '</button><button class="sb-badge-drop-rm" onclick="event.stopPropagation();WO.sbRemoveSongLink(\'' + sid + '\',' + li + ')" title="Remove"><i class="fa-solid fa-xmark"></i></button></div>';
+      });
+      h += '</div></div>';
+    }
+
+    // 2-Col + Col-break buttons
+    h += '<button class="sb-col-toggle-btn' + (song.sbLyricsColumns === 2 ? ' active' : '') + '" id="sbColBtn-' + sid + '" onclick="WO.sbToggleLyricsColumns(\'' + sid + '\')" title="Toggle 2-column layout"><i class="fa-solid fa-table-columns"></i> 2 Col</button>';
+    h += '<button class="sb-col-toggle-btn sb-colbreak-btn" id="sbColBreakBtn-' + sid + '" onclick="WO.sbInsertColBreak(\'' + sid + '\')" title="Insert column break at cursor (2-col mode only)" style="' + (song.sbLyricsColumns === 2 ? '' : 'display:none;') + '"><i class="fa-solid fa-arrow-turn-down"></i> Col↵</button>';
+
+    // Liturgist Notes button
+    var hasLog = song.liturgistNotes && song.liturgistNotes.trim();
+    h += '<button class="sb-litlog-btn' + (hasLog ? ' active' : ' sb-litlog-empty') + '" onclick="WO.sbOpenLiturgistLog(\'' + sid + '\')" title="Liturgist Notes"><i class="fa-solid fa-book-bookmark"></i> Liturgist Notes</button>';
+
+    return h;
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -44945,6 +45113,7 @@ var WO = (function() {
     sbSnapZoomStep: sbSnapZoomStep,
     sbBroadcastPatch: sbBroadcastPatch,
     sbApplyBroadcast: sbApplyBroadcast,
+    sbPatchSongDOM: sbPatchSongDOM,
     sbRefresh: sbRefresh,
     sbResetTranspose: sbResetTranspose,
     sbToggleLyricsColumns: sbToggleLyricsColumns,
