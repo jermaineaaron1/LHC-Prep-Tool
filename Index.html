@@ -31829,7 +31829,7 @@ var WO = (function() {
     });
     Array.from(body.querySelectorAll('.sb-cont-page')).forEach(function(el) { el.remove(); });
 
-    var A4H = 1200;
+    var A4H = Math.round(297 * 96 / 25.4); // ≈ 1123 px — true A4 at 96 dpi
 
     // ── Inject book-mode CSS (exact same rules as _sbFsBuildPages) ──────────
     // This ensures the hidden measurement div renders identically to fullscreen
@@ -31985,7 +31985,9 @@ var WO = (function() {
       w.style.height = ''; w.style.overflow = '';
     });
 
-    var A4H = 1200; // standard page height
+    // A4 at 96 dpi — matches browser print output (297mm × 96px/in ÷ 25.4mm/in ≈ 1123px).
+    // Using true A4 height makes markers, book mode, and PDF all agree on page boundaries.
+    var A4H = Math.round(297 * 96 / 25.4); // ≈ 1123 px
 
     // ── Inject book-mode measurement CSS (must match _sbFsBuildPages exactly) ──
     var bookCss = [
@@ -32049,35 +32051,26 @@ var WO = (function() {
       var lyricsWrap = mDiv.querySelector('.sp-lyrics-wrap');
       if (!lyricsWrap || totalH <= A4H) { document.body.removeChild(mDiv); return; }
 
-      var lyrTop = lyricsWrap.offsetTop; // book header height in measurement div
+      var lyrTop = lyricsWrap.offsetTop; // header height in measurement div
       document.body.removeChild(mDiv);
 
-      // Compute live lyrics element offset from .sb-song-page top.
-      // Using offsetTop (layout coords) — unaffected by CSS transform/zoom on parent.
-      var lyricsElOffset = 0;
-      var _tmp = lyricsEl;
-      while (_tmp && _tmp !== page) {
-        lyricsElOffset += _tmp.offsetTop;
-        _tmp = _tmp.offsetParent;
-      }
-
-      // Direct formula: marker N sits at the book-mode clip boundary n*A4H,
-      // converted to live canvas coords via: lyricsElOffset + (n*A4H - lyrTop).
-      // Both measurement div and live canvas use identical CSS + 794px width,
-      // so lyrics lay out identically — only the header heights differ.
-      // This is exact on every device and zoom level.
+      // Place markers INSIDE lyricsEl at (bookBreakY - lyrTop) from the lyrics top.
+      // This is the exact position within the lyrics content where book mode clips —
+      // no header-height conversion needed, so live markers match book mode perfectly
+      // regardless of any difference between the live header and measurement header.
+      // The drag handler converts back: bookY = (markerTop - 0) + lyrTop = markerTop + lyrTop.
       for (var n = 1; n * A4H < totalH; n++) {
         var manualY = (sbManualBreaks[sid] && sbManualBreaks[sid][n - 1] !== undefined)
           ? sbManualBreaks[sid][n - 1] : null;
         var bookBreakY = (manualY !== null) ? manualY : n * A4H;
-        var markerTop = lyricsElOffset + (bookBreakY - lyrTop);
+        var markerPosInLyrics = bookBreakY - lyrTop; // offset within lyricsEl
         var marker = document.createElement('div');
         marker.className = 'sb-a4-marker';
-        marker.style.top = Math.round(markerTop) + 'px';
+        marker.style.top = Math.round(markerPosInLyrics) + 'px';
         marker.setAttribute('data-page', n + 1);
         marker.setAttribute('data-song-id', sid);
         marker.setAttribute('data-break-idx', String(n - 1));
-        marker.setAttribute('data-lyrics-offset', String(lyricsElOffset));
+        marker.setAttribute('data-lyrics-offset', '0'); // marker is in lyricsEl space
         marker.setAttribute('data-lyr-top', String(lyrTop));
         if (manualY !== null) marker.setAttribute('data-manual', '1');
         (function(m) {
@@ -32085,7 +32078,7 @@ var WO = (function() {
           m.addEventListener('touchstart', function(e) { sbA4MarkerTouchStart(e, m); }, { passive: false });
           m.addEventListener('dblclick', function() { sbA4MarkerReset(m); });
         })(marker);
-        page.appendChild(marker);
+        lyricsEl.appendChild(marker); // anchored in lyrics, not page
       }
     });
 
@@ -35442,7 +35435,7 @@ var WO = (function() {
       return;
     }
 
-    var A4H = 1200;
+    var A4H = Math.round(297 * 96 / 25.4); // ≈ 1123 px
     var lyrTop       = parseFloat(markers[0].getAttribute('data-lyr-top'))       || 0;
     var lyricsOffset = parseFloat(markers[0].getAttribute('data-lyrics-offset')) || 0;
 
@@ -36597,7 +36590,7 @@ var WO = (function() {
 
     // Song pages — pixel-accurate pagination using a hidden measurement div
     // with the EXACT same CSS+HTML as the fullscreen pages.
-    var A4H = 1200; // standard page height
+    var A4H = Math.round(297 * 96 / 25.4); // ≈ 1123 px — true A4 at 96 dpi
 
     // Raw CSS (no <style> tag) — shared between measurement and page rendering
     var rawCss = '*{box-sizing:border-box;}' + css +
