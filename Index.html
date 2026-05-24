@@ -30946,6 +30946,7 @@ var WO = (function() {
       if (song.itemType === 'blank') {
         var sbFilesB = Array.isArray(song.sbFiles) ? song.sbFiles : [];
         var sbLinksB = Array.isArray(song.sbLinks) ? song.sbLinks : [];
+        html += '<div class="sb-song-unit">';
         html += '<div class="sb-song-page sb-blank-page" id="sbPage-' + sid + '" data-song-id="' + sid + '">';
         html += '<div class="sb-page-header">';
         html += '<div class="sb-blank-icon"><i class="fa-solid fa-file-lines"></i></div>';
@@ -31078,6 +31079,7 @@ var WO = (function() {
           '</div>';
         });
         html += '</div>'; // .sb-song-page
+        html += '</div>'; // .sb-song-unit (blank page)
         // Page break divider
         if (idx < sbRenderItems.length - 1) {
           var extra0 = sbPageMargins[song.id] || 0;
@@ -31132,26 +31134,19 @@ var WO = (function() {
       var libVideoCount = libVideos.length;
       var allVideos = libVideos.concat(Array.isArray(song.customYoutube) ? song.customYoutube : []);
 
-      html += '<div class="sb-song-page" id="sbPage-' + sid + '" data-song-id="' + sid + '">';
-      html += '<div class="sb-page-header">';
-      // Row 1: page number + title
-      html += '<div class="sb-page-header-top">';
-      html += '<div class="sb-page-num">' + (idx + 1) + '</div>';
-      // Title area is the drag handle — draggable="true" here so children don't interfere
-      html += '<div class="sb-page-info sb-drag-handle" draggable="true" ondragstart="WO.sbDragStart(event,\'' + sid + '\')" ondragend="WO.sbDragEnd(event)" title="Drag to reorder songs">';
-      html += '<div class="sb-page-title">' + escapeHtml(song.title) + '</div>';
-      if (song.artist) html += '<div class="sb-page-artist">by ' + escapeHtml(song.artist) + '</div>';
-      // 488 — Show section label on duplicate instances
-      if (item.sectionLabel) html += '<div class="sb-page-section-lbl">' + escapeHtml(item.sectionLabel) + '</div>';
+      // ── Controls bar (outside the white A4 page, in the gray background area) ──
+      html += '<div class="sb-song-unit">';
+      html += '<div class="sb-page-controls-bar" data-song-id="' + sid + '">';
+      // Drag handle: num circle + title/artist
+      html += '<div class="sb-ctrl-drag" draggable="true" ondragstart="WO.sbDragStart(event,\'' + sid + '\')" ondragend="WO.sbDragEnd(event)" title="Drag to reorder songs">';
+      html += '<div class="sb-ctrl-num">' + (idx + 1) + '</div>';
+      html += '<div class="sb-ctrl-info">';
+      html += '<div class="sb-ctrl-title">' + escapeHtml(song.title) + '</div>';
+      if (song.artist) html += '<div class="sb-ctrl-artist">by ' + escapeHtml(song.artist) + '</div>';
+      if (item.sectionLabel) html += '<div class="sb-ctrl-section-lbl">' + escapeHtml(item.sectionLabel) + '</div>';
       html += '</div>';
-      // 386 — Action buttons in title row so they never wrap
-      html += '<div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0;">';
-      html += '<button class="sb-attach-btn" onclick="WO.sbAddSongLink(\'' + sid + '\')" title="Add YouTube or website link"><i class="fa-solid fa-link"></i></button>';
-      html += '<button class="sb-attach-btn" onclick="WO.sbAttachFile(\'' + sid + '\')" title="Attach image or document"><i class="fa-solid fa-paperclip"></i></button>';
-      html += '<button class="sb-attach-btn" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="WO.sbRemoveSong(\'' + sid + '\')" title="Remove this song from songbook"><i class="fa-solid fa-trash-can"></i></button>';
-      html += '</div>';
-      html += '</div>'; // .sb-page-header-top
-      // Row 2: controls + media/doc buttons
+      html += '</div>'; // .sb-ctrl-drag
+      // All tool buttons (transpose, media badges, 2-col, liturgist notes)
       html += '<div class="sb-page-header-btns" id="sbHdrBtns-' + sid + '">';
       html += '<div class="sb-page-transpose">';
       html += '<button class="sb-xp-btn" onclick="WO.sbTranspose(\'' + sid + '\',-1)" title="Transpose down">&#9837;</button>';
@@ -31301,7 +31296,24 @@ var WO = (function() {
       var hasLog = song.liturgistNotes && song.liturgistNotes.trim();
       html += '<button class="sb-litlog-btn' + (hasLog ? ' active' : ' sb-litlog-empty') + '" onclick="WO.sbOpenLiturgistLog(\'' + sid + '\')" title="Liturgist Notes"><i class="fa-solid fa-book-bookmark"></i> Liturgist Notes</button>';
       html += '</div>'; // .sb-page-header-btns
-      html += '</div>'; // .sb-page-header
+      // Action buttons at end of controls bar
+      html += '<div style="display:flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0;">';
+      html += '<button class="sb-attach-btn" onclick="WO.sbAddSongLink(\'' + sid + '\')" title="Add YouTube or website link"><i class="fa-solid fa-link"></i></button>';
+      html += '<button class="sb-attach-btn" onclick="WO.sbAttachFile(\'' + sid + '\')" title="Attach image or document"><i class="fa-solid fa-paperclip"></i></button>';
+      html += '<button class="sb-attach-btn sb-remove-btn" onclick="WO.sbRemoveSong(\'' + sid + '\')" title="Remove this song from songbook"><i class="fa-solid fa-trash-can"></i></button>';
+      html += '</div>';
+      html += '</div>'; // .sb-page-controls-bar
+
+      // ── White A4 page — compact header matching book mode / print ──
+      html += '<div class="sb-song-page" id="sbPage-' + sid + '" data-song-id="' + sid + '">';
+      html += '<div class="sb-page-header">';
+      html += '<div class="sb-page-num">' + (idx + 1) + '</div>';
+      html += '<div class="sb-page-info">';
+      html += '<div class="sb-page-title">' + escapeHtml(song.title) + '</div>';
+      if (song.artist) html += '<div class="sb-page-artist">by ' + escapeHtml(song.artist) + '</div>';
+      html += '</div>';
+      // Typing indicator injected here dynamically by sbShowTypingIndicator
+      html += '</div>'; // .sb-page-header (compact, matches book mode)
 
       html += '<div class="sb-page-canvas-wrap" id="sbCanvas-wrap-' + sid + '">';
       html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="true" onbeforeinput="WO.sbCapturePreEdit(\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\')" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
@@ -31429,6 +31441,7 @@ var WO = (function() {
       });
 
       html += '</div>'; // .sb-song-page
+      html += '</div>'; // .sb-song-unit
 
       // Page break divider between songs (357 — A4 visual + inline Add Page button)
       if (idx < sbRenderItems.length - 1) {
@@ -34593,11 +34606,8 @@ var WO = (function() {
       ind.innerHTML =
         '<span class="sb-typing-dots"><span></span><span></span><span></span></span>' +
         '<span class="sb-typing-label">editing</span>';
-      var top = page.querySelector('.sb-page-header-top');
-      if (top) {
-        // Insert before the action-buttons div (the last child)
-        top.insertBefore(ind, top.lastElementChild);
-      }
+      var top = page.querySelector('.sb-page-header');
+      if (top) top.appendChild(ind);
     }
     ind.style.display = 'inline-flex';
     clearTimeout(_sbTypingTimers[songId]);
@@ -39350,7 +39360,9 @@ var WO = (function() {
     body.addEventListener('dragover', function(e) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      var page = e.target.closest && e.target.closest('.sb-song-page');
+      // Controls bar is outside .sb-song-page, so check both
+      var page = e.target.closest && (e.target.closest('.sb-song-page') ||
+        (function(bar) { return bar && document.getElementById('sbPage-' + (bar.dataset.songId || '')); })(e.target.closest('.sb-page-controls-bar')));
       if (!page) return;
       var sid = page.dataset.songId;
       if (sid === _sbDragOverSid) return;
@@ -39361,7 +39373,8 @@ var WO = (function() {
     body.addEventListener('drop', function(e) {
       e.preventDefault();
       document.querySelectorAll('.sb-song-page').forEach(function(p) { p.classList.remove('sb-drag-over'); });
-      var page = e.target.closest && e.target.closest('.sb-song-page');
+      var page = e.target.closest && (e.target.closest('.sb-song-page') ||
+        (function(bar) { return bar && document.getElementById('sbPage-' + (bar.dataset.songId || '')); })(e.target.closest('.sb-page-controls-bar')));
       if (!page || !_sbDragSongId) return;
       var targetSid = page.dataset.songId;
       if (targetSid === _sbDragSongId) return;
@@ -39383,7 +39396,7 @@ var WO = (function() {
 
     body.addEventListener('dragleave', function(e) {
       if (!body.contains(e.relatedTarget)) {
-        document.querySelectorAll('.sb-song-page').forEach(function(p) { p.classList.remove('sb-drag-over'); });
+        document.querySelectorAll('.sb-song-page,.sb-song-unit').forEach(function(p) { p.classList.remove('sb-drag-over'); });
         _sbDragOverSid = null;
       }
     });
@@ -39394,13 +39407,18 @@ var WO = (function() {
     _sbDragOverSid = null;
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', sid);
-    var page = event.target.closest && event.target.closest('.sb-song-page');
-    if (page) setTimeout(function() { page.style.opacity = '0.45'; }, 0);
+    // Drag handle is now in .sb-page-controls-bar (outside .sb-song-page), so find page by ID
+    var page = document.getElementById('sbPage-' + sid) ||
+               (event.target.closest && event.target.closest('.sb-song-page'));
+    if (page) {
+      var unit = page.closest('.sb-song-unit') || page;
+      setTimeout(function() { unit.style.opacity = '0.45'; }, 0);
+    }
   }
   function sbDragEnd(event) {
     _sbDragSongId = null;
     _sbDragOverSid = null;
-    document.querySelectorAll('.sb-song-page').forEach(function(p) {
+    document.querySelectorAll('.sb-song-unit,.sb-song-page').forEach(function(p) {
       p.style.opacity = '';
       p.classList.remove('sb-drag-over');
     });
@@ -53006,8 +53024,38 @@ function filterLiturgyItems() {
 
   .sb-body { flex:1; overflow-y:auto; overflow-x:auto; background:#c8d0dc; padding:32px 24px 80px; display:flex; flex-direction:column; align-items:center; gap:0; }
 
-  /* Song page card — expands to fit all lyrics; A4 guide lines shown inside */
-  .sb-song-page { background:white; border-radius:0; box-shadow:0 4px 24px rgba(0,0,0,0.22); width:210mm; box-sizing:border-box; position:relative; flex-shrink:0; margin-top:24px; padding-bottom:48px; }
+  /* Song unit — wraps the dark controls bar + white A4 page as one visual unit */
+  .sb-song-unit { display:flex; flex-direction:column; align-items:center; margin-top:24px; flex-shrink:0; }
+  /* Controls bar — dark strip above white A4 page, holds all interactive tools */
+  .sb-page-controls-bar { width:210mm; box-sizing:border-box; display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:7px 14px; background:#1a2840; border-radius:8px 8px 0 0; border-bottom:2px solid #0d9488; }
+  /* Drag handle inside controls bar */
+  .sb-ctrl-drag { display:flex; align-items:center; gap:8px; cursor:grab; padding:3px 6px; border-radius:6px; max-width:220px; min-width:0; flex-shrink:0; }
+  .sb-ctrl-drag:hover { background:rgba(255,255,255,0.08); }
+  .sb-ctrl-drag:active { cursor:grabbing; }
+  .sb-ctrl-num { width:26px; height:26px; border-radius:50%; background:rgba(255,255,255,0.18); color:white; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.78rem; flex-shrink:0; }
+  .sb-ctrl-info { min-width:0; overflow:hidden; }
+  .sb-ctrl-title { color:rgba(255,255,255,0.92); font-size:0.83rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sb-ctrl-artist { color:rgba(255,255,255,0.5); font-size:0.72rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sb-ctrl-section-lbl { display:inline-block; font-size:0.65rem; padding:1px 6px; border-radius:10px; background:rgba(20,184,166,0.25); color:#2dd4bf; border:1px solid rgba(20,184,166,0.4); white-space:nowrap; margin-top:1px; }
+  /* Dark-theme overrides for controls inside the controls bar */
+  .sb-page-controls-bar .sb-page-transpose .sb-xp-btn { background:rgba(255,255,255,0.1); border-color:rgba(255,255,255,0.2); color:rgba(255,255,255,0.85); }
+  .sb-page-controls-bar .sb-page-transpose .sb-xp-btn:hover { background:rgba(255,255,255,0.2); }
+  .sb-page-controls-bar .sb-page-transpose .sb-xp-btn.ori { color:rgba(255,255,255,0.5); border-color:rgba(255,255,255,0.15); }
+  .sb-page-controls-bar .sb-xp-key { color:#7dd3fc; border-color:rgba(255,255,255,0.15); background:rgba(255,255,255,0.08); }
+  .sb-page-controls-bar .sb-col-toggle-btn { background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.18); color:rgba(255,255,255,0.75); }
+  .sb-page-controls-bar .sb-col-toggle-btn:hover { background:rgba(255,255,255,0.15); color:white; }
+  .sb-page-controls-bar .sb-col-toggle-btn.active { background:rgba(99,102,241,0.3); border-color:#818cf8; color:#c7d2fe; }
+  .sb-page-controls-bar .sb-litlog-btn { background:rgba(255,255,255,0.07); border-color:rgba(255,255,255,0.15); color:rgba(255,255,255,0.65); }
+  .sb-page-controls-bar .sb-litlog-btn:hover { background:rgba(251,191,36,0.15); border-color:#f59e0b; color:#fcd34d; }
+  .sb-page-controls-bar .sb-litlog-btn.active { background:rgba(251,191,36,0.2); border-color:#f59e0b; color:#fcd34d; box-shadow:0 0 0 3px rgba(245,158,11,0.15); }
+  .sb-page-controls-bar .sb-litlog-btn.sb-litlog-empty { background:rgba(255,255,255,0.05); border-color:rgba(255,255,255,0.1); color:rgba(255,255,255,0.4); }
+  .sb-page-controls-bar .sb-attach-btn { background:rgba(255,255,255,0.09); border-color:rgba(255,255,255,0.18); color:rgba(255,255,255,0.75); }
+  .sb-page-controls-bar .sb-attach-btn:hover { background:rgba(255,255,255,0.17); color:white; }
+  .sb-page-controls-bar .sb-attach-btn.sb-remove-btn { color:#fca5a5; border-color:rgba(252,165,165,0.35); }
+  .sb-page-controls-bar .sb-attach-btn.sb-remove-btn:hover { background:rgba(239,68,68,0.2); color:#ef4444; }
+  .sb-page-controls-bar .sb-badge-btn { /* keep badge colours — they look fine on dark */ }
+  /* Song page card — no margin-top (now on .sb-song-unit); compact rounded-bottom */
+  .sb-song-page { background:white; border-radius:0 0 4px 4px; box-shadow:0 4px 24px rgba(0,0,0,0.22); width:210mm; box-sizing:border-box; position:relative; flex-shrink:0; padding-bottom:48px; }
   .sb-cont-page { display:none; } /* not used in live view */
   .sb-inpage-break { display:none; } /* not used in live view */
   /* Column-break marker shown inside the lyrics editor */
@@ -53048,9 +53096,10 @@ function filterLiturgyItems() {
   .sb-a4-marker[data-manual="1"]::after { color:#7c3aed; background:#f5f3ff; border-color:#c4b5fd; content:'↕ break adjusted · dbl-click to reset'; }
   .sb-a4-marker.sb-a4-dragging { border-top-color:#f59e0b; border-top-width:3px; }
   .sb-a4-marker.sb-a4-dragging::after { color:#b45309; background:#fffbeb; border-color:#fcd34d; content:'↕ drop here'; }
-  .sb-page-header { display:flex; flex-direction:column; padding:14px 24px 10px; border-bottom:2px solid #f1f5f9; background:#fafbff; gap:8px; }
-  .sb-page-header-top { display:flex; align-items:center; gap:12px; }
-  .sb-page-header-btns { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  /* Compact page header inside the white A4 card — matches book mode / print header */
+  .sb-page-header { display:flex; align-items:center; gap:14px; padding:14px 24px 10px; border-bottom:2px solid #e2e8f0; background:#fafbff; }
+  /* Controls row inside the dark controls bar */
+  .sb-page-header-btns { display:flex; align-items:center; gap:6px; flex-wrap:wrap; flex:1; min-width:0; }
   .sb-page-num { width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#1e3a8a,#3b82f6); color:white; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.95rem; flex-shrink:0; }
   .sb-page-info { flex:1; min-width:0; }
   /* Open-full-page bar above embedded doc panels */
@@ -53091,8 +53140,9 @@ function filterLiturgyItems() {
   .sb-typing-dots span:nth-child(3) { animation-delay:0.4s; }
   @keyframes sb-typing-bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-4px)} }
   @keyframes sb-typing-fadein { from{opacity:0;transform:scale(0.85)} to{opacity:1;transform:scale(1)} }
-  .sb-page-title { font-size:1.4rem; font-weight:700; color:#1e293b; font-family:'Cinzel',Georgia,serif; line-height:1.2; }
-  .sb-page-artist { font-size:0.85rem; color:#64748b; margin-top:3px; }
+  /* Compact page header title/artist — must match sp-title / sp-artist in book mode for identical rendering */
+  .sb-page-title { font-size:1.35rem; font-weight:700; color:#1e293b; font-family:'Cinzel',Georgia,serif; line-height:1.2; }
+  .sb-page-artist { font-size:0.82rem; color:#64748b; margin-top:2px; }
   .sb-page-transpose { display:flex; align-items:center; gap:3px; flex-shrink:0; }
   .sb-xp-btn { width:50px; height:50px; border:1.5px solid #c7d6ef; border-radius:12px; background:linear-gradient(180deg,#ffffff 0%,#eef3ff 100%); box-shadow:0 1px 3px rgba(74,109,167,0.18),inset 0 1px 0 rgba(255,255,255,0.92); cursor:pointer; font-size:1.4rem; display:flex; align-items:center; justify-content:center; font-weight:700; color:#4a6da7; transition:all 0.15s; }
   .sb-xp-btn:hover { background:linear-gradient(180deg,#eef2ff 0%,#dbe4ff 100%); border-color:#6366f1; color:#6366f1; box-shadow:0 2px 7px rgba(99,102,241,0.22),inset 0 1px 0 rgba(255,255,255,0.9); }
@@ -53310,7 +53360,9 @@ function filterLiturgyItems() {
     /* Songbook body: tighter vertical padding to maximise page area */
     .sb-body { padding: 10px 24px 48px; }
 
-    /* Song page per-row buttons: allow scroll on very narrow screens */
+    /* Controls bar on mobile: scroll horizontally, compact */
+    .sb-page-controls-bar { width: 100%; border-radius: 0; padding: 5px 8px; }
+    .sb-ctrl-drag { max-width: 140px; }
     .sb-page-header-btns { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
   }
 
@@ -53406,7 +53458,7 @@ function filterLiturgyItems() {
   .sb-litlog-btn.sb-litlog-empty:hover { background:#fef9ee; border-color:#fcd34d; color:#b45309; }
 
   /* 354A — Blank page in Songbook */
-  .sb-blank-page .sb-page-header { background:#f8fafc; border-bottom:2px dashed #e2e8f0; }
+  .sb-blank-page .sb-page-header { background:#f8fafc; border-bottom:2px dashed #e2e8f0; flex-wrap:wrap; padding:10px 16px; gap:6px; }
   .sb-blank-icon { width:32px; height:32px; border-radius:50%; background:#f1f5f9; display:flex; align-items:center; justify-content:center; color:#94a3b8; flex-shrink:0; }
   .sb-blank-title-input { flex:1; border:none; background:transparent; font-size:1.1rem; font-weight:600; color:#64748b; font-style:italic; outline:none; padding:4px 8px; border-radius:4px; min-width:0; }
   .sb-blank-title-input:focus { background:white; color:#1e293b; }
