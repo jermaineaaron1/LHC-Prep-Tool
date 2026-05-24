@@ -7906,8 +7906,8 @@ I once was lost but now am found"
             </div>
           </div>
           <button class="sb-tool-btn" onclick="WO.sbOpenPlaylist()" title="Play all YouTube links in this songbook" style="background:rgba(16,185,129,0.25);border:1.5px solid #6ee7b7;color:#a7f3d0;"><i class="fa-solid fa-headphones"></i><span>Playlist</span></button>
-          <button class="sb-tool-btn" id="sbFullscreenBtn" onclick="WO.sbToggleLiveFullscreen()" title="Full Screen — hides toolbar; hover/tap top to reveal"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
           <button class="sb-tool-btn sb-tool-btn--bookmode" onclick="WO.sbOpenFullscreen()" title="Book Mode — fullscreen page-by-page view"><i class="fa-solid fa-book-open"></i><span>Book Mode</span></button>
+          <button class="sb-tool-btn" id="sbFullscreenBtn" onclick="WO.sbToggleLiveFullscreen()" title="Full Screen — hides toolbar; hover/tap top to reveal"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
           <button class="sb-tool-btn" id="sbRefreshBtn" onclick="WO.sbRefresh()" title="Fetch latest changes from cloud"><i class="fa-solid fa-arrows-rotate"></i><span>Sync</span></button>
           <button class="sb-tool-btn" onclick="WO.sbSaveOrder()" title="Save changes to cloud"><i class="fa-solid fa-floppy-disk"></i><span>Save</span></button>
           <button class="sb-tool-btn" onclick="WO.sbSavePDF()" title="Print / Save as PDF"><i class="fa-solid fa-print"></i><span>Print PDF</span></button>
@@ -36040,6 +36040,50 @@ var WO = (function() {
       var lyricsHtml = '';
       if (includeLyrics) {
         lyricsHtml = lyricsEl ? lyricsEl.innerHTML : (song.richLyrics || formatLyricsWithHighlights(song.lyrics || ''));
+        var _mb = sbManualBreaks[song.id];
+        if (lyricsHtml && _mb && Object.keys(_mb).length > 0) {
+          var _mbIdxs = Object.keys(_mb).map(Number).sort(function(a, b) { return a - b; });
+          var _mWrap = document.createElement('div');
+          _mWrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;visibility:hidden;pointer-events:none;z-index:-1;box-sizing:border-box;';
+          var _mHdr = document.createElement('div');
+          _mHdr.style.cssText = 'display:flex;align-items:center;gap:14px;padding:14px 24px 10px;border-bottom:2px solid #e2e8f0;box-sizing:border-box;';
+          _mHdr.innerHTML = '<span style="width:36px;height:36px;border-radius:50%;flex-shrink:0;"></span>' +
+            '<div style="flex:1;"><div style="font-size:1.35rem;font-weight:700;font-family:Cinzel,Georgia,serif;">' + escapeHtml(song.title) + '</div>' +
+            (song.artist ? '<div style="font-size:0.82rem;color:#64748b;margin-top:2px;">' + escapeHtml(song.artist) + '</div>' : '') + '</div>';
+          var _mLyr = document.createElement('div');
+          _mLyr.style.cssText = 'font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';white-space:pre-wrap;word-break:break-word;padding:24px 36px 40px;box-sizing:border-box;';
+          _mLyr.innerHTML = lyricsHtml;
+          _mWrap.appendChild(_mHdr);
+          _mWrap.appendChild(_mLyr);
+          document.body.appendChild(_mWrap);
+          void _mWrap.offsetHeight;
+          var _lyrTop2 = _mLyr.offsetTop;
+          var _lyrKids = Array.from(_mLyr.children);
+          var _insertBefore2 = new Set();
+          _mbIdxs.forEach(function(bidx) {
+            var _bookY2 = _mb[bidx];
+            var _lyrY2  = _bookY2 - _lyrTop2;
+            for (var ci2 = 0; ci2 < _lyrKids.length; ci2++) {
+              if (_lyrKids[ci2].offsetTop >= Math.max(0, _lyrY2)) {
+                _insertBefore2.add(ci2);
+                break;
+              }
+            }
+          });
+          document.body.removeChild(_mWrap);
+          if (_insertBefore2.size > 0) {
+            var _td2 = document.createElement('div');
+            _td2.innerHTML = lyricsHtml;
+            var _allKids2 = Array.from(_td2.children);
+            lyricsHtml = '';
+            _allKids2.forEach(function(child2, ci2) {
+              if (_insertBefore2.has(ci2)) {
+                lyricsHtml += '<div style="page-break-before:always;break-before:page;height:0;margin:0;padding:0;"></div>';
+              }
+              lyricsHtml += child2.outerHTML;
+            });
+          }
+        }
       }
 
       // 390 — Inline snapshot images from sbLinks (checked snapshots embed here, in sequence with lyrics)
@@ -52785,7 +52829,7 @@ function filterLiturgyItems() {
   /* A4 page-break guide line — draggable; shows where content will split in book/print mode */
   .sb-a4-marker { position:absolute; left:0; right:0; height:0; border-top:2.5px dashed #60a5fa; cursor:ns-resize; touch-action:none; z-index:10; }
   .sb-a4-marker::before { content:''; position:absolute; left:0; right:0; top:-10px; bottom:-10px; cursor:ns-resize; }
-  .sb-a4-marker::after { content:'↕ drag page break'; position:absolute; left:50%; transform:translateX(-50%); top:-11px; font-size:0.65rem; font-family:sans-serif; color:#2563eb; background:#eff6ff; padding:2px 10px; border-radius:10px; border:1.5px solid #bfdbfe; font-weight:700; letter-spacing:0.03em; white-space:nowrap; cursor:ns-resize; user-select:none; }
+  .sb-a4-marker::after { content:'↕ Page break — drag to set print & book split'; position:absolute; left:50%; transform:translateX(-50%); top:-11px; font-size:0.65rem; font-family:sans-serif; color:#2563eb; background:#eff6ff; padding:2px 10px; border-radius:10px; border:1.5px solid #bfdbfe; font-weight:700; letter-spacing:0.03em; white-space:nowrap; cursor:ns-resize; user-select:none; }
   .sb-a4-marker[data-manual="1"] { border-top-color:#7c3aed; }
   .sb-a4-marker[data-manual="1"]::after { color:#7c3aed; background:#f5f3ff; border-color:#c4b5fd; content:'↕ break adjusted · dbl-click to reset'; }
   .sb-a4-marker.sb-a4-dragging { border-top-color:#f59e0b; border-top-width:3px; }
