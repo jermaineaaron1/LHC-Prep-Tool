@@ -30092,6 +30092,7 @@ var WO = (function() {
   var sbTransposeSteps = {}; // songId -> cumulative semitones
   var sbSongLastView = {};   // songId -> {type:'lyrics'|'video'|'doc'|'link'|'file', index:0}
   var sbLyricsDebounce = {};
+  var _sbLyricsTypingBroadcast = {}; // per-song fast broadcast timer for live typing sync
   var _sbRePageTimers  = {};  // per-song repagination debounce timers
   var sbPageMargins = {};    // songId -> extra px margin after song
   var sbManualBreaks = {};       // songId -> { breakIdx: bookModeY } manual A4 break positions
@@ -34664,7 +34665,36 @@ var WO = (function() {
     clearTimeout(_sbRePageTimers[songId]);
     _sbRePageTimers[songId] = setTimeout(sbPaginateAll, 150);
 
-    // Slower autosave debounce — unchanged at 600 ms
+    // ── Fast typing broadcast (300ms debounce) ─────────────────────────────
+    // Fires well before the 600ms save cycle so other devices see keystrokes
+    // in near-real-time (Google-Docs style). Reads innerHTML directly from the
+    // DOM so it doesn't wait for the slow save to copy it to song.richLyrics.
+    clearTimeout(_sbLyricsTypingBroadcast[songId]);
+    _sbLyricsTypingBroadcast[songId] = setTimeout(function() {
+      var el = document.getElementById('sbLyrics-' + songId);
+      var song = songOrderSections.find(function(s) { return s.id === songId; });
+      if (!el || !song) return;
+      // Sync richLyrics in-memory so sbBuildSongSnapshot picks it up correctly
+      song.richLyrics = el.innerHTML;
+      song.lyrics = el.innerText || '';
+      // Send only this song's snapshot — no need to broadcast all songs on every keystroke
+      if (sbRealtimeReady && sbRealtimeChannel && currentOrderData) {
+        var snap = sbBuildSongSnapshot(song, songOrderSections.indexOf(song));
+        sbRealtimeChannel.send({
+          type: 'broadcast',
+          event: 'sb_patch',
+          payload: { orderId: currentOrderData.id, songs: [snap] }
+        }).catch(function() {});
+      }
+      // Also push to same-browser tabs
+      if (sbSyncChannel && currentOrderData) {
+        sbSyncChannel.postMessage({ type: 'sb_saved', orderId: currentOrderData.id,
+          songs: [sbBuildSongSnapshot(song, songOrderSections.indexOf(song))] });
+      }
+    }, 300);
+
+    // ── Full save cycle (600ms debounce) ───────────────────────────────────
+    // Updates all song fields + triggers DB write via sbAutoSave().
     clearTimeout(sbLyricsDebounce[songId]);
     sbLyricsDebounce[songId] = setTimeout(function() {
       var el = $('sbLyrics-' + songId);
