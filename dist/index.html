@@ -30142,6 +30142,7 @@ var WO = (function() {
   var _sbLastRealtimeBroadcastTs = 0; // epoch ms of last received Realtime broadcast
   var _sbSeeded = false;         // true once we've verified/seeded order_items for this session
   var _sbLastColsToggleTs = 0;   // epoch ms of last local sbLyricsColumns change (flicker guard)
+  var _sbVisListenerAdded = false; // guard: add visibilitychange listener only once
 
   // Resolve 'wo-section-N' or a serviceSectionId to the canonical serviceSectionId
   function sbResolveSectionId(sectionId) {
@@ -34111,12 +34112,67 @@ var WO = (function() {
         }).catch(function() { _sbPolling = false; });
       }, 2000);
     }
+
+    // ── Mobile foreground resume: immediately re-poll + reconnect Realtime ────
+    // When a mobile user switches apps or the phone locks, the browser pauses our
+    // poll (visibilityState !== 'visible'). When they return, the 2-second interval
+    // resumes, but they'd have to wait up to 2 s for the next tick. Worse, the
+    // Supabase Realtime websocket may have dropped while hidden. This listener fires
+    // the moment the app comes back to the foreground, giving near-instant sync.
+    if (!_sbVisListenerAdded) {
+      _sbVisListenerAdded = true;
+      document.addEventListener('visibilitychange', function _sbOnVisChange() {
+        if (document.visibilityState !== 'visible') return;
+        if (!currentOrderData || !currentOrderData.id) return;
+
+        // 1. Immediate poll — don't wait for the next 2-second tick
+        if (!_sbPolling) {
+          _sbPolling = true;
+          SBQ.loadOrder(currentOrderData.id).then(function(result) {
+            _sbPolling = false;
+            if (!result || !result.items) return;
+            var remoteTs = (result.order && result.order.lastEdited)
+              ? new Date(result.order.lastEdited).getTime() : 0;
+            if (remoteTs <= _sbLastPollTs) return;
+            _sbLastPollTs = remoteTs;
+            result.items.forEach(function(item) {
+              var song = songOrderSections.find(function(s) { return s.id === item.id; });
+              if (!song) return;
+              var c = item.customizations || {};
+              var cont = item.content || {};
+              var incoming = {
+                id:              item.id,
+                annotations:     Array.isArray(c.annotations)         ? c.annotations         : [],
+                imgAnnotations:  c.imgAnnotations  || {},
+                textAnnotations: Array.isArray(cont.textAnnotations)  ? cont.textAnnotations  : [],
+                richLyrics:      c.customRichLyrics != null ? c.customRichLyrics : null,
+                transposeSteps:  typeof c.transposeSteps === 'number' ? c.transposeSteps : 0,
+                sbLyricsColumns: cont.sbLyricsColumns || 1,
+                liturgistNotes:  c.liturgistNotes  || '',
+                slides:          Array.isArray(item.slides) ? item.slides : [],
+                customYoutube:   Array.isArray(cont.customYoutube) ? cont.customYoutube : [],
+                customDocs:      Array.isArray(cont.customDocs)    ? cont.customDocs    : [],
+                sbLinks:         Array.isArray(cont.sbLinks)       ? cont.sbLinks       : []
+              };
+              sbApplyBroadcast({ orderId: currentOrderData.id, songs: [incoming] });
+            });
+          }).catch(function() { _sbPolling = false; });
+        }
+
+        // 2. Reconnect Realtime if the websocket dropped while mobile was in background
+        if (!sbRealtimeReady) {
+          console.log('[Realtime] Mobile resumed — reconnecting');
+          sbStartRealtimeSync();
+        }
+      });
+    }
   }
 
   function sbStopFastSync() {
     if (sbSyncChannel) { sbSyncChannel.close(); sbSyncChannel = null; }
     if (sbFastSyncInterval) { clearInterval(sbFastSyncInterval); sbFastSyncInterval = null; }
     _sbSeeded = false; // reset so the next open re-checks whether order_items need seeding
+    // Note: _sbVisListenerAdded stays true — the listener is idempotent (checks currentOrderData)
   }
 
   // ── Supabase Realtime broadcast (cross-device instant sync) ──────────────
