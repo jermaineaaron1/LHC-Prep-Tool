@@ -31821,12 +31821,10 @@ var WO = (function() {
           '</div>' +
         '</div>';
 
-      // Use the live page's actual rendered width so the measurement div wraps
-      // text at identical pixel positions — eliminates any sub-pixel mismatch
-      // between '210mm' CSS and the hardcoded 794px used in book mode.
-      var _pageW = page.offsetWidth || 794;
+      // 794px = A4 at 96dpi, same as _sbFsBuildPages and .sb-song-page — all three
+      // render at identical width so text wraps at identical positions.
       var mDiv = document.createElement('div');
-      mDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + _pageW + 'px;visibility:hidden;pointer-events:none;z-index:-1;';
+      mDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;visibility:hidden;pointer-events:none;z-index:-1;';
       // Strip page-break markers from the measurement clone — they're position:absolute
       // height:0 so they don't affect scrollHeight, but keeping them clean is safer.
       var _mClone = lyricsEl.cloneNode(true);
@@ -52883,7 +52881,11 @@ function filterLiturgyItems() {
   .sb-page-controls-bar .sb-attach-btn.sb-remove-btn:hover { background:rgba(239,68,68,0.2); color:#ef4444; }
   .sb-page-controls-bar .sb-badge-btn { /* keep badge colours — they look fine on dark */ }
   /* Song page card — no margin-top (now on .sb-song-unit); compact rounded-bottom */
-  .sb-song-page { background:white; border-radius:0 0 4px 4px; box-shadow:0 4px 24px rgba(0,0,0,0.22); width:210mm; box-sizing:border-box; position:relative; flex-shrink:0; padding-bottom:48px; }
+  /* 794px = A4 width at 96dpi (210mm × 96/25.4 = 793.7 → 794px).
+     Using exact pixels ensures the live page renders text at identical positions
+     to the measurement divs in sbPaginateAll and _sbFsBuildPages (both 794px),
+     so page-break markers are pixel-perfect between live view and book mode. */
+  .sb-song-page { background:white; border-radius:0 0 4px 4px; box-shadow:0 4px 24px rgba(0,0,0,0.22); width:794px; box-sizing:border-box; position:relative; flex-shrink:0; padding-bottom:48px; }
   .sb-cont-page { display:none; } /* not used in live view */
   .sb-inpage-break { display:none; } /* not used in live view */
   /* Column-break marker shown inside the lyrics editor */
