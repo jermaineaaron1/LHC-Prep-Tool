@@ -56994,10 +56994,38 @@ function filterLiturgyItems() {
         ['Preacher',  'preacher'],
         ['Liturgist', 'liturgist'],
         ['Usher 1',   'usher1'],
-        ['Usher 2',   'usher2'],
-        ['Reader 1',  'reader1'],
-        ['Reader 2',  'reader2']
+        ['Usher 2',   'usher2']
       ]);
+
+      // ── Scripture Readings section ───────────────────────────────────────────
+      // Combine reader name + passage on one line; show Psalm and Gospel passages.
+      (function() {
+        var r1Name    = get('reader1');
+        var r1Pass    = get('reading1');
+        var r2Name    = get('reader2');
+        var r2Pass    = get('reading2');
+        var psalmPass = get('psalm');
+        var gospPass  = get('gospel');
+
+        var lines = [];
+        // Reader 1 — name and/or passage
+        if (r1Name && r1Pass)      lines.push('• *Reader 1:* ' + r1Name + ' — ' + r1Pass);
+        else if (r1Name)           lines.push('• *Reader 1:* ' + r1Name);
+        else if (r1Pass)           lines.push('• *1st Reading:* ' + r1Pass);
+        // Reader 2 — name and/or passage
+        if (r2Name && r2Pass)      lines.push('• *Reader 2:* ' + r2Name + ' — ' + r2Pass);
+        else if (r2Name)           lines.push('• *Reader 2:* ' + r2Name);
+        else if (r2Pass)           lines.push('• *2nd Reading:* ' + r2Pass);
+        // Psalm and Gospel — passage only (no named reader)
+        if (psalmPass)             lines.push('• *Psalm:* ' + psalmPass);
+        if (gospPass)              lines.push('• *Gospel:* ' + gospPass);
+
+        if (lines.length) {
+          m1.push('*SCRIPTURE READINGS*');
+          lines.forEach(function(l) { m1.push(l); });
+          m1.push('');
+        }
+      })();
 
       addSection('*HOLY COMMUNION*', [
         ['Communion Assistant 1', 'communion1'],
