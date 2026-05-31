@@ -31901,7 +31901,11 @@ var WO = (function() {
 
       var mDiv = document.createElement('div');
       mDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;visibility:hidden;pointer-events:none;z-index:-1;';
-      mDiv.innerHTML = headerHtml + '<div class="sp-lyrics-wrap">' + lyricsEl.innerHTML + '</div>';
+      // Strip page-break markers from the measurement clone — they're position:absolute
+      // height:0 so they don't affect scrollHeight, but keeping them clean is safer.
+      var _mClone = lyricsEl.cloneNode(true);
+      _mClone.querySelectorAll('.sb-a4-marker').forEach(function(m) { m.remove(); });
+      mDiv.innerHTML = headerHtml + '<div class="sp-lyrics-wrap">' + _mClone.innerHTML + '</div>';
       document.body.appendChild(mDiv);
       void mDiv.offsetHeight; // force synchronous layout
 
@@ -36729,7 +36733,16 @@ var WO = (function() {
       }
 
       var lyricsEl   = document.getElementById('sbLyrics-' + song.id);
-      var lyricsHtml = lyricsEl ? lyricsEl.innerHTML : (song.richLyrics || (typeof formatLyricsWithHighlights === 'function' ? formatLyricsWithHighlights(song.lyrics || '') : escapeHtml(song.lyrics || '')));
+      // Strip page-break marker elements before book mode / print rendering —
+      // markers are only for the live scroll view. Clone so the live DOM stays intact.
+      var lyricsHtml;
+      if (lyricsEl) {
+        var _lyrClone = lyricsEl.cloneNode(true);
+        _lyrClone.querySelectorAll('.sb-a4-marker').forEach(function(m) { m.remove(); });
+        lyricsHtml = _lyrClone.innerHTML;
+      } else {
+        lyricsHtml = song.richLyrics || (typeof formatLyricsWithHighlights === 'function' ? formatLyricsWithHighlights(song.lyrics || '') : escapeHtml(song.lyrics || ''));
+      }
       var sectionLabel = sbGetSectionLabel(song.sectionId || '');
 
       // Annotations
@@ -53112,6 +53125,8 @@ function filterLiturgyItems() {
   .sb-a4-marker[data-manual="1"]::after { color:#7c3aed; background:#f5f3ff; border-color:#c4b5fd; content:'↕ break adjusted · dbl-click to reset'; }
   .sb-a4-marker.sb-a4-dragging { border-top-color:#f59e0b; border-top-width:3px; }
   .sb-a4-marker.sb-a4-dragging::after { color:#b45309; background:#fffbeb; border-color:#fcd34d; content:'↕ drop here'; }
+  /* Markers are live-view only — never visible in Book Mode iframe or print */
+  @media print { .sb-a4-marker { display:none !important; } }
   /* Compact page header inside the white A4 card — matches book mode / print header */
   .sb-page-header { display:flex; align-items:center; gap:14px; padding:14px 24px 10px; border-bottom:2px solid #e2e8f0; background:#fafbff; }
   /* Controls row inside the dark controls bar */
