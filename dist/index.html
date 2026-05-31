@@ -31821,8 +31821,12 @@ var WO = (function() {
           '</div>' +
         '</div>';
 
+      // Use the live page's actual rendered width so the measurement div wraps
+      // text at identical pixel positions — eliminates any sub-pixel mismatch
+      // between '210mm' CSS and the hardcoded 794px used in book mode.
+      var _pageW = page.offsetWidth || 794;
       var mDiv = document.createElement('div');
-      mDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;visibility:hidden;pointer-events:none;z-index:-1;';
+      mDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + _pageW + 'px;visibility:hidden;pointer-events:none;z-index:-1;';
       // Strip page-break markers from the measurement clone — they're position:absolute
       // height:0 so they don't affect scrollHeight, but keeping them clean is safer.
       var _mClone = lyricsEl.cloneNode(true);
@@ -35393,7 +35397,13 @@ var WO = (function() {
     var sid = markerEl.getAttribute('data-song-id');
     delete sbSongFontOverrides[sid];
     if (sbManualBreaks[sid]) delete sbManualBreaks[sid];
-    _sbClearSongLayout(sid);          // also wipe cross-songbook memory
+    // Use _sbSaveSongLayout (not just _sbClearSongLayout) so that the cleared
+    // state is also synced to Supabase.  _sbClearSongLayout only cleared
+    // localStorage — Supabase still held the old position and would restore it
+    // on the next load via _sbApplyStoredSongLayouts phase 2.
+    // With both values now null, _sbSaveSongLayout removes the localStorage
+    // entry AND sends a null sync to Supabase.
+    _sbSaveSongLayout(sid);
     sbApplySongFontOverrides();
     setTimeout(function() { sbPaginateAll(); }, 30);
     sbAutoSave();
