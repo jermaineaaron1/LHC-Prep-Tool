@@ -31829,7 +31829,23 @@ var WO = (function() {
       // height:0 so they don't affect scrollHeight, but keeping them clean is safer.
       var _mClone = lyricsEl.cloneNode(true);
       _mClone.querySelectorAll('.sb-a4-marker').forEach(function(m) { m.remove(); });
-      mDiv.innerHTML = headerHtml + '<div class="sp-lyrics-wrap">' + _mClone.innerHTML + '</div>';
+
+      // ── Apply font-scale override and two-column class, exactly like _sbFsBuildPages ──
+      // Without this, songs with a font-scale override render at the wrong size in the
+      // measurement div, producing break positions that don't match book mode.
+      var _paScale = sbSongFontOverrides[sid];
+      var _paOvrBlock = '';
+      var _paWrapStyle = '';
+      if (_paScale && _paScale < 1) {
+        var _paBasePx  = _sbParseFontPx(_sbFontSettings && _sbFontSettings.size);
+        var _paFontPx  = Math.max(6, _paBasePx * _paScale).toFixed(1);
+        var _paChordPx = Math.max(5, 14 * _paScale).toFixed(1);
+        _paWrapStyle = ' style="font-size:' + _paFontPx + 'px"';
+        _paOvrBlock  = '<style>.sp-lyrics-wrap .wo-lyrics-chord-line{font-size:' + _paChordPx + 'px!important;}</style>';
+      }
+      var _paTwoCol    = lyricsEl.classList.contains('sb-page-lyrics--two-col');
+      var _paWrapClass = 'sp-lyrics-wrap' + (_paTwoCol ? ' sp-lyrics-wrap--two-col' : '');
+      mDiv.innerHTML = headerHtml + _paOvrBlock + '<div class="' + _paWrapClass + '"' + _paWrapStyle + '>' + _mClone.innerHTML + '</div>';
       document.body.appendChild(mDiv);
       void mDiv.offsetHeight; // force synchronous layout
 
@@ -31932,6 +31948,7 @@ var WO = (function() {
     Array.from(container.querySelectorAll('.sb-cont-page')).forEach(function(el) { el.remove(); });
     Array.from(container.querySelectorAll('.sb-inpage-break')).forEach(function(el) { el.remove(); });
     container.querySelectorAll('.sb-a4-marker').forEach(function(m) { m.remove(); });
+    container.querySelectorAll('.sb-a4-guide').forEach(function(g) { g.remove(); });
     container.querySelectorAll('.sb-page-canvas-wrap').forEach(function(w) {
       w.style.height = ''; w.style.overflow = '';
     });
@@ -32030,6 +32047,21 @@ var WO = (function() {
           m.addEventListener('dblclick', function() { sbA4MarkerReset(m); });
         })(marker);
         lyricsEl.appendChild(marker); // anchored in lyrics, not page
+      }
+
+      // ── Faded A4 guide lines ───────────────────────────────────────────────
+      // Add very faint horizontal lines at each n × A4H boundary within the page
+      // element so the user can see where print pages cut, independent of the
+      // draggable marker. These are purely decorative — not interactive, not printed.
+      Array.from(page.querySelectorAll('.sb-a4-guide')).forEach(function(g) { g.remove(); });
+      var pageH = page.offsetHeight;
+      for (var gn = 1; gn * A4H < pageH + A4H; gn++) {
+        var guideTop = gn * A4H;
+        if (guideTop > pageH + 20) break; // don't add guides beyond actual content
+        var guide = document.createElement('div');
+        guide.className = 'sb-a4-guide';
+        guide.style.top = guideTop + 'px';
+        page.appendChild(guide);
       }
     });
 
@@ -52928,6 +52960,10 @@ function filterLiturgyItems() {
   .sb-a4-marker.sb-a4-dragging::after { color:#b45309; background:#fffbeb; border-color:#fcd34d; content:'↕ drop here'; }
   /* Markers are live-view only — never visible in Book Mode iframe or print */
   @media print { .sb-a4-marker { display:none !important; } }
+  /* Faded A4 guide lines — static horizontal lines at every A4 page boundary in live view */
+  .sb-a4-guide { position:absolute; left:0; right:0; height:0; border-top:1px dashed rgba(96,165,250,0.28); pointer-events:none; z-index:4; }
+  .sb-a4-guide::after { content:'A4'; position:absolute; right:10px; top:-9px; font-size:0.55rem; font-family:sans-serif; color:rgba(96,165,250,0.45); background:rgba(239,246,255,0.7); padding:1px 5px; border-radius:4px; letter-spacing:0.04em; pointer-events:none; user-select:none; }
+  @media print { .sb-a4-guide { display:none !important; } }
   /* Compact page header inside the white A4 card — matches book mode / print header */
   .sb-page-header { display:flex; align-items:center; gap:14px; padding:14px 24px 10px; border-bottom:2px solid #e2e8f0; background:#fafbff; }
   /* Controls row inside the dark controls bar */
