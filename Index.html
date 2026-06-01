@@ -35427,7 +35427,13 @@ var WO = (function() {
     if (!sbManualBreaks[d.songId]) sbManualBreaks[d.songId] = {};
     sbManualBreaks[d.songId][d.breakIdx] = bookY;
     d.marker.setAttribute('data-manual', '1');
-    _sbA4ApplyPageFit(d.songId);
+    // Save break position and re-draw markers — do NOT auto-scale font.
+    // The marker is a pure page-break indicator; dragging it past an A4
+    // boundary means the user accepts that content will continue on the
+    // next page, with no font changes applied.
+    _sbSaveSongLayout(d.songId);
+    setTimeout(function() { sbPaginateAll(); }, 80);
+    sbAutoSave();
   }
 
   function sbA4MarkerTouchStart(evt, markerEl) {
@@ -35467,7 +35473,10 @@ var WO = (function() {
     if (!sbManualBreaks[d.songId]) sbManualBreaks[d.songId] = {};
     sbManualBreaks[d.songId][d.breakIdx] = bookY;
     d.marker.setAttribute('data-manual', '1');
-    _sbA4ApplyPageFit(d.songId);
+    // Save break position and re-draw markers — do NOT auto-scale font.
+    _sbSaveSongLayout(d.songId);
+    setTimeout(function() { sbPaginateAll(); }, 80);
+    sbAutoSave();
   }
 
   // Parse a CSS font-size string to pixels (handles rem, em, pt, px)
