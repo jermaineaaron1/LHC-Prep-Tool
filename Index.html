@@ -7867,6 +7867,14 @@ I once was lost but now am found"
         <button class="sb-font-opt-btn" data-lh="2.3" onclick="WO.sbSetLineHeight('2.3',this)">Relaxed</button>
       </div>
     </div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+      <label style="font-size:0.82rem;font-weight:600;color:#475569;">Page Padding</label>
+      <div style="display:flex;gap:6px;" id="sbPaddingBtns">
+        <button class="sb-font-opt-btn" data-padding="12px 18px 20px" onclick="WO.sbSetPadding('12px 18px 20px',this)">Tight</button>
+        <button class="sb-font-opt-btn active" data-padding="24px 36px 40px" onclick="WO.sbSetPadding('24px 36px 40px',this)">Normal</button>
+        <button class="sb-font-opt-btn" data-padding="36px 54px 56px" onclick="WO.sbSetPadding('36px 54px 56px',this)">Wide</button>
+      </div>
+    </div>
     <!-- 555 — B/I/U apply to selection only -->
     <div style="display:flex;flex-direction:column;gap:6px;">
       <label style="font-size:0.82rem;font-weight:600;color:#475569;">Style <span style="font-weight:400;font-size:0.74rem;color:#94a3b8;">(applies to selected text)</span></label>
@@ -7937,6 +7945,7 @@ I once was lost but now am found"
             </div>
           </div>
           <button class="sb-tool-btn" onclick="WO.sbOpenPlaylist()" title="Play all YouTube links in this songbook" style="background:rgba(16,185,129,0.25);border:1.5px solid #6ee7b7;color:#a7f3d0;"><i class="fa-solid fa-headphones"></i><span>Playlist</span></button>
+          <button class="sb-tool-btn" id="sbPrintPreviewBtn" onclick="WO.sbTogglePrintPreview()" title="Print Preview — see the exact PDF layout without leaving live view"><i class="fa-solid fa-file-lines"></i><span>Preview</span></button>
           <button class="sb-tool-btn sb-tool-btn--bookmode" onclick="WO.sbOpenFullscreen()" title="Book Mode — fullscreen page-by-page view"><i class="fa-solid fa-book-open"></i><span>Book Mode</span></button>
           <button class="sb-tool-btn" id="sbFullscreenBtn" onclick="WO.sbToggleLiveFullscreen()" title="Full Screen — hides toolbar; hover/tap top to reveal"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
           <button class="sb-tool-btn" id="sbRefreshBtn" onclick="WO.sbRefresh()" title="Fetch latest changes from cloud"><i class="fa-solid fa-arrows-rotate"></i><span>Sync</span></button>
@@ -7952,6 +7961,15 @@ I once was lost but now am found"
          ontouchstart="WO.sbFsRevealHeader()"></div>
     <!-- Scrollable body: song pages + page-break dividers -->
     <div class="sb-body" id="sbBody"></div>
+    <!-- Print Preview pane: exact 794×1123px page tiles matching PDF output exactly -->
+    <div id="sbPrintPreviewPane" style="display:none;overflow-y:auto;flex:1;background:#c8cdd5;padding:28px 24px 48px;">
+      <div style="text-align:center;margin-bottom:18px;">
+        <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:rgba(255,255,255,0.6);background:rgba(0,0,0,0.25);border-radius:20px;padding:4px 14px;">
+          Print Preview — exact PDF layout &nbsp;·&nbsp; change font/padding above and this updates live
+        </span>
+      </div>
+      <div id="sbPpContent" style="display:flex;flex-direction:column;align-items:center;gap:0;"></div>
+    </div>
     <!-- Full-viewport drawing canvas — covers entire screen so annotations work anywhere -->
     <svg id="sbFullCanvas" style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2999;pointer-events:none;display:block;"></svg>
   </div>
@@ -31863,7 +31881,7 @@ var WO = (function() {
       '.sp-info{flex:1;}',
       '.sp-title{font-size:1.35rem;font-weight:700;color:#1e293b;font-family:Cinzel,Georgia,serif;}',
       '.sp-artist{font-size:0.82rem;color:#64748b;margin-top:2px;}',
-      '.sp-lyrics-wrap{font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:24px 36px 40px;}',
+      '.sp-lyrics-wrap{font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';}',
       '.sp-lyrics-wrap .wo-lyrics-chord-line{font-family:"Courier New",monospace;font-weight:700;color:#1e40af;font-size:14px;margin:1em 0 0;break-after:avoid;}',
       '.sp-lyrics-wrap .wo-lyrics-lyric-line{color:#334155;margin:0 0 0.5em;}',
       '.sp-lyrics-wrap .wo-lyrics-empty-line{height:2.2em;}',
@@ -32017,6 +32035,21 @@ var WO = (function() {
     });
   }
 
+  // Module-level helper: given a measurement div (794px wide, in DOM, styled),
+  // return the array of bookY page-start values. Hard breaks at exact A4H multiples;
+  // manual breaks (from sbManualBreaks) override specific break indices.
+  function _sbFsBreaksFromDiv(mDiv, manualBreaks) {
+    var A4H = Math.round(297 * 96 / 25.4);
+    var totalH = mDiv.scrollHeight;
+    var breaks = [];
+    for (var n = 0; n * A4H < totalH; n++) {
+      var y = (n > 0 && manualBreaks && manualBreaks[n - 1] !== undefined)
+        ? manualBreaks[n - 1] : n * A4H;
+      breaks.push(y);
+    }
+    return breaks;
+  }
+
   function sbPaginateAll() {
     var body = document.getElementById('sbBody');
     if (!body) return;
@@ -32042,7 +32075,7 @@ var WO = (function() {
       '.sp-info{flex:1;}',
       '.sp-title{font-size:1.35rem;font-weight:700;color:#1e293b;font-family:Cinzel,Georgia,serif;}',
       '.sp-artist{font-size:0.82rem;color:#64748b;margin-top:2px;}',
-      '.sp-lyrics-wrap{font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:24px 36px 40px;}',
+      '.sp-lyrics-wrap{font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';}',
       '.sp-lyrics-wrap .wo-lyrics-chord-line{font-family:"Courier New",monospace;font-weight:700;color:#1e40af;font-size:14px;margin:1em 0 0;break-after:avoid;}',
       '.sp-lyrics-wrap .wo-lyrics-lyric-line{color:#334155;margin:0 0 0.5em;}',
       '.sp-lyrics-wrap .wo-lyrics-empty-line{height:2.2em;}',
@@ -32145,6 +32178,8 @@ var WO = (function() {
 
     sbAttachTouchListeners(body);
     Object.keys(sbPaths).forEach(function(sid) { sbRedrawSong(sid); });
+    // Keep print preview in sync after break recalculation
+    sbRenderPrintPreview();
   }
 
   function sbPaginatePage(page, body) {
@@ -33020,7 +33055,7 @@ var WO = (function() {
   }
 
   // ── Font settings ──────────────────────────────────────────────────────────
-  var _sbFontSettings = { family: 'Georgia,serif', size: '1.05rem', lineHeight: '1.9' };
+  var _sbFontSettings = { family: 'Georgia,serif', size: '1.05rem', lineHeight: '1.9', padding: '24px 36px 40px' };
 
   // 555 — Apply style to current selection in a contenteditable div
   // Return the single SPAN element that the range covers exactly, or null.
@@ -33356,7 +33391,7 @@ var WO = (function() {
       // Lyrics container — matches .sp-lyrics-wrap in book mode
       '#songbookLiveModal .sb-page-lyrics{' +
         'font-family:' + fam + ';font-size:' + sz + ';line-height:' + lh + ';' +
-        'color:#1e293b;padding:24px 36px 40px;white-space:pre-wrap;word-break:break-word;' +
+        'color:#1e293b;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';white-space:pre-wrap;word-break:break-word;' +
       '}' +
       // Chord lines — matches .sp-lyrics-wrap .wo-lyrics-chord-line
       '#songbookLiveModal .wo-lyrics-chord-line{' +
@@ -33375,6 +33410,9 @@ var WO = (function() {
 
     // Apply any per-song font size overrides on top of global settings
     sbApplySongFontOverrides();
+
+    // Keep print preview in sync with font/padding changes
+    sbRenderPrintPreview();
 
     // Persist in order template
     if (currentOrderData) {
@@ -33434,6 +33472,17 @@ var WO = (function() {
     sbApplyFontSettings();
   }
 
+  function sbSetPadding(padding, btn) {
+    _sbFontSettings.padding = padding;
+    if (btn) {
+      var btns = document.querySelectorAll('#sbPaddingBtns .sb-font-opt-btn');
+      btns.forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+    }
+    sbApplyFontSettings();
+    setTimeout(function() { sbPaginateAll(); }, 60);
+  }
+
   function sbToggleFontPopover() {
     var pop = document.getElementById('sbFontPopover');
     var btn = document.getElementById('sbFontBtn');
@@ -33482,9 +33531,15 @@ var WO = (function() {
       _sbFontSettings.family     = saved.family     || 'Georgia,serif';
       _sbFontSettings.size       = saved.size       || '1.05rem';
       _sbFontSettings.lineHeight = saved.lineHeight || '1.9';
+      _sbFontSettings.padding    = saved.padding    || '24px 36px 40px';
     } else {
-      _sbFontSettings = { family: 'Georgia,serif', size: '1.05rem', lineHeight: '1.9' };
+      _sbFontSettings = { family: 'Georgia,serif', size: '1.05rem', lineHeight: '1.9', padding: '24px 36px 40px' };
     }
+    // Sync padding button active state
+    var padBtns = document.querySelectorAll('#sbPaddingBtns .sb-font-opt-btn');
+    padBtns.forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-padding') === _sbFontSettings.padding);
+    });
     var modal = document.getElementById('songbookLiveModal');
     if (modal) {
       modal.style.setProperty('--sb-font-family', _sbFontSettings.family);
@@ -36268,7 +36323,7 @@ var WO = (function() {
             '<div style="flex:1;"><div style="font-size:1.35rem;font-weight:700;font-family:Cinzel,Georgia,serif;">' + escapeHtml(song.title) + '</div>' +
             (song.artist ? '<div style="font-size:0.82rem;color:#64748b;margin-top:2px;">' + escapeHtml(song.artist) + '</div>' : '') + '</div>';
           var _mLyr = document.createElement('div');
-          _mLyr.style.cssText = 'font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';white-space:pre-wrap;word-break:break-word;padding:24px 36px 40px;box-sizing:border-box;';
+          _mLyr.style.cssText = 'font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';white-space:pre-wrap;word-break:break-word;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';box-sizing:border-box;';
           _mLyr.innerHTML = lyricsHtml;
           _mWrap.appendChild(_mHdr);
           _mWrap.appendChild(_mLyr);
@@ -36448,7 +36503,7 @@ var WO = (function() {
           '.sp-artist{font-size:0.82rem;color:#64748b;margin-top:2px;}' +
           '.sp-section-pill{font-size:0.72rem;padding:3px 10px;border-radius:12px;background:#eef2ff;color:#6366f1;font-weight:600;white-space:nowrap;flex-shrink:0;}' +
           /* Padding matches live .sb-page-lyrics exactly → same text flow → annotation coords align */
-          '.sp-lyrics-wrap{position:relative;font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:24px 36px 40px;}' +
+          '.sp-lyrics-wrap{position:relative;font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';}' +
           '.sp-lyrics-wrap--two-col{column-count:2;column-gap:28px;column-fill:balance;}' +
           '.sb-annot-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}' +
           // Chord / section / lyric styles — must exactly match the live .sb-page-lyrics CSS
@@ -36510,6 +36565,150 @@ var WO = (function() {
     var win = window.open('', '_blank');
     if (win) { win.document.write(printHtml); win.document.close(); }
     else showToast('Allow pop-ups to print', 'warning');
+  }
+
+  // ============================================================
+  // Print Preview — exact PDF layout inline in the live view
+  // ============================================================
+  var _sbPrintPreview = false;
+
+  function sbTogglePrintPreview() {
+    _sbPrintPreview = !_sbPrintPreview;
+    var btn    = document.getElementById('sbPrintPreviewBtn');
+    var bodyEl = document.getElementById('sbBody');
+    var paneEl = document.getElementById('sbPrintPreviewPane');
+    if (btn) btn.classList.toggle('active', _sbPrintPreview);
+    if (_sbPrintPreview) {
+      if (bodyEl) bodyEl.style.display = 'none';
+      if (paneEl) { paneEl.style.display = 'flex'; paneEl.style.flexDirection = 'column'; }
+      sbRenderPrintPreview();
+    } else {
+      if (paneEl) paneEl.style.display = 'none';
+      if (bodyEl) bodyEl.style.display = '';
+    }
+  }
+
+  function sbRenderPrintPreview() {
+    if (!_sbPrintPreview) return;
+    var content = document.getElementById('sbPpContent');
+    if (!content) return;
+    content.innerHTML = '';
+
+    var A4H = Math.round(297 * 96 / 25.4); // 1123 px
+    var pad = _sbFontSettings.padding || '24px 36px 40px';
+
+    // Inject shared book-mode CSS (identical to _sbFsBuildPages) into the live document
+    var ppCss = document.getElementById('sb-pp-css');
+    if (!ppCss) { ppCss = document.createElement('style'); ppCss.id = 'sb-pp-css'; document.head.appendChild(ppCss); }
+    ppCss.textContent = [
+      '*{box-sizing:border-box;}',
+      '.sb-pp-inner .sp-song-header{display:flex;align-items:center;gap:14px;padding:14px 24px 10px;border-bottom:2px solid #e2e8f0;}',
+      '.sb-pp-inner .sp-num{width:36px;height:36px;border-radius:50%;background:#1e3a8a;color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;flex-shrink:0;}',
+      '.sb-pp-inner .sp-info{flex:1;}',
+      '.sb-pp-inner .sp-title{font-size:1.35rem;font-weight:700;color:#1e293b;font-family:Cinzel,Georgia,serif;}',
+      '.sb-pp-inner .sp-artist{font-size:0.82rem;color:#64748b;margin-top:2px;}',
+      '.sb-pp-inner .sp-section-pill{font-size:0.72rem;padding:3px 10px;border-radius:12px;background:#eef2ff;color:#6366f1;font-weight:600;flex-shrink:0;}',
+      '.sb-pp-inner .sp-lyrics-wrap{font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:' + pad + ';}',
+      '.sb-pp-inner .sp-lyrics-wrap--two-col{column-count:2;column-gap:28px;column-fill:balance;}',
+      '.sb-pp-inner .wo-lyrics-chord-line{font-family:"Courier New",monospace;font-weight:700;color:#1e40af;font-size:14px;margin:1em 0 0;break-after:avoid;}',
+      '.sb-pp-inner .wo-lyrics-lyric-line{color:#334155;margin:0 0 0.5em;}',
+      '.sb-pp-inner .wo-lyrics-empty-line{height:2.2em;}',
+      '.sb-pp-inner .wo-lyrics-section-header{display:inline-block;padding:4px 12px;margin:2em 0 1em;font-weight:700;font-size:.8rem;text-transform:uppercase;letter-spacing:.5px;border-radius:4px;break-after:avoid;}',
+      '.sb-pp-inner .wo-lyrics-section-header.verse{background:#dbeafe;color:#1e40af;}',
+      '.sb-pp-inner .wo-lyrics-section-header.chorus{background:#f3e8ff;color:#7c3aed;}',
+      '.sb-pp-inner .wo-lyrics-section-header.bridge{background:#dcfce7;color:#166534;}',
+      '.sb-pp-inner .wo-lyrics-section-header.prechorus{background:#ffedd5;color:#c2410c;}',
+      '.sb-pp-inner .wo-lyrics-section-header.ending{background:#fee2e2;color:#dc2626;}',
+      '.sb-pp-inner .wo-lyrics-section-header.other{background:#f1f5f9;color:#475569;}'
+    ].join('');
+
+    var songNum = 0;
+    songOrderSections.forEach(function(song) {
+      if (song.itemType === 'blank') return;
+      songNum++;
+
+      // Build lyricsHtml — clone live DOM, strip markers/guides
+      var lyricsEl = document.getElementById('sbLyrics-' + song.id);
+      var lyricsHtml;
+      if (lyricsEl) {
+        var _clone = lyricsEl.cloneNode(true);
+        _clone.querySelectorAll('.sb-a4-marker,.sb-a4-guide').forEach(function(m) { m.remove(); });
+        lyricsHtml = _clone.innerHTML;
+      } else {
+        lyricsHtml = song.richLyrics || (typeof formatLyricsWithHighlights === 'function'
+          ? formatLyricsWithHighlights(song.lyrics || '') : escapeHtml(song.lyrics || ''));
+      }
+
+      var sectionLabel = sbGetSectionLabel(song.sectionId || '');
+      var songHeaderHtml =
+        '<div class="sp-song-header">' +
+          '<span class="sp-num">' + songNum + '</span>' +
+          '<div class="sp-info">' +
+            '<div class="sp-title">' + escapeHtml(song.title) + '</div>' +
+            (song.artist ? '<div class="sp-artist">by ' + escapeHtml(song.artist) + '</div>' : '') +
+          '</div>' +
+          (sectionLabel ? '<span class="sp-section-pill">' + escapeHtml(sectionLabel) + '</span>' : '') +
+        '</div>';
+
+      var _ppScale = sbSongFontOverrides[song.id];
+      var _ppOvrBlock = '', _ppWrapStyle = '';
+      if (_ppScale && _ppScale < 1) {
+        var _ppBasePx  = _sbParseFontPx(_sbFontSettings && _sbFontSettings.size);
+        var _ppFontPx  = Math.max(6, _ppBasePx * _ppScale).toFixed(1);
+        var _ppChordPx = Math.max(5, 14 * _ppScale).toFixed(1);
+        _ppWrapStyle = ' style="font-size:' + _ppFontPx + 'px"';
+        _ppOvrBlock  = '<style>.sb-pp-inner .sp-lyrics-wrap .wo-lyrics-chord-line{font-size:' + _ppChordPx + 'px!important;}</style>';
+      }
+      var twoColClass = song.sbLyricsColumns === 2 ? ' sp-lyrics-wrap--two-col' : '';
+      var songBodyHtml = _ppOvrBlock +
+        '<div class="sp-lyrics-wrap' + twoColClass + '"' + _ppWrapStyle + '>' + lyricsHtml + '</div>';
+      var fullContentHtml = songHeaderHtml + songBodyHtml;
+
+      // Measure with shared CSS (hidden off-screen measurement div)
+      var mDiv = document.createElement('div');
+      mDiv.className = 'sb-pp-inner';
+      mDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;visibility:hidden;pointer-events:none;z-index:-1;';
+      mDiv.innerHTML = fullContentHtml;
+      document.body.appendChild(mDiv);
+      void mDiv.offsetHeight;
+      var pageBreaks = _sbFsBreaksFromDiv(mDiv, sbManualBreaks[song.id]);
+      var totalPages = pageBreaks.length;
+      document.body.removeChild(mDiv);
+
+      // Song label divider
+      var divider = document.createElement('div');
+      divider.className = 'sb-pp-song-divider';
+      divider.innerHTML =
+        '<span style="font-size:0.72rem;font-weight:700;color:rgba(255,255,255,0.75);text-transform:uppercase;letter-spacing:.06em;">' +
+          songNum + '. ' + escapeHtml(song.title) +
+        '</span>' +
+        '<span style="font-size:0.68rem;color:rgba(255,255,255,0.45);">' +
+          (totalPages > 1 ? totalPages + ' pages' : '1 page') +
+        '</span>';
+      content.appendChild(divider);
+
+      // Render one tile per page
+      pageBreaks.forEach(function(breakY, pi) {
+        var tile = document.createElement('div');
+        tile.className = 'sb-pp-page';
+        tile.setAttribute('data-song-id', song.id);
+        tile.setAttribute('data-page-idx', pi);
+
+        var inner = document.createElement('div');
+        inner.className = 'sb-pp-inner';
+        inner.style.cssText = 'position:absolute;top:-' + breakY + 'px;left:0;width:794px;';
+        inner.innerHTML = fullContentHtml;
+        tile.appendChild(inner);
+
+        // Page number badge (bottom-right of tile)
+        var badge = document.createElement('div');
+        badge.style.cssText = 'position:absolute;bottom:8px;right:12px;font-size:0.62rem;color:#94a3b8;font-family:sans-serif;pointer-events:none;user-select:none;';
+        badge.textContent = (pi + 1) + ' / ' + totalPages;
+        tile.appendChild(badge);
+
+        content.appendChild(tile);
+      });
+    });
   }
 
   // ============================================================
@@ -36606,7 +36805,7 @@ var WO = (function() {
       '.sp-title{font-size:1.35rem;font-weight:700;color:#1e293b;font-family:Cinzel,Georgia,serif;}',
       '.sp-artist{font-size:0.82rem;color:#64748b;margin-top:2px;}',
       '.sp-section-pill{font-size:0.72rem;padding:3px 10px;border-radius:12px;background:#eef2ff;color:#6366f1;font-weight:600;flex-shrink:0;}',
-      '.sp-lyrics-wrap{font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:24px 36px 40px;}',
+      '.sp-lyrics-wrap{font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';}',
       '.sp-lyrics-wrap--two-col{column-count:2;column-gap:28px;column-fill:balance;}',
       '.sp-lyrics-wrap .wo-lyrics-chord-line{font-family:"Courier New",monospace;font-weight:700;color:#1e40af;font-size:14px;margin:1em 0 0;break-after:avoid;column-break-after:avoid;page-break-after:avoid;}',
       '.sp-lyrics-wrap .wo-lyrics-lyric-line{color:#334155;margin:0 0 0.5em;}',
@@ -36679,24 +36878,6 @@ var WO = (function() {
     _measureStyle.id  = 'sbfs-measure-css';
     _measureStyle.textContent = rawCss;
     document.head.appendChild(_measureStyle);
-
-    // Given a measurement div (already in DOM, styled, 794px wide),
-    // return the array of Y-offsets (page starts) using safe break rules.
-    // liveHdrH / liveSafety — when provided, page 1 is limited to the same
-    // content area as the live songbook (which has a taller header with action buttons).
-    function _sbFsBreaksFromDiv(mDiv, manualBreaks) {
-      var totalH = mDiv.scrollHeight;
-      // Hard breaks at exact multiples of A4H — no safe-break backing-up.
-      // Prevents repeated lines and blank spaces at page tops.
-      // Manual breaks (from dragged markers) override specific break positions.
-      var breaks = [];
-      for (var n = 0; n * A4H < totalH; n++) {
-        var y = (n > 0 && manualBreaks && manualBreaks[n - 1] !== undefined)
-          ? manualBreaks[n - 1] : n * A4H;
-        breaks.push(y);
-      }
-      return breaks;
-    }
 
     var songNum = 0;
     songOrderSections.forEach(function(song, idx) {
@@ -45467,6 +45648,8 @@ var WO = (function() {
     sbSetFontSize: sbSetFontSize,
     sbSetFontSizePt: sbSetFontSizePt,
     sbSetLineHeight: sbSetLineHeight,
+    sbSetPadding: sbSetPadding,
+    sbTogglePrintPreview: sbTogglePrintPreview,
     sbToggleTextMode: sbToggleTextMode,
     sbAddTextAnnot: sbAddTextAnnot,
     sbDeleteTextAnnot: sbDeleteTextAnnot,
@@ -53180,6 +53363,16 @@ function filterLiturgyItems() {
   .sb-a4-marker.sb-a4-dragging::after { color:#b45309; background:#fffbeb; border-color:#fcd34d; content:'↕ drop here'; }
   /* Markers are live-view only — never visible in Book Mode iframe or print */
   @media print { .sb-a4-marker { display:none !important; } }
+  /* ── Print Preview pane ───────────────────────────────────────────────────────── */
+  /* Each tile = one exact A4 page at 794×1123px, overflow:hidden — matches PDF output */
+  .sb-pp-page { width:794px; height:1123px; overflow:hidden; position:relative; background:white; box-shadow:0 2px 16px rgba(0,0,0,0.28); flex-shrink:0; }
+  /* Thin gap between consecutive pages of the same song (page 1→2, 2→3 …) */
+  .sb-pp-page + .sb-pp-page { margin-top:3px; }
+  /* Label strip above each song group */
+  .sb-pp-song-divider { width:794px; display:flex; align-items:center; justify-content:space-between; padding:6px 4px 4px; margin-top:28px; flex-shrink:0; }
+  .sb-pp-song-divider:first-child { margin-top:0; }
+  /* Active state for the Preview toolbar button */
+  #sbPrintPreviewBtn.active { background:rgba(99,102,241,0.35) !important; border:1.5px solid #a5b4fc !important; color:#c7d2fe !important; }
   /* Faded A4 guide lines — static horizontal lines at every A4 page boundary in live view */
   .sb-a4-guide { position:absolute; left:0; right:0; height:0; border-top:1px dashed rgba(96,165,250,0.28); pointer-events:none; z-index:4; }
   .sb-a4-guide::after { content:'A4'; position:absolute; right:10px; top:-9px; font-size:0.55rem; font-family:sans-serif; color:rgba(96,165,250,0.45); background:rgba(239,246,255,0.7); padding:1px 5px; border-radius:4px; letter-spacing:0.04em; pointer-events:none; user-select:none; }
