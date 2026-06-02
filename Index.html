@@ -19643,6 +19643,11 @@ var WO = (function() {
     showOrderModeLanding();
   }
 
+  // True while an order is being loaded from Supabase.
+  // saveCurrentOrder checks this flag and skips silent saves during the loading
+  // window so stale data from the previous order can't overwrite the incoming one.
+  var _loadingOrder = false;
+
   function loadOrder(idxOrId) {
     var order;
     var idx;
@@ -19713,6 +19718,7 @@ var WO = (function() {
     // localStorage is used only for the orders list (metadata), never for order content,
     // so that all devices see the same data regardless of local cache state.
     if (order.id) {
+      _loadingOrder = true;   // block silent saves during the async window
       showToast('Loading order...', 'info');
       SBQ.loadOrder(order.id).then(function(result) {
           console.log('=== LOAD ORDER DEBUG (Supabase) ===');
@@ -19902,18 +19908,22 @@ var WO = (function() {
               localStorage.setItem('lhc_worship_orders', JSON.stringify(savedOrders));
             } catch (e) { console.warn('Cache update failed:', e); }
 
+            _loadingOrder = false;   // clear before opening so saves inside openOrderInEditor work
             openOrderInEditor(completeOrder);
             showToast('Order loaded!', 'success');
 
           } else if (result && result.error) {
             showToast('Error: ' + result.error, 'error');
+            _loadingOrder = false;
             openOrderInEditor(order); // Fallback to cached data
           } else {
             console.log('getOrderFromSupabase returned null/empty, using cached data');
+            _loadingOrder = false;
             openOrderInEditor(order);
           }
         }).catch(function(err) {
           console.error('*** LOAD FAILURE ***', err);
+          _loadingOrder = false;
           openOrderInEditor(order); // Fallback to cached data
           showToast('Loaded from local cache', 'warning');
         });
@@ -20308,6 +20318,10 @@ var WO = (function() {
   // Bypass the 2s debounce — call before navigating away or on page hide
   function saveImmediately() {
     if (!currentOrderData || _sbStandaloneId) return;
+    if (_loadingOrder) {
+      console.warn('[SaveGuard] saveImmediately skipped — order load in progress');
+      return;
+    }
     clearTimeout(_autoSaveTimer);
     saveCurrentOrder(true);
   }
@@ -20436,6 +20450,13 @@ var WO = (function() {
 
   function saveCurrentOrder(silent) {
     if (!currentOrderData) return;
+    // Skip silent background saves while an order is loading — the previous
+    // order's data is still in songOrderSections but currentOrderData may already
+    // point at the new order, causing cross-order contamination.
+    if (silent && _loadingOrder) {
+      console.warn('[SaveGuard] Silent save skipped — order load in progress');
+      return;
+    }
 
     // Flush any open slide editor before collecting — editSlideBox replaces .wo-slide-line
     // elements with a textarea (content.innerHTML = ''), so collectOrderItems() would capture
@@ -20632,16 +20653,41 @@ var WO = (function() {
 
     if (!silent) console.log('Order payload:', JSON.stringify(orderPayload, null, 2));
 
+    // ── Cross-order contamination guard ────────────────────────────────────
+    // Snapshot the order reference and song list NOW (synchronously, before the
+    // async call).  The .then() fires after an unknown delay — if the user opened
+    // a different order during that delay, currentOrderData will point to the NEW
+    // order.  Without this snapshot the .then() would:
+    //   (a) overwrite currentOrderData.id with the old order's id, and
+    //   (b) read the live songOrderSections (already populated with new-order songs)
+    //       and assign them to the old order record.
+    // Both corrupt the newly-loaded order and/or the old one.
+    var _savedOrderRef  = currentOrderData;            // reference — points to this order object
+    var _savedOrderId   = orderPayload.id;             // the ID we are saving to
+    var _savedSongs     = songOrderSections.slice();   // snapshot of songs at save time
+
     // Save directly to Supabase (bypasses GAS proxy for ~100ms vs ~2-3s round-trip)
     // Return the promise so callers (e.g. backToMainMenu) can chain .then()
     return SBQ.saveOrder(orderPayload).then(function(result) {
         if (result && result.success) {
+          // Safety: if the user switched to a different order while this save was
+          // in flight, currentOrderData is now a different object.  Mutating it
+          // with stale data would corrupt the new order — bail out silently.
+          if (currentOrderData !== _savedOrderRef) {
+            console.warn('[SaveGuard] Stale .then() — order switched from',
+              _savedOrderId, '→', currentOrderData && currentOrderData.id,
+              '. Skipping stale update to prevent cross-order contamination.');
+            return;
+          }
+
           currentOrderData.id = result.id;
           currentOrderData.lastEdited = result.lastEdited;
 
-          // Update currentOrderData so tab switching can restore state
+          // Update currentOrderData so tab switching can restore state.
+          // Use _savedSongs (snapshot taken before async gap) — NOT the live
+          // songOrderSections which may already belong to a concurrently-opened order.
           currentOrderData.allItems = items;
-          currentOrderData.songs = songOrderSections.slice();
+          currentOrderData.songs = _savedSongs;
 
           // Rebuild serviceSectionItems from saved items for tab-switch restoration
           var rebuiltSSI = {};
