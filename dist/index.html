@@ -36266,50 +36266,8 @@ var WO = (function() {
       var lyricsHtml = '';
       if (includeLyrics) {
         lyricsHtml = lyricsEl ? lyricsEl.innerHTML : (song.richLyrics || formatLyricsWithHighlights(song.lyrics || ''));
-        var _mb = sbManualBreaks[song.id];
-        if (lyricsHtml && _mb && Object.keys(_mb).length > 0) {
-          var _mbIdxs = Object.keys(_mb).map(Number).sort(function(a, b) { return a - b; });
-          var _mWrap = document.createElement('div');
-          _mWrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;visibility:hidden;pointer-events:none;z-index:-1;box-sizing:border-box;';
-          var _mHdr = document.createElement('div');
-          _mHdr.style.cssText = 'display:flex;align-items:center;gap:14px;padding:14px 24px 10px;border-bottom:2px solid #e2e8f0;box-sizing:border-box;';
-          _mHdr.innerHTML = '<span style="width:36px;height:36px;border-radius:50%;flex-shrink:0;"></span>' +
-            '<div style="flex:1;"><div style="font-size:1.35rem;font-weight:700;font-family:Cinzel,Georgia,serif;">' + escapeHtml(song.title) + '</div>' +
-            (song.artist ? '<div style="font-size:0.82rem;color:#64748b;margin-top:2px;">' + escapeHtml(song.artist) + '</div>' : '') + '</div>';
-          var _mLyr = document.createElement('div');
-          _mLyr.style.cssText = 'font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';white-space:pre-wrap;word-break:break-word;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';box-sizing:border-box;';
-          _mLyr.innerHTML = lyricsHtml;
-          _mWrap.appendChild(_mHdr);
-          _mWrap.appendChild(_mLyr);
-          document.body.appendChild(_mWrap);
-          void _mWrap.offsetHeight;
-          var _lyrTop2 = _mLyr.offsetTop;
-          var _lyrKids = Array.from(_mLyr.children);
-          var _insertBefore2 = new Set();
-          _mbIdxs.forEach(function(bidx) {
-            var _bookY2 = _mb[bidx];
-            var _lyrY2  = _bookY2 - _lyrTop2;
-            for (var ci2 = 0; ci2 < _lyrKids.length; ci2++) {
-              if (_lyrKids[ci2].offsetTop >= Math.max(0, _lyrY2)) {
-                _insertBefore2.add(ci2);
-                break;
-              }
-            }
-          });
-          document.body.removeChild(_mWrap);
-          if (_insertBefore2.size > 0) {
-            var _td2 = document.createElement('div');
-            _td2.innerHTML = lyricsHtml;
-            var _allKids2 = Array.from(_td2.children);
-            lyricsHtml = '';
-            _allKids2.forEach(function(child2, ci2) {
-              if (_insertBefore2.has(ci2)) {
-                lyricsHtml += '<div style="page-break-before:always;break-before:page;height:0;margin:0;padding:0;"></div>';
-              }
-              lyricsHtml += child2.outerHTML;
-            });
-          }
-        }
+        // Manual breaks are now handled by the page-clip approach below;
+        // no need to inject page-break-before divs.
       }
 
       // 390 — Inline snapshot images from sbLinks (checked snapshots embed here, in sequence with lyrics)
@@ -36355,8 +36313,11 @@ var WO = (function() {
 
       var sectionLabel = sbGetSectionLabel(song.sectionId || '');
 
-      // Lyrics page (annotations only shown here — not on image pages)
-      songPages += '<div class="sp-song" style="' + pageStyle + '">' +
+      // ── Lyrics pages — page-clip approach, identical to book mode ────────────
+      // Build the same fullContentHtml that _sbFsBuildPages uses, then split it
+      // into 297mm×210mm clip containers at the same break positions.
+      // This guarantees PDF looks byte-for-byte identical to Book Mode.
+      var _printSongHeader =
         '<div class="sp-song-header">' +
           '<span class="sp-num">' + (idx + 1) + '</span>' +
           '<div class="sp-info">' +
@@ -36364,9 +36325,34 @@ var WO = (function() {
             (song.artist ? '<div class="sp-artist">by ' + escapeHtml(song.artist) + '</div>' : '') +
           '</div>' +
           (sectionLabel ? '<span class="sp-section-pill">' + escapeHtml(sectionLabel) + '</span>' : '') +
-        '</div>' +
-        (lyricsHtml || annotSvg ? '<div class="sp-lyrics-wrap' + (song.sbLyricsColumns === 2 ? ' sp-lyrics-wrap--two-col' : '') + '">' + lyricsHtml + annotSvg + '</div>' : '') +
-      '</div>';
+        '</div>';
+      var _printBody = (lyricsHtml || annotSvg)
+        ? '<div class="sp-lyrics-wrap' + (song.sbLyricsColumns === 2 ? ' sp-lyrics-wrap--two-col' : '') + '">' + lyricsHtml + annotSvg + '</div>'
+        : '';
+      var _printFullHtml = _printSongHeader + _printBody;
+
+      // Measure at 794px (same as _sbFsBuildPages) to find page break positions
+      var _pmDiv = document.createElement('div');
+      _pmDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;visibility:hidden;pointer-events:none;z-index:-1;';
+      _pmDiv.innerHTML = _printFullHtml;
+      document.body.appendChild(_pmDiv);
+      void _pmDiv.offsetHeight;
+      var _pmBreaks = _sbFsBreaksFromDiv(_pmDiv, sbManualBreaks[song.id]);
+      document.body.removeChild(_pmDiv);
+
+      // px → mm conversion for position values (297mm = A4H px)
+      var _A4H_px = Math.round(297 * 96 / 25.4);
+      function _pxToMm(px) { return (px * 297 / _A4H_px).toFixed(3) + 'mm'; }
+
+      _pmBreaks.forEach(function(breakY_px, pi) {
+        var isLast = pi === _pmBreaks.length - 1;
+        songPages +=
+          '<div class="sp-print-page"' + (isLast ? ' style="page-break-after:auto;"' : '') + '>' +
+            '<div style="position:absolute;top:-' + _pxToMm(breakY_px) + ';left:0;width:210mm;">' +
+              _printFullHtml +
+            '</div>' +
+          '</div>';
+      });
 
       // ── Library/custom docs ──
       allDocs.forEach(function(att, di) {
@@ -36446,10 +36432,11 @@ var WO = (function() {
           '.sp-idx-song-entry{display:flex;align-items:center;gap:7px;padding:1px 0;}' +
           '.sp-idx-song-num{font-size:0.82rem;font-weight:800;color:#6366f1;min-width:14px;}' +
           '.sp-idx-song-title{font-size:0.86rem;font-weight:600;color:#1e293b;}' +
-          // Song pages — each song starts on its own A4 page; long songs overflow
-          // to next pages automatically. Width and padding EXACTLY match the live
-          // .sb-song-page (210mm) so annotation normalised coords land at the same position.
-          '.sp-song{padding:0;position:relative;width:210mm;min-height:297mm;box-sizing:border-box;page-break-before:always;break-before:page;page-break-inside:auto;}' +
+          // Song pages — each div is exactly one A4 page, overflow:hidden + absolute
+          // offset matches the book-mode viewer pixel-for-pixel.
+          // Page breaks are calculated by the same _sbFsBreaksFromDiv logic; manual
+          // breaks (drag badge) are respected. No CSS page-flow guessing.
+          '.sp-print-page{width:210mm;height:297mm;overflow:hidden;position:relative;page-break-after:always;break-after:page;}' +
           '.sp-song-header{display:flex;align-items:center;gap:14px;padding:14px 24px 10px;border-bottom:2px solid #e2e8f0;page-break-after:avoid;break-after:avoid;}' +
           '.sp-num{width:36px;height:36px;border-radius:50%;background:#1e3a8a;color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;flex-shrink:0;}' +
           '.sp-info{flex:1;}' +
