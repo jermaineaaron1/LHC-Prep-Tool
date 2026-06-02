@@ -23798,6 +23798,30 @@ var WO = (function() {
           '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
           '</div>';
       }).join('');
+    } else if (section.special === 'slides') {
+      subsectionContent =
+        '<div class="wo-ppt-attach-row" id="' + sectionId + '-ppt-attach">' +
+          '<div class="wo-ppt-attach-left">' +
+            '<i class="fa-solid fa-file-powerpoint wo-ppt-attach-icon"></i>' +
+            '<div class="wo-ppt-attach-text">' +
+              '<strong>Attach a Presentation</strong>' +
+              '<span>Google Slides &middot; PowerPoint &middot; Canva &middot; OneDrive</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="wo-ppt-attach-btns">' +
+            '<button class="wo-ppt-attach-btn" onclick="event.stopPropagation(); WO.openSlidesModalTab(\'' + sectionId + '\', \'url\')" title="Paste a Google Slides or PowerPoint Online link">' +
+              '<i class="fa-solid fa-link"></i> Paste link' +
+            '</button>' +
+            '<button class="wo-ppt-attach-btn" onclick="event.stopPropagation(); WO.openSlidesModalTab(\'' + sectionId + '\', \'upload\')" title="Upload a PowerPoint or PDF file">' +
+              '<i class="fa-solid fa-upload"></i> Upload file' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="wo-content-box" ondblclick="WO.editContent(this)" data-section="' + sectionId + '">' +
+          '<div class="wo-content-placeholder">Click to add notes or speaking points</div>' +
+          _mkCASBtn() +
+          '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
+        '</div>';
     } else {
       subsectionContent = '<div class="wo-content-box" ondblclick="WO.editContent(this)" data-section="' + sectionId + '">' +
         '<div class="wo-content-placeholder">Click to add content</div>' +
@@ -25111,6 +25135,20 @@ var WO = (function() {
     switchSlidesTab('upload');
   }
 
+  function openSlidesModalTab(sectionId, tab) {
+    currentSlidesSectionId = sectionId;
+    pendingSlidesFiles = [];
+    $('woSlidesFileList').innerHTML = '';
+    $('woSlidesUrlInput').value = '';
+    $('woSlidesModal').classList.add('show');
+    switchSlidesTab(tab || 'url');
+  }
+
+  function _hidePptAttachRow(sectionId) {
+    var row = document.getElementById(sectionId + '-ppt-attach');
+    if (row) row.style.display = 'none';
+  }
+
   function closeSlidesModal() {
     $('woSlidesModal').classList.remove('show');
     currentSlidesSectionId = null;
@@ -25269,6 +25307,7 @@ var WO = (function() {
     var container = $(sectionId + '-boxes');
     if (!container) return;
 
+    _hidePptAttachRow(sectionId);
     var placeholder = container.querySelector('.wo-content-placeholder');
     if (placeholder) placeholder.parentElement.remove();
 
@@ -26439,6 +26478,7 @@ var WO = (function() {
     var container = $(sectionId + '-boxes');
     if (!container) return;
 
+    _hidePptAttachRow(sectionId);
     var placeholder = container.querySelector('.wo-content-placeholder');
     if (placeholder) placeholder.parentElement.remove();
 
@@ -26588,6 +26628,7 @@ var WO = (function() {
     var container = $(sectionId + '-boxes');
     if (!container) return;
 
+    _hidePptAttachRow(sectionId);
     var placeholder = container.querySelector('.wo-content-placeholder');
     if (placeholder) placeholder.parentElement.remove();
 
@@ -45247,6 +45288,7 @@ var WO = (function() {
     navigateSlideGlobal: navigateSlideGlobal,
     // PowerPoint/Google Slides
     addPowerPointSlides: addPowerPointSlides,
+    openSlidesModalTab: openSlidesModalTab,
     removeSlides: removeSlides,
     prevSlide: prevSlide,
     nextSlide: nextSlide,
@@ -51014,6 +51056,28 @@ function filterLiturgyItems() {
   .srm-copy-btn { background: #334155; border: none; color: #94a3b8; border-radius: 8px; padding: 8px 12px; cursor: pointer; transition: all 0.2s; }
   .srm-copy-btn:hover { background: #475569; color: #fff; }
   .srm-note { color: #475569; font-size: 0.75rem; text-align: center; padding: 0 20px 16px; }
+
+  /* ── Presentation Attach Row (sermon / announcements sections) ──────────── */
+  .wo-ppt-attach-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: linear-gradient(135deg, rgba(234,88,12,0.07), rgba(249,115,22,0.05));
+    border: 1.5px dashed rgba(234,88,12,0.35); border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 8px; transition: border-color 0.15s, background 0.15s;
+  }
+  .wo-ppt-attach-row:hover { border-color: rgba(234,88,12,0.65); background: rgba(234,88,12,0.1); }
+  .wo-ppt-attach-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+  .wo-ppt-attach-icon { font-size: 1.6rem; color: #ea580c; flex-shrink: 0; }
+  .wo-ppt-attach-text { display: flex; flex-direction: column; gap: 2px; }
+  .wo-ppt-attach-text strong { font-size: 0.82rem; font-weight: 700; color: #7c2d12; }
+  .wo-ppt-attach-text span  { font-size: 0.72rem; color: #9a3412; opacity: 0.8; }
+  .wo-ppt-attach-btns { display: flex; gap: 8px; flex-shrink: 0; }
+  .wo-ppt-attach-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 600;
+    cursor: pointer; border: 1.5px solid rgba(234,88,12,0.45);
+    background: white; color: #c2410c; transition: all 0.15s;
+  }
+  .wo-ppt-attach-btn:hover { background: #ea580c; color: white; border-color: #ea580c; }
 
   /* PowerPoint Slides Modal */
   .wo-slides-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 10003; padding: 20px; }
