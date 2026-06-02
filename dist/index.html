@@ -23798,7 +23798,7 @@ var WO = (function() {
           '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
           '</div>';
       }).join('');
-    } else if (section.special === 'slides') {
+    } else if (section.serviceSectionId === 'message' || section.serviceSectionId === 'announcements') {
       subsectionContent =
         '<div class="wo-ppt-attach-row" id="' + sectionId + '-ppt-attach">' +
           '<div class="wo-ppt-attach-left">' +
@@ -23835,8 +23835,8 @@ var WO = (function() {
       '<button class="wo-add-icon-btn" onclick="event.stopPropagation(); WO.openSongLibraryForSection(\'' + sectionId + '\')" title="Add a Song"><i class="fa-solid fa-music"></i></button>' +
       '<button class="wo-add-icon-btn" onclick="event.stopPropagation(); WO.openLiturgyLibraryForSection(\'' + sectionId + '\')" title="Add Liturgy"><i class="fa-solid fa-book-bible"></i></button>';
 
-    // Add PowerPoint slides button for sermon sections
-    if (section.special === 'slides') {
+    // Add PowerPoint slides button only for Sermon and Announcements sections
+    if (section.serviceSectionId === 'message' || section.serviceSectionId === 'announcements') {
       addButtonsHtml += '<button class="wo-add-icon-btn wo-slides-btn" onclick="event.stopPropagation(); WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add PowerPoint Slides"><i class="fa-solid fa-file-powerpoint"></i></button>';
     }
 
@@ -23850,7 +23850,7 @@ var WO = (function() {
     var addBtnsHtml =
       '<button class="wo-section-add-btn" onclick="event.stopPropagation();WO.openSongLibraryForSection(\'' + sectionId + '\')" title="Add Song"><i class="fa-solid fa-music"></i></button>' +
       '<button class="wo-section-add-btn" onclick="event.stopPropagation();WO.openLiturgyLibraryForSection(\'' + sectionId + '\')" title="Add Liturgy"><i class="fa-solid fa-book-bible"></i></button>' +
-      (section.special === 'slides' ? '<button class="wo-section-add-btn" style="color:#ea580c;" onclick="event.stopPropagation();WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add Slides"><i class="fa-solid fa-file-powerpoint"></i></button>' : '') +
+      ((section.serviceSectionId === 'message' || section.serviceSectionId === 'announcements') ? '<button class="wo-section-add-btn" style="color:#ea580c;" onclick="event.stopPropagation();WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add Slides"><i class="fa-solid fa-file-powerpoint"></i></button>' : '') +
       (isScriptureGroup         ? '<button class="wo-section-add-btn" style="color:#3b82f6;" onclick="event.stopPropagation();WO.openBiblePickerForSection(\'' + sectionId + '\')" title="Browse Bible"><i class="fa-solid fa-book-bible"></i></button>' : '');
 
     return '<div class="wo-worship-section" id="' + sectionId + '" data-service-section-id="' + escapeHtml(section.serviceSectionId || '') + '" draggable="true" ondragstart="WO.onDragStart(event)" ondragover="WO.onDragOver(event)" ondrop="WO.onDrop(event)" ondragend="WO.onDragEnd(event)">' +
@@ -23868,7 +23868,7 @@ var WO = (function() {
             '<div class="wo-section-badge-btns">' +
               '<button class="wo-section-add-btn" onclick="event.stopPropagation();WO.openSongLibraryForSection(\'' + sectionId + '\')" title="Add Song"><i class="fa-solid fa-music"></i></button>' +
               '<button class="wo-section-add-btn" onclick="event.stopPropagation();WO.openLiturgyLibraryForSection(\'' + sectionId + '\')" title="Add Liturgy"><i class="fa-solid fa-book-bible"></i></button>' +
-              (section.special === 'slides' ? '<button class="wo-section-add-btn" style="color:#ea580c;" onclick="event.stopPropagation();WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add Slides"><i class="fa-solid fa-file-powerpoint"></i></button>' : '') +
+              ((section.serviceSectionId === 'message' || section.serviceSectionId === 'announcements') ? '<button class="wo-section-add-btn" style="color:#ea580c;" onclick="event.stopPropagation();WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add Slides"><i class="fa-solid fa-file-powerpoint"></i></button>' : '') +
               (isScriptureGroup ? '<button class="wo-section-add-btn" style="color:#3b82f6;" onclick="event.stopPropagation();WO.openBiblePickerForSection(\'' + sectionId + '\')" title="Browse Bible"><i class="fa-solid fa-book-bible"></i></button>' : '') +
               '<div class="wo-badge-actions-row">' +
                 '<button class="wo-section-action-btn edit"      onclick="event.stopPropagation();WO.editSectionTitle(\'' + sectionId + '\')"  title="Edit"><i class="fa-solid fa-pen"></i></button>' +
@@ -25125,8 +25125,14 @@ var WO = (function() {
     };
   })();
 
+  function _ensureSlidesModalAtBody() {
+    var m = $('woSlidesModal');
+    if (m && m.parentNode !== document.body) document.body.appendChild(m);
+  }
+
   // Add PowerPoint/Google Slides to a section - shows modal
   function addPowerPointSlides(sectionId) {
+    _ensureSlidesModalAtBody();
     currentSlidesSectionId = sectionId;
     pendingSlidesFiles = [];
     $('woSlidesFileList').innerHTML = '';
@@ -25136,6 +25142,7 @@ var WO = (function() {
   }
 
   function openSlidesModalTab(sectionId, tab) {
+    _ensureSlidesModalAtBody();
     currentSlidesSectionId = sectionId;
     pendingSlidesFiles = [];
     $('woSlidesFileList').innerHTML = '';
@@ -27046,12 +27053,16 @@ var WO = (function() {
     }
 
     if (typeof google !== 'undefined' && google.script && google.script.run) {
-      google.script.run
-        .withSuccessHandler(_onConverted)
-        .withFailureHandler(function(e) { _fallback('Conversion error: ' + (e && e.message ? e.message : e)); })
-        .convertPptxToGoogleSlides(supabaseUrl, fileName);
+      try {
+        google.script.run
+          .withSuccessHandler(_onConverted)
+          .withFailureHandler(function(e) { _fallback('Conversion error: ' + (e && e.message ? e.message : e)); })
+          .convertPptxToGoogleSlides(supabaseUrl, fileName);
+      } catch (e) {
+        _fallback('');   // silently fall back to Office Online viewer
+      }
     } else {
-      _fallback('Google Apps Script not available.');
+      _fallback('');   // no GAS runtime — use Office Online viewer
     }
   }
 
