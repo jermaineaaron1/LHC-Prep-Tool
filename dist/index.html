@@ -26599,27 +26599,28 @@ var WO = (function() {
       if (!url.includes('embed')) embedUrl = url.replace('/view', '/embed').replace('action=view', 'action=embedview');
     }
 
-    // Remove old widget / boxes for this section before adding new
-    container.querySelectorAll('.wo-local-slides, .wo-slides-container, .wo-ppt-slide, .wo-ppt-banner').forEach(function(el) { el.remove(); });
+    // Each container gets a unique ID so it can be removed individually
+    var cId = 'wsc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
 
-    var slidesHtml = '<div class="wo-slides-container" data-section="' + sectionId + '" data-type="iframe" data-embed-url="' + escapeHtml(embedUrl) + '" data-filename="' + escapeHtml(slidesName) + '">' +
+    var slidesHtml = '<div class="wo-slides-container" id="' + cId + '" data-section="' + sectionId + '" data-type="iframe" data-embed-url="' + escapeHtml(embedUrl) + '" data-filename="' + escapeHtml(slidesName) + '">' +
       '<div class="wo-slides-header">' +
         '<div class="wo-slides-title"><i class="fa-solid fa-file-powerpoint"></i> ' + escapeHtml(slidesName) + '</div>' +
         '<div class="wo-slides-actions">' +
           '<button class="wo-slides-project-main-btn" onclick="WO.projectIframeSlides(\'' + sectionId + '\',\'' + encodeURIComponent(embedUrl) + '\')" title="Project to secondary display">' +
             '<i class="fa-solid fa-display"></i> Project to Screen' +
           '</button>' +
-          '<button class="wo-slides-fullscreen-btn" onclick="WO.fullscreenSlides(\'' + sectionId + '\')" title="Open fullscreen in this window"><i class="fa-solid fa-expand"></i></button>' +
-          '<button class="wo-slides-remove-btn" onclick="WO.removeSlides(\'' + sectionId + '\')"><i class="fa-solid fa-times"></i></button>' +
+          '<button class="wo-slides-fullscreen-btn" onclick="WO.fullscreenSlides(\'' + cId + '\')" title="Open fullscreen in this window"><i class="fa-solid fa-expand"></i></button>' +
+          '<button class="wo-slides-remove-btn" onclick="WO.removeSlideContainer(\'' + cId + '\')" title="Remove this presentation"><i class="fa-solid fa-times"></i></button>' +
         '</div>' +
       '</div>' +
       '<div class="wo-slides-frame-container">' +
-        '<iframe class="wo-slides-iframe" id="' + sectionId + '-slides" src="' + escapeHtml(embedUrl) + '" frameborder="0" allowfullscreen="true" mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen"></iframe>' +
+        '<iframe class="wo-slides-iframe" id="' + cId + '-iframe" src="' + escapeHtml(embedUrl) + '" frameborder="0" allowfullscreen="true" mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen"></iframe>' +
       '</div>' +
-      '<div class="wo-slides-hint">' +
-        '<i class="fa-solid fa-circle-info" style="margin-right:5px;"></i>' +
-        'Navigate using the controls <strong>inside</strong> the viewer &nbsp;·&nbsp; ' +
-        '<strong>Project to Screen</strong> mirrors it on your secondary display' +
+      '<div class="wo-slides-footer">' +
+        '<button class="wo-slides-add-another-btn" onclick="event.stopPropagation();WO.openSlidesModalTab(\'' + sectionId + '\',\'url\')" title="Attach another presentation">' +
+          '<i class="fa-solid fa-plus"></i> Add another presentation' +
+        '</button>' +
+        '<span class="wo-slides-footer-hint"><i class="fa-solid fa-circle-info"></i> Navigate inside the viewer &nbsp;·&nbsp; <strong>Project to Screen</strong> mirrors to secondary display</span>' +
       '</div>' +
       '</div>';
 
@@ -26927,16 +26928,22 @@ var WO = (function() {
         '</div>';
     });
 
+    var wId = 'wpw-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
     var widgetHtml =
-      '<div class="wo-ppt-widget" data-section="' + sectionId + '">' +
+      '<div class="wo-ppt-widget" id="' + wId + '" data-section="' + sectionId + '">' +
         '<div class="wo-ppt-widget-header">' +
           '<i class="fa-solid fa-file-powerpoint"></i>' +
           '<span class="wo-ppt-widget-name">' + escapeHtml(displayName) + '</span>' +
           '<span class="wo-ppt-widget-count">' + count + ' slides</span>' +
           '<button class="wo-ppt-banner-btn" onclick="event.stopPropagation();WO.openSermonRemote(\'' + sectionId + '\')" title="Remote"><i class="fa-solid fa-mobile-screen-button"></i></button>' +
-          '<button class="wo-ppt-banner-btn wo-ppt-banner-remove" onclick="event.stopPropagation();WO.removeSlides(\'' + sectionId + '\')" title="Remove"><i class="fa-solid fa-times"></i></button>' +
+          '<button class="wo-ppt-banner-btn wo-ppt-banner-remove" onclick="event.stopPropagation();WO.removeSlideContainer(\'' + wId + '\')" title="Remove this presentation"><i class="fa-solid fa-times"></i></button>' +
         '</div>' +
         '<div class="wo-ppt-filmstrip">' + thumbsHtml + '</div>' +
+        '<div class="wo-slides-footer">' +
+          '<button class="wo-slides-add-another-btn" onclick="event.stopPropagation();WO.openSlidesModalTab(\'' + sectionId + '\',\'url\')" title="Attach another presentation">' +
+            '<i class="fa-solid fa-plus"></i> Add another presentation' +
+          '</button>' +
+        '</div>' +
       '</div>';
 
     container.insertAdjacentHTML('beforeend', widgetHtml);
@@ -27947,30 +27954,59 @@ var WO = (function() {
     navigateSlideGlobal(direction);
   }
 
-  // Remove slides from section
-  function removeSlides(sectionId) {
-    var container = $(sectionId + '-boxes');
-    if (!container) return;
-
-    // Remove both new-style ppt boxes/banner and old-style container widget
-    container.querySelectorAll('.wo-ppt-widget, .wo-ppt-slide, .wo-ppt-banner, .wo-slides-container, .wo-local-slides').forEach(function(el) { el.remove(); });
-
-    // Clear stored slide data
-    if (currentSermonSlides[sectionId]) delete currentSermonSlides[sectionId];
-    if (_selectedPptContainer && _selectedPptContainer.getAttribute('data-section') === sectionId) {
+  // Remove a single presentation container by its unique ID.
+  // After removal, re-shows the "Attach a Presentation" row if no containers remain.
+  function removeSlideContainer(containerId) {
+    var el = document.getElementById(containerId);
+    if (!el) return;
+    var sectionId = el.getAttribute('data-section');
+    el.remove();
+    // Clear active selection if this was it
+    if (_selectedPptContainer && _selectedPptContainer.id === containerId) {
       _selectedPptContainer = null;
       activeNavigationMode = 'slides';
     }
+    // If no more presentation containers remain, show the attach row again
+    _restoreAttachRowIfEmpty(sectionId);
+  }
 
-    // Restore placeholder if section is now empty
+  // Re-show the ppt-attach-row (and optional empty placeholder) when all
+  // presentations have been removed from a section.
+  function _restoreAttachRowIfEmpty(sectionId) {
+    if (!sectionId) return;
+    var container = $(sectionId + '-boxes');
+    if (!container) return;
+    var hasContainers = container.querySelector('.wo-slides-container, .wo-ppt-widget, .wo-local-slides');
+    if (hasContainers) return; // still have presentations — nothing to restore
+    // Show the ppt-attach-row (sermon / announcements sections)
+    var attachRow = document.getElementById(sectionId + '-ppt-attach');
+    if (attachRow) {
+      attachRow.style.display = '';
+      return; // attach row is the UI for re-adding
+    }
+    // For sections without an attach row, restore the generic placeholder if needed
     if (!container.querySelector('.wo-content-box') && !container.querySelector('.wo-song-banner') &&
-        !container.querySelector('.wo-liturgy-banner-bar') && !container.querySelector('.wo-slides-container') &&
-        !container.querySelector('.wo-ppt-widget') && !container.querySelector('.wo-ppt-banner')) {
+        !container.querySelector('.wo-liturgy-banner-bar')) {
       container.innerHTML = '<div class="wo-content-box" ondblclick="WO.editContent(this)" data-section="' + sectionId + '">' +
         '<div class="wo-content-placeholder">Click to add content</div>' +
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
         '</div>';
     }
+  }
+
+  // Remove ALL presentations from a section (legacy / used by non-iframe paths)
+  function removeSlides(sectionId) {
+    var container = $(sectionId + '-boxes');
+    if (!container) return;
+
+    container.querySelectorAll('.wo-ppt-widget, .wo-ppt-slide, .wo-ppt-banner, .wo-slides-container, .wo-local-slides').forEach(function(el) { el.remove(); });
+
+    if (currentSermonSlides[sectionId]) delete currentSermonSlides[sectionId];
+    if (_selectedPptContainer && _selectedPptContainer.getAttribute('data-section') === sectionId) {
+      _selectedPptContainer = null;
+      activeNavigationMode = 'slides';
+    }
+    _restoreAttachRowIfEmpty(sectionId);
   }
 
   // Navigate slides — wire into the global nav so boundaries are handled
@@ -28000,9 +28036,11 @@ var WO = (function() {
     showToast('Mirroring presentation on secondary screen', 'success');
   }
 
-  // Fullscreen slides in current window
-  function fullscreenSlides(sectionId) {
-    var iframe = $(sectionId + '-slides');
+  // Fullscreen slides in current window — accepts either a container ID (new) or sectionId (legacy)
+  function fullscreenSlides(containerId) {
+    // New: container ID → look for the iframe inside that container
+    var cEl = document.getElementById(containerId);
+    var iframe = cEl ? cEl.querySelector('iframe') : $(containerId + '-slides');
     if (iframe) {
       if (iframe.requestFullscreen) {
         iframe.requestFullscreen();
@@ -45328,6 +45366,7 @@ var WO = (function() {
     addPowerPointSlides: addPowerPointSlides,
     openSlidesModalTab: openSlidesModalTab,
     removeSlides: removeSlides,
+    removeSlideContainer: removeSlideContainer,
     prevSlide: prevSlide,
     nextSlide: nextSlide,
     fullscreenSlides: fullscreenSlides,
@@ -51023,6 +51062,11 @@ function filterLiturgyItems() {
   .wo-slides-nav-btn:hover, .wo-slides-fullscreen-btn:hover { background: rgba(255,255,255,0.3); }
   .wo-slides-project-main-btn { display:flex; align-items:center; gap:7px; background:white; color:#ea580c; border:none; padding:7px 16px; border-radius:8px; cursor:pointer; font-weight:700; font-size:0.82rem; transition:all 0.2s; box-shadow:0 2px 8px rgba(0,0,0,0.15); }
   .wo-slides-project-main-btn:hover { background:#fff7ed; transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,0.2); }
+  /* Footer row beneath each slides container — "Add another" button + hint text */
+  .wo-slides-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 14px; border-top:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.08); flex-wrap:wrap; }
+  .wo-slides-add-another-btn { display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.15); color:white; border:1.5px dashed rgba(255,255,255,0.4); border-radius:7px; padding:5px 13px; font-size:0.75rem; font-weight:600; cursor:pointer; transition:all 0.15s; white-space:nowrap; }
+  .wo-slides-add-another-btn:hover { background:rgba(255,255,255,0.28); border-color:white; }
+  .wo-slides-footer-hint { font-size:0.68rem; color:rgba(255,255,255,0.6); flex:1; min-width:0; }
   .wo-slides-remove-btn { background: rgba(220,38,38,0.8); color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
   .wo-slides-remove-btn:hover { background: #dc2626; }
   .wo-slides-frame-container { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; }
