@@ -26661,21 +26661,25 @@ var WO = (function() {
     // Remove old widget / boxes for this section before adding new
     container.querySelectorAll('.wo-local-slides, .wo-slides-container, .wo-ppt-slide, .wo-ppt-banner').forEach(function(el) { el.remove(); });
 
-    var slidesHtml = '<div class="wo-slides-container" data-section="' + sectionId + '" data-type="iframe" data-filename="' + escapeHtml(slidesName) + '">' +
+    var slidesHtml = '<div class="wo-slides-container" data-section="' + sectionId + '" data-type="iframe" data-embed-url="' + escapeHtml(embedUrl) + '" data-filename="' + escapeHtml(slidesName) + '">' +
       '<div class="wo-slides-header">' +
-      '<div class="wo-slides-title"><i class="fa-solid fa-file-powerpoint"></i> ' + escapeHtml(slidesName) + '</div>' +
-      '<div class="wo-slides-actions">' +
-      '<button class="wo-slides-nav-btn" onclick="WO.prevSlide(\'' + sectionId + '\')" title="Previous Slide"><i class="fa-solid fa-chevron-left"></i></button>' +
-      '<button class="wo-slides-nav-btn" onclick="WO.nextSlide(\'' + sectionId + '\')" title="Next Slide"><i class="fa-solid fa-chevron-right"></i></button>' +
-      '<button class="wo-slides-fullscreen-btn" onclick="WO.projectIframeSlides(\'' + sectionId + '\',\'' + encodeURIComponent(embedUrl) + '\')" title="Project to Display"><i class="fa-solid fa-display"></i></button>' +
-      '<button class="wo-slides-fullscreen-btn" onclick="WO.fullscreenSlides(\'' + sectionId + '\')" title="Fullscreen in this window"><i class="fa-solid fa-expand"></i></button>' +
-      '<button class="wo-slides-remove-btn" onclick="WO.removeSlides(\'' + sectionId + '\')"><i class="fa-solid fa-times"></i></button>' +
-      '</div>' +
+        '<div class="wo-slides-title"><i class="fa-solid fa-file-powerpoint"></i> ' + escapeHtml(slidesName) + '</div>' +
+        '<div class="wo-slides-actions">' +
+          '<button class="wo-slides-project-main-btn" onclick="WO.projectIframeSlides(\'' + sectionId + '\',\'' + encodeURIComponent(embedUrl) + '\')" title="Project to secondary display">' +
+            '<i class="fa-solid fa-display"></i> Project to Screen' +
+          '</button>' +
+          '<button class="wo-slides-fullscreen-btn" onclick="WO.fullscreenSlides(\'' + sectionId + '\')" title="Open fullscreen in this window"><i class="fa-solid fa-expand"></i></button>' +
+          '<button class="wo-slides-remove-btn" onclick="WO.removeSlides(\'' + sectionId + '\')"><i class="fa-solid fa-times"></i></button>' +
+        '</div>' +
       '</div>' +
       '<div class="wo-slides-frame-container">' +
-      '<iframe class="wo-slides-iframe" id="' + sectionId + '-slides" src="' + escapeHtml(embedUrl) + '" frameborder="0" allowfullscreen="true" mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen"></iframe>' +
+        '<iframe class="wo-slides-iframe" id="' + sectionId + '-slides" src="' + escapeHtml(embedUrl) + '" frameborder="0" allowfullscreen="true" mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen"></iframe>' +
       '</div>' +
-      '<div class="wo-slides-hint"><i class="fa-solid fa-display" style="margin-right:4px;"></i> Click the project button to show on secondary display</div>' +
+      '<div class="wo-slides-hint">' +
+        '<i class="fa-solid fa-circle-info" style="margin-right:5px;"></i>' +
+        'Navigate using the controls <strong>inside</strong> the viewer &nbsp;·&nbsp; ' +
+        '<strong>Project to Screen</strong> mirrors it on your secondary display' +
+      '</div>' +
       '</div>';
 
     container.insertAdjacentHTML('beforeend', slidesHtml);
@@ -27911,6 +27915,11 @@ var WO = (function() {
       '      textEl.style.fontStyle = s.italic ? "italic" : "normal";' +
       '    }' +
       '    window._textSettings = s;' +
+      '  } else if (data.type === "iframeEmbed") {' +
+      '    var _ov2 = document.getElementById("fsOverlay"); if (_ov2) _ov2.remove();' +
+      '    content.style.padding = "0";' +
+      '    if (bgEl) bgEl.style.display = "none";' +
+      '    content.innerHTML = "<div style=\\"width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#000;\\"><iframe src=\\"" + data.src + "\\" style=\\"width:100%;height:100%;border:none;\\" allowfullscreen allow=\\"autoplay; fullscreen\\"></iframe></div>";' +
       '  }' +
       '};' +
       // Also keep message listener as fallback
@@ -28038,12 +28047,16 @@ var WO = (function() {
     navigateSlideGlobal(1);
   }
 
-  // Project iframe-based slides (Google Slides, Office Viewer) to projection window
+  // Project iframe-based slides (Google Slides, Office Viewer) to projection window.
+  // Also mirrors the embed in the right-panel preview so you can see what's projected.
   function projectIframeSlides(sectionId, encodedUrl) {
     var embedUrl = decodeURIComponent(encodedUrl);
     openProjectionWindow();
     sendToProjectionWindow({ type: 'iframeEmbed', src: embedUrl });
-    showToast('Projecting presentation to display…', 'success');
+    _showIframeInPreview(embedUrl);
+    var cont = document.querySelector('.wo-slides-container[data-section="' + sectionId + '"]');
+    if (cont) { _selectedPptContainer = cont; activeNavigationMode = 'ppt-iframe'; }
+    showToast('Mirroring presentation on secondary screen', 'success');
   }
 
   // Fullscreen slides in current window
@@ -51212,6 +51225,8 @@ function filterLiturgyItems() {
   .wo-slides-actions { display: flex; gap: 6px; }
   .wo-slides-nav-btn, .wo-slides-fullscreen-btn { background: rgba(255,255,255,0.2); color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
   .wo-slides-nav-btn:hover, .wo-slides-fullscreen-btn:hover { background: rgba(255,255,255,0.3); }
+  .wo-slides-project-main-btn { display:flex; align-items:center; gap:7px; background:white; color:#ea580c; border:none; padding:7px 16px; border-radius:8px; cursor:pointer; font-weight:700; font-size:0.82rem; transition:all 0.2s; box-shadow:0 2px 8px rgba(0,0,0,0.15); }
+  .wo-slides-project-main-btn:hover { background:#fff7ed; transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,0.2); }
   .wo-slides-remove-btn { background: rgba(220,38,38,0.8); color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
   .wo-slides-remove-btn:hover { background: #dc2626; }
   .wo-slides-frame-container { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; }
