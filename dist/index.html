@@ -53250,14 +53250,38 @@ function filterLiturgyItems() {
   /* Text mode cursor hint */
   #sbBody.sb-text-mode-active .sb-song-page { cursor:text; }
   #sbBody.sb-text-mode-active .sb-page-lyrics { pointer-events:none; }
-  /* A4 page-break guide line — draggable; shows where content will split in book/print mode */
-  .sb-a4-marker { position:absolute; left:0; right:0; height:0; border-top:2.5px dashed #60a5fa; cursor:ns-resize; touch-action:none; z-index:10; }
-  .sb-a4-marker::before { content:''; position:absolute; left:0; right:0; top:-10px; bottom:-10px; cursor:ns-resize; }
-  .sb-a4-marker::after { content:'↕ Page break — drag to set print & book split'; position:absolute; left:50%; transform:translateX(-50%); top:-11px; font-size:0.65rem; font-family:sans-serif; color:#2563eb; background:#eff6ff; padding:2px 10px; border-radius:10px; border:1.5px solid #bfdbfe; font-weight:700; letter-spacing:0.03em; white-space:nowrap; cursor:ns-resize; user-select:none; }
-  .sb-a4-marker[data-manual="1"] { border-top-color:#7c3aed; }
-  .sb-a4-marker[data-manual="1"]::after { color:#7c3aed; background:#f5f3ff; border-color:#c4b5fd; content:'↕ break adjusted · dbl-click to reset'; }
-  .sb-a4-marker.sb-a4-dragging { border-top-color:#f59e0b; border-top-width:3px; }
-  .sb-a4-marker.sb-a4-dragging::after { color:#b45309; background:#fffbeb; border-color:#fcd34d; content:'↕ drop here'; }
+  /* ── A4 page-break badge ── draggable tab on the left edge of the page ── */
+  .sb-a4-marker {
+    position: absolute; left: 0; right: 0; height: 0;
+    cursor: ns-resize; touch-action: none; z-index: 10;
+  }
+  .sb-a4-marker::before {
+    content: ''; position: absolute;
+    left: 0; right: 0; top: -14px; bottom: -14px;
+    cursor: ns-resize;
+  }
+  .sb-a4-marker::after {
+    content: '▶  p.' attr(data-page) '  ↕';
+    position: absolute; left: 0; top: -11px;
+    font-size: 0.62rem; font-family: sans-serif; font-weight: 700;
+    color: #1d4ed8; background: #dbeafe;
+    padding: 3px 10px 3px 8px;
+    border-radius: 0 12px 12px 0;
+    border: 1.5px solid #93c5fd; border-left: none;
+    white-space: nowrap; cursor: ns-resize; user-select: none;
+    box-shadow: 1px 2px 6px rgba(29,78,216,0.18);
+    letter-spacing: 0.03em;
+  }
+  .sb-a4-marker[data-manual="1"]::after {
+    color: #6d28d9; background: #ede9fe;
+    border-color: #c4b5fd;
+    content: '▶  p.' attr(data-page) '  ↕  ·  dbl-click to reset';
+  }
+  .sb-a4-marker.sb-a4-dragging::after {
+    color: #92400e; background: #fef3c7;
+    border-color: #fcd34d;
+    content: '↕  drop to set page split';
+  }
   /* Markers are live-view only — never visible in Book Mode iframe or print */
   @media print { .sb-a4-marker { display:none !important; } }
   /* ── Print Preview pane ───────────────────────────────────────────────────────── */
