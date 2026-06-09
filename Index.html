@@ -34972,14 +34972,10 @@ var WO = (function() {
     h += '</div>';
 
     // Videos badge
-    if (allVideos.length === 1) {
+    if (allVideos.length >= 1) {
       var info0 = window.detectMediaType ? window.detectMediaType(allVideos[0]) : null;
-      var mIcon0 = (info0 && info0.type === 'spotify') ? 'fa-brands fa-spotify' : 'fa-brands fa-youtube';
-      var vLbl0 = (info0 && info0.type === 'spotify') ? (info0.label || 'Spotify') :
-                  (info0 && info0.type === 'youtube') ? 'YouTube Video' : sbDomainLabel(allVideos[0]);
-      h += '<div class="sb-badge-rm-wrap"><button class="sb-doc-toggle-btn sb-vid-toggle-btn sb-badge-btn" id="sbVidBtn-' + sid + '-0" onclick="WO.sbToggleVideo(\'' + sid + '\',0)"><i class="' + mIcon0 + '"></i> ' + escapeHtml(vLbl0.length>25?vLbl0.substring(0,25)+'…':vLbl0) + '</button><button class="sb-badge-rm-btn" onclick="event.stopPropagation();WO.sbRemoveVideo(\'' + sid + '\',0)" title="Remove link"><i class="fa-solid fa-xmark"></i></button></div>';
-    } else if (allVideos.length > 1) {
-      h += '<div class="sb-badge-wrap" id="sbVidBadgeWrap-' + sid + '"><button class="sb-badge-btn sb-badge-video" id="sbVidBadgePill-' + sid + '" onclick="WO.sbToggleBadgeDrop(\'' + sid + '\',\'vid\')"><i class="fa-brands fa-youtube"></i> Videos<span class="sb-badge-count">' + allVideos.length + '</span><i class="fa-solid fa-caret-down sb-badge-caret" id="sbVidCaret-' + sid + '"></i></button><div class="sb-badge-drop" id="sbVidDrop-' + sid + '">';
+      var vidIcon0 = (info0 && info0.type === 'spotify') ? 'fa-brands fa-spotify' : 'fa-brands fa-youtube';
+      h += '<div class="sb-badge-wrap" id="sbVidBadgeWrap-' + sid + '"><button class="sb-badge-btn sb-badge-video" id="sbVidBadgePill-' + sid + '" onclick="WO.sbToggleBadgeDrop(\'' + sid + '\',\'vid\')"><i class="' + vidIcon0 + '"></i> Videos<span class="sb-badge-count">' + allVideos.length + '</span><i class="fa-solid fa-caret-down sb-badge-caret" id="sbVidCaret-' + sid + '"></i></button><div class="sb-badge-drop" id="sbVidDrop-' + sid + '">';
       allVideos.forEach(function(url, vi) {
         var info = window.detectMediaType ? window.detectMediaType(url) : null;
         var mIcon = (info && info.type === 'spotify') ? 'fa-brands fa-spotify' : 'fa-brands fa-youtube';
@@ -53427,7 +53423,7 @@ function filterLiturgyItems() {
   .sb-thick-btn.active { background:rgba(255,255,255,0.25); border-color:rgba(255,255,255,0.6); }
   .sb-thick-dot { border-radius:50%; background:white; display:block; }
   /* Ori transpose reset button */
-  .sb-xp-btn.ori { font-size:0.9rem; font-weight:700; padding:0 9px; letter-spacing:0.03em; color:#94a3b8; border-color:#e2e8f0; width:auto; min-width:50px; }
+  .sb-xp-btn.ori { font-size:0.9rem; font-weight:700; padding:0 9px; letter-spacing:0.03em; color:#94a3b8; border-color:#e2e8f0; width:auto; min-width:53px; }
 
   .sb-body { flex:1; overflow-y:auto; overflow-x:auto; background:#c8d0dc; padding:32px 24px 80px; display:flex; flex-direction:column; align-items:center; gap:0; }
 
@@ -53601,7 +53597,7 @@ function filterLiturgyItems() {
   .sb-page-title { font-size:1.35rem; font-weight:700; color:#1e293b; font-family:'Cinzel',Georgia,serif; line-height:1.2; }
   .sb-page-artist { font-size:0.82rem; color:#64748b; margin-top:2px; }
   .sb-page-transpose { display:flex; align-items:center; gap:3px; flex-shrink:0; }
-  .sb-xp-btn { width:50px; height:50px; border:1.5px solid #c7d6ef; border-radius:12px; background:linear-gradient(180deg,#ffffff 0%,#eef3ff 100%); box-shadow:0 1px 3px rgba(74,109,167,0.18),inset 0 1px 0 rgba(255,255,255,0.92); cursor:pointer; font-size:1.4rem; display:flex; align-items:center; justify-content:center; font-weight:700; color:#4a6da7; transition:all 0.15s; }
+  .sb-xp-btn { width:53px; height:53px; border:1.5px solid #c7d6ef; border-radius:12px; background:linear-gradient(180deg,#ffffff 0%,#eef3ff 100%); box-shadow:0 1px 3px rgba(74,109,167,0.18),inset 0 1px 0 rgba(255,255,255,0.92); cursor:pointer; font-size:1.4rem; display:flex; align-items:center; justify-content:center; font-weight:700; color:#4a6da7; transition:all 0.15s; }
   .sb-xp-btn:hover { background:linear-gradient(180deg,#eef2ff 0%,#dbe4ff 100%); border-color:#6366f1; color:#6366f1; box-shadow:0 2px 7px rgba(99,102,241,0.22),inset 0 1px 0 rgba(255,255,255,0.9); }
   .sb-xp-key { font-size:0.85rem; font-weight:700; color:#6366f1; min-width:32px; text-align:center; margin-left:4px; }
 
@@ -53615,7 +53611,7 @@ function filterLiturgyItems() {
   #songbookLiveModal .wo-lyrics-section-header { margin:2em 0 1em; }
   .sb-page-lyrics:focus { background:#fefffe; }
   .sb-page-lyrics--two-col { column-count:2; column-gap:28px; column-fill:balance; }
-  .sb-col-toggle-btn { background:none; border:1px solid #e2e8f0; padding:3px 8px; border-radius:5px; cursor:pointer; font-size:0.75rem; font-weight:600; color:#64748b; white-space:nowrap; }
+  .sb-col-toggle-btn { background:none; border:1px solid #e2e8f0; padding:6px 11px; border-radius:5px; cursor:pointer; font-size:0.75rem; font-weight:600; color:#64748b; white-space:nowrap; }
   .sb-col-toggle-btn.active { background:#eef2ff; border-color:#6366f1; color:#6366f1; }
   .sb-font-opt-btn { background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:7px; padding:5px 10px; cursor:pointer; font-weight:600; color:#475569; transition:all .15s; }
   .sb-font-opt-btn:hover { background:#eef2ff; border-color:#6366f1; color:#6366f1; }
@@ -53624,12 +53620,12 @@ function filterLiturgyItems() {
   /* Google Doc panel inside each song page */
   .sb-doc-panel { border-top:2px solid #bfdbfe; }
   .sb-doc-panel iframe { width:100%; min-height:90vh; display:block; border:none; }
-  .sb-doc-toggle-btn { display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border:1.5px solid #93c5fd; border-radius:6px; background:white; color:#1d4ed8; cursor:pointer; font-size:0.8rem; font-weight:500; transition:all 0.15s; }
+  .sb-doc-toggle-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 15px; border:1.5px solid #93c5fd; border-radius:6px; background:white; color:#1d4ed8; cursor:pointer; font-size:0.8rem; font-weight:500; transition:all 0.15s; }
   .sb-doc-toggle-btn:hover { background:#eff6ff; }
   .sb-doc-toggle-btn.active { background:#1d4ed8; color:white; border-color:#1d4ed8; }
   /* 661 — Badge grouped buttons (Videos / Docs / Links) */
   .sb-badge-wrap { position:relative; display:inline-flex; flex-direction:column; }
-  .sb-badge-btn { display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:6px; border:1.5px solid; cursor:pointer; font-size:0.8rem; font-weight:600; transition:all 0.15s; white-space:nowrap; }
+  .sb-badge-btn { display:inline-flex; align-items:center; gap:6px; padding:7px 15px; border-radius:6px; border:1.5px solid; cursor:pointer; font-size:0.8rem; font-weight:600; transition:all 0.15s; white-space:nowrap; }
   .sb-badge-btn:hover { filter:brightness(0.93); }
   .sb-badge-count { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; border-radius:9px; font-size:0.7rem; font-weight:700; padding:0 5px; background:rgba(0,0,0,0.15); }
   .sb-badge-caret { font-size:0.65rem; transition:transform 0.2s; }
