@@ -93,6 +93,15 @@ begin
 end;
 $$;
 
--- Enable Realtime
-alter publication supabase_realtime add table vh_session_players;
-alter publication supabase_realtime add table vh_score_events;
+-- Enable Realtime (idempotent — silently skips if already a member)
+do $$
+begin
+  alter publication supabase_realtime add table vh_session_players;
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table vh_score_events;
+exception when duplicate_object then null;
+end $$;
