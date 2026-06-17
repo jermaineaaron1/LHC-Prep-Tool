@@ -659,30 +659,74 @@ function updateSongLyrics(songId, lyrics) {
 
 // ================================================================
 // UPLOAD & OCR VIA GOOGLE DRIVE (images + scanned PDFs)
-// Requires: Drive API v2 enabled under Services in Apps Script
+// Uses UrlFetchApp + DriveApp — no advanced services needed.
 // ================================================================
 function uploadAndOcrToDrive(base64Data, mimeType, fileName) {
   try {
-    var decoded = Utilities.base64Decode(base64Data);
-    var blob = Utilities.newBlob(decoded, mimeType, fileName);
+    var token = ScriptApp.getOAuthToken();
+    var decoded = Utilities.base64Decode(base64Data); // byte array
 
-    // Upload with OCR — Drive converts image/PDF to a Google Doc
-    var resource = { title: fileName };
-    var uploaded = Drive.Files.insert(resource, blob, {
-      ocr: true,
-      ocrLanguage: 'en',
-      convert: true
-    });
+    // Build multipart/related body for Drive v2 upload with OCR
+    var boundary = 'lhcbnd' + Date.now();
+    var meta = JSON.stringify({ title: fileName });
+    var before = '--' + boundary + '\r\n' +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      meta + '\r\n' +
+      '--' + boundary + '\r\n' +
+      'Content-Type: ' + mimeType + '\r\n\r\n';
+    var after = '\r\n--' + boundary + '--';
 
-    // Read plain text from the resulting Google Doc
-    var doc = DocumentApp.openById(uploaded.id);
-    var text = doc.getBody().getText();
+    // Convert text parts to byte arrays and concatenate with file bytes
+    function strBytes(s) {
+      var b = [];
+      for (var i = 0; i < s.length; i++) b.push(s.charCodeAt(i) & 0xFF);
+      return b;
+    }
+    var body = strBytes(before).concat(Array.from(decoded)).concat(strBytes(after));
 
-    // Clean up: delete the temporary converted Doc
-    Drive.Files.remove(uploaded.id);
+    var uploadResp = UrlFetchApp.fetch(
+      'https://www.googleapis.com/upload/drive/v2/files' +
+      '?uploadType=multipart&ocr=true&ocrLanguage=en&convert=true',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'multipart/related; boundary="' + boundary + '"'
+        },
+        payload: body,
+        muteHttpExceptions: true
+      }
+    );
+
+    var uploaded = JSON.parse(uploadResp.getContentText());
+    if (!uploaded.id) {
+      var msg = uploaded.error ? uploaded.error.message : uploadResp.getContentText();
+      return { success: false, error: 'Drive OCR upload failed: ' + msg };
+    }
+
+    // Export the converted Google Doc as plain text
+    var exportResp = UrlFetchApp.fetch(
+      'https://www.googleapis.com/drive/v2/files/' + uploaded.id +
+      '/export?mimeType=text%2Fplain',
+      {
+        headers: { 'Authorization': 'Bearer ' + token },
+        muteHttpExceptions: true
+      }
+    );
+    var text = exportResp.getContentText();
+
+    // Delete the temporary file
+    UrlFetchApp.fetch(
+      'https://www.googleapis.com/drive/v2/files/' + uploaded.id,
+      {
+        method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + token },
+        muteHttpExceptions: true
+      }
+    );
 
     if (!text || !text.trim()) {
-      return { success: false, error: 'No text could be extracted. Check image quality.' };
+      return { success: false, error: 'No text could be extracted. Check image quality and lighting.' };
     }
 
     return { success: true, text: text };
