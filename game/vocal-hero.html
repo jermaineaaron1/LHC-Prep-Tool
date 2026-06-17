@@ -142,7 +142,7 @@
   /* ── Full-screen Song Editor ───────────────────────────── */
   #songEditor{position:fixed;inset:0;display:none;flex-direction:column;background:var(--bg);z-index:10;overflow:hidden}
   #songEditor.on{display:flex}
-  .ed-toolbar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(11,16,38,.95);border-bottom:1px solid var(--line);flex-shrink:0;z-index:2}
+  .ed-toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(11,16,38,.95);border-bottom:1px solid var(--line);flex-shrink:0;z-index:2;flex-wrap:wrap}
   .ed-song-name{font-family:"Fraunces",serif;font-size:18px;font-weight:700;color:var(--ink);flex:1;text-align:center}
   .ed-hint{font-size:11px;color:var(--muted);display:none}
   @media(min-width:600px){.ed-hint{display:inline}}
@@ -150,6 +150,11 @@
   .ed-tb-btn:hover{border-color:var(--gold);color:var(--gold)}
   .ed-tb-btn.gold{background:var(--gold);color:#241a00;border-color:var(--gold);font-weight:600}
   .ed-tb-btn.gold:hover{background:var(--gold-soft)}
+  .ed-mode-group{display:flex;gap:2px;background:rgba(255,255,255,.06);border-radius:8px;padding:3px}
+  .ed-mode-btn{font-family:"DM Mono",monospace;font-size:11px;padding:5px 10px;border-radius:6px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:.15s;white-space:nowrap}
+  .ed-mode-btn:hover{color:var(--ink)}
+  .ed-mode-btn.on{background:var(--gold);color:#241a00;font-weight:700}
+  .ed-grid-group{display:flex;align-items:center;gap:6px}
   #edCv{flex:1;display:block;width:100%;cursor:crosshair;touch-action:none}
   /* Floating lyric bubble on selected note */
   #edFloatLyric{
@@ -351,9 +356,15 @@
         <span class="lab">Grid</span>
         <select id="gridSel">
           <option value="0">Off</option>
-          <option value="0.25">¼ beat</option>
-          <option value="0.5" selected>½ beat</option>
-          <option value="1">1 beat</option>
+          <option value="0.125">32nd note</option>
+          <option value="0.25">16th note</option>
+          <option value="0.375">Dotted 16th</option>
+          <option value="0.5" selected>8th note</option>
+          <option value="0.75">Dotted 8th</option>
+          <option value="1">Quarter note</option>
+          <option value="1.5">Dotted quarter</option>
+          <option value="2">Half note</option>
+          <option value="4">Whole note</option>
         </select>
         <button class="btn ghost sm" id="snapAll">Snap all to grid</button>
         <span class="lab" id="lenInfo" style="margin-left:6px"></span>
@@ -596,11 +607,11 @@ window.addEventListener("resize",()=>{resize();if($("create").classList.contains
 
 // ─── GAME ENGINE ──────────────────────────────────────────────────────────────
 let game=null;
-const PIANO_W=72;   // piano keyboard panel width (px)
+const PIANO_W=100;  // piano keyboard panel width (px)
 const NOW_FRAC=0.22;// hit line as fraction of TRACK width (after piano panel)
 const PXS=140;      // pixels per second
 const LEAD=3.0;     // seconds of lead-in before first note
-const NOTE_H=22;    // note bar height in pixels
+let NOTE_H=22;      // note bar height — updated dynamically per frame
 
 function buildTimeline(song){
   const n=normalize(song.notes).slice().sort((a,b)=>a.start-b.start);
@@ -946,21 +957,32 @@ function drawPianoPanel(){
     }
   }
 
-  // Singer pitch key highlight
+  // Singer pitch key highlight — glow IS the scoring signal
   if(game&&game.um!=null){
     const sy=midiToY(game.um);
     const activeEvt=game.lastActIdx>=0?game.tl.events[game.lastActIdx]:null;
     const onPitch=activeEvt&&Math.abs(game.um-activeEvt.m)<=HIT_TOL;
-    ctx.fillStyle=onPitch?"rgba(90,209,155,.55)":"rgba(255,255,255,.22)";
-    ctx.fillRect(1,sy-rowH/2,PIANO_W-4,rowH);
-    // Arrow indicator
-    const col=onPitch?"#5ad19b":"rgba(200,210,255,.8)";
-    ctx.fillStyle=col;
-    ctx.beginPath();
-    ctx.moveTo(PIANO_W-1,sy);
-    ctx.lineTo(PIANO_W-9,sy-5);
-    ctx.lineTo(PIANO_W-9,sy+5);
-    ctx.closePath();ctx.fill();
+    if(onPitch){
+      const pulse=0.65+0.35*Math.sin(Date.now()/80);
+      ctx.shadowColor="rgba(90,209,155,1)";
+      ctx.shadowBlur=28*pulse;
+      ctx.fillStyle=`rgba(90,209,155,${0.75+0.2*pulse})`;
+      ctx.fillRect(1,sy-rowH/2,PIANO_W-4,rowH);
+      ctx.shadowBlur=0;
+      ctx.strokeStyle=`rgba(90,209,155,${0.7+0.3*pulse})`;
+      ctx.lineWidth=2;
+      ctx.strokeRect(1.5,sy-rowH/2+0.5,PIANO_W-6,rowH-1);
+    } else {
+      ctx.fillStyle="rgba(255,255,255,.22)";
+      ctx.fillRect(1,sy-rowH/2,PIANO_W-4,rowH);
+      // Arrow pointing right toward track
+      ctx.fillStyle="rgba(200,210,255,.8)";
+      ctx.beginPath();
+      ctx.moveTo(PIANO_W-1,sy);
+      ctx.lineTo(PIANO_W-9,sy-5);
+      ctx.lineTo(PIANO_W-9,sy+5);
+      ctx.closePath();ctx.fill();
+    }
   }
 
   // Right-edge separator
@@ -976,6 +998,7 @@ function drawGame(el,act){
   const nx=nowX();
   const tx=PIANO_W;
   const rowH=Math.max(1,H/(viewMax-viewMin+1));
+  NOTE_H=Math.max(8,Math.round(rowH)-2); // notes fill their key row
 
   // ── 1. Pitch lane rows ──
   for(let m=viewMin;m<=viewMax;m++){
@@ -1072,17 +1095,8 @@ function drawGame(el,act){
     }
   }
 
-  // ── 3. Hit line ──
-  ctx.lineWidth=2.5;ctx.setLineDash([]);
-  ctx.strokeStyle="rgba(240,180,41,.85)";
-  ctx.shadowColor="rgba(240,180,41,.5)";ctx.shadowBlur=10;
-  ctx.beginPath();ctx.moveTo(nx,0);ctx.lineTo(nx,H);ctx.stroke();
-  ctx.shadowBlur=0;
-  if(act){
-    const hy=midiToY(act.m);
-    ctx.fillStyle="rgba(240,180,41,.9)";
-    ctx.beginPath();ctx.arc(nx,hy,5,0,Math.PI*2);ctx.fill();
-  }
+  // ── 3. Hit zone (no line — key glow signals scoring) ──
+  ctx.setLineDash([]);
 
   // ── 4. Singer trail ──
   ctx.lineWidth=2.5;
@@ -1454,9 +1468,11 @@ let edDrag=null;
 let edScrollX=0;
 let edPxS=120;
 let edAnimId=null;
-const ED_NOTE_H=22;
-const ED_PIANO_W=72;
+let ED_NOTE_H=22;   // updated dynamically per frame to match row height
+const ED_PIANO_W=100;
 const ED_MIN=36, ED_MAX=84;
+let edBeatsPerBar=4; // time signature numerator (4 = 4/4, 3 = 3/4, etc.)
+let edMode='draw';   // cursor mode: 'select' | 'draw' | 'erase'
 // Undo / Redo stacks
 let edHistory=[], edFuture=[];
 function edPushHistory(){
@@ -1507,8 +1523,11 @@ function openSongEditor(idx){
   const norm=normalize(s.notes).slice().sort((a,b)=>a.start-b.start);
   edNotes=norm.map(n=>({m:n.m,start:+n.start.toFixed(3),dur:+(n.dur||n.d||0.5).toFixed(3),l:n.l==="la"?"":n.l||""}));
   edSel=-1; edScrollX=0; edHistory=[]; edFuture=[];
+  bpm=s.bpm||90; // sync BPM so the beat grid is accurate
   document.getElementById("edSongName").textContent=s.title;
+  document.getElementById("edBpmLabel").textContent=bpm+" bpm";
   document.getElementById("songEditor").classList.add("on");
+  setEdMode(edMode); // apply cursor style
   requestAnimationFrame(()=>{resizeEdCv();edLoop();});
 }
 
@@ -1550,6 +1569,7 @@ function edXTime(x){return (x-ED_PIANO_W)/edPxS+edScrollX;}
 function drawEditorFrame(){
   edCtx.clearRect(0,0,edW,edH);
   const rowH=edH/(ED_MAX-ED_MIN+1);
+  ED_NOTE_H=Math.max(6,Math.round(rowH)-2); // notes fill key rows
   const BLACK_PCS=[1,3,6,8,10];
 
   // ── Lane rows ──
@@ -1567,16 +1587,45 @@ function drawEditorFrame(){
     }
   }
 
-  // ── Beat grid ──
-  const beatSec=0.789; // approx BPM 76
-  const startBeat=Math.floor(edScrollX/beatSec);
-  const endBeat=Math.ceil((edScrollX+(edW-ED_PIANO_W)/edPxS)/beatSec)+1;
+  // ── BPM-accurate musical grid ──
+  const beatSec=60/bpm;
+  const barSec=beatSec*edBeatsPerBar;
+  const visStart=edScrollX;
+  const visEnd=edScrollX+(edW-ED_PIANO_W)/edPxS;
+  // Subdivisions (finest, faintest) — skip if they'd be < 4px apart
+  const subStep=gridStep();
+  const subPx=subStep*edPxS;
+  if(snapOn&&gridDivBeats>0&&subPx>=4&&gridDivBeats<1){
+    const s0=Math.floor(visStart/subStep)*subStep;
+    edCtx.strokeStyle="rgba(255,255,255,.07)";edCtx.lineWidth=0.5;
+    for(let t=s0;t<=visEnd+subStep;t+=subStep){
+      const mod=((t%beatSec)+beatSec)%beatSec;
+      if(mod<0.002)continue; // beat/bar lines drawn separately
+      const x=edTimeX(t);if(x<ED_PIANO_W||x>edW)continue;
+      edCtx.beginPath();edCtx.moveTo(x,0);edCtx.lineTo(x,edH);edCtx.stroke();
+    }
+  }
+  // Beat lines (medium)
+  const startBeat=Math.max(0,Math.floor(visStart/beatSec));
+  const endBeat=Math.ceil(visEnd/beatSec)+1;
   for(let b=startBeat;b<=endBeat;b++){
-    const x=edTimeX(b*beatSec);
-    edCtx.strokeStyle=b%4===0?"rgba(255,255,255,.18)":"rgba(255,255,255,.06)";
-    edCtx.lineWidth=b%4===0?1.5:0.7;
+    if(b%edBeatsPerBar===0)continue; // bar lines drawn separately
+    const x=edTimeX(b*beatSec);if(x<ED_PIANO_W||x>edW)continue;
+    edCtx.strokeStyle="rgba(255,255,255,.14)";edCtx.lineWidth=0.7;
     edCtx.beginPath();edCtx.moveTo(x,0);edCtx.lineTo(x,edH);edCtx.stroke();
   }
+  // Bar lines (strongest) + bar number labels
+  const startBar=Math.max(0,Math.floor(visStart/barSec));
+  const endBar=Math.ceil(visEnd/barSec)+1;
+  edCtx.font="9px 'DM Mono'";edCtx.textBaseline="top";
+  for(let bar=startBar;bar<=endBar;bar++){
+    const x=edTimeX(bar*barSec);if(x<ED_PIANO_W||x>edW)continue;
+    edCtx.strokeStyle="rgba(255,255,255,.35)";edCtx.lineWidth=1.5;
+    edCtx.beginPath();edCtx.moveTo(x,0);edCtx.lineTo(x,edH);edCtx.stroke();
+    edCtx.fillStyle="rgba(255,255,255,.4)";
+    edCtx.fillText("B"+(bar+1),x+3,2);
+  }
+  edCtx.textBaseline="alphabetic";
 
   // ── Compute preview active note ──
   let previewActiveNote=null;
@@ -1700,8 +1749,24 @@ function edDrawPiano(){
       edCtx.textAlign="center";edCtx.textBaseline="middle";
       edCtx.fillText(noteName(m),ED_PIANO_W/2,y);
     }
+    // Glow if a preview note is playing on this pitch
+    let previewOnThisKey=false;
+    if(_previewStartPerf&&_previewSortedNotes){
+      const el2=(performance.now()-_previewStartPerf)/1000;
+      const pn=_previewSortedNotes.find(x=>el2>=x.start&&el2<x.start+x.dur);
+      if(pn&&pn.m===m){
+        previewOnThisKey=true;
+        const pulse=0.65+0.35*Math.sin(Date.now()/80);
+        edCtx.shadowColor="rgba(90,209,155,1)";edCtx.shadowBlur=24*pulse;
+        edCtx.fillStyle=`rgba(90,209,155,${0.7+0.25*pulse})`;
+        edCtx.fillRect(1,y-rowH/2,ED_PIANO_W-4,rowH);
+        edCtx.shadowBlur=0;
+        edCtx.strokeStyle=`rgba(90,209,155,${0.6+0.4*pulse})`;edCtx.lineWidth=2;
+        edCtx.strokeRect(1.5,y-rowH/2+0.5,ED_PIANO_W-6,rowH-1);
+      }
+    }
     // Highlight if selected note is on this pitch
-    if(edSel>=0&&edNotes[edSel]&&edNotes[edSel].m===m){
+    if(!previewOnThisKey&&edSel>=0&&edNotes[edSel]&&edNotes[edSel].m===m){
       edCtx.fillStyle="rgba(240,180,41,.35)";
       edCtx.fillRect(1,y-rowH/2,ED_PIANO_W-4,rowH);
       edCtx.strokeStyle="rgba(240,180,41,.8)";edCtx.lineWidth=1.5;
@@ -1806,11 +1871,23 @@ function edPositionFloatLyric(n, floatInp){
   setTimeout(()=>floatInp.focus(),50);
 }
 
+function setEdMode(m){
+  edMode=m;
+  ['select','draw','erase'].forEach(id=>{
+    const el=document.getElementById('edMode'+id[0].toUpperCase()+id.slice(1));
+    if(el)el.classList.toggle('on',id===m);
+  });
+  if(edCv)edCv.style.cursor=m==='select'?'default':m==='erase'?'cell':'crosshair';
+}
+
+const edSnap=t=>(snapOn&&gridDivBeats>0)?Math.round(t/gridStep())*gridStep():t;
+
 function edAddNote(){
   edPushHistory();
   const t=edScrollX+(edW-ED_PIANO_W)/(edPxS*2);
   const m=69;
-  edNotes.push({m,start:+t.toFixed(3),dur:0.5,l:""});
+  const dur=(snapOn&&gridDivBeats>0)?gridStep():0.5;
+  edNotes.push({m,start:+t.toFixed(3),dur:+dur.toFixed(3),l:""});
   edSelectNote(edNotes.length-1);
   edScrollX=Math.max(0,t-1);
 }
@@ -1937,31 +2014,46 @@ function edPointerDown(e){
   const r=edCv.getBoundingClientRect();
   const px=e.clientX-r.left, py=e.clientY-r.top;
   if(px<ED_PIANO_W)return;
-  // Check if click hit the × delete button of the selected note
+  // × delete button on selected note (always active regardless of mode)
   if(edSel>=0&&edNotes[edSel]){
     const n=edNotes[edSel];
     if(n._delBtnX!==undefined){
       const dx=px-n._delBtnX, dy=py-n._delBtnY;
-      if(Math.sqrt(dx*dx+dy*dy)<=n._delBtnR+3){
-        edDeleteSelected();
-        return;
-      }
+      if(Math.sqrt(dx*dx+dy*dy)<=n._delBtnR+3){edDeleteSelected();return;}
     }
   }
   const hit=edNoteAt(px,py);
+  if(edMode==='erase'){
+    if(hit){edPushHistory();edNotes.splice(hit.idx,1);edSel=-1;edSelectNote(-1);}
+    return;
+  }
+  if(edMode==='select'){
+    if(hit){
+      edSelectNote(hit.idx);
+      const n=edNotes[hit.idx];
+      edPushHistory();
+      edDrag={mode:hit.isResize?"resize":"move",idx:hit.idx,
+              offT:edXTime(px)-n.start,offM:edYMidi(py)-n.m,
+              startX:px,startY:py};
+    }else{edSel=-1;edSelectNote(-1);}
+    return;
+  }
+  // Draw mode — click note = move it; click empty = add note
   if(hit){
     edSelectNote(hit.idx);
     const n=edNotes[hit.idx];
-    edPushHistory(); // save before drag mutates note
+    edPushHistory();
     edDrag={mode:hit.isResize?"resize":"move",idx:hit.idx,
-            offT:edXTime(px)-n.start, offM:edYMidi(py)-n.m,
+            offT:edXTime(px)-n.start,offM:edYMidi(py)-n.m,
             startX:px,startY:py};
   }else{
-    edSel=-1; edSelectNote(-1);
+    edSel=-1;edSelectNote(-1);
     edPushHistory();
-    const t=Math.max(0,edXTime(px));
+    const rawT=Math.max(0,edXTime(px));
+    const t=edSnap(rawT);
     const m=Math.max(ED_MIN,Math.min(ED_MAX,edYMidi(py)));
-    edNotes.push({m,start:+t.toFixed(3),dur:0.4,l:""});
+    const dur=(snapOn&&gridDivBeats>0)?gridStep():0.4;
+    edNotes.push({m,start:+t.toFixed(3),dur:+dur.toFixed(3),l:""});
     const newIdx=edNotes.length-1;
     edSelectNote(newIdx);
     edDrag={mode:"move",idx:newIdx,offT:0,offM:0,startX:px,startY:py};
@@ -1974,13 +2066,15 @@ function edPointerMove(e){
   const px=e.clientX-r.left, py=e.clientY-r.top;
   const n=edNotes[edDrag.idx];
   if(edDrag.mode==="move"){
-    n.start=Math.max(0,+(edXTime(px)-edDrag.offT).toFixed(3));
+    n.start=Math.max(0,+edSnap(edXTime(px)-edDrag.offT).toFixed(3));
     const newMidi=Math.max(ED_MIN,Math.min(ED_MAX,edYMidi(py)));
     if(newMidi!==n.m){ n.m=newMidi; edPlayNote(newMidi, n.dur); } // play on pitch change
     document.getElementById("edNoteName").textContent=noteName(n.m)+" · "+n.dur.toFixed(2)+"s";
   }else{
-    const newEnd=edXTime(px);
-    n.dur=Math.max(0.1,+(newEnd-n.start).toFixed(3));
+    const rawEnd=edXTime(px);
+    const snappedEnd=edSnap(rawEnd);
+    const minDur=(snapOn&&gridDivBeats>0)?gridStep():0.1;
+    n.dur=Math.max(minDur,+(snappedEnd-n.start).toFixed(3));
     document.getElementById("edNoteName").textContent=noteName(n.m)+" · "+n.dur.toFixed(2)+"s";
   }
 }
@@ -2017,6 +2111,9 @@ function edKeyDown(e){
   if(inInput)return;
   if(e.key==="Delete"||e.key==="Backspace"){e.preventDefault();edDeleteSelected();}
   if(e.key==="Escape"){edSel=-1;document.getElementById("edFloatLyric").classList.remove("on");edSelectNote(-1);}
+  if(e.key==="s"||e.key==="S")setEdMode('select');
+  if(e.key==="d"||e.key==="D")setEdMode('draw');
+  if(e.key==="e"||e.key==="E")setEdMode('erase');
 }
 
 function edWheel(e){
@@ -2150,7 +2247,33 @@ loadSupabaseSongs();
   <div class="ed-toolbar">
     <button class="ed-tb-btn" onclick="exitEditorNoSave()">← Back</button>
     <div class="ed-song-name" id="edSongName">Edit Song</div>
-    <div class="ed-hint">Drag note: move · Right edge: resize · Click empty: add note</div>
+    <div class="ed-mode-group">
+      <button class="ed-mode-btn" id="edModeSelect" onclick="setEdMode('select')" title="Select &amp; Move (S)">↖ Select</button>
+      <button class="ed-mode-btn on" id="edModeDraw" onclick="setEdMode('draw')" title="Draw Note (D)">✏ Draw</button>
+      <button class="ed-mode-btn" id="edModeErase" onclick="setEdMode('erase')" title="Erase Note (E)">⌫ Erase</button>
+    </div>
+    <div class="ed-grid-group">
+      <span style="font-size:10px;color:var(--muted)">Grid</span>
+      <select id="edGridSel" onchange="gridDivBeats=parseFloat(this.value);snapOn=gridDivBeats>0;" style="font-size:11px;background:#10142e;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 5px">
+        <option value="0">Off</option>
+        <option value="0.125">32nd</option>
+        <option value="0.25">16th</option>
+        <option value="0.375">Dotted 16th</option>
+        <option value="0.5" selected>8th</option>
+        <option value="0.75">Dotted 8th</option>
+        <option value="1">Quarter</option>
+        <option value="1.5">Dotted ♩</option>
+        <option value="2">Half</option>
+        <option value="4">Whole</option>
+      </select>
+      <select id="edTimeSig" onchange="edBeatsPerBar=parseInt(this.value)" style="font-size:11px;background:#10142e;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 5px" title="Time Signature">
+        <option value="4" selected>4/4</option>
+        <option value="3">3/4</option>
+        <option value="6">6/8</option>
+        <option value="2">2/4</option>
+      </select>
+      <span id="edBpmLabel" style="font-size:10px;color:var(--muted);white-space:nowrap">90 bpm</span>
+    </div>
     <div class="ed-zoom">
       <button onclick="edZoom(-1)">−</button>
       <span id="edZoomLabel">1×</span>
