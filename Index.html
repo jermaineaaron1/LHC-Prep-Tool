@@ -2646,6 +2646,97 @@
 
       /* Toast */
       #lhcToast { font-size: 0.75rem; max-width: 90vw; }
+
+      /* ================================================================
+         MAIN CONTENT — tighter gap and padding on phones
+         ================================================================ */
+      #main-content-container { padding: 6px !important; gap: 8px !important; }
+
+      /* ================================================================
+         LYRICS PREVIEW MODAL — full-screen bottom sheet on mobile
+         ================================================================ */
+      #lyricsPreviewModal {
+        padding: 0 !important;
+        align-items: flex-end;
+      }
+      #lyricsPreviewModal .modal-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 97dvh !important;
+        max-height: 97vh !important; /* fallback */
+        height: 97dvh;
+        height: 97vh; /* fallback */
+        border-radius: 20px 20px 0 0 !important;
+        margin: 0 !important;
+      }
+      /* Compact header panel */
+      #lyricsPreviewHeaderPanel { padding: 10px 14px !important; }
+      #lyricsPreviewTitle { font-size: 1rem !important; }
+      #lyricsPreviewArtist { font-size: 0.72rem !important; margin-top: 2px !important; }
+      /* Toolbar: horizontal scroll row instead of wrapping */
+      #lyricsPreviewToolbar {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-wrap: nowrap !important;
+        justify-content: flex-start !important;
+        gap: 6px !important;
+        margin-top: 10px !important;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+      }
+      #lyricsPreviewToolbar::-webkit-scrollbar { display: none; }
+      #lyricsPreviewToolbar .lhc-pill-button,
+      #lyricsPreviewToolbar button { white-space: nowrap; flex-shrink: 0; font-size: 0.68rem !important; padding: 5px 9px !important; }
+      #lyricsPreviewToolbar .flex { flex-shrink: 0; flex-wrap: nowrap; }
+      #lyricsPreviewToolbar select { font-size: 0.68rem !important; padding: 4px 22px 4px 7px !important; }
+      /* Lyrics content area */
+      #lyricsPreviewContent { padding: 12px 14px !important; }
+      /* Footer */
+      #lyricsPreviewModal .p-3 { padding: 6px 14px !important; }
+
+      /* ================================================================
+         DOC PREVIEW MODAL — full-screen bottom sheet
+         ================================================================ */
+      #docPreviewModal, #previewModal {
+        padding: 0 !important;
+        align-items: flex-end;
+      }
+      #docPreviewModal .modal-content,
+      #previewModal .modal-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 97dvh !important;
+        height: 97vh !important;
+        max-height: 97dvh !important;
+        max-height: 97vh !important;
+        border-radius: 16px 16px 0 0 !important;
+        margin: 0 !important;
+      }
+      /* Compact doc preview header */
+      #docPreviewModal .p-4,
+      #previewModal .p-4 { padding: 10px 14px !important; }
+
+      /* YouTube / Spotify preview — keep centered but fill width */
+      #youtubePreviewModal,
+      #spotifyPreviewModal { padding: 8px !important; }
+      #youtubePreviewModal .modal-content,
+      #spotifyPreviewModal .modal-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        border-radius: 16px !important;
+        margin: 0 !important;
+      }
+
+      /* ================================================================
+         SONG FINDER SEARCH CARD — reduce desktop-oriented padding
+         ================================================================ */
+      #sfSearchCard { padding: 10px !important; margin-bottom: 10px !important; }
+      #sfSearchCard > .flex.items-center { margin-bottom: 10px !important; }
+      #sfSearchCard h3 { font-size: 1rem !important; }
+      #sfSearchCard .grid { gap: 8px !important; margin-bottom: 8px !important; }
+
+      /* Song list card */
+      #sfSongListCard { padding: 0 !important; overflow: hidden; }
     }
 
     /* ===== WO — PHONES ≤ 480px (extra-compact) ===== */
@@ -7356,7 +7447,7 @@ I once was lost but now am found"
   <!-- ==================== MODAL: LYRICS PREVIEW (from song card) ==================== -->
   <div id="lyricsPreviewModal" class="modal-overlay">
     <div class="modal-content" style="width: min(750px, 95%); max-height: 85vh; display: flex; flex-direction: column; padding: 0;">
-      <div class="p-4 border-b border-slate-200">
+      <div id="lyricsPreviewHeaderPanel" class="p-4 border-b border-slate-200">
         <div class="flex items-center justify-between gap-4">
           <div>
             <h3 id="lyricsPreviewTitle" class="font-cinzel text-xl font-bold text-slate-800"></h3>
@@ -7366,7 +7457,7 @@ I once was lost but now am found"
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
-        <div class="flex items-center justify-between mt-4 flex-wrap gap-2">
+        <div id="lyricsPreviewToolbar" class="flex items-center justify-between mt-4 flex-wrap gap-2">
           <div class="flex gap-2">
             <button id="lyricsPreviewLyricsBtn" class="lhc-pill-button lhc-pill-button-active text-sm" onclick="switchLyricsPreviewMode('lyrics')">
               <i class="fa-solid fa-file-lines mr-1"></i> Lyrics Only
