@@ -150,6 +150,8 @@
   .ed-tb-btn:hover{border-color:var(--gold);color:var(--gold)}
   .ed-tb-btn.gold{background:var(--gold);color:#241a00;border-color:var(--gold);font-weight:600}
   .ed-tb-btn.gold:hover{background:var(--gold-soft)}
+  .ed-tb-btn.stop{border-color:#e05a6b;color:#e05a6b}
+  .ed-tb-btn.stop:hover{background:rgba(224,90,107,.15)}
   .ed-mode-group{display:flex;gap:2px;background:rgba(255,255,255,.06);border-radius:8px;padding:3px}
   .ed-mode-btn{font-family:"DM Mono",monospace;font-size:11px;padding:5px 10px;border-radius:6px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:.15s;white-space:nowrap}
   .ed-mode-btn:hover{color:var(--ink)}
@@ -1570,6 +1572,13 @@ function saveEditorChanges(){
 // ── Editor draw loop ──────────────────────────────────────────────────────────
 function edLoop(){
   edAnimId=requestAnimationFrame(edLoop);
+  // Keep preview button in sync with playback state
+  const _pbBtn=document.getElementById('edPreviewBtn');
+  if(_pbBtn){
+    const playing=!!_previewStartPerf;
+    if(playing&&_pbBtn.textContent!=='■ Stop'){_pbBtn.textContent='■ Stop';_pbBtn.classList.add('stop');}
+    else if(!playing&&_pbBtn.textContent!=='▶ Preview'){_pbBtn.textContent='▶ Preview';_pbBtn.classList.remove('stop');}
+  }
   // Auto-scroll to follow preview playhead
   if(_previewStartPerf&&_previewSortedNotes){
     const el=(performance.now()-_previewStartPerf)/1000;
@@ -2452,7 +2461,7 @@ loadSupabaseSongs();
     </div>
     <button class="ed-tb-btn" id="edUndoBtn" onclick="edUndo()" title="Undo (Ctrl+Z)">↩ Undo</button>
     <button class="ed-tb-btn" id="edRedoBtn" onclick="edRedo()" title="Redo (Ctrl+Y)">↪ Redo</button>
-    <button class="ed-tb-btn" onclick="edPreview()">▶ Preview</button>
+    <button class="ed-tb-btn" id="edPreviewBtn" onclick="_previewStartPerf?stopAllPreview():edPreview()">▶ Preview</button>
     <button class="ed-tb-btn" onclick="document.getElementById('edMidiFile').click()" title="Import notes from a MIDI file">⬆ MIDI</button>
     <input id="edMidiFile" type="file" accept=".mid,.midi" style="display:none" onchange="importMidiToEditor(this.files[0]);this.value=''">
     <span id="midiImportStatus" style="font-size:11px;white-space:nowrap"></span>
