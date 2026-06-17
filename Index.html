@@ -10281,8 +10281,6 @@ function handleLocalFileSelected(input, mode) {
   } else if (isDigital) {
     btns = BTN('✦ Parse to Lyrics Editor', 'parseLocalFileToLyrics', '#6366f1');
   }
-  btns += ' ' + BTN('☁ Upload to Drive', 'uploadLocalFileToDrive', '#0369a1');
-
   statusEl.innerHTML = '<span style="font-weight:600;color:#1e293b">' + escapeHtml(file.name) + '</span> ' + btns;
 }
 
@@ -10353,35 +10351,6 @@ async function parseLocalFileToLyrics(mode) {
   } catch (err) {
     statusEl.innerHTML = origHtml + ' <span style="color:#e05a6b">Error: ' + escapeHtml(err.message) + '</span>';
     console.error('File parse error:', err);
-  }
-}
-
-async function uploadLocalFileToDrive(mode) {
-  var file = window['_localFile_' + mode];
-  if (!file) return;
-  var statusEl = document.getElementById(mode + 'SongFileStatus');
-  if (file.size > 10 * 1024 * 1024) {
-    statusEl.innerHTML += ' <span style="color:#e05a6b">File too large (max 10 MB). Upload manually to Google Drive and paste the link.</span>';
-    return;
-  }
-  statusEl.innerHTML += ' <span id="uploadProgress" style="color:#94a3b8">⏳ Uploading…</span>';
-  try {
-    var ab = await file.arrayBuffer();
-    var bytes = new Uint8Array(ab);
-    var binary = '';
-    bytes.forEach(function(b){ binary += String.fromCharCode(b); });
-    var b64 = btoa(binary);
-    var result = await callGASPromise('uploadFileToDrive', [b64, file.type, file.name]);
-    if (!result || !result.success) throw new Error(result ? result.error : 'Upload failed');
-    if (!window.songData) window.songData = {};
-    if (!window.songData[mode]) window.songData[mode] = {};
-    if (!window.songData[mode].attachments) window.songData[mode].attachments = [];
-    window.songData[mode].attachments.push({ url: result.viewUrl, name: result.name, type: 'link', icon: '📎' });
-    renderAttachments(mode);
-    statusEl.innerHTML = '<span style="color:#16a34a">✓ Uploaded & added: <strong>' + escapeHtml(result.name) + '</strong></span>';
-  } catch (err) {
-    document.getElementById('uploadProgress') && (document.getElementById('uploadProgress').textContent = '');
-    statusEl.innerHTML += ' <span style="color:#e05a6b">Upload failed: ' + escapeHtml(err.message) + '</span>';
   }
 }
 
