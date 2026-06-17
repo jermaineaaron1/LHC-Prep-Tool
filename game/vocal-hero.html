@@ -607,7 +607,7 @@ window.addEventListener("resize",()=>{resize();if($("create").classList.contains
 
 // ─── GAME ENGINE ──────────────────────────────────────────────────────────────
 let game=null;
-const PIANO_W=100;  // piano keyboard panel width (px)
+const PIANO_W=110;  // piano keyboard panel width (px)
 const NOW_FRAC=0.22;// hit line as fraction of TRACK width (after piano panel)
 const PXS=140;      // pixels per second
 const LEAD=3.0;     // seconds of lead-in before first note
@@ -1468,11 +1468,14 @@ let edDrag=null;
 let edScrollX=0;
 let edPxS=120;
 let edAnimId=null;
-let ED_NOTE_H=22;   // updated dynamically per frame to match row height
-const ED_PIANO_W=100;
-const ED_MIN=36, ED_MAX=84;
-let edBeatsPerBar=4; // time signature numerator (4 = 4/4, 3 = 3/4, etc.)
-let edMode='draw';   // cursor mode: 'select' | 'draw' | 'erase'
+const ED_ROW_H=26;      // fixed key row height — bigger keys, scrollable
+const ED_NOTE_H=24;     // note bar height = ED_ROW_H - 2
+const ED_PIANO_W=110;
+const ED_PITCH_MIN=24;  // C1 — lowest scrollable MIDI note
+const ED_PITCH_MAX=96;  // C7 — highest scrollable MIDI note
+let edScrollPitch=72;   // MIDI note at top of visible area (C5), shift+scroll to move
+let edBeatsPerBar=4;    // time signature numerator (4 = 4/4, 3 = 3/4, etc.)
+let edMode='select';    // cursor mode: 'select' | 'draw' | 'erase'
 // Undo / Redo stacks
 let edHistory=[], edFuture=[];
 function edPushHistory(){
@@ -1528,7 +1531,17 @@ function openSongEditor(idx){
   document.getElementById("edBpmLabel").textContent=bpm+" bpm";
   document.getElementById("songEditor").classList.add("on");
   setEdMode(edMode); // apply cursor style
-  requestAnimationFrame(()=>{resizeEdCv();edLoop();});
+  requestAnimationFrame(()=>{
+    resizeEdCv();
+    // Center pitch scroll on this song's note range
+    if(edNotes.length){
+      const mids=edNotes.map(n=>n.m);
+      const mid=Math.round((Math.min(...mids)+Math.max(...mids))/2);
+      const vis=Math.floor(edH/ED_ROW_H);
+      edScrollPitch=Math.max(ED_PITCH_MIN+vis-1,Math.min(ED_PITCH_MAX,mid+Math.floor(vis/2)));
+    }
+    edLoop();
+  });
 }
 
 function exitEditorNoSave(){
@@ -1561,27 +1574,28 @@ function edLoop(){
   drawEditorFrame();
 }
 
-function edMidiY(m){return edH-((m-ED_MIN)/(ED_MAX-ED_MIN))*edH;}
+function edMidiY(m){return (edScrollPitch-m)*ED_ROW_H+ED_ROW_H/2;}
 function edTimeX(t){return ED_PIANO_W+(t-edScrollX)*edPxS;}
-function edYMidi(y){return Math.round(ED_MIN+(1-y/edH)*(ED_MAX-ED_MIN));}
+function edYMidi(y){return Math.round(edScrollPitch-(y-ED_ROW_H/2)/ED_ROW_H);}
 function edXTime(x){return (x-ED_PIANO_W)/edPxS+edScrollX;}
 
 function drawEditorFrame(){
   edCtx.clearRect(0,0,edW,edH);
-  const rowH=edH/(ED_MAX-ED_MIN+1);
-  ED_NOTE_H=Math.max(6,Math.round(rowH)-2); // notes fill key rows
+  const visCount=Math.ceil(edH/ED_ROW_H)+1;
   const BLACK_PCS=[1,3,6,8,10];
 
   // ── Lane rows ──
-  for(let m=ED_MIN;m<=ED_MAX;m++){
+  for(let i=0;i<visCount;i++){
+    const m=edScrollPitch-i;
+    if(m<ED_PITCH_MIN||m>ED_PITCH_MAX)continue;
     const y=edMidiY(m);
     const pc=((m%12)+12)%12;
     const isBlack=BLACK_PCS.includes(pc);
     const isC=(pc===0);
     edCtx.fillStyle=isBlack?"rgba(8,11,32,.7)":"rgba(18,22,55,.5)";
-    edCtx.fillRect(ED_PIANO_W,y-rowH/2,edW-ED_PIANO_W,rowH);
+    edCtx.fillRect(ED_PIANO_W,y-ED_ROW_H/2,edW-ED_PIANO_W,ED_ROW_H);
     if(isC){
-      edCtx.strokeStyle="rgba(240,180,41,.25)";
+      edCtx.strokeStyle="rgba(240,180,41,.35)";
       edCtx.lineWidth=1;
       edCtx.beginPath();edCtx.moveTo(ED_PIANO_W,y);edCtx.lineTo(edW,y);edCtx.stroke();
     }
@@ -1597,7 +1611,7 @@ function drawEditorFrame(){
   const subPx=subStep*edPxS;
   if(snapOn&&gridDivBeats>0&&subPx>=4&&gridDivBeats<1){
     const s0=Math.floor(visStart/subStep)*subStep;
-    edCtx.strokeStyle="rgba(255,255,255,.07)";edCtx.lineWidth=0.5;
+    edCtx.strokeStyle="rgba(255,255,255,.28)";edCtx.lineWidth=0.5;
     for(let t=s0;t<=visEnd+subStep;t+=subStep){
       const mod=((t%beatSec)+beatSec)%beatSec;
       if(mod<0.002)continue; // beat/bar lines drawn separately
@@ -1611,7 +1625,7 @@ function drawEditorFrame(){
   for(let b=startBeat;b<=endBeat;b++){
     if(b%edBeatsPerBar===0)continue; // bar lines drawn separately
     const x=edTimeX(b*beatSec);if(x<ED_PIANO_W||x>edW)continue;
-    edCtx.strokeStyle="rgba(255,255,255,.14)";edCtx.lineWidth=0.7;
+    edCtx.strokeStyle="rgba(255,255,255,.5)";edCtx.lineWidth=0.8;
     edCtx.beginPath();edCtx.moveTo(x,0);edCtx.lineTo(x,edH);edCtx.stroke();
   }
   // Bar lines (strongest) + bar number labels
@@ -1620,9 +1634,9 @@ function drawEditorFrame(){
   edCtx.font="9px 'DM Mono'";edCtx.textBaseline="top";
   for(let bar=startBar;bar<=endBar;bar++){
     const x=edTimeX(bar*barSec);if(x<ED_PIANO_W||x>edW)continue;
-    edCtx.strokeStyle="rgba(255,255,255,.35)";edCtx.lineWidth=1.5;
+    edCtx.strokeStyle="rgba(255,255,255,.8)";edCtx.lineWidth=1.5;
     edCtx.beginPath();edCtx.moveTo(x,0);edCtx.lineTo(x,edH);edCtx.stroke();
-    edCtx.fillStyle="rgba(255,255,255,.4)";
+    edCtx.fillStyle="rgba(255,255,255,.9)";
     edCtx.fillText("B"+(bar+1),x+3,2);
   }
   edCtx.textBaseline="alphabetic";
@@ -1729,50 +1743,58 @@ function edRR(x,y,w,h,r){
 }
 
 function edDrawPiano(){
-  const rowH=edH/(ED_MAX-ED_MIN+1);
   const BLACK_PCS=[1,3,6,8,10];
   edCtx.fillStyle="#070b1e";
   edCtx.fillRect(0,0,ED_PIANO_W,edH);
-  for(let m=ED_MIN;m<=ED_MAX;m++){
+  // Resolve preview active note once
+  let previewMidi=-1;
+  if(_previewStartPerf&&_previewSortedNotes){
+    const el2=(performance.now()-_previewStartPerf)/1000;
+    const pn=_previewSortedNotes.find(x=>el2>=x.start&&el2<x.start+x.dur);
+    if(pn)previewMidi=pn.m;
+  }
+  const visCount=Math.ceil(edH/ED_ROW_H)+1;
+  for(let i=0;i<visCount;i++){
+    const m=edScrollPitch-i;
+    if(m<ED_PITCH_MIN||m>ED_PITCH_MAX)continue;
     const y=edMidiY(m);
     const pc=((m%12)+12)%12;
     const isBlack=BLACK_PCS.includes(pc);
     const isC=(pc===0);
     edCtx.fillStyle=isBlack?"#111530":"#22285a";
-    edCtx.fillRect(1,y-rowH/2+0.5,ED_PIANO_W-4,rowH-1);
-    if(!isBlack){edCtx.fillStyle="rgba(255,255,255,.1)";edCtx.fillRect(ED_PIANO_W-7,y-rowH/2+0.5,5,rowH-1);}
-    // Label
-    const showLabel=isC||(rowH>=12&&!isBlack);
-    if(showLabel){
+    edCtx.fillRect(1,y-ED_ROW_H/2+0.5,ED_PIANO_W-4,ED_ROW_H-1);
+    if(!isBlack){edCtx.fillStyle="rgba(255,255,255,.1)";edCtx.fillRect(ED_PIANO_W-9,y-ED_ROW_H/2+0.5,7,ED_ROW_H-1);}
+    // Label — always show for C notes and white keys at this row height
+    if(isC||!isBlack){
       edCtx.fillStyle=isC?"#f0b429":"rgba(180,188,230,.7)";
-      edCtx.font=(isC?"bold ":"")+Math.min(10,rowH*0.65)+"px 'DM Mono'";
+      edCtx.font=(isC?"bold ":"")+"10px 'DM Mono'";
       edCtx.textAlign="center";edCtx.textBaseline="middle";
       edCtx.fillText(noteName(m),ED_PIANO_W/2,y);
     }
-    // Glow if a preview note is playing on this pitch
-    let previewOnThisKey=false;
-    if(_previewStartPerf&&_previewSortedNotes){
-      const el2=(performance.now()-_previewStartPerf)/1000;
-      const pn=_previewSortedNotes.find(x=>el2>=x.start&&el2<x.start+x.dur);
-      if(pn&&pn.m===m){
-        previewOnThisKey=true;
-        const pulse=0.65+0.35*Math.sin(Date.now()/80);
-        edCtx.shadowColor="rgba(90,209,155,1)";edCtx.shadowBlur=24*pulse;
-        edCtx.fillStyle=`rgba(90,209,155,${0.7+0.25*pulse})`;
-        edCtx.fillRect(1,y-rowH/2,ED_PIANO_W-4,rowH);
-        edCtx.shadowBlur=0;
-        edCtx.strokeStyle=`rgba(90,209,155,${0.6+0.4*pulse})`;edCtx.lineWidth=2;
-        edCtx.strokeRect(1.5,y-rowH/2+0.5,ED_PIANO_W-6,rowH-1);
-      }
-    }
-    // Highlight if selected note is on this pitch
-    if(!previewOnThisKey&&edSel>=0&&edNotes[edSel]&&edNotes[edSel].m===m){
+    // Preview glow
+    if(m===previewMidi){
+      const pulse=0.65+0.35*Math.sin(Date.now()/80);
+      edCtx.shadowColor="rgba(90,209,155,1)";edCtx.shadowBlur=24*pulse;
+      edCtx.fillStyle=`rgba(90,209,155,${0.7+0.25*pulse})`;
+      edCtx.fillRect(1,y-ED_ROW_H/2,ED_PIANO_W-4,ED_ROW_H);
+      edCtx.shadowBlur=0;
+      edCtx.strokeStyle=`rgba(90,209,155,${0.6+0.4*pulse})`;edCtx.lineWidth=2;
+      edCtx.strokeRect(1.5,y-ED_ROW_H/2+0.5,ED_PIANO_W-6,ED_ROW_H-1);
+    } else if(edSel>=0&&edNotes[edSel]&&edNotes[edSel].m===m){
+      // Selected note highlight
       edCtx.fillStyle="rgba(240,180,41,.35)";
-      edCtx.fillRect(1,y-rowH/2,ED_PIANO_W-4,rowH);
+      edCtx.fillRect(1,y-ED_ROW_H/2,ED_PIANO_W-4,ED_ROW_H);
       edCtx.strokeStyle="rgba(240,180,41,.8)";edCtx.lineWidth=1.5;
-      edCtx.strokeRect(1.5,y-rowH/2+0.5,ED_PIANO_W-6,rowH-1);
+      edCtx.strokeRect(1.5,y-ED_ROW_H/2+0.5,ED_PIANO_W-6,ED_ROW_H-1);
     }
   }
+  // Scroll indicator on right edge of piano panel
+  const totalRange=ED_PITCH_MAX-ED_PITCH_MIN;
+  const trackH=edH-8;
+  const thumbH=Math.max(20,trackH*(Math.ceil(edH/ED_ROW_H)/totalRange));
+  const thumbY=4+trackH*(1-(edScrollPitch-ED_PITCH_MIN)/totalRange);
+  edCtx.fillStyle="rgba(255,255,255,.12)";edCtx.fillRect(ED_PIANO_W-4,4,3,trackH);
+  edCtx.fillStyle="rgba(255,255,255,.35)";edCtx.fillRect(ED_PIANO_W-4,thumbY,3,thumbH);
   edCtx.strokeStyle="rgba(100,120,220,.7)";edCtx.lineWidth=2;
   edCtx.beginPath();edCtx.moveTo(ED_PIANO_W,0);edCtx.lineTo(ED_PIANO_W,edH);edCtx.stroke();
   edCtx.textAlign="left";edCtx.textBaseline="alphabetic";
@@ -1953,6 +1975,73 @@ function edZoom(dir){
   document.getElementById("edZoomLabel").textContent=["¼×","⅓×","½×","1×","1.5×","2×","3×"][i];
 }
 
+// ── MIDI file import ──────────────────────────────────────────────────────────
+async function importMidiToEditor(file){
+  if(!file)return;
+  const st=document.getElementById('midiImportStatus');
+  if(st)st.textContent='Reading…';
+  try{
+    const buf=await file.arrayBuffer();
+    const dv=new DataView(buf);
+    let p=0;
+    const ru8=()=>dv.getUint8(p++);
+    const ru16=()=>{const v=dv.getUint16(p);p+=2;return v;}
+    const ru32=()=>{const v=dv.getUint32(p);p+=4;return v;}
+    const rvl=()=>{let v=0,b;do{b=ru8();v=(v<<7)|(b&0x7f);}while(b&0x80);return v;}
+    const r4=()=>{let s='';for(let i=0;i<4;i++)s+=String.fromCharCode(ru8());return s;}
+    if(r4()!=='MThd')throw new Error('Not a MIDI file');
+    ru32();const ntk=ru16(),ppqn=ru16()&0x7fff;
+    let tempo=500000,tsNum=4,tsDen=4;
+    const ons={};const notes=[];
+    for(let t=0;t<ntk;t++){
+      if(p+8>buf.byteLength)break;
+      const cid=r4(),clen=ru32(),cend=p+clen;
+      if(cid!=='MTrk'){p=cend;continue;}
+      let tick=0,lst=0;
+      while(p<cend){
+        tick+=rvl();
+        let st2=dv.getUint8(p);
+        if(st2&0x80){lst=st2;p++;}else st2=lst;
+        const tp=st2&0xf0;
+        if(st2===0xff){
+          const mt=ru8(),ml=rvl();
+          if(mt===0x51&&ml===3){tempo=(ru8()<<16)|(ru8()<<8)|ru8();}
+          else if(mt===0x58&&ml>=2){tsNum=ru8();tsDen=1<<ru8();p+=ml-2;}
+          else p+=ml;
+        }else if(st2===0xf0||st2===0xf7){p+=rvl();}
+        else if(tp===0x90||tp===0x80){
+          const pt=ru8(),vl=ru8(),k=t+'_'+pt;
+          if(tp===0x90&&vl>0){ons[k]=tick;}
+          else if(ons[k]!=null){notes.push({tk:ons[k],dur:tick-ons[k],m:pt});delete ons[k];}
+        }else if(tp===0xa0||tp===0xb0||tp===0xe0){ru8();ru8();}
+        else if(tp===0xc0||tp===0xd0){ru8();}
+        else p++;
+      }
+      p=cend;
+    }
+    if(!notes.length)throw new Error('No notes found in file');
+    const detBpm=Math.round(60e6/tempo);
+    const spt=tempo/1e6/ppqn;
+    edPushHistory();
+    edNotes=notes.sort((a,b)=>a.tk-b.tk)
+      .map(n=>({m:n.m,start:+(n.tk*spt).toFixed(3),dur:+Math.max(0.05,n.dur*spt).toFixed(3),l:''}));
+    edSel=-1; edScrollX=0;
+    bpm=detBpm; edBeatsPerBar=tsNum;
+    document.getElementById('edBpmLabel').textContent=detBpm+' bpm';
+    const tsSel=document.getElementById('edTimeSig');
+    if(tsSel)tsSel.value=String([2,3,4,6].includes(tsNum)?tsNum:4);
+    // Center pitch scroll on imported notes
+    const mids=edNotes.map(n=>n.m);
+    const mid=Math.round((Math.min(...mids)+Math.max(...mids))/2);
+    const vis=Math.floor(edH/ED_ROW_H)||10;
+    edScrollPitch=Math.max(ED_PITCH_MIN+vis-1,Math.min(ED_PITCH_MAX,mid+Math.floor(vis/2)));
+    if(st){st.style.color='#5ad19b';st.textContent=`✓ ${edNotes.length} notes · ${detBpm} BPM · ${tsNum}/${tsDen}`;}
+    setTimeout(()=>{if(st)st.textContent='';},6000);
+  }catch(err){
+    if(st){st.style.color='#e05a6b';st.textContent='Error: '+err.message;}
+  }
+}
+
 // ── Editor pointer events ─────────────────────────────────────────────────────
 function bindEditorEvents(){
   edCv.addEventListener("pointerdown",edPointerDown);
@@ -2051,7 +2140,7 @@ function edPointerDown(e){
     edPushHistory();
     const rawT=Math.max(0,edXTime(px));
     const t=edSnap(rawT);
-    const m=Math.max(ED_MIN,Math.min(ED_MAX,edYMidi(py)));
+    const m=Math.max(ED_PITCH_MIN,Math.min(ED_PITCH_MAX,edYMidi(py)));
     const dur=(snapOn&&gridDivBeats>0)?gridStep():0.4;
     edNotes.push({m,start:+t.toFixed(3),dur:+dur.toFixed(3),l:""});
     const newIdx=edNotes.length-1;
@@ -2067,7 +2156,7 @@ function edPointerMove(e){
   const n=edNotes[edDrag.idx];
   if(edDrag.mode==="move"){
     n.start=Math.max(0,+edSnap(edXTime(px)-edDrag.offT).toFixed(3));
-    const newMidi=Math.max(ED_MIN,Math.min(ED_MAX,edYMidi(py)));
+    const newMidi=Math.max(ED_PITCH_MIN,Math.min(ED_PITCH_MAX,edYMidi(py)));
     if(newMidi!==n.m){ n.m=newMidi; edPlayNote(newMidi, n.dur); } // play on pitch change
     document.getElementById("edNoteName").textContent=noteName(n.m)+" · "+n.dur.toFixed(2)+"s";
   }else{
@@ -2119,10 +2208,13 @@ function edKeyDown(e){
 function edWheel(e){
   e.preventDefault();
   if(e.ctrlKey){
-    // Ctrl+wheel = zoom
     edZoom(e.deltaY<0?1:-1);
+  }else if(e.shiftKey){
+    // Shift+scroll = pitch scroll (move piano up/down)
+    const visCount=Math.floor(edH/ED_ROW_H);
+    edScrollPitch=Math.max(ED_PITCH_MIN+visCount-1,
+                           Math.min(ED_PITCH_MAX,edScrollPitch+Math.round(e.deltaY/20)));
   }else{
-    // Scroll horizontally
     edScrollX=Math.max(0,edScrollX+e.deltaY/edPxS*0.8);
   }
 }
@@ -2248,8 +2340,8 @@ loadSupabaseSongs();
     <button class="ed-tb-btn" onclick="exitEditorNoSave()">← Back</button>
     <div class="ed-song-name" id="edSongName">Edit Song</div>
     <div class="ed-mode-group">
-      <button class="ed-mode-btn" id="edModeSelect" onclick="setEdMode('select')" title="Select &amp; Move (S)">↖ Select</button>
-      <button class="ed-mode-btn on" id="edModeDraw" onclick="setEdMode('draw')" title="Draw Note (D)">✏ Draw</button>
+      <button class="ed-mode-btn on" id="edModeSelect" onclick="setEdMode('select')" title="Select &amp; Move (S)">↖ Select</button>
+      <button class="ed-mode-btn" id="edModeDraw" onclick="setEdMode('draw')" title="Draw Note (D)">✏ Draw</button>
       <button class="ed-mode-btn" id="edModeErase" onclick="setEdMode('erase')" title="Erase Note (E)">⌫ Erase</button>
     </div>
     <div class="ed-grid-group">
@@ -2282,6 +2374,9 @@ loadSupabaseSongs();
     <button class="ed-tb-btn" id="edUndoBtn" onclick="edUndo()" title="Undo (Ctrl+Z)">↩ Undo</button>
     <button class="ed-tb-btn" id="edRedoBtn" onclick="edRedo()" title="Redo (Ctrl+Y)">↪ Redo</button>
     <button class="ed-tb-btn" onclick="edPreview()">▶ Preview</button>
+    <button class="ed-tb-btn" onclick="document.getElementById('edMidiFile').click()" title="Import notes from a MIDI file">⬆ MIDI</button>
+    <input id="edMidiFile" type="file" accept=".mid,.midi" style="display:none" onchange="importMidiToEditor(this.files[0]);this.value=''">
+    <span id="midiImportStatus" style="font-size:11px;white-space:nowrap"></span>
     <button class="ed-tb-btn gold" onclick="saveEditorChanges()">💾 Save</button>
   </div>
   <canvas id="edCv" touch-action="none"></canvas>
