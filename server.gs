@@ -658,6 +658,36 @@ function updateSongLyrics(songId, lyrics) {
 }
 
 // ================================================================
+// UPLOAD FILE TO GOOGLE DRIVE
+// ================================================================
+function uploadFileToDrive(base64Data, mimeType, fileName) {
+  try {
+    var folder;
+    var folderName = 'LHC Worship Prep Uploads';
+    var folders = DriveApp.getFoldersByName(folderName);
+    if (folders.hasNext()) {
+      folder = folders.next();
+    } else {
+      folder = DriveApp.createFolder(folderName);
+    }
+
+    var decoded = Utilities.base64Decode(base64Data);
+    var blob = Utilities.newBlob(decoded, mimeType, fileName);
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    return {
+      success: true,
+      fileId: file.getId(),
+      viewUrl: 'https://drive.google.com/file/d/' + file.getId() + '/view',
+      name: file.getName()
+    };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ================================================================
 // INCREMENT USE COUNT
 // ================================================================
 function incrementSongUseCount(songId) {

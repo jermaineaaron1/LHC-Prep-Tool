@@ -6985,6 +6985,11 @@
                     <i class="fa-solid fa-plus"></i> Add
                   </button>
                 </div>
+                <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <button type="button" onclick="openLocalFilePicker('new')" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 12px;border-radius:8px;border:1.5px dashed #7dd3fc;background:#f0f9ff;color:#0369a1;cursor:pointer;white-space:nowrap"><i class="fa-solid fa-file-arrow-up"></i> Upload File (PDF / Doc / Image)</button>
+                  <input type="file" id="newSongFileInput" style="display:none" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="handleLocalFileSelected(this,'new')">
+                  <span id="newSongFileStatus" style="font-size:12px;color:#64748b"></span>
+                </div>
                 <div id="newSongAttachments" class="link-list"></div>
               </div>
             </div>
@@ -7232,6 +7237,11 @@
                   <button type="button" class="lhc-pill-button" onclick="addAttachment('edit')" style="background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;flex-shrink:0;">
                     <i class="fa-solid fa-plus"></i> Add
                   </button>
+                </div>
+                <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <button type="button" onclick="openLocalFilePicker('edit')" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 12px;border-radius:8px;border:1.5px dashed #7dd3fc;background:#f0f9ff;color:#0369a1;cursor:pointer;white-space:nowrap"><i class="fa-solid fa-file-arrow-up"></i> Upload File (PDF / Doc / Image)</button>
+                  <input type="file" id="editSongFileInput" style="display:none" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="handleLocalFileSelected(this,'edit')">
+                  <span id="editSongFileStatus" style="font-size:12px;color:#64748b"></span>
                 </div>
                 <div id="editSongAttachments" class="link-list"></div>
               </div>
@@ -10238,6 +10248,239 @@ function closeDocPreview() {
 // Make globally accessible
 window.closeDocPreview = closeDocPreview;
 window.closeYoutubePreview = closeYoutubePreview;
+
+// ============ Local File Upload & Lyrics Parser ============
+
+function openLocalFilePicker(mode) {
+  document.getElementById(mode + 'SongFileInput').click();
+}
+
+function handleLocalFileSelected(input, mode) {
+  var file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  var ext = file.name.split('.').pop().toLowerCase();
+  var isParseable = ['pdf','docx','txt'].includes(ext);
+  var isImage = ['jpg','jpeg','png','gif','webp'].includes(ext);
+  var statusEl = document.getElementById(mode + 'SongFileStatus');
+  window['_localFile_' + mode] = file;
+
+  var parseBtn = isParseable
+    ? '<button type="button" onclick="parseLocalFileToLyrics(\'' + mode + '\')" style="margin-left:6px;font-size:11px;padding:3px 10px;border-radius:6px;background:#6366f1;color:#fff;border:none;cursor:pointer;white-space:nowrap">✦ Parse to Lyrics Editor</button>'
+    : '';
+  var uploadBtn = '<button type="button" onclick="uploadLocalFileToDrive(\'' + mode + '\')" style="margin-left:6px;font-size:11px;padding:3px 10px;border-radius:6px;background:#0369a1;color:#fff;border:none;cursor:pointer;white-space:nowrap">☁ Upload to Drive</button>';
+
+  statusEl.innerHTML = '<span style="font-weight:600;color:#1e293b">' + escapeHtml(file.name) + '</span>' + parseBtn + uploadBtn;
+}
+
+async function parseLocalFileToLyrics(mode) {
+  var file = window['_localFile_' + mode];
+  if (!file) return;
+  var ext = file.name.split('.').pop().toLowerCase();
+  var statusEl = document.getElementById(mode + 'SongFileStatus');
+  var origHtml = statusEl.innerHTML;
+  statusEl.innerHTML += ' <span id="parseProgress" style="color:#94a3b8">⏳ Extracting…</span>';
+
+  try {
+    var rawText = '';
+    if (ext === 'txt') {
+      rawText = await file.text();
+    } else if (ext === 'pdf') {
+      rawText = await _extractPdfText(file);
+    } else if (ext === 'docx') {
+      rawText = await _extractDocxText(file);
+    }
+    if (!rawText.trim()) throw new Error('No readable text found in this file.');
+
+    document.getElementById('parseProgress').textContent = '⏳ Formatting…';
+    var formatted = _formatLyricsForSlides(rawText);
+
+    if (!window.songData) window.songData = {};
+    if (!window.songData[mode]) window.songData[mode] = {};
+    window.songData[mode].lyrics = formatted;
+
+    openLyricsEditor(mode);
+    statusEl.innerHTML = '<span style="color:#16a34a">✓ Parsed <strong>' + escapeHtml(file.name) + '</strong> — lyrics editor opened with formatted content.</span>';
+  } catch (err) {
+    statusEl.innerHTML = origHtml + ' <span style="color:#e05a6b">Error: ' + escapeHtml(err.message) + '</span>';
+    console.error('File parse error:', err);
+  }
+}
+
+async function uploadLocalFileToDrive(mode) {
+  var file = window['_localFile_' + mode];
+  if (!file) return;
+  var statusEl = document.getElementById(mode + 'SongFileStatus');
+  if (file.size > 10 * 1024 * 1024) {
+    statusEl.innerHTML += ' <span style="color:#e05a6b">File too large (max 10 MB). Upload manually to Google Drive and paste the link.</span>';
+    return;
+  }
+  statusEl.innerHTML += ' <span id="uploadProgress" style="color:#94a3b8">⏳ Uploading…</span>';
+  try {
+    var ab = await file.arrayBuffer();
+    var bytes = new Uint8Array(ab);
+    var binary = '';
+    bytes.forEach(function(b){ binary += String.fromCharCode(b); });
+    var b64 = btoa(binary);
+    var result = await callGASPromise('uploadFileToDrive', [b64, file.type, file.name]);
+    if (!result || !result.success) throw new Error(result ? result.error : 'Upload failed');
+    if (!window.songData) window.songData = {};
+    if (!window.songData[mode]) window.songData[mode] = {};
+    if (!window.songData[mode].attachments) window.songData[mode].attachments = [];
+    window.songData[mode].attachments.push({ url: result.viewUrl, name: result.name, type: 'link', icon: '📎' });
+    renderAttachments(mode);
+    statusEl.innerHTML = '<span style="color:#16a34a">✓ Uploaded & added: <strong>' + escapeHtml(result.name) + '</strong></span>';
+  } catch (err) {
+    document.getElementById('uploadProgress') && (document.getElementById('uploadProgress').textContent = '');
+    statusEl.innerHTML += ' <span style="color:#e05a6b">Upload failed: ' + escapeHtml(err.message) + '</span>';
+  }
+}
+
+// callGAS wrapped as Promise (in case the app only has the callback version)
+function callGASPromise(fnName, args) {
+  if (typeof callGAS === 'function') {
+    return callGAS(fnName, args);
+  }
+  return new Promise(function(resolve, reject) {
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fnName].apply(null, args || []);
+  });
+}
+
+// ── Script loader ─────────────────────────────────────────────────────────
+function _loadScript(src) {
+  return new Promise(function(resolve, reject) {
+    if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+    var s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// ── PDF text extraction (PDF.js CDN) ────────────────────────────────────
+async function _extractPdfText(file) {
+  var CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+  if (!window.pdfjsLib) {
+    await _loadScript(CDN + 'pdf.min.js');
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = CDN + 'pdf.worker.min.js';
+  }
+  var ab = await file.arrayBuffer();
+  var pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
+  var text = '';
+  for (var i = 1; i <= pdf.numPages; i++) {
+    var page = await pdf.getPage(i);
+    var content = await page.getTextContent();
+    var lastY = null;
+    content.items.forEach(function(item) {
+      var y = item.transform[5];
+      if (lastY !== null && Math.abs(y - lastY) > 4) text += '\n';
+      text += item.str;
+      lastY = y;
+    });
+    text += '\n\n';
+  }
+  return text;
+}
+
+// ── DOCX text extraction (Mammoth.js CDN) ────────────────────────────────
+async function _extractDocxText(file) {
+  if (!window.mammoth) {
+    await _loadScript('https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js');
+  }
+  var ab = await file.arrayBuffer();
+  var result = await window.mammoth.extractRawText({ arrayBuffer: ab });
+  return result.value;
+}
+
+// ── Smart lyrics formatter for congregation slides ────────────────────────
+function _formatLyricsForSlides(rawText) {
+  var MAX_PER_SLIDE = 2;
+
+  // Chord token: starts with A–G, optional accidental, optional qualifier
+  var CHORD_TOKEN = /^[A-G][#b]?(maj7?|min7?|m7?|M7?|dim7?|aug|sus[24]?|add9?|[0-9]+)?(\/[A-G][#b]?)?$/;
+  function isChordLine(line) {
+    var t = line.trim();
+    if (!t || t.length > 60) return false;
+    var tokens = t.split(/\s{2,}|\t+/).filter(Boolean);
+    if (!tokens.length) return false;
+    var chords = tokens.filter(function(tok) { return CHORD_TOKEN.test(tok.trim()); });
+    return tokens.length <= 12 && chords.length / tokens.length >= 0.65;
+  }
+
+  var SECTION_WORDS = ['verse','chorus','bridge','pre-chorus','prechorus','intro','outro','interlude','ending','refrain','hook','tag','coda','vamp'];
+  function isSectionHeader(line) {
+    var t = line.trim().replace(/[\[\]()]/g,'').toLowerCase().trim();
+    return SECTION_WORDS.some(function(w) { return t === w || t.startsWith(w + ' ') || t.startsWith(w + '\t'); });
+  }
+
+  var sCount = {};
+  function formatHeader(line) {
+    var t = line.trim().replace(/[\[\]]/g,'').trim();
+    t = t.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).trim();
+    var base = t.split(/\s\d/)[0].trim();
+    if (/^(Verse|Chorus|Bridge|Pre.?Chorus)$/i.test(base) && !/\d/.test(t)) {
+      sCount[base] = (sCount[base] || 0) + 1;
+      t = base + ' ' + sCount[base];
+    }
+    return '[' + t + ']';
+  }
+
+  // Parse into items: {type:'header'|'pair'|'lyric', chord?, text}
+  var items = [];
+  var lines = rawText.split('\n');
+  var pendingChord = null;
+
+  lines.forEach(function(raw) {
+    var line = raw.trimEnd ? raw.trimEnd() : raw.replace(/\s+$/, '');
+    var t = line.trim();
+    if (!t) { pendingChord = null; return; }
+    if (isSectionHeader(t)) {
+      if (pendingChord) { items.push({ type: 'lyric', text: pendingChord }); pendingChord = null; }
+      items.push({ type: 'header', text: formatHeader(t) });
+    } else if (isChordLine(t)) {
+      if (pendingChord) items.push({ type: 'lyric', text: pendingChord });
+      pendingChord = t;
+    } else {
+      if (pendingChord) {
+        items.push({ type: 'pair', chord: pendingChord, text: t });
+        pendingChord = null;
+      } else {
+        items.push({ type: 'lyric', text: t });
+      }
+    }
+  });
+  if (pendingChord) items.push({ type: 'lyric', text: pendingChord });
+
+  // Build output, capping at MAX_PER_SLIDE lyric lines per slide
+  var out = [];
+  var lyricCount = 0;
+  var inSection = false;
+  var autoVerseCount = 0;
+
+  items.forEach(function(item) {
+    if (item.type === 'header') {
+      if (lyricCount > 0) { out.push(''); lyricCount = 0; }
+      if (out.length && out[out.length - 1] !== '') out.push('');
+      out.push(item.text);
+      inSection = true;
+    } else {
+      if (!inSection) {
+        if (out.length) out.push('');
+        autoVerseCount++;
+        out.push('[Verse ' + autoVerseCount + ']');
+        inSection = true;
+      }
+      // Slide break every MAX_PER_SLIDE lyric lines
+      if (lyricCount > 0 && lyricCount % MAX_PER_SLIDE === 0) {
+        out.push(''); // blank line = new slide
+      }
+      if (item.chord) out.push(item.chord);
+      out.push(item.text);
+      lyricCount++;
+    }
+  });
+
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
 
 // ============ Attachment Management ============
 // Store file names globally
