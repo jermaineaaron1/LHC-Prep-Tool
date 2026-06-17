@@ -6987,7 +6987,9 @@
                 </div>
                 <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                   <button type="button" onclick="openLocalFilePicker('new')" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 12px;border-radius:8px;border:1.5px dashed #7dd3fc;background:#f0f9ff;color:#0369a1;cursor:pointer;white-space:nowrap"><i class="fa-solid fa-file-arrow-up"></i> Upload File (PDF / Doc / Image)</button>
+                  <button type="button" onclick="openCameraPicker('new')" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 12px;border-radius:8px;border:1.5px dashed #a78bfa;background:#f5f3ff;color:#7c3aed;cursor:pointer;white-space:nowrap"><i class="fa-solid fa-camera"></i> Scan with Camera</button>
                   <input type="file" id="newSongFileInput" style="display:none" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="handleLocalFileSelected(this,'new')">
+                  <input type="file" id="newSongCameraInput" style="display:none" accept="image/*" capture="environment" onchange="handleCameraCapture(this,'new')">
                   <span id="newSongFileStatus" style="font-size:12px;color:#64748b"></span>
                 </div>
                 <div id="newSongAttachments" class="link-list"></div>
@@ -7240,7 +7242,9 @@
                 </div>
                 <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                   <button type="button" onclick="openLocalFilePicker('edit')" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 12px;border-radius:8px;border:1.5px dashed #7dd3fc;background:#f0f9ff;color:#0369a1;cursor:pointer;white-space:nowrap"><i class="fa-solid fa-file-arrow-up"></i> Upload File (PDF / Doc / Image)</button>
+                  <button type="button" onclick="openCameraPicker('edit')" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 12px;border-radius:8px;border:1.5px dashed #a78bfa;background:#f5f3ff;color:#7c3aed;cursor:pointer;white-space:nowrap"><i class="fa-solid fa-camera"></i> Scan with Camera</button>
                   <input type="file" id="editSongFileInput" style="display:none" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="handleLocalFileSelected(this,'edit')">
+                  <input type="file" id="editSongCameraInput" style="display:none" accept="image/*" capture="environment" onchange="handleCameraCapture(this,'edit')">
                   <span id="editSongFileStatus" style="font-size:12px;color:#64748b"></span>
                 </div>
                 <div id="editSongAttachments" class="link-list"></div>
@@ -10253,6 +10257,43 @@ window.closeYoutubePreview = closeYoutubePreview;
 
 function openLocalFilePicker(mode) {
   document.getElementById(mode + 'SongFileInput').click();
+}
+
+function openCameraPicker(mode) {
+  document.getElementById(mode + 'SongCameraInput').click();
+}
+
+async function handleCameraCapture(input, mode) {
+  var file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  var statusEl = document.getElementById(mode + 'SongFileStatus');
+  window['_localFile_' + mode] = file;
+  statusEl.innerHTML = '<span style="font-weight:600;color:#1e293b">📷 ' + escapeHtml(file.name) + '</span> <span style="color:#94a3b8">⏳ Running OCR… (10–20 sec)</span>';
+
+  try {
+    if (file.size > 10 * 1024 * 1024) throw new Error('Photo too large (max 10 MB). Try a lower camera resolution.');
+    var ab = await file.arrayBuffer();
+    var bytes = new Uint8Array(ab);
+    var binary = '';
+    bytes.forEach(function(b){ binary += String.fromCharCode(b); });
+    var b64 = btoa(binary);
+
+    var result = await callGASPromise('uploadAndOcrToDrive', [b64, file.type, file.name]);
+    if (!result || !result.success) throw new Error(result ? result.error : 'OCR failed');
+    if (!result.text || !result.text.trim()) throw new Error('No text detected. Make sure the page is well-lit and the text is clear.');
+
+    var formatted = _formatLyricsForSlides(result.text);
+    if (!window.songData) window.songData = {};
+    if (!window.songData[mode]) window.songData[mode] = {};
+    window.songData[mode].lyrics = formatted;
+
+    openLyricsEditor(mode);
+    statusEl.innerHTML = '<span style="color:#16a34a">✓ Camera scan complete — lyrics editor opened with extracted text.</span>';
+  } catch (err) {
+    statusEl.innerHTML = '<span style="color:#e05a6b">Camera OCR failed: ' + escapeHtml(err.message) + '</span>';
+    console.error('Camera OCR error:', err);
+  }
 }
 
 function handleLocalFileSelected(input, mode) {
