@@ -10260,17 +10260,66 @@ function handleLocalFileSelected(input, mode) {
   input.value = '';
   if (!file) return;
   var ext = file.name.split('.').pop().toLowerCase();
-  var isParseable = ['pdf','docx','txt'].includes(ext);
   var isImage = ['jpg','jpeg','png','gif','webp'].includes(ext);
+  var isPdf = ext === 'pdf';
+  var isDigital = ['docx','txt'].includes(ext);
   var statusEl = document.getElementById(mode + 'SongFileStatus');
   window['_localFile_' + mode] = file;
 
-  var parseBtn = isParseable
-    ? '<button type="button" onclick="parseLocalFileToLyrics(\'' + mode + '\')" style="margin-left:6px;font-size:11px;padding:3px 10px;border-radius:6px;background:#6366f1;color:#fff;border:none;cursor:pointer;white-space:nowrap">✦ Parse to Lyrics Editor</button>'
-    : '';
-  var uploadBtn = '<button type="button" onclick="uploadLocalFileToDrive(\'' + mode + '\')" style="margin-left:6px;font-size:11px;padding:3px 10px;border-radius:6px;background:#0369a1;color:#fff;border:none;cursor:pointer;white-space:nowrap">☁ Upload to Drive</button>';
+  var BTN = function(label, fn, bg) {
+    return '<button type="button" onclick="' + fn + '(\'' + mode + '\')" style="font-size:11px;padding:3px 10px;border-radius:6px;background:' + bg + ';color:#fff;border:none;cursor:pointer;white-space:nowrap">' + label + '</button>';
+  };
 
-  statusEl.innerHTML = '<span style="font-weight:600;color:#1e293b">' + escapeHtml(file.name) + '</span>' + parseBtn + uploadBtn;
+  var btns = '';
+  if (isImage) {
+    // Scanned images → OCR only
+    btns = BTN('📷 OCR → Lyrics Editor', 'ocrFileToLyrics', '#7c3aed');
+  } else if (isPdf) {
+    // PDF could be digital or scanned — offer both
+    btns = BTN('✦ Parse (digital PDF)', 'parseLocalFileToLyrics', '#6366f1')
+         + ' ' + BTN('📷 OCR (scanned PDF)', 'ocrFileToLyrics', '#7c3aed');
+  } else if (isDigital) {
+    btns = BTN('✦ Parse to Lyrics Editor', 'parseLocalFileToLyrics', '#6366f1');
+  }
+  btns += ' ' + BTN('☁ Upload to Drive', 'uploadLocalFileToDrive', '#0369a1');
+
+  statusEl.innerHTML = '<span style="font-weight:600;color:#1e293b">' + escapeHtml(file.name) + '</span> ' + btns;
+}
+
+async function ocrFileToLyrics(mode) {
+  var file = window['_localFile_' + mode];
+  if (!file) return;
+  var statusEl = document.getElementById(mode + 'SongFileStatus');
+  var origHtml = statusEl.innerHTML;
+
+  if (file.size > 10 * 1024 * 1024) {
+    statusEl.innerHTML += ' <span style="color:#e05a6b">File too large for OCR (max 10 MB). Compress the image and try again.</span>';
+    return;
+  }
+
+  statusEl.innerHTML += ' <span id="ocrProgress" style="color:#94a3b8">⏳ Uploading for OCR… (this may take 10–20 sec)</span>';
+  try {
+    var ab = await file.arrayBuffer();
+    var bytes = new Uint8Array(ab);
+    var binary = '';
+    bytes.forEach(function(b){ binary += String.fromCharCode(b); });
+    var b64 = btoa(binary);
+
+    var result = await callGASPromise('uploadAndOcrToDrive', [b64, file.type, file.name]);
+    if (!result || !result.success) throw new Error(result ? result.error : 'OCR failed');
+    if (!result.text || !result.text.trim()) throw new Error('No text could be read from this image. Make sure the scan is clear and in good lighting.');
+
+    var formatted = _formatLyricsForSlides(result.text);
+    if (!window.songData) window.songData = {};
+    if (!window.songData[mode]) window.songData[mode] = {};
+    window.songData[mode].lyrics = formatted;
+
+    openLyricsEditor(mode);
+    statusEl.innerHTML = '<span style="color:#16a34a">✓ OCR complete — lyrics editor opened with extracted text from <strong>' + escapeHtml(file.name) + '</strong>.</span>';
+  } catch (err) {
+    statusEl.innerHTML = origHtml + ' <span style="color:#e05a6b">OCR error: ' + escapeHtml(err.message) + '</span>';
+    console.error('OCR error:', err);
+  }
 }
 
 async function parseLocalFileToLyrics(mode) {

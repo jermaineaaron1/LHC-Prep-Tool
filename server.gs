@@ -658,6 +658,40 @@ function updateSongLyrics(songId, lyrics) {
 }
 
 // ================================================================
+// UPLOAD & OCR VIA GOOGLE DRIVE (images + scanned PDFs)
+// Requires: Drive API v2 enabled under Services in Apps Script
+// ================================================================
+function uploadAndOcrToDrive(base64Data, mimeType, fileName) {
+  try {
+    var decoded = Utilities.base64Decode(base64Data);
+    var blob = Utilities.newBlob(decoded, mimeType, fileName);
+
+    // Upload with OCR — Drive converts image/PDF to a Google Doc
+    var resource = { title: fileName };
+    var uploaded = Drive.Files.insert(resource, blob, {
+      ocr: true,
+      ocrLanguage: 'en',
+      convert: true
+    });
+
+    // Read plain text from the resulting Google Doc
+    var doc = DocumentApp.openById(uploaded.id);
+    var text = doc.getBody().getText();
+
+    // Clean up: delete the temporary converted Doc
+    Drive.Files.remove(uploaded.id);
+
+    if (!text || !text.trim()) {
+      return { success: false, error: 'No text could be extracted. Check image quality.' };
+    }
+
+    return { success: true, text: text };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ================================================================
 // UPLOAD FILE TO GOOGLE DRIVE
 // ================================================================
 function uploadFileToDrive(base64Data, mimeType, fileName) {
