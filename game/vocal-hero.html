@@ -155,6 +155,9 @@
   .ed-mode-btn:hover{color:var(--ink)}
   .ed-mode-btn.on{background:var(--gold);color:#241a00;font-weight:700}
   .ed-grid-group{display:flex;align-items:center;gap:6px}
+  .ed-pitch-btns{display:flex;gap:3px}
+  .ed-pitch-btns button{font-family:"DM Mono",monospace;font-size:11px;padding:5px 9px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap}
+  .ed-pitch-btns button:hover{border-color:var(--gold);color:var(--gold)}
   #edCv{flex:1;display:block;width:100%;cursor:crosshair;touch-action:none}
   /* Floating lyric bubble on selected note */
   #edFloatLyric{
@@ -1468,8 +1471,8 @@ let edDrag=null;
 let edScrollX=0;
 let edPxS=120;
 let edAnimId=null;
-const ED_ROW_H=26;      // fixed key row height — bigger keys, scrollable
-const ED_NOTE_H=24;     // note bar height = ED_ROW_H - 2
+const ED_ROW_H=30;      // fixed key row height — bigger keys, scrollable
+const ED_NOTE_H=26;     // note bar height = ED_ROW_H - 4
 const ED_PIANO_W=110;
 const ED_PITCH_MIN=24;  // C1 — lowest scrollable MIDI note
 const ED_PITCH_MAX=96;  // C7 — highest scrollable MIDI note
@@ -1501,6 +1504,12 @@ function edRedo(){
 }
 
 let edCv,edCtx,edW=0,edH=0;
+let edPianoDrag=null; // {startY, startPitch} — drag on piano keys scrolls pitch
+
+function edPitchScroll(delta){
+  const vis=Math.floor(edH/ED_ROW_H);
+  edScrollPitch=Math.max(ED_PITCH_MIN+vis-1,Math.min(ED_PITCH_MAX,edScrollPitch+delta));
+}
 
 function initSongEditor(){
   // Lazy init — called on first openSongEditor() so DOM is ready
@@ -1592,7 +1601,7 @@ function drawEditorFrame(){
     const pc=((m%12)+12)%12;
     const isBlack=BLACK_PCS.includes(pc);
     const isC=(pc===0);
-    edCtx.fillStyle=isBlack?"rgba(8,11,32,.7)":"rgba(18,22,55,.5)";
+    edCtx.fillStyle=isBlack?"rgba(8,11,32,.82)":"rgba(26,32,68,.42)";
     edCtx.fillRect(ED_PIANO_W,y-ED_ROW_H/2,edW-ED_PIANO_W,ED_ROW_H);
     if(isC){
       edCtx.strokeStyle="rgba(240,180,41,.35)";
@@ -1744,16 +1753,57 @@ function edRR(x,y,w,h,r){
 
 function edDrawPiano(){
   const BLACK_PCS=[1,3,6,8,10];
-  edCtx.fillStyle="#070b1e";
+  const BK_W=Math.round(ED_PIANO_W*0.62); // black key narrower width
+  edCtx.fillStyle="#b0a898"; // dark gap behind keys
   edCtx.fillRect(0,0,ED_PIANO_W,edH);
-  // Resolve preview active note once
+
+  // Resolve preview / selected midi
   let previewMidi=-1;
   if(_previewStartPerf&&_previewSortedNotes){
     const el2=(performance.now()-_previewStartPerf)/1000;
     const pn=_previewSortedNotes.find(x=>el2>=x.start&&el2<x.start+x.dur);
     if(pn)previewMidi=pn.m;
   }
+  const selMidi=edSel>=0&&edNotes[edSel]?edNotes[edSel].m:-1;
   const visCount=Math.ceil(edH/ED_ROW_H)+1;
+
+  // Pass 1 — white keys (full-width ivory)
+  for(let i=0;i<visCount;i++){
+    const m=edScrollPitch-i;
+    if(m<ED_PITCH_MIN||m>ED_PITCH_MAX)continue;
+    const pc=((m%12)+12)%12;
+    if(BLACK_PCS.includes(pc))continue;
+    const y=edMidiY(m);
+    edCtx.fillStyle="#ece8d8";
+    edCtx.fillRect(1,y-ED_ROW_H/2+0.5,ED_PIANO_W-5,ED_ROW_H-1);
+    // subtle shade on left edge
+    edCtx.fillStyle="rgba(0,0,0,.06)";
+    edCtx.fillRect(1,y-ED_ROW_H/2+0.5,4,ED_ROW_H-1);
+    // bottom border
+    edCtx.strokeStyle="rgba(0,0,0,.18)";edCtx.lineWidth=0.5;
+    edCtx.beginPath();edCtx.moveTo(1,y+ED_ROW_H/2);edCtx.lineTo(ED_PIANO_W-5,y+ED_ROW_H/2);edCtx.stroke();
+  }
+
+  // Pass 2 — black keys (short, dark, on top)
+  for(let i=0;i<visCount;i++){
+    const m=edScrollPitch-i;
+    if(m<ED_PITCH_MIN||m>ED_PITCH_MAX)continue;
+    const pc=((m%12)+12)%12;
+    if(!BLACK_PCS.includes(pc))continue;
+    const y=edMidiY(m);
+    // key body
+    edCtx.fillStyle="#1c1820";
+    edCtx.fillRect(1,y-ED_ROW_H/2+0.5,BK_W,ED_ROW_H-1);
+    // top highlight strip
+    edCtx.fillStyle="rgba(255,255,255,.10)";
+    edCtx.fillRect(2,y-ED_ROW_H/2+1,BK_W-2,Math.round(ED_ROW_H*0.28));
+    // border
+    edCtx.strokeStyle="rgba(0,0,0,.55)";edCtx.lineWidth=0.5;
+    edCtx.strokeRect(1.5,y-ED_ROW_H/2+1,BK_W-1,ED_ROW_H-2);
+  }
+
+  // Pass 3 — glows + labels
+  edCtx.textBaseline="middle";
   for(let i=0;i<visCount;i++){
     const m=edScrollPitch-i;
     if(m<ED_PITCH_MIN||m>ED_PITCH_MAX)continue;
@@ -1761,43 +1811,52 @@ function edDrawPiano(){
     const pc=((m%12)+12)%12;
     const isBlack=BLACK_PCS.includes(pc);
     const isC=(pc===0);
-    edCtx.fillStyle=isBlack?"#111530":"#22285a";
-    edCtx.fillRect(1,y-ED_ROW_H/2+0.5,ED_PIANO_W-4,ED_ROW_H-1);
-    if(!isBlack){edCtx.fillStyle="rgba(255,255,255,.1)";edCtx.fillRect(ED_PIANO_W-9,y-ED_ROW_H/2+0.5,7,ED_ROW_H-1);}
-    // Label — always show for C notes and white keys at this row height
-    if(isC||!isBlack){
-      edCtx.fillStyle=isC?"#f0b429":"rgba(180,188,230,.7)";
-      edCtx.font=(isC?"bold ":"")+"10px 'DM Mono'";
-      edCtx.textAlign="center";edCtx.textBaseline="middle";
-      edCtx.fillText(noteName(m),ED_PIANO_W/2,y);
-    }
-    // Preview glow
+    const kW=isBlack?BK_W:ED_PIANO_W-5;
+
+    // Preview glow (key lights up green)
     if(m===previewMidi){
-      const pulse=0.65+0.35*Math.sin(Date.now()/80);
-      edCtx.shadowColor="rgba(90,209,155,1)";edCtx.shadowBlur=24*pulse;
-      edCtx.fillStyle=`rgba(90,209,155,${0.7+0.25*pulse})`;
-      edCtx.fillRect(1,y-ED_ROW_H/2,ED_PIANO_W-4,ED_ROW_H);
+      const pulse=0.6+0.4*Math.sin(Date.now()/80);
+      edCtx.shadowColor="rgba(90,209,155,1)";edCtx.shadowBlur=20*pulse;
+      edCtx.fillStyle=`rgba(90,209,155,${0.78+0.18*pulse})`;
+      edCtx.fillRect(1,y-ED_ROW_H/2,kW,ED_ROW_H);
       edCtx.shadowBlur=0;
-      edCtx.strokeStyle=`rgba(90,209,155,${0.6+0.4*pulse})`;edCtx.lineWidth=2;
-      edCtx.strokeRect(1.5,y-ED_ROW_H/2+0.5,ED_PIANO_W-6,ED_ROW_H-1);
-    } else if(edSel>=0&&edNotes[edSel]&&edNotes[edSel].m===m){
-      // Selected note highlight
-      edCtx.fillStyle="rgba(240,180,41,.35)";
-      edCtx.fillRect(1,y-ED_ROW_H/2,ED_PIANO_W-4,ED_ROW_H);
-      edCtx.strokeStyle="rgba(240,180,41,.8)";edCtx.lineWidth=1.5;
-      edCtx.strokeRect(1.5,y-ED_ROW_H/2+0.5,ED_PIANO_W-6,ED_ROW_H-1);
+      edCtx.strokeStyle=`rgba(90,209,155,${0.8+0.2*pulse})`;edCtx.lineWidth=1.5;
+      edCtx.strokeRect(1.5,y-ED_ROW_H/2+0.5,kW-1,ED_ROW_H-1);
+    } else if(m===selMidi){
+      // Selected note — gold highlight
+      edCtx.fillStyle="rgba(240,180,41,.52)";
+      edCtx.fillRect(1,y-ED_ROW_H/2,kW,ED_ROW_H);
+      edCtx.strokeStyle="rgba(240,180,41,.9)";edCtx.lineWidth=1.5;
+      edCtx.strokeRect(1.5,y-ED_ROW_H/2+0.5,kW-1,ED_ROW_H-1);
+    }
+
+    // Labels: note name on white keys, sharp/flat small on black keys
+    if(!isBlack){
+      edCtx.fillStyle=isC?"#8b3a00":"#4a3a28";
+      edCtx.font=(isC?"bold ":"")+"10px 'DM Mono'";
+      edCtx.textAlign="right";
+      edCtx.fillText(noteName(m),ED_PIANO_W-7,y);
+    } else {
+      edCtx.fillStyle="rgba(210,205,190,.6)";
+      edCtx.font="8px 'DM Mono'";
+      edCtx.textAlign="left";
+      edCtx.fillText(noteName(m),3,y);
     }
   }
-  // Scroll indicator on right edge of piano panel
+  edCtx.textAlign="left";edCtx.textBaseline="alphabetic";
+
+  // Scroll thumb on right edge
   const totalRange=ED_PITCH_MAX-ED_PITCH_MIN;
   const trackH=edH-8;
-  const thumbH=Math.max(20,trackH*(Math.ceil(edH/ED_ROW_H)/totalRange));
+  const vis=Math.ceil(edH/ED_ROW_H);
+  const thumbH=Math.max(18,trackH*(vis/totalRange));
   const thumbY=4+trackH*(1-(edScrollPitch-ED_PITCH_MIN)/totalRange);
-  edCtx.fillStyle="rgba(255,255,255,.12)";edCtx.fillRect(ED_PIANO_W-4,4,3,trackH);
-  edCtx.fillStyle="rgba(255,255,255,.35)";edCtx.fillRect(ED_PIANO_W-4,thumbY,3,thumbH);
-  edCtx.strokeStyle="rgba(100,120,220,.7)";edCtx.lineWidth=2;
+  edCtx.fillStyle="rgba(0,0,0,.2)";edCtx.fillRect(ED_PIANO_W-5,4,4,trackH);
+  edCtx.fillStyle="rgba(255,255,255,.45)";edCtx.fillRect(ED_PIANO_W-5,thumbY,4,thumbH);
+
+  // Separator line
+  edCtx.strokeStyle="rgba(80,100,200,.8)";edCtx.lineWidth=2;
   edCtx.beginPath();edCtx.moveTo(ED_PIANO_W,0);edCtx.lineTo(ED_PIANO_W,edH);edCtx.stroke();
-  edCtx.textAlign="left";edCtx.textBaseline="alphabetic";
 }
 
 function drawEdPreviewLyrics(activeNote){
@@ -1881,15 +1940,19 @@ function edPositionFloatLyric(n, floatInp){
   if(!floatInp)return;
   const toolbar=document.querySelector(".ed-toolbar");
   const toolbarH=toolbar?toolbar.offsetHeight:44;
-  const x=Math.max(ED_PIANO_W+4, Math.min(edTimeX(n.start), edW-168));
-  const y=edMidiY(n.m)-ED_NOTE_H/2-46; // above the note
-  // Clamp so it stays inside the canvas area
-  const clampedY=Math.max(toolbarH+4, y);
+  const x=Math.max(ED_PIANO_W+4, Math.min(edTimeX(n.start), edW-172));
+  const noteTopCanvas=edMidiY(n.m)-ED_NOTE_H/2; // top of note in canvas coords
+  const noteBotCanvas=edMidiY(n.m)+ED_NOTE_H/2; // bottom of note
+  const floatH=38; // approx height of float input
+  // Prefer below the note so × delete button (top-right of note) is never covered
+  const yBelow=noteBotCanvas+6;
+  const yAbove=noteTopCanvas-floatH-6;
+  const bottomLimit=edH-floatH-4;
+  const y=(yBelow+floatH<=bottomLimit) ? yBelow : Math.max(4,yAbove);
   floatInp.style.left=x+"px";
-  floatInp.style.top=(clampedY+toolbarH)+"px";
+  floatInp.style.top=(toolbarH+y)+"px";
   floatInp.value=n.l||"";
   floatInp.classList.add("on");
-  // Small delay so canvas pointer-capture doesn't steal focus
   setTimeout(()=>floatInp.focus(),50);
 }
 
@@ -2102,7 +2165,11 @@ function edPointerDown(e){
   e.preventDefault(); edCv.setPointerCapture(e.pointerId);
   const r=edCv.getBoundingClientRect();
   const px=e.clientX-r.left, py=e.clientY-r.top;
-  if(px<ED_PIANO_W)return;
+  if(px<ED_PIANO_W){
+    // Drag on piano panel = pitch scroll
+    edPianoDrag={startY:py,startPitch:edScrollPitch};
+    return;
+  }
   // × delete button on selected note (always active regardless of mode)
   if(edSel>=0&&edNotes[edSel]){
     const n=edNotes[edSel];
@@ -2150,6 +2217,13 @@ function edPointerDown(e){
 }
 
 function edPointerMove(e){
+  if(edPianoDrag){
+    const r=edCv.getBoundingClientRect();
+    const py=e.clientY-r.top;
+    const delta=Math.round((edPianoDrag.startY-py)/ED_ROW_H);
+    edPitchScroll(edPianoDrag.startPitch+delta-edScrollPitch);
+    return;
+  }
   if(!edDrag)return;
   const r=edCv.getBoundingClientRect();
   const px=e.clientX-r.left, py=e.clientY-r.top;
@@ -2169,6 +2243,7 @@ function edPointerMove(e){
 }
 
 function edPointerUp(){
+  edPianoDrag=null;
   if(edDrag&&edSel>=0&&edNotes[edSel]){
     // Reposition float input after drag
     const floatInp=document.getElementById("edFloatLyric");
@@ -2343,6 +2418,10 @@ loadSupabaseSongs();
       <button class="ed-mode-btn on" id="edModeSelect" onclick="setEdMode('select')" title="Select &amp; Move (S)">↖ Select</button>
       <button class="ed-mode-btn" id="edModeDraw" onclick="setEdMode('draw')" title="Draw Note (D)">✏ Draw</button>
       <button class="ed-mode-btn" id="edModeErase" onclick="setEdMode('erase')" title="Erase Note (E)">⌫ Erase</button>
+    </div>
+    <div class="ed-pitch-btns" title="Scroll piano up/down an octave (or drag the piano keys)">
+      <button onclick="edPitchScroll(-12)">▲ 8va</button>
+      <button onclick="edPitchScroll(+12)">▼ 8va</button>
     </div>
     <div class="ed-grid-group">
       <span style="font-size:10px;color:var(--muted)">Grid</span>
