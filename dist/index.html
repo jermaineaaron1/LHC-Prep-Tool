@@ -431,7 +431,7 @@
     }
 
     /* ==================== BASE STYLES ==================== */
-    html { height: 100%; margin: 0; }
+    html { height: 100%; margin: 0; overflow-x: hidden; }
     body { min-height: 100%; margin: 0; overflow-x: hidden; }
     body {
       font-family: "Lato", system-ui, -apple-system, sans-serif;
@@ -2635,11 +2635,14 @@
 
       /* ---- MODALS GENERAL ---- */
       .modal-content, .lhc-modal-content { width: 95% !important; max-width: 100% !important; margin: 10px auto; padding: 14px; border-radius: 12px; }
-      /* Add/Edit Song modal overrides — full-screen bottom sheet (asm-content media query handles it) */
+      /* Add/Edit Song modal — opens full-width from top ("center top") */
+      #addSongModal, #editSongModal { padding: 0 !important; align-items: flex-start !important; }
       #addSongModal .asm-content, #editSongModal .asm-content {
         width: 100% !important; max-width: 100% !important;
+        max-height: 95vh !important; max-height: 95dvh !important;
         margin: 0 !important; padding: 0 !important;
-        border-radius: 20px 20px 0 0 !important;
+        border-radius: 0 0 20px 20px !important;
+        display: flex; flex-direction: column; overflow: hidden;
       }
 
       /* Toast */
@@ -2660,16 +2663,18 @@
       #lyricsPreviewModal .modal-content {
         width: 100% !important;
         max-width: 100% !important;
-        max-height: 97dvh !important;
-        max-height: 97vh !important; /* fallback */
-        height: 97dvh;
-        height: 97vh; /* fallback */
+        height: calc(97vh + 5px);
+        height: calc(97dvh + 5px);
+        max-height: calc(97vh + 5px) !important;
+        max-height: calc(97dvh + 5px) !important;
         border-radius: 20px 20px 0 0 !important;
         margin: 0 !important;
       }
       /* Compact header panel */
       #lyricsPreviewHeaderPanel { padding: 10px 14px !important; }
-      #lyricsPreviewTitle { font-size: 1rem !important; }
+      /* Fix: long song titles must not push the close button off-screen */
+      #lyricsPreviewHeaderPanel .flex.items-center.justify-between > div:first-child { flex: 1; min-width: 0; overflow: hidden; }
+      #lyricsPreviewTitle { font-size: 1rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #lyricsPreviewArtist { font-size: 0.72rem !important; margin-top: 2px !important; }
       /* Toolbar: horizontal scroll row instead of wrapping */
       #lyricsPreviewToolbar {
@@ -6538,7 +6543,7 @@
       border-bottom: 1px solid #eef0f6;
       background: #fff;
     }
-    .asm-scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1; padding: 0 14px 8px; }
+    .asm-scroll { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; flex: 1; padding: 0 14px 8px; }
     .asm-body { padding: 12px 0 100px; }
     .asm-footer {
       position: sticky; bottom: 0;
@@ -53896,7 +53901,7 @@ function filterLiturgyItems() {
 
   /* 354B — Songbook file attachments */
   /* ── Mobile Song Action Sheet ── */
-  #msasPanel { position:fixed; bottom:0; left:0; right:0; background:white; border-radius:20px 20px 0 0; padding:0 0 env(safe-area-inset-bottom,0); box-shadow:0 -8px 40px rgba(0,0,0,0.18); z-index:9101; transform:translateY(100%); transition:transform 0.3s cubic-bezier(0.32,0.72,0,1); }
+  #msasPanel { position:fixed; bottom:0; left:0; right:0; background:white; border-radius:20px 20px 0 0; padding:0 0 env(safe-area-inset-bottom,24px); box-shadow:0 -8px 40px rgba(0,0,0,0.18); z-index:9101; transform:translateY(100%); transition:transform 0.3s cubic-bezier(0.32,0.72,0,1); box-sizing:border-box; max-width:100vw; overflow:hidden; }
   #mobileSongActionSheet.msas-open #msasPanel { transform:translateY(0); }
   #msasHandle { width:40px; height:4px; background:#e2e8f0; border-radius:2px; margin:10px auto 0; }
   #msasHeader { padding:14px 20px 12px; border-bottom:1px solid #f1f5f9; }
