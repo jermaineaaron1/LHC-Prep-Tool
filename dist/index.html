@@ -21964,17 +21964,56 @@ var WO = (function() {
       $('woPreviewPanel').style.display = 'none';
       var _fab = document.getElementById('woPreviewFab');
       if (_fab) _fab.style.display = 'none';
+      _exitServiceOrderLayout();
       initializeSongOrder();
     } else {
       $('woServiceOrderBtn').classList.add('active');
       document.querySelector('.wo-main-content').classList.remove('wo-song-order');
-      $('woPreviewPanel').style.display = 'block';
+      $('woPreviewPanel').style.display = 'flex';
       initializeServiceOrder();
       // Start preview blank — auto-selections during init should not project content
       setTimeout(_clearPreviewToBlank, 0);
       // On mobile, start with the preview panel collapsed and show the FAB
       initMobilePreview();
+      // Make preview panel follow while scrolling
+      setTimeout(_enterServiceOrderLayout, 50);
     }
+  }
+
+  var _serviceLayoutResizeHandler = null;
+
+  function _enterServiceOrderLayout() {
+    var main = document.querySelector('.wo-main-content');
+    var pp = document.getElementById('woPreviewPanel');
+    if (!main || !pp) return;
+    function applyLayout() {
+      // Scroll to top first so rect.top gives distance from viewport top
+      var rect = main.getBoundingClientRect();
+      var availH = window.innerHeight - rect.top - 12;
+      if (availH < 300) availH = 500;
+      main.style.height = availH + 'px';
+      main.style.minHeight = '0';
+      var wo = main.querySelector('.wo-worship-order');
+      if (wo) { wo.style.overflowY = 'auto'; wo.style.height = '100%'; }
+      pp.style.position = 'sticky';
+      pp.style.top = '8px';
+      pp.style.alignSelf = 'flex-start';
+      pp.style.maxHeight = (availH - 8) + 'px';
+    }
+    requestAnimationFrame(applyLayout);
+    if (_serviceLayoutResizeHandler) window.removeEventListener('resize', _serviceLayoutResizeHandler);
+    _serviceLayoutResizeHandler = function() { requestAnimationFrame(applyLayout); };
+    window.addEventListener('resize', _serviceLayoutResizeHandler);
+  }
+
+  function _exitServiceOrderLayout() {
+    var main = document.querySelector('.wo-main-content');
+    var pp = document.getElementById('woPreviewPanel');
+    if (_serviceLayoutResizeHandler) { window.removeEventListener('resize', _serviceLayoutResizeHandler); _serviceLayoutResizeHandler = null; }
+    if (main) { main.style.height = ''; main.style.minHeight = ''; }
+    var wo = main ? main.querySelector('.wo-worship-order') : null;
+    if (wo) { wo.style.overflowY = ''; wo.style.height = ''; }
+    if (pp) { pp.style.position = ''; pp.style.top = ''; pp.style.alignSelf = ''; pp.style.maxHeight = ''; }
   }
 
   /* Reset the projection preview to the empty placeholder state (called after order loads) */
