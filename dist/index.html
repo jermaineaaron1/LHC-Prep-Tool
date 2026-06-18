@@ -27090,6 +27090,7 @@ var WO = (function() {
       '<div class="wo-slides-header">' +
         '<div class="wo-slides-title"><i class="fa-solid fa-file-powerpoint"></i> ' + escapeHtml(slidesName) + '</div>' +
         '<div class="wo-slides-actions">' +
+          '<button class="wo-slides-reload-btn" onclick="WO.reloadSlidesIframe(\'' + cId + '\')" title="Slides turned white? Click to reload from slide 1" style="background:rgba(255,255,255,0.18);color:white;border:1px solid rgba(255,255,255,0.35);padding:5px 11px;border-radius:7px;cursor:pointer;font-size:0.78rem;font-weight:600;display:flex;align-items:center;gap:5px;"><i class="fa-solid fa-rotate-right"></i> Reload</button>' +
           '<button class="wo-slides-fullscreen-btn" onclick="WO.fullscreenSlides(\'' + cId + '\')" title="Open fullscreen in this window"><i class="fa-solid fa-expand"></i></button>' +
           '<button class="wo-slides-remove-btn" onclick="WO.removeSlideContainer(\'' + cId + '\')" title="Remove this presentation"><i class="fa-solid fa-times"></i></button>' +
         '</div>' +
@@ -27101,7 +27102,7 @@ var WO = (function() {
         '<button class="wo-slides-add-another-btn" onclick="event.stopPropagation();WO.openSlidesModalTab(\'' + sectionId + '\',\'url\')" title="Attach another presentation">' +
           '<i class="fa-solid fa-plus"></i> Add another presentation' +
         '</button>' +
-        '<span class="wo-slides-footer-hint"><i class="fa-solid fa-circle-info"></i> Navigate slides inside the viewer</span>' +
+        '<span class="wo-slides-footer-hint"><i class="fa-solid fa-circle-info"></i> Navigate slides inside the viewer · If it goes white, press <strong>Reload</strong></span>' +
       '</div>' +
       '</div>';
 
@@ -28515,6 +28516,19 @@ var WO = (function() {
     var cont = document.querySelector('.wo-slides-container[data-section="' + sectionId + '"]');
     if (cont) { _selectedPptContainer = cont; activeNavigationMode = 'ppt-iframe'; }
     showToast('Mirroring presentation on secondary screen', 'success');
+  }
+
+  // Reset the iframe to slide 1 — fixes the "goes white at end" issue with embedded viewers
+  function reloadSlidesIframe(containerId) {
+    var cEl = document.getElementById(containerId);
+    if (!cEl) return;
+    var iframe = cEl.querySelector('.wo-slides-iframe');
+    var embedUrl = cEl.getAttribute('data-embed-url');
+    if (!iframe || !embedUrl) return;
+    // Reset src to force a fresh load from the beginning
+    iframe.src = '';
+    setTimeout(function() { iframe.src = embedUrl; }, 80);
+    showToast('Reloading presentation from slide 1…', 'info');
   }
 
   // Fullscreen slides in current window — accepts either a container ID (new) or sectionId (legacy)
@@ -45850,6 +45864,7 @@ var WO = (function() {
     nextSlide: nextSlide,
     fullscreenSlides: fullscreenSlides,
     projectIframeSlides: projectIframeSlides,
+    reloadSlidesIframe: reloadSlidesIframe,
     // Local PPTX upload modal functions
     closeSlidesModal: closeSlidesModal,
     switchSlidesTab: switchSlidesTab,
