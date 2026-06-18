@@ -10839,9 +10839,10 @@ function renderRichEditor(text) {
       html += '<div class="editor-section-header ' + sectionType + '" data-line="' + idx + '">' + esc(trimmed) + '</div>';
     }
     // Check for section header without brackets (e.g., "Verse 1", "Chorus")
+    // Display with brackets so they look consistent with [bracket] style headers
     else if (isSectionHeaderNoBrackets(trimmed)) {
       var sectionType = getSectionType(trimmed);
-      html += '<div class="editor-section-header ' + sectionType + '" data-line="' + idx + '">' + esc(trimmed) + '</div>';
+      html += '<div class="editor-section-header ' + sectionType + '" data-line="' + idx + '">[' + esc(trimmed) + ']</div>';
     }
     else if (isChordLine(line)) {
       // Keep chord line simple to preserve exact spacing
@@ -12135,10 +12136,16 @@ function insertSection(sectionName) {
   var text = textarea.value || '';
   var insertion = '[' + sectionName + ']\n';
 
-  // Insert at caret position if the rich editor is focused and has a selection
-  var caretPos = text.length; // default: end
+  // Insert at the last known caret position. When the user clicks a section button
+  // the richEditor loses focus first (blur saves _savedCaretPos), so we use that
+  // saved position rather than defaulting to end-of-text.
+  var caretPos;
   if (richEditor && document.activeElement === richEditor) {
     caretPos = getCaretCharacterOffsetWithin(richEditor);
+  } else if (richEditor && richEditor._savedCaretPos != null) {
+    caretPos = richEditor._savedCaretPos;
+  } else {
+    caretPos = text.length;
   }
 
   // Ensure insertion lands on its own line:
