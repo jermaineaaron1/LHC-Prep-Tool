@@ -21987,18 +21987,21 @@ var WO = (function() {
     var pp = document.getElementById('woPreviewPanel');
     if (!main || !pp) return;
     function applyLayout() {
-      // Scroll to top first so rect.top gives distance from viewport top
-      var rect = main.getBoundingClientRect();
-      var availH = window.innerHeight - rect.top - 12;
-      if (availH < 300) availH = 500;
-      main.style.height = availH + 'px';
-      main.style.minHeight = '0';
-      var wo = main.querySelector('.wo-worship-order');
-      if (wo) { wo.style.overflowY = 'auto'; wo.style.height = '100%'; }
-      pp.style.position = 'sticky';
+      // Compute right offset: how far the main content's right edge is from the viewport right
+      var mainRect = main.getBoundingClientRect();
+      var rightOffset = Math.max(8, window.innerWidth - mainRect.right);
+      var panelW = 450;
+      // Fix the panel so it stays visible while the header and order list scroll freely
+      pp.style.position = 'fixed';
+      pp.style.right = rightOffset + 'px';
       pp.style.top = '8px';
-      pp.style.alignSelf = 'flex-start';
-      pp.style.maxHeight = (availH - 8) + 'px';
+      pp.style.width = panelW + 'px';
+      pp.style.height = 'calc(100vh - 16px)';
+      pp.style.maxHeight = 'calc(100vh - 16px)';
+      pp.style.zIndex = '200';
+      // Keep the worship order from sliding under the fixed panel
+      var wo = main.querySelector('.wo-worship-order');
+      if (wo) wo.style.paddingRight = (panelW + rightOffset + 8) + 'px';
     }
     requestAnimationFrame(applyLayout);
     if (_serviceLayoutResizeHandler) window.removeEventListener('resize', _serviceLayoutResizeHandler);
@@ -22010,10 +22013,9 @@ var WO = (function() {
     var main = document.querySelector('.wo-main-content');
     var pp = document.getElementById('woPreviewPanel');
     if (_serviceLayoutResizeHandler) { window.removeEventListener('resize', _serviceLayoutResizeHandler); _serviceLayoutResizeHandler = null; }
-    if (main) { main.style.height = ''; main.style.minHeight = ''; }
     var wo = main ? main.querySelector('.wo-worship-order') : null;
-    if (wo) { wo.style.overflowY = ''; wo.style.height = ''; }
-    if (pp) { pp.style.position = ''; pp.style.top = ''; pp.style.alignSelf = ''; pp.style.maxHeight = ''; }
+    if (wo) wo.style.paddingRight = '';
+    if (pp) { pp.style.position = ''; pp.style.right = ''; pp.style.top = ''; pp.style.width = ''; pp.style.height = ''; pp.style.maxHeight = ''; pp.style.zIndex = ''; }
   }
 
   /* Reset the projection preview to the empty placeholder state (called after order loads) */
@@ -27119,7 +27121,7 @@ var WO = (function() {
       _selectedPptContainer = newContainer;
       newContainer.addEventListener('click', function() { _activatePptContainer(newContainer); });
       _attachPptIframeObserver(newContainer);
-      setTimeout(function() { newContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 300);
+      if (!silent) setTimeout(function() { newContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 300);
     }
   }
 
