@@ -540,40 +540,61 @@ function normalize(notes){
 
 // ─── AUDIO / PITCH ───────────────────────────────────────────────────────────
 let audioCtx,analyser,micStream,timeBuf;
+let _umRaw=null,_umHoldFrames=0; // hold last pitch for a few frames to prevent glow flicker
 async function startMic(){
   audioCtx=new(window.AudioContext||window.webkitAudioContext)();
   micStream=await navigator.mediaDevices.getUserMedia({audio:{
-    echoCancellation:true,    // remove echo
-    noiseSuppression:true,    // reduce background noise
-    autoGainControl:false,    // we handle gain ourselves
+    echoCancellation:true,
+    noiseSuppression:false,   // off — browser NS distorts waveform and hurts autocorrelation
+    autoGainControl:false,
     channelCount:1
   }});
   const src=audioCtx.createMediaStreamSource(micStream);
-  // High-pass filter: cut everything below 80 Hz (rumble, HVAC, handling noise)
+  // High-pass: remove rumble/handling noise below 70 Hz
   const hpf=audioCtx.createBiquadFilter();
-  hpf.type="highpass"; hpf.frequency.value=80; hpf.Q.value=0.7;
-  // Low-pass filter: cut everything above 1100 Hz (hiss, sibilance artefacts)
+  hpf.type="highpass"; hpf.frequency.value=70; hpf.Q.value=0.7;
+  // Low-pass: pass up to 2200 Hz so harmonics are available for autocorrelation
+  // (soprano/tenor 2nd-3rd harmonics reach 1500-2000 Hz)
   const lpf=audioCtx.createBiquadFilter();
-  lpf.type="lowpass"; lpf.frequency.value=1100; lpf.Q.value=0.7;
+  lpf.type="lowpass"; lpf.frequency.value=2200; lpf.Q.value=0.7;
   analyser=audioCtx.createAnalyser();
-  analyser.fftSize=2048;
-  analyser.smoothingTimeConstant=0.4; // mild smoothing to reduce jitter
+  analyser.fftSize=4096; // larger buffer = better low-frequency resolution
+  analyser.smoothingTimeConstant=0.1; // minimal smoothing — we handle it ourselves
   src.connect(hpf); hpf.connect(lpf); lpf.connect(analyser);
   timeBuf=new Float32Array(analyser.fftSize);
+  _umRaw=null; _umHoldFrames=0;
 }
 function detectPitch(buf,sr){
-  let SIZE=buf.length,rms=0;for(let i=0;i<SIZE;i++){const v=buf[i];rms+=v*v;}rms=Math.sqrt(rms/SIZE);
-  if(rms<0.025)return -1; // noise gate (10% more sensitive than before)
-  let r1=0,r2=SIZE-1;const th=0.2;
-  for(let i=0;i<SIZE/2;i++){if(Math.abs(buf[i])<th){r1=i;break;}}
-  for(let i=1;i<SIZE/2;i++){if(Math.abs(buf[SIZE-i])<th){r2=SIZE-i;break;}}
-  const b=buf.slice(r1,r2);SIZE=b.length;if(SIZE<32)return -1;
-  const c=new Float32Array(SIZE);
-  for(let i=0;i<SIZE;i++)for(let j=0;j<SIZE-i;j++)c[i]+=b[j]*b[j+i];
-  let d=0;while(d<SIZE-1&&c[d]>c[d+1])d++;
-  let mv=-1,mp=-1;for(let i=d;i<SIZE;i++){if(c[i]>mv){mv=c[i];mp=i;}}
-  let T0=mp;const x1=c[T0-1]||0,x2=c[T0]||0,x3=c[T0+1]||0,a=(x1+x3-2*x2)/2,bb=(x3-x1)/2;
-  if(a)T0=T0-bb/(2*a);const f=sr/T0;if(f<70||f>1200)return -1;return f;
+  const SIZE=buf.length;
+  // RMS noise gate — reject silence and breath noise
+  let rms=0; for(let i=0;i<SIZE;i++){const v=buf[i];rms+=v*v;} rms=Math.sqrt(rms/SIZE);
+  if(rms<0.03)return -1;
+
+  // Autocorrelation over the full buffer (no windowing trim — keeps more signal)
+  const HALF=SIZE>>1;
+  const c=new Float32Array(HALF);
+  for(let lag=0;lag<HALF;lag++){
+    let s=0; for(let j=0;j<HALF;j++) s+=buf[j]*buf[j+lag];
+    c[lag]=s;
+  }
+
+  // Confidence check: peak must be ≥55% of zero-lag energy
+  const energy=c[0];
+  if(energy<1e-6)return -1;
+
+  // Find first valley then first strong peak
+  let d=1; while(d<HALF-1&&c[d]>c[d+1])d++;
+  let mv=-1,mp=-1;
+  for(let i=d;i<HALF;i++){if(c[i]>mv){mv=c[i];mp=i;}}
+  if(mp<2||mv/energy<0.55)return -1; // not confident enough
+
+  // Parabolic interpolation for sub-sample accuracy
+  const y1=c[mp-1],y2=c[mp],y3=c[mp+1];
+  const denom=2*(2*y2-y1-y3);
+  const T0=denom!==0?mp+(y3-y1)/denom:mp;
+  const f=sr/T0;
+  if(f<70||f>1300)return -1;
+  return f;
 }
 function smoothSamples(s){return s.map((x,i)=>{const w=[s[i-1],s[i],s[i+1]].filter(v=>v&&v.midi!=null).map(v=>v.midi);if(!w.length)return{t:x.t,midi:null};w.sort((a,b)=>a-b);return{t:x.t,midi:w[w.length>>1]};});}
 function samplesToNotes(samples){
@@ -800,7 +821,7 @@ async function startGameWithSettings(){
 }
 
 function startGame(song){
-  // show("play") FIRST so canvas is visible before resize() measures it
+  _umRaw=null; _umHoldFrames=0; // clear any stale pitch from previous session
   show("play");
   // Use requestAnimationFrame to let the browser paint the play screen
   // before we measure canvas dimensions — fixes W=0/H=0 on replay
@@ -864,10 +885,25 @@ function gameLoop(now){
   const el=(now-game.t0)/1000;
 
   // Pitch detection
-  let um=null;
-  if(analyser){analyser.getFloatTimeDomainData(timeBuf);const f=detectPitch(timeBuf,audioCtx.sampleRate);if(f>0)um=foldMidi(freqToMidi(f));}
-  if(um!=null)game.um=game.um==null?um:game.um*0.55+um*0.45;
-  else game.um=null;
+  if(analyser){
+    analyser.getFloatTimeDomainData(timeBuf);
+    const f=detectPitch(timeBuf,audioCtx.sampleRate);
+    if(f>0){
+      let raw=freqToMidi(f);
+      // Fold to nearest octave of the ACTIVE note (corrects octave errors in autocorrelation
+      // without dragging wrong pitches into range the way a blanket foldMidi would)
+      if(act){
+        let best=raw,bestD=Math.abs(raw-act.m);
+        for(let sh=-2;sh<=2;sh++){const m=raw+sh*12;const d=Math.abs(m-act.m);if(d<bestD){bestD=d;best=m;}}
+        raw=best;
+      }
+      _umRaw=_umRaw==null?raw:_umRaw*0.35+raw*0.65; // fast response (65% new)
+      _umHoldFrames=6; // hold glow for 6 frames after signal drops
+    } else {
+      if(_umHoldFrames>0){_umHoldFrames--;} else {_umRaw=null;}
+    }
+  }
+  game.um=_umRaw;
 
   // Find active note (first note whose window contains el)
   let act=null;
