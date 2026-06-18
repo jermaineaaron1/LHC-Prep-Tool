@@ -21983,25 +21983,23 @@ var WO = (function() {
   var _serviceLayoutResizeHandler = null;
 
   function _enterServiceOrderLayout() {
-    var main = document.querySelector('.wo-main-content');
+    var section = document.getElementById('worshipOrderView');
     var pp = document.getElementById('woPreviewPanel');
-    if (!main || !pp) return;
+    if (!section || !pp) return;
     function applyLayout() {
-      // Compute right offset: how far the main content's right edge is from the viewport right
-      var mainRect = main.getBoundingClientRect();
-      var rightOffset = Math.max(8, window.innerWidth - mainRect.right);
-      var panelW = 450;
-      // Fix the panel so it stays visible while the header and order list scroll freely
-      pp.style.position = 'fixed';
-      pp.style.right = rightOffset + 'px';
+      // Make the section itself the scroll container so the WO header can scroll away
+      // while position:sticky on the preview panel works cleanly within it.
+      var rect = section.getBoundingClientRect();
+      var availH = window.innerHeight - rect.top;
+      if (availH < 300) availH = 500;
+      section.style.height = availH + 'px';
+      section.style.overflowY = 'auto';
+      // Sticky preview panel inside the scroll container
+      pp.style.position = 'sticky';
       pp.style.top = '8px';
-      pp.style.width = panelW + 'px';
-      pp.style.height = 'calc(100vh - 16px)';
-      pp.style.maxHeight = 'calc(100vh - 16px)';
-      pp.style.zIndex = '200';
-      // Keep the worship order from sliding under the fixed panel
-      var wo = main.querySelector('.wo-worship-order');
-      if (wo) wo.style.paddingRight = (panelW + rightOffset + 8) + 'px';
+      pp.style.alignSelf = 'flex-start';
+      pp.style.maxHeight = (availH - 16) + 'px';
+      pp.style.overflowY = 'auto';
     }
     requestAnimationFrame(applyLayout);
     if (_serviceLayoutResizeHandler) window.removeEventListener('resize', _serviceLayoutResizeHandler);
@@ -22010,12 +22008,11 @@ var WO = (function() {
   }
 
   function _exitServiceOrderLayout() {
-    var main = document.querySelector('.wo-main-content');
+    var section = document.getElementById('worshipOrderView');
     var pp = document.getElementById('woPreviewPanel');
     if (_serviceLayoutResizeHandler) { window.removeEventListener('resize', _serviceLayoutResizeHandler); _serviceLayoutResizeHandler = null; }
-    var wo = main ? main.querySelector('.wo-worship-order') : null;
-    if (wo) wo.style.paddingRight = '';
-    if (pp) { pp.style.position = ''; pp.style.right = ''; pp.style.top = ''; pp.style.width = ''; pp.style.height = ''; pp.style.maxHeight = ''; pp.style.zIndex = ''; }
+    if (section) { section.style.height = ''; section.style.overflowY = ''; }
+    if (pp) { pp.style.position = ''; pp.style.top = ''; pp.style.alignSelf = ''; pp.style.maxHeight = ''; pp.style.overflowY = ''; }
   }
 
   /* Reset the projection preview to the empty placeholder state (called after order loads) */
