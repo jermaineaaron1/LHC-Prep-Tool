@@ -884,27 +884,6 @@ function gameLoop(now){
   game.pausedAt=now-game.t0;
   const el=(now-game.t0)/1000;
 
-  // Pitch detection
-  if(analyser){
-    analyser.getFloatTimeDomainData(timeBuf);
-    const f=detectPitch(timeBuf,audioCtx.sampleRate);
-    if(f>0){
-      let raw=freqToMidi(f);
-      // Fold to nearest octave of the ACTIVE note (corrects octave errors in autocorrelation
-      // without dragging wrong pitches into range the way a blanket foldMidi would)
-      if(act){
-        let best=raw,bestD=Math.abs(raw-act.m);
-        for(let sh=-2;sh<=2;sh++){const m=raw+sh*12;const d=Math.abs(m-act.m);if(d<bestD){bestD=d;best=m;}}
-        raw=best;
-      }
-      _umRaw=_umRaw==null?raw:_umRaw*0.35+raw*0.65; // fast response (65% new)
-      _umHoldFrames=6; // hold glow for 6 frames after signal drops
-    } else {
-      if(_umHoldFrames>0){_umHoldFrames--;} else {_umRaw=null;}
-    }
-  }
-  game.um=_umRaw;
-
   // Find active note (first note whose window contains el)
   let act=null;
   for(let i=0;i<game.tl.events.length;i++){
@@ -912,6 +891,27 @@ function gameLoop(now){
     if(el>=e.start&&el<e.end){act=e;act._i=i;break;}
   }
   const actIdx=act?act._i:-1;
+
+  // Pitch detection (after act is known so we can fold to nearest octave of active note)
+  if(analyser){
+    analyser.getFloatTimeDomainData(timeBuf);
+    const f=detectPitch(timeBuf,audioCtx.sampleRate);
+    if(f>0){
+      let raw=freqToMidi(f);
+      // Fold to nearest octave of the active note — corrects autocorrelation octave errors
+      // without dragging wrong pitches into range the way blanket foldMidi would
+      if(act){
+        let best=raw,bestD=Math.abs(raw-act.m);
+        for(let sh=-2;sh<=2;sh++){const m=raw+sh*12;const d=Math.abs(m-act.m);if(d<bestD){bestD=d;best=m;}}
+        raw=best;
+      }
+      _umRaw=_umRaw==null?raw:_umRaw*0.35+raw*0.65;
+      _umHoldFrames=6;
+    } else {
+      if(_umHoldFrames>0){_umHoldFrames--;} else {_umRaw=null;}
+    }
+  }
+  game.um=_umRaw;
 
   // Transition: finalize previous note
   if(actIdx!==game.lastActIdx){
