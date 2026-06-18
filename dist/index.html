@@ -10435,7 +10435,14 @@ function _formatLyricsForSlides(rawText) {
 function callGASPromise(fn, args) {
   return new Promise(function(resolve) {
     if (typeof google !== 'undefined' && google.script && google.script.run) {
-      google.script.run.withSuccessHandler(resolve).withFailureHandler(function(e){ resolve({ success: false, error: e.message }); })[fn].apply(null, args || []);
+      var runner = google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(function(e){ resolve({ success: false, error: e.message }); });
+      if (typeof runner[fn] !== 'function') {
+        resolve({ success: false, error: 'Function not available via GAS: ' + fn });
+        return;
+      }
+      runner[fn].apply(runner, args || []);
     } else if (typeof callGAS === 'function') {
       callGAS(fn, args).then(resolve).catch(function(e){ resolve({ success: false, error: e.message }); });
     } else {
