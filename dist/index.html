@@ -32128,16 +32128,16 @@ var WO = (function() {
       html += '<div class="sb-ctrl-title">' + escapeHtml(song.title) + '</div>';
       if (song.artist) html += '<div class="sb-ctrl-artist">by ' + escapeHtml(song.artist) + '</div>';
       if (item.sectionLabel) html += '<div class="sb-ctrl-section-lbl">' + escapeHtml(item.sectionLabel) + '</div>';
-      html += '</div>';
-      html += '</div>'; // .sb-ctrl-drag
-      // All tool buttons (transpose, media badges, 2-col, liturgist notes)
-      html += '<div class="sb-page-header-btns" id="sbHdrBtns-' + sid + '">';
       html += '<div class="sb-page-transpose">';
       html += '<button class="sb-xp-btn" onclick="WO.sbTranspose(\'' + sid + '\',-1)" title="Transpose down">&#9837;</button>';
       html += '<button class="sb-xp-btn ori" onclick="WO.sbResetTranspose(\'' + sid + '\')" title="Reset to original key">Ori</button>';
       html += '<button class="sb-xp-btn" onclick="WO.sbTranspose(\'' + sid + '\',1)" title="Transpose up">&#9839;</button>';
       html += '<span class="sb-xp-key" id="sbKey-' + sid + '">' + escapeHtml(keyDisplay || (song.key || '')) + '</span>';
       html += '</div>';
+      html += '</div>';
+      html += '</div>'; // .sb-ctrl-drag
+      // Tool buttons (media badges, 2-col, liturgist notes)
+      html += '<div class="sb-page-header-btns" id="sbHdrBtns-' + sid + '">';
 
       // 661 — Badge groups: Videos / Docs / Links (each a single clickable badge with dropdown)
 
@@ -32145,21 +32145,26 @@ var WO = (function() {
       if (allVideos.length === 1) {
         var info0 = window.detectMediaType ? window.detectMediaType(allVideos[0]) : null;
         var mIcon0 = (info0 && info0.type === 'spotify') ? 'fa-brands fa-spotify' : 'fa-brands fa-youtube';
-        // YouTube title patched async; Spotify uses its label; others use domain
         var vLbl0 = (info0 && info0.type === 'spotify') ? (info0.label || 'Spotify') :
                     (info0 && info0.type === 'youtube') ? 'YouTube Video' :
                     sbDomainLabel(allVideos[0]);
-        html += '<div class="sb-badge-rm-wrap">' +
-          '<button class="sb-doc-toggle-btn sb-vid-toggle-btn sb-badge-btn" id="sbVidBtn-' + sid + '-0"' +
-          ' onclick="WO.sbToggleVideo(\'' + sid + '\',0)">' +
+        html += '<div class="sb-badge-wrap" id="sbVidBadgeWrap-' + sid + '">' +
+          '<button class="sb-badge-btn sb-badge-video sb-vid-icon-btn" id="sbVidBadgePill-' + sid + '"' +
+          ' onclick="WO.sbToggleBadgeDrop(\'' + sid + '\',\'vid\')">' +
+          '<i class="' + mIcon0 + '"></i>' +
+          '<i class="fa-solid fa-caret-down sb-badge-caret" id="sbVidCaret-' + sid + '"></i></button>' +
+          '<div class="sb-badge-drop" id="sbVidDrop-' + sid + '">' +
+          '<div class="sb-badge-drop-row">' +
+          '<button class="sb-badge-drop-item sb-doc-toggle-btn sb-vid-toggle-btn" id="sbVidBtn-' + sid + '-0"' +
+          ' onclick="WO.sbToggleVideo(\'' + sid + '\',0);WO.sbCloseBadgeDrop(\'' + sid + '\',\'vid\')">' +
           '<i class="' + mIcon0 + '"></i> ' + escapeHtml(vLbl0.length>25?vLbl0.substring(0,25)+'\u2026':vLbl0) + '</button>' +
-          '<button class="sb-badge-rm-btn" onclick="event.stopPropagation();WO.sbRemoveVideo(\'' + sid + '\',0)" title="Remove link"><i class="fa-solid fa-xmark"></i></button>' +
-          '</div>';
+          '<button class="sb-badge-drop-rm" onclick="event.stopPropagation();WO.sbRemoveVideo(\'' + sid + '\',0)" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
+          '</div></div></div>';
       } else if (allVideos.length > 1) {
         html += '<div class="sb-badge-wrap" id="sbVidBadgeWrap-' + sid + '">' +
-          '<button class="sb-badge-btn sb-badge-video" id="sbVidBadgePill-' + sid + '"' +
+          '<button class="sb-badge-btn sb-badge-video sb-vid-icon-btn" id="sbVidBadgePill-' + sid + '"' +
           ' onclick="WO.sbToggleBadgeDrop(\'' + sid + '\',\'vid\')">' +
-          '<i class="fa-brands fa-youtube"></i> Videos' +
+          '<i class="fa-brands fa-youtube"></i>' +
           '<span class="sb-badge-count">' + allVideos.length + '</span>' +
           '<i class="fa-solid fa-caret-down sb-badge-caret" id="sbVidCaret-' + sid + '"></i></button>' +
           '<div class="sb-badge-drop" id="sbVidDrop-' + sid + '">';
@@ -35729,16 +35734,10 @@ var WO = (function() {
       .filter(function(u) { return removedVidUrls.indexOf(u) === -1; });
     var allVideos = libVideos.concat(Array.isArray(song.customYoutube) ? song.customYoutube : []);
     var h = '';
-    h += '<div class="sb-page-transpose">';
-    h += '<button class="sb-xp-btn" onclick="WO.sbTranspose(\'' + sid + '\',-1)" title="Transpose down">&#9837;</button>';
-    h += '<button class="sb-xp-btn ori" onclick="WO.sbResetTranspose(\'' + sid + '\')" title="Reset to original key">Ori</button>';
-    h += '<button class="sb-xp-btn" onclick="WO.sbTranspose(\'' + sid + '\',1)" title="Transpose up">&#9839;</button>';
-    h += '<span class="sb-xp-key" id="sbKey-' + sid + '">' + escapeHtml(keyDisplay || key) + '</span>';
-    h += '</div>';
     if (allVideos.length >= 1) {
       var info0 = window.detectMediaType ? window.detectMediaType(allVideos[0]) : null;
       var vidIcon0 = (info0 && info0.type === 'spotify') ? 'fa-brands fa-spotify' : 'fa-brands fa-youtube';
-      h += '<div class="sb-badge-wrap" id="sbVidBadgeWrap-' + sid + '"><button class="sb-badge-btn sb-badge-video" id="sbVidBadgePill-' + sid + '" onclick="WO.sbToggleBadgeDrop(\'' + sid + '\',\'vid\')"><i class="' + vidIcon0 + '"></i> Videos<span class="sb-badge-count">' + allVideos.length + '</span><i class="fa-solid fa-caret-down sb-badge-caret" id="sbVidCaret-' + sid + '"></i></button><div class="sb-badge-drop" id="sbVidDrop-' + sid + '">';
+      h += '<div class="sb-badge-wrap" id="sbVidBadgeWrap-' + sid + '"><button class="sb-badge-btn sb-badge-video sb-vid-icon-btn" id="sbVidBadgePill-' + sid + '" onclick="WO.sbToggleBadgeDrop(\'' + sid + '\',\'vid\')"><i class="' + vidIcon0 + '"></i>' + (allVideos.length > 1 ? '<span class="sb-badge-count">' + allVideos.length + '</span>' : '') + '<i class="fa-solid fa-caret-down sb-badge-caret" id="sbVidCaret-' + sid + '"></i></button><div class="sb-badge-drop" id="sbVidDrop-' + sid + '">';
       allVideos.forEach(function(url, vi) {
         var info = window.detectMediaType ? window.detectMediaType(url) : null;
         var mIcon = (info && info.type === 'spotify') ? 'fa-brands fa-spotify' : 'fa-brands fa-youtube';
@@ -54099,7 +54098,7 @@ function filterLiturgyItems() {
   .sb-thick-btn.active { background:rgba(255,255,255,0.25); border-color:rgba(255,255,255,0.6); }
   .sb-thick-dot { border-radius:50%; background:white; display:block; }
   /* Ori transpose reset button */
-  .sb-xp-btn.ori { font-size:0.9rem; font-weight:700; padding:0 9px; letter-spacing:0.03em; color:#94a3b8; border-color:#e2e8f0; width:auto; min-width:53px; }
+  .sb-xp-btn.ori { font-size:0.82rem; font-weight:700; padding:0 7px; letter-spacing:0.03em; color:#94a3b8; border-color:#e2e8f0; width:auto; min-width:43px; }
 
   .sb-body { flex:1; overflow-y:auto; overflow-x:auto; background:#c8d0dc; padding:32px 24px 80px; display:flex; flex-direction:column; align-items:center; gap:0; }
 
@@ -54108,14 +54107,17 @@ function filterLiturgyItems() {
   /* Controls bar — dark strip above white A4 page, holds all interactive tools */
   .sb-page-controls-bar { width:210mm; box-sizing:border-box; display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:7px 14px; background:#1a2840; border-radius:8px 8px 0 0; border-bottom:2px solid #0d9488; }
   /* Drag handle inside controls bar */
-  .sb-ctrl-drag { display:flex; align-items:center; gap:8px; cursor:grab; padding:3px 6px; border-radius:6px; max-width:300px; min-width:0; flex-shrink:0; }
+  .sb-ctrl-drag { display:flex; align-items:flex-start; gap:8px; cursor:grab; padding:3px 6px; border-radius:6px; max-width:460px; min-width:0; flex:1; }
   .sb-ctrl-drag:hover { background:rgba(255,255,255,0.08); }
   .sb-ctrl-drag:active { cursor:grabbing; }
   .sb-ctrl-num { width:26px; height:26px; border-radius:50%; background:rgba(255,255,255,0.18); color:white; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.78rem; flex-shrink:0; }
-  .sb-ctrl-info { min-width:0; overflow:hidden; }
+  .sb-ctrl-info { min-width:0; overflow:visible; flex:1; }
   .sb-ctrl-title { color:rgba(255,255,255,0.97); font-size:1rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sb-ctrl-artist { color:rgba(255,255,255,0.5); font-size:0.7rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sb-ctrl-section-lbl { display:inline-block; font-size:0.65rem; padding:1px 6px; border-radius:10px; background:rgba(20,184,166,0.25); color:#2dd4bf; border:1px solid rgba(20,184,166,0.4); white-space:nowrap; margin-top:1px; }
+  .sb-ctrl-num { margin-top:4px; }
+  .sb-ctrl-info .sb-page-transpose { margin-top:5px; }
+  .sb-vid-icon-btn { padding:5px 8px !important; }
   /* Dark-theme overrides for controls inside the controls bar */
   .sb-page-controls-bar .sb-page-transpose .sb-xp-btn { background:rgba(255,255,255,0.1); border-color:rgba(255,255,255,0.2); color:rgba(255,255,255,0.85); }
   .sb-page-controls-bar .sb-page-transpose .sb-xp-btn:hover { background:rgba(255,255,255,0.2); }
@@ -54218,7 +54220,7 @@ function filterLiturgyItems() {
   /* Compact page header inside the white A4 card — matches book mode / print header */
   .sb-page-header { display:flex; align-items:center; gap:14px; padding:14px 24px 10px; border-bottom:2px solid #e2e8f0; background:#fafbff; }
   /* Controls row inside the dark controls bar */
-  .sb-page-header-btns { display:flex; align-items:center; gap:6px; flex-wrap:wrap; flex:1; min-width:0; }
+  .sb-page-header-btns { display:flex; align-items:center; gap:6px; flex-wrap:wrap; flex:0 0 auto; flex-shrink:0; }
   .sb-page-num { width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#1e3a8a,#3b82f6); color:white; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.95rem; flex-shrink:0; }
   .sb-page-info { flex:1; min-width:0; }
   /* Open-full-page bar above embedded doc panels */
@@ -54263,7 +54265,7 @@ function filterLiturgyItems() {
   .sb-page-title { font-size:1.35rem; font-weight:700; color:#1e293b; font-family:'Cinzel',Georgia,serif; line-height:1.2; }
   .sb-page-artist { font-size:0.82rem; color:#64748b; margin-top:2px; }
   .sb-page-transpose { display:flex; align-items:center; gap:3px; flex-shrink:0; }
-  .sb-xp-btn { width:53px; height:53px; border:1.5px solid #c7d6ef; border-radius:12px; background:linear-gradient(180deg,#ffffff 0%,#eef3ff 100%); box-shadow:0 1px 3px rgba(74,109,167,0.18),inset 0 1px 0 rgba(255,255,255,0.92); cursor:pointer; font-size:1.4rem; display:flex; align-items:center; justify-content:center; font-weight:700; color:#4a6da7; transition:all 0.15s; }
+  .sb-xp-btn { width:43px; height:43px; border:1.5px solid #c7d6ef; border-radius:9px; background:linear-gradient(180deg,#ffffff 0%,#eef3ff 100%); box-shadow:0 1px 3px rgba(74,109,167,0.18),inset 0 1px 0 rgba(255,255,255,0.92); cursor:pointer; font-size:1.15rem; display:flex; align-items:center; justify-content:center; font-weight:700; color:#4a6da7; transition:all 0.15s; }
   .sb-xp-btn:hover { background:linear-gradient(180deg,#eef2ff 0%,#dbe4ff 100%); border-color:#6366f1; color:#6366f1; box-shadow:0 2px 7px rgba(99,102,241,0.22),inset 0 1px 0 rgba(255,255,255,0.9); }
   .sb-xp-key { font-size:0.85rem; font-weight:700; color:#6366f1; min-width:32px; text-align:center; margin-left:4px; }
 
