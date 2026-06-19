@@ -10261,22 +10261,73 @@ async function handleCameraCapture(input, mode) {
   input.value = '';
   if (!file) return;
   var statusEl = document.getElementById(mode + 'SongFileStatus');
-  window['_localFile_' + mode] = file;
-  statusEl.innerHTML = '<span style="font-weight:600;color:#1e293b">📷 ' + escapeHtml(file.name) + '</span> <span style="color:#94a3b8">⏳ Running OCR… (10–20 sec)</span>';
+  statusEl.innerHTML = '<span style="color:#94a3b8">⏳ Creating PDF…</span>';
   try {
-    if (file.size > 10 * 1024 * 1024) throw new Error('Photo too large (max 10 MB).');
-    var b64 = await _fileToBase64(file);
-    var result = await callGASPromise('uploadAndOcrToDrive', [b64, file.type, file.name]);
-    if (!result || !result.success) throw new Error(result ? result.error : 'OCR failed');
-    if (!result.text || !result.text.trim()) throw new Error('No text detected. Make sure the page is well-lit.');
-    var formatted = _formatLyricsForSlides(result.text);
-    if (!window.songData) window.songData = {};
-    if (!window.songData[mode]) window.songData[mode] = {};
-    window.songData[mode].lyrics = formatted;
-    openLyricsEditor(mode);
-    statusEl.innerHTML = '<span style="color:#16a34a">✓ Camera scan complete — Lyrics Editor opened.</span>';
+    if (file.size > 30 * 1024 * 1024) throw new Error('Photo too large (max 30 MB).');
+
+    // Read image as data URL
+    var dataUrl = await new Promise(function(res, rej) {
+      var reader = new FileReader();
+      reader.onload = function(e) { res(e.target.result); };
+      reader.onerror = rej;
+      reader.readAsDataURL(file);
+    });
+
+    // Get natural dimensions to decide orientation
+    var img = await new Promise(function(res, rej) {
+      var i = new Image();
+      i.onload = function() { res(i); };
+      i.onerror = rej;
+      i.src = dataUrl;
+    });
+
+    var isLandscape = img.naturalWidth > img.naturalHeight;
+    var orientation = isLandscape ? 'l' : 'p';
+    var { jsPDF } = window.jspdf;
+    var doc = new jsPDF({ orientation: orientation, unit: 'mm', format: 'a4' });
+
+    // Page dims in mm (A4: 210×297; landscape flips to 297×210)
+    var pgW = isLandscape ? 297 : 210;
+    var pgH = isLandscape ? 210 : 297;
+    var margin = 8;
+    var availW = pgW - margin * 2;
+    var availH = pgH - margin * 2;
+
+    // Scale image to fill available area while keeping aspect ratio
+    var imgRatio = img.naturalWidth / img.naturalHeight;
+    var areaRatio = availW / availH;
+    var drawW, drawH;
+    if (imgRatio > areaRatio) {
+      drawW = availW; drawH = availW / imgRatio;
+    } else {
+      drawH = availH; drawW = availH * imgRatio;
+    }
+    var x = margin + (availW - drawW) / 2;
+    var y = margin + (availH - drawH) / 2;
+
+    var imgFmt = file.type === 'image/png' ? 'PNG' : 'JPEG';
+    doc.addImage(dataUrl, imgFmt, x, y, drawW, drawH);
+
+    // Build filename: scan_YYYYMMDD_HHMM.pdf
+    var now = new Date();
+    var pad = function(n) { return ('0' + n).slice(-2); };
+    var fname = 'scan_' + now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate())
+              + '_' + pad(now.getHours()) + pad(now.getMinutes()) + '.pdf';
+
+    doc.save(fname);
+
+    // Keep reference for re-download
+    window['_cameraPdf_' + mode] = { doc: doc, fname: fname };
+
+    statusEl.innerHTML =
+      '<span style="color:#16a34a;font-weight:600">✓ ' + escapeHtml(fname) + ' downloaded</span>' +
+      ' <button type="button" onclick="(function(){var d=window[\'_cameraPdf_\'' + "'" + mode + "'" + '];if(d)d.doc.save(d.fname);})()" ' +
+      'style="font-size:11px;padding:2px 9px;border-radius:6px;background:#6366f1;color:#fff;border:none;cursor:pointer;margin-left:6px">' +
+      '<i class="fa-solid fa-rotate-right"></i> Re-download</button>' +
+      ' <span style="font-size:11px;color:#94a3b8;margin-left:4px">Upload it via "Upload File" to attach to this song.</span>';
+
   } catch (err) {
-    statusEl.innerHTML = '<span style="color:#e05a6b">Camera OCR failed: ' + escapeHtml(err.message) + '</span>';
+    statusEl.innerHTML = '<span style="color:#e05a6b">Camera PDF failed: ' + escapeHtml(err.message) + '</span>';
   }
 }
 
@@ -58039,6 +58090,8 @@ function filterLiturgyItems() {
 })();
 </script>
 
+<!-- jsPDF for camera-to-PDF conversion -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <!-- JSZip for PPTX extraction (loaded at end to prevent blocking) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <!-- PDF.js for PDF slide rendering -->
