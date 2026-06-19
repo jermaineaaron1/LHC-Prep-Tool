@@ -37704,24 +37704,40 @@ var WO = (function() {
     ].join('');
     var styleBlock = '<style>*{box-sizing:border-box;}' + css + '</style>';
 
-    // Index page
-    var printStructures = orderStructures[currentOrderType] || [];
+    // Index page — use sectionLayout (captures custom sections, renames, reordering)
+    var _tplStructures = orderStructures[currentOrderType] || [];
+    var printStructures = (currentOrderData && Array.isArray(currentOrderData.sectionLayout) && currentOrderData.sectionLayout.length > 0)
+      ? currentOrderData.sectionLayout.map(function(lay) {
+          var tpl = _tplStructures.find(function(s) { return lay.serviceSectionId && s.serviceSectionId === lay.serviceSectionId; });
+          return { title: lay.title, serviceSectionId: lay.serviceSectionId || '', layoutId: lay.id, special: (tpl && tpl.special) || 'songs' };
+        })
+      : _tplStructures.map(function(s) { return Object.assign({}, s, { layoutId: '' }); });
+
+    // Match helper: checks both serviceSectionId and DOM layoutId (handles custom sections + wo-section-N format)
+    function _secSongMatch(song, section) {
+      if (song.itemType === 'blank') return false;
+      var sid = section.serviceSectionId;
+      var lid = section.layoutId || '';
+      if (Array.isArray(song.serviceSections) && song.serviceSections.length) {
+        return song.serviceSections.some(function(sv) {
+          return (sid && (sv === sid || sbResolveSectionId(sv) === sid)) ||
+                 (lid && (sv === lid || sbResolveSectionId(sv) === lid));
+        });
+      }
+      var resolved = sbResolveSectionId(song.sectionId || '');
+      return (sid && (resolved === sid || song.sectionId === sid)) ||
+             (lid && (song.sectionId === lid || resolved === lid));
+    }
+
     var pSongCounter = 0;
     var pUsedKeys = {};
     var indexRows = '';
     printStructures.forEach(function(section) {
       var sTitle = section.title.replace(/^\d+\.\s*/, '');
-      var sSongs = section.special === 'songs'
-        ? songOrderSections.filter(function(s) {
-            if (s.itemType === 'blank') return false;
-            if (Array.isArray(s.serviceSections) && s.serviceSections.length)
-              return s.serviceSections.some(function(sv) { return sv === section.serviceSectionId || sbResolveSectionId(sv) === section.serviceSectionId; });
-            return sbResolveSectionId(s.sectionId || '') === section.serviceSectionId;
-          })
-        : [];
+      var sSongs = songOrderSections.filter(function(s) { return _secSongMatch(s, section); });
       var rHtml = '';
       sSongs.forEach(function(song) {
-        var key = song.id + '__' + section.serviceSectionId;
+        var key = song.id + '__' + (section.serviceSectionId || section.layoutId);
         if (!pUsedKeys[key]) { pSongCounter++; pUsedKeys[key] = pSongCounter; }
         rHtml += '<div class="sp-idx-song-entry"><span class="sp-idx-song-num">' + pUsedKeys[key] + '</span><span class="sp-idx-song-title">' + escapeHtml(song.title) + '</span></div>';
       });
@@ -37765,18 +37781,25 @@ var WO = (function() {
 
     // Sort songs by their position in the service order (unassigned go last)
     var _secPos = {};
-    printStructures.forEach(function(sec, i) { _secPos[sec.serviceSectionId] = i; });
+    printStructures.forEach(function(sec, i) {
+      if (sec.serviceSectionId) _secPos[sec.serviceSectionId] = i;
+      if (sec.layoutId) _secPos[sec.layoutId] = i;
+    });
     function _songServicePos(song) {
       if (Array.isArray(song.serviceSections) && song.serviceSections.length) {
         var best = Infinity;
         song.serviceSections.forEach(function(sv) {
-          var pos = _secPos[sv] !== undefined ? _secPos[sv] : (_secPos[sbResolveSectionId(sv)] !== undefined ? _secPos[sbResolveSectionId(sv)] : Infinity);
+          var pos = _secPos[sv] !== undefined ? _secPos[sv] :
+                    _secPos[sbResolveSectionId(sv)] !== undefined ? _secPos[sbResolveSectionId(sv)] : Infinity;
           if (pos < best) best = pos;
         });
         return best;
       }
-      var r = sbResolveSectionId(song.sectionId || '');
-      return _secPos[r] !== undefined ? _secPos[r] : Infinity;
+      var sid = song.sectionId || '';
+      var r = sbResolveSectionId(sid);
+      if (_secPos[sid] !== undefined) return _secPos[sid];
+      if (_secPos[r] !== undefined) return _secPos[r];
+      return Infinity;
     }
     var _sortedSections = songOrderSections.slice().sort(function(a, b) {
       var pa = a.itemType === 'blank' ? Infinity : _songServicePos(a);
@@ -38125,17 +38148,10 @@ var WO = (function() {
     var linkedIndexRows = '';
     printStructures.forEach(function(section) {
       var sTitle2 = section.title.replace(/^\d+\.\s*/, '');
-      var sSongs2 = section.special === 'songs'
-        ? songOrderSections.filter(function(s) {
-            if (s.itemType === 'blank') return false;
-            if (Array.isArray(s.serviceSections) && s.serviceSections.length)
-              return s.serviceSections.some(function(sv) { return sv === section.serviceSectionId || sbResolveSectionId(sv) === section.serviceSectionId; });
-            return sbResolveSectionId(s.sectionId || '') === section.serviceSectionId;
-          })
-        : [];
+      var sSongs2 = songOrderSections.filter(function(s) { return _secSongMatch(s, section); });
       var rHtml2 = '';
       sSongs2.forEach(function(song) {
-        var key2 = song.id + '__' + section.serviceSectionId;
+        var key2 = song.id + '__' + (section.serviceSectionId || section.layoutId);
         var num2 = pUsedKeys[key2] || '';
         var pgIdx = songFirstPageIdx[song.id];
         var linkStyle = pgIdx != null
