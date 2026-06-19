@@ -32458,6 +32458,8 @@ var WO = (function() {
     sbInitDrag();
     // Async-patch YouTube badge buttons with real video titles
     sbPatchYoutubeBadgeLabels();
+    // Add × remove buttons to any saved column-break markers
+    sbPatchColBreakMarkers();
     // 661 — Restore last-viewed panel per song (after re-render, silently re-open saved views)
     sbRestoreLastViews();
     // Re-draw any saved annotations
@@ -34865,7 +34867,7 @@ var WO = (function() {
     marker.className = 'sb-col-break-marker';
     marker.contentEditable = 'false';
     marker.setAttribute('data-colbreak', '1');
-    marker.innerHTML = '<i class="fa-solid fa-arrow-turn-down" style="font-size:0.7rem;margin-right:4px;"></i>Column Break';
+    marker.innerHTML = '<i class="fa-solid fa-arrow-turn-down" style="font-size:0.7rem;margin-right:4px;"></i>Column Break<button class="sb-col-break-rm" title="Remove column break" onclick="event.stopPropagation();WO.sbRemoveColBreak(this)">✕</button>';
     var sel = window.getSelection();
     if (sel && sel.rangeCount > 0 && lyricsEl.contains(sel.anchorNode)) {
       var range = sel.getRangeAt(0);
@@ -34883,6 +34885,28 @@ var WO = (function() {
     }
     sbOnLyricsChange(songId);
     setTimeout(function() { sbRenderTwoColSong(songId); }, 150);
+  }
+
+  function sbRemoveColBreak(btn) {
+    var marker = btn ? btn.closest('[data-colbreak]') : null;
+    if (!marker) return;
+    var lyricsEl = marker.closest('[id^="sbLyrics-"]');
+    var songId = lyricsEl ? lyricsEl.id.replace('sbLyrics-', '') : null;
+    marker.remove();
+    if (songId) { sbOnLyricsChange(songId); setTimeout(function() { sbRenderTwoColSong(songId); }, 150); }
+  }
+
+  function sbPatchColBreakMarkers() {
+    document.querySelectorAll('[data-colbreak="1"]').forEach(function(m) {
+      if (!m.querySelector('.sb-col-break-rm')) {
+        var btn = document.createElement('button');
+        btn.className = 'sb-col-break-rm';
+        btn.title = 'Remove column break';
+        btn.innerHTML = '✕';
+        btn.onclick = function(e) { e.stopPropagation(); WO.sbRemoveColBreak(this); };
+        m.appendChild(btn);
+      }
+    });
   }
 
   function _sbClearTwoColView(songId) {
@@ -46429,6 +46453,8 @@ var WO = (function() {
     sbResetTranspose: sbResetTranspose,
     sbToggleLyricsColumns: sbToggleLyricsColumns,
     sbInsertColBreak: sbInsertColBreak,
+    sbRemoveColBreak: sbRemoveColBreak,
+    sbPatchColBreakMarkers: sbPatchColBreakMarkers,
     sbOpenLiturgistLog: sbOpenLiturgistLog,
     sbCloseLiturgistLog: sbCloseLiturgistLog,
     sbSaveLiturgistLog: sbSaveLiturgistLog,
@@ -54144,7 +54170,9 @@ function filterLiturgyItems() {
   .sb-cont-page { display:none; } /* not used in live view */
   .sb-inpage-break { display:none; } /* not used in live view */
   /* Column-break marker shown inside the lyrics editor */
-  .sb-col-break-marker { display:block;border-top:2px dashed #6366f1;padding:2px 8px 2px 6px;font-size:0.7rem;font-weight:700;color:#6366f1;background:#eef2ff;margin:4px 0;border-radius:0 4px 4px 0;cursor:default;user-select:none;white-space:nowrap; }
+  .sb-col-break-marker { display:flex;align-items:center;border-top:2px dashed #6366f1;padding:2px 8px 2px 6px;font-size:0.7rem;font-weight:700;color:#6366f1;background:#eef2ff;margin:4px 0;border-radius:0 4px 4px 0;cursor:default;user-select:none; }
+  .sb-col-break-rm { margin-left:auto;background:none;border:none;font-size:0.8rem;cursor:pointer;color:#6366f1;opacity:0.45;padding:0 2px;line-height:1;flex-shrink:0; }
+  .sb-col-break-rm:hover { opacity:1;color:#ef4444; }
   /* Text annotation layer — sits above lyrics, below draw canvas */
   .sb-text-annot-layer { position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10; }
   .sb-text-annot-layer.sb-ta-active { pointer-events:auto; }
