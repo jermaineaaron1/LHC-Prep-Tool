@@ -10256,78 +10256,366 @@ function handleLocalFileSelected(input, mode) {
   statusEl.innerHTML = '<span style="font-weight:600;color:#1e293b">' + escapeHtml(file.name) + '</span> ' + btns;
 }
 
+// ============ Camera Scan Editor (CamScanner-style) ============
+var _scanState = null;
+
 async function handleCameraCapture(input, mode) {
   var file = input.files[0];
   input.value = '';
   if (!file) return;
   var statusEl = document.getElementById(mode + 'SongFileStatus');
-  statusEl.innerHTML = '<span style="color:#94a3b8">⏳ Creating PDF…</span>';
+  statusEl.innerHTML = '<span style="color:#94a3b8">⏳ Opening scanner…</span>';
   try {
     if (file.size > 30 * 1024 * 1024) throw new Error('Photo too large (max 30 MB).');
-
-    // Read image as data URL
     var dataUrl = await new Promise(function(res, rej) {
       var reader = new FileReader();
       reader.onload = function(e) { res(e.target.result); };
       reader.onerror = rej;
       reader.readAsDataURL(file);
     });
+    statusEl.innerHTML = '';
+    _showScanEditor(dataUrl, mode);
+  } catch (err) {
+    statusEl.innerHTML = '<span style="color:#e05a6b">Error: ' + escapeHtml(err.message) + '</span>';
+  }
+}
 
-    // Get natural dimensions to decide orientation
-    var img = await new Promise(function(res, rej) {
-      var i = new Image();
-      i.onload = function() { res(i); };
-      i.onerror = rej;
-      i.src = dataUrl;
-    });
+function _showScanEditor(dataUrl, mode) {
+  var existing = document.getElementById('scanEditorOverlay');
+  if (existing) existing.remove();
+  var img = new Image();
+  img.onload = function() {
+    var ov = document.createElement('div');
+    ov.id = 'scanEditorOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:#000;z-index:9999;display:flex;flex-direction:column;';
+    ov.innerHTML =
+      '<div id="scanToolbar" style="background:#1a202c;padding:10px 14px;display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;">' +
+        '<button id="scanRetakeBtn" style="padding:6px 14px;border-radius:8px;background:#64748b;color:#fff;border:none;cursor:pointer;font-size:13px;">✕ Retake</button>' +
+        '<span style="color:#94a3b8;font-size:12px;flex:1;text-align:center;min-width:120px;">Drag corners to document edges</span>' +
+        '<label style="color:#e2e8f0;font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;">' +
+          '<input type="checkbox" id="scanDocMode" checked style="width:15px;height:15px;"> Doc mode' +
+        '</label>' +
+        '<button id="scanCreateBtn" style="padding:6px 18px;border-radius:8px;background:#4a6da7;color:#fff;border:none;cursor:pointer;font-size:13px;font-weight:600;">Create PDF ↓</button>' +
+      '</div>' +
+      '<div style="position:relative;flex:1;overflow:hidden;">' +
+        '<canvas id="scanEditorCanvas" style="touch-action:none;cursor:crosshair;display:block;width:100%;height:100%;"></canvas>' +
+        '<div id="scanProgress" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.75);flex-direction:column;align-items:center;justify-content:center;">' +
+          '<div style="color:#fff;font-size:15px;margin-bottom:14px;">Processing scan…</div>' +
+          '<div style="width:220px;height:7px;background:#334155;border-radius:4px;overflow:hidden;">' +
+            '<div id="scanProgressBar" style="height:100%;background:#4a6da7;width:0%;transition:width 0.15s;border-radius:4px;"></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(ov);
 
-    var isLandscape = img.naturalWidth > img.naturalHeight;
-    var orientation = isLandscape ? 'l' : 'p';
-    var { jsPDF } = window.jspdf;
-    var doc = new jsPDF({ orientation: orientation, unit: 'mm', format: 'a4' });
+    var inset = 0.08;
+    var W = img.naturalWidth, H = img.naturalHeight;
+    _scanState = {
+      img: img, mode: mode, imgW: W, imgH: H,
+      corners: [
+        { x: W*inset,     y: H*inset },
+        { x: W*(1-inset), y: H*inset },
+        { x: W*(1-inset), y: H*(1-inset) },
+        { x: W*inset,     y: H*(1-inset) }
+      ],
+      dragging: -1, scale: 1, offX: 0, offY: 0
+    };
 
-    // Page dims in mm (A4: 210×297; landscape flips to 297×210)
-    var pgW = isLandscape ? 297 : 210;
-    var pgH = isLandscape ? 210 : 297;
-    var margin = 8;
-    var availW = pgW - margin * 2;
-    var availH = pgH - margin * 2;
+    _scanResize();
+    window.addEventListener('resize', _scanResize);
 
-    // Scale image to fill available area while keeping aspect ratio
-    var imgRatio = img.naturalWidth / img.naturalHeight;
-    var areaRatio = availW / availH;
-    var drawW, drawH;
-    if (imgRatio > areaRatio) {
-      drawW = availW; drawH = availW / imgRatio;
-    } else {
-      drawH = availH; drawW = availH * imgRatio;
+    var c = document.getElementById('scanEditorCanvas');
+    c.addEventListener('touchstart',  _scanOnTouchStart,  { passive: false });
+    c.addEventListener('touchmove',   _scanOnTouchMove,   { passive: false });
+    c.addEventListener('touchend',    _scanOnTouchEnd,    { passive: false });
+    c.addEventListener('mousedown',   _scanOnMouseDown);
+    c.addEventListener('mousemove',   _scanOnMouseMove);
+    c.addEventListener('mouseup',     _scanOnMouseUp);
+
+    document.getElementById('scanRetakeBtn').onclick  = _closeScanEditor;
+    document.getElementById('scanCreateBtn').onclick  = _processScanToPdf;
+  };
+  img.src = dataUrl;
+}
+
+function _closeScanEditor() {
+  var ov = document.getElementById('scanEditorOverlay');
+  if (ov) ov.remove();
+  window.removeEventListener('resize', _scanResize);
+  _scanState = null;
+}
+
+function _scanResize() {
+  if (!_scanState) return;
+  var c = document.getElementById('scanEditorCanvas');
+  var tb = document.getElementById('scanToolbar');
+  if (!c) return;
+  var tbH = tb ? tb.offsetHeight : 54;
+  var W = window.innerWidth, H = window.innerHeight - tbH;
+  c.width = W; c.height = H;
+  var sc = Math.min(W / _scanState.imgW, H / _scanState.imgH);
+  _scanState.scale = sc;
+  _scanState.offX  = (W - _scanState.imgW * sc) / 2;
+  _scanState.offY  = (H - _scanState.imgH * sc) / 2;
+  _scanDraw();
+}
+
+function _scanDraw() {
+  var c = document.getElementById('scanEditorCanvas');
+  if (!c || !_scanState) return;
+  var ctx = c.getContext('2d');
+  var sc = _scanState.scale, ox = _scanState.offX, oy = _scanState.offY;
+  var iW = _scanState.imgW * sc, iH = _scanState.imgH * sc;
+  var corners = _scanState.corners;
+
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  // Dim full photo
+  ctx.globalAlpha = 0.3;
+  ctx.drawImage(_scanState.img, ox, oy, iW, iH);
+  ctx.globalAlpha = 1;
+
+  // Bright photo clipped to selected quad
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(ox + corners[0].x*sc, oy + corners[0].y*sc);
+  for (var i = 1; i < 4; i++) ctx.lineTo(ox + corners[i].x*sc, oy + corners[i].y*sc);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(_scanState.img, ox, oy, iW, iH);
+  ctx.restore();
+
+  // Quad border lines
+  ctx.strokeStyle = '#3b82f6';
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(ox + corners[0].x*sc, oy + corners[0].y*sc);
+  for (var j = 1; j < 4; j++) ctx.lineTo(ox + corners[j].x*sc, oy + corners[j].y*sc);
+  ctx.closePath();
+  ctx.stroke();
+
+  // Corner handles
+  corners.forEach(function(cn, idx) {
+    var cx = ox + cn.x*sc, cy = oy + cn.y*sc;
+    var r = idx === _scanState.dragging ? 24 : 20;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.fillStyle = idx === _scanState.dragging ? '#1d4ed8' : '#3b82f6';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx-7, cy); ctx.lineTo(cx+7, cy);
+    ctx.moveTo(cx, cy-7); ctx.lineTo(cx, cy+7);
+    ctx.stroke();
+  });
+}
+
+function _scanToImg(clientX, clientY) {
+  var c = document.getElementById('scanEditorCanvas');
+  var rect = c.getBoundingClientRect();
+  var px = (clientX - rect.left) * (c.width / rect.width);
+  var py = (clientY - rect.top)  * (c.height / rect.height);
+  return { x: (px - _scanState.offX) / _scanState.scale,
+           y: (py - _scanState.offY) / _scanState.scale };
+}
+
+function _scanPickCorner(pos) {
+  var hitR = 44 / _scanState.scale;
+  var best = -1, bestD = hitR;
+  _scanState.corners.forEach(function(cn, i) {
+    var d = Math.hypot(cn.x - pos.x, cn.y - pos.y);
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  return best;
+}
+
+function _scanMoveCorner(pos) {
+  if (_scanState.dragging < 0) return;
+  _scanState.corners[_scanState.dragging] = {
+    x: Math.max(0, Math.min(_scanState.imgW, pos.x)),
+    y: Math.max(0, Math.min(_scanState.imgH, pos.y))
+  };
+  _scanDraw();
+}
+
+function _scanOnTouchStart(e) { e.preventDefault(); _scanState.dragging = _scanPickCorner(_scanToImg(e.touches[0].clientX, e.touches[0].clientY)); _scanDraw(); }
+function _scanOnTouchMove(e)  { e.preventDefault(); _scanMoveCorner(_scanToImg(e.touches[0].clientX, e.touches[0].clientY)); }
+function _scanOnTouchEnd(e)   { e.preventDefault(); _scanState.dragging = -1; _scanDraw(); }
+function _scanOnMouseDown(e)  { _scanState.dragging = _scanPickCorner(_scanToImg(e.clientX, e.clientY)); _scanDraw(); }
+function _scanOnMouseMove(e)  { _scanMoveCorner(_scanToImg(e.clientX, e.clientY)); }
+function _scanOnMouseUp()     { _scanState.dragging = -1; _scanDraw(); }
+
+// ---- Homography (perspective transform) ----
+function _scanSolveH(A, b) {
+  var n = 8, M = A.map(function(r,i){ return r.slice().concat([b[i]]); });
+  for (var col = 0; col < n; col++) {
+    var mx = col;
+    for (var rr = col+1; rr < n; rr++) if (Math.abs(M[rr][col]) > Math.abs(M[mx][col])) mx = rr;
+    var tmp = M[col]; M[col] = M[mx]; M[mx] = tmp;
+    for (var r2 = col+1; r2 < n; r2++) {
+      var f = M[r2][col] / M[col][col];
+      for (var c2 = col; c2 <= n; c2++) M[r2][c2] -= f * M[col][c2];
     }
-    var x = margin + (availW - drawW) / 2;
-    var y = margin + (availH - drawH) / 2;
+  }
+  var x = [];
+  for (var i = n-1; i >= 0; i--) {
+    x[i] = M[i][n] / M[i][i];
+    for (var j = i+1; j < n; j++) x[i] -= M[i][j]*x[j]/M[i][i];
+  }
+  return x;
+}
 
-    var imgFmt = file.type === 'image/png' ? 'PNG' : 'JPEG';
-    doc.addImage(dataUrl, imgFmt, x, y, drawW, drawH);
+function _scanHomography(srcPts, dstPts) {
+  var A = [], b = [];
+  for (var i = 0; i < 4; i++) {
+    var sx=srcPts[i].x, sy=srcPts[i].y, dx=dstPts[i].x, dy=dstPts[i].y;
+    A.push([sx,sy,1,0,0,0,-dx*sx,-dx*sy]); b.push(dx);
+    A.push([0,0,0,sx,sy,1,-dy*sx,-dy*sy]); b.push(dy);
+  }
+  var h = _scanSolveH(A, b);
+  return [[h[0],h[1],h[2]],[h[3],h[4],h[5]],[h[6],h[7],1]];
+}
 
-    // Build filename: scan_YYYYMMDD_HHMM.pdf
-    var now = new Date();
-    var pad = function(n) { return ('0' + n).slice(-2); };
-    var fname = 'scan_' + now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate())
-              + '_' + pad(now.getHours()) + pad(now.getMinutes()) + '.pdf';
+function _scanWarp(H, px, py) {
+  var w = H[2][0]*px + H[2][1]*py + H[2][2];
+  return { x: (H[0][0]*px + H[0][1]*py + H[0][2]) / w,
+           y: (H[1][0]*px + H[1][1]*py + H[1][2]) / w };
+}
 
-    doc.save(fname);
+// ---- Main processing ----
+async function _processScanToPdf() {
+  if (!_scanState) return;
+  var mode    = _scanState.mode;
+  var corners = _scanState.corners;          // TL TR BR BL
+  var docMode = document.getElementById('scanDocMode').checked;
 
-    // Keep reference for re-download
-    window['_cameraPdf_' + mode] = { doc: doc, fname: fname };
+  var prog = document.getElementById('scanProgress');
+  var bar  = document.getElementById('scanProgressBar');
+  var btn  = document.getElementById('scanCreateBtn');
+  if (prog) prog.style.display = 'flex';
+  if (btn)  btn.disabled = true;
 
+  await new Promise(function(r){ setTimeout(r, 30); });
+
+  // Output dimensions from the selected quad
+  var eT = Math.hypot(corners[1].x-corners[0].x, corners[1].y-corners[0].y);
+  var eB = Math.hypot(corners[2].x-corners[3].x, corners[2].y-corners[3].y);
+  var eL = Math.hypot(corners[3].x-corners[0].x, corners[3].y-corners[0].y);
+  var eR = Math.hypot(corners[2].x-corners[1].x, corners[2].y-corners[1].y);
+  var outW = Math.round(Math.max(eT, eB));
+  var outH = Math.round(Math.max(eL, eR));
+  var cap  = 2600;
+  if (Math.max(outW, outH) > cap) {
+    var sc = cap / Math.max(outW, outH);
+    outW = Math.round(outW*sc); outH = Math.round(outH*sc);
+  }
+
+  // Inverse homography dst → src (for backward mapping)
+  var H = _scanHomography(
+    [{x:0,y:0},{x:outW,y:0},{x:outW,y:outH},{x:0,y:outH}],
+    corners
+  );
+
+  // Read source pixels
+  var srcC = document.createElement('canvas');
+  srcC.width = _scanState.imgW; srcC.height = _scanState.imgH;
+  srcC.getContext('2d').drawImage(_scanState.img, 0, 0);
+  var sd = srcC.getContext('2d').getImageData(0, 0, _scanState.imgW, _scanState.imgH).data;
+  var sW = _scanState.imgW, sH = _scanState.imgH;
+
+  // Output buffer
+  var outC = document.createElement('canvas');
+  outC.width = outW; outC.height = outH;
+  var outCtx = outC.getContext('2d');
+  var oid = outCtx.createImageData(outW, outH);
+  var od  = oid.data;
+
+  // Perspective warp with bilinear sampling
+  var rowsDone = 0;
+  await new Promise(function(resolve) {
+    function chunk() {
+      var end = Math.min(rowsDone + 45, outH);
+      for (var y = rowsDone; y < end; y++) {
+        for (var x = 0; x < outW; x++) {
+          var sp = _scanWarp(H, x, y);
+          var oi = (y*outW + x)*4;
+          var sx = sp.x, sy = sp.y;
+          var x0 = Math.floor(sx), y0 = Math.floor(sy), x1 = x0+1, y1 = y0+1;
+          if (x0 >= 0 && x1 < sW && y0 >= 0 && y1 < sH) {
+            var fx = sx-x0, fy = sy-y0;
+            var i00=(y0*sW+x0)*4, i10=(y0*sW+x1)*4, i01=(y1*sW+x0)*4, i11=(y1*sW+x1)*4;
+            for (var ch = 0; ch < 3; ch++) {
+              od[oi+ch] = Math.round(
+                sd[i00+ch]*(1-fx)*(1-fy) + sd[i10+ch]*fx*(1-fy) +
+                sd[i01+ch]*(1-fx)*fy     + sd[i11+ch]*fx*fy
+              );
+            }
+            od[oi+3] = 255;
+          } else {
+            od[oi]=od[oi+1]=od[oi+2]=255; od[oi+3]=255;
+          }
+        }
+      }
+      rowsDone = end;
+      if (bar) bar.style.width = Math.round(rowsDone/outH*80) + '%';
+      if (rowsDone < outH) setTimeout(chunk, 0); else resolve();
+    }
+    chunk();
+  });
+
+  // Document mode: auto-levels on grayscale → clean B&W
+  if (docMode) {
+    var pixelCount = outW * outH;
+    var grays = new Float32Array(pixelCount);
+    for (var pi = 0; pi < pixelCount; pi++) {
+      grays[pi] = od[pi*4]*0.299 + od[pi*4+1]*0.587 + od[pi*4+2]*0.114;
+    }
+    // Sort a copy for percentile lookup
+    var sorted = grays.slice().sort();
+    var lo = sorted[Math.floor(pixelCount*0.04)];
+    var hi = sorted[Math.floor(pixelCount*0.96)];
+    var range = Math.max(hi - lo, 1);
+    for (var pi2 = 0; pi2 < pixelCount; pi2++) {
+      var v = Math.round(Math.min(255, Math.max(0, (grays[pi2]-lo)/range*255)));
+      od[pi2*4] = od[pi2*4+1] = od[pi2*4+2] = v;
+    }
+  }
+
+  if (bar) bar.style.width = '92%';
+  outCtx.putImageData(oid, 0, 0);
+
+  // Build PDF
+  var isLand = outW > outH;
+  var { jsPDF } = window.jspdf;
+  var doc = new jsPDF({ orientation: isLand ? 'l' : 'p', unit: 'mm', format: 'a4' });
+  var pgW = isLand ? 297 : 210, pgH = isLand ? 210 : 297;
+  doc.addImage(outC.toDataURL('image/jpeg', 0.93), 'JPEG', 0, 0, pgW, pgH);
+
+  if (bar) bar.style.width = '100%';
+  await new Promise(function(r){ setTimeout(r, 80); });
+
+  var now = new Date();
+  var pad = function(n){ return ('0'+n).slice(-2); };
+  var fname = 'scan_' + now.getFullYear() + pad(now.getMonth()+1) + pad(now.getDate())
+            + '_' + pad(now.getHours()) + pad(now.getMinutes()) + '.pdf';
+  doc.save(fname);
+
+  window['_cameraPdf_' + mode] = { doc: doc, fname: fname };
+  _closeScanEditor();
+
+  var statusEl = document.getElementById(mode + 'SongFileStatus');
+  if (statusEl) {
     statusEl.innerHTML =
       '<span style="color:#16a34a;font-weight:600">✓ ' + escapeHtml(fname) + ' downloaded</span>' +
-      ' <button type="button" onclick="(function(){var d=window[\'_cameraPdf_\'' + "'" + mode + "'" + '];if(d)d.doc.save(d.fname);})()" ' +
-      'style="font-size:11px;padding:2px 9px;border-radius:6px;background:#6366f1;color:#fff;border:none;cursor:pointer;margin-left:6px">' +
-      '<i class="fa-solid fa-rotate-right"></i> Re-download</button>' +
-      ' <span style="font-size:11px;color:#94a3b8;margin-left:4px">Upload it via "Upload File" to attach to this song.</span>';
-
-  } catch (err) {
-    statusEl.innerHTML = '<span style="color:#e05a6b">Camera PDF failed: ' + escapeHtml(err.message) + '</span>';
+      ' <button type="button" onclick="var d=window[\'_cameraPdf_\'' + "'" + mode + "'" + '];if(d)d.doc.save(d.fname);" ' +
+        'style="font-size:11px;padding:2px 9px;border-radius:6px;background:#6366f1;color:#fff;border:none;cursor:pointer;margin-left:6px">' +
+        '<i class="fa-solid fa-rotate-right"></i> Re-download</button>' +
+      ' <span style="font-size:11px;color:#94a3b8;margin-left:4px">Use "Upload File" to attach to this song.</span>';
   }
 }
 
