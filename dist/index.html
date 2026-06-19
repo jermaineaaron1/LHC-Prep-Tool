@@ -37125,7 +37125,7 @@ var WO = (function() {
         ? songOrderSections.filter(function(s) {
             if (s.itemType === 'blank') return false;
             if (Array.isArray(s.serviceSections) && s.serviceSections.length)
-              return s.serviceSections.indexOf(section.serviceSectionId) !== -1;
+              return s.serviceSections.some(function(sv) { return sv === section.serviceSectionId || sbResolveSectionId(sv) === section.serviceSectionId; });
             return sbResolveSectionId(s.sectionId || '') === section.serviceSectionId;
           })
         : [];
@@ -37715,7 +37715,7 @@ var WO = (function() {
         ? songOrderSections.filter(function(s) {
             if (s.itemType === 'blank') return false;
             if (Array.isArray(s.serviceSections) && s.serviceSections.length)
-              return s.serviceSections.indexOf(section.serviceSectionId) !== -1;
+              return s.serviceSections.some(function(sv) { return sv === section.serviceSectionId || sbResolveSectionId(sv) === section.serviceSectionId; });
             return sbResolveSectionId(s.sectionId || '') === section.serviceSectionId;
           })
         : [];
@@ -37763,8 +37763,29 @@ var WO = (function() {
     _measureStyle.textContent = rawCss;
     document.head.appendChild(_measureStyle);
 
+    // Sort songs by their position in the service order (unassigned go last)
+    var _secPos = {};
+    printStructures.forEach(function(sec, i) { _secPos[sec.serviceSectionId] = i; });
+    function _songServicePos(song) {
+      if (Array.isArray(song.serviceSections) && song.serviceSections.length) {
+        var best = Infinity;
+        song.serviceSections.forEach(function(sv) {
+          var pos = _secPos[sv] !== undefined ? _secPos[sv] : (_secPos[sbResolveSectionId(sv)] !== undefined ? _secPos[sbResolveSectionId(sv)] : Infinity);
+          if (pos < best) best = pos;
+        });
+        return best;
+      }
+      var r = sbResolveSectionId(song.sectionId || '');
+      return _secPos[r] !== undefined ? _secPos[r] : Infinity;
+    }
+    var _sortedSections = songOrderSections.slice().sort(function(a, b) {
+      var pa = a.itemType === 'blank' ? Infinity : _songServicePos(a);
+      var pb = b.itemType === 'blank' ? Infinity : _songServicePos(b);
+      return pa - pb;
+    });
+
     var songNum = 0;
-    songOrderSections.forEach(function(song, idx) {
+    _sortedSections.forEach(function(song, idx) {
       if (song.itemType === 'blank') return;
       songNum++;
 
@@ -38108,7 +38129,7 @@ var WO = (function() {
         ? songOrderSections.filter(function(s) {
             if (s.itemType === 'blank') return false;
             if (Array.isArray(s.serviceSections) && s.serviceSections.length)
-              return s.serviceSections.indexOf(section.serviceSectionId) !== -1;
+              return s.serviceSections.some(function(sv) { return sv === section.serviceSectionId || sbResolveSectionId(sv) === section.serviceSectionId; });
             return sbResolveSectionId(s.sectionId || '') === section.serviceSectionId;
           })
         : [];
