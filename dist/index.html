@@ -6049,12 +6049,12 @@
   .lyrics-editor-content { background: white; border-radius: 16px; width: 100%; max-width: 1350px; max-height: 95vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px rgba(0,0,0,0.25); box-sizing: border-box; overflow: hidden; }
   .lyrics-editor-header { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; }
   .lyrics-editor-header h3 { font-size: 18px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 10px; }
-  .lyrics-editor-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; gap: 20px; }
-  .lyrics-editor-left { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+  .lyrics-editor-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; gap: 20px; }
+  .lyrics-editor-left { flex: 1; display: flex; flex-direction: column; gap: 6px; }
   .lyrics-editor-right { width: 420px; background: #f8fafc; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   
   /* Section Buttons */
-  .section-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .section-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
   .section-btn { padding: 6px 12px; font-size: 11px; font-weight: 600; border-radius: 6px; border: 1px solid #e2e8f0; background: white; cursor: pointer; transition: all 0.15s; }
   .section-btn:hover { background: #f1f5f9; }
   .section-btn.verse { border-color: #93c5fd; color: #1d4ed8; }
@@ -7434,16 +7434,21 @@ I once was lost but now am found"
 
   <!-- ==================== MODAL: LYRICS PREVIEW (from song card) ==================== -->
   <div id="lyricsPreviewModal" class="modal-overlay">
-    <div class="modal-content" style="width: min(750px, 95%); max-height: 85vh; display: flex; flex-direction: column; padding: 0;">
+    <div id="lyricsPreviewModalContent" class="modal-content" style="width: min(750px, 95%); max-height: 90vh; display: flex; flex-direction: column; padding: 0;">
       <div id="lyricsPreviewHeaderPanel" class="p-4 border-b border-slate-200">
         <div class="flex items-center justify-between gap-4">
           <div>
             <h3 id="lyricsPreviewTitle" class="font-cinzel text-xl font-bold text-slate-800"></h3>
             <p id="lyricsPreviewArtist" class="text-sm text-slate-500 mt-1"></p>
           </div>
-          <button class="lhc-pill-button" title="Close" onclick="closeLyricsPreviewModal()">
-            <i class="fa-solid fa-xmark"></i>
-          </button>
+          <div class="flex items-center gap-2">
+            <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button" title="Fullscreen" onclick="toggleLyricsPreviewFullscreen()">
+              <i class="fa-solid fa-expand"></i>
+            </button>
+            <button class="lhc-pill-button" title="Close" onclick="closeLyricsPreviewModal()">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
         </div>
         <div id="lyricsPreviewToolbar" class="flex items-center justify-between mt-4 flex-wrap gap-2">
           <div class="flex gap-2">
@@ -9776,7 +9781,45 @@ function closeLyricsPreviewModal() {
   currentTransposeValue = 0;
   var select = document.getElementById('transposeSelect');
   if (select) select.value = '0';
+  // Exit fullscreen if active
+  if (document.fullscreenElement) document.exitFullscreen().catch(function(){});
 }
+
+function toggleLyricsPreviewFullscreen() {
+  var content = document.getElementById('lyricsPreviewModalContent');
+  var btn = document.getElementById('lyricsPreviewFullscreenBtn');
+  if (!content) return;
+  if (!document.fullscreenElement) {
+    content.requestFullscreen().then(function() {
+      if (btn) btn.innerHTML = '<i class="fa-solid fa-compress"></i>';
+      content.style.maxHeight = '100vh';
+      content.style.width = '100vw';
+      content.style.borderRadius = '0';
+    }).catch(function(err) {
+      // Fallback: expand modal via CSS
+      content.classList.toggle('lyrics-preview-fullscreen');
+    });
+  } else {
+    document.exitFullscreen().catch(function(){});
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-expand"></i>';
+    content.style.maxHeight = '90vh';
+    content.style.width = 'min(750px, 95%)';
+    content.style.borderRadius = '';
+  }
+}
+
+document.addEventListener('fullscreenchange', function() {
+  var btn = document.getElementById('lyricsPreviewFullscreenBtn');
+  if (!document.fullscreenElement && btn) {
+    btn.innerHTML = '<i class="fa-solid fa-expand"></i>';
+    var content = document.getElementById('lyricsPreviewModalContent');
+    if (content) {
+      content.style.maxHeight = '90vh';
+      content.style.width = 'min(750px, 95%)';
+      content.style.borderRadius = '';
+    }
+  }
+});
 
 // ── Print helpers ──────────────────────────────────────────────────────────
 
