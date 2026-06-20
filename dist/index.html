@@ -32302,7 +32302,6 @@ var WO = (function() {
         html += '</div></div>';
       }
       html += '<button class="sb-col-toggle-btn' + (song.sbLyricsColumns === 2 ? ' active' : '') + '" id="sbColBtn-' + sid + '" onclick="WO.sbToggleLyricsColumns(\'' + sid + '\')" title="Toggle 2-column layout"><i class="fa-solid fa-table-columns"></i> 2 Col</button>';
-      html += '<button class="sb-col-toggle-btn sb-colbreak-btn" id="sbColBreakBtn-' + sid + '" onclick="WO.sbInsertColBreak(\'' + sid + '\')" title="Insert column break at cursor (2-col mode only)" style="' + (song.sbLyricsColumns === 2 ? '' : 'display:none;') + '"><i class="fa-solid fa-arrow-turn-down"></i> Col↵</button>';
       // 575 — Liturgist Notes button: always shows label; active (amber) when notes exist
       var hasLog = song.liturgistNotes && song.liturgistNotes.trim();
       html += '<button class="sb-litlog-btn' + (hasLog ? ' active' : ' sb-litlog-empty') + '" onclick="WO.sbOpenLiturgistLog(\'' + sid + '\')" title="Liturgist Notes"><i class="fa-solid fa-book-bookmark"></i> Liturgist Notes</button>';
@@ -32480,8 +32479,8 @@ var WO = (function() {
     sbInitDrag();
     // Async-patch YouTube badge buttons with real video titles
     sbPatchYoutubeBadgeLabels();
-    // Add × remove buttons to any saved column-break markers
-    sbPatchColBreakMarkers();
+    // Strip any legacy column-break markers from saved lyrics
+    document.querySelectorAll('[data-colbreak="1"]').forEach(function(m) { m.remove(); });
     // 661 — Restore last-viewed panel per song (after re-render, silently re-open saved views)
     sbRestoreLastViews();
     // Re-draw any saved annotations
@@ -32509,9 +32508,12 @@ var WO = (function() {
     requestAnimationFrame(function() {
       requestAnimationFrame(function() {
         sbPaginateAll();
-        // Render 2-col layout for any songs that already have sbLyricsColumns === 2
+        // CSS class is already set in HTML for sbLyricsColumns===2; just ensure lyricsEl is visible
         songOrderSections.forEach(function(s) {
-          if (s.sbLyricsColumns === 2) sbRenderTwoColSong(s.id);
+          if (s.sbLyricsColumns === 2) {
+            var el = document.getElementById('sbLyrics-' + s.id);
+            if (el) { el.classList.add('sb-page-lyrics--two-col'); el.style.display = ''; }
+          }
         });
         sbRenderAllTextAnnots();
         // Wire up click handler for text placement mode
@@ -34523,17 +34525,18 @@ var WO = (function() {
     var song = songOrderSections.find(function(s) { return s.id === songId; });
     if (!song) return;
     song.sbLyricsColumns = (song.sbLyricsColumns === 2) ? 1 : 2;
-    _sbLastColsToggleTs = Date.now(); // guard: suppress stale-DB remote reversal for ~6s
+    _sbLastColsToggleTs = Date.now();
     var isTwoCol = song.sbLyricsColumns === 2;
     var btn = document.getElementById('sbColBtn-' + songId);
     if (btn) btn.classList.toggle('active', isTwoCol);
-    var cbBtn = document.getElementById('sbColBreakBtn-' + songId);
-    if (cbBtn) cbBtn.style.display = isTwoCol ? '' : 'none';
-    if (isTwoCol) {
-      sbRenderTwoColSong(songId);
-    } else {
-      _sbClearTwoColView(songId);
+    var lyricsEl = document.getElementById('sbLyrics-' + songId);
+    if (lyricsEl) {
+      lyricsEl.classList.toggle('sb-page-lyrics--two-col', isTwoCol);
+      lyricsEl.style.display = '';
     }
+    // Remove any old JS-rendered two-col view (from previous sessions)
+    var canvasWrap = document.getElementById('sbCanvas-wrap-' + songId);
+    if (canvasWrap) { var old = canvasWrap.querySelector('.sb-twocol-view'); if (old) old.remove(); }
     sbAutoSave();
   }
 
@@ -35730,7 +35733,7 @@ var WO = (function() {
         var keyDisplay = key ? (steps !== 0 ? key + ' (' + (steps > 0 ? '+' : '') + steps + ')' : key) : '';
         var keyEl = document.getElementById('sbKey-' + songId);
         if (keyEl) keyEl.textContent = keyDisplay || key;
-        if (song.sbLyricsColumns === 2) sbRenderTwoColSong(songId);
+        // CSS columns applied via class — no JS render needed for live view
         sbRedrawSong(songId);
         clearTimeout(_sbRePageTimers[songId]);
         _sbRePageTimers[songId] = setTimeout(sbPaginateAll, 150);
@@ -35739,16 +35742,16 @@ var WO = (function() {
 
     if (p.cols) {
       var btn = document.getElementById('sbColBtn-' + songId);
-      var cbBtn = document.getElementById('sbColBreakBtn-' + songId);
-      if (song.sbLyricsColumns === 2) {
-        sbRenderTwoColSong(songId);
-        if (btn) btn.classList.add('active');
-        if (cbBtn) cbBtn.style.display = '';
-      } else {
-        if (typeof _sbClearTwoColView === 'function') _sbClearTwoColView(songId);
-        if (btn) btn.classList.remove('active');
-        if (cbBtn) cbBtn.style.display = 'none';
+      var lyricsEl2 = document.getElementById('sbLyrics-' + songId);
+      var isTwoCol2 = song.sbLyricsColumns === 2;
+      if (btn) btn.classList.toggle('active', isTwoCol2);
+      if (lyricsEl2) {
+        lyricsEl2.classList.toggle('sb-page-lyrics--two-col', isTwoCol2);
+        lyricsEl2.style.display = '';
       }
+      // Remove any stale JS-rendered view
+      var cw2 = document.getElementById('sbCanvas-wrap-' + songId);
+      if (cw2) { var ov2 = cw2.querySelector('.sb-twocol-view'); if (ov2) ov2.remove(); }
     }
 
     if (p.textAnnots) sbRenderTextAnnots(songId);
@@ -35831,7 +35834,6 @@ var WO = (function() {
       h += '</div></div>';
     }
     h += '<button class="sb-col-toggle-btn' + (song.sbLyricsColumns === 2 ? ' active' : '') + '" id="sbColBtn-' + sid + '" onclick="WO.sbToggleLyricsColumns(\'' + sid + '\')" title="Toggle 2-column layout"><i class="fa-solid fa-table-columns"></i> 2 Col</button>';
-    h += '<button class="sb-col-toggle-btn sb-colbreak-btn" id="sbColBreakBtn-' + sid + '" onclick="WO.sbInsertColBreak(\'' + sid + '\')" title="Insert column break at cursor (2-col mode only)" style="' + (song.sbLyricsColumns === 2 ? '' : 'display:none;') + '"><i class="fa-solid fa-arrow-turn-down"></i> Col↵</button>';
     var hasLog = song.liturgistNotes && song.liturgistNotes.trim();
     h += '<button class="sb-litlog-btn' + (hasLog ? ' active' : ' sb-litlog-empty') + '" onclick="WO.sbOpenLiturgistLog(\'' + sid + '\')" title="Liturgist Notes"><i class="fa-solid fa-book-bookmark"></i> Liturgist Notes</button>';
     return h;
