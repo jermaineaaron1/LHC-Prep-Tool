@@ -1356,6 +1356,8 @@
     .all-songs-badge-btn.doc:hover { background: #dbeafe; }
     .all-songs-badge-btn.file { background: #f0fdf4; border-color: #bbf7d0; color: #16a34a; }
     .all-songs-badge-btn.file:hover { background: #dcfce7; }
+    .all-songs-badge-btn.edit-song-btn { background: #fffbeb; border-color: #fcd34d; color: #d97706; margin-right:2px; }
+    .all-songs-badge-btn.edit-song-btn:hover { background: #fef3c7; }
     .all-songs-badge-btn.preview { background: #f0fdf4; border-color: #86efac; color: #16a34a; margin-right:4px; }
     .all-songs-badge-btn.preview:hover { background: #dcfce7; }
     .all-songs-badge-btn.add-sb { background: #fdf4ff; border-color: #e9d5ff; color: #7c3aed; margin-left:4px; }
@@ -7458,6 +7460,9 @@ I once was lost but now am found"
             <button id="lyricsPreviewChordsBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('chords')">
               <i class="fa-solid fa-guitar mr-1"></i> Lyrics + Chords
             </button>
+            <button id="lyricsPreviewTwoColBtn" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewTwoCol()" title="Toggle 2-column layout" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
+              <i class="fa-solid fa-table-columns mr-1"></i> 2 Col
+            </button>
           </div>
           <div class="flex gap-2 items-center flex-wrap">
             <button id="lyricsPreviewEditBtn" class="lhc-pill-button text-sm" title="Edit song" onclick="lyricsPreviewOpenEditor()" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;">
@@ -10089,6 +10094,11 @@ window.setLyricsPreviewSong = function(song) {
   
   document.getElementById('lyricsPreviewLyricsBtn').classList.add('lhc-pill-button-active');
   document.getElementById('lyricsPreviewChordsBtn').classList.remove('lhc-pill-button-active');
+  // Reset 2-col state for each new song
+  var _twoColBtn = document.getElementById('lyricsPreviewTwoColBtn');
+  if (_twoColBtn) _twoColBtn.classList.remove('lhc-pill-button-active');
+  var _twoColContent = document.getElementById('lyricsPreviewContent');
+  if (_twoColContent) { _twoColContent.style.columnCount = ''; _twoColContent.style.columnGap = ''; }
   document.getElementById('transposeContainer').style.display = 'none';
   document.getElementById('transposeSelect').value = '0';
 
@@ -10116,6 +10126,22 @@ window.setLyricsPreviewSong = function(song) {
 };
 
 // ── Preview modal action buttons ────────────────────────────────────────────
+
+window.toggleLyricsPreviewTwoCol = function() {
+  var content = document.getElementById('lyricsPreviewContent');
+  var btn = document.getElementById('lyricsPreviewTwoColBtn');
+  if (!content) return;
+  var isTwo = content.style.columnCount === '2';
+  if (isTwo) {
+    content.style.columnCount = '';
+    content.style.columnGap = '';
+    if (btn) { btn.classList.remove('lhc-pill-button-active'); btn.style.background = '#f8fafc'; btn.style.borderColor = '#cbd5e1'; btn.style.color = '#475569'; }
+  } else {
+    content.style.columnCount = '2';
+    content.style.columnGap = '32px';
+    if (btn) { btn.classList.add('lhc-pill-button-active'); btn.style.background = ''; btn.style.borderColor = ''; btn.style.color = ''; }
+  }
+};
 
 window.lyricsPreviewOpenEditor = function() {
   var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
@@ -13537,6 +13563,7 @@ window.loadEditSongData = function(song) {
         h += '</div>';
         if (song.artist) h += '<span class="all-songs-artist">' + escapeHtml(song.artist) + '</span>';
         h += '<button class="all-songs-mobile-action" data-id="' + escapeHtml(song.id) + '" title="Actions" onclick="event.stopPropagation();"><i class="fa-solid fa-ellipsis-vertical"></i></button>';
+        h += '<button class="all-songs-badge-btn edit-song-btn" data-id="' + escapeHtml(song.id) + '" title="Edit song"><i class="fa-solid fa-pen-to-square"></i></button>';
         h += '<button class="all-songs-badge-btn preview btn-lyrics-preview" data-id="' + escapeHtml(song.id) + '" title="Preview lyrics, print PDF &amp; view links"><i class="fa-solid fa-music"></i></button>';
         h += '<span class="all-songs-badges">';
         if (ytUrls.length) {
@@ -14389,6 +14416,15 @@ window.loadEditSongData = function(song) {
         e.stopPropagation();
         var song = STATE.songs.find(function(s) { return s.id === btn.dataset.id; });
         if (song) showToast('Added "' + song.title + '" to order', 'success');
+      };
+    });
+
+    // EDIT BUTTON — opens edit modal directly from song list
+    $$('.edit-song-btn').forEach(function(btn) {
+      btn.onclick = function(e) {
+        e.stopPropagation();
+        var song = STATE.songs.find(function(s) { return s.id === btn.dataset.id; });
+        if (song && typeof openEditSongModal === 'function') openEditSongModal(song);
       };
     });
 
