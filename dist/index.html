@@ -22146,9 +22146,9 @@ var WO = (function() {
 
   // Update local cache for quick access
   function updateLocalOrderCache(order) {
-    var existingIdx = savedOrders.findIndex(function(o) {
-      return o.id === order.id || (o.createdDate && o.createdDate === order.createdDate);
-    });
+    var existingIdx = order.id
+      ? savedOrders.findIndex(function(o) { return o.id === order.id; })
+      : savedOrders.findIndex(function(o) { return !o.id && o.createdDate && o.createdDate === order.createdDate; });
     if (existingIdx >= 0) {
       savedOrders[existingIdx] = order;
     } else {
