@@ -7441,16 +7441,7 @@ I once was lost but now am found"
             <h3 id="lyricsPreviewTitle" class="font-cinzel text-xl font-bold text-slate-800"></h3>
             <p id="lyricsPreviewArtist" class="text-sm text-slate-500 mt-1"></p>
           </div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <button id="lyricsPreviewEditBtn" class="lhc-pill-button" title="Edit song" onclick="lyricsPreviewOpenEditor()" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;">
-              <i class="fa-solid fa-pen-to-square"></i> Edit
-            </button>
-            <button id="lyricsPreviewShareBtn" class="lhc-pill-button" title="Share song link" onclick="lyricsPreviewShare(this)" style="background:#f0fdf4;border-color:#86efac;color:#15803d;">
-              <i class="fa-solid fa-share-nodes"></i> Share
-            </button>
-            <button id="lyricsPreviewBookmarkBtn" class="lhc-pill-button" title="Add to Songbook" onclick="lyricsPreviewAddToSongbook(this)" style="background:#faf5ff;border-color:#d8b4fe;color:#7c3aed;">
-              <i class="fa-solid fa-bookmark"></i> Add to Songbook
-            </button>
+          <div class="flex items-center gap-2">
             <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button" title="Fullscreen" onclick="toggleLyricsPreviewFullscreen()">
               <i class="fa-solid fa-expand"></i>
             </button>
@@ -7469,6 +7460,15 @@ I once was lost but now am found"
             </button>
           </div>
           <div class="flex gap-2 items-center flex-wrap">
+            <button id="lyricsPreviewEditBtn" class="lhc-pill-button text-sm" title="Edit song" onclick="lyricsPreviewOpenEditor()" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;">
+              <i class="fa-solid fa-pen-to-square mr-1"></i> Edit
+            </button>
+            <button id="lyricsPreviewShareBtn" class="lhc-pill-button text-sm" title="Share song link" onclick="lyricsPreviewShare(this)" style="background:#f0fdf4;border-color:#86efac;color:#15803d;">
+              <i class="fa-solid fa-share-nodes mr-1"></i> Share
+            </button>
+            <button id="lyricsPreviewBookmarkBtn" class="lhc-pill-button text-sm" title="Add to Songbook" onclick="lyricsPreviewAddToSongbook(this)" style="background:#faf5ff;border-color:#d8b4fe;color:#7c3aed;">
+              <i class="fa-solid fa-bookmark mr-1"></i> Songbook
+            </button>
             <!-- Transpose Dropdown -->
             <div id="transposeContainer" class="hidden items-center gap-2">
               <label class="text-xs text-slate-500">Transpose:</label>
@@ -10128,14 +10128,22 @@ window.lyricsPreviewShare = function(btn) {
   var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
   if (!song) return;
 
-  var old = document.getElementById('_lpShareSheet');
-  if (old) { old.remove(); return; }
-
   var baseUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
   var songUrl  = baseUrl + '?song=' + encodeURIComponent(song.id);
   var title    = song.title || 'Worship Song';
   var artist   = song.artist ? ' — ' + song.artist : '';
   var waMsg    = '🎵 *' + title + '*' + artist + '\n\n' + songUrl;
+
+  // On mobile use the native Web Share API when available
+  if (navigator.share && window.innerWidth <= 768) {
+    navigator.share({ title: title + artist, text: '🎵 ' + title + artist, url: songUrl })
+      .catch(function() {});
+    return;
+  }
+
+  var old = document.getElementById('_lpShareSheet');
+  if (old) { old.remove(); return; }
+
   var emailSub = encodeURIComponent(title + artist);
   var emailBod = encodeURIComponent(title + artist + '\n\n' + songUrl);
 
@@ -10148,7 +10156,7 @@ window.lyricsPreviewShare = function(btn) {
     '<button onclick="window.open(\'mailto:?subject=' + emailSub + '&body=' + emailBod + '\',\'_blank\');document.getElementById(\'_lpShareSheet\').remove();" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:0.85rem;color:#1e293b;" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'none\'"><i class="fa-solid fa-envelope" style="color:#6366f1;font-size:1rem;width:20px;"></i> Email</button>' +
     '<button onclick="(navigator.clipboard?navigator.clipboard.writeText(\'' + songUrl.replace(/'/g,"\\'") + '\'):Promise.reject()).then(function(){if(typeof showToast===\'function\')showToast(\'Link copied!\',\'success\');}).catch(function(){});document.getElementById(\'_lpShareSheet\').remove();" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:0.85rem;color:#1e293b;" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'none\'"><i class="fa-solid fa-link" style="color:#0891b2;font-size:1rem;width:20px;"></i> Copy link</button>';
 
-  var wrap = btn.closest('.flex.items-center.gap-2') || btn.parentElement;
+  var wrap = btn.closest('.flex.gap-2.items-center') || btn.parentElement;
   wrap.style.position = 'relative';
   wrap.appendChild(sheet);
 
@@ -14494,6 +14502,8 @@ window.loadEditSongData = function(song) {
       btns += '<button class="msas-btn msas-docs"    onclick="_msasAct(\'files\')">' +
         '<i class="fa-solid fa-paperclip"></i>Files' + (localFiles.length > 1 ? ' (' + localFiles.length + ')' : '') + '</button>';
     }
+    btns += '<button class="msas-btn msas-share"    onclick="_msasAct(\'share\')">' +
+      '<i class="fa-solid fa-share-nodes"></i>Share</button>';
     btns += '<button class="msas-btn msas-edit"     onclick="_msasAct(\'edit\')">' +
       '<i class="fa-solid fa-sliders"></i>Edit Song</button>';
     btns += '<button class="msas-btn msas-songbook" onclick="_msasAct(\'songbook\')">' +
@@ -14534,6 +14544,18 @@ window.loadEditSongData = function(song) {
         break;
       case 'songbook':
         showAddToSongbookPicker(null, song.id);
+        break;
+      case 'share':
+        var _shareUrl = ((window.__WEBAPP_URL || window.location.href).split('?')[0]) + '?song=' + encodeURIComponent(song.id);
+        var _shareTitle = song.title || 'Worship Song';
+        var _shareArtist = song.artist ? ' — ' + song.artist : '';
+        if (navigator.share) {
+          navigator.share({ title: _shareTitle + _shareArtist, text: '🎵 ' + _shareTitle + _shareArtist, url: _shareUrl }).catch(function() {});
+        } else if (navigator.clipboard) {
+          navigator.clipboard.writeText(_shareUrl).then(function() {
+            if (typeof showToast === 'function') showToast('Link copied!', 'success');
+          });
+        }
         break;
     }
   };
@@ -54768,6 +54790,7 @@ function filterLiturgyItems() {
   .msas-btn.msas-lyrics { border-color:#c4b5fd; background:#f5f3ff; color:#7c3aed; }
   .msas-btn.msas-edit { border-color:#fcd34d; background:#fffbeb; color:#d97706; }
   .msas-btn.msas-songbook { border-color:#a5b4fc; background:#eef2ff; color:#4338ca; }
+  .msas-btn.msas-share    { border-color:#6ee7b7; background:#ecfdf5; color:#047857; }
 
   .sb-drag-handle { cursor:grab; border-radius:6px; padding:2px 4px; transition:background 0.15s; }
   .sb-drag-handle:hover { background:rgba(99,102,241,0.08); }
