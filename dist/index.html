@@ -7441,7 +7441,16 @@ I once was lost but now am found"
             <h3 id="lyricsPreviewTitle" class="font-cinzel text-xl font-bold text-slate-800"></h3>
             <p id="lyricsPreviewArtist" class="text-sm text-slate-500 mt-1"></p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
+            <button id="lyricsPreviewEditBtn" class="lhc-pill-button" title="Edit song" onclick="lyricsPreviewOpenEditor()" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;">
+              <i class="fa-solid fa-pen-to-square"></i> Edit
+            </button>
+            <button id="lyricsPreviewShareBtn" class="lhc-pill-button" title="Share song link" onclick="lyricsPreviewShare(this)" style="background:#f0fdf4;border-color:#86efac;color:#15803d;">
+              <i class="fa-solid fa-share-nodes"></i> Share
+            </button>
+            <button id="lyricsPreviewBookmarkBtn" class="lhc-pill-button" title="Add to Songbook" onclick="lyricsPreviewAddToSongbook(this)" style="background:#faf5ff;border-color:#d8b4fe;color:#7c3aed;">
+              <i class="fa-solid fa-bookmark"></i> Add to Songbook
+            </button>
             <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button" title="Fullscreen" onclick="toggleLyricsPreviewFullscreen()">
               <i class="fa-solid fa-expand"></i>
             </button>
@@ -10104,6 +10113,62 @@ window.setLyricsPreviewSong = function(song) {
   }
 
   renderLyricsPreviewContent();
+};
+
+// ── Preview modal action buttons ────────────────────────────────────────────
+
+window.lyricsPreviewOpenEditor = function() {
+  var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
+  if (!song) return;
+  if (typeof closeLyricsPreviewModal === 'function') closeLyricsPreviewModal();
+  if (typeof openEditSongModal === 'function') setTimeout(function() { openEditSongModal(song); }, 120);
+};
+
+window.lyricsPreviewShare = function(btn) {
+  var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
+  if (!song) return;
+
+  var old = document.getElementById('_lpShareSheet');
+  if (old) { old.remove(); return; }
+
+  var baseUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
+  var songUrl  = baseUrl + '?song=' + encodeURIComponent(song.id);
+  var title    = song.title || 'Worship Song';
+  var artist   = song.artist ? ' — ' + song.artist : '';
+  var waMsg    = '🎵 *' + title + '*' + artist + '\n\n' + songUrl;
+  var emailSub = encodeURIComponent(title + artist);
+  var emailBod = encodeURIComponent(title + artist + '\n\n' + songUrl);
+
+  var sheet = document.createElement('div');
+  sheet.id = '_lpShareSheet';
+  sheet.style.cssText = 'position:absolute;top:calc(100% + 6px);right:0;background:white;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.18);padding:8px;z-index:9999;min-width:200px;';
+  sheet.innerHTML =
+    '<div style="font-size:0.72rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding:4px 8px 6px;">Share this song</div>' +
+    '<button onclick="window.open(\'https://wa.me/?text=\'+encodeURIComponent(\'' + waMsg.replace(/'/g,"\\'").replace(/\n/g,'\\n') + '\'),\'_blank\');document.getElementById(\'_lpShareSheet\').remove();" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:0.85rem;color:#1e293b;" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'none\'"><i class="fa-brands fa-whatsapp" style="color:#25d366;font-size:1.1rem;width:20px;"></i> WhatsApp</button>' +
+    '<button onclick="window.open(\'mailto:?subject=' + emailSub + '&body=' + emailBod + '\',\'_blank\');document.getElementById(\'_lpShareSheet\').remove();" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:0.85rem;color:#1e293b;" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'none\'"><i class="fa-solid fa-envelope" style="color:#6366f1;font-size:1rem;width:20px;"></i> Email</button>' +
+    '<button onclick="(navigator.clipboard?navigator.clipboard.writeText(\'' + songUrl.replace(/'/g,"\\'") + '\'):Promise.reject()).then(function(){if(typeof showToast===\'function\')showToast(\'Link copied!\',\'success\');}).catch(function(){});document.getElementById(\'_lpShareSheet\').remove();" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:0.85rem;color:#1e293b;" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'none\'"><i class="fa-solid fa-link" style="color:#0891b2;font-size:1rem;width:20px;"></i> Copy link</button>';
+
+  var wrap = btn.closest('.flex.items-center.gap-2') || btn.parentElement;
+  wrap.style.position = 'relative';
+  wrap.appendChild(sheet);
+
+  function outsideClick(ev) {
+    if (!sheet.contains(ev.target) && ev.target !== btn) {
+      sheet.remove();
+      document.removeEventListener('mousedown', outsideClick);
+    }
+  }
+  setTimeout(function() { document.addEventListener('mousedown', outsideClick); }, 10);
+};
+
+window.lyricsPreviewAddToSongbook = function(btn) {
+  var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
+  if (!song) return;
+  if (typeof showAddToSongbookPicker === 'function') {
+    showAddToSongbookPicker({ target: btn }, song.id);
+  } else if (typeof window.showAddToSongbookPicker === 'function') {
+    window.showAddToSongbookPicker({ target: btn }, song.id);
+  }
 };
 
 // ============ YouTube Link Management ============
@@ -14319,17 +14384,13 @@ window.loadEditSongData = function(song) {
       };
     });
 
-    // CLICKABLE TITLE — on mobile shows action sheet, on desktop opens edit modal
+    // CLICKABLE TITLE — opens lyrics preview modal on all screen sizes
     $$('.song-title-link').forEach(function(el) {
       el.onclick = function(e) {
         e.stopPropagation();
         var song = STATE.songs.find(function(s) { return s.id === el.dataset.id; });
         if (!song) return;
-        if (window.innerWidth <= 768) {
-          showMobileSongActions(song);
-        } else {
-          openEditSongModal(song);
-        }
+        openLyricsPreviewModal(song);
       };
     });
 
@@ -16209,6 +16270,17 @@ window.loadEditSongData = function(song) {
       renderSongStats();
       $('backendStatus').textContent = 'Backend: Connected ✓';
       $('backendStatus').style.color = '#86efac';
+      // Deep link: ?song=SONG_ID → open that song's preview (standalone, not paired with ?media=)
+      var _dlSong = (window.__DEEPLINK_SONG || '').trim();
+      if (_dlSong && !window.__DEEPLINK_MEDIA) {
+        var _dlFound = STATE.songs.find(function(s) { return s.id === _dlSong; });
+        if (_dlFound) {
+          setActiveView('songFinderView');
+          showAllSongs();
+          setTimeout(function() { openLyricsPreviewModal(_dlFound); }, 300);
+        }
+      }
+
       // Load usage stats from order_items in background (non-blocking)
       if (typeof SBQ !== 'undefined' && SBQ.getSongUsageStats) {
         SBQ.getSongUsageStats().then(function(stats) {
