@@ -4070,13 +4070,13 @@
         
         <!-- Stats Tabs -->
         <div class="flex gap-1 mb-3 flex-wrap">
-          <button class="stat-tab-btn active text-[0.65rem] px-2 py-1 rounded-lg" data-stat="frequent" title="Top 20 songs most used across all orders">
+          <button class="stat-tab-btn active text-[0.65rem] px-2 py-1 rounded-lg" data-stat="frequent" title="Top 15 songs most used across all orders">
             🔥 Trending
           </button>
-          <button class="stat-tab-btn text-[0.65rem] px-2 py-1 rounded-lg" data-stat="recent" title="Top 20 songs most recently used in orders">
+          <button class="stat-tab-btn text-[0.65rem] px-2 py-1 rounded-lg" data-stat="recent" title="Top 15 songs most recently added to the library">
             🕐 Recent
           </button>
-          <button class="stat-tab-btn text-[0.65rem] px-2 py-1 rounded-lg" data-stat="newest" title="Latest 25 songs added to the library">
+          <button class="stat-tab-btn text-[0.65rem] px-2 py-1 rounded-lg" data-stat="newest" title="Top 20 songs used 1–5 times — still getting their footing">
             ✨ New
           </button>
         </div>
@@ -14700,84 +14700,106 @@ window.loadEditSongData = function(song) {
     if (!container) return;
 
     var songs = STATE.songs.slice();
-    var statSongs = [];
-    var usageCounts  = (STATE.usageStats && STATE.usageStats.counts)  || {};
-    var usageLastUsed = (STATE.usageStats && STATE.usageStats.lastUsed) || {};
-
-    if (STATE.currentStatTab === 'frequent') {
-      // Top 20 trending — ranked by how many times added across ALL orders
-      var songsWithCount = songs.map(function(s) {
-        return { song: s, count: usageCounts[s.id] || s.useCount || 0 };
-      }).filter(function(x) { return x.count > 0; })
-        .sort(function(a, b) { return b.count - a.count; })
-        .slice(0, 20);
-      // Fallback if no order data yet
-      if (!songsWithCount.length) {
-        songsWithCount = songs.sort(function(a, b) {
-          return (b.useCount || 0) - (a.useCount || 0) || a.title.localeCompare(b.title);
-        }).slice(0, 20).map(function(s) { return { song: s, count: s.useCount || 0 }; });
-      }
-      statSongs = songsWithCount.map(function(x) { return Object.assign({ _count: x.count }, x.song); });
-
-    } else if (STATE.currentStatTab === 'recent') {
-      // Top 20 recently used in an order (by lastUsed from order_items)
-      var songsWithDate = songs.map(function(s) {
-        return { song: s, date: usageLastUsed[s.id] || s.lastUsed || s.lastEdited || '' };
-      }).filter(function(x) { return x.date; })
-        .sort(function(a, b) { return b.date.localeCompare(a.date); })
-        .slice(0, 20);
-      // Fallback
-      if (!songsWithDate.length) {
-        songsWithDate = songs.slice().sort(function(a, b) {
-          return (b.lastUsed || b.lastEdited || '').localeCompare(a.lastUsed || a.lastEdited || '');
-        }).slice(0, 20).map(function(s) { return { song: s, date: s.lastUsed || s.lastEdited || '' }; });
-      }
-      statSongs = songsWithDate.map(function(x) { return Object.assign({ _recentDate: x.date }, x.song); });
-
-    } else if (STATE.currentStatTab === 'newest') {
-      // Latest 25 songs added to the system by dateAdded
-      statSongs = songs.slice().sort(function(a, b) {
-        var aDate = a.dateAdded || '';
-        var bDate = b.dateAdded || '';
-        if (aDate && bDate) return bDate.localeCompare(aDate);
-        if (bDate) return 1;
-        if (aDate) return -1;
-        return 0;
-      });
-      if (!statSongs.some(function(s) { return s.dateAdded; })) {
-        statSongs = songs.slice().reverse();
-      }
-      statSongs = statSongs.slice(0, 25);
-    }
-
-    if (!statSongs.length) {
-      container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">No songs in library yet.</div>';
-      return;
-    }
+    var usageCounts = (STATE.usageStats && STATE.usageStats.counts) || {};
 
     var html = '';
-    statSongs.forEach(function(song, idx) {
-      var badge = '';
-      if (STATE.currentStatTab === 'frequent') {
-        var cnt = song._count || 0;
-        badge = cnt > 0
-          ? '<span class="text-[0.6rem] bg-amber-400/30 text-amber-200 px-1.5 py-0.5 rounded-full" title="Used in orders">' + cnt + 'x</span>'
-          : '';
-      } else if (STATE.currentStatTab === 'recent') {
-        var rd = song._recentDate || '';
-        if (rd) badge = '<span class="text-[0.6rem] bg-blue-400/30 text-blue-200 px-1.5 py-0.5 rounded-full">' + formatDateShort(rd) + '</span>';
-      } else if (STATE.currentStatTab === 'newest') {
-        if (song.dateAdded) badge = '<span class="text-[0.6rem] bg-green-400/30 text-green-200 px-1.5 py-0.5 rounded-full">' + formatDateShort(song.dateAdded) + '</span>';
+
+    if (STATE.currentStatTab === 'frequent') {
+      // Top 15 most used across all orders — count from order_items, fallback to song.useCount
+      var ranked = songs.map(function(s) {
+        return { song: s, count: usageCounts[s.id] || s.useCount || 0 };
+      }).filter(function(x) { return x.count > 0; })
+        .sort(function(a, b) { return b.count - a.count || a.song.title.localeCompare(b.song.title); })
+        .slice(0, 15);
+
+      if (!ranked.length) {
+        container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">No usage data yet. Add songs to orders to see trending.</div>';
+        return;
       }
 
-      html += '<div class="stat-song-item flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 cursor-pointer transition" data-id="' + escapeHtml(song.id) + '">';
-      html += '<div class="flex items-center gap-2 min-w-0">';
-      html += '<span class="text-[0.65rem] text-white/50 w-4">' + (idx + 1) + '</span>';
-      html += '<span class="text-xs text-white truncate">' + escapeHtml(song.title) + '</span>';
-      html += '</div>';
-      html += badge;
-      html += '</div>';
-    });
+      ranked.forEach(function(x, idx) {
+        var times = x.count === 1 ? '1 time' : x.count + ' times';
+        html += '<div class="stat-song-item flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 cursor-pointer transition" data-id="' + escapeHtml(x.song.id) + '">';
+        html += '<div class="flex items-center gap-2 min-w-0">';
+        html += '<span class="text-[0.65rem] text-white/50 w-4 flex-shrink-0">' + (idx + 1) + '</span>';
+        html += '<span class="text-xs text-white truncate">' + escapeHtml(x.song.title) + '</span>';
+        html += '</div>';
+        html += '<span class="text-[0.6rem] bg-amber-400/30 text-amber-200 px-1.5 py-0.5 rounded-full flex-shrink-0" title="Used in orders">' + times + '</span>';
+        html += '</div>';
+      });
+
+    } else if (STATE.currentStatTab === 'recent') {
+      // Top 15 songs most recently added to the system (by dateAdded)
+      var byDate = songs.slice().filter(function(s) { return s.dateAdded || s.lastEdited; })
+        .sort(function(a, b) {
+          var aD = a.dateAdded || a.lastEdited || '';
+          var bD = b.dateAdded || b.lastEdited || '';
+          return bD.localeCompare(aD);
+        }).slice(0, 15);
+
+      if (!byDate.length) byDate = songs.slice().reverse().slice(0, 15);
+
+      if (!byDate.length) {
+        container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">No songs in library yet.</div>';
+        return;
+      }
+
+      byDate.forEach(function(s, idx) {
+        var dateStr = s.dateAdded || s.lastEdited || '';
+        var label = dateStr ? formatDateShort(dateStr) : '—';
+        html += '<div class="stat-song-item flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 cursor-pointer transition" data-id="' + escapeHtml(s.id) + '">';
+        html += '<div class="flex items-center gap-2 min-w-0">';
+        html += '<span class="text-[0.65rem] text-white/50 w-4 flex-shrink-0">' + (idx + 1) + '</span>';
+        html += '<span class="text-xs text-white truncate">' + escapeHtml(s.title) + '</span>';
+        html += '</div>';
+        html += '<span class="text-[0.6rem] bg-sky-400/30 text-sky-200 px-1.5 py-0.5 rounded-full flex-shrink-0">' + label + '</span>';
+        html += '</div>';
+      });
+
+    } else if (STATE.currentStatTab === 'newest') {
+      // Songs used 1–5 times in orders — sorted ascending (1st use → 5th use)
+      // Songs at exactly 6 uses get a "Graduated" callout at the bottom
+      var newSongs = songs.map(function(s) {
+        return { song: s, count: usageCounts[s.id] || s.useCount || 0 };
+      }).filter(function(x) { return x.count >= 1 && x.count <= 5; })
+        .sort(function(a, b) { return a.count - b.count || a.song.title.localeCompare(b.song.title); })
+        .slice(0, 20);
+
+      var graduated = songs.map(function(s) {
+        return { song: s, count: usageCounts[s.id] || s.useCount || 0 };
+      }).filter(function(x) { return x.count === 6; })
+        .sort(function(a, b) { return a.song.title.localeCompare(b.song.title); });
+
+      if (!newSongs.length && !graduated.length) {
+        container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">No songs used 1–5 times yet.</div>';
+        return;
+      }
+
+      var ordinals = ['', '1st', '2nd', '3rd', '4th', '5th'];
+      newSongs.forEach(function(x, idx) {
+        var ordinal = ordinals[x.count] || x.count + 'th';
+        html += '<div class="stat-song-item flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 cursor-pointer transition" data-id="' + escapeHtml(x.song.id) + '">';
+        html += '<div class="flex items-center gap-2 min-w-0">';
+        html += '<span class="text-[0.65rem] text-white/50 w-4 flex-shrink-0">' + (idx + 1) + '</span>';
+        html += '<span class="text-xs text-white truncate">' + escapeHtml(x.song.title) + '</span>';
+        html += '</div>';
+        html += '<span class="text-[0.6rem] bg-emerald-400/30 text-emerald-200 px-1.5 py-0.5 rounded-full flex-shrink-0">' + ordinal + ' use</span>';
+        html += '</div>';
+      });
+
+      if (graduated.length) {
+        html += '<div class="text-[0.6rem] text-white/40 uppercase tracking-widest mt-3 mb-1 px-1">Used 6 times</div>';
+        graduated.forEach(function(x) {
+          html += '<div class="stat-song-item flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/15 cursor-pointer transition opacity-60" data-id="' + escapeHtml(x.song.id) + '">';
+          html += '<div class="flex items-center gap-2 min-w-0">';
+          html += '<span class="text-[0.65rem] text-white/30 w-4 flex-shrink-0">—</span>';
+          html += '<span class="text-xs text-white/70 truncate">' + escapeHtml(x.song.title) + '</span>';
+          html += '</div>';
+          html += '<span class="text-[0.6rem] bg-violet-400/30 text-violet-200 px-1.5 py-0.5 rounded-full flex-shrink-0">6× — trending now</span>';
+          html += '</div>';
+        });
+      }
+    }
 
     container.innerHTML = html;
 
