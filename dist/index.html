@@ -2678,7 +2678,7 @@
       #lyricsPreviewHeaderPanel .flex.items-center.justify-between > div:first-child { flex: 1; min-width: 0; overflow: hidden; }
       #lyricsPreviewTitle { font-size: 1rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #lyricsPreviewArtist { font-size: 0.72rem !important; margin-top: 2px !important; }
-      /* Toolbar: horizontal scroll row instead of wrapping */
+      /* Toolbar: single flat horizontal scroll row */
       #lyricsPreviewToolbar {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
@@ -2686,14 +2686,18 @@
         justify-content: flex-start !important;
         gap: 6px !important;
         margin-top: 10px !important;
-        padding-bottom: 2px;
+        padding-bottom: 4px;
         scrollbar-width: none;
       }
       #lyricsPreviewToolbar::-webkit-scrollbar { display: none; }
+      /* Dissolve the two inner groups — all buttons become direct flex children */
+      #lyricsPreviewToolbar > div { display: contents; }
       #lyricsPreviewToolbar .lhc-pill-button,
-      #lyricsPreviewToolbar button { white-space: nowrap; flex-shrink: 0; font-size: 0.68rem !important; padding: 5px 9px !important; }
-      #lyricsPreviewToolbar .flex { flex-shrink: 0; flex-wrap: nowrap; }
-      #lyricsPreviewToolbar select { font-size: 0.68rem !important; padding: 4px 22px 4px 7px !important; }
+      #lyricsPreviewToolbar button { white-space: nowrap; flex-shrink: 0; font-size: 0.72rem !important; padding: 6px 10px !important; }
+      /* Hide icons inside toolbar to save space (text labels are enough) */
+      #lyricsPreviewToolbar .lhc-pill-button i,
+      #lyricsPreviewToolbar button i { display: none !important; }
+      #lyricsPreviewToolbar select { font-size: 0.68rem !important; padding: 4px 22px 4px 7px !important; flex-shrink: 0; }
       /* Lyrics content area */
       #lyricsPreviewContent { padding: 12px 14px !important; }
       /* Footer */
@@ -2805,6 +2809,9 @@
     @media (max-width: 400px) {
       .lhc-pill-button { padding: 5px 7px; font-size: 0.62rem; }
       .lhc-pill-button i { display: none; }
+      /* Header close/fullscreen are icon-only — must stay visible */
+      #lyricsPreviewHeaderPanel .lhc-pill-button i { display: inline-block !important; font-size: 1rem !important; margin: 0 !important; }
+      #lyricsPreviewHeaderPanel .lhc-pill-button { padding: 8px 12px !important; min-width: 38px; min-height: 38px; display: inline-flex !important; align-items: center; justify-content: center; }
       .lhc-topnav-right { display: none; }
       .lhc-topnav-btn { padding: 5px 6px; font-size: 0.6rem; }
       .lhc-topnav-links { padding: 2px; border-radius: 8px; }
