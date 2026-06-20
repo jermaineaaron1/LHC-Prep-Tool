@@ -36924,7 +36924,7 @@ var WO = (function() {
         sbFilesArr.forEach(function(f, fi) {
           var nm = f.name || ('File ' + (fi+1)); if (nm.length > 22) nm = nm.substring(0,22)+'…';
           var isImg = f.mimeType && f.mimeType.startsWith('image/');
-          html += '<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.78rem;cursor:pointer;" title="' + escapeHtml(f.name||'') + '"><input type="checkbox" id="sbp-file-' + idx + '-' + fi + '" style="' + ckS + '"> <span style="color:#16a34a;">' + (isImg?'🖼️':'📎') + ' ' + escapeHtml(nm) + '</span></label>';
+          html += '<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.78rem;cursor:pointer;" title="' + escapeHtml(f.name||'') + '"><input type="checkbox" id="sbp-file-' + idx + '-' + fi + '"' + (isImg ? ' checked' : '') + ' style="' + ckS + '"> <span style="color:#16a34a;">' + (isImg?'🖼️':'📎') + ' ' + escapeHtml(nm) + '</span></label>';
         });
         // 385/390 — Song page links: snapshots checked by default (printable inline); plain links unchecked
         var sbLinksArr = Array.isArray(song.sbLinks) ? song.sbLinks : [];
@@ -37340,7 +37340,10 @@ var WO = (function() {
         var isImage = f.mimeType && f.mimeType.startsWith('image/');
         if (isImage) {
           // 480 — Image print page: render image with its own annotation SVG (no lyrics annotations)
-          var imgSrc = f.url || '';
+          var _pFileId = f.fileId || sbGetDriveFileId(f.url || '');
+          var imgSrc = _pFileId
+            ? 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(_pFileId) + '&sz=w1600'
+            : (f.url || '');
           var imgAnnotPaths = (sbImgPaths[song.id] && sbImgPaths[song.id][fi]) || (song.imgAnnotations && song.imgAnnotations[fi]) || [];
           var imgAnnotSvgStr = '';
           if (imgAnnotPaths.length > 0) {
