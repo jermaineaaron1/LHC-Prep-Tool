@@ -20897,6 +20897,10 @@ var WO = (function() {
   }
 
   function openOrderInEditor(order) {
+    // Cancel any pending auto-save from the previously open order before switching.
+    // Without this, a debounced save from Order A could fire after currentOrderData
+    // has already been swapped to Order B, writing Order A's DOM content into Order B.
+    clearTimeout(_autoSaveTimer);
     console.log('*** OPEN ORDER IN EDITOR ***');
     console.log('order.id:', order.id);
     console.log('order.title:', order.title);
@@ -21746,6 +21750,11 @@ var WO = (function() {
   function collectOrderItems() {
     var items = [];
     var sortOrder = 0;
+    // Prefix all generated item IDs with the order ID so they are unique across orders.
+    // Without this, two orders with the same template produce identical IDs (e.g.
+    // 'liturgy_invocation_invocation') and Supabase's upsert(onConflict:'id') would
+    // overwrite one order's row with the other's data.
+    var _oidPfx = (currentOrderData && currentOrderData.id) ? currentOrderData.id + '__' : '';
 
     console.log('collectOrderItems - songOrderSections:', songOrderSections.length);
     console.log('collectOrderItems - FULL songOrderSections data:');
@@ -22043,7 +22052,7 @@ var WO = (function() {
         }
 
         items.push({
-          id: 'liturgy_' + liturgyId + '_' + sectionId,
+          id: _oidPfx + 'liturgy_' + liturgyId + '_' + sectionId,
           itemType: 'liturgy',
           sectionId: sectionId,
           sortOrder: sortOrder++,
@@ -22078,7 +22087,7 @@ var WO = (function() {
         }
 
         items.push({
-          id: 'scripture_' + sectionId + '_' + sortOrder,
+          id: _oidPfx + 'scripture_' + sectionId + '_' + sortOrder,
           itemType: 'scripture',
           sectionId: sectionId,
           sortOrder: sortOrder++,
@@ -22103,7 +22112,7 @@ var WO = (function() {
         if (!content.trim()) return;
 
         items.push({
-          id: 'content_' + sectionId + '_' + sortOrder,
+          id: _oidPfx + 'content_' + sectionId + '_' + sortOrder,
           itemType: 'content',
           sectionId: sectionId,
           sortOrder: sortOrder++,
@@ -22121,7 +22130,7 @@ var WO = (function() {
         var dataType = sc.getAttribute('data-type') || 'iframe';
         var fileName = sc.getAttribute('data-filename') || 'Presentation';
         var slideItem = {
-          id: 'slides_' + sectionId + '_' + sortOrder,
+          id: _oidPfx + 'slides_' + sectionId + '_' + sortOrder,
           itemType: 'slides',
           sectionId: sectionId,
           sortOrder: sortOrder++,
@@ -22154,7 +22163,7 @@ var WO = (function() {
       videoContainers.forEach(function(vc) {
         var dataType = vc.getAttribute('data-type') || 'youtube';
         var videoItem = {
-          id: 'video_' + sectionId + '_' + sortOrder,
+          id: _oidPfx + 'video_' + sectionId + '_' + sortOrder,
           itemType: 'video',
           sectionId: sectionId,
           sortOrder: sortOrder++,
@@ -22212,7 +22221,7 @@ var WO = (function() {
             });
           } else if (item.type === 'content' && item.text) {
             items.push({
-              id: 'content_' + sectionId + '_' + sortOrder,
+              id: _oidPfx + 'content_' + sectionId + '_' + sortOrder,
               itemType: 'content',
               sectionId: sectionId,
               sortOrder: sortOrder++,
