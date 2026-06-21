@@ -1469,6 +1469,30 @@
     .sb-list-btn.play:hover { background: #d1fae5; }
     .sb-list-btn.wa { border-color: #86efac; color: #16a34a; }
     .sb-list-btn.wa:hover { background: #dcfce7; }
+    .sb-list-btn.add-songs { border-color: #a5b4fc; color: #6366f1; }
+    .sb-list-btn.add-songs:hover { background: #e0e7ff; border-color: #818cf8; color: #4338ca; }
+    /* Add Songs Modal */
+    .add-songs-modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;animation:fadeIn 0.18s ease; }
+    .add-songs-modal { background:#fff;border-radius:16px;width:min(520px,94vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.28);animation:slideUp 0.22s ease; }
+    .add-songs-modal-hdr { padding:14px 18px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;flex-shrink:0; }
+    .add-songs-modal-title { font-weight:700;font-size:0.92rem;color:#1e293b;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    .add-songs-modal-close { width:28px;height:28px;border:none;background:#f1f5f9;border-radius:50%;cursor:pointer;color:#64748b;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+    .add-songs-modal-close:hover { background:#fee2e2;color:#dc2626; }
+    .add-songs-modal-search { padding:10px 14px;border-bottom:1px solid #e2e8f0;flex-shrink:0; }
+    .add-songs-modal-search input { width:100%;border:1.5px solid #cbd5e1;border-radius:8px;padding:8px 12px;font-size:0.88rem;outline:none;font-family:inherit;box-sizing:border-box; }
+    .add-songs-modal-search input:focus { border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,0.12); }
+    .add-songs-modal-list { flex:1;overflow-y:auto; }
+    .add-songs-row { display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid #f1f5f9;transition:background 0.1s; }
+    .add-songs-row:hover { background:#f8faff; }
+    .add-songs-row-info { flex:1;min-width:0; }
+    .add-songs-row-title { font-weight:600;font-size:0.84rem;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .add-songs-row-artist { font-size:0.73rem;color:#64748b;margin-top:1px; }
+    .add-songs-row-btn { flex-shrink:0;border:1.5px solid #6366f1;background:#fff;color:#6366f1;border-radius:6px;padding:4px 11px;font-size:0.75rem;font-weight:600;cursor:pointer;transition:all 0.15s;white-space:nowrap; }
+    .add-songs-row-btn:hover:not(:disabled) { background:#6366f1;color:#fff; }
+    .add-songs-row-btn.added { background:#dcfce7;border-color:#16a34a;color:#15803d;cursor:default; }
+    .add-songs-modal-empty { text-align:center;padding:28px;color:#94a3b8;font-size:0.85rem; }
+    .wo-saved-order-btn.add-songs { border-color: #a5b4fc; color: #6366f1; font-size: 0.72rem; }
+    .wo-saved-order-btn.add-songs:hover { background: #e0e7ff; border-color: #818cf8; color: #4338ca; }
     /* Two-column songbooks layout */
     .sb-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
     .sb-col-header { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 7px; margin-bottom: 8px; border-bottom: 2px solid #e2e8f0; display: flex; align-items: center; gap: 5px; }
@@ -13895,6 +13919,7 @@ window.loadEditSongData = function(song) {
             (meta ? '<div class="sb-list-meta">' + escapeHtml(meta) + '</div>' : '') +
           '</div>' +
           '<div class="sb-list-actions">' +
+            '<button class="sb-list-btn add-songs" onclick="event.stopPropagation();openAddSongsModal(\'' + (isOrder ? 'order' : 'songbook') + '\',\'' + (isOrder ? escapeHtml(item.orderId) : eid) + '\',\'' + ename.replace(/'/g, '&#39;') + '\')" title="Add Songs"><i class="fa-solid fa-plus"></i></button>' +
             '<button class="sb-list-btn play" onclick="event.stopPropagation();window.playSongbookPlaylist(\'' + eid + '\')" title="Play playlist"><i class="fa-solid fa-circle-play"></i></button>' +
             '<button class="sb-list-btn wa" onclick="event.stopPropagation();window.shareSongbookWhatsApp(\'' + eid + '\')" title="Share via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>' +
             '<button class="sb-list-btn" onclick="event.stopPropagation();' + openFn + '" title="Open"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>' +
@@ -14379,6 +14404,86 @@ window.loadEditSongData = function(song) {
   }
   window.addSongToStandaloneSongbook = addSongToStandaloneSongbook;
 
+  // ── Add Songs to Songbook/Order modal ──────────────────────────────────────
+  var _addSongsTarget = null;
+  var _addedSongIds = {};
+
+  function openAddSongsModal(type, targetId, label) {
+    _addedSongIds = {};
+    _addSongsTarget = { type: type, id: targetId, label: label || 'Untitled' };
+    var overlay = document.createElement('div');
+    overlay.id = 'addSongsModalOverlay';
+    overlay.className = 'add-songs-modal-overlay';
+    overlay.onclick = function(e) { if (e.target === overlay) closeAddSongsModal(); };
+    overlay.innerHTML =
+      '<div class="add-songs-modal">' +
+        '<div class="add-songs-modal-hdr">' +
+          '<i class="fa-solid fa-music" style="color:#6366f1;flex-shrink:0"></i>' +
+          '<span class="add-songs-modal-title">Add Songs to “' + escapeHtml(label || 'Untitled') + '”</span>' +
+          '<button class="add-songs-modal-close" onclick="closeAddSongsModal()" title="Close"><i class="fa-solid fa-xmark"></i></button>' +
+        '</div>' +
+        '<div class="add-songs-modal-search">' +
+          '<input type="text" id="addSongsSearchInput" placeholder="Search by title or artist…" oninput="_renderAddSongsList()">' +
+        '</div>' +
+        '<div class="add-songs-modal-list" id="addSongsModalList"></div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    _renderAddSongsList();
+    setTimeout(function() { var inp = document.getElementById('addSongsSearchInput'); if (inp) inp.focus(); }, 80);
+  }
+  window.openAddSongsModal = openAddSongsModal;
+
+  function closeAddSongsModal() {
+    var el = document.getElementById('addSongsModalOverlay');
+    if (el) el.remove();
+    _addSongsTarget = null;
+    _addedSongIds = {};
+  }
+  window.closeAddSongsModal = closeAddSongsModal;
+
+  function _renderAddSongsList() {
+    var list = document.getElementById('addSongsModalList');
+    if (!list) return;
+    var q = ((document.getElementById('addSongsSearchInput') || {}).value || '').toLowerCase();
+    var songs = (STATE.songs || []).filter(function(s) {
+      if (!q) return true;
+      return (s.title || '').toLowerCase().indexOf(q) >= 0 ||
+             (s.artist || '').toLowerCase().indexOf(q) >= 0;
+    });
+    if (!songs.length) {
+      list.innerHTML = '<div class="add-songs-modal-empty"><i class="fa-solid fa-magnifying-glass" style="font-size:1.4rem;opacity:0.3;display:block;margin-bottom:8px;"></i>No songs found</div>';
+      return;
+    }
+    list.innerHTML = songs.slice(0, 80).map(function(s) {
+      var added = !!_addedSongIds[s.id];
+      var sid = escapeHtml(s.id || '');
+      return '<div class="add-songs-row">' +
+        '<div class="add-songs-row-info">' +
+          '<div class="add-songs-row-title">' + escapeHtml(s.title || 'Untitled') + '</div>' +
+          (s.artist ? '<div class="add-songs-row-artist">' + escapeHtml(s.artist) + '</div>' : '') +
+        '</div>' +
+        '<button class="add-songs-row-btn' + (added ? ' added' : '') + '" ' +
+          (added ? 'disabled' : 'onclick="_addSongFromModal(\'' + sid + '\')"') + '>' +
+          (added ? '<i class="fa-solid fa-check"></i> Added' : '<i class="fa-solid fa-plus"></i> Add') +
+        '</button>' +
+      '</div>';
+    }).join('');
+  }
+  window._renderAddSongsList = _renderAddSongsList;
+
+  function _addSongFromModal(songId) {
+    if (!_addSongsTarget || !songId) return;
+    _sbPickerSongId = songId;
+    if (_addSongsTarget.type === 'order') {
+      addSongToOrderFromFinder(_addSongsTarget.id);
+    } else {
+      addSongToStandaloneSongbook(_addSongsTarget.id.replace(/^sb-/, ''));
+    }
+    _addedSongIds[songId] = true;
+    _renderAddSongsList();
+  }
+  window._addSongFromModal = _addSongFromModal;
+
   function createNewOrderFromSongFinder() {
     closeAddToSongbookPicker();
     // Navigate to Orders page and trigger new order creation
@@ -14478,12 +14583,11 @@ window.loadEditSongData = function(song) {
       };
     });
 
-    // Add to Order buttons
+    // Add to Order buttons — open the songbook/order picker
     $$('.btn-add-order').forEach(function(btn) {
       btn.onclick = function(e) {
         e.stopPropagation();
-        var song = STATE.songs.find(function(s) { return s.id === btn.dataset.id; });
-        if (song) showToast('Added "' + song.title + '" to order', 'success');
+        if (typeof showAddToSongbookPicker === 'function') showAddToSongbookPicker(e, btn.dataset.id);
       };
     });
 
@@ -20442,7 +20546,11 @@ var WO = (function() {
         '</div>';
       } else {
         rowExtra = (order.id ? ' cloud-synced' : ' local-only') + '"';
+        var addSongsBtn = order.id
+          ? '<button class="wo-saved-order-btn add-songs" onclick="event.stopPropagation(); openAddSongsModal(\'order\',\'' + escapeHtml(order.id) + '\',\'' + escapeHtml(order.title || 'Untitled').replace(/'/g,'&#39;') + '\')" title="Add Songs"><i class="fa-solid fa-plus"></i> Songs</button>'
+          : '';
         actions = '<div class="wo-saved-order-actions">' +
+          addSongsBtn +
           '<button class="wo-saved-order-btn open" onclick="event.stopPropagation(); WO.loadOrder(' + idx + ')"><i class="fa-solid fa-folder-open"></i> Open</button>' +
           '<button class="wo-saved-order-btn edit" onclick="event.stopPropagation(); WO.editOrderTitle(' + idx + ')"><i class="fa-solid fa-pen"></i></button>' +
           '<button class="wo-saved-order-btn delete" onclick="event.stopPropagation(); WO.deleteOrder(' + idx + ')"><i class="fa-solid fa-trash"></i></button>' +
