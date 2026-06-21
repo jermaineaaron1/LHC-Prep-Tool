@@ -20258,20 +20258,36 @@ var WO = (function() {
   // Deduplicate orders by service date — keep the most recently edited per date.
   // Orders with no service date are always kept.
   function _deduplicateOrders(orders) {
-    var seen = {}; // serviceDate → index of best candidate
+    // Primary dedup key is the order ID — two entries with the same ID are truly
+    // duplicates (e.g. loaded from both Supabase and localStorage cache).
+    // Never collapse two orders that have distinct IDs just because they share a
+    // serviceDate — a church can have multiple services / orders on the same date.
+    var seenId = {};
     var result = [];
     orders.forEach(function(o) {
-      var key = (o.serviceDate || '').trim().toLowerCase();
-      if (!key) { result.push(o); return; }
-      if (seen[key] === undefined) {
-        seen[key] = result.length;
-        result.push(o);
+      var id = (o.id || '').trim();
+      if (id) {
+        if (seenId[id]) {
+          // Same ID seen before — keep the newer copy
+          var idx = seenId[id] - 1;
+          var t1 = new Date(o.lastEdited || o.createdDate || 0).getTime();
+          var t2 = new Date(result[idx].lastEdited || result[idx].createdDate || 0).getTime();
+          if (t1 > t2) result[idx] = o;
+        } else {
+          seenId[id] = result.push(o); // push returns new length; use as 1-based index
+        }
       } else {
-        // Replace if this one is newer
-        var existing = result[seen[key]];
-        var t1 = new Date(o.lastEdited || o.createdDate || 0).getTime();
-        var t2 = new Date(existing.lastEdited || existing.createdDate || 0).getTime();
-        if (t1 > t2) result[seen[key]] = o;
+        // No ID (locally-created, not yet persisted) — dedup by serviceDate as before
+        var key = (o.serviceDate || '').trim().toLowerCase();
+        if (!key) { result.push(o); return; }
+        var existing = result.find(function(r) { return !r.id && (r.serviceDate || '').trim().toLowerCase() === key; });
+        if (!existing) {
+          result.push(o);
+        } else {
+          var t1b = new Date(o.lastEdited || o.createdDate || 0).getTime();
+          var t2b = new Date(existing.lastEdited || existing.createdDate || 0).getTime();
+          if (t1b > t2b) { result.splice(result.indexOf(existing), 1, o); }
+        }
       }
     });
     return result;
@@ -20897,10 +20913,17 @@ var WO = (function() {
   }
 
   function openOrderInEditor(order) {
-    // Cancel any pending auto-save from the previously open order before switching.
-    // Without this, a debounced save from Order A could fire after currentOrderData
-    // has already been swapped to Order B, writing Order A's DOM content into Order B.
+    // Cancel ALL pending auto-save timers from the previous order before switching.
     clearTimeout(_autoSaveTimer);
+    if (typeof sbAutoSaveTimer !== 'undefined') clearTimeout(sbAutoSaveTimer);
+
+    // Reset per-order in-memory state so previous order's data can't bleed into this one.
+    // sectionBackgrounds is keyed by sectionId (e.g. "invocation") with no order scope —
+    // if not cleared, backgrounds set in Order A appear in Order B's matching sections.
+    sectionBackgrounds = {};
+    // currentSermonSlides holds uploaded PowerPoint/image slide data keyed by sectionId.
+    // Same contamination risk: clear before loading the new order.
+    currentSermonSlides = {};
     console.log('*** OPEN ORDER IN EDITOR ***');
     console.log('order.id:', order.id);
     console.log('order.title:', order.title);
@@ -20916,6 +20939,9 @@ var WO = (function() {
 
     currentOrderType = order.type || 'traditional';
     currentOrderData = order;
+    // Reload slide backgrounds from this order's scoped localStorage key.
+    // Must happen after currentOrderData is set so _slideBgKey() returns the right key.
+    if (typeof loadSlideBackgrounds === 'function') loadSlideBackgrounds();
     // Restore the list of sections where the user explicitly deleted liturgy
     // so that _seed() won't re-inject default content into those sections.
     currentOrderData.clearedSections = (order.template && Array.isArray(order.template.clearedSections))
@@ -26537,7 +26563,12 @@ var WO = (function() {
   // Structure: { sectionId: { localSlideIdx: { type, value } } }
   // Cascades forward within a section, but NEVER across sections
   var sectionBackgrounds = {};
-  var SLIDE_BG_STORAGE_KEY = 'lhc_section_backgrounds';
+  // Key is computed per-order at save/load time via _slideBgKey() below.
+  var SLIDE_BG_STORAGE_KEY = 'lhc_section_backgrounds'; // legacy global — replaced by _slideBgKey()
+  function _slideBgKey() {
+    var oid = currentOrderData && currentOrderData.id;
+    return oid ? 'lhc_section_backgrounds_' + oid : SLIDE_BG_STORAGE_KEY;
+  }
   var currentSectionId = null; // Track which section is currently active
   var currentLocalSlideIdx = 0; // Track local slide index within current section
   var activeVideoElement = null; // Persistent video element that doesn't restart
@@ -26775,26 +26806,28 @@ var WO = (function() {
 
   // Section-independent background functions
   function loadSlideBackgrounds() {
+    var key = _slideBgKey();
     try {
-      var stored = localStorage.getItem(SLIDE_BG_STORAGE_KEY);
-      if (stored) {
-        sectionBackgrounds = JSON.parse(stored);
+      var stored = localStorage.getItem(key);
+      // Migrate: if no order-scoped entry yet, try the old global key once then discard it
+      // so that backgrounds from other orders don't leak in.
+      if (!stored && key !== SLIDE_BG_STORAGE_KEY) {
+        stored = null; // do NOT fall back to the global key
       }
+      sectionBackgrounds = stored ? JSON.parse(stored) : {};
     } catch(e) {
       console.warn('Failed to load section backgrounds:', e);
       sectionBackgrounds = {};
     }
   }
 
-  // Load slide background assignments from cloud
+  // Cloud background sync is no-op in Supabase; left for GAS compatibility.
   function loadSlideBackgroundsFromCloud() {
     if (typeof callGAS !== 'function') return;
     callGAS('getSectionBackgrounds').then(function(cloudAssignments) {
       if (cloudAssignments && typeof cloudAssignments === 'object' && Object.keys(cloudAssignments).length > 0) {
-        // Cloud overwrites local
         sectionBackgrounds = cloudAssignments;
-        localStorage.setItem(SLIDE_BG_STORAGE_KEY, JSON.stringify(sectionBackgrounds));
-        console.log('Section backgrounds synced from cloud');
+        localStorage.setItem(_slideBgKey(), JSON.stringify(sectionBackgrounds));
       }
     }).catch(function(err) {
       console.warn('Could not load section backgrounds from cloud:', err);
@@ -26803,11 +26836,10 @@ var WO = (function() {
 
   function saveSlideBackgrounds() {
     try {
-      localStorage.setItem(SLIDE_BG_STORAGE_KEY, JSON.stringify(sectionBackgrounds));
+      localStorage.setItem(_slideBgKey(), JSON.stringify(sectionBackgrounds));
     } catch(e) {
       console.warn('Failed to save section backgrounds:', e);
     }
-    // Sync to cloud
     if (typeof callGAS === 'function') {
       callGAS('saveSectionBackgrounds', [sectionBackgrounds]).catch(function(e) {
         console.warn('Could not save section backgrounds to cloud:', e);
