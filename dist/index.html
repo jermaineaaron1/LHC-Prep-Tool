@@ -1288,6 +1288,17 @@
       min-width: 0;
     }
     .all-songs-row:hover { background: #f0f4ff; }
+    .all-songs-date-row {
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+      padding: 6px 12px 8px 48px;
+      background: #f8faff; border-bottom: 1px solid #e2e8f0;
+      font-size: 11px; color: #64748b; font-family: 'Poppins', sans-serif;
+      animation: dateRowIn 0.18s ease;
+    }
+    @keyframes dateRowIn { from { opacity:0; transform: translateY(-4px); } to { opacity:1; transform: translateY(0); } }
+    .all-songs-date-row .date-label { font-weight: 600; color: #475569; margin-right: 3px; }
+    .all-songs-date-row .date-chip { display:flex; align-items:center; gap:5px; }
+    .all-songs-date-row i { color: #94a3b8; font-size: 10px; }
     .all-songs-num {
       font-size: 11px;
       font-weight: 600;
@@ -4574,6 +4585,7 @@
                 <option value="title-desc">Title Z→A</option>
                 <option value="artist-asc">Artist A→Z</option>
                 <option value="artist-desc">Artist Z→A</option>
+                <option value="latest">Latest Added / Edited</option>
               </select>
             </div>
             <div></div>
@@ -6042,8 +6054,8 @@
   #lyricsPreviewContent .section-header.prechorus { background: #ffedd5; color: #c2410c; }
   #lyricsPreviewContent .section-header.ending  { background: #fee2e2; color: #dc2626; }
   #lyricsPreviewContent .section-header.intro   { background: #e0f2fe; color: #0369a1; }
-  #lyricsPreviewContent .chord-line { color: #dc2626; font-weight: 600; font-family: 'Courier New', monospace; font-size: 14px; margin-bottom: -4px; white-space: pre; }
-  #lyricsPreviewContent .lyric-line { color: #1f2937; font-size: 16px; line-height: 1.7; }
+  #lyricsPreviewContent .chord-line { color: #dc2626; font-weight: 600; font-family: 'Courier New', monospace; font-size: 18px; margin-bottom: -4px; white-space: pre; }
+  #lyricsPreviewContent .lyric-line { color: #1f2937; font-size: 20px; line-height: 1.7; }
   
   /* Lyrics Editor Button */
   .lyrics-edit-trigger { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 16px 24px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%; transition: all 0.2s; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
@@ -13486,15 +13498,24 @@ window.loadEditSongData = function(song) {
       return f.scriptures.some(function(sel) { return songRefs.indexOf(sel.toLowerCase()) >= 0; });
     });
 
-    var sortParts = (f.sort || 'title-asc').split('-');
-    var sortKey = sortParts[0];
-    var sortDir = sortParts[1];
-    result.sort(function(a, b) {
-      var aVal = String(a[sortKey] || '').toLowerCase();
-      var bVal = String(b[sortKey] || '').toLowerCase();
-      var cmp = aVal.localeCompare(bVal);
-      return sortDir === 'desc' ? -cmp : cmp;
-    });
+    var sortVal = f.sort || 'title-asc';
+    if (sortVal === 'latest') {
+      result.sort(function(a, b) {
+        var at = Math.max(new Date(a.lastEdited || 0).getTime(), new Date(a.dateAdded || 0).getTime());
+        var bt = Math.max(new Date(b.lastEdited || 0).getTime(), new Date(b.dateAdded || 0).getTime());
+        return bt - at;
+      });
+    } else {
+      var sortParts = sortVal.split('-');
+      var sortKey = sortParts[0];
+      var sortDir = sortParts[1];
+      result.sort(function(a, b) {
+        var aVal = String(a[sortKey] || '').toLowerCase();
+        var bVal = String(b[sortKey] || '').toLowerCase();
+        var cmp = aVal.localeCompare(bVal);
+        return sortDir === 'desc' ? -cmp : cmp;
+      });
+    }
 
     STATE.filteredSongs = result;
     return result;
@@ -13548,11 +13569,25 @@ window.loadEditSongData = function(song) {
     }
     if (emptyState) emptyState.style.display = 'none';
 
-    var sorted = STATE.songs.slice().sort(function(a, b) {
-      return (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' });
-    });
+    var sortVal = STATE.filters.sort || 'title-asc';
+    var sorted = STATE.songs.slice();
+    if (sortVal === 'latest') {
+      sorted.sort(function(a, b) {
+        var at = Math.max(new Date(a.lastEdited || 0).getTime(), new Date(a.dateAdded || 0).getTime());
+        var bt = Math.max(new Date(b.lastEdited || 0).getTime(), new Date(b.dateAdded || 0).getTime());
+        return bt - at;
+      });
+    } else if (sortVal === 'title-desc') {
+      sorted.sort(function(a, b) { return (b.title || '').localeCompare(a.title || '', undefined, { sensitivity: 'base' }); });
+    } else if (sortVal === 'artist-asc') {
+      sorted.sort(function(a, b) { return (a.artist || '').localeCompare(b.artist || '', undefined, { sensitivity: 'base' }); });
+    } else if (sortVal === 'artist-desc') {
+      sorted.sort(function(a, b) { return (b.artist || '').localeCompare(a.artist || '', undefined, { sensitivity: 'base' }); });
+    } else {
+      sorted.sort(function(a, b) { return (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }); });
+    }
 
-    // Split sorted songs into 2 equal columns — each column is alphabetical A→Z
+    // Split sorted songs into 2 equal columns
     var total = sorted.length;
     var col1End = Math.ceil(total / 2);
     var cols = [sorted.slice(0, col1End), sorted.slice(col1End)];
@@ -13586,7 +13621,7 @@ window.loadEditSongData = function(song) {
         if (song.category) _metaParts.push(song.category);
         else if (song.artist) _metaParts.push(song.artist);
 
-        h += '<div class="all-songs-row" data-id="' + escapeHtml(song.id) + '">';
+        h += '<div class="all-songs-row" data-id="' + escapeHtml(song.id) + '" data-added="' + escapeHtml(song.dateAdded || '') + '" data-edited="' + escapeHtml(song.lastEdited || '') + '">';
         h += '<span class="all-songs-num">' + num + '</span>';
         h += '<span class="all-songs-initial">' + escapeHtml(initial) + '</span>';
         h += '<span class="all-songs-music-tile" style="background:linear-gradient(135deg,'+_tileColor+','+_tileColor+'cc)"><i class="fa-solid fa-music"></i></span>';
@@ -14471,14 +14506,38 @@ window.loadEditSongData = function(song) {
       };
     });
 
-    // Mobile: entire row is a tap target (aqua action button also triggers)
+    // Row tap: mobile → action sheet; desktop → toggle date info row
     $$('.all-songs-row').forEach(function(row) {
       row.onclick = function(e) {
-        if (window.innerWidth > 768) return;
-        // Ignore clicks on desktop-only badge buttons but allow mobile action button
-        if (e.target.closest('.all-songs-badge-btn')) return;
-        var song = STATE.songs.find(function(s) { return s.id === row.dataset.id; });
-        if (song) showMobileSongActions(song);
+        if (e.target.closest('.all-songs-badge-btn, .song-title-link, .all-songs-mobile-action, .edit-song-btn')) return;
+        if (window.innerWidth <= 768) {
+          var song = STATE.songs.find(function(s) { return s.id === row.dataset.id; });
+          if (song) showMobileSongActions(song);
+          return;
+        }
+        // Desktop: toggle date info row beneath this row
+        var existing = row.nextElementSibling;
+        if (existing && existing.classList.contains('all-songs-date-row')) {
+          existing.remove();
+          return;
+        }
+        // Close any other open date rows
+        $$('.all-songs-date-row').forEach(function(dr) { dr.remove(); });
+        var added  = row.dataset.added  || '';
+        var edited = row.dataset.edited || '';
+        function _fmtDate(iso) {
+          if (!iso) return 'Unknown';
+          var d = new Date(iso);
+          if (isNaN(d)) return 'Unknown';
+          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+                 ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        }
+        var dr = document.createElement('div');
+        dr.className = 'all-songs-date-row';
+        dr.innerHTML =
+          '<span class="date-chip"><i class="fa-solid fa-calendar-plus"></i><span class="date-label">Added:</span>' + _fmtDate(added) + '</span>' +
+          (edited && edited !== added ? '<span class="date-chip"><i class="fa-solid fa-pen-to-square"></i><span class="date-label">Edited:</span>' + _fmtDate(edited) + '</span>' : '');
+        row.parentNode.insertBefore(dr, row.nextSibling);
       };
     });
     
@@ -17467,7 +17526,14 @@ window.loadEditSongData = function(song) {
 
     // filterStyle is now a custom dropdown (not a <select>) — handled by setStyleFilter()
     ['filterTempo','sortBy'].forEach(function(id) {
-      var el = $(id); if (el) el.onchange = function(e) { var k = id.replace('filter','').toLowerCase(); if (k === 'sortby') STATE.filters.sort = e.target.value; else STATE.filters[k] = e.target.value; renderSongs(true); };
+      var el = $(id); if (el) el.onchange = function(e) {
+        var k = id.replace('filter','').toLowerCase();
+        if (k === 'sortby') STATE.filters.sort = e.target.value;
+        else STATE.filters[k] = e.target.value;
+        // When no search query, re-sort the all-songs view
+        if (k === 'sortby' && !STATE.filters.q) { showAllSongs(); return; }
+        renderSongs(true);
+      };
     });
 
     var ab = $('openAddSongBtn'); if (ab) ab.onclick = function() {
