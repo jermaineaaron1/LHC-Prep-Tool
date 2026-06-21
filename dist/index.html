@@ -21621,13 +21621,16 @@ var WO = (function() {
       title: currentOrderData.title || 'Untitled Order',
       type: currentOrderData.type || 'traditional',
       serviceDate: currentOrderData.serviceDate || '',
-      // Embed clearedSections and sectionLayout inside template so they survive Supabase
-      // round-trips without needing new DB columns.
+      // Embed clearedSections, sectionLayout, and sectionBackgrounds inside template
+      // so they survive Supabase round-trips without needing new DB columns.
       // sectionLayout captures every section's id/title/serviceSectionId so renames,
       // added sections, deleted sections, and section order all restore correctly.
+      // sectionBackgrounds holds per-slide background assignments keyed by sectionId —
+      // embedding here ensures they survive on a different device or browser.
       template: Object.assign({}, currentOrderData.template || {}, {
         clearedSections: Array.isArray(currentOrderData.clearedSections) ? currentOrderData.clearedSections : [],
-        sectionLayout: Array.isArray(currentOrderData.sectionLayout) ? currentOrderData.sectionLayout : []
+        sectionLayout: Array.isArray(currentOrderData.sectionLayout) ? currentOrderData.sectionLayout : [],
+        sectionBackgrounds: (typeof sectionBackgrounds === 'object' && sectionBackgrounds !== null && Object.keys(sectionBackgrounds).length > 0) ? sectionBackgrounds : undefined
       }),
       createdDate: currentOrderData.createdDate || new Date().toISOString(),
       items: itemsForSave,
@@ -26806,14 +26809,19 @@ var WO = (function() {
 
   // Section-independent background functions
   function loadSlideBackgrounds() {
+    // Priority 1: template.sectionBackgrounds embedded in the Supabase order record.
+    // This is the cross-device source of truth written by saveCurrentOrder().
+    var fromCloud = currentOrderData && currentOrderData.template && currentOrderData.template.sectionBackgrounds;
+    if (fromCloud && typeof fromCloud === 'object' && Object.keys(fromCloud).length > 0) {
+      sectionBackgrounds = fromCloud;
+      // Mirror to localStorage so offline edits in this session are fast.
+      try { localStorage.setItem(_slideBgKey(), JSON.stringify(sectionBackgrounds)); } catch(e) {}
+      return;
+    }
+    // Priority 2: order-scoped localStorage key (set during this session on this device).
     var key = _slideBgKey();
     try {
       var stored = localStorage.getItem(key);
-      // Migrate: if no order-scoped entry yet, try the old global key once then discard it
-      // so that backgrounds from other orders don't leak in.
-      if (!stored && key !== SLIDE_BG_STORAGE_KEY) {
-        stored = null; // do NOT fall back to the global key
-      }
       sectionBackgrounds = stored ? JSON.parse(stored) : {};
     } catch(e) {
       console.warn('Failed to load section backgrounds:', e);
@@ -26835,11 +26843,19 @@ var WO = (function() {
   }
 
   function saveSlideBackgrounds() {
-    try {
-      localStorage.setItem(_slideBgKey(), JSON.stringify(sectionBackgrounds));
-    } catch(e) {
-      console.warn('Failed to save section backgrounds:', e);
+    // 1. Fast local write so the current session reads it back instantly.
+    try { localStorage.setItem(_slideBgKey(), JSON.stringify(sectionBackgrounds)); } catch(e) {
+      console.warn('Failed to save section backgrounds to localStorage:', e);
     }
+    // 2. Mirror into currentOrderData.template so the next saveCurrentOrder() call
+    //    embeds the latest backgrounds in the Supabase order record — enabling
+    //    cross-device / cross-browser restore.
+    if (currentOrderData) {
+      if (!currentOrderData.template) currentOrderData.template = {};
+      currentOrderData.template.sectionBackgrounds = Object.keys(sectionBackgrounds).length > 0
+        ? sectionBackgrounds : undefined;
+    }
+    // 3. Legacy GAS cloud sync (no-op in Supabase deployments).
     if (typeof callGAS === 'function') {
       callGAS('saveSectionBackgrounds', [sectionBackgrounds]).catch(function(e) {
         console.warn('Could not save section backgrounds to cloud:', e);
