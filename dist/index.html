@@ -6751,9 +6751,15 @@
 }
 .lb2-slide-edit:focus { background: #fff; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.12); }
 .lb2-video-ref { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: #fef2f2; border-left: 3px solid #f87171; border-radius: 0 6px 6px 0; font-size: 0.9rem; color: #7f1d1d; }
-/* Chord lines in Liturgy Book chords mode */
-.lb2-chord-line { font-family: 'Courier New', Courier, monospace; font-size: 0.82rem; font-weight: 700; color: #b45309; letter-spacing: 0.04em; line-height: 1.2; margin-bottom: 1px; display: block; }
-.lb2-lyric-line { display: block; line-height: 1.82; }
+/* Chords view in Liturgy Book — mirrors SongBook preview formatting exactly */
+.lb2-song-chords-view { padding: 4px 0; font-size: 0.97rem; }
+.lb2-song-chords-view .chord-line { color: #dc2626; font-weight: 600; font-family: 'Courier New', monospace; font-size: 0.82rem; margin-bottom: -4px; white-space: pre; display: block; }
+.lb2-song-chords-view .lyric-line { color: #1e2d3d; font-size: 0.97rem; line-height: 1.75; display: block; }
+.lb2-song-chords-view .section-header { font-weight: 700; color: #16a34a; margin: 18px 0 6px 0; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.07em; font-family: 'Poppins', sans-serif; display: block; }
+.lb2-song-chords-view [style*="height: 10px"] { display: block; }
+/* Chord lines in Liturgy Book chords mode (legacy, kept for compat) */
+.lb2-chord-line { font-family: 'Courier New', Courier, monospace; font-size: 0.82rem; font-weight: 700; color: #dc2626; letter-spacing: 0; line-height: 1.2; margin-bottom: -4px; white-space: pre; display: block; }
+.lb2-lyric-line { display: block; line-height: 1.75; }
 /* 2-column Liturgy Book */
 .lb2-two-col .lb2-song-content-ro { column-count: 2; column-gap: 28px; column-rule: 1px solid #d1fae5; }
 .lb2-two-col .lb2-song-slide-ro { break-inside: avoid; }
@@ -39520,6 +39526,7 @@ var WO = (function() {
   var _lb2FullscreenActive = false;
   var _lb2ShowChords = false;
   var _lb2TwoCol = false;
+  var _lb2FsMouseHandler = null; // document.mousemove handler for fullscreen hover
 
   function openLiturgyBook() {
     var modal = $('liturgyBookModal');
@@ -39568,12 +39575,11 @@ var WO = (function() {
     var modal = $('liturgyBookModal');
     if (modal) modal.style.display = 'none';
     if (_lb2ResizeHandler) { window.removeEventListener('resize', _lb2ResizeHandler); _lb2ResizeHandler = null; }
-    // Reset fullscreen state cleanly
+    _lb2StopFsHover();
     if (modal) {
       var hdr = modal.querySelector('.lb2-header');
       if (hdr) { hdr.classList.remove('lb2-header--fs-hidden', 'lb2-header--fs-visible'); hdr.style.display = ''; }
     }
-    var hz = $('lb2FsHoverZone'); if (hz) { hz.style.display = 'none'; hz.onmouseenter = null; hz.onmouseleave = null; }
     _lb2FullscreenActive = false;
     document.body.classList.remove('lb2-fullscreen');
   }
@@ -39662,27 +39668,44 @@ var WO = (function() {
     printWin.focus();
     setTimeout(function() { printWin.print(); }, 1200);
   }
+  function _lb2StopFsHover() {
+    if (_lb2FsMouseHandler) {
+      document.removeEventListener('mousemove', _lb2FsMouseHandler);
+      _lb2FsMouseHandler = null;
+    }
+  }
   function lb2ToggleFullscreen() {
     _lb2FullscreenActive = !_lb2FullscreenActive;
     var modal = $('liturgyBookModal');
     var header = modal && modal.querySelector('.lb2-header');
     var hoverZone = $('lb2FsHoverZone');
     var fsBtn = $('lb2FullscreenBtn');
+    _lb2StopFsHover();
     if (_lb2FullscreenActive) {
+      // Hide header immediately
       if (header) { header.classList.add('lb2-header--fs-hidden'); header.classList.remove('lb2-header--fs-visible'); }
-      if (hoverZone) {
-        hoverZone.style.display = 'block';
-        hoverZone.onmouseenter = function() {
-          if (header) { header.classList.remove('lb2-header--fs-hidden'); header.classList.add('lb2-header--fs-visible'); header.style.display = ''; }
-        };
-        hoverZone.onmouseleave = function() {
-          if (header) { header.classList.add('lb2-header--fs-hidden'); header.classList.remove('lb2-header--fs-visible'); }
-        };
-      }
+      if (hoverZone) hoverZone.style.display = 'none'; // not needed — using mousemove on document
       if (fsBtn) fsBtn.innerHTML = '<i class="fa-solid fa-compress"></i><span>Exit</span>';
+      // Use document.mousemove so no element blocks clicks on toolbar buttons
+      var _headerVisible = false;
+      _lb2FsMouseHandler = function(e) {
+        if (!_lb2FullscreenActive || !header) return;
+        var SHOW_THRESHOLD  = 70;  // px from top of viewport: show toolbar
+        var HIDE_THRESHOLD  = 120; // px from top: hide toolbar once past this
+        if (e.clientY <= SHOW_THRESHOLD && !_headerVisible) {
+          _headerVisible = true;
+          header.classList.remove('lb2-header--fs-hidden');
+          header.classList.add('lb2-header--fs-visible');
+        } else if (e.clientY > HIDE_THRESHOLD && _headerVisible) {
+          _headerVisible = false;
+          header.classList.add('lb2-header--fs-hidden');
+          header.classList.remove('lb2-header--fs-visible');
+        }
+      };
+      document.addEventListener('mousemove', _lb2FsMouseHandler);
     } else {
       if (header) { header.classList.remove('lb2-header--fs-hidden', 'lb2-header--fs-visible'); header.style.display = ''; }
-      if (hoverZone) { hoverZone.style.display = 'none'; hoverZone.onmouseenter = null; hoverZone.onmouseleave = null; }
+      if (hoverZone) hoverZone.style.display = 'none';
       if (fsBtn) fsBtn.innerHTML = '<i class="fa-solid fa-expand"></i><span>Full Screen</span>';
     }
   }
@@ -39999,34 +40022,28 @@ var WO = (function() {
             }
             html += '<div class="lb2-song-content-ro" data-song-id="' + escapeHtml(song.id || '') + '">';
             if (song.artist) html += '<div class="lb2-song-artist-ro">by ' + escapeHtml(song.artist) + '</div>';
-            // In chords mode, prefer the raw lyrics (which has chord lines); otherwise use saved slides
-            var slides = [];
-            if (_lb2ShowChords && (song.masterLyrics || song.lyrics)) {
-              // Split raw lyrics by blank lines into slide blocks
+            if (_lb2ShowChords) {
+              // Use the exact same rendering as the SongBook preview modal
               var rawLyrics = song.masterLyrics || song.lyrics || '';
-              var rawBlocks = [], rawBlock = '';
-              rawLyrics.split('\n').forEach(function(line) {
-                var l = line; // keep original spacing for chords
-                if (!l.trim()) { if (rawBlock.trim()) { rawBlocks.push(rawBlock); rawBlock = ''; } }
-                else { rawBlock += (rawBlock ? '\n' : '') + l; }
-              });
-              if (rawBlock.trim()) rawBlocks.push(rawBlock);
-              rawBlocks.forEach(function(block, bIdx) {
-                html += '<div class="lb2-song-slide-edit-wrap">';
-                html += '<div class="lb2-song-slide-hdr">Slide ' + (bIdx + 1) + '</div>';
-                var innerHtml = '';
-                block.split('\n').forEach(function(line) {
-                  var isChord = line.trim() && /^[A-G][b#]?/.test(line.trim()) && !/[a-z]{3,}/.test(line);
-                  innerHtml += isChord
-                    ? '<span class="lb2-chord-line">' + escapeHtml(line) + '</span>'
-                    : '<span class="lb2-lyric-line">' + escapeHtml(line) + '</span>';
+              if (rawLyrics.trim() && typeof formatLyricsWithTranspose === 'function') {
+                html += '<div class="lb2-song-chords-view">' + formatLyricsWithTranspose(rawLyrics, true, 0) + '</div>';
+              } else if (rawLyrics.trim()) {
+                // Fallback: manual chord-line detection if function unavailable
+                html += '<div class="lb2-song-chords-view">';
+                rawLyrics.split('\n').forEach(function(line) {
+                  var t = line.trim();
+                  if (!t) { html += '<div style="height:10px;"></div>'; return; }
+                  if (t.match(/^\[.+\]$/)) { html += '<div class="section-header">' + escapeHtml(t.slice(1,-1)) + '</div>'; return; }
+                  var isChord = typeof isChordLineGlobal === 'function' ? isChordLineGlobal(line) : (/^[A-G][b#]?/.test(t) && !/[a-z]{3,}/.test(line));
+                  html += isChord ? '<div class="chord-line">' + escapeHtml(line) + '</div>' : '<div class="lyric-line">' + escapeHtml(line) + '</div>';
                 });
-                html += '<div class="lb2-song-slide-ro" style="white-space:normal;">' + innerHtml + '</div>';
                 html += '</div>';
-              });
+              } else {
+                html += '<div class="lb2-song-no-lyrics">No lyrics with chords available</div>';
+              }
             } else {
-              slides = (song.savedSlides && song.savedSlides.length) ? song.savedSlides
-                     : (song.slides && song.slides.length)           ? song.slides : [];
+              var slides = (song.savedSlides && song.savedSlides.length) ? song.savedSlides
+                         : (song.slides && song.slides.length)           ? song.slides : [];
               if (slides.length) {
                 slides.forEach(function(slide, sIdx) {
                   var txt = typeof slide === 'string' ? slide : (slide.content || slide.text || '');
@@ -40041,15 +40058,17 @@ var WO = (function() {
                   html += '</div>';
                 });
               } else if (song.lyrics) {
-                var lines = song.lyrics.split('\n'), block = '', bIdx2 = 0;
+                // Strip chord lines from plain lyrics for clean display
+                var lines = song.lyrics.split('\n'), block = '';
                 lines.forEach(function(line) {
                   var l = line.trim();
                   if (!l) {
-                    if (block) {
-                      html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>';
-                      block = ''; bIdx2++;
-                    }
-                  } else { block += (block ? '\n' : '') + l; }
+                    if (block) { html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>'; block = ''; }
+                  } else if (l.match(/^\[.+\]$/)) {
+                    if (block) { html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>'; block = ''; }
+                  } else if (!(typeof isChordLineGlobal === 'function' ? isChordLineGlobal(line) : false)) {
+                    block += (block ? '\n' : '') + l;
+                  }
                 });
                 if (block) html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>';
               } else {
