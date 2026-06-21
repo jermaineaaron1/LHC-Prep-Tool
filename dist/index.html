@@ -6751,6 +6751,24 @@
 }
 .lb2-slide-edit:focus { background: #fff; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.12); }
 .lb2-video-ref { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: #fef2f2; border-left: 3px solid #f87171; border-radius: 0 6px 6px 0; font-size: 0.9rem; color: #7f1d1d; }
+/* Chord lines in Liturgy Book chords mode */
+.lb2-chord-line { font-family: 'Courier New', Courier, monospace; font-size: 0.82rem; font-weight: 700; color: #b45309; letter-spacing: 0.04em; line-height: 1.2; margin-bottom: 1px; display: block; }
+.lb2-lyric-line { display: block; line-height: 1.82; }
+/* 2-column Liturgy Book */
+.lb2-two-col .lb2-song-content-ro { column-count: 2; column-gap: 28px; column-rule: 1px solid #d1fae5; }
+.lb2-two-col .lb2-song-slide-ro { break-inside: avoid; }
+/* Editable song slides */
+.lb2-song-slide-edit { min-height: 50px; width: 100%; padding: 10px 14px; box-sizing: border-box; font-size: 0.97rem; line-height: 1.82; color: #1e2d3d; background: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: 6px; outline: none; white-space: pre-wrap; word-wrap: break-word; font-family: Georgia, 'Times New Roman', serif; transition: border-color 0.15s, background 0.15s; margin-bottom: 12px; display: block; width: 100%; box-sizing: border-box; }
+.lb2-song-slide-edit:focus { background: #fff; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.12); }
+.lb2-song-slide-edit-wrap { margin-bottom: 12px; }
+.lb2-song-slide-hdr { font-size: 0.68rem; font-weight: 700; color: #16a34a; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 4px; font-family: 'Poppins', sans-serif; }
+/* Fullscreen hover toolbar */
+.lb2-header { transition: transform 0.28s ease, opacity 0.28s ease; }
+.lb2-header--fs-hidden { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+.lb2-header--fs-visible { transform: translateY(0); opacity: 1; pointer-events: auto; }
+#lb2FsHoverZone { cursor: default; }
+/* Active toggle buttons */
+.lb2-tool-btn.lb2-tool-btn--active { background: rgba(250,204,21,0.3) !important; border-color: #fde68a !important; color: #fef9c3 !important; }
 /* Section break label */
 .lb2-sec-break-label { font-size: 0.72rem; font-weight: 700; color: #14532d; text-transform: uppercase; letter-spacing: 0.08em; font-family: 'Poppins', sans-serif; }
 /* Item-level break (thinner) */
@@ -8100,6 +8118,8 @@ I once was lost but now am found"
           <span id="lb2SaveStatus" style="font-size:0.75rem;color:#86efac;opacity:0.85;min-width:80px;text-align:right;"></span>
           <button class="lb2-tool-btn" id="lb2GoToOrderBtn" style="background:rgba(22,163,74,0.35);border:1.5px solid #86efac;color:#dcfce7;font-weight:600;" onclick="WO.lb2GoToOrder()" title="Go to Service Order"><i class="fa-solid fa-calendar-days"></i><span>Service Order</span></button>
           <button class="lb2-tool-btn" onclick="WO.lb2Share()" title="Share" style="background:rgba(22,163,74,0.25);border:1.5px solid #86efac;color:#bbf7d0;"><i class="fa-solid fa-share-nodes"></i><span>Share</span></button>
+          <button class="lb2-tool-btn" id="lb2ChordsBtn" onclick="WO.lb2ToggleChords()" title="Toggle Lyrics + Chords"><i class="fa-solid fa-guitar"></i><span>Chords</span></button>
+          <button class="lb2-tool-btn" id="lb2TwoColBtn" onclick="WO.lb2ToggleTwoCol()" title="Toggle 2-column layout"><i class="fa-solid fa-table-columns"></i><span>2 Col</span></button>
           <button class="lb2-tool-btn" id="lb2FullscreenBtn" onclick="WO.lb2ToggleFullscreen()" title="Full Screen"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
           <button class="lb2-tool-btn lb2-tool-btn--bookmode" onclick="WO.lb2OpenBookMode()" title="Book Mode"><i class="fa-solid fa-book-open"></i><span>Book Mode</span></button>
           <button class="lb2-tool-btn" onclick="WO.lb2Refresh()" title="Sync"><i class="fa-solid fa-arrows-rotate"></i><span>Sync</span></button>
@@ -35586,6 +35606,11 @@ var WO = (function() {
       .on('broadcast', { event: 'sb_patch' }, function(msg) {
         sbApplyBroadcast(msg.payload);
       })
+      .on('broadcast', { event: 'lb_patch' }, function(msg) {
+        var p = msg && msg.payload;
+        if (!p || p.orderId !== (currentOrderData && currentOrderData.id)) return;
+        if (typeof _lb2ApplyPatch === 'function') _lb2ApplyPatch(p);
+      })
       .on('broadcast', { event: 'sb_typing' }, function(msg) {
         var p = msg.payload;
         if (!p || !p.songId) return;
@@ -39493,6 +39518,8 @@ var WO = (function() {
   var _lb2BreakDragging = null; // {id, startY, startMargin}
   var _lb2ResizeHandler = null;
   var _lb2FullscreenActive = false;
+  var _lb2ShowChords = false;
+  var _lb2TwoCol = false;
 
   function openLiturgyBook() {
     var modal = $('liturgyBookModal');
@@ -39526,12 +39553,27 @@ var WO = (function() {
     renderLiturgyBookLive();
     modal.style.display = 'flex';
     _lb2ApplyZoom();
+    // Sync toggle button states
+    var cbtn = $('lb2ChordsBtn'); if (cbtn) cbtn.classList.toggle('lb2-tool-btn--active', !!_lb2ShowChords);
+    var tcbtn = $('lb2TwoColBtn'); if (tcbtn) tcbtn.classList.toggle('lb2-tool-btn--active', !!_lb2TwoCol);
+    // Ensure fullscreen state is reset
+    var hdr = modal.querySelector('.lb2-header');
+    if (hdr) { hdr.classList.remove('lb2-header--fs-hidden', 'lb2-header--fs-visible'); hdr.style.display = ''; }
+    var hz = $('lb2FsHoverZone'); if (hz) hz.style.display = 'none';
+    _lb2FullscreenActive = false;
+    var fsBtn = $('lb2FullscreenBtn'); if (fsBtn) fsBtn.innerHTML = '<i class="fa-solid fa-expand"></i><span>Full Screen</span>';
   }
 
   function closeLiturgyBook() {
     var modal = $('liturgyBookModal');
     if (modal) modal.style.display = 'none';
     if (_lb2ResizeHandler) { window.removeEventListener('resize', _lb2ResizeHandler); _lb2ResizeHandler = null; }
+    // Reset fullscreen state cleanly
+    if (modal) {
+      var hdr = modal.querySelector('.lb2-header');
+      if (hdr) { hdr.classList.remove('lb2-header--fs-hidden', 'lb2-header--fs-visible'); hdr.style.display = ''; }
+    }
+    var hz = $('lb2FsHoverZone'); if (hz) { hz.style.display = 'none'; hz.onmouseenter = null; hz.onmouseleave = null; }
     _lb2FullscreenActive = false;
     document.body.classList.remove('lb2-fullscreen');
   }
@@ -39585,23 +39627,77 @@ var WO = (function() {
   function lb2PrintPDF() {
     var body = $('lb2Body');
     if (!body) return;
+    var lb2Css = '';
+    try {
+      var sheets = document.styleSheets;
+      for (var si = 0; si < sheets.length; si++) {
+        try {
+          var rules = sheets[si].cssRules || sheets[si].rules || [];
+          for (var ri = 0; ri < rules.length; ri++) {
+            var txt = rules[ri].cssText || '';
+            if (txt.indexOf('lb2') !== -1 || txt.indexOf('@page') !== -1) lb2Css += txt + '\n';
+          }
+        } catch(e) {}
+      }
+    } catch(e) {}
     var printWin = window.open('', '_blank', 'width=900,height=700');
-    printWin.document.write('<html><head><title>Liturgy Book</title><style>body{margin:0;font-family:Georgia,serif;}.lb2-page{width:210mm;padding:20mm;box-sizing:border-box;page-break-after:always;}.lb2-page-break{display:none;}</style></head><body>');
+    printWin.document.write('<!DOCTYPE html><html><head><title>Liturgy Book</title>');
+    printWin.document.write('<link rel="preconnect" href="https://fonts.googleapis.com">');
+    printWin.document.write('<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Lato:wght@300;400;700&family=Playfair+Display:wght@400;600&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">');
+    printWin.document.write('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">');
+    printWin.document.write('<style>');
+    printWin.document.write(lb2Css);
+    printWin.document.write('@page{size:A4;margin:0;}');
+    printWin.document.write('*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}');
+    printWin.document.write('body{margin:0;padding:0;background:white;font-family:Georgia,"Times New Roman",serif;}');
+    printWin.document.write('.lb2-page-break{display:none!important;}.lb2-item-break{display:none!important;}');
+    printWin.document.write('.lb2-page{page-break-after:always;break-after:page;}');
+    printWin.document.write('.lb2-page:last-child{page-break-after:avoid;break-after:avoid;}');
+    printWin.document.write('.lb2-song-slide-edit{border:none!important;background:transparent!important;padding:0!important;box-shadow:none!important;}');
+    printWin.document.write('[contenteditable]{outline:none;}');
+    printWin.document.write('</style></head><body>');
     printWin.document.write(body.innerHTML);
     printWin.document.write('</body></html>');
     printWin.document.close();
     printWin.focus();
-    setTimeout(function() { printWin.print(); }, 600);
+    setTimeout(function() { printWin.print(); }, 1200);
   }
   function lb2ToggleFullscreen() {
     _lb2FullscreenActive = !_lb2FullscreenActive;
     var modal = $('liturgyBookModal');
     var header = modal && modal.querySelector('.lb2-header');
-    if (header) header.style.display = _lb2FullscreenActive ? 'none' : '';
     var hoverZone = $('lb2FsHoverZone');
-    if (hoverZone) hoverZone.style.display = _lb2FullscreenActive ? 'block' : 'none';
     var fsBtn = $('lb2FullscreenBtn');
-    if (fsBtn) fsBtn.innerHTML = _lb2FullscreenActive ? '<i class="fa-solid fa-compress"></i><span>Exit</span>' : '<i class="fa-solid fa-expand"></i><span>Full Screen</span>';
+    if (_lb2FullscreenActive) {
+      if (header) { header.classList.add('lb2-header--fs-hidden'); header.classList.remove('lb2-header--fs-visible'); }
+      if (hoverZone) {
+        hoverZone.style.display = 'block';
+        hoverZone.onmouseenter = function() {
+          if (header) { header.classList.remove('lb2-header--fs-hidden'); header.classList.add('lb2-header--fs-visible'); header.style.display = ''; }
+        };
+        hoverZone.onmouseleave = function() {
+          if (header) { header.classList.add('lb2-header--fs-hidden'); header.classList.remove('lb2-header--fs-visible'); }
+        };
+      }
+      if (fsBtn) fsBtn.innerHTML = '<i class="fa-solid fa-compress"></i><span>Exit</span>';
+    } else {
+      if (header) { header.classList.remove('lb2-header--fs-hidden', 'lb2-header--fs-visible'); header.style.display = ''; }
+      if (hoverZone) { hoverZone.style.display = 'none'; hoverZone.onmouseenter = null; hoverZone.onmouseleave = null; }
+      if (fsBtn) fsBtn.innerHTML = '<i class="fa-solid fa-expand"></i><span>Full Screen</span>';
+    }
+  }
+  function lb2ToggleChords() {
+    _lb2ShowChords = !_lb2ShowChords;
+    var btn = $('lb2ChordsBtn');
+    if (btn) btn.classList.toggle('lb2-tool-btn--active', _lb2ShowChords);
+    renderLiturgyBookLive();
+  }
+  function lb2ToggleTwoCol() {
+    _lb2TwoCol = !_lb2TwoCol;
+    var btn = $('lb2TwoColBtn');
+    if (btn) btn.classList.toggle('lb2-tool-btn--active', _lb2TwoCol);
+    var body = $('lb2Body');
+    if (body) body.classList.toggle('lb2-two-col', _lb2TwoCol);
   }
   function lb2OpenBookMode() { showToast('Book Mode coming soon', 'info'); }
 
@@ -39888,7 +39984,7 @@ var WO = (function() {
           html += '<div class="lb2-page-hdr-info"><div class="lb2-page-title">' + escapeHtml(item.title || 'Untitled') + '</div>';
           html += '<div class="lb2-page-sec-lbl">' + escapeHtml(sec.title) + '</div></div></div>';
           html += '<div class="lb2-page-hdr-right"><span class="' + badgeClass + '">' + badgeLabel + '</span>';
-          if (isSong) html += '<span class="lb2-readonly-hint"><i class="fa-solid fa-lock" style="font-size:0.65rem;"></i> Edit in Songbook</span>';
+          if (isSong) html += '<span class="lb2-readonly-hint" style="background:#f0fdf4;border-color:#86efac;color:#16a34a;"><i class="fa-solid fa-pen-to-square" style="font-size:0.65rem;"></i> Editable</span>';
           html += '</div></div>'; // hdr-right + lb2-page-hdr
 
           if (isSong) {
@@ -39901,26 +39997,64 @@ var WO = (function() {
               html += '<div class="lb2-liturg-notes-text">' + escapeHtml(_litNotes) + '</div>';
               html += '</div>';
             }
-            html += '<div class="lb2-song-content-ro">';
+            html += '<div class="lb2-song-content-ro" data-song-id="' + escapeHtml(song.id || '') + '">';
             if (song.artist) html += '<div class="lb2-song-artist-ro">by ' + escapeHtml(song.artist) + '</div>';
-            var slides = (song.savedSlides && song.savedSlides.length) ? song.savedSlides
-                       : (song.slides && song.slides.length)           ? song.slides : [];
-            if (slides.length) {
-              slides.forEach(function(slide) {
-                var txt = typeof slide === 'string' ? slide : (slide.content || slide.text || '');
-                if (!txt) return;
-                html += '<div class="lb2-song-slide-ro">' + escapeHtml(txt) + '</div>';
+            // In chords mode, prefer the raw lyrics (which has chord lines); otherwise use saved slides
+            var slides = [];
+            if (_lb2ShowChords && (song.masterLyrics || song.lyrics)) {
+              // Split raw lyrics by blank lines into slide blocks
+              var rawLyrics = song.masterLyrics || song.lyrics || '';
+              var rawBlocks = [], rawBlock = '';
+              rawLyrics.split('\n').forEach(function(line) {
+                var l = line; // keep original spacing for chords
+                if (!l.trim()) { if (rawBlock.trim()) { rawBlocks.push(rawBlock); rawBlock = ''; } }
+                else { rawBlock += (rawBlock ? '\n' : '') + l; }
               });
-            } else if (song.lyrics) {
-              var lines = song.lyrics.split('\n'), block = '';
-              lines.forEach(function(line) {
-                var l = line.trim();
-                if (!l) { if (block) { html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>'; block = ''; } }
-                else    { block += (block ? '\n' : '') + l; }
+              if (rawBlock.trim()) rawBlocks.push(rawBlock);
+              rawBlocks.forEach(function(block, bIdx) {
+                html += '<div class="lb2-song-slide-edit-wrap">';
+                html += '<div class="lb2-song-slide-hdr">Slide ' + (bIdx + 1) + '</div>';
+                var innerHtml = '';
+                block.split('\n').forEach(function(line) {
+                  var isChord = line.trim() && /^[A-G][b#]?/.test(line.trim()) && !/[a-z]{3,}/.test(line);
+                  innerHtml += isChord
+                    ? '<span class="lb2-chord-line">' + escapeHtml(line) + '</span>'
+                    : '<span class="lb2-lyric-line">' + escapeHtml(line) + '</span>';
+                });
+                html += '<div class="lb2-song-slide-ro" style="white-space:normal;">' + innerHtml + '</div>';
+                html += '</div>';
               });
-              if (block) html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>';
             } else {
-              html += '<div class="lb2-song-no-lyrics">No lyrics available &mdash; open in Songbook to add lyrics</div>';
+              slides = (song.savedSlides && song.savedSlides.length) ? song.savedSlides
+                     : (song.slides && song.slides.length)           ? song.slides : [];
+              if (slides.length) {
+                slides.forEach(function(slide, sIdx) {
+                  var txt = typeof slide === 'string' ? slide : (slide.content || slide.text || '');
+                  if (!txt) return;
+                  var safeId = escapeHtml(song.id || '');
+                  html += '<div class="lb2-song-slide-edit-wrap">';
+                  html += '<div class="lb2-song-slide-hdr">Slide ' + (sIdx + 1) + '</div>';
+                  html += '<div class="lb2-song-slide-edit" contenteditable="true"' +
+                    ' data-song-id="' + safeId + '" data-slide-idx="' + sIdx + '"' +
+                    ' onblur="WO.lb2SaveSongSlideEdit(\'' + safeId + '\',' + sIdx + ',this.innerText)">' +
+                    escapeHtml(txt) + '</div>';
+                  html += '</div>';
+                });
+              } else if (song.lyrics) {
+                var lines = song.lyrics.split('\n'), block = '', bIdx2 = 0;
+                lines.forEach(function(line) {
+                  var l = line.trim();
+                  if (!l) {
+                    if (block) {
+                      html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>';
+                      block = ''; bIdx2++;
+                    }
+                  } else { block += (block ? '\n' : '') + l; }
+                });
+                if (block) html += '<div class="lb2-song-slide-ro">' + escapeHtml(block) + '</div>';
+              } else {
+                html += '<div class="lb2-song-no-lyrics">No lyrics available &mdash; open in Songbook to add lyrics</div>';
+              }
             }
             html += '</div>';
           } else if (item.itemType === 'video') {
@@ -39953,10 +40087,12 @@ var WO = (function() {
     });
 
     body.innerHTML = '<div id="lb2ZoomWrap" style="display:flex;flex-direction:column;align-items:center;gap:0;transform-origin:top center;width:100%;">' + html + '</div>';
+    // Reapply persistent display state
+    body.classList.toggle('lb2-two-col', !!_lb2TwoCol);
     _lb2ApplyZoom();
   }
 
-  // Save a slide edit back to currentOrderData and auto-save
+  // Save a slide edit back to currentOrderData and auto-save + broadcast
   function lb2SaveSlideEdit(itemId, slideIdx, newContent) {
     if (!currentOrderData || !Array.isArray(currentOrderData.allItems)) return;
     var item = currentOrderData.allItems.find(function(it) { return it.id === itemId; });
@@ -39965,6 +40101,75 @@ var WO = (function() {
     while (item.slides.length <= slideIdx) item.slides.push({ content: '' });
     item.slides[slideIdx].content = newContent;
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    _lb2Broadcast({ type: 'lb_item', itemId: itemId, slideIdx: slideIdx, content: newContent });
+  }
+
+  // Save a song slide edit from the Liturgy Book
+  function lb2SaveSongSlideEdit(songId, slideIdx, newContent) {
+    // Update in songOrderSections
+    if (Array.isArray(songOrderSections)) {
+      songOrderSections.forEach(function(sec) {
+        if (!Array.isArray(sec.items)) return;
+        sec.items.forEach(function(it) {
+          if ((it.songId === songId || (it._song && it._song.id === songId)) && it._song) {
+            if (!Array.isArray(it._song.savedSlides)) it._song.savedSlides = [];
+            while (it._song.savedSlides.length <= slideIdx) it._song.savedSlides.push({ content: '' });
+            var s = it._song.savedSlides[slideIdx];
+            if (typeof s === 'string') it._song.savedSlides[slideIdx] = { content: newContent };
+            else s.content = newContent;
+          }
+        });
+      });
+    }
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    _lb2Broadcast({ type: 'lb_song', songId: songId, slideIdx: slideIdx, content: newContent });
+  }
+
+  // Broadcast a Liturgy Book patch to all connected devices
+  function _lb2Broadcast(payload) {
+    if (typeof sbRealtimeChannel !== 'undefined' && sbRealtimeChannel) {
+      try {
+        sbRealtimeChannel.send({ type: 'broadcast', event: 'lb_patch', payload: Object.assign({ orderId: currentOrderData && currentOrderData.id }, payload) });
+      } catch(e) {}
+    }
+  }
+
+  // Apply an incoming Liturgy Book patch from another device
+  function _lb2ApplyPatch(payload) {
+    if (!payload) return;
+    if (payload.type === 'lb_item') {
+      // Update allItems and patch DOM
+      if (currentOrderData && Array.isArray(currentOrderData.allItems)) {
+        var item = currentOrderData.allItems.find(function(it) { return it.id === payload.itemId; });
+        if (item) {
+          if (!Array.isArray(item.slides)) item.slides = [];
+          while (item.slides.length <= payload.slideIdx) item.slides.push({ content: '' });
+          item.slides[payload.slideIdx].content = payload.content;
+        }
+      }
+      // Patch DOM directly if liturgy book is open
+      var el = document.querySelector('.lb2-slide-edit[data-item-id="' + payload.itemId + '"][data-slide-idx="' + payload.slideIdx + '"]');
+      if (el && document.activeElement !== el) el.innerText = payload.content;
+    } else if (payload.type === 'lb_song') {
+      // Update songOrderSections
+      if (Array.isArray(songOrderSections)) {
+        songOrderSections.forEach(function(sec) {
+          if (!Array.isArray(sec.items)) return;
+          sec.items.forEach(function(it) {
+            if ((it.songId === payload.songId || (it._song && it._song.id === payload.songId)) && it._song) {
+              if (!Array.isArray(it._song.savedSlides)) it._song.savedSlides = [];
+              while (it._song.savedSlides.length <= payload.slideIdx) it._song.savedSlides.push({ content: '' });
+              var s = it._song.savedSlides[payload.slideIdx];
+              if (typeof s === 'string') it._song.savedSlides[payload.slideIdx] = { content: payload.content };
+              else s.content = payload.content;
+            }
+          });
+        });
+      }
+      // Patch DOM directly
+      var songEl = document.querySelector('.lb2-song-slide-edit[data-song-id="' + payload.songId + '"][data-slide-idx="' + payload.slideIdx + '"]');
+      if (songEl && document.activeElement !== songEl) songEl.innerText = payload.content;
+    }
   }
 
   // Item-level page break drag (within a section)
@@ -46484,11 +46689,14 @@ var WO = (function() {
     lb2Save: lb2Save,
     lb2PrintPDF: lb2PrintPDF,
     lb2ToggleFullscreen: lb2ToggleFullscreen,
+    lb2ToggleChords: lb2ToggleChords,
+    lb2ToggleTwoCol: lb2ToggleTwoCol,
     lb2OpenBookMode: lb2OpenBookMode,
     lb2BreakDragStart: lb2BreakDragStart,
     openContentAllSlides: openContentAllSlides,
     lb2ItemBreakDragStart: lb2ItemBreakDragStart,
     lb2SaveSlideEdit: lb2SaveSlideEdit,
+    lb2SaveSongSlideEdit: lb2SaveSongSlideEdit,
     printSingleSong: printSingleSong,
     // Service order slide navigation
     selectSlideBox: selectSlideBox,
