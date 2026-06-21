@@ -1286,8 +1286,9 @@
       border-bottom: 1px solid #cbd5e1;
       transition: background 0.15s;
       min-width: 0;
+      background: #eff6ff;
     }
-    .all-songs-row:hover { background: #f0f4ff; }
+    .all-songs-row:hover { background: #dbeafe; }
     .all-songs-date-row {
       display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
       padding: 6px 12px 8px 48px;
@@ -2354,10 +2355,20 @@
       .mobile-songs-tab { flex: 1; padding: 11px 8px; font-size: 0.85rem; font-weight: 700; border: none; background: transparent; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: background 0.15s, color 0.15s; }
       .mobile-songs-tab.active { background: var(--brand); color: white; }
 
+      /* Songbooks card: only show via Songbooks tab on mobile */
+      #sfSongbooksCard { display: none !important; }
+      #songFinderView.mobile-books-mode #sfSongbooksCard { display: block !important; margin-top: 0; }
+
       /* In songbooks mode: hide search/filter and song list */
       #songFinderView.mobile-books-mode #sfSearchCard,
       #songFinderView.mobile-books-mode #sfSongListCard { display: none !important; }
-      #songFinderView.mobile-books-mode #sfSongbooksCard { margin-top: 0; }
+
+      /* Songbook rows: wrap so rename/delete buttons appear below on narrow screens */
+      .sb-list-item { flex-wrap: wrap; gap: 6px 12px; align-items: flex-start; padding: 10px 12px; }
+      .sb-list-icon { align-self: center; }
+      .sb-list-body { flex: 1 1 120px; }
+      .sb-list-actions { order: 3; width: 100%; display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; padding-bottom: 2px; }
+      .sb-list-btn { padding: 5px 9px; font-size: 0.73rem; }
 
       /* Song list: single column */
       .all-songs-columns { flex-direction: column; }
@@ -2371,9 +2382,9 @@
         cursor: pointer;
         border-bottom: 1px solid #e8edf3;
         align-items: center;
-        background: #fff;
+        background: #eff6ff;
       }
-      .all-songs-row:active { background: #f0f9ff; }
+      .all-songs-row:active { background: #dbeafe; }
       .all-songs-row::after { display: none !important; }
       /* Hide desktop-only elements */
       .all-songs-num,
@@ -6078,8 +6089,8 @@
   #lyricsPreviewContent .section-header.prechorus { background: #ffedd5; color: #c2410c; }
   #lyricsPreviewContent .section-header.ending  { background: #fee2e2; color: #dc2626; }
   #lyricsPreviewContent .section-header.intro   { background: #e0f2fe; color: #0369a1; }
-  #lyricsPreviewContent .chord-line { color: #dc2626; font-weight: 600; font-family: 'Courier New', monospace; font-size: 18px; margin-bottom: -4px; white-space: pre; }
-  #lyricsPreviewContent .lyric-line { color: #1f2937; font-size: 20px; line-height: 1.7; }
+  #lyricsPreviewContent .chord-line { color: #991b1b; font-weight: 700; font-family: 'Courier New', monospace; font-size: 17px; margin-bottom: -4px; white-space: pre; }
+  #lyricsPreviewContent .lyric-line { color: #1f2937; font-size: 19px; line-height: 1.7; }
   
   /* Lyrics Editor Button */
   .lyrics-edit-trigger { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 16px 24px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%; transition: all 0.2s; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
