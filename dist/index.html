@@ -14940,30 +14940,33 @@ window.loadEditSongData = function(song) {
       });
 
     } else if (STATE.currentStatTab === 'recent') {
-      // Top 15 songs most recently added to the system (by dateAdded)
-      var byDate = songs.slice().filter(function(s) { return s.dateAdded || s.lastEdited; })
-        .sort(function(a, b) {
-          var aD = a.dateAdded || a.lastEdited || '';
-          var bD = b.dateAdded || b.lastEdited || '';
-          return bD.localeCompare(aD);
-        }).slice(0, 15);
-
-      if (!byDate.length) byDate = songs.slice().reverse().slice(0, 15);
+      // Top 15 most recently added OR edited — whichever event is newer
+      var byDate = songs.slice().map(function(s) {
+        var addedT  = s.dateAdded  ? new Date(s.dateAdded).getTime()  : 0;
+        var editedT = s.lastEdited ? new Date(s.lastEdited).getTime() : 0;
+        var latestT = Math.max(addedT, editedT);
+        var wasEdited = editedT > addedT && editedT > 0;
+        return { song: s, latestT: latestT, wasEdited: wasEdited, addedT: addedT, editedT: editedT };
+      }).filter(function(x) { return x.latestT > 0; })
+        .sort(function(a, b) { return b.latestT - a.latestT; })
+        .slice(0, 15);
 
       if (!byDate.length) {
         container.innerHTML = '<div class="text-xs text-white/60 text-center py-4">No songs in library yet.</div>';
         return;
       }
 
-      byDate.forEach(function(s, idx) {
-        var dateStr = s.dateAdded || s.lastEdited || '';
-        var label = dateStr ? formatDateShort(dateStr) : '—';
+      byDate.forEach(function(x, idx) {
+        var s = x.song;
+        var latestIso = x.wasEdited ? s.lastEdited : (s.dateAdded || s.lastEdited || '');
+        var label = latestIso ? formatDateShort(latestIso) : '—';
+        var tag = x.wasEdited ? '✏️' : '➕';
         html += '<div class="stat-song-item flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 cursor-pointer transition" data-id="' + escapeHtml(s.id) + '">';
         html += '<div class="flex items-center gap-2 min-w-0">';
         html += '<span class="text-[0.65rem] text-white/50 w-4 flex-shrink-0">' + (idx + 1) + '</span>';
         html += '<span class="text-xs text-white truncate">' + escapeHtml(s.title) + '</span>';
         html += '</div>';
-        html += '<span class="text-[0.6rem] bg-sky-400/30 text-sky-200 px-1.5 py-0.5 rounded-full flex-shrink-0">' + label + '</span>';
+        html += '<span class="text-[0.6rem] bg-sky-400/30 text-sky-200 px-1.5 py-0.5 rounded-full flex-shrink-0" title="' + (x.wasEdited ? 'Last edited' : 'Added') + '">' + tag + ' ' + label + '</span>';
         html += '</div>';
       });
 
