@@ -28387,12 +28387,41 @@ var WO = (function() {
     if (loadEl) loadEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:8px;"></i>Converting <strong>' + escapeHtml(fileName) + '</strong> to Google Slides\u2026';
 
     function _fallback(msg) {
-      var el = document.getElementById(sectionId + '-pptx-loading');
-      if (el) el.remove();
-      if (msg) showToast(msg, 'warning');
-      // Fall back to Office Online viewer (manual navigation only)
-      var viewerUrl = 'https://view.officeapps.live.com/op/embed.aspx?src=' + encodeURIComponent(supabaseUrl);
-      _addSlidesIframeFallback(sectionId, viewerUrl, fileName, false);
+      var loadEl = document.getElementById(sectionId + '-pptx-loading');
+      if (loadEl) loadEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:8px;"></i>Converting <strong>' + escapeHtml(fileName) + '</strong> to PDF…';
+      if (msg) console.log(msg);
+
+      // Server-side PPTX→PDF conversion (Google Drive API). Once we have a real
+      // PDF, the existing PDF.js slide-extraction pipeline takes over — that path
+      // already keeps the filmstrip, main view, Projection Preview, and projection
+      // window perfectly in sync, unlike the raw Office Online iframe embed.
+      fetch('/api/convert-pptx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: supabaseUrl })
+      }).then(function(res) {
+        if (!res.ok) return res.json().then(function(j) { throw new Error(j && j.error ? j.error : 'convert-failed'); });
+        return res.blob();
+      }).then(function(pdfBlob) {
+        var el2 = document.getElementById(sectionId + '-pptx-loading');
+        if (el2) el2.remove();
+        if (!currentSermonSlides[sectionId]) {
+          currentSermonSlides[sectionId] = { slides: [], currentIndex: 0, fileName: fileName, supabaseFiles: [] };
+        }
+        currentSermonSlides[sectionId].fileName = fileName;
+        extractPdfPages(pdfBlob, sectionId, function() {
+          renderLocalSlides(sectionId);
+          showToast('Presentation converted — slide navigation now syncs with the projection preview.', 'success');
+        });
+      }).catch(function(err) {
+        console.error('PPTX→PDF conversion failed:', err);
+        var el3 = document.getElementById(sectionId + '-pptx-loading');
+        if (el3) el3.remove();
+        showToast('Could not auto-convert to PDF — showing live viewer (slide navigation won\'t sync to preview).', 'warning');
+        // Last resort: Office Online viewer (manual navigation only, no sync)
+        var viewerUrl = 'https://view.officeapps.live.com/op/embed.aspx?src=' + encodeURIComponent(supabaseUrl);
+        _addSlidesIframeFallback(sectionId, viewerUrl, fileName, true);
+      });
     }
 
     function _onConverted(conv) {
