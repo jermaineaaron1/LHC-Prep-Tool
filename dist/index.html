@@ -27944,10 +27944,14 @@ var WO = (function() {
         '<iframe class="wo-slides-iframe" id="' + cId + '-iframe" src="' + escapeHtml(embedUrl) + '" frameborder="0" allowfullscreen="true" mozallowfullscreen="true" webkitallowfullscreen="true" allow="autoplay; fullscreen"></iframe>' +
       '</div>' +
       '<div class="wo-slides-footer">' +
+        '<div class="wo-slides-footer-nav">' +
+          '<button class="wo-slides-nav-btn" onclick="event.stopPropagation();WO.prevSlide(\'' + sectionId + '\')" title="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>' +
+          '<span class="wo-slides-nav-label" id="' + cId + '-counter">◀ ▶ to navigate</span>' +
+          '<button class="wo-slides-nav-btn" onclick="event.stopPropagation();WO.nextSlide(\'' + sectionId + '\')" title="Next slide"><i class="fa-solid fa-chevron-right"></i></button>' +
+        '</div>' +
         '<button class="wo-slides-add-another-btn" onclick="event.stopPropagation();WO.openSlidesModalTab(\'' + sectionId + '\',\'url\')" title="Attach another presentation">' +
           '<i class="fa-solid fa-plus"></i> Add another presentation' +
         '</button>' +
-        '<span class="wo-slides-footer-hint"><i class="fa-solid fa-circle-info"></i> Navigate slides inside the viewer · If it goes white, press <strong>Reload</strong></span>' +
       '</div>' +
       '</div>';
 
@@ -28265,6 +28269,14 @@ var WO = (function() {
           '<button class="wo-ppt-banner-btn" onclick="event.stopPropagation();WO.openSermonRemote(\'' + sectionId + '\')" title="Remote"><i class="fa-solid fa-mobile-screen-button"></i></button>' +
           '<button class="wo-ppt-banner-btn wo-ppt-banner-remove" onclick="event.stopPropagation();WO.removeSlideContainer(\'' + wId + '\')" title="Remove this presentation"><i class="fa-solid fa-times"></i></button>' +
         '</div>' +
+        '<div class="wo-ppt-main-view" id="' + wId + '-main">' +
+          '<div class="wo-ppt-main-placeholder"><i class="fa-solid fa-file-powerpoint"></i></div>' +
+        '</div>' +
+        '<div class="wo-ppt-slide-nav">' +
+          '<button class="wo-ppt-nav-btn" onclick="event.stopPropagation();WO.navigateSlideGlobal(-1)" title="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>' +
+          '<span class="wo-ppt-nav-counter" id="' + wId + '-nav-counter">1 / ' + count + '</span>' +
+          '<button class="wo-ppt-nav-btn" onclick="event.stopPropagation();WO.navigateSlideGlobal(1)" title="Next slide"><i class="fa-solid fa-chevron-right"></i></button>' +
+        '</div>' +
         '<div class="wo-ppt-filmstrip">' + thumbsHtml + '</div>' +
         '<div class="wo-slides-footer">' +
           '<button class="wo-slides-add-another-btn" onclick="event.stopPropagation();WO.openSlidesModalTab(\'' + sectionId + '\',\'url\')" title="Attach another presentation">' +
@@ -28306,29 +28318,45 @@ var WO = (function() {
       url = 'https://docs.google.com/presentation/d/' + gId + '/embed?rm=minimal&start=false&loop=false';
     }
 
-    // Show in preview panel
-    var screen = $('woPreviewScreen');
-    if (screen && url) {
-      Array.from(screen.children).forEach(function(c) { if (c.id !== 'woPreviewBg') screen.removeChild(c); });
-      var bgEl = $('woPreviewBg'); if (bgEl) { bgEl.innerHTML = ''; bgEl.style.display = 'none'; }
-      screen.style.background = '#000'; screen.style.padding = '0';
-      var wrap = document.createElement('div');
-      wrap.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#000;';
-      var ifrEl = document.createElement('iframe');
-      ifrEl.src = url;
-      ifrEl.style.cssText = 'width:100%;height:100%;border:none;';
-      ifrEl.setAttribute('allowfullscreen', '');
-      wrap.appendChild(ifrEl);
-      screen.appendChild(wrap);
+    // Update the in-widget main view (large slide viewer in the content area)
+    if (widget) {
+      var mainView = widget.querySelector('.wo-ppt-main-view');
+      if (mainView) {
+        if (url) {
+          mainView.innerHTML = '<iframe src="' + escapeHtml(url) + '" style="width:100%;height:100%;border:none;" allowfullscreen allow="autoplay; fullscreen"></iframe>';
+        } else if (slide && slide.data && !slide.data.startsWith('data:embed')) {
+          mainView.innerHTML = '<img src="' + escapeHtml(slide.data) + '" style="max-width:100%;max-height:100%;object-fit:contain;" alt="Slide ' + (idx + 1) + '">';
+        }
+      }
+      var navCounter = widget.querySelector('.wo-ppt-nav-counter');
+      if (navCounter) navCounter.textContent = (idx + 1) + ' / ' + slidesData.slides.length;
     }
 
-    // Send to projection window
-    if (url) sendToProjectionWindow({ type: 'iframeEmbed', src: url });
+    // Show in preview panel (right side Projection Preview)
+    var screen = $('woPreviewScreen');
+    if (url) {
+      if (screen) {
+        Array.from(screen.children).forEach(function(c) { if (c.id !== 'woPreviewBg') screen.removeChild(c); });
+        var bgEl = $('woPreviewBg'); if (bgEl) { bgEl.innerHTML = ''; bgEl.style.display = 'none'; }
+        screen.style.background = '#000'; screen.style.padding = '0';
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#000;';
+        var ifrEl = document.createElement('iframe');
+        ifrEl.src = url;
+        ifrEl.style.cssText = 'width:100%;height:100%;border:none;';
+        ifrEl.setAttribute('allowfullscreen', '');
+        wrap.appendChild(ifrEl);
+        screen.appendChild(wrap);
+      }
+      sendToProjectionWindow({ type: 'iframeEmbed', src: url });
+    } else if (slide && slide.data && !slide.data.startsWith('data:embed')) {
+      // Local image slide — use image display path for both preview and projection
+      updateProjectionWithSlide(sectionId, idx);
+    }
 
     // Set nav mode so arrow keys navigate within the filmstrip
-    _selectedPptContainer = document.querySelector('.wo-ppt-widget[data-section="' + sectionId + '"]') ||
-                             document.querySelector('.wo-slides-container[data-section="' + sectionId + '"]');
-    activeNavigationMode = 'ppt-iframe';
+    _selectedPptContainer = widget || document.querySelector('.wo-slides-container[data-section="' + sectionId + '"]');
+    activeNavigationMode = url ? 'ppt-iframe' : 'ppt-local';
     selectedSlideBox = null;
   }
 
@@ -43299,6 +43327,9 @@ var WO = (function() {
       container.appendChild(badge);
     }
     badge.textContent = cur + ' / ' + tot;
+    // Also update the footer nav label if present
+    var navLabel = container.querySelector('.wo-slides-nav-label');
+    if (navLabel) navLabel.textContent = 'Slide ' + cur + ' of ' + tot;
   }
 
   // Navigate the iframe to a specific 0-based slide index by updating src — no click needed
@@ -52671,6 +52702,10 @@ function filterLiturgyItems() {
   .wo-slides-project-main-btn:hover { background:#fff7ed; transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,0.2); }
   /* Footer row beneath each slides container — "Add another" button + hint text */
   .wo-slides-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 14px; border-top:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.08); flex-wrap:wrap; }
+  .wo-slides-footer-nav { display:flex; align-items:center; gap:8px; }
+  .wo-slides-nav-btn { background:rgba(255,255,255,0.18); color:white; border:1px solid rgba(255,255,255,0.35); border-radius:6px; padding:4px 10px; font-size:0.8rem; cursor:pointer; transition:all 0.15s; }
+  .wo-slides-nav-btn:hover { background:rgba(255,255,255,0.32); }
+  .wo-slides-nav-label { font-size:0.75rem; color:rgba(255,255,255,0.75); min-width:90px; text-align:center; font-weight:600; }
   .wo-slides-add-another-btn { display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.15); color:white; border:1.5px dashed rgba(255,255,255,0.4); border-radius:7px; padding:5px 13px; font-size:0.75rem; font-weight:600; cursor:pointer; transition:all 0.15s; white-space:nowrap; }
   .wo-slides-add-another-btn:hover { background:rgba(255,255,255,0.28); border-color:white; }
   .wo-slides-footer-hint { font-size:0.68rem; color:rgba(255,255,255,0.6); flex:1; min-width:0; }
@@ -52699,6 +52734,14 @@ function filterLiturgyItems() {
   .wo-ppt-thumb-placeholder span { font-size: 0.7rem; color: #7c3aed; font-weight: 700; }
   .wo-ppt-thumb-overlay { position: absolute; inset: 0; z-index: 2; background: transparent; cursor: pointer; }
   .wo-ppt-thumb-num { position: absolute; bottom: 3px; right: 5px; z-index: 3; font-size: 0.6rem; color: #fff; background: rgba(0,0,0,0.55); border-radius: 3px; padding: 1px 4px; pointer-events: none; }
+  .wo-ppt-main-view { background: #0f0a1e; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; overflow: hidden; border-top: 1px solid #e9d5ff; border-bottom: 1px solid #e9d5ff; }
+  .wo-ppt-main-view img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  .wo-ppt-main-view iframe { width: 100%; height: 100%; border: none; display: block; }
+  .wo-ppt-main-placeholder { color: #4c1d95; opacity: 0.3; font-size: 3rem; }
+  .wo-ppt-slide-nav { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 6px 10px; background: #f5f0ff; border-bottom: 1px solid #e9d5ff; }
+  .wo-ppt-nav-btn { background: none; border: 1px solid #c4b5fd; border-radius: 6px; color: #7c3aed; cursor: pointer; padding: 4px 12px; font-size: 0.85rem; transition: all 0.15s; }
+  .wo-ppt-nav-btn:hover { background: #ede9fe; border-color: #8b5cf6; }
+  .wo-ppt-nav-counter { font-size: 0.82rem; color: #6d28d9; font-weight: 600; min-width: 60px; text-align: center; }
 
   /* PPT slide boxes — individual slide-per-box layout (like lyric slides) */
   .wo-ppt-banner { display: flex; align-items: center; gap: 8px; background: #f5f3ff; border: 1.5px solid #c4b5fd; border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; font-size: 0.82rem; }
