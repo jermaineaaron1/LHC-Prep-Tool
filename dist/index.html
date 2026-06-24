@@ -20828,11 +20828,20 @@ var WO = (function() {
   function createNewOrder(orderType) {
     currentOrderType = orderType;
     songOrderSections = [];
+    serviceSectionSongs = {};
+    sectionBackgrounds = {};
+    currentSermonSlides = {};
+    window.serviceSectionItems = {};
     currentOrderData = {
       type: orderType,
       createdDate: new Date().toISOString(),
       title: orderType.charAt(0).toUpperCase() + orderType.slice(1) + ' Worship Order'
     };
+
+    // Clear the editor DOM so snapshotCurrentState() doesn't read the previous
+    // order's hidden sections and stamp them onto this new order.
+    var _woContainer = $('woWorshipOrder');
+    if (_woContainer) _woContainer.innerHTML = '';
 
     $('woMainMenu').style.display = 'none';
     $('woEditor').style.display = 'block';
@@ -21438,6 +21447,10 @@ var WO = (function() {
     // Create new order data
     currentOrderType = template || 'traditional';
     songOrderSections = [];
+    serviceSectionSongs = {};
+    sectionBackgrounds = {};
+    currentSermonSlides = {};
+    window.serviceSectionItems = {};
     currentOrderData = {
       type: currentOrderType,
       createdDate: new Date().toISOString(),
@@ -21445,6 +21458,10 @@ var WO = (function() {
       serviceDate: serviceDate,
       template: template ? { name: template } : {}
     };
+
+    // Clear stale DOM from previous order
+    var _woCont = $('woWorshipOrder');
+    if (_woCont) _woCont.innerHTML = '';
 
     // Close the modal
     var modal = document.getElementById('createOrderModal');
