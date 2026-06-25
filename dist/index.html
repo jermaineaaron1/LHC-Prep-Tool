@@ -4782,7 +4782,7 @@
           <!-- Main Menu Screen -->
           <div class="wo-main-menu" id="woMainMenu">
             <div class="wo-main-menu-header">
-              <h1>🌹 Worship Order Template ✝</h1>
+              <h1>🌹 Worship Order ✝</h1>
               <p>Create, Organize, and Present Beautiful Worship Services</p>
             </div>
 
@@ -4833,9 +4833,9 @@
           <div class="wo-editor" id="woEditor" style="display: none;">
             <div class="wo-header">
               <div class="wo-header-content">
-                <h1><span class="wo-rose">🌹</span> Worship Order Template <span class="wo-cross">✝</span></h1>
+                <h1><span class="wo-rose">🌹</span> Worship Order <span class="wo-cross">✝</span></h1>
                 <p>Add Worship Songs, Customize Liturgy and Project with Ease</p>
-                <div class="wo-current-order-info" id="woCurrentOrderInfo">
+                <div class="wo-current-order-info wo-current-order-info--date" id="woCurrentOrderInfo">
                   Traditional Worship Order - Created Today
                 </div>
               </div>
@@ -4852,6 +4852,19 @@
                   <button class="wo-control-btn wo-save-as-btn" onclick="WO.saveOrderAs()" title="Save As">
                     <i class="fa-solid fa-copy"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Save As</span>
                   </button>
+                  <div class="wo-undo-redo-group" title="Undo / Redo">
+                    <button class="wo-control-btn wo-undoredo-btn" id="woUndoBtn" onclick="WO.undo()" title="Undo last change" disabled>
+                      <i class="fa-solid fa-rotate-left"></i>
+                    </button>
+                    <button class="wo-control-btn wo-undoredo-btn" id="woRedoBtn" onclick="WO.redo()" title="Redo" disabled>
+                      <i class="fa-solid fa-rotate-right"></i>
+                    </button>
+                  </div>
+                  <div class="wo-zoom-group" title="Zoom slide editor panel">
+                    <button class="wo-control-btn wo-zoom-btn" onclick="WO.zoomEditor(-1)" title="Zoom out editor"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                    <span class="wo-zoom-label" id="woEditorZoomLabel">100%</span>
+                    <button class="wo-control-btn wo-zoom-btn" onclick="WO.zoomEditor(1)" title="Zoom in editor"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                  </div>
                   <button class="wo-control-btn wo-print-btn wo-liturgy-btn" onclick="WO.openLiturgyBook()" title="Liturgy Book">
                     <i class="fa-solid fa-book-bible"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Liturgy Book</span>
                   </button>
@@ -4936,6 +4949,11 @@
                     <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
                     <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
                     <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
+                    <div class="wo-preview-zoom-group" title="Zoom projection preview">
+                      <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                      <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
+                      <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                    </div>
                     <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
                       <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
                       <span class="wo-golive-label" id="woBlankLabel">Blank</span>
@@ -5336,7 +5354,7 @@
               <!-- Background Library - SHOWN FIRST -->
               <div class="wo-bg-library">
                 <div class="wo-bg-library-header">
-                  <label class="wo-bg-label">Select Background:</label>
+                  <label class="wo-bg-label">Select Background — or drag any item onto a slide:</label>
                   <button class="wo-bg-upload-btn" onclick="document.getElementById('woBgFileInput').click()">
                     <i class="fa-solid fa-plus"></i> Upload New
                   </button>
@@ -5344,7 +5362,7 @@
                 <div class="wo-bg-grid" id="woBgGrid">
                   <!-- Items generated dynamically by renderBackgroundLibrary() -->
                 </div>
-                <input type="file" id="woBgFileInput" accept="image/*,video/mp4,video/webm" style="display:none" onchange="WO.handleBackgroundUpload(this.files)">
+                <input type="file" id="woBgFileInput" accept="image/*,video/mp4,video/webm,audio/mpeg,audio/mp3,audio/wav,audio/ogg" style="display:none" onchange="WO.handleBackgroundUpload(this.files)">
               </div>
 
               <!-- Current Background Preview (smaller) -->
@@ -22765,6 +22783,137 @@ var WO = (function() {
     console.log('snapshotCurrentState - items:', items.length, '| serviceSectionItems sections:', Object.keys(rebuiltSSI).length);
   }
 
+  // ── Editor / Preview zoom ──────────────────────────────────────────────
+  var _woEditorZoom = 1;
+  var _woPreviewZoom = 1;
+
+  function _woApplyEditorZoom() {
+    var el = $('woWorshipOrder');
+    if (el) el.style.zoom = _woEditorZoom;
+    var lbl = $('woEditorZoomLabel');
+    if (lbl) lbl.textContent = Math.round(_woEditorZoom * 100) + '%';
+  }
+
+  function _woApplyPreviewZoom() {
+    var el = $('woPreviewScreen');
+    if (el) el.style.zoom = _woPreviewZoom;
+    var lbl = $('woPreviewZoomLabel');
+    if (lbl) lbl.textContent = Math.round(_woPreviewZoom * 100) + '%';
+  }
+
+  function zoomEditor(direction) {
+    _woEditorZoom = Math.min(1.6, Math.max(0.5, +(_woEditorZoom + direction * 0.1).toFixed(2)));
+    _woApplyEditorZoom();
+  }
+
+  function zoomPreview(direction) {
+    _woPreviewZoom = Math.min(1.6, Math.max(0.5, +(_woPreviewZoom + direction * 0.1).toFixed(2)));
+    _woApplyPreviewZoom();
+  }
+
+  // ── Master undo / redo ─────────────────────────────────────────────────
+  // Generic, snapshot-based history: watches the editor panel for any DOM
+  // change (slide add/remove, background change, content edit, etc.) and
+  // captures a snapshot of the panel HTML + the side-state objects that
+  // drive it, instead of instrumenting every individual mutation function.
+  var _woHistoryUndo = [];
+  var _woHistoryRedo = [];
+  var _woHistoryRestoring = false;
+  var _woHistoryDebounceTimer = null;
+  var _woHistoryLastSnapshot = null;
+  var _woHistoryObserver = null;
+
+  function _woCaptureSnapshot() {
+    var el = $('woWorshipOrder');
+    if (!el) return null;
+    return {
+      html: el.innerHTML,
+      songs: JSON.stringify(serviceSectionSongs || {}),
+      bgs: JSON.stringify(sectionBackgrounds || {}),
+      slides: JSON.stringify(currentSermonSlides || {}),
+      items: JSON.stringify(window.serviceSectionItems || {})
+    };
+  }
+
+  function _woSnapshotsEqual(a, b) {
+    if (!a || !b) return false;
+    return a.html === b.html && a.songs === b.songs && a.bgs === b.bgs && a.slides === b.slides && a.items === b.items;
+  }
+
+  function _woUpdateUndoRedoButtons() {
+    var u = $('woUndoBtn'), r = $('woRedoBtn');
+    if (u) u.disabled = _woHistoryUndo.length === 0;
+    if (r) r.disabled = _woHistoryRedo.length === 0;
+  }
+
+  function _woRecordHistory() {
+    if (_woHistoryRestoring) return;
+    var snap = _woCaptureSnapshot();
+    if (!snap) return;
+    if (_woSnapshotsEqual(snap, _woHistoryLastSnapshot)) return;
+    if (_woHistoryLastSnapshot) {
+      _woHistoryUndo.push(_woHistoryLastSnapshot);
+      if (_woHistoryUndo.length > 40) _woHistoryUndo.shift();
+    }
+    _woHistoryLastSnapshot = snap;
+    _woHistoryRedo = [];
+    _woUpdateUndoRedoButtons();
+  }
+
+  function _woScheduleHistory() {
+    if (_woHistoryRestoring) return;
+    clearTimeout(_woHistoryDebounceTimer);
+    _woHistoryDebounceTimer = setTimeout(_woRecordHistory, 600);
+  }
+
+  function _woInitHistory() {
+    var el = $('woWorshipOrder');
+    if (!el) return;
+    if (_woHistoryObserver) _woHistoryObserver.disconnect();
+    _woHistoryUndo = [];
+    _woHistoryRedo = [];
+    _woHistoryLastSnapshot = _woCaptureSnapshot();
+    _woUpdateUndoRedoButtons();
+    _woHistoryObserver = new MutationObserver(_woScheduleHistory);
+    _woHistoryObserver.observe(el, { childList: true, subtree: true, attributes: true, characterData: true });
+  }
+
+  function _woRestoreSnapshot(snap) {
+    var el = $('woWorshipOrder');
+    if (!el || !snap) return;
+    _woHistoryRestoring = true;
+    el.innerHTML = snap.html;
+    try { serviceSectionSongs = JSON.parse(snap.songs); } catch (e) {}
+    try { sectionBackgrounds = JSON.parse(snap.bgs); } catch (e) {}
+    try { currentSermonSlides = JSON.parse(snap.slides); } catch (e) {}
+    try { window.serviceSectionItems = JSON.parse(snap.items); } catch (e) {}
+    _woHistoryLastSnapshot = snap;
+    if (typeof updateSlideBgIndicators === 'function') updateSlideBgIndicators();
+    setTimeout(function() { _woHistoryRestoring = false; }, 50);
+    _woUpdateUndoRedoButtons();
+  }
+
+  function woUndo() {
+    clearTimeout(_woHistoryDebounceTimer);
+    _woRecordHistory();
+    if (!_woHistoryUndo.length) { showToast('Nothing to undo', 'info'); return; }
+    var current = _woHistoryLastSnapshot;
+    var prev = _woHistoryUndo.pop();
+    _woHistoryRedo.push(current);
+    _woRestoreSnapshot(prev);
+    showToast('Undone', 'info');
+  }
+
+  function woRedo() {
+    clearTimeout(_woHistoryDebounceTimer);
+    if (!_woHistoryRedo.length) { showToast('Nothing to redo', 'info'); return; }
+    var current = _woHistoryLastSnapshot;
+    var next = _woHistoryRedo.pop();
+    _woHistoryUndo.push(current);
+    _woRestoreSnapshot(next);
+    showToast('Redone', 'info');
+  }
+
   function showOrderModeLanding() {
     var landing = $('woModeLanding');
     var mainContent = document.querySelector('.wo-main-content');
@@ -22804,6 +22953,10 @@ var WO = (function() {
       // Make preview panel follow while scrolling
       setTimeout(_enterServiceOrderLayout, 50);
     }
+    _woApplyEditorZoom();
+    _woApplyPreviewZoom();
+    _woSetupBgDropZone();
+    setTimeout(_woInitHistory, 100);
   }
 
   var _serviceLayoutResizeHandler = null;
@@ -27189,6 +27342,11 @@ var WO = (function() {
     } else if (background.type === 'localVideo') {
       el.innerHTML = '<video src="' + background.src + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"></video>';
       el.style.background = '#000';
+    } else if (background.type === 'audio') {
+      var bgAud = savedBackgrounds.find(function(b) { return b.id === background.value; });
+      el.innerHTML = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a1a;"><i class="fa-solid fa-music" style="color:#f59e0b;font-size:1.4rem;"></i></div>' +
+        (bgAud ? '<audio src="' + bgAud.data + '" autoplay loop style="display:none;"></audio>' : '');
+      el.style.background = '#000';
     }
   }
 
@@ -27207,6 +27365,9 @@ var WO = (function() {
     } else if (background.type === 'video') {
       var bgVid = savedBackgrounds.find(function(b) { return b.id === background.value; });
       if (bgVid) sendToProjectionWindow({ type: 'background', background: { type: 'video', value: bgVid.data } });
+    } else if (background.type === 'audio') {
+      var bgAud2 = savedBackgrounds.find(function(b) { return b.id === background.value; });
+      if (bgAud2) sendToProjectionWindow({ type: 'background', background: { type: 'audio', value: bgAud2.data } });
     } else if (background.type === 'youtube') {
       sendToProjectionWindow({ type: 'videoBackground', videoType: 'youtube', embedUrl: background.embedUrl });
     } else if (background.type === 'localVideo') {
@@ -27279,6 +27440,18 @@ var WO = (function() {
         activeVideoSrc = background.src;
       }
       bgEl.style.background = '#000';
+    } else if (background.type === 'audio') {
+      clearActiveVideo();
+      var bga = savedBackgrounds.find(function(b) { return b.id === background.value; });
+      if (bga) {
+        if (activeVideoSrc !== bga.data) {
+          bgEl.innerHTML = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a1a;"><i class="fa-solid fa-music" style="color:#f59e0b;font-size:2rem;"></i></div>' +
+            '<audio src="' + bga.data + '" autoplay loop style="display:none;"></audio>';
+          activeVideoElement = bgEl.querySelector('audio');
+          activeVideoSrc = bga.data;
+        }
+        bgEl.style.background = '#000';
+      }
     }
 
     // Mirror background to fullscreen overlay and projection window
@@ -27318,30 +27491,33 @@ var WO = (function() {
     var file = files[0];
     var isVideo = file.type.startsWith('video/');
     var isImage = file.type.startsWith('image/');
+    var isAudio = file.type.startsWith('audio/');
 
-    if (!isVideo && !isImage) {
-      showToast('Please select an image or video file', 'error');
+    if (!isVideo && !isImage && !isAudio) {
+      showToast('Please select an image, video, or audio file', 'error');
       return;
     }
 
-    // Check file size (warn if over 5MB for images, 50MB for videos)
-    var maxSize = isVideo ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
+    var mediaType = isVideo ? 'video' : (isAudio ? 'audio' : 'image');
+
+    // Check file size (warn if over 5MB for images, 50MB for videos, 15MB for audio)
+    var maxSize = isVideo ? 50 * 1024 * 1024 : (isAudio ? 15 * 1024 * 1024 : 5 * 1024 * 1024);
     if (file.size > maxSize) {
-      showToast('File too large. Max: ' + (isVideo ? '50MB' : '5MB'), 'warning');
+      showToast('File too large. Max: ' + (isVideo ? '50MB' : (isAudio ? '15MB' : '5MB')), 'warning');
       return;
     }
 
     showToast('Uploading background...', 'info');
 
     // Upload to Supabase first, then store URL (per 289)
-    var supabaseFolder = isVideo ? 'orders/videos' : 'orders/images';
+    var supabaseFolder = isVideo ? 'orders/videos' : (isAudio ? 'orders/audio' : 'orders/images');
 
     if (typeof uploadToSupabase === 'function') {
       uploadToSupabase(file, supabaseFolder).then(function(result) {
         if (result && result.url) {
           var bg = {
             id: 'bg_' + Date.now(),
-            type: isVideo ? 'video' : 'image',
+            type: mediaType,
             name: file.name.substring(0, 20),
             data: result.url,
             cloudUrl: result.url,
@@ -27356,14 +27532,14 @@ var WO = (function() {
           // Supabase failed — fall back to local base64
           var errMsg = result && result.error ? result.error : 'Unknown error';
           console.warn('Supabase bg upload failed:', errMsg);
-          handleBackgroundUploadLocal(file, isVideo);
+          handleBackgroundUploadLocal(file, mediaType);
         }
       }).catch(function(err) {
         console.error('Supabase bg upload error:', err);
-        handleBackgroundUploadLocal(file, isVideo);
+        handleBackgroundUploadLocal(file, mediaType);
       });
     } else {
-      handleBackgroundUploadLocal(file, isVideo);
+      handleBackgroundUploadLocal(file, mediaType);
     }
 
     // Clear the input
@@ -27371,12 +27547,12 @@ var WO = (function() {
   }
 
   // Fallback: store background as local base64
-  function handleBackgroundUploadLocal(file, isVideo) {
+  function handleBackgroundUploadLocal(file, mediaType) {
     var reader = new FileReader();
     reader.onload = function(e) {
       var bg = {
         id: 'bg_' + Date.now(),
-        type: isVideo ? 'video' : 'image',
+        type: mediaType,
         name: file.name.substring(0, 20),
         data: e.target.result
       };
@@ -27410,18 +27586,20 @@ var WO = (function() {
     ];
 
     defaultColors.forEach(function(c) {
-      html += '<div class="wo-bg-item wo-bg-color" data-bg="' + c.bg + '" onclick="WO.selectBackground(\'' + c.bg + '\')">' +
+      html += '<div class="wo-bg-item wo-bg-color" draggable="true" data-bg="' + c.bg + '" data-drag-bg="' + escapeHtml(c.bg) + '" ondragstart="WO.onBgDragStart(event)" onclick="WO.selectBackground(\'' + c.bg + '\')">' +
         '<div class="wo-bg-thumb" style="background:' + c.color + '"></div>' +
         '<span>' + c.name + '</span></div>';
     });
 
-    // Add uploaded backgrounds
+    // Add uploaded backgrounds (images, videos, audio) — draggable onto any slide
     savedBackgrounds.forEach(function(bg) {
-      html += '<div class="wo-bg-item wo-bg-uploaded" data-bg-id="' + bg.id + '" onclick="WO.selectBackground(\'' + bg.type + ':' + bg.id + '\')">' +
+      html += '<div class="wo-bg-item wo-bg-uploaded" draggable="true" data-bg-id="' + bg.id + '" data-drag-bg="' + bg.type + ':' + bg.id + '" ondragstart="WO.onBgDragStart(event)" onclick="WO.selectBackground(\'' + bg.type + ':' + bg.id + '\')">' +
         '<button class="wo-bg-delete" onclick="event.stopPropagation(); WO.deleteBackground(\'' + bg.id + '\')"><i class="fa-solid fa-times"></i></button>';
 
       if (bg.type === 'image') {
         html += '<div class="wo-bg-thumb" style="background-image:url(' + bg.data + ')"></div>';
+      } else if (bg.type === 'audio') {
+        html += '<div class="wo-bg-thumb" style="background:#1a1a1a;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-music" style="color:#f59e0b;font-size:1.5rem;"></i></div>';
       } else {
         html += '<div class="wo-bg-thumb" style="background:#1a1a1a;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-video" style="color:#8b5cf6;font-size:1.5rem;"></i></div>';
       }
@@ -27448,6 +27626,73 @@ var WO = (function() {
       var selected = document.querySelector(selector);
       if (selected) selected.classList.add('selected');
     }
+  }
+
+  // ── BG library drag-and-drop onto any slide ─────────────────────────────
+  function onBgDragStart(e) {
+    var item = e.currentTarget;
+    var bgStr = item.getAttribute('data-drag-bg');
+    if (!bgStr) return;
+    e.dataTransfer.setData('text/plain', bgStr);
+    e.dataTransfer.effectAllowed = 'copy';
+  }
+
+  function _woComputeSlideLocalIndex(box) {
+    var sectionId = box.getAttribute('data-section');
+    var all = document.querySelectorAll('.wo-slide-box');
+    var idx = 0;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i] === box) return idx;
+      if (all[i].getAttribute('data-section') === sectionId) idx++;
+    }
+    return idx;
+  }
+
+  function _woSetupBgDropZone() {
+    var container = $('woWorshipOrder');
+    if (!container || container._woBgDropBound) return;
+    container._woBgDropBound = true;
+    container.addEventListener('dragover', function(e) {
+      var box = e.target.closest && e.target.closest('.wo-slide-box');
+      if (box) {
+        e.preventDefault();
+        box.classList.add('wo-bg-drop-target');
+      }
+    });
+    container.addEventListener('dragleave', function(e) {
+      var box = e.target.closest && e.target.closest('.wo-slide-box');
+      if (box) box.classList.remove('wo-bg-drop-target');
+    });
+    container.addEventListener('drop', function(e) {
+      var box = e.target.closest && e.target.closest('.wo-slide-box');
+      if (!box) return;
+      e.preventDefault();
+      box.classList.remove('wo-bg-drop-target');
+      var bgStr = e.dataTransfer.getData('text/plain');
+      if (!bgStr) return;
+      dropBackgroundOnSlide(bgStr, box);
+    });
+  }
+
+  function dropBackgroundOnSlide(bgString, box) {
+    var parts = bgString.split(':');
+    var type = parts[0];
+    var value = parts.slice(1).join(':');
+    var background = { type: type, value: value };
+    var sectionId = box.getAttribute('data-section');
+    var localIdx = _woComputeSlideLocalIndex(box);
+
+    setBackgroundForSlideInSection(sectionId, localIdx, background);
+    updateSlideBgIndicators();
+
+    if (sectionId === currentSectionId && localIdx === currentLocalSlideIdx) {
+      currentBackground = background;
+      updateBackgroundSelection();
+      updateCurrentBackgroundPreview();
+      applyEffectiveBackgroundToPreview(background);
+      sendBackgroundToProjection();
+    }
+    showToast('Background applied to slide', 'success');
   }
 
   function selectBackground(bgString) {
@@ -27526,6 +27771,11 @@ var WO = (function() {
           btn.style.borderColor = 'rgba(255,255,255,0.5)';
           btn.innerHTML = '<i class="fa-solid fa-image" style="text-shadow:0 1px 2px rgba(0,0,0,0.5);"></i>';
         }
+      } else if (effectiveBg && effectiveBg.type === 'audio') {
+        btn.style.background = '#1a1a1a';
+        btn.style.color = '#f59e0b';
+        btn.style.borderColor = 'rgba(245,158,11,0.6)';
+        btn.innerHTML = '<i class="fa-solid fa-music"></i>';
       } else {
         btn.style.background = '';
         btn.style.color = '';
@@ -27588,6 +27838,11 @@ var WO = (function() {
         preview.innerHTML = '<video src="' + bgv.data + '" autoplay loop muted></video>';
         preview.style.background = '#000';
       }
+    } else if (currentBackground.type === 'audio') {
+      var bga = savedBackgrounds.find(function(b) { return b.id === currentBackground.value; });
+      preview.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><i class="fa-solid fa-music" style="color:#f59e0b;font-size:1.3rem;"></i></div>' +
+        (bga ? '<audio src="' + bga.data + '" autoplay loop style="display:none;"></audio>' : '');
+      preview.style.background = '#000';
     }
   }
 
@@ -29232,6 +29487,9 @@ var WO = (function() {
       '    } else if (bg.type === "video") {' +
       '      bgEl.style.background = "#000";' +
       '      bgEl.innerHTML = "<video autoplay loop muted playsinline><source src=\\"" + bg.value + "\\" type=\\"video/mp4\\">Video not supported</video>";' +
+      '    } else if (bg.type === "audio") {' +
+      '      bgEl.style.background = "#000";' +
+      '      bgEl.innerHTML = "<audio autoplay loop style=\\"display:none;\\"><source src=\\"" + bg.value + "\\">Audio not supported</audio>";' +
       '    }' +
       '  } else if (data.type === "textSettings") {' +
       '    var s = data.settings;' +
@@ -46883,6 +47141,12 @@ var WO = (function() {
     wofsToggleFilmstrip: wofsToggleFilmstrip,
     toggleLivePresent: toggleLivePresent,
     undoDelete: undoDelete,
+    undo: woUndo,
+    redo: woRedo,
+    zoomEditor: zoomEditor,
+    zoomPreview: zoomPreview,
+    onBgDragStart: onBgDragStart,
+    dropBackgroundOnSlide: dropBackgroundOnSlide,
     // New functions for saved orders
     toggleSelectAll: toggleSelectAll,
     deleteSelectedOrders: deleteSelectedOrders,
@@ -52484,11 +52748,16 @@ function filterLiturgyItems() {
   .wo-rose { font-size: 1.2rem; }
   .wo-cross { font-size: 1.2rem; color: #ffd700; }
   .wo-current-order-info { background: rgba(255,255,255,0.2); border-radius: 8px; padding: 8px 15px; margin-top: 12px; font-size: 0.8rem; display: inline-block; }
+  .wo-current-order-info--date { background: linear-gradient(135deg, #ffd93d, #ffc400); color: #1f2933; font-weight: 700; padding: 9px 18px; border-radius: 999px; box-shadow: 0 2px 8px rgba(0,0,0,0.18); border: 1px solid rgba(31,41,51,0.15); letter-spacing: 0.2px; }
   .wo-order-selector { margin-top: 15px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.2); }
   .wo-order-controls { display: flex; gap: 10px; margin-bottom: 12px; justify-content: center; flex-wrap: wrap; }
   .wo-control-btn { background: linear-gradient(135deg, #28a745, #20c997); color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; font-family: 'Poppins', sans-serif; }
   .wo-control-btn:hover { transform: translateY(-2px); }
+  .wo-control-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
   .wo-save-as-btn { background: linear-gradient(135deg, #6366f1, #8b5cf6); padding: 8px 12px; }
+  .wo-undo-redo-group, .wo-zoom-group { display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.12); border-radius: 8px; padding: 3px 6px; }
+  .wo-undoredo-btn, .wo-zoom-btn { background: rgba(255,255,255,0.18) !important; padding: 6px 10px !important; }
+  .wo-zoom-label { color: white; font-size: 0.72rem; font-weight: 600; font-family: 'Poppins', sans-serif; min-width: 34px; text-align: center; }
   .wo-save-as-btn:hover { box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
   .wo-print-btn { background: linear-gradient(135deg, #f59e0b, #d97706); padding: 8px 12px; }
   .wo-print-btn:hover { box-shadow: 0 4px 12px rgba(245,158,11,0.4); }
@@ -52900,6 +53169,10 @@ function filterLiturgyItems() {
   /* Background Button in Preview Panel */
   .wo-bg-btn { background: linear-gradient(135deg, #8b5cf6, #a78bfa); color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
   .wo-bg-btn:hover { background: linear-gradient(135deg, #7c3aed, #8b5cf6); transform: translateY(-1px); }
+  .wo-preview-zoom-group { display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.1); border-radius: 8px; padding: 3px 6px; }
+  .wo-preview-zoom-btn { background: rgba(255,255,255,0.18); color: white; border: none; padding: 6px 9px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
+  .wo-preview-zoom-btn:hover { background: rgba(255,255,255,0.3); }
+  .wo-preview-zoom-label { color: white; font-size: 0.72rem; font-weight: 600; font-family: 'Poppins', sans-serif; min-width: 34px; text-align: center; }
 
   /* Background Modal */
   .wo-bg-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 10004; padding: 20px; }
@@ -52924,7 +53197,9 @@ function filterLiturgyItems() {
   .wo-bg-clear-btn { background: #fee2e2; color: #dc2626; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
   .wo-bg-clear-btn:hover { background: #fecaca; }
   .wo-bg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; }
-  .wo-bg-item { cursor: pointer; border-radius: 10px; overflow: hidden; border: 3px solid transparent; transition: all 0.2s; position: relative; }
+  .wo-bg-item { cursor: grab; border-radius: 10px; overflow: hidden; border: 3px solid transparent; transition: all 0.2s; position: relative; }
+  .wo-bg-item:active { cursor: grabbing; }
+  .wo-slide-box.wo-bg-drop-target { outline: 3px dashed #8b5cf6; outline-offset: 2px; background: rgba(139, 92, 246, 0.08); }
   .wo-bg-item:hover { border-color: #8b5cf6; transform: scale(1.05); }
   .wo-bg-item.selected { border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.3); }
   .wo-bg-thumb { width: 100%; height: 70px; background-size: cover; background-position: center; }
