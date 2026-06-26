@@ -59247,6 +59247,18 @@ function filterLiturgyItems() {
           td.style.printColorAdjust = 'exact';
         }
       });
+
+      // Flower Arrangement row needs a bit more breathing room than the
+      // standard 11px top/bottom padding — bump it by 12px total.
+      var flowerCell = tableClone.querySelector('td[data-role="flowerarrangement"]');
+      var flowerRow = flowerCell ? flowerCell.closest('tr') : null;
+      if (flowerRow) {
+        flowerRow.querySelectorAll('td').forEach(function(td) {
+          td.style.paddingTop = '17px';
+          td.style.paddingBottom = '17px';
+        });
+      }
+
       return tableClone;
     },
 
@@ -59267,6 +59279,7 @@ function filterLiturgyItems() {
         scope + ' td:first-child, ' + scope + ' th:first-child { text-align: left; font-weight: 600; min-width: 60px; background: #f3f4f6; }',
         scope + ' tr { page-break-inside: avoid; }',
         scope + ' tr.roster-section-header { page-break-after: avoid; }',
+        scope + ' tr.roster-section-header.tech-section { page-break-before: always; }',
         scope + ' tr.roster-section-header td { background: #6b7280 !important; color: white !important; font-weight: bold; text-transform: uppercase; }',
         scope + ' tr.roster-liturgical-row td:first-child { background: #fef3c7; }',
         scope + ' .altar-color-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }',
@@ -59390,13 +59403,18 @@ function filterLiturgyItems() {
                 function(tr) { return tr.offsetTop + tr.offsetHeight; }
               );
 
+              // Tech Team should always start on a fresh page (LCD Operator
+              // first) rather than wherever it happens to fall naturally.
+              var techHeaderRow = iframeBody.querySelector('tr.roster-section-header.tech-section');
+              var forcedBreaks = techHeaderRow ? [techHeaderRow.offsetTop] : [];
+
               window.html2canvas(iframeBody, {
                 scale: 2, backgroundColor: '#ffffff', useCORS: true,
                 width: fullWidth, height: fullHeight,
                 windowWidth: fullWidth, windowHeight: fullHeight
               }).then(function(canvas) {
                 document.body.removeChild(iframe);
-                self._finishRosterPdfShare(canvas, titleText, stamp, rowBoundaries, fullHeight);
+                self._finishRosterPdfShare(canvas, titleText, stamp, rowBoundaries, fullHeight, forcedBreaks);
               }).catch(function(err) {
                 if (iframe.parentNode) document.body.removeChild(iframe);
                 console.error('PDF render failed:', err);
@@ -59414,7 +59432,7 @@ function filterLiturgyItems() {
       });
     },
 
-    _finishRosterPdfShare: function(canvas, titleText, stamp, rowBoundariesPx, bodyHeightPx) {
+    _finishRosterPdfShare: function(canvas, titleText, stamp, rowBoundariesPx, bodyHeightPx, forcedBreaksPx) {
       var self = this;
       var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
       if (!jsPDFCtor) { self.showToast('PDF library unavailable', 'error'); return; }
@@ -59432,6 +59450,9 @@ function filterLiturgyItems() {
       var rowBoundariesCanvasPx = (rowBoundariesPx && bodyHeightPx)
         ? rowBoundariesPx.map(function(px) { return px * (canvas.height / bodyHeightPx); }).sort(function(a, b) { return a - b; })
         : [];
+      var forcedBreaksCanvasPx = (forcedBreaksPx && bodyHeightPx)
+        ? forcedBreaksPx.map(function(px) { return px * (canvas.height / bodyHeightPx); })
+        : [];
 
       var cursorPx = 0;
       var first = true;
@@ -59444,6 +59465,15 @@ function filterLiturgyItems() {
             if (rowBoundariesCanvasPx[i] > cursorPx + 1 && rowBoundariesCanvasPx[i] <= idealEndPx) chosen = rowBoundariesCanvasPx[i];
           }
           if (chosen) sliceEndPx = chosen;
+        }
+
+        // A forced break (e.g. Tech Team) always wins, even if it falls
+        // earlier than the natural/row-snapped end — it shortens this page
+        // so the forced section starts fresh on the next one.
+        for (var j = 0; j < forcedBreaksCanvasPx.length; j++) {
+          if (forcedBreaksCanvasPx[j] > cursorPx + 1 && forcedBreaksCanvasPx[j] < sliceEndPx) {
+            sliceEndPx = forcedBreaksCanvasPx[j];
+          }
         }
 
         var sliceHeightPx = sliceEndPx - cursorPx;
