@@ -59382,13 +59382,21 @@ function filterLiturgyItems() {
             setTimeout(function() {
               var fullHeight = iframeBody.scrollHeight;
               var fullWidth = iframeBody.scrollWidth;
+              // Bottom edge of every table row (in CSS px, relative to the
+              // captured body) — used to choose page-break points that fall
+              // between rows instead of slicing through one.
+              var rowBoundaries = Array.prototype.map.call(
+                iframeBody.querySelectorAll('tr'),
+                function(tr) { return tr.offsetTop + tr.offsetHeight; }
+              );
+
               window.html2canvas(iframeBody, {
                 scale: 2, backgroundColor: '#ffffff', useCORS: true,
                 width: fullWidth, height: fullHeight,
                 windowWidth: fullWidth, windowHeight: fullHeight
               }).then(function(canvas) {
                 document.body.removeChild(iframe);
-                self._finishRosterPdfShare(canvas, titleText, stamp);
+                self._finishRosterPdfShare(canvas, titleText, stamp, rowBoundaries, fullHeight);
               }).catch(function(err) {
                 if (iframe.parentNode) document.body.removeChild(iframe);
                 console.error('PDF render failed:', err);
@@ -59406,9 +59414,8 @@ function filterLiturgyItems() {
       });
     },
 
-    _finishRosterPdfShare: function(canvas, titleText, stamp) {
+    _finishRosterPdfShare: function(canvas, titleText, stamp, rowBoundariesPx, bodyHeightPx) {
       var self = this;
-      var imgData = canvas.toDataURL('image/png');
       var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
       if (!jsPDFCtor) { self.showToast('PDF library unavailable', 'error'); return; }
       var doc = new jsPDFCtor({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -59416,16 +59423,44 @@ function filterLiturgyItems() {
       var pageHeight = doc.internal.pageSize.getHeight();
       var imgWidth = pageWidth;
       var imgHeight = canvas.height * imgWidth / canvas.width;
-      var heightLeft = imgHeight;
-      var position = 0;
+      var pagePxHeight = pageHeight * (canvas.height / imgHeight);
 
-      doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position -= pageHeight;
-        doc.addPage();
-        doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+      // Convert each row's bottom edge (CSS px in the captured body) to
+      // canvas pixels, then choose page breaks that land on a row boundary
+      // at or before the natural page height — never mid-row — instead of
+      // slicing the canvas at a fixed pixel offset.
+      var rowBoundariesCanvasPx = (rowBoundariesPx && bodyHeightPx)
+        ? rowBoundariesPx.map(function(px) { return px * (canvas.height / bodyHeightPx); }).sort(function(a, b) { return a - b; })
+        : [];
+
+      var cursorPx = 0;
+      var first = true;
+      while (cursorPx < canvas.height - 0.5) {
+        var idealEndPx = cursorPx + pagePxHeight;
+        var sliceEndPx = Math.min(idealEndPx, canvas.height);
+        if (idealEndPx < canvas.height - 0.5) {
+          var chosen = null;
+          for (var i = 0; i < rowBoundariesCanvasPx.length; i++) {
+            if (rowBoundariesCanvasPx[i] > cursorPx + 1 && rowBoundariesCanvasPx[i] <= idealEndPx) chosen = rowBoundariesCanvasPx[i];
+          }
+          if (chosen) sliceEndPx = chosen;
+        }
+
+        var sliceHeightPx = sliceEndPx - cursorPx;
+        var sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = sliceHeightPx;
+        sliceCanvas.getContext('2d').drawImage(
+          canvas, 0, cursorPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx
+        );
+        var sliceImgData = sliceCanvas.toDataURL('image/png');
+        var sliceHeightMm = sliceHeightPx * (imgHeight / canvas.height);
+
+        if (!first) doc.addPage();
+        first = false;
+        doc.addImage(sliceImgData, 'PNG', 0, 0, imgWidth, sliceHeightMm);
+
+        cursorPx = sliceEndPx;
       }
 
       var fileName = 'LHC-Roster-' + titleText.replace(/\s+/g, '-') + '.pdf';
