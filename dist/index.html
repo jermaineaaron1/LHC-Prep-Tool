@@ -59223,22 +59223,15 @@ function filterLiturgyItems() {
       this.showToast('CSV downloaded!', 'success');
     },
 
-    downloadPDF: function() {
-      var self = this;
-      var table = document.getElementById('rosterTable');
-      if (!table) {
-        this.showToast('No roster table found', 'error');
-        return;
-      }
-
-      // Clone the table and clean it up for printing
+    // Clone #rosterTable and strip/restyle it the same way for any export path
+    // (Print/PDF, Share PDF) so every export looks identical.
+    _buildCleanRosterTableClone: function(table) {
       var tableClone = table.cloneNode(true);
+      tableClone.removeAttribute('id');
 
-      // Remove dropdown icons and edit indicators from the clone
       tableClone.querySelectorAll('.roster-cell-dropdown-icon').forEach(function(el) { el.remove(); });
       tableClone.querySelectorAll('.roster-share-btn').forEach(function(el) { el.remove(); });
 
-      // Apply altar colors as inline styles on liturgical cells so they survive print rendering
       var PRINT_COLORS = {Green:'rgba(34,197,94,0.22)',Purple:'rgba(168,85,247,0.22)',White:'#f1f5f9',Red:'rgba(239,68,68,0.22)',Gold:'rgba(234,179,8,0.22)',Blue:'rgba(59,130,246,0.22)',Rose:'rgba(244,114,182,0.22)'};
       var PRINT_TEXT   = {Green:'#065f46',Purple:'#4c1d95',White:'#1e293b',Red:'#7f1d1d',Gold:'#713f12',Blue:'#1e3a8a',Rose:'#831843'};
       tableClone.querySelectorAll('tr.roster-liturgical-row td[data-color]').forEach(function(td) {
@@ -59251,38 +59244,58 @@ function filterLiturgyItems() {
           td.style.printColorAdjust = 'exact';
         }
       });
+      return tableClone;
+    },
 
-      // Get month/year for title - use STATE directly for clean text
+    // The exact CSS used for the printed/shared roster, scoped under
+    // `scope` so it can be safely injected into a live page (Share PDF)
+    // without leaking onto the app's own tables.
+    _rosterPrintCSS: function(scope) {
+      return [
+        scope + ' * { margin: 0; padding: 0; box-sizing: border-box; }',
+        scope + ' { font-family: Arial, sans-serif; background: white; }',
+        scope + ' .print-header { text-align: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #333; }',
+        scope + ' .print-title { font-size: 24px; font-weight: bold; color: #1f2937; margin-bottom: 4px; }',
+        scope + ' .print-subtitle { font-size: 64px; font-weight: bold; color: #4b5563; line-height: 1.1; }',
+        scope + ' .print-stamp { font-size: 13px; color: #9ca3af; margin-top: 4px; }',
+        scope + ' table { width: 100%; border-collapse: collapse; font-size: 19px; }',
+        scope + ' th, ' + scope + ' td { border: 1px solid #333; padding: 3px 5px; text-align: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }',
+        scope + ' th { background: #d1d5db; font-weight: bold; font-size: 17px; }',
+        scope + ' td:first-child, ' + scope + ' th:first-child { text-align: left; font-weight: 600; min-width: 60px; background: #f3f4f6; }',
+        scope + ' tr { page-break-inside: avoid; }',
+        scope + ' tr.roster-section-header { page-break-after: avoid; }',
+        scope + ' tr.roster-section-header td { background: #6b7280 !important; color: white !important; font-weight: bold; text-transform: uppercase; }',
+        scope + ' tr.roster-liturgical-row td:first-child { background: #fef3c7; }',
+        scope + ' .altar-color-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }',
+        scope + ' .roster-date-chip { display: block; font-size: 27px; background: #e5e7eb; padding: 2px 4px; border-radius: 4px; margin-bottom: 2px; }'
+      ].join(' ');
+    },
+
+    _rosterPrintHeaderHtml: function(titleText, stamp) {
+      return '<div class="print-header">' +
+        '<div class="print-title">Luther House Chapel - Worship Duty Roster</div>' +
+        '<div class="print-subtitle">' + titleText + '</div>' +
+        '<div class="print-stamp">' + stamp + '</div>' +
+        '</div>';
+    },
+
+    downloadPDF: function() {
+      var table = document.getElementById('rosterTable');
+      if (!table) {
+        this.showToast('No roster table found', 'error');
+        return;
+      }
+
+      var tableClone = this._buildCleanRosterTableClone(table);
       var titleText = this.MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear;
 
       // Create print window
       var printWindow = window.open('', '_blank', 'width=1000,height=800');
       printWindow.document.write('<!DOCTYPE html><html><head>');
       printWindow.document.write('<title>LHC Roster - ' + titleText + '</title>');
-      printWindow.document.write('<style>');
-      printWindow.document.write('* { margin: 0; padding: 0; box-sizing: border-box; }');
-      printWindow.document.write('body { font-family: Arial, sans-serif; padding: 20px; background: white; }');
-      printWindow.document.write('.print-header { text-align: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #333; }');
-      printWindow.document.write('.print-title { font-size: 24px; font-weight: bold; color: #1f2937; margin-bottom: 4px; }');
-      printWindow.document.write('.print-subtitle { font-size: 64px; font-weight: bold; color: #4b5563; line-height: 1.1; }');
-      printWindow.document.write('table { width: 100%; border-collapse: collapse; font-size: 19px; }');
-      printWindow.document.write('th, td { border: 1px solid #333; padding: 3px 5px; text-align: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }');
-      printWindow.document.write('th { background: #d1d5db; font-weight: bold; font-size: 17px; }');
-      printWindow.document.write('td:first-child, th:first-child { text-align: left; font-weight: 600; min-width: 60px; background: #f3f4f6; }');
-      printWindow.document.write('tr { page-break-inside: avoid; }');
-      printWindow.document.write('tr.roster-section-header { page-break-after: avoid; }');
-      printWindow.document.write('tr.roster-section-header td { background: #6b7280 !important; color: white !important; font-weight: bold; text-transform: uppercase; }');
-      printWindow.document.write('tr.roster-liturgical-row td:first-child { background: #fef3c7; }');
-      printWindow.document.write('.altar-color-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }');
-      printWindow.document.write('.roster-date-chip { display: block; font-size: 27px; background: #e5e7eb; padding: 2px 4px; border-radius: 4px; margin-bottom: 2px; }');
-      printWindow.document.write('@media print { body { padding: 5px; } @page { size: auto; margin: 6mm; } }');
-      printWindow.document.write('.print-stamp { font-size: 13px; color: #9ca3af; margin-top: 4px; }');
-      printWindow.document.write('</style></head><body>');
-      printWindow.document.write('<div class="print-header">');
-      printWindow.document.write('<div class="print-title">Luther House Chapel - Worship Duty Roster</div>');
-      printWindow.document.write('<div class="print-subtitle">' + titleText + '</div>');
-      printWindow.document.write('<div class="print-stamp">' + this._rosterStampText() + '</div>');
-      printWindow.document.write('</div>');
+      printWindow.document.write('<style>' + this._rosterPrintCSS('body') + ' @media print { body { padding: 5px; } @page { size: auto; margin: 6mm; } }</style>');
+      printWindow.document.write('</head><body style="padding:20px;">');
+      printWindow.document.write(this._rosterPrintHeaderHtml(titleText, this._rosterStampText()));
       printWindow.document.write(tableClone.outerHTML);
       printWindow.document.write('</body></html>');
       printWindow.document.close();
@@ -59329,32 +59342,17 @@ function filterLiturgyItems() {
       this.showToast('Generating PDF...', 'info');
 
       this._loadHtml2Canvas().then(function() {
-        var tableClone = table.cloneNode(true);
-        tableClone.querySelectorAll('.roster-cell-dropdown-icon, .roster-share-btn').forEach(function(el) { el.remove(); });
-
-        var PRINT_COLORS = {Green:'rgba(34,197,94,0.22)',Purple:'rgba(168,85,247,0.22)',White:'#f1f5f9',Red:'rgba(239,68,68,0.22)',Gold:'rgba(234,179,8,0.22)',Blue:'rgba(59,130,246,0.22)',Rose:'rgba(244,114,182,0.22)'};
-        var PRINT_TEXT   = {Green:'#065f46',Purple:'#4c1d95',White:'#1e293b',Red:'#7f1d1d',Gold:'#713f12',Blue:'#1e3a8a',Rose:'#831843'};
-        tableClone.querySelectorAll('tr.roster-liturgical-row td[data-color]').forEach(function(td) {
-          var c = td.getAttribute('data-color');
-          if (PRINT_COLORS[c]) {
-            td.style.backgroundColor = PRINT_COLORS[c];
-            td.style.color = PRINT_TEXT[c] || '#1e293b';
-            td.style.fontWeight = '700';
-          }
-        });
-
+        var tableClone = self._buildCleanRosterTableClone(table);
         var titleText = self.MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear;
         var stamp = self._rosterStampText();
 
+        // Same scoped CSS + header markup as Print/PDF, so the shared PDF is
+        // pixel-identical instead of inheriting the live app's styling.
         var wrap = document.createElement('div');
-        wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:1400px;background:#fff;font-family:Arial,sans-serif;padding:24px;';
-        wrap.innerHTML =
-          '<div style="text-align:center;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #333;">' +
-            '<div style="font-size:26px;font-weight:bold;color:#1f2937;">Luther House Chapel - Worship Duty Roster</div>' +
-            '<div style="font-size:48px;font-weight:bold;color:#4b5563;line-height:1.1;">' + titleText + '</div>' +
-            '<div style="font-size:14px;color:#9ca3af;margin-top:6px;">' + stamp + '</div>' +
-          '</div>';
-        wrap.appendChild(tableClone);
+        wrap.className = 'lhc-roster-pdf-snap';
+        wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:1400px;padding:24px;';
+        wrap.innerHTML = '<style>' + self._rosterPrintCSS('.lhc-roster-pdf-snap') + '</style>' +
+          self._rosterPrintHeaderHtml(titleText, stamp) + tableClone.outerHTML;
         document.body.appendChild(wrap);
 
         window.html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff', useCORS: true }).then(function(canvas) {
