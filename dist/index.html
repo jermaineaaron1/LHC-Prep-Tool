@@ -58918,7 +58918,11 @@ function filterLiturgyItems() {
       var existing = document.getElementById('rosterClashModal');
       if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
 
-      var dutyListHtml = opts.duties.map(function(d) { return '<li style="margin-bottom:4px;">' + d + '</li>'; }).join('');
+      var self = this;
+      var dateLabel = this.escapeHtml(opts.date);
+      var dutyListHtml = opts.duties.map(function(d) {
+        return '<li style="margin-bottom:4px;">' + self.escapeHtml(d) + ' &mdash; <strong>' + dateLabel + '</strong></li>';
+      }).join('');
       var overlay = document.createElement('div');
       overlay.id = 'rosterClashModal';
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
@@ -58929,21 +58933,20 @@ function filterLiturgyItems() {
             '<div style="font-weight:700;font-size:1.05rem;">Duty Clash Warning</div>' +
           '</div>' +
           '<div style="padding:18px 20px;">' +
-            '<p style="margin:0 0 10px;font-size:0.92rem;color:#1f2933;line-height:1.55;"><strong>"' + this.escapeHtml(opts.name) + '"</strong> is already scheduled for another duty on <strong>' + this.escapeHtml(opts.date) + '</strong>:</p>' +
+            '<p style="margin:0 0 10px;font-size:0.92rem;color:#1f2933;line-height:1.55;"><strong>"' + this.escapeHtml(opts.name) + '"</strong> is already scheduled for another duty on <strong>' + dateLabel + '</strong>:</p>' +
             '<ul style="margin:0 0 12px;padding-left:20px;font-size:0.88rem;color:#374151;">' + dutyListHtml + '</ul>' +
             '<p style="margin:0;font-size:0.88rem;color:#b91c1c;font-weight:600;line-height:1.5;">Please change this assignment to avoid a scheduling clash, or contact the person-in-charge (PIC) of that duty to confirm availability before proceeding.</p>' +
           '</div>' +
-          '<div style="display:flex;gap:10px;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;">' +
-            '<button id="rosterClashKeepBtn" style="padding:8px 16px;border-radius:8px;border:1px solid #d1d5db;background:#fff;color:#374151;font-weight:600;font-size:0.85rem;cursor:pointer;">Keep As Is</button>' +
+          '<div style="display:flex;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;">' +
             '<button id="rosterClashChangeBtn" style="padding:8px 16px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-weight:600;font-size:0.85rem;cursor:pointer;">Change Assignment</button>' +
           '</div>' +
         '</div>';
       document.body.appendChild(overlay);
 
+      // Deliberately no backdrop-click or Escape dismissal — the only way out
+      // is the explicit "Change Assignment" action, so the clash can't be missed.
       var close = function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
-      overlay.querySelector('#rosterClashKeepBtn').onclick = function() { close(); if (opts.onDismiss) opts.onDismiss(); };
       overlay.querySelector('#rosterClashChangeBtn').onclick = function() { close(); if (opts.onChange) opts.onChange(); };
-      overlay.onclick = function(e) { if (e.target === overlay) { close(); if (opts.onDismiss) opts.onDismiss(); } };
     },
 
     checkClashes: function(changedTd) {
