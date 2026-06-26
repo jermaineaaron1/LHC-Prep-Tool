@@ -59387,14 +59387,13 @@ function filterLiturgyItems() {
         console.log('[Share PDF] file-share capability check:', reason || 'available');
 
         if (!reason) {
-          navigator.share({ title: 'LHC Worship Roster - ' + titleText, text: shareText, files: [file] })
-            .catch(function(err) {
-              if (err.name !== 'AbortError') {
-                console.log('[Share PDF] navigator.share() rejected, downloading instead:', err);
-                self._downloadBlob(pdfBlob, fileName);
-                self.showToast('Share failed (' + err.name + ') — PDF downloaded instead. Attach it in WhatsApp.', 'warning');
-              }
-            });
+          // The server render takes a few seconds, so by the time the PDF is
+          // ready the browser no longer considers this tied to the original
+          // tap on "Share PDF" and rejects navigator.share() with
+          // NotAllowedError ("must be handling a user gesture"). Defer the
+          // actual share() call to a fresh tap on a "ready" prompt instead —
+          // that tap is its own user gesture, so the call succeeds.
+          self._showShareReadyPrompt(file, titleText, shareText, pdfBlob, fileName);
         } else {
           self._downloadBlob(pdfBlob, fileName);
           self.showToast('This browser can\'t hand files to WhatsApp directly (' + reason + ') — PDF downloaded, please attach it manually.', 'warning');
@@ -59403,6 +59402,39 @@ function filterLiturgyItems() {
         console.error('Roster PDF render failed:', err);
         self.showToast('Failed to generate PDF', 'error');
       });
+    },
+
+    // A floating "PDF ready" prompt whose button click is itself a fresh user
+    // gesture — navigator.share() must be called directly inside that click
+    // handler (no awaits first) for the browser to honor it.
+    _showShareReadyPrompt: function(file, titleText, shareText, pdfBlob, fileName) {
+      var self = this;
+      var existing = document.getElementById('rosterPdfReadyToast');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+      var el = document.createElement('div');
+      el.id = 'rosterPdfReadyToast';
+      el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0d9488;color:#fff;padding:12px 14px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.3);z-index:100000;display:flex;align-items:center;gap:12px;font-family:"Poppins",Arial,sans-serif;max-width:92vw;';
+      el.innerHTML =
+        '<span style="font-size:0.82rem;white-space:nowrap;">PDF ready!</span>' +
+        '<button id="rosterPdfReadyBtn" style="padding:8px 16px;border-radius:8px;border:none;background:#fff;color:#0d9488;font-weight:700;font-size:0.82rem;cursor:pointer;white-space:nowrap;"><i class="fa-brands fa-whatsapp" style="margin-right:6px;"></i>Tap to Share</button>' +
+        '<button id="rosterPdfReadyClose" style="background:none;border:none;color:#fff;cursor:pointer;font-size:1rem;opacity:0.8;line-height:1;">&times;</button>';
+      document.body.appendChild(el);
+
+      var close = function() { if (el.parentNode) el.parentNode.removeChild(el); };
+
+      el.querySelector('#rosterPdfReadyBtn').onclick = function() {
+        close();
+        navigator.share({ title: 'LHC Worship Roster - ' + titleText, text: shareText, files: [file] })
+          .catch(function(err) {
+            if (err.name !== 'AbortError') {
+              console.log('[Share PDF] navigator.share() rejected on direct tap, downloading instead:', err);
+              self._downloadBlob(pdfBlob, fileName);
+              self.showToast('Share failed (' + err.name + ') — PDF downloaded instead. Attach it in WhatsApp.', 'warning');
+            }
+          });
+      };
+      el.querySelector('#rosterPdfReadyClose').onclick = close;
     },
 
     _downloadBlob: function(blob, fileName) {
