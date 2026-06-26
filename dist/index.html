@@ -59383,18 +59383,26 @@ function filterLiturgyItems() {
           var file = new File([pdfBlob], fileName, { type: 'application/pdf' });
           var shareText = 'Worship Duty Roster — ' + titleText + ' (' + stamp + ')';
 
-          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          // Diagnose exactly why file-sharing isn't available, so we know
+          // whether to fix the share call or accept a platform limitation.
+          var reason = '';
+          if (!navigator.share) reason = 'navigator.share unsupported';
+          else if (!navigator.canShare) reason = 'navigator.canShare unsupported';
+          else if (!navigator.canShare({ files: [file] })) reason = 'canShare({files}) returned false for this PDF';
+          console.log('[Share PDF] file-share capability check:', reason || 'available');
+
+          if (!reason) {
             navigator.share({ title: 'LHC Worship Roster - ' + titleText, text: shareText, files: [file] })
               .catch(function(err) {
                 if (err.name !== 'AbortError') {
-                  console.log('Share failed, downloading instead:', err);
+                  console.log('[Share PDF] navigator.share() rejected, downloading instead:', err);
                   self._downloadBlob(pdfBlob, fileName);
-                  self.showToast('PDF downloaded — attach it in WhatsApp to share.', 'success');
+                  self.showToast('Share failed (' + err.name + ') — PDF downloaded instead. Attach it in WhatsApp.', 'warning');
                 }
               });
           } else {
             self._downloadBlob(pdfBlob, fileName);
-            self.showToast('PDF downloaded — attach it in WhatsApp to share.', 'success');
+            self.showToast('This browser can\'t hand files to WhatsApp directly (' + reason + ') — PDF downloaded, please attach it manually.', 'warning');
           }
         }).catch(function(err) {
           if (wrap.parentNode) document.body.removeChild(wrap);
