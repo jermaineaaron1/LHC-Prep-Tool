@@ -59373,13 +59373,28 @@ function filterLiturgyItems() {
 
         iframe.onload = function() {
           var iframeBody = iframe.contentDocument.body;
-          window.html2canvas(iframeBody, { scale: 2, backgroundColor: '#ffffff', useCORS: true }).then(function(canvas) {
-            document.body.removeChild(iframe);
-            self._finishRosterPdfShare(canvas, titleText, stamp);
-          }).catch(function(err) {
-            if (iframe.parentNode) document.body.removeChild(iframe);
-            console.error('PDF render failed:', err);
-            self.showToast('Failed to generate PDF', 'error');
+          // Resize the iframe to its actual content height and let layout settle
+          // one frame before capturing — without this, html2canvas can measure
+          // row heights before text-wrapping has fully reflowed, compressing
+          // rows that sit next to multi-line cells.
+          iframe.style.height = iframeBody.scrollHeight + 'px';
+          requestAnimationFrame(function() {
+            setTimeout(function() {
+              var fullHeight = iframeBody.scrollHeight;
+              var fullWidth = iframeBody.scrollWidth;
+              window.html2canvas(iframeBody, {
+                scale: 2, backgroundColor: '#ffffff', useCORS: true,
+                width: fullWidth, height: fullHeight,
+                windowWidth: fullWidth, windowHeight: fullHeight
+              }).then(function(canvas) {
+                document.body.removeChild(iframe);
+                self._finishRosterPdfShare(canvas, titleText, stamp);
+              }).catch(function(err) {
+                if (iframe.parentNode) document.body.removeChild(iframe);
+                console.error('PDF render failed:', err);
+                self.showToast('Failed to generate PDF', 'error');
+              });
+            }, 150);
           });
         };
         iframe.contentDocument.open();
