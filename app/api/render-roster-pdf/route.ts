@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         tasks: {
           'import-html': {
-            operation: 'import/raw',
+            operation: 'import/base64',
             file: htmlBase64,
             filename: 'roster.html',
           },
