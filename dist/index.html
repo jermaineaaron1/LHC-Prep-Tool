@@ -59344,23 +59344,13 @@ function filterLiturgyItems() {
         ' at ' + now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     },
 
-    _loadHtml2Canvas: function() {
-      if (window.html2canvas) return Promise.resolve();
-      if (this._h2cPromise) return this._h2cPromise;
-      this._h2cPromise = new Promise(function(resolve, reject) {
-        var s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-        s.onload = function() { resolve(); };
-        s.onerror = function() { reject(new Error('Failed to load html2canvas')); };
-        document.head.appendChild(s);
-      });
-      return this._h2cPromise;
-    },
-
-    // Render the full monthly roster table to a real PDF (same look as Print/PDF,
-    // stamped with the generation date/time) and share it directly via the
-    // device's native share sheet (WhatsApp included on mobile), falling back
-    // to a plain download if file-sharing isn't supported.
+    // Render the full monthly roster table to a real, correctly-paginated PDF
+    // via a server-side headless-Chrome render (same engine Print/PDF's
+    // window.print() uses, so page breaks/section continuity are handled
+    // natively instead of being reimplemented on a screenshot), then share it
+    // directly via the device's native share sheet (WhatsApp included on
+    // mobile), falling back to a plain download if file-sharing isn't
+    // supported.
     sharePDFViaWhatsApp: function() {
       var self = this;
       var table = document.getElementById('rosterTable');
@@ -59368,157 +59358,51 @@ function filterLiturgyItems() {
 
       this.showToast('Generating PDF...', 'info');
 
-      this._loadHtml2Canvas().then(function() {
-        var tableClone = self._buildCleanRosterTableClone(table);
-        var titleText = self.MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear;
-        var stamp = self._rosterStampText();
-        var fullHtml = self._buildRosterPrintFullHtml(titleText, stamp, tableClone.outerHTML);
+      var tableClone = this._buildCleanRosterTableClone(table);
+      var titleText = this.MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear;
+      var stamp = this._rosterStampText();
+      var fullHtml = this._buildRosterPrintFullHtml(
+        titleText, stamp, tableClone.outerHTML,
+        ' @media print { body { padding: 5px; } @page { size: auto; margin: 6mm; } }'
+      );
 
-        // Render into an isolated iframe with a fresh document — the same
-        // approach Print/PDF uses for its print window — instead of pasting
-        // the markup into the live page. A plain offscreen <div> inherits the
-        // live app's CSS context (sticky/scroll containers, etc.) which can
-        // visibly scramble the table's column order when html2canvas snapshots
-        // it; a standalone document lays the table out exactly like Print/PDF.
-        var iframe = document.createElement('iframe');
-        iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1400px;height:1px;border:none;';
-        document.body.appendChild(iframe);
+      fetch('/api/render-roster-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: fullHtml })
+      }).then(function(res) {
+        if (!res.ok) return res.json().then(function(j) { throw new Error(j && j.error ? j.error : 'render-failed'); });
+        return res.blob();
+      }).then(function(pdfBlob) {
+        var fileName = 'LHC-Roster-' + titleText.replace(/\s+/g, '-') + '.pdf';
+        var file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+        var shareText = 'Worship Duty Roster — ' + titleText + ' (' + stamp + ')';
 
-        iframe.onload = function() {
-          var iframeBody = iframe.contentDocument.body;
-          // Resize the iframe to its actual content height and let layout settle
-          // one frame before capturing — without this, html2canvas can measure
-          // row heights before text-wrapping has fully reflowed, compressing
-          // rows that sit next to multi-line cells.
-          iframe.style.height = iframeBody.scrollHeight + 'px';
-          requestAnimationFrame(function() {
-            setTimeout(function() {
-              var fullHeight = iframeBody.scrollHeight;
-              var fullWidth = iframeBody.scrollWidth;
-              // Bottom edge of every table row (in CSS px, relative to the
-              // captured body) — used to choose page-break points that fall
-              // between rows instead of slicing through one.
-              var rowBoundaries = Array.prototype.map.call(
-                iframeBody.querySelectorAll('tr'),
-                function(tr) { return tr.offsetTop + tr.offsetHeight; }
-              );
+        // Diagnose exactly why file-sharing isn't available, so we know
+        // whether to fix the share call or accept a platform limitation.
+        var reason = '';
+        if (!navigator.share) reason = 'navigator.share unsupported';
+        else if (!navigator.canShare) reason = 'navigator.canShare unsupported';
+        else if (!navigator.canShare({ files: [file] })) reason = 'canShare({files}) returned false for this PDF';
+        console.log('[Share PDF] file-share capability check:', reason || 'available');
 
-              // Tech Team should always start on a fresh page (LCD Operator
-              // first) rather than wherever it happens to fall naturally.
-              var techHeaderRow = iframeBody.querySelector('tr.roster-section-header.tech-section');
-              var forcedBreaks = techHeaderRow ? [techHeaderRow.offsetTop] : [];
-
-              window.html2canvas(iframeBody, {
-                scale: 2, backgroundColor: '#ffffff', useCORS: true,
-                width: fullWidth, height: fullHeight,
-                windowWidth: fullWidth, windowHeight: fullHeight
-              }).then(function(canvas) {
-                document.body.removeChild(iframe);
-                self._finishRosterPdfShare(canvas, titleText, stamp, rowBoundaries, fullHeight, forcedBreaks);
-              }).catch(function(err) {
-                if (iframe.parentNode) document.body.removeChild(iframe);
-                console.error('PDF render failed:', err);
-                self.showToast('Failed to generate PDF', 'error');
-              });
-            }, 150);
-          });
-        };
-        iframe.contentDocument.open();
-        iframe.contentDocument.write(fullHtml);
-        iframe.contentDocument.close();
+        if (!reason) {
+          navigator.share({ title: 'LHC Worship Roster - ' + titleText, text: shareText, files: [file] })
+            .catch(function(err) {
+              if (err.name !== 'AbortError') {
+                console.log('[Share PDF] navigator.share() rejected, downloading instead:', err);
+                self._downloadBlob(pdfBlob, fileName);
+                self.showToast('Share failed (' + err.name + ') — PDF downloaded instead. Attach it in WhatsApp.', 'warning');
+              }
+            });
+        } else {
+          self._downloadBlob(pdfBlob, fileName);
+          self.showToast('This browser can\'t hand files to WhatsApp directly (' + reason + ') — PDF downloaded, please attach it manually.', 'warning');
+        }
       }).catch(function(err) {
-        console.error('html2canvas load failed:', err);
-        self.showToast('Failed to load PDF tools', 'error');
+        console.error('Roster PDF render failed:', err);
+        self.showToast('Failed to generate PDF', 'error');
       });
-    },
-
-    _finishRosterPdfShare: function(canvas, titleText, stamp, rowBoundariesPx, bodyHeightPx, forcedBreaksPx) {
-      var self = this;
-      var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
-      if (!jsPDFCtor) { self.showToast('PDF library unavailable', 'error'); return; }
-      var doc = new jsPDFCtor({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-      var pageWidth = doc.internal.pageSize.getWidth();
-      var pageHeight = doc.internal.pageSize.getHeight();
-      var imgWidth = pageWidth;
-      var imgHeight = canvas.height * imgWidth / canvas.width;
-      var pagePxHeight = pageHeight * (canvas.height / imgHeight);
-
-      // Convert each row's bottom edge (CSS px in the captured body) to
-      // canvas pixels, then choose page breaks that land on a row boundary
-      // at or before the natural page height — never mid-row — instead of
-      // slicing the canvas at a fixed pixel offset.
-      var rowBoundariesCanvasPx = (rowBoundariesPx && bodyHeightPx)
-        ? rowBoundariesPx.map(function(px) { return px * (canvas.height / bodyHeightPx); }).sort(function(a, b) { return a - b; })
-        : [];
-      var forcedBreaksCanvasPx = (forcedBreaksPx && bodyHeightPx)
-        ? forcedBreaksPx.map(function(px) { return px * (canvas.height / bodyHeightPx); })
-        : [];
-
-      var cursorPx = 0;
-      var first = true;
-      while (cursorPx < canvas.height - 0.5) {
-        var idealEndPx = cursorPx + pagePxHeight;
-        var sliceEndPx = Math.min(idealEndPx, canvas.height);
-        if (idealEndPx < canvas.height - 0.5) {
-          var chosen = null;
-          for (var i = 0; i < rowBoundariesCanvasPx.length; i++) {
-            if (rowBoundariesCanvasPx[i] > cursorPx + 1 && rowBoundariesCanvasPx[i] <= idealEndPx) chosen = rowBoundariesCanvasPx[i];
-          }
-          if (chosen) sliceEndPx = chosen;
-        }
-
-        // A forced break (e.g. Tech Team) always wins, even if it falls
-        // earlier than the natural/row-snapped end — it shortens this page
-        // so the forced section starts fresh on the next one.
-        for (var j = 0; j < forcedBreaksCanvasPx.length; j++) {
-          if (forcedBreaksCanvasPx[j] > cursorPx + 1 && forcedBreaksCanvasPx[j] < sliceEndPx) {
-            sliceEndPx = forcedBreaksCanvasPx[j];
-          }
-        }
-
-        var sliceHeightPx = sliceEndPx - cursorPx;
-        var sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = sliceHeightPx;
-        sliceCanvas.getContext('2d').drawImage(
-          canvas, 0, cursorPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx
-        );
-        var sliceImgData = sliceCanvas.toDataURL('image/png');
-        var sliceHeightMm = sliceHeightPx * (imgHeight / canvas.height);
-
-        if (!first) doc.addPage();
-        first = false;
-        doc.addImage(sliceImgData, 'PNG', 0, 0, imgWidth, sliceHeightMm);
-
-        cursorPx = sliceEndPx;
-      }
-
-      var fileName = 'LHC-Roster-' + titleText.replace(/\s+/g, '-') + '.pdf';
-      var pdfBlob = doc.output('blob');
-      var file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-      var shareText = 'Worship Duty Roster — ' + titleText + ' (' + stamp + ')';
-
-      // Diagnose exactly why file-sharing isn't available, so we know
-      // whether to fix the share call or accept a platform limitation.
-      var reason = '';
-      if (!navigator.share) reason = 'navigator.share unsupported';
-      else if (!navigator.canShare) reason = 'navigator.canShare unsupported';
-      else if (!navigator.canShare({ files: [file] })) reason = 'canShare({files}) returned false for this PDF';
-      console.log('[Share PDF] file-share capability check:', reason || 'available');
-
-      if (!reason) {
-        navigator.share({ title: 'LHC Worship Roster - ' + titleText, text: shareText, files: [file] })
-          .catch(function(err) {
-            if (err.name !== 'AbortError') {
-              console.log('[Share PDF] navigator.share() rejected, downloading instead:', err);
-              self._downloadBlob(pdfBlob, fileName);
-              self.showToast('Share failed (' + err.name + ') — PDF downloaded instead. Attach it in WhatsApp.', 'warning');
-            }
-          });
-      } else {
-        self._downloadBlob(pdfBlob, fileName);
-        self.showToast('This browser can\'t hand files to WhatsApp directly (' + reason + ') — PDF downloaded, please attach it manually.', 'warning');
-      }
     },
 
     _downloadBlob: function(blob, fileName) {
