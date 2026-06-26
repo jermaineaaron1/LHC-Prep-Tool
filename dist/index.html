@@ -19752,8 +19752,8 @@ var SBQ_ROSTER = {
   getPersonHistory: function(name) {
     var sb = SBQ_ROSTER._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
-    return sb.from('roster').select('role_id, date, month, year').eq('value', name)
-      .order('year').order('month').order('date')
+    return sb.from('roster').select('role_id, date:service_date, month, year').eq('value', name)
+      .order('year').order('month').order('service_date')
       .then(function(r) {
         if (r.error) throw new Error(r.error.message);
         return r.data || [];
@@ -58132,7 +58132,7 @@ function filterLiturgyItems() {
       if (content) content.innerHTML = '<div style="text-align:center;padding:40px;color:#9ca3af;"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
       var sb = (typeof getSupabaseClient !== 'undefined') ? getSupabaseClient() : null;
       if (sb) {
-        sb.from('roster').select('role_id, month, value, date').eq('year', year).neq('value', '')
+        sb.from('roster').select('role_id, month, value, date:service_date').eq('year', year).neq('value', '')
           .then(function(r) {
             self._enablersFreqCache = r.data || [];
             self._renderEnablersTab(self._enablersActiveTab || 'all');
@@ -58698,7 +58698,7 @@ function filterLiturgyItems() {
       if (!sb) { container.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:4px 0;">No history available.</div>'; return; }
       var today = new Date().toISOString().slice(0,10);
       var todayYM = today.slice(0,7);
-      sb.from('roster').select('role_id, date, month, year').eq('value', name).order('year',{ascending:false}).order('month',{ascending:false})
+      sb.from('roster').select('role_id, date:service_date, month, year').eq('value', name).order('year',{ascending:false}).order('month',{ascending:false})
         .then(function(r) {
           var rows = r.data||[];
           if (!rows.length) { container.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:4px 0;">No serving history found.</div>'; return; }
@@ -58824,6 +58824,95 @@ function filterLiturgyItems() {
     },
 
     // ========== ANTI-CLASHING: Duplicate & Frequency Detection ==========
+
+    // Pairs of duty categories that are explicitly allowed to clash without warning.
+    // Order doesn't matter — checked both ways.
+    CLASH_EXCEPTION_PAIRS: [
+      ['singer', 'communion'],
+      ['singer', 'altar'],
+      ['livestream', 'altar'],
+      ['livestream', 'communion'],
+      ['liturgist', 'communion'],
+      ['preacher', 'communion'],
+      ['reader', 'singer'],
+      ['reader', 'flowerarrangement'],
+      ['usher', 'flowerarrangement'],
+      ['pianist', 'liturgist'],
+      ['guitarist', 'liturgist'],
+      ['preacher', 'pianist'],
+      ['usher', 'communion'],
+      ['usher', 'altar'],
+      ['reader', 'communion'],
+      ['pa', 'communion'],
+      ['communion', 'flowerarrangement']
+    ],
+
+    _clashDutyCategory: function(roleId) {
+      if (roleId === 'preacher') return 'preacher';
+      if (roleId === 'liturgist') return 'liturgist';
+      if (roleId.indexOf('usher') === 0) return 'usher';
+      if (roleId.indexOf('reader') === 0) return 'reader';
+      if (roleId.indexOf('communion') === 0) return 'communion';
+      if (roleId.indexOf('altar') === 0) return 'altar';
+      if (roleId === 'pianist' || roleId === 'guitarist' || roleId === 'bassist' || roleId === 'drummer') return roleId;
+      if (roleId.indexOf('singer') === 0) return 'singer';
+      if (roleId === 'lcd') return 'lcd';
+      if (roleId === 'pa') return 'pa';
+      if (roleId === 'streaming' || roleId === 'livestream') return 'livestream';
+      if (roleId.indexOf('ssteacher') === 0) return 'sundayschool';
+      if (roleId === 'flowerarrangement') return 'flowerarrangement';
+      return 'general';
+    },
+
+    _clashIsExcepted: function(roleIds) {
+      var self = this;
+      var cats = {};
+      roleIds.forEach(function(rid) { cats[self._clashDutyCategory(rid)] = true; });
+      var catList = Object.keys(cats);
+      if (catList.length !== 2) return false; // same duty repeated, or 3+ different duties — always warn
+      var a = catList[0], b = catList[1];
+      return this.CLASH_EXCEPTION_PAIRS.some(function(pair) {
+        return (pair[0] === a && pair[1] === b) || (pair[0] === b && pair[1] === a);
+      });
+    },
+
+    _roleLabel: function(roleId) {
+      var def = (this.ROLES || []).find(function(r) { return r.id === roleId; });
+      return def ? def.label : roleId;
+    },
+
+    showClashWarningModal: function(opts) {
+      var existing = document.getElementById('rosterClashModal');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+      var dutyListHtml = opts.duties.map(function(d) { return '<li style="margin-bottom:4px;">' + d + '</li>'; }).join('');
+      var overlay = document.createElement('div');
+      overlay.id = 'rosterClashModal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
+      overlay.innerHTML =
+        '<div style="background:#fff;max-width:430px;width:90%;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
+          '<div style="background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;">' +
+            '<i class="fa-solid fa-triangle-exclamation" style="font-size:1.4rem;"></i>' +
+            '<div style="font-weight:700;font-size:1.05rem;">Duty Clash Warning</div>' +
+          '</div>' +
+          '<div style="padding:18px 20px;">' +
+            '<p style="margin:0 0 10px;font-size:0.92rem;color:#1f2933;line-height:1.55;"><strong>"' + this.escapeHtml(opts.name) + '"</strong> is already scheduled for another duty on <strong>' + this.escapeHtml(opts.date) + '</strong>:</p>' +
+            '<ul style="margin:0 0 12px;padding-left:20px;font-size:0.88rem;color:#374151;">' + dutyListHtml + '</ul>' +
+            '<p style="margin:0;font-size:0.88rem;color:#b91c1c;font-weight:600;line-height:1.5;">Please change this assignment to avoid a scheduling clash, or contact the person-in-charge (PIC) of that duty to confirm availability before proceeding.</p>' +
+          '</div>' +
+          '<div style="display:flex;gap:10px;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;">' +
+            '<button id="rosterClashKeepBtn" style="padding:8px 16px;border-radius:8px;border:1px solid #d1d5db;background:#fff;color:#374151;font-weight:600;font-size:0.85rem;cursor:pointer;">Keep As Is</button>' +
+            '<button id="rosterClashChangeBtn" style="padding:8px 16px;border-radius:8px;border:none;background:#dc2626;color:#fff;font-weight:600;font-size:0.85rem;cursor:pointer;">Change Assignment</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+
+      var close = function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+      overlay.querySelector('#rosterClashKeepBtn').onclick = function() { close(); if (opts.onDismiss) opts.onDismiss(); };
+      overlay.querySelector('#rosterClashChangeBtn').onclick = function() { close(); if (opts.onChange) opts.onChange(); };
+      overlay.onclick = function(e) { if (e.target === overlay) { close(); if (opts.onDismiss) opts.onDismiss(); } };
+    },
+
     checkClashes: function(changedTd) {
       var self = this;
       var tbody = document.getElementById('rosterTbody');
@@ -58864,6 +58953,7 @@ function filterLiturgyItems() {
       var clashFound = false;
       var clashName = '';
       var clashDate = '';
+      var clashDutyLabels = [];
       Object.keys(dateValues).forEach(function(dateStr) {
         var entries = dateValues[dateStr];
         var nameCounts = {}; // lowercase name → [tds]
@@ -58874,12 +58964,8 @@ function filterLiturgyItems() {
         });
         Object.keys(nameCounts).forEach(function(key) {
           if (nameCounts[key].length > 1) {
-            // Exception: liturgist + communion assistant on the same day is NOT a clash
             var roleIds = nameCounts[key].map(function(e) { return e.roleId; });
-            var isLiturgistCommunion = roleIds.every(function(rid) {
-              return rid === 'liturgist' || rid.startsWith('communion');
-            });
-            if (isLiturgistCommunion) return;
+            if (self._clashIsExcepted(roleIds)) return;
             // Duplicate found — highlight all
             nameCounts[key].forEach(function(entry) {
               entry.td.classList.add('roster-clash-cell');
@@ -58894,6 +58980,9 @@ function filterLiturgyItems() {
                   clashFound = true;
                   clashName = nameCounts[key][0].name;
                   clashDate = dateStr;
+                  clashDutyLabels = nameCounts[key]
+                    .filter(function(e) { return e.td !== changedTd; })
+                    .map(function(e) { return self._roleLabel(e.roleId); });
                 }
               }
             }
@@ -58917,14 +59006,14 @@ function filterLiturgyItems() {
         }
       });
 
-      // 5. Show warning toast for new clashes
+      // 5. Sternly warn (blocking modal) for newly-introduced clashes that aren't excepted
       if (clashFound && changedTd) {
-        var freqCount = nameFrequency[clashName.toLowerCase()] ? nameFrequency[clashName.toLowerCase()].size : 0;
-        var msg = '"' + clashName + '" is assigned multiple roles on ' + clashDate + '. Consider changing to avoid clashes.';
-        if (freqCount > 2) {
-          msg += ' Also, this person is on duty for ' + freqCount + ' services this month.';
-        }
-        self.showToast(msg, 'warning');
+        self.showClashWarningModal({
+          name: clashName,
+          date: clashDate,
+          duties: clashDutyLabels.length ? clashDutyLabels : ['another duty'],
+          onChange: function() { self.editCell(changedTd); }
+        });
       } else if (changedTd) {
         // Check if the changed person has high frequency
         var changedVal = changedTd.querySelector('.roster-cell-value');
