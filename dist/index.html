@@ -56506,6 +56506,16 @@ function filterLiturgyItems() {
   "use strict";
   var STATE = { rosterMonth: new Date().getMonth(), rosterYear: new Date().getFullYear(), rosterEdits: new Map(), rosterOriginalValues: new Map(), rosterHasUnsaved: false, rosterFilter: 'all', rosterCellTimestamps: new Map() };
 
+  // "Fun Facts" emoji set — used by both the Enablers individual-profile editor
+  // and the printed/shared profile PDF.
+  var _ef = {
+    dart:  String.fromCodePoint(0x1F3AF), ball: String.fromCodePoint(0x26BD),
+    bag:   String.fromCodePoint(0x1F4BC), bowl: String.fromCodePoint(0x1F35C),
+    note:  String.fromCodePoint(0x1F3B5), plane:String.fromCodePoint(0x2708),
+    bulb:  String.fromCodePoint(0x1F4A1), wrench:String.fromCodePoint(0x1F527),
+    party: String.fromCodePoint(0x1F389)
+  };
+
   // Remove any stale localStorage cache from the old implementation
   localStorage.removeItem('lhc_roster_names');
 
@@ -58519,14 +58529,7 @@ function filterLiturgyItems() {
       html += '<button onclick="RosterEngine._savePrayerRequests(\''+self.escapeHtml(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px;">Save Prayer Requests</button>';
       html += '</div>';
 
-      // Tab 3: Interesting Facts
-      var _ef = {
-        dart:  String.fromCodePoint(0x1F3AF), ball: String.fromCodePoint(0x26BD),
-        bag:   String.fromCodePoint(0x1F4BC), bowl: String.fromCodePoint(0x1F35C),
-        note:  String.fromCodePoint(0x1F3B5), plane:String.fromCodePoint(0x2708),
-        bulb:  String.fromCodePoint(0x1F4A1), wrench:String.fromCodePoint(0x1F527),
-        party: String.fromCodePoint(0x1F389)
-      };
+      // Tab 3: Interesting Facts (uses module-level _ef emoji set)
       var factCats = [
         {id:'hobbies', icon:_ef.dart,  label:'Hobbies & Interests', ph:'e.g. reading, cooking, photography, gardening...'},
         {id:'sports',  icon:_ef.ball,  label:'Sports & Activities',  ph:'e.g. badminton, swimming, hiking, cycling...'},
