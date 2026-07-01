@@ -19522,7 +19522,7 @@ SBQ.getSongUsageStats = function() {
   var sb = getSupabaseClient();
   if (!sb) return Promise.resolve({ counts: {}, lastUsed: {} });
   return sb.from('order_items')
-    .select('source_id, created_at')
+    .select('source_id, last_edited')
     .eq('item_type', 'song')
     .then(function(res) {
       if (res.error) { console.warn('[LHC] getSongUsageStats:', res.error.message); return { counts: {}, lastUsed: {} }; }
@@ -19530,8 +19530,8 @@ SBQ.getSongUsageStats = function() {
       (res.data || []).forEach(function(row) {
         if (!row.source_id) return;
         counts[row.source_id] = (counts[row.source_id] || 0) + 1;
-        if (!lastUsed[row.source_id] || (row.created_at && row.created_at > lastUsed[row.source_id])) {
-          lastUsed[row.source_id] = row.created_at || '';
+        if (!lastUsed[row.source_id] || (row.last_edited && row.last_edited > lastUsed[row.source_id])) {
+          lastUsed[row.source_id] = row.last_edited || '';
         }
       });
       return { counts: counts, lastUsed: lastUsed };
