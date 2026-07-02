@@ -13278,16 +13278,12 @@ window.loadEditSongData = function(song) {
     });
   }
 
-  function _sbShareMsg(name, serviceDate, songLines, plItems) {
+  function _sbShareMsg(name, serviceDate, songLines, directLink) {
     var msg = '*' + (name || 'Songbook') + '*\n';
     if (serviceDate) msg += '_' + serviceDate + '_\n';
     msg += '\n';
     if (songLines.length) msg += songLines.filter(Boolean).map(function(t, i) { return (i + 1) + '. ' + t; }).join('\n') + '\n\n';
-    var encoded = _sbEncodePlaylist(plItems);
-    if (encoded) {
-      var baseUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
-      msg += 'Playlist: ' + baseUrl + '?playlist=' + encoded + '\n\n';
-    }
+    if (directLink) msg += 'Open songbook: ' + directLink + '\n\n';
     msg += '_LHC Worship Prep_';
     return msg;
   }
@@ -13323,34 +13319,24 @@ window.loadEditSongData = function(song) {
   window.shareSongbookWhatsApp = function(itemId) {
     var data = _sbPlayData[itemId];
     if (!data) return;
+    var baseUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
 
     if (data.source === 'order') {
+      var directLink = baseUrl + '?sb=order-' + data.orderId;
       _sbFetchOrderItems(data.orderId).then(function(orderItems) {
-        var plItems   = _sbOrderItemsToPlaylist(orderItems);
         var songLines = orderItems.map(function(i) { return (i.content && i.content.title) || i.title || ''; });
-        window.open('https://wa.me/?text=' + encodeURIComponent(_sbShareMsg(data.name, data.serviceDate, songLines, plItems)), '_blank');
+        window.open('https://wa.me/?text=' + encodeURIComponent(_sbShareMsg(data.name, data.serviceDate, songLines, directLink)), '_blank');
       }).catch(function() {
-        window.open('https://wa.me/?text=' + encodeURIComponent(_sbShareMsg(data.name, data.serviceDate, [], [])), '_blank');
+        window.open('https://wa.me/?text=' + encodeURIComponent(_sbShareMsg(data.name, data.serviceDate, [], directLink)), '_blank');
       });
     } else {
       var rawId = itemId.replace(/^sb-/, '');
-      _sbLoadOne(rawId).then(function(sb) {
-        var songIds  = sb ? (sb.songIds || data.songIds) : data.songIds;
-        var sbItems  = sb ? (sb.items || []) : [];
-        var plItems  = _sbStandaloneToPlaylist(songIds, sbItems);
-        var songLines = (songIds || []).map(function(sid) {
-          var song = (STATE.songs || []).find(function(s) { return s.id === sid; });
-          return song ? song.title : '';
-        });
-        window.open('https://wa.me/?text=' + encodeURIComponent(_sbShareMsg(data.name, '', songLines, plItems)), '_blank');
-      }).catch(function() {
-        var plItems   = _sbStandaloneToPlaylist(data.songIds, []);
-        var songLines = (data.songIds || []).map(function(sid) {
-          var song = (STATE.songs || []).find(function(s) { return s.id === sid; });
-          return song ? song.title : '';
-        });
-        window.open('https://wa.me/?text=' + encodeURIComponent(_sbShareMsg(data.name, '', songLines, plItems)), '_blank');
+      var directLink = baseUrl + '?sb=' + rawId;
+      var songLines = (data.songIds || []).map(function(sid) {
+        var song = (STATE.songs || []).find(function(s) { return s.id === sid; });
+        return song ? song.title : '';
       });
+      window.open('https://wa.me/?text=' + encodeURIComponent(_sbShareMsg(data.name, '', songLines, directLink)), '_blank');
     }
   };
 
