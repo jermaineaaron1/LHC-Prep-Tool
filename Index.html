@@ -8055,31 +8055,49 @@ I once was lost but now am found"
             </div>
           </div>
           <button class="sb-tool-btn" onclick="WO.sbOpenPlaylist()" title="Play all YouTube links in this songbook" style="background:rgba(16,185,129,0.25);border:1.5px solid #6ee7b7;color:#a7f3d0;"><i class="fa-solid fa-headphones"></i><span>Playlist</span></button>
-          <button class="sb-tool-btn" id="sbPrintPreviewBtn" onclick="WO.sbTogglePrintPreview()" title="Print Preview — see the exact PDF layout without leaving live view"><i class="fa-solid fa-file-lines"></i><span>Preview</span></button>
-          <button class="sb-tool-btn sb-tool-btn--bookmode" onclick="WO.sbOpenFullscreen()" title="Book Mode — fullscreen page-by-page view"><i class="fa-solid fa-book-open"></i><span>Book Mode</span></button>
-          <button class="sb-tool-btn" id="sbFullscreenBtn" onclick="WO.sbToggleLiveFullscreen()" title="Full Screen — hides toolbar; hover/tap top to reveal"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
-          <button class="sb-tool-btn" id="sbRefreshBtn" onclick="WO.sbRefresh()" title="Fetch latest changes from cloud"><i class="fa-solid fa-arrows-rotate"></i><span>Sync</span></button>
-          <button class="sb-tool-btn" onclick="WO.sbSaveOrder()" title="Save changes to cloud"><i class="fa-solid fa-floppy-disk"></i><span>Save</span></button>
-          <button class="sb-tool-btn" onclick="WO.sbSavePDF()" title="Print / Save as PDF"><i class="fa-solid fa-print"></i><span>Print PDF</span></button>
+          <button class="sb-tool-btn" id="sbFullscreenBtn" onclick="WO.sbToggleLiveFullscreen()" title="Show the chord and lyric pages full screen"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
+          <button class="sb-tool-btn sb-primary-save" onclick="WO.sbSaveOrder()" title="Save changes to cloud"><i class="fa-solid fa-floppy-disk"></i><span>Save</span></button>
+          <div class="sb-more-wrap">
+            <button class="sb-tool-btn" id="sbMoreBtn" onclick="WO.sbToggleMoreMenu()" title="More songbook actions" aria-expanded="false"><i class="fa-solid fa-ellipsis"></i><span>More</span></button>
+            <div class="sb-more-menu" id="sbMoreMenu">
+              <button onclick="WO.sbRefresh();WO.sbToggleMoreMenu(false)"><i class="fa-solid fa-arrows-rotate"></i><span><b>Sync latest</b><small>Fetch changes from the cloud</small></span></button>
+              <button onclick="WO.sbToggleFontPopover();WO.sbToggleMoreMenu(false)"><i class="fa-solid fa-text-height"></i><span><b>Page settings</b><small>Font, spacing and page margins</small></span></button>
+              <button onclick="WO.sbSavePDF();WO.sbToggleMoreMenu(false)"><i class="fa-solid fa-print"></i><span><b>Print / Save PDF</b><small>Create a clean printable copy</small></span></button>
+            </div>
+          </div>
         </div>
         <button class="sb-close-btn" onclick="WO.closeSongbook()" title="Close songbook"><i class="fa-solid fa-times"></i></button>
       </div>
     </div>
-    <!-- Fullscreen hover zone — invisible strip at top; reveals toolbar on hover/tap -->
-    <div id="sbFsHoverZone" class="sb-fs-hover-zone"
-         onmouseenter="WO.sbFsRevealHeader()"
-         ontouchstart="WO.sbFsRevealHeader()"></div>
-    <!-- Scrollable body: song pages + page-break dividers -->
-    <div class="sb-body" id="sbBody"></div>
-    <!-- Print Preview pane: exact 794×1123px page tiles matching PDF output exactly -->
-    <div id="sbPrintPreviewPane" style="display:none;overflow-y:auto;flex:1;background:#c8cdd5;padding:28px 24px 48px;">
-      <div style="text-align:center;margin-bottom:18px;">
-        <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:rgba(255,255,255,0.6);background:rgba(0,0,0,0.25);border-radius:20px;padding:4px 14px;">
-          Print Preview — exact PDF layout &nbsp;·&nbsp; change font/padding above and this updates live
-        </span>
+    <div class="sb-view-strip">
+      <div class="sb-view-tabs" role="group" aria-label="Songbook view">
+        <button class="active" id="sbScrollModeBtn" onclick="WO.sbSetViewMode('scroll')"><i class="fa-solid fa-align-justify"></i> Continuous Scroll</button>
+        <button id="sbPageFlipBtn" onclick="WO.sbSetViewMode('page')"><i class="fa-solid fa-book-open"></i> Page Flip</button>
       </div>
-      <div id="sbPpContent" style="display:flex;flex-direction:column;align-items:center;gap:0;"></div>
+      <div class="sb-view-actions">
+        <label class="sb-autoscroll-control"><i class="fa-solid fa-play"></i><span>Auto-scroll</span><select id="sbAutoScrollSpeed" onchange="WO.sbSetAutoScroll(this.value)"><option value="0">Off</option><option value="1">Slow</option><option value="2">Medium</option><option value="3">Fast</option></select></label>
+        <button id="sbGlobalColumnsBtn" onclick="WO.sbToggleGlobalColumns()"><i class="fa-solid fa-table-columns"></i> 2 Columns</button>
+      </div>
     </div>
+    <div class="sb-workspace">
+      <aside class="sb-notebook-nav" id="sbNotebookNav" aria-label="Songbook contents"></aside>
+      <main class="sb-notebook-stage">
+        <div class="sb-body" id="sbBody"></div>
+        <div id="sbPrintPreviewPane" style="display:none;overflow-y:auto;flex:1;background:#c8cdd5;padding:28px 24px 48px;">
+          <div id="sbPpContent" style="display:flex;flex-direction:column;align-items:center;gap:0;"></div>
+        </div>
+      </main>
+      <aside class="sb-notebook-rail" id="sbNotebookRail">
+        <div class="sb-rail-kicker">Now reading</div>
+        <div class="sb-rail-title" id="sbRailTitle">Contents</div>
+        <div class="sb-rail-progress"><span id="sbRailProgress"></span></div>
+        <div class="sb-rail-count" id="sbRailCount"></div>
+        <div class="sb-dock-player" id="sbDockPlayer">
+          <div class="sb-dock-empty"><i class="fa-solid fa-headphones"></i><b>Listen while you read</b><span>Choose a YouTube link from any song.</span></div>
+        </div>
+      </aside>
+    </div>
+    <button class="sb-fullscreen-exit" id="sbFullscreenExit" onclick="WO.sbToggleLiveFullscreen(false)" title="Exit full screen"><i class="fa-solid fa-compress"></i><span>Exit Full Screen</span></button>
     <!-- Full-viewport drawing canvas — covers entire screen so annotations work anywhere -->
     <svg id="sbFullCanvas" style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2999;pointer-events:none;display:block;"></svg>
   </div>
@@ -8221,7 +8239,7 @@ I once was lost but now am found"
       <span id="sbFsZoomLabel" class="sbfs-zoom-label">65%</span>
       <button class="sbfs-btn" onclick="WO.sbFsZoomIn()" title="Zoom in (+)"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
       <button class="sbfs-btn sbfs-fit-btn" onclick="WO.sbFsFit()" title="Fit to screen">Fit</button>
-      <button class="sbfs-btn sbfs-bookmode-btn" id="sbFsTwoColBtn" onclick="WO.sbFsToggleTwoCol()" title="Book mode — two pages side by side"><i class="fa-solid fa-book-open" style="font-size:0.85em;"></i><span class="sbfs-bookmode-label"> Book Mode</span></button>
+      <button class="sbfs-btn sbfs-bookmode-btn" id="sbFsTwoColBtn" onclick="WO.sbFsToggleTwoCol()" title="Show two pages side by side"><i class="fa-solid fa-book-open" style="font-size:0.85em;"></i><span class="sbfs-bookmode-label"> 2 Pages</span></button>
       <button class="sbfs-btn sbfs-close-btn" onclick="WO.sbFsClose()" title="Close (Esc / double-click)"><i class="fa-solid fa-times"></i></button>
     </div>
   </div>
@@ -31333,6 +31351,9 @@ var WO = (function() {
       }
     });
     var modal = $('songbookLiveModal');
+    clearInterval(_sbAutoScrollTimer); _sbAutoScrollTimer = null;
+    if (_sbLiveFullscreen) sbToggleLiveFullscreen(false);
+    sbCloseDockPlayer();
     if (modal) modal.style.display = 'none';
     var fontPop = document.getElementById('sbFontPopover');
     if (fontPop) fontPop.style.display = 'none';
@@ -31384,11 +31405,12 @@ var WO = (function() {
 
     // Empty songbook — show prompt to add songs
     if (!songOrderSections.length) {
-      body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:16px;color:#94a3b8;text-align:center;padding:40px;">' +
+      body.innerHTML = '<div class="sb-empty-notebook" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:16px;color:#94a3b8;text-align:center;padding:40px;">' +
         '<i class="fa-solid fa-book-open" style="font-size:3rem;opacity:0.3;"></i>' +
         '<p style="font-size:1.1rem;font-weight:600;color:#64748b;">This songbook is empty</p>' +
         '<p style="font-size:0.9rem;">Go to <b>Song Finder</b> and use the <i class="fa-solid fa-bookmark" style="color:#7c3aed;"></i> button on any song to add it here.</p>' +
         '</div>';
+      sbRenderNotebookChrome();
       return;
     }
 
@@ -32142,6 +32164,7 @@ var WO = (function() {
       }
     });
     body.innerHTML = '<div id="sbZoomWrap" style="display:flex;flex-direction:column;align-items:center;gap:0;transform-origin:top center;width:100%;">' + html + '</div>';
+    sbRenderNotebookChrome();
     sbApplyZoom();
     sbInitDrag();
     // Async-patch YouTube badge buttons with real video titles
@@ -32160,15 +32183,7 @@ var WO = (function() {
     sbAttachTouchListeners(body);
     sbAttachPinchHandlers(body);
     sbAttachTextUndoListeners();
-    // Mobile fullscreen: tap within top 60px of sbBody reveals toolbar
-    if (!body._fsRevealBound) {
-      body._fsRevealBound = true;
-      body.addEventListener('touchstart', function(e) {
-        if (!_sbLiveFullscreen) return;
-        var touch = e.touches[0];
-        if (touch && touch.clientY < 60) sbFsRevealHeader();
-      }, { passive: true });
-    }
+    sbBindNotebookInteractions(body);
     // Add A4 guide-line markers after layout is computed
     requestAnimationFrame(function() {
       requestAnimationFrame(function() {
@@ -44462,6 +44477,15 @@ var WO = (function() {
     var btn    = $('sbSongLinkBtn-'   + songId + '-' + linkIdx);
     var canvas = $('sbCanvas-wrap-' + songId);
     if (!panel) return;
+    var linkedSong = songOrderSections.find(function(s) { return s.id === songId; });
+    var linkedItem = linkedSong && Array.isArray(linkedSong.sbLinks) ? linkedSong.sbLinks[linkIdx] : null;
+    if (linkedItem && sbOpenDockPlayer(songId, linkedItem.url, linkedSong.title || linkedItem.label || 'Song reference')) {
+      if (btn) btn.classList.add('active');
+      var dockLinkPill = $('sbLinkBadgePill-' + songId);
+      if (dockLinkPill) dockLinkPill.classList.add('active');
+      sbSaveLastView(songId, 'lyrics', 0);
+      return;
+    }
     var isOpen = panel.style.display === 'block';
     var pg = $('sbPage-' + songId);
     if (pg) {
@@ -44567,23 +44591,178 @@ var WO = (function() {
     sbSetLinkZoom(songId, linkIdx, next, panelType);
   }
 
+  // ── Conductor's Notebook chrome ────────────────────────────────────────────
+  var _sbAutoScrollTimer = null;
+  var _sbLastTapAt = 0;
+
+  function sbToggleMoreMenu(force) {
+    var menu = $('sbMoreMenu');
+    var btn = $('sbMoreBtn');
+    if (!menu) return;
+    var open = typeof force === 'boolean' ? force : !menu.classList.contains('open');
+    menu.classList.toggle('open', open);
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  function sbSetViewMode(mode) {
+    if (mode === 'page') {
+      var scrollBtn = $('sbScrollModeBtn');
+      var pageBtn = $('sbPageFlipBtn');
+      if (scrollBtn) scrollBtn.classList.remove('active');
+      if (pageBtn) pageBtn.classList.add('active');
+      sbOpenFullscreen();
+      setTimeout(function() {
+        if (scrollBtn) scrollBtn.classList.add('active');
+        if (pageBtn) pageBtn.classList.remove('active');
+      }, 250);
+      return;
+    }
+    var s = $('sbScrollModeBtn');
+    var p = $('sbPageFlipBtn');
+    if (s) s.classList.add('active');
+    if (p) p.classList.remove('active');
+  }
+
+  function sbToggleGlobalColumns() {
+    var songs = songOrderSections.filter(function(song) { return song.itemType !== 'blank'; });
+    var enable = songs.some(function(song) { return song.sbLyricsColumns !== 2; });
+    songs.forEach(function(song) { song.sbLyricsColumns = enable ? 2 : 1; });
+    var btn = $('sbGlobalColumnsBtn');
+    if (btn) btn.classList.toggle('active', enable);
+    renderSongbookLive();
+    sbAutoSave();
+  }
+
+  function sbSetAutoScroll(value) {
+    clearInterval(_sbAutoScrollTimer);
+    _sbAutoScrollTimer = null;
+    var speed = parseInt(value, 10) || 0;
+    var control = document.querySelector('.sb-autoscroll-control');
+    if (control) control.classList.toggle('active', speed > 0);
+    if (!speed) return;
+    var px = [0, 0.35, 0.7, 1.2][speed];
+    _sbAutoScrollTimer = setInterval(function() {
+      var body = $('sbBody');
+      if (!body || body.scrollTop + body.clientHeight >= body.scrollHeight - 2) {
+        sbSetAutoScroll(0);
+        var select = $('sbAutoScrollSpeed');
+        if (select) select.value = '0';
+        return;
+      }
+      body.scrollTop += px;
+    }, 16);
+  }
+
+  function sbRenderNotebookChrome() {
+    var nav = $('sbNotebookNav');
+    if (!nav) return;
+    var songs = songOrderSections.filter(function(song) { return song.itemType !== 'blank'; });
+    var html = '<div class="sb-nav-heading"><i class="fa-solid fa-list-music"></i><span>Contents</span></div>';
+    html += '<button class="sb-nav-item active" data-target="sbZoomWrap" onclick="WO.sbNotebookJump(\'sbZoomWrap\')"><span class="sb-nav-num"><i class="fa-solid fa-house"></i></span><span>Cover & contents</span></button>';
+    songs.forEach(function(song, i) {
+      html += '<button class="sb-nav-item" data-target="sbPage-' + escapeHtml(song.id) + '" onclick="WO.sbNotebookJump(\'sbPage-' + escapeHtml(song.id) + '\')"><span class="sb-nav-num">' + (i + 1) + '</span><span>' + escapeHtml(song.title || 'Untitled') + '</span></button>';
+    });
+    nav.innerHTML = html;
+    var count = $('sbRailCount');
+    if (count) count.textContent = songs.length + (songs.length === 1 ? ' song' : ' songs') + ' · live editing';
+    var allTwo = songs.length && songs.every(function(song) { return song.sbLyricsColumns === 2; });
+    var colBtn = $('sbGlobalColumnsBtn');
+    if (colBtn) colBtn.classList.toggle('active', !!allTwo);
+    sbUpdateNotebookProgress();
+  }
+
+  function sbNotebookJump(targetId) {
+    var body = $('sbBody');
+    var target = $(targetId);
+    if (!body || !target) return;
+    body.scrollTo({ top: Math.max(0, target.offsetTop - 16), behavior: 'smooth' });
+  }
+
+  function sbUpdateNotebookProgress() {
+    var body = $('sbBody');
+    if (!body) return;
+    var max = Math.max(1, body.scrollHeight - body.clientHeight);
+    var pct = Math.max(0, Math.min(100, body.scrollTop / max * 100));
+    var bar = $('sbRailProgress');
+    if (bar) bar.style.width = pct + '%';
+    var activePage = null;
+    Array.prototype.forEach.call(body.querySelectorAll('.sb-song-page'), function(page) {
+      if (page.offsetTop <= body.scrollTop + body.clientHeight * 0.35) activePage = page;
+    });
+    var targetId = activePage ? activePage.id : 'sbZoomWrap';
+    document.querySelectorAll('#sbNotebookNav .sb-nav-item').forEach(function(item) {
+      item.classList.toggle('active', item.dataset.target === targetId);
+    });
+    var title = $('sbRailTitle');
+    if (title) {
+      var pageTitle = activePage && activePage.querySelector('.sb-page-title');
+      title.textContent = pageTitle ? pageTitle.textContent : 'Cover & contents';
+    }
+  }
+
+  function sbBindNotebookInteractions(body) {
+    if (body._notebookBound) return;
+    body._notebookBound = true;
+    body.addEventListener('scroll', sbUpdateNotebookProgress, { passive: true });
+    body.addEventListener('dblclick', function(e) {
+      if (!_sbLiveFullscreen || !sbIsBlankFullscreenTarget(e.target)) return;
+      sbToggleLiveFullscreen(false);
+    });
+    body.addEventListener('touchend', function(e) {
+      if (!_sbLiveFullscreen || !sbIsBlankFullscreenTarget(e.target)) return;
+      var now = Date.now();
+      if (now - _sbLastTapAt < 360) { e.preventDefault(); sbToggleLiveFullscreen(false); }
+      _sbLastTapAt = now;
+    }, { passive: false });
+    body.addEventListener('mousemove', sbFsRevealHeader, { passive: true });
+  }
+
+  function sbIsBlankFullscreenTarget(target) {
+    return !(target && target.closest && target.closest('button,a,input,select,textarea,iframe,[contenteditable="true"],.sb-draw-svg,.sb-text-annot-layer'));
+  }
+
+  function sbOpenDockPlayer(songId, url, title) {
+    var dock = $('sbDockPlayer');
+    if (!dock || !url) return false;
+    var idMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/i);
+    if (!idMatch) return false;
+    var safeTitle = title || 'Song reference';
+    dock.innerHTML = '<div class="sb-dock-player-head"><span><i class="fa-brands fa-youtube"></i> ' + escapeHtml(safeTitle) + '</span><button onclick="WO.sbCloseDockPlayer()" title="Close player"><i class="fa-solid fa-xmark"></i></button></div>' +
+      '<div class="sb-dock-video"><iframe src="https://www.youtube-nocookie.com/embed/' + encodeURIComponent(idMatch[1]) + '?autoplay=1&rel=0" title="' + escapeHtml(safeTitle) + '" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>' +
+      '<button class="sb-dock-jump" onclick="WO.sbScrollToSong(\'' + escapeHtml(songId) + '\')"><i class="fa-solid fa-arrow-turn-down"></i> Jump to song</button>';
+    var rail = $('sbNotebookRail');
+    if (rail) rail.classList.add('has-player');
+    return true;
+  }
+
+  function sbCloseDockPlayer() {
+    var dock = $('sbDockPlayer');
+    if (dock) dock.innerHTML = '<div class="sb-dock-empty"><i class="fa-solid fa-headphones"></i><b>Listen while you read</b><span>Choose a YouTube link from any song.</span></div>';
+    var rail = $('sbNotebookRail');
+    if (rail) rail.classList.remove('has-player');
+  }
+
   // ── Live Fullscreen mode ──────────────────────────────────────────────────────
   var _sbLiveFullscreen = false;
   var _sbFsHideTimer = null;
 
-  function sbToggleLiveFullscreen() {
+  function sbToggleLiveFullscreen(force) {
     var modal = $('songbookLiveModal');
     if (!modal) return;
-    _sbLiveFullscreen = !_sbLiveFullscreen;
+    _sbLiveFullscreen = typeof force === 'boolean' ? force : !_sbLiveFullscreen;
     modal.classList.toggle('sb-live-fullscreen', _sbLiveFullscreen);
     var btn = $('sbFullscreenBtn');
     if (btn) {
       btn.querySelector('i').className = _sbLiveFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
-      btn.querySelector('span').textContent = _sbLiveFullscreen ? 'Exit FS' : 'Full Screen';
+      btn.querySelector('span').textContent = _sbLiveFullscreen ? 'Exit' : 'Full Screen';
     }
-    if (!_sbLiveFullscreen) {
-      modal.classList.remove('sb-live-fs-shown');
+    if (_sbLiveFullscreen) {
+      if (!document.fullscreenElement && modal.requestFullscreen) modal.requestFullscreen().catch(function() {});
+      sbFsRevealHeader();
+    } else {
+      modal.classList.remove('sb-live-fs-exit-shown');
       clearTimeout(_sbFsHideTimer);
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function() {});
     }
   }
 
@@ -44591,12 +44770,16 @@ var WO = (function() {
     if (!_sbLiveFullscreen) return;
     var modal = $('songbookLiveModal');
     if (!modal) return;
-    modal.classList.add('sb-live-fs-shown');
+    modal.classList.add('sb-live-fs-exit-shown');
     clearTimeout(_sbFsHideTimer);
     _sbFsHideTimer = setTimeout(function() {
-      modal.classList.remove('sb-live-fs-shown');
-    }, 4000);
+      modal.classList.remove('sb-live-fs-exit-shown');
+    }, 2200);
   }
+
+  document.addEventListener('fullscreenchange', function() {
+    if (_sbLiveFullscreen && !document.fullscreenElement) sbToggleLiveFullscreen(false);
+  });
 
   // ── 661: Badge dropdown helpers ─────────────────────────────────────────────��
 
@@ -45466,6 +45649,13 @@ var WO = (function() {
       .concat(Array.isArray(song.customYoutube) ? song.customYoutube : []);
     var url = allVideos[videoIdx];
     if (!url) return;
+    if (sbOpenDockPlayer(songId, url, song.title || 'Song reference')) {
+      if (btn) btn.classList.add('active');
+      var dockPill = $('sbVidBadgePill-' + songId);
+      if (dockPill) dockPill.classList.add('active');
+      sbSaveLastView(songId, 'lyrics', 0);
+      return;
+    }
     panel.innerHTML = buildMediaEmbed(url);
     panel.style.display = 'block';
     if (btn) btn.classList.add('active');
@@ -46229,6 +46419,12 @@ var WO = (function() {
     sbLeavePresence: sbLeavePresence,
     sbToggleLiveFullscreen: sbToggleLiveFullscreen,
     sbFsRevealHeader: sbFsRevealHeader,
+    sbToggleMoreMenu: sbToggleMoreMenu,
+    sbSetViewMode: sbSetViewMode,
+    sbToggleGlobalColumns: sbToggleGlobalColumns,
+    sbSetAutoScroll: sbSetAutoScroll,
+    sbNotebookJump: sbNotebookJump,
+    sbCloseDockPlayer: sbCloseDockPlayer,
     sbSnapZoomStep: sbSnapZoomStep,
     sbBroadcastPatch: sbBroadcastPatch,
     sbApplyBroadcast: sbApplyBroadcast,
@@ -55192,6 +55388,127 @@ function filterLiturgyItems() {
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
     }
+  }
+</style>
+
+<style id="sb-conductor-notebook-css">
+  /* Conductor's Notebook — live songbook shell. The page renderer remains unchanged. */
+  #songbookLiveModal { --sb-navy:#0b1930; --sb-navy-2:#132944; --sb-teal:#2dd4bf; --sb-ivory:#fffdf5; --sb-gold:#d4a853; background:var(--sb-navy); font-family:'Poppins',sans-serif; }
+  #songbookLiveModal .sb-header { min-height:64px; padding:8px 16px; flex-wrap:nowrap; background:linear-gradient(112deg,#071427 0%,#102b47 62%,#0b5b63 100%); border-bottom:1px solid rgba(94,234,212,.25); box-shadow:0 8px 30px rgba(2,8,23,.3); }
+  #songbookLiveModal .sb-header-title { font-family:'Cinzel',Georgia,serif; letter-spacing:.07em; font-size:1rem; }
+  #songbookLiveModal .sb-header-order { color:#a7f3d0; font-size:.72rem; }
+  #songbookLiveModal .sb-header-toolbar { flex:1; justify-content:flex-end; min-width:0; }
+  #songbookLiveModal .sb-tool-group { background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.09); border-radius:12px; padding:4px; }
+  #songbookLiveModal .sb-tool-btn { min-height:40px; border-radius:9px; border-color:transparent; color:#e5eef8; }
+  #songbookLiveModal .sb-tool-btn:hover { background:rgba(255,255,255,.12); border-color:rgba(255,255,255,.15); transform:none; }
+  #songbookLiveModal .sb-primary-save { background:linear-gradient(135deg,#0f9d8d,#14b8a6); color:white; box-shadow:0 5px 16px rgba(20,184,166,.22); }
+  .sb-more-wrap { position:relative; }
+  .sb-more-menu { position:absolute; z-index:9999; right:0; top:calc(100% + 8px); display:none; width:250px; padding:7px; border:1px solid rgba(255,255,255,.12); border-radius:14px; background:#102239; box-shadow:0 18px 50px rgba(0,0,0,.45); }
+  .sb-more-menu.open { display:block; animation:sbMenuIn .14s ease-out; }
+  .sb-more-menu button { display:flex; align-items:center; gap:12px; width:100%; border:0; border-radius:9px; padding:10px; background:transparent; color:#e2e8f0; text-align:left; cursor:pointer; }
+  .sb-more-menu button:hover { background:rgba(45,212,191,.11); }
+  .sb-more-menu button>i { width:20px; color:#5eead4; text-align:center; }
+  .sb-more-menu button span { display:flex; flex-direction:column; line-height:1.35; }
+  .sb-more-menu small { color:#94a3b8; font-size:.68rem; }
+  @keyframes sbMenuIn { from{opacity:0;transform:translateY(-5px)} to{opacity:1;transform:none} }
+
+  .sb-view-strip { min-height:48px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:6px 18px; background:#102139; color:#cbd5e1; border-bottom:1px solid rgba(148,163,184,.16); flex-shrink:0; }
+  .sb-view-tabs,.sb-view-actions { display:flex; align-items:center; gap:6px; }
+  .sb-view-strip button,.sb-autoscroll-control { min-height:34px; display:inline-flex; align-items:center; gap:7px; padding:6px 12px; border:1px solid transparent; border-radius:18px; background:transparent; color:#94a3b8; font-size:.75rem; font-weight:600; cursor:pointer; }
+  .sb-view-strip button:hover { color:#f8fafc; background:rgba(255,255,255,.06); }
+  .sb-view-strip button.active,.sb-autoscroll-control.active { color:#d5fff8; background:rgba(20,184,166,.15); border-color:rgba(45,212,191,.38); }
+  .sb-autoscroll-control select { border:0; outline:0; border-radius:12px; padding:3px 20px 3px 7px; background:#20334d; color:#dbeafe; font:inherit; cursor:pointer; }
+
+  .sb-workspace { display:grid; grid-template-columns:210px minmax(0,1fr) 250px; flex:1; min-height:0; overflow:hidden; background:radial-gradient(circle at 50% -20%,#294761 0,#142a42 42%,#091729 100%); }
+  .sb-notebook-nav,.sb-notebook-rail { min-height:0; overflow-y:auto; padding:16px 12px; background:rgba(6,18,34,.72); color:#cbd5e1; scrollbar-width:thin; }
+  .sb-notebook-nav { border-right:1px solid rgba(148,163,184,.13); }
+  .sb-notebook-rail { border-left:1px solid rgba(148,163,184,.13); }
+  .sb-nav-heading { display:flex; align-items:center; gap:8px; padding:4px 8px 13px; color:#5eead4; font:700 .7rem 'Poppins',sans-serif; text-transform:uppercase; letter-spacing:.13em; }
+  .sb-nav-item { width:100%; display:grid; grid-template-columns:28px minmax(0,1fr); align-items:center; gap:7px; margin-bottom:4px; padding:8px 7px; border:1px solid transparent; border-radius:9px; background:transparent; color:#aab9cb; text-align:left; cursor:pointer; font:.72rem/1.35 'Poppins',sans-serif; }
+  .sb-nav-item span:last-child { overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .sb-nav-item:hover { background:rgba(255,255,255,.05); color:#fff; }
+  .sb-nav-item.active { background:linear-gradient(90deg,rgba(20,184,166,.2),rgba(20,184,166,.04)); border-color:rgba(45,212,191,.24); color:#eafffb; }
+  .sb-nav-num { width:25px; height:25px; display:grid; place-items:center; border-radius:50%; background:#243a55; color:#9fb2c8; font-size:.65rem; font-weight:700; }
+  .sb-nav-item.active .sb-nav-num { background:#14b8a6; color:#042f2e; }
+  .sb-notebook-stage { min-width:0; min-height:0; display:flex; overflow:hidden; position:relative; }
+  #songbookLiveModal .sb-body { flex:1; align-items:center; padding:30px 34px 90px 54px; background:transparent; scroll-behavior:smooth; }
+  #songbookLiveModal .sb-song-unit { filter:drop-shadow(0 22px 30px rgba(0,0,0,.27)); }
+  #songbookLiveModal .sb-page-controls-bar { position:sticky; top:8px; z-index:45; background:linear-gradient(105deg,#101f35,#17364b); border:1px solid rgba(94,234,212,.24); border-bottom:2px solid #2dd4bf; border-radius:13px 13px 0 0; box-shadow:0 8px 25px rgba(2,8,23,.32); }
+  #songbookLiveModal .sb-song-page { background-color:var(--sb-ivory); background-image:linear-gradient(90deg,rgba(184,146,74,.08) 1px,transparent 1px),linear-gradient(rgba(39,91,111,.035) 1px,transparent 1px); background-size:28px 100%,100% 28px; border-radius:0 0 5px 5px; border:1px solid #e5dcc7; border-top:0; box-shadow:inset 42px 0 34px -38px rgba(82,62,25,.28),0 18px 45px rgba(0,0,0,.26); }
+  #songbookLiveModal .sb-song-page::before { content:""; position:absolute; z-index:8; left:-16px; top:18px; bottom:18px; width:27px; pointer-events:none; background:radial-gradient(circle at 13px 8px,#26394a 0 3px,#92a0a7 3.5px 5px,transparent 5.5px) 0 0/27px 30px repeat-y; filter:drop-shadow(2px 1px 1px rgba(0,0,0,.35)); }
+  #songbookLiveModal .sb-page-header { background:rgba(255,253,245,.92); border-bottom:1px solid #e8dcc2; padding-left:48px; }
+  #songbookLiveModal .sb-page-title { font-family:'Playfair Display',Georgia,serif; color:#17243a; font-size:1.48rem; letter-spacing:.01em; }
+  #songbookLiveModal .sb-page-lyrics { color:#243248; font-family:Georgia,'Times New Roman',serif; font-size:1.08rem; }
+  #songbookLiveModal .wo-lyrics-chord-line { color:#087d78; font-size:15px; letter-spacing:.02em; }
+  #songbookLiveModal .wo-lyrics-section-header { color:#7f5d20; background:linear-gradient(90deg,rgba(212,168,83,.18),transparent); border-left:3px solid var(--sb-gold); padding:5px 10px; border-radius:2px; }
+  #songbookLiveModal .sb-page-break-line { background:repeating-linear-gradient(90deg,rgba(94,234,212,.55) 0,rgba(94,234,212,.55) 7px,transparent 7px,transparent 14px); }
+
+  .sb-rail-kicker { color:#5eead4; font-size:.63rem; font-weight:700; text-transform:uppercase; letter-spacing:.13em; margin-bottom:7px; }
+  .sb-rail-title { color:#f8fafc; font:700 1rem/1.35 'Playfair Display',Georgia,serif; margin-bottom:12px; }
+  .sb-rail-progress { height:5px; overflow:hidden; border-radius:4px; background:#20344d; }
+  .sb-rail-progress span { display:block; height:100%; width:0; border-radius:inherit; background:linear-gradient(90deg,#14b8a6,#67e8f9); transition:width .12s linear; }
+  .sb-rail-count { margin:7px 0 18px; color:#8293a9; font-size:.68rem; }
+  .sb-dock-player { overflow:hidden; border:1px solid rgba(148,163,184,.17); border-radius:13px; background:#0c1c31; }
+  .sb-dock-empty { min-height:160px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; padding:18px; color:#71839a; text-align:center; font-size:.7rem; }
+  .sb-dock-empty i { font-size:1.55rem; color:#2d5369; }
+  .sb-dock-empty b { color:#aebdd0; font-size:.76rem; }
+  .sb-dock-player-head { display:flex; align-items:center; justify-content:space-between; gap:7px; padding:9px 10px; color:#e2e8f0; font-size:.69rem; font-weight:600; }
+  .sb-dock-player-head span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sb-dock-player-head i.fa-youtube { color:#fb7185; }
+  .sb-dock-player-head button { border:0; background:transparent; color:#94a3b8; cursor:pointer; }
+  .sb-dock-video { aspect-ratio:16/9; background:#000; }
+  .sb-dock-video iframe { width:100%; height:100%; border:0; display:block; }
+  .sb-dock-jump { width:100%; padding:9px; border:0; border-top:1px solid rgba(148,163,184,.13); background:transparent; color:#5eead4; font-size:.68rem; cursor:pointer; }
+
+  .sb-fullscreen-exit { position:fixed; z-index:3210; top:18px; right:22px; display:flex; align-items:center; gap:8px; padding:10px 15px; border:1px solid rgba(255,255,255,.25); border-radius:24px; background:rgba(7,20,39,.88); backdrop-filter:blur(10px); color:white; font:600 .76rem 'Poppins',sans-serif; cursor:pointer; opacity:0; pointer-events:none; transform:translateY(-8px); transition:.18s ease; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+  #songbookLiveModal.sb-live-fullscreen.sb-live-fs-exit-shown .sb-fullscreen-exit { opacity:1; pointer-events:auto; transform:none; }
+  #songbookLiveModal.sb-live-fullscreen .sb-header,
+  #songbookLiveModal.sb-live-fullscreen .sb-view-strip,
+  #songbookLiveModal.sb-live-fullscreen .sb-notebook-nav,
+  #songbookLiveModal.sb-live-fullscreen .sb-notebook-rail,
+  #songbookLiveModal.sb-live-fullscreen .sb-page-controls-bar,
+  #songbookLiveModal.sb-live-fullscreen .sb-page-break { display:none !important; }
+  #songbookLiveModal.sb-live-fullscreen .sb-workspace { display:block; background:#06101e; }
+  #songbookLiveModal.sb-live-fullscreen .sb-notebook-stage { height:100%; }
+  #songbookLiveModal.sb-live-fullscreen .sb-body { height:100%; padding:22px 24px 70px; }
+  #songbookLiveModal.sb-live-fullscreen .sb-song-page::before { display:none; }
+  #songbookLiveModal.sb-live-fullscreen .sb-song-page { border-radius:5px; }
+
+  .sb-empty-notebook { width:min(680px,92%); margin:auto; border:1px dashed rgba(94,234,212,.22); border-radius:18px; background:rgba(255,255,255,.025); }
+  #songbookLiveModal .sb-empty-notebook p { color:#a9b8ca !important; }
+  #songbookLiveModal .sb-empty-notebook p:first-of-type { color:#dbeafe !important; }
+
+  @media (max-width:1450px) {
+    .sb-workspace { grid-template-columns:175px minmax(0,1fr); }
+    .sb-notebook-rail { display:none; }
+    #songbookLiveModal .sb-header-brand { min-width:auto; }
+    #songbookLiveModal .sb-tool-btn span { display:none; }
+  }
+  @media (max-width:820px) {
+    #songbookLiveModal .sb-header { min-height:56px; padding:6px 9px; gap:7px; }
+    #songbookLiveModal .sb-header-title { font-size:.78rem; }
+    #songbookLiveModal .sb-header-order { max-width:125px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    #songbookLiveModal .sb-tool-group:first-child .sb-zoom-btn,#songbookLiveModal .sb-group-divider,#songbookLiveModal #sbZoomLabel,#songbookLiveModal #sbSaveStatus { display:none; }
+    .sb-view-strip { padding:5px 8px; overflow-x:auto; }
+    .sb-view-strip button,.sb-autoscroll-control { padding:6px 9px; white-space:nowrap; }
+    .sb-autoscroll-control span { display:none; }
+    .sb-workspace { display:block; }
+    .sb-notebook-nav { display:none; }
+    #songbookLiveModal .sb-body { padding:14px 18px 58px 25px; }
+    #songbookLiveModal .sb-song-page::before { left:-13px; width:23px; background-size:23px 30px; }
+    #songbookLiveModal .sb-page-title { font-size:1.2rem; }
+    #songbookLiveModal .sb-page-lyrics { font-size:1rem; }
+    .sb-fullscreen-exit { top:10px; right:10px; }
+  }
+  @media (max-width:520px) {
+    #songbookLiveModal .sb-header-brand i { display:none; }
+    #songbookLiveModal .sb-header-toolbar { gap:3px; }
+    #songbookLiveModal .sb-tool-group { padding:2px; gap:1px; }
+    #songbookLiveModal .sb-tool-btn { min-height:38px; min-width:36px; padding:6px 8px; }
+    #songbookLiveModal .sb-close-btn { width:36px; height:36px; }
+    .sb-view-tabs button { font-size:0; }
+    .sb-view-tabs button i { font-size:.78rem; }
+    #songbookLiveModal .sb-page-lyrics--two-col { column-count:1; }
   }
 </style>
 
