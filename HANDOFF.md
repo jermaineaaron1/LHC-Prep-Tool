@@ -165,6 +165,45 @@ Defined in `.env.local` (not committed). Template at `.env.local.example`.
 
 ---
 
+## Recent Session Notes (2026-07-03)
+
+### Worship Songbook Redesign — branch `feature/songbook-redesign`
+
+Full 3-panel songbook layout implemented in both `Index.html` and `dist/index.html`:
+
+**HTML** (`#songbookLiveModal`):
+- Background changed from `#f4f5fb` → `#141e2e` (dark navy)
+- Header split into `.sb-header-brand` / `.sb-header-center` / `.sb-header-right`
+- Center controls: Annotate, Undo/Redo, font A−/100%/A+ buttons
+- Right controls: Share, Playlist, Full Screen, More dropdown, Saved button, Close
+- Draw extras moved to a separate `.sb-draw-bar` strip (shown/hidden below header)
+- Full 3-panel layout: left `#sbSidebar` (220px), center `.sb-center` / `#sbBody`, right `#sbRightPanel` (240px)
+- Right panel: Selection tab (font size, annotation colors, transpose, Copy with chords, Duplicate below) + Media tab
+
+**CSS** (new `.sb-*` classes):
+- `.sb-layout`, `.sb-sidebar`, `.sb-center`, `.sb-right-panel` — 3-panel flex row
+- `.sb-song-page { background:#faf9f0 }` — cream manuscript paper
+- `.sb-song-page::before` — binder holes via CSS box-shadow
+- `.sb-panel-*` — right panel tabs, sections, buttons
+- `.sb-draw-bar` — secondary draw tools strip
+- Fullscreen: hides sidebar and right panel; responsive: hides panels below 900px
+
+**JavaScript** (new WO module functions, all exported):
+- `sbFontInc()` / `sbFontDec()` — alias `sbZoomIn`/`sbZoomOut`; updates `#sbFontPct` display
+- `sbToggleMore()` — More dropdown with auto-close on outside click
+- `sbPanelTab(tab, btn)` — Selection/Media tab switcher
+- `sbRenderSidebar()` — populates left sidebar song list from `songOrderSections`
+- `sbScrollTo(songId)` / `sbUpdateSidebarActive(songId)` — scroll manuscript to song
+- `sbUpdateFontPct()` — updates `#sbFontPct` and `#sbFontSizeDisplay`; called from `sbApplyZoom`
+- `sbUpdateSaveBtn(dirty)` — manages the Saved/Save status button appearance
+- `sbSelTranspose(delta)` / `sbSelTransposeReset()` — partial transposition on text selection
+- `sbCopyWithChords()` — copies selected lyric+chord lines to clipboard
+- `sbDuplicateBelow()` — clones selected lyric lines and inserts after
+- `selectionchange` listener — collects chord nodes in selection, updates right panel
+
+**WhatsApp share fix** (committed earlier, also on this branch):
+- `shareSongbookWhatsApp` now builds `?sb=<id>` direct link instead of encoded playlist URL
+
 ## Recent Session Notes (2026-07-02)
 
 - Fixed `getSongUsageStats` 400 error (`created_at` → `last_edited` on `order_items`).

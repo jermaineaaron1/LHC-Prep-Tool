@@ -7997,90 +7997,170 @@ I once was lost but now am found"
   </div>
 
   <!-- ==================== WORSHIP SONGBOOK LIVE VIEW ==================== -->
-  <div id="songbookLiveModal" style="display:none;position:fixed;inset:0;z-index:2200;flex-direction:column;overflow:hidden;background:#f4f5fb;">
-    <!-- Header -->
+  <div id="songbookLiveModal" style="display:none;position:fixed;inset:0;z-index:2200;flex-direction:column;overflow:hidden;background:#141e2e;">
+
+    <!-- ── PRIMARY HEADER ── -->
     <div class="sb-header">
+      <!-- Brand -->
       <div class="sb-header-brand">
-        <i class="fa-solid fa-book-open" style="font-size:1.5rem;color:white;opacity:0.9;"></i>
+        <i class="fa-solid fa-book-open" style="font-size:1.4rem;color:white;opacity:0.9;"></i>
         <div>
           <div class="sb-header-title">Worship Songbook</div>
           <div class="sb-header-order" id="sbOrderNameDisplay"></div>
         </div>
       </div>
-      <div class="sb-header-toolbar">
-        <!-- Draw/annotate tool group -->
-        <div class="sb-tool-group">
-          <button class="sb-tool-btn" id="sbDrawToggle" onclick="WO.sbToggleDrawMode()" title="Draw / Annotate">
-            <i class="fa-solid fa-pen-to-square"></i><span>Annotate</span>
-          </button>
-          <button class="sb-tool-btn" id="sbEraseToggle" onclick="WO.sbToggleEraseMode()" title="Erase strokes" style="display:none;">
-            <i class="fa-solid fa-eraser"></i><span>Erase</span>
-          </button>
-          <!-- Text annotation button removed; use floating toolbar on text selection instead -->
-          <div class="sb-draw-extras" id="sbDrawExtras" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;">
-            <!-- Colour swatches -->
-            <div class="sb-color-swatches">
-              <button class="sb-color-btn active" data-color="#111111" onclick="WO.sbSetDrawColor('#111111',this)" title="Black" style="background:#111111;"></button>
-              <button class="sb-color-btn" data-color="#2563eb" onclick="WO.sbSetDrawColor('#2563eb',this)" title="Blue" style="background:#2563eb;"></button>
-              <button class="sb-color-btn" data-color="#dc2626" onclick="WO.sbSetDrawColor('#dc2626',this)" title="Red" style="background:#dc2626;"></button>
-              <button class="sb-color-btn" data-color="#ca8a04" onclick="WO.sbSetDrawColor('#ca8a04',this)" title="Dark Yellow" style="background:#ca8a04;"></button>
-              <button class="sb-color-btn" data-color="#16a34a" onclick="WO.sbSetDrawColor('#16a34a',this)" title="Green" style="background:#16a34a;"></button>
-            </div>
-            <!-- Pen thickness: thin / medium / thick (3px apart) — 564 -->
-            <div class="sb-thickness-btns">
-              <button class="sb-thick-btn active" id="sbThickThin" onclick="WO.sbSetDrawSize(1,this)" title="Thin (1px)"><span class="sb-thick-dot" style="width:2px;height:2px;"></span></button>
-              <button class="sb-thick-btn" id="sbThickMed"  onclick="WO.sbSetDrawSize(3,this)" title="Medium (3px)"><span class="sb-thick-dot" style="width:5px;height:5px;"></span></button>
-              <button class="sb-thick-btn" id="sbThickThk"  onclick="WO.sbSetDrawSize(6,this)" title="Thick (6px)"><span class="sb-thick-dot" style="width:9px;height:9px;"></span></button>
-            </div>
-            <button class="sb-tool-btn" onclick="WO.sbClearActiveDraw()" title="Clear all annotations from this songbook"><i class="fa-solid fa-trash-can"></i></button>
-          </div>
-          <!-- Undo/Redo — always visible -->
-          <button class="sb-tool-btn" id="sbUndoBtn" onclick="WO.sbUndo()" title="Undo (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
-          <button class="sb-tool-btn" id="sbRedoBtn" onclick="WO.sbRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
-          <!-- Zoom controls — next to Annotations per UX request -->
-          <span class="sb-group-divider"></span>
-          <button class="sb-tool-btn sb-zoom-btn" onclick="WO.sbZoomIn()" title="Zoom in"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
-          <span id="sbZoomLabel" style="font-size:0.7rem;color:rgba(255,255,255,0.75);min-width:32px;text-align:center;">100%</span>
-          <button class="sb-tool-btn sb-zoom-btn" onclick="WO.sbZoomOut()" title="Zoom out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+      <!-- Center controls -->
+      <div class="sb-header-center">
+        <button class="sb-tool-btn" id="sbDrawToggle" onclick="WO.sbToggleDrawMode()" title="Annotate"><i class="fa-solid fa-pen-to-square"></i><span>Annotate</span></button>
+        <span class="sb-group-divider"></span>
+        <button class="sb-tool-btn sb-icon-btn" id="sbUndoBtn" onclick="WO.sbUndo()" title="Undo (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+        <button class="sb-tool-btn sb-icon-btn" id="sbRedoBtn" onclick="WO.sbRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
+        <span class="sb-group-divider"></span>
+        <div class="sb-font-size-grp">
+          <button class="sb-tool-btn sb-icon-btn" onclick="WO.sbFontDec()" title="Decrease font size"><span class="sb-font-dec-lbl">A<sup style="font-size:0.6em;">−</sup></span></button>
+          <span id="sbFontPct" class="sb-font-pct">100%</span>
+          <button class="sb-tool-btn sb-icon-btn" onclick="WO.sbFontInc()" title="Increase font size"><span class="sb-font-inc-lbl">A<sup style="font-size:0.7em;">+</sup></span></button>
         </div>
-        <!-- Save/print group -->
-        <div class="sb-tool-group">
-          <span id="sbSaveStatus" style="font-size:0.75rem;color:#86efac;opacity:0.85;min-width:80px;text-align:right;"></span>
-          <div style="position:relative;display:inline-block;">
-            <button class="sb-tool-btn" id="sbShareBtn" onclick="WO.sbShare()" title="Share this songbook" style="background:rgba(99,102,241,0.25);border:1.5px solid #a5b4fc;color:#c7d2fe;"><i class="fa-solid fa-share-nodes"></i><span>Share</span></button>
-            <div id="sbSharePopover" style="display:none;position:absolute;top:calc(100% + 6px);right:0;background:#1e293b;border:1px solid #334155;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);min-width:170px;z-index:9999;padding:6px 0;">
-              <button onclick="WO.sbShareWhatsApp()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#d1fae5;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;transition:background 0.12s;" onmouseover="this.style.background='rgba(16,185,129,0.15)'" onmouseout="this.style.background='none'"><i class="fa-brands fa-whatsapp" style="color:#4ade80;width:16px;"></i> Share via WhatsApp</button>
-              <div style="height:1px;background:#334155;margin:2px 0;"></div>
-              <button onclick="WO.sbCopyLink()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;transition:background 0.12s;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-link" style="color:#93c5fd;width:16px;"></i> Copy Songbook Link</button>
-            </div>
+      </div>
+      <!-- Right controls -->
+      <div class="sb-header-right">
+        <div style="position:relative;display:inline-block;">
+          <button class="sb-tool-btn" id="sbShareBtn" onclick="WO.sbShare()" title="Share" style="background:rgba(99,102,241,0.25);border:1.5px solid #a5b4fc;color:#c7d2fe;"><i class="fa-solid fa-share-nodes"></i><span>Share</span></button>
+          <div id="sbSharePopover" style="display:none;position:absolute;top:calc(100% + 6px);right:0;background:#1e293b;border:1px solid #334155;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);min-width:170px;z-index:9999;padding:6px 0;">
+            <button onclick="WO.sbShareWhatsApp()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#d1fae5;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;transition:background 0.12s;" onmouseover="this.style.background='rgba(16,185,129,0.15)'" onmouseout="this.style.background='none'"><i class="fa-brands fa-whatsapp" style="color:#4ade80;width:16px;"></i> Share via WhatsApp</button>
+            <div style="height:1px;background:#334155;margin:2px 0;"></div>
+            <button onclick="WO.sbCopyLink()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;transition:background 0.12s;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-link" style="color:#93c5fd;width:16px;"></i> Copy Songbook Link</button>
           </div>
-          <button class="sb-tool-btn" onclick="WO.sbOpenPlaylist()" title="Play all YouTube links in this songbook" style="background:rgba(16,185,129,0.25);border:1.5px solid #6ee7b7;color:#a7f3d0;"><i class="fa-solid fa-headphones"></i><span>Playlist</span></button>
-          <button class="sb-tool-btn" id="sbPrintPreviewBtn" onclick="WO.sbTogglePrintPreview()" title="Print Preview — see the exact PDF layout without leaving live view"><i class="fa-solid fa-file-lines"></i><span>Preview</span></button>
-          <button class="sb-tool-btn sb-tool-btn--bookmode" onclick="WO.sbOpenFullscreen()" title="Book Mode — fullscreen page-by-page view"><i class="fa-solid fa-book-open"></i><span>Book Mode</span></button>
-          <button class="sb-tool-btn" id="sbFullscreenBtn" onclick="WO.sbToggleLiveFullscreen()" title="Full Screen — hides toolbar; hover/tap top to reveal"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
-          <button class="sb-tool-btn" id="sbRefreshBtn" onclick="WO.sbRefresh()" title="Fetch latest changes from cloud"><i class="fa-solid fa-arrows-rotate"></i><span>Sync</span></button>
-          <button class="sb-tool-btn" onclick="WO.sbSaveOrder()" title="Save changes to cloud"><i class="fa-solid fa-floppy-disk"></i><span>Save</span></button>
-          <button class="sb-tool-btn" onclick="WO.sbSavePDF()" title="Print / Save as PDF"><i class="fa-solid fa-print"></i><span>Print PDF</span></button>
         </div>
+        <button class="sb-tool-btn" onclick="WO.sbOpenPlaylist()" title="Playlist" style="background:rgba(16,185,129,0.25);border:1.5px solid #6ee7b7;color:#a7f3d0;"><i class="fa-solid fa-headphones"></i><span>Playlist</span></button>
+        <button class="sb-tool-btn" id="sbFullscreenBtn" onclick="WO.sbToggleLiveFullscreen()" title="Full Screen"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
+        <!-- More dropdown -->
+        <div style="position:relative;display:inline-block;">
+          <button class="sb-tool-btn" id="sbMoreBtn" onclick="WO.sbToggleMore()" title="More options"><i class="fa-solid fa-ellipsis"></i><span>More</span></button>
+          <div id="sbMoreMenu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;background:#1e293b;border:1px solid #334155;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);min-width:190px;z-index:9999;padding:6px 0;">
+            <button onclick="WO.sbSaveOrder();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-floppy-disk" style="color:#93c5fd;width:16px;"></i> Save to cloud</button>
+            <button onclick="WO.sbRefresh();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-arrows-rotate" style="color:#6ee7b7;width:16px;"></i> Sync from cloud</button>
+            <div style="height:1px;background:#334155;margin:2px 0;"></div>
+            <button onclick="WO.sbTogglePrintPreview();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-file-lines" style="color:#c4b5fd;width:16px;"></i> Print preview</button>
+            <button onclick="WO.sbOpenFullscreen();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#fff3dc;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(160,110,55,0.2)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-book-open" style="color:#fbbf24;width:16px;"></i> Book Mode</button>
+            <button onclick="WO.sbSavePDF();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-print" style="color:#93c5fd;width:16px;"></i> Print / Save PDF</button>
+            <div style="height:1px;background:#334155;margin:2px 0;"></div>
+            <button onclick="WO.sbClearActiveDraw();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#fca5a5;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-trash-can" style="color:#f87171;width:16px;"></i> Clear annotations</button>
+          </div>
+        </div>
+        <button class="sb-tool-btn sb-saved-btn" id="sbSaveStatusBtn" onclick="WO.sbSaveOrder()" title="Save changes">
+          <i class="fa-solid fa-circle-check"></i><span id="sbSaveStatus">Saved</span>
+        </button>
         <button class="sb-close-btn" onclick="WO.closeSongbook()" title="Close songbook"><i class="fa-solid fa-times"></i></button>
       </div>
     </div>
-    <!-- Fullscreen hover zone — invisible strip at top; reveals toolbar on hover/tap -->
-    <div id="sbFsHoverZone" class="sb-fs-hover-zone"
-         onmouseenter="WO.sbFsRevealHeader()"
-         ontouchstart="WO.sbFsRevealHeader()"></div>
-    <!-- Scrollable body: song pages + page-break dividers -->
-    <div class="sb-body" id="sbBody"></div>
-    <!-- Print Preview pane: exact 794×1123px page tiles matching PDF output exactly -->
-    <div id="sbPrintPreviewPane" style="display:none;overflow-y:auto;flex:1;background:#c8cdd5;padding:28px 24px 48px;">
-      <div style="text-align:center;margin-bottom:18px;">
-        <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:rgba(255,255,255,0.6);background:rgba(0,0,0,0.25);border-radius:20px;padding:4px 14px;">
-          Print Preview — exact PDF layout &nbsp;·&nbsp; change font/padding above and this updates live
-        </span>
+
+    <!-- ── DRAW EXTRAS BAR (shown when annotate mode active) ── -->
+    <div class="sb-draw-bar" id="sbDrawExtras" style="display:none;">
+      <button class="sb-tool-btn" id="sbEraseToggle" onclick="WO.sbToggleEraseMode()" title="Erase strokes"><i class="fa-solid fa-eraser"></i><span>Erase</span></button>
+      <span class="sb-group-divider"></span>
+      <div class="sb-color-swatches">
+        <button class="sb-color-btn active" data-color="#111111" onclick="WO.sbSetDrawColor('#111111',this)" title="Black" style="background:#111111;"></button>
+        <button class="sb-color-btn" data-color="#2563eb" onclick="WO.sbSetDrawColor('#2563eb',this)" title="Blue" style="background:#2563eb;"></button>
+        <button class="sb-color-btn" data-color="#dc2626" onclick="WO.sbSetDrawColor('#dc2626',this)" title="Red" style="background:#dc2626;"></button>
+        <button class="sb-color-btn" data-color="#ca8a04" onclick="WO.sbSetDrawColor('#ca8a04',this)" title="Yellow" style="background:#ca8a04;"></button>
+        <button class="sb-color-btn" data-color="#16a34a" onclick="WO.sbSetDrawColor('#16a34a',this)" title="Green" style="background:#16a34a;"></button>
       </div>
-      <div id="sbPpContent" style="display:flex;flex-direction:column;align-items:center;gap:0;"></div>
+      <span class="sb-group-divider"></span>
+      <div class="sb-thickness-btns">
+        <button class="sb-thick-btn active" id="sbThickThin" onclick="WO.sbSetDrawSize(1,this)" title="Thin"><span class="sb-thick-dot" style="width:2px;height:2px;"></span></button>
+        <button class="sb-thick-btn" id="sbThickMed" onclick="WO.sbSetDrawSize(3,this)" title="Medium"><span class="sb-thick-dot" style="width:5px;height:5px;"></span></button>
+        <button class="sb-thick-btn" id="sbThickThk" onclick="WO.sbSetDrawSize(6,this)" title="Thick"><span class="sb-thick-dot" style="width:9px;height:9px;"></span></button>
+      </div>
     </div>
-    <!-- Full-viewport drawing canvas — covers entire screen so annotations work anywhere -->
+
+    <!-- Fullscreen hover zone -->
+    <div id="sbFsHoverZone" class="sb-fs-hover-zone" onmouseenter="WO.sbFsRevealHeader()" ontouchstart="WO.sbFsRevealHeader()"></div>
+
+    <!-- ── THREE-PANEL LAYOUT ── -->
+    <div class="sb-layout" id="sbLayout">
+
+      <!-- LEFT: Contents sidebar -->
+      <div id="sbSidebar" class="sb-sidebar">
+        <div class="sb-sidebar-hdr">CONTENTS</div>
+        <div id="sbSidebarList" class="sb-sidebar-list"></div>
+      </div>
+
+      <!-- CENTER: scrollable manuscript -->
+      <div class="sb-center" id="sbCenter">
+        <div class="sb-body" id="sbBody"></div>
+        <!-- Print Preview pane -->
+        <div id="sbPrintPreviewPane" style="display:none;overflow-y:auto;flex:1;background:#c8cdd5;padding:28px 24px 48px;">
+          <div style="text-align:center;margin-bottom:18px;">
+            <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:rgba(255,255,255,0.6);background:rgba(0,0,0,0.25);border-radius:20px;padding:4px 14px;">
+              Print Preview — exact PDF layout &nbsp;·&nbsp; change font/padding above and this updates live
+            </span>
+          </div>
+          <div id="sbPpContent" style="display:flex;flex-direction:column;align-items:center;gap:0;"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Selection / Media panel -->
+      <div id="sbRightPanel" class="sb-right-panel">
+        <div class="sb-panel-tabs">
+          <button class="sb-panel-tab active" id="sbTabSelection" onclick="WO.sbPanelTab('selection',this)">Selection</button>
+          <button class="sb-panel-tab" id="sbTabMedia" onclick="WO.sbPanelTab('media',this)">Media</button>
+        </div>
+
+        <!-- Selection tab -->
+        <div id="sbSelectionPanel" class="sb-panel-body">
+          <div class="sb-panel-info" id="sbSelectionInfo">Select text to see options</div>
+
+          <div class="sb-panel-section">
+            <div class="sb-panel-label">Font size</div>
+            <div class="sb-panel-font-row">
+              <button class="sb-panel-btn" onclick="WO.sbFontDec()">A<sup>−</sup></button>
+              <span id="sbFontSizeDisplay" class="sb-panel-font-val">22</span>
+              <button class="sb-panel-btn" onclick="WO.sbFontInc()">A<sup>+</sup></button>
+            </div>
+          </div>
+
+          <div class="sb-panel-section">
+            <div class="sb-panel-label">Annotation color</div>
+            <div class="sb-annot-colors">
+              <button class="sb-annot-color" style="background:#f59e0b;" onclick="WO.sbSetDrawColor('#f59e0b',this)" title="Amber"></button>
+              <button class="sb-annot-color active" style="background:#0d9488;" onclick="WO.sbSetDrawColor('#0d9488',this)" title="Teal"><i class="fa-solid fa-check" style="font-size:10px;color:white;"></i></button>
+              <button class="sb-annot-color" style="background:#0891b2;" onclick="WO.sbSetDrawColor('#0891b2',this)" title="Cyan"></button>
+              <button class="sb-annot-color" style="background:#7c3aed;" onclick="WO.sbSetDrawColor('#7c3aed',this)" title="Purple"></button>
+              <button class="sb-annot-color" style="background:#e5e7eb;border:1px solid #9ca3af;" onclick="WO.sbSetDrawColor('#e5e7eb',this)" title="Light"></button>
+            </div>
+          </div>
+
+          <div class="sb-panel-section" id="sbPanelXpSection">
+            <div class="sb-panel-label">Transpose <span id="sbPanelXpBadge" class="sb-xp-badge" style="display:none;"></span></div>
+            <div class="sb-panel-xp-row">
+              <button class="sb-panel-btn" onclick="WO.sbSelTranspose(-1)" title="Transpose down"><i class="fa-solid fa-minus"></i></button>
+              <span id="sbPanelXpVal" class="sb-panel-xp-val">+0</span>
+              <button class="sb-panel-btn" onclick="WO.sbSelTranspose(1)" title="Transpose up"><i class="fa-solid fa-plus"></i></button>
+              <button class="sb-panel-btn sb-panel-btn--reset" id="sbPanelXpReset" onclick="WO.sbSelTransposeReset()" title="Reset selection transpose" style="display:none;">Reset</button>
+            </div>
+            <div id="sbPanelXpKeyLine" class="sb-panel-xp-key" style="display:none;"></div>
+          </div>
+
+          <button class="sb-panel-action" onclick="WO.sbCopyWithChords()">
+            <i class="fa-regular fa-copy"></i> Copy with chords
+          </button>
+          <button class="sb-panel-action" onclick="WO.sbDuplicateBelow()">
+            <i class="fa-regular fa-clone"></i> Duplicate below
+          </button>
+        </div>
+
+        <!-- Media tab -->
+        <div id="sbMediaPanel" class="sb-panel-body" style="display:none;">
+          <div id="sbMediaPanelContent" class="sb-media-panel-inner">
+            <div class="sb-panel-info">Select a song to see its media</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end .sb-layout -->
+
+    <!-- Full-viewport drawing canvas -->
     <svg id="sbFullCanvas" style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2999;pointer-events:none;display:block;"></svg>
   </div>
 
@@ -32308,6 +32388,7 @@ var WO = (function() {
 
     var lbl = document.getElementById('sbZoomLabel');
     if (lbl) lbl.textContent = Math.round(sbZoom * 100) + '%';
+    sbUpdateFontPct();
   }
 
   function sbZoomIn() {
@@ -32318,6 +32399,251 @@ var WO = (function() {
   function sbZoomOut() {
     sbZoom = Math.max(0.3, parseFloat((sbZoom - 0.1).toFixed(2)));
     sbApplyZoom();
+  }
+
+  // ── Font inc/dec (alias zoom for header A-/A+ buttons) ─────────────────
+  function sbFontInc() { sbZoomIn(); }
+  function sbFontDec() { sbZoomOut(); }
+
+  // ── More menu toggle ────────────────────────────────────────────────────
+  function sbToggleMore() {
+    var m = document.getElementById('sbMoreMenu');
+    if (!m) return;
+    var open = m.style.display !== 'none';
+    m.style.display = open ? 'none' : 'block';
+    if (!open) {
+      var close = function(e) {
+        if (!m.contains(e.target) && e.target.id !== 'sbMoreBtn') {
+          m.style.display = 'none';
+          document.removeEventListener('click', close, true);
+        }
+      };
+      setTimeout(function() { document.addEventListener('click', close, true); }, 0);
+    }
+  }
+
+  // ── Right panel tab switcher ────────────────────────────────────────────
+  function sbPanelTab(tab, btn) {
+    var selP = document.getElementById('sbSelectionPanel');
+    var medP = document.getElementById('sbMediaPanel');
+    var tabs = document.querySelectorAll('.sb-panel-tab');
+    tabs.forEach(function(t) { t.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+    if (selP) selP.style.display = tab === 'selection' ? 'flex' : 'none';
+    if (medP) medP.style.display = tab === 'media' ? 'flex' : 'none';
+  }
+
+  // ── Sidebar: render song list ───────────────────────────────────────────
+  function sbRenderSidebar() {
+    var list = document.getElementById('sbSidebarList');
+    if (!list) return;
+    var songs = songOrderSections || [];
+    var html = '<div class="sb-sidebar-cover" onclick="WO.sbScrollTo(\'top\')">'
+      + '<i class="fa-solid fa-house" style="width:16px;"></i> Cover &amp; contents</div>';
+    songs.forEach(function(s, i) {
+      var id = s.id || s.songId || ('song-' + i);
+      html += '<div class="sb-sidebar-item" id="sbSbItem-' + id + '" onclick="WO.sbScrollTo(\'' + id + '\')">'
+        + '<div class="sb-sidebar-num">' + (i + 1) + '</div>'
+        + '<div class="sb-sidebar-info">'
+        + '<div class="sb-sidebar-name">' + (s.title || 'Song ' + (i + 1)) + '</div>'
+        + (s.artist ? '<div class="sb-sidebar-artist">' + s.artist + '</div>' : '')
+        + '</div></div>';
+    });
+    list.innerHTML = html;
+  }
+
+  // ── Scroll the manuscript to a song ────────────────────────────────────
+  function sbScrollTo(songId) {
+    if (songId === 'top') {
+      var body = document.getElementById('sbBody');
+      if (body) body.scrollTop = 0;
+      return;
+    }
+    var unit = document.getElementById('sbUnit-' + songId)
+            || document.querySelector('[data-song-id="' + songId + '"]');
+    if (unit) unit.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    sbUpdateSidebarActive(songId);
+  }
+
+  // ── Update active sidebar item ──────────────────────────────────────────
+  function sbUpdateSidebarActive(songId) {
+    document.querySelectorAll('.sb-sidebar-item').forEach(function(el) {
+      el.classList.remove('active');
+    });
+    var el = document.getElementById('sbSbItem-' + songId);
+    if (el) el.classList.add('active');
+  }
+
+  // ── Update header font % display ────────────────────────────────────────
+  function sbUpdateFontPct() {
+    var pct = Math.round((sbZoom || 1) * 100) + '%';
+    var el = document.getElementById('sbFontPct');
+    if (el) el.textContent = pct;
+    var el2 = document.getElementById('sbFontSizeDisplay');
+    if (el2) el2.textContent = Math.round((sbZoom || 1) * 16) + 'px';
+  }
+
+  // ── Update save status button ───────────────────────────────────────────
+  function sbUpdateSaveBtn(dirty) {
+    var btn = document.getElementById('sbSaveStatusBtn');
+    var lbl = document.getElementById('sbSaveStatus');
+    if (!btn || !lbl) return;
+    if (dirty) {
+      btn.classList.add('dirty');
+      lbl.textContent = 'Save';
+    } else {
+      btn.classList.remove('dirty');
+      lbl.textContent = 'Saved';
+    }
+  }
+
+  // ── Selection-based partial transposition ──────────────────────────────
+  var _sbSelXpSteps = 0;
+  var _sbSelXpNodes = [];
+
+  function sbSelTranspose(delta) {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed) {
+      // No selection — transpose current whole song instead
+      var activeSong = _sbGetActiveSong();
+      if (activeSong) sbTranspose(activeSong.id, delta);
+      return;
+    }
+    _sbSelXpSteps += delta;
+    _sbApplySelXp();
+    _sbUpdateSelXpUI();
+  }
+
+  function sbSelTransposeReset() {
+    _sbSelXpSteps = 0;
+    _sbApplySelXp();
+    _sbUpdateSelXpUI();
+  }
+
+  function _sbApplySelXp() {
+    // Re-walk previously collected chord nodes and re-transpose from original
+    _sbSelXpNodes.forEach(function(rec) {
+      var el = rec.el;
+      if (!el || !el.parentNode) return;
+      // Restore original then apply current offset
+      el.textContent = rec.original;
+      if (_sbSelXpSteps !== 0) {
+        el.textContent = sbTransposeChordLine(rec.original, _sbSelXpSteps);
+      }
+    });
+  }
+
+  function _sbCollectSelChordNodes() {
+    _sbSelXpNodes = [];
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    var range = sel.getRangeAt(0);
+    var container = range.commonAncestorContainer;
+    var root = container.nodeType === 1 ? container : container.parentElement;
+    // Walk up to the sb-body level to scan chord lines in range
+    var body = document.getElementById('sbBody');
+    if (!body) return;
+    var allChord = root.querySelectorAll ? root.querySelectorAll('.wo-lyrics-chord-line') : [];
+    if (!allChord.length && body) allChord = body.querySelectorAll('.wo-lyrics-chord-line');
+    allChord.forEach(function(el) {
+      if (range.intersectsNode(el)) {
+        _sbSelXpNodes.push({ el: el, original: el.textContent });
+      }
+    });
+  }
+
+  function _sbUpdateSelXpUI() {
+    var badge = document.getElementById('sbPanelXpBadge');
+    var val = document.getElementById('sbPanelXpVal');
+    var reset = document.getElementById('sbPanelXpReset');
+    var keyLine = document.getElementById('sbPanelXpKeyLine');
+    if (val) val.textContent = (_sbSelXpSteps >= 0 ? '+' : '') + _sbSelXpSteps;
+    if (badge) {
+      badge.style.display = _sbSelXpSteps !== 0 ? '' : 'none';
+      badge.textContent = (_sbSelXpSteps >= 0 ? '+' : '') + _sbSelXpSteps;
+    }
+    if (reset) reset.style.display = _sbSelXpSteps !== 0 ? '' : 'none';
+    if (keyLine) keyLine.style.display = _sbSelXpNodes.length ? '' : 'none';
+    if (keyLine && _sbSelXpNodes.length) {
+      keyLine.textContent = _sbSelXpNodes.length + ' chord line(s) affected';
+    }
+  }
+
+  // Wire up selection change to collect chord nodes
+  document.addEventListener('selectionchange', function() {
+    var sel = window.getSelection();
+    var modal = document.getElementById('songbookLiveModal');
+    if (!modal || modal.style.display === 'none') return;
+    if (sel && !sel.isCollapsed) {
+      _sbCollectSelChordNodes();
+      var info = document.getElementById('sbSelectionInfo');
+      if (info) info.textContent = _sbSelXpNodes.length
+        ? _sbSelXpNodes.length + ' chord line(s) selected'
+        : 'Text selected';
+    }
+  });
+
+  // ── Copy with chords ────────────────────────────────────────────────────
+  function sbCopyWithChords() {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed) { showToast('Select some lyrics first', 'warning'); return; }
+    var range = sel.getRangeAt(0);
+    var container = range.commonAncestorContainer;
+    var root = container.nodeType === 1 ? container : container.parentElement;
+    var body = document.getElementById('sbBody') || root;
+    // Walk all lyric lines inside the range, include the chord line above each
+    var lines = body.querySelectorAll('.wo-lyrics-chord-line, .wo-lyrics-lyric-line, .wo-lyrics-section-header');
+    var text = '';
+    var inRange = false;
+    lines.forEach(function(el) {
+      if (range.intersectsNode(el)) inRange = true;
+      if (inRange) {
+        text += el.textContent + '\n';
+      }
+    });
+    if (!text.trim()) {
+      // Fallback: just get plain text of selection
+      text = sel.toString();
+    }
+    navigator.clipboard.writeText(text.trim()).then(function() {
+      showToast('Copied with chords', 'success');
+    }).catch(function() {
+      showToast('Copy failed — try Ctrl+C', 'warning');
+    });
+  }
+
+  // ── Duplicate below ─────────────────────────────────────────────────────
+  function sbDuplicateBelow() {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed) { showToast('Select lines to duplicate', 'warning'); return; }
+    var range = sel.getRangeAt(0);
+    var body = document.getElementById('sbBody');
+    if (!body) return;
+    // Find the lyric lines in range and their matching chord lines
+    var allLines = body.querySelectorAll('.wo-lyrics-chord-line, .wo-lyrics-lyric-line, .wo-lyrics-section-header');
+    var toClone = [];
+    allLines.forEach(function(el) {
+      if (range.intersectsNode(el)) toClone.push(el);
+    });
+    if (!toClone.length) { showToast('No lyric lines selected', 'warning'); return; }
+    // Find last element in range to insert after
+    var last = toClone[toClone.length - 1];
+    var insertAfter = last.nextSibling || last;
+    var parent = last.parentNode;
+    if (!parent) return;
+    // Clone and insert
+    var fragment = document.createDocumentFragment();
+    toClone.forEach(function(el) {
+      fragment.appendChild(el.cloneNode(true));
+    });
+    parent.insertBefore(fragment, insertAfter.nextSibling || null);
+    showToast('Duplicated ' + toClone.length + ' line(s)', 'success');
+  }
+
+  // ── Helper: get the active/focused song ────────────────────────────────
+  function _sbGetActiveSong() {
+    var songs = songOrderSections || [];
+    return songs.length ? songs[0] : null;
   }
 
   function _sbInitPinch() {
@@ -46045,6 +46371,18 @@ var WO = (function() {
     restoreSongSlides: restoreSongSlides,
     sbRemoveSong: sbRemoveSong,
     sbGoToOrder: sbGoToOrder,
+    // Songbook redesign — new panel/sidebar/selection functions
+    sbPanelTab: sbPanelTab,
+    sbToggleMore: sbToggleMore,
+    sbFontInc: sbFontInc,
+    sbFontDec: sbFontDec,
+    sbRenderSidebar: sbRenderSidebar,
+    sbScrollTo: sbScrollTo,
+    sbUpdateSidebarActive: sbUpdateSidebarActive,
+    sbSelTranspose: sbSelTranspose,
+    sbSelTransposeReset: sbSelTransposeReset,
+    sbCopyWithChords: sbCopyWithChords,
+    sbDuplicateBelow: sbDuplicateBelow,
     sbDragStart: sbDragStart,
     sbDragOver: sbDragOver,
     sbDrop: sbDrop,
@@ -53837,7 +54175,84 @@ function filterLiturgyItems() {
   /* ===============================================================
      338 — Worship Songbook Live View
   =============================================================== */
-  #songbookLiveModal { background:#f0f4f8; }
+  #songbookLiveModal { background:#141e2e; }
+
+  /* ── Header layout ─────────────────────────────────────────────────────── */
+  .sb-header { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:linear-gradient(135deg,#1e3a8a,#2563eb); color:white; flex-shrink:0; gap:12px; position:relative; z-index:3000; min-height:52px; }
+  .sb-header-center { display:flex; align-items:center; gap:6px; flex:1; justify-content:center; flex-wrap:wrap; }
+  .sb-header-right { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+  .sb-icon-btn { padding:7px 11px !important; }
+  .sb-font-size-grp { display:flex; align-items:center; gap:2px; background:rgba(255,255,255,0.1); border-radius:8px; padding:2px 4px; }
+  .sb-font-pct { font-size:0.78rem; color:rgba(255,255,255,0.85); min-width:38px; text-align:center; font-weight:500; }
+  .sb-saved-btn { background:rgba(16,185,129,0.2) !important; border-color:#6ee7b7 !important; color:#a7f3d0 !important; }
+  .sb-saved-btn.dirty { background:rgba(251,191,36,0.2) !important; border-color:#fbbf24 !important; color:#fde68a !important; }
+
+  /* ── Draw bar ──────────────────────────────────────────────────────────── */
+  .sb-draw-bar { display:flex; align-items:center; gap:8px; padding:6px 16px; background:#1a2840; border-bottom:1px solid rgba(255,255,255,0.1); flex-shrink:0; flex-wrap:wrap; }
+
+  /* ── Three-panel layout ────────────────────────────────────────────────── */
+  .sb-layout { display:flex; flex:1; overflow:hidden; min-height:0; }
+
+  /* Left sidebar */
+  .sb-sidebar { width:220px; flex-shrink:0; background:#0f1a2b; border-right:1px solid rgba(255,255,255,0.08); display:flex; flex-direction:column; overflow:hidden; }
+  .sb-sidebar-hdr { font-size:0.65rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:rgba(255,255,255,0.45); padding:14px 16px 8px; flex-shrink:0; }
+  .sb-sidebar-list { flex:1; overflow-y:auto; padding:4px 0 16px; }
+  .sb-sidebar-item { display:flex; align-items:center; gap:10px; padding:9px 16px; cursor:pointer; transition:background 0.15s; border-left:3px solid transparent; }
+  .sb-sidebar-item:hover { background:rgba(255,255,255,0.06); }
+  .sb-sidebar-item.active { background:rgba(13,148,136,0.18); border-left-color:#0d9488; }
+  .sb-sidebar-num { width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,0.12); color:white; display:flex; align-items:center; justify-content:center; font-size:0.72rem; font-weight:700; flex-shrink:0; }
+  .sb-sidebar-item.active .sb-sidebar-num { background:#0d9488; }
+  .sb-sidebar-info { min-width:0; }
+  .sb-sidebar-name { color:rgba(255,255,255,0.85); font-size:0.8rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sb-sidebar-artist { color:rgba(255,255,255,0.4); font-size:0.7rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sb-sidebar-cover { display:flex; align-items:center; gap:10px; padding:9px 16px 9px 19px; cursor:pointer; color:rgba(255,255,255,0.5); font-size:0.8rem; border-bottom:1px solid rgba(255,255,255,0.06); margin-bottom:4px; }
+  .sb-sidebar-cover:hover { color:rgba(255,255,255,0.8); }
+
+  /* Center manuscript */
+  .sb-center { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
+  .sb-body { flex:1; overflow-y:auto; overflow-x:auto; background:#1e2d40; padding:32px 24px 80px; display:flex; flex-direction:column; align-items:center; gap:0; }
+
+  /* Song pages — cream paper */
+  .sb-song-page { background:#faf9f0; border-radius:0 0 4px 4px; box-shadow:0 4px 24px rgba(0,0,0,0.4); width:794px; box-sizing:border-box; position:relative; flex-shrink:0; padding-bottom:48px; }
+
+  /* Binder holes */
+  .sb-song-page::before {
+    content:'';
+    position:absolute;
+    left:-18px; top:40px;
+    width:14px; height:14px;
+    border-radius:50%;
+    background:#1e2d40;
+    box-shadow:0 60px 0 #1e2d40, 0 120px 0 #1e2d40, 0 180px 0 #1e2d40, 0 240px 0 #1e2d40, 0 300px 0 #1e2d40;
+  }
+
+  /* Right panel */
+  .sb-right-panel { width:240px; flex-shrink:0; background:#0f1a2b; border-left:1px solid rgba(255,255,255,0.08); display:flex; flex-direction:column; overflow:hidden; }
+  .sb-panel-tabs { display:flex; border-bottom:1px solid rgba(255,255,255,0.08); flex-shrink:0; }
+  .sb-panel-tab { flex:1; padding:10px 6px; background:none; border:none; color:rgba(255,255,255,0.45); font-size:0.78rem; font-weight:600; cursor:pointer; letter-spacing:0.03em; transition:all 0.15s; border-bottom:2px solid transparent; margin-bottom:-1px; }
+  .sb-panel-tab:hover { color:rgba(255,255,255,0.75); }
+  .sb-panel-tab.active { color:#2dd4bf; border-bottom-color:#0d9488; }
+  .sb-panel-body { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:12px; }
+  .sb-panel-info { font-size:0.75rem; color:rgba(255,255,255,0.4); text-align:center; padding:8px 0; }
+  .sb-panel-section { display:flex; flex-direction:column; gap:6px; }
+  .sb-panel-label { font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:rgba(255,255,255,0.4); }
+  .sb-panel-font-row { display:flex; align-items:center; gap:6px; }
+  .sb-panel-font-val { flex:1; text-align:center; font-size:0.9rem; font-weight:600; color:white; background:rgba(255,255,255,0.08); border-radius:6px; padding:5px; }
+  .sb-panel-btn { padding:6px 10px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:white; cursor:pointer; font-size:0.82rem; transition:background 0.15s; }
+  .sb-panel-btn:hover { background:rgba(255,255,255,0.18); }
+  .sb-panel-btn--reset { background:rgba(239,68,68,0.15) !important; border-color:rgba(239,68,68,0.4) !important; color:#fca5a5 !important; font-size:0.72rem !important; }
+  .sb-annot-colors { display:flex; align-items:center; gap:6px; }
+  .sb-annot-color { width:28px; height:28px; border-radius:50%; border:2px solid transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s; flex-shrink:0; }
+  .sb-annot-color:hover { transform:scale(1.15); }
+  .sb-annot-color.active { border-color:white; box-shadow:0 0 0 2px rgba(255,255,255,0.4); }
+  .sb-panel-xp-row { display:flex; align-items:center; gap:6px; }
+  .sb-panel-xp-val { flex:1; text-align:center; font-size:1rem; font-weight:700; color:#2dd4bf; background:rgba(13,148,136,0.15); border-radius:6px; padding:5px; }
+  .sb-panel-xp-key { font-size:0.75rem; color:rgba(255,255,255,0.5); text-align:center; }
+  .sb-xp-badge { display:inline-block; font-size:0.7rem; font-weight:700; background:rgba(13,148,136,0.25); color:#2dd4bf; border:1px solid rgba(13,148,136,0.4); border-radius:10px; padding:1px 7px; margin-left:6px; }
+  .sb-panel-action { display:flex; align-items:center; gap:8px; width:100%; padding:9px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:rgba(255,255,255,0.8); cursor:pointer; font-size:0.8rem; font-weight:500; transition:all 0.15s; text-align:left; }
+  .sb-panel-action:hover { background:rgba(255,255,255,0.12); color:white; }
+  .sb-media-panel-inner { display:flex; flex-direction:column; gap:8px; }
+
   /* ── Fullscreen mode ───────────────────────────────────────────────────── */
   #songbookLiveModal.sb-live-fullscreen .sb-header {
     position: absolute; top: 0; left: 0; right: 0;
@@ -53849,9 +54264,24 @@ function filterLiturgyItems() {
     transform: translateY(0);
     box-shadow: 0 4px 24px rgba(0,0,0,0.35);
   }
+  #songbookLiveModal.sb-live-fullscreen .sb-draw-bar {
+    display: none !important;
+  }
+  #songbookLiveModal.sb-live-fullscreen .sb-sidebar,
+  #songbookLiveModal.sb-live-fullscreen .sb-right-panel { display: none; }
   #songbookLiveModal.sb-live-fullscreen .sb-body {
     height: 100vh;
     padding-top: 16px;
+    background: #0d1520;
+  }
+  @media (max-width: 900px) {
+    .sb-sidebar { display: none; }
+    .sb-right-panel { display: none; }
+    .sb-header-center { gap: 4px; }
+  }
+  @media (max-width: 600px) {
+    .sb-header { padding: 6px 10px; gap: 6px; }
+    .sb-header-brand .sb-header-order { display: none; }
   }
   /* Hover zone — invisible strip at top that reveals toolbar */
   .sb-fs-hover-zone {
