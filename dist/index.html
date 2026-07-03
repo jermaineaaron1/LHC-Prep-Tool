@@ -8149,25 +8149,6 @@ I once was lost but now am found"
       </div>
     </div>
 
-    <!-- ── DRAW EXTRAS BAR (shown when annotate mode active) ── -->
-    <div class="sb-draw-bar" id="sbDrawExtras" style="display:none;">
-      <button class="sb-tool-btn" id="sbEraseToggle" onclick="WO.sbToggleEraseMode()" title="Erase strokes"><i class="fa-solid fa-eraser"></i><span>Erase</span></button>
-      <span class="sb-group-divider"></span>
-      <div class="sb-color-swatches">
-        <button class="sb-color-btn active" data-color="#111111" onclick="WO.sbSetDrawColor('#111111',this)" title="Black" style="background:#111111;"></button>
-        <button class="sb-color-btn" data-color="#2563eb" onclick="WO.sbSetDrawColor('#2563eb',this)" title="Blue" style="background:#2563eb;"></button>
-        <button class="sb-color-btn" data-color="#dc2626" onclick="WO.sbSetDrawColor('#dc2626',this)" title="Red" style="background:#dc2626;"></button>
-        <button class="sb-color-btn" data-color="#ca8a04" onclick="WO.sbSetDrawColor('#ca8a04',this)" title="Yellow" style="background:#ca8a04;"></button>
-        <button class="sb-color-btn" data-color="#16a34a" onclick="WO.sbSetDrawColor('#16a34a',this)" title="Green" style="background:#16a34a;"></button>
-      </div>
-      <span class="sb-group-divider"></span>
-      <div class="sb-thickness-btns">
-        <button class="sb-thick-btn active" id="sbThickThin" onclick="WO.sbSetDrawSize(1,this)" title="Thin"><span class="sb-thick-dot" style="width:2px;height:2px;"></span></button>
-        <button class="sb-thick-btn" id="sbThickMed" onclick="WO.sbSetDrawSize(3,this)" title="Medium"><span class="sb-thick-dot" style="width:5px;height:5px;"></span></button>
-        <button class="sb-thick-btn" id="sbThickThk" onclick="WO.sbSetDrawSize(6,this)" title="Thick"><span class="sb-thick-dot" style="width:9px;height:9px;"></span></button>
-      </div>
-    </div>
-
     <!-- Fullscreen hover zone -->
     <div id="sbFsHoverZone" class="sb-fs-hover-zone" onmouseenter="WO.sbFsRevealHeader()" ontouchstart="WO.sbFsRevealHeader()"></div>
 
@@ -8253,6 +8234,39 @@ I once was lost but now am found"
       </div>
 
     </div><!-- end .sb-layout -->
+
+    <aside class="sb-annot-palette" id="sbAnnotPalette" aria-hidden="true" aria-label="Annotation tools">
+      <div class="sb-annot-palette-head">
+        <span><i class="fa-solid fa-pen-ruler"></i> Annotate</span>
+        <button onclick="WO.sbCloseAnnotPalette()" title="Dismiss annotation tools"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <button class="sb-annot-tool active" data-tool="pen" onclick="WO.sbSelectAnnotTool('pen',this)"><i class="fa-solid fa-pen"></i><span>Pen</span></button>
+      <button class="sb-annot-tool" data-tool="highlighter" onclick="WO.sbSelectAnnotTool('highlighter',this)"><i class="fa-solid fa-highlighter"></i><span>Highlighter</span></button>
+      <button class="sb-annot-tool" data-tool="eraser" onclick="WO.sbSelectAnnotTool('eraser',this)"><i class="fa-solid fa-eraser"></i><span>Eraser</span></button>
+      <div class="sb-annot-rule"></div>
+      <div class="sb-annot-pair">
+        <button onclick="WO.sbUndo()" title="Undo"><i class="fa-solid fa-rotate-left"></i><span>Undo</span></button>
+        <button onclick="WO.sbRedo()" title="Redo"><i class="fa-solid fa-rotate-right"></i><span>Redo</span></button>
+      </div>
+      <div class="sb-annot-rule"></div>
+      <div class="sb-annot-label">Stroke size</div>
+      <div class="sb-annot-strokes">
+        <button class="sb-thick-btn active" onclick="WO.sbSelectAnnotSize(1,this)" title="Fine" aria-label="Fine stroke"><span class="sb-thick-dot" style="width:3px;height:3px;"></span></button>
+        <button class="sb-thick-btn" onclick="WO.sbSelectAnnotSize(3,this)" title="Medium" aria-label="Medium stroke"><span class="sb-thick-dot" style="width:6px;height:6px;"></span></button>
+        <button class="sb-thick-btn" onclick="WO.sbSelectAnnotSize(6,this)" title="Bold" aria-label="Bold stroke"><span class="sb-thick-dot" style="width:10px;height:10px;"></span></button>
+      </div>
+      <div class="sb-annot-label">Ink color</div>
+      <div class="sb-annot-colors">
+        <button class="sb-color-btn active" onclick="WO.sbSelectAnnotColor('#111111',this)" title="Black" style="background:#111111;"></button>
+        <button class="sb-color-btn" onclick="WO.sbSelectAnnotColor('#2563eb',this)" title="Blue" style="background:#2563eb;"></button>
+        <button class="sb-color-btn" onclick="WO.sbSelectAnnotColor('#dc2626',this)" title="Red" style="background:#dc2626;"></button>
+        <button class="sb-color-btn" onclick="WO.sbSelectAnnotColor('#facc15',this)" title="Yellow" style="background:#facc15;"></button>
+        <button class="sb-color-btn" onclick="WO.sbSelectAnnotColor('#10b981',this)" title="Green" style="background:#10b981;"></button>
+        <button class="sb-color-btn" onclick="WO.sbSelectAnnotColor('#f472b6',this)" title="Pink" style="background:#f472b6;"></button>
+      </div>
+      <button class="sb-annot-clear" onclick="WO.sbClearActiveDraw()" title="Clear all annotations"><i class="fa-solid fa-trash-can"></i><span>Clear all</span></button>
+      <div class="sb-annot-hint">Use two fingers to scroll while annotating</div>
+    </aside>
 
     <!-- Full-viewport drawing canvas -->
     <svg id="sbFullCanvas" style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2999;pointer-events:none;display:block;"></svg>
@@ -32517,6 +32531,10 @@ var WO = (function() {
     if (_fc) _fc.innerHTML = '';
     var drawBtn = $('sbDrawToggle');
     if (drawBtn) drawBtn.classList.remove('active');
+    var annotPalette = $('sbAnnotPalette');
+    if (annotPalette) annotPalette.setAttribute('aria-hidden', 'true');
+    var liveModal = $('songbookLiveModal');
+    if (liveModal) liveModal.classList.remove('sb-annot-open');
     var eraseBtn = $('sbEraseToggle');
     if (eraseBtn) { eraseBtn.classList.remove('active'); eraseBtn.style.display = 'none'; }
     var drawExtras = $('sbDrawExtras');
@@ -34425,12 +34443,23 @@ var WO = (function() {
 
   function sbToggleDrawMode(force) {
     var wasActive = sbDrawMode;
+    var modal = $('songbookLiveModal');
+    var palette = $('sbAnnotPalette');
+    var paletteOpen = !!(modal && modal.classList.contains('sb-annot-open'));
+
+    // If drawing is still active after the palette was dismissed, the Annotate
+    // button reopens the tools instead of unexpectedly turning drawing off.
+    if (typeof force !== 'boolean' && sbDrawMode && !paletteOpen) {
+      if (modal) modal.classList.add('sb-annot-open');
+      if (palette) palette.setAttribute('aria-hidden', 'false');
+      sbSetFullCanvasActive(true);
+      return;
+    }
+
     sbDrawMode = typeof force === 'boolean' ? force : !sbDrawMode;
     sbEraseMode = false;
     var btn = $('sbDrawToggle');
     var eraseBtn = $('sbEraseToggle');
-    var modal = $('songbookLiveModal');
-    var palette = $('sbAnnotPalette');
     if (btn) btn.classList.toggle('active', sbDrawMode);
     if (eraseBtn) {
       eraseBtn.classList.remove('active');
@@ -34496,7 +34525,10 @@ var WO = (function() {
   }
 
   function sbCloseAnnotPalette() {
-    if (sbDrawMode) sbToggleDrawMode(false);
+    var modal = $('songbookLiveModal');
+    var palette = $('sbAnnotPalette');
+    if (modal) modal.classList.remove('sb-annot-open');
+    if (palette) palette.setAttribute('aria-hidden', 'true');
   }
 
   function sbOpenAnnotPaletteFromPage() {
@@ -55895,10 +55927,10 @@ function filterLiturgyItems() {
   #songbookLiveModal { background:#141e2e; }
 
   /* ── Header layout ─────────────────────────────────────────────────────── */
-  .sb-header { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:linear-gradient(135deg,#1e3a8a,#2563eb); color:white; flex-shrink:0; gap:12px; position:relative; z-index:3000; min-height:52px; }
-  .sb-header-center { display:flex; align-items:center; gap:6px; flex:1; justify-content:center; flex-wrap:wrap; }
-  .sb-header-right { display:flex; align-items:center; gap:6px; flex-shrink:0; }
-  .sb-icon-btn { padding:7px 11px !important; }
+  .sb-header { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:linear-gradient(135deg,#1e3a8a,#2563eb); color:white; flex-shrink:0; gap:12px; flex-wrap:nowrap; position:relative; z-index:3000; min-height:52px; }
+  .sb-header-center { display:flex; align-items:center; gap:6px; flex:1 1 auto; min-width:0; justify-content:center; flex-wrap:nowrap; }
+  .sb-header-right { display:flex; align-items:center; gap:6px; flex:0 1 auto; min-width:0; flex-wrap:nowrap; }
+  .sb-icon-btn { padding:7px 10px !important; }
   .sb-font-size-grp { display:flex; align-items:center; gap:2px; background:rgba(255,255,255,0.1); border-radius:8px; padding:2px 4px; }
   .sb-font-pct { font-size:0.78rem; color:rgba(255,255,255,0.85); min-width:38px; text-align:center; font-weight:500; }
   .sb-saved-btn { background:rgba(16,185,129,0.2) !important; border-color:#6ee7b7 !important; color:#a7f3d0 !important; }
@@ -56035,7 +56067,7 @@ function filterLiturgyItems() {
   .sb-snap-zoom-btns button:hover { background: rgba(255,255,255,0.3); }
   .sb-snap-zoom-btns span { color: white; font-size: 0.72rem; min-width: 34px; text-align: center; }
 
-  .sb-header { display:flex; align-items:center; justify-content:space-between; padding:10px 20px; background:linear-gradient(135deg,#1e3a8a,#2563eb); color:white; flex-shrink:0; gap:16px; flex-wrap:wrap; position:relative; z-index:3000; }
+  .sb-header { display:flex; align-items:center; justify-content:space-between; padding:10px 20px; background:linear-gradient(135deg,#1e3a8a,#2563eb); color:white; flex-shrink:0; gap:16px; flex-wrap:nowrap; position:relative; z-index:3000; }
   .sb-header-brand { display:flex; align-items:center; gap:12px; }
   .sb-header-title { font-size:1.2rem; font-weight:700; font-family:'Cinzel',Georgia,serif; letter-spacing:0.04em; line-height:1.2; }
   .sb-header-order { font-size:1rem; font-weight:600; opacity:0.9; margin-top:2px; }
@@ -57371,10 +57403,10 @@ function filterLiturgyItems() {
   .sb-annot-palette {
     position:fixed; z-index:3220; left:18px; top:50%;
     width:132px; padding:10px; display:flex; flex-direction:column; gap:5px;
-    border:1px solid rgba(125,211,252,.28); border-radius:16px;
-    background:linear-gradient(180deg,rgba(15,42,67,.97),rgba(8,27,48,.98));
+    border:1px solid rgba(255,255,255,.08); border-radius:16px;
+    background:#0f1a2b;
     box-shadow:0 18px 50px rgba(0,0,0,.45),inset 0 1px rgba(255,255,255,.08);
-    color:#e8f3fb; font-family:'Poppins',sans-serif;
+    color:rgba(255,255,255,.85); font-family:'Poppins',sans-serif;
     opacity:0; visibility:hidden; pointer-events:none;
     transform:translate(-12px,-50%) scale(.96);
     transition:opacity .18s ease,transform .18s ease,visibility .18s;
@@ -61607,12 +61639,12 @@ window.LHC_Install = (function() {
   /* Stable desktop toolbar: editing tools, document actions, then close. */
   @media (min-width:1000px) {
     #songbookLiveModal .sb-header {
-      display:grid !important;
-      grid-template-columns:minmax(245px,1fr) auto;
-      min-height:84px !important;
-      padding:10px 18px !important;
+      display:flex !important;
+      min-height:64px !important;
+      padding:8px 16px !important;
       align-items:center !important;
-      gap:18px !important;
+      gap:12px !important;
+      flex-wrap:nowrap !important;
     }
     #songbookLiveModal .sb-header-brand {
       position:static !important;
@@ -61620,6 +61652,16 @@ window.LHC_Install = (function() {
       min-width:0;
       flex:none !important;
       align-self:center !important;
+    }
+    #songbookLiveModal .sb-header-center {
+      flex:1 1 auto;
+      min-width:0;
+      flex-wrap:nowrap;
+    }
+    #songbookLiveModal .sb-header-right {
+      flex:0 1 auto;
+      min-width:0;
+      flex-wrap:nowrap;
     }
     #songbookLiveModal .sb-header-toolbar {
       position:static !important;
@@ -61654,6 +61696,10 @@ window.LHC_Install = (function() {
     }
     #songbookLiveModal .sb-header-toolbar>.sb-close-btn { grid-column:3 !important; }
     #songbookLiveModal .sb-annot-palette { left:max(18px,calc(50vw - 560px)); }
+  }
+
+  @media (min-width:601px) and (max-width:1100px) {
+    #songbookLiveModal .sb-header-right .sb-tool-btn span { display:none; }
   }
 
   /* The editable source itself is the two-column view: no clipped clone layer. */

@@ -165,7 +165,17 @@ Defined in `.env.local` (not committed). Template at `.env.local.example`.
 
 ---
 
-## Recent Session Notes (2026-07-03)
+## Recent Session Notes (2026-07-04)
+
+### Songbook annotation palette and header overflow — branch `fix/songbook-annotation-header`
+
+- Restored the floating `#sbAnnotPalette` lost during the 3-panel redesign merge, with Pen, Highlighter, Eraser, Undo/Redo, Fine/Medium/Bold stroke sizes, six ink colors, and Clear all controls.
+- Removed the obsolete `#sbDrawExtras` strip. Palette controls reuse the existing annotation engine and remain available in fullscreen.
+- Palette dismissal now hides only the tools; drawing remains active. Clicking Annotate reopens a dismissed palette, while clicking Annotate again with the palette open disables draw mode normally.
+- Forced the Songbook header and control groups to remain on one row, compacted icon controls, and collapse right-side labels at narrow desktop widths.
+- Browser verification at 1440×900 and 1100×800 confirmed no header overflow, correct compact-label behavior, palette open/dismiss/reopen behavior, and fullscreen palette visibility. Console errors: 0. Inline scripts in both HTML copies parse successfully. `npm run lint` remains unavailable because the repository has ESLint 9 but no `eslint.config.*` file.
+
+## Previous Session Notes (2026-07-03)
 
 ### Worship Songbook Redesign — branch `feature/songbook-redesign`
 
