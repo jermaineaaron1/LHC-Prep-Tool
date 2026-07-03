@@ -31222,6 +31222,7 @@ var WO = (function() {
     var nameEl = $('sbOrderNameDisplay');
     if (nameEl) nameEl.textContent = orderTitle || 'Worship Songbook';
     function _sbCalcFitZoom() {
+      if (window.innerWidth <= 820) return 1;
       var body = document.getElementById('sbBody');
       var bw = (body && body.clientWidth > 0) ? body.clientWidth : window.innerWidth;
       var pad = 48;
@@ -31251,6 +31252,7 @@ var WO = (function() {
     // Reset zoom — 100% when page fits the screen, fit zoom when it doesn't.
     // Recalculates automatically on resize / orientation change.
     function _sbCalcFitZoom() {
+      if (window.innerWidth <= 820) return 1;
       // body.clientWidth is 0 while the modal is still display:none, so always
       // fall back to window.innerWidth in that case (modal covers the full window).
       var body = document.getElementById('sbBody');
@@ -32303,6 +32305,21 @@ var WO = (function() {
     var wrap = document.getElementById('sbZoomWrap');
     var body = document.getElementById('sbBody');
     if (!wrap) return;
+
+    // Phones use a native reflowed page rather than shrinking the 794px A4 canvas.
+    if (window.innerWidth <= 820) {
+      sbZoom = 1;
+      wrap.style.transform = 'none';
+      wrap.style.marginBottom = '';
+      wrap.style.transformOrigin = 'top center';
+      wrap.style.alignItems = 'stretch';
+      if (body) { body.style.alignItems = 'stretch'; body.scrollLeft = 0; }
+      var mobileSpacer = document.getElementById('sbHorzSpacer');
+      if (mobileSpacer) mobileSpacer.style.display = 'none';
+      var mobileLabel = document.getElementById('sbZoomLabel');
+      if (mobileLabel) mobileLabel.textContent = '100%';
+      return;
+    }
 
     // A4 page width in CSS px (≈ 210 mm at 96 dpi)
     var PAGE_W  = 794;
@@ -55846,6 +55863,53 @@ function filterLiturgyItems() {
     .sb-annot-pair { grid-column:1/-1; grid-template-columns:1fr 1fr; }
     .sb-annot-strokes { grid-column:1/-1; justify-content:center; gap:18px; }
     .sb-annot-colors { grid-template-columns:repeat(6,1fr); }
+  }
+</style>
+
+<style id="sb-mobile-reading-fix-css">
+  @media (max-width:820px) {
+    #songbookLiveModal { width:100vw; height:100dvh; max-width:100vw; overflow:hidden; }
+    #songbookLiveModal .sb-header { display:flex; flex-direction:column; min-height:0; height:auto; padding:7px 9px 8px; gap:6px; overflow:visible; }
+    #songbookLiveModal .sb-header-brand { width:100%; height:34px; min-height:34px; padding:0 42px 0 0; flex:none; }
+    #songbookLiveModal .sb-header-title { font-size:.88rem; line-height:1.05; }
+    #songbookLiveModal .sb-header-order { font-size:.62rem; line-height:1.25; }
+    #songbookLiveModal .sb-header-toolbar { position:static; width:100%; max-width:100%; display:flex; align-items:center; justify-content:space-between; gap:4px; padding:0; margin:0; overflow:visible; }
+    #songbookLiveModal .sb-header-toolbar>.sb-tool-group { position:static !important; transform:none !important; display:flex; align-items:center; gap:4px; padding:0; margin:0; border:0; flex:none; }
+    #songbookLiveModal .sb-header-toolbar>.sb-tool-group:first-child>* { display:none !important; }
+    #songbookLiveModal .sb-header-toolbar #sbDrawToggle { display:inline-flex !important; width:38px !important; min-width:38px !important; }
+    #songbookLiveModal #sbSaveStatus { display:none !important; }
+    #songbookLiveModal .sb-header-toolbar .sb-tool-btn { width:38px; min-width:38px; height:38px; min-height:38px; padding:0; justify-content:center; border-radius:9px; }
+    #songbookLiveModal .sb-header-toolbar .sb-tool-btn span { display:none; }
+    #songbookLiveModal .sb-header-toolbar>.sb-close-btn { position:static !important; width:38px; min-width:38px; height:38px; padding:0; margin:0; }
+    #songbookLiveModal .sb-more-menu { position:fixed; top:88px; right:8px; left:auto; max-width:calc(100vw - 16px); }
+
+    #songbookLiveModal .sb-view-strip { width:100%; min-height:0; padding:6px 9px 7px; display:grid; grid-template-columns:1fr; gap:6px; overflow:visible; }
+    #songbookLiveModal .sb-view-tabs { width:100%; display:grid; grid-template-columns:1fr 1fr; padding:3px; }
+    #songbookLiveModal .sb-view-tabs button { min-width:0; min-height:34px; padding:6px 8px; font-size:.68rem; }
+    #songbookLiveModal .sb-view-tabs button i { font-size:.68rem; }
+    #songbookLiveModal .sb-view-actions { width:100%; margin:0; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    #songbookLiveModal .sb-autoscroll-control,#songbookLiveModal #sbGlobalColumnsBtn { width:100%; min-width:0; min-height:34px; justify-content:center; font-size:.66rem; }
+    #songbookLiveModal .sb-autoscroll-control span { display:inline; }
+
+    #songbookLiveModal .sb-workspace { display:block; flex:1; min-height:0; width:100%; overflow:hidden; }
+    #songbookLiveModal .sb-notebook-stage { display:flex; width:100%; height:100%; min-height:0; overflow:hidden; }
+    #songbookLiveModal .sb-body { display:flex; width:100%; height:100%; min-height:0; box-sizing:border-box; padding:10px 9px 88px !important; overflow-y:auto !important; overflow-x:hidden !important; align-items:stretch !important; touch-action:pan-y; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; }
+    #songbookLiveModal #sbZoomWrap { width:100% !important; min-width:0; align-items:stretch !important; transform:none !important; margin-bottom:0 !important; }
+    #songbookLiveModal .sb-index-page,#songbookLiveModal .sb-song-unit,#songbookLiveModal .sb-page-controls-bar,#songbookLiveModal .sb-song-page { width:100% !important; min-width:0 !important; max-width:none !important; box-sizing:border-box; }
+    #songbookLiveModal .sb-song-unit { align-items:stretch; margin-top:14px; filter:none; }
+    #songbookLiveModal .sb-page-controls-bar { min-height:0; padding:8px; gap:5px; border-radius:10px 10px 0 0; overflow:hidden; }
+    #songbookLiveModal .sb-ctrl-drag { min-width:0; max-width:none; flex:1 1 150px; }
+    #songbookLiveModal .sb-ctrl-title { font-size:.74rem; white-space:normal; line-height:1.2; }
+    #songbookLiveModal .sb-ctrl-artist { font-size:.58rem; }
+    #songbookLiveModal .sb-page-header-btns { width:100%; flex-wrap:nowrap; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; }
+    #songbookLiveModal .sb-page-header-btns::-webkit-scrollbar { display:none; }
+    #songbookLiveModal .sb-song-page::before { display:none; }
+    #songbookLiveModal .sb-page-header { min-height:54px; padding:10px 12px; gap:9px; }
+    #songbookLiveModal .sb-page-title { font-size:1.16rem; line-height:1.2; }
+    #songbookLiveModal .sb-page-lyrics { min-height:180px; padding:22px 17px 38px !important; font-size:1.08rem !important; line-height:1.75 !important; overflow-wrap:anywhere; }
+    #songbookLiveModal .wo-lyrics-chord-line { font-size:.82rem !important; }
+    #songbookLiveModal .sb-page-lyrics--two-col { column-count:1 !important; }
+    #songbookLiveModal #sbHorzSpacer { display:none !important; }
   }
 </style>
 
