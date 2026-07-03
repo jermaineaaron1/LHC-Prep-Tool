@@ -8100,6 +8100,38 @@ I once was lost but now am found"
       </aside>
     </div>
     <button class="sb-fullscreen-exit" id="sbFullscreenExit" onclick="WO.sbToggleLiveFullscreen(false)" title="Exit full screen"><i class="fa-solid fa-compress"></i><span>Exit Full Screen</span></button>
+    <aside class="sb-annot-palette" id="sbAnnotPalette" aria-hidden="true" aria-label="Annotation tools">
+      <div class="sb-annot-palette-head">
+        <span><i class="fa-solid fa-pen-ruler"></i> Annotate</span>
+        <button onclick="WO.sbCloseAnnotPalette()" title="Close annotation tools"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <button class="sb-annot-tool active" data-tool="pen" onclick="WO.sbSelectAnnotTool('pen',this)"><i class="fa-solid fa-pen"></i><span>Pen</span></button>
+      <button class="sb-annot-tool" data-tool="highlighter" onclick="WO.sbSelectAnnotTool('highlighter',this)"><i class="fa-solid fa-highlighter"></i><span>Highlighter</span></button>
+      <button class="sb-annot-tool" data-tool="eraser" onclick="WO.sbSelectAnnotTool('eraser',this)"><i class="fa-solid fa-eraser"></i><span>Eraser</span></button>
+      <div class="sb-annot-rule"></div>
+      <div class="sb-annot-pair">
+        <button onclick="WO.sbUndo()" title="Undo"><i class="fa-solid fa-rotate-left"></i><span>Undo</span></button>
+        <button onclick="WO.sbRedo()" title="Redo"><i class="fa-solid fa-rotate-right"></i><span>Redo</span></button>
+      </div>
+      <div class="sb-annot-rule"></div>
+      <div class="sb-annot-label">Stroke</div>
+      <div class="sb-annot-strokes">
+        <button class="sb-thick-btn active" onclick="WO.sbSelectAnnotSize(1,this)" title="Fine"><span class="sb-thick-dot" style="width:3px;height:3px;"></span></button>
+        <button class="sb-thick-btn" onclick="WO.sbSelectAnnotSize(3,this)" title="Medium"><span class="sb-thick-dot" style="width:6px;height:6px;"></span></button>
+        <button class="sb-thick-btn" onclick="WO.sbSelectAnnotSize(6,this)" title="Bold"><span class="sb-thick-dot" style="width:10px;height:10px;"></span></button>
+      </div>
+      <div class="sb-annot-label">Ink</div>
+      <div class="sb-annot-colors">
+        <button class="sb-color-btn active" onclick="WO.sbSelectAnnotColor('#111111',this)" title="Black" style="background:#111111;"></button>
+        <button class="sb-color-btn" onclick="WO.sbSelectAnnotColor('#2563eb',this)" title="Blue" style="background:#2563eb;"></button>
+        <button class="sb-color-btn" onclick="WO.sbSelectAnnotColor('#dc2626',this)" title="Red" style="background:#dc2626;"></button>
+        <button class="sb-color-btn" onclick="WO.sbSelectAnnotColor('#facc15',this)" title="Yellow" style="background:#facc15;"></button>
+        <button class="sb-color-btn" onclick="WO.sbSelectAnnotColor('#10b981',this)" title="Green" style="background:#10b981;"></button>
+        <button class="sb-color-btn" onclick="WO.sbSelectAnnotColor('#f472b6',this)" title="Pink" style="background:#f472b6;"></button>
+      </div>
+      <button class="sb-annot-clear" onclick="WO.sbClearActiveDraw()" title="Clear all annotations"><i class="fa-solid fa-trash-can"></i><span>Clear all</span></button>
+      <div class="sb-annot-hint">Use two fingers to scroll while annotating</div>
+    </aside>
     <!-- Full-viewport drawing canvas — covers entire screen so annotations work anywhere -->
     <svg id="sbFullCanvas" style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2999;pointer-events:none;display:block;"></svg>
   </div>
@@ -30843,6 +30875,9 @@ var WO = (function() {
   var sbDrawMode = false;
   var sbDrawColor = '#111111'; // default: black
   var sbDrawSize = 1;          // default: finest
+  var sbAnnotTool = 'pen';
+  var sbPenColor = '#111111';
+  var sbPenSize = 1;
   var sbDrawing = false;
   var sbCurrentPath = null;
   var sbCurrentPathData = '';
@@ -32942,24 +32977,93 @@ var WO = (function() {
 
   // ── End A4 Pagination ──────────────────────────────────────────────────────
 
-  function sbToggleDrawMode() {
-    sbDrawMode = !sbDrawMode;
+  function sbToggleDrawMode(force) {
+    var wasActive = sbDrawMode;
+    sbDrawMode = typeof force === 'boolean' ? force : !sbDrawMode;
     sbEraseMode = false;
     var btn = $('sbDrawToggle');
     var eraseBtn = $('sbEraseToggle');
-    var extras = $('sbDrawExtras');
+    var modal = $('songbookLiveModal');
+    var palette = $('sbAnnotPalette');
     if (btn) btn.classList.toggle('active', sbDrawMode);
     if (eraseBtn) {
       eraseBtn.classList.remove('active');
-      eraseBtn.style.display = sbDrawMode ? 'inline-flex' : 'none';
+      eraseBtn.style.display = 'none';
     }
-    if (extras) extras.style.display = sbDrawMode ? 'flex' : 'none';
+    if (modal) modal.classList.toggle('sb-annot-open', sbDrawMode);
+    if (palette) palette.setAttribute('aria-hidden', sbDrawMode ? 'false' : 'true');
+    if (sbDrawMode) {
+      sbAnnotTool = 'pen';
+      sbDrawColor = sbPenColor;
+      sbDrawSize = sbPenSize;
+      sbSyncAnnotToolButtons();
+    }
     sbSetFullCanvasActive(sbDrawMode);
     // Mobile back button: push a history entry when entering annotation so back exits it
-    if (sbDrawMode && window.history && window.history.pushState) {
+    if (sbDrawMode && !wasActive && window.history && window.history.pushState) {
       history.pushState({ sbAnnot: true }, '');
     }
   }
+
+  function sbSyncAnnotToolButtons() {
+    document.querySelectorAll('.sb-annot-tool').forEach(function(toolBtn) {
+      toolBtn.classList.toggle('active', toolBtn.dataset.tool === sbAnnotTool);
+    });
+  }
+
+  function sbSelectAnnotTool(tool, btn) {
+    if (!sbDrawMode) sbToggleDrawMode(true);
+    sbAnnotTool = tool || 'pen';
+    sbEraseMode = sbAnnotTool === 'eraser';
+    if (sbAnnotTool === 'highlighter') {
+      sbDrawColor = 'rgba(250, 204, 21, 0.42)';
+      sbDrawSize = 16;
+    } else if (sbAnnotTool === 'pen') {
+      sbDrawColor = sbPenColor;
+      sbDrawSize = sbPenSize;
+    }
+    sbSyncAnnotToolButtons();
+    if (btn) btn.classList.add('active');
+    sbSetFullCanvasActive(true);
+  }
+
+  function sbSelectAnnotColor(color, btn) {
+    sbPenColor = color || '#111111';
+    sbDrawColor = sbPenColor;
+    sbAnnotTool = 'pen';
+    sbEraseMode = false;
+    document.querySelectorAll('.sb-color-btn').forEach(function(b) { b.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+    sbSyncAnnotToolButtons();
+    sbSetFullCanvasActive(true);
+  }
+
+  function sbSelectAnnotSize(size, btn) {
+    sbPenSize = parseFloat(size) || 1;
+    sbDrawSize = sbPenSize;
+    sbAnnotTool = 'pen';
+    sbEraseMode = false;
+    document.querySelectorAll('.sb-thick-btn').forEach(function(b) { b.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+    sbSyncAnnotToolButtons();
+    sbSetFullCanvasActive(true);
+  }
+
+  function sbCloseAnnotPalette() {
+    if (sbDrawMode) sbToggleDrawMode(false);
+  }
+
+  function sbOpenAnnotPaletteFromPage() {
+    sbToggleDrawMode(true);
+    sbSelectAnnotTool('pen');
+    var palette = $('sbAnnotPalette');
+    if (palette) {
+      palette.classList.remove('sb-annot-pulse');
+      void palette.offsetWidth;
+      palette.classList.add('sb-annot-pulse');
+    }
+  }
+
 
   // Activate or deactivate annotation mode.
   // #sbFullCanvas is kept at pointer-events:none always — it is a visual overlay only.
@@ -44723,13 +44827,14 @@ var WO = (function() {
     body._notebookBound = true;
     body.addEventListener('scroll', sbUpdateNotebookProgress, { passive: true });
     body.addEventListener('dblclick', function(e) {
-      if (!_sbLiveFullscreen || !sbIsBlankFullscreenTarget(e.target)) return;
-      sbToggleLiveFullscreen(false);
+      if (!_sbLiveFullscreen || sbDrawMode || !sbIsBlankFullscreenTarget(e.target)) return;
+      e.preventDefault();
+      sbOpenAnnotPaletteFromPage();
     });
     body.addEventListener('touchend', function(e) {
-      if (!_sbLiveFullscreen || !sbIsBlankFullscreenTarget(e.target)) return;
+      if (!_sbLiveFullscreen || sbDrawMode || !sbIsBlankFullscreenTarget(e.target)) return;
       var now = Date.now();
-      if (now - _sbLastTapAt < 360) { e.preventDefault(); sbToggleLiveFullscreen(false); }
+      if (now - _sbLastTapAt < 360) { e.preventDefault(); sbOpenAnnotPaletteFromPage(); }
       _sbLastTapAt = now;
     }, { passive: false });
     body.addEventListener('mousemove', sbFsRevealHeader, { passive: true });
@@ -44778,6 +44883,7 @@ var WO = (function() {
       if (!document.fullscreenElement && modal.requestFullscreen) modal.requestFullscreen().catch(function() {});
       sbFsRevealHeader();
     } else {
+      if (sbDrawMode) sbToggleDrawMode(false);
       modal.classList.remove('sb-live-fs-exit-shown');
       clearTimeout(_sbFsHideTimer);
       if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function() {});
@@ -46422,6 +46528,10 @@ var WO = (function() {
     sbOnLyricsChange: sbOnLyricsChange,
     sbOnLyricsPaste: sbOnLyricsPaste,
     sbToggleDrawMode: sbToggleDrawMode,
+    sbSelectAnnotTool: sbSelectAnnotTool,
+    sbSelectAnnotColor: sbSelectAnnotColor,
+    sbSelectAnnotSize: sbSelectAnnotSize,
+    sbCloseAnnotPalette: sbCloseAnnotPalette,
     sbSetDrawColor: sbSetDrawColor,
     sbSetDrawSize: sbSetDrawSize,
     sbDrawStart: sbDrawStart,
@@ -55680,6 +55790,62 @@ function filterLiturgyItems() {
     #songbookLiveModal .sb-notebook-nav { display:none !important; }
     #songbookLiveModal #sbContentsToggle { display:none; }
     #songbookLiveModal .sb-page-controls-bar { border-radius:10px 10px 0 0; }
+  }
+</style>
+
+<style id="sb-annotation-palette-css">
+  .sb-annot-palette {
+    position:fixed; z-index:3220; left:18px; top:50%;
+    width:132px; padding:10px; display:flex; flex-direction:column; gap:5px;
+    border:1px solid rgba(125,211,252,.28); border-radius:16px;
+    background:linear-gradient(180deg,rgba(15,42,67,.97),rgba(8,27,48,.98));
+    box-shadow:0 18px 50px rgba(0,0,0,.45),inset 0 1px rgba(255,255,255,.08);
+    color:#e8f3fb; font-family:'Poppins',sans-serif;
+    opacity:0; visibility:hidden; pointer-events:none;
+    transform:translate(-12px,-50%) scale(.96);
+    transition:opacity .18s ease,transform .18s ease,visibility .18s;
+    backdrop-filter:blur(16px);
+  }
+  #songbookLiveModal.sb-annot-open .sb-annot-palette {
+    opacity:1; visibility:visible; pointer-events:auto;
+    transform:translate(0,-50%) scale(1);
+  }
+  .sb-annot-palette-head { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:2px 3px 8px; color:#a7f3d0; font-size:.72rem; font-weight:700; letter-spacing:.04em; }
+  .sb-annot-palette-head button { width:25px; height:25px; border:0; border-radius:7px; background:rgba(255,255,255,.08); color:#dbeafe; cursor:pointer; }
+  .sb-annot-tool,.sb-annot-pair button,.sb-annot-clear { border:1px solid transparent; border-radius:9px; background:transparent; color:#d7e6f2; cursor:pointer; font:500 .68rem 'Poppins',sans-serif; }
+  .sb-annot-tool { min-height:36px; display:flex; align-items:center; gap:9px; padding:7px 9px; text-align:left; }
+  .sb-annot-tool i { width:15px; color:#9fb7c9; text-align:center; }
+  .sb-annot-tool:hover,.sb-annot-tool.active { background:rgba(45,212,191,.14); border-color:rgba(94,234,212,.22); color:#f0fdfa; }
+  .sb-annot-tool.active i { color:#5eead4; }
+  .sb-annot-tool[data-tool="highlighter"].active { background:rgba(250,204,21,.15); border-color:rgba(250,204,21,.28); }
+  .sb-annot-tool[data-tool="highlighter"].active i { color:#fde047; }
+  .sb-annot-tool[data-tool="eraser"].active { background:rgba(251,113,133,.14); border-color:rgba(251,113,133,.28); }
+  .sb-annot-tool[data-tool="eraser"].active i { color:#fda4af; }
+  .sb-annot-rule { height:1px; margin:4px 2px; background:rgba(148,163,184,.17); }
+  .sb-annot-pair { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  .sb-annot-pair button { min-height:39px; padding:5px 2px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; background:rgba(255,255,255,.045); font-size:.57rem; }
+  .sb-annot-pair button:hover { background:rgba(255,255,255,.1); }
+  .sb-annot-label { padding:1px 3px; color:#7f9bb0; font-size:.54rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+  .sb-annot-strokes { display:flex; align-items:center; justify-content:space-between; padding:3px; border-radius:9px; background:rgba(2,13,24,.35); }
+  .sb-annot-palette .sb-thick-btn { width:33px; height:31px; }
+  .sb-annot-palette .sb-thick-dot { background:#f8fafc; }
+  .sb-annot-colors { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; padding:5px 4px 7px; }
+  .sb-annot-palette .sb-color-btn { width:27px; height:27px; justify-self:center; border:2px solid rgba(255,255,255,.28); box-shadow:0 2px 6px rgba(0,0,0,.28); }
+  .sb-annot-palette .sb-color-btn.active { border-color:white; outline:2px solid rgba(94,234,212,.6); outline-offset:2px; }
+  .sb-annot-clear { min-height:34px; display:flex; align-items:center; justify-content:center; gap:7px; margin-top:2px; color:#fda4af; background:rgba(244,63,94,.08); border-color:rgba(251,113,133,.16); }
+  .sb-annot-clear:hover { background:rgba(244,63,94,.16); }
+  .sb-annot-hint { padding:5px 3px 1px; color:#668399; font-size:.5rem; line-height:1.35; text-align:center; }
+  .sb-annot-pulse { animation:sbAnnotPalettePulse .34s ease; }
+  @keyframes sbAnnotPalettePulse { 50% { box-shadow:0 18px 55px rgba(0,0,0,.48),0 0 0 4px rgba(45,212,191,.24); } }
+  #songbookLiveModal.sb-live-fullscreen.sb-annot-open .sb-fullscreen-exit { opacity:.72; pointer-events:auto; transform:none; }
+  @media(max-width:820px) {
+    .sb-annot-palette { left:50%; top:auto; bottom:12px; width:min(94vw,430px); max-height:48vh; overflow-y:auto; display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:9px; transform:translate(-50%,14px) scale(.97); }
+    #songbookLiveModal.sb-annot-open .sb-annot-palette { transform:translate(-50%,0) scale(1); }
+    .sb-annot-palette-head,.sb-annot-rule,.sb-annot-label,.sb-annot-colors,.sb-annot-hint,.sb-annot-clear { grid-column:1/-1; }
+    .sb-annot-tool { justify-content:center; }
+    .sb-annot-pair { grid-column:1/-1; grid-template-columns:1fr 1fr; }
+    .sb-annot-strokes { grid-column:1/-1; justify-content:center; gap:18px; }
+    .sb-annot-colors { grid-template-columns:repeat(6,1fr); }
   }
 </style>
 
