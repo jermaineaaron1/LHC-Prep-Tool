@@ -33071,6 +33071,8 @@ var WO = (function() {
   }
 
   function sbOpenAnnotPaletteFromPage() {
+    var focused = document.activeElement;
+    if (focused && focused.closest && focused.closest('.sb-page-lyrics')) focused.blur();
     sbToggleDrawMode(true);
     sbSelectAnnotTool('pen');
     var palette = $('sbAnnotPalette');
@@ -44858,7 +44860,9 @@ var WO = (function() {
   }
 
   function sbIsBlankFullscreenTarget(target) {
-    return !(target && target.closest && target.closest('button,a,input,select,textarea,iframe,[contenteditable="true"],.sb-draw-svg,.sb-text-annot-layer'));
+    if (!target || !target.closest) return false;
+    if (target.closest('button,a,input,select,textarea,iframe,.sb-annot-palette,.sb-fullscreen-exit')) return false;
+    return !!target.closest('.sb-song-page,.sb-page-canvas-wrap,.sb-page-lyrics,.sb-snap-annot-wrap');
   }
 
   function sbOpenDockPlayer(songId, url, title) {
