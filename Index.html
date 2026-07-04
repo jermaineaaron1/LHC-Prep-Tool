@@ -8058,6 +8058,29 @@ I once was lost but now am found"
     <!-- Fullscreen hover zone -->
     <div id="sbFsHoverZone" class="sb-fs-hover-zone" onmouseenter="WO.sbFsRevealHeader()" ontouchstart="WO.sbFsRevealHeader()"></div>
 
+    <!-- ── FLOATING FORMAT TOOLBAR (appears on text selection, like Word's mini-toolbar) ── -->
+    <div id="sbFloatToolbar" class="sb-float-toolbar" style="display:none;" onmousedown="event.preventDefault()">
+      <select id="sbFtFamilySel" class="sb-ft-sel" onchange="WO.sbAppearChange('lyricFamily',this.value)" title="Font family">
+        <option value="Georgia,serif">Georgia</option>
+        <option value="'Palatino Linotype',Palatino,serif">Palatino</option>
+        <option value="'Times New Roman',Times,serif">Times NR</option>
+        <option value="Arial,sans-serif">Arial</option>
+        <option value="'Trebuchet MS',sans-serif">Trebuchet</option>
+      </select>
+      <div class="sb-ft-sep"></div>
+      <button class="sb-ft-btn" onclick="WO.sbAppearStep('lyricSize',-1)" title="Decrease font size"><b>A</b><sup style="font-size:0.6em;line-height:0">−</sup></button>
+      <button class="sb-ft-btn" onclick="WO.sbAppearStep('lyricSize',1)" title="Increase font size"><b>A</b><sup style="font-size:0.6em;line-height:0">+</sup></button>
+      <div class="sb-ft-sep"></div>
+      <button class="sb-ft-btn" id="sbFtBoldBtn" onclick="WO.sbAppearToggle('lyricBold',this)" title="Bold"><b>B</b></button>
+      <button class="sb-ft-btn" id="sbFtItalicBtn" onclick="WO.sbAppearToggle('lyricItalic',this)" title="Italic"><i>I</i></button>
+      <div class="sb-ft-sep"></div>
+      <button class="sb-ft-color" style="background:#1e293b;" onclick="WO.sbAppearColor('lyricColor','#1e293b',null)" title="Dark"></button>
+      <button class="sb-ft-color" style="background:#1d4ed8;" onclick="WO.sbAppearColor('lyricColor','#1d4ed8',null)" title="Blue"></button>
+      <button class="sb-ft-color" style="background:#dc2626;" onclick="WO.sbAppearColor('lyricColor','#dc2626',null)" title="Red"></button>
+      <button class="sb-ft-color" style="background:#16a34a;" onclick="WO.sbAppearColor('lyricColor','#16a34a',null)" title="Green"></button>
+      <button class="sb-ft-color" style="background:#7c3aed;" onclick="WO.sbAppearColor('lyricColor','#7c3aed',null)" title="Purple"></button>
+    </div>
+
     <!-- ── THREE-PANEL LAYOUT ── -->
     <div class="sb-layout" id="sbLayout">
 
@@ -8081,86 +8104,15 @@ I once was lost but now am found"
         </div>
       </div>
 
-      <!-- RIGHT: Annotate / Appearance / Media panel -->
+      <!-- RIGHT: Appearance / Media panel -->
       <div id="sbRightPanel" class="sb-right-panel">
         <div class="sb-panel-tabs">
-          <button class="sb-panel-tab active" id="sbTabAnnotate" onclick="WO.sbPanelTab('annotate',this)">Annotate</button>
-          <button class="sb-panel-tab" id="sbTabAppearance" onclick="WO.sbPanelTab('appearance',this)">Appear</button>
+          <button class="sb-panel-tab active" id="sbTabAppearance" onclick="WO.sbPanelTab('appearance',this)">Appear</button>
           <button class="sb-panel-tab" id="sbTabMedia" onclick="WO.sbPanelTab('media',this)">Media</button>
         </div>
 
-        <!-- Annotate tab -->
-        <div id="sbAnnotatePanel" class="sb-panel-body">
-          <div class="sb-panel-section">
-            <div class="sb-panel-label">Tool</div>
-            <div class="sb-annot-tools">
-              <button class="sb-annot-tool-btn active" id="sbToolHighlight" onclick="WO.sbActivateTool('highlight',this)" title="Highlight selected text">
-                <i class="fa-solid fa-highlighter"></i><span>Highlight</span>
-              </button>
-              <button class="sb-annot-tool-btn" id="sbToolDraw" onclick="WO.sbActivateTool('draw',this)" title="Freehand draw">
-                <i class="fa-solid fa-pen"></i><span>Draw</span>
-              </button>
-              <button class="sb-annot-tool-btn" id="sbToolNote" onclick="WO.sbActivateTool('note',this)" title="Click to place a note">
-                <i class="fa-regular fa-comment"></i><span>Note</span>
-              </button>
-              <button class="sb-annot-tool-btn" id="sbToolEraser" onclick="WO.sbActivateTool('eraser',this)" title="Erase annotations">
-                <i class="fa-solid fa-eraser"></i><span>Erase</span>
-              </button>
-            </div>
-          </div>
-          <div class="sb-tool-hint" id="sbToolHint">Select text then click Highlight</div>
-
-          <div class="sb-panel-section">
-            <div class="sb-panel-label">Color</div>
-            <div class="sb-annot-colors" id="sbAnnotColorSwatches">
-              <button class="sb-annot-color active" data-color="#fbbf24" style="background:#fbbf24;" onclick="WO.sbSetAnnotColor('#fbbf24',this)" title="Amber"></button>
-              <button class="sb-annot-color" data-color="#f87171" style="background:#f87171;" onclick="WO.sbSetAnnotColor('#f87171',this)" title="Red"></button>
-              <button class="sb-annot-color" data-color="#34d399" style="background:#34d399;" onclick="WO.sbSetAnnotColor('#34d399',this)" title="Green"></button>
-              <button class="sb-annot-color" data-color="#60a5fa" style="background:#60a5fa;" onclick="WO.sbSetAnnotColor('#60a5fa',this)" title="Blue"></button>
-              <button class="sb-annot-color" data-color="#c084fc" style="background:#c084fc;" onclick="WO.sbSetAnnotColor('#c084fc',this)" title="Purple"></button>
-            </div>
-          </div>
-
-          <div class="sb-panel-section" id="sbStrokeSizeSection" style="display:none;">
-            <div class="sb-panel-label">Stroke</div>
-            <div class="sb-thickness-btns">
-              <button class="sb-thick-btn active" onclick="WO.sbSelectAnnotSize(1,this)" title="Fine"><span style="display:inline-block;width:3px;height:3px;border-radius:50%;background:currentColor;vertical-align:middle;"></span></button>
-              <button class="sb-thick-btn" onclick="WO.sbSelectAnnotSize(3,this)" title="Medium"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;vertical-align:middle;"></span></button>
-              <button class="sb-thick-btn" onclick="WO.sbSelectAnnotSize(6,this)" title="Bold"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:currentColor;vertical-align:middle;"></span></button>
-            </div>
-          </div>
-
-          <div class="sb-panel-section">
-            <div style="display:flex;gap:6px;margin-bottom:4px;">
-              <button class="sb-panel-btn" style="flex:1;" onclick="WO.sbUndoAnnot()"><i class="fa-solid fa-rotate-left"></i> Undo</button>
-              <button class="sb-panel-btn" style="flex:1;" onclick="WO.sbRedoAnnot()"><i class="fa-solid fa-rotate-right"></i> Redo</button>
-            </div>
-            <button class="sb-panel-action" onclick="WO.sbClearActiveDraw()">
-              <i class="fa-solid fa-trash-can"></i> Clear all annotations
-            </button>
-          </div>
-
-          <div class="sb-panel-section" id="sbPanelXpSection">
-            <div class="sb-panel-label">Transpose <span id="sbPanelXpBadge" class="sb-xp-badge" style="display:none;"></span></div>
-            <div class="sb-panel-xp-row">
-              <button class="sb-panel-btn" onclick="WO.sbSelTranspose(-1)" title="Transpose down"><i class="fa-solid fa-minus"></i></button>
-              <span id="sbPanelXpVal" class="sb-panel-xp-val">+0</span>
-              <button class="sb-panel-btn" onclick="WO.sbSelTranspose(1)" title="Transpose up"><i class="fa-solid fa-plus"></i></button>
-              <button class="sb-panel-btn sb-panel-btn--reset" id="sbPanelXpReset" onclick="WO.sbSelTransposeReset()" title="Reset" style="display:none;">Reset</button>
-            </div>
-            <div id="sbPanelXpKeyLine" class="sb-panel-xp-key" style="display:none;"></div>
-          </div>
-
-          <button class="sb-panel-action" onclick="WO.sbCopyWithChords()">
-            <i class="fa-regular fa-copy"></i> Copy with chords
-          </button>
-          <button class="sb-panel-action" onclick="WO.sbDuplicateBelow()">
-            <i class="fa-regular fa-clone"></i> Duplicate below
-          </button>
-        </div>
-
-        <!-- Appearance tab -->
-        <div id="sbAppearancePanel" class="sb-panel-body" style="display:none;">
+        <!-- Appearance tab (default) -->
+        <div id="sbAppearancePanel" class="sb-panel-body">
           <div class="sb-panel-section">
             <div class="sb-panel-label">Lyrics</div>
             <div class="sb-appear-row">
@@ -8237,6 +8189,24 @@ I once was lost but now am found"
 
           <button class="sb-panel-action" onclick="WO.sbAppearReset()">
             <i class="fa-solid fa-arrow-rotate-left"></i> Reset to defaults
+          </button>
+
+          <div class="sb-panel-section" id="sbPanelXpSection">
+            <div class="sb-panel-label">Transpose <span id="sbPanelXpBadge" class="sb-xp-badge" style="display:none;"></span></div>
+            <div class="sb-panel-xp-row">
+              <button class="sb-panel-btn" onclick="WO.sbSelTranspose(-1)" title="Transpose down"><i class="fa-solid fa-minus"></i></button>
+              <span id="sbPanelXpVal" class="sb-panel-xp-val">+0</span>
+              <button class="sb-panel-btn" onclick="WO.sbSelTranspose(1)" title="Transpose up"><i class="fa-solid fa-plus"></i></button>
+              <button class="sb-panel-btn sb-panel-btn--reset" id="sbPanelXpReset" onclick="WO.sbSelTransposeReset()" title="Reset" style="display:none;">Reset</button>
+            </div>
+            <div id="sbPanelXpKeyLine" class="sb-panel-xp-key" style="display:none;"></div>
+          </div>
+
+          <button class="sb-panel-action" onclick="WO.sbCopyWithChords()">
+            <i class="fa-regular fa-copy"></i> Copy with chords
+          </button>
+          <button class="sb-panel-action" onclick="WO.sbDuplicateBelow()">
+            <i class="fa-regular fa-clone"></i> Duplicate below
           </button>
         </div>
 
@@ -32697,17 +32667,85 @@ var WO = (function() {
 
   // ── Right panel tab switcher ────────────────────────────────────────────
   function sbPanelTab(tab, btn) {
-    var annP = document.getElementById('sbAnnotatePanel');
     var appP = document.getElementById('sbAppearancePanel');
     var medP = document.getElementById('sbMediaPanel');
-    var tabs = document.querySelectorAll('.sb-panel-tab');
-    tabs.forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.sb-panel-tab').forEach(function(t) { t.classList.remove('active'); });
     if (btn) btn.classList.add('active');
-    if (annP) annP.style.display = tab === 'annotate' ? 'flex' : 'none';
     if (appP) appP.style.display = tab === 'appearance' ? 'flex' : 'none';
     if (medP) medP.style.display = tab === 'media' ? 'flex' : 'none';
     if (tab === 'media' && _sbRecCurrentSongId) sbLoadRecordings(_sbRecCurrentSongId);
   }
+
+  // ── Floating format toolbar ─────────────────────────────────────────────
+  var _sbFtHideTimer = null;
+
+  function sbShowFloatToolbar() {
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { sbHideFloatToolbar(); return; }
+    var range = sel.getRangeAt(0);
+    var node = range.startContainer;
+    var container = node.nodeType === 1 ? node : node.parentElement;
+    if (!container || !container.closest('.sb-page-lyrics')) { sbHideFloatToolbar(); return; }
+
+    var toolbar = document.getElementById('sbFloatToolbar');
+    if (!toolbar) return;
+    toolbar.style.display = 'flex';
+
+    // Use the full selection rect (union of all line rects) to center horizontally
+    var rects = range.getClientRects();
+    if (!rects || rects.length === 0) { sbHideFloatToolbar(); return; }
+    var minLeft = Infinity, maxRight = -Infinity, minTop = Infinity;
+    for (var i = 0; i < rects.length; i++) {
+      if (rects[i].left < minLeft) minLeft = rects[i].left;
+      if (rects[i].right > maxRight) maxRight = rects[i].right;
+      if (rects[i].top < minTop) minTop = rects[i].top;
+    }
+    var selCenterX = (minLeft + maxRight) / 2;
+    var selTop = minTop;
+
+    var tbW = toolbar.offsetWidth || 340;
+    var tbH = toolbar.offsetHeight || 38;
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+
+    var left = Math.round(Math.max(8, Math.min(vw - tbW - 8, selCenterX - tbW / 2)));
+    var top  = Math.round(selTop - tbH - 12);
+    if (top < 8) top = Math.round((rects[rects.length - 1] || rects[0]).bottom + 10);
+
+    toolbar.style.left = left + 'px';
+    toolbar.style.top  = top + 'px';
+    // Move the arrow caret to line up with selection center
+    var arrowPct = Math.round(Math.max(10, Math.min(90, ((selCenterX - left) / tbW) * 100)));
+    toolbar.style.setProperty('--sb-ft-arrow', arrowPct + '%');
+  }
+
+  function sbHideFloatToolbar() {
+    var toolbar = document.getElementById('sbFloatToolbar');
+    if (toolbar) toolbar.style.display = 'none';
+  }
+
+  // Wire up mouseup + keyboard selection events (once, via delegation on document)
+  (function() {
+    document.addEventListener('mouseup', function() {
+      var modal = document.getElementById('songbookLiveModal');
+      if (!modal || modal.style.display === 'none') return;
+      clearTimeout(_sbFtHideTimer);
+      setTimeout(sbShowFloatToolbar, 20);
+    });
+    document.addEventListener('keyup', function(e) {
+      if (!e.shiftKey && e.key !== 'Escape') return;
+      var modal = document.getElementById('songbookLiveModal');
+      if (!modal || modal.style.display === 'none') return;
+      clearTimeout(_sbFtHideTimer);
+      setTimeout(sbShowFloatToolbar, 20);
+    });
+    document.addEventListener('selectionchange', function() {
+      var sel = window.getSelection();
+      if (sel && !sel.isCollapsed) return; // selection growing — don't hide yet
+      clearTimeout(_sbFtHideTimer);
+      _sbFtHideTimer = setTimeout(sbHideFloatToolbar, 220);
+    });
+  }());
 
   // ── Sidebar: render song list ───────────────────────────────────────────
   function sbRenderSidebar() {
@@ -48037,6 +48075,8 @@ var WO = (function() {
     sbTranspose: sbTranspose,
     sbFlushSave: sbFlushSave,
     sbCapturePreEdit: sbCapturePreEdit,
+    sbShowFloatToolbar: sbShowFloatToolbar,
+    sbHideFloatToolbar: sbHideFloatToolbar,
     sbBeforeLyricsInput: sbBeforeLyricsInput,
     sbHandleLyricsKeydown: sbHandleLyricsKeydown,
     sbChordInput: sbChordInput,
@@ -55836,6 +55876,77 @@ function filterLiturgyItems() {
   .sb-rec-item-btn { width:26px; height:26px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:rgba(255,255,255,0.7); cursor:pointer; font-size:0.78rem; transition:all 0.15s; }
   .sb-rec-item-btn:hover { background:rgba(255,255,255,0.16); color:white; }
   .sb-rec-item-btn.playing { color:#2dd4bf; border-color:#0d9488; background:rgba(13,148,136,0.2); }
+
+  /* ── Floating format toolbar ──────────────────────────────────────────── */
+  .sb-float-toolbar {
+    position: fixed;
+    z-index: 10100;
+    background: #1a2744;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 9px;
+    padding: 5px 8px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.45), 0 1px 4px rgba(0,0,0,0.25);
+    pointer-events: auto;
+    user-select: none;
+  }
+  .sb-float-toolbar::after {
+    content: '';
+    position: absolute;
+    bottom: -7px;
+    left: var(--sb-ft-arrow, 50%);
+    transform: translateX(-50%);
+    border: 7px solid transparent;
+    border-bottom: none;
+    border-top-color: #1a2744;
+    filter: drop-shadow(0 2px 2px rgba(0,0,0,0.2));
+  }
+  .sb-ft-btn {
+    background: none;
+    border: none;
+    color: #c8d6f0;
+    padding: 4px 8px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    transition: background 0.1s, color 0.1s;
+  }
+  .sb-ft-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
+  .sb-ft-btn.active { background: rgba(99,102,241,0.55); color: #fff; }
+  .sb-ft-sel {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #c8d6f0;
+    border-radius: 5px;
+    font-size: 0.74rem;
+    padding: 3px 5px;
+    cursor: pointer;
+    max-width: 82px;
+    outline: none;
+  }
+  .sb-ft-sel:hover { background: rgba(255,255,255,0.16); }
+  .sb-ft-color {
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.35);
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0;
+    transition: border-color 0.1s, transform 0.1s;
+  }
+  .sb-ft-color:hover { border-color: #fff; transform: scale(1.2); }
+  .sb-ft-sep {
+    width: 1px;
+    height: 20px;
+    background: rgba(255,255,255,0.18);
+    margin: 0 2px;
+    flex-shrink: 0;
+  }
 
   /* ── Fullscreen mode ───────────────────────────────────────────────────── */
   #songbookLiveModal.sb-live-fullscreen .sb-header {
