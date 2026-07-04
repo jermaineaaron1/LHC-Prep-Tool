@@ -8194,35 +8194,63 @@ I once was lost but now am found"
         </div>
       </div>
 
-      <!-- RIGHT: Selection / Media panel -->
+      <!-- RIGHT: Annotate / Appearance / Media panel -->
       <div id="sbRightPanel" class="sb-right-panel">
         <div class="sb-panel-tabs">
-          <button class="sb-panel-tab active" id="sbTabSelection" onclick="WO.sbPanelTab('selection',this)">Selection</button>
+          <button class="sb-panel-tab active" id="sbTabAnnotate" onclick="WO.sbPanelTab('annotate',this)">Annotate</button>
+          <button class="sb-panel-tab" id="sbTabAppearance" onclick="WO.sbPanelTab('appearance',this)">Appear</button>
           <button class="sb-panel-tab" id="sbTabMedia" onclick="WO.sbPanelTab('media',this)">Media</button>
         </div>
 
-        <!-- Selection tab -->
-        <div id="sbSelectionPanel" class="sb-panel-body">
-          <div class="sb-panel-info" id="sbSelectionInfo">Select text to see options</div>
+        <!-- Annotate tab -->
+        <div id="sbAnnotatePanel" class="sb-panel-body">
+          <div class="sb-panel-section">
+            <div class="sb-panel-label">Tool</div>
+            <div class="sb-annot-tools">
+              <button class="sb-annot-tool-btn active" id="sbToolHighlight" onclick="WO.sbActivateTool('highlight',this)" title="Highlight selected text">
+                <i class="fa-solid fa-highlighter"></i><span>Highlight</span>
+              </button>
+              <button class="sb-annot-tool-btn" id="sbToolDraw" onclick="WO.sbActivateTool('draw',this)" title="Freehand draw">
+                <i class="fa-solid fa-pen"></i><span>Draw</span>
+              </button>
+              <button class="sb-annot-tool-btn" id="sbToolNote" onclick="WO.sbActivateTool('note',this)" title="Click to place a note">
+                <i class="fa-regular fa-comment"></i><span>Note</span>
+              </button>
+              <button class="sb-annot-tool-btn" id="sbToolEraser" onclick="WO.sbActivateTool('eraser',this)" title="Erase annotations">
+                <i class="fa-solid fa-eraser"></i><span>Erase</span>
+              </button>
+            </div>
+          </div>
+          <div class="sb-tool-hint" id="sbToolHint">Select text then click Highlight</div>
 
           <div class="sb-panel-section">
-            <div class="sb-panel-label">Font size</div>
-            <div class="sb-panel-font-row">
-              <button class="sb-panel-btn" onclick="WO.sbFontDec()">A<sup>−</sup></button>
-              <span id="sbFontSizeDisplay" class="sb-panel-font-val">22</span>
-              <button class="sb-panel-btn" onclick="WO.sbFontInc()">A<sup>+</sup></button>
+            <div class="sb-panel-label">Color</div>
+            <div class="sb-annot-colors" id="sbAnnotColorSwatches">
+              <button class="sb-annot-color active" data-color="#fbbf24" style="background:#fbbf24;" onclick="WO.sbSetAnnotColor('#fbbf24',this)" title="Amber"></button>
+              <button class="sb-annot-color" data-color="#f87171" style="background:#f87171;" onclick="WO.sbSetAnnotColor('#f87171',this)" title="Red"></button>
+              <button class="sb-annot-color" data-color="#34d399" style="background:#34d399;" onclick="WO.sbSetAnnotColor('#34d399',this)" title="Green"></button>
+              <button class="sb-annot-color" data-color="#60a5fa" style="background:#60a5fa;" onclick="WO.sbSetAnnotColor('#60a5fa',this)" title="Blue"></button>
+              <button class="sb-annot-color" data-color="#c084fc" style="background:#c084fc;" onclick="WO.sbSetAnnotColor('#c084fc',this)" title="Purple"></button>
+            </div>
+          </div>
+
+          <div class="sb-panel-section" id="sbStrokeSizeSection" style="display:none;">
+            <div class="sb-panel-label">Stroke</div>
+            <div class="sb-thickness-btns">
+              <button class="sb-thick-btn active" onclick="WO.sbSelectAnnotSize(1,this)" title="Fine"><span style="display:inline-block;width:3px;height:3px;border-radius:50%;background:currentColor;vertical-align:middle;"></span></button>
+              <button class="sb-thick-btn" onclick="WO.sbSelectAnnotSize(3,this)" title="Medium"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;vertical-align:middle;"></span></button>
+              <button class="sb-thick-btn" onclick="WO.sbSelectAnnotSize(6,this)" title="Bold"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:currentColor;vertical-align:middle;"></span></button>
             </div>
           </div>
 
           <div class="sb-panel-section">
-            <div class="sb-panel-label">Annotation color</div>
-            <div class="sb-annot-colors">
-              <button class="sb-annot-color" style="background:#f59e0b;" onclick="WO.sbSetDrawColor('#f59e0b',this)" title="Amber"></button>
-              <button class="sb-annot-color active" style="background:#0d9488;" onclick="WO.sbSetDrawColor('#0d9488',this)" title="Teal"><i class="fa-solid fa-check" style="font-size:10px;color:white;"></i></button>
-              <button class="sb-annot-color" style="background:#0891b2;" onclick="WO.sbSetDrawColor('#0891b2',this)" title="Cyan"></button>
-              <button class="sb-annot-color" style="background:#7c3aed;" onclick="WO.sbSetDrawColor('#7c3aed',this)" title="Purple"></button>
-              <button class="sb-annot-color" style="background:#e5e7eb;border:1px solid #9ca3af;" onclick="WO.sbSetDrawColor('#e5e7eb',this)" title="Light"></button>
+            <div style="display:flex;gap:6px;margin-bottom:4px;">
+              <button class="sb-panel-btn" style="flex:1;" onclick="WO.sbUndoAnnot()"><i class="fa-solid fa-rotate-left"></i> Undo</button>
+              <button class="sb-panel-btn" style="flex:1;" onclick="WO.sbRedoAnnot()"><i class="fa-solid fa-rotate-right"></i> Redo</button>
             </div>
+            <button class="sb-panel-action" onclick="WO.sbClearActiveDraw()">
+              <i class="fa-solid fa-trash-can"></i> Clear all annotations
+            </button>
           </div>
 
           <div class="sb-panel-section" id="sbPanelXpSection">
@@ -8231,7 +8259,7 @@ I once was lost but now am found"
               <button class="sb-panel-btn" onclick="WO.sbSelTranspose(-1)" title="Transpose down"><i class="fa-solid fa-minus"></i></button>
               <span id="sbPanelXpVal" class="sb-panel-xp-val">+0</span>
               <button class="sb-panel-btn" onclick="WO.sbSelTranspose(1)" title="Transpose up"><i class="fa-solid fa-plus"></i></button>
-              <button class="sb-panel-btn sb-panel-btn--reset" id="sbPanelXpReset" onclick="WO.sbSelTransposeReset()" title="Reset selection transpose" style="display:none;">Reset</button>
+              <button class="sb-panel-btn sb-panel-btn--reset" id="sbPanelXpReset" onclick="WO.sbSelTransposeReset()" title="Reset" style="display:none;">Reset</button>
             </div>
             <div id="sbPanelXpKeyLine" class="sb-panel-xp-key" style="display:none;"></div>
           </div>
@@ -8244,10 +8272,109 @@ I once was lost but now am found"
           </button>
         </div>
 
+        <!-- Appearance tab -->
+        <div id="sbAppearancePanel" class="sb-panel-body" style="display:none;">
+          <div class="sb-panel-section">
+            <div class="sb-panel-label">Lyrics</div>
+            <div class="sb-appear-row">
+              <label class="sb-appear-lbl">Family</label>
+              <select class="sb-appear-sel" id="sbLyricFamilySel" onchange="WO.sbAppearChange('lyricFamily',this.value)">
+                <option value="Georgia,serif">Georgia</option>
+                <option value="'Palatino Linotype',Palatino,serif">Palatino</option>
+                <option value="'Times New Roman',Times,serif">Times</option>
+                <option value="Arial,sans-serif">Arial</option>
+                <option value="'Trebuchet MS',sans-serif">Trebuchet</option>
+              </select>
+            </div>
+            <div class="sb-appear-row">
+              <label class="sb-appear-lbl">Size</label>
+              <div class="sb-panel-font-row">
+                <button class="sb-panel-btn" onclick="WO.sbAppearStep('lyricSize',-1)">A<sup>−</sup></button>
+                <span id="sbLyricSizeLbl" class="sb-panel-font-val">18px</span>
+                <button class="sb-panel-btn" onclick="WO.sbAppearStep('lyricSize',1)">A<sup>+</sup></button>
+              </div>
+            </div>
+            <div class="sb-appear-row">
+              <label class="sb-appear-lbl">Color</label>
+              <div class="sb-appear-colors" id="sbLyricColorSwatches">
+                <button class="sb-appear-color active" data-color="#1e293b" style="background:#1e293b;" onclick="WO.sbAppearColor('lyricColor','#1e293b',this)" title="Dark"></button>
+                <button class="sb-appear-color" data-color="#1d4ed8" style="background:#1d4ed8;" onclick="WO.sbAppearColor('lyricColor','#1d4ed8',this)" title="Blue"></button>
+                <button class="sb-appear-color" data-color="#7c3aed" style="background:#7c3aed;" onclick="WO.sbAppearColor('lyricColor','#7c3aed',this)" title="Purple"></button>
+                <button class="sb-appear-color" data-color="#166534" style="background:#166534;" onclick="WO.sbAppearColor('lyricColor','#166534',this)" title="Green"></button>
+                <button class="sb-appear-color" data-color="#92400e" style="background:#92400e;" onclick="WO.sbAppearColor('lyricColor','#92400e',this)" title="Brown"></button>
+              </div>
+            </div>
+            <div class="sb-appear-row">
+              <label class="sb-appear-lbl">Style</label>
+              <div style="display:flex;gap:4px;">
+                <button class="sb-appear-style-btn" id="sbLyricBoldBtn" onclick="WO.sbAppearToggle('lyricBold',this)"><b>B</b></button>
+                <button class="sb-appear-style-btn" id="sbLyricItalicBtn" onclick="WO.sbAppearToggle('lyricItalic',this)"><i>I</i></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="sb-panel-section">
+            <div class="sb-panel-label">Chords</div>
+            <div class="sb-appear-row">
+              <label class="sb-appear-lbl">Size</label>
+              <div class="sb-panel-font-row">
+                <button class="sb-panel-btn" onclick="WO.sbAppearStep('chordSize',-1)">A<sup>−</sup></button>
+                <span id="sbChordSizeLbl" class="sb-panel-font-val">14px</span>
+                <button class="sb-panel-btn" onclick="WO.sbAppearStep('chordSize',1)">A<sup>+</sup></button>
+              </div>
+            </div>
+            <div class="sb-appear-row">
+              <label class="sb-appear-lbl">Color</label>
+              <div class="sb-appear-colors" id="sbChordColorSwatches">
+                <button class="sb-appear-color active" data-color="#1e40af" style="background:#1e40af;" onclick="WO.sbAppearColor('chordColor','#1e40af',this)" title="Blue"></button>
+                <button class="sb-appear-color" data-color="#0d9488" style="background:#0d9488;" onclick="WO.sbAppearColor('chordColor','#0d9488',this)" title="Teal"></button>
+                <button class="sb-appear-color" data-color="#7c3aed" style="background:#7c3aed;" onclick="WO.sbAppearColor('chordColor','#7c3aed',this)" title="Purple"></button>
+                <button class="sb-appear-color" data-color="#b91c1c" style="background:#b91c1c;" onclick="WO.sbAppearColor('chordColor','#b91c1c',this)" title="Red"></button>
+                <button class="sb-appear-color" data-color="#374151" style="background:#374151;" onclick="WO.sbAppearColor('chordColor','#374151',this)" title="Gray"></button>
+              </div>
+            </div>
+            <div class="sb-appear-row">
+              <label class="sb-appear-lbl">Style</label>
+              <button class="sb-appear-style-btn" id="sbChordBoldBtn" onclick="WO.sbAppearToggle('chordBold',this)"><b>B</b></button>
+            </div>
+          </div>
+
+          <div class="sb-panel-section">
+            <div class="sb-panel-label">Global font size</div>
+            <div class="sb-panel-font-row">
+              <button class="sb-panel-btn" onclick="WO.sbFontDec()">A<sup>−</sup></button>
+              <span id="sbFontSizeDisplay" class="sb-panel-font-val">22</span>
+              <button class="sb-panel-btn" onclick="WO.sbFontInc()">A<sup>+</sup></button>
+            </div>
+          </div>
+
+          <button class="sb-panel-action" onclick="WO.sbAppearReset()">
+            <i class="fa-solid fa-arrow-rotate-left"></i> Reset to defaults
+          </button>
+        </div>
+
         <!-- Media tab -->
         <div id="sbMediaPanel" class="sb-panel-body" style="display:none;">
-          <div id="sbMediaPanelContent" class="sb-media-panel-inner">
-            <div class="sb-panel-info">Select a song to see its media</div>
+          <div class="sb-panel-section">
+            <div class="sb-panel-label">Recordings <span id="sbRecCount" class="sb-rec-count"></span></div>
+            <div id="sbRecStatus" class="sb-panel-info" style="display:none;"></div>
+            <div id="sbRecActivity" class="sb-rec-activity" style="display:none;">
+              <div class="sb-rec-bars">
+                <div class="sb-rec-bar"></div><div class="sb-rec-bar"></div><div class="sb-rec-bar"></div>
+                <div class="sb-rec-bar"></div><div class="sb-rec-bar"></div>
+              </div>
+              <span id="sbRecTimer" class="sb-rec-timer">0:00</span>
+            </div>
+            <button class="sb-rec-btn" id="sbRecordBtn" onclick="WO.sbToggleRecording()">
+              <span class="sb-rec-dot"></span> Record
+            </button>
+            <div id="sbRecList" class="sb-rec-list"></div>
+          </div>
+          <div class="sb-panel-section">
+            <div class="sb-panel-label">Song media</div>
+            <div id="sbMediaPanelContent" class="sb-media-panel-inner">
+              <div class="sb-panel-info">Select a song to see its media</div>
+            </div>
           </div>
         </div>
       </div>
@@ -32015,6 +32142,26 @@ var WO = (function() {
   var _SB_SONG_LAYOUT_KEY = 'lhc_sb_song_layout'; // localStorage key for cross-songbook song layouts
   var sbBreakDragging = null;
   var sbA4Dragging = null;   // active drag state for A4 in-page marker dragging
+  // ── Unified annotation panel state ────────────────────────────────────────
+  var _sbActiveTool   = 'highlight'; // 'highlight' | 'draw' | 'note' | 'eraser'
+  var _sbAnnotColor   = '#fbbf24';   // unified color for highlight / draw / note
+  var _sbHighlights   = {};          // songId → [{id, xPct, yPct, wPct, hPct, color}]
+
+  // ── Appearance settings ───────────────────────────────────────────────────
+  var _sbAppearSettings = {
+    lyricColor: '#1e293b', lyricBold: false, lyricItalic: false,
+    chordColor: '#1e40af', chordSizePx: 14,  chordBold: true,
+    lyricSizePx: 18, lyricFamily: 'Georgia,serif'
+  };
+
+  // ── Audio recording state ─────────────────────────────────────────────────
+  var _sbMediaRecorder  = null;
+  var _sbRecChunks      = [];
+  var _sbRecTimerInt    = null;
+  var _sbRecElapsed     = 0;
+  var _sbRecording      = false;
+  var _sbRecCurrentSongId = null;
+
   var sbEraseMode   = false;  // partial-erase mode
   var sbErasePoints = [];     // normalised {x,y} collected during an erase stroke
   var sbEraseSid    = null;   // song ID being erased
@@ -33428,6 +33575,12 @@ var WO = (function() {
           }
         });
         sbRenderAllTextAnnots();
+        (songOrderSections || []).forEach(function(s) {
+          if (Array.isArray(s.highlights) && s.highlights.length) {
+            _sbHighlights[s.id] = s.highlights;
+            sbRenderHighlights(s.id);
+          }
+        });
         // Wire up click handler for text placement mode
         var _sbBody = document.getElementById('sbBody');
         if (_sbBody && !_sbBody._taClickBound) {
@@ -33609,13 +33762,16 @@ var WO = (function() {
 
   // ── Right panel tab switcher ────────────────────────────────────────────
   function sbPanelTab(tab, btn) {
-    var selP = document.getElementById('sbSelectionPanel');
+    var annP = document.getElementById('sbAnnotatePanel');
+    var appP = document.getElementById('sbAppearancePanel');
     var medP = document.getElementById('sbMediaPanel');
     var tabs = document.querySelectorAll('.sb-panel-tab');
     tabs.forEach(function(t) { t.classList.remove('active'); });
     if (btn) btn.classList.add('active');
-    if (selP) selP.style.display = tab === 'selection' ? 'flex' : 'none';
+    if (annP) annP.style.display = tab === 'annotate' ? 'flex' : 'none';
+    if (appP) appP.style.display = tab === 'appearance' ? 'flex' : 'none';
     if (medP) medP.style.display = tab === 'media' ? 'flex' : 'none';
+    if (tab === 'media' && _sbRecCurrentSongId) sbLoadRecordings(_sbRecCurrentSongId);
   }
 
   // ── Sidebar: render song list ───────────────────────────────────────────
@@ -34497,6 +34653,250 @@ var WO = (function() {
 
   function sbCloseAnnotPalette() {
     if (sbDrawMode) sbToggleDrawMode(false);
+  }
+
+  // ── Unified tool switcher (Annotate tab) ───────────────────────────────────
+  function sbActivateTool(tool, btn) {
+    _sbActiveTool = tool || 'highlight';
+    document.querySelectorAll('.sb-annot-tool-btn').forEach(function(b) { b.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+    var ssEl = document.getElementById('sbStrokeSizeSection');
+    if (ssEl) ssEl.style.display = tool === 'draw' ? 'flex' : 'none';
+    var hintEl = document.getElementById('sbToolHint');
+    if (hintEl) {
+      var hints = { highlight: 'Select text, then release to highlight', draw: 'Draw freely on the page', note: 'Click on the page to place a note', eraser: 'Click a path to erase it' };
+      hintEl.textContent = hints[tool] || '';
+    }
+    if (tool === 'draw') {
+      sbToggleDrawMode(true); sbSelectAnnotTool('pen');
+      sbPenColor = _sbAnnotColor; sbDrawColor = _sbAnnotColor;
+    } else if (tool === 'eraser') {
+      sbToggleDrawMode(true); sbSelectAnnotTool('eraser');
+    } else {
+      sbToggleDrawMode(false);
+    }
+    var body = document.getElementById('sbBody');
+    if (body) { var cursors = { highlight: 'text', draw: 'crosshair', note: 'cell', eraser: 'not-allowed' }; body.style.cursor = cursors[tool] || 'auto'; }
+  }
+
+  function sbSetAnnotColor(color, btn) {
+    _sbAnnotColor = color || '#fbbf24';
+    document.querySelectorAll('#sbAnnotColorSwatches .sb-annot-color').forEach(function(b) { b.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+    sbPenColor = _sbAnnotColor;
+    if (sbDrawMode) sbDrawColor = _sbAnnotColor;
+  }
+
+  function sbUndoAnnot() { if (typeof sbUndo === 'function') sbUndo(); }
+  function sbRedoAnnot() { if (typeof sbRedo === 'function') sbRedo(); }
+
+  (function _sbInstallHighlightListener() {
+    document.addEventListener('mouseup', function(e) {
+      if (_sbActiveTool !== 'highlight') return;
+      var modal = document.getElementById('songbookLiveModal');
+      if (!modal || modal.style.display === 'none') return;
+      var sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+      var range = sel.getRangeAt(0);
+      var container = range.commonAncestorContainer;
+      var node = container.nodeType === 3 ? container.parentElement : container;
+      var page = node ? node.closest('.sb-song-page') : null;
+      if (!page) return;
+      var pageId = page.id || '';
+      var songId = pageId.replace(/^sbPage-/, '');
+      if (!songId) return;
+      var rects = range.getClientRects();
+      var pageRect = page.getBoundingClientRect();
+      if (!rects.length || !pageRect.width) { sel.removeAllRanges(); return; }
+      if (!_sbHighlights[songId]) _sbHighlights[songId] = [];
+      for (var i = 0; i < rects.length; i++) {
+        var r = rects[i];
+        if (r.width < 2) continue;
+        _sbHighlights[songId].push({ id: 'hl_' + Date.now() + '_' + i, xPct: (r.left - pageRect.left) / pageRect.width * 100, yPct: (r.top - pageRect.top) / pageRect.height * 100, wPct: r.width / pageRect.width * 100, hPct: r.height / pageRect.height * 100, color: _sbAnnotColor });
+      }
+      sbRenderHighlights(songId); sel.removeAllRanges();
+      var song = (songOrderSections || []).find(function(s) { return s.id === songId; });
+      if (song) { song.highlights = _sbHighlights[songId]; sbAutoSave(); }
+    });
+  }());
+
+  (function _sbInstallNoteListener() {
+    document.addEventListener('click', function(e) {
+      if (_sbActiveTool !== 'note') return;
+      var modal = document.getElementById('songbookLiveModal');
+      if (!modal || modal.style.display === 'none') return;
+      var page = e.target.closest('.sb-song-page');
+      if (!page) return;
+      var songId = (page.id || '').replace(/^sbPage-/, '');
+      if (!songId) return;
+      var pageRect = page.getBoundingClientRect();
+      if (!sbTextAnnots[songId]) sbTextAnnots[songId] = [];
+      var annot = { id: 'ta_' + Date.now(), text: '', xPct: (e.clientX - pageRect.left) / pageRect.width * 100, yPct: (e.clientY - pageRect.top) / pageRect.height * 100, wPct: 28, fontSize: 13, color: _sbAnnotColor, bold: false, italic: false };
+      sbTextAnnots[songId].push(annot);
+      if (typeof sbRenderTextAnnots === 'function') sbRenderTextAnnots(songId);
+      var song = (songOrderSections || []).find(function(s) { return s.id === songId; });
+      if (song) { song.textAnnotations = sbTextAnnots[songId]; sbAutoSave(); }
+    });
+  }());
+
+  function sbRenderHighlights(songId) {
+    var highlights = _sbHighlights[songId];
+    var pages = document.querySelectorAll('.sb-song-page[id^="sbPage-' + songId + '"]');
+    if (!pages.length) pages = document.querySelectorAll('.sb-song-page');
+    pages.forEach(function(page) {
+      var pageId = (page.id || '').replace(/^sbPage-/, '');
+      if (pageId && pageId !== songId) return;
+      var layer = page.querySelector('.sb-highlight-layer');
+      if (!layer) { layer = document.createElement('div'); layer.className = 'sb-highlight-layer'; page.appendChild(layer); }
+      layer.innerHTML = '';
+      if (!highlights || !highlights.length) return;
+      highlights.forEach(function(hl) {
+        var div = document.createElement('div');
+        div.className = 'sb-highlight-rect'; div.dataset.hlId = hl.id;
+        div.style.left = hl.xPct + '%'; div.style.top = hl.yPct + '%';
+        div.style.width = hl.wPct + '%'; div.style.height = Math.max(hl.hPct, 1.5) + '%';
+        div.style.background = hl.color; div.style.opacity = '0.35'; div.title = 'Click to remove highlight';
+        div.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          _sbHighlights[songId] = (_sbHighlights[songId] || []).filter(function(h) { return h.id !== hl.id; });
+          sbRenderHighlights(songId);
+          var song = (songOrderSections || []).find(function(s) { return s.id === songId; });
+          if (song) { song.highlights = _sbHighlights[songId]; sbAutoSave(); }
+        });
+        layer.appendChild(div);
+      });
+    });
+  }
+
+  function sbRenderAllHighlights() { Object.keys(_sbHighlights).forEach(function(sid) { sbRenderHighlights(sid); }); }
+
+  var _sbAppearDefaults = { lyricColor: '#1e293b', lyricBold: false, lyricItalic: false, chordColor: '#1e40af', chordSizePx: 14, chordBold: true, lyricSizePx: 18, lyricFamily: 'Georgia,serif' };
+
+  function sbApplyAppearance() {
+    var s = _sbAppearSettings;
+    var ov = document.getElementById('sb-appear-dyn-css');
+    if (!ov) { ov = document.createElement('style'); ov.id = 'sb-appear-dyn-css'; document.head.appendChild(ov); }
+    var lyricExtra = (s.lyricColor ? 'color:' + s.lyricColor + ';' : '') + (s.lyricBold ? 'font-weight:bold;' : '') + (s.lyricItalic ? 'font-style:italic;' : '');
+    var chordExtra = 'color:' + (s.chordColor || '#1e40af') + ';font-size:' + (s.chordSizePx || 14) + 'px;' + (s.chordBold ? 'font-weight:700;' : '');
+    ov.textContent = '#songbookLiveModal .sb-page-lyrics{' + lyricExtra + 'font-size:' + (s.lyricSizePx || 18) + 'px;font-family:' + (s.lyricFamily || _sbFontSettings.family) + ';}' + '#songbookLiveModal .wo-lyrics-chord-line{' + chordExtra + '}';
+    var ll = document.getElementById('sbLyricSizeLbl'); if (ll) ll.textContent = (s.lyricSizePx || 18) + 'px';
+    var cl = document.getElementById('sbChordSizeLbl'); if (cl) cl.textContent = (s.chordSizePx || 14) + 'px';
+  }
+
+  function sbAppearChange(prop, value) { _sbAppearSettings[prop] = value; sbApplyAppearance(); }
+  function sbAppearColor(prop, color, btn) {
+    _sbAppearSettings[prop] = color;
+    var gid = prop === 'lyricColor' ? 'sbLyricColorSwatches' : 'sbChordColorSwatches';
+    var grp = document.getElementById(gid); if (grp) grp.querySelectorAll('.sb-appear-color').forEach(function(b) { b.classList.remove('active'); });
+    if (btn) btn.classList.add('active'); sbApplyAppearance();
+  }
+  function sbAppearStep(prop, delta) { _sbAppearSettings[prop] = Math.max(8, Math.min(48, (_sbAppearSettings[prop] || (prop === 'chordSize' ? 14 : 18)) + delta)); sbApplyAppearance(); }
+  function sbAppearToggle(prop, btn) { _sbAppearSettings[prop] = !_sbAppearSettings[prop]; if (btn) btn.classList.toggle('active', !!_sbAppearSettings[prop]); sbApplyAppearance(); }
+  function sbAppearReset() {
+    _sbAppearSettings = JSON.parse(JSON.stringify(_sbAppearDefaults));
+    ['sbLyricBoldBtn','sbLyricItalicBtn'].forEach(function(id) { var b = document.getElementById(id); if (b) b.classList.remove('active'); });
+    var cb = document.getElementById('sbChordBoldBtn'); if (cb) cb.classList.add('active');
+    document.querySelectorAll('#sbLyricColorSwatches .sb-appear-color').forEach(function(b) { b.classList.toggle('active', b.dataset.color === '#1e293b'); });
+    document.querySelectorAll('#sbChordColorSwatches .sb-appear-color').forEach(function(b) { b.classList.toggle('active', b.dataset.color === '#1e40af'); });
+    var ov = document.getElementById('sb-appear-dyn-css'); if (ov) ov.textContent = '';
+  }
+
+  function sbToggleRecording() { if (_sbRecording) _sbStopRecording(); else _sbStartRecording(); }
+  function _sbStartRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { sbShowRecStatus('Microphone not supported in this browser', 'error'); return; }
+    var curPage = document.querySelector('#sbBody .sb-song-page');
+    if (curPage) { var pid = (curPage.id || '').replace(/^sbPage-/, ''); if (pid) _sbRecCurrentSongId = pid.split('--')[0]; }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
+      var mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+      _sbMediaRecorder = new MediaRecorder(stream, { mimeType: mimeType }); _sbRecChunks = [];
+      _sbMediaRecorder.ondataavailable = function(e) { if (e.data.size) _sbRecChunks.push(e.data); };
+      _sbMediaRecorder.onstop = function() { stream.getTracks().forEach(function(t) { t.stop(); }); _sbSaveRecording(new Blob(_sbRecChunks, { type: mimeType }), _sbRecElapsed); };
+      _sbMediaRecorder.start(250); _sbRecording = true; _sbRecElapsed = 0;
+      var btn = document.getElementById('sbRecordBtn'); if (btn) { btn.classList.add('recording'); btn.innerHTML = '<span class="sb-rec-dot"></span> Stop'; }
+      var act = document.getElementById('sbRecActivity'); if (act) act.style.display = 'flex';
+      var timerEl = document.getElementById('sbRecTimer');
+      _sbRecTimerInt = setInterval(function() { _sbRecElapsed++; if (timerEl) { var m = Math.floor(_sbRecElapsed/60), s = _sbRecElapsed%60; timerEl.textContent = m+':'+(s<10?'0':'')+s; } }, 1000);
+    }).catch(function(err) { sbShowRecStatus('Mic access denied: ' + err.message, 'error'); });
+  }
+  function _sbStopRecording() {
+    if (_sbMediaRecorder && _sbMediaRecorder.state !== 'inactive') _sbMediaRecorder.stop();
+    if (_sbRecTimerInt) { clearInterval(_sbRecTimerInt); _sbRecTimerInt = null; }
+    _sbRecording = false;
+    var btn = document.getElementById('sbRecordBtn'); if (btn) { btn.classList.remove('recording'); btn.innerHTML = '<span class="sb-rec-dot"></span> Record'; }
+    var act = document.getElementById('sbRecActivity'); if (act) act.style.display = 'none';
+    sbShowRecStatus('Saving…', '');
+  }
+  function sbShowRecStatus(msg, type) { var el = document.getElementById('sbRecStatus'); if (!el) return; el.textContent = msg; el.style.display = msg ? '' : 'none'; el.style.color = type === 'error' ? '#fca5a5' : 'rgba(255,255,255,0.5)'; }
+  function _sbSaveRecording(blob, durationSec) {
+    var songId = _sbRecCurrentSongId; if (!songId) { sbShowRecStatus('No song selected', 'error'); return; }
+    var listEl = document.getElementById('sbRecList'); var existing = listEl ? listEl.querySelectorAll('.sb-rec-item').length : 0;
+    if (existing >= 10) { sbShowRecStatus('Max 10 recordings per song', 'error'); return; }
+    var orderId = currentOrderData ? currentOrderData.id : null;
+    var storagePath = 'recordings/' + (orderId || 'standalone') + '/' + songId + '/' + Date.now() + '.webm';
+    var sup = window._supabase || null; if (!sup) { sbShowRecStatus('Storage unavailable', 'error'); return; }
+    sup.storage.from('songbook-recordings').upload(storagePath, blob, { contentType: blob.type || 'audio/webm', upsert: false })
+      .then(function(res) {
+        if (res.error) { sbShowRecStatus('Upload failed: ' + res.error.message, 'error'); return; }
+        return sup.from('song_recordings').insert({ song_id: songId, order_id: orderId || null, name: 'Recording ' + (existing + 1), storage_path: storagePath, duration_sec: durationSec });
+      }).then(function(res2) {
+        if (!res2) return;
+        if (res2.error) { sbShowRecStatus('DB error: ' + res2.error.message, 'error'); return; }
+        sbShowRecStatus('Saved!', ''); setTimeout(function() { sbShowRecStatus('', ''); }, 2000); sbLoadRecordings(songId);
+      }).catch(function(err) { sbShowRecStatus('Error: ' + err.message, 'error'); });
+  }
+  function sbLoadRecordings(songId) {
+    if (!songId) return; _sbRecCurrentSongId = songId;
+    var sup = window._supabase || null; if (!sup) return;
+    var orderId = currentOrderData ? currentOrderData.id : null;
+    var q = sup.from('song_recordings').select('*').eq('song_id', songId).order('created_at', { ascending: false });
+    if (orderId) q = q.eq('order_id', orderId);
+    q.then(function(res) { if (!res.error) sbRenderRecordings(songId, res.data || []); });
+  }
+  function _sbFmtDur(sec) { sec = Math.round(sec||0); var m=Math.floor(sec/60),s=sec%60; return m+':'+(s<10?'0':'')+s; }
+  function sbRenderRecordings(songId, recs) {
+    var listEl = document.getElementById('sbRecList'); var cntEl = document.getElementById('sbRecCount');
+    if (!listEl) return; if (cntEl) cntEl.textContent = recs.length ? '('+recs.length+'/10)' : '';
+    if (!recs.length) { listEl.innerHTML = '<div class="sb-panel-info" style="text-align:left;">No recordings yet</div>'; return; }
+    listEl.innerHTML = recs.map(function(r) {
+      return '<div class="sb-rec-item" id="sbRecItem-'+r.id+'">' +
+        '<div class="sb-rec-item-head">' +
+          '<div class="sb-rec-item-name" id="sbRecName-'+r.id+'" ondblclick="WO.sbRenameRecording(\''+r.id+'\')">'+escapeHtml(r.name||'Recording')+'</div>' +
+          '<span class="sb-rec-item-dur">'+_sbFmtDur(r.duration_sec)+'</span>' +
+          '<div class="sb-rec-item-btns">' +
+            '<button class="sb-rec-item-btn" id="sbRecPlay-'+r.id+'" onclick="WO.sbPlayRecording(\''+r.id+'\',\''+escapeHtml(r.storage_path)+'\')" title="Play"><i class="fa-solid fa-play"></i></button>' +
+            '<button class="sb-rec-item-btn" onclick="WO.sbDeleteRecording(\''+r.id+'\',\''+escapeHtml(r.storage_path)+'\')" title="Delete" style="color:#fca5a5;"><i class="fa-solid fa-trash"></i></button>' +
+          '</div></div></div>';
+    }).join('');
+  }
+  var _sbPlayingAudio = null, _sbPlayingId = null;
+  function sbPlayRecording(id, storagePath) {
+    if (_sbPlayingAudio) { _sbPlayingAudio.pause(); _sbPlayingAudio = null; }
+    var prevBtn = _sbPlayingId ? document.getElementById('sbRecPlay-'+_sbPlayingId) : null;
+    if (prevBtn) { prevBtn.classList.remove('playing'); prevBtn.innerHTML = '<i class="fa-solid fa-play"></i>'; }
+    if (_sbPlayingId === id) { _sbPlayingId = null; return; }
+    _sbPlayingId = id;
+    var btn = document.getElementById('sbRecPlay-'+id); if (btn) { btn.classList.add('playing'); btn.innerHTML = '<i class="fa-solid fa-stop"></i>'; }
+    var sup = window._supabase || null; if (!sup) return;
+    sup.storage.from('songbook-recordings').createSignedUrl(storagePath, 3600).then(function(res) {
+      if (res.error || !res.data) return;
+      _sbPlayingAudio = new Audio(res.data.signedUrl);
+      _sbPlayingAudio.onended = function() { var b = document.getElementById('sbRecPlay-'+id); if (b) { b.classList.remove('playing'); b.innerHTML = '<i class="fa-solid fa-play"></i>'; } _sbPlayingId = null; _sbPlayingAudio = null; };
+      _sbPlayingAudio.play();
+    });
+  }
+  function sbDeleteRecording(id, storagePath) {
+    if (!confirm('Delete this recording?')) return;
+    var sup = window._supabase || null; if (!sup) return;
+    Promise.all([sup.from('song_recordings').delete().eq('id', id), sup.storage.from('songbook-recordings').remove([storagePath])]).then(function() { var item = document.getElementById('sbRecItem-'+id); if (item) item.remove(); sbLoadRecordings(_sbRecCurrentSongId); });
+  }
+  function sbRenameRecording(id) {
+    var nameEl = document.getElementById('sbRecName-'+id); if (!nameEl) return;
+    var cur = nameEl.textContent.trim(); var inp = document.createElement('input');
+    inp.value = cur; inp.style.cssText = 'background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);border-radius:4px;color:white;padding:2px 6px;font-size:0.78rem;width:100%;';
+    nameEl.innerHTML = ''; nameEl.appendChild(inp); inp.focus(); inp.select();
+    function commit() { var n = inp.value.trim()||cur; nameEl.textContent = n; var sup = window._supabase||null; if (sup) sup.from('song_recordings').update({name:n}).eq('id',id).then(function(){}); }
+    inp.addEventListener('blur', commit);
+    inp.addEventListener('keydown', function(e) { if (e.key==='Enter') inp.blur(); if (e.key==='Escape') { inp.value=cur; inp.blur(); } });
   }
 
   function sbOpenAnnotPaletteFromPage() {
@@ -36779,6 +37179,9 @@ var WO = (function() {
       customYoutube:   Array.isArray(s.customYoutube) ? s.customYoutube : [],
       customDocs:      Array.isArray(s.customDocs)    ? s.customDocs    : [],
       sbLinks:         Array.isArray(s.sbLinks)        ? s.sbLinks       : [],
+      // Highlight annotations
+      highlights:      Array.isArray(s.highlights) ? s.highlights :
+                       (Array.isArray(_sbHighlights[s.id]) ? _sbHighlights[s.id] : []),
     };
   }
 
@@ -36838,6 +37241,14 @@ var WO = (function() {
         song.textAnnotations = inc.textAnnotations;
         sbTextAnnots[song.id] = inc.textAnnotations.slice();
         p.textAnnots = true;
+      }
+
+      // ── Highlight annotations ────────────────────────────────────────────────
+      if (Array.isArray(inc.highlights) &&
+          JSON.stringify(inc.highlights) !== JSON.stringify(song.highlights || [])) {
+        song.highlights = inc.highlights;
+        _sbHighlights[song.id] = inc.highlights.slice();
+        sbRenderHighlights(song.id);
       }
 
       // ── Rich lyrics ──────────────────────────────────────────────────────────
@@ -48243,6 +48654,27 @@ var WO = (function() {
     sbExtractLyricsText: sbExtractLyricsText,
     sbOnLyricsChange: sbOnLyricsChange,
     sbOnLyricsPaste: sbOnLyricsPaste,
+    // Annotate tab
+    sbActivateTool: sbActivateTool,
+    sbSetAnnotColor: sbSetAnnotColor,
+    sbUndoAnnot: sbUndoAnnot,
+    sbRedoAnnot: sbRedoAnnot,
+    sbRenderHighlights: sbRenderHighlights,
+    sbRenderAllHighlights: sbRenderAllHighlights,
+    // Appearance tab
+    sbAppearChange: sbAppearChange,
+    sbAppearColor: sbAppearColor,
+    sbAppearStep: sbAppearStep,
+    sbAppearToggle: sbAppearToggle,
+    sbAppearReset: sbAppearReset,
+    sbApplyAppearance: sbApplyAppearance,
+    // Media / recordings tab
+    sbToggleRecording: sbToggleRecording,
+    sbLoadRecordings: sbLoadRecordings,
+    sbPlayRecording: sbPlayRecording,
+    sbDeleteRecording: sbDeleteRecording,
+    sbRenameRecording: sbRenameRecording,
+    // Legacy draw mode
     sbToggleDrawMode: sbToggleDrawMode,
     sbSelectAnnotTool: sbSelectAnnotTool,
     sbSelectAnnotColor: sbSelectAnnotColor,
@@ -55969,6 +56401,65 @@ function filterLiturgyItems() {
   .sb-panel-action { display:flex; align-items:center; gap:8px; width:100%; padding:9px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:rgba(255,255,255,0.8); cursor:pointer; font-size:0.8rem; font-weight:500; transition:all 0.15s; text-align:left; }
   .sb-panel-action:hover { background:rgba(255,255,255,0.12); color:white; }
   .sb-media-panel-inner { display:flex; flex-direction:column; gap:8px; }
+
+  /* ── Annotate tab ─────────────────────────────────────────────────────────── */
+  .sb-annot-tools { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  .sb-annot-tool-btn { display:flex; align-items:center; gap:6px; padding:8px 10px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:rgba(255,255,255,0.7); cursor:pointer; font-size:0.78rem; font-weight:500; transition:all 0.15s; }
+  .sb-annot-tool-btn:hover { background:rgba(255,255,255,0.14); color:white; }
+  .sb-annot-tool-btn.active { background:rgba(13,148,136,0.25); border-color:#0d9488; color:#2dd4bf; }
+  .sb-annot-tool-btn i { font-size:0.85rem; width:14px; text-align:center; }
+  .sb-tool-hint { font-size:0.71rem; color:rgba(255,255,255,0.35); text-align:center; padding:2px 0 4px; font-style:italic; }
+  .sb-thickness-btns { display:flex; align-items:center; gap:8px; }
+  .sb-thick-btn { display:flex; align-items:center; justify-content:center; width:32px; height:32px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12); border-radius:6px; cursor:pointer; color:rgba(255,255,255,0.7); transition:all 0.15s; }
+  .sb-thick-btn:hover { background:rgba(255,255,255,0.14); }
+  .sb-thick-btn.active { background:rgba(13,148,136,0.25); border-color:#0d9488; color:#2dd4bf; }
+
+  /* ── Appearance tab ───────────────────────────────────────────────────────── */
+  .sb-appear-row { display:flex; align-items:center; gap:8px; }
+  .sb-appear-lbl { font-size:0.72rem; color:rgba(255,255,255,0.5); width:40px; flex-shrink:0; }
+  .sb-appear-sel { flex:1; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:white; padding:5px 7px; font-size:0.78rem; cursor:pointer; }
+  .sb-appear-sel option { background:#0f1a2b; color:white; }
+  .sb-appear-colors { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .sb-appear-color { width:22px; height:22px; border-radius:50%; border:2px solid transparent; cursor:pointer; transition:all 0.15s; }
+  .sb-appear-color:hover { transform:scale(1.15); }
+  .sb-appear-color.active { border-color:white; box-shadow:0 0 0 2px rgba(255,255,255,0.4); }
+  .sb-appear-style-btn { padding:5px 10px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:rgba(255,255,255,0.7); cursor:pointer; font-size:0.85rem; transition:all 0.15s; }
+  .sb-appear-style-btn:hover { background:rgba(255,255,255,0.14); }
+  .sb-appear-style-btn.active { background:rgba(13,148,136,0.25); border-color:#0d9488; color:#2dd4bf; }
+
+  /* ── Highlight rects on song pages ──────────────────────────────────────── */
+  .sb-highlight-layer { position:absolute; inset:0; pointer-events:none; z-index:5; }
+  .sb-highlight-rect { position:absolute; border-radius:2px; pointer-events:auto; cursor:pointer; transition:opacity 0.15s; }
+  .sb-highlight-rect:hover { opacity:0.6 !important; }
+
+  /* ── Recordings (Media tab) ──────────────────────────────────────────────── */
+  .sb-rec-count { font-size:0.68rem; color:rgba(255,255,255,0.35); font-weight:400; margin-left:4px; }
+  .sb-rec-btn { display:flex; align-items:center; gap:8px; width:100%; padding:10px 12px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.35); border-radius:8px; color:#fca5a5; cursor:pointer; font-size:0.82rem; font-weight:600; transition:all 0.15s; }
+  .sb-rec-btn:hover { background:rgba(239,68,68,0.22); }
+  .sb-rec-btn.recording { background:rgba(239,68,68,0.3); border-color:#ef4444; color:white; animation:sb-rec-pulse 1.2s ease-in-out infinite; }
+  @keyframes sb-rec-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.5)} 50%{box-shadow:0 0 0 6px rgba(239,68,68,0)} }
+  .sb-rec-dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:#ef4444; flex-shrink:0; }
+  .sb-rec-btn.recording .sb-rec-dot { animation:sb-dot-blink 0.8s step-end infinite; }
+  @keyframes sb-dot-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .sb-rec-activity { display:flex; align-items:center; gap:10px; padding:6px 0; }
+  .sb-rec-bars { display:flex; align-items:flex-end; gap:2px; height:20px; }
+  .sb-rec-bar { width:4px; background:#ef4444; border-radius:2px; animation:sb-bar-anim 0.6s ease-in-out infinite; }
+  .sb-rec-bar:nth-child(1){height:6px;animation-delay:0s;}
+  .sb-rec-bar:nth-child(2){height:12px;animation-delay:0.1s;}
+  .sb-rec-bar:nth-child(3){height:18px;animation-delay:0.2s;}
+  .sb-rec-bar:nth-child(4){height:10px;animation-delay:0.15s;}
+  .sb-rec-bar:nth-child(5){height:6px;animation-delay:0.05s;}
+  @keyframes sb-bar-anim { 0%,100%{transform:scaleY(0.4)} 50%{transform:scaleY(1)} }
+  .sb-rec-timer { font-size:0.82rem; font-weight:700; color:#fca5a5; font-variant-numeric:tabular-nums; }
+  .sb-rec-list { display:flex; flex-direction:column; gap:6px; margin-top:4px; }
+  .sb-rec-item { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); border-radius:8px; overflow:hidden; }
+  .sb-rec-item-head { display:flex; align-items:center; gap:6px; padding:8px 10px; }
+  .sb-rec-item-name { flex:1; font-size:0.78rem; color:rgba(255,255,255,0.85); font-weight:500; cursor:text; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sb-rec-item-dur { font-size:0.7rem; color:rgba(255,255,255,0.4); flex-shrink:0; }
+  .sb-rec-item-btns { display:flex; gap:4px; }
+  .sb-rec-item-btn { width:26px; height:26px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:rgba(255,255,255,0.7); cursor:pointer; font-size:0.78rem; transition:all 0.15s; }
+  .sb-rec-item-btn:hover { background:rgba(255,255,255,0.16); color:white; }
+  .sb-rec-item-btn.playing { color:#2dd4bf; border-color:#0d9488; background:rgba(13,148,136,0.2); }
 
   /* ── Fullscreen mode ───────────────────────────────────────────────────── */
   #songbookLiveModal.sb-live-fullscreen .sb-header {
