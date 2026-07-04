@@ -37762,7 +37762,7 @@ var WO = (function() {
     return count + range.startOffset;
   }
   function sbHandleLyricsKeydown(evt, sid) {
-    if (evt.key !== 'Enter' && evt.key !== 'Backspace') return;
+    if (evt.key !== 'Enter' && evt.key !== 'Backspace' && evt.key !== 'Delete') return;
     if (evt.key === 'Enter' && (evt.shiftKey || evt.ctrlKey || evt.metaKey)) return;
     var lyricsEl = document.getElementById('sbLyrics-' + sid);
     var sel = window.getSelection();
@@ -37854,6 +37854,50 @@ var WO = (function() {
             mixCum += mixSL;
           }
         }
+      }
+      sbOnLyricsChange(sid);
+    }
+
+    } else if (evt.key === 'Delete') {
+      var cursorAtEnd;
+      if (isChordPair) {
+        var dEnd = _sbChordPairData(block);
+        cursorAtEnd = _sbLyricCursorPos(block, range) >= dEnd.lyric.replace(/\s+$/, '').length;
+      } else {
+        var testR = document.createRange();
+        try { testR.setStart(range.startContainer, range.startOffset); testR.setEnd(block, block.childNodes.length); cursorAtEnd = testR.toString().replace(/\s+/g, '').length === 0; } catch(e) { cursorAtEnd = false; }
+      }
+      if (!cursorAtEnd) return;
+      var nextBlock = block.nextElementSibling;
+      if (!nextBlock) return;
+      evt.preventDefault();
+      var nextIsChordPair = nextBlock.classList.contains('wo-lyrics-chord-pair');
+      if (isChordPair && nextIsChordPair) {
+        var dCurDel = _sbChordPairData(block), dNxtDel = _sbChordPairData(nextBlock);
+        var mLyrDel = dCurDel.lyric + dNxtDel.lyric;
+        var mChDel = dCurDel.chords.concat(dNxtDel.chords.map(function(t){return{pos:t.pos+dCurDel.lyric.length,text:t.text};}));
+        var tmpDel = document.createElement('div'); tmpDel.innerHTML = _sbBuildBlock(_sbChordsToLine(mChDel), mLyrDel);
+        var mergedDel = tmpDel.firstChild.cloneNode(true);
+        lyricsEl.insertBefore(mergedDel, block); lyricsEl.removeChild(block); lyricsEl.removeChild(nextBlock);
+        var jPosDel = dCurDel.lyric.length, spsDel = mergedDel.querySelectorAll('.wo-inline-lyric'), cumDel = 0;
+        for (var ld = 0; ld < spsDel.length; ld++) { var slDel = (spsDel[ld].textContent||'').length; if (cumDel+slDel>=jPosDel){var tnDel=spsDel[ld].firstChild||spsDel[ld];try{var rrDel=document.createRange();rrDel.setStart(tnDel,Math.min(jPosDel-cumDel,tnDel.textContent?tnDel.textContent.length:0));rrDel.collapse(true);sel.removeAllRanges();sel.addRange(rrDel);}catch(e){}break;}cumDel+=slDel;}
+      } else if (!isChordPair && !nextIsChordPair) {
+        var pTxtDel = (block.textContent||'').replace(/ /g,' ').trimRight();
+        var nTxtDel = (nextBlock.textContent||'').replace(/ /g,' ');
+        var nbmDel = document.createElement('div'); nbmDel.className='wo-lyrics-lyric-line'; nbmDel.textContent=pTxtDel+nTxtDel||' ';
+        lyricsEl.insertBefore(nbmDel,block);lyricsEl.removeChild(block);lyricsEl.removeChild(nextBlock);
+        var tn3Del=nbmDel.firstChild||nbmDel;try{var rr2Del=document.createRange();rr2Del.setStart(tn3Del,Math.min(pTxtDel.length,(tn3Del.textContent||'').length));rr2Del.collapse(true);sel.removeAllRanges();sel.addRange(rr2Del);}catch(e){}
+      } else {
+        var dPMixDel, dNMixDel, pLyrDel, nLyrDel;
+        if (isChordPair){dPMixDel=_sbChordPairData(block);pLyrDel=dPMixDel.lyric;nLyrDel=(nextBlock.textContent||'').replace(/ /g,' ');}
+        else{pLyrDel=(block.textContent||'').replace(/ /g,' ').trimRight();dNMixDel=_sbChordPairData(nextBlock);nLyrDel=dNMixDel.lyric;}
+        var jPMixDel=pLyrDel.length, mLyrMixDel=pLyrDel+nLyrDel;
+        var mChMixDel=isChordPair?dPMixDel.chords:dNMixDel.chords.map(function(t){return{pos:t.pos+jPMixDel,text:t.text};});
+        var tmpMixDel=document.createElement('div');tmpMixDel.innerHTML=_sbBuildBlock(_sbChordsToLine(mChMixDel),mLyrMixDel);
+        var mMixDel=tmpMixDel.firstChild?tmpMixDel.firstChild.cloneNode(true):tmpMixDel;
+        lyricsEl.insertBefore(mMixDel,block);lyricsEl.removeChild(block);lyricsEl.removeChild(nextBlock);
+        var spsMixDel=mMixDel.querySelectorAll?mMixDel.querySelectorAll('.wo-inline-lyric'):[], cumMixDel=0;
+        for(var lmd=0;lmd<spsMixDel.length;lmd++){var slMixDel=(spsMixDel[lmd].textContent||'').length;if(cumMixDel+slMixDel>=jPMixDel){var tnMixDel=spsMixDel[lmd].firstChild||spsMixDel[lmd];try{var rrMixDel=document.createRange();rrMixDel.setStart(tnMixDel,Math.min(jPMixDel-cumMixDel,tnMixDel.textContent?tnMixDel.textContent.length:0));rrMixDel.collapse(true);sel.removeAllRanges();sel.addRange(rrMixDel);}catch(e){}break;}cumMixDel+=slMixDel;}
       }
       sbOnLyricsChange(sid);
     }
