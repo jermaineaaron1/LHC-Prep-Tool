@@ -59972,8 +59972,8 @@ function filterLiturgyItems() {
         catOrder.forEach(function(c){ if ((ROSTER_NAME_OPTIONS[c]||[]).indexOf(name) >= 0) roles.push(sm.cats[c]||c); });
 
         var contactBadge = hasContact
-          ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#d1fae5;color:#065f46;font-weight:600;"><i class="fa-solid fa-check mr-1"></i>Contact saved</span>'
-          : '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#991b1b;font-weight:600;"><i class="fa-solid fa-exclamation mr-1"></i>Contact missing</span>';
+          ? '<span class="en-contact-badge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:#d1fae5;color:#065f46;font-weight:600;"><i class="fa-solid fa-check mr-1"></i>Contact saved</span>'
+          : '<span class="en-contact-badge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#991b1b;font-weight:600;"><i class="fa-solid fa-exclamation mr-1"></i>Contact missing</span>';
 
         html += '<div class="en-all-row en-member-card" data-name="' + self.escapeHtml(name) + '" data-phone="' + self.escapeHtml(phone) + '" data-email="' + self.escapeHtml(email) + '" style="margin-bottom:10px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">';
 
@@ -60084,6 +60084,21 @@ function filterLiturgyItems() {
           self._enablersMetaCache[name].phone = phone;
           self._enablersMetaCache[name].email = email;
           self.showToast('Contact saved for ' + name, 'success');
+          // Update badge and data attrs on the card without re-rendering
+          var savedCard = document.querySelector('.en-member-card[data-name="' + name + '"]');
+          if (savedCard) {
+            savedCard.setAttribute('data-phone', phone);
+            savedCard.setAttribute('data-email', email);
+            var badge = savedCard.querySelector('.en-contact-badge');
+            if (badge) {
+              var hasContact = !!(phone || email);
+              badge.style.background = hasContact ? '#d1fae5' : '#fee2e2';
+              badge.style.color      = hasContact ? '#065f46' : '#991b1b';
+              badge.innerHTML = hasContact
+                ? '<i class="fa-solid fa-check mr-1"></i>Contact saved'
+                : '<i class="fa-solid fa-exclamation mr-1"></i>Contact missing';
+            }
+          }
         }).catch(function(err) {
           if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-1"></i>Save'; }
           self.showToast('Save failed: ' + (err.message || err), 'error');
