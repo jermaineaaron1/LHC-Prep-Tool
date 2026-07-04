@@ -167,6 +167,11 @@ Defined in `.env.local` (not committed). Template at `.env.local.example`.
 
 ## Recent Session Notes (2026-07-04)
 
+### Songbook design-tour GIF — branch `feature/songbook-design-gif`
+
+- Added `mockups/songbook-design-tour-6s.gif`, a 960×540, 30-frame, six-second presentation of the approved normal workspace, annotation/selection/transposition workflow, and fullscreen design.
+- The GIF is a design handoff artifact only and is not loaded by the production application.
+
 ### Songbook annotation palette and header overflow — branch `fix/songbook-annotation-header`
 
 - Restored the floating `#sbAnnotPalette` lost during the 3-panel redesign merge, with Pen, Highlighter, Eraser, Undo/Redo, Fine/Medium/Bold stroke sizes, six ink colors, and Clear all controls.
