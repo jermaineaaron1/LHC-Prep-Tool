@@ -8175,8 +8175,8 @@ I once was lost but now am found"
         </div>
       </div>
 
-      <!-- RIGHT: Appearance / Media panel -->
-      <div id="sbRightPanel" class="sb-right-panel">
+      <!-- RIGHT panel removed — Appear controls live in the floating toolbar; Annotate uses sbAnnotPalette -->
+      <div id="sbRightPanel" style="display:none;">
         <div class="sb-panel-tabs">
           <button class="sb-panel-tab active" id="sbTabAppearance" onclick="WO.sbPanelTab('appearance',this)">Appear</button>
           <button class="sb-panel-tab" id="sbTabMedia" onclick="WO.sbPanelTab('media',this)">Media</button>
@@ -34629,7 +34629,78 @@ var WO = (function() {
     var palette = $('sbAnnotPalette');
     if (modal) modal.classList.remove('sb-annot-open');
     if (palette) palette.setAttribute('aria-hidden', 'true');
+    if (palette) { palette.style.left = ''; palette.style.top = ''; palette.style.transform = ''; }
+    _sbPaletteGrabMode = false;
   }
+
+  // ── Annotation palette drag (desktop: header mousedown; mobile: double-tap header) ──
+  var _sbPaletteDragging = false;
+  var _sbPaletteDragOffX = 0, _sbPaletteDragOffY = 0;
+  var _sbPaletteGrabMode = false;
+  var _sbPaletteTapTimer = null;
+
+  (function _sbInstallPaletteDrag() {
+    function palEl() { return document.getElementById('sbAnnotPalette'); }
+
+    function beginDrag(p, clientX, clientY) {
+      var r = p.getBoundingClientRect();
+      _sbPaletteDragging = true;
+      _sbPaletteDragOffX = clientX - r.left;
+      _sbPaletteDragOffY = clientY - r.top;
+      p.style.transition = 'none';
+      p.style.transform  = 'none';
+      p.style.left = r.left + 'px';
+      p.style.top  = r.top  + 'px';
+      p.classList.add('sb-palette-dragging');
+    }
+
+    function doMove(clientX, clientY) {
+      if (!_sbPaletteDragging) return;
+      var p = palEl(); if (!p) return;
+      var vw = window.innerWidth, vh = window.innerHeight;
+      p.style.left = Math.max(0, Math.min(vw - p.offsetWidth,  clientX - _sbPaletteDragOffX)) + 'px';
+      p.style.top  = Math.max(0, Math.min(vh - p.offsetHeight, clientY - _sbPaletteDragOffY)) + 'px';
+    }
+
+    function endDrag() {
+      if (!_sbPaletteDragging) return;
+      _sbPaletteDragging = false;
+      var p = palEl();
+      if (p) { p.classList.remove('sb-palette-dragging'); setTimeout(function() { if (p) p.style.transition = ''; }, 50); }
+    }
+
+    document.addEventListener('mousedown', function(e) {
+      var p = palEl();
+      if (!p || !p.contains(e.target)) return;
+      if (!e.target.closest('.sb-annot-palette-head')) return;
+      e.preventDefault();
+      beginDrag(p, e.clientX, e.clientY);
+    });
+    document.addEventListener('mousemove', function(e) { doMove(e.clientX, e.clientY); });
+    document.addEventListener('mouseup', endDrag);
+
+    document.addEventListener('touchstart', function(e) {
+      var p = palEl();
+      if (!p || !p.contains(e.target)) return;
+      var head = e.target.closest('.sb-annot-palette-head');
+      if (head) {
+        if (_sbPaletteTapTimer) {
+          clearTimeout(_sbPaletteTapTimer); _sbPaletteTapTimer = null;
+          _sbPaletteGrabMode = !_sbPaletteGrabMode;
+          p.classList.toggle('sb-palette-grab', _sbPaletteGrabMode);
+          if (_sbPaletteGrabMode) { e.preventDefault(); beginDrag(p, e.touches[0].clientX, e.touches[0].clientY); }
+          else endDrag();
+          return;
+        }
+        _sbPaletteTapTimer = setTimeout(function() { _sbPaletteTapTimer = null; }, 380);
+        return;
+      }
+      if (_sbPaletteGrabMode && e.touches.length === 1) { e.preventDefault(); beginDrag(p, e.touches[0].clientX, e.touches[0].clientY); }
+    }, { passive: false });
+    document.addEventListener('touchmove', function(e) { if (!_sbPaletteDragging) return; e.preventDefault(); doMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    document.addEventListener('touchend', endDrag);
+    document.addEventListener('touchcancel', endDrag);
+  }());
 
   // ── Unified tool switcher (Annotate tab) ───────────────────────────────────
   function sbActivateTool(tool, btn) {
@@ -34666,35 +34737,7 @@ var WO = (function() {
   function sbUndoAnnot() { if (typeof sbUndo === 'function') sbUndo(); }
   function sbRedoAnnot() { if (typeof sbRedo === 'function') sbRedo(); }
 
-  (function _sbInstallHighlightListener() {
-    document.addEventListener('mouseup', function(e) {
-      if (_sbActiveTool !== 'highlight') return;
-      var modal = document.getElementById('songbookLiveModal');
-      if (!modal || modal.style.display === 'none') return;
-      var sel = window.getSelection();
-      if (!sel || sel.isCollapsed || !sel.rangeCount) return;
-      var range = sel.getRangeAt(0);
-      var container = range.commonAncestorContainer;
-      var node = container.nodeType === 3 ? container.parentElement : container;
-      var page = node ? node.closest('.sb-song-page') : null;
-      if (!page) return;
-      var pageId = page.id || '';
-      var songId = pageId.replace(/^sbPage-/, '');
-      if (!songId) return;
-      var rects = range.getClientRects();
-      var pageRect = page.getBoundingClientRect();
-      if (!rects.length || !pageRect.width) { sel.removeAllRanges(); return; }
-      if (!_sbHighlights[songId]) _sbHighlights[songId] = [];
-      for (var i = 0; i < rects.length; i++) {
-        var r = rects[i];
-        if (r.width < 2) continue;
-        _sbHighlights[songId].push({ id: 'hl_' + Date.now() + '_' + i, xPct: (r.left - pageRect.left) / pageRect.width * 100, yPct: (r.top - pageRect.top) / pageRect.height * 100, wPct: r.width / pageRect.width * 100, hPct: r.height / pageRect.height * 100, color: _sbAnnotColor });
-      }
-      sbRenderHighlights(songId); sel.removeAllRanges();
-      var song = (songOrderSections || []).find(function(s) { return s.id === songId; });
-      if (song) { song.highlights = _sbHighlights[songId]; sbAutoSave(); }
-    });
-  }());
+  // Highlight tool via annotation palette Highlighter — no auto-highlight on selection
 
   (function _sbInstallNoteListener() {
     document.addEventListener('click', function(e) {
@@ -58011,7 +58054,9 @@ function filterLiturgyItems() {
     opacity:1; visibility:visible; pointer-events:auto;
     transform:translate(0,-50%) scale(1);
   }
-  .sb-annot-palette-head { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:2px 3px 8px; color:#a7f3d0; font-size:.72rem; font-weight:700; letter-spacing:.04em; }
+  .sb-annot-palette-head { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:2px 3px 8px; color:#a7f3d0; font-size:.72rem; font-weight:700; letter-spacing:.04em; cursor:grab; user-select:none; }
+  .sb-annot-palette-head:active, .sb-palette-dragging .sb-annot-palette-head { cursor:grabbing; }
+  .sb-palette-grab .sb-annot-palette-head { cursor:grabbing; background:rgba(45,212,191,.12); border-radius:8px; }
   .sb-annot-palette-head button { width:25px; height:25px; border:0; border-radius:7px; background:rgba(255,255,255,.08); color:#dbeafe; cursor:pointer; }
   .sb-annot-tool,.sb-annot-pair button,.sb-annot-clear { border:1px solid transparent; border-radius:9px; background:transparent; color:#d7e6f2; cursor:pointer; font:500 .68rem 'Poppins',sans-serif; }
   .sb-annot-tool { min-height:36px; display:flex; align-items:center; gap:9px; padding:7px 9px; text-align:left; }
