@@ -6283,28 +6283,6 @@
     padding: 0;
     white-space: pre;
   }
-  /* ── Chord-anywhere: hover pill + insert popup ─────────────────────── */
-  #sbChordHoverPill {
-    position: fixed; display: none; align-items: center; justify-content: center;
-    width: 22px; height: 16px; background: #6366f1; color: white; border-radius: 4px;
-    font-size: 11px; font-weight: 800; cursor: pointer; z-index: 99998;
-    box-shadow: 0 2px 6px rgba(99,102,241,0.5); user-select: none; line-height: 1;
-    transition: transform 0.1s;
-  }
-  #sbChordHoverPill:hover { transform: scale(1.15); }
-  #sbChordInsertPop {
-    position: fixed; display: none; z-index: 99999; background: white;
-    border: 2px solid #6366f1; border-radius: 10px; padding: 12px 14px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.18); min-width: 170px;
-  }
-  .sb-cip-label { font-size:11px; color:#64748b; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:7px; }
-  #sbChordInsertInp {
-    width: 100%; font-family: 'Courier New', monospace; font-size: 20px; font-weight: 700;
-    color: #1e40af; border: 2px solid #e2e8f0; border-radius: 6px; padding: 5px 8px;
-    outline: none; text-align: center; box-sizing: border-box;
-  }
-  #sbChordInsertInp:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
-  .sb-cip-hint { font-size: 10px; color: #94a3b8; margin-top: 5px; text-align: center; }
 
   /* Individual chord highlight within lines */
   .editor-chord {
@@ -32248,7 +32226,6 @@ var WO = (function() {
       // Always render from the un-transposed source, then apply saved steps so
       // remote devices and page reloads show the correct transposition immediately.
       var lyricsHtml = song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
-      lyricsHtml = sbEnhanceChordPairsHtml(lyricsHtml);
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
 
       // Collect all docs for this song (filter out library docs the user removed from songbook)
@@ -32646,7 +32623,6 @@ var WO = (function() {
           _sbBody.addEventListener('click', sbHandleTextModeClick);
           _sbBody._taClickBound = true;
         }
-        sbInitChordPill();
       });
     });
     // Restore pointer-events / touch-action based on current draw mode
@@ -37197,153 +37173,6 @@ var WO = (function() {
     } catch(e) {}
   }
 
-  // ── Chord-anywhere: hover pill + insert popup ──────────────────────────────
-
-  var _sbCITarget = null;  // chunk element the insert popup is anchored to
-  var _sbCISid = null;     // songId for the active chord insert
-  var _sbPillHideTimer = null;
-  var _sbPillCurrentEl = null;
-
-  function sbInitChordPill() {
-    var body = document.getElementById('sbBody');
-    if (!body || body._sbPillBound) return;
-    body._sbPillBound = true;
-    var pill = document.getElementById('sbChordHoverPill');
-    if (!pill) return;
-
-    function showPill(el, sid) {
-      clearTimeout(_sbPillHideTimer);
-      _sbPillCurrentEl = el;
-      var rect = el.getBoundingClientRect();
-      pill.style.left = Math.max(4, Math.round(rect.left + rect.width / 2 - 11)) + 'px';
-      pill.style.top  = Math.max(4, Math.round(rect.top - 22)) + 'px';
-      pill.style.display = 'flex';
-      pill.dataset.sid = sid || '';
-    }
-    function hidePill(immediately) {
-      clearTimeout(_sbPillHideTimer);
-      if (immediately) { pill.style.display = 'none'; _sbPillCurrentEl = null; return; }
-      _sbPillHideTimer = setTimeout(function() {
-        if (!pill.matches(':hover')) { pill.style.display = 'none'; _sbPillCurrentEl = null; }
-      }, 180);
-    }
-
-    body.addEventListener('mouseover', function(e) {
-      var chunk = e.target && e.target.closest
-        ? e.target.closest('.wo-lyric-chunk, .wo-leading-chunk, .wo-lyrics-lyric-line')
-        : null;
-      if (!chunk) { hidePill(); return; }
-      // Don't show over chord-tokens — those already have an editable chord span
-      if (chunk.classList.contains('wo-chord-token')) { hidePill(); return; }
-      var lyricsEl = chunk.closest('[id^="sbLyrics-"]');
-      if (!lyricsEl) { hidePill(); return; }
-      showPill(chunk, lyricsEl.id.replace('sbLyrics-', ''));
-    });
-    body.addEventListener('mouseleave', function() { hidePill(); });
-
-    pill.addEventListener('mouseenter', function() { clearTimeout(_sbPillHideTimer); });
-    pill.addEventListener('mouseleave', function() { hidePill(); });
-    pill.addEventListener('click', function(e) {
-      e.stopPropagation();
-      if (_sbPillCurrentEl) {
-        sbOpenChordInsertAt(_sbPillCurrentEl, pill.dataset.sid);
-        hidePill(true);
-      }
-    });
-  }
-
-  function sbOpenChordInsertAt(chunkEl, sid) {
-    _sbCITarget = chunkEl;
-    _sbCISid = sid;
-    var pop = document.getElementById('sbChordInsertPop');
-    var inp = document.getElementById('sbChordInsertInp');
-    if (!pop || !inp) return;
-    inp.value = '';
-    // Position popup above the chunk
-    var rect = chunkEl.getBoundingClientRect();
-    var popW = 180;
-    var left = Math.max(8, Math.min(window.innerWidth - popW - 8, Math.round(rect.left + rect.width / 2 - popW / 2)));
-    var top  = Math.max(8, Math.round(rect.top - 108));
-    pop.style.left = left + 'px';
-    pop.style.top  = top + 'px';
-    pop.style.display = 'block';
-    inp.onkeydown = function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); sbConfirmChordInsert(); }
-      if (e.key === 'Escape') { e.preventDefault(); sbCloseChordInsert(); }
-    };
-    inp.oninput = function() {
-      // Auto-uppercase the first character
-      if (inp.value && /^[a-g]/.test(inp.value)) inp.value = inp.value[0].toUpperCase() + inp.value.slice(1);
-    };
-    setTimeout(function() { inp.focus(); inp.select(); }, 10);
-    setTimeout(function() {
-      function outsideClick(e) {
-        var pop2 = document.getElementById('sbChordInsertPop');
-        if (pop2 && !pop2.contains(e.target)) { sbCloseChordInsert(); }
-        else { document.addEventListener('click', outsideClick, { once: true }); }
-      }
-      document.addEventListener('click', outsideClick, { once: true });
-    }, 80);
-  }
-
-  function sbCloseChordInsert() {
-    var pop = document.getElementById('sbChordInsertPop');
-    if (pop) pop.style.display = 'none';
-    _sbCITarget = null; _sbCISid = null;
-  }
-
-  function sbConfirmChordInsert() {
-    var inp = document.getElementById('sbChordInsertInp');
-    var chord = inp ? inp.value.trim() : '';
-    chord = sbFormatChordSymbol(chord);
-    var target = _sbCITarget;
-    var sid = _sbCISid;
-    sbCloseChordInsert();
-    if (target && sid) sbInsertChordInBlock(target, chord, sid);
-  }
-
-  function sbInsertChordInBlock(chunkEl, chord, sid) {
-    var lyricsEl = document.getElementById('sbLyrics-' + sid);
-    if (!lyricsEl) return;
-
-    // Case A: chunk is inside a wo-lyrics-chord-pair
-    var block = chunkEl.closest && chunkEl.closest('.wo-lyrics-chord-pair');
-    if (block) {
-      var data = _sbChordPairData(block);
-      // Calculate the character position of this chunk within the lyric string
-      var pos = 0;
-      var allChunks = Array.from(block.querySelectorAll('.wo-leading-chunk, .wo-chord-token, .wo-lyric-chunk'));
-      for (var i = 0; i < allChunks.length; i++) {
-        if (allChunks[i] === chunkEl) break;
-        var lel = allChunks[i].querySelector('.wo-inline-lyric');
-        if (lel) pos += (lel.textContent || '').replace(/ /g, ' ').length;
-      }
-      // Replace or add chord at this position; empty chord = remove
-      var newChords = data.chords.filter(function(c) { return c.pos !== pos; });
-      if (chord) {
-        newChords.push({ pos: pos, text: chord });
-        newChords.sort(function(a, b) { return a.pos - b.pos; });
-      }
-      var chordLine = _sbChordsToLine(newChords);
-      var lyricText = data.lyric.replace(/ /g, ' ');
-      var temp = document.createElement('div');
-      temp.innerHTML = sbBuildChordPairHtml(chordLine, lyricText);
-      if (temp.firstChild) block.parentNode.replaceChild(temp.firstChild, block);
-      sbOnLyricsChange(sid);
-      return;
-    }
-
-    // Case B: chunk is inside a plain wo-lyrics-lyric-line (no pair yet)
-    var lyricLine = chunkEl.closest && chunkEl.closest('.wo-lyrics-lyric-line');
-    if (lyricLine && chord) {
-      var lyricText2 = (lyricLine.textContent || '').replace(/ /g, ' ');
-      var temp2 = document.createElement('div');
-      temp2.innerHTML = sbBuildChordPairHtml(chord, lyricText2);
-      if (temp2.firstChild) lyricLine.parentNode.replaceChild(temp2.firstChild, lyricLine);
-      sbOnLyricsChange(sid);
-    }
-  }
-
   // ── Fluid Enter / Backspace chord-pair editing ──────────────────────────────
 
   // Returns character offset within the combined lyric text of a chord-pair block.
@@ -37935,7 +37764,7 @@ var WO = (function() {
     var isBlank = song && song.itemType === 'blank';
     if (!isBlank) {
       var rawText = sbExtractLyricsText(el);
-      var newHtml = sbEnhanceChordPairsHtml(formatLyricsWithHighlights(rawText));
+      var newHtml = formatLyricsWithHighlights(rawText);
       el.innerHTML = newHtml;
       // Restore cursor to end of content
       var range = document.createRange();
@@ -48605,9 +48434,6 @@ var WO = (function() {
     sbBeforeLyricsInput: sbBeforeLyricsInput,
     sbHandleLyricsKeydown: sbHandleLyricsKeydown,
     sbChordInput: sbChordInput,
-    sbInsertChordInBlock: sbInsertChordInBlock,
-    sbConfirmChordInsert: sbConfirmChordInsert,
-    sbCloseChordInsert: sbCloseChordInsert,
     sbBuildChordPairHtml: sbBuildChordPairHtml,
     sbExtractLyricsText: sbExtractLyricsText,
     sbOnLyricsChange: sbOnLyricsChange,
@@ -62618,6 +62444,20 @@ window.LHC_Install = (function() {
     -webkit-column-break-inside:avoid;
     page-break-inside:avoid;
   }
+  #songbookLiveModal .sb-page-lyrics .wo-lyrics-chord-line {
+    font-family: 'Courier New', ui-monospace, monospace;
+    font-size: 0.82em;
+    font-weight: 700;
+    color: #087d78;
+    white-space: pre-wrap;
+    line-height: 1.2;
+    margin-top: 0.65em;
+    margin-bottom: 0;
+  }
+  #songbookLiveModal .sb-page-lyrics .wo-lyrics-lyric-line {
+    margin-top: 0;
+    margin-bottom: 0.8em;
+  }
   #songbookLiveModal .wo-leading-chunk,
   #songbookLiveModal .wo-lyric-chunk {
     position:relative;
@@ -62702,14 +62542,6 @@ window.LHC_Install = (function() {
   }
 </style>
 
-<!-- Chord-anywhere: hover pill + insert popup (outside all contenteditable regions) -->
-<div id="sbChordHoverPill" title="Add chord above this word">⊕</div>
-<div id="sbChordInsertPop">
-  <div class="sb-cip-label">Chord above word</div>
-  <input id="sbChordInsertInp" type="text" placeholder="e.g. G  Am  C#" maxlength="10"
-         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-  <div class="sb-cip-hint">Enter to confirm · Esc to cancel</div>
-</div>
 
 </body>
 </html>
