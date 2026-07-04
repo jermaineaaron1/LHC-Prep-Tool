@@ -32719,7 +32719,7 @@ var WO = (function() {
     return chunks.map(function(chunk, index) {
       var cls = chord && index === 0 ? 'wo-chord-token' : (chord ? 'wo-lyric-chunk' : 'wo-leading-chunk');
       var chordHtml = chord && index === 0
-        ? '<span class="wo-inline-chord" contenteditable="true" spellcheck="false" tabindex="0">' + escapeHtml(chord) + '</span>'
+        ? '<span class="wo-inline-chord" contenteditable="true" spellcheck="false" tabindex="0" oninput="WO.sbChordInput(this)">' + escapeHtml(sbFormatChordSymbol(chord)) + '</span>'
         : '';
       return '<span class="' + cls + '">' + chordHtml + '<span class="wo-inline-lyric">' + escapeHtml(chunk) + '</span></span>';
     }).join('');
@@ -33410,7 +33410,7 @@ var WO = (function() {
       html += '</div>'; // .sb-page-header (compact, matches book mode)
 
       html += '<div class="sb-page-canvas-wrap" id="sbCanvas-wrap-' + sid + '">';
-      html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="true" onbeforeinput="WO.sbBeforeLyricsInput(event,\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\')" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
+      html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="true" onbeforeinput="WO.sbBeforeLyricsInput(event,\'' + sid + '\')" onkeydown="WO.sbHandleLyricsKeydown(event,\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\')" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
       html += '<svg class="sb-draw-svg" id="sbCanvas-' + sid + '"></svg>';
       html += '</div>';
       html += '<div class="sb-text-annot-layer" id="sbTextLayer-' + sid + '"></div>';
@@ -34815,15 +34815,42 @@ var WO = (function() {
     var cl = document.getElementById('sbChordSizeLbl'); if (cl) cl.textContent = (s.chordSizePx || 14) + 'px';
   }
 
-  function sbAppearChange(prop, value) { _sbAppearSettings[prop] = value; sbApplyAppearance(); }
+  function _sbTrySelectionApply(prop, newValue) {
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+    var range = sel.getRangeAt(0);
+    var node = range.startContainer;
+    var container = node.nodeType === 1 ? node : node.parentElement;
+    if (!container || !container.closest('.sb-page-lyrics')) return false;
+    var isChordProp = prop === 'chordColor' || prop === 'chordSize' || prop === 'chordBold';
+    if (isChordProp) {
+      var lyricsEl = container.closest('.sb-page-lyrics'); if (!lyricsEl) return false;
+      var applied = 0;
+      lyricsEl.querySelectorAll('.wo-inline-chord').forEach(function(span) {
+        var inRange = false; try { inRange = range.intersectsNode(span); } catch(e) { inRange = lyricsEl.contains(span); }
+        if (!inRange) return;
+        if (prop === 'chordColor') span.style.color = newValue;
+        else if (prop === 'chordSize') span.style.fontSize = newValue + 'px';
+        else if (prop === 'chordBold') span.style.fontWeight = newValue ? 'bold' : 'normal';
+        applied++;
+      });
+      if (applied > 0) { sbOnLyricsChange(lyricsEl.id.replace('sbLyrics-', '')); return true; }
+      return false;
+    }
+    var cssMap = { lyricFamily:{fontFamily:newValue}, lyricSize:{fontSize:newValue+'px'}, lyricColor:{color:newValue}, lyricBold:{fontWeight:newValue?'bold':'normal'}, lyricItalic:{fontStyle:newValue?'italic':'normal'} };
+    var css = cssMap[prop]; if (css) return !!_sbApplySelectionStyle(css);
+    return false;
+  }
+  function sbAppearChange(prop, value) { if (_sbTrySelectionApply(prop, value)) return; _sbAppearSettings[prop] = value; sbApplyAppearance(); }
   function sbAppearColor(prop, color, btn) {
-    _sbAppearSettings[prop] = color;
     var gid = prop === 'lyricColor' ? 'sbLyricColorSwatches' : 'sbChordColorSwatches';
     var grp = document.getElementById(gid); if (grp) grp.querySelectorAll('.sb-appear-color').forEach(function(b) { b.classList.remove('active'); });
-    if (btn) btn.classList.add('active'); sbApplyAppearance();
+    if (btn) btn.classList.add('active');
+    if (_sbTrySelectionApply(prop, color)) return;
+    _sbAppearSettings[prop] = color; sbApplyAppearance();
   }
-  function sbAppearStep(prop, delta) { _sbAppearSettings[prop] = Math.max(8, Math.min(48, (_sbAppearSettings[prop] || (prop === 'chordSize' ? 14 : 18)) + delta)); sbApplyAppearance(); }
-  function sbAppearToggle(prop, btn) { _sbAppearSettings[prop] = !_sbAppearSettings[prop]; if (btn) btn.classList.toggle('active', !!_sbAppearSettings[prop]); sbApplyAppearance(); }
+  function sbAppearStep(prop, delta) { var newVal = Math.max(8, Math.min(48, (_sbAppearSettings[prop] || (prop === 'chordSize' ? 14 : 18)) + delta)); if (_sbTrySelectionApply(prop, newVal)) return; _sbAppearSettings[prop] = newVal; sbApplyAppearance(); }
+  function sbAppearToggle(prop, btn) { var newVal = !_sbAppearSettings[prop]; if (btn) btn.classList.toggle('active', !!newVal); if (_sbTrySelectionApply(prop, newVal)) return; _sbAppearSettings[prop] = newVal; sbApplyAppearance(); }
   function sbAppearReset() {
     _sbAppearSettings = JSON.parse(JSON.stringify(_sbAppearDefaults));
     ['sbLyricBoldBtn','sbLyricItalicBtn'].forEach(function(id) { var b = document.getElementById(id); if (b) b.classList.remove('active'); });
@@ -37683,6 +37710,137 @@ var WO = (function() {
       rebuilt += new Array(Math.max(0, pos - rebuilt.length) + 1).join(' ') + token.text;
     });
     chordLine.textContent = rebuilt;
+  }
+
+  // ── Chord symbol formatting ─────────────────────────────────────────────────
+  function sbFormatChordSymbol(text) {
+    if (!text) return text;
+    return text.replace(/([A-G])#/g, '$1♯').replace(/([A-G])b/g, '$1♭');
+  }
+  function sbChordInput(el) {
+    if (!el) return;
+    var raw = el.textContent || '';
+    var formatted = sbFormatChordSymbol(raw);
+    if (formatted === raw) return;
+    var sel = window.getSelection();
+    var cursorOffset = 0;
+    if (sel && sel.rangeCount > 0) { var r = sel.getRangeAt(0); if (el.contains(r.startContainer)) cursorOffset = r.startOffset; }
+    el.textContent = formatted;
+    try { var r2 = document.createRange(); var tn = el.firstChild; if (tn) { r2.setStart(tn, Math.min(cursorOffset, formatted.length)); r2.collapse(true); sel.removeAllRanges(); sel.addRange(r2); } } catch(e) {}
+  }
+
+  // ── Fluid Enter / Backspace chord-pair editing ──────────────────────────────
+  function _sbLyricCursorPos(block, range) {
+    var lyricSpans = Array.from(block.querySelectorAll('.wo-inline-lyric'));
+    var offset = 0;
+    for (var i = 0; i < lyricSpans.length; i++) {
+      var span = lyricSpans[i];
+      if (span === range.startContainer) { var cc = 0; for (var j = 0; j < range.startOffset; j++) { if (span.childNodes[j]) cc += (span.childNodes[j].textContent || '').length; } return offset + cc; }
+      if (span.contains(range.startContainer)) { var cc2 = 0; var child = span.firstChild; while (child && child !== range.startContainer) { cc2 += (child.textContent || '').length; child = child.nextSibling; } return offset + cc2 + range.startOffset; }
+      offset += (span.textContent || '').length;
+    }
+    return offset;
+  }
+  function _sbChordPairData(block) {
+    var chords = [], lyric = '';
+    block.querySelectorAll('.wo-leading-chunk,.wo-chord-token,.wo-lyric-chunk').forEach(function(chunk) {
+      var chordEl = chunk.classList.contains('wo-chord-token') ? chunk.querySelector('.wo-inline-chord') : null;
+      var lyricEl = chunk.querySelector('.wo-inline-lyric');
+      var ct = lyricEl ? (lyricEl.textContent || '') : '';
+      if (chordEl) chords.push({ pos: lyric.length, text: chordEl.textContent.trim() });
+      lyric += ct;
+    });
+    return { chords: chords, lyric: lyric };
+  }
+  function _sbChordsToLine(chords) {
+    var result = '';
+    chords.forEach(function(t) { while (result.length < t.pos) result += ' '; result += t.text; });
+    return result.replace(/\s+$/, '');
+  }
+  function _sbBuildBlock(chordLine, lyricText) {
+    var lyr = (lyricText || '').trim() || ' ';
+    return sbBuildChordPairHtml(chordLine || '', lyr);
+  }
+  function _sbCaretAtBlockStart(block) {
+    var firstLyric = block.querySelector('.wo-inline-lyric') || block;
+    var target = firstLyric.firstChild || firstLyric;
+    try { var r = document.createRange(); r.setStart(target, 0); r.collapse(true); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch(e) {}
+  }
+  function _countPrecedingChars(block, range) {
+    var count = 0; var walker = block.firstChild;
+    while (walker && walker !== range.startContainer) { count += (walker.textContent || '').length; walker = walker.nextSibling; }
+    return count + range.startOffset;
+  }
+  function sbHandleLyricsKeydown(evt, sid) {
+    if (evt.key !== 'Enter' && evt.key !== 'Backspace') return;
+    if (evt.key === 'Enter' && (evt.shiftKey || evt.ctrlKey || evt.metaKey)) return;
+    var lyricsEl = document.getElementById('sbLyrics-' + sid);
+    var sel = window.getSelection();
+    if (!lyricsEl || !sel || !sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    var node = range.startContainer;
+    var el = node.nodeType === 1 ? node : node.parentElement;
+    var block = el;
+    while (block && block.parentElement !== lyricsEl) block = block.parentElement;
+    if (!block || !lyricsEl.contains(block)) return;
+    var isChordPair = block.classList.contains('wo-lyrics-chord-pair');
+    var isLyricLine = block.classList.contains('wo-lyrics-lyric-line') || block.classList.contains('wo-lyrics-empty-line') || block.classList.contains('wo-lyrics-section-header');
+    var inChordSpan = el && el.closest && !!el.closest('.wo-inline-chord');
+
+    if (evt.key === 'Enter') {
+      if (!isChordPair && !isLyricLine && !inChordSpan) return;
+      evt.preventDefault();
+      if (isChordPair || inChordSpan) {
+        var data = _sbChordPairData(block);
+        var cursorPos = _sbLyricCursorPos(block, range);
+        if (cursorPos < 0) cursorPos = data.lyric.length;
+        var lyric1 = data.lyric.substring(0, cursorPos), lyric2 = data.lyric.substring(cursorPos);
+        var chords1 = data.chords.filter(function(t) { return t.pos < cursorPos; });
+        var chords2 = data.chords.filter(function(t) { return t.pos >= cursorPos; }).map(function(t) { return { pos: t.pos - cursorPos, text: t.text }; });
+        var temp = document.createElement('div');
+        temp.innerHTML = _sbBuildBlock(_sbChordsToLine(chords1), lyric1) + _sbBuildBlock(_sbChordsToLine(chords2), lyric2);
+        var nb1 = temp.firstChild.cloneNode(true), nb2 = temp.lastChild.cloneNode(true);
+        lyricsEl.insertBefore(nb1, block); lyricsEl.insertBefore(nb2, block); lyricsEl.removeChild(block);
+        _sbCaretAtBlockStart(nb2);
+      } else {
+        var fullText = block.textContent || '', textOffset = 0;
+        if (range.startContainer === block) { for (var ci = 0; ci < range.startOffset; ci++) { if (block.childNodes[ci]) textOffset += (block.childNodes[ci].textContent || '').length; } }
+        else { var walker2 = block.firstChild; while (walker2 && walker2 !== range.startContainer) { textOffset += (walker2.textContent || '').length; walker2 = walker2.nextSibling; } textOffset += range.startOffset; }
+        var nb1p = document.createElement('div'); nb1p.className = block.className; nb1p.textContent = fullText.substring(0, textOffset) || ' ';
+        var nb2p = document.createElement('div'); nb2p.className = 'wo-lyrics-lyric-line'; nb2p.textContent = fullText.substring(textOffset) || ' ';
+        lyricsEl.insertBefore(nb1p, block); lyricsEl.insertBefore(nb2p, block); lyricsEl.removeChild(block);
+        _sbCaretAtBlockStart(nb2p);
+      }
+      sbOnLyricsChange(sid);
+    } else if (evt.key === 'Backspace') {
+      var cursorAtStart = isChordPair ? _sbLyricCursorPos(block, range) === 0 : _countPrecedingChars(block, range) === 0;
+      if (!cursorAtStart) return;
+      var prevBlock = block.previousElementSibling;
+      if (!prevBlock) return;
+      evt.preventDefault();
+      if (isChordPair && prevBlock.classList.contains('wo-lyrics-chord-pair')) {
+        var dPrev = _sbChordPairData(prevBlock), dCur = _sbChordPairData(block);
+        var mergedLyric = dPrev.lyric + dCur.lyric;
+        var shiftedChords = dCur.chords.map(function(t) { return { pos: t.pos + dPrev.lyric.length, text: t.text }; });
+        var temp3 = document.createElement('div');
+        temp3.innerHTML = _sbBuildBlock(_sbChordsToLine(dPrev.chords.concat(shiftedChords)), mergedLyric);
+        var merged = temp3.firstChild.cloneNode(true);
+        lyricsEl.insertBefore(merged, prevBlock); lyricsEl.removeChild(prevBlock); lyricsEl.removeChild(block);
+        var joinPos = dPrev.lyric.length, lyricSpans = merged.querySelectorAll('.wo-inline-lyric'), cumLen = 0;
+        for (var li = 0; li < lyricSpans.length; li++) {
+          var sLen = (lyricSpans[li].textContent || '').length;
+          if (cumLen + sLen >= joinPos) { var inOff = joinPos - cumLen; var tn4 = lyricSpans[li].firstChild || lyricSpans[li]; try { var rr = document.createRange(); rr.setStart(tn4, Math.min(inOff, (tn4.textContent || '').length)); rr.collapse(true); sel.removeAllRanges(); sel.addRange(rr); } catch(e) {} break; }
+          cumLen += sLen;
+        }
+      } else {
+        var prevText = (prevBlock.textContent || '').replace(/ /g,' ').trimRight ? (prevBlock.textContent || '').replace(/ /g,' ').replace(/\s+$/, '') : (prevBlock.textContent || '');
+        var curText = (block.textContent || '').replace(/ /g,' ');
+        var nbm = document.createElement('div'); nbm.className = 'wo-lyrics-lyric-line'; nbm.textContent = prevText + curText || ' ';
+        lyricsEl.insertBefore(nbm, prevBlock); lyricsEl.removeChild(prevBlock); lyricsEl.removeChild(block);
+        var tn5 = nbm.firstChild || nbm; try { var rr2 = document.createRange(); rr2.setStart(tn5, Math.min(prevText.length, (tn5.textContent || '').length)); rr2.collapse(true); sel.removeAllRanges(); sel.addRange(rr2); } catch(e) {}
+      }
+      sbOnLyricsChange(sid);
+    }
   }
 
   function sbCapturePreEdit(sid) {
@@ -48682,6 +48840,8 @@ var WO = (function() {
     sbFlushSave: sbFlushSave,
     sbCapturePreEdit: sbCapturePreEdit,
     sbBeforeLyricsInput: sbBeforeLyricsInput,
+    sbHandleLyricsKeydown: sbHandleLyricsKeydown,
+    sbChordInput: sbChordInput,
     sbBuildChordPairHtml: sbBuildChordPairHtml,
     sbExtractLyricsText: sbExtractLyricsText,
     sbOnLyricsChange: sbOnLyricsChange,
@@ -62244,6 +62404,7 @@ window.LHC_Install = (function() {
     vertical-align:bottom;
     white-space:pre-wrap;
     color:#172b42;
+    margin-right:0.28em;
   }
   #songbookLiveModal .wo-chord-token>.wo-inline-lyric {
     grid-column:1;

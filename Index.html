@@ -31644,7 +31644,7 @@ var WO = (function() {
     return chunks.map(function(chunk, index) {
       var cls = chord && index === 0 ? 'wo-chord-token' : (chord ? 'wo-lyric-chunk' : 'wo-leading-chunk');
       var chordHtml = chord && index === 0
-        ? '<span class="wo-inline-chord" contenteditable="true" spellcheck="false" tabindex="0">' + escapeHtml(chord) + '</span>'
+        ? '<span class="wo-inline-chord" contenteditable="true" spellcheck="false" tabindex="0" oninput="WO.sbChordInput(this)">' + escapeHtml(sbFormatChordSymbol(chord)) + '</span>'
         : '';
       return '<span class="' + cls + '">' + chordHtml + '<span class="wo-inline-lyric">' + escapeHtml(chunk) + '</span></span>';
     }).join('');
@@ -32331,7 +32331,7 @@ var WO = (function() {
       html += '</div>'; // .sb-page-header (compact, matches book mode)
 
       html += '<div class="sb-page-canvas-wrap" id="sbCanvas-wrap-' + sid + '">';
-      html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="true" onbeforeinput="WO.sbBeforeLyricsInput(event,\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\')" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
+      html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="true" onbeforeinput="WO.sbBeforeLyricsInput(event,\'' + sid + '\')" onkeydown="WO.sbHandleLyricsKeydown(event,\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\')" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
       html += '<svg class="sb-draw-svg" id="sbCanvas-' + sid + '"></svg>';
       html += '</div>';
       html += '<div class="sb-text-annot-layer" id="sbTextLayer-' + sid + '"></div>';
@@ -33826,29 +33826,79 @@ var WO = (function() {
     if (cl) cl.textContent = (s.chordSizePx || 14) + 'px';
   }
 
+  // ── Selection-based style application ────────────────────────────────────────
+  // When text is system-selected inside .sb-page-lyrics, appearance controls apply
+  // inline styles to the selection only instead of updating the global settings.
+  function _sbTrySelectionApply(prop, newValue) {
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+    var range = sel.getRangeAt(0);
+    var node = range.startContainer;
+    var container = node.nodeType === 1 ? node : node.parentElement;
+    if (!container || !container.closest('.sb-page-lyrics')) return false;
+
+    var isChordProp = prop === 'chordColor' || prop === 'chordSize' || prop === 'chordBold';
+
+    if (isChordProp) {
+      // Apply to .wo-inline-chord spans that intersect the selection
+      var lyricsEl = container.closest('.sb-page-lyrics');
+      if (!lyricsEl) return false;
+      var applied = 0;
+      lyricsEl.querySelectorAll('.wo-inline-chord').forEach(function(span) {
+        var inRange = false;
+        try { inRange = range.intersectsNode(span); } catch(e) { inRange = lyricsEl.contains(span); }
+        if (!inRange) return;
+        if (prop === 'chordColor')  span.style.color      = newValue;
+        else if (prop === 'chordSize') span.style.fontSize = newValue + 'px';
+        else if (prop === 'chordBold') span.style.fontWeight = newValue ? 'bold' : 'normal';
+        applied++;
+      });
+      if (applied > 0) { sbOnLyricsChange(lyricsEl.id.replace('sbLyrics-', '')); return true; }
+      return false;
+    }
+
+    // Lyric prop → wrap selection in a styled span
+    var cssMap = {
+      lyricFamily: { fontFamily: newValue },
+      lyricSize:   { fontSize: newValue + 'px' },
+      lyricColor:  { color: newValue },
+      lyricBold:   { fontWeight: newValue ? 'bold' : 'normal' },
+      lyricItalic: { fontStyle:  newValue ? 'italic' : 'normal' }
+    };
+    var css = cssMap[prop];
+    if (css) return !!_sbApplySelectionStyle(css);
+    return false;
+  }
+
   function sbAppearChange(prop, value) {
+    if (_sbTrySelectionApply(prop, value)) return;
     _sbAppearSettings[prop] = value;
     sbApplyAppearance();
   }
 
   function sbAppearColor(prop, color, btn) {
-    _sbAppearSettings[prop] = color;
     var groupId = prop === 'lyricColor' ? 'sbLyricColorSwatches' : 'sbChordColorSwatches';
     var grp = document.getElementById(groupId);
     if (grp) grp.querySelectorAll('.sb-appear-color').forEach(function(b) { b.classList.remove('active'); });
     if (btn) btn.classList.add('active');
+    if (_sbTrySelectionApply(prop, color)) return;
+    _sbAppearSettings[prop] = color;
     sbApplyAppearance();
   }
 
   function sbAppearStep(prop, delta) {
     var cur = _sbAppearSettings[prop] || (prop === 'chordSize' ? 14 : 18);
-    _sbAppearSettings[prop] = Math.max(8, Math.min(48, cur + delta));
+    var newVal = Math.max(8, Math.min(48, cur + delta));
+    if (_sbTrySelectionApply(prop, newVal)) return;
+    _sbAppearSettings[prop] = newVal;
     sbApplyAppearance();
   }
 
   function sbAppearToggle(prop, btn) {
-    _sbAppearSettings[prop] = !_sbAppearSettings[prop];
-    if (btn) btn.classList.toggle('active', !!_sbAppearSettings[prop]);
+    var newVal = !_sbAppearSettings[prop];
+    if (btn) btn.classList.toggle('active', !!newVal);
+    if (_sbTrySelectionApply(prop, newVal)) return;
+    _sbAppearSettings[prop] = newVal;
     sbApplyAppearance();
   }
 
@@ -36860,6 +36910,318 @@ var WO = (function() {
       rebuilt += new Array(Math.max(0, pos - rebuilt.length) + 1).join(' ') + token.text;
     });
     chordLine.textContent = rebuilt;
+  }
+
+  // ── Chord symbol formatting ─────────────────────────────────────────────────
+  function sbFormatChordSymbol(text) {
+    if (!text) return text;
+    // Replace # with ♯ and b-flat with ♭ (b immediately after a note letter)
+    return text
+      .replace(/([A-G])#/g, '$1♯')
+      .replace(/([A-G])b/g, '$1♭');
+  }
+
+  // Called oninput on each .wo-inline-chord span — auto-formats as user types
+  function sbChordInput(el) {
+    if (!el) return;
+    var raw = el.textContent || '';
+    var formatted = sbFormatChordSymbol(raw);
+    if (formatted === raw) return;
+    // Preserve cursor offset (character position inside the span)
+    var sel = window.getSelection();
+    var cursorOffset = 0;
+    if (sel && sel.rangeCount > 0) {
+      var r = sel.getRangeAt(0);
+      if (el.contains(r.startContainer)) cursorOffset = r.startOffset;
+    }
+    el.textContent = formatted;
+    try {
+      var r2 = document.createRange();
+      var tn = el.firstChild;
+      if (tn) {
+        var safeOffset = Math.min(cursorOffset, formatted.length);
+        r2.setStart(tn, safeOffset);
+        r2.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r2);
+      }
+    } catch(e) {}
+  }
+
+  // ── Fluid Enter / Backspace chord-pair editing ──────────────────────────────
+
+  // Returns character offset within the combined lyric text of a chord-pair block.
+  // The lyric text is the concatenation of all .wo-inline-lyric textContent values.
+  function _sbLyricCursorPos(block, range) {
+    var lyricSpans = Array.from(block.querySelectorAll('.wo-inline-lyric'));
+    var offset = 0;
+    for (var i = 0; i < lyricSpans.length; i++) {
+      var span = lyricSpans[i];
+      if (span === range.startContainer) {
+        // Range starts on the span element itself (child index offset)
+        var charCount = 0;
+        for (var j = 0; j < range.startOffset; j++) {
+          if (span.childNodes[j]) charCount += (span.childNodes[j].textContent || '').length;
+        }
+        return offset + charCount;
+      }
+      if (span.contains(range.startContainer)) {
+        // Range starts inside a child text node
+        var charCount2 = 0;
+        var child = span.firstChild;
+        while (child && child !== range.startContainer) {
+          charCount2 += (child.textContent || '').length;
+          child = child.nextSibling;
+        }
+        return offset + charCount2 + range.startOffset;
+      }
+      offset += (span.textContent || '').length;
+    }
+    return offset; // at end
+  }
+
+  // Extract {chords:[{pos,text}], lyric} from a .wo-lyrics-chord-pair block.
+  function _sbChordPairData(block) {
+    var chords = [];
+    var lyric = '';
+    block.querySelectorAll('.wo-leading-chunk,.wo-chord-token,.wo-lyric-chunk').forEach(function(chunk) {
+      var chordEl = chunk.classList.contains('wo-chord-token') ? chunk.querySelector('.wo-inline-chord') : null;
+      var lyricEl = chunk.querySelector('.wo-inline-lyric');
+      var chunk_text = lyricEl ? (lyricEl.textContent || '') : '';
+      if (chordEl) chords.push({ pos: lyric.length, text: chordEl.textContent.trim() });
+      lyric += chunk_text;
+    });
+    return { chords: chords, lyric: lyric };
+  }
+
+  // Build a chord-line string from an array of {pos,text} chord tokens.
+  function _sbChordsToLine(chords) {
+    var result = '';
+    chords.forEach(function(t) {
+      while (result.length < t.pos) result += ' ';
+      result += t.text;
+    });
+    return result.trimRight ? result.trimRight() : result.replace(/\s+$/, '');
+  }
+
+  // Build block HTML from chord+lyric data (mirrors sbBuildChordPairHtml but
+  // also accepts a plain lyric-only string when chordLine is empty).
+  function _sbBuildBlock(chordLine, lyricText) {
+    var lyr = lyricText.replace(/ /g, ' ').trim();
+    if (!lyr) lyr = ' ';
+    return sbBuildChordPairHtml(chordLine || '', lyr);
+  }
+
+  // Place caret at the very start of a block (first .wo-inline-lyric or first text node).
+  function _sbCaretAtBlockStart(block) {
+    var firstLyric = block.querySelector('.wo-inline-lyric');
+    if (!firstLyric) firstLyric = block;
+    var target = firstLyric.firstChild || firstLyric;
+    try {
+      var r = document.createRange();
+      r.setStart(target, 0);
+      r.collapse(true);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } catch(e) {}
+  }
+
+  // Place caret at the very end of a block (last .wo-inline-lyric or last text node).
+  function _sbCaretAtBlockEnd(block) {
+    var lyricSpans = block.querySelectorAll('.wo-inline-lyric');
+    var lastLyric = lyricSpans[lyricSpans.length - 1] || block;
+    var target = lastLyric.lastChild || lastLyric;
+    var offset = target.textContent ? target.textContent.length : 0;
+    if (target.nodeType === 1) offset = target.childNodes.length;
+    try {
+      var r = document.createRange();
+      r.setStart(target, offset);
+      r.collapse(true);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } catch(e) {}
+  }
+
+  function sbHandleLyricsKeydown(evt, sid) {
+    if (evt.key !== 'Enter' && evt.key !== 'Backspace') return;
+    // Only handle plain Enter (no Shift/Ctrl/Meta — those have platform meanings)
+    if (evt.key === 'Enter' && (evt.shiftKey || evt.ctrlKey || evt.metaKey)) return;
+
+    var lyricsEl = document.getElementById('sbLyrics-' + sid);
+    var sel = window.getSelection();
+    if (!lyricsEl || !sel || !sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+
+    // Resolve cursor's ancestor that is a direct child of lyricsEl
+    var node = range.startContainer;
+    var el = node.nodeType === 1 ? node : node.parentElement;
+    var block = el;
+    while (block && block.parentElement !== lyricsEl) block = block.parentElement;
+    if (!block || !lyricsEl.contains(block)) return;
+
+    var isChordPair = block.classList.contains('wo-lyrics-chord-pair');
+    var isLyricLine = block.classList.contains('wo-lyrics-lyric-line') ||
+                      block.classList.contains('wo-lyrics-empty-line') ||
+                      block.classList.contains('wo-lyrics-section-header');
+    // Also handle cursor inside a .wo-inline-chord (the chord span)
+    var inChordSpan = el && el.closest && !!el.closest('.wo-inline-chord');
+
+    if (evt.key === 'Enter') {
+      if (!isChordPair && !isLyricLine && !inChordSpan) return; // unknown element, let browser handle
+      evt.preventDefault();
+
+      if (isChordPair || inChordSpan) {
+        // For chord pairs: split at cursor position in lyric text
+        var data = _sbChordPairData(block);
+        var cursorPos = _sbLyricCursorPos(block, range);
+        if (cursorPos < 0) cursorPos = data.lyric.length;
+
+        var lyric1 = data.lyric.substring(0, cursorPos);
+        var lyric2 = data.lyric.substring(cursorPos);
+        var chords1 = data.chords.filter(function(t) { return t.pos < cursorPos; });
+        var chords2 = data.chords
+          .filter(function(t) { return t.pos >= cursorPos; })
+          .map(function(t) { return { pos: t.pos - cursorPos, text: t.text }; });
+
+        var temp = document.createElement('div');
+        temp.innerHTML = _sbBuildBlock(_sbChordsToLine(chords1), lyric1) +
+                         _sbBuildBlock(_sbChordsToLine(chords2), lyric2);
+        var nb1 = temp.firstChild.cloneNode(true);
+        var nb2 = temp.lastChild.cloneNode(true);
+        lyricsEl.insertBefore(nb1, block);
+        lyricsEl.insertBefore(nb2, block);
+        lyricsEl.removeChild(block);
+        _sbCaretAtBlockStart(nb2);
+
+      } else {
+        // Plain lyric/section line: split text at cursor
+        var fullText = block.textContent || '';
+        // Find cursor offset within the block text
+        var textOffset = 0;
+        if (range.startContainer === block) {
+          var idx = range.startOffset;
+          for (var ci = 0; ci < idx; ci++) {
+            if (block.childNodes[ci]) textOffset += (block.childNodes[ci].textContent || '').length;
+          }
+        } else {
+          var walker = block.firstChild;
+          while (walker && walker !== range.startContainer) {
+            textOffset += (walker.textContent || '').length;
+            walker = walker.nextSibling;
+          }
+          textOffset += range.startOffset;
+        }
+
+        var text1 = fullText.substring(0, textOffset);
+        var text2 = fullText.substring(textOffset);
+        var nb1p = document.createElement('div');
+        nb1p.className = block.className;
+        nb1p.textContent = text1 || ' ';
+        var nb2p = document.createElement('div');
+        nb2p.className = 'wo-lyrics-lyric-line';
+        nb2p.textContent = text2 || ' ';
+        lyricsEl.insertBefore(nb1p, block);
+        lyricsEl.insertBefore(nb2p, block);
+        lyricsEl.removeChild(block);
+        _sbCaretAtBlockStart(nb2p);
+      }
+
+      sbOnLyricsChange(sid);
+
+    } else if (evt.key === 'Backspace') {
+      // Only intercept if cursor is at the very start of the block
+      var cursorAtStart;
+      if (isChordPair) {
+        cursorAtStart = _sbLyricCursorPos(block, range) === 0;
+      } else {
+        var offStart = range.startOffset === 0;
+        if (range.startContainer === block) offStart = range.startOffset === 0;
+        else if (range.startContainer.nodeType === 3) offStart = range.startOffset === 0;
+        // Also true if cursor is before the very first character
+        cursorAtStart = offStart && (!range.startContainer.previousSibling ||
+          (block.contains(range.startContainer) && _countPrecedingChars(block, range) === 0));
+      }
+      if (!cursorAtStart) return;
+
+      // Check there's a previous sibling to merge with
+      var prevBlock = block.previousElementSibling;
+      if (!prevBlock) return;
+
+      evt.preventDefault();
+
+      var prevIsChordPair = prevBlock.classList.contains('wo-lyrics-chord-pair');
+
+      if (isChordPair && prevIsChordPair) {
+        // Merge two chord-pairs
+        var dPrev = _sbChordPairData(prevBlock);
+        var dCur  = _sbChordPairData(block);
+        var mergedLyric = dPrev.lyric + dCur.lyric;
+        var shiftedChords = dCur.chords.map(function(t) { return { pos: t.pos + dPrev.lyric.length, text: t.text }; });
+        var mergedChords = dPrev.chords.concat(shiftedChords);
+        var temp2 = document.createElement('div');
+        temp2.innerHTML = _sbBuildBlock(_sbChordsToLine(mergedChords), mergedLyric);
+        var merged = temp2.firstChild.cloneNode(true);
+        lyricsEl.insertBefore(merged, prevBlock);
+        lyricsEl.removeChild(prevBlock);
+        lyricsEl.removeChild(block);
+        // Place caret at join point
+        var joinPos = dPrev.lyric.length;
+        var lyricSpans = merged.querySelectorAll('.wo-inline-lyric');
+        var cumLen = 0;
+        for (var li = 0; li < lyricSpans.length; li++) {
+          var sLen = (lyricSpans[li].textContent || '').length;
+          if (cumLen + sLen >= joinPos) {
+            var inOffset = joinPos - cumLen;
+            var tn2 = lyricSpans[li].firstChild || lyricSpans[li];
+            try {
+              var rr = document.createRange();
+              rr.setStart(tn2, Math.min(inOffset, tn2.textContent ? tn2.textContent.length : 0));
+              rr.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(rr);
+            } catch(e) {}
+            break;
+          }
+          cumLen += sLen;
+        }
+      } else {
+        // Merge as plain text (at least one is a plain line)
+        var prevText = prevBlock.textContent || '';
+        var curText  = block.textContent || '';
+        var mergedText = prevText.replace(/ /g, ' ').trimRight() + curText.replace(/ /g, ' ');
+        var nbm = document.createElement('div');
+        nbm.className = 'wo-lyrics-lyric-line';
+        nbm.textContent = mergedText || ' ';
+        lyricsEl.insertBefore(nbm, prevBlock);
+        lyricsEl.removeChild(prevBlock);
+        lyricsEl.removeChild(block);
+        // Place caret at join point
+        var joinOffset = prevText.replace(/ /g, ' ').trimRight().length;
+        var tn3 = nbm.firstChild || nbm;
+        try {
+          var rr2 = document.createRange();
+          rr2.setStart(tn3, Math.min(joinOffset, (tn3.textContent || '').length));
+          rr2.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(rr2);
+        } catch(e) {}
+      }
+
+      sbOnLyricsChange(sid);
+    }
+  }
+
+  // Count characters in the block that precede the range's start position.
+  function _countPrecedingChars(block, range) {
+    var count = 0;
+    var walker = block.firstChild;
+    while (walker && walker !== range.startContainer) {
+      count += (walker.textContent || '').length;
+      walker = walker.nextSibling;
+    }
+    return count + range.startOffset;
   }
 
   function sbCapturePreEdit(sid) {
@@ -47676,6 +48038,8 @@ var WO = (function() {
     sbFlushSave: sbFlushSave,
     sbCapturePreEdit: sbCapturePreEdit,
     sbBeforeLyricsInput: sbBeforeLyricsInput,
+    sbHandleLyricsKeydown: sbHandleLyricsKeydown,
+    sbChordInput: sbChordInput,
     sbBuildChordPairHtml: sbBuildChordPairHtml,
     sbExtractLyricsText: sbExtractLyricsText,
     sbOnLyricsChange: sbOnLyricsChange,
@@ -61137,6 +61501,7 @@ window.LHC_Install = (function() {
     vertical-align:bottom;
     white-space:pre-wrap;
     color:#172b42;
+    margin-right:0.28em;
   }
   #songbookLiveModal .wo-chord-token>.wo-inline-lyric {
     grid-column:1;
