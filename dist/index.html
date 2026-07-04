@@ -34948,8 +34948,6 @@ var WO = (function() {
   function sbOpenAnnotPaletteFromPage() {
     var focused = document.activeElement;
     if (focused && focused.closest && focused.closest('.sb-page-lyrics')) focused.blur();
-    sbToggleDrawMode(true);
-    sbSelectAnnotTool('pen');
     var palette = $('sbAnnotPalette');
     if (palette) {
       palette.classList.remove('sb-annot-pulse');
@@ -37820,11 +37818,37 @@ var WO = (function() {
           cumLen += sLen;
         }
       } else {
-        var prevText = (prevBlock.textContent || '').replace(/ /g,' ').trimRight ? (prevBlock.textContent || '').replace(/ /g,' ').replace(/\s+$/, '') : (prevBlock.textContent || '');
-        var curText = (block.textContent || '').replace(/ /g,' ');
-        var nbm = document.createElement('div'); nbm.className = 'wo-lyrics-lyric-line'; nbm.textContent = prevText + curText || ' ';
-        lyricsEl.insertBefore(nbm, prevBlock); lyricsEl.removeChild(prevBlock); lyricsEl.removeChild(block);
-        var tn5 = nbm.firstChild || nbm; try { var rr2 = document.createRange(); rr2.setStart(tn5, Math.min(prevText.length, (tn5.textContent || '').length)); rr2.collapse(true); sel.removeAllRanges(); sel.addRange(rr2); } catch(e) {}
+        // Merge: at least one is a plain lyric line
+        var prevIsCP = prevBlock.classList.contains('wo-lyrics-chord-pair');
+        if (!isChordPair && !prevIsCP) {
+          var prevText = (prevBlock.textContent || '').replace(/ /g,' ').replace(/\s+$/, '');
+          var curText = (block.textContent || '').replace(/ /g,' ');
+          var nbm = document.createElement('div'); nbm.className = 'wo-lyrics-lyric-line'; nbm.textContent = prevText + curText || ' ';
+          lyricsEl.insertBefore(nbm, prevBlock); lyricsEl.removeChild(prevBlock); lyricsEl.removeChild(block);
+          var tn5 = nbm.firstChild || nbm; try { var rr2 = document.createRange(); rr2.setStart(tn5, Math.min(prevText.length, (tn5.textContent || '').length)); rr2.collapse(true); sel.removeAllRanges(); sel.addRange(rr2); } catch(e) {}
+        } else {
+          var dPrevMix, dCurMix, prevLyricM, curLyricM;
+          if (prevIsCP) { dPrevMix = _sbChordPairData(prevBlock); prevLyricM = dPrevMix.lyric; curLyricM = (block.textContent || '').replace(/ /g, ' '); }
+          else { prevLyricM = (prevBlock.textContent || '').replace(/ /g, ' ').replace(/\s+$/, ''); dCurMix = _sbChordPairData(block); curLyricM = dCurMix.lyric; }
+          var joinPosM = prevLyricM.length;
+          var mixMergedLyr = prevLyricM + curLyricM;
+          var mixChords = prevIsCP ? dPrevMix.chords : dCurMix.chords.map(function(t) { return { pos: t.pos + joinPosM, text: t.text }; });
+          var tmpMix = document.createElement('div');
+          tmpMix.innerHTML = _sbBuildBlock(_sbChordsToLine(mixChords), mixMergedLyr);
+          var mergedMix = tmpMix.firstChild ? tmpMix.firstChild.cloneNode(true) : tmpMix;
+          lyricsEl.insertBefore(mergedMix, prevBlock); lyricsEl.removeChild(prevBlock); lyricsEl.removeChild(block);
+          var mixSpans = mergedMix.querySelectorAll ? mergedMix.querySelectorAll('.wo-inline-lyric') : [];
+          var mixCum = 0;
+          for (var lm = 0; lm < mixSpans.length; lm++) {
+            var mixSL = (mixSpans[lm].textContent || '').length;
+            if (mixCum + mixSL >= joinPosM) {
+              var mixTn = mixSpans[lm].firstChild || mixSpans[lm];
+              try { var rrMix = document.createRange(); rrMix.setStart(mixTn, Math.min(joinPosM - mixCum, mixTn.textContent ? mixTn.textContent.length : 0)); rrMix.collapse(true); sel.removeAllRanges(); sel.addRange(rrMix); } catch(e) {}
+              break;
+            }
+            mixCum += mixSL;
+          }
+        }
       }
       sbOnLyricsChange(sid);
     }
@@ -58039,14 +58063,14 @@ function filterLiturgyItems() {
 
 <style id="sb-annotation-palette-css">
   .sb-annot-palette {
-    position:fixed; z-index:3220; left:18px; top:50%;
+    position:fixed; z-index:3220; right:20px; left:auto; top:50%;
     width:132px; padding:10px; display:flex; flex-direction:column; gap:5px;
     border:1px solid rgba(255,255,255,.08); border-radius:16px;
     background:#0f1a2b;
     box-shadow:0 18px 50px rgba(0,0,0,.45),inset 0 1px rgba(255,255,255,.08);
     color:rgba(255,255,255,.85); font-family:'Poppins',sans-serif;
     opacity:0; visibility:hidden; pointer-events:none;
-    transform:translate(-12px,-50%) scale(.96);
+    transform:translate(12px,-50%) scale(.96);
     transition:opacity .18s ease,transform .18s ease,visibility .18s;
     backdrop-filter:blur(16px);
   }
