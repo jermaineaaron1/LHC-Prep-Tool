@@ -47133,14 +47133,29 @@ var WO = (function() {
     body._notebookBound = true;
     body.addEventListener('scroll', sbUpdateNotebookProgress, { passive: true });
     body.addEventListener('dblclick', function(e) {
-      if (!_sbLiveFullscreen || sbDrawMode || !sbIsBlankFullscreenTarget(e.target)) return;
+      if (!_sbLiveFullscreen || !sbIsBlankFullscreenTarget(e.target)) return;
       e.preventDefault();
-      sbOpenAnnotPaletteFromPage();
+      var modal = $('songbookLiveModal');
+      if (sbDrawMode || (modal && modal.classList.contains('sb-annot-open'))) {
+        sbCloseAnnotPalette();
+        sbToggleDrawMode(false);
+      } else {
+        sbOpenAnnotPaletteFromPage();
+      }
     });
     body.addEventListener('touchend', function(e) {
-      if (!_sbLiveFullscreen || sbDrawMode || !sbIsBlankFullscreenTarget(e.target)) return;
+      if (!_sbLiveFullscreen || !sbIsBlankFullscreenTarget(e.target)) return;
       var now = Date.now();
-      if (now - _sbLastTapAt < 360) { e.preventDefault(); sbOpenAnnotPaletteFromPage(); }
+      if (now - _sbLastTapAt < 360) {
+        e.preventDefault();
+        var modal = $('songbookLiveModal');
+        if (sbDrawMode || (modal && modal.classList.contains('sb-annot-open'))) {
+          sbCloseAnnotPalette();
+          sbToggleDrawMode(false);
+        } else {
+          sbOpenAnnotPaletteFromPage();
+        }
+      }
       _sbLastTapAt = now;
     }, { passive: false });
     body.addEventListener('mousemove', sbFsRevealHeader, { passive: true });
