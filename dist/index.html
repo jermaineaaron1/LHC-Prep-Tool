@@ -26173,7 +26173,7 @@ var WO = (function() {
       var headerMatch = trimmed.match(/^\[(.+)\]$/);
       if (headerMatch) {
         var sectionClass = getSectionClass(headerMatch[1]);
-        html += '<div class="wo-lyrics-section-header ' + sectionClass + '">' + escapeHtml(trimmed) + '</div>';
+        html += '<div class="wo-lyrics-section-header ' + sectionClass + '" spellcheck="false">' + escapeHtml(trimmed) + '</div>';
       }
       // Section header without brackets
       else if (/^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude)(\s*\d*)?$/i.test(trimmed)) {
@@ -26182,15 +26182,15 @@ var WO = (function() {
       }
       // Chord line - bold and dark blue
       else if (isChordLine(line)) {
-        html += '<div class="wo-lyrics-chord-line">' + escapeHtml(line) + '</div>';
+        html += '<div class="wo-lyrics-chord-line" spellcheck="false">' + escapeHtml(line) + '</div>';
       }
       // Regular lyric line
       else if (trimmed) {
-        html += '<div class="wo-lyrics-lyric-line">' + escapeHtml(line) + '</div>';
+        html += '<div class="wo-lyrics-lyric-line" spellcheck="false">' + escapeHtml(line) + '</div>';
       }
       // Empty line
       else {
-        html += '<div class="wo-lyrics-empty-line"></div>';
+        html += '<div class="wo-lyrics-empty-line" spellcheck="false"></div>';
       }
     });
 
@@ -63121,6 +63121,10 @@ window.LHC_Install = (function() {
     margin-top: 0;
     margin-bottom: 0.8em;
   }
+  #songbookLiveModal .sb-page-lyrics::spelling-error,
+  #songbookLiveModal .sb-page-lyrics *::spelling-error { text-decoration: none; }
+  #songbookLiveModal .sb-page-lyrics::grammar-error,
+  #songbookLiveModal .sb-page-lyrics *::grammar-error  { text-decoration: none; }
   #songbookLiveModal .wo-leading-chunk,
   #songbookLiveModal .wo-lyric-chunk {
     position:relative;
