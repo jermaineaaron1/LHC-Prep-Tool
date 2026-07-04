@@ -37227,7 +37227,11 @@ var WO = (function() {
       // Only intercept if cursor is at the very start of the block
       var cursorAtStart;
       if (isChordPair) {
-        cursorAtStart = _sbLyricCursorPos(block, range) === 0;
+        var lyricPos = _sbLyricCursorPos(block, range);
+        var inChordEl = !!(range.startContainer && range.startContainer.parentElement &&
+            range.startContainer.parentElement.closest && block.contains(range.startContainer) &&
+            range.startContainer.parentElement.closest('.wo-inline-chord'));
+        cursorAtStart = lyricPos === 0 || inChordEl;
       } else {
         var offStart = range.startOffset === 0;
         if (range.startContainer === block) offStart = range.startOffset === 0;
