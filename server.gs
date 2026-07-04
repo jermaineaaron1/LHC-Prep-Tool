@@ -302,6 +302,19 @@ function doGet(e) {
     return handleWebProxy_(e.parameter.proxy);
   }
 
+  // ── Personal duty calendar ICS subscribe endpoint ──
+  // Frontend builds URL: {webAppUrl}?action=calendar&name=Person+Name
+  if (e && e.parameter && e.parameter.action === 'calendar') {
+    var personName = e.parameter.name ? decodeURIComponent(e.parameter.name) : '';
+    if (!personName) {
+      return ContentService.createTextOutput('Error: name parameter required')
+        .setMimeType(ContentService.MimeType.TEXT);
+    }
+    var icsContent = buildPersonalICS_(personName);
+    return ContentService.createTextOutput(icsContent)
+      .setMimeType(ContentService.MimeType.TEXT);
+  }
+
   var template = HtmlService.createTemplateFromFile('Index');
   // Pass deep-link parameters for media sharing
   template.mediaUrl = (e && e.parameter && e.parameter.media) ? e.parameter.media : '';
@@ -6887,4 +6900,102 @@ function getSlideImages(presentationId) {
     Logger.log('getSlideImages error: ' + e.toString());
     return { error: e.toString() };
   }
+}
+
+// ================================================================
+// PERSONAL DUTY CALENDAR (ICS subscribe endpoint)
+// Called via: doGet ?action=calendar&name=Person+Name
+// Returns RFC 5545 iCalendar text — subscribable by Google Calendar
+// ================================================================
+function buildPersonalICS_(personName) {
+  var SUPA_URL = 'https://jypzhumcdifxnazexdcu.supabase.co';
+  var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp5cHpodW1jZGlmeG5hemV4ZGN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2OTA0MjQsImV4cCI6MjA4MzI2NjQyNH0.s3QxdQGmmEo44zlwdWsSQjjb1kkFQY2y_dVmNHM5_Sg';
+
+  var ROLE_LABELS = {
+    preacher:'Preacher', liturgist:'Liturgist',
+    usher1:'Usher 1', usher2:'Usher 2',
+    reader1:'Reader 1', reader2:'Reader 2',
+    reading1:'1st Reading', psalm:'Psalm', reading2:'2nd Reading', gospel:'Gospel',
+    communion1:'Communion Assistant 1', communion2:'Communion Assistant 2', communion3:'Communion Assistant 3',
+    altar1:'Altar Guild 1', altar2:'Altar Guild 2',
+    pianist:'Pianist', guitarist:'Guitarist', bassist:'Bassist', drummer:'Drummer',
+    singer1:'Singer 1', singer2:'Singer 2', singer3:'Singer 3', singer4:'Singer 4',
+    lcd:'LCD Operator', streaming:'Live Streaming', pa:'PA System',
+    ssteacher1:'Sunday School Teacher 1', ssteacher2:'Sunday School Teacher 2', ssteacher3:'Sunday School Teacher 3',
+    flowerarrangement:'Flower Arrangement'
+  };
+
+  var MONTH_NUMS = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+
+  // Fetch all roster entries where value matches this person's name
+  var url = SUPA_URL + '/rest/v1/roster?value=eq.' + encodeURIComponent(personName) +
+            '&order=year,month,service_date&limit=500';
+  var response;
+  try {
+    response = UrlFetchApp.fetch(url, {
+      headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY },
+      muteHttpExceptions: true
+    });
+  } catch (e) {
+    Logger.log('ICS fetch error: ' + e.toString());
+    return buildErrorICS_(personName);
+  }
+
+  var entries = [];
+  try { entries = JSON.parse(response.getContentText()) || []; } catch (e) {}
+
+  var lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Luther House Chapel//Worship Duty Roster//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:LHC Worship Duties - ' + personName,
+    'X-WR-CALDESC:Worship duty assignments for ' + personName + ' at Luther House Chapel',
+    'REFRESH-INTERVAL;VALUE=DURATION:P1D',
+    'X-PUBLISHED-TTL:P1D'
+  ];
+
+  entries.forEach(function(entry) {
+    var dateStr = entry.service_date || '';
+    var year = parseInt(entry.year) || new Date().getFullYear();
+    var roleId = entry.role_id || '';
+    var roleName = ROLE_LABELS[roleId] || (roleId.charAt(0).toUpperCase() + roleId.slice(1));
+
+    // Skip header rows
+    if (roleId.indexOf('h_') === 0 || roleId === 'liturgical') return;
+
+    // Parse "Mon D" date format
+    var parts = dateStr.split(' ');
+    if (parts.length < 2) return;
+    var monthNum = MONTH_NUMS[parts[0]];
+    var day = parseInt(parts[1]);
+    if (!monthNum || isNaN(day)) return;
+
+    var dayStr = day < 10 ? '0' + day : String(day);
+    var dateNum = year + monthNum + dayStr;
+    var uid = 'lhc-' + roleId + '-' + dateNum + '@lutherhousechapel';
+
+    lines.push('BEGIN:VEVENT');
+    lines.push('UID:' + uid);
+    lines.push('DTSTART:' + dateNum + 'T090000');
+    lines.push('DTEND:' + dateNum + 'T120000');
+    lines.push('SUMMARY:Worship Duty: ' + roleName + ' - LHC');
+    lines.push('DESCRIPTION:You are serving as ' + roleName + ' at Luther House Chapel.\nDate: ' + dateStr + ' ' + year);
+    lines.push('LOCATION:Luther House Chapel');
+    lines.push('STATUS:CONFIRMED');
+    lines.push('END:VEVENT');
+  });
+
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+function buildErrorICS_(name) {
+  return [
+    'BEGIN:VCALENDAR', 'VERSION:2.0',
+    'PRODID:-//Luther House Chapel//Worship Duty Roster//EN',
+    'X-WR-CALNAME:LHC Worship Duties - ' + name,
+    'END:VCALENDAR'
+  ].join('\r\n');
 }
