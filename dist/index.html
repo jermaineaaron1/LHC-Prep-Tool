@@ -37997,7 +37997,6 @@ var WO = (function() {
         }
       }
       sbOnLyricsChange(sid);
-    }
 
     } else if (evt.key === 'Delete') {
       var cursorAtEnd;
@@ -61948,6 +61947,8 @@ function filterLiturgyItems() {
       var errEl = document.getElementById('picLoginError');
       var btn = document.getElementById('picSubmitBtn');
       var phone = inp ? inp.value.trim() : '';
+      // Normalise Malaysian local format (0123...) to international (+60123...)
+      if (phone && phone[0] === '0') phone = '+60' + phone.slice(1);
       if (!phone) { if (errEl) { errEl.textContent = 'Please enter your phone number.'; errEl.style.display = 'block'; } return; }
       if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Verifying...'; }
       if (errEl) errEl.style.display = 'none';
