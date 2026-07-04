@@ -7897,27 +7897,29 @@ I once was lost but now am found"
 
   <!-- ==================== SONGBOOK FONT POPOVER ==================== -->
   <!-- ── Songbook floating text-format toolbar ──────────────────────────── -->
+  <button id="sbFsAnnotFab" class="sb-fs-annot-fab" onclick="WO.sbOpenAnnotPaletteFromPage()" title="Annotate" aria-label="Annotate"><i class="fa-solid fa-pen"></i></button>
+
   <div id="sbFloatToolbar" style="display:none;position:fixed;z-index:3500;
     background:#1a2540;border-radius:10px;padding:5px 9px;
     border:1.5px solid rgba(148,163,184,0.35);
     box-shadow:0 6px 24px rgba(0,0,0,0.55),0 1px 0 rgba(255,255,255,0.06);
     align-items:center;gap:4px;pointer-events:auto;user-select:none;">
-    <button class="sbft-btn" id="sbftBold"   onclick="WO.sbToggleBold()"      title="Bold"><b>B</b></button>
-    <button class="sbft-btn" id="sbftItalic" onclick="WO.sbToggleItalic()"    title="Italic"><em>I</em></button>
-    <button class="sbft-btn" id="sbftUline"  onclick="WO.sbToggleUnderline()" title="Underline"><u>U</u></button>
-    <button class="sbft-btn" id="sbftStrike" onclick="WO.sbToggleStrike()"    title="Strikethrough"><s>S</s></button>
+    <button class="sbft-btn" id="sbftBold"   onclick="WO.sbToggleBold()"      onmousedown="return false;" title="Bold"><b>B</b></button>
+    <button class="sbft-btn" id="sbftItalic" onclick="WO.sbToggleItalic()"    onmousedown="return false;" title="Italic"><em>I</em></button>
+    <button class="sbft-btn" id="sbftUline"  onclick="WO.sbToggleUnderline()" onmousedown="return false;" title="Underline"><u>U</u></button>
+    <button class="sbft-btn" id="sbftStrike" onclick="WO.sbToggleStrike()"    onmousedown="return false;" title="Strikethrough"><s>S</s></button>
     <div class="sbft-sep"></div>
-    <button class="sbft-color-btn" onclick="WO.sbFtColor(this)" data-color="#111111" style="background:#111111;" title="Black"></button>
-    <button class="sbft-color-btn" onclick="WO.sbFtColor(this)" data-color="#dc2626" style="background:#dc2626;" title="Red"></button>
-    <button class="sbft-color-btn" onclick="WO.sbFtColor(this)" data-color="#1d4ed8" style="background:#1d4ed8;" title="Blue"></button>
-    <button class="sbft-color-btn" onclick="WO.sbFtColor(this)" data-color="#15803d" style="background:#15803d;" title="Green"></button>
-    <button class="sbft-color-btn" onclick="WO.sbFtColor(this)" data-color="#92400e" style="background:#92400e;" title="Brown"></button>
+    <button class="sbft-color-btn" onclick="WO.sbFtColor(this)" onmousedown="return false;" data-color="#111111" style="background:#111111;" title="Black"></button>
+    <button class="sbft-color-btn" onclick="WO.sbFtColor(this)" onmousedown="return false;" data-color="#dc2626" style="background:#dc2626;" title="Red"></button>
+    <button class="sbft-color-btn" onclick="WO.sbFtColor(this)" onmousedown="return false;" data-color="#1d4ed8" style="background:#1d4ed8;" title="Blue"></button>
+    <button class="sbft-color-btn" onclick="WO.sbFtColor(this)" onmousedown="return false;" data-color="#15803d" style="background:#15803d;" title="Green"></button>
+    <button class="sbft-color-btn" onclick="WO.sbFtColor(this)" onmousedown="return false;" data-color="#92400e" style="background:#92400e;" title="Brown"></button>
     <div class="sbft-sep"></div>
-    <button class="sbft-btn sbft-size-btn" onclick="WO.sbFtFontSize(-2)" title="Smaller text">A<sup>−</sup></button>
-    <button class="sbft-btn sbft-size-btn" onclick="WO.sbFtFontSize(2)"  title="Larger text">A<sup>+</sup></button>
+    <button class="sbft-btn sbft-size-btn" onclick="WO.sbFtFontSize(-2)" onmousedown="return false;" title="Smaller text">A<sup>−</sup></button>
+    <button class="sbft-btn sbft-size-btn" onclick="WO.sbFtFontSize(2)"  onmousedown="return false;" title="Larger text">A<sup>+</sup></button>
     <div class="sbft-sep"></div>
-    <button class="sbft-btn sbft-xpose-btn" onclick="WO.sbFtTranspose(-1)" title="Flatten selected chords (♭)">&#9837;</button>
-    <button class="sbft-btn sbft-xpose-btn" onclick="WO.sbFtTranspose(1)"  title="Sharpen selected chords (♯)">&#9839;</button>
+    <button class="sbft-btn sbft-xpose-btn" onclick="WO.sbFtTranspose(-1)" onmousedown="return false;" title="Flatten selected chords (♭)">&#9837;</button>
+    <button class="sbft-btn sbft-xpose-btn" onclick="WO.sbFtTranspose(1)"  onmousedown="return false;" title="Sharpen selected chords (♯)">&#9839;</button>
     <div id="sbFloatToolbarArrow"></div>
   </div>
 
@@ -31962,7 +31964,7 @@ var WO = (function() {
           '<i class="fa-solid fa-trash-can"></i></button>';
         html += '</div>'; // .sb-page-header
         html += '<div class="sb-page-lyrics sb-blank-content" id="sbLyrics-' + sid + '"' +
-          ' contenteditable="true" oninput="WO.sbOnLyricsChange(\'' + sid + '\')"' +
+          ' contenteditable="true" spellcheck="false" autocorrect="off" autocapitalize="none" oninput="WO.sbOnLyricsChange(\'' + sid + '\')"' +
           ' onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')"' +
           ' data-placeholder="Type notes here\u2026">' + (song.richContent || '') + '</div>';
         // Link panels for blank pages
@@ -32721,26 +32723,16 @@ var WO = (function() {
     if (toolbar) toolbar.style.display = 'none';
   }
 
-  // Wire up mouseup + keyboard selection events (once, via delegation on document)
+  // Wire up selectionchange to show/hide the floating toolbar (unified, no race condition)
   (function() {
-    document.addEventListener('mouseup', function() {
-      var modal = document.getElementById('songbookLiveModal');
-      if (!modal || modal.style.display === 'none') return;
-      clearTimeout(_sbFtHideTimer);
-      setTimeout(sbShowFloatToolbar, 20);
-    });
-    document.addEventListener('keyup', function(e) {
-      if (!e.shiftKey && e.key !== 'Escape') return;
-      var modal = document.getElementById('songbookLiveModal');
-      if (!modal || modal.style.display === 'none') return;
-      clearTimeout(_sbFtHideTimer);
-      setTimeout(sbShowFloatToolbar, 20);
-    });
     document.addEventListener('selectionchange', function() {
       var sel = window.getSelection();
-      if (sel && !sel.isCollapsed) return; // selection growing — don't hide yet
       clearTimeout(_sbFtHideTimer);
-      _sbFtHideTimer = setTimeout(sbHideFloatToolbar, 220);
+      if (sel && !sel.isCollapsed) {
+        _sbFtHideTimer = setTimeout(sbShowFloatToolbar, 50);
+      } else {
+        _sbFtHideTimer = setTimeout(sbHideFloatToolbar, 220);
+      }
     });
   }());
 
@@ -34232,7 +34224,11 @@ var WO = (function() {
   function sbOpenAnnotPaletteFromPage() {
     var focused = document.activeElement;
     if (focused && focused.closest && focused.closest('.sb-page-lyrics')) focused.blur();
+    // Show palette without auto-selecting any tool
+    var modal = $('songbookLiveModal');
     var palette = $('sbAnnotPalette');
+    if (modal) modal.classList.add('sb-annot-open');
+    if (palette) palette.setAttribute('aria-hidden', 'false');
     if (palette) {
       palette.classList.remove('sb-annot-pulse');
       void palette.offsetWidth;
@@ -57743,6 +57739,19 @@ function filterLiturgyItems() {
   .sb-annot-pulse { animation:sbAnnotPalettePulse .34s ease; }
   @keyframes sbAnnotPalettePulse { 50% { box-shadow:0 18px 55px rgba(0,0,0,.48),0 0 0 4px rgba(45,212,191,.24); } }
   #songbookLiveModal.sb-live-fullscreen.sb-annot-open .sb-fullscreen-exit { opacity:.72; pointer-events:auto; transform:none; }
+  /* Fullscreen Annotate FAB */
+  .sb-fs-annot-fab {
+    display:none; position:fixed; z-index:3100; bottom:22px; right:22px;
+    width:46px; height:46px; border-radius:50%; border:none; cursor:pointer;
+    background:rgba(20,184,166,0.82); color:#fff; font-size:1.05rem;
+    align-items:center; justify-content:center;
+    box-shadow:0 4px 16px rgba(0,0,0,0.4); transition:background .15s,box-shadow .15s;
+  }
+  #songbookLiveModal.sb-live-fullscreen .sb-fs-annot-fab { display:flex; }
+  #songbookLiveModal.sb-annot-open .sb-fs-annot-fab {
+    background:rgba(20,184,166,1);
+    box-shadow:0 0 0 3px rgba(94,234,212,0.5),0 4px 16px rgba(0,0,0,0.4);
+  }
   @media(max-width:820px) {
     .sb-annot-palette { left:50%; top:auto; bottom:12px; width:min(94vw,430px); max-height:48vh; overflow-y:auto; display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:9px; transform:translate(-50%,14px) scale(.97); }
     #songbookLiveModal.sb-annot-open .sb-annot-palette { transform:translate(-50%,0) scale(1); }
