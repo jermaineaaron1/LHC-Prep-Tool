@@ -6908,9 +6908,6 @@ function getSlideImages(presentationId) {
 // Returns RFC 5545 iCalendar text — subscribable by Google Calendar
 // ================================================================
 function buildPersonalICS_(personName) {
-  var SUPA_URL = 'https://jypzhumcdifxnazexdcu.supabase.co';
-  var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp5cHpodW1jZGlmeG5hemV4ZGN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2OTA0MjQsImV4cCI6MjA4MzI2NjQyNH0.s3QxdQGmmEo44zlwdWsSQjjb1kkFQY2y_dVmNHM5_Sg';
-
   var ROLE_LABELS = {
     preacher:'Preacher', liturgist:'Liturgist',
     usher1:'Usher 1', usher2:'Usher 2',
@@ -6925,24 +6922,96 @@ function buildPersonalICS_(personName) {
     flowerarrangement:'Flower Arrangement'
   };
 
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var MONTH_NUMS = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
 
-  // Fetch all roster entries where value matches this person's name
-  var url = SUPA_URL + '/rest/v1/roster?value=eq.' + encodeURIComponent(personName) +
-            '&order=year,month,service_date&limit=500';
-  var response;
-  try {
-    response = UrlFetchApp.fetch(url, {
-      headers: { 'apikey': SUPA_KEY, 'Authorization': 'Bearer ' + SUPA_KEY },
-      muteHttpExceptions: true
-    });
-  } catch (e) {
-    Logger.log('ICS fetch error: ' + e.toString());
-    return buildErrorICS_(personName);
+  // Read from Google Sheets — the live source of truth
+  var sheet;
+  try { sheet = getSheet_(CONFIG.ROSTER_SHEET); }
+  catch (e) { Logger.log('ICS: Roster sheet error: ' + e); return buildErrorICS_(personName); }
+
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 2) return buildErrorICS_(personName);
+
+  var header = data[0];
+  var idx = buildHeaderIndex_(header);
+  var colRole  = findColumn_(idx, ['role', 'roleid', 'role_id', 'duty']);   if (colRole  < 0) colRole  = 0;
+  var colDate  = findColumn_(idx, ['date', 'sunday', 'service date']);       if (colDate  < 0) colDate  = 1;
+  var colValue = findColumn_(idx, ['value', 'name', 'assigned', 'person']); if (colValue < 0) colValue = 2;
+  var colMonth = findColumn_(idx, ['month']);                                if (colMonth < 0) colMonth = 3;
+  var colYear  = findColumn_(idx, ['year']);                                 if (colYear  < 0) colYear  = 4;
+
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+  var personLower = personName.toLowerCase().trim();
+
+  // Collect matching future duty assignments (deduplicated)
+  var seen = {};
+  var entries = [];
+
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var value = String(row[colValue] || '').trim();
+    if (value.toLowerCase() !== personLower) continue;
+
+    var roleId = String(row[colRole] || '').trim().toLowerCase();
+    if (!roleId || roleId.indexOf('h_') === 0 || roleId === 'liturgical') continue;
+
+    // Parse date — may be a Date object or "Mon D" string
+    var dateRaw = row[colDate];
+    var dateStr = '';
+    if (dateRaw instanceof Date) {
+      dateStr = MONTHS[dateRaw.getMonth()] + ' ' + dateRaw.getDate();
+    } else {
+      dateStr = String(dateRaw || '').trim();
+    }
+    if (!dateStr) continue;
+
+    // Parse month/year from columns or from the date string
+    var rowMonth = parseInt(row[colMonth]);
+    var rowYear  = parseInt(row[colYear]);
+    if (isNaN(rowMonth) || isNaN(rowYear)) {
+      var parts = dateStr.split(' ');
+      var mIdx = MONTHS.indexOf(parts[0]);
+      if (mIdx >= 0) { rowMonth = mIdx; rowYear = isNaN(rowYear) ? today.getFullYear() : rowYear; }
+      else continue;
+    }
+
+    // Parse day from dateStr
+    var dateParts = dateStr.split(' ');
+    if (dateParts.length < 2) continue;
+    var monthNum = MONTH_NUMS[dateParts[0]];
+    if (!monthNum) continue;
+    var day = parseInt(dateParts[1]);
+    if (isNaN(day)) continue;
+
+    // Skip past duties
+    var serviceDate = new Date(rowYear, rowMonth, day);
+    if (serviceDate < today) continue;
+
+    var key = roleId + '_' + rowYear + '_' + monthNum + '_' + (day < 10 ? '0'+day : day);
+    if (seen[key]) continue;
+    seen[key] = true;
+
+    var dayStr = day < 10 ? '0' + day : String(day);
+    entries.push({ roleId: roleId, dateStr: dateStr, year: rowYear, monthNum: monthNum, dayStr: dayStr });
   }
 
-  var entries = [];
-  try { entries = JSON.parse(response.getContentText()) || []; } catch (e) {}
+  // Sort chronologically
+  entries.sort(function(a, b) {
+    var av = a.year * 10000 + parseInt(a.monthNum) * 100 + parseInt(a.dayStr);
+    var bv = b.year * 10000 + parseInt(b.monthNum) * 100 + parseInt(b.dayStr);
+    return av - bv;
+  });
+
+  // Build DTSTAMP (current UTC time)
+  var now = new Date();
+  var dtstamp = now.getUTCFullYear() +
+    ('0'+(now.getUTCMonth()+1)).slice(-2) +
+    ('0'+now.getUTCDate()).slice(-2) + 'T' +
+    ('0'+now.getUTCHours()).slice(-2) +
+    ('0'+now.getUTCMinutes()).slice(-2) +
+    ('0'+now.getUTCSeconds()).slice(-2) + 'Z';
 
   var lines = [
     'BEGIN:VCALENDAR',
@@ -6950,40 +7019,31 @@ function buildPersonalICS_(personName) {
     'PRODID:-//Luther House Chapel//Worship Duty Roster//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    'X-WR-CALNAME:LHC Worship Duties - ' + personName,
-    'X-WR-CALDESC:Worship duty assignments for ' + personName + ' at Luther House Chapel',
-    'REFRESH-INTERVAL;VALUE=DURATION:P1D',
-    'X-PUBLISHED-TTL:P1D'
+    'X-WR-CALNAME:LHC Duties – ' + personName,
+    'X-WR-CALDESC:Worship duty roster for ' + personName + ' at Luther House Chapel',
+    'REFRESH-INTERVAL;VALUE=DURATION:PT12H',
+    'X-PUBLISHED-TTL:PT12H'
   ];
 
-  entries.forEach(function(entry) {
-    var dateStr = entry.service_date || '';
-    var year = parseInt(entry.year) || new Date().getFullYear();
-    var roleId = entry.role_id || '';
-    var roleName = ROLE_LABELS[roleId] || (roleId.charAt(0).toUpperCase() + roleId.slice(1));
-
-    // Skip header rows
-    if (roleId.indexOf('h_') === 0 || roleId === 'liturgical') return;
-
-    // Parse "Mon D" date format
-    var parts = dateStr.split(' ');
-    if (parts.length < 2) return;
-    var monthNum = MONTH_NUMS[parts[0]];
-    var day = parseInt(parts[1]);
-    if (!monthNum || isNaN(day)) return;
-
-    var dayStr = day < 10 ? '0' + day : String(day);
-    var dateNum = year + monthNum + dayStr;
-    var uid = 'lhc-' + roleId + '-' + dateNum + '@lutherhousechapel';
+  entries.forEach(function(e) {
+    var roleName = ROLE_LABELS[e.roleId] || (e.roleId.charAt(0).toUpperCase() + e.roleId.slice(1));
+    var dateNum  = String(e.year) + e.monthNum + e.dayStr;
+    var uid      = 'lhc-' + e.roleId + '-' + dateNum + '@lutherhousechapel.org';
 
     lines.push('BEGIN:VEVENT');
     lines.push('UID:' + uid);
+    lines.push('DTSTAMP:' + dtstamp);
     lines.push('DTSTART:' + dateNum + 'T090000');
     lines.push('DTEND:' + dateNum + 'T120000');
-    lines.push('SUMMARY:Worship Duty: ' + roleName + ' - LHC');
-    lines.push('DESCRIPTION:You are serving as ' + roleName + ' at Luther House Chapel.\nDate: ' + dateStr + ' ' + year);
+    lines.push('SUMMARY:' + roleName + ' – LHC Worship');
+    lines.push('DESCRIPTION:You are serving as ' + roleName + ' at Luther House Chapel on ' + e.dateStr + ' ' + e.year + '.');
     lines.push('LOCATION:Luther House Chapel');
     lines.push('STATUS:CONFIRMED');
+    lines.push('BEGIN:VALARM');
+    lines.push('TRIGGER:-P1D');
+    lines.push('ACTION:DISPLAY');
+    lines.push('DESCRIPTION:Reminder: ' + roleName + ' duty tomorrow at LHC Worship');
+    lines.push('END:VALARM');
     lines.push('END:VEVENT');
   });
 

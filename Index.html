@@ -58118,6 +58118,7 @@ function filterLiturgyItems() {
       <button class="enablers-tab active" data-tab="all" style="flex:1;"><i class="fa-solid fa-list-ul" style="margin-right:6px;"></i>All Enablers</button>
       <button class="enablers-tab" data-tab="duty" style="flex:1;"><i class="fa-solid fa-layer-group" style="margin-right:6px;"></i>By Duty</button>
       <button class="enablers-tab" data-tab="individual" style="flex:1;"><i class="fa-solid fa-user-clock" style="margin-right:6px;"></i>By Individual</button>
+      <button class="enablers-tab" data-tab="calendar" style="flex:1;"><i class="fa-solid fa-calendar-plus" style="margin-right:6px;"></i>Calendar</button>
     </div>
     <!-- Content area -->
     <div id="enablersContent" style="flex:1;overflow-y:auto;padding:16px 20px;min-height:400px;">
@@ -59846,7 +59847,75 @@ function filterLiturgyItems() {
       if (tab === 'all') self._renderEnablersAll();
       else if (tab === 'duty') self._renderEnablersDuty(self._enablersActiveDuty || null);
       else if (tab === 'individual') self._renderEnablersIndividual(self._enablersActiveIndividual || null);
+      else if (tab === 'calendar') self._renderEnablersCalendar();
     },
+
+    _renderEnablersCalendar: function() {
+      var self = this;
+      var content = document.getElementById('enablersContent');
+      if (!content) return;
+
+      // Gather all unique names from ROSTER_NAME_OPTIONS
+      var allNamesSet = {};
+      var catOrder = ['preacher','liturgist','usher','reader','communion','altar','pianist','guitarist','bassist','drummer','singer','lcd','pa','livestream','tech','sundayschool','general'];
+      catOrder.forEach(function(c){ (ROSTER_NAME_OPTIONS[c]||[]).forEach(function(n){ if(n) allNamesSet[n]=true; }); });
+      var allNames = Object.keys(allNamesSet).sort();
+
+      var html = '';
+      html += '<div style="margin-bottom:16px;">';
+      html += '<div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;padding:14px 16px;margin-bottom:14px;">';
+      html += '<div style="font-weight:700;color:#0d9488;margin-bottom:6px;font-size:13px;"><i class="fa-solid fa-circle-info" style="margin-right:6px;"></i>How to subscribe</div>';
+      html += '<ol style="margin:0;padding-left:18px;font-size:12px;color:#374151;line-height:1.8;">';
+      html += '<li>Copy the link below for an enabler and share it with them</li>';
+      html += '<li>They open <strong>Google Calendar</strong> on any device</li>';
+      html += '<li><strong>Other calendars</strong> &#8594; <strong>From URL</strong></li>';
+      html += '<li>Paste the link &#8594; <strong>Add Calendar</strong></li>';
+      html += '</ol>';
+      html += '<div style="margin-top:8px;font-size:11px;color:#6b7280;"><i class="fa-solid fa-rotate" style="margin-right:4px;color:#14b8a6;"></i>Calendar auto-updates whenever the roster changes. Google will send reminders 1 day before each service.</div>';
+      html += '</div>';
+
+      if (allNames.length === 0) {
+        html += '<div style="text-align:center;padding:30px;color:#9ca3af;font-size:13px;"><i class="fa-solid fa-users-slash" style="display:block;font-size:24px;margin-bottom:8px;"></i>No enablers loaded yet</div>';
+      } else {
+        html += '<div style="font-size:11px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;">Enablers (' + allNames.length + ')</div>';
+        allNames.forEach(function(name) {
+          var calUrl = self.getCalendarSubscribeUrl(name);
+          var shortUrl = calUrl.replace(/^https?:\/\/[^/]+\//, '').substring(0,55);
+          var gcUrl  = 'https://calendar.google.com/calendar/r/settings/addbyurl?url=' + encodeURIComponent(calUrl);
+          var waText = 'Hi ' + name + '! Here is your personal LHC worship duty calendar link.\n\nTo subscribe:\n1. Open Google Calendar\n2. Other calendars → From URL\n3. Paste this link and tap Add Calendar\n\nYour duties and reminders will appear automatically.\n\n' + calUrl;
+          var waUrl  = 'https://wa.me/?text=' + encodeURIComponent(waText);
+
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;background:#fff;border:1px solid #e5e7eb;margin-bottom:8px;">';
+          html += '<div style="flex:1;min-width:0;">';
+          html += '<div style="font-weight:600;font-size:13px;color:#1f2933;">' + escapeHtml(name) + '</div>';
+          html += '<div style="font-size:10px;color:#9ca3af;word-break:break-all;margin-top:2px;">' + escapeHtml(shortUrl) + '...</div>';
+          html += '</div>';
+          html += '<a href="' + escapeHtml(gcUrl) + '" target="_blank" title="Add to Google Calendar" style="flex-shrink:0;background:#4a6da7;color:#fff;border:none;border-radius:6px;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:3px;"><i class="fa-brands fa-google"></i>GCal</a>';
+          html += '<button class="cal-copy-btn" data-cal-url="' + escapeHtml(calUrl) + '" title="Copy subscribe link" style="flex-shrink:0;background:#f4f5fb;color:#4a6da7;border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;"><i class="fa-solid fa-copy"></i></button>';
+          html += '<a href="' + escapeHtml(waUrl) + '" target="_blank" title="Share via WhatsApp" style="flex-shrink:0;background:#25d366;color:#fff;border:none;border-radius:6px;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;text-decoration:none;"><i class="fa-brands fa-whatsapp"></i></a>';
+          html += '</div>';
+        });
+      }
+      html += '</div>';
+      content.innerHTML = html;
+
+      // Delegated click handler for copy buttons
+      content.querySelectorAll('.cal-copy-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var url = btn.getAttribute('data-cal-url');
+          if (!url) return;
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(url).then(function() { showToast('Link copied!', 'success'); });
+          } else {
+            var ta = document.createElement('textarea');
+            ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+            document.body.removeChild(ta); showToast('Link copied!', 'success');
+          }
+        });
+      });
+    },
+
 
     _renderEnablersAll: function() {
       var self = this;
