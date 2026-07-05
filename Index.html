@@ -32615,6 +32615,7 @@ var WO = (function() {
         // Render 2-col layout for any songs that already have sbLyricsColumns === 2
         songOrderSections.forEach(function(s) {
           if (s.sbLyricsColumns === 2) sbRenderTwoColSong(s.id);
+          sbInsertChordZones(s.id);
         });
         sbRenderAllTextAnnots();
         // Restore highlights from song data into _sbHighlights and render
@@ -38013,6 +38014,7 @@ var WO = (function() {
     }
     var el = $('sbLyrics-' + songId);
     if (el) el.innerHTML = temp.innerHTML;
+    sbInsertChordZones(songId);
     var keyEl = $('sbKey-' + songId);
     if (keyEl && song.key) keyEl.textContent = semitones !== 0 ? song.key + ' (' + (semitones > 0 ? '+' : '') + semitones + ')' : song.key;
     // Save independently: virtual instances store in song.sbSectionTranspose[virtualId]
@@ -38045,6 +38047,104 @@ var WO = (function() {
       btn.style.cssText = 'background:rgba(234,179,8,0.22);border:1.5px solid #fbbf24;color:#fde68a;';
       btn.title = 'Editing enabled — tap to lock';
     }
+  }
+
+  // -- Chord-entry zones --------------------------------------------------
+  // Insert an empty editable zone above each plain lyric line (no chord yet).
+  function sbInsertChordZones(sid) {
+    var lyricsEl = document.getElementById('sbLyrics-' + sid);
+    if (!lyricsEl) return;
+    Array.from(lyricsEl.children).forEach(function(el) {
+      if (!el.classList.contains('wo-lyrics-lyric-line')) return;
+      if (!el.textContent.trim()) return; // skip blank spacer lines
+      var prev = el.previousElementSibling;
+      // Already has a chord line or zone above it
+      if (prev && (prev.classList.contains('wo-lyrics-chord-line') ||
+                   prev.classList.contains('wo-sb-chord-zone') ||
+                   prev.classList.contains('wo-lyrics-chord-pair'))) return;
+      var zone = document.createElement('div');
+      zone.className = 'wo-lyrics-chord-line wo-sb-chord-zone';
+      zone.contentEditable = 'false';
+      zone.spellcheck = false;
+      zone.setAttribute('autocorrect', 'off');
+      zone.setAttribute('autocapitalize', 'none');
+      zone.dataset.sid = sid;
+      zone.addEventListener('click', function() { sbActivateChordZone(zone); });
+      zone.addEventListener('touchend', function(e) { e.preventDefault(); sbActivateChordZone(zone); });
+      zone.addEventListener('blur', function() { sbChordZoneBlur(zone); });
+      lyricsEl.insertBefore(zone, el);
+    });
+  }
+
+  // Activate a chord zone for editing (tap / click handler).
+  function sbActivateChordZone(el) {
+    if (typeof _sbLyricsLocked !== 'undefined' && _sbLyricsLocked) return;
+    el.contentEditable = 'true';
+    // Place cursor at end of existing content
+    el.focus();
+    try {
+      var range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch(e) {}
+    // Unlock the lyric line below for dash/dot extension
+    var lyricLine = el.nextElementSibling;
+    if (lyricLine && lyricLine.classList.contains('wo-lyrics-lyric-line')) {
+      lyricLine.contentEditable = 'true';
+      lyricLine.dataset.pairedZone = '1';
+      lyricLine._zoneBlurHandler = function() {
+        setTimeout(function() {
+          if (document.activeElement === el) return; // focus returned to zone
+          lyricLine.contentEditable = 'false';
+          delete lyricLine.dataset.pairedZone;
+          lyricLine.removeEventListener('blur', lyricLine._zoneBlurHandler);
+          delete lyricLine._zoneBlurHandler;
+          sbChordZoneBlur(el);
+        }, 80);
+      };
+      lyricLine.addEventListener('blur', lyricLine._zoneBlurHandler);
+    }
+  }
+
+  // Called when chord zone loses focus. Saves if non-empty; removes if empty.
+  function sbChordZoneBlur(el) {
+    setTimeout(function() {
+      var sid = el.dataset.sid;
+      var lyricLine = el.nextElementSibling;
+      // If focus is on the paired lyric line, wait for that blur instead
+      if (lyricLine && document.activeElement === lyricLine) return;
+      el.contentEditable = 'false';
+      // Restore paired lyric line
+      if (lyricLine && lyricLine.dataset.pairedZone) {
+        lyricLine.contentEditable = 'false';
+        delete lyricLine.dataset.pairedZone;
+        if (lyricLine._zoneBlurHandler) {
+          lyricLine.removeEventListener('blur', lyricLine._zoneBlurHandler);
+          delete lyricLine._zoneBlurHandler;
+        }
+      }
+      if (!el.textContent.trim()) {
+        // Empty zone: silently remove
+        el.remove();
+        return;
+      }
+      // Non-empty: save the updated lyrics (chord line + lyric line)
+      if (!sid) return;
+      var lyricsEl = document.getElementById('sbLyrics-' + sid);
+      var song = songOrderSections.find(function(s) { return s.id === sid; });
+      if (!lyricsEl || !song) return;
+      song.lyrics = sbExtractLyricsText(lyricsEl);
+      song.richLyrics = formatLyricsWithHighlights(song.lyrics);
+      song.customLyrics = song.lyrics;
+      song.customRichLyrics = song.richLyrics;
+      song.hasCustomLyrics = true;
+      sbAutoSave();
+      // Re-insert zones for any remaining unchored lyric lines
+      setTimeout(function() { sbInsertChordZones(sid); }, 120);
+    }, 80);
   }
 
   function sbBreakDragStart(evt, songId) {
@@ -48523,6 +48623,9 @@ var WO = (function() {
     sbRefresh: sbRefresh,
     sbResetTranspose: sbResetTranspose,
     sbToggleLyricsLock: sbToggleLyricsLock,
+    sbInsertChordZones: sbInsertChordZones,
+    sbActivateChordZone: sbActivateChordZone,
+    sbChordZoneBlur: sbChordZoneBlur,
     sbToggleLyricsColumns: sbToggleLyricsColumns,
     sbInsertColBreak: sbInsertColBreak,
     sbOpenLiturgistLog: sbOpenLiturgistLog,
@@ -56622,6 +56725,52 @@ function filterLiturgyItems() {
   }
   .sb-page-lyrics[contenteditable="false"]:focus { outline: none; }
   .sb-tool-btn.sb-lock-btn { transition: background 0.2s, border 0.2s, color 0.2s; }
+  /* Chord-entry zones: tappable strip above each plain lyric line */
+  .wo-sb-chord-zone {
+    min-height: 1.15em;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 0.78em;
+    color: #14b8a6;
+    white-space: pre;
+    letter-spacing: 0.02em;
+    cursor: text;
+    outline: none;
+    border-radius: 2px;
+    line-height: 1.4;
+    transition: background 0.12s;
+    position: relative;
+  }
+  .wo-sb-chord-zone:empty::before {
+    content: "+ chord";
+    font-family: "Lato", sans-serif;
+    font-style: italic;
+    font-size: 0.7em;
+    color: #14b8a6;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  .wo-sb-chord-zone:empty:hover::before {
+    opacity: 0.38;
+  }
+  .wo-sb-chord-zone[contenteditable="true"] {
+    background: rgba(20,184,166,0.07);
+    padding: 0 4px;
+    min-height: 1.4em;
+    outline: 1px dashed rgba(20,184,166,0.35);
+  }
+  .wo-sb-chord-zone[contenteditable="true"] + .wo-lyrics-lyric-line {
+    font-family: "Courier New", Courier, monospace !important;
+    font-size: 0.88em;
+    outline: 1px dashed rgba(99,102,241,0.3);
+    background: rgba(99,102,241,0.04);
+    border-radius: 2px;
+  }
+  /* Mobile: show hint on touch devices so users discover the zone */
+  @media (hover: none) {
+    .wo-sb-chord-zone:empty { min-height: 1.3em; }
+    .wo-sb-chord-zone:empty::before { opacity: 0.18; }
+  }
   .sb-page-lyrics--two-col { column-count:2; column-gap:28px; column-fill:balance; }
   .sb-col-toggle-btn { background:none; border:1px solid #e2e8f0; padding:6px 11px; border-radius:5px; cursor:pointer; font-size:0.75rem; font-weight:600; color:#64748b; white-space:nowrap; }
   .sb-col-toggle-btn.active { background:#eef2ff; border-color:#6366f1; color:#6366f1; }
