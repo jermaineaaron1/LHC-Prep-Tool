@@ -10,9 +10,16 @@ function esc(s: string) {
 // When ?name= is present (playlist share links), inject dynamic OG title
 // so WhatsApp/social previews show the songbook name instead of the generic title.
 export async function GET(request: NextRequest) {
+  const { searchParams, origin } = new URL(request.url);
+
+  // Redirect legacy ?action=calendar links to the proper API route
+  if (searchParams.get('action') === 'calendar') {
+    const name = searchParams.get('name') || '';
+    return NextResponse.redirect(`${origin}/api/calendar?name=${encodeURIComponent(name)}`);
+  }
+
   let html = await readFile(path.join(process.cwd(), 'dist', 'index.html'), 'utf8');
 
-  const { searchParams } = new URL(request.url);
   const playlistName = searchParams.get('name');
 
   if (playlistName) {
