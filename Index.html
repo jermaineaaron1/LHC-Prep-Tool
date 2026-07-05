@@ -8193,6 +8193,12 @@ I once was lost but now am found"
     <!-- Fullscreen hover zone -->
     <div id="sbFsHoverZone" class="sb-fs-hover-zone" onmouseenter="WO.sbFsRevealHeader()" ontouchstart="WO.sbFsRevealHeader()"></div>
 
+    <!-- Fullscreen exit button (always visible on touch, revealed on hover on desktop) -->
+    <button class="sb-fullscreen-exit" onclick="WO.sbToggleLiveFullscreen(false)" title="Exit fullscreen">
+      <i class="fa-solid fa-xmark" style="font-size:1.1rem;color:#f87171;"></i>
+      <span>Exit</span>
+    </button>
+
     <!-- ── FLOATING FORMAT TOOLBAR (appears on text selection, like Word's mini-toolbar) ── -->
     <div id="sbFloatToolbar" class="sb-float-toolbar" style="display:none;" onmousedown="event.preventDefault()">
       <select id="sbFtFamilySel" class="sb-ft-sel" onchange="WO.sbAppearChange('lyricFamily',this.value)" title="Font family">
@@ -32225,7 +32231,7 @@ var WO = (function() {
       var keyDisplay = key ? (steps !== 0 ? key + ' (' + (steps > 0 ? '+' : '') + steps + ')' : key) : '';
       // Always render from the un-transposed source, then apply saved steps so
       // remote devices and page reloads show the correct transposition immediately.
-      var lyricsHtml = song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
+      var lyricsHtml = sbEnhanceChordPairsHtml(song.richLyrics || formatLyricsWithHighlights(song.lyrics || ''));
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
 
       // Collect all docs for this song (filter out library docs the user removed from songbook)
@@ -57799,26 +57805,18 @@ function filterLiturgyItems() {
       opacity: 1 !important; pointer-events: auto !important; transform: none !important;
     }
     #songbookLiveModal .sb-page-lyrics .wo-lyrics-chord-line {
-      font-size: 0.72em; margin-top: 0.5em;
+      font-size: 0.68em; line-height: 1.3; margin-top: 0.3em;
     }
     #songbookLiveModal .sb-page-lyrics .wo-lyrics-lyric-line {
-      margin-bottom: 0.5em;
+      margin-bottom: 0.35em; font-size: 0.92em;
     }
-    #songbookLiveModal .sb-page-lyrics { line-height: 1.65; padding: 16px 14px 30px !important; }
+    #songbookLiveModal .sb-page-lyrics .wo-lyrics-section-label {
+      font-size: 0.7em; margin-bottom: 0.3em;
+    }
+    #songbookLiveModal .sb-page-lyrics { line-height: 1.55; padding: 12px 12px 24px !important; }
+    #songbookLiveModal .sb-page-title { font-size: 1rem !important; margin-bottom: 6px !important; }
   }
-  @media (hover: none) {
-    #songbookLiveModal.sb-live-fullscreen .sb-fullscreen-exit {
-      opacity: 1 !important; pointer-events: auto !important; transform: none !important;
-    }
-    #songbookLiveModal .sb-page-lyrics .wo-lyrics-chord-line {
-      font-size: 0.72em;
-      margin-top: 0.5em;
-    }
-    #songbookLiveModal .sb-page-lyrics .wo-lyrics-lyric-line {
-      margin-bottom: 0.5em;
-    }
-    #songbookLiveModal .sb-page-lyrics { line-height: 1.65; padding: 16px 14px 30px !important; }
-  }
+
 </style>
 
 <style id="sb-songbook-polish-css">
