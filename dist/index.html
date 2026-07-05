@@ -8241,6 +8241,7 @@ I once was lost but now am found"
       <!-- Center controls -->
       <div class="sb-header-center">
         <button class="sb-tool-btn" id="sbDrawToggle" onclick="WO.sbToggleDrawMode()" title="Annotate"><i class="fa-solid fa-pen-to-square"></i><span>Annotate</span></button>
+        <button class="sb-tool-btn sb-lock-btn" id="sbLockBtn" onclick="WO.sbToggleLyricsLock()" title="Lyrics locked — tap to enable editing"><i class="fa-solid fa-lock"></i><span>Locked</span></button>
         <span class="sb-group-divider"></span>
         <button class="sb-tool-btn sb-icon-btn" id="sbUndoBtn" onclick="WO.sbUndo()" title="Undo (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
         <button class="sb-tool-btn sb-icon-btn" id="sbRedoBtn" onclick="WO.sbRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
@@ -33497,7 +33498,7 @@ var WO = (function() {
       html += '</div>'; // .sb-page-header (compact, matches book mode)
 
       html += '<div class="sb-page-canvas-wrap" id="sbCanvas-wrap-' + sid + '">';
-      html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="true" onbeforeinput="WO.sbBeforeLyricsInput(event,\'' + sid + '\')" onkeydown="WO.sbHandleLyricsKeydown(event,\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\')" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
+      html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="false" onbeforeinput="WO.sbBeforeLyricsInput(event,\'' + sid + '\')" onkeydown="WO.sbHandleLyricsKeydown(event,\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\')" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
       html += '<svg class="sb-draw-svg" id="sbCanvas-' + sid + '"></svg>';
       html += '</div>';
       html += '<div class="sb-text-annot-layer" id="sbTextLayer-' + sid + '"></div>';
@@ -38474,6 +38475,28 @@ var WO = (function() {
       song.transposeSteps = semitones;
     }
     sbAutoSave();
+  }
+
+  // Lock / unlock lyrics editing (default: locked, prevents accidental touch corruption)
+  var _sbLyricsLocked = true;
+  function sbToggleLyricsLock() {
+    _sbLyricsLocked = !_sbLyricsLocked;
+    document.querySelectorAll('.sb-page-lyrics[id^="sbLyrics-"]').forEach(function(el) {
+      if (!el.classList.contains('sb-blank-content')) {
+        el.contentEditable = _sbLyricsLocked ? 'false' : 'true';
+      }
+    });
+    var btn = document.getElementById('sbLockBtn');
+    if (!btn) return;
+    if (_sbLyricsLocked) {
+      btn.innerHTML = '<i class="fa-solid fa-lock"></i><span>Locked</span>';
+      btn.style.cssText = '';
+      btn.title = 'Lyrics locked — tap to enable editing';
+    } else {
+      btn.innerHTML = '<i class="fa-solid fa-lock-open"></i><span>Editing</span>';
+      btn.style.cssText = 'background:rgba(234,179,8,0.22);border:1.5px solid #fbbf24;color:#fde68a;';
+      btn.title = 'Editing enabled — tap to lock';
+    }
   }
 
   function sbBreakDragStart(evt, songId) {
@@ -49134,6 +49157,7 @@ var WO = (function() {
     sbPatchSongDOM: sbPatchSongDOM,
     sbRefresh: sbRefresh,
     sbResetTranspose: sbResetTranspose,
+    sbToggleLyricsLock: sbToggleLyricsLock,
     sbToggleLyricsColumns: sbToggleLyricsColumns,
     sbInsertColBreak: sbInsertColBreak,
     sbRemoveColBreak: sbRemoveColBreak,
@@ -57163,6 +57187,14 @@ function filterLiturgyItems() {
   #songbookLiveModal .wo-lyrics-empty-line { height:2.2em; }
   #songbookLiveModal .wo-lyrics-section-header { margin:2em 0 1em; }
   .sb-page-lyrics:focus { background:#fefffe; }
+  .sb-page-lyrics[contenteditable="false"] {
+    cursor: default;
+    caret-color: transparent;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .sb-page-lyrics[contenteditable="false"]:focus { outline: none; }
+  .sb-tool-btn.sb-lock-btn { transition: background 0.2s, border 0.2s, color 0.2s; }
   .sb-page-lyrics--two-col { column-count:2; column-gap:28px; column-fill:balance; }
   .sb-col-toggle-btn { background:none; border:1px solid #e2e8f0; padding:7px 14px; border-radius:5px; cursor:pointer; font-size:0.82rem; font-weight:600; color:#64748b; white-space:nowrap; }
   .sb-col-toggle-btn.active { background:#eef2ff; border-color:#6366f1; color:#6366f1; }
