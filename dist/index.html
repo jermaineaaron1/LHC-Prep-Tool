@@ -38479,13 +38479,17 @@ var WO = (function() {
     sbAutoSave();
   }
 
-  // Lock / unlock lyrics editing (default: locked, prevents accidental touch corruption)
+  // Lock / unlock chord editing (default: locked = beautiful display only)
   var _sbLyricsLocked = true;
   function sbToggleLyricsLock() {
     _sbLyricsLocked = !_sbLyricsLocked;
-    document.querySelectorAll('.sb-page-lyrics[id^="sbLyrics-"]').forEach(function(el) {
-      if (!el.classList.contains('sb-blank-content')) {
-        el.contentEditable = _sbLyricsLocked ? 'false' : 'true';
+    // Expand or collapse word-level chord slots for every song
+    (songOrderSections || []).forEach(function(s) {
+      if (!s.id || s.itemType === 'blank') return;
+      if (!_sbLyricsLocked) {
+        sbExpandChordEdit(s.id);
+      } else {
+        sbCollapseChordEdit(s.id);
       }
     });
     var btn = document.getElementById('sbLockBtn');
@@ -38493,11 +38497,11 @@ var WO = (function() {
     if (_sbLyricsLocked) {
       btn.innerHTML = '<i class="fa-solid fa-lock"></i><span>Locked</span>';
       btn.style.cssText = '';
-      btn.title = 'Lyrics locked — tap to enable editing';
+      btn.title = 'Lyrics locked — tap to enable chord editing';
     } else {
       btn.innerHTML = '<i class="fa-solid fa-lock-open"></i><span>Editing</span>';
       btn.style.cssText = 'background:rgba(234,179,8,0.22);border:1.5px solid #fbbf24;color:#fde68a;';
-      btn.title = 'Editing enabled — tap to lock';
+      btn.title = 'Tap any word chord slot to add/edit a chord';
     }
   }
 
@@ -38597,6 +38601,157 @@ var WO = (function() {
       // Re-insert zones for any remaining unchored lyric lines
       setTimeout(function() { sbInsertChordZones(sid); }, 120);
     }, 80);
+  }
+
+  // -- Word-level chord slots ------------------------------------------
+  var _sbChordEditActive = {};
+
+  // Split text into words preserving trailing spaces
+  function sbSplitWords(text) {
+    var parts = [], m, re = /\S+\s*/g;
+    while ((m = re.exec(text)) !== null) parts.push(m[0]);
+    return parts.length ? parts : (text ? [text] : []);
+  }
+
+  // Build a wo-chord-token with an empty chord slot above a lyric word
+  function sbMakeEmptyToken(word, sid) {
+    var tok = document.createElement('span');
+    tok.className = 'wo-chord-token';
+    var cs = document.createElement('span');
+    cs.className = 'wo-inline-chord sb-chord-empty';
+    cs.contentEditable = 'false';
+    cs.dataset.sid = sid;
+    cs.addEventListener('click', function(e) {
+      e.stopPropagation();
+      sbActivateChordSlot(cs);
+    });
+    cs.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      sbActivateChordSlot(cs);
+    });
+    var ls = document.createElement('span');
+    ls.className = 'wo-inline-lyric';
+    ls.textContent = word;
+    ls.contentEditable = 'true';
+    ls.dataset.sid = sid;
+    ls.addEventListener('blur', function() {
+      setTimeout(function() { sbSaveChordSlots(sid); }, 80);
+    });
+    tok.appendChild(cs);
+    tok.appendChild(ls);
+    return tok;
+  }
+
+  // Expand all lyric lines in a song to word-level chord slots
+  function sbExpandChordEdit(sid) {
+    var el = document.getElementById('sbLyrics-' + sid);
+    if (!el) return;
+    _sbChordEditActive[sid] = true;
+
+    // Expand existing chord pairs: split non-chord words into empty slots
+    Array.from(el.querySelectorAll('.wo-lyrics-chord-pair')).forEach(function(pair) {
+      var newChildren = [];
+      Array.from(pair.childNodes).forEach(function(node) {
+        if (!node.classList) return;
+        if (node.classList.contains('wo-chord-token')) {
+          // Existing token: make chord span editable, lyric span editable
+          var cs = node.querySelector('.wo-inline-chord');
+          var ls = node.querySelector('.wo-inline-lyric');
+          if (cs) {
+            cs.contentEditable = 'true';
+            cs.dataset.sid = sid;
+            cs.addEventListener('blur', function() {
+              setTimeout(function() { sbSaveChordSlots(sid); }, 80);
+            });
+          }
+          if (ls) {
+            ls.contentEditable = 'true';
+            ls.dataset.sid = sid;
+            ls.addEventListener('blur', function() {
+              setTimeout(function() { sbSaveChordSlots(sid); }, 80);
+            });
+          }
+          newChildren.push(node);
+        } else {
+          // Leading/lyric chunk: split into per-word empty slots
+          var lyricEl = node.querySelector('.wo-inline-lyric') || node;
+          var text = lyricEl.textContent || '';
+          sbSplitWords(text).forEach(function(w) {
+            newChildren.push(sbMakeEmptyToken(w, sid));
+          });
+        }
+      });
+      pair.innerHTML = '';
+      newChildren.forEach(function(n) { pair.appendChild(n); });
+      pair.classList.add('sb-chord-edit-mode');
+    });
+
+    // Convert plain lyric lines to word-level chord pairs
+    Array.from(el.querySelectorAll('.wo-lyrics-lyric-line')).forEach(function(line) {
+      if (!line.textContent.trim()) return;
+      var pair = document.createElement('div');
+      pair.className = 'wo-lyrics-chord-pair sb-chord-edit-mode';
+      sbSplitWords(line.textContent).forEach(function(w) {
+        pair.appendChild(sbMakeEmptyToken(w, sid));
+      });
+      el.replaceChild(pair, line);
+    });
+
+    // Remove any stale chord zones (replaced by word slots)
+    Array.from(el.querySelectorAll('.wo-sb-chord-zone')).forEach(function(z) { z.remove(); });
+  }
+
+  // Activate an empty chord slot for typing
+  function sbActivateChordSlot(cs) {
+    if (typeof _sbLyricsLocked !== 'undefined' && _sbLyricsLocked) return;
+    cs.classList.remove('sb-chord-empty');
+    cs.contentEditable = 'true';
+    cs.focus();
+    try {
+      var r = document.createRange();
+      r.selectNodeContents(cs); r.collapse(false);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    } catch(e) {}
+    cs.addEventListener('blur', function sbCsBlur() {
+      cs.removeEventListener('blur', sbCsBlur);
+      cs.contentEditable = 'false';
+      var txt = cs.textContent.trim();
+      if (!txt) cs.classList.add('sb-chord-empty');
+      var sid = cs.dataset.sid;
+      if (sid) setTimeout(function() { sbSaveChordSlots(sid); }, 80);
+    }, { once: true });
+    cs.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); cs.blur(); }
+      if (e.key === 'Escape') { cs.textContent = ''; cs.blur(); }
+    }, { once: true });
+  }
+
+  // Save chord edits for a song
+  function sbSaveChordSlots(sid) {
+    var lyricsEl = document.getElementById('sbLyrics-' + sid);
+    var song = songOrderSections.find(function(s) { return s.id === sid; });
+    if (!lyricsEl || !song) return;
+    song.lyrics = sbExtractLyricsText(lyricsEl);
+    song.richLyrics = formatLyricsWithHighlights(song.lyrics);
+    song.customLyrics = song.lyrics;
+    song.customRichLyrics = song.richLyrics;
+    song.hasCustomLyrics = true;
+    sbAutoSave();
+  }
+
+  // Collapse chord-edit mode: save + re-render beautiful inline display
+  function sbCollapseChordEdit(sid) {
+    var el = document.getElementById('sbLyrics-' + sid);
+    var song = songOrderSections.find(function(s) { return s.id === sid; });
+    _sbChordEditActive[sid] = false;
+    if (!el || !song) return;
+    song.lyrics = sbExtractLyricsText(el);
+    song.richLyrics = formatLyricsWithHighlights(song.lyrics);
+    song.customLyrics = song.lyrics;
+    song.customRichLyrics = song.richLyrics;
+    song.hasCustomLyrics = true;
+    el.innerHTML = sbEnhanceChordPairsHtml(song.richLyrics);
+    sbAutoSave();
   }
 
   function sbBreakDragStart(evt, songId) {
@@ -49261,6 +49416,10 @@ var WO = (function() {
     sbInsertChordZones: sbInsertChordZones,
     sbActivateChordZone: sbActivateChordZone,
     sbChordZoneBlur: sbChordZoneBlur,
+    sbExpandChordEdit: sbExpandChordEdit,
+    sbCollapseChordEdit: sbCollapseChordEdit,
+    sbActivateChordSlot: sbActivateChordSlot,
+    sbSaveChordSlots: sbSaveChordSlots,
     sbToggleLyricsColumns: sbToggleLyricsColumns,
     sbInsertColBreak: sbInsertColBreak,
     sbRemoveColBreak: sbRemoveColBreak,
@@ -57343,6 +57502,57 @@ function filterLiturgyItems() {
   @media (hover: none) {
     .wo-sb-chord-zone:empty { min-height: 1.3em; }
     .wo-sb-chord-zone:empty::before { opacity: 0.18; }
+  }
+  /* Chord-slot editing mode: word-level chord entry */
+  .sb-chord-empty {
+    display: inline-block;
+    min-width: 1.4em;
+    height: 1.1em;
+    cursor: pointer;
+    border-radius: 2px;
+    vertical-align: bottom;
+    position: relative;
+  }
+  .sb-chord-empty::before {
+    content: "+";
+    color: #14b8a6;
+    opacity: 0;
+    font-size: 0.65em;
+    font-family: "Lato", sans-serif;
+    line-height: 1;
+    transition: opacity 0.12s;
+    pointer-events: none;
+  }
+  .sb-chord-empty:hover::before { opacity: 0.6; }
+  @media (hover: none) { .sb-chord-empty::before { opacity: 0.22; } }
+  .sb-chord-empty[contenteditable="true"] {
+    min-width: 3em;
+    color: #14b8a6;
+    font-family: "Courier New", monospace;
+    font-size: 0.78em;
+    background: rgba(20,184,166,0.10);
+    outline: 1.5px dashed rgba(20,184,166,0.5);
+    border-radius: 3px;
+    padding: 0 3px;
+    white-space: nowrap;
+  }
+  /* In chord-edit mode, lyric words are editable for dash-extension */
+  .sb-chord-edit-mode .wo-inline-lyric[contenteditable="true"] {
+    font-family: "Courier New", monospace;
+    font-size: 0.9em;
+    outline: 1px dashed rgba(99,102,241,0.3);
+    border-radius: 2px;
+    background: rgba(99,102,241,0.04);
+    white-space: pre;
+  }
+  /* Existing editable chord spans in edit mode */
+  .sb-chord-edit-mode .wo-inline-chord:not(.sb-chord-empty) {
+    cursor: text;
+    border-radius: 2px;
+    transition: background 0.12s;
+  }
+  .sb-chord-edit-mode .wo-inline-chord:not(.sb-chord-empty):hover {
+    background: rgba(20,184,166,0.12);
   }
   .sb-page-lyrics--two-col { column-count:2; column-gap:28px; column-fill:balance; }
   .sb-col-toggle-btn { background:none; border:1px solid #e2e8f0; padding:7px 14px; border-radius:5px; cursor:pointer; font-size:0.82rem; font-weight:600; color:#64748b; white-space:nowrap; }
