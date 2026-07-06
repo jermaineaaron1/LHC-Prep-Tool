@@ -38683,80 +38683,28 @@ var WO = (function() {
     if (!el) return;
     _sbChordEditActive[sid] = true;
 
-    // Extract plain text from the current (locked) rendered structure
     var plainText = sbExtractLyricsText(el);
-
-    // Build one <div class="sb-edit-line"> per text line
-    var lines = plainText.split('\n');
-    var html = lines.map(function(line) {
-      var cls = 'sb-edit-line';
-      var stype = '';
-      if (sbIsSectionLine(line)) { cls += ' sb-edit-section'; stype = sbGetSectionType(line); }
-      else if (sbIsChordLine(line)) cls += ' sb-edit-chord';
-      else cls += ' sb-edit-lyric';
-      var safe = line
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      var dattr = stype ? ' data-stype="' + stype + '"' : '';
-      return '<div class="' + cls + '"' + dattr + '>' + (safe || '<br>') + '</div>';
-    }).join('');
-
-    el.innerHTML = html;
-    el.contentEditable = 'true';
+    el.innerHTML = '';
+    el.contentEditable = 'false';
     el.classList.add('sb-edit-mode');
-
-    // Debounced auto-format (2 s after idle)
-    if (el._sbEditHandler) el.removeEventListener('input', el._sbEditHandler);
+    var ta = document.createElement('textarea');
+    ta.className = 'sb-edit-textarea';
+    ta.value = plainText;
+    ta.spellcheck = false;
+    ta.setAttribute('autocomplete', 'off');
+    ta.setAttribute('autocorrect', 'off');
+    ta.setAttribute('autocapitalize', 'off');
+    el.appendChild(ta);
+    ta.style.height = 'auto';
+    ta.style.height = (ta.scrollHeight + 4) + 'px';
+    ta.focus();
+    el._sbActiveTextarea = ta;
+    if (el._sbEditHandler) { ta.removeEventListener('input', el._sbEditHandler); }
     el._sbEditHandler = function() {
-      clearTimeout(el._sbFmtTimer);
-      el._sbFmtTimer = setTimeout(function() { sbAutoFormatChords(el); }, 2000);
+      ta.style.height = 'auto';
+      ta.style.height = (ta.scrollHeight + 4) + 'px';
     };
-    el.addEventListener('input', el._sbEditHandler);
-    if (el._sbKeyHandler) el.removeEventListener('keydown', el._sbKeyHandler);
-    el._sbKeyHandler = function(e) {
-      if (e.key !== 'Backspace' && e.key !== 'Delete') return;
-      var sel = window.getSelection();
-      if (!sel || !sel.rangeCount) return;
-      var range = sel.getRangeAt(0);
-      if (!range.collapsed) return;
-      var lineDiv = null, cur = range.startContainer;
-      while (cur && cur !== el) {
-        if (cur.classList && cur.classList.contains('sb-edit-line')) { lineDiv = cur; break; }
-        cur = cur.parentNode;
-      }
-      if (!lineDiv) return;
-      try {
-        if (e.key === 'Backspace') {
-          // Measure text before cursor within this line div
-          var before = document.createRange();
-          before.selectNodeContents(lineDiv);
-          before.setEnd(range.startContainer, range.startOffset);
-          if (before.toString() === '') {
-            var prev = lineDiv.previousElementSibling;
-            if (prev) {
-              e.preventDefault();
-              var nr = document.createRange(); nr.selectNodeContents(prev); nr.collapse(false);
-              sel.removeAllRanges(); sel.addRange(nr);
-            }
-          }
-        } else {
-          // Measure text after cursor within this line div
-          var after = document.createRange();
-          after.selectNodeContents(lineDiv);
-          after.setStart(range.endContainer, range.endOffset);
-          if (after.toString() === '') {
-            var next = lineDiv.nextElementSibling;
-            if (next) {
-              e.preventDefault();
-              var nr2 = document.createRange(); nr2.setStart(next, 0); nr2.collapse(true);
-              sel.removeAllRanges(); sel.addRange(nr2);
-            }
-          }
-        }
-      } catch(x) {}
-    };
-    el.addEventListener('keydown', el._sbKeyHandler);
+    ta.addEventListener('input', el._sbEditHandler);
   }
 
   // Lock: read text, save, restore beautiful chord-pair display
@@ -38766,11 +38714,11 @@ var WO = (function() {
     _sbChordEditActive[sid] = false;
     if (!el) return;
 
-    if (el._sbEditHandler) el.removeEventListener('input', el._sbEditHandler);
-    if (el._sbKeyHandler) el.removeEventListener('keydown', el._sbKeyHandler);
-    clearTimeout(el._sbFmtTimer);
+    var ta = el._sbActiveTextarea || el.querySelector('textarea.sb-edit-textarea');
+    if (ta && el._sbEditHandler) ta.removeEventListener('input', el._sbEditHandler);
+    el._sbActiveTextarea = null;
 
-    var plainText = sbExtractEditText(el);
+    var plainText = ta ? ta.value.replace(/\r/g, '') : sbExtractEditText(el);
 
     el.contentEditable = 'false';
     el.classList.remove('sb-edit-mode');
@@ -57535,18 +57483,30 @@ function filterLiturgyItems() {
   }
   /* Free-text chord editing mode */
   .sb-page-lyrics.sb-edit-mode {
-    font-family: "Courier New", Courier, monospace !important;
-    font-size: 0.95em;
-    line-height: 2;
-    cursor: text;
-    padding: 6px 4px;
     border: 1.5px solid rgba(20,184,166,0.25);
     border-radius: 6px;
     background: rgba(20,184,166,0.02);
-    caret-color: #14b8a6;
-    -webkit-user-modify: read-write;
+    padding: 4px;
   }
-  .sb-page-lyrics.sb-edit-mode:focus { outline: none; border-color: rgba(20,184,166,0.5); }
+  .sb-edit-textarea {
+    font-family: "Courier New", Courier, monospace;
+    font-size: 0.93em;
+    line-height: 1.9;
+    width: 100%;
+    min-height: 80px;
+    background: transparent;
+    color: inherit;
+    border: none;
+    outline: none;
+    resize: none;
+    overflow: hidden;
+    padding: 4px 2px;
+    caret-color: #14b8a6;
+    box-sizing: border-box;
+    white-space: pre;
+    tab-size: 4;
+  }
+  .sb-page-lyrics.sb-edit-mode:focus { outline: none; }
   .sb-edit-line { min-height: 1.4em; white-space: pre-wrap; word-break: break-word; }
   .sb-edit-chord {
     color: #f0b429 !important;
