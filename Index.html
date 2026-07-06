@@ -8147,7 +8147,6 @@ I once was lost but now am found"
       <!-- Center controls -->
       <div class="sb-header-center">
         <button class="sb-tool-btn" id="sbDrawToggle" onclick="WO.sbToggleDrawMode()" title="Annotate"><i class="fa-solid fa-pen-to-square"></i><span>Annotate</span></button>
-        <button class="sb-tool-btn sb-lock-btn" id="sbLockBtn" onclick="WO.sbToggleLyricsLock()" title="Lyrics locked — tap to enable editing"><i class="fa-solid fa-lock"></i><span>Locked</span></button>
         <span class="sb-group-divider"></span>
         <button class="sb-tool-btn sb-icon-btn" id="sbUndoBtn" onclick="WO.sbUndo()" title="Undo (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
         <button class="sb-tool-btn sb-icon-btn" id="sbRedoBtn" onclick="WO.sbRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
@@ -32098,7 +32097,8 @@ var WO = (function() {
         });
         html += '<div style="flex:1;min-width:4px;"></div>';
         html += '<button class="sb-attach-btn" onclick="WO.sbAddBlankLink(\'' + sid + '\')" title="Add YouTube or website link"><i class="fa-solid fa-link"></i></button>';
-        html += '<button class="sb-attach-btn" onclick="WO.sbAttachFile(\'' + sid + '\')" title="Attach image or document"><i class="fa-solid fa-paperclip"></i></button>';
+        html += '<button class="sb-attach-btn sb-edit-lyrics-btn" onclick="WO.sbOpenLyricsEditor(\'' + sid + '\')" title="Edit Lyrics"><i class="fa-solid fa-pen-to-square"></i> Edit</button>';
+      html += '<button class="sb-attach-btn" onclick="WO.sbAttachFile(\'' + sid + '\')" title="Attach image or document"><i class="fa-solid fa-paperclip"></i></button>';
         html += '<button class="sb-tool-btn" style="background:#fee2e2;color:#ef4444;padding:4px 10px;"' +
           ' onclick="WO.sbRemoveBlankPage(\'' + sid + '\')" title="Remove this blank page">' +
           '<i class="fa-solid fa-trash-can"></i></button>';
@@ -38028,32 +38028,6 @@ var WO = (function() {
     sbAutoSave();
   }
 
-  // Lock / unlock chord editing (default: locked = beautiful display only)
-  var _sbLyricsLocked = true;
-  function sbToggleLyricsLock() {
-    _sbLyricsLocked = !_sbLyricsLocked;
-    // Expand or collapse word-level chord slots for every song
-    (songOrderSections || []).forEach(function(s) {
-      if (!s.id || s.itemType === 'blank') return;
-      if (!_sbLyricsLocked) {
-        sbExpandChordEdit(s.id);
-      } else {
-        sbCollapseChordEdit(s.id);
-      }
-    });
-    var btn = document.getElementById('sbLockBtn');
-    if (!btn) return;
-    if (_sbLyricsLocked) {
-      btn.innerHTML = '<i class="fa-solid fa-lock"></i><span>Locked</span>';
-      btn.style.cssText = '';
-      btn.title = 'Lyrics locked — tap to enable chord editing';
-    } else {
-      btn.innerHTML = '<i class="fa-solid fa-lock-open"></i><span>Editing</span>';
-      btn.style.cssText = 'background:rgba(234,179,8,0.22);border:1.5px solid #fbbf24;color:#fde68a;';
-      btn.title = 'Tap any word chord slot to add/edit a chord';
-    }
-  }
-
   // -- Chord-entry zones --------------------------------------------------
   // Insert an empty editable zone above each plain lyric line (no chord yet).
   function sbInsertChordZones(sid) {
@@ -38083,7 +38057,6 @@ var WO = (function() {
 
   // Activate a chord zone for editing (tap / click handler).
   function sbActivateChordZone(el) {
-    if (typeof _sbLyricsLocked !== 'undefined' && _sbLyricsLocked) return;
     el.contentEditable = 'true';
     // Place cursor at end of existing content
     el.focus();
@@ -38154,6 +38127,7 @@ var WO = (function() {
 
   // -- Free-text chord editing mode -----------------------------------------
   var _sbChordEditActive = {};
+  var _sbEditingSid = null;  // sid of song currently open in lyrics editor modal
 
   // True if most words on the line look like chord symbols
   function sbIsChordLine(text) {
@@ -38225,61 +38199,61 @@ var WO = (function() {
     return lines.join('\n').replace(/\r/g, '');
   }
 
-  // Unlock: convert to free-text editor (Notepad-style)
-  function sbExpandChordEdit(sid) {
-    var el = document.getElementById('sbLyrics-' + sid);
-    if (!el) return;
-    _sbChordEditActive[sid] = true;
+  // Open the Lyrics Editor modal for a specific Songbook song
+  function sbOpenLyricsEditor(sid) {
+    var s = (songOrderSections || []).find(function(x) { return x.id === sid; });
+    if (!s) return;
+    _sbEditingSid = sid;
+    var lyrics = s.customLyrics || s.lyrics || '';
 
-    var plainText = sbExtractLyricsText(el);
-    el.innerHTML = '';
-    el.contentEditable = 'false';
-    el.classList.add('sb-edit-mode');
-    var ta = document.createElement('textarea');
-    ta.className = 'sb-edit-textarea';
-    ta.value = plainText;
-    ta.spellcheck = false;
-    ta.setAttribute('autocomplete', 'off');
-    ta.setAttribute('autocorrect', 'off');
-    ta.setAttribute('autocapitalize', 'off');
-    el.appendChild(ta);
-    ta.style.height = 'auto';
-    ta.style.height = (ta.scrollHeight + 4) + 'px';
-    ta.focus();
-    el._sbActiveTextarea = ta;
-    if (el._sbEditHandler) { ta.removeEventListener('input', el._sbEditHandler); }
-    el._sbEditHandler = function() {
-      ta.style.height = 'auto';
-      ta.style.height = (ta.scrollHeight + 4) + 'px';
-    };
-    ta.addEventListener('input', el._sbEditHandler);
+    // Borrow the existing lyrics editor modal
+    var modal = document.getElementById('lyricsEditorModal');
+    var textarea = document.getElementById('lyricsEditorTextarea');
+    var richEditor = document.getElementById('lyricsRichEditor');
+    if (!modal || !textarea) return;
+
+    // Set up state the editor expects
+    if (typeof currentLyricsMode !== 'undefined') currentLyricsMode = '__sb__';
+    if (typeof songData !== 'undefined') songData['__sb__'] = { lyrics: lyrics };
+    if (typeof currentSlideIndex !== 'undefined') currentSlideIndex = 0;
+    if (typeof originalLyrics !== 'undefined') originalLyrics = '';
+    if (typeof currentTransposeSemitones !== 'undefined') currentTransposeSemitones = 0;
+    var tsel = document.getElementById('transposeKey');
+    if (tsel) tsel.value = '';
+    if (typeof lyricsHistory !== 'undefined') { lyricsHistory = [lyrics]; lyricsHistoryIndex = 0; }
+
+    textarea.value = lyrics;
+    modal.classList.add('show');
+    if (richEditor && typeof renderRichEditor === 'function') {
+      renderRichEditor(lyrics);
+      richEditor.focus();
+    }
+    if (typeof updateLyricsLivePreview === 'function') updateLyricsLivePreview();
+    if (typeof renderLyricsEditorDocs === 'function') renderLyricsEditorDocs('__sb__');
   }
 
-  // Lock: read text, save, restore beautiful chord-pair display
-  function sbCollapseChordEdit(sid) {
-    var el = document.getElementById('sbLyrics-' + sid);
-    var song = songOrderSections.find(function(s) { return s.id === sid; });
-    _sbChordEditActive[sid] = false;
-    if (!el) return;
-
-    var ta = el._sbActiveTextarea || el.querySelector('textarea.sb-edit-textarea');
-    if (ta && el._sbEditHandler) ta.removeEventListener('input', el._sbEditHandler);
-    el._sbActiveTextarea = null;
-
-    var plainText = ta ? ta.value.replace(/\r/g, '') : sbExtractEditText(el);
-
-    el.contentEditable = 'false';
-    el.classList.remove('sb-edit-mode');
-
+  // Called by saveLyricsEditor() when in SB mode - saves lyrics back to songbook
+  function sbSaveLyricsFromModal(lyrics) {
+    if (!_sbEditingSid) return;
+    var sid = _sbEditingSid;
+    _sbEditingSid = null;
+    var song = (songOrderSections || []).find(function(x) { return x.id === sid; });
     if (!song) return;
-    song.lyrics = plainText;
-    song.richLyrics = formatLyricsWithHighlights(plainText);
-    song.customLyrics = plainText;
+    song.lyrics = lyrics;
+    song.richLyrics = formatLyricsWithHighlights(lyrics);
+    song.customLyrics = lyrics;
     song.customRichLyrics = song.richLyrics;
     song.hasCustomLyrics = true;
-    el.innerHTML = sbEnhanceChordPairsHtml(song.richLyrics);
+    var el = document.getElementById('sbLyrics-' + sid);
+    if (el) {
+      el.innerHTML = sbEnhanceChordPairsHtml(song.richLyrics);
+      if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
+    }
     sbAutoSave();
   }
+
+  function sbGetEditingSid() { return _sbEditingSid; }
+  function sbClearEditingSid() { _sbEditingSid = null; }
 
   function sbBreakDragStart(evt, songId) {
     evt.preventDefault();
@@ -48756,12 +48730,13 @@ var WO = (function() {
     sbPatchSongDOM: sbPatchSongDOM,
     sbRefresh: sbRefresh,
     sbResetTranspose: sbResetTranspose,
-    sbToggleLyricsLock: sbToggleLyricsLock,
     sbInsertChordZones: sbInsertChordZones,
     sbActivateChordZone: sbActivateChordZone,
     sbChordZoneBlur: sbChordZoneBlur,
-    sbExpandChordEdit: sbExpandChordEdit,
-    sbCollapseChordEdit: sbCollapseChordEdit,
+    sbOpenLyricsEditor: sbOpenLyricsEditor,
+    sbSaveLyricsFromModal: sbSaveLyricsFromModal,
+    sbGetEditingSid: sbGetEditingSid,
+    sbClearEditingSid: sbClearEditingSid,
     sbApplySectionBadges: sbApplySectionBadges,
     sbToggleLyricsColumns: sbToggleLyricsColumns,
     sbInsertColBreak: sbInsertColBreak,
@@ -56861,7 +56836,6 @@ function filterLiturgyItems() {
     -webkit-user-select: text;
   }
   .sb-page-lyrics[contenteditable="false"]:focus { outline: none; }
-  .sb-tool-btn.sb-lock-btn { transition: background 0.2s, border 0.2s, color 0.2s; }
   /* Chord-entry zones: tappable strip above each plain lyric line */
   .wo-sb-chord-zone {
     min-height: 1.15em;
@@ -56908,64 +56882,6 @@ function filterLiturgyItems() {
     .wo-sb-chord-zone:empty { min-height: 1.3em; }
     .wo-sb-chord-zone:empty::before { opacity: 0.18; }
   }
-  /* Free-text chord editing mode */
-  .sb-page-lyrics.sb-edit-mode {
-    border: 1.5px solid rgba(20,184,166,0.25);
-    border-radius: 6px;
-    background: rgba(20,184,166,0.02);
-    padding: 4px;
-  }
-  .sb-edit-textarea {
-    font-family: "Courier New", Courier, monospace;
-    font-size: 0.93em;
-    line-height: 1.9;
-    width: 100%;
-    min-height: 80px;
-    background: transparent;
-    color: inherit;
-    border: none;
-    outline: none;
-    resize: none;
-    overflow: hidden;
-    padding: 4px 2px;
-    caret-color: #14b8a6;
-    box-sizing: border-box;
-    white-space: pre;
-    tab-size: 4;
-  }
-  .sb-page-lyrics.sb-edit-mode:focus { outline: none; }
-  .sb-edit-line { min-height: 1.4em; white-space: pre-wrap; word-break: break-word; }
-  .sb-edit-chord {
-    color: #f0b429 !important;
-    font-weight: 600;
-    font-size: 0.82em;
-    letter-spacing: 0.04em;
-  }
-  /* Section badge colours -- edit mode */
-  .sb-edit-section {
-    display: block;
-    padding: 2px 10px;
-    margin: 10px 0 4px;
-    border-radius: 4px;
-    font-family: "Lato", sans-serif !important;
-    font-size: 0.78em;
-    font-style: normal !important;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: #fff !important;
-    background: #374151;
-  }
-  .sb-edit-section[data-stype="chorus"]     { background: #7c3aed; }
-  .sb-edit-section[data-stype="verse"]      { background: #2563eb; }
-  .sb-edit-section[data-stype="bridge"]     { background: #059669; }
-  .sb-edit-section[data-stype="pre-chorus"] { background: #4338ca; }
-  .sb-edit-section[data-stype="tag"]        { background: #d97706; }
-  .sb-edit-section[data-stype="ending"]     { background: #dc2626; }
-  .sb-edit-section[data-stype="intro"]      { background: #0891b2; }
-  .sb-edit-section[data-stype="outro"]      { background: #6b7280; }
-  .sb-edit-section[data-stype="interlude"]  { background: #0d9488; }
-  .sb-edit-lyric { color: inherit; }
   /* Section badge colours -- locked mode */
   .wo-lyrics-section-label {
     display: inline-block;
@@ -56989,15 +56905,6 @@ function filterLiturgyItems() {
   .wo-lyrics-section-label[data-stype="intro"]      { background: #0891b2; }
   .wo-lyrics-section-label[data-stype="outro"]      { background: #6b7280; }
   .wo-lyrics-section-label[data-stype="interlude"]  { background: #0d9488; }
-  /* hint strip shown at top of edit mode */
-  .sb-edit-hint {
-    font-family: "Lato", sans-serif;
-    font-size: 0.72em;
-    color: rgba(20,184,166,0.6);
-    padding: 2px 0 6px;
-    pointer-events: none;
-    user-select: none;
-  }
   .sb-page-lyrics--two-col { column-count:2; column-gap:28px; column-fill:balance; }  .sb-page-lyrics--two-col { column-count:2; column-gap:28px; column-fill:balance; }
   .sb-col-toggle-btn { background:none; border:1px solid #e2e8f0; padding:6px 11px; border-radius:5px; cursor:pointer; font-size:0.75rem; font-weight:600; color:#64748b; white-space:nowrap; }
   .sb-col-toggle-btn.active { background:#eef2ff; border-color:#6366f1; color:#6366f1; }
