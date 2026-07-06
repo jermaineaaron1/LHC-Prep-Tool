@@ -33680,6 +33680,7 @@ var WO = (function() {
             if (el) { el.classList.add('sb-page-lyrics--two-col'); el.style.display = ''; }
           }
           sbInsertChordZones(s.id);
+          sbApplySectionBadges(document.getElementById('sbLyrics-' + s.id));
         });
         sbRenderAllTextAnnots();
         (songOrderSections || []).forEach(function(s) {
@@ -38620,14 +38621,44 @@ var WO = (function() {
     return /^\[.+\]$/.test(text.trim());
   }
 
+  // Detect section type for badge colouring
+  function sbGetSectionType(text) {
+    var t = text.replace(/[\[\]]/g, '').toLowerCase().trim();
+    if (/chorus/.test(t))     return 'chorus';
+    if (/pre.?chorus/.test(t))return 'pre-chorus';
+    if (/verse/.test(t))      return 'verse';
+    if (/bridge/.test(t))     return 'bridge';
+    if (/tag/.test(t))        return 'tag';
+    if (/ending/.test(t))     return 'ending';
+    if (/outro/.test(t))      return 'outro';
+    if (/intro/.test(t))      return 'intro';
+    if (/interlude/.test(t))  return 'interlude';
+    return 'other';
+  }
+
+  // Apply colored badge data-stype to wo-lyrics-section-label divs
+  function sbApplySectionBadges(el) {
+    if (!el) return;
+    el.querySelectorAll('.wo-lyrics-section-label').forEach(function(lbl) {
+      if (!lbl.dataset.stype) {
+        lbl.dataset.stype = sbGetSectionType(lbl.textContent);
+      }
+    });
+  }
+
   // Re-apply teal styling to chord lines after idle (no DOM restructure)
   function sbAutoFormatChords(el) {
     Array.from(el.querySelectorAll('.sb-edit-line')).forEach(function(div) {
       var t = div.textContent;
       div.classList.remove('sb-edit-chord', 'sb-edit-section', 'sb-edit-lyric');
-      if (sbIsSectionLine(t))      div.classList.add('sb-edit-section');
-      else if (sbIsChordLine(t))   div.classList.add('sb-edit-chord');
-      else                         div.classList.add('sb-edit-lyric');
+      if (sbIsSectionLine(t)) {
+        div.classList.add('sb-edit-section');
+        div.dataset.stype = sbGetSectionType(t);
+      } else if (sbIsChordLine(t)) {
+        div.classList.add('sb-edit-chord');
+      } else {
+        div.classList.add('sb-edit-lyric');
+      }
     });
   }
 
@@ -38659,14 +38690,16 @@ var WO = (function() {
     var lines = plainText.split('\n');
     var html = lines.map(function(line) {
       var cls = 'sb-edit-line';
-      if (sbIsSectionLine(line))     cls += ' sb-edit-section';
-      else if (sbIsChordLine(line))  cls += ' sb-edit-chord';
-      else                           cls += ' sb-edit-lyric';
+      var stype = '';
+      if (sbIsSectionLine(line)) { cls += ' sb-edit-section'; stype = sbGetSectionType(line); }
+      else if (sbIsChordLine(line)) cls += ' sb-edit-chord';
+      else cls += ' sb-edit-lyric';
       var safe = line
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
-      return '<div class="' + cls + '">' + (safe || '<br>') + '</div>';
+      var dattr = stype ? ' data-stype="' + stype + '"' : '';
+      return '<div class="' + cls + '"' + dattr + '>' + (safe || '<br>') + '</div>';
     }).join('');
 
     el.innerHTML = html;
@@ -49371,6 +49404,7 @@ var WO = (function() {
     sbChordZoneBlur: sbChordZoneBlur,
     sbExpandChordEdit: sbExpandChordEdit,
     sbCollapseChordEdit: sbCollapseChordEdit,
+    sbApplySectionBadges: sbApplySectionBadges,
     sbToggleLyricsColumns: sbToggleLyricsColumns,
     sbInsertColBreak: sbInsertColBreak,
     sbRemoveColBreak: sbRemoveColBreak,
@@ -57470,18 +57504,59 @@ function filterLiturgyItems() {
   .sb-page-lyrics.sb-edit-mode:focus { outline: none; border-color: rgba(20,184,166,0.5); }
   .sb-edit-line { min-height: 1.4em; white-space: pre-wrap; word-break: break-word; }
   .sb-edit-chord {
-    color: #14b8a6;
-    font-weight: bold;
+    color: #f0b429 !important;
+    font-weight: 600;
     font-size: 0.82em;
     letter-spacing: 0.04em;
   }
+  /* Section badge colours -- edit mode */
   .sb-edit-section {
-    color: #b45309;
-    font-style: italic;
+    display: block;
+    padding: 2px 10px;
+    margin: 10px 0 4px;
+    border-radius: 4px;
     font-family: "Lato", sans-serif !important;
-    font-size: 0.88em;
+    font-size: 0.78em;
+    font-style: normal !important;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #fff !important;
+    background: #374151;
   }
+  .sb-edit-section[data-stype="chorus"]     { background: #7c3aed; }
+  .sb-edit-section[data-stype="verse"]      { background: #2563eb; }
+  .sb-edit-section[data-stype="bridge"]     { background: #059669; }
+  .sb-edit-section[data-stype="pre-chorus"] { background: #4338ca; }
+  .sb-edit-section[data-stype="tag"]        { background: #d97706; }
+  .sb-edit-section[data-stype="ending"]     { background: #dc2626; }
+  .sb-edit-section[data-stype="intro"]      { background: #0891b2; }
+  .sb-edit-section[data-stype="outro"]      { background: #6b7280; }
+  .sb-edit-section[data-stype="interlude"]  { background: #0d9488; }
   .sb-edit-lyric { color: inherit; }
+  /* Section badge colours -- locked mode */
+  .wo-lyrics-section-label {
+    display: inline-block;
+    padding: 2px 10px;
+    margin: 10px 0 4px;
+    border-radius: 4px;
+    font-family: "Lato", sans-serif;
+    font-size: 0.78em;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #fff;
+    background: #374151;
+  }
+  .wo-lyrics-section-label[data-stype="chorus"]     { background: #7c3aed; }
+  .wo-lyrics-section-label[data-stype="verse"]      { background: #2563eb; }
+  .wo-lyrics-section-label[data-stype="bridge"]     { background: #059669; }
+  .wo-lyrics-section-label[data-stype="pre-chorus"] { background: #4338ca; }
+  .wo-lyrics-section-label[data-stype="tag"]        { background: #d97706; }
+  .wo-lyrics-section-label[data-stype="ending"]     { background: #dc2626; }
+  .wo-lyrics-section-label[data-stype="intro"]      { background: #0891b2; }
+  .wo-lyrics-section-label[data-stype="outro"]      { background: #6b7280; }
+  .wo-lyrics-section-label[data-stype="interlude"]  { background: #0d9488; }
   /* hint strip shown at top of edit mode */
   .sb-edit-hint {
     font-family: "Lato", sans-serif;
