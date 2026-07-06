@@ -37233,6 +37233,8 @@ var WO = (function() {
     var result = '';
     chords.forEach(function(t) {
       while (result.length < t.pos) result += ' ';
+      // Never fuse adjacent chords into one token when positions collide
+      if (result.length && !/\s$/.test(result)) result += ' ';
       result += t.text;
     });
     return result.trimRight ? result.trimRight() : result.replace(/\s+$/, '');
@@ -37278,6 +37280,73 @@ var WO = (function() {
     } catch(e) {}
   }
 
+  // Plain-text offset of (node, offset) among a block's .wo-inline-lyric spans.
+  function _sbLyricPosAt(block, node, offset) {
+    var spans = Array.from(block.querySelectorAll('.wo-inline-lyric'));
+    var acc = 0;
+    for (var i = 0; i < spans.length; i++) {
+      var span = spans[i];
+      if (span === node) {
+        var c = 0;
+        for (var j = 0; j < offset; j++) if (span.childNodes[j]) c += (span.childNodes[j].textContent || '').length;
+        return acc + c;
+      }
+      if (span.contains(node)) {
+        var c2 = 0, child = span.firstChild;
+        while (child && child !== node) { c2 += (child.textContent || '').length; child = child.nextSibling; }
+        return acc + c2 + offset;
+      }
+      acc += (span.textContent || '').length;
+    }
+    return acc;
+  }
+
+  // Character offset of (node, offset) within an arbitrary container element.
+  function _sbOffsetWithin(container, node, offset) {
+    if (node === container) {
+      var c = 0;
+      for (var j = 0; j < offset; j++) if (container.childNodes[j]) c += (container.childNodes[j].textContent || '').length;
+      return c;
+    }
+    var acc = 0, walker = container.firstChild;
+    while (walker && walker !== node && !(walker.nodeType === 1 && walker.contains(node))) {
+      acc += (walker.textContent || '').length;
+      walker = walker.nextSibling;
+    }
+    return acc + offset;
+  }
+
+  // Place caret at a plain-text lyric position within a rebuilt block.
+  function _sbSetLyricCaret(block, pos) {
+    var spans = block.querySelectorAll('.wo-inline-lyric');
+    if (!spans.length) {
+      var tn0 = block.firstChild || block;
+      try {
+        var r0 = document.createRange();
+        r0.setStart(tn0, Math.min(Math.max(0, pos), (tn0.textContent || '').length));
+        r0.collapse(true);
+        var s0 = window.getSelection(); s0.removeAllRanges(); s0.addRange(r0);
+      } catch(e) {}
+      return;
+    }
+    var cum = 0;
+    for (var i = 0; i < spans.length; i++) {
+      var len = (spans[i].textContent || '').length;
+      if (cum + len >= pos) {
+        var tn = spans[i].firstChild || spans[i];
+        try {
+          var r = document.createRange();
+          r.setStart(tn, Math.min(Math.max(0, pos - cum), tn.textContent ? tn.textContent.length : 0));
+          r.collapse(true);
+          var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        } catch(e) {}
+        return;
+      }
+      cum += len;
+    }
+    _sbCaretAtBlockEnd(block);
+  }
+
   function sbHandleLyricsKeydown(evt, sid) {
     if (evt.key !== 'Enter' && evt.key !== 'Backspace' && evt.key !== 'Delete') return;
     // Only handle plain Enter (no Shift/Ctrl/Meta — those have platform meanings)
@@ -37302,6 +37371,58 @@ var WO = (function() {
                       block.classList.contains('wo-lyrics-section-header');
     // Also handle cursor inside a .wo-inline-chord (the chord span)
     var inChordSpan = el && el.closest && !!el.closest('.wo-inline-chord');
+
+    // ── Robust in-pair deletion: never let the browser splice chunk spans ──
+    if ((evt.key === 'Backspace' || evt.key === 'Delete') && isChordPair) {
+      // Caret inside an editable chord token: allow normal in-token editing,
+      // but block deletions that would escape the token and splice the DOM.
+      var chordTok = el && el.closest ? el.closest('.wo-inline-chord') : null;
+      if (chordTok) {
+        if (!range.collapsed) return; // selection inside token — native is fine
+        var cOff = _sbOffsetWithin(chordTok, range.startContainer, range.startOffset);
+        var cLen = (chordTok.textContent || '').length;
+        if (evt.key === 'Backspace' && cOff === 0) { evt.preventDefault(); return; }
+        if (evt.key === 'Delete' && cOff >= cLen) { evt.preventDefault(); return; }
+        return; // ordinary edit within the chord text
+      }
+      var dPair = _sbChordPairData(block);
+      var wasCollapsed = range.collapsed;
+      var selA = _sbLyricCursorPos(block, range);
+      var selB = selA;
+      if (!wasCollapsed) {
+        if (!block.contains(range.endContainer)) return; // cross-block selection — leave native
+        selB = _sbLyricPosAt(block, range.endContainer, range.endOffset);
+      }
+      var delStart, delEnd;
+      if (!wasCollapsed) { delStart = Math.min(selA, selB); delEnd = Math.max(selA, selB); }
+      else if (evt.key === 'Backspace') { delStart = selA - 1; delEnd = selA; }
+      else { delStart = selA; delEnd = selA + 1; }
+      if (delStart >= 0 && delEnd <= dPair.lyric.length && delEnd > delStart) {
+        evt.preventDefault();
+        var spanLen = delEnd - delStart;
+        var newLyric = dPair.lyric.substring(0, delStart) + dPair.lyric.substring(delEnd);
+        var newChords = [];
+        dPair.chords.forEach(function(t) {
+          var p = t.pos;
+          if (p >= delEnd) p -= spanLen;
+          else if (p >= delStart) {
+            if (!wasCollapsed) return; // chord sat over the deleted selection — drop it
+            p = delStart;              // single-char delete: keep chord, snap to join
+          }
+          newChords.push({ pos: p, text: t.text });
+        });
+        var tmpP = document.createElement('div');
+        tmpP.innerHTML = _sbBuildBlock(_sbChordsToLine(newChords), newLyric);
+        var nbP = tmpP.firstChild.cloneNode(true);
+        lyricsEl.insertBefore(nbP, block);
+        lyricsEl.removeChild(block);
+        _sbSetLyricCaret(nbP, delStart);
+        sbOnLyricsChange(sid);
+        return;
+      }
+      // delStart < 0 (Backspace at pair start) or delEnd > lyric length
+      // (Delete at pair end) — fall through to the block-merge logic below.
+    }
 
     if (evt.key === 'Enter') {
       if (!isChordPair && !isLyricLine && !inChordSpan) return; // unknown element, let browser handle
