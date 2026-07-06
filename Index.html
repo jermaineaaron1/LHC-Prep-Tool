@@ -38261,6 +38261,46 @@ var WO = (function() {
       el._sbFmtTimer = setTimeout(function() { sbAutoFormatChords(el); }, 2000);
     };
     el.addEventListener('input', el._sbEditHandler);
+    if (el._sbKeyHandler) el.removeEventListener('keydown', el._sbKeyHandler);
+    el._sbKeyHandler = function(e) {
+      if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+      var sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      var range = sel.getRangeAt(0);
+      if (!range.collapsed) return;
+      var lineDiv = null, cur = range.startContainer;
+      while (cur && cur !== el) {
+        if (cur.classList && cur.classList.contains('sb-edit-line')) { lineDiv = cur; break; }
+        cur = cur.parentNode;
+      }
+      if (!lineDiv) return;
+      try {
+        if (e.key === 'Backspace') {
+          var r = document.createRange();
+          r.setStart(lineDiv, 0); r.setEnd(range.startContainer, range.startOffset);
+          if (r.toString() === '') {
+            var prev = lineDiv.previousElementSibling;
+            if (prev) {
+              e.preventDefault();
+              var nr = document.createRange(); nr.selectNodeContents(prev); nr.collapse(false);
+              sel.removeAllRanges(); sel.addRange(nr);
+            }
+          }
+        } else {
+          var r2 = document.createRange();
+          r2.setStart(range.endContainer, range.endOffset); r2.setEnd(lineDiv, lineDiv.childNodes.length);
+          if (r2.toString() === '') {
+            var next = lineDiv.nextElementSibling;
+            if (next) {
+              e.preventDefault();
+              var nr2 = document.createRange(); nr2.setStart(next, 0); nr2.collapse(true);
+              sel.removeAllRanges(); sel.addRange(nr2);
+            }
+          }
+        }
+      } catch(x) {}
+    };
+    el.addEventListener('keydown', el._sbKeyHandler);
   }
 
   // Lock: read text, save, restore beautiful chord-pair display
@@ -38271,6 +38311,7 @@ var WO = (function() {
     if (!el) return;
 
     if (el._sbEditHandler) el.removeEventListener('input', el._sbEditHandler);
+    if (el._sbKeyHandler) el.removeEventListener('keydown', el._sbKeyHandler);
     clearTimeout(el._sbFmtTimer);
 
     var plainText = sbExtractEditText(el);
