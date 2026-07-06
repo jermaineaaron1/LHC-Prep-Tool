@@ -38728,9 +38728,11 @@ var WO = (function() {
       if (!lineDiv) return;
       try {
         if (e.key === 'Backspace') {
-          var r = document.createRange();
-          r.setStart(lineDiv, 0); r.setEnd(range.startContainer, range.startOffset);
-          if (r.toString() === '') {
+          // Measure text before cursor within this line div
+          var before = document.createRange();
+          before.selectNodeContents(lineDiv);
+          before.setEnd(range.startContainer, range.startOffset);
+          if (before.toString() === '') {
             var prev = lineDiv.previousElementSibling;
             if (prev) {
               e.preventDefault();
@@ -38739,9 +38741,11 @@ var WO = (function() {
             }
           }
         } else {
-          var r2 = document.createRange();
-          r2.setStart(range.endContainer, range.endOffset); r2.setEnd(lineDiv, lineDiv.childNodes.length);
-          if (r2.toString() === '') {
+          // Measure text after cursor within this line div
+          var after = document.createRange();
+          after.selectNodeContents(lineDiv);
+          after.setStart(range.endContainer, range.endOffset);
+          if (after.toString() === '') {
             var next = lineDiv.nextElementSibling;
             if (next) {
               e.preventDefault();
