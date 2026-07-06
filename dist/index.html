@@ -38603,158 +38603,111 @@ var WO = (function() {
     }, 80);
   }
 
-  // -- Word-level chord slots ------------------------------------------
+  // -- Free-text chord editing mode -----------------------------------------
   var _sbChordEditActive = {};
 
-  // Split text into words preserving trailing spaces
-  function sbSplitWords(text) {
-    var parts = [], m, re = /\S+\s*/g;
-    while ((m = re.exec(text)) !== null) parts.push(m[0]);
-    return parts.length ? parts : (text ? [text] : []);
+  // True if most words on the line look like chord symbols
+  function sbIsChordLine(text) {
+    if (!text.trim()) return false;
+    var words = text.trim().split(/\s+/);
+    if (!words.length) return false;
+    var pat = /^[A-G][#b]?(m|maj|min|dim|aug|sus[24]?|add|dom|M|m7|maj7)?[0-9]*([\/\\][A-G][#b]?)?[0-9]*$/;
+    var n = words.filter(function(w) { return pat.test(w); }).length;
+    return n > 0 && n / words.length >= 0.55;
   }
 
-  // Build a wo-chord-token with an empty chord slot above a lyric word
-  function sbMakeEmptyToken(word, sid) {
-    var tok = document.createElement('span');
-    tok.className = 'wo-chord-token';
-    var cs = document.createElement('span');
-    cs.className = 'wo-inline-chord sb-chord-empty';
-    cs.contentEditable = 'false';
-    cs.dataset.sid = sid;
-    cs.addEventListener('click', function(e) {
-      e.stopPropagation();
-      sbActivateChordSlot(cs);
-    });
-    cs.addEventListener('touchend', function(e) {
-      e.preventDefault();
-      sbActivateChordSlot(cs);
-    });
-    var ls = document.createElement('span');
-    ls.className = 'wo-inline-lyric';
-    ls.textContent = word;
-    ls.contentEditable = 'true';
-    ls.dataset.sid = sid;
-    ls.addEventListener('blur', function() {
-      setTimeout(function() { sbSaveChordSlots(sid); }, 80);
-    });
-    tok.appendChild(cs);
-    tok.appendChild(ls);
-    return tok;
+  function sbIsSectionLine(text) {
+    return /^\[.+\]$/.test(text.trim());
   }
 
-  // Expand all lyric lines in a song to word-level chord slots
+  // Re-apply teal styling to chord lines after idle (no DOM restructure)
+  function sbAutoFormatChords(el) {
+    Array.from(el.querySelectorAll('.sb-edit-line')).forEach(function(div) {
+      var t = div.textContent;
+      div.classList.remove('sb-edit-chord', 'sb-edit-section', 'sb-edit-lyric');
+      if (sbIsSectionLine(t))      div.classList.add('sb-edit-section');
+      else if (sbIsChordLine(t))   div.classList.add('sb-edit-chord');
+      else                         div.classList.add('sb-edit-lyric');
+    });
+  }
+
+  // Read plain text back out of the edit-mode div
+  function sbExtractEditText(el) {
+    var lines = [];
+    Array.from(el.childNodes).forEach(function(node) {
+      if (node.nodeType === 3) { // text node
+        lines.push(node.textContent);
+      } else if (node.nodeName === 'BR') {
+        lines.push('');
+      } else {
+        lines.push(node.innerText !== undefined ? node.innerText : node.textContent);
+      }
+    });
+    return lines.join('\n').replace(/\r/g, '');
+  }
+
+  // Unlock: convert to free-text editor (Notepad-style)
   function sbExpandChordEdit(sid) {
     var el = document.getElementById('sbLyrics-' + sid);
     if (!el) return;
     _sbChordEditActive[sid] = true;
 
-    // Expand existing chord pairs: split non-chord words into empty slots
-    Array.from(el.querySelectorAll('.wo-lyrics-chord-pair')).forEach(function(pair) {
-      var newChildren = [];
-      Array.from(pair.childNodes).forEach(function(node) {
-        if (!node.classList) return;
-        if (node.classList.contains('wo-chord-token')) {
-          // Existing token: make chord span editable, lyric span editable
-          var cs = node.querySelector('.wo-inline-chord');
-          var ls = node.querySelector('.wo-inline-lyric');
-          if (cs) {
-            cs.contentEditable = 'true';
-            cs.dataset.sid = sid;
-            cs.addEventListener('blur', function() {
-              setTimeout(function() { sbSaveChordSlots(sid); }, 80);
-            });
-          }
-          if (ls) {
-            ls.contentEditable = 'true';
-            ls.dataset.sid = sid;
-            ls.addEventListener('blur', function() {
-              setTimeout(function() { sbSaveChordSlots(sid); }, 80);
-            });
-          }
-          newChildren.push(node);
-        } else {
-          // Leading/lyric chunk: split into per-word empty slots
-          var lyricEl = node.querySelector('.wo-inline-lyric') || node;
-          var text = lyricEl.textContent || '';
-          sbSplitWords(text).forEach(function(w) {
-            newChildren.push(sbMakeEmptyToken(w, sid));
-          });
-        }
-      });
-      pair.innerHTML = '';
-      newChildren.forEach(function(n) { pair.appendChild(n); });
-      pair.classList.add('sb-chord-edit-mode');
-    });
+    // Extract plain text from the current (locked) rendered structure
+    var plainText = sbExtractLyricsText(el);
 
-    // Convert plain lyric lines to word-level chord pairs
-    Array.from(el.querySelectorAll('.wo-lyrics-lyric-line')).forEach(function(line) {
-      if (!line.textContent.trim()) return;
-      var pair = document.createElement('div');
-      pair.className = 'wo-lyrics-chord-pair sb-chord-edit-mode';
-      sbSplitWords(line.textContent).forEach(function(w) {
-        pair.appendChild(sbMakeEmptyToken(w, sid));
-      });
-      el.replaceChild(pair, line);
-    });
+    // Build one <div class="sb-edit-line"> per text line
+    var lines = plainText.split('\n');
+    var html = lines.map(function(line) {
+      var cls = 'sb-edit-line';
+      if (sbIsSectionLine(line))     cls += ' sb-edit-section';
+      else if (sbIsChordLine(line))  cls += ' sb-edit-chord';
+      else                           cls += ' sb-edit-lyric';
+      var safe = line
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return '<div class="' + cls + '">' + (safe || '<br>') + '</div>';
+    }).join('');
 
-    // Remove any stale chord zones (replaced by word slots)
-    Array.from(el.querySelectorAll('.wo-sb-chord-zone')).forEach(function(z) { z.remove(); });
+    el.innerHTML = html;
+    el.contentEditable = 'true';
+    el.classList.add('sb-edit-mode');
+
+    // Debounced auto-format (2 s after idle)
+    if (el._sbEditHandler) el.removeEventListener('input', el._sbEditHandler);
+    el._sbEditHandler = function() {
+      clearTimeout(el._sbFmtTimer);
+      el._sbFmtTimer = setTimeout(function() { sbAutoFormatChords(el); }, 2000);
+    };
+    el.addEventListener('input', el._sbEditHandler);
   }
 
-  // Activate an empty chord slot for typing
-  function sbActivateChordSlot(cs) {
-    if (typeof _sbLyricsLocked !== 'undefined' && _sbLyricsLocked) return;
-    cs.classList.remove('sb-chord-empty');
-    cs.contentEditable = 'true';
-    cs.focus();
-    try {
-      var r = document.createRange();
-      r.selectNodeContents(cs); r.collapse(false);
-      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
-    } catch(e) {}
-    cs.addEventListener('blur', function sbCsBlur() {
-      cs.removeEventListener('blur', sbCsBlur);
-      cs.contentEditable = 'false';
-      var txt = cs.textContent.trim();
-      if (!txt) cs.classList.add('sb-chord-empty');
-      var sid = cs.dataset.sid;
-      if (sid) setTimeout(function() { sbSaveChordSlots(sid); }, 80);
-    }, { once: true });
-    cs.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); cs.blur(); }
-      if (e.key === 'Escape') { cs.textContent = ''; cs.blur(); }
-    }, { once: true });
-  }
-
-  // Save chord edits for a song
-  function sbSaveChordSlots(sid) {
-    var lyricsEl = document.getElementById('sbLyrics-' + sid);
-    var song = songOrderSections.find(function(s) { return s.id === sid; });
-    if (!lyricsEl || !song) return;
-    song.lyrics = sbExtractLyricsText(lyricsEl);
-    song.richLyrics = formatLyricsWithHighlights(song.lyrics);
-    song.customLyrics = song.lyrics;
-    song.customRichLyrics = song.richLyrics;
-    song.hasCustomLyrics = true;
-    sbAutoSave();
-  }
-
-  // Collapse chord-edit mode: save + re-render beautiful inline display
+  // Lock: read text, save, restore beautiful chord-pair display
   function sbCollapseChordEdit(sid) {
     var el = document.getElementById('sbLyrics-' + sid);
     var song = songOrderSections.find(function(s) { return s.id === sid; });
     _sbChordEditActive[sid] = false;
-    if (!el || !song) return;
-    song.lyrics = sbExtractLyricsText(el);
-    song.richLyrics = formatLyricsWithHighlights(song.lyrics);
-    song.customLyrics = song.lyrics;
+    if (!el) return;
+
+    if (el._sbEditHandler) el.removeEventListener('input', el._sbEditHandler);
+    clearTimeout(el._sbFmtTimer);
+
+    var plainText = sbExtractEditText(el);
+
+    el.contentEditable = 'false';
+    el.classList.remove('sb-edit-mode');
+
+    if (!song) return;
+    song.lyrics = plainText;
+    song.richLyrics = formatLyricsWithHighlights(plainText);
+    song.customLyrics = plainText;
     song.customRichLyrics = song.richLyrics;
     song.hasCustomLyrics = true;
     el.innerHTML = sbEnhanceChordPairsHtml(song.richLyrics);
     sbAutoSave();
   }
 
-  function sbBreakDragStart(evt, songId) {
+  function sbBreakDragStart(evt, songId) {  function sbBreakDragStart(evt, songId) {
     evt.preventDefault();
     sbBreakDragging = { songId: songId, startY: evt.clientY, startMargin: sbPageMargins[songId] || 0 };
     document.addEventListener('mousemove', sbBreakDragMove);
@@ -49418,8 +49371,6 @@ var WO = (function() {
     sbChordZoneBlur: sbChordZoneBlur,
     sbExpandChordEdit: sbExpandChordEdit,
     sbCollapseChordEdit: sbCollapseChordEdit,
-    sbActivateChordSlot: sbActivateChordSlot,
-    sbSaveChordSlots: sbSaveChordSlots,
     sbToggleLyricsColumns: sbToggleLyricsColumns,
     sbInsertColBreak: sbInsertColBreak,
     sbRemoveColBreak: sbRemoveColBreak,
@@ -57503,58 +57454,44 @@ function filterLiturgyItems() {
     .wo-sb-chord-zone:empty { min-height: 1.3em; }
     .wo-sb-chord-zone:empty::before { opacity: 0.18; }
   }
-  /* Chord-slot editing mode: word-level chord entry */
-  .sb-chord-empty {
-    display: inline-block;
-    min-width: 1.4em;
-    height: 1.1em;
-    cursor: pointer;
-    border-radius: 2px;
-    vertical-align: bottom;
-    position: relative;
-  }
-  .sb-chord-empty::before {
-    content: "+";
-    color: #14b8a6;
-    opacity: 0;
-    font-size: 0.65em;
-    font-family: "Lato", sans-serif;
-    line-height: 1;
-    transition: opacity 0.12s;
-    pointer-events: none;
-  }
-  .sb-chord-empty:hover::before { opacity: 0.6; }
-  @media (hover: none) { .sb-chord-empty::before { opacity: 0.22; } }
-  .sb-chord-empty[contenteditable="true"] {
-    min-width: 3em;
-    color: #14b8a6;
-    font-family: "Courier New", monospace;
-    font-size: 0.78em;
-    background: rgba(20,184,166,0.10);
-    outline: 1.5px dashed rgba(20,184,166,0.5);
-    border-radius: 3px;
-    padding: 0 3px;
-    white-space: nowrap;
-  }
-  /* In chord-edit mode, lyric words are editable for dash-extension */
-  .sb-chord-edit-mode .wo-inline-lyric[contenteditable="true"] {
-    font-family: "Courier New", monospace;
-    font-size: 0.9em;
-    outline: 1px dashed rgba(99,102,241,0.3);
-    border-radius: 2px;
-    background: rgba(99,102,241,0.04);
-    white-space: pre;
-  }
-  /* Existing editable chord spans in edit mode */
-  .sb-chord-edit-mode .wo-inline-chord:not(.sb-chord-empty) {
+  /* Free-text chord editing mode */
+  .sb-page-lyrics.sb-edit-mode {
+    font-family: "Courier New", Courier, monospace !important;
+    font-size: 0.95em;
+    line-height: 2;
     cursor: text;
-    border-radius: 2px;
-    transition: background 0.12s;
+    padding: 6px 4px;
+    border: 1.5px solid rgba(20,184,166,0.25);
+    border-radius: 6px;
+    background: rgba(20,184,166,0.02);
+    caret-color: #14b8a6;
+    -webkit-user-modify: read-write;
   }
-  .sb-chord-edit-mode .wo-inline-chord:not(.sb-chord-empty):hover {
-    background: rgba(20,184,166,0.12);
+  .sb-page-lyrics.sb-edit-mode:focus { outline: none; border-color: rgba(20,184,166,0.5); }
+  .sb-edit-line { min-height: 1.4em; white-space: pre-wrap; word-break: break-word; }
+  .sb-edit-chord {
+    color: #14b8a6;
+    font-weight: bold;
+    font-size: 0.82em;
+    letter-spacing: 0.04em;
   }
-  .sb-page-lyrics--two-col { column-count:2; column-gap:28px; column-fill:balance; }
+  .sb-edit-section {
+    color: #b45309;
+    font-style: italic;
+    font-family: "Lato", sans-serif !important;
+    font-size: 0.88em;
+  }
+  .sb-edit-lyric { color: inherit; }
+  /* hint strip shown at top of edit mode */
+  .sb-edit-hint {
+    font-family: "Lato", sans-serif;
+    font-size: 0.72em;
+    color: rgba(20,184,166,0.6);
+    padding: 2px 0 6px;
+    pointer-events: none;
+    user-select: none;
+  }
+  .sb-page-lyrics--two-col { column-count:2; column-gap:28px; column-fill:balance; }  .sb-page-lyrics--two-col { column-count:2; column-gap:28px; column-fill:balance; }
   .sb-col-toggle-btn { background:none; border:1px solid #e2e8f0; padding:7px 14px; border-radius:5px; cursor:pointer; font-size:0.82rem; font-weight:600; color:#64748b; white-space:nowrap; }
   .sb-col-toggle-btn.active { background:#eef2ff; border-color:#6366f1; color:#6366f1; }
   .sb-font-opt-btn { background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:7px; padding:5px 10px; cursor:pointer; font-weight:600; color:#475569; transition:all .15s; }
