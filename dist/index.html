@@ -38399,6 +38399,11 @@ var WO = (function() {
     var b = _sbDocOffsetAt(el, r.endContainer, r.endOffset);
     if (b < a) { var sw = a; a = b; b = sw; }
     var docTxt = _sbDocText(el);
+    // Full-line selection: include the trailing newline so pasting the
+    // copied lines at a line start reconstructs clean whole lines.
+    var fullLines = (a === 0 || docTxt.charAt(a - 1) === '\n') &&
+                    (b === docTxt.length || docTxt.charAt(b) === '\n');
+    if (fullLines && b < docTxt.length) b += 1;
     var out = docTxt.substring(a, b);
     if (!out) return;
     e.preventDefault();
@@ -38420,6 +38425,14 @@ var WO = (function() {
     var b = _sbDocOffsetAt(el, r.endContainer, r.endOffset);
     if (b < a) { var sw = a; a = b; b = sw; }
     var docTxt = _sbDocText(el);
+    // Full-line selection: also remove one adjacent newline so the cut
+    // doesn't leave an empty line slot behind.
+    var fullLines = (a === 0 || docTxt.charAt(a - 1) === '\n') &&
+                    (b === docTxt.length || docTxt.charAt(b) === '\n');
+    if (fullLines) {
+      if (b < docTxt.length) b += 1;      // consume trailing newline
+      else if (a > 0) a -= 1;             // cutting the last line: leading one
+    }
     var out = docTxt.substring(a, b);
     if (out) (e.clipboardData || window.clipboardData).setData('text/plain', out);
     var newDoc = docTxt.substring(0, a) + docTxt.substring(b);
