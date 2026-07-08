@@ -33152,7 +33152,6 @@ var WO = (function() {
         });
         html += '<div style="flex:1;min-width:4px;"></div>';
         html += '<button class="sb-attach-btn" onclick="WO.sbAddBlankLink(\'' + sid + '\')" title="Add YouTube or website link"><i class="fa-solid fa-link"></i></button>';
-        html += '<button class="sb-attach-btn sb-edit-lyrics-btn" onclick="WO.sbOpenLyricsEditor(\'' + sid + '\')" title="Edit Lyrics"><i class="fa-solid fa-pen-to-square"></i> Edit</button>';
       html += '<button class="sb-attach-btn" onclick="WO.sbAttachFile(\'' + sid + '\')" title="Attach image or document"><i class="fa-solid fa-paperclip"></i></button>';
         html += '<button class="sb-tool-btn" style="background:#fee2e2;color:#ef4444;padding:4px 10px;"' +
           ' onclick="WO.sbRemoveBlankPage(\'' + sid + '\')" title="Remove this blank page">' +
@@ -33481,6 +33480,7 @@ var WO = (function() {
       // Action buttons at end of controls bar
       html += '<div style="display:flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0;">';
       html += '<button class="sb-attach-btn" onclick="WO.sbAddSongLink(\'' + sid + '\')" title="Add YouTube or website link"><i class="fa-solid fa-link"></i></button>';
+      html += '<button class="sb-attach-btn sb-edit-lyrics-btn" onclick="WO.sbOpenLyricsEditor(\'' + sid + '\')" title="Edit Lyrics"><i class="fa-solid fa-pen-to-square"></i> Edit</button>';
       html += '<button class="sb-attach-btn" onclick="WO.sbAttachFile(\'' + sid + '\')" title="Attach image or document"><i class="fa-solid fa-paperclip"></i></button>';
       html += '<button class="sb-attach-btn sb-remove-btn" onclick="WO.sbRemoveSong(\'' + sid + '\')" title="Remove this song from songbook"><i class="fa-solid fa-trash-can"></i></button>';
       html += '</div>';
@@ -33498,7 +33498,7 @@ var WO = (function() {
       html += '</div>'; // .sb-page-header (compact, matches book mode)
 
       html += '<div class="sb-page-canvas-wrap" id="sbCanvas-wrap-' + sid + '">';
-      html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="true" onbeforeinput="WO.sbBeforeLyricsInput(event,\'' + sid + '\')" onkeydown="WO.sbHandleLyricsKeydown(event,\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\')" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
+      html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="true" onbeforeinput="WO.sbBeforeLyricsInput(event,\'' + sid + '\')" onkeydown="WO.sbHandleLyricsKeydown(event,\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\')" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')" oncopy="WO.sbOnLyricsCopy(event,\'' + sid + '\')" oncut="WO.sbOnLyricsCut(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
       html += '<svg class="sb-draw-svg" id="sbCanvas-' + sid + '"></svg>';
       html += '</div>';
       html += '<div class="sb-text-annot-layer" id="sbTextLayer-' + sid + '"></div>';
@@ -38313,8 +38313,125 @@ var WO = (function() {
     }, 600);
   }
 
-  // Intercept paste into lyrics editor: always insert as plain text then re-render
-  // clean HTML from innerText so pasted content never corrupts chord/lyric structure.
+  // Canonical plain text of one songbook block (pair -> chord line + lyric line).
+  function _sbBlockPlainText(block) {
+    if (block.classList && block.classList.contains('wo-lyrics-chord-pair')) {
+      var d = _sbChordPairData(block);
+      var lyr = d.lyric.replace(/\u00a0/g, '');
+      return _sbChordsToLine(d.chords) + '\n' + lyr;
+    }
+    return (block.textContent || '').replace(/\u00a0/g, ' ');
+  }
+
+  // Full plain text of the lyrics element (pairs contribute 2 lines).
+  function _sbDocText(lyricsEl) {
+    return Array.from(lyricsEl.children).map(_sbBlockPlainText).join('\n');
+  }
+
+  // Plain-text offset of (node, offset) within the whole lyrics element.
+  function _sbDocOffsetAt(lyricsEl, node, offset) {
+    var blocks = Array.from(lyricsEl.children);
+    var cum = 0, i;
+    if (node === lyricsEl) {
+      for (i = 0; i < offset && i < blocks.length; i++) cum += _sbBlockPlainText(blocks[i]).length + 1;
+      return Math.max(0, Math.min(cum, _sbDocText(lyricsEl).length));
+    }
+    for (i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      var t = _sbBlockPlainText(b);
+      if (b === node) return cum + (offset > 0 ? t.length : 0);
+      if (b.contains(node)) {
+        if (b.classList.contains('wo-lyrics-chord-pair')) {
+          var chordLen = t.indexOf('\n');
+          if (chordLen < 0) chordLen = 0;
+          var lyricPos = _sbLyricPosAt(b, node, offset);
+          return cum + Math.min(chordLen + 1 + lyricPos, t.length);
+        }
+        return cum + Math.min(_sbOffsetWithin(b, node, offset), t.length);
+      }
+      cum += t.length + 1;
+    }
+    return Math.max(0, cum - 1);
+  }
+
+  // Place the caret at a plain-text document offset within the lyrics element.
+  function _sbSetCaretAtDocOffset(lyricsEl, off) {
+    var blocks = Array.from(lyricsEl.children);
+    var cum = 0;
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      var t = _sbBlockPlainText(b);
+      if (off <= cum + t.length) {
+        var local = off - cum;
+        if (b.classList && b.classList.contains('wo-lyrics-chord-pair')) {
+          var chordLen = t.indexOf('\n');
+          if (chordLen < 0) chordLen = 0;
+          _sbSetLyricCaret(b, Math.max(0, local - chordLen - 1));
+        } else {
+          var tn = b.firstChild || b;
+          try {
+            var r = document.createRange();
+            var mx = tn.textContent ? tn.textContent.length : 0;
+            r.setStart(tn, Math.min(Math.max(0, local), mx));
+            r.collapse(true);
+            var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+          } catch (ex) {}
+        }
+        return;
+      }
+      cum += t.length + 1;
+    }
+    if (lyricsEl.lastElementChild) _sbCaretAtBlockEnd(lyricsEl.lastElementChild);
+  }
+
+  // Copy the selection as clean chord/lyric plain text. Native copy walks the
+  // DOM where chord tokens sit inline before each word, producing garbled
+  // text like "GThis Cis Gthe day".
+  function sbOnLyricsCopy(e, sid) {
+    var el = document.getElementById('sbLyrics-' + sid);
+    var song = songOrderSections.find(function(s) { return s.id === sid; });
+    if (!el || (song && song.itemType === 'blank')) return; // native for blanks
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+    var r = sel.getRangeAt(0);
+    if (!el.contains(r.startContainer) || !el.contains(r.endContainer)) return;
+    var a = _sbDocOffsetAt(el, r.startContainer, r.startOffset);
+    var b = _sbDocOffsetAt(el, r.endContainer, r.endOffset);
+    if (b < a) { var sw = a; a = b; b = sw; }
+    var docTxt = _sbDocText(el);
+    var out = docTxt.substring(a, b);
+    if (!out) return;
+    e.preventDefault();
+    (e.clipboardData || window.clipboardData).setData('text/plain', out);
+  }
+
+  // Cut = clean copy + text-space delete + paired re-render.
+  function sbOnLyricsCut(e, sid) {
+    var el = document.getElementById('sbLyrics-' + sid);
+    var song = songOrderSections.find(function(s) { return s.id === sid; });
+    if (!el || (song && song.itemType === 'blank')) return; // native for blanks
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+    var r = sel.getRangeAt(0);
+    if (!el.contains(r.startContainer) || !el.contains(r.endContainer)) return;
+    e.preventDefault();
+    sbCapturePreEdit(sid);
+    var a = _sbDocOffsetAt(el, r.startContainer, r.startOffset);
+    var b = _sbDocOffsetAt(el, r.endContainer, r.endOffset);
+    if (b < a) { var sw = a; a = b; b = sw; }
+    var docTxt = _sbDocText(el);
+    var out = docTxt.substring(a, b);
+    if (out) (e.clipboardData || window.clipboardData).setData('text/plain', out);
+    var newDoc = docTxt.substring(0, a) + docTxt.substring(b);
+    el.innerHTML = sbEnhanceChordPairsHtml(formatLyricsWithHighlights(newDoc));
+    if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
+    _sbSetCaretAtDocOffset(el, a);
+    sbRepaginateSong(sid);
+    sbOnLyricsChange(sid);
+  }
+
+  // Paste in text-space: splice into the doc text at the caret and re-render
+  // the paired chord/lyric HTML so the visual format never changes.
   function sbOnLyricsPaste(e, sid) {
     e.preventDefault();
     delete _sbChordEditState[sid];
@@ -38325,7 +38442,6 @@ var WO = (function() {
     if (!text) return;
 
     // Convert any inline chord lines ("G  Amazing grace") to standard format
-    // before inserting, so they render correctly as chord + lyric pairs
     var normalizedLines = text.split('\n').map(function(line) {
       if (sbIsInlineChordLine(line)) {
         var ex = sbExtractInlineChords(line);
@@ -38335,25 +38451,32 @@ var WO = (function() {
     });
     text = normalizedLines.join('\n');
 
-    // Insert plain text at the current cursor position
-    document.execCommand('insertText', false, text);
-
-    // Re-render the full lyrics from plain innerText to restore clean HTML structure
     var el = document.getElementById('sbLyrics-' + sid);
-    if (!el) { sbOnLyricsChange(sid); return; }
+    if (!el) return;
     var song = songOrderSections.find(function(s) { return s.id === sid; });
-    var isBlank = song && song.itemType === 'blank';
-    if (!isBlank) {
-      var rawText = sbExtractLyricsText(el);
-      var newHtml = formatLyricsWithHighlights(rawText);
-      el.innerHTML = newHtml;
-      // Restore cursor to end of content
-      var range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-      var sel = window.getSelection();
-      if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+    if (song && song.itemType === 'blank') {
+      // Blank notes page: plain insert is safe (no chord-pair structure)
+      document.execCommand('insertText', false, text);
+      sbOnLyricsChange(sid);
+      return;
     }
+
+    var sel = window.getSelection();
+    var startOff = null, endOff = null;
+    if (sel && sel.rangeCount) {
+      var r = sel.getRangeAt(0);
+      if (el.contains(r.startContainer)) startOff = _sbDocOffsetAt(el, r.startContainer, r.startOffset);
+      if (el.contains(r.endContainer))   endOff   = _sbDocOffsetAt(el, r.endContainer, r.endOffset);
+    }
+    var docTxt = _sbDocText(el);
+    if (startOff === null) { startOff = docTxt.length; endOff = docTxt.length; }
+    if (endOff === null) endOff = startOff;
+    if (endOff < startOff) { var sw = startOff; startOff = endOff; endOff = sw; }
+    var newDoc = docTxt.substring(0, startOff) + text + docTxt.substring(endOff);
+
+    el.innerHTML = sbEnhanceChordPairsHtml(formatLyricsWithHighlights(newDoc));
+    if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
+    _sbSetCaretAtDocOffset(el, startOff + text.length);
 
     // Re-paginate to push any overflow onto continuation pages
     sbRepaginateSong(sid);
@@ -49430,6 +49553,8 @@ var WO = (function() {
     sbExtractLyricsText: sbExtractLyricsText,
     sbOnLyricsChange: sbOnLyricsChange,
     sbOnLyricsPaste: sbOnLyricsPaste,
+    sbOnLyricsCopy: sbOnLyricsCopy,
+    sbOnLyricsCut: sbOnLyricsCut,
     // Annotate tab
     sbActivateTool: sbActivateTool,
     sbSetAnnotColor: sbSetAnnotColor,
