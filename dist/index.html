@@ -37815,21 +37815,28 @@ var WO = (function() {
   function _sbResolveBackspaceMerge(block) {
     var immPrev = block.previousElementSibling;
     if (!immPrev || _sbLineClass(immPrev) !== 'chord') return null;
-    var upperLyric = immPrev.previousElementSibling;
-    if (!upperLyric || _sbLineClass(upperLyric) !== 'lyric') return null;
-    return { upperLyric: upperLyric, lowerChord: immPrev, lowerLyric: block };
+    // Walk past any blank lines separating this phrase from the one above -
+    // verse/chorus phrases are routinely separated by a blank line, and
+    // that shouldn't stop one Backspace from doing the full correct merge.
+    var cursor = immPrev.previousElementSibling;
+    var skipped = [];
+    while (cursor && _sbLineClass(cursor) === 'empty') { skipped.push(cursor); cursor = cursor.previousElementSibling; }
+    if (!cursor || _sbLineClass(cursor) !== 'lyric') return null;
+    return { upperLyric: cursor, lowerChord: immPrev, lowerLyric: block, skipped: skipped };
   }
 
   // Symmetric Delete-forward resolver: `block` (a lyric line) is followed
-  // immediately by a new chord+lyric unit - deleting forward at its end
-  // should pull that whole unit up, not fuse the chord line's text onto
-  // the end of `block`.
+  // by a new chord+lyric unit, possibly across a blank line - deleting
+  // forward at its end should pull that whole unit up, not fuse the chord
+  // line's text onto the end of `block`.
   function _sbResolveDeleteMerge(block) {
-    var next = block.nextElementSibling;
-    if (!next || _sbLineClass(next) !== 'chord') return null;
-    var lyricAfter = next.nextElementSibling;
+    var cursor = block.nextElementSibling;
+    var skipped = [];
+    while (cursor && _sbLineClass(cursor) === 'empty') { skipped.push(cursor); cursor = cursor.nextElementSibling; }
+    if (!cursor || _sbLineClass(cursor) !== 'chord') return null;
+    var lyricAfter = cursor.nextElementSibling;
     if (!lyricAfter || _sbLineClass(lyricAfter) !== 'lyric') return null;
-    return { upperLyric: block, lowerChord: next, lowerLyric: lyricAfter };
+    return { upperLyric: block, lowerChord: cursor, lowerLyric: lyricAfter, skipped: skipped };
   }
 
   function sbBeforeLyricsInput(evt, sid) {
@@ -37861,6 +37868,7 @@ var WO = (function() {
             else if (it === 'deleteContentForward' && pos0 >= text0.replace(/\s+$/, '').length) merge = _sbResolveDeleteMerge(block0);
             if (merge) {
               evt.preventDefault();
+              (merge.skipped || []).forEach(function(n) { if (n.parentNode) lyricsEl0.removeChild(n); });
               _sbCarryMergeUp(lyricsEl0, merge.upperLyric, merge.lowerChord, merge.lowerLyric);
               _sbCanonicalText[sid] = _sbRawFlatText(lyricsEl0);
               sbOnLyricsChange(sid);
