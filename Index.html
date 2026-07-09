@@ -32439,7 +32439,7 @@ var WO = (function() {
       html += '</div>'; // .sb-page-header (compact, matches book mode)
 
       html += '<div class="sb-page-canvas-wrap" id="sbCanvas-wrap-' + sid + '">';
-      html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="true" onbeforeinput="WO.sbBeforeLyricsInput(event,\'' + sid + '\')" onkeydown="WO.sbHandleLyricsKeydown(event,\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\')" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')" oncopy="WO.sbOnLyricsCopy(event,\'' + sid + '\')" oncut="WO.sbOnLyricsCut(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
+      html += '<div class="sb-page-lyrics' + (song.sbLyricsColumns === 2 ? ' sb-page-lyrics--two-col' : '') + '" id="sbLyrics-' + sid + '" contenteditable="true" onbeforeinput="WO.sbBeforeLyricsInput(event,\'' + sid + '\')" oninput="WO.sbOnLyricsChange(\'' + sid + '\', event)" onpaste="WO.sbOnLyricsPaste(event,\'' + sid + '\')" oncopy="WO.sbOnLyricsCopy(event,\'' + sid + '\')" oncut="WO.sbOnLyricsCut(event,\'' + sid + '\')">' + lyricsHtml + '</div>';
       html += '<svg class="sb-draw-svg" id="sbCanvas-' + sid + '"></svg>';
       html += '</div>';
       html += '<div class="sb-text-annot-layer" id="sbTextLayer-' + sid + '"></div>';
@@ -37028,6 +37028,24 @@ var WO = (function() {
   // ── Text undo tracking ──────────────────────────────────────────────────────
   var _sbTextSnapshots = {}; // songId -> innerHTML captured at focus
 
+  var _sbUndoCheckpointTimers = {};
+  // Compare the field's current innerHTML against the last checkpoint and,
+  // if changed, push one undo step - then advance the checkpoint. Used both
+  // for periodic mid-typing checkpoints and the final blur flush, so a
+  // single Undo reverts one recent checkpoint's worth of typing, not an
+  // entire multi-minute editing session.
+  function _sbPushUndoCheckpoint(sid) {
+    var el = document.getElementById('sbLyrics-' + sid);
+    if (!el) return;
+    var before = _sbTextSnapshots[sid];
+    var after = el.innerHTML;
+    if (before !== undefined && before !== after) {
+      sbUndoStack.push({ type: 'text', sid: sid, oldHtml: before, newHtml: after });
+      sbGlobalRedoStack = []; // clear redo on new action
+      _sbTextSnapshots[sid] = after;
+    }
+  }
+
   function sbAttachTextUndoListeners() {
     var body = document.getElementById('sbBody');
     if (!body) return;
@@ -37037,17 +37055,22 @@ var WO = (function() {
       var sid = el.id.replace('sbLyrics-', '');
       _sbTextSnapshots[sid] = el.innerHTML;
     }, true);
+    // Periodic checkpoint while typing (~900ms after the user pauses) so
+    // Undo steps back through recent edits instead of the whole session.
+    body.addEventListener('input', function(e) {
+      var el = e.target;
+      if (!el || !el.id || el.id.indexOf('sbLyrics-') !== 0) return;
+      var sid = el.id.replace('sbLyrics-', '');
+      if (_sbTextSnapshots[sid] === undefined) _sbTextSnapshots[sid] = el.innerHTML;
+      clearTimeout(_sbUndoCheckpointTimers[sid]);
+      _sbUndoCheckpointTimers[sid] = setTimeout(function() { _sbPushUndoCheckpoint(sid); }, 900);
+    }, true);
     body.addEventListener('blur', function(e) {
       var el = e.target;
       if (!el || !el.id || el.id.indexOf('sbLyrics-') !== 0) return;
       var sid = el.id.replace('sbLyrics-', '');
-      var before = _sbTextSnapshots[sid];
-      var after = el.innerHTML;
-      if (before !== undefined && before !== after) {
-        sbUndoStack.push({ type: 'text', sid: sid, oldHtml: before, newHtml: after });
-        sbGlobalRedoStack = []; // clear redo on new action
-        _sbTextSnapshots[sid] = after;
-      }
+      clearTimeout(_sbUndoCheckpointTimers[sid]); // flush now instead of double-pushing later
+      _sbPushUndoCheckpoint(sid);
     }, true);
   }
 
@@ -37078,51 +37101,6 @@ var WO = (function() {
 
   function sbBeforeLyricsInput(evt, sid) {
     sbCapturePreEdit(sid);
-    // Mobile soft keyboards don't emit real Backspace/Delete/Enter keydown
-    // events (keyCode 229) - route structural edits through beforeinput.
-    var _it = evt && evt.inputType;
-    if (_it === 'deleteContentBackward' || _it === 'deleteContentForward' ||
-        _it === 'insertParagraph' || _it === 'insertLineBreak') {
-      var _key = _it === 'deleteContentBackward' ? 'Backspace' : _it === 'deleteContentForward' ? 'Delete' : 'Enter';
-      if (evt.cancelable !== false) {
-        var _handled = false;
-        sbHandleLyricsKeydown({
-          key: _key,
-          shiftKey: false, ctrlKey: false, metaKey: false,
-          preventDefault: function() { _handled = true; evt.preventDefault(); }
-        }, sid);
-        if (_handled) return;
-      } else {
-        // Non-cancelable (IME composing): the browser will do its raw edit
-        // no matter what. For structural edits, snapshot the canonical text
-        // now and repair right after the browser's mangled result lands.
-        var _el = document.getElementById('sbLyrics-' + sid);
-        var _sel = window.getSelection();
-        if (_el && _sel && _sel.rangeCount) {
-          var _r = _sel.getRangeAt(0);
-          var _blk = _r.startContainer.nodeType === 1 ? _r.startContainer : _r.startContainer.parentElement;
-          while (_blk && _blk.parentElement !== _el) _blk = _blk.parentElement;
-          if (_blk) {
-            var _p = _sbOffsetWithin(_blk, _r.startContainer, _r.startOffset);
-            var _t = _blk.textContent || '';
-            var _structural = !_r.collapsed ||
-              (_key === 'Backspace' && _p === 0) ||
-              (_key === 'Delete' && _p >= _t.replace(/\s+$/, '').length) ||
-              _key === 'Enter';
-            if (_structural) {
-              var _snapTxt = _sbDocText(_el);
-              var _snapOff = _sbDocOffsetAt(_el, _r.startContainer, _r.startOffset);
-              setTimeout(function() {
-                _el.innerHTML = formatLyricsWithHighlights(_snapTxt);
-                _sbSetCaretAtDocOffset(_el, _snapOff);
-                sbHandleLyricsKeydown({ key: _key, shiftKey: false, ctrlKey: false, metaKey: false, preventDefault: function() {} }, sid);
-              }, 0);
-              return;
-            }
-          }
-        }
-      }
-    }
     delete _sbChordEditState[sid];
     var lyricsEl = document.getElementById('sbLyrics-' + sid);
     var sel = window.getSelection();
@@ -37506,154 +37484,83 @@ var WO = (function() {
     if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
   }
 
-  function sbHandleLyricsKeydown(evt, sid) {
-    if (evt.key !== 'Enter' && evt.key !== 'Backspace' && evt.key !== 'Delete') return;
-    // Only handle plain Enter (no Shift/Ctrl/Meta - those have platform meanings)
-    if (evt.key === 'Enter' && (evt.shiftKey || evt.ctrlKey || evt.metaKey)) return;
+  // -- Post-edit reconciliation --------------------------------------------
+  // Diff the pad's raw (post-edit) flat text against the last known-good
+  // canonical text, patch the canonical text with that single edit, then
+  // re-render cleanly. This works uniformly for desktop keydown, mobile IME
+  // composition, paste and cut, because it operates on the RESULT of the
+  // edit rather than trying to predict/intercept it.
+  var _sbCanonicalText = {};  // sid -> last known-good canonical text
 
-    var lyricsEl = document.getElementById('sbLyrics-' + sid);
-    var sel = window.getSelection();
-    if (!lyricsEl || !sel || !sel.rangeCount) return;
-    var range = sel.getRangeAt(0);
-
-    // Resolve the line div (direct child of lyricsEl) containing the caret
-    var node = range.startContainer;
-    var block = node.nodeType === 1 ? node : node.parentElement;
-    while (block && block.parentElement !== lyricsEl) block = block.parentElement;
-    if (!block || !lyricsEl.contains(block)) return;
-
-    var kind = _sbLineClass(block);
-    if (kind === 'pair' || kind === 'zone') return; // legacy structures
-
-    // Cross-line selection + key: delete the selection in text-space so
-    // chord/lyric structure can never be spliced by the browser.
-    if (!range.collapsed) {
-      var endBlock = range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement;
-      while (endBlock && endBlock.parentElement !== lyricsEl) endBlock = endBlock.parentElement;
-      if (endBlock === block) return; // within one plain line: native is fine
-      evt.preventDefault();
-      var a0 = _sbDocOffsetAt(lyricsEl, range.startContainer, range.startOffset);
-      var b0 = _sbDocOffsetAt(lyricsEl, range.endContainer, range.endOffset);
-      if (b0 < a0) { var sw0 = a0; a0 = b0; b0 = sw0; }
-      var doc0 = _sbDocText(lyricsEl);
-      lyricsEl.innerHTML = formatLyricsWithHighlights(doc0.substring(0, a0) + doc0.substring(b0));
-      _sbSetCaretAtDocOffset(lyricsEl, a0);
-      sbOnLyricsChange(sid);
-      return;
-    }
-
-    var text = (block.textContent || '');
-    var pos = _sbOffsetWithin(block, range.startContainer, range.startOffset);
-
-    if (evt.key === 'Enter') {
-      evt.preventDefault();
-      var before = text.substring(0, pos);
-      var after = text.substring(pos);
-      var prevC = block.previousElementSibling;
-      if (kind === 'lyric' && prevC && _sbLineClass(prevC) === 'chord') {
-        // Split the chord line with the lyric: chords at/after the caret follow
-        var chordText = (prevC.textContent || '').replace(/\s+$/, '');
-        var head = chordText.substring(0, Math.min(pos, chordText.length));
-        var tailRaw = chordText.length > pos ? chordText.substring(pos) : '';
-        // Keep a chord token that straddles the cut with the first half
-        if (tailRaw && pos > 0 && pos < chordText.length &&
-            /\S/.test(chordText.charAt(pos)) && /\S/.test(chordText.charAt(pos - 1))) {
-          var mHead = /\S+$/.exec(head);
-          if (mHead) {
-            head = head.substring(0, head.length - mHead[0].length);
-            tailRaw = mHead[0] + tailRaw;
-          }
-        }
-        head = head.replace(/\s+$/, '');
-        var tail = tailRaw.replace(/^\s+/, '');
-        if (head) prevC.textContent = head; else lyricsEl.removeChild(prevC);
-        block.textContent = before;
-        if (!before.trim()) block.className = 'wo-lyrics-empty-line';
-        var anchor = block.nextSibling;
-        if (tail) {
-          var ncd = document.createElement('div');
-          ncd.className = 'wo-lyrics-chord-line';
-          ncd.setAttribute('spellcheck', 'false');
-          ncd.textContent = tail;
-          lyricsEl.insertBefore(ncd, anchor);
-        }
-        var nld = document.createElement('div');
-        nld.className = after.trim() ? 'wo-lyrics-lyric-line' : 'wo-lyrics-empty-line';
-        nld.setAttribute('spellcheck', 'false');
-        nld.textContent = after;
-        lyricsEl.insertBefore(nld, anchor);
-        _sbSetLineCaret(nld, 0);
-      } else {
-        block.textContent = before;
-        if (!before.trim() && kind === 'lyric') block.className = 'wo-lyrics-empty-line';
-        var nl2 = document.createElement('div');
-        nl2.className = after.trim()
-          ? (kind === 'chord' ? 'wo-lyrics-chord-line' : 'wo-lyrics-lyric-line')
-          : 'wo-lyrics-empty-line';
-        nl2.setAttribute('spellcheck', 'false');
-        nl2.textContent = after;
-        lyricsEl.insertBefore(nl2, block.nextSibling);
-        _sbSetLineCaret(nl2, 0);
-      }
-      sbOnLyricsChange(sid);
-      return;
-    }
-
-    if (evt.key === 'Backspace') {
-      if (pos > 0) return; // in-line delete: native is safe on plain lines
-      var prev = block.previousElementSibling;
-      evt.preventDefault();
-      if (!prev) return;
-      var prevKind = _sbLineClass(prev);
-      if (prevKind === 'zone') { lyricsEl.removeChild(prev); sbOnLyricsChange(sid); return; }
-      if (prevKind === 'empty') { lyricsEl.removeChild(prev); sbOnLyricsChange(sid); return; }
-      if (kind === 'empty') {
-        lyricsEl.removeChild(block);
-        _sbSetLineCaret(prev, (prev.textContent || '').length);
-        sbOnLyricsChange(sid);
-        return;
-      }
-      if (kind === 'lyric' && prevKind === 'chord') {
-        // This lyric owns the chord line above: move the whole unit up
-        var above = prev.previousElementSibling;
-        if (!above) return; // unit already at the top
-        var aboveKind = _sbLineClass(above);
-        if (aboveKind === 'empty' || aboveKind === 'zone') { lyricsEl.removeChild(above); sbOnLyricsChange(sid); return; }
-        if (aboveKind === 'lyric') { _sbCarryMergeUp(lyricsEl, above, prev, block); sbOnLyricsChange(sid); return; }
-        return; // section or chord above: nothing sensible to merge into
-      }
-      if (kind === 'lyric' && (prevKind === 'lyric' || prevKind === 'section')) {
-        _sbCarryMergeUp(lyricsEl, prev, null, block);
-        sbOnLyricsChange(sid);
-        return;
-      }
-      return; // chord/section lines: only pull up across empty lines
-    }
-
-    if (evt.key === 'Delete') {
-      if (pos < text.replace(/\s+$/, '').length) return; // in-line: native
-      var next = block.nextElementSibling;
-      evt.preventDefault();
-      if (!next) return;
-      var nextKind = _sbLineClass(next);
-      if (nextKind === 'zone') { lyricsEl.removeChild(next); sbOnLyricsChange(sid); return; }
-      if (nextKind === 'empty') { lyricsEl.removeChild(next); sbOnLyricsChange(sid); return; }
-      if (kind === 'empty') {
-        lyricsEl.removeChild(block);
-        sbOnLyricsChange(sid);
-        return;
-      }
-      if (kind === 'lyric' || kind === 'section') {
-        if (nextKind === 'chord') {
-          var nl = next.nextElementSibling;
-          if (nl && _sbLineClass(nl) === 'lyric') { _sbCarryMergeUp(lyricsEl, block, next, nl); sbOnLyricsChange(sid); return; }
-          return;
-        }
-        if (nextKind === 'lyric') { _sbCarryMergeUp(lyricsEl, block, null, next); sbOnLyricsChange(sid); return; }
-      }
-      return;
-    }
+  // Flatten the pad's current DOM the same way canonical text is stored:
+  // one line of plain text per direct child div, joined by \n.
+  function _sbRawFlatText(lyricsEl) {
+    return Array.from(lyricsEl.children).map(function(div) {
+      return (div.textContent || '').replace(/\u00a0/g, ' ');
+    }).join('\n');
   }
+
+  // Character offset of (node, offset) within the raw flattened text above.
+  function _sbRawCaretOffset(lyricsEl, node, offset) {
+    var divs = Array.from(lyricsEl.children);
+    var cum = 0;
+    for (var i = 0; i < divs.length; i++) {
+      var div = divs[i];
+      if (div === node || div.contains(node)) return cum + _sbOffsetWithin(div, node, offset);
+      cum += (div.textContent || '').replace(/\u00a0/g, ' ').length + 1;
+    }
+    return cum;
+  }
+
+  function sbReconcileLyrics(sid) {
+    var el = document.getElementById('sbLyrics-' + sid);
+    if (!el) return;
+    var song = songOrderSections.find(function(s) { return s.id === sid; });
+    if (song && song.itemType === 'blank') return; // blank notes pages: no chord structure to protect
+
+    var rawText = _sbRawFlatText(el);
+    var oldText = _sbCanonicalText.hasOwnProperty(sid) ? _sbCanonicalText[sid] : (song ? (song.lyrics || '') : rawText);
+    if (rawText === oldText) { _sbCanonicalText[sid] = rawText; return; }
+
+    // Caret position within the RAW (post-edit) flattened text
+    var sel = window.getSelection();
+    var caretRaw = rawText.length;
+    if (sel && sel.rangeCount) {
+      var r = sel.getRangeAt(0);
+      if (el.contains(r.startContainer)) caretRaw = _sbRawCaretOffset(el, r.startContainer, r.startOffset);
+    }
+
+    // Common-prefix / common-suffix diff (single contiguous edit region -
+    // true for real keystrokes, IME composition commits, and our own
+    // programmatic paste/cut splices).
+    var maxPrefix = Math.min(oldText.length, rawText.length);
+    var p = 0;
+    while (p < maxPrefix && oldText.charAt(p) === rawText.charAt(p)) p++;
+    var maxSuffix = Math.min(oldText.length - p, rawText.length - p);
+    var s = 0;
+    while (s < maxSuffix && oldText.charAt(oldText.length - 1 - s) === rawText.charAt(rawText.length - 1 - s)) s++;
+
+    var insertedText = rawText.substring(p, rawText.length - s);
+    var newCanonical = oldText.substring(0, p) + insertedText + oldText.substring(oldText.length - s);
+
+    // Map the raw caret to the corresponding offset in the new canonical text
+    var newCaret;
+    if (caretRaw <= p) newCaret = caretRaw;
+    else if (caretRaw >= rawText.length - s) newCaret = newCanonical.length - (rawText.length - caretRaw);
+    else newCaret = p + insertedText.length;
+    newCaret = Math.max(0, Math.min(newCaret, newCanonical.length));
+
+    el.innerHTML = formatLyricsWithHighlights(newCanonical);
+    if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
+    _sbSetCaretAtDocOffset(el, newCaret);
+    _sbCanonicalText[sid] = newCanonical;
+  }
+
+  // Structural edits (Backspace/Delete/Enter) are no longer intercepted here.
+  // Native contenteditable handles them; sbReconcileLyrics (called from
+  // sbOnLyricsChange on every 'input' event) repairs the result afterward.
+  // Kept as a no-op for backward compatibility with any residual callers.
+  function sbHandleLyricsKeydown(evt, sid) {}
 
   // Count characters in the block that precede the range's start position.
   function _countPrecedingChars(block, range) {
@@ -37721,7 +37628,9 @@ var WO = (function() {
     }
   }
 
-  function sbOnLyricsChange(songId) {
+  function sbOnLyricsChange(songId, evt) {
+    if (evt && evt.isComposing) return; // mid-IME-composition: wait for compositionend's input event
+    sbReconcileLyrics(songId);
     // Auto-convert: if the focused div is a plain lyric line containing only a
     // standalone chord root (C, D, G#, Bb, etc.), immediately reclassify it so
     // the user gets instant visual feedback before the debounce re-renders.
@@ -37963,6 +37872,7 @@ var WO = (function() {
     el.innerHTML = formatLyricsWithHighlights(newDoc);
     if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
     _sbSetCaretAtDocOffset(el, a);
+    _sbCanonicalText[sid] = newDoc;
     sbRepaginateSong(sid);
     sbOnLyricsChange(sid);
   }
@@ -38014,6 +37924,7 @@ var WO = (function() {
     el.innerHTML = formatLyricsWithHighlights(newDoc);
     if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
     _sbSetCaretAtDocOffset(el, startOff + text.length);
+    _sbCanonicalText[sid] = newDoc;
 
     // Re-paginate to push any overflow onto continuation pages
     sbRepaginateSong(sid);
@@ -38245,7 +38156,7 @@ var WO = (function() {
       }
     }
     var el = $('sbLyrics-' + songId);
-    if (el) el.innerHTML = temp.innerHTML;
+    if (el) { el.innerHTML = temp.innerHTML; _sbCanonicalText[songId] = sbExtractLyricsText(el); }
     var keyEl = $('sbKey-' + songId);
     if (keyEl && song.key) keyEl.textContent = semitones !== 0 ? song.key + ' (' + (semitones > 0 ? '+' : '') + semitones + ')' : song.key;
     // Save independently: virtual instances store in song.sbSectionTranspose[virtualId]
@@ -38479,6 +38390,7 @@ var WO = (function() {
       el.innerHTML = song.richLyrics;
       if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
     }
+    _sbCanonicalText[sid] = lyrics;
     sbAutoSave();
   }
 
