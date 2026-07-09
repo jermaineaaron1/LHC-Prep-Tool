@@ -37780,13 +37780,45 @@ var WO = (function() {
     var _it = evt && evt.inputType;
     if (_it === 'deleteContentBackward' || _it === 'deleteContentForward' ||
         _it === 'insertParagraph' || _it === 'insertLineBreak') {
-      var _handled = false;
-      sbHandleLyricsKeydown({
-        key: _it === 'deleteContentBackward' ? 'Backspace' : _it === 'deleteContentForward' ? 'Delete' : 'Enter',
-        shiftKey: false, ctrlKey: false, metaKey: false,
-        preventDefault: function() { _handled = true; evt.preventDefault(); }
-      }, sid);
-      if (_handled) return;
+      var _key = _it === 'deleteContentBackward' ? 'Backspace' : _it === 'deleteContentForward' ? 'Delete' : 'Enter';
+      if (evt.cancelable !== false) {
+        var _handled = false;
+        sbHandleLyricsKeydown({
+          key: _key,
+          shiftKey: false, ctrlKey: false, metaKey: false,
+          preventDefault: function() { _handled = true; evt.preventDefault(); }
+        }, sid);
+        if (_handled) return;
+      } else {
+        // Non-cancelable (IME composing): the browser will do its raw edit
+        // no matter what. For structural edits, snapshot the canonical text
+        // now and repair right after the browser's mangled result lands.
+        var _el = document.getElementById('sbLyrics-' + sid);
+        var _sel = window.getSelection();
+        if (_el && _sel && _sel.rangeCount) {
+          var _r = _sel.getRangeAt(0);
+          var _blk = _r.startContainer.nodeType === 1 ? _r.startContainer : _r.startContainer.parentElement;
+          while (_blk && _blk.parentElement !== _el) _blk = _blk.parentElement;
+          if (_blk) {
+            var _p = _sbOffsetWithin(_blk, _r.startContainer, _r.startOffset);
+            var _t = _blk.textContent || '';
+            var _structural = !_r.collapsed ||
+              (_key === 'Backspace' && _p === 0) ||
+              (_key === 'Delete' && _p >= _t.replace(/\s+$/, '').length) ||
+              _key === 'Enter';
+            if (_structural) {
+              var _snapTxt = _sbDocText(_el);
+              var _snapOff = _sbDocOffsetAt(_el, _r.startContainer, _r.startOffset);
+              setTimeout(function() {
+                _el.innerHTML = formatLyricsWithHighlights(_snapTxt);
+                _sbSetCaretAtDocOffset(_el, _snapOff);
+                sbHandleLyricsKeydown({ key: _key, shiftKey: false, ctrlKey: false, metaKey: false, preventDefault: function() {} }, sid);
+              }, 0);
+              return;
+            }
+          }
+        }
+      }
     }
     delete _sbChordEditState[sid];
     var lyricsEl = document.getElementById('sbLyrics-' + sid);
