@@ -32616,6 +32616,7 @@ var WO = (function() {
         songOrderSections.forEach(function(s) {
           if (s.sbLyricsColumns === 2) sbRenderTwoColSong(s.id);
           sbApplySectionBadges(document.getElementById('sbLyrics-' + s.id));
+          if (s.id && s.itemType !== 'blank') sbAutoSplitOverflowLines(s.id);
         });
         sbRenderAllTextAnnots();
         // Restore highlights from song data into _sbHighlights and render
@@ -37109,9 +37110,72 @@ var WO = (function() {
     }
   }
 
+  // Resolve the (upperLyric, lowerChord, lowerLyric) triple for a Backspace-
+  // at-line-start merge when `block` (a lyric line) owns a chord line
+  // directly above it. Returns null when there's nothing to intervene for -
+  // in that case native contenteditable + post-edit reconciliation already
+  // handle the merge correctly (plain lyric-to-lyric, empty-line collapse).
+  function _sbResolveBackspaceMerge(block) {
+    var immPrev = block.previousElementSibling;
+    if (!immPrev || _sbLineClass(immPrev) !== 'chord') return null;
+    var upperLyric = immPrev.previousElementSibling;
+    if (!upperLyric || _sbLineClass(upperLyric) !== 'lyric') return null;
+    return { upperLyric: upperLyric, lowerChord: immPrev, lowerLyric: block };
+  }
+
+  // Symmetric Delete-forward resolver: `block` (a lyric line) is followed
+  // immediately by a new chord+lyric unit - deleting forward at its end
+  // should pull that whole unit up, not fuse the chord line's text onto
+  // the end of `block`.
+  function _sbResolveDeleteMerge(block) {
+    var next = block.nextElementSibling;
+    if (!next || _sbLineClass(next) !== 'chord') return null;
+    var lyricAfter = next.nextElementSibling;
+    if (!lyricAfter || _sbLineClass(lyricAfter) !== 'lyric') return null;
+    return { upperLyric: block, lowerChord: next, lowerLyric: lyricAfter };
+  }
+
   function sbBeforeLyricsInput(evt, sid) {
     sbCapturePreEdit(sid);
     delete _sbChordEditState[sid];
+
+    // Targeted hazard intercept: native contenteditable, on some engines
+    // (observed on Android, not on this desktop browser), fuses a
+    // chord-classified div directly into a lyric div with no separator
+    // when Backspace/Delete crosses that boundary - permanently losing
+    // the type distinction before any after-the-fact reconciliation can
+    // see it. Intercept exactly that case and perform the merge
+    // ourselves; everything else is left to native + sbReconcileLyrics.
+    var it = evt && evt.inputType;
+    if ((it === 'deleteContentBackward' || it === 'deleteContentForward') && evt.cancelable !== false) {
+      var lyricsEl0 = document.getElementById('sbLyrics-' + sid);
+      var sel0 = window.getSelection();
+      if (lyricsEl0 && sel0 && sel0.rangeCount) {
+        var r0 = sel0.getRangeAt(0);
+        if (r0.collapsed && lyricsEl0.contains(r0.startContainer)) {
+          var n0 = r0.startContainer;
+          var block0 = n0.nodeType === 1 ? n0 : n0.parentElement;
+          while (block0 && block0.parentElement !== lyricsEl0) block0 = block0.parentElement;
+          if (block0 && _sbLineClass(block0) === 'lyric') {
+            var pos0 = _sbOffsetWithin(block0, r0.startContainer, r0.startOffset);
+            var text0 = block0.textContent || '';
+            var merge = null;
+            if (it === 'deleteContentBackward' && pos0 === 0) merge = _sbResolveBackspaceMerge(block0);
+            else if (it === 'deleteContentForward' && pos0 >= text0.replace(/\s+$/, '').length) merge = _sbResolveDeleteMerge(block0);
+            if (merge) {
+              evt.preventDefault();
+              _sbCarryMergeUp(lyricsEl0, merge.upperLyric, merge.lowerChord, merge.lowerLyric);
+              _sbCanonicalText[sid] = _sbRawFlatText(lyricsEl0);
+              sbOnLyricsChange(sid);
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    // Legacy chord-anchor pre-edit-state capture (used by
+    // sbSyncChordAfterLyricsInput's fine-grained anchor shifting).
     var lyricsEl = document.getElementById('sbLyrics-' + sid);
     var sel = window.getSelection();
     if (!lyricsEl || !sel || !sel.rangeCount) return;
@@ -37452,6 +37516,96 @@ var WO = (function() {
     _sbSetLineCaret(upperLyric, joinPos);
   }
 
+  // Auto-split ONE overcrowded (chord, lyric) pair whose lyric text wraps
+  // onto a second visual row, at the word boundary where it wraps.
+  // Returns true if a split was made (caller may call again to catch more).
+  function _sbTokensToLine(tokens) {
+    var out = '';
+    tokens.forEach(function(t) {
+      while (out.length < t.pos) out += ' ';
+      if (out.length && out.charAt(out.length - 1) !== ' ') out += ' ';
+      out += t.text;
+    });
+    return out;
+  }
+
+  function _sbAutoSplitOneOverflow(el) {
+    var children = Array.from(el.children);
+    for (var i = 0; i < children.length; i++) {
+      var div = children[i];
+      if (_sbLineClass(div) !== 'lyric') continue;
+      var textNode = div.firstChild;
+      if (!textNode || textNode.nodeType !== 3 || !textNode.textContent) continue;
+
+      var fullRange = document.createRange();
+      fullRange.selectNodeContents(div);
+      var rects = fullRange.getClientRects();
+      if (rects.length <= 1) continue; // fits on one visual row
+
+      var lyricText = textNode.textContent;
+      var firstRowTop = rects[0].top;
+      var words = lyricText.match(/\S+\s*/g) || [];
+      var acc = 0, splitIdx = -1;
+      for (var w = 0; w < words.length; w++) {
+        var wordEnd = Math.min(acc + words[w].length, lyricText.length);
+        var wr = document.createRange();
+        try { wr.setStart(textNode, 0); wr.setEnd(textNode, wordEnd); } catch (e) { break; }
+        var wRects = wr.getClientRects();
+        var lastRect = wRects[wRects.length - 1];
+        if (lastRect && lastRect.top > firstRowTop + 2) { splitIdx = acc; break; }
+        acc = wordEnd;
+      }
+      if (splitIdx <= 0 || splitIdx >= lyricText.length) continue; // no clean word boundary found
+
+      var lyricA = lyricText.substring(0, splitIdx).replace(/\s+$/, '');
+      var lyricB = lyricText.substring(splitIdx).replace(/^\s+/, '');
+      if (!lyricA || !lyricB) continue;
+
+      var chordDiv = div.previousElementSibling;
+      var hasChord = chordDiv && _sbLineClass(chordDiv) === 'chord';
+      var chordText = hasChord ? (chordDiv.textContent || '') : '';
+      var chordTokens = [];
+      var reTok = /\S+/g, m;
+      while ((m = reTok.exec(chordText)) !== null) chordTokens.push({ pos: m.index, text: m[0] });
+      var chordA = [], chordB = [];
+      chordTokens.forEach(function(t) {
+        if (t.pos < splitIdx) chordA.push(t);
+        else chordB.push({ pos: t.pos - splitIdx, text: t.text });
+      });
+
+      div.textContent = lyricA;
+      if (hasChord) chordDiv.textContent = _sbTokensToLine(chordA);
+
+      var chordBText = _sbTokensToLine(chordB);
+      var newChordDiv = null;
+      if (chordBText) {
+        newChordDiv = document.createElement('div');
+        newChordDiv.className = 'wo-lyrics-chord-line';
+        newChordDiv.setAttribute('spellcheck', 'false');
+        newChordDiv.textContent = chordBText;
+      }
+      var newLyricDiv = document.createElement('div');
+      newLyricDiv.className = 'wo-lyrics-lyric-line';
+      newLyricDiv.setAttribute('spellcheck', 'false');
+      newLyricDiv.textContent = lyricB;
+
+      if (newChordDiv) el.insertBefore(newChordDiv, div.nextSibling);
+      el.insertBefore(newLyricDiv, newChordDiv ? newChordDiv.nextSibling : div.nextSibling);
+      return true;
+    }
+    return false;
+  }
+
+  // Split every overcrowded pair in a song's pad (bounded so a pathological
+  // case can't loop forever).
+  function sbAutoSplitOverflowLines(sid) {
+    var el = document.getElementById('sbLyrics-' + sid);
+    if (!el) return;
+    var guard = 0;
+    while (guard++ < 25 && _sbAutoSplitOneOverflow(el)) {}
+    if (guard > 1) { _sbCanonicalText[sid] = _sbRawFlatText(el); sbRepaginateSong(sid); }
+  }
+
   // Debounced re-classification: typed chord lines turn into the styled
   // chord format automatically; class swaps never disturb the caret.
   var _sbReclassifyTimers = {};
@@ -37713,7 +37867,10 @@ var WO = (function() {
 
     // Debounced line re-classification: typed chord lines restyle automatically
     clearTimeout(_sbReclassifyTimers[songId]);
-    _sbReclassifyTimers[songId] = setTimeout(function() { sbReclassifyLines(songId); }, 500);
+    _sbReclassifyTimers[songId] = setTimeout(function() {
+      sbReclassifyLines(songId);
+      sbAutoSplitOverflowLines(songId);
+    }, 500);
 
     // ── Fast typing broadcast (300ms debounce) ─────────────────────────────
     // Fires well before the 600ms save cycle so other devices see keystrokes
