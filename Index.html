@@ -37072,6 +37072,16 @@ var WO = (function() {
       clearTimeout(_sbUndoCheckpointTimers[sid]); // flush now instead of double-pushing later
       _sbPushUndoCheckpoint(sid);
     }, true);
+    // Safety net: some Android keyboards leave composition state ambiguous
+    // around structural edits (Backspace at a line boundary), so the
+    // isComposing:false 'input' event that should follow compositionend
+    // isn't guaranteed. Force a reconcile directly on compositionend too.
+    body.addEventListener('compositionend', function(e) {
+      var el = e.target;
+      if (!el || !el.id || el.id.indexOf('sbLyrics-') !== 0) return;
+      var sid = el.id.replace('sbLyrics-', '');
+      sbReconcileLyrics(sid);
+    }, true);
   }
 
   // ── Annotation anchoring: keep drawn strokes attached to their text ──────────
@@ -37492,25 +37502,57 @@ var WO = (function() {
   // edit rather than trying to predict/intercept it.
   var _sbCanonicalText = {};  // sid -> last known-good canonical text
 
-  // Flatten the pad's current DOM the same way canonical text is stored:
-  // one line of plain text per direct child div, joined by \n.
-  function _sbRawFlatText(lyricsEl) {
-    return Array.from(lyricsEl.children).map(function(div) {
-      return (div.textContent || '').replace(/\u00a0/g, ' ');
-    }).join('\n');
+  // Line-boundary element classes recognized by formatLyricsWithHighlights.
+  var _SB_LINE_CLASSES = ['wo-lyrics-lyric-line', 'wo-lyrics-chord-line', 'wo-lyrics-section-header', 'wo-lyrics-empty-line'];
+  function _sbIsLineDiv(node) {
+    if (!node || node.nodeType !== 1 || node.tagName !== 'DIV') return false;
+    for (var i = 0; i < _SB_LINE_CLASSES.length; i++) if (node.classList.contains(_SB_LINE_CLASSES[i])) return true;
+    return false;
   }
 
-  // Character offset of (node, offset) within the raw flattened text above.
-  function _sbRawCaretOffset(lyricsEl, node, offset) {
-    var divs = Array.from(lyricsEl.children);
-    var cum = 0;
-    for (var i = 0; i < divs.length; i++) {
-      var div = divs[i];
-      if (div === node || div.contains(node)) return cum + _sbOffsetWithin(div, node, offset);
-      cum += (div.textContent || '').replace(/\u00a0/g, ' ').length + 1;
+  // Flatten the pad's current DOM into plain text with one '\n' per line.
+  // Nesting-agnostic (walks every descendant via TreeWalker rather than
+  // assuming direct children) - Android contenteditable merges are known to
+  // sometimes nest elements differently than desktop engines.
+  function _sbRawFlatText(lyricsEl) {
+    var walker = document.createTreeWalker(lyricsEl, NodeFilter.SHOW_ALL, null, false);
+    var out = '', first = true, node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeType === 1) {
+        if (_sbIsLineDiv(node)) { if (!first) out += '\n'; first = false; }
+        else if (node.tagName === 'BR') { out += '\n'; }
+      } else if (node.nodeType === 3) {
+        out += node.textContent.replace(/\u00a0/g, ' ');
+      }
     }
-    return cum;
+    return out;
   }
+
+  // Character offset of (targetNode, targetOffset) within the flattened text
+  // above. Same nesting-agnostic TreeWalker traversal as _sbRawFlatText, so
+  // the two always agree on line boundaries regardless of DOM nesting depth.
+  function _sbRawCaretOffset(lyricsEl, targetNode, targetOffset) {
+    var walker = document.createTreeWalker(lyricsEl, NodeFilter.SHOW_ALL, null, false);
+    var out = 0, first = true, node;
+    while ((node = walker.nextNode())) {
+      if (node === targetNode) {
+        if (node.nodeType === 1) {
+          var cnt = 0;
+          for (var i = 0; i < targetOffset && i < node.childNodes.length; i++) cnt += (node.childNodes[i].textContent || '').length;
+          return out + cnt;
+        }
+        return out + Math.min(targetOffset, node.textContent.length);
+      }
+      if (node.nodeType === 1) {
+        if (_sbIsLineDiv(node)) { if (!first) out += 1; first = false; }
+        else if (node.tagName === 'BR') { out += 1; }
+      } else if (node.nodeType === 3) {
+        out += node.textContent.replace(/\u00a0/g, ' ').length;
+      }
+    }
+    return out;
+  }
+
 
   function sbReconcileLyrics(sid) {
     var el = document.getElementById('sbLyrics-' + sid);
