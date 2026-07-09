@@ -37116,16 +37116,35 @@ var WO = (function() {
   // in that case native contenteditable + post-edit reconciliation already
   // handle the merge correctly (plain lyric-to-lyric, empty-line collapse).
   function _sbResolveBackspaceMerge(block) {
-    var immPrev = block.previousElementSibling;
-    if (!immPrev || _sbLineClass(immPrev) !== 'chord') return null;
+    var kind = _sbLineClass(block);
+    var lowerChord, lowerLyric, above;
+    if (kind === 'lyric') {
+      var immPrev = block.previousElementSibling;
+      if (!immPrev || _sbLineClass(immPrev) !== 'chord') return null;
+      lowerChord = immPrev;
+      lowerLyric = block;
+      above = immPrev;
+    } else if (kind === 'chord') {
+      // Cursor landed on the chord line itself (above its own lyric) -
+      // a chord+lyric pair is conceptually one unit, so Backspace here
+      // carries the whole unit up exactly like backspacing from inside
+      // the lyric line does.
+      var next = block.nextElementSibling;
+      if (!next || _sbLineClass(next) !== 'lyric') return null;
+      lowerChord = block;
+      lowerLyric = next;
+      above = block;
+    } else {
+      return null;
+    }
     // Walk past any blank lines separating this phrase from the one above -
     // verse/chorus phrases are routinely separated by a blank line, and
     // that shouldn't stop one Backspace from doing the full correct merge.
-    var cursor = immPrev.previousElementSibling;
+    var cursor = above.previousElementSibling;
     var skipped = [];
     while (cursor && _sbLineClass(cursor) === 'empty') { skipped.push(cursor); cursor = cursor.previousElementSibling; }
     if (!cursor || _sbLineClass(cursor) !== 'lyric') return null;
-    return { upperLyric: cursor, lowerChord: immPrev, lowerLyric: block, skipped: skipped };
+    return { upperLyric: cursor, lowerChord: lowerChord, lowerLyric: lowerLyric, skipped: skipped };
   }
 
   // Symmetric Delete-forward resolver: `block` (a lyric line) is followed
@@ -37163,12 +37182,13 @@ var WO = (function() {
           var n0 = r0.startContainer;
           var block0 = n0.nodeType === 1 ? n0 : n0.parentElement;
           while (block0 && block0.parentElement !== lyricsEl0) block0 = block0.parentElement;
-          if (block0 && _sbLineClass(block0) === 'lyric') {
+          var kind0 = _sbLineClass(block0);
+          if (block0 && (kind0 === 'lyric' || kind0 === 'chord')) {
             var pos0 = _sbOffsetWithin(block0, r0.startContainer, r0.startOffset);
             var text0 = block0.textContent || '';
             var merge = null;
             if (it === 'deleteContentBackward' && pos0 === 0) merge = _sbResolveBackspaceMerge(block0);
-            else if (it === 'deleteContentForward' && pos0 >= text0.replace(/\s+$/, '').length) merge = _sbResolveDeleteMerge(block0);
+            else if (it === 'deleteContentForward' && kind0 === 'lyric' && pos0 >= text0.replace(/\s+$/, '').length) merge = _sbResolveDeleteMerge(block0);
             if (merge) {
               evt.preventDefault();
               (merge.skipped || []).forEach(function(n) { if (n.parentNode) lyricsEl0.removeChild(n); });
@@ -37759,6 +37779,45 @@ var WO = (function() {
       el.insertBefore(newLyric, div.nextSibling);
       healed = true;
     });
+
+    // Mirror direction: a LYRIC-classified div absorbed a trailing chord's
+    // content (native fused the other way - keeping the LYRIC div's class
+    // this time). Walk back from the last token, skipping any that are
+    // already full chord tokens, then test suffixes of the first
+    // non-full-chord token for a valid chord match with a real-word
+    // remainder before it.
+    Array.from(el.children).forEach(function(div) {
+      if (_sbLineClass(div) !== 'lyric') return;
+      var text = div.textContent || '';
+      if (!text.trim()) return;
+      var toks = [];
+      var re2 = /\S+/g, mm;
+      while ((mm = re2.exec(text)) !== null) toks.push({ text: mm[0], index: mm.index });
+      if (!toks.length) return;
+      var i = toks.length - 1;
+      while (i >= 0 && isChordToken(toks[i].text)) i--;
+      if (i < 0) return; // whole line already reads as chord tokens - not this case
+      var boundary = toks[i];
+      for (var cut = 1; cut < boundary.text.length; cut++) {
+        var prefix = boundary.text.substring(0, boundary.text.length - cut);
+        var suffix = boundary.text.substring(boundary.text.length - cut);
+        if (isChordToken(suffix) && !isChordToken(prefix) && /[A-Za-z']$/.test(prefix)) {
+          var splitAt2 = boundary.index + (boundary.text.length - cut);
+          var lyricPart2 = text.substring(0, splitAt2).replace(/\s+$/, '');
+          var chordPart2 = text.substring(splitAt2).replace(/^\s+/, '');
+          if (!chordPart2) break;
+          div.textContent = lyricPart2;
+          var newChord2 = document.createElement('div');
+          newChord2.className = 'wo-lyrics-chord-line';
+          newChord2.setAttribute('spellcheck', 'false');
+          newChord2.textContent = chordPart2;
+          el.insertBefore(newChord2, div.nextSibling);
+          healed = true;
+          break;
+        }
+      }
+    });
+
     return healed;
   }
 
