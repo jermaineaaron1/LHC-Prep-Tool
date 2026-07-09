@@ -38355,11 +38355,63 @@ var WO = (function() {
   }
 
 
+  // Reactive backstop for the chord/lyric fusion bug: repairs a chord-
+  // classified div whose content got contaminated with a glued-on lyric
+  // word (native merge on some mobile browsers keeps the surviving div's
+  // original class, only appending text with no separator). Scoped to
+  // divs still classed 'chord' - real lyric words are never classed that
+  // way to begin with, so this can't misfire on words like "Gone"/"Grace".
+  function _sbHealChordFusion(el) {
+    var healed = false;
+    Array.from(el.children).forEach(function(div) {
+      if (_sbLineClass(div) !== 'chord') return;
+      var text = div.textContent || '';
+      if (!text.trim() || isChordLineGlobal(text)) return; // still a valid chord line
+
+      var re = /\S+/g, m, splitAt = -1;
+      while ((m = re.exec(text)) !== null) {
+        if (isChordToken(m[0])) continue; // fully valid chord token, keep scanning
+        // First token that isn't a complete chord: try progressively
+        // shorter prefixes for a complete, valid standalone chord match
+        // with a non-chord (real word) remainder - the fusion signature.
+        for (var cut = m[0].length - 1; cut >= 1; cut--) {
+          var prefix = m[0].substring(0, cut);
+          var rest = m[0].substring(cut);
+          if (isChordToken(prefix) && /^[A-Za-z']/.test(rest) && !isChordToken(rest)) {
+            splitAt = m.index + cut;
+            break;
+          }
+        }
+        break; // only the first offending token matters
+      }
+      if (splitAt < 0) return;
+
+      var chordPart = text.substring(0, splitAt).replace(/\s+$/, '');
+      var lyricPart = text.substring(splitAt).replace(/^\s+/, '');
+      if (!lyricPart) return;
+
+      div.textContent = chordPart;
+      var newLyric = document.createElement('div');
+      newLyric.className = 'wo-lyrics-lyric-line';
+      newLyric.setAttribute('spellcheck', 'false');
+      newLyric.textContent = lyricPart;
+      el.insertBefore(newLyric, div.nextSibling);
+      healed = true;
+    });
+    return healed;
+  }
+
   function sbReconcileLyrics(sid) {
     var el = document.getElementById('sbLyrics-' + sid);
     if (!el) return;
     var song = songOrderSections.find(function(s) { return s.id === sid; });
     if (song && song.itemType === 'blank') return; // blank notes pages: no chord structure to protect
+
+    // Repair any chord/lyric fusion BEFORE reading raw text - once a
+    // contaminated div's class gets reclassified below (based on its now-
+    // mixed content), the evidence that it used to be a pure chord line
+    // is gone.
+    _sbHealChordFusion(el);
 
     var rawText = _sbRawFlatText(el);
     var oldText = _sbCanonicalText.hasOwnProperty(sid) ? _sbCanonicalText[sid] : (song ? (song.lyrics || '') : rawText);
