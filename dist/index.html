@@ -5146,7 +5146,33 @@
                       </div>
                     </div>
                     <div class="lcd-panel-body lcd-lyrics-body">
-                      <textarea class="lcd-lyrics-textarea" id="lcdLyricsEditorTextarea" placeholder="Click a slide in the rail or list to load its text here, then edit and press Apply Changes." oninput="WO.lcdOnLyricsTextareaInput()"></textarea>
+                      <div class="lcd-fmt-toolbar">
+                        <button class="lcd-fmt-btn" title="Bold selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('bold')"><b>B</b></button>
+                        <button class="lcd-fmt-btn" title="Italic selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('italic')"><em style="font-family:Georgia,serif;">I</em></button>
+                        <button class="lcd-fmt-btn" title="Underline selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('underline')"><u>U</u></button>
+                        <span class="lcd-fmt-sep"></span>
+                        <select class="lcd-fmt-select" title="Font of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtFont(this)">
+                          <option value="">Font</option>
+                          <option value="Georgia, serif">Georgia</option>
+                          <option value="'Times New Roman', serif">Times</option>
+                          <option value="Arial, sans-serif">Arial</option>
+                          <option value="'Poppins', sans-serif">Poppins</option>
+                          <option value="'Lato', sans-serif">Lato</option>
+                          <option value="'Cinzel', serif">Cinzel</option>
+                        </select>
+                        <select class="lcd-fmt-select" title="Size of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtSize(this)">
+                          <option value="">Size</option>
+                          <option value="14px">14</option>
+                          <option value="18px">18</option>
+                          <option value="24px">24</option>
+                          <option value="30px">30</option>
+                          <option value="36px">36</option>
+                          <option value="48px">48</option>
+                          <option value="60px">60</option>
+                        </select>
+                        <input type="color" class="lcd-fmt-color" title="Colour of selected text" value="#ffffff" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtColor(this)">
+                      </div>
+                      <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here, then edit and press Apply Changes." oninput="WO.lcdOnLyricsTextareaInput()"></div>
                       <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
                     </div>
                   </div>
@@ -5155,7 +5181,7 @@
                       <button class="lcd-mini-btn" style="margin-left:auto;" onclick="WO.openBackgroundModal()" title="Add or manage media in the full library"><i class="fa-solid fa-plus"></i> Add Media</button>
                     </div>
                     <div class="lcd-panel-body" id="lcdMediaTrayBody">
-                      <div class="lcd-media-hint">Drag a thumbnail onto a slide to background just that slide, or onto a section header to background the whole section.</div>
+                      <div class="lcd-media-hint">Drag a thumbnail onto the Preview Output or a slide row to background that slide, or onto a section header to background the whole section.</div>
                       <div class="lcd-media-grid" id="lcdMediaTrayGrid"></div>
                     </div>
                   </div>
@@ -23316,6 +23342,7 @@ var WO = (function() {
       _lcdRenderMediaTray();
       if (!savedBackgrounds.length) loadBackgrounds();
       _lcdSetupMediaDropZone();
+      _lcdSetupPreviewDropZone();
       _lcdRenderCompactRail();
       _lcdSetupCompactRailObserver();
       // Make preview panel follow while scrolling
@@ -44237,7 +44264,7 @@ var WO = (function() {
     var ta = document.getElementById('lcdLyricsEditorTextarea');
     if (!ta || document.activeElement === ta) return;
     var box = _lcdRelocateActiveSlideBox();
-    if (box) { ta.value = _lcdReadSlideText(box); _lcdUpdateSlideSummary(); }
+    if (box) { ta.innerHTML = _lcdReadSlideRich(box); _lcdUpdateSlideSummary(); }
   }
 
   function _lcdUpdateSplitSummary() {
@@ -44279,18 +44306,31 @@ var WO = (function() {
     showToast('Lyrics applied to slides', 'success');
   }
 
-  // ---- LCD Projection: per-slide content editor -----------------------
+  // ---- LCD Projection: per-slide rich content editor ----------------
   // Works for ANY .wo-slide-box (song / liturgy / scripture). Clicking a
-  // slide loads its text into the editor ready to change; Apply writes it
-  // back using the same DOM-rebuild + persist path saveSlideEdit() uses.
+  // slide loads its text into a contenteditable editor ready to change;
+  // the toolbar formats the highlighted selection only (font / size /
+  // colour / bold-italic-underline). Apply writes it back via the same
+  // rich DOM-rebuild + persist path saveSlideEdit() uses.
   var _lcdActiveSlide = null; // { sectionId, songId, liturgyId, source, slideIdx }
+  var _lcdSavedRange = null;  // selection saved before a toolbar control steals focus
 
-  function _lcdReadSlideText(box) {
+  function _lcdEditorEl() { return document.getElementById('lcdLyricsEditorTextarea'); }
+
+  function _lcdReadSlidePlain(box) {
     var content = box.querySelector('.wo-slide-content');
     if (!content) return '';
     var lineEls = Array.from(content.querySelectorAll('.wo-slide-line'));
     if (lineEls.length === 1 && lineEls[0].classList.contains('wo-slide-empty-hint')) return '';
     return lineEls.map(function(el) { return el.textContent; }).join('\n');
+  }
+
+  function _lcdReadSlideRich(box) {
+    var content = box.querySelector('.wo-slide-content');
+    if (!content) return '';
+    var lineEls = Array.from(content.querySelectorAll('.wo-slide-line'));
+    if (lineEls.length === 1 && lineEls[0].classList.contains('wo-slide-empty-hint')) return '';
+    return lineEls.map(function(el) { return el.innerHTML; }).join('<br>');
   }
 
   function _lcdSlideItemTitle(box) {
@@ -44327,7 +44367,8 @@ var WO = (function() {
       slideIdx: box.getAttribute('data-slide-idx') || '0'
     };
     _lcdEditingSongId = songId || null;
-    var ta = document.getElementById('lcdLyricsEditorTextarea');
+    _lcdSavedRange = null;
+    var ed = _lcdEditorEl();
     var titleEl = document.getElementById('lcdLyricsEditorTitle');
     var slideNumEl = document.getElementById('lcdLyricsEditorSlideNum');
     var openBtn = document.getElementById('lcdOpenInSongOrderBtn');
@@ -44336,7 +44377,7 @@ var WO = (function() {
       var n = parseInt(_lcdActiveSlide.slideIdx, 10);
       slideNumEl.textContent = isNaN(n) ? '' : ('Slide ' + (n + 1));
     }
-    if (ta) ta.value = _lcdReadSlideText(box);
+    if (ed) ed.innerHTML = _lcdReadSlideRich(box);
     if (openBtn) openBtn.style.display = songId ? '' : 'none';
     _lcdUpdateSlideSummary();
   }
@@ -44354,21 +44395,22 @@ var WO = (function() {
   }
 
   function _lcdApplySlideEdit() {
-    var ta = document.getElementById('lcdLyricsEditorTextarea');
-    if (!ta) return;
+    var ed = _lcdEditorEl();
+    if (!ed) return;
     if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
     var box = _lcdRelocateActiveSlideBox();
     if (!box) { showToast('That slide is no longer available.', 'warning'); return; }
     var content = box.querySelector('.wo-slide-content');
     if (!content) return;
-    var plain = ta.value;
-    var lines = plain.split('\n');
-    if (lines.length === 0 || (lines.length === 1 && lines[0].trim() === '')) {
+    var richHtml = _getEditorHtml(ed);
+    var plain = ed.innerText || '';
+    var parts = richHtml.split(/<br\s*\/?>/gi);
+    if (parts.length === 0 || (parts.length === 1 && !parts[0].trim())) {
       content.innerHTML = '<div class="wo-slide-line wo-slide-empty-hint" style="color:#9ca3af;font-style:italic;font-size:0.85rem;">Double-click to add content</div>';
     } else {
-      content.innerHTML = lines.map(function(line) {
-        if (!line.trim()) return _BLANK_SLIDE_LINE;
-        return '<div class="wo-slide-line">' + escapeHtml(line) + '</div>';
+      content.innerHTML = parts.map(function(h) {
+        if (!h) return _BLANK_SLIDE_LINE;
+        return '<div class="wo-slide-line">' + h + '</div>';
       }).join('');
     }
     // Songs mirror their content into songOrderSections (as saveSlideEdit does);
@@ -44380,21 +44422,114 @@ var WO = (function() {
         if (!song.slides) song.slides = [];
         if (!song.slides[idx]) song.slides[idx] = { index: idx, content: '', background: '' };
         song.slides[idx].content = plain;
-        song.slides[idx].richHtml = null;
+        song.slides[idx].richHtml = richHtml;
       }
     }
-    if (box.classList.contains('selected')) { updateProjectionPreview(plain); }
+    if (box.classList.contains('selected')) { _updateProjectionFromEditor(richHtml); }
     autoSaveOrder();
     _lcdUpdateSlideSummary();
     showToast('Slide updated', 'success');
   }
 
   function _lcdUpdateSlideSummary() {
-    var ta = document.getElementById('lcdLyricsEditorTextarea');
+    var ed = _lcdEditorEl();
     var summaryEl = document.getElementById('lcdLyricsEditorSummary');
-    if (!ta || !summaryEl) return;
-    var nonEmpty = (ta.value || '').split('\n').filter(function(l) { return l.trim() !== ''; }).length;
+    if (!ed || !summaryEl) return;
+    var nonEmpty = (ed.innerText || '').split('\n').filter(function(l) { return l.trim() !== ''; }).length;
     summaryEl.textContent = nonEmpty + ' Line' + (nonEmpty === 1 ? '' : 's');
+  }
+
+  // ---- Selection formatting for the Slide Editor -----------------------
+  function _lcdSaveSel() {
+    var ed = _lcdEditorEl();
+    var sel = window.getSelection();
+    if (!ed || !sel || !sel.rangeCount) return;
+    var r = sel.getRangeAt(0);
+    if (ed.contains(r.commonAncestorContainer)) _lcdSavedRange = r.cloneRange();
+  }
+
+  function _lcdRestoreSel() {
+    var ed = _lcdEditorEl();
+    if (!ed) return false;
+    ed.focus();
+    if (_lcdSavedRange) {
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(_lcdSavedRange);
+      return true;
+    }
+    return false;
+  }
+
+  // Bold/Italic/Underline - buttons use onmousedown+preventDefault so the
+  // editor keeps focus and the selection stays live; no save/restore needed.
+  function lcdFmtCmd(cmd) {
+    var ed = _lcdEditorEl();
+    if (!ed) return;
+    ed.focus();
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
+    document.execCommand(cmd, false, null);
+    _lcdSaveSel();
+    _lcdUpdateSlideSummary();
+  }
+
+  function lcdFmtFont(select) {
+    var val = select.value; select.selectedIndex = 0;
+    if (!val) return;
+    if (!_lcdRestoreSel()) return;
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
+    document.execCommand('fontName', false, val);
+    _lcdSaveSel();
+  }
+
+  // Font size: execCommand only supports 1-7, so use the sentinel-7 trick
+  // then swap the <font size=7> for a span with the real px size (scoped to
+  // this editor), matching _applyFontSize()'s approach.
+  function lcdFmtSize(select) {
+    var size = select.value; select.selectedIndex = 0;
+    if (!size) return;
+    if (!_lcdRestoreSel()) return;
+    document.execCommand('fontSize', false, '7');
+    var ed = _lcdEditorEl();
+    if (ed) ed.querySelectorAll('font[size="7"]').forEach(function(font) {
+      var span = document.createElement('span');
+      span.style.fontSize = size;
+      span.innerHTML = font.innerHTML;
+      font.parentNode.replaceChild(span, font);
+    });
+    _lcdSaveSel();
+  }
+
+  function lcdFmtColor(input) {
+    if (!_lcdRestoreSel()) return;
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
+    document.execCommand('foreColor', false, input.value);
+    _lcdSaveSel();
+  }
+
+  // ---- Media drop onto the Preview Output = background for current slide -
+  function _lcdSetupPreviewDropZone() {
+    var screen = document.getElementById('woPreviewScreen');
+    if (!screen || screen._lcdDropWired) return;
+    screen._lcdDropWired = true;
+    screen.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      screen.classList.add('lcd-drop-target');
+    });
+    screen.addEventListener('dragleave', function(e) {
+      if (e.target === screen) screen.classList.remove('lcd-drop-target');
+    });
+    screen.addEventListener('drop', function(e) {
+      screen.classList.remove('lcd-drop-target');
+      var bgId = e.dataTransfer.getData('text/plain');
+      if (!bgId) return;
+      var bg = savedBackgrounds.find(function(b) { return b.id === bgId; });
+      if (!bg) return;
+      e.preventDefault();
+      if (!selectedSlideBox && !currentSectionId) { showToast('Select a slide first, then drop media on it.', 'warning'); return; }
+      selectBackground(bg.type + ':' + bg.id);
+    });
   }
 
   // LCD Projection redesign (Chunk 5): Media Tray + drag-and-drop.
@@ -44451,6 +44586,7 @@ var WO = (function() {
 
     function targets(e) {
       return {
+        railRow: e.target.closest ? e.target.closest('.lcd-rail-slide-row') : null,
         slideBox: e.target.closest ? e.target.closest('.wo-slide-box') : null,
         sectionEl: e.target.closest ? (e.target.closest('.wo-section-badge') || e.target.closest('[id$="-boxes"]')) : null
       };
@@ -44458,14 +44594,16 @@ var WO = (function() {
 
     container.addEventListener('dragover', function(e) {
       var t = targets(e);
-      if (!t.slideBox && !t.sectionEl) return;
+      if (!t.railRow && !t.slideBox && !t.sectionEl) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
-      if (t.slideBox) t.slideBox.classList.add('lcd-drop-target');
+      if (t.railRow) t.railRow.classList.add('lcd-drop-target');
+      else if (t.slideBox) t.slideBox.classList.add('lcd-drop-target');
       else if (t.sectionEl) t.sectionEl.classList.add('lcd-drop-target');
     });
     container.addEventListener('dragleave', function(e) {
       var t = targets(e);
+      if (t.railRow) t.railRow.classList.remove('lcd-drop-target');
       if (t.slideBox) t.slideBox.classList.remove('lcd-drop-target');
       if (t.sectionEl) t.sectionEl.classList.remove('lcd-drop-target');
     });
@@ -44475,7 +44613,12 @@ var WO = (function() {
       var bg = savedBackgrounds.find(function(b) { return b.id === bgId; });
       if (!bg) return;
       var t = targets(e);
-      if (t.slideBox) {
+      if (t.railRow) {
+        e.preventDefault();
+        t.railRow.classList.remove('lcd-drop-target');
+        var box = _lcdRailRowMap[t.railRow.id];
+        if (box && box.isConnected) { selectSlideBox(box); selectBackground(bg.type + ':' + bg.id); }
+      } else if (t.slideBox) {
         e.preventDefault();
         t.slideBox.classList.remove('lcd-drop-target');
         selectSlideBox(t.slideBox);
@@ -50421,6 +50564,11 @@ var WO = (function() {
     lcdAutoSplitLyrics: lcdAutoSplitLyrics,
     lcdApplyLyricsToSlides: lcdApplyLyricsToSlides,
     lcdApplySlideEdit: _lcdApplySlideEdit,
+    lcdFmtCmd: lcdFmtCmd,
+    lcdFmtFont: lcdFmtFont,
+    lcdFmtSize: lcdFmtSize,
+    lcdFmtColor: lcdFmtColor,
+    _lcdSaveSel: _lcdSaveSel,
     _lcdLoadSlideIntoEditor: _lcdLoadSlideIntoEditor,
     lcdOnLyricsTextareaInput: lcdOnLyricsTextareaInput,
     lcdMediaDragStart: lcdMediaDragStart,
@@ -56174,6 +56322,15 @@ function filterLiturgyItems() {
   .lcd-lyrics-body { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
   .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
   .lcd-lyrics-textarea:focus { outline: none; border-color: rgba(99,102,241,0.6); }
+  .lcd-lyrics-editor { flex: 1; min-height: 110px; overflow-y: auto; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
+  .lcd-lyrics-editor:focus { outline: none; border-color: rgba(99,102,241,0.6); }
+  .lcd-lyrics-editor:empty:before { content: attr(data-placeholder); color: #64748b; font-style: italic; }
+  .lcd-fmt-toolbar { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 6px; }
+  .lcd-fmt-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; border-radius: 5px; cursor: pointer; font-size: 0.8rem; }
+  .lcd-fmt-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
+  .lcd-fmt-select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; border-radius: 5px; font-size: 0.7rem; padding: 3px 5px; font-family: 'Poppins', sans-serif; cursor: pointer; }
+  .lcd-fmt-color { width: 28px; height: 26px; padding: 1px; border: 1px solid rgba(255,255,255,0.14); border-radius: 5px; background: rgba(255,255,255,0.06); cursor: pointer; }
+  .lcd-fmt-sep { width: 1px; height: 18px; background: rgba(255,255,255,0.15); margin: 0 3px; }
   .lcd-lyrics-summary { color: #64748b; font-size: 0.7rem; text-align: right; }
   .lcd-media-hint { color: #64748b; font-size: 0.68rem; margin-bottom: 8px; line-height: 1.4; }
   .lcd-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
