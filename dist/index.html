@@ -38473,6 +38473,15 @@ var WO = (function() {
       newLyric.textContent = lyricPart;
       el.insertBefore(newLyric, div.nextSibling);
       healed = true;
+      // The fusion only arises from a Backspace across this exact boundary,
+      // so it doubles as the user's merge gesture on devices where the
+      // beforeinput interception doesn't fire (Android IMEs): complete the
+      // intended carry-merge instead of just restoring the pre-edit state.
+      var intent = _sbResolveBackspaceMerge(newLyric);
+      if (intent) {
+        (intent.skipped || []).forEach(function(n) { if (n.parentNode) el.removeChild(n); });
+        _sbCarryMergeUp(el, intent.upperLyric, intent.lowerChord, intent.lowerLyric);
+      }
     });
 
     // Mirror direction: a LYRIC-classified div absorbed a trailing chord's
@@ -38508,6 +38517,16 @@ var WO = (function() {
           newChord2.textContent = chordPart2;
           el.insertBefore(newChord2, div.nextSibling);
           healed = true;
+          // Same gesture logic as above, mirror direction: complete the
+          // merge of the (chord, following lyric) unit up into this line.
+          var next2 = newChord2.nextElementSibling;
+          if (next2 && _sbLineClass(next2) === 'lyric') {
+            var intent2 = _sbResolveBackspaceMerge(next2);
+            if (intent2) {
+              (intent2.skipped || []).forEach(function(n) { if (n.parentNode) el.removeChild(n); });
+              _sbCarryMergeUp(el, intent2.upperLyric, intent2.lowerChord, intent2.lowerLyric);
+            }
+          }
           break;
         }
       }
