@@ -44717,6 +44717,23 @@ var WO = (function() {
     '</div>';
   }
 
+  // Build a compact rail row for one PowerPoint / presentation page.
+  // Stores a {ppt} descriptor (not a slide box) so _lcdRailRowClick
+  // routes the click to projectPptPage() instead of selectSlideBox().
+  function _lcdBuildPptRow(sIdx, slideNum, sectionId, idx, thumbSrc, thumbEl) {
+    var rowId = 'lcdRailRow-' + (_lcdRailRowSeq++);
+    _lcdRailRowMap[rowId] = { ppt: true, sectionId: sectionId, idx: idx };
+    var isSelected = thumbEl && thumbEl.classList.contains('active');
+    var thumbHtml = thumbSrc
+      ? '<div class="lcd-rail-ppt-thumb" style="background-image:url(' + thumbSrc + ')"></div>'
+      : '<div class="lcd-rail-ppt-thumb"><i class="fa-solid fa-file-powerpoint"></i></div>';
+    return '<div class="lcd-rail-slide-row lcd-rail-ppt-row' + (isSelected ? ' selected' : '') + '" id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
+      '<div class="lcd-rail-slide-num"><i class="fa-solid fa-file-powerpoint"></i> ' + (sIdx + 1) + '.' + slideNum + '</div>' +
+      thumbHtml +
+      '<div class="lcd-rail-slide-body"><div class="lcd-rail-item-title">Slide ' + (parseInt(idx, 10) + 1) + '</div></div>' +
+    '</div>';
+  }
+
   function _lcdRenderCompactRail() {
     var root = document.getElementById('woWorshipOrder');
     if (!root) return;
@@ -44728,6 +44745,8 @@ var WO = (function() {
 
     sections.forEach(function(sectionEl, sIdx) {
       var sectionId = sectionEl.id;
+      var svcId = sectionEl.getAttribute('data-service-section-id') || '';
+      var canPpt = (svcId === 'message' || svcId === 'announcements');
       var badgeTitleEl = sectionEl.querySelector('.wo-section-title');
       var sectionTitle = badgeTitleEl ? badgeTitleEl.textContent : ('Section ' + (sIdx + 1));
       var boxesContainer = document.getElementById(sectionId + '-boxes');
@@ -44782,15 +44801,29 @@ var WO = (function() {
           continue;
         }
 
-        // Any other item type (video/presentation/notes): leave it alone -
-        // it isn't hidden by the CSS rules, so it keeps rendering in its
-        // original full-size form right here in the flow.
+        // PowerPoint / presentation filmstrip: one rail row per page.
+        if (el.classList.contains('wo-ppt-widget')) {
+          Array.from(el.querySelectorAll('.wo-ppt-thumb')).forEach(function(thumb) {
+            slideCounter++;
+            var pidx = thumb.getAttribute('data-idx');
+            var img = thumb.querySelector('img');
+            var src = img ? img.getAttribute('src') : '';
+            rowsHtml += _lcdBuildPptRow(sIdx, slideCounter, sectionId, pidx, src, thumb);
+          });
+          i++;
+          continue;
+        }
+
+        // Any other item type (video/notes/content box): left as-is.
         i++;
       }
 
-      if (rowsHtml) {
+      if (rowsHtml || canPpt) {
+        var addBtn = canPpt
+          ? '<button class="lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add PowerPoint / slides to this section"><i class="fa-solid fa-file-powerpoint"></i> Slides</button>'
+          : '';
         railHtml += '<div class="lcd-rail-section">' +
-          '<div class="lcd-rail-section-header">' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</div>' +
+          '<div class="lcd-rail-section-header"><span>' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtn + '</div>' +
           rowsHtml +
         '</div>';
       }
@@ -44807,8 +44840,15 @@ var WO = (function() {
   }
 
   function _lcdRailRowClick(rowId) {
-    var box = _lcdRailRowMap[rowId];
-    if (box && box.isConnected) selectSlideBox(box);
+    var entry = _lcdRailRowMap[rowId];
+    if (entry) {
+      if (entry.ppt) {
+        var thumb = document.querySelector('.wo-ppt-widget[data-section="' + entry.sectionId + '"] .wo-ppt-thumb[data-idx="' + entry.idx + '"]');
+        projectPptPage(entry.sectionId, parseInt(entry.idx, 10), thumb);
+      } else if (entry.isConnected) {
+        selectSlideBox(entry);
+      }
+    }
     var rowEl = document.getElementById(rowId);
     if (rowEl) rowEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -44818,7 +44858,13 @@ var WO = (function() {
   function _lcdSetupCompactRailObserver() {
     var target = document.getElementById('woWorshipOrder');
     if (!target || _lcdRailObserver) return;
-    _lcdRailObserver = new MutationObserver(function() {
+    _lcdRailObserver = new MutationObserver(function(muts) {
+      // Ignore our own writes to #lcdCompactRail, else we loop forever.
+      var relevant = muts.some(function(m) {
+        var t = m.target;
+        return !(t && t.closest && t.closest('#lcdCompactRail'));
+      });
+      if (!relevant) return;
       clearTimeout(_lcdRailRefreshTimer);
       _lcdRailRefreshTimer = setTimeout(_lcdRenderCompactRail, 120);
     });
@@ -56397,12 +56443,19 @@ function filterLiturgyItems() {
   .wo-main-content:not(.wo-song-order) .wo-liturgy-banner-bar,
   .wo-main-content:not(.wo-song-order) .wo-song-banner.scripture-banner,
   .wo-main-content:not(.wo-song-order) .wo-slide-box,
-  .wo-main-content:not(.wo-song-order) .wo-add-slide-row {
+  .wo-main-content:not(.wo-song-order) .wo-add-slide-row,
+  .wo-main-content:not(.wo-song-order) .wo-section-badge-col,
+  .wo-main-content:not(.wo-song-order) .wo-ppt-attach-row,
+  .wo-main-content:not(.wo-song-order) .wo-ppt-widget {
     display: none;
   }
   .lcd-compact-rail { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
   .lcd-rail-section { margin-bottom: 6px; }
-  .lcd-rail-section-header { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6366f1; padding: 6px 4px 3px; }
+  .lcd-rail-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6366f1; padding: 6px 4px 3px; }
+  .lcd-rail-add-slides { display: inline-flex; align-items: center; gap: 4px; background: rgba(234,88,12,0.14); border: 1px solid rgba(234,88,12,0.4); color: #ea580c; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
+  .lcd-rail-add-slides:hover { background: rgba(234,88,12,0.26); }
+  .lcd-rail-ppt-row { align-items: center; }
+  .lcd-rail-ppt-thumb { width: 42px; height: 24px; flex-shrink: 0; border-radius: 3px; background-color: #1e293b; background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; color: #ea580c; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.12); }
   .lcd-rail-slide-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1.5px solid transparent; transition: background 0.12s, border-color 0.12s; }
   .lcd-rail-slide-row:hover { background: #f1f5f9; }
   .lcd-rail-slide-row.selected { background: #eef2ff; border-color: #6366f1; }
