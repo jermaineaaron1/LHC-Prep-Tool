@@ -29665,6 +29665,47 @@ var WO = (function() {
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
+  // Insert the 4-reading liturgical structure into a Scripture section:
+  // First Reading, Psalm (responsive), Second Reading, Gospel - each with
+  // standard Lutheran responses, all editable. Fill the passages from the
+  // ESV Bible browser or by typing. Reuses addLiturgyToSection so each
+  // reading shows in the rail, edits in the Slide Editor, and projects.
+  function addScriptureReadingsTemplate(sectionId) {
+    if (!sectionId) return;
+    var SEP = new Array(36).join('\u2550'); // 35 U+2550 - the liturgy slide separator
+    var ts = Date.now();
+    function mk(suffix, title, slidesArr) {
+      addLiturgyToSection(sectionId, {
+        id: 'reading_' + ts + '_' + suffix,
+        title: title,
+        type: 'reading',
+        content: slidesArr.join(SEP)
+      });
+    }
+    mk('first', 'First Reading', [
+      'A reading from ___.',
+      'Type or paste the First Reading here.',
+      'L: The word of the Lord.\nC: Thanks be to God.'
+    ]);
+    mk('psalm', 'Psalm (Responsive)', [
+      'The Psalm is read responsively.\nL: Liturgist - odd verses\nC: Congregation - even verses',
+      'Type or paste the Psalm here. Mark L: and C: for each verse.'
+    ]);
+    mk('second', 'Second Reading', [
+      'A reading from ___.',
+      'Type or paste the Second Reading here.',
+      'L: The word of the Lord.\nC: Thanks be to God.'
+    ]);
+    mk('gospel', 'Gospel Reading', [
+      'L: The holy gospel according to ___.\nC: Glory to you, O Lord.',
+      'Type or paste the Gospel here.',
+      'L: The gospel of the Lord.\nC: Praise to you, O Christ.'
+    ]);
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    showToast('Readings template added - fill each passage from the ESV Bible browser or by typing.', 'success');
+  }
+
   function addLiturgyToSection(sectionId, item) {
     var container = $(sectionId + '-boxes');
     if (!container) return;
@@ -44090,7 +44131,9 @@ var WO = (function() {
       if (rowsHtml || canPpt) {
         var slideBtn = '<button class="lcd-rail-add-slide" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide to this section"><i class="fa-solid fa-plus"></i> Slide</button>';
         var pptBtn = '<button class="lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add a PowerPoint / presentation to this section"><i class="fa-solid fa-file-powerpoint"></i> PPT</button>';
-        var addBtns = '<span class="lcd-rail-add-btns">' + slideBtn + pptBtn + '</span>';
+        var isScripture = (sectionEl.getAttribute('data-service-section-id') === 'scripture');
+        var readingsBtn = isScripture ? '<button class="lcd-rail-add-readings" onclick="WO.addScriptureReadingsTemplate(\'' + sectionId + '\')" title="Insert the First / Psalm / Second / Gospel readings template with liturgical responses"><i class="fa-solid fa-book-bible"></i> Readings</button>' : '';
+        var addBtns = '<span class="lcd-rail-add-btns">' + readingsBtn + slideBtn + pptBtn + '</span>';
         railHtml += '<div class="lcd-rail-section">' +
           '<div class="lcd-rail-section-header"><span>' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
           rowsHtml +
@@ -49996,6 +50039,7 @@ var WO = (function() {
     // PowerPoint/Google Slides
     addPowerPointSlides: addPowerPointSlides,
     addBlankSlideToSection: addBlankSlideToSection,
+    addScriptureReadingsTemplate: addScriptureReadingsTemplate,
     openSlidesModalTab: openSlidesModalTab,
     removeSlides: removeSlides,
     removeSlideContainer: removeSlideContainer,
@@ -55739,6 +55783,8 @@ function filterLiturgyItems() {
   .lcd-rail-add-btns { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
   .lcd-rail-add-slide { display: inline-flex; align-items: center; gap: 4px; background: rgba(99,102,241,0.14); border: 1px solid rgba(99,102,241,0.4); color: #6366f1; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
   .lcd-rail-add-slide:hover { background: rgba(99,102,241,0.26); }
+  .lcd-rail-add-readings { display: inline-flex; align-items: center; gap: 4px; background: rgba(59,130,246,0.14); border: 1px solid rgba(59,130,246,0.45); color: #3b82f6; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
+  .lcd-rail-add-readings:hover { background: rgba(59,130,246,0.26); }
   .lcd-rail-ppt-row { align-items: center; }
   .lcd-rail-ppt-thumb { width: 42px; height: 24px; flex-shrink: 0; border-radius: 3px; background-color: #1e293b; background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; color: #ea580c; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.12); }
   .lcd-rail-slide-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1.5px solid transparent; transition: background 0.12s, border-color 0.12s; }
