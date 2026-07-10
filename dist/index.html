@@ -5086,6 +5086,31 @@
                   </button>
                 </div>
 
+                <!-- Quick controls toolbar (repositioned above outputs) -->
+                <div class="wo-preview-actions lcd-controls-row">
+                  <!-- Text alignment -->
+                  <div class="wo-align-group" title="Text alignment on projection">
+                    <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+                    <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+                    <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
+                  </div>
+                  <!-- Text barrier (safe zone) editor button -->
+                  <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
+                  <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
+                  <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
+                  <div class="wo-preview-zoom-group" title="Zoom projection preview">
+                    <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                    <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
+                    <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                  </div>
+                  <div class="lcd-controls-spacer"></div>
+                  <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
+                    <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
+                    <span class="wo-golive-label" id="woBlankLabel">Blank</span>
+                  </button>
+                  <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
+                </div>
+
                 <!-- Preview + Program outputs, side by side -->
                 <div class="lcd-outputs-row">
                   <div class="lcd-output-box">
@@ -5104,30 +5129,6 @@
                   </div>
                 </div>
 
-                <!-- Quick controls -->
-                <div class="wo-preview-actions lcd-controls-row">
-                  <!-- Text alignment -->
-                  <div class="wo-align-group" title="Text alignment on projection">
-                    <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
-                    <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
-                    <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
-                  </div>
-                  <!-- Text barrier (safe zone) editor button -->
-                  <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
-                  <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
-                  <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
-                  <div class="wo-preview-zoom-group" title="Zoom projection preview">
-                    <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
-                    <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
-                    <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
-                  </div>
-                  <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
-                    <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
-                    <span class="wo-golive-label" id="woBlankLabel">Blank</span>
-                  </button>
-                  <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
-                </div>
-
                 <div class="wo-preview-hint">
                   <i class="fa-solid fa-keyboard"></i> Arrow keys navigate slides &nbsp;|&nbsp; <strong>Blank</strong> blacks out the projection screen
                 </div>
@@ -5136,17 +5137,16 @@
                 <div class="lcd-lower-row">
                   <div class="lcd-panel lcd-lyrics-panel">
                     <div class="lcd-panel-header">
-                      <i class="fa-solid fa-align-left"></i> Lyrics Editor
-                      <span class="lcd-lyrics-song-title" id="lcdLyricsEditorTitle">No song selected</span>
+                      <i class="fa-solid fa-pen-to-square"></i> Slide Editor
+                      <span class="lcd-lyrics-song-title" id="lcdLyricsEditorTitle">No slide selected</span>
+                      <span class="lcd-slide-num-badge" id="lcdLyricsEditorSlideNum"></span>
                       <div class="lcd-lyrics-actions">
-                        <button class="lcd-mini-btn" onclick="WO.lcdAutoSplitLyrics()" title="Preview how this text will split into slides"><i class="fa-solid fa-scissors"></i> Auto-Split</button>
-                        <button class="lcd-mini-btn primary" onclick="WO.lcdApplyLyricsToSlides()" title="Apply these lyrics to this song's slides"><i class="fa-solid fa-check"></i> Apply to Slides</button>
-                        <button class="lcd-mini-btn" onclick="WO.lcdAutoSplitLyrics()" title="Re-run the split after further edits"><i class="fa-solid fa-rotate"></i> Re-Split</button>
-                        <button class="lcd-mini-btn" onclick="WO.lcdOpenInSongOrder()" title="Jump to this song in Song Order"><i class="fa-solid fa-list"></i> Open in Song Order</button>
+                        <button class="lcd-mini-btn primary" onclick="WO.lcdApplySlideEdit()" title="Apply your changes to this slide"><i class="fa-solid fa-check"></i> Apply Changes</button>
+                        <button class="lcd-mini-btn" id="lcdOpenInSongOrderBtn" style="display:none;" onclick="WO.lcdOpenInSongOrder()" title="Jump to this song in Song Order"><i class="fa-solid fa-list"></i> Open in Song Order</button>
                       </div>
                     </div>
                     <div class="lcd-panel-body lcd-lyrics-body">
-                      <textarea class="lcd-lyrics-textarea" id="lcdLyricsEditorTextarea" placeholder="Click a slide in the rail to load that song's full lyrics here. Blank lines start a new slide; type [Verse]/[Chorus] etc. for section headers." oninput="WO.lcdOnLyricsTextareaInput()"></textarea>
+                      <textarea class="lcd-lyrics-textarea" id="lcdLyricsEditorTextarea" placeholder="Click a slide in the rail or list to load its text here, then edit and press Apply Changes." oninput="WO.lcdOnLyricsTextareaInput()"></textarea>
                       <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
                     </div>
                   </div>
@@ -44231,12 +44231,13 @@ var WO = (function() {
   // same song, refresh the textarea - but never while the user is actively
   // typing in it, so an incoming update can't clobber an in-progress edit.
   function _lcdSyncEditorIfShowing(songId, newLyrics) {
-    if (songId !== _lcdEditingSongId) return;
+    // A song's slides were rebuilt elsewhere; if we're currently showing
+    // one of its slides (and the user isn't typing), reload that slide.
+    if (!_lcdActiveSlide || _lcdActiveSlide.songId !== songId) return;
     var ta = document.getElementById('lcdLyricsEditorTextarea');
-    if (ta && document.activeElement !== ta) {
-      ta.value = newLyrics || '';
-      _lcdUpdateSplitSummary();
-    }
+    if (!ta || document.activeElement === ta) return;
+    var box = _lcdRelocateActiveSlideBox();
+    if (box) { ta.value = _lcdReadSlideText(box); _lcdUpdateSlideSummary(); }
   }
 
   function _lcdUpdateSplitSummary() {
@@ -44251,7 +44252,7 @@ var WO = (function() {
   var _lcdSplitDebounce = null;
   function lcdOnLyricsTextareaInput() {
     clearTimeout(_lcdSplitDebounce);
-    _lcdSplitDebounce = setTimeout(_lcdUpdateSplitSummary, 400);
+    _lcdSplitDebounce = setTimeout(_lcdUpdateSlideSummary, 400);
   }
 
   // Preview how the current textarea content will split into slides -
@@ -44276,6 +44277,124 @@ var WO = (function() {
     autoSaveOrder();
     _lcdUpdateSplitSummary();
     showToast('Lyrics applied to slides', 'success');
+  }
+
+  // ---- LCD Projection: per-slide content editor -----------------------
+  // Works for ANY .wo-slide-box (song / liturgy / scripture). Clicking a
+  // slide loads its text into the editor ready to change; Apply writes it
+  // back using the same DOM-rebuild + persist path saveSlideEdit() uses.
+  var _lcdActiveSlide = null; // { sectionId, songId, liturgyId, source, slideIdx }
+
+  function _lcdReadSlideText(box) {
+    var content = box.querySelector('.wo-slide-content');
+    if (!content) return '';
+    var lineEls = Array.from(content.querySelectorAll('.wo-slide-line'));
+    if (lineEls.length === 1 && lineEls[0].classList.contains('wo-slide-empty-hint')) return '';
+    return lineEls.map(function(el) { return el.textContent; }).join('\n');
+  }
+
+  function _lcdSlideItemTitle(box) {
+    var songId = box.getAttribute('data-song-id');
+    var liturgyId = box.getAttribute('data-liturgy-id');
+    if (songId) {
+      var song = songOrderSections.find(function(s) { return s.id === songId; });
+      return song ? (song.title || 'Untitled Song') : 'Song';
+    }
+    if (liturgyId) {
+      var lit = (currentOrderData && Array.isArray(currentOrderData.allItems))
+        ? currentOrderData.allItems.find(function(it) { return it.id === liturgyId; }) : null;
+      if (lit && lit.title) return lit.title;
+      var info = document.querySelector('.wo-liturgy-banner-bar[data-liturgy-id="' + liturgyId + '"] .wo-liturgy-banner-info');
+      return info ? info.textContent.trim() : 'Liturgy';
+    }
+    if (box.getAttribute('data-source') === 'scripture') {
+      var boxes = box.closest('.wo-content-boxes');
+      var scBanner = boxes ? boxes.querySelector('.wo-song-banner.scripture-banner') : null;
+      var t = scBanner ? scBanner.getAttribute('data-scripture-title') : null;
+      return t || 'Scripture';
+    }
+    return 'Slide';
+  }
+
+  function _lcdLoadSlideIntoEditor(box) {
+    if (!box || !box.classList || !box.classList.contains('wo-slide-box')) return;
+    var songId = box.getAttribute('data-song-id') || '';
+    _lcdActiveSlide = {
+      sectionId: box.getAttribute('data-section') || '',
+      songId: songId,
+      liturgyId: box.getAttribute('data-liturgy-id') || '',
+      source: box.getAttribute('data-source') || '',
+      slideIdx: box.getAttribute('data-slide-idx') || '0'
+    };
+    _lcdEditingSongId = songId || null;
+    var ta = document.getElementById('lcdLyricsEditorTextarea');
+    var titleEl = document.getElementById('lcdLyricsEditorTitle');
+    var slideNumEl = document.getElementById('lcdLyricsEditorSlideNum');
+    var openBtn = document.getElementById('lcdOpenInSongOrderBtn');
+    if (titleEl) titleEl.textContent = _lcdSlideItemTitle(box);
+    if (slideNumEl) {
+      var n = parseInt(_lcdActiveSlide.slideIdx, 10);
+      slideNumEl.textContent = isNaN(n) ? '' : ('Slide ' + (n + 1));
+    }
+    if (ta) ta.value = _lcdReadSlideText(box);
+    if (openBtn) openBtn.style.display = songId ? '' : 'none';
+    _lcdUpdateSlideSummary();
+  }
+
+  function _lcdRelocateActiveSlideBox() {
+    if (!_lcdActiveSlide) return null;
+    var a = _lcdActiveSlide;
+    var container = a.sectionId ? document.getElementById(a.sectionId + '-boxes') : null;
+    if (!container) container = document;
+    var sel = '.wo-slide-box[data-slide-idx="' + a.slideIdx + '"]';
+    if (a.songId) sel += '[data-song-id="' + a.songId + '"]';
+    else if (a.liturgyId) sel += '[data-liturgy-id="' + a.liturgyId + '"]';
+    else if (a.source) sel += '[data-source="' + a.source + '"]';
+    return container.querySelector(sel);
+  }
+
+  function _lcdApplySlideEdit() {
+    var ta = document.getElementById('lcdLyricsEditorTextarea');
+    if (!ta) return;
+    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
+    var box = _lcdRelocateActiveSlideBox();
+    if (!box) { showToast('That slide is no longer available.', 'warning'); return; }
+    var content = box.querySelector('.wo-slide-content');
+    if (!content) return;
+    var plain = ta.value;
+    var lines = plain.split('\n');
+    if (lines.length === 0 || (lines.length === 1 && lines[0].trim() === '')) {
+      content.innerHTML = '<div class="wo-slide-line wo-slide-empty-hint" style="color:#9ca3af;font-style:italic;font-size:0.85rem;">Double-click to add content</div>';
+    } else {
+      content.innerHTML = lines.map(function(line) {
+        if (!line.trim()) return _BLANK_SLIDE_LINE;
+        return '<div class="wo-slide-line">' + escapeHtml(line) + '</div>';
+      }).join('');
+    }
+    // Songs mirror their content into songOrderSections (as saveSlideEdit does);
+    // liturgy/scripture persist through autoSaveOrder()'s DOM serialization.
+    if (_lcdActiveSlide.songId) {
+      var song = songOrderSections.find(function(s) { return s.id === _lcdActiveSlide.songId; });
+      if (song) {
+        var idx = parseInt(_lcdActiveSlide.slideIdx, 10) || 0;
+        if (!song.slides) song.slides = [];
+        if (!song.slides[idx]) song.slides[idx] = { index: idx, content: '', background: '' };
+        song.slides[idx].content = plain;
+        song.slides[idx].richHtml = null;
+      }
+    }
+    if (box.classList.contains('selected')) { updateProjectionPreview(plain); }
+    autoSaveOrder();
+    _lcdUpdateSlideSummary();
+    showToast('Slide updated', 'success');
+  }
+
+  function _lcdUpdateSlideSummary() {
+    var ta = document.getElementById('lcdLyricsEditorTextarea');
+    var summaryEl = document.getElementById('lcdLyricsEditorSummary');
+    if (!ta || !summaryEl) return;
+    var nonEmpty = (ta.value || '').split('\n').filter(function(l) { return l.trim() !== ''; }).length;
+    summaryEl.textContent = nonEmpty + ' Line' + (nonEmpty === 1 ? '' : 's');
   }
 
   // LCD Projection redesign (Chunk 5): Media Tray + drag-and-drop.
@@ -44686,7 +44805,7 @@ var WO = (function() {
 
     // LCD Projection redesign (Chunk 4): load this slide's song into the
     // Lyrics Editor panel.
-    _lcdLoadSongIntoLyricsEditor(box.getAttribute('data-song-id'));
+    _lcdLoadSlideIntoEditor(box);
   }
 
   // Helper: Apply a stored video background (from sectionBackgrounds) without restarting if same source
@@ -50301,6 +50420,8 @@ var WO = (function() {
     selectSlideBox: selectSlideBox,
     lcdAutoSplitLyrics: lcdAutoSplitLyrics,
     lcdApplyLyricsToSlides: lcdApplyLyricsToSlides,
+    lcdApplySlideEdit: _lcdApplySlideEdit,
+    _lcdLoadSlideIntoEditor: _lcdLoadSlideIntoEditor,
     lcdOnLyricsTextareaInput: lcdOnLyricsTextareaInput,
     lcdMediaDragStart: lcdMediaDragStart,
     lcdOpenInSongOrder: lcdOpenInSongOrder,
@@ -56029,7 +56150,15 @@ function filterLiturgyItems() {
   .lcd-program-blanked { color: #475569; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: center; justify-content: center; height: 100%; }
   .lcd-outputs-row .wo-preview-screen { flex: 1; margin: 0; }
   .lcd-program-screen { border: 2px solid #22c55e33; }
-  .lcd-controls-row { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 8px; }
+  .lcd-controls-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; }
+  .lcd-controls-spacer { flex: 1 1 auto; }
+  /* Unify the mismatched gradient buttons into one cohesive glass set in the LCD toolbar */
+  .lcd-controls-row .wo-text-btn, .lcd-controls-row .wo-bg-btn { background: rgba(255,255,255,0.07); color: #dbe4f0; border: 1px solid rgba(255,255,255,0.14); padding: 6px 12px; border-radius: 7px; font-size: 0.75rem; font-weight: 600; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 5px; }
+  .lcd-controls-row .wo-text-btn:hover, .lcd-controls-row .wo-bg-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
+  .lcd-controls-row .wo-barrier-btn { padding: 6px 12px; border-radius: 7px; font-size: 0.75rem; }
+  .lcd-controls-row .wo-blank-btn { padding: 6px 13px; border-radius: 7px; font-size: 0.75rem; }
+  .lcd-controls-row .wo-live-present-btn { padding: 7px 16px; border-radius: 7px; font-weight: 700; font-size: 0.78rem; box-shadow: 0 2px 8px rgba(0,102,255,0.3); }
+  .lcd-slide-num-badge { color: #94a3b8; font-size: 0.7rem; font-weight: 600; background: rgba(255,255,255,0.06); border-radius: 5px; padding: 1px 7px; margin-left: 2px; }
   .lcd-lower-row { display: flex; gap: 12px; margin-top: 12px; min-height: 160px; }
   .lcd-panel { flex: 1; min-width: 0; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
   .lcd-panel-header { color: #e2e8f0; font-size: 0.8rem; font-weight: 600; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 7px; }
