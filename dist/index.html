@@ -33729,7 +33729,14 @@ var WO = (function() {
           // 2-finger in annotation mode → scroll; otherwise let default pinch happen
           if (sbDrawMode || sbEraseMode) {
             e.preventDefault();
-            if (sbDrawing) { sbDrawing = false; sbCurrentPath = null; sbCurrentPathData = ''; }
+            if (sbDrawing) {
+            // Remove the already-appended path element too - sbFCMouseDown
+            // draws a visible dot the instant the first finger touches, before
+            // a second finger can be detected; without this it stays stuck on
+            // the page every time a 2-finger scroll gesture starts.
+            if (sbCurrentPath && sbCurrentPath.parentNode) sbCurrentPath.parentNode.removeChild(sbCurrentPath);
+            sbDrawing = false; sbCurrentPath = null; sbCurrentPathData = '';
+          }
             _touchScrollLastY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
           }
           return;
@@ -33743,7 +33750,7 @@ var WO = (function() {
           e.preventDefault();
           var midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
           var sbBodyEl = document.getElementById('sbBody');
-          if (sbBodyEl) sbBodyEl.scrollTop += _touchScrollLastY - midY;
+          if (sbBodyEl) sbBodyEl.scrollTop += (_touchScrollLastY - midY) * 1.8; // manual scrollTop has no native momentum, so 1:1 feels sluggish
           _touchScrollLastY = midY;
           return;
         }
@@ -34117,7 +34124,14 @@ var WO = (function() {
         if (count >= 2) {
           e.preventDefault();
           // Cancel any active 1-finger draw stroke when second finger lands
-          if (sbDrawing) { sbDrawing = false; sbCurrentPath = null; sbCurrentPathData = ''; }
+          if (sbDrawing) {
+            // Remove the already-appended path element too - sbFCMouseDown
+            // draws a visible dot the instant the first finger touches, before
+            // a second finger can be detected; without this it stays stuck on
+            // the page every time a 2-finger scroll gesture starts.
+            if (sbCurrentPath && sbCurrentPath.parentNode) sbCurrentPath.parentNode.removeChild(sbCurrentPath);
+            sbDrawing = false; sbCurrentPath = null; sbCurrentPathData = '';
+          }
 
           // On touch devices in annotation mode: 2 fingers = scroll, not zoom
           if (_sbIsTouchDevice && (sbDrawMode || sbEraseMode)) {
@@ -34152,7 +34166,7 @@ var WO = (function() {
           if (_sbAnnotScrolling && _sbIsTouchDevice && (sbDrawMode || sbEraseMode)) {
             var ids2 = Object.keys(_sbPointerMap);
             var midY2 = (_sbPointerMap[ids2[0]].y + (_sbPointerMap[ids2[1]] ? _sbPointerMap[ids2[1]].y : _sbPointerMap[ids2[0]].y)) / (ids2[1] ? 2 : 1);
-            var delta = _sbAnnotScrollLastY - midY2;
+            var delta = (_sbAnnotScrollLastY - midY2) * 1.8; // manual scrollTop has no native momentum, so 1:1 feels sluggish
             var sbBodyEl = document.getElementById('sbBody');
             if (sbBodyEl) sbBodyEl.scrollTop += delta;
             _sbAnnotScrollLastY = midY2;
