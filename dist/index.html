@@ -5142,6 +5142,7 @@
                         <button class="lcd-mini-btn" onclick="WO.lcdAutoSplitLyrics()" title="Preview how this text will split into slides"><i class="fa-solid fa-scissors"></i> Auto-Split</button>
                         <button class="lcd-mini-btn primary" onclick="WO.lcdApplyLyricsToSlides()" title="Apply these lyrics to this song's slides"><i class="fa-solid fa-check"></i> Apply to Slides</button>
                         <button class="lcd-mini-btn" onclick="WO.lcdAutoSplitLyrics()" title="Re-run the split after further edits"><i class="fa-solid fa-rotate"></i> Re-Split</button>
+                        <button class="lcd-mini-btn" onclick="WO.lcdOpenInSongOrder()" title="Jump to this song in Song Order"><i class="fa-solid fa-list"></i> Open in Song Order</button>
                       </div>
                     </div>
                     <div class="lcd-panel-body lcd-lyrics-body">
@@ -26181,6 +26182,7 @@ var WO = (function() {
           mediaBadge +
           '<div class="wo-slr-actions" onclick="event.stopPropagation();">' +
             sectionPill +
+            '<button class="wo-slr-btn" onclick="WO.lcdOpenSongInProjection(\'' + escapedSongId + '\')" title="Open in LCD Projection"><i class="fa-solid fa-tv"></i></button>' +
             '<button class="wo-slr-btn pdf" onclick="WO.printSingleSongSongbookStyle(\'' + escapedSongId + '\')" title="Print songbook-style PDF"><i class="fa-solid fa-file-pdf"></i></button>' +
             '<button class="wo-slr-btn remove" onclick="WO.deleteSongOrderSection(\'' + escapedSongId + '\')" title="Remove song"><i class="fa-solid fa-trash"></i></button>' +
           '</div>' +
@@ -44366,6 +44368,34 @@ var WO = (function() {
     });
   }
 
+  // LCD Projection redesign (Chunk 6): targeted jumps between LCD
+  // Projection and Song Order for one specific song, mirroring the
+  // existing soOpenInSongbook() idiom (switch view, then locate + scroll
+  // after a short delay) rather than a new navigation pattern.
+  function lcdOpenInSongOrder() {
+    if (!_lcdEditingSongId) { showToast('Select a slide first.', 'warning'); return; }
+    var songId = _lcdEditingSongId;
+    selectOrder('song');
+    setTimeout(function() { _lcdScrollToSongRow(songId); }, 220);
+  }
+
+  function _lcdScrollToSongRow(songId) {
+    var row = document.getElementById('soRow-' + songId);
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('lcd-row-highlight');
+    setTimeout(function() { row.classList.remove('lcd-row-highlight'); }, 1700);
+  }
+
+  function lcdOpenSongInProjection(songId) {
+    if (!songId) return;
+    selectOrder('service');
+    setTimeout(function() {
+      var box = document.querySelector('.wo-slide-box[data-song-id="' + songId + '"]');
+      if (box) selectSlideBox(box);
+    }, 220);
+  }
+
   function selectSlideBox(box) {
     // If currently editing another box, save it first
     if (editingSlideBox && editingSlideBox !== box) {
@@ -50137,6 +50167,8 @@ var WO = (function() {
     lcdApplyLyricsToSlides: lcdApplyLyricsToSlides,
     lcdOnLyricsTextareaInput: lcdOnLyricsTextareaInput,
     lcdMediaDragStart: lcdMediaDragStart,
+    lcdOpenInSongOrder: lcdOpenInSongOrder,
+    lcdOpenSongInProjection: lcdOpenSongInProjection,
     selectLiturgyBox: selectLiturgyBox,
     editLiturgyBox: editLiturgyBox,
     saveLiturgyEdit: saveLiturgyEdit,
@@ -55884,6 +55916,11 @@ function filterLiturgyItems() {
   .lcd-media-item:active { cursor: grabbing; }
   .lcd-media-thumb { width: 100%; height: 100%; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; color: #8b5cf6; }
   .lcd-drop-target { outline: 3px dashed #6366f1 !important; outline-offset: -3px; background: rgba(99,102,241,0.12) !important; }
+  @keyframes lcdRowHighlightPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
+    20%, 60% { box-shadow: 0 0 0 3px rgba(99,102,241,0.55); }
+  }
+  .lcd-row-highlight { animation: lcdRowHighlightPulse 1.6s ease; }
 
   /* ── Worship Sections — Badge-left / Slides-middle (590) ── */
   .wo-worship-section { margin-bottom: 10px; }
