@@ -30721,45 +30721,32 @@ var WO = (function() {
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
 
-  // Insert the 4-reading liturgical structure into a Scripture section:
-  // First Reading, Psalm (responsive), Second Reading, Gospel - each with
-  // standard Lutheran responses, all editable. Fill the passages from the
-  // ESV Bible browser or by typing. Reuses addLiturgyToSection so each
-  // reading shows in the rail, edits in the Slide Editor, and projects.
+  // Insert the 4-reading structure into a Scripture section as ESV-
+  // fillable slots. Each slot reuses the app's scripture-slot machinery:
+  // click -> ESV Bible browser -> insertScriptureIntoBox fills it in
+  // place (splitting the passage into slides and adding the liturgical
+  // response). No copy-paste. First / Psalm / Second / Gospel.
   function addScriptureReadingsTemplate(sectionId) {
     if (!sectionId) return;
-    var SEP = new Array(36).join('\u2550'); // 35 U+2550 - the liturgy slide separator
-    var ts = Date.now();
-    function mk(suffix, title, slidesArr) {
-      addLiturgyToSection(sectionId, {
-        id: 'reading_' + ts + '_' + suffix,
-        title: title,
-        type: 'reading',
-        content: slidesArr.join(SEP)
-      });
+    var container = document.getElementById(sectionId + '-boxes');
+    if (!container) return;
+    // Drop a generic (non-scripture) placeholder if the section is empty.
+    var ph = container.querySelector('.wo-content-placeholder');
+    if (ph && ph.parentElement && !ph.parentElement.getAttribute('data-subsection-type')) {
+      ph.parentElement.remove();
     }
-    mk('first', 'First Reading', [
-      'A reading from ___.',
-      'Type or paste the First Reading here.',
-      'L: The word of the Lord.\nC: Thanks be to God.'
-    ]);
-    mk('psalm', 'Psalm (Responsive)', [
-      'The Psalm is read responsively.\nL: Liturgist - odd verses\nC: Congregation - even verses',
-      'Type or paste the Psalm here. Mark L: and C: for each verse.'
-    ]);
-    mk('second', 'Second Reading', [
-      'A reading from ___.',
-      'Type or paste the Second Reading here.',
-      'L: The word of the Lord.\nC: Thanks be to God.'
-    ]);
-    mk('gospel', 'Gospel Reading', [
-      'L: The holy gospel according to ___.\nC: Glory to you, O Lord.',
-      'Type or paste the Gospel here.',
-      'L: The gospel of the Lord.\nC: Praise to you, O Christ.'
-    ]);
+    var readings = ['First Reading', 'Psalm', 'Second Reading', 'Gospel Reading'];
+    var html = readings.map(function(label) {
+      return '<div class="wo-content-box wo-reading-slot" ondblclick="WO.editContent(this)" data-subsection-type="scripture" data-sub-label="' + escapeHtml(label) + '" data-section="' + escapeHtml(sectionId) + '">' +
+        '<div class="wo-content-placeholder"><i class="fa-solid fa-book-bible" style="margin-right:6px;color:#3b82f6;"></i>' + escapeHtml(label) + ' \u2014 click to insert the ESV passage</div>' +
+        '<button class="wo-add-icon-btn" style="background:rgba(59,130,246,0.15);color:#3b82f6;" onclick="event.stopPropagation(); WO.openBiblePickerForSection(\'' + sectionId + '\', this.closest(\'.wo-content-box\'))" title="Insert ESV passage"><i class="fa-solid fa-book-bible"></i></button>' +
+        '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
+      '</div>';
+    }).join('');
+    container.insertAdjacentHTML('beforeend', html);
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
-    showToast('Readings template added - fill each passage from the ESV Bible browser or by typing.', 'success');
+    showToast('4 reading slots added - click each to insert its ESV passage.', 'success');
   }
 
   function addLiturgyToSection(sectionId, item) {
@@ -44855,6 +44842,21 @@ var WO = (function() {
   // Build a compact rail row for one PowerPoint / presentation page.
   // Stores a {ppt} descriptor (not a slide box) so _lcdRailRowClick
   // routes the click to projectPptPage() instead of selectSlideBox().
+  // Build a rail row for an unfilled scripture reading slot; clicking it
+  // opens the ESV Bible browser to fill that slot in place.
+  function _lcdBuildEsvSlotRow(sIdx, slideNum, sectionId, boxEl) {
+    var rowId = 'lcdRailRow-' + (_lcdRailRowSeq++);
+    _lcdRailRowMap[rowId] = { esvSlot: true, sectionId: sectionId, box: boxEl };
+    var label = boxEl.getAttribute('data-sub-label') || 'Reading';
+    return '<div class="lcd-rail-slide-row lcd-rail-esv-row" id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
+      '<div class="lcd-rail-slide-num"><i class="fa-solid fa-book-bible"></i> ' + (sIdx + 1) + '.' + slideNum + '</div>' +
+      '<div class="lcd-rail-slide-body">' +
+        '<div class="lcd-rail-item-title">' + escapeHtml(label) + '</div>' +
+        '<div class="lcd-rail-slide-preview">Click to insert ESV passage</div>' +
+      '</div>' +
+    '</div>';
+  }
+
   function _lcdBuildPptRow(sIdx, slideNum, sectionId, idx, thumbSrc, thumbEl) {
     var rowId = 'lcdRailRow-' + (_lcdRailRowSeq++);
     _lcdRailRowMap[rowId] = { ppt: true, sectionId: sectionId, idx: idx };
@@ -44948,6 +44950,14 @@ var WO = (function() {
           continue;
         }
 
+        // Empty scripture reading slot -> a clickable "Add from ESV" row.
+        if (el.classList.contains('wo-content-box') && el.getAttribute('data-subsection-type') === 'scripture' && el.querySelector('.wo-content-placeholder')) {
+          slideCounter++;
+          rowsHtml += _lcdBuildEsvSlotRow(sIdx, slideCounter, sectionId, el);
+          i++;
+          continue;
+        }
+
         // Any other item type (video/notes/content box): left as-is.
         i++;
       }
@@ -44978,7 +44988,9 @@ var WO = (function() {
   function _lcdRailRowClick(rowId) {
     var entry = _lcdRailRowMap[rowId];
     if (entry) {
-      if (entry.ppt) {
+      if (entry.esvSlot) {
+        if (entry.box && entry.box.isConnected) openBiblePickerForSection(entry.sectionId, entry.box);
+      } else if (entry.ppt) {
         var thumb = document.querySelector('.wo-ppt-widget[data-section="' + entry.sectionId + '"] .wo-ppt-thumb[data-idx="' + entry.idx + '"]');
         projectPptPage(entry.sectionId, parseInt(entry.idx, 10), thumb);
       } else if (entry.isConnected) {
@@ -50436,7 +50448,7 @@ var WO = (function() {
         ? '<div class="wo-slide-scripture-title">' + escapeHtml(title) + '</div>'
         : '<div class="wo-slide-scripture-footnote">' + escapeHtml(title) + '</div>';
       var linesHtml = slideText.split('\n').map(function(line) { return _slideLineHtml(line); }).join('');
-      var totalSlides = slides.length + (/gospel/i.test(subLabel) ? 1 : 0);
+      var totalSlides = slides.length + ((/gospel/i.test(subLabel) || /reading/i.test(subLabel)) ? 1 : 0);
       return '<div class="wo-slide-box" data-source="scripture" data-scripture-title="' + escapeHtml(title) + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
         _buildSlideBoxHeader(idx, totalSlides, 'scripture', null, null) +
         '<div class="wo-slide-content">' + (idx === 0 ? refHtml : '') + linesHtml + (idx > 0 ? refHtml : '') + '</div>' +
@@ -50469,7 +50481,20 @@ var WO = (function() {
     '</div>';
 
     // Replace the placeholder box with the scripture group
-    box.insertAdjacentHTML('afterend', bannerHtml + '<div class="wo-scripture-slides-group">' + slidesHtml + gospelEndingHtml + '</div>' + addSlideHtml);
+    // Reading Response ending slide - First/Second readings (Gospel has its own above)
+    var readingResponseHtml = '';
+    if (!/gospel/i.test(subLabel) && /reading/i.test(subLabel)) {
+      var totalWithResp = slides.length + 1;
+      readingResponseHtml = '<div class="wo-slide-box" data-source="scripture" data-scripture-title="Response" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
+        _buildSlideBoxHeader(slides.length, totalWithResp, 'scripture', null, null) +
+        '<div class="wo-slide-content">' +
+          '<div class="wo-slide-scripture-title">Response</div>' +
+          '<div class="wo-slide-line">P: The Word of the Lord</div>' +
+          '<div class="wo-slide-line">C: Thanks be to God</div>' +
+        '</div>' +
+      '</div>';
+    }
+    box.insertAdjacentHTML('afterend', bannerHtml + '<div class="wo-scripture-slides-group">' + slidesHtml + gospelEndingHtml + readingResponseHtml + '</div>' + addSlideHtml);
     box.remove();
 
     // Update preview
@@ -56584,9 +56609,12 @@ function filterLiturgyItems() {
   .wo-main-content:not(.wo-song-order) .wo-add-slide-row,
   .wo-main-content:not(.wo-song-order) .wo-section-badge-col,
   .wo-main-content:not(.wo-song-order) .wo-ppt-attach-row,
-  .wo-main-content:not(.wo-song-order) .wo-ppt-widget {
+  .wo-main-content:not(.wo-song-order) .wo-ppt-widget,
+  .wo-main-content:not(.wo-song-order) .wo-content-box[data-subsection-type="scripture"] {
     display: none;
   }
+  .lcd-rail-esv-row { border: 1px dashed rgba(59,130,246,0.5); }
+  .lcd-rail-esv-row .lcd-rail-slide-preview { color: #3b82f6; }
   .lcd-compact-rail { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
   .lcd-rail-section { margin-bottom: 6px; }
   .lcd-rail-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6366f1; padding: 6px 4px 3px; }
