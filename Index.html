@@ -37184,14 +37184,14 @@ var WO = (function() {
     } else {
       return null;
     }
-    // Walk past any blank lines separating this phrase from the one above -
-    // verse/chorus phrases are routinely separated by a blank line, and
-    // that shouldn't stop one Backspace from doing the full correct merge.
+    // A blank line above this unit's own chord line collapses on its own
+    // Backspace press - the whole (chord, lyric) unit shifts up one row
+    // without touching the phrase further above. Only when the unit is
+    // directly adjacent to real content does Backspace merge in one step.
     var cursor = above.previousElementSibling;
-    var skipped = [];
-    while (cursor && _sbLineClass(cursor) === 'empty') { skipped.push(cursor); cursor = cursor.previousElementSibling; }
+    if (cursor && _sbLineClass(cursor) === 'empty') return { blankOnly: cursor };
     if (!cursor || _sbLineClass(cursor) !== 'lyric') return null;
-    return { upperLyric: cursor, lowerChord: lowerChord, lowerLyric: lowerLyric, skipped: skipped };
+    return { upperLyric: cursor, lowerChord: lowerChord, lowerLyric: lowerLyric };
   }
 
   // Symmetric Delete-forward resolver: `block` (a lyric line) is followed
@@ -37199,13 +37199,27 @@ var WO = (function() {
   // forward at its end should pull that whole unit up, not fuse the chord
   // line's text onto the end of `block`.
   function _sbResolveDeleteMerge(block) {
-    var cursor = block.nextElementSibling;
-    var skipped = [];
-    while (cursor && _sbLineClass(cursor) === 'empty') { skipped.push(cursor); cursor = cursor.nextElementSibling; }
-    if (!cursor || _sbLineClass(cursor) !== 'chord') return null;
-    var lyricAfter = cursor.nextElementSibling;
+    var next = block.nextElementSibling;
+    if (!next) return null;
+    // A blank line collapses on its own Delete press too, symmetric to
+    // the Backspace case above.
+    if (_sbLineClass(next) === 'empty') return { blankOnly: next };
+    if (_sbLineClass(next) !== 'chord') return null;
+    var lyricAfter = next.nextElementSibling;
     if (!lyricAfter || _sbLineClass(lyricAfter) !== 'lyric') return null;
-    return { upperLyric: block, lowerChord: cursor, lowerLyric: lyricAfter, skipped: skipped };
+    return { upperLyric: block, lowerChord: next, lowerLyric: lyricAfter };
+  }
+
+  // Applies a result from either resolver above: a blank-line collapse
+  // (remove just that one div, no text merge) or a full carry-merge.
+  function _sbApplyResolvedMerge(lyricsEl, result) {
+    if (!result) return false;
+    if (result.blankOnly) {
+      if (result.blankOnly.parentNode) lyricsEl.removeChild(result.blankOnly);
+      return true;
+    }
+    _sbCarryMergeUp(lyricsEl, result.upperLyric, result.lowerChord, result.lowerLyric);
+    return true;
   }
 
   function sbBeforeLyricsInput(evt, sid) {
@@ -37247,8 +37261,7 @@ var WO = (function() {
             else if (it === 'deleteContentForward' && kind0 === 'lyric' && pos0 >= text0.replace(/\s+$/, '').length) merge = _sbResolveDeleteMerge(block0);
             if (merge) {
               evt.preventDefault();
-              (merge.skipped || []).forEach(function(n) { if (n.parentNode) lyricsEl0.removeChild(n); });
-              _sbCarryMergeUp(lyricsEl0, merge.upperLyric, merge.lowerChord, merge.lowerLyric);
+              _sbApplyResolvedMerge(lyricsEl0, merge);
               _sbCanonicalText[sid] = _sbRawFlatText(lyricsEl0);
               sbOnLyricsChange(sid);
               return;
@@ -37838,11 +37851,7 @@ var WO = (function() {
       // so it doubles as the user's merge gesture on devices where the
       // beforeinput interception doesn't fire (Android IMEs): complete the
       // intended carry-merge instead of just restoring the pre-edit state.
-      var intent = _sbResolveBackspaceMerge(newLyric);
-      if (intent) {
-        (intent.skipped || []).forEach(function(n) { if (n.parentNode) el.removeChild(n); });
-        _sbCarryMergeUp(el, intent.upperLyric, intent.lowerChord, intent.lowerLyric);
-      }
+      _sbApplyResolvedMerge(el, _sbResolveBackspaceMerge(newLyric));
     });
 
     // Mirror direction: a LYRIC-classified div absorbed a trailing chord's
@@ -37882,11 +37891,7 @@ var WO = (function() {
           // merge of the (chord, following lyric) unit up into this line.
           var next2 = newChord2.nextElementSibling;
           if (next2 && _sbLineClass(next2) === 'lyric') {
-            var intent2 = _sbResolveBackspaceMerge(next2);
-            if (intent2) {
-              (intent2.skipped || []).forEach(function(n) { if (n.parentNode) el.removeChild(n); });
-              _sbCarryMergeUp(el, intent2.upperLyric, intent2.lowerChord, intent2.lowerLyric);
-            }
+            _sbApplyResolvedMerge(el, _sbResolveBackspaceMerge(next2));
           }
           break;
         }
