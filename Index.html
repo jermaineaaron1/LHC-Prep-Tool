@@ -29646,6 +29646,25 @@ var WO = (function() {
     '</div>';
   }
 
+  // Add a plain, blank, editable slide to ANY section (not PowerPoint).
+  // Reuses addLiturgyToSection's banner+slide-box rendering so the slide
+  // shows in the compact rail, edits in the Slide Editor, and projects
+  // like any other slide - and persists via the same order-save path.
+  function addBlankSlideToSection(sectionId) {
+    if (!sectionId) return;
+    var item = {
+      id: 'slide_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      title: 'Slide',
+      type: 'slide',
+      content: ''
+    };
+    addLiturgyToSection(sectionId, item);
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    var box = document.querySelector('.wo-slide-box[data-liturgy-id="' + item.id + '"]');
+    if (box) selectSlideBox(box);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+  }
+
   function addLiturgyToSection(sectionId, item) {
     var container = $(sectionId + '-boxes');
     if (!container) return;
@@ -44069,11 +44088,11 @@ var WO = (function() {
       }
 
       if (rowsHtml || canPpt) {
-        var addBtn = canPpt
-          ? '<button class="lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add PowerPoint / slides to this section"><i class="fa-solid fa-file-powerpoint"></i> Slides</button>'
-          : '';
+        var slideBtn = '<button class="lcd-rail-add-slide" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide to this section"><i class="fa-solid fa-plus"></i> Slide</button>';
+        var pptBtn = '<button class="lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add a PowerPoint / presentation to this section"><i class="fa-solid fa-file-powerpoint"></i> PPT</button>';
+        var addBtns = '<span class="lcd-rail-add-btns">' + slideBtn + pptBtn + '</span>';
         railHtml += '<div class="lcd-rail-section">' +
-          '<div class="lcd-rail-section-header"><span>' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtn + '</div>' +
+          '<div class="lcd-rail-section-header"><span>' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
           rowsHtml +
         '</div>';
       }
@@ -49976,6 +49995,7 @@ var WO = (function() {
     navigateSlideGlobal: navigateSlideGlobal,
     // PowerPoint/Google Slides
     addPowerPointSlides: addPowerPointSlides,
+    addBlankSlideToSection: addBlankSlideToSection,
     openSlidesModalTab: openSlidesModalTab,
     removeSlides: removeSlides,
     removeSlideContainer: removeSlideContainer,
@@ -55716,6 +55736,9 @@ function filterLiturgyItems() {
   .lcd-rail-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6366f1; padding: 6px 4px 3px; }
   .lcd-rail-add-slides { display: inline-flex; align-items: center; gap: 4px; background: rgba(234,88,12,0.14); border: 1px solid rgba(234,88,12,0.4); color: #ea580c; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
   .lcd-rail-add-slides:hover { background: rgba(234,88,12,0.26); }
+  .lcd-rail-add-btns { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .lcd-rail-add-slide { display: inline-flex; align-items: center; gap: 4px; background: rgba(99,102,241,0.14); border: 1px solid rgba(99,102,241,0.4); color: #6366f1; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
+  .lcd-rail-add-slide:hover { background: rgba(99,102,241,0.26); }
   .lcd-rail-ppt-row { align-items: center; }
   .lcd-rail-ppt-thumb { width: 42px; height: 24px; flex-shrink: 0; border-radius: 3px; background-color: #1e293b; background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; color: #ea580c; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.12); }
   .lcd-rail-slide-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1.5px solid transparent; transition: background 0.12s, border-color 0.12s; }
