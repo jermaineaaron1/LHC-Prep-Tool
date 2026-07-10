@@ -37919,6 +37919,19 @@ var WO = (function() {
     return true;
   }
 
+  // Removes a blank line, landing the caret on whichever neighbor is now
+  // adjacent to the gap - end of the line above for a Backspace-style
+  // removal, start of the line below for a Delete-style removal.
+  function _sbRemoveEmptyLine(lyricsEl, block, caretOnPrev) {
+    var prev = block.previousElementSibling;
+    var next = block.nextElementSibling;
+    lyricsEl.removeChild(block);
+    if (caretOnPrev && prev) _sbSetLineCaret(prev, (prev.textContent || '').length);
+    else if (!caretOnPrev && next) _sbSetLineCaret(next, 0);
+    else if (prev) _sbSetLineCaret(prev, (prev.textContent || '').length);
+    else if (next) _sbSetLineCaret(next, 0);
+  }
+
   function sbBeforeLyricsInput(evt, sid) {
     sbCapturePreEdit(sid);
     delete _sbChordEditState[sid];
@@ -37942,7 +37955,28 @@ var WO = (function() {
           var block0 = n0.nodeType === 1 ? n0 : n0.parentElement;
           while (block0 && block0.parentElement !== lyricsEl0) block0 = block0.parentElement;
           var kind0 = _sbLineClass(block0);
-          if (block0 && (kind0 === 'lyric' || kind0 === 'chord')) {
+          if (block0 && (kind0 === 'lyric' || kind0 === 'chord' || kind0 === 'empty')) {
+            if (kind0 === 'empty') {
+              if (it === 'deleteContentBackward') {
+                evt.preventDefault();
+                _sbRemoveEmptyLine(lyricsEl0, block0, true);
+              } else if (it === 'deleteContentForward') {
+                evt.preventDefault();
+                _sbRemoveEmptyLine(lyricsEl0, block0, false);
+              } else if (it === 'insertParagraph' || it === 'insertLineBreak') {
+                evt.preventDefault();
+                var newEmpty0 = document.createElement('div');
+                newEmpty0.className = 'wo-lyrics-empty-line';
+                newEmpty0.setAttribute('spellcheck', 'false');
+                lyricsEl0.insertBefore(newEmpty0, block0.nextSibling);
+                _sbSetLineCaret(newEmpty0, 0);
+              } else {
+                return;
+              }
+              _sbCanonicalText[sid] = _sbRawFlatText(lyricsEl0);
+              sbOnLyricsChange(sid);
+              return;
+            }
             var pos0 = _sbOffsetWithin(block0, r0.startContainer, r0.startOffset);
             var text0 = block0.textContent || '';
             var merge = null;
