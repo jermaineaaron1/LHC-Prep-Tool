@@ -33750,7 +33750,7 @@ var WO = (function() {
           e.preventDefault();
           var midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
           var sbBodyEl = document.getElementById('sbBody');
-          if (sbBodyEl) sbBodyEl.scrollTop += (_touchScrollLastY - midY) * 1.8; // manual scrollTop has no native momentum, so 1:1 feels sluggish
+          if (sbBodyEl) sbBodyEl.scrollTop += (_touchScrollLastY - midY) * 7.2; // manual scrollTop has no native momentum, so 1:1 feels sluggish
           _touchScrollLastY = midY;
           return;
         }
@@ -34166,7 +34166,7 @@ var WO = (function() {
           if (_sbAnnotScrolling && _sbIsTouchDevice && (sbDrawMode || sbEraseMode)) {
             var ids2 = Object.keys(_sbPointerMap);
             var midY2 = (_sbPointerMap[ids2[0]].y + (_sbPointerMap[ids2[1]] ? _sbPointerMap[ids2[1]].y : _sbPointerMap[ids2[0]].y)) / (ids2[1] ? 2 : 1);
-            var delta = (_sbAnnotScrollLastY - midY2) * 1.8; // manual scrollTop has no native momentum, so 1:1 feels sluggish
+            var delta = (_sbAnnotScrollLastY - midY2) * 7.2; // manual scrollTop has no native momentum, so 1:1 feels sluggish
             var sbBodyEl = document.getElementById('sbBody');
             if (sbBodyEl) sbBodyEl.scrollTop += delta;
             _sbAnnotScrollLastY = midY2;
@@ -35294,7 +35294,7 @@ var WO = (function() {
       if (sbEraseMode) { applyImgErase(); erasePoints = []; sbHideEraseCursor(); return; }
       if (pathEl && pathData && pathData.indexOf('L') !== -1) {
         var r = wrap.getBoundingClientRect();
-        var newPath = { d: pathData, color: sbDrawColor, size: sbDrawSize, szPct: (sbDrawSize / (r.width || 600)).toFixed(6), fmt: 'pct' };
+        var newPath = { id: _sbNewStrokeId(), d: pathData, color: sbDrawColor, size: sbDrawSize, szPct: (sbDrawSize / (r.width || 600)).toFixed(6), fmt: 'pct' };
         if (!sbImgPaths[songId]) sbImgPaths[songId] = {};
         if (!sbImgPaths[songId][fi]) sbImgPaths[songId][fi] = [];
         sbImgPaths[songId][fi].push(newPath);
@@ -35389,6 +35389,12 @@ var WO = (function() {
     return found;
   }
 
+  // Stable id for annotation strokes - lets Undo find a stroke by identity
+  // even after realtime sync replaces sbPaths[sid] with freshly deserialized
+  // objects (breaking simple object-reference lookups like indexOf).
+  var _sbStrokeIdSeq = 0;
+  function _sbNewStrokeId() { return 'st' + Date.now().toString(36) + (_sbStrokeIdSeq++).toString(36); }
+
   function sbFCMouseDown(evt) {
     if (!sbDrawMode && !sbEraseMode) return;
 
@@ -35469,6 +35475,7 @@ var WO = (function() {
     // ── Draw mode: persist stroke ─────────────────────────────────────────
     if (sbCurrentPath && sbCurrentPathData && sbDrawTargetSid) {
       var newPath = {
+        id:    _sbNewStrokeId(),
         d:     sbCurrentPathData,
         color: sbDrawColor,
         size:  sbDrawSize,
@@ -35697,13 +35704,23 @@ var WO = (function() {
       renderSongbookLive(); sbAutoSave();
     } else if (entry.isImg) {
       var imgArr = sbImgPaths[entry.sid] && sbImgPaths[entry.sid][entry.fileIdx];
-      if (imgArr) { var ii = imgArr.indexOf(entry.path); if (ii >= 0) imgArr.splice(ii, 1); }
+      if (imgArr) {
+        var ii = entry.path && entry.path.id
+          ? imgArr.findIndex(function(p) { return p.id === entry.path.id; })
+          : imgArr.indexOf(entry.path);
+        if (ii >= 0) imgArr.splice(ii, 1);
+      }
       sbRedrawImgAnnotations(entry.sid, entry.fileIdx);
       var song2 = songOrderSections.find(function(s) { return s.id === entry.sid; });
       if (song2) { if (!song2.imgAnnotations) song2.imgAnnotations = {}; song2.imgAnnotations[entry.fileIdx] = (sbImgPaths[entry.sid] && sbImgPaths[entry.sid][entry.fileIdx]) ? sbImgPaths[entry.sid][entry.fileIdx].slice() : []; sbAutoSave(); }
     } else {
       var paths = sbPaths[entry.sid];
-      if (paths) { var idx = paths.indexOf(entry.path); if (idx >= 0) paths.splice(idx, 1); }
+      if (paths) {
+        var idx = entry.path && entry.path.id
+          ? paths.findIndex(function(p) { return p.id === entry.path.id; })
+          : paths.indexOf(entry.path);
+        if (idx >= 0) paths.splice(idx, 1);
+      }
       sbRedrawSong(entry.sid);
       var song = songOrderSections.find(function(s) { return s.id === entry.sid; });
       if (song) {
