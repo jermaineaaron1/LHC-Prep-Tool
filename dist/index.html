@@ -5070,9 +5070,13 @@
                 </div>
               </div>
 
-              <div class="wo-preview-panel" id="woPreviewPanel" style="display: none;">
-                <div class="wo-preview-header">
-                  <div class="wo-preview-title"><i class="fa-solid fa-tv mr-2"></i> Projection Preview</div>
+              <div class="wo-preview-panel lcd-shell" id="woPreviewPanel" style="display: none;">
+                <!-- LCD Projection top bar: title + quick Song Order access -->
+                <div class="lcd-topbar">
+                  <div class="wo-preview-title"><i class="fa-solid fa-tv mr-2"></i> LCD Projection</div>
+                  <button class="lcd-song-order-btn" onclick="WO.selectOrder('song')" title="Switch to Song Order">
+                    <i class="fa-solid fa-music"></i> Song Order
+                  </button>
                   <button class="wo-preview-toggle-btn" id="woPreviewToggleBtn"
                           onclick="WO.toggleMobilePreview()"
                           style="display:none; background:rgba(255,255,255,0.12); color:white; border:1px solid rgba(255,255,255,0.25); border-radius:6px; padding:4px 10px; font-size:0.72rem; font-weight:600; cursor:pointer; font-family:'Poppins',sans-serif; align-items:center; gap:5px;"
@@ -5080,37 +5084,64 @@
                     <i class="fa-solid fa-chevron-up" id="woPreviewToggleIcon"></i>
                     <span id="woPreviewToggleLabel">Show</span>
                   </button>
-                  <div class="wo-preview-actions">
-                    <!-- Text alignment -->
-                    <div class="wo-align-group" title="Text alignment on projection">
-                      <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
-                      <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
-                      <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
+                </div>
+
+                <!-- Preview + Program outputs, side by side -->
+                <div class="lcd-outputs-row">
+                  <div class="lcd-output-box">
+                    <div class="lcd-output-label">Preview Output</div>
+                    <div class="wo-preview-screen" id="woPreviewScreen">
+                      <div class="wo-preview-bg" id="woPreviewBg"></div>
+                      <div class="wo-preview-placeholder">Click any content box to see preview</div>
                     </div>
-                    <!-- Text barrier (safe zone) editor button -->
-                    <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
-                    <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
-                    <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
-                    <div class="wo-preview-zoom-group" title="Zoom projection preview">
-                      <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
-                      <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
-                      <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                  </div>
+                  <div class="lcd-output-box">
+                    <div class="lcd-output-label">Program Output <span class="lcd-live-dot" id="lcdProgramLiveDot" title="Live"></span></div>
+                    <div class="wo-preview-screen lcd-program-screen" id="lcdProgramOutput">
+                      <div class="wo-preview-placeholder">Not projecting</div>
                     </div>
-                    <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
-                      <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
-                      <span class="wo-golive-label" id="woBlankLabel">Blank</span>
-                    </button>
-                    <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
                   </div>
                 </div>
-                <div class="wo-preview-screen" id="woPreviewScreen">
-                  <div class="wo-preview-bg" id="woPreviewBg"></div>
-                  <div class="wo-preview-placeholder">Click any content box to see preview</div>
+
+                <!-- Quick controls -->
+                <div class="wo-preview-actions lcd-controls-row">
+                  <!-- Text alignment -->
+                  <div class="wo-align-group" title="Text alignment on projection">
+                    <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+                    <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+                    <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
+                  </div>
+                  <!-- Text barrier (safe zone) editor button -->
+                  <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
+                  <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
+                  <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
+                  <div class="wo-preview-zoom-group" title="Zoom projection preview">
+                    <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                    <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
+                    <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                  </div>
+                  <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
+                    <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
+                    <span class="wo-golive-label" id="woBlankLabel">Blank</span>
+                  </button>
+                  <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
                 </div>
+
                 <div class="wo-preview-hint">
                   <i class="fa-solid fa-keyboard"></i> Arrow keys navigate slides &nbsp;|&nbsp; <strong>Blank</strong> blacks out the projection screen
                 </div>
-                <!-- Quick slide nav controls always visible in preview panel -->
+
+                <!-- Lyrics Editor + Media Tray -->
+                <div class="lcd-lower-row">
+                  <div class="lcd-panel lcd-lyrics-panel">
+                    <div class="lcd-panel-header"><i class="fa-solid fa-align-left"></i> Lyrics Editor</div>
+                    <div class="lcd-panel-body lcd-panel-placeholder" id="lcdLyricsEditorBody">Select a song to edit its full lyrics here.</div>
+                  </div>
+                  <div class="lcd-panel lcd-media-panel">
+                    <div class="lcd-panel-header"><i class="fa-solid fa-photo-film"></i> Media Tray</div>
+                    <div class="lcd-panel-body lcd-panel-placeholder" id="lcdMediaTrayBody">Drag media onto a slide or section to apply a background.</div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -55483,7 +55514,7 @@ function filterLiturgyItems() {
   .wo-main-content.wo-song-order { display: block; }
   /* overflow-y must be visible (not auto/scroll/hidden) so position:sticky on
      descendant badges resolves to the window scroll, not a dead sub-container */
-  .wo-worship-order { flex: 1; padding: 20px; overflow: visible; max-width: calc(100% - 450px); }
+  .wo-worship-order { flex: 0 0 300px; padding: 16px; overflow: visible; max-width: 300px; }
   .wo-main-content.wo-song-order .wo-worship-order { width: 100%; max-width: 100%; }
   .wo-song-order-intro { text-align: center; padding: 30px; }
   .wo-song-order-intro h3 { color: #2c5aa0; margin-bottom: 10px; font-family: Georgia, serif; }
@@ -55494,7 +55525,7 @@ function filterLiturgyItems() {
   .wo-empty-songs { font-style: italic; color: #999; }
 
   /* Preview Panel - Projection Window for Congregation */
-  .wo-preview-panel { width: 450px; min-width: 400px; background: #1a1a1a; padding: 15px; display: flex; flex-direction: column; position: sticky; top: 16px; align-self: flex-start; max-height: calc(100vh - 32px); overflow-y: auto; }
+  .wo-preview-panel { flex: 1; min-width: 640px; background: #1a1a1a; padding: 15px; display: flex; flex-direction: column; position: sticky; top: 16px; align-self: flex-start; max-height: calc(100vh - 32px); overflow-y: auto; }
   .wo-preview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
   .wo-preview-title { color: white; font-size: 1rem; font-weight: 600; }
   .wo-preview-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -55576,6 +55607,23 @@ function filterLiturgyItems() {
   .wo-preview-inner { display: block; white-space: pre-wrap; text-align: inherit; font-size: 1.3rem; line-height: 1.7; color: white; padding: 10px; }
   .wo-preview-slide-img { max-width: 100%; max-height: 100%; object-fit: contain; }
   .wo-preview-hint { color: #6b7280; font-size: 0.7rem; text-align: center; margin-top: 10px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px; }
+  /* ===== LCD Projection slide-first shell (Chunk 2) ===== */
+  .lcd-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .lcd-topbar .wo-preview-title { margin-right: auto; }
+  .lcd-song-order-btn { background: rgba(99,102,241,0.18); border: 1px solid rgba(129,140,248,0.45); color: #e0e7ff; border-radius: 7px; padding: 6px 14px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; display: flex; align-items: center; gap: 6px; transition: background 0.15s; }
+  .lcd-song-order-btn:hover { background: rgba(99,102,241,0.32); }
+  .lcd-outputs-row { display: flex; gap: 12px; margin-bottom: 12px; flex: 1; min-height: 220px; }
+  .lcd-output-box { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .lcd-output-label { color: #94a3b8; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .lcd-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.8); }
+  .lcd-outputs-row .wo-preview-screen { flex: 1; margin: 0; }
+  .lcd-program-screen { border: 2px solid #22c55e33; }
+  .lcd-controls-row { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 8px; }
+  .lcd-lower-row { display: flex; gap: 12px; margin-top: 12px; min-height: 160px; }
+  .lcd-panel { flex: 1; min-width: 0; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+  .lcd-panel-header { color: #e2e8f0; font-size: 0.8rem; font-weight: 600; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 7px; }
+  .lcd-panel-body { flex: 1; padding: 12px; overflow-y: auto; }
+  .lcd-panel-placeholder { color: #64748b; font-size: 0.78rem; font-style: italic; display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 20px; }
 
   /* ── Worship Sections — Badge-left / Slides-middle (590) ── */
   .wo-worship-section { margin-bottom: 10px; }
