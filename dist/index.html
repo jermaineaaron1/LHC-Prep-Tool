@@ -23316,6 +23316,8 @@ var WO = (function() {
       _lcdRenderMediaTray();
       if (!savedBackgrounds.length) loadBackgrounds();
       _lcdSetupMediaDropZone();
+      _lcdRenderCompactRail();
+      _lcdSetupCompactRailObserver();
       // Make preview panel follow while scrolling
       setTimeout(_enterServiceOrderLayout, 50);
     }
@@ -44396,6 +44398,140 @@ var WO = (function() {
     }, 220);
   }
 
+  // LCD Projection redesign (Chunk 8): compact slide rail. Reads the
+  // EXISTING rendered (now CSS-hidden) song/liturgy/scripture banner+
+  // slide-box DOM that initializeServiceOrder()/addSongToServiceSection()/
+  // addLiturgyToSection() already produce - no re-derivation from raw
+  // data, so it automatically stays correct for every item type without
+  // needing separate logic per source. Clicking a row delegates straight
+  // to the real (hidden) .wo-slide-box element via the existing
+  // selectSlideBox() - zero new selection/preview/projection logic.
+  var _lcdRailRowMap = {};
+  var _lcdRailRowSeq = 0;
+
+  function _lcdBuildRailRow(sIdx, slideNum, groupTitle, slideBoxEl, iconClass) {
+    var lines = Array.from(slideBoxEl.querySelectorAll('.wo-slide-line')).map(function(l) { return l.textContent.trim(); }).filter(Boolean);
+    var preview = lines.length ? lines[0] : '';
+    var isSelected = slideBoxEl.classList.contains('selected');
+    var rowId = 'lcdRailRow-' + (_lcdRailRowSeq++);
+    _lcdRailRowMap[rowId] = slideBoxEl;
+    return '<div class="lcd-rail-slide-row' + (isSelected ? ' selected' : '') + '" id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
+      '<div class="lcd-rail-slide-num"><i class="fa-solid ' + iconClass + '"></i> ' + (sIdx + 1) + '.' + slideNum + '</div>' +
+      '<div class="lcd-rail-slide-body">' +
+        '<div class="lcd-rail-item-title">' + escapeHtml(groupTitle) + '</div>' +
+        (preview ? '<div class="lcd-rail-slide-preview">' + escapeHtml(preview) + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  }
+
+  function _lcdRenderCompactRail() {
+    var root = document.getElementById('woWorshipOrder');
+    if (!root) return;
+    var sections = Array.from(root.querySelectorAll('.wo-worship-section'));
+    if (!sections.length) return;
+
+    _lcdRailRowMap = {};
+    var railHtml = '';
+
+    sections.forEach(function(sectionEl, sIdx) {
+      var sectionId = sectionEl.id;
+      var badgeTitleEl = sectionEl.querySelector('.wo-section-title');
+      var sectionTitle = badgeTitleEl ? badgeTitleEl.textContent : ('Section ' + (sIdx + 1));
+      var boxesContainer = document.getElementById(sectionId + '-boxes');
+      if (!boxesContainer) return;
+
+      var rowsHtml = '';
+      var slideCounter = 0;
+      var children = Array.from(boxesContainer.children);
+      var i = 0;
+      while (i < children.length) {
+        var el = children[i];
+
+        if (el.classList.contains('wo-song-banner') && !el.classList.contains('scripture-banner')) {
+          var songId = el.getAttribute('data-song-id');
+          var song = songOrderSections.find(function(s) { return s.id === songId; });
+          var groupTitle = song ? song.title : 'Song';
+          i++;
+          while (i < children.length && children[i].classList.contains('wo-slide-box') && children[i].getAttribute('data-song-id') === songId) {
+            slideCounter++;
+            rowsHtml += _lcdBuildRailRow(sIdx, slideCounter, groupTitle, children[i], 'fa-music');
+            i++;
+          }
+          if (i < children.length && children[i].classList.contains('wo-add-slide-row')) i++;
+          continue;
+        }
+
+        if (el.classList.contains('wo-liturgy-banner-bar')) {
+          var liturgyId = el.getAttribute('data-liturgy-id');
+          var litItem = (currentOrderData && Array.isArray(currentOrderData.allItems))
+            ? currentOrderData.allItems.find(function(it) { return it.id === liturgyId; })
+            : null;
+          var infoEl = el.querySelector('.wo-liturgy-banner-info');
+          var litTitle = litItem ? litItem.title : (infoEl ? infoEl.textContent.trim() : 'Liturgy');
+          i++;
+          while (i < children.length && children[i].classList.contains('wo-slide-box') && children[i].getAttribute('data-liturgy-id') === liturgyId) {
+            slideCounter++;
+            rowsHtml += _lcdBuildRailRow(sIdx, slideCounter, litTitle, children[i], 'fa-book-bible');
+            i++;
+          }
+          if (i < children.length && children[i].classList.contains('wo-add-slide-row')) i++;
+          continue;
+        }
+
+        if (el.classList.contains('wo-song-banner') && el.classList.contains('scripture-banner')) {
+          var scriptTitle = el.getAttribute('data-scripture-title') || 'Scripture';
+          i++;
+          while (i < children.length && children[i].classList.contains('wo-slide-box') && children[i].getAttribute('data-source') === 'scripture') {
+            slideCounter++;
+            rowsHtml += _lcdBuildRailRow(sIdx, slideCounter, scriptTitle, children[i], 'fa-book-bible');
+            i++;
+          }
+          continue;
+        }
+
+        // Any other item type (video/presentation/notes): leave it alone -
+        // it isn't hidden by the CSS rules, so it keeps rendering in its
+        // original full-size form right here in the flow.
+        i++;
+      }
+
+      if (rowsHtml) {
+        railHtml += '<div class="lcd-rail-section">' +
+          '<div class="lcd-rail-section-header">' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</div>' +
+          rowsHtml +
+        '</div>';
+      }
+    });
+
+    var rail = document.getElementById('lcdCompactRail');
+    if (!rail) {
+      rail = document.createElement('div');
+      rail.className = 'lcd-compact-rail';
+      rail.id = 'lcdCompactRail';
+      root.insertBefore(rail, root.firstChild);
+    }
+    rail.innerHTML = railHtml;
+  }
+
+  function _lcdRailRowClick(rowId) {
+    var box = _lcdRailRowMap[rowId];
+    if (box && box.isConnected) selectSlideBox(box);
+    var rowEl = document.getElementById(rowId);
+    if (rowEl) rowEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  var _lcdRailObserver = null;
+  var _lcdRailRefreshTimer = null;
+  function _lcdSetupCompactRailObserver() {
+    var target = document.getElementById('woWorshipOrder');
+    if (!target || _lcdRailObserver) return;
+    _lcdRailObserver = new MutationObserver(function() {
+      clearTimeout(_lcdRailRefreshTimer);
+      _lcdRailRefreshTimer = setTimeout(_lcdRenderCompactRail, 120);
+    });
+    _lcdRailObserver.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  }
+
   function selectSlideBox(box) {
     // If currently editing another box, save it first
     if (editingSlideBox && editingSlideBox !== box) {
@@ -50169,6 +50305,7 @@ var WO = (function() {
     lcdMediaDragStart: lcdMediaDragStart,
     lcdOpenInSongOrder: lcdOpenInSongOrder,
     lcdOpenSongInProjection: lcdOpenSongInProjection,
+    _lcdRailRowClick: _lcdRailRowClick,
     selectLiturgyBox: selectLiturgyBox,
     editLiturgyBox: editLiturgyBox,
     saveLiturgyEdit: saveLiturgyEdit,
@@ -55921,6 +56058,31 @@ function filterLiturgyItems() {
     20%, 60% { box-shadow: 0 0 0 3px rgba(99,102,241,0.55); }
   }
   .lcd-row-highlight { animation: lcdRowHighlightPulse 1.6s ease; }
+
+  /* ===== Compact slide rail (Chunk 8) ===== */
+  /* Hides the old bulky song/liturgy/scripture banner+slide-box UI in
+     LCD Projection mode only - Song Order mode never renders these
+     classes at all, so :not(.wo-song-order) is extra safety, not the
+     only guard. Section badges and other item types (video/
+     presentation/notes) are untouched. */
+  .wo-main-content:not(.wo-song-order) .wo-song-banner:not(.scripture-banner),
+  .wo-main-content:not(.wo-song-order) .wo-liturgy-banner-bar,
+  .wo-main-content:not(.wo-song-order) .wo-song-banner.scripture-banner,
+  .wo-main-content:not(.wo-song-order) .wo-slide-box,
+  .wo-main-content:not(.wo-song-order) .wo-add-slide-row {
+    display: none;
+  }
+  .lcd-compact-rail { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+  .lcd-rail-section { margin-bottom: 6px; }
+  .lcd-rail-section-header { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6366f1; padding: 6px 4px 3px; }
+  .lcd-rail-slide-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1.5px solid transparent; transition: background 0.12s, border-color 0.12s; }
+  .lcd-rail-slide-row:hover { background: #f1f5f9; }
+  .lcd-rail-slide-row.selected { background: #eef2ff; border-color: #6366f1; }
+  .lcd-rail-slide-num { flex-shrink: 0; font-size: 0.66rem; font-weight: 700; color: #94a3b8; padding-top: 1px; min-width: 26px; }
+  .lcd-rail-slide-row.selected .lcd-rail-slide-num { color: #6366f1; }
+  .lcd-rail-slide-body { min-width: 0; flex: 1; }
+  .lcd-rail-item-title { font-size: 0.78rem; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lcd-rail-slide-preview { font-size: 0.7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ── Worship Sections — Badge-left / Slides-middle (590) ── */
   .wo-worship-section { margin-bottom: 10px; }
