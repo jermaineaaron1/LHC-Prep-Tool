@@ -17044,6 +17044,7 @@ window.loadEditSongData = function(song) {
     // Sync roster names and backgrounds from cloud (non-blocking)
     if (typeof loadRosterNamesFromCloud === 'function') loadRosterNamesFromCloud();
     if (typeof loadBackgroundsFromCloud === 'function') loadBackgroundsFromCloud();
+    if (typeof loadBackgroundsFromSupabase === 'function') loadBackgroundsFromSupabase();
     if (typeof loadSlideBackgroundsFromCloud === 'function') loadSlideBackgroundsFromCloud();
   }
 
@@ -27462,6 +27463,7 @@ var WO = (function() {
 
       savedBackgrounds = idbBackgrounds;
       renderBackgroundLibrary(); _lcdRenderMediaTray();
+      loadBackgroundsFromSupabase();
     }).catch(function(e) {
       console.error('Failed to load backgrounds:', e);
 
@@ -27514,6 +27516,74 @@ var WO = (function() {
     }).catch(function(err) {
       console.warn('Could not load backgrounds from cloud:', err);
     });
+  }
+
+  // ---- Shared media library (Supabase) -------------------------------
+  // The media files already live in Supabase Storage (public URLs).
+  // These sync the INDEX of them to a shared `lhc_backgrounds` table so
+  // every user's Media Tray shows the same media. Fire-and-forget; the
+  // local IndexedDB/localStorage cache still works if the table is absent.
+  function _sbSaveBackgroundToSupabase(bg) {
+    var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sb || !bg) return;
+    var url = bg.cloudUrl || bg.data;
+    // Only share cloud-backed media - never push a giant base64 data URL.
+    if (!bg.storagePath && (!url || url.indexOf('http') !== 0)) return;
+    var row = {
+      id: bg.id,
+      type: bg.type || 'image',
+      name: bg.name || '',
+      url: url,
+      storage_path: bg.storagePath || '',
+      updated_at: new Date().toISOString()
+    };
+    try {
+      sb.from('lhc_backgrounds').upsert(row, { onConflict: 'id' }).then(function(res) {
+        if (res && res.error) console.warn('[LHC] background sync error:', res.error.message);
+      });
+    } catch (e) { console.warn('[LHC] background sync failed:', e); }
+  }
+
+  function _sbDeleteBackgroundFromSupabase(bgId) {
+    var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sb || !bgId) return;
+    try {
+      sb.from('lhc_backgrounds').delete().eq('id', bgId).then(function(res) {
+        if (res && res.error) console.warn('[LHC] background delete error:', res.error.message);
+      });
+    } catch (e) { console.warn('[LHC] background delete failed:', e); }
+  }
+
+  // Load the shared media index and merge any items this device doesn't
+  // have yet into savedBackgrounds (dedupe by id), then refresh the UI.
+  function loadBackgroundsFromSupabase() {
+    var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sb) return;
+    try {
+      sb.from('lhc_backgrounds').select('id,type,name,url,storage_path').then(function(res) {
+        if (!res || res.error || !res.data) {
+          if (res && res.error) console.warn('[LHC] background load error:', res.error.message);
+          return;
+        }
+        var localIds = savedBackgrounds.map(function(b) { return b.id; });
+        var added = 0;
+        res.data.forEach(function(rowb) {
+          if (localIds.indexOf(rowb.id) === -1) {
+            savedBackgrounds.push({
+              id: rowb.id,
+              type: rowb.type,
+              name: rowb.name,
+              data: rowb.url,
+              cloudUrl: rowb.url,
+              storagePath: rowb.storage_path,
+              storageProvider: 'supabase'
+            });
+            added++;
+          }
+        });
+        if (added > 0) { renderBackgroundLibrary(); _lcdRenderMediaTray(); }
+      });
+    } catch (e) { console.warn('[LHC] background load failed:', e); }
   }
 
   function saveBackgrounds() {
@@ -27575,6 +27645,7 @@ var WO = (function() {
                 bg.storageProvider = 'supabase';
                 delete bg.driveFileId;
                 console.log('Migrated', bg.id, 'to Supabase');
+                _sbSaveBackgroundToSupabase(bg);
                 // Re-save to persist the cloud URL
                 try { localStorage.setItem(BG_STORAGE_KEY, JSON.stringify(savedBackgrounds.filter(function(b) { return !b.data || b.data.length < 500 * 1024; }))); } catch(e) {}
               }
@@ -27922,6 +27993,7 @@ var WO = (function() {
           };
           savedBackgrounds.push(bg);
           saveBackgrounds();
+          _sbSaveBackgroundToSupabase(bg);
           renderBackgroundLibrary(); _lcdRenderMediaTray();
           showToast('Background uploaded to cloud!', 'success');
         } else {
@@ -28189,6 +28261,9 @@ var WO = (function() {
     deleteBackgroundFromIDB(bgId).catch(function(e) {
       console.warn('Failed to delete from IndexedDB:', e);
     });
+
+    // Remove from the shared Supabase media index (deletes for all users)
+    _sbDeleteBackgroundFromSupabase(bgId);
 
     // Also delete from cloud (Drive + Sheets)
     if (typeof callGAS === 'function') {
