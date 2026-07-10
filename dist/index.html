@@ -5098,6 +5098,7 @@
                   <div class="lcd-output-box">
                     <div class="lcd-output-label">Program Output <span class="lcd-live-dot" id="lcdProgramLiveDot" title="Live"></span></div>
                     <div class="wo-preview-screen lcd-program-screen" id="lcdProgramOutput">
+                      <div class="wo-preview-bg" id="lcdProgramBg"></div>
                       <div class="wo-preview-placeholder">Not projecting</div>
                     </div>
                   </div>
@@ -29557,6 +29558,8 @@ var WO = (function() {
   function _setGoLiveDot(live) {
     var dot = document.getElementById('woGoLiveDot');
     if (dot) dot.className = 'wo-golive-dot' + (live ? ' live' : '');
+    var lcdDot = document.getElementById('lcdProgramLiveDot');
+    if (lcdDot) lcdDot.classList.toggle('live', !!live);
   }
 
   // Watch for the extension content script to stamp data-lhc-ext on <html>.
@@ -29635,13 +29638,59 @@ var WO = (function() {
     modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
   }
 
-  // Send data to projection window — uses BroadcastChannel (primary) + postMessage (fallback)
+  // Send data to projection window - uses BroadcastChannel (primary) + postMessage (fallback)
   function sendToProjectionWindow(data) {
     if (_projChannel) {
       try { _projChannel.postMessage(data); } catch(e) {}
     }
     if (projectionWindow && !projectionWindow.closed) {
       try { projectionWindow.postMessage(data, '*'); } catch(e) {}
+    }
+    _lcdMirrorToProgramOutput(data);
+  }
+
+  // LCD Projection redesign (Chunk 3): mirrors every payload sent to the
+  // real projection window into the in-app Program Output box, so the
+  // operator can see exactly what's live without looking at a second
+  // monitor. Reuses the existing _applyBgToDivEl/_applyBarrierToEl
+  // helpers - no new rendering logic, just repainting the same data into
+  // a second target element.
+  function _lcdMirrorToProgramOutput(data) {
+    var box = document.getElementById('lcdProgramOutput');
+    if (!box || !data) return;
+    var bg = document.getElementById('lcdProgramBg');
+    function clearContent() {
+      Array.from(box.children).forEach(function(c) { if (c.id !== 'lcdProgramBg') box.removeChild(c); });
+    }
+    if (data.type === 'text') {
+      clearContent();
+      var contentEl = document.createElement('div');
+      contentEl.className = 'wo-preview-content';
+      contentEl.style.textAlign = data.align || 'center';
+      if (typeof _applyBarrierToEl === 'function') _applyBarrierToEl(contentEl, data.barrier);
+      contentEl.innerHTML = '<div class="wo-preview-inner">' + data.text + '</div>';
+      box.appendChild(contentEl);
+    } else if (data.type === 'slide') {
+      clearContent();
+      var img = document.createElement('img');
+      img.className = 'wo-preview-slide-img';
+      img.src = data.data;
+      box.appendChild(img);
+    } else if (data.type === 'blank') {
+      clearContent();
+      if (data.on) {
+        var blankEl = document.createElement('div');
+        blankEl.className = 'lcd-program-blanked';
+        blankEl.textContent = 'BLANKED';
+        box.appendChild(blankEl);
+      }
+    } else if (data.type === 'background') {
+      if (bg && typeof _applyBgToDivEl === 'function') _applyBgToDivEl(bg, data.background);
+    } else if (data.type === 'videoBackground') {
+      if (bg && typeof _applyBgToDivEl === 'function') {
+        if (data.videoType === 'youtube') _applyBgToDivEl(bg, { type: 'youtube', embedUrl: data.embedUrl });
+        else if (data.videoType === 'local') _applyBgToDivEl(bg, { type: 'localVideo', src: data.src });
+      }
     }
   }
 
@@ -55615,7 +55664,9 @@ function filterLiturgyItems() {
   .lcd-outputs-row { display: flex; gap: 12px; margin-bottom: 12px; flex: 1; min-height: 220px; }
   .lcd-output-box { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .lcd-output-label { color: #94a3b8; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
-  .lcd-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.8); }
+  .lcd-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; transition: background 0.2s, box-shadow 0.2s; display: inline-block; }
+  .lcd-live-dot.live { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.8); }
+  .lcd-program-blanked { color: #475569; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: center; justify-content: center; height: 100%; }
   .lcd-outputs-row .wo-preview-screen { flex: 1; margin: 0; }
   .lcd-program-screen { border: 2px solid #22c55e33; }
   .lcd-controls-row { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 8px; }
