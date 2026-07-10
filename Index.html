@@ -5077,8 +5077,19 @@
                 <!-- Lyrics Editor + Media Tray -->
                 <div class="lcd-lower-row">
                   <div class="lcd-panel lcd-lyrics-panel">
-                    <div class="lcd-panel-header"><i class="fa-solid fa-align-left"></i> Lyrics Editor</div>
-                    <div class="lcd-panel-body lcd-panel-placeholder" id="lcdLyricsEditorBody">Select a song to edit its full lyrics here.</div>
+                    <div class="lcd-panel-header">
+                      <i class="fa-solid fa-align-left"></i> Lyrics Editor
+                      <span class="lcd-lyrics-song-title" id="lcdLyricsEditorTitle">No song selected</span>
+                      <div class="lcd-lyrics-actions">
+                        <button class="lcd-mini-btn" onclick="WO.lcdAutoSplitLyrics()" title="Preview how this text will split into slides"><i class="fa-solid fa-scissors"></i> Auto-Split</button>
+                        <button class="lcd-mini-btn primary" onclick="WO.lcdApplyLyricsToSlides()" title="Apply these lyrics to this song's slides"><i class="fa-solid fa-check"></i> Apply to Slides</button>
+                        <button class="lcd-mini-btn" onclick="WO.lcdAutoSplitLyrics()" title="Re-run the split after further edits"><i class="fa-solid fa-rotate"></i> Re-Split</button>
+                      </div>
+                    </div>
+                    <div class="lcd-panel-body lcd-lyrics-body">
+                      <textarea class="lcd-lyrics-textarea" id="lcdLyricsEditorTextarea" placeholder="Click a slide in the rail to load that song's full lyrics here. Blank lines start a new slide; type [Verse]/[Chorus] etc. for section headers." oninput="WO.lcdOnLyricsTextareaInput()"></textarea>
+                      <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
+                    </div>
                   </div>
                   <div class="lcd-panel lcd-media-panel">
                     <div class="lcd-panel-header"><i class="fa-solid fa-photo-film"></i> Media Tray</div>
@@ -38538,6 +38549,7 @@ var WO = (function() {
     song.savedSlides = newSavedSlides;
     song.slides = newSavedSlides;
     song.lyrics = newLyrics;
+    _lcdSyncEditorIfShowing(songId, newLyrics);
 
     // DOM update — only runs when the Service Order tab is currently visible
     // Determine sectionId — use stored value or find from DOM
@@ -43359,6 +43371,76 @@ var WO = (function() {
   }
   var _selectedPptContainer = null; // Tracks active iframe PPT container
 
+  // LCD Projection redesign (Chunk 4): full-song Lyrics Editor. Reuses
+  // parseLyricsIntoSlides/refreshSongSlidesInOrder/autoSaveOrder verbatim -
+  // no parallel lyric pipeline. See file-level notes above for the exact
+  // reasoning behind each hook point.
+  var _lcdEditingSongId = null;
+
+  function _lcdLoadSongIntoLyricsEditor(songId) {
+    if (!songId) return;
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song) return;
+    _lcdEditingSongId = songId;
+    var ta = document.getElementById('lcdLyricsEditorTextarea');
+    var titleEl = document.getElementById('lcdLyricsEditorTitle');
+    if (titleEl) titleEl.textContent = song.title || 'Untitled Song';
+    if (ta) ta.value = song.lyrics || '';
+    _lcdUpdateSplitSummary();
+  }
+
+  // If a song's lyrics change elsewhere (e.g. a Songbook realtime patch
+  // arrives via refreshSongSlidesInOrder) while this editor is showing that
+  // same song, refresh the textarea - but never while the user is actively
+  // typing in it, so an incoming update can't clobber an in-progress edit.
+  function _lcdSyncEditorIfShowing(songId, newLyrics) {
+    if (songId !== _lcdEditingSongId) return;
+    var ta = document.getElementById('lcdLyricsEditorTextarea');
+    if (ta && document.activeElement !== ta) {
+      ta.value = newLyrics || '';
+      _lcdUpdateSplitSummary();
+    }
+  }
+
+  function _lcdUpdateSplitSummary() {
+    var ta = document.getElementById('lcdLyricsEditorTextarea');
+    var summaryEl = document.getElementById('lcdLyricsEditorSummary');
+    if (!ta || !summaryEl) return;
+    var slides = parseLyricsIntoSlides(ta.value || '');
+    var totalLines = slides.reduce(function(sum, s) { return sum + (s.lines ? s.lines.length : 0); }, 0);
+    summaryEl.textContent = slides.length + ' Section' + (slides.length === 1 ? '' : 's') + '    ' + totalLines + ' Line' + (totalLines === 1 ? '' : 's');
+  }
+
+  var _lcdSplitDebounce = null;
+  function lcdOnLyricsTextareaInput() {
+    clearTimeout(_lcdSplitDebounce);
+    _lcdSplitDebounce = setTimeout(_lcdUpdateSplitSummary, 400);
+  }
+
+  // Preview how the current textarea content will split into slides -
+  // shared by both the "Auto-Split" and "Re-Split" buttons, since they are
+  // the same operation offered at different points in the workflow.
+  function lcdAutoSplitLyrics() {
+    if (!_lcdEditingSongId) { showToast('Select a slide first to load its song.', 'warning'); return; }
+    _lcdUpdateSplitSummary();
+  }
+
+  // Commit the textarea's full lyrics to this song's slides via the exact
+  // same function the Songbook sync path already uses - no second source
+  // of truth for lyrics.
+  function lcdApplyLyricsToSlides() {
+    if (!_lcdEditingSongId) { showToast('Select a slide first to load its song.', 'warning'); return; }
+    var ta = document.getElementById('lcdLyricsEditorTextarea');
+    if (!ta) return;
+    var song = songOrderSections.find(function(s) { return s.id === _lcdEditingSongId; });
+    if (!song) return;
+    song.customLyrics = ta.value;
+    refreshSongSlidesInOrder(_lcdEditingSongId, ta.value);
+    autoSaveOrder();
+    _lcdUpdateSplitSummary();
+    showToast('Lyrics applied to slides', 'success');
+  }
+
   function selectSlideBox(box) {
     // If currently editing another box, save it first
     if (editingSlideBox && editingSlideBox !== box) {
@@ -43510,6 +43592,10 @@ var WO = (function() {
 
     // Update BG indicators on all slide boxes
     updateSlideBgIndicators();
+
+    // LCD Projection redesign (Chunk 4): load this slide's song into the
+    // Lyrics Editor panel.
+    _lcdLoadSongIntoLyricsEditor(box.getAttribute('data-song-id'));
   }
 
   // Helper: Apply a stored video background (from sectionBackgrounds) without restarting if same source
@@ -49139,6 +49225,9 @@ var WO = (function() {
     printSingleSong: printSingleSong,
     // Service order slide navigation
     selectSlideBox: selectSlideBox,
+    lcdAutoSplitLyrics: lcdAutoSplitLyrics,
+    lcdApplyLyricsToSlides: lcdApplyLyricsToSlides,
+    lcdOnLyricsTextareaInput: lcdOnLyricsTextareaInput,
     selectLiturgyBox: selectLiturgyBox,
     editLiturgyBox: editLiturgyBox,
     saveLiturgyEdit: saveLiturgyEdit,
@@ -54863,6 +54952,17 @@ function filterLiturgyItems() {
   .lcd-panel-header { color: #e2e8f0; font-size: 0.8rem; font-weight: 600; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 7px; }
   .lcd-panel-body { flex: 1; padding: 12px; overflow-y: auto; }
   .lcd-panel-placeholder { color: #64748b; font-size: 0.78rem; font-style: italic; display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 20px; }
+  .lcd-lyrics-panel .lcd-panel-header { flex-wrap: wrap; gap: 8px 10px; }
+  .lcd-lyrics-song-title { color: #93c5fd; font-weight: 700; margin-left: 2px; }
+  .lcd-lyrics-actions { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+  .lcd-mini-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.7rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 5px; transition: background 0.15s; }
+  .lcd-mini-btn:hover { background: rgba(255,255,255,0.14); }
+  .lcd-mini-btn.primary { background: rgba(34,197,94,0.22); border-color: rgba(74,222,128,0.5); color: #bbf7d0; }
+  .lcd-mini-btn.primary:hover { background: rgba(34,197,94,0.36); }
+  .lcd-lyrics-body { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
+  .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
+  .lcd-lyrics-textarea:focus { outline: none; border-color: rgba(99,102,241,0.6); }
+  .lcd-lyrics-summary { color: #64748b; font-size: 0.7rem; text-align: right; }
 
   /* ── Worship Sections — Badge-left / Slides-middle (590) ── */
   .wo-worship-section { margin-bottom: 10px; }
