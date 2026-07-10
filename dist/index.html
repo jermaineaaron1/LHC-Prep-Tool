@@ -50430,6 +50430,24 @@ var WO = (function() {
     var content = scriptureItem.content || '';
     var subLabel = box.dataset.subLabel || '';
 
+    // Psalm -> responsive reading: split into verses and alternate
+    // L: (Liturgist) / C: (Congregation) per verse.
+    if (/psalm/i.test(subLabel)) {
+      var _verses;
+      if (/\[\d+\]/.test(content)) {
+        _verses = content.split(/\[\d+\]/);
+      } else {
+        _verses = content.split('\n');
+      }
+      _verses = _verses.map(function(v) { return v.replace(/^\s*\d+[\.:\)]?\s*/, '').trim(); })
+                       .filter(function(v) { return v; });
+      if (_verses.length > 1) {
+        content = _verses.map(function(v, idx) {
+          return (idx % 2 === 0 ? 'L: ' : 'C: ') + v;
+        }).join('\n');
+      }
+    }
+
     // Split content into slides (2 lines per slide for readability)
     var lines = content.split('\n').filter(function(l) { return l.trim(); });
     var slides = [];
