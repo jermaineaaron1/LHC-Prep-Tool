@@ -37812,6 +37812,53 @@ var WO = (function() {
   // directly above it. Returns null when there's nothing to intervene for -
   // in that case native contenteditable + post-edit reconciliation already
   // handle the merge correctly (plain lyric-to-lyric, empty-line collapse).
+  // Chord-aware Enter split - the clean inverse of _sbCarryMergeUp.
+  // Splits `block` (a lyric line with a chord line directly above) at
+  // character position `pos`: chord tokens starting before the caret stay
+  // with the first half, tokens at/after it move to a new chord line above
+  // the second half, re-anchored to the second half's text. Returns false
+  // (without mutating anything) when there's no chord line to partition -
+  // native Enter + reconciliation already handle plain splits correctly.
+  function _sbChordAwareSplit(lyricsEl, block, pos) {
+    var chordDiv = block.previousElementSibling;
+    if (!chordDiv || _sbLineClass(chordDiv) !== 'chord') return false;
+    var text = (block.textContent || '').replace(/\u00a0/g, ' ');
+    var chordText = (chordDiv.textContent || '').replace(/\s+$/, '');
+    var lyric1 = text.substring(0, pos).replace(/\s+$/, '');
+    var rest = text.substring(pos);
+    var lead = rest.length - rest.replace(/^\s+/, '').length; // joining space consumed by the split
+    var lyric2 = rest.replace(/^\s+/, '');
+
+    var re = /\S+/g, m, toks1 = [], toks2 = [];
+    while ((m = re.exec(chordText)) !== null) {
+      if (m.index < pos) toks1.push({ pos: m.index, text: m[0] });
+      else toks2.push({ pos: Math.max(0, m.index - pos - lead), text: m[0] });
+    }
+
+    var chord1 = _sbTokensToLine(toks1);
+    if (chord1) chordDiv.textContent = chord1;
+    else lyricsEl.removeChild(chordDiv); // no chords left above the first half
+
+    block.textContent = lyric1;
+    if (!lyric1) block.className = 'wo-lyrics-empty-line';
+
+    var anchor = block.nextSibling;
+    if (toks2.length) {
+      var newChord = document.createElement('div');
+      newChord.className = 'wo-lyrics-chord-line';
+      newChord.setAttribute('spellcheck', 'false');
+      newChord.textContent = _sbTokensToLine(toks2);
+      lyricsEl.insertBefore(newChord, anchor);
+    }
+    var newLyric = document.createElement('div');
+    newLyric.className = lyric2 ? 'wo-lyrics-lyric-line' : 'wo-lyrics-empty-line';
+    newLyric.setAttribute('spellcheck', 'false');
+    newLyric.textContent = lyric2;
+    lyricsEl.insertBefore(newLyric, anchor);
+    _sbSetLineCaret(newLyric, 0);
+    return true;
+  }
+
   function _sbResolveBackspaceMerge(block) {
     var kind = _sbLineClass(block);
     var lowerChord, lowerLyric, above;
@@ -37870,7 +37917,8 @@ var WO = (function() {
     // see it. Intercept exactly that case and perform the merge
     // ourselves; everything else is left to native + sbReconcileLyrics.
     var it = evt && evt.inputType;
-    if ((it === 'deleteContentBackward' || it === 'deleteContentForward') && evt.cancelable !== false) {
+    if ((it === 'deleteContentBackward' || it === 'deleteContentForward' ||
+         it === 'insertParagraph' || it === 'insertLineBreak') && evt.cancelable !== false) {
       var lyricsEl0 = document.getElementById('sbLyrics-' + sid);
       var sel0 = window.getSelection();
       if (lyricsEl0 && sel0 && sel0.rangeCount) {
@@ -37884,6 +37932,14 @@ var WO = (function() {
             var pos0 = _sbOffsetWithin(block0, r0.startContainer, r0.startOffset);
             var text0 = block0.textContent || '';
             var merge = null;
+            if ((it === 'insertParagraph' || it === 'insertLineBreak') && kind0 === 'lyric') {
+              if (_sbChordAwareSplit(lyricsEl0, block0, pos0)) {
+                evt.preventDefault();
+                _sbCanonicalText[sid] = _sbRawFlatText(lyricsEl0);
+                sbOnLyricsChange(sid);
+              }
+              return; // chordless lines: let native Enter + reconciliation handle it
+            }
             if (it === 'deleteContentBackward' && pos0 === 0) merge = _sbResolveBackspaceMerge(block0);
             else if (it === 'deleteContentForward' && kind0 === 'lyric' && pos0 >= text0.replace(/\s+$/, '').length) merge = _sbResolveDeleteMerge(block0);
             if (merge) {
