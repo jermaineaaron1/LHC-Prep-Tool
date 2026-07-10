@@ -5150,8 +5150,13 @@
                     </div>
                   </div>
                   <div class="lcd-panel lcd-media-panel">
-                    <div class="lcd-panel-header"><i class="fa-solid fa-photo-film"></i> Media Tray</div>
-                    <div class="lcd-panel-body lcd-panel-placeholder" id="lcdMediaTrayBody">Drag media onto a slide or section to apply a background.</div>
+                    <div class="lcd-panel-header"><i class="fa-solid fa-photo-film"></i> Media Tray
+                      <button class="lcd-mini-btn" style="margin-left:auto;" onclick="WO.openBackgroundModal()" title="Add or manage media in the full library"><i class="fa-solid fa-plus"></i> Add Media</button>
+                    </div>
+                    <div class="lcd-panel-body" id="lcdMediaTrayBody">
+                      <div class="lcd-media-hint">Drag a thumbnail onto a slide to background just that slide, or onto a section header to background the whole section.</div>
+                      <div class="lcd-media-grid" id="lcdMediaTrayGrid"></div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -23306,6 +23311,10 @@ var WO = (function() {
       setTimeout(_clearPreviewToBlank, 0);
       // On mobile, start with the preview panel collapsed and show the FAB
       initMobilePreview();
+      // LCD Projection redesign (Chunk 5): populate Media Tray + wire drop zone
+      _lcdRenderMediaTray();
+      if (!savedBackgrounds.length) loadBackgrounds();
+      _lcdSetupMediaDropZone();
       // Make preview panel follow while scrolling
       setTimeout(_enterServiceOrderLayout, 50);
     }
@@ -27421,7 +27430,7 @@ var WO = (function() {
       }
 
       savedBackgrounds = idbBackgrounds;
-      renderBackgroundLibrary();
+      renderBackgroundLibrary(); _lcdRenderMediaTray();
     }).catch(function(e) {
       console.error('Failed to load backgrounds:', e);
 
@@ -27434,7 +27443,7 @@ var WO = (function() {
       } catch(e2) {
         console.error('Failed to load from localStorage:', e2);
       }
-      renderBackgroundLibrary();
+      renderBackgroundLibrary(); _lcdRenderMediaTray();
     });
   }
 
@@ -27469,7 +27478,7 @@ var WO = (function() {
       });
       if (added > 0) {
         console.log('Added', added, 'cloud backgrounds to local library');
-        renderBackgroundLibrary();
+        renderBackgroundLibrary(); _lcdRenderMediaTray();
       }
     }).catch(function(err) {
       console.warn('Could not load backgrounds from cloud:', err);
@@ -27882,7 +27891,7 @@ var WO = (function() {
           };
           savedBackgrounds.push(bg);
           saveBackgrounds();
-          renderBackgroundLibrary();
+          renderBackgroundLibrary(); _lcdRenderMediaTray();
           showToast('Background uploaded to cloud!', 'success');
         } else {
           // Supabase failed — fall back to local base64
@@ -27914,7 +27923,7 @@ var WO = (function() {
       };
       savedBackgrounds.push(bg);
       saveBackgrounds();
-      renderBackgroundLibrary();
+      renderBackgroundLibrary(); _lcdRenderMediaTray();
       showToast('Background saved locally', 'success');
     };
     reader.onerror = function(e) {
@@ -28157,7 +28166,7 @@ var WO = (function() {
       });
     }
 
-    renderBackgroundLibrary();
+    renderBackgroundLibrary(); _lcdRenderMediaTray();
 
     // Clear current if deleted
     if (currentBackground && currentBackground.value === bgId) {
@@ -44265,6 +44274,98 @@ var WO = (function() {
     showToast('Lyrics applied to slides', 'success');
   }
 
+  // LCD Projection redesign (Chunk 5): Media Tray + drag-and-drop.
+  // Reuses savedBackgrounds / selectBackground / setBackgroundForSlideInSection
+  // verbatim - see file-level notes above for why each hook point was chosen.
+  function _lcdRenderMediaTray() {
+    var grid = document.getElementById('lcdMediaTrayGrid');
+    if (!grid) return;
+    if (!savedBackgrounds.length) {
+      grid.innerHTML = '<div class="lcd-panel-placeholder">No media yet \u2014 use \u201cAdd Media\u201d above.</div>';
+      return;
+    }
+    var html = '';
+    savedBackgrounds.forEach(function(bg) {
+      var thumbStyle = bg.type === 'image' ? 'background-image:url(' + bg.data + ')' : '';
+      var icon = bg.type === 'image' ? '' : '<i class="fa-solid fa-video"></i>';
+      html += '<div class="lcd-media-item" draggable="true" ondragstart="WO.lcdMediaDragStart(event,\'' + bg.id + '\')" title="' + escapeHtml(bg.name || '') + '">' +
+        '<div class="lcd-media-thumb" style="' + thumbStyle + '">' + icon + '</div></div>';
+    });
+    grid.innerHTML = html;
+  }
+
+  function lcdMediaDragStart(event, bgId) {
+    event.dataTransfer.setData('text/plain', bgId);
+    event.dataTransfer.effectAllowed = 'copy';
+  }
+
+  // Apply a background across a whole section - mirrors the existing
+  // "video background for a section" precedent (set at local slide index
+  // 0, which the app's own cascade-within-section logic already carries
+  // forward to every later slide in that section).
+  function _lcdApplySectionBackground(sectionId, bg) {
+    if (!sectionId || !bg) return;
+    setBackgroundForSlideInSection(sectionId, 0, bg);
+    updateSlideBgIndicators();
+    if (sectionId === currentSectionId) {
+      currentBackground = bg;
+      updateBackgroundSelection();
+      updateCurrentBackgroundPreview();
+      applyEffectiveBackgroundToPreview(bg);
+      sendBackgroundToProjection();
+    }
+    showToast('Background applied to section', 'success');
+  }
+
+  // One-time delegated drag/drop listeners on the stable #woWorshipOrder
+  // element - survives innerHTML rebuilds from initializeServiceOrder()/
+  // refreshSongSlidesInOrder(), so no changes were needed anywhere those
+  // functions build slide-box HTML.
+  function _lcdSetupMediaDropZone() {
+    var container = document.getElementById('woWorshipOrder');
+    if (!container || container._lcdDropWired) return;
+    container._lcdDropWired = true;
+
+    function targets(e) {
+      return {
+        slideBox: e.target.closest ? e.target.closest('.wo-slide-box') : null,
+        sectionEl: e.target.closest ? (e.target.closest('.wo-section-badge') || e.target.closest('[id$="-boxes"]')) : null
+      };
+    }
+
+    container.addEventListener('dragover', function(e) {
+      var t = targets(e);
+      if (!t.slideBox && !t.sectionEl) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      if (t.slideBox) t.slideBox.classList.add('lcd-drop-target');
+      else if (t.sectionEl) t.sectionEl.classList.add('lcd-drop-target');
+    });
+    container.addEventListener('dragleave', function(e) {
+      var t = targets(e);
+      if (t.slideBox) t.slideBox.classList.remove('lcd-drop-target');
+      if (t.sectionEl) t.sectionEl.classList.remove('lcd-drop-target');
+    });
+    container.addEventListener('drop', function(e) {
+      var bgId = e.dataTransfer.getData('text/plain');
+      if (!bgId) return;
+      var bg = savedBackgrounds.find(function(b) { return b.id === bgId; });
+      if (!bg) return;
+      var t = targets(e);
+      if (t.slideBox) {
+        e.preventDefault();
+        t.slideBox.classList.remove('lcd-drop-target');
+        selectSlideBox(t.slideBox);
+        selectBackground(bg.type + ':' + bg.id);
+      } else if (t.sectionEl) {
+        e.preventDefault();
+        t.sectionEl.classList.remove('lcd-drop-target');
+        var sid = t.sectionEl.id ? t.sectionEl.id.replace(/-badge$|-boxes$/, '') : null;
+        if (sid) _lcdApplySectionBackground(sid, bg);
+      }
+    });
+  }
+
   function selectSlideBox(box) {
     // If currently editing another box, save it first
     if (editingSlideBox && editingSlideBox !== box) {
@@ -50035,6 +50136,7 @@ var WO = (function() {
     lcdAutoSplitLyrics: lcdAutoSplitLyrics,
     lcdApplyLyricsToSlides: lcdApplyLyricsToSlides,
     lcdOnLyricsTextareaInput: lcdOnLyricsTextareaInput,
+    lcdMediaDragStart: lcdMediaDragStart,
     selectLiturgyBox: selectLiturgyBox,
     editLiturgyBox: editLiturgyBox,
     saveLiturgyEdit: saveLiturgyEdit,
@@ -55775,6 +55877,13 @@ function filterLiturgyItems() {
   .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
   .lcd-lyrics-textarea:focus { outline: none; border-color: rgba(99,102,241,0.6); }
   .lcd-lyrics-summary { color: #64748b; font-size: 0.7rem; text-align: right; }
+  .lcd-media-hint { color: #64748b; font-size: 0.68rem; margin-bottom: 8px; line-height: 1.4; }
+  .lcd-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+  .lcd-media-item { aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; cursor: grab; border: 1.5px solid rgba(255,255,255,0.1); transition: border-color 0.15s, transform 0.1s; }
+  .lcd-media-item:hover { border-color: rgba(99,102,241,0.6); transform: scale(1.03); }
+  .lcd-media-item:active { cursor: grabbing; }
+  .lcd-media-thumb { width: 100%; height: 100%; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; color: #8b5cf6; }
+  .lcd-drop-target { outline: 3px dashed #6366f1 !important; outline-offset: -3px; background: rgba(99,102,241,0.12) !important; }
 
   /* ── Worship Sections — Badge-left / Slides-middle (590) ── */
   .wo-worship-section { margin-bottom: 10px; }
