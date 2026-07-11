@@ -64022,28 +64022,25 @@ function filterLiturgyItems() {
       var days = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
       var maxOffset = Math.max(0, days.length - 2);
       STATE.rosterMobileOffset = Math.max(0, Math.min(maxOffset, STATE.rosterMobileOffset + dir * 2));
-      // Full re-render (not just class-toggle) so every duty/scripture/communion
-      // cell reflects the newly-visible services, not a stale partial view.
-      this.render();
+      // Smooth 'latch' scroll to the selected pair of services.
+      this.scrollToMobileOffset(true);
+      this.updateMobileNav(days);
     },
 
     applyMobileVisibility: function(days) {
       if (!days) days = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      // All services stay in one horizontally-scrollable table (sticky
+      // labels column); the prev/next buttons and swipe latch-scroll
+      // between pairs. No column hiding.
+      this.updateMobileNav(days);
+      this.setupMobileSwipeSnap();
+      var self = this;
+      setTimeout(function() { self.scrollToMobileOffset(false); }, 40);
+    },
+
+    updateMobileNav: function(days) {
+      if (!days) days = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
       var offset = STATE.rosterMobileOffset;
-      var visible = [offset, offset + 1];
-      // Update column visibility
-      var thead = document.getElementById('rosterThead');
-      var tbody = document.getElementById('rosterTbody');
-      if (!thead || !tbody) return;
-      thead.querySelectorAll('th[data-col-idx]').forEach(function(th) {
-        var idx = parseInt(th.getAttribute('data-col-idx'));
-        th.classList.toggle('mobile-hidden', visible.indexOf(idx) === -1);
-      });
-      tbody.querySelectorAll('td[data-col-idx]').forEach(function(td) {
-        var idx = parseInt(td.getAttribute('data-col-idx'));
-        td.classList.toggle('mobile-hidden', visible.indexOf(idx) === -1);
-      });
-      // Update nav controls
       var prevBtn = document.getElementById('rosterMobilePrev');
       var nextBtn = document.getElementById('rosterMobileNext');
       var lbl = document.getElementById('rosterMobilePageLabel');
@@ -64053,6 +64050,62 @@ function filterLiturgyItems() {
         var a = days[offset], b = days[Math.min(offset + 1, days.length - 1)];
         lbl.textContent = (a ? a.displayName : '') + (b && b !== a ? ' & ' + b.displayName : '');
       }
+    },
+
+    // Scroll the wrapper so the current pair (offset, offset+1) sits right
+    // after the sticky labels column.
+    scrollToMobileOffset: function(smooth) {
+      var wrapper = document.querySelector('.roster-table-wrapper');
+      var thead = document.getElementById('rosterThead');
+      if (!wrapper || !thead) return;
+      var th = thead.querySelector('th[data-col-idx="' + STATE.rosterMobileOffset + '"]');
+      var firstTh = thead.querySelector('th');
+      if (!th) return;
+      var stickyW = firstTh ? firstTh.getBoundingClientRect().width : 0;
+      var left = Math.max(0, th.offsetLeft - stickyW);
+      var self = this;
+      this._rosterProgScroll = true;
+      clearTimeout(this._rosterProgScrollTimer);
+      this._rosterProgScrollTimer = setTimeout(function() { self._rosterProgScroll = false; }, 500);
+      try { wrapper.scrollTo({ left: left, behavior: smooth ? 'smooth' : 'auto' }); }
+      catch (e) { wrapper.scrollLeft = left; }
+    },
+
+    // Wire a one-time debounced scroll listener: after a swipe settles,
+    // snap to the nearest pair so the view latches.
+    setupMobileSwipeSnap: function() {
+      var wrapper = document.querySelector('.roster-table-wrapper');
+      if (!wrapper || wrapper._rosterSnapWired) return;
+      wrapper._rosterSnapWired = true;
+      var self = this;
+      wrapper.addEventListener('scroll', function() {
+        if (self._rosterProgScroll) return;
+        if (window.innerWidth > 768) return;
+        clearTimeout(self._rosterSnapTimer);
+        self._rosterSnapTimer = setTimeout(function() { self.snapMobileToNearest(); }, 150);
+      }, { passive: true });
+    },
+
+    snapMobileToNearest: function() {
+      var wrapper = document.querySelector('.roster-table-wrapper');
+      var thead = document.getElementById('rosterThead');
+      if (!wrapper || !thead) return;
+      var days = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      var firstTh = thead.querySelector('th');
+      var stickyW = firstTh ? firstTh.getBoundingClientRect().width : 0;
+      var s = wrapper.scrollLeft;
+      var maxOffset = Math.max(0, days.length - 2);
+      var best = STATE.rosterMobileOffset, bestDist = Infinity;
+      for (var o = 0; o <= maxOffset; o += 2) {
+        var th = thead.querySelector('th[data-col-idx="' + o + '"]');
+        if (!th) continue;
+        var target = Math.max(0, th.offsetLeft - stickyW);
+        var dist = Math.abs(target - s);
+        if (dist < bestDist) { bestDist = dist; best = o; }
+      }
+      STATE.rosterMobileOffset = best;
+      this.updateMobileNav(days);
+      if (bestDist > 4) this.scrollToMobileOffset(true);
     },
 
     // ================================================================
