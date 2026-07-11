@@ -6048,45 +6048,47 @@ function fetchBiblePassage(reference, translation) {
     if (translation === 'esv') {
       return fetchEsvPassage_(reference, cacheKey);
     }
-
     // KJV/WEB use bible-api.com (free, no key)
-    var url = 'https://bible-api.com/' + encodeURIComponent(reference) + '?translation=' + translation;
-    var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-
-    if (response.getResponseCode() !== 200) {
-      return { error: 'Could not find passage: ' + reference };
-    }
-
-    var data = JSON.parse(response.getContentText());
-
-    var text = '';
-    if (data.verses && data.verses.length > 0) {
-      text = data.verses.map(function(v) {
-        return '[' + v.verse + '] ' + v.text.trim();
-      }).join('\n');
-    } else {
-      text = data.text || '';
-    }
-
-    var result = {
-      reference: data.reference || reference,
-      text: text,
-      translation: data.translation_name || translation.toUpperCase(),
-      verseCount: data.verses ? data.verses.length : 0
-    };
-
-    CacheService.getScriptCache().put(cacheKey, JSON.stringify(result), 21600);
-    return result;
+    return fetchFreeBiblePassage_(reference, translation, cacheKey, null);
   } catch(e) {
     return { error: e.toString() };
   }
 }
 
-// Fetch from ESV API (api.esv.org) — free for ministry use
+// Free passage source (bible-api.com) - no key needed. Used for KJV/WEB
+// and as an ESV fallback when the ESV key isn't configured.
+function fetchFreeBiblePassage_(reference, translation, cacheKey, note) {
+  var url = 'https://bible-api.com/' + encodeURIComponent(reference) + '?translation=' + translation;
+  var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  if (response.getResponseCode() !== 200) {
+    return { error: 'Could not find passage: ' + reference };
+  }
+  var data = JSON.parse(response.getContentText());
+  var text = '';
+  if (data.verses && data.verses.length > 0) {
+    text = data.verses.map(function(v) {
+      return '[' + v.verse + '] ' + v.text.trim();
+    }).join('\n');
+  } else {
+    text = data.text || '';
+  }
+  var result = {
+    reference: data.reference || reference,
+    text: text,
+    translation: (data.translation_name || translation.toUpperCase()) + (note ? ' - ' + note : ''),
+    verseCount: data.verses ? data.verses.length : 0
+  };
+  CacheService.getScriptCache().put(cacheKey, JSON.stringify(result), 21600);
+  return result;
+}
+
+// Fetch from ESV API (api.esv.org) - free for ministry use. Falls back to a
+// free translation (WEB) if the ESV key is missing or the API errors, so
+// scripture readings always load instead of failing.
 function fetchEsvPassage_(reference, cacheKey) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('ESV_API_KEY');
   if (!apiKey) {
-    return { error: 'ESV API key not configured. Go to Apps Script > Project Settings > Script Properties and add ESV_API_KEY. Get a free key at https://api.esv.org/' };
+    return fetchFreeBiblePassage_(reference, 'web', cacheKey, 'WEB (set ESV_API_KEY in Script Properties for ESV)');
   }
 
   var url = 'https://api.esv.org/v3/passage/text/?' +
@@ -6103,7 +6105,7 @@ function fetchEsvPassage_(reference, cacheKey) {
   });
 
   if (response.getResponseCode() !== 200) {
-    return { error: 'ESV API error: ' + response.getContentText() };
+    return fetchFreeBiblePassage_(reference, 'web', cacheKey, 'WEB (ESV API error)');
   }
 
   var data = JSON.parse(response.getContentText());
