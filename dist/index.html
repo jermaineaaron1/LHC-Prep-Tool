@@ -45032,7 +45032,7 @@ var WO = (function() {
     }
 
     container.addEventListener('dragover', function(e) {
-      if (_lcdDragRowId) return; // rail-row reorder in progress - don't hijack dropEffect
+      if (_lcdDragRowId || _lcdDragSectionId) return; // rail reorder in progress - don't hijack dropEffect
       var t = targets(e);
       if (!t.railRow && !t.slideBox && !t.sectionEl) return;
       e.preventDefault();
@@ -45042,7 +45042,7 @@ var WO = (function() {
       else if (t.sectionEl) t.sectionEl.classList.add('lcd-drop-target');
     });
     container.addEventListener('dragleave', function(e) {
-      if (_lcdDragRowId) return;
+      if (_lcdDragRowId || _lcdDragSectionId) return;
       var t = targets(e);
       if (t.railRow) t.railRow.classList.remove('lcd-drop-target');
       if (t.slideBox) t.slideBox.classList.remove('lcd-drop-target');
@@ -45259,7 +45259,7 @@ var WO = (function() {
         var readingsBtn = isScripture ? '<button class="lcd-rail-addbtn lcd-rail-add-readings" onclick="WO.addScriptureReadingsTemplate(\'' + sectionId + '\')" title="Insert the First / Psalm / Second / Gospel readings template"><i class="fa-solid fa-book-open"></i></button>' : '';
         var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + slideBtn + pptBtn + '</span>';
         railHtml += '<div class="lcd-rail-section">' +
-          '<div class="lcd-rail-section-header"><span>' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
+          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '"><span>' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
           rowsHtml +
         '</div>';
       }
@@ -45272,8 +45272,9 @@ var WO = (function() {
       rail.id = 'lcdCompactRail';
       root.insertBefore(rail, root.firstChild);
     }
-    rail.innerHTML = railHtml;
+    rail.innerHTML = '<button class="lcd-rail-add-section" onclick="WO.addNewSection()" title="Add a new section"><i class="fa-solid fa-plus"></i> Add New Section</button>' + railHtml;
     _lcdWireRailDrag(rail);
+    _lcdWireSectionDrag(rail);
   }
 
   // ---- Order-level undo / redo for the LCD Projection view -----------
@@ -45420,6 +45421,60 @@ var WO = (function() {
       var s = old[origIdx] || { content: '', background: '' };
       return { index: i, content: s.content, richHtml: s.richHtml, background: s.background };
     });
+  }
+
+  // ---- Drag-to-reorder whole sections in the compact rail -------------
+  var _lcdDragSectionId = null;
+  var _lcdSectionDropBelow = false;
+  function _lcdWireSectionDrag(rail) {
+    Array.from(rail.querySelectorAll('.lcd-rail-section-header[data-section-id]')).forEach(function(hdr) {
+      hdr.setAttribute('draggable', 'true');
+      hdr.addEventListener('dragstart', function(e) { lcdSectionDragStart(e, hdr.getAttribute('data-section-id')); });
+      hdr.addEventListener('dragover', function(e) { lcdSectionDragOver(e, hdr); });
+      hdr.addEventListener('drop', function(e) { lcdSectionDrop(e, hdr.getAttribute('data-section-id')); });
+      hdr.addEventListener('dragend', lcdSectionDragEnd);
+    });
+  }
+  function lcdSectionDragStart(e, sectionId) {
+    _lcdDragSectionId = sectionId;
+    if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', 'railsection:' + sectionId); } catch (x) {} }
+    if (e.stopPropagation) e.stopPropagation();
+  }
+  function lcdSectionDragOver(e, hdr) {
+    if (!_lcdDragSectionId) return;
+    var tid = hdr.getAttribute('data-section-id');
+    if (tid === _lcdDragSectionId) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    var rect = hdr.getBoundingClientRect();
+    _lcdSectionDropBelow = (e.clientY - rect.top) > (rect.height / 2);
+    _lcdClearDropMarkers();
+    hdr.classList.add(_lcdSectionDropBelow ? 'lcd-rail-drop-below' : 'lcd-rail-drop-above');
+  }
+  function lcdSectionDragEnd() {
+    _lcdDragSectionId = null;
+    _lcdClearDropMarkers();
+  }
+  function lcdSectionDrop(e, targetSectionId) {
+    if (e.preventDefault) e.preventDefault();
+    var draggedId = _lcdDragSectionId;
+    var below = _lcdSectionDropBelow;
+    lcdSectionDragEnd();
+    if (!draggedId || draggedId === targetSectionId) return;
+    var dragged = document.getElementById(draggedId);
+    var target = document.getElementById(targetSectionId);
+    if (!dragged || !target) return;
+    if (!dragged.classList.contains('wo-worship-section') || !target.classList.contains('wo-worship-section')) return;
+    var container = dragged.parentElement;
+    if (!container || target.parentElement !== container) return;
+    _lcdPushUndo();
+    if (below) target.insertAdjacentElement('afterend', dragged);
+    else target.insertAdjacentElement('beforebegin', dragged);
+    if (typeof updateSectionNumbers === 'function') updateSectionNumbers();
+    if (typeof _captureCurrentLayout === 'function') _captureCurrentLayout();
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    showToast('Section moved', 'success');
   }
 
   function _lcdRailRowClick(rowId) {
@@ -57094,6 +57149,10 @@ function filterLiturgyItems() {
   .lcd-rail-add-song:hover { background: rgba(37,99,235,0.24); }
   .lcd-rail-add-liturgy { background: rgba(124,58,237,0.12); border-color: rgba(124,58,237,0.4); color: #7c3aed; }
   .lcd-rail-add-liturgy:hover { background: rgba(124,58,237,0.24); }
+  .lcd-rail-add-section { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; background: rgba(34,197,94,0.14); border: 1px solid rgba(34,197,94,0.4); color: #16a34a; border-radius: 7px; padding: 7px 10px; margin-bottom: 8px; font-size: 0.72rem; font-weight: 700; cursor: pointer; font-family: 'Poppins', sans-serif; }
+  .lcd-rail-add-section:hover { background: rgba(34,197,94,0.24); }
+  .lcd-rail-section-header[draggable="true"] { cursor: grab; }
+  .lcd-rail-section-header[draggable="true"]:active { cursor: grabbing; }
   .lcd-rail-ppt-row { align-items: center; }
   .lcd-rail-ppt-thumb { width: 42px; height: 24px; flex-shrink: 0; border-radius: 3px; background-color: #1e293b; background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; color: #ea580c; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.12); }
   .lcd-rail-slide-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1.5px solid transparent; transition: background 0.12s, border-color 0.12s; }
