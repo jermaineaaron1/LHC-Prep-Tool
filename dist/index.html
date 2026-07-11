@@ -5103,6 +5103,8 @@
                     <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
                     <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
                   </div>
+                  <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+                  <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
                   <div class="lcd-controls-spacer"></div>
                   <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
                     <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
@@ -27724,11 +27726,13 @@ var WO = (function() {
   function getBackgroundForSlideInSection(sectionId, localIdx) {
     if (!sectionId || !sectionBackgrounds[sectionId]) return null;
     var sectionBgs = sectionBackgrounds[sectionId];
-    // Check this exact slide first
+    // This exact slide's own background always applies (any scope).
     if (sectionBgs[localIdx]) return sectionBgs[localIdx];
-    // Cascade backward within the section
+    // Cascade backward, but only SECTION-scoped backgrounds carry forward; a
+    // per-slide background (scope 'slide') stays on its own slide and does not
+    // bleed onto later slides.
     for (var i = localIdx - 1; i >= 0; i--) {
-      if (sectionBgs[i]) return sectionBgs[i];
+      if (sectionBgs[i] && sectionBgs[i].scope !== 'slide') return sectionBgs[i];
     }
     return null; // No BG anywhere in this section
   }
@@ -28170,14 +28174,16 @@ var WO = (function() {
     showToast('Background applied to slide', 'success');
   }
 
-  function selectBackground(bgString) {
+  function selectBackground(bgString, slideOnly) {
     var parts = bgString.split(':');
     var type = parts[0];
     var value = parts.slice(1).join(':');
 
     currentBackground = { type: type, value: value };
+    // slideOnly marks this background as belonging to just this slide, so the
+    // section cascade won't carry it onto later slides.
+    if (slideOnly) currentBackground.scope = 'slide';
 
-    // Set for current slide within current section (cascades forward in section)
     if (currentSectionId) {
       setBackgroundForSlideInSection(currentSectionId, currentLocalSlideIdx, currentBackground);
     }
@@ -28187,7 +28193,7 @@ var WO = (function() {
     applyEffectiveBackgroundToPreview(currentBackground);
     sendBackgroundToProjection();
     updateSlideBgIndicators();
-    showToast('Background applied to this slide and forward!', 'success');
+    showToast(slideOnly ? 'Background applied to this slide' : 'Background applied to this slide and forward!', 'success');
   }
 
   function clearBackground() {
@@ -45037,7 +45043,7 @@ var WO = (function() {
       if (!bg) return;
       e.preventDefault();
       if (!selectedSlideBox && !currentSectionId) { showToast('Select a slide first, then drop media on it.', 'warning'); return; }
-      selectBackground(bg.type + ':' + bg.id);
+      selectBackground(bg.type + ':' + bg.id, true);
     });
   }
 
@@ -45078,7 +45084,7 @@ var WO = (function() {
     if (!selectedSlideBox && !currentSectionId) { showToast('Select a slide first, then click media to apply it.', 'warning'); return; }
     var bg = savedBackgrounds.find(function(b) { return b.id === bgId; });
     if (!bg) return;
-    selectBackground(bg.type + ':' + bg.id);
+    selectBackground(bg.type + ':' + bg.id, true);
   }
 
   // Remove the background from the current slide (reuses clearBackground).
@@ -45103,13 +45109,17 @@ var WO = (function() {
   // forward to every later slide in that section).
   function _lcdApplySectionBackground(sectionId, bg) {
     if (!sectionId || !bg) return;
-    setBackgroundForSlideInSection(sectionId, 0, bg);
+    // Normalize to the standard { type, value:id } shape (value is the saved-bg
+    // id, resolved to data downstream) and tag it section-scoped so it cascades
+    // across the whole section.
+    var norm = { type: bg.type, value: bg.id, scope: 'section' };
+    setBackgroundForSlideInSection(sectionId, 0, norm);
     updateSlideBgIndicators();
     if (sectionId === currentSectionId) {
-      currentBackground = bg;
+      currentBackground = norm;
       updateBackgroundSelection();
       updateCurrentBackgroundPreview();
-      applyEffectiveBackgroundToPreview(bg);
+      applyEffectiveBackgroundToPreview(norm);
       sendBackgroundToProjection();
     }
     showToast('Background applied to section', 'success');
@@ -45162,12 +45172,12 @@ var WO = (function() {
         e.preventDefault();
         t.railRow.classList.remove('lcd-drop-target');
         var box = _lcdRailRowMap[t.railRow.id];
-        if (box && box.isConnected) { selectSlideBox(box); selectBackground(bg.type + ':' + bg.id); }
+        if (box && box.isConnected) { selectSlideBox(box); selectBackground(bg.type + ':' + bg.id, true); }
       } else if (t.slideBox) {
         e.preventDefault();
         t.slideBox.classList.remove('lcd-drop-target');
         selectSlideBox(t.slideBox);
-        selectBackground(bg.type + ':' + bg.id);
+        selectBackground(bg.type + ':' + bg.id, true);
       } else if (t.railSection) {
         e.preventDefault();
         t.railSection.classList.remove('lcd-drop-target-section');
@@ -51473,6 +51483,8 @@ var WO = (function() {
     lcdDeleteCurrentSlide: _lcdDeleteCurrentSlide,
     _lcdDeleteRailRow: _lcdDeleteRailRow,
     lcdFlushAutoApply: _lcdFlushAutoApply,
+    lcdUndo: _lcdUndo,
+    lcdRedo: _lcdRedo,
     lcdEditorKeydown: lcdEditorKeydown,
     lcdFmtCmd: lcdFmtCmd,
     lcdFmtFont: lcdFmtFont,
@@ -57226,6 +57238,7 @@ function filterLiturgyItems() {
   .lcd-controls-row .wo-barrier-btn { padding: 6px 12px; border-radius: 7px; font-size: 0.75rem; }
   .lcd-controls-row .wo-blank-btn { padding: 6px 13px; border-radius: 7px; font-size: 0.75rem; }
   .lcd-controls-row .wo-live-present-btn { padding: 7px 16px; border-radius: 7px; font-weight: 700; font-size: 0.78rem; box-shadow: 0 2px 8px rgba(0,102,255,0.3); }
+  .lcd-controls-row .lcd-hist-btn { padding: 6px 10px; }
   .lcd-slide-num-badge { color: #94a3b8; font-size: 0.7rem; font-weight: 600; background: rgba(255,255,255,0.06); border-radius: 5px; padding: 1px 7px; margin-left: 2px; }
   .lcd-lower-row { display: flex; gap: 12px; margin-top: 12px; min-height: 140px; }
   .lcd-lower-row .lcd-output-box { display: none; }
