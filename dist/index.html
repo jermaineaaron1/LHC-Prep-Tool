@@ -5151,7 +5151,7 @@
                         </select>
                         <input type="color" class="lcd-fmt-color" title="Colour of selected text" value="#ffffff" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtColor(this)">
                       </div>
-                      <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)"></div>
+                      <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)" onblur="WO.lcdFlushAutoApply()"></div>
                       <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
                     </div>
                   </div>
@@ -44436,9 +44436,37 @@ var WO = (function() {
   }
 
   var _lcdSplitDebounce = null;
+  var _lcdAutoApplyTimer = null;   // debounced auto-apply of editor edits
+  var _lcdEditDirty = false;       // an edit burst is in progress (undo pushed once)
   function lcdOnLyricsTextareaInput() {
+    // Auto-apply: no "Apply Changes" click needed. Snapshot undo once at the
+    // start of an edit burst, then commit ~0.5s after typing stops. The live
+    // projection updates on that same pause (not per keystroke), so a slide
+    // that is on-screen never flickers mid-word.
+    if (_lcdActiveSlide) {
+      if (!_lcdEditDirty) { _lcdPushUndo(); _lcdEditDirty = true; }
+      clearTimeout(_lcdAutoApplyTimer);
+      _lcdAutoApplyTimer = setTimeout(function() {
+        _lcdAutoApplyTimer = null;
+        _lcdEditDirty = false;
+        _lcdCommitEditorToSlide();
+      }, 500);
+    }
     clearTimeout(_lcdSplitDebounce);
     _lcdSplitDebounce = setTimeout(_lcdUpdateSlideSummary, 400);
+  }
+
+  // Commit any pending edit immediately (slide switch / editor blur).
+  function _lcdFlushAutoApply() {
+    if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
+    if (_lcdEditDirty) { _lcdEditDirty = false; _lcdCommitEditorToSlide(); }
+  }
+
+  // Drop a pending edit without committing (before delete/merge/split, which
+  // consume the editor content themselves).
+  function _lcdCancelAutoApply() {
+    if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
+    _lcdEditDirty = false;
   }
 
   // Preview how the current textarea content will split into slides -
@@ -44517,6 +44545,8 @@ var WO = (function() {
 
   function _lcdLoadSlideIntoEditor(box) {
     if (!box || !box.classList || !box.classList.contains('wo-slide-box')) return;
+    // Commit any pending edit to the slide we're leaving before loading this one.
+    _lcdFlushAutoApply();
     var songId = box.getAttribute('data-song-id') || '';
     _lcdActiveSlide = {
       sectionId: box.getAttribute('data-section') || '',
@@ -44558,15 +44588,16 @@ var WO = (function() {
     return container.querySelector(sel);
   }
 
-  function _lcdApplySlideEdit() {
-    _lcdPushUndo();
+  // Core write: editor content -> the active slide box (song model + persist +
+  // live projection if this slide is on-screen). No undo push, no toast; shared
+  // by the explicit Apply button and the debounced auto-apply.
+  function _lcdCommitEditorToSlide() {
     var ed = _lcdEditorEl();
-    if (!ed) return;
-    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
+    if (!ed || !_lcdActiveSlide) return false;
     var box = _lcdRelocateActiveSlideBox();
-    if (!box) { showToast('That slide is no longer available.', 'warning'); return; }
+    if (!box) return false;
     var content = box.querySelector('.wo-slide-content');
-    if (!content) return;
+    if (!content) return false;
     var richHtml = _getEditorHtml(ed);
     var plain = ed.innerText || '';
     var parts = richHtml.split(/<br\s*\/?>/gi);
@@ -44593,7 +44624,16 @@ var WO = (function() {
     if (box.classList.contains('selected')) { _updateProjectionFromEditor(richHtml); }
     autoSaveOrder();
     _lcdUpdateSlideSummary();
-    showToast('Slide updated', 'success');
+    return true;
+  }
+
+  function _lcdApplySlideEdit() {
+    if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
+    _lcdEditDirty = false;
+    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
+    _lcdPushUndo();
+    if (_lcdCommitEditorToSlide()) showToast('Slide updated', 'success');
+    else showToast('That slide is no longer available.', 'warning');
   }
 
   function _lcdUpdateSlideSummary() {
@@ -44652,10 +44692,14 @@ var WO = (function() {
     box.remove();
   }
 
-  function _lcdDeleteCurrentSlide() {
-    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
-    var box = _lcdRelocateActiveSlideBox();
-    if (!box) { showToast('That slide is no longer available.', 'warning'); return; }
+  // Core delete for a specific slide box (shared by the editor's Delete button
+  // and the per-row trash button on the rail). A DIFFERENT slide-in-edit is
+  // preserved (flushed, then kept selected); only its index is re-synced.
+  function _lcdDeleteSlideBox(box) {
+    if (!box || !box.isConnected) { showToast('That slide is no longer available.', 'warning'); return; }
+    var activeBox = _lcdRelocateActiveSlideBox();
+    var deletingActive = (activeBox === box);
+    if (deletingActive) _lcdCancelAutoApply(); else _lcdFlushAutoApply();
     _lcdPushUndo();
     var sectionId = box.getAttribute('data-section') || '';
     var liturgyId = box.getAttribute('data-liturgy-id') || '';
@@ -44669,7 +44713,7 @@ var WO = (function() {
       while (n && !(n.classList && n.classList.contains('wo-slide-box'))) n = dir < 0 ? n.previousElementSibling : n.nextElementSibling;
       return n;
     }
-    var neighbor = nearest(box, -1) || nearest(box, 1);
+    var neighbor = deletingActive ? (nearest(box, -1) || nearest(box, 1)) : null;
     var groupCount = 1;
     if (container) {
       if (groupId) {
@@ -44690,9 +44734,25 @@ var WO = (function() {
     if (neighbor && !neighbor.isConnected) neighbor = null;
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
-    if (neighbor && neighbor.isConnected) { selectSlideBox(neighbor); _lcdLoadSlideIntoEditor(neighbor); }
-    else { _lcdClearEditor(); }
+    if (deletingActive) {
+      if (neighbor && neighbor.isConnected) { selectSlideBox(neighbor); _lcdLoadSlideIntoEditor(neighbor); }
+      else { _lcdClearEditor(); }
+    } else if (activeBox && activeBox.isConnected && _lcdActiveSlide) {
+      // Different slide was being edited - keep it; re-sync its (maybe renumbered) index.
+      _lcdActiveSlide.slideIdx = activeBox.getAttribute('data-slide-idx') || _lcdActiveSlide.slideIdx;
+    }
     showToast('Slide deleted', 'success');
+  }
+
+  function _lcdDeleteCurrentSlide() {
+    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
+    _lcdDeleteSlideBox(_lcdRelocateActiveSlideBox());
+  }
+
+  // Delete the slide behind a specific rail row (the trash button on each row).
+  function _lcdDeleteRailRow(rowId) {
+    var entry = _lcdRailRowMap[rowId];
+    _lcdDeleteSlideBox((entry && entry.nodeType === 1) ? entry : null);
   }
 
   // ---- Ctrl+Enter: split the current slide at the cursor --------------
@@ -44781,6 +44841,7 @@ var WO = (function() {
   }
 
   function _lcdSplitSlideAtCursor() {
+    _lcdCancelAutoApply();
     _lcdPushUndo();
     var ed = _lcdEditorEl();
     if (!ed) return;
@@ -44821,6 +44882,7 @@ var WO = (function() {
   // previous slide of the same group, caret at the join. Returns true if
   // a merge happened (so the caller can preventDefault).
   function _lcdMergeSlideUp() {
+    _lcdCancelAutoApply();
     _lcdPushUndo();
     var ed = _lcdEditorEl();
     if (!ed || !_lcdActiveSlide) return false;
@@ -45159,6 +45221,7 @@ var WO = (function() {
         '<div class="lcd-rail-item-title">' + escapeHtml(groupTitle) + '</div>' +
         (preview ? '<div class="lcd-rail-slide-preview">' + escapeHtml(preview) + '</div>' : '') +
       '</div>' +
+      '<button class="lcd-rail-slide-del" draggable="false" onclick="event.stopPropagation(); WO._lcdDeleteRailRow(\'' + rowId + '\')" title="Delete this slide"><i class="fa-solid fa-trash"></i></button>' +
     '</div>';
   }
 
@@ -51395,6 +51458,8 @@ var WO = (function() {
     lcdApplyLyricsToSlides: lcdApplyLyricsToSlides,
     lcdApplySlideEdit: _lcdApplySlideEdit,
     lcdDeleteCurrentSlide: _lcdDeleteCurrentSlide,
+    _lcdDeleteRailRow: _lcdDeleteRailRow,
+    lcdFlushAutoApply: _lcdFlushAutoApply,
     lcdEditorKeydown: lcdEditorKeydown,
     lcdFmtCmd: lcdFmtCmd,
     lcdFmtFont: lcdFmtFont,
@@ -57263,6 +57328,9 @@ function filterLiturgyItems() {
   .lcd-rail-slide-body { min-width: 0; flex: 1; }
   .lcd-rail-item-title { font-size: 0.78rem; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lcd-rail-slide-preview { font-size: 0.7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lcd-rail-slide-del { flex-shrink: 0; align-self: center; background: transparent; border: none; color: #cbd5e1; cursor: pointer; padding: 4px 7px; margin-left: 2px; border-radius: 5px; font-size: 0.72rem; opacity: 0.35; transition: opacity 0.12s, color 0.12s, background 0.12s; }
+  .lcd-rail-slide-row:hover .lcd-rail-slide-del { opacity: 1; }
+  .lcd-rail-slide-del:hover { color: #dc2626; background: rgba(239,68,68,0.14); }
 
   /* ── Worship Sections — Badge-left / Slides-middle (590) ── */
   .wo-worship-section { margin-bottom: 10px; }
