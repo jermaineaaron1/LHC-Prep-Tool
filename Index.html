@@ -43709,8 +43709,13 @@ var WO = (function() {
     var openBtn = document.getElementById('lcdOpenInSongOrderBtn');
     if (titleEl) titleEl.textContent = _lcdSlideItemTitle(box);
     if (slideNumEl) {
-      var n = parseInt(_lcdActiveSlide.slideIdx, 10);
-      slideNumEl.textContent = isNaN(n) ? '' : ('Slide ' + (n + 1));
+      // Section-level position (matches the rail's N.M numbering), not the
+      // group-local index - a blank slide added via + Add Slide is its own
+      // group but should still read as e.g. 'Slide 5' within the section.
+      var _pos = 0;
+      var _bx = box.closest('.wo-content-boxes');
+      if (_bx) _pos = Array.from(_bx.querySelectorAll('.wo-slide-box')).indexOf(box) + 1;
+      slideNumEl.textContent = _pos ? ('Slide ' + _pos) : '';
     }
     if (ed) ed.innerHTML = _lcdReadSlideRich(box);
     if (openBtn) openBtn.style.display = songId ? '' : 'none';
@@ -43993,12 +43998,14 @@ var WO = (function() {
     if (!ed || !_lcdActiveSlide) return false;
     var box = _lcdRelocateActiveSlideBox();
     if (!box) return false;
-    var group = _lcdGroupKey(box);
-    var prev = box.previousElementSibling;
-    while (prev && !(prev.classList && prev.classList.contains('wo-slide-box') && _lcdGroupKey(prev) === group)) {
-      prev = prev.previousElementSibling;
-    }
-    if (!prev) return false; // no previous slide in this group - let default backspace run
+    var container = box.closest('.wo-content-boxes');
+    if (!container) return false;
+    // Previous slide box anywhere in this section (crosses group boundaries),
+    // so a blank slide can merge back into whatever slide precedes it.
+    var allSlides = Array.from(container.querySelectorAll('.wo-slide-box'));
+    var myIdx = allSlides.indexOf(box);
+    if (myIdx <= 0) return false; // first slide in the section - let default backspace run
+    var prev = allSlides[myIdx - 1];
     var curText = ed.innerText || '';
     var prevText = _lcdReadSlidePlain(prev);
     var mergePoint = prevText.length;
@@ -44008,10 +44015,33 @@ var WO = (function() {
     var liturgyId = box.getAttribute('data-liturgy-id') || '';
     var sectionId = box.getAttribute('data-section') || '';
     var isLiturgy = box.classList.contains('wo-liturgy-slide');
-    box.remove();
-    if (songId) _lcdReorderSongSlides(songId, sectionId);
     var groupId = liturgyId || songId;
-    if (groupId && typeof renumberSlideBoxes === 'function') renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
+    box.remove();
+    // If the merged-away slide was the last one in its group, drop the group's
+    // banner + add-slide row (and remove songs from songOrderSections).
+    var remaining = 0;
+    if (groupId) {
+      var sel = isLiturgy ? '.wo-slide-box[data-liturgy-id="' + groupId + '"]' : '.wo-slide-box[data-song-id="' + groupId + '"]';
+      remaining = container.querySelectorAll(sel).length;
+    }
+    if (groupId && remaining === 0) {
+      if (isLiturgy) {
+        var lb = container.querySelector('.wo-liturgy-banner-bar[data-liturgy-id="' + groupId + '"]');
+        if (lb) lb.remove();
+        container.querySelectorAll('.wo-add-slide-row[data-liturgy-id="' + groupId + '"]').forEach(function(e) { e.remove(); });
+      } else {
+        var sbn = container.querySelector('.wo-song-banner[data-song-id="' + groupId + '"]');
+        if (sbn) sbn.remove();
+        container.querySelectorAll('.wo-add-slide-row[data-song-id="' + groupId + '"]').forEach(function(e) { e.remove(); });
+        var si = songOrderSections.findIndex(function(s) { return s.id === groupId; });
+        if (si >= 0) songOrderSections.splice(si, 1);
+      }
+    } else if (groupId && typeof renumberSlideBoxes === 'function') {
+      renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
+      if (songId) _lcdReorderSongSlides(songId, sectionId);
+    }
+    var prevSongId = prev.getAttribute('data-song-id') || '';
+    if (prevSongId) _lcdReorderSongSlides(prevSongId, prev.getAttribute('data-section') || sectionId);
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
     selectSlideBox(prev);
