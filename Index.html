@@ -44335,6 +44335,7 @@ var WO = (function() {
 
   // ---- Drag-to-reorder slides within a group in the compact rail ------
   var _lcdDragRowId = null;
+  var _lcdDropBelow = false;
   function _lcdWireRailDrag(rail) {
     Array.from(rail.querySelectorAll('.lcd-rail-slide-row')).forEach(function(row) {
       var entry = _lcdRailRowMap[row.id];
@@ -44366,11 +44367,20 @@ var WO = (function() {
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     var row = document.getElementById(rowId);
-    if (row) row.classList.add('lcd-rail-drop-into');
+    if (!row) return;
+    var rect = row.getBoundingClientRect();
+    _lcdDropBelow = (e.clientY - rect.top) > (rect.height / 2);
+    _lcdClearDropMarkers();
+    row.classList.add(_lcdDropBelow ? 'lcd-rail-drop-below' : 'lcd-rail-drop-above');
+  }
+  function _lcdClearDropMarkers() {
+    document.querySelectorAll('.lcd-rail-drop-above, .lcd-rail-drop-below').forEach(function(el) {
+      el.classList.remove('lcd-rail-drop-above', 'lcd-rail-drop-below');
+    });
   }
   function lcdRailDragEnd() {
     _lcdDragRowId = null;
-    document.querySelectorAll('.lcd-rail-drop-into').forEach(function(el) { el.classList.remove('lcd-rail-drop-into'); });
+    _lcdClearDropMarkers();
   }
   function lcdRailDrop(e, rowId) {
     if (e.preventDefault) e.preventDefault();
@@ -44384,7 +44394,7 @@ var WO = (function() {
     var kids = Array.from(parent.children);
     var di = kids.indexOf(dragged), ti = kids.indexOf(target);
     if (di < 0 || ti < 0) return;
-    if (di < ti) target.insertAdjacentElement('afterend', dragged);
+    if (_lcdDropBelow) target.insertAdjacentElement('afterend', dragged);
     else target.insertAdjacentElement('beforebegin', dragged);
     var songId = dragged.getAttribute('data-song-id') || '';
     var liturgyId = dragged.getAttribute('data-liturgy-id') || '';
@@ -56097,7 +56107,8 @@ function filterLiturgyItems() {
   .lcd-rail-slide-row.selected { background: #eef2ff; border-color: #6366f1; }
   .lcd-rail-slide-row[draggable="true"] { cursor: grab; }
   .lcd-rail-slide-row[draggable="true"]:active { cursor: grabbing; }
-  .lcd-rail-drop-into { border-color: #6366f1 !important; box-shadow: inset 0 -3px 0 #6366f1; }
+  .lcd-rail-drop-above { box-shadow: inset 0 4px 0 0 #4f46e5; }
+  .lcd-rail-drop-below { box-shadow: inset 0 -4px 0 0 #4f46e5; }
   .lcd-rail-slide-num { flex-shrink: 0; font-size: 0.66rem; font-weight: 700; color: #94a3b8; padding-top: 1px; min-width: 26px; }
   .lcd-rail-slide-row.selected .lcd-rail-slide-num { color: #6366f1; }
   .lcd-rail-slide-body { min-width: 0; flex: 1; }
