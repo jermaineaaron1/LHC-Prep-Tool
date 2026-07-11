@@ -28174,6 +28174,23 @@ var WO = (function() {
     showToast('Background applied to slide', 'success');
   }
 
+  // Remove any video-type backgrounds stored in a section so a "sticky" section
+  // video can't reassert itself when the user navigates to another slide after
+  // choosing a new background. Also stops any currently-playing video.
+  function _clearSectionVideoBg(sectionId) {
+    clearActiveVideo();
+    if (!sectionId || !sectionBackgrounds[sectionId]) return;
+    var store = sectionBackgrounds[sectionId], changed = false;
+    Object.keys(store).forEach(function(k) {
+      var e = store[k];
+      if (e && (e.type === 'video' || e.type === 'youtube' || e.type === 'localVideo')) { delete store[k]; changed = true; }
+    });
+    if (changed) {
+      if (!Object.keys(store).length) delete sectionBackgrounds[sectionId];
+      if (typeof saveSlideBackgrounds === 'function') saveSlideBackgrounds();
+    }
+  }
+
   function selectBackground(bgString, slideOnly) {
     var parts = bgString.split(':');
     var type = parts[0];
@@ -28183,6 +28200,10 @@ var WO = (function() {
     // slideOnly marks this background as belonging to just this slide, so the
     // section cascade won't carry it onto later slides.
     if (slideOnly) currentBackground.scope = 'slide';
+
+    // A fresh media choice totally replaces any sticky section video so it does
+    // not come back when navigating to other slides.
+    _clearSectionVideoBg(currentSectionId);
 
     if (currentSectionId) {
       setBackgroundForSlideInSection(currentSectionId, currentLocalSlideIdx, currentBackground);
@@ -45061,16 +45082,56 @@ var WO = (function() {
       return;
     }
     var html = noneTile;
+    var pending = [];
     savedBackgrounds.forEach(function(bg) {
-      var thumbStyle = bg.type === 'image' ? 'background-image:url(' + bg.data + ')' : '';
-      var icon = bg.type === 'image' ? '' : '<i class="fa-solid fa-video"></i>';
+      var isImg = bg.type === 'image';
+      var thumbUrl = isImg ? bg.data : (bg.thumb || '');
+      var thumbStyle = thumbUrl ? 'background-image:url(' + thumbUrl + ')' : '';
+      var icon = thumbUrl ? '' : '<i class="fa-solid fa-video"></i>';
+      var vidBadge = (!isImg && thumbUrl) ? '<span class="lcd-media-vid-badge"><i class="fa-solid fa-play"></i></span>' : '';
       html += '<div class="lcd-media-item" draggable="true" ondragstart="WO.lcdMediaDragStart(event,\'' + bg.id + '\')" ' +
         'onclick="WO.lcdApplyMediaToCurrent(\'' + bg.id + '\')" title="' + escapeHtml(bg.name || '') + ' \u2014 click to apply, drag to a slide, \u00d7 to remove">' +
-        '<div class="lcd-media-thumb" style="' + thumbStyle + '">' + icon + '</div>' +
+        '<div class="lcd-media-thumb" style="' + thumbStyle + '">' + icon + '</div>' + vidBadge +
         '<button class="lcd-media-del" onclick="WO.lcdDeleteMedia(event,\'' + bg.id + '\')" title="Remove this media from the library">\u00d7</button>' +
         '</div>';
+      if (!isImg && !bg.thumb && !bg._thumbTried) pending.push(bg);
     });
     grid.innerHTML = html;
+    // Generate poster thumbnails for videos (async; re-renders when ready).
+    pending.forEach(function(bg) { _lcdGenVideoThumb(bg); });
+  }
+
+  // Capture a poster frame from a video background so the media tray shows a
+  // picture instead of a generic video icon. Runs once per video per session.
+  function _lcdGenVideoThumb(bg) {
+    if (!bg || bg.type !== 'video' || bg._thumbTried || !bg.data) return;
+    bg._thumbTried = true;
+    var v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto';
+    try { v.crossOrigin = 'anonymous'; } catch (e) {}
+    v.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:160px;height:90px;opacity:0;pointer-events:none;';
+    var done = false;
+    function cleanup() { try { v.pause(); } catch (e) {} try { if (v.parentNode) v.parentNode.removeChild(v); } catch (e) {} }
+    function capture() {
+      if (done) return; done = true;
+      try {
+        var c = document.createElement('canvas');
+        c.width = 160; c.height = 90;
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        bg.thumb = c.toDataURL('image/jpeg', 0.6);
+        if (typeof _lcdRenderMediaTray === 'function') _lcdRenderMediaTray();
+      } catch (e) {}
+      cleanup();
+    }
+    v.addEventListener('loadeddata', function() {
+      var d = (isFinite(v.duration) && v.duration) ? v.duration : 0;
+      try { v.currentTime = d ? Math.min(0.5, d * 0.1) : 0.1; } catch (e) { capture(); }
+    });
+    v.addEventListener('seeked', capture);
+    v.addEventListener('error', cleanup);
+    document.body.appendChild(v);
+    v.src = bg.data;
+    setTimeout(function() { if (!done) { if (v.readyState >= 2) capture(); else cleanup(); } }, 4000);
   }
 
   function lcdMediaDragStart(event, bgId) {
@@ -45109,6 +45170,10 @@ var WO = (function() {
   // forward to every later slide in that section).
   function _lcdApplySectionBackground(sectionId, bg) {
     if (!sectionId || !bg) return;
+    // A section-level choice replaces the whole section's backgrounds (drops any
+    // per-slide overrides and any sticky video) so it applies cleanly to all.
+    clearActiveVideo();
+    if (sectionBackgrounds[sectionId]) { delete sectionBackgrounds[sectionId]; if (typeof saveSlideBackgrounds === 'function') saveSlideBackgrounds(); }
     // Normalize to the standard { type, value:id } shape (value is the saved-bg
     // id, resolved to data downstream) and tag it section-scoped so it cascades
     // across the whole section.
@@ -57239,6 +57304,8 @@ function filterLiturgyItems() {
   .lcd-controls-row .wo-blank-btn { padding: 6px 13px; border-radius: 7px; font-size: 0.75rem; }
   .lcd-controls-row .wo-live-present-btn { padding: 7px 16px; border-radius: 7px; font-weight: 700; font-size: 0.78rem; box-shadow: 0 2px 8px rgba(0,102,255,0.3); }
   .lcd-controls-row .lcd-hist-btn { padding: 6px 10px; }
+  .lcd-media-item { position: relative; }
+  .lcd-media-vid-badge { position: absolute; bottom: 4px; right: 4px; width: 17px; height: 17px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; pointer-events: none; }
   .lcd-slide-num-badge { color: #94a3b8; font-size: 0.7rem; font-weight: 600; background: rgba(255,255,255,0.06); border-radius: 5px; padding: 1px 7px; margin-left: 2px; }
   .lcd-lower-row { display: flex; gap: 12px; margin-top: 12px; min-height: 140px; }
   .lcd-lower-row .lcd-output-box { display: none; }
