@@ -64006,7 +64006,9 @@ function filterLiturgyItems() {
       var days = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
       var maxOffset = Math.max(0, days.length - 2);
       STATE.rosterMobileOffset = Math.max(0, Math.min(maxOffset, STATE.rosterMobileOffset + dir * 2));
-      this.applyMobileVisibility(days);
+      // Full re-render (not just class-toggle) so every duty/scripture/communion
+      // cell reflects the newly-visible services, not a stale partial view.
+      this.render();
     },
 
     applyMobileVisibility: function(days) {
