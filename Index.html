@@ -43758,6 +43758,13 @@ var WO = (function() {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       _lcdSplitSlideAtCursor();
+      return;
+    }
+    if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey) {
+      var ed = _lcdEditorEl();
+      if (ed && _isAtEditorStart(ed)) {
+        if (_lcdMergeSlideUp()) e.preventDefault();
+      }
     }
   }
 
@@ -43861,6 +43868,44 @@ var WO = (function() {
       _lcdLoadSlideIntoEditor(newBox);
       setTimeout(function() { var e2 = _lcdEditorEl(); if (e2) { e2.focus(); _lcdPlaceCaretStart(e2); } }, 0);
     }
+  }
+
+  // Backspace at slide start -> merge this slide's text up into the
+  // previous slide of the same group, caret at the join. Returns true if
+  // a merge happened (so the caller can preventDefault).
+  function _lcdMergeSlideUp() {
+    var ed = _lcdEditorEl();
+    if (!ed || !_lcdActiveSlide) return false;
+    var box = _lcdRelocateActiveSlideBox();
+    if (!box) return false;
+    var group = _lcdGroupKey(box);
+    var prev = box.previousElementSibling;
+    while (prev && !(prev.classList && prev.classList.contains('wo-slide-box') && _lcdGroupKey(prev) === group)) {
+      prev = prev.previousElementSibling;
+    }
+    if (!prev) return false; // no previous slide in this group - let default backspace run
+    var curText = ed.innerText || '';
+    var prevText = _lcdReadSlidePlain(prev);
+    var mergePoint = prevText.length;
+    var merged = curText.trim() === '' ? prevText : (prevText + (prevText ? '\n' : '') + curText);
+    _lcdWriteSlideText(prev, merged);
+    var songId = box.getAttribute('data-song-id') || '';
+    var liturgyId = box.getAttribute('data-liturgy-id') || '';
+    var sectionId = box.getAttribute('data-section') || '';
+    var isLiturgy = box.classList.contains('wo-liturgy-slide');
+    box.remove();
+    if (songId) _lcdReorderSongSlides(songId, sectionId);
+    var groupId = liturgyId || songId;
+    if (groupId && typeof renumberSlideBoxes === 'function') renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    selectSlideBox(prev);
+    _lcdLoadSlideIntoEditor(prev);
+    setTimeout(function() {
+      var e2 = _lcdEditorEl();
+      if (e2) { e2.focus(); if (typeof _setCursorAtTextOffset === 'function') _setCursorAtTextOffset(e2, mergePoint); }
+    }, 0);
+    return true;
   }
 
   // ---- Selection formatting for the Slide Editor -----------------------
