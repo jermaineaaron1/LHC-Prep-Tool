@@ -5092,7 +5092,7 @@
                         </select>
                         <input type="color" class="lcd-fmt-color" title="Colour of selected text" value="#ffffff" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtColor(this)">
                       </div>
-                      <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here, then edit and press Apply Changes." oninput="WO.lcdOnLyricsTextareaInput()"></div>
+                      <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)"></div>
                       <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
                     </div>
                   </div>
@@ -43753,6 +43753,116 @@ var WO = (function() {
     summaryEl.textContent = nonEmpty + ' Line' + (nonEmpty === 1 ? '' : 's');
   }
 
+  // ---- Ctrl+Enter: split the current slide at the cursor --------------
+  function lcdEditorKeydown(e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      _lcdSplitSlideAtCursor();
+    }
+  }
+
+  function _lcdPlaceCaretStart(el) {
+    try {
+      var r = document.createRange();
+      r.selectNodeContents(el);
+      r.collapse(true);
+      var s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+    } catch (err) {}
+  }
+
+  // Rebuild a slide box's content from plain text (mirrors song slides
+  // into songOrderSections, like _lcdApplySlideEdit).
+  function _lcdWriteSlideText(box, text) {
+    var content = box.querySelector('.wo-slide-content');
+    if (!content) return;
+    var lines = (text || '').split('\n');
+    if (lines.length === 0 || (lines.length === 1 && !lines[0].trim())) {
+      content.innerHTML = '<div class="wo-slide-line"></div>';
+    } else {
+      content.innerHTML = lines.map(function(line) {
+        if (!line.trim()) return _BLANK_SLIDE_LINE;
+        return '<div class="wo-slide-line">' + escapeHtml(line) + '</div>';
+      }).join('');
+    }
+    var songId = box.getAttribute('data-song-id');
+    if (songId) {
+      var song = songOrderSections.find(function(s) { return s.id === songId; });
+      if (song) {
+        var idx = parseInt(box.getAttribute('data-slide-idx') || '0', 10) || 0;
+        if (!song.slides) song.slides = [];
+        if (!song.slides[idx]) song.slides[idx] = { index: idx, content: '', background: '' };
+        song.slides[idx].content = text; song.slides[idx].richHtml = null;
+      }
+    }
+  }
+
+  // Insert a new slide box right after currentBox, in the same group,
+  // carrying the given text. Copies the group/source data-attrs and
+  // renumbers song/liturgy groups. Returns the new box.
+  function _lcdAddSlideAfter(currentBox, text) {
+    var sectionId = currentBox.getAttribute('data-section') || '';
+    var liturgyId = currentBox.getAttribute('data-liturgy-id') || '';
+    var songId = currentBox.getAttribute('data-song-id') || '';
+    var source = currentBox.getAttribute('data-source') || '';
+    var scriptureTitle = currentBox.getAttribute('data-scripture-title') || '';
+    var isLiturgy = currentBox.classList.contains('wo-liturgy-slide');
+    var linesHtml = (text && text.trim())
+      ? text.split('\n').map(function(line) { if (!line.trim()) return _BLANK_SLIDE_LINE; return '<div class="wo-slide-line">' + escapeHtml(line) + '</div>'; }).join('')
+      : '<div class="wo-slide-line"></div>';
+    var extraClasses = isLiturgy ? ' wo-liturgy-slide' : '';
+    var dataAttrs = ' data-section="' + sectionId + '"';
+    if (liturgyId) dataAttrs += ' data-liturgy-id="' + liturgyId + '"';
+    if (songId) dataAttrs += ' data-song-id="' + songId + '"';
+    if (source) dataAttrs += ' data-source="' + source + '"';
+    if (scriptureTitle) dataAttrs += ' data-scripture-title="' + escapeHtml(scriptureTitle) + '"';
+    var boxHtml = '<div class="wo-content-box wo-slide-box' + extraClasses + '"' + dataAttrs + ' onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
+      _buildSlideBoxHeader(0, 0, isLiturgy ? 'liturgy' : 'song', liturgyId || songId, sectionId) +
+      '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background for this slide"><i class="fa-solid fa-image"></i></button>' +
+      '<div class="wo-slide-content">' + linesHtml + '</div>' +
+    '</div>';
+    currentBox.insertAdjacentHTML('afterend', boxHtml);
+    var newBox = currentBox.nextElementSibling;
+    var groupId = liturgyId || songId;
+    if (groupId && typeof renumberSlideBoxes === 'function') {
+      renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
+    }
+    return newBox;
+  }
+
+  function _lcdSplitSlideAtCursor() {
+    var ed = _lcdEditorEl();
+    if (!ed) return;
+    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
+    var box = _lcdRelocateActiveSlideBox();
+    if (!box) { showToast('That slide is no longer available.', 'warning'); return; }
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var caret = sel.getRangeAt(0);
+    if (!ed.contains(caret.endContainer)) return;
+    // Move everything after the caret out of the editor into a fragment.
+    var afterRange = document.createRange();
+    afterRange.selectNodeContents(ed);
+    afterRange.setStart(caret.endContainer, caret.endOffset);
+    var frag = afterRange.extractContents();
+    var tmp = document.createElement('div');
+    tmp.appendChild(frag);
+    var beforeText = ed.innerText || '';
+    var afterText = tmp.innerText || '';
+    // Current slide keeps the before-text; a new slide gets the after-text.
+    _lcdWriteSlideText(box, beforeText);
+    if (box.classList.contains('selected')) { updateProjectionPreview(beforeText); }
+    var newBox = _lcdAddSlideAfter(box, afterText);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (newBox) {
+      selectSlideBox(newBox);
+      _lcdLoadSlideIntoEditor(newBox);
+      setTimeout(function() { var e2 = _lcdEditorEl(); if (e2) { e2.focus(); _lcdPlaceCaretStart(e2); } }, 0);
+    }
+  }
+
   // ---- Selection formatting for the Slide Editor -----------------------
   function _lcdSaveSel() {
     var ed = _lcdEditorEl();
@@ -50030,6 +50140,7 @@ var WO = (function() {
     lcdAutoSplitLyrics: lcdAutoSplitLyrics,
     lcdApplyLyricsToSlides: lcdApplyLyricsToSlides,
     lcdApplySlideEdit: _lcdApplySlideEdit,
+    lcdEditorKeydown: lcdEditorKeydown,
     lcdFmtCmd: lcdFmtCmd,
     lcdFmtFont: lcdFmtFont,
     lcdFmtSize: lcdFmtSize,
