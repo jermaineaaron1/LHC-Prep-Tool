@@ -45254,17 +45254,18 @@ var WO = (function() {
       if (rowsHtml || canPpt) {
         var songBtn = '<button class="lcd-rail-addbtn lcd-rail-add-song" onclick="WO.openSongLibraryForSection(\'' + sectionId + '\')" title="Add a song from the Song library"><i class="fa-solid fa-music"></i></button>';
         var liturgyBtn = '<button class="lcd-rail-addbtn lcd-rail-add-liturgy" onclick="WO.openLiturgyLibraryForSection(\'' + sectionId + '\')" title="Add liturgy from the Liturgy library"><i class="fa-solid fa-book-bible"></i></button>';
-        var slideBtn = '<button class="lcd-rail-addbtn lcd-rail-add-slide" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide"><i class="fa-solid fa-plus"></i></button>';
         var pptBtn = '<button class="lcd-rail-addbtn lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add a PowerPoint / presentation"><i class="fa-solid fa-file-powerpoint"></i></button>';
         var isScripture = (sectionEl.getAttribute('data-service-section-id') === 'scripture');
         var readingsBtn = isScripture ? '<button class="lcd-rail-addbtn lcd-rail-add-readings" onclick="WO.addScriptureReadingsTemplate(\'' + sectionId + '\')" title="Insert the First / Psalm / Second / Gospel readings template"><i class="fa-solid fa-book-open"></i></button>' : '';
+        var renameBtn = '<button class="lcd-rail-addbtn lcd-rail-rename-section" onclick="WO.lcdRenameSection(\'' + sectionId + '\')" title="Rename this section"><i class="fa-solid fa-pen"></i></button>';
         var delBtn = '<button class="lcd-rail-addbtn lcd-rail-del-section" onclick="WO.lcdDeleteSection(\'' + sectionId + '\')" title="Delete this section and all its slides"><i class="fa-solid fa-trash"></i></button>';
-        var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + slideBtn + pptBtn + delBtn + '</span>';
+        var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + pptBtn + renameBtn + delBtn + '</span>';
         var _collapsed = !!_lcdCollapsedSections[sectionId];
         var _chev = '<button class="lcd-rail-collapse" onclick="event.stopPropagation(); WO.lcdToggleSectionCollapse(\'' + sectionId + '\')" title="Collapse / expand section"><i class="fa-solid fa-chevron-' + (_collapsed ? 'right' : 'down') + '"></i></button>';
+        var _addSlideRow = '<div class="lcd-rail-addslide-row" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide to this section"><i class="fa-solid fa-plus"></i> Add Slide</div>';
         railHtml += '<div class="lcd-rail-section' + (_collapsed ? ' collapsed' : '') + '">' +
-          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '">' + _chev + '<span class="lcd-rail-section-title">' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
-          (_collapsed ? '' : rowsHtml) +
+          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '">' + _chev + '<span class="lcd-rail-section-title" ondblclick="event.stopPropagation(); WO.lcdRenameSection(\'' + sectionId + '\')" title="Double-click to rename">' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
+          (_collapsed ? '' : (rowsHtml + _addSlideRow)) +
         '</div>';
       }
     });
@@ -45479,6 +45480,23 @@ var WO = (function() {
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
     showToast('Section moved', 'success');
+  }
+
+  function _lcdRenameSection(sectionId) {
+    if (!sectionId) return;
+    var section = document.getElementById(sectionId);
+    if (!section) return;
+    var titleEl = section.querySelector('.wo-section-title');
+    var current = titleEl ? titleEl.textContent : '';
+    window.customPrompt('Rename Section', 'Enter a new title for this section:', current).then(function(newTitle) {
+      if (newTitle && newTitle.trim() && titleEl) {
+        titleEl.textContent = newTitle.trim();
+        if (typeof _captureCurrentLayout === 'function') _captureCurrentLayout();
+        if (typeof autoSaveOrder === 'function') autoSaveOrder();
+        if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+        showToast('Section renamed', 'success');
+      }
+    });
   }
 
   function lcdToggleSectionCollapse(sectionId) {
@@ -51353,6 +51371,7 @@ var WO = (function() {
     _lcdRailRowClick: _lcdRailRowClick,
     lcdToggleSectionCollapse: lcdToggleSectionCollapse,
     lcdDeleteSection: _lcdDeleteSection,
+    lcdRenameSection: _lcdRenameSection,
     selectLiturgyBox: selectLiturgyBox,
     editLiturgyBox: editLiturgyBox,
     saveLiturgyEdit: saveLiturgyEdit,
@@ -57162,7 +57181,7 @@ function filterLiturgyItems() {
   .lcd-rail-esv-row .lcd-rail-slide-preview { color: #3b82f6; }
   .lcd-compact-rail { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
   .lcd-rail-section { margin-bottom: 6px; }
-  .lcd-rail-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6366f1; padding: 6px 4px 3px; }
+  .lcd-rail-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #4338ca; background: linear-gradient(90deg, rgba(99,102,241,0.18), rgba(99,102,241,0.06)); border-left: 3px solid #6366f1; border-radius: 6px; padding: 6px 8px; margin-bottom: 4px; }
   .lcd-rail-add-slides { display: inline-flex; align-items: center; gap: 4px; background: rgba(234,88,12,0.14); border: 1px solid rgba(234,88,12,0.4); color: #ea580c; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
   .lcd-rail-add-slides:hover { background: rgba(234,88,12,0.26); }
   .lcd-rail-add-btns { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
@@ -57180,6 +57199,11 @@ function filterLiturgyItems() {
   .lcd-rail-add-liturgy:hover { background: rgba(124,58,237,0.24); }
   .lcd-rail-del-section { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: #dc2626; }
   .lcd-rail-del-section:hover { background: rgba(239,68,68,0.26); }
+  .lcd-rail-rename-section { background: rgba(148,163,184,0.14); border-color: rgba(148,163,184,0.4); color: #64748b; }
+  .lcd-rail-rename-section:hover { background: rgba(148,163,184,0.28); }
+  .lcd-rail-section-title { cursor: text; }
+  .lcd-rail-addslide-row { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px; margin: 3px 2px 8px; border: 1px dashed rgba(99,102,241,0.45); border-radius: 6px; color: #6366f1; font-size: 0.68rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; }
+  .lcd-rail-addslide-row:hover { background: rgba(99,102,241,0.1); }
   .lcd-rail-add-section { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; background: rgba(34,197,94,0.14); border: 1px solid rgba(34,197,94,0.4); color: #16a34a; border-radius: 7px; padding: 7px 10px; margin-bottom: 8px; font-size: 0.72rem; font-weight: 700; cursor: pointer; font-family: 'Poppins', sans-serif; }
   .lcd-rail-add-section:hover { background: rgba(34,197,94,0.24); }
   .lcd-rail-section-header[draggable="true"] { cursor: grab; }
