@@ -45110,6 +45110,7 @@ var WO = (function() {
   // to the real (hidden) .wo-slide-box element via the existing
   // selectSlideBox() - zero new selection/preview/projection logic.
   var _lcdRailRowMap = {};
+  var _lcdCollapsedSections = {};
   var _lcdRailRowSeq = 0;
 
   function _lcdBuildRailRow(sIdx, slideNum, groupTitle, slideBoxEl, iconClass) {
@@ -45258,9 +45259,11 @@ var WO = (function() {
         var isScripture = (sectionEl.getAttribute('data-service-section-id') === 'scripture');
         var readingsBtn = isScripture ? '<button class="lcd-rail-addbtn lcd-rail-add-readings" onclick="WO.addScriptureReadingsTemplate(\'' + sectionId + '\')" title="Insert the First / Psalm / Second / Gospel readings template"><i class="fa-solid fa-book-open"></i></button>' : '';
         var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + slideBtn + pptBtn + '</span>';
-        railHtml += '<div class="lcd-rail-section">' +
-          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '"><span>' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
-          rowsHtml +
+        var _collapsed = !!_lcdCollapsedSections[sectionId];
+        var _chev = '<button class="lcd-rail-collapse" onclick="event.stopPropagation(); WO.lcdToggleSectionCollapse(\'' + sectionId + '\')" title="Collapse / expand section"><i class="fa-solid fa-chevron-' + (_collapsed ? 'right' : 'down') + '"></i></button>';
+        railHtml += '<div class="lcd-rail-section' + (_collapsed ? ' collapsed' : '') + '">' +
+          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '">' + _chev + '<span class="lcd-rail-section-title">' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
+          (_collapsed ? '' : rowsHtml) +
         '</div>';
       }
     });
@@ -45475,6 +45478,12 @@ var WO = (function() {
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
     showToast('Section moved', 'success');
+  }
+
+  function lcdToggleSectionCollapse(sectionId) {
+    if (_lcdCollapsedSections[sectionId]) delete _lcdCollapsedSections[sectionId];
+    else _lcdCollapsedSections[sectionId] = true;
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
   }
 
   function _lcdRailRowClick(rowId) {
@@ -51329,6 +51338,7 @@ var WO = (function() {
     lcdOpenInSongOrder: lcdOpenInSongOrder,
     lcdOpenSongInProjection: lcdOpenSongInProjection,
     _lcdRailRowClick: _lcdRailRowClick,
+    lcdToggleSectionCollapse: lcdToggleSectionCollapse,
     selectLiturgyBox: selectLiturgyBox,
     editLiturgyBox: editLiturgyBox,
     saveLiturgyEdit: saveLiturgyEdit,
@@ -56948,7 +56958,7 @@ function filterLiturgyItems() {
   .wo-main-content.wo-song-order { display: block; }
   /* overflow-y must be visible (not auto/scroll/hidden) so position:sticky on
      descendant badges resolves to the window scroll, not a dead sub-container */
-  .wo-worship-order { flex: 0 0 300px; padding: 16px; overflow: visible; max-width: 300px; }
+  .wo-worship-order { flex: 0 0 302px; padding: 16px; overflow: visible; max-width: 302px; }
   .wo-main-content.wo-song-order .wo-worship-order { width: 100%; max-width: 100%; }
   .wo-song-order-intro { text-align: center; padding: 30px; }
   .wo-song-order-intro h3 { color: #2c5aa0; margin-bottom: 10px; font-family: Georgia, serif; }
@@ -57065,9 +57075,11 @@ function filterLiturgyItems() {
   .lcd-controls-row .wo-blank-btn { padding: 6px 13px; border-radius: 7px; font-size: 0.75rem; }
   .lcd-controls-row .wo-live-present-btn { padding: 7px 16px; border-radius: 7px; font-weight: 700; font-size: 0.78rem; box-shadow: 0 2px 8px rgba(0,102,255,0.3); }
   .lcd-slide-num-badge { color: #94a3b8; font-size: 0.7rem; font-weight: 600; background: rgba(255,255,255,0.06); border-radius: 5px; padding: 1px 7px; margin-left: 2px; }
-  .lcd-lower-row { display: flex; gap: 12px; margin-top: 12px; min-height: 180px; }
+  .lcd-lower-row { display: flex; gap: 12px; margin-top: 12px; min-height: 140px; }
+  .lcd-lower-row .lcd-output-box { display: none; }
   .lcd-lower-row .wo-preview-screen { min-height: 130px; }
-  .lcd-outputs-row .lcd-lyrics-panel { flex: 1; min-width: 0; }
+  .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 auto; min-width: 0; }
+  .lcd-outputs-row .lcd-output-box { flex: 0 0 calc(50% - 9px); min-width: 0; }
   .lcd-panel { flex: 1; min-width: 0; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
   .lcd-panel-header { color: #e2e8f0; font-size: 0.8rem; font-weight: 600; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 7px; }
   .lcd-panel-body { flex: 1; padding: 12px; overflow-y: auto; }
@@ -57084,7 +57096,7 @@ function filterLiturgyItems() {
   .lcd-lyrics-body { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
   .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
   .lcd-lyrics-textarea:focus { outline: none; border-color: rgba(99,102,241,0.6); }
-  .lcd-lyrics-editor { flex: 1; min-height: 110px; overflow-y: auto; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
+  .lcd-lyrics-editor { flex: 1; min-height: 116px; overflow-y: auto; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
   .lcd-lyrics-editor:focus { outline: none; border-color: rgba(99,102,241,0.6); }
   .lcd-lyrics-editor:empty:before { content: attr(data-placeholder); color: #64748b; font-style: italic; }
   .lcd-fmt-toolbar { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 6px; }
@@ -57140,6 +57152,9 @@ function filterLiturgyItems() {
   .lcd-rail-add-slides { display: inline-flex; align-items: center; gap: 4px; background: rgba(234,88,12,0.14); border: 1px solid rgba(234,88,12,0.4); color: #ea580c; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
   .lcd-rail-add-slides:hover { background: rgba(234,88,12,0.26); }
   .lcd-rail-add-btns { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .lcd-rail-collapse { flex-shrink: 0; background: none; border: none; color: #94a3b8; cursor: pointer; padding: 0 2px; font-size: 0.7rem; }
+  .lcd-rail-collapse:hover { color: #6366f1; }
+  .lcd-rail-section-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lcd-rail-add-slide { display: inline-flex; align-items: center; gap: 4px; background: rgba(99,102,241,0.14); border: 1px solid rgba(99,102,241,0.4); color: #6366f1; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
   .lcd-rail-add-slide:hover { background: rgba(99,102,241,0.26); }
   .lcd-rail-add-readings { display: inline-flex; align-items: center; gap: 4px; background: rgba(59,130,246,0.14); border: 1px solid rgba(59,130,246,0.45); color: #3b82f6; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
