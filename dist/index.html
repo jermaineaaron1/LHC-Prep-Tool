@@ -46458,48 +46458,48 @@ var WO = (function() {
     function _isHeader(t) { return /^\s*\[[^\]]+\]\s*$/.test(t); }
 
     var result = [];
-    var prevWasBlank = false;
 
     parts.forEach(function(part) {
       var tmp = document.createElement('span');
       tmp.innerHTML = part;
-      var text = (tmp.textContent || tmp.innerText || '').trim();
+      var raw = (tmp.textContent || tmp.innerText || '');
+      var text = raw.trim();
 
-      if (!text) {
-        if (result.length > 0 && !prevWasBlank) result.push(null);
-        prevWasBlank = true;
-        return;
-      }
-      prevWasBlank = false;
+      // Blank editor line → a real full-height blank line (1:1), so 2-3 empty
+      // lines the user adds show as 2-3 blank lines on the projection.
+      if (!text) { result.push(''); return; }
       if (_isChord(text) || _isHeader(text)) return;
 
-      var clean = text.replace(/\([^)]*\)/g, '').replace(/\s{2,}/g, ' ').trim();
-      if (!clean) return;
+      // Strip parentheticals but PRESERVE spacing (no space-collapse, no trim)
+      var cleanRaw = raw.replace(/\([^)]*\)/g, '');
+      var t = cleanRaw.trim();
+      if (!t) return;
 
-      if (clean.indexOf('≡ ') === 0 && clean.lastIndexOf(' ≡') === clean.length - 2) {
-        var titleText = escapeHtml(clean.replace(/^≡ /, '').replace(/ ≡$/, ''));
+      // Scripture title / footnote markers (pass-through from _projectionHtml)
+      if (t.indexOf('≡ ') === 0 && t.lastIndexOf(' ≡') === t.length - 2) {
+        var titleText = escapeHtml(t.replace(/^≡ /, '').replace(/ ≡$/, ''));
         result.push('<span style="font-family:Cinzel,serif;font-size:1.4em;font-weight:700;display:block;margin-bottom:8px;border-bottom:2px solid rgba(255,255,255,0.3);padding-bottom:6px;">' + titleText + '</span>');
         return;
       }
-      if (clean.indexOf('— ') === 0) {
-        result.push('<span style="font-size:0.65em;opacity:0.6;font-style:italic;display:block;margin-top:8px;text-align:right;">' + escapeHtml(clean) + '</span>');
+      if (t.indexOf('— ') === 0) {
+        result.push('<span style="font-size:0.65em;opacity:0.6;font-style:italic;display:block;margin-top:8px;text-align:right;">' + escapeHtml(t) + '</span>');
         return;
       }
 
+      // Preserve rich formatting if present (keeps its own spacing); otherwise
+      // escape the raw text with the user's spaces intact.
       if (/<[bBiIuU]\b|<span|<font/i.test(part)) {
         result.push(part);
       } else {
-        result.push(escapeHtml(clean));
+        result.push(escapeHtml(cleanRaw));
       }
     });
 
-    while (result.length && result[result.length - 1] === null) result.pop();
+    // Trim leading/trailing blank lines (keep internal blank lines 1:1)
+    while (result.length && result[0] === '') result.shift();
+    while (result.length && result[result.length - 1] === '') result.pop();
 
-    return result.map(function(item) {
-      return item === null
-        ? '<span style="display:block;height:0.55em;"></span>'
-        : item;
-    }).join('<br>');
+    return result.join('<br>');
   }
 
   // Update projection preview from rich HTML (used during editing and on select)
@@ -47267,24 +47267,31 @@ var WO = (function() {
       // Lines like [Verse 1], [Chorus], [Bridge], [Pre-Chorus], etc.
       return /^\s*\[[^\]]+\]\s*$/.test(line);
     }
-    return text.split('\n')
+    var _lines = text.split('\n')
       .filter(function(line) { return !isChordLine(line) && !isSectionHeader(line); })
       .map(function(line) {
-        line = line.replace(/\([^)]*\)/g, '').replace(/\s{2,}/g, ' ').trim();
-        if (!line) return '<span style="display:block;height:0.55em;"></span>';
-        var escaped = escapeHtml(line);
+        // Strip parentheticals but PRESERVE the user's spacing: leading indents
+        // and 2+ spaces between words are kept so the projection mirrors the
+        // editor (the render containers use white-space: pre-wrap).
+        line = line.replace(/\([^)]*\)/g, '');
+        var t = line.trim();
+        // Truly blank editor line → a real full-height blank line (reflected 1:1)
+        if (t === '') return '';
         // Scripture title marker (≡ Title ≡)
-        if (line.indexOf('≡ ') === 0 && line.lastIndexOf(' ≡') === line.length - 2) {
-          var titleText = escaped.replace(/^≡ /, '').replace(/ ≡$/, '');
+        if (t.indexOf('≡ ') === 0 && t.lastIndexOf(' ≡') === t.length - 2) {
+          var titleText = escapeHtml(t.replace(/^≡ /, '').replace(/ ≡$/, ''));
           return '<span style="font-family:Cinzel,serif;font-size:1.4em;font-weight:700;display:block;margin-bottom:8px;border-bottom:2px solid rgba(255,255,255,0.3);padding-bottom:6px;">' + titleText + '</span>';
         }
         // Scripture footnote marker (— Reference)
-        if (line.indexOf('— ') === 0) {
-          return '<span style="font-size:0.65em;opacity:0.6;font-style:italic;display:block;margin-top:8px;text-align:right;">' + escaped + '</span>';
+        if (t.indexOf('— ') === 0) {
+          return '<span style="font-size:0.65em;opacity:0.6;font-style:italic;display:block;margin-top:8px;text-align:right;">' + escapeHtml(t) + '</span>';
         }
-        return escaped;
-      })
-      .join('<br>');
+        return escapeHtml(line);
+      });
+    // Trim leading/trailing blank lines (keep internal blank lines 1:1)
+    while (_lines.length && _lines[0] === '') _lines.shift();
+    while (_lines.length && _lines[_lines.length - 1] === '') _lines.pop();
+    return _lines.join('<br>');
   }
 
   function updateProjectionPreview(text, skipBackgroundUpdate) {
@@ -57163,7 +57170,7 @@ function filterLiturgyItems() {
   .lcd-lyrics-body { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
   .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
   .lcd-lyrics-textarea:focus { outline: none; border-color: rgba(99,102,241,0.6); }
-  .lcd-lyrics-editor { flex: 1; min-height: 116px; overflow-y: auto; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
+  .lcd-lyrics-editor { flex: 1; min-height: 116px; overflow-y: auto; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; padding: 10px; }
   .lcd-lyrics-editor:focus { outline: none; border-color: rgba(99,102,241,0.6); }
   .lcd-lyrics-editor:empty:before { content: attr(data-placeholder); color: #64748b; font-style: italic; }
   .lcd-fmt-toolbar { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 6px; }
@@ -58517,7 +58524,7 @@ function filterLiturgyItems() {
   .wo-slide-section-header.prechorus { background: #ffedd5; color: #c2410c; }
   .wo-slide-section-header.ending { background: #fee2e2; color: #dc2626; }
   .wo-slide-content { font-size: 0.85rem; color: #334155; line-height: 1.5; }
-  .wo-slide-line { margin: 2px 0; }
+  .wo-slide-line { margin: 2px 0; white-space: pre-wrap; }
   .wo-slide-line:empty { min-height: 1.2em; display: block; }
 
   /* Slide box header with number and remove button */
