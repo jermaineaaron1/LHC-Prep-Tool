@@ -44285,6 +44285,88 @@ var WO = (function() {
       root.insertBefore(rail, root.firstChild);
     }
     rail.innerHTML = railHtml;
+    _lcdWireRailDrag(rail);
+  }
+
+  // ---- Drag-to-reorder slides within a group in the compact rail ------
+  var _lcdDragRowId = null;
+  function _lcdWireRailDrag(rail) {
+    Array.from(rail.querySelectorAll('.lcd-rail-slide-row')).forEach(function(row) {
+      var entry = _lcdRailRowMap[row.id];
+      if (!entry || !entry.nodeType) return; // only real slide-box rows are reorderable
+      row.setAttribute('draggable', 'true');
+      row.addEventListener('dragstart', function(e) { lcdRailDragStart(e, row.id); });
+      row.addEventListener('dragover', function(e) { lcdRailDragOver(e, row.id); });
+      row.addEventListener('drop', function(e) { lcdRailDrop(e, row.id); });
+      row.addEventListener('dragend', lcdRailDragEnd);
+    });
+  }
+  function _lcdGroupKey(box) {
+    return box.getAttribute('data-song-id') ||
+           box.getAttribute('data-liturgy-id') ||
+           ('scr:' + (box.getAttribute('data-section') || '') + ':' + (box.getAttribute('data-source') || ''));
+  }
+  function _lcdSameGroup(a, b) {
+    var ak = _lcdGroupKey(a), bk = _lcdGroupKey(b);
+    return !!ak && ak === bk;
+  }
+  function lcdRailDragStart(e, rowId) {
+    _lcdDragRowId = rowId;
+    if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', 'railrow:' + rowId); } catch (x) {} }
+  }
+  function lcdRailDragOver(e, rowId) {
+    if (!_lcdDragRowId || _lcdDragRowId === rowId) return;
+    var a = _lcdRailRowMap[_lcdDragRowId], b = _lcdRailRowMap[rowId];
+    if (!a || !b || !a.nodeType || !b.nodeType || !_lcdSameGroup(a, b)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    var row = document.getElementById(rowId);
+    if (row) row.classList.add('lcd-rail-drop-into');
+  }
+  function lcdRailDragEnd() {
+    _lcdDragRowId = null;
+    document.querySelectorAll('.lcd-rail-drop-into').forEach(function(el) { el.classList.remove('lcd-rail-drop-into'); });
+  }
+  function lcdRailDrop(e, rowId) {
+    if (e.preventDefault) e.preventDefault();
+    var dragged = _lcdDragRowId ? _lcdRailRowMap[_lcdDragRowId] : null;
+    var target = _lcdRailRowMap[rowId];
+    lcdRailDragEnd();
+    if (!dragged || !target || dragged === target || !dragged.nodeType || !target.nodeType) return;
+    if (!_lcdSameGroup(dragged, target)) return;
+    var parent = dragged.parentNode;
+    if (!parent || target.parentNode !== parent) return;
+    var kids = Array.from(parent.children);
+    var di = kids.indexOf(dragged), ti = kids.indexOf(target);
+    if (di < 0 || ti < 0) return;
+    if (di < ti) target.insertAdjacentElement('afterend', dragged);
+    else target.insertAdjacentElement('beforebegin', dragged);
+    var songId = dragged.getAttribute('data-song-id') || '';
+    var liturgyId = dragged.getAttribute('data-liturgy-id') || '';
+    var sectionId = dragged.getAttribute('data-section') || '';
+    var isLiturgy = dragged.classList.contains('wo-liturgy-slide');
+    // Reorder the song model BEFORE renumber (uses original data-slide-idx).
+    if (songId) _lcdReorderSongSlides(songId, sectionId);
+    var groupId = liturgyId || songId;
+    if (groupId && typeof renumberSlideBoxes === 'function') renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    showToast('Slide reordered', 'success');
+  }
+  // Rebuild song.slides to match the new DOM order, preserving each
+  // slide's content/background (mapped via its pre-renumber data-slide-idx).
+  function _lcdReorderSongSlides(songId, sectionId) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song || !Array.isArray(song.slides)) return;
+    var container = document.getElementById(sectionId + '-boxes');
+    if (!container) return;
+    var boxes = Array.from(container.querySelectorAll('.wo-slide-box[data-song-id="' + songId + '"]'));
+    var old = song.slides;
+    song.slides = boxes.map(function(box, i) {
+      var origIdx = parseInt(box.getAttribute('data-slide-idx') || '0', 10);
+      var s = old[origIdx] || { content: '', background: '' };
+      return { index: i, content: s.content, richHtml: s.richHtml, background: s.background };
+    });
   }
 
   function _lcdRailRowClick(rowId) {
@@ -55968,6 +56050,9 @@ function filterLiturgyItems() {
   .lcd-rail-slide-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1.5px solid transparent; transition: background 0.12s, border-color 0.12s; }
   .lcd-rail-slide-row:hover { background: #f1f5f9; }
   .lcd-rail-slide-row.selected { background: #eef2ff; border-color: #6366f1; }
+  .lcd-rail-slide-row[draggable="true"] { cursor: grab; }
+  .lcd-rail-slide-row[draggable="true"]:active { cursor: grabbing; }
+  .lcd-rail-drop-into { border-color: #6366f1 !important; box-shadow: inset 0 -3px 0 #6366f1; }
   .lcd-rail-slide-num { flex-shrink: 0; font-size: 0.66rem; font-weight: 700; color: #94a3b8; padding-top: 1px; min-width: 26px; }
   .lcd-rail-slide-row.selected .lcd-rail-slide-num { color: #6366f1; }
   .lcd-rail-slide-body { min-width: 0; flex: 1; }
