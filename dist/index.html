@@ -44804,6 +44804,10 @@ var WO = (function() {
     _lcdWriteSlideText(box, beforeText);
     if (box.classList.contains('selected')) { updateProjectionPreview(beforeText); }
     var newBox = _lcdAddSlideAfter(box, afterText);
+    // Keep the song model in sync when splitting inside a song group, so the
+    // new slide survives a reload regardless of the slide's grouping.
+    var _splitSongId = box.getAttribute('data-song-id') || '';
+    if (_splitSongId && typeof _lcdReorderSongSlides === 'function') _lcdReorderSongSlides(_splitSongId, box.getAttribute('data-section') || '');
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
     if (newBox) {
