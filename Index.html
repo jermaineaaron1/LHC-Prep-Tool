@@ -26927,15 +26927,19 @@ var WO = (function() {
       el.innerHTML = '';
       el.style.background = background.value;
     } else if (background.type === 'image') {
+      // value may be a saved-background id OR (from the projection payload) a
+      // direct data/URL; resolve the id first, else use the value as the src.
       var bgImg = savedBackgrounds.find(function(b) { return b.id === background.value; });
-      if (bgImg) {
-        el.innerHTML = '<img src="' + bgImg.data + '" alt="" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;">';
+      var imgSrc = bgImg ? bgImg.data : (/^(data:|https?:|blob:|\/)/.test(background.value || '') ? background.value : null);
+      if (imgSrc) {
+        el.innerHTML = '<img src="' + imgSrc + '" alt="" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;">';
         el.style.background = '#000';
       }
     } else if (background.type === 'video') {
       var bgVid = savedBackgrounds.find(function(b) { return b.id === background.value; });
-      if (bgVid) {
-        el.innerHTML = '<video src="' + bgVid.data + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"></video>';
+      var vidSrc = bgVid ? bgVid.data : (/^(data:|https?:|blob:|\/)/.test(background.value || '') ? background.value : null);
+      if (vidSrc) {
+        el.innerHTML = '<video src="' + vidSrc + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"></video>';
         el.style.background = '#000';
       }
     } else if (background.type === 'youtube') {
@@ -26949,7 +26953,7 @@ var WO = (function() {
 
   // Send effective (resolved) background to projection window
   function _sendBgToProjection(background) {
-    if (!_projChannel && (!projectionWindow || projectionWindow.closed)) return;
+    // Mirror to the in-app Program Output even with no external window open.
     if (!background) {
       sendToProjectionWindow({ type: 'background', background: null });
       return;
@@ -27399,8 +27403,9 @@ var WO = (function() {
   }
 
   function sendBackgroundToProjection() {
-    if (!_projChannel && (!projectionWindow || projectionWindow.closed)) return;
-
+    // No early-out on a missing projection window: sendToProjectionWindow()
+    // also mirrors to the in-app Program Output, which must reflect the
+    // background even before the external projector window is opened.
     var bgData = null;
     if (currentBackground) {
       if (currentBackground.type === 'solid' || currentBackground.type === 'gradient') {
