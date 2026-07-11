@@ -29330,6 +29330,7 @@ var WO = (function() {
   }
 
   function deleteContent(deleteBtn) {
+    _lcdPushUndo();
     var box = deleteBtn.closest('.wo-content-box');
     if (box) box.remove();
     autoSaveOrder();
@@ -29667,6 +29668,7 @@ var WO = (function() {
   // shows in the compact rail, edits in the Slide Editor, and projects
   // like any other slide - and persists via the same order-save path.
   function addBlankSlideToSection(sectionId) {
+    _lcdPushUndo();
     if (!sectionId) return;
     var item = {
       id: 'slide_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
@@ -29687,6 +29689,7 @@ var WO = (function() {
   // place (splitting the passage into slides and adding the liturgical
   // response). No copy-paste. First / Psalm / Second / Gospel.
   function addScriptureReadingsTemplate(sectionId) {
+    _lcdPushUndo();
     if (!sectionId) return;
     var container = document.getElementById(sectionId + '-boxes');
     if (!container) return;
@@ -39467,6 +39470,23 @@ var WO = (function() {
     }
   });
 
+  // Order-level undo/redo shortcuts in the LCD Projection / Service Order
+  // view. Skipped while typing in the Slide Editor so native text undo works.
+  document.addEventListener('keydown', function(e) {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    var k = e.key;
+    if (k !== 'z' && k !== 'Z' && k !== 'y' && k !== 'Y') return;
+    var panel = document.getElementById('woPreviewPanel');
+    if (!panel || panel.style.display === 'none') return;
+    var ae = document.activeElement;
+    if (ae && (ae.id === 'lcdLyricsEditorTextarea' || ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return; // let native text undo run
+    if (k === 'y' || k === 'Y' || (e.shiftKey && (k === 'z' || k === 'Z'))) {
+      e.preventDefault(); _lcdRedo();
+    } else if (k === 'z' || k === 'Z') {
+      e.preventDefault(); _lcdUndo();
+    }
+  });
+
   // 352: Close media dropdowns when clicking outside
   document.addEventListener('click', function(e) {
     if (!e.target.closest('.wo-slr-media')) {
@@ -43709,6 +43729,7 @@ var WO = (function() {
   }
 
   function _lcdApplySlideEdit() {
+    _lcdPushUndo();
     var ed = _lcdEditorEl();
     if (!ed) return;
     if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
@@ -43839,6 +43860,7 @@ var WO = (function() {
   }
 
   function _lcdSplitSlideAtCursor() {
+    _lcdPushUndo();
     var ed = _lcdEditorEl();
     if (!ed) return;
     if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
@@ -43874,6 +43896,7 @@ var WO = (function() {
   // previous slide of the same group, caret at the join. Returns true if
   // a merge happened (so the caller can preventDefault).
   function _lcdMergeSlideUp() {
+    _lcdPushUndo();
     var ed = _lcdEditorEl();
     if (!ed || !_lcdActiveSlide) return false;
     var box = _lcdRelocateActiveSlideBox();
@@ -44333,6 +44356,60 @@ var WO = (function() {
     _lcdWireRailDrag(rail);
   }
 
+  // ---- Order-level undo / redo for the LCD Projection view -----------
+  // Snapshots the #woWorshipOrder DOM + song/PPT models before each
+  // structural change so Ctrl+Z / Ctrl+Y can restore. Native typing undo
+  // still runs inside the Slide Editor (see the keydown guard).
+  var _lcdUndoStack = [];
+  var _lcdRedoStack = [];
+  var _LCD_UNDO_MAX = 40;
+  var _lcdRestoringUndo = false;
+  function _lcdSnapshot() {
+    var root = document.getElementById('woWorshipOrder');
+    return {
+      html: root ? root.innerHTML : '',
+      songs: JSON.stringify(songOrderSections || []),
+      sermon: JSON.stringify(currentSermonSlides || {})
+    };
+  }
+  function _lcdPushUndo() {
+    if (_lcdRestoringUndo) return;
+    var root = document.getElementById('woWorshipOrder');
+    if (!root) return;
+    _lcdUndoStack.push(_lcdSnapshot());
+    if (_lcdUndoStack.length > _LCD_UNDO_MAX) _lcdUndoStack.shift();
+    _lcdRedoStack = [];
+  }
+  function _lcdRestoreSnapshot(snap) {
+    if (!snap) return;
+    var root = document.getElementById('woWorshipOrder');
+    if (!root) return;
+    _lcdRestoringUndo = true;
+    try {
+      root.innerHTML = snap.html;
+      try { songOrderSections = JSON.parse(snap.songs); } catch (e) {}
+      try { currentSermonSlides = JSON.parse(snap.sermon); } catch (e) {}
+      selectedSlideBox = null;
+      if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+      if (typeof updateSlideBgIndicators === 'function') { try { updateSlideBgIndicators(); } catch (e2) {} }
+      if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    } finally {
+      _lcdRestoringUndo = false;
+    }
+  }
+  function _lcdUndo() {
+    if (!_lcdUndoStack.length) { showToast('Nothing to undo', 'info'); return; }
+    _lcdRedoStack.push(_lcdSnapshot());
+    _lcdRestoreSnapshot(_lcdUndoStack.pop());
+    showToast('Undo', 'info');
+  }
+  function _lcdRedo() {
+    if (!_lcdRedoStack.length) { showToast('Nothing to redo', 'info'); return; }
+    _lcdUndoStack.push(_lcdSnapshot());
+    _lcdRestoreSnapshot(_lcdRedoStack.pop());
+    showToast('Redo', 'info');
+  }
+
   // ---- Drag-to-reorder slides within a group in the compact rail ------
   var _lcdDragRowId = null;
   var _lcdDropBelow = false;
@@ -44383,6 +44460,7 @@ var WO = (function() {
     _lcdClearDropMarkers();
   }
   function lcdRailDrop(e, rowId) {
+    _lcdPushUndo();
     if (e.preventDefault) e.preventDefault();
     var dragged = _lcdDragRowId ? _lcdRailRowMap[_lcdDragRowId] : null;
     var target = _lcdRailRowMap[rowId];
