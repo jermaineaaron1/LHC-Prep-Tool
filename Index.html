@@ -44434,7 +44434,8 @@ var WO = (function() {
         var pptBtn = '<button class="lcd-rail-addbtn lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add a PowerPoint / presentation"><i class="fa-solid fa-file-powerpoint"></i></button>';
         var isScripture = (sectionEl.getAttribute('data-service-section-id') === 'scripture');
         var readingsBtn = isScripture ? '<button class="lcd-rail-addbtn lcd-rail-add-readings" onclick="WO.addScriptureReadingsTemplate(\'' + sectionId + '\')" title="Insert the First / Psalm / Second / Gospel readings template"><i class="fa-solid fa-book-open"></i></button>' : '';
-        var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + slideBtn + pptBtn + '</span>';
+        var delBtn = '<button class="lcd-rail-addbtn lcd-rail-del-section" onclick="WO.lcdDeleteSection(\'' + sectionId + '\')" title="Delete this section and all its slides"><i class="fa-solid fa-trash"></i></button>';
+        var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + slideBtn + pptBtn + delBtn + '</span>';
         var _collapsed = !!_lcdCollapsedSections[sectionId];
         var _chev = '<button class="lcd-rail-collapse" onclick="event.stopPropagation(); WO.lcdToggleSectionCollapse(\'' + sectionId + '\')" title="Collapse / expand section"><i class="fa-solid fa-chevron-' + (_collapsed ? 'right' : 'down') + '"></i></button>';
         railHtml += '<div class="lcd-rail-section' + (_collapsed ? ' collapsed' : '') + '">' +
@@ -44659,6 +44660,18 @@ var WO = (function() {
   function lcdToggleSectionCollapse(sectionId) {
     if (_lcdCollapsedSections[sectionId]) delete _lcdCollapsedSections[sectionId];
     else _lcdCollapsedSections[sectionId] = true;
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+  }
+
+  // Delete a whole section (and every slide in it) from the rail. Reuses
+  // removeSection(), which removes the .wo-worship-section, renumbers,
+  // persists, and shows an undo toast. Also undoable via Ctrl+Z.
+  function _lcdDeleteSection(sectionId) {
+    if (!sectionId) return;
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
+    if (_lcdActiveSlide && _lcdActiveSlide.sectionId === sectionId && typeof _lcdClearEditor === 'function') _lcdClearEditor();
+    removeSection(sectionId);
+    delete _lcdCollapsedSections[sectionId];
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
   }
 
@@ -50532,6 +50545,7 @@ var WO = (function() {
     lcdOpenSongInProjection: lcdOpenSongInProjection,
     _lcdRailRowClick: _lcdRailRowClick,
     lcdToggleSectionCollapse: lcdToggleSectionCollapse,
+    lcdDeleteSection: _lcdDeleteSection,
     selectLiturgyBox: selectLiturgyBox,
     editLiturgyBox: editLiturgyBox,
     saveLiturgyEdit: saveLiturgyEdit,
@@ -56352,6 +56366,8 @@ function filterLiturgyItems() {
   .lcd-rail-add-song:hover { background: rgba(37,99,235,0.24); }
   .lcd-rail-add-liturgy { background: rgba(124,58,237,0.12); border-color: rgba(124,58,237,0.4); color: #7c3aed; }
   .lcd-rail-add-liturgy:hover { background: rgba(124,58,237,0.24); }
+  .lcd-rail-del-section { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: #dc2626; }
+  .lcd-rail-del-section:hover { background: rgba(239,68,68,0.26); }
   .lcd-rail-add-section { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; background: rgba(34,197,94,0.14); border: 1px solid rgba(34,197,94,0.4); color: #16a34a; border-radius: 7px; padding: 7px 10px; margin-bottom: 8px; font-size: 0.72rem; font-weight: 700; cursor: pointer; font-family: 'Poppins', sans-serif; }
   .lcd-rail-add-section:hover { background: rgba(34,197,94,0.24); }
   .lcd-rail-section-header[draggable="true"] { cursor: grab; }
