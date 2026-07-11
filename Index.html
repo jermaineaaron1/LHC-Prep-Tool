@@ -5100,6 +5100,7 @@
                     <div class="lcd-output-label">Program Output <span class="lcd-live-dot" id="lcdProgramLiveDot" title="Live"></span></div>
                     <div class="wo-preview-screen lcd-program-screen" id="lcdProgramOutput">
                       <div class="wo-preview-bg" id="lcdProgramBg"></div>
+                      <div class="lcd-program-barrier" id="lcdProgramBarrier"><span class="lcd-program-barrier-tag">SAFE ZONE</span></div>
                       <div class="wo-preview-placeholder">Not projecting</div>
                     </div>
                   </div>
@@ -22496,6 +22497,7 @@ var WO = (function() {
       _lcdSetupPreviewDropZone();
       _lcdRenderCompactRail();
       _lcdSetupCompactRailObserver();
+      _lcdUpdateProgramBarrier();
     }
   }
 
@@ -28761,6 +28763,7 @@ var WO = (function() {
   function _lcdMirrorToProgramOutput(data) {
     var box = document.getElementById('lcdProgramOutput');
     if (!box || !data) return;
+    _lcdUpdateProgramBarrier();
     var bg = document.getElementById('lcdProgramBg');
     function clearContent() {
       Array.from(box.children).forEach(function(c) { if (c.id !== 'lcdProgramBg') box.removeChild(c); });
@@ -28795,6 +28798,19 @@ var WO = (function() {
         else if (data.videoType === 'local') _applyBgToDivEl(bg, { type: 'localVideo', src: data.src });
       }
     }
+  }
+
+  // Position the safe-zone (barrier) dashed outline on the Program Output
+  // to match _barrierConfig.global, so the operator can see where text is
+  // kept clear of the livestream corner.
+  function _lcdUpdateProgramBarrier() {
+    var el = document.getElementById('lcdProgramBarrier');
+    if (!el) return;
+    var g = (typeof _barrierConfig !== 'undefined' && _barrierConfig.global) ? _barrierConfig.global : { top: 5, right: 5, bottom: 5, left: 5 };
+    el.style.top = g.top + '%';
+    el.style.right = g.right + '%';
+    el.style.bottom = g.bottom + '%';
+    el.style.left = g.left + '%';
   }
 
   function createProjectionWindow(left, top, width, height, targetScreen) {
@@ -45285,6 +45301,7 @@ var WO = (function() {
     sendToProjectionWindow({ type: 'barrierUpdate', barrier: _barrierConfig.global });
 
     _saveBarrierConfig(); // persist to localStorage
+    _lcdUpdateProgramBarrier();
     closeBarrierEditor();
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
   }
@@ -55747,6 +55764,8 @@ function filterLiturgyItems() {
   .lcd-program-blanked { color: #475569; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: center; justify-content: center; height: 100%; }
   .lcd-outputs-row .wo-preview-screen { flex: 1; margin: 0; }
   .lcd-program-screen { border: 2px solid #22c55e33; }
+  .lcd-program-barrier { position: absolute; border: 1.5px dashed rgba(250,204,21,0.6); border-radius: 4px; pointer-events: none; z-index: 5; }
+  .lcd-program-barrier-tag { position: absolute; top: -8px; left: 6px; font-size: 0.5rem; font-weight: 700; letter-spacing: 0.08em; color: rgba(250,204,21,0.85); background: rgba(0,0,0,0.6); padding: 0 4px; border-radius: 3px; }
   .lcd-controls-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; }
   .lcd-controls-spacer { flex: 1 1 auto; }
   /* Unify the mismatched gradient buttons into one cohesive glass set in the LCD toolbar */
