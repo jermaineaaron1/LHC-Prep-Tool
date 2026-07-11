@@ -44299,6 +44299,7 @@ var WO = (function() {
       return {
         railRow: e.target.closest ? e.target.closest('.lcd-rail-slide-row') : null,
         slideBox: e.target.closest ? e.target.closest('.wo-slide-box') : null,
+        railSection: e.target.closest ? e.target.closest('.lcd-rail-section-header') : null,
         sectionEl: e.target.closest ? (e.target.closest('.wo-section-badge') || e.target.closest('[id$="-boxes"]')) : null
       };
     }
@@ -44306,11 +44307,12 @@ var WO = (function() {
     container.addEventListener('dragover', function(e) {
       if (_lcdDragRowId || _lcdDragSectionId) return; // rail reorder in progress - don't hijack dropEffect
       var t = targets(e);
-      if (!t.railRow && !t.slideBox && !t.sectionEl) return;
+      if (!t.railRow && !t.slideBox && !t.railSection && !t.sectionEl) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
       if (t.railRow) t.railRow.classList.add('lcd-drop-target');
       else if (t.slideBox) t.slideBox.classList.add('lcd-drop-target');
+      else if (t.railSection) t.railSection.classList.add('lcd-drop-target-section');
       else if (t.sectionEl) t.sectionEl.classList.add('lcd-drop-target');
     });
     container.addEventListener('dragleave', function(e) {
@@ -44318,6 +44320,7 @@ var WO = (function() {
       var t = targets(e);
       if (t.railRow) t.railRow.classList.remove('lcd-drop-target');
       if (t.slideBox) t.slideBox.classList.remove('lcd-drop-target');
+      if (t.railSection) t.railSection.classList.remove('lcd-drop-target-section');
       if (t.sectionEl) t.sectionEl.classList.remove('lcd-drop-target');
     });
     container.addEventListener('drop', function(e) {
@@ -44336,6 +44339,11 @@ var WO = (function() {
         t.slideBox.classList.remove('lcd-drop-target');
         selectSlideBox(t.slideBox);
         selectBackground(bg.type + ':' + bg.id);
+      } else if (t.railSection) {
+        e.preventDefault();
+        t.railSection.classList.remove('lcd-drop-target-section');
+        var rsid = t.railSection.getAttribute('data-section-id');
+        if (rsid) _lcdApplySectionBackground(rsid, bg);
       } else if (t.sectionEl) {
         e.preventDefault();
         t.sectionEl.classList.remove('lcd-drop-target');
@@ -56443,7 +56451,8 @@ function filterLiturgyItems() {
   .lcd-media-item:hover { border-color: rgba(99,102,241,0.6); transform: scale(1.03); }
   .lcd-media-item:active { cursor: grabbing; }
   .lcd-media-thumb { width: 100%; height: 100%; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; color: #8b5cf6; }
-  .lcd-drop-target { outline: 3px dashed #6366f1 !important; outline-offset: -3px; background: rgba(99,102,241,0.12) !important; }
+  .lcd-drop-target { outline: 3px dashed #eab308 !important; outline-offset: -3px; background: rgba(234,179,8,0.18) !important; }
+  .lcd-drop-target-section { outline: 3px solid #eab308 !important; outline-offset: -2px; background: rgba(234,179,8,0.32) !important; box-shadow: 0 0 0 3px rgba(234,179,8,0.35) !important; }
   @keyframes lcdRowHighlightPulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
     20%, 60% { box-shadow: 0 0 0 3px rgba(99,102,241,0.55); }
