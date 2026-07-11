@@ -5062,6 +5062,7 @@
                       <span class="lcd-slide-num-badge" id="lcdLyricsEditorSlideNum"></span>
                       <div class="lcd-lyrics-actions">
                         <button class="lcd-mini-btn primary" onclick="WO.lcdApplySlideEdit()" title="Apply your changes to this slide"><i class="fa-solid fa-check"></i> Apply Changes</button>
+                        <button class="lcd-mini-btn danger" onclick="WO.lcdDeleteCurrentSlide()" title="Delete this slide"><i class="fa-solid fa-trash"></i> Delete</button>
                         <button class="lcd-mini-btn" id="lcdOpenInSongOrderBtn" style="display:none;" onclick="WO.lcdOpenInSongOrder()" title="Jump to this song in Song Order"><i class="fa-solid fa-list"></i> Open in Song Order</button>
                       </div>
                     </div>
@@ -43774,6 +43775,97 @@ var WO = (function() {
     summaryEl.textContent = nonEmpty + ' Line' + (nonEmpty === 1 ? '' : 's');
   }
 
+  // ---- Delete the current slide from the Slide Editor -----------------
+  function _lcdClearEditor() {
+    _lcdActiveSlide = null;
+    _lcdEditingSongId = null;
+    var ed = _lcdEditorEl();
+    if (ed) ed.innerHTML = '';
+    var titleEl = document.getElementById('lcdLyricsEditorTitle');
+    var slideNumEl = document.getElementById('lcdLyricsEditorSlideNum');
+    var openBtn = document.getElementById('lcdOpenInSongOrderBtn');
+    if (titleEl) titleEl.textContent = 'No slide selected';
+    if (slideNumEl) slideNumEl.textContent = '';
+    if (openBtn) openBtn.style.display = 'none';
+    _lcdUpdateSlideSummary();
+  }
+
+  // Remove an entire group (banner + all its slides + add-slide row) when
+  // its last slide is deleted.
+  function _lcdRemoveWholeGroup(box, sectionId, groupId, isLiturgy, source) {
+    var container = box.closest('.wo-content-boxes');
+    if (!container) { box.remove(); return; }
+    if (source === 'scripture') {
+      var grp = box.closest('.wo-scripture-slides-group');
+      var banner = grp ? grp.previousElementSibling : box.previousElementSibling;
+      var addRow = grp ? grp.nextElementSibling : null;
+      if (grp) grp.remove(); else box.remove();
+      if (addRow && addRow.classList && addRow.classList.contains('wo-add-slide-row')) addRow.remove();
+      if (banner && banner.classList && banner.classList.contains('scripture-banner')) banner.remove();
+      return;
+    }
+    if (isLiturgy && groupId) {
+      var lb = container.querySelector('.wo-liturgy-banner-bar[data-liturgy-id="' + groupId + '"]');
+      if (lb) lb.remove();
+      container.querySelectorAll('.wo-slide-box[data-liturgy-id="' + groupId + '"]').forEach(function(b) { b.remove(); });
+      container.querySelectorAll('.wo-add-slide-row[data-liturgy-id="' + groupId + '"]').forEach(function(b) { b.remove(); });
+      return;
+    }
+    if (groupId) {
+      var sBanner = container.querySelector('.wo-song-banner[data-song-id="' + groupId + '"]');
+      if (sBanner) sBanner.remove();
+      container.querySelectorAll('.wo-slide-box[data-song-id="' + groupId + '"]').forEach(function(b) { b.remove(); });
+      container.querySelectorAll('.wo-add-slide-row[data-song-id="' + groupId + '"]').forEach(function(b) { b.remove(); });
+      var idx = songOrderSections.findIndex(function(s) { return s.id === groupId; });
+      if (idx >= 0) songOrderSections.splice(idx, 1);
+      return;
+    }
+    box.remove();
+  }
+
+  function _lcdDeleteCurrentSlide() {
+    if (!_lcdActiveSlide) { showToast('Select a slide first.', 'warning'); return; }
+    var box = _lcdRelocateActiveSlideBox();
+    if (!box) { showToast('That slide is no longer available.', 'warning'); return; }
+    _lcdPushUndo();
+    var sectionId = box.getAttribute('data-section') || '';
+    var liturgyId = box.getAttribute('data-liturgy-id') || '';
+    var songId = box.getAttribute('data-song-id') || '';
+    var source = box.getAttribute('data-source') || '';
+    var isLiturgy = box.classList.contains('wo-liturgy-slide');
+    var groupId = liturgyId || songId;
+    var container = box.closest('.wo-content-boxes');
+    function nearest(from, dir) {
+      var n = dir < 0 ? from.previousElementSibling : from.nextElementSibling;
+      while (n && !(n.classList && n.classList.contains('wo-slide-box'))) n = dir < 0 ? n.previousElementSibling : n.nextElementSibling;
+      return n;
+    }
+    var neighbor = nearest(box, -1) || nearest(box, 1);
+    var groupCount = 1;
+    if (container) {
+      if (groupId) {
+        var sel = isLiturgy ? '.wo-slide-box[data-liturgy-id="' + groupId + '"]' : '.wo-slide-box[data-song-id="' + groupId + '"]';
+        groupCount = container.querySelectorAll(sel).length;
+      } else if (source === 'scripture') {
+        var grp = box.closest('.wo-scripture-slides-group');
+        groupCount = grp ? grp.querySelectorAll('.wo-slide-box').length : 1;
+      }
+    }
+    if (groupCount > 1) {
+      box.remove();
+      if (groupId) renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
+      if (songId) _lcdReorderSongSlides(songId, sectionId);
+    } else {
+      _lcdRemoveWholeGroup(box, sectionId, groupId, isLiturgy, source);
+    }
+    if (neighbor && !neighbor.isConnected) neighbor = null;
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (neighbor && neighbor.isConnected) { selectSlideBox(neighbor); _lcdLoadSlideIntoEditor(neighbor); }
+    else { _lcdClearEditor(); }
+    showToast('Slide deleted', 'success');
+  }
+
   // ---- Ctrl+Enter: split the current slide at the cursor --------------
   function lcdEditorKeydown(e) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -44335,11 +44427,13 @@ var WO = (function() {
       }
 
       if (rowsHtml || canPpt) {
-        var slideBtn = '<button class="lcd-rail-add-slide" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide to this section"><i class="fa-solid fa-plus"></i> Slide</button>';
-        var pptBtn = '<button class="lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add a PowerPoint / presentation to this section"><i class="fa-solid fa-file-powerpoint"></i> PPT</button>';
+        var songBtn = '<button class="lcd-rail-addbtn lcd-rail-add-song" onclick="WO.openSongLibraryForSection(\'' + sectionId + '\')" title="Add a song from the Song library"><i class="fa-solid fa-music"></i></button>';
+        var liturgyBtn = '<button class="lcd-rail-addbtn lcd-rail-add-liturgy" onclick="WO.openLiturgyLibraryForSection(\'' + sectionId + '\')" title="Add liturgy from the Liturgy library"><i class="fa-solid fa-book-bible"></i></button>';
+        var slideBtn = '<button class="lcd-rail-addbtn lcd-rail-add-slide" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide"><i class="fa-solid fa-plus"></i></button>';
+        var pptBtn = '<button class="lcd-rail-addbtn lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add a PowerPoint / presentation"><i class="fa-solid fa-file-powerpoint"></i></button>';
         var isScripture = (sectionEl.getAttribute('data-service-section-id') === 'scripture');
-        var readingsBtn = isScripture ? '<button class="lcd-rail-add-readings" onclick="WO.addScriptureReadingsTemplate(\'' + sectionId + '\')" title="Insert the First / Psalm / Second / Gospel readings template with liturgical responses"><i class="fa-solid fa-book-bible"></i> Readings</button>' : '';
-        var addBtns = '<span class="lcd-rail-add-btns">' + readingsBtn + slideBtn + pptBtn + '</span>';
+        var readingsBtn = isScripture ? '<button class="lcd-rail-addbtn lcd-rail-add-readings" onclick="WO.addScriptureReadingsTemplate(\'' + sectionId + '\')" title="Insert the First / Psalm / Second / Gospel readings template"><i class="fa-solid fa-book-open"></i></button>' : '';
+        var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + slideBtn + pptBtn + '</span>';
         railHtml += '<div class="lcd-rail-section">' +
           '<div class="lcd-rail-section-header"><span>' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
           rowsHtml +
@@ -50357,6 +50451,7 @@ var WO = (function() {
     lcdAutoSplitLyrics: lcdAutoSplitLyrics,
     lcdApplyLyricsToSlides: lcdApplyLyricsToSlides,
     lcdApplySlideEdit: _lcdApplySlideEdit,
+    lcdDeleteCurrentSlide: _lcdDeleteCurrentSlide,
     lcdEditorKeydown: lcdEditorKeydown,
     lcdFmtCmd: lcdFmtCmd,
     lcdFmtFont: lcdFmtFont,
@@ -56117,6 +56212,8 @@ function filterLiturgyItems() {
   .lcd-mini-btn:hover { background: rgba(255,255,255,0.14); }
   .lcd-mini-btn.primary { background: rgba(34,197,94,0.22); border-color: rgba(74,222,128,0.5); color: #bbf7d0; }
   .lcd-mini-btn.primary:hover { background: rgba(34,197,94,0.36); }
+  .lcd-mini-btn.danger { background: rgba(239,68,68,0.18); border-color: rgba(248,113,113,0.5); color: #fecaca; }
+  .lcd-mini-btn.danger:hover { background: rgba(239,68,68,0.34); }
   .lcd-lyrics-body { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
   .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
   .lcd-lyrics-textarea:focus { outline: none; border-color: rgba(99,102,241,0.6); }
@@ -56180,6 +56277,11 @@ function filterLiturgyItems() {
   .lcd-rail-add-slide:hover { background: rgba(99,102,241,0.26); }
   .lcd-rail-add-readings { display: inline-flex; align-items: center; gap: 4px; background: rgba(59,130,246,0.14); border: 1px solid rgba(59,130,246,0.45); color: #3b82f6; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
   .lcd-rail-add-readings:hover { background: rgba(59,130,246,0.26); }
+  .lcd-rail-addbtn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; border: 1px solid rgba(0,0,0,0.12); cursor: pointer; font-size: 0.62rem; padding: 0; }
+  .lcd-rail-add-song { background: rgba(37,99,235,0.12); border-color: rgba(37,99,235,0.4); color: #2563eb; }
+  .lcd-rail-add-song:hover { background: rgba(37,99,235,0.24); }
+  .lcd-rail-add-liturgy { background: rgba(124,58,237,0.12); border-color: rgba(124,58,237,0.4); color: #7c3aed; }
+  .lcd-rail-add-liturgy:hover { background: rgba(124,58,237,0.24); }
   .lcd-rail-ppt-row { align-items: center; }
   .lcd-rail-ppt-thumb { width: 42px; height: 24px; flex-shrink: 0; border-radius: 3px; background-color: #1e293b; background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; color: #ea580c; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.12); }
   .lcd-rail-slide-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1.5px solid transparent; transition: background 0.12s, border-color 0.12s; }
