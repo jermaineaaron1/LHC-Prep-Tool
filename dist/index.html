@@ -27725,16 +27725,23 @@ var WO = (function() {
   // Cascades backward within the section but NEVER across sections
   function getBackgroundForSlideInSection(sectionId, localIdx) {
     if (!sectionId || !sectionBackgrounds[sectionId]) return null;
-    var sectionBgs = sectionBackgrounds[sectionId];
-    // This exact slide's own background always applies (any scope).
-    if (sectionBgs[localIdx]) return sectionBgs[localIdx];
-    // Cascade backward, but only SECTION-scoped backgrounds carry forward; a
-    // per-slide background (scope 'slide') stays on its own slide and does not
-    // bleed onto later slides.
-    for (var i = localIdx - 1; i >= 0; i--) {
-      if (sectionBgs[i] && sectionBgs[i].scope !== 'slide') return sectionBgs[i];
+    // Strictly per-slide: a slide shows only its own explicit background, so
+    // setting one never affects the other slides in the section (no cascade).
+    return sectionBackgrounds[sectionId][localIdx] || null;
+  }
+
+  // Apply one background to EVERY slide in a section (used for section-level
+  // choices and section video backgrounds, since there is no cascade).
+  function _setBgAllSlidesInSection(sectionId, bg) {
+    if (!sectionId || !bg) return;
+    var container = $(sectionId + '-boxes');
+    var count = container ? container.querySelectorAll('.wo-slide-box').length : 0;
+    delete sectionBackgrounds[sectionId];
+    var n = count > 0 ? count : 1;
+    for (var i = 0; i < n; i++) {
+      var copy = {}; for (var k in bg) { if (Object.prototype.hasOwnProperty.call(bg, k)) copy[k] = bg[k]; }
+      setBackgroundForSlideInSection(sectionId, i, copy);
     }
-    return null; // No BG anywhere in this section
   }
 
   // Check if a specific slide has an EXPLICIT (non-inherited) background
@@ -28192,19 +28199,14 @@ var WO = (function() {
   }
 
   function selectBackground(bgString, slideOnly) {
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
     var parts = bgString.split(':');
     var type = parts[0];
     var value = parts.slice(1).join(':');
 
     currentBackground = { type: type, value: value };
-    // slideOnly marks this background as belonging to just this slide, so the
-    // section cascade won't carry it onto later slides.
-    if (slideOnly) currentBackground.scope = 'slide';
 
-    // A fresh media choice totally replaces any sticky section video so it does
-    // not come back when navigating to other slides.
-    _clearSectionVideoBg(currentSectionId);
-
+    // Backgrounds are strictly per-slide: apply only to the current slide.
     if (currentSectionId) {
       setBackgroundForSlideInSection(currentSectionId, currentLocalSlideIdx, currentBackground);
     }
@@ -28214,22 +28216,22 @@ var WO = (function() {
     applyEffectiveBackgroundToPreview(currentBackground);
     sendBackgroundToProjection();
     updateSlideBgIndicators();
-    showToast(slideOnly ? 'Background applied to this slide' : 'Background applied to this slide and forward!', 'success');
+    showToast('Background applied to this slide', 'success');
   }
 
   function clearBackground() {
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
     currentBackground = null;
+    clearActiveVideo();
 
-    // Clear for current slide within section
+    // Clear only this slide's background (no cascade / inherited fallback).
     if (currentSectionId) {
       setBackgroundForSlideInSection(currentSectionId, currentLocalSlideIdx, null);
     }
 
-    // Re-check if there's an inherited BG from earlier in the section
-    var inherited = getBackgroundForSlideInSection(currentSectionId, currentLocalSlideIdx);
     updateBackgroundSelection();
     updateCurrentBackgroundPreview();
-    applyEffectiveBackgroundToPreview(inherited);
+    applyEffectiveBackgroundToPreview(null);
     sendBackgroundToProjection();
     updateSlideBgIndicators();
     showToast('Background cleared for this slide', 'info');
@@ -45060,11 +45062,12 @@ var WO = (function() {
       screen.classList.remove('lcd-drop-target');
       var bgId = e.dataTransfer.getData('text/plain');
       if (!bgId) return;
-      var bg = savedBackgrounds.find(function(b) { return b.id === bgId; });
-      if (!bg) return;
+      var isNone = (bgId === '__none__');
+      var bg = isNone ? null : savedBackgrounds.find(function(b) { return b.id === bgId; });
+      if (!isNone && !bg) return;
       e.preventDefault();
       if (!selectedSlideBox && !currentSectionId) { showToast('Select a slide first, then drop media on it.', 'warning'); return; }
-      selectBackground(bg.type + ':' + bg.id, true);
+      if (isNone) clearBackground(); else selectBackground(bg.type + ':' + bg.id, true);
     });
   }
 
@@ -45074,7 +45077,7 @@ var WO = (function() {
   function _lcdRenderMediaTray() {
     var grid = document.getElementById('lcdMediaTrayGrid');
     if (!grid) return;
-    var noneTile = '<div class="lcd-media-item lcd-media-none" onclick="WO.lcdClearCurrentBg()" title="Remove the background from the current slide">' +
+    var noneTile = '<div class="lcd-media-item lcd-media-none" draggable="true" ondragstart="WO.lcdMediaDragStart(event,\'__none__\')" onclick="WO.lcdClearCurrentBg()" title="Click, or drag onto a slide or section header, to clear its background">' +
       '<div class="lcd-media-thumb"><i class="fa-solid fa-ban"></i></div>' +
       '<span class="lcd-media-cap">None</span></div>';
     if (!savedBackgrounds.length) {
@@ -45170,15 +45173,12 @@ var WO = (function() {
   // forward to every later slide in that section).
   function _lcdApplySectionBackground(sectionId, bg) {
     if (!sectionId || !bg) return;
-    // A section-level choice replaces the whole section's backgrounds (drops any
-    // per-slide overrides and any sticky video) so it applies cleanly to all.
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
     clearActiveVideo();
-    if (sectionBackgrounds[sectionId]) { delete sectionBackgrounds[sectionId]; if (typeof saveSlideBackgrounds === 'function') saveSlideBackgrounds(); }
-    // Normalize to the standard { type, value:id } shape (value is the saved-bg
-    // id, resolved to data downstream) and tag it section-scoped so it cascades
-    // across the whole section.
-    var norm = { type: bg.type, value: bg.id, scope: 'section' };
-    setBackgroundForSlideInSection(sectionId, 0, norm);
+    // Set the SAME background explicitly on every slide in the section (there is
+    // no cascade), so it applies to all slides and nothing bleeds from before.
+    var norm = { type: bg.type, value: bg.id };
+    _setBgAllSlidesInSection(sectionId, norm);
     updateSlideBgIndicators();
     if (sectionId === currentSectionId) {
       currentBackground = norm;
@@ -45187,7 +45187,24 @@ var WO = (function() {
       applyEffectiveBackgroundToPreview(norm);
       sendBackgroundToProjection();
     }
-    showToast('Background applied to section', 'success');
+    showToast('Background applied to all slides in the section', 'success');
+  }
+
+  // Clear every slide's background in a section (None dropped on a section head).
+  function _lcdClearSectionBackground(sectionId) {
+    if (!sectionId) return;
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
+    clearActiveVideo();
+    if (sectionBackgrounds[sectionId]) { delete sectionBackgrounds[sectionId]; if (typeof saveSlideBackgrounds === 'function') saveSlideBackgrounds(); }
+    updateSlideBgIndicators();
+    if (sectionId === currentSectionId) {
+      currentBackground = null;
+      updateBackgroundSelection();
+      updateCurrentBackgroundPreview();
+      applyEffectiveBackgroundToPreview(null);
+      sendBackgroundToProjection();
+    }
+    showToast('Backgrounds cleared for the section', 'info');
   }
 
   // One-time delegated drag/drop listeners on the stable #woWorshipOrder
@@ -45230,29 +45247,30 @@ var WO = (function() {
     container.addEventListener('drop', function(e) {
       var bgId = e.dataTransfer.getData('text/plain');
       if (!bgId) return;
-      var bg = savedBackgrounds.find(function(b) { return b.id === bgId; });
-      if (!bg) return;
+      var isNone = (bgId === '__none__');
+      var bg = isNone ? null : savedBackgrounds.find(function(b) { return b.id === bgId; });
+      if (!isNone && !bg) return;
       var t = targets(e);
       if (t.railRow) {
         e.preventDefault();
         t.railRow.classList.remove('lcd-drop-target');
         var box = _lcdRailRowMap[t.railRow.id];
-        if (box && box.isConnected) { selectSlideBox(box); selectBackground(bg.type + ':' + bg.id, true); }
+        if (box && box.isConnected) { selectSlideBox(box); if (isNone) clearBackground(); else selectBackground(bg.type + ':' + bg.id, true); }
       } else if (t.slideBox) {
         e.preventDefault();
         t.slideBox.classList.remove('lcd-drop-target');
         selectSlideBox(t.slideBox);
-        selectBackground(bg.type + ':' + bg.id, true);
+        if (isNone) clearBackground(); else selectBackground(bg.type + ':' + bg.id, true);
       } else if (t.railSection) {
         e.preventDefault();
         t.railSection.classList.remove('lcd-drop-target-section');
         var rsid = t.railSection.getAttribute('data-section-id');
-        if (rsid) _lcdApplySectionBackground(rsid, bg);
+        if (rsid) { if (isNone) _lcdClearSectionBackground(rsid); else _lcdApplySectionBackground(rsid, bg); }
       } else if (t.sectionEl) {
         e.preventDefault();
         t.sectionEl.classList.remove('lcd-drop-target');
         var sid = t.sectionEl.id ? t.sectionEl.id.replace(/-badge$|-boxes$/, '') : null;
-        if (sid) _lcdApplySectionBackground(sid, bg);
+        if (sid) { if (isNone) _lcdClearSectionBackground(sid); else _lcdApplySectionBackground(sid, bg); }
       }
     });
   }
@@ -45480,7 +45498,8 @@ var WO = (function() {
     return {
       html: root ? root.innerHTML : '',
       songs: JSON.stringify(songOrderSections || []),
-      sermon: JSON.stringify(currentSermonSlides || {})
+      sermon: JSON.stringify(currentSermonSlides || {}),
+      bgs: JSON.stringify(sectionBackgrounds || {})
     };
   }
   function _lcdPushUndo() {
@@ -45500,6 +45519,14 @@ var WO = (function() {
       root.innerHTML = snap.html;
       try { songOrderSections = JSON.parse(snap.songs); } catch (e) {}
       try { currentSermonSlides = JSON.parse(snap.sermon); } catch (e) {}
+      if (snap.bgs) {
+        try {
+          var _pb = JSON.parse(snap.bgs);
+          Object.keys(sectionBackgrounds).forEach(function(k) { delete sectionBackgrounds[k]; });
+          Object.keys(_pb).forEach(function(k) { sectionBackgrounds[k] = _pb[k]; });
+          if (typeof saveSlideBackgrounds === 'function') saveSlideBackgrounds();
+        } catch (eb) {}
+      }
       selectedSlideBox = null;
       if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
       if (typeof updateSlideBgIndicators === 'function') { try { updateSlideBgIndicators(); } catch (e2) {} }
@@ -45820,16 +45847,13 @@ var WO = (function() {
         applyEffectiveBackgroundToPreview(effectiveBg);
       }
     } else {
-      // SAME SECTION - keep video running, just update text
-      if (activeVideoElement && activeVideoSrc) {
-        // Video is playing in this section - let it continue seamlessly
+      // SAME SECTION - reflect THIS slide's own background. Keep a running video
+      // only if this slide's background is that same video (seamless); otherwise
+      // apply the slide's background, which stops the video for an image / none.
+      if (effectiveBg && (effectiveBg.type === 'youtube' || effectiveBg.type === 'localVideo') && activeVideoSrc && activeVideoSrc === (effectiveBg.embedUrl || effectiveBg.src)) {
         var bgEl = $('woPreviewBg');
         if (bgEl) bgEl.style.display = 'block';
-      } else if (effectiveBg && (effectiveBg.type === 'youtube' || effectiveBg.type === 'localVideo')) {
-        // BG is a video type but not currently playing (e.g., page reload) - restore it
-        applyStoredVideoBackground(effectiveBg);
       } else {
-        // Static background or none
         applyEffectiveBackgroundToPreview(effectiveBg);
       }
     }
@@ -46109,9 +46133,10 @@ var WO = (function() {
       var videoId = videoContainer.getAttribute('data-video-id');
       var embedUrl = 'https://www.youtube.com/embed/' + videoId + '?autoplay=1&mute=1&loop=1&playlist=' + videoId + '&controls=0&enablejsapi=1&rel=0';
 
-      // Store as slide 0 background in this section so it cascades to all slides
+      // Store on every slide in this section (no cascade) so the video shows
+      // across the whole section.
       if (sectionId && currentSectionVideoId !== sectionId) {
-        setBackgroundForSlideInSection(sectionId, 0, { type: 'youtube', embedUrl: embedUrl });
+        _setBgAllSlidesInSection(sectionId, { type: 'youtube', embedUrl: embedUrl });
       }
 
       // Only reload if different video
@@ -46140,9 +46165,9 @@ var WO = (function() {
       if (video) {
         var src = video.src;
 
-        // Store as slide 0 background in this section so it cascades to all slides
+        // Store on every slide in this section (no cascade).
         if (sectionId && currentSectionVideoId !== sectionId) {
-          setBackgroundForSlideInSection(sectionId, 0, { type: 'localVideo', src: src });
+          _setBgAllSlidesInSection(sectionId, { type: 'localVideo', src: src });
         }
 
         // Only reload if different video source
