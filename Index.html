@@ -27876,6 +27876,13 @@ var WO = (function() {
         activeVideoElement = null;
         activeVideoSrc = null;
       }
+      // Mirror the CLEAR to the fullscreen overlay + projection window /
+      // Program Output too. Without this, navigating to a slide that has no
+      // background left the previous slide's background showing (looked like
+      // one slide's background was affecting the other slides).
+      var _fsOv = $('woFullscreenOverlay');
+      if (_fsOv && _fsOv.classList.contains('show')) { _applyBgToDivEl($('wofsBg'), null); }
+      _sendBgToProjection(null);
       return;
     }
 
