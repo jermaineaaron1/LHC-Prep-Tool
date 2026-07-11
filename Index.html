@@ -44116,6 +44116,7 @@ var WO = (function() {
     }
 
     container.addEventListener('dragover', function(e) {
+      if (_lcdDragRowId) return; // rail-row reorder in progress - don't hijack dropEffect
       var t = targets(e);
       if (!t.railRow && !t.slideBox && !t.sectionEl) return;
       e.preventDefault();
@@ -44125,6 +44126,7 @@ var WO = (function() {
       else if (t.sectionEl) t.sectionEl.classList.add('lcd-drop-target');
     });
     container.addEventListener('dragleave', function(e) {
+      if (_lcdDragRowId) return;
       var t = targets(e);
       if (t.railRow) t.railRow.classList.remove('lcd-drop-target');
       if (t.slideBox) t.slideBox.classList.remove('lcd-drop-target');
