@@ -40788,7 +40788,16 @@ var WO = (function() {
       '.sp-lyrics-wrap .wo-lyrics-section-header.bridge{background:#dcfce7;color:#166534;}' +
       '.sp-lyrics-wrap .wo-lyrics-section-header.prechorus{background:#ffedd5;color:#c2410c;}' +
       '.sp-lyrics-wrap .wo-lyrics-section-header.ending{background:#fee2e2;color:#dc2626;}' +
-      '.sp-lyrics-wrap .wo-lyrics-section-header.other{background:#f1f5f9;color:#475569;}';
+      '.sp-lyrics-wrap .wo-lyrics-section-header.other{background:#f1f5f9;color:#475569;}' +
+      '.sp-song{margin:0 0 9mm;break-inside:auto;}' +
+      '.sp-lyrics-wrap .wo-lyrics-chord-pair{display:block;margin:.12em 0 .42em;line-height:1.5;white-space:normal;break-inside:avoid;page-break-inside:avoid;}' +
+      '.sp-lyrics-wrap .wo-leading-chunk,.sp-lyrics-wrap .wo-lyric-chunk{position:relative;display:inline-block;vertical-align:bottom;padding-top:1.05em;white-space:pre-wrap;overflow-wrap:break-word;}' +
+      '.sp-lyrics-wrap .wo-chord-token{position:relative;display:inline-grid;grid-template-columns:max-content;grid-template-rows:1.05em auto;vertical-align:bottom;white-space:pre-wrap;margin-right:.22em;}' +
+      '.sp-lyrics-wrap .wo-chord-token>.wo-inline-lyric{grid-column:1;grid-row:2;min-width:1ch;}' +
+      '.sp-lyrics-wrap .wo-inline-chord{grid-column:1;grid-row:1;align-self:start;justify-self:start;min-width:1ch;color:#1e40af;font:700 .8em/1.1 "Courier New",monospace;white-space:nowrap;}' +
+      '.sp-lyrics-wrap .print-section-header{display:inline-block;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.03em;margin:1.1em 0 .35em;font-size:.92em;break-after:avoid;page-break-after:avoid;}' +
+      '.sp-lyrics-wrap .print-lyric-line{line-height:1.5;margin:0 0 .18em;break-inside:avoid;page-break-inside:avoid;}' +
+      '.sp-lyrics-wrap .print-spacer{height:.5em;}';
     var _sbMeasStyle = document.getElementById('_sbPrintMeasureStyle');
     if (_sbMeasStyle && _sbMeasStyle.parentNode) _sbMeasStyle.parentNode.removeChild(_sbMeasStyle);
     _sbMeasStyle = document.createElement('style');
@@ -40903,7 +40912,8 @@ var WO = (function() {
       var lyricsEl  = $('sbLyrics-' + song.id);
       var lyricsHtml = '';
       if (includeLyrics) {
-        lyricsHtml = lyricsEl ? lyricsEl.innerHTML : (song.richLyrics || formatLyricsWithHighlights(song.lyrics || ''));
+        var _sbSrcTxt = (lyricsEl && typeof sbExtractLyricsText === 'function') ? sbExtractLyricsText(lyricsEl) : (song.lyrics || '');
+        lyricsHtml = formatLyricsForPrintChords(_sbSrcTxt);
         // Manual breaks are now handled by the page-clip approach below;
         // no need to inject page-break-before divs.
       }
@@ -40969,28 +40979,11 @@ var WO = (function() {
         : '';
       var _printFullHtml = _printSongHeader + _printBody;
 
-      // Measure at 794px (same as _sbFsBuildPages) to find page break positions
-      var _pmDiv = document.createElement('div');
-      _pmDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;visibility:hidden;pointer-events:none;z-index:-1;';
-      _pmDiv.innerHTML = _printFullHtml;
-      document.body.appendChild(_pmDiv);
-      void _pmDiv.offsetHeight;
-      var _pmBreaks = _sbFsBreaksFromDiv(_pmDiv, sbManualBreaks[song.id]);
-      document.body.removeChild(_pmDiv);
-
-      // px → mm conversion for position values (297mm = A4H px)
-      var _A4H_px = Math.round(297 * 96 / 25.4);
-      function _pxToMm(px) { return (px * 297 / _A4H_px).toFixed(3) + 'mm'; }
-
-      _pmBreaks.forEach(function(breakY_px, pi) {
-        var isLast = pi === _pmBreaks.length - 1;
-        songPages +=
-          '<div class="sp-print-page"' + (isLast ? ' style="page-break-after:auto;"' : '') + '>' +
-            '<div style="position:absolute;top:-' + _pxToMm(breakY_px) + ';left:0;width:210mm;">' +
-              _printFullHtml +
-            '</div>' +
-          '</div>';
-      });
+      // Natural page flow: one song block the browser paginates on its own,
+      // keeping each chord/lyric pair together (break-inside:avoid in the CSS).
+      // Replaces the old page-clip that re-rendered the whole song per page and
+      // overlapped whenever the measured breaks didn't match the printed layout.
+      songPages += '<div class="sp-song">' + _printFullHtml + '</div>';
 
       // ── Library/custom docs ──
       allDocs.forEach(function(att, di) {
