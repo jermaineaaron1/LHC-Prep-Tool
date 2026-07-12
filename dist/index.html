@@ -38442,7 +38442,17 @@ var WO = (function() {
       var pos = Math.max(token.pos, minPos);
       rebuilt += new Array(Math.max(0, pos - rebuilt.length) + 1).join(' ') + token.text;
     });
-    chordLine.textContent = rebuilt;
+    // Only rewrite the chord line if it actually changed (typing at the END of a
+    // lyric line shifts nothing), and preserve the caret across the rewrite so
+    // mobile browsers do not drop it and send the next keystroke to the bottom.
+    if (rebuilt !== (chordLine.textContent || '')) {
+      var _sbSel = window.getSelection();
+      var _sbSaved = (_sbSel && _sbSel.rangeCount) ? _sbSel.getRangeAt(0).cloneRange() : null;
+      chordLine.textContent = rebuilt;
+      if (_sbSaved && _sbSaved.startContainer && _sbSaved.startContainer.isConnected) {
+        try { _sbSel.removeAllRanges(); _sbSel.addRange(_sbSaved); } catch (e) {}
+      }
+    }
   }
 
   // ── Chord symbol formatting ─────────────────────────────────────────────────
