@@ -40797,7 +40797,8 @@ var WO = (function() {
       '.sp-lyrics-wrap .wo-inline-chord{grid-column:1;grid-row:1;align-self:start;justify-self:start;min-width:1ch;color:#1e40af;font:700 .8em/1.1 "Courier New",monospace;white-space:nowrap;}' +
       '.sp-lyrics-wrap .print-section-header{display:inline-block;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.03em;margin:1.1em 0 .35em;font-size:.92em;break-after:avoid;page-break-after:avoid;}' +
       '.sp-lyrics-wrap .print-lyric-line{line-height:1.5;margin:0 0 .18em;break-inside:avoid;page-break-inside:avoid;}' +
-      '.sp-lyrics-wrap .print-spacer{height:.5em;}';
+      '.sp-lyrics-wrap .print-spacer{height:.5em;}' +
+      '.sp-lyrics-wrap .print-block{break-inside:avoid;page-break-inside:avoid;margin:0 0 .35em;}';
     var _sbMeasStyle = document.getElementById('_sbPrintMeasureStyle');
     if (_sbMeasStyle && _sbMeasStyle.parentNode) _sbMeasStyle.parentNode.removeChild(_sbMeasStyle);
     _sbMeasStyle = document.createElement('style');
@@ -43679,22 +43680,28 @@ var WO = (function() {
       return h.replace(/ contenteditable="true"/g, '').replace(/ spellcheck="false"/g, '')
               .replace(/ tabindex="0"/g, '').replace(/ oninput="WO\.sbChordInput\(this\)"/g, '');
     }
-    var html = '', i = 0;
+    var html = '', i = 0, open = false;
+    function openBlk() { if (!open) { html += '<div class="print-block">'; open = true; } }
+    function closeBlk() { if (open) { html += '</div>'; open = false; } }
     while (i < lines.length) {
       var line = lines[i], t = line.trim();
       if (isHdr(line)) {
+        // a section header starts a fresh atomic block (kept with its lines)
+        closeBlk(); openBlk();
         html += '<div class="print-section-header">' + escapeHtml(t.replace(/^\[/, '').replace(/\]$/, '')) + '</div>';
         i++;
       } else if (isChordLineGlobal(line) && i + 1 < lines.length && lines[i + 1].trim() !== '' && !isChordLineGlobal(lines[i + 1]) && !isHdr(lines[i + 1])) {
-        html += clean(sbBuildChordPairHtml(line, lines[i + 1])); i += 2;
+        openBlk(); html += clean(sbBuildChordPairHtml(line, lines[i + 1])); i += 2;
       } else if (isChordLineGlobal(line)) {
-        html += clean(sbBuildChordPairHtml(line, '')); i++;
+        openBlk(); html += clean(sbBuildChordPairHtml(line, '')); i++;
       } else if (t === '') {
-        html += '<div class="print-spacer"></div>'; i++;
+        // blank line ends the current block (paragraph break between sections)
+        closeBlk(); html += '<div class="print-spacer"></div>'; i++;
       } else {
-        html += '<div class="print-lyric-line">' + escapeHtml(line) + '</div>'; i++;
+        openBlk(); html += '<div class="print-lyric-line">' + escapeHtml(line) + '</div>'; i++;
       }
     }
+    closeBlk();
     return html;
   }
 
