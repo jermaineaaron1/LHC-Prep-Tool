@@ -38125,6 +38125,36 @@ var WO = (function() {
       var sid = el.id.replace('sbLyrics-', '');
       sbReconcileLyrics(sid);
     }, true);
+    // Backspace at the very START of a chord or lyric line carries the whole
+    // chord+lyric unit up into the previous line (repositioning the chords) via
+    // the same merge onbeforeinput uses. keydown is cancelable and fires before
+    // the native edit, so it works where onbeforeinput doesn't (some mobile
+    // keyboards fire beforeinput non-cancelable or with no inputType, letting
+    // native fuse the chord line onto the lyric above and scramble alignment).
+    body.addEventListener('keydown', function(e) {
+      if (e.key !== 'Backspace' && e.keyCode !== 8 && e.which !== 8) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      var el = e.target;
+      if (!el || !el.id || el.id.indexOf('sbLyrics-') !== 0) return;
+      var sel = window.getSelection();
+      if (!sel || !sel.rangeCount || !sel.isCollapsed) return;
+      var rng = sel.getRangeAt(0);
+      if (!el.contains(rng.startContainer)) return;
+      var block = rng.startContainer.nodeType === 1 ? rng.startContainer : rng.startContainer.parentElement;
+      while (block && block.parentElement !== el) block = block.parentElement;
+      if (!block) return;
+      if (_sbOffsetWithin(block, rng.startContainer, rng.startOffset) !== 0) return;
+      var kind = _sbLineClass(block);
+      if (kind !== 'chord' && kind !== 'lyric') return;
+      var merge = _sbResolveBackspaceMerge(block);
+      if (!merge) return;
+      e.preventDefault();
+      var sid = el.id.replace('sbLyrics-', '');
+      sbCapturePreEdit(sid);
+      _sbApplyResolvedMerge(el, merge);
+      _sbCanonicalText[sid] = _sbRawFlatText(el);
+      sbOnLyricsChange(sid);
+    }, true);
   }
 
   // ── Annotation anchoring: keep drawn strokes attached to their text ──────────
