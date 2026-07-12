@@ -32365,6 +32365,15 @@ var WO = (function() {
       '.lyrics { white-space: pre-wrap; font-size: 1.15em; line-height: 1.7; }' +
       '.chord { color: #1e40af; font-weight: bold; }' +
       '.section-header { background: #f0f0f0; padding: 5px 12px; margin: 12px 0 6px 0; border-radius: 4px; font-weight: bold; }' +
+      '.print-chords { font-size: 1.05em; line-height: 1.4; }' +
+      '.print-chords .wo-lyrics-chord-pair { display: block; margin: .3em 0 .5em; line-height: 1.5; white-space: normal; break-inside: avoid; page-break-inside: avoid; }' +
+      '.print-chords .wo-leading-chunk, .print-chords .wo-lyric-chunk { position: relative; display: inline-block; vertical-align: bottom; padding-top: 1.05em; white-space: pre-wrap; overflow-wrap: break-word; }' +
+      '.print-chords .wo-chord-token { position: relative; display: inline-grid; grid-template-columns: max-content; grid-template-rows: 1.05em auto; vertical-align: bottom; white-space: pre-wrap; margin-right: .22em; }' +
+      '.print-chords .wo-chord-token > .wo-inline-lyric { grid-column: 1; grid-row: 2; min-width: 1ch; }' +
+      '.print-chords .wo-inline-chord { grid-column: 1; grid-row: 1; align-self: start; justify-self: start; min-width: 1ch; color: #b00020; font: 700 .8em/1.1 \"Courier New\", monospace; white-space: nowrap; }' +
+      '.print-chords .print-section-header { font-weight: bold; color: #1e40af; text-transform: uppercase; margin: 14px 0 4px; letter-spacing: .03em; }' +
+      '.print-chords .print-lyric-line { line-height: 1.5; margin: 0 0 .15em; }' +
+      '.print-chords .print-spacer { height: .5em; }' +
       '@media print { .song { page-break-inside: avoid; break-inside: avoid; } }' +
       columnCss +
       '</style></head><body>' +
@@ -32395,9 +32404,9 @@ var WO = (function() {
 
       // Add lyrics if selected
       if (choices.lyrics) {
-        var lyricsHtml = song.richLyrics
-          ? '<div class="lyrics" style="white-space:normal;">' + song.richLyrics + '</div>'
-          : '<div class="lyrics">' + formatLyricsForPrint(song.lyrics || '') + '</div>';
+        var lyricsHtml = (song.itemType === 'blank')
+          ? '<div class="lyrics" style="white-space:normal;">' + (song.richContent || song.richLyrics || '') + '</div>'
+          : '<div class="print-chords">' + formatLyricsForPrintChords(song.lyrics || '') + '</div>';
         contentParts.push(lyricsHtml);
       }
 
@@ -32443,9 +32452,9 @@ var WO = (function() {
 
       // Fallback: if nothing selected, show lyrics
       if (contentParts.length === 0) {
-        contentParts.push(song.richLyrics
-          ? '<div class="lyrics" style="white-space:normal;">' + song.richLyrics + '</div>'
-          : '<div class="lyrics">' + formatLyricsForPrint(song.lyrics || '') + '</div>');
+        contentParts.push((song.itemType === 'blank')
+          ? '<div class="lyrics" style="white-space:normal;">' + (song.richContent || song.richLyrics || '') + '</div>'
+          : '<div class="print-chords">' + formatLyricsForPrintChords(song.lyrics || '') + '</div>');
       }
 
       var contentHtml = contentParts.join('<hr style="border:none;border-top:1px dashed #cbd5e1;margin:16px 0;">');
@@ -43651,6 +43660,36 @@ var WO = (function() {
     printWin.document.close();
     printWin.focus();
     setTimeout(function() { printWin.print(); }, 500);
+  }
+
+  // Build print HTML with chords sitting inline above their own syllables (each
+  // chord+syllable is one inline unit) so long lines wrap naturally without the
+  // chords drifting out of alignment - unlike the flat chord-line format.
+  function formatLyricsForPrintChords(text) {
+    if (!text) return '';
+    var lines = text.split('\n');
+    function isHdr(s) { var t = s.trim(); return /^\[.+\]$/.test(t) || /^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude)(\s*\d*)?$/i.test(t); }
+    function clean(h) {
+      return h.replace(/ contenteditable="true"/g, '').replace(/ spellcheck="false"/g, '')
+              .replace(/ tabindex="0"/g, '').replace(/ oninput="WO\.sbChordInput\(this\)"/g, '');
+    }
+    var html = '', i = 0;
+    while (i < lines.length) {
+      var line = lines[i], t = line.trim();
+      if (isHdr(line)) {
+        html += '<div class="print-section-header">' + escapeHtml(t.replace(/^\[/, '').replace(/\]$/, '')) + '</div>';
+        i++;
+      } else if (isChordLineGlobal(line) && i + 1 < lines.length && lines[i + 1].trim() !== '' && !isChordLineGlobal(lines[i + 1]) && !isHdr(lines[i + 1])) {
+        html += clean(sbBuildChordPairHtml(line, lines[i + 1])); i += 2;
+      } else if (isChordLineGlobal(line)) {
+        html += clean(sbBuildChordPairHtml(line, '')); i++;
+      } else if (t === '') {
+        html += '<div class="print-spacer"></div>'; i++;
+      } else {
+        html += '<div class="print-lyric-line">' + escapeHtml(line) + '</div>'; i++;
+      }
+    }
+    return html;
   }
 
   function formatLyricsForPrint(text) {
