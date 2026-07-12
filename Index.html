@@ -40764,6 +40764,37 @@ var WO = (function() {
 
   function _sbPrintBuildAndOpen(textCache, opts) {
     opts = opts || {};
+    // Lyrics/header CSS shared between the print window AND the hidden measuring
+    // div, so page-break positions are computed against the SAME layout the
+    // print actually renders. (Previously the measuring div used default styling
+    // - collapsed chord-line spaces, different line-height - so the fixed-height
+    // per-page clips misaligned and lines overlapped.) Section-header colors are
+    // scoped to .sp-lyrics-wrap so injecting this can't affect the app's own UI.
+    var _sbLyricsPrintCss =
+      '.sp-song-header{display:flex;align-items:center;gap:14px;padding:14px 24px 10px;border-bottom:2px solid #e2e8f0;page-break-after:avoid;break-after:avoid;}' +
+      '.sp-num{width:36px;height:36px;border-radius:50%;background:#1e3a8a;color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;flex-shrink:0;}' +
+      '.sp-info{flex:1;}' +
+      '.sp-title{font-size:1.35rem;font-weight:700;color:#1e293b;font-family:Cinzel,Georgia,serif;}' +
+      '.sp-artist{font-size:0.82rem;color:#64748b;margin-top:2px;}' +
+      '.sp-section-pill{font-size:0.72rem;padding:3px 10px;border-radius:12px;background:#eef2ff;color:#6366f1;font-weight:600;white-space:nowrap;flex-shrink:0;}' +
+      '.sp-lyrics-wrap{position:relative;font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';}' +
+      '.sp-lyrics-wrap--two-col{column-count:2;column-gap:28px;column-fill:balance;}' +
+      '.sp-lyrics-wrap .wo-lyrics-chord-line{font-family:"Courier New",monospace;font-weight:700;color:#1e40af;font-size:0.82em;line-height:1.2;margin:0.7em 0 0;white-space:pre-wrap;break-after:avoid;column-break-after:avoid;page-break-after:avoid;}' +
+      '.sp-lyrics-wrap .wo-lyrics-lyric-line{color:#334155;line-height:1.45;margin:0 0 0.5em;}' +
+      '.sp-lyrics-wrap .wo-lyrics-empty-line{height:1.3em;}' +
+      '.sp-lyrics-wrap .wo-lyrics-section-header{display:inline-block;padding:4px 12px;margin:1.4em 0 0.6em;font-weight:700;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.5px;border-radius:4px;break-after:avoid;column-break-after:avoid;page-break-after:avoid;}' +
+      '.sp-lyrics-wrap .wo-lyrics-section-header.verse{background:#dbeafe;color:#1e40af;}' +
+      '.sp-lyrics-wrap .wo-lyrics-section-header.chorus{background:#f3e8ff;color:#7c3aed;}' +
+      '.sp-lyrics-wrap .wo-lyrics-section-header.bridge{background:#dcfce7;color:#166534;}' +
+      '.sp-lyrics-wrap .wo-lyrics-section-header.prechorus{background:#ffedd5;color:#c2410c;}' +
+      '.sp-lyrics-wrap .wo-lyrics-section-header.ending{background:#fee2e2;color:#dc2626;}' +
+      '.sp-lyrics-wrap .wo-lyrics-section-header.other{background:#f1f5f9;color:#475569;}';
+    var _sbMeasStyle = document.getElementById('_sbPrintMeasureStyle');
+    if (_sbMeasStyle && _sbMeasStyle.parentNode) _sbMeasStyle.parentNode.removeChild(_sbMeasStyle);
+    _sbMeasStyle = document.createElement('style');
+    _sbMeasStyle.id = '_sbPrintMeasureStyle';
+    _sbMeasStyle.textContent = _sbLyricsPrintCss;
+    document.head.appendChild(_sbMeasStyle);
     var orderTitle  = currentOrderData ? (currentOrderData.orderName || currentOrderData.title || 'Worship Order') : 'Worship Songs';
     var serviceDate = currentOrderData ? (currentOrderData.serviceDate || '') : '';
     var tabsToOpen  = [];
@@ -41047,27 +41078,9 @@ var WO = (function() {
           // Page breaks are calculated by the same _sbFsBreaksFromDiv logic; manual
           // breaks (drag badge) are respected. No CSS page-flow guessing.
           '.sp-print-page{width:210mm;height:297mm;overflow:hidden;position:relative;page-break-after:always;break-after:page;}' +
-          '.sp-song-header{display:flex;align-items:center;gap:14px;padding:14px 24px 10px;border-bottom:2px solid #e2e8f0;page-break-after:avoid;break-after:avoid;}' +
-          '.sp-num{width:36px;height:36px;border-radius:50%;background:#1e3a8a;color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.9rem;flex-shrink:0;}' +
-          '.sp-info{flex:1;}' +
-          '.sp-title{font-size:1.35rem;font-weight:700;color:#1e293b;font-family:Cinzel,Georgia,serif;}' +
-          '.sp-artist{font-size:0.82rem;color:#64748b;margin-top:2px;}' +
-          '.sp-section-pill{font-size:0.72rem;padding:3px 10px;border-radius:12px;background:#eef2ff;color:#6366f1;font-weight:600;white-space:nowrap;flex-shrink:0;}' +
-          /* Padding matches live .sb-page-lyrics exactly → same text flow → annotation coords align */
-          '.sp-lyrics-wrap{position:relative;font-family:' + _sbFontSettings.family + ';font-size:' + _sbFontSettings.size + ';line-height:' + _sbFontSettings.lineHeight + ';color:#1e293b;white-space:pre-wrap;word-break:break-word;padding:' + (_sbFontSettings.padding || '24px 36px 40px') + ';}' +
-          '.sp-lyrics-wrap--two-col{column-count:2;column-gap:28px;column-fill:balance;}' +
+          /* Lyrics/header CSS shared with the measuring div (see _sbLyricsPrintCss) */
+          _sbLyricsPrintCss +
           '.sb-annot-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;}' +
-          // Chord / section / lyric styles — must exactly match the live .sb-page-lyrics CSS
-          '.sp-lyrics-wrap .wo-lyrics-chord-line{font-family:"Courier New",monospace;font-weight:700;color:#1e40af;font-size:16px;margin:1em 0 0;break-after:avoid;column-break-after:avoid;page-break-after:avoid;}' +
-          '.sp-lyrics-wrap .wo-lyrics-lyric-line{color:#334155;margin:0 0 0.5em;}' +
-          '.sp-lyrics-wrap .wo-lyrics-empty-line{height:2.2em;}' +
-          '.sp-lyrics-wrap .wo-lyrics-section-header{display:inline-block;padding:4px 12px;margin:2em 0 1em;font-weight:700;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.5px;border-radius:4px;break-after:avoid;column-break-after:avoid;page-break-after:avoid;}' +
-          '.wo-lyrics-section-header.verse{background:#dbeafe;color:#1e40af;}' +
-          '.wo-lyrics-section-header.chorus{background:#f3e8ff;color:#7c3aed;}' +
-          '.wo-lyrics-section-header.bridge{background:#dcfce7;color:#166534;}' +
-          '.wo-lyrics-section-header.prechorus{background:#ffedd5;color:#c2410c;}' +
-          '.wo-lyrics-section-header.ending{background:#fee2e2;color:#dc2626;}' +
-          '.wo-lyrics-section-header.other{background:#f1f5f9;color:#475569;}' +
           // 350 — Doc pages: full PDF blob iframe (all pages)
           '.sp-doc-page{page-break-before:always;break-before:page;display:flex;flex-direction:column;min-height:100vh;box-sizing:border-box;padding:0;}' +
           '.sp-doc-page-label{display:flex;align-items:center;gap:10px;padding:9px 18px;background:#1e3a8a;color:white;font-size:0.82rem;flex-shrink:0;}' +
