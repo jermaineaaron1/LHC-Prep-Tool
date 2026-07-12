@@ -38948,7 +38948,7 @@ var WO = (function() {
     // contaminated div's class gets reclassified below (based on its now-
     // mixed content), the evidence that it used to be a pure chord line
     // is gone.
-    _sbHealChordFusion(el);
+    var _sbHealed = _sbHealChordFusion(el);
 
     var rawText = _sbRawFlatText(el);
     var oldText = _sbCanonicalText.hasOwnProperty(sid) ? _sbCanonicalText[sid] : (song ? (song.lyrics || '') : rawText);
@@ -38974,6 +38974,16 @@ var WO = (function() {
 
     var insertedText = rawText.substring(p, rawText.length - s);
     var newCanonical = oldText.substring(0, p) + insertedText + oldText.substring(oldText.length - s);
+    var removedText = oldText.substring(p, oldText.length - s);
+
+    // Inline edit (no line added/removed): the native DOM already reflects it and
+    // the caret is already where the user is typing. Re-rendering the whole
+    // element on every keystroke and restoring the caret is what made the cursor
+    // jump to the bottom, so skip it for inline edits - just record the text.
+    if (!_sbHealed && insertedText.indexOf('\n') === -1 && removedText.indexOf('\n') === -1) {
+      _sbCanonicalText[sid] = newCanonical;
+      return;
+    }
 
     // Map the raw caret to the corresponding offset in the new canonical text
     var newCaret;
@@ -39068,6 +39078,11 @@ var WO = (function() {
     // Move chord anchors by the same character delta as their lyric line.
     // This runs before autosave/realtime reads the updated DOM.
     sbSyncChordAfterLyricsInput(songId);
+    // Chord sync may have shifted the chord line above the edited lyric; keep the
+    // canonical text aligned with the DOM so the next keystroke diffs cleanly
+    // (a stale chord line would make the diff span lines and force a
+    // caret-moving re-render - the jump seen on the 2nd character).
+    (function() { var _sle = document.getElementById('sbLyrics-' + songId); if (_sle) _sbCanonicalText[songId] = _sbRawFlatText(_sle); })();
     // Remap annotations to follow any text that shifted
     sbRemapAnnotationsAfterEdit(songId);
     // Refresh A4 markers after typing settles (150 ms feels instant)
