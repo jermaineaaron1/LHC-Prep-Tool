@@ -38938,6 +38938,69 @@ var WO = (function() {
     return healed;
   }
 
+  // Combine an upper (chord A / lyric B) pair with a lower (chord C / lyric D)
+  // pair into one, repositioning the lower chords above where D now sits. Same
+  // algorithm as the desktop DOM merge _sbCarryMergeUp, on plain canonical
+  // strings (already nbsp-free, so no nbsp normalization needed here).
+  function _sbMergeCanonicalPair(A, B, C, D) {
+    var upText = (B || '').replace(/\s+$/, '');
+    var loText = (D || '');
+    var sep = upText ? ' ' : '';
+    var joinPos = upText.length + sep.length;
+    var upChord = A ? A.replace(/\s+$/, '') : '';
+    var loChord = C ? C.replace(/\s+$/, '') : '';
+    var mergedChord = '';
+    if (upChord || loChord) {
+      mergedChord = upChord;
+      if (loChord) {
+        if (mergedChord.length >= joinPos) mergedChord += ' ';
+        while (mergedChord.length < joinPos) mergedChord += ' ';
+        mergedChord += loChord;
+      }
+    }
+    return { chord: mergedChord, lyric: upText + sep + loText, joinPos: joinPos };
+  }
+
+  // Mobile fallback: if the edit was a single removed newline at a chord/lyric
+  // pair boundary (a native backspace that fused a chord line into the lyric
+  // above it, because the keydown/beforeinput merge didn't fire), return the
+  // canonical text re-done as the proper chord-pair merge, plus the caret.
+  function _sbCanonicalBackspaceRepair(oldText, p, inserted, removed) {
+    if (inserted !== '' || removed !== '\n') return null;
+    var lines = oldText.split('\n');
+    var acc = 0, li = -1;
+    for (var i = 0; i < lines.length; i++) {
+      if (acc + lines[i].length === p) { li = i; break; }
+      acc += lines[i].length + 1;
+    }
+    if (li < 0 || li + 1 >= lines.length) return null;
+    function isChord(t) { return isChordLineGlobal(t); }
+    function isHdr(t) { var x = t.trim(); return /^\[.+\]$/.test(x) || /^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude)(\s*\d*)?$/i.test(x); }
+    function isLyr(t) { return t.trim() !== '' && !isChord(t) && !isHdr(t); }
+    var A, B, C, D, headIdx, tailIdx;
+    if (isLyr(lines[li]) && isChord(lines[li + 1]) && li + 2 < lines.length && isLyr(lines[li + 2])) {
+      // Backspace at the start of a chord line: [A?][B][C][D] -> merge (C,D) up.
+      B = lines[li]; C = lines[li + 1]; D = lines[li + 2];
+      A = (li - 1 >= 0 && isChord(lines[li - 1])) ? lines[li - 1] : null;
+      headIdx = A ? li - 1 : li; tailIdx = li + 2;
+    } else if (isChord(lines[li]) && isLyr(lines[li + 1]) && li - 1 >= 0 && isLyr(lines[li - 1])) {
+      // Backspace at the start of a lyric line (its chord line is lines[li]).
+      C = lines[li]; D = lines[li + 1]; B = lines[li - 1];
+      A = (li - 2 >= 0 && isChord(lines[li - 2])) ? lines[li - 2] : null;
+      headIdx = A ? li - 2 : li - 1; tailIdx = li + 1;
+    } else {
+      return null;
+    }
+    var m = _sbMergeCanonicalPair(A, B, C, D);
+    var before = lines.slice(0, headIdx);
+    var after = lines.slice(tailIdx + 1);
+    var merged = before.concat([m.chord, m.lyric], after);
+    var caret = 0, k;
+    for (k = 0; k < before.length; k++) caret += before[k].length + 1;
+    caret += m.chord.length + 1 + m.joinPos;
+    return { text: merged.join('\n'), caret: caret };
+  }
+
   function sbReconcileLyrics(sid) {
     var el = document.getElementById('sbLyrics-' + sid);
     if (!el) return;
@@ -38991,6 +39054,12 @@ var WO = (function() {
     else if (caretRaw >= rawText.length - s) newCaret = newCanonical.length - (rawText.length - caretRaw);
     else newCaret = p + insertedText.length;
     newCaret = Math.max(0, Math.min(newCaret, newCanonical.length));
+
+    // Mobile fallback: re-do a chord-into-lyric backspace fusion as the proper
+    // chord-pair merge (see _sbCanonicalBackspaceRepair) so alignment isn't
+    // scrambled on keyboards where the keydown/beforeinput merge didn't fire.
+    var _sbRep = _sbCanonicalBackspaceRepair(oldText, p, insertedText, removedText);
+    if (_sbRep) { newCanonical = _sbRep.text; newCaret = _sbRep.caret; }
 
     el.innerHTML = formatLyricsWithHighlights(newCanonical);
     if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
