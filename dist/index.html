@@ -32563,7 +32563,8 @@ var WO = (function() {
   var _sbRePageTimers  = {};  // per-song repagination debounce timers
   var sbPageMargins = {};    // songId -> extra px margin after song
   var sbManualBreaks = {};       // songId -> { breakIdx: bookModeY } manual A4 break positions
-  var sbPageBreakLines = {};     // songId -> { breakIdx: srcLineIndex } page-start overrides (source-line based; shared by markers + print)
+  var sbPageBreakLines = {};     // songId -> [srcLine,...] manual page-start lines (array = fully manual, empty = 1 page; absent = auto). Shared by markers + print.
+  var _sbDisplayedStarts = {};   // songId -> last-rendered page-start source lines (seed for drag edits)
   var sbSongFontOverrides = {};  // songId -> scale ratio (0–1) when page section overflows A4H
   var _SB_SONG_LAYOUT_KEY = 'lhc_sb_song_layout'; // localStorage key for cross-songbook song layouts
   var sbBreakDragging = null;
@@ -34848,6 +34849,7 @@ var WO = (function() {
       // builds from, so the markers and the PDF agree line-for-line.
       var _srcText = (typeof sbExtractLyricsText === 'function') ? sbExtractLyricsText(lyricsEl) : '';
       var _ps = _sbComputePageStarts(_srcText, headerHtml, sid).pageStarts;
+      _sbDisplayedStarts[sid] = _ps.slice();
       if (!_ps.length) return;
 
       // Map each source-line index -> the live child holding it. A chord-pair child
@@ -34869,7 +34871,7 @@ var WO = (function() {
         marker.setAttribute('data-page', _pi + 2);
         marker.setAttribute('data-song-id', sid);
         marker.setAttribute('data-break-idx', String(_pi));
-        if (sbPageBreakLines[sid] && sbPageBreakLines[sid][_pi] != null) marker.setAttribute('data-manual', '1');
+        if (Array.isArray(sbPageBreakLines[sid])) marker.setAttribute('data-manual', '1');
         (function(m) {
           m.addEventListener('mousedown', function(e) { sbA4MarkerDragStart(e, m); });
           m.addEventListener('touchstart', function(e) { sbA4MarkerTouchStart(e, m); }, { passive: false });
@@ -40002,15 +40004,27 @@ var WO = (function() {
     var lyricsEl = document.getElementById('sbLyrics-' + d.songId);
     if (lyricsEl) {
       var kids = Array.prototype.filter.call(lyricsEl.children, function(c) { return !c.classList.contains('sb-a4-marker'); });
-      var bestKi = -1, bestDist = Infinity;
-      kids.forEach(function(kid, ki) { var dist = Math.abs(kid.offsetTop - finalTop); if (dist < bestDist) { bestDist = dist; bestKi = ki; } });
-      if (bestKi > 0) {
-        var srcLine = 0;
-        for (var ki = 0; ki < bestKi; ki++) srcLine += kids[ki].classList.contains('wo-lyrics-chord-pair') ? 2 : 1;
-        if (!sbPageBreakLines[d.songId]) sbPageBreakLines[d.songId] = {};
-        sbPageBreakLines[d.songId][d.breakIdx] = srcLine;
-        d.marker.setAttribute('data-manual', '1');
+      // Seed the manual break list from what's currently shown, then edit this break.
+      var arr = (_sbDisplayedStarts[d.songId] || []).slice();
+      var lastKid = kids[kids.length - 1];
+      if (lastKid && finalTop >= lastKid.offsetTop + lastKid.offsetHeight - 8) {
+        // Dropped at/below the last line -> drop this break so the page absorbs
+        // everything after it (dragging all the way down = fewer / a single page).
+        if (d.breakIdx >= 0 && d.breakIdx < arr.length) arr.splice(d.breakIdx, 1);
+      } else {
+        // Moved -> snap to the nearest line's source index and set this break.
+        var bestKi = -1, bestDist = Infinity;
+        kids.forEach(function(kid, ki) { var dist = Math.abs(kid.offsetTop - finalTop); if (dist < bestDist) { bestDist = dist; bestKi = ki; } });
+        if (bestKi > 0) {
+          var srcLine = 0;
+          for (var ki = 0; ki < bestKi; ki++) srcLine += kids[ki].classList.contains('wo-lyrics-chord-pair') ? 2 : 1;
+          if (d.breakIdx >= 0 && d.breakIdx < arr.length) arr[d.breakIdx] = srcLine;
+          else arr.push(srcLine);
+        }
       }
+      // Sort + dedupe: dragging one break onto another merges them.
+      arr = arr.filter(function(v, ai, a) { return v > 0 && a.indexOf(v) === ai; }).sort(function(a, b) { return a - b; });
+      sbPageBreakLines[d.songId] = arr;
     }
     _sbSaveSongLayout(d.songId);
     setTimeout(function() { sbPaginateAll(); }, 80);
@@ -40170,7 +40184,7 @@ var WO = (function() {
       var all = JSON.parse(localStorage.getItem(_SB_SONG_LAYOUT_KEY) || '{}');
       var scale  = sbSongFontOverrides[songId] || null;
       var breaks = sbManualBreaks[songId]      || null;
-      var pbl    = (sbPageBreakLines[songId] && Object.keys(sbPageBreakLines[songId]).length) ? sbPageBreakLines[songId] : null;
+      var pbl    = Array.isArray(sbPageBreakLines[songId]) ? sbPageBreakLines[songId] : null;
       if (scale || breaks || pbl) {
         all[songId] = { fontScale: scale, manualBreaks: breaks, pageBreakLines: pbl };
       } else {
@@ -40766,7 +40780,7 @@ var WO = (function() {
       '.sp-lyrics-wrap .wo-lyrics-section-header.prechorus{background:#ffedd5;color:#c2410c;}' +
       '.sp-lyrics-wrap .wo-lyrics-section-header.ending{background:#fee2e2;color:#dc2626;}' +
       '.sp-lyrics-wrap .wo-lyrics-section-header.other{background:#f1f5f9;color:#475569;}' +
-      '.sp-song{margin:0;break-before:page;break-inside:auto;}' +
+      '.sp-song{margin:0;padding-top:40px;break-before:page;break-inside:auto;}' +
       '.sp-lyrics-wrap .wo-lyrics-chord-pair{display:block;margin:.12em 0 .42em;line-height:1.5;white-space:normal;break-inside:avoid;page-break-inside:avoid;}' +
       '.sp-lyrics-wrap .wo-leading-chunk,.sp-lyrics-wrap .wo-lyric-chunk{position:relative;display:inline-block;vertical-align:bottom;padding-top:1.05em;white-space:pre-wrap;overflow-wrap:break-word;}' +
       '.sp-lyrics-wrap .wo-chord-token{position:relative;display:inline-grid;grid-template-columns:max-content;grid-template-rows:1.05em auto;vertical-align:bottom;white-space:pre-wrap;margin-right:.22em;}' +
@@ -40790,7 +40804,7 @@ var WO = (function() {
   // each tagged data-src-start) are atomic, so a break never lands mid-section/mid-line.
   // Both the live markers (sbPaginateAll) and the print call this, so they agree.
   function _sbComputePageStarts(text, headerHtml, songId) {
-    var A4H = Math.round(297 * 96 / 25.4); // 1123px — full A4 page (print @page margin:0)
+    var _sbPgMarginPx = 40; var A4H = Math.round(297 * 96 / 25.4) - 2 * _sbPgMarginPx; // A4 height minus ~10mm top+bottom print margins (added via padding, so index/doc pages are untouched)
     _sbEnsurePrintMeasureCss();
     var inlineHtml = (typeof formatLyricsForPrintChords === 'function') ? formatLyricsForPrintChords(text || '') : '';
     var mDiv = document.createElement('div');
@@ -40804,21 +40818,28 @@ var WO = (function() {
     var blocks = wrap ? Array.prototype.slice.call(wrap.children) : [];
     function bTop(el) { return el.getBoundingClientRect().top - mTop; }
     function bBot(el) { return el.getBoundingClientRect().bottom - mTop; }
-    var ov = (songId && sbPageBreakLines[songId]) ? sbPageBreakLines[songId] : null;
-    var pageStarts = [], curTop = 0, pageIdx = 0, i = 0, pageFirst = 0, guard = 0;
-    while (i < blocks.length && guard++ < 3000) {
-      var forced = ov ? ov[pageIdx] : undefined;
-      if (forced !== undefined && forced !== null) {
-        // Snap the forced break to the NEAREST block start (breaks can only land
-        // between atomic sections), so a dragged marker always sticks.
-        var fbi = -1, fbDist = Infinity;
-        for (var k = Math.max(i, 1); k < blocks.length; k++) {
-          var _ds = parseInt(blocks[k].getAttribute('data-src-start'), 10);
-          var _dist = Math.abs(_ds - forced);
-          if (_dist < fbDist) { fbDist = _dist; fbi = k; }
+    // Manual mode: the user has dragged the page breaks. Use exactly those source
+    // lines (each snapped to the nearest section start) - no auto pagination. An
+    // empty array means "one page" (all breaks merged away).
+    if (songId && Array.isArray(sbPageBreakLines[songId])) {
+      var mStarts = [];
+      sbPageBreakLines[songId].forEach(function(ln) {
+        var best = -1, bd = Infinity;
+        for (var mk = 0; mk < blocks.length; mk++) {
+          var mds = parseInt(blocks[mk].getAttribute('data-src-start'), 10);
+          if (isNaN(mds) || mds <= 0) continue;
+          var mdd = Math.abs(mds - ln);
+          if (mdd < bd) { bd = mdd; best = mds; }
         }
-        if (fbi > 0) { pageStarts.push(parseInt(blocks[fbi].getAttribute('data-src-start'), 10)); curTop = bTop(blocks[fbi]); i = fbi; pageFirst = fbi; pageIdx++; continue; }
-      }
+        if (best > 0 && mStarts.indexOf(best) === -1) mStarts.push(best);
+      });
+      mStarts.sort(function(a, b) { return a - b; });
+      if (mDiv.parentNode) mDiv.parentNode.removeChild(mDiv);
+      return { pageStarts: mStarts, headerH: headerH };
+    }
+    // Auto mode: pack blocks into pages of A4H, breaking only between sections.
+    var pageStarts = [], curTop = 0, i = 0, pageFirst = 0, guard = 0;
+    while (i < blocks.length && guard++ < 3000) {
       var pageBottom = curTop + A4H, brokeAt = -1;
       for (; i < blocks.length; i++) {
         if (i > pageFirst && bBot(blocks[i]) > pageBottom) { brokeAt = i; break; }
@@ -40826,7 +40847,7 @@ var WO = (function() {
       if (brokeAt < 0) break;
       var src = parseInt(blocks[brokeAt].getAttribute('data-src-start'), 10);
       if (isNaN(src)) { pageFirst = brokeAt; i = brokeAt + 1; continue; }
-      pageStarts.push(src); curTop = bTop(blocks[brokeAt]); pageFirst = brokeAt; pageIdx++;
+      pageStarts.push(src); curTop = bTop(blocks[brokeAt]); pageFirst = brokeAt;
     }
     if (mDiv.parentNode) mDiv.parentNode.removeChild(mDiv);
     return { pageStarts: pageStarts, headerH: headerH };
@@ -41026,7 +41047,7 @@ var WO = (function() {
       _songDiv.innerHTML = _printFullHtml;
       _pgStarts.forEach(function(_S) {
         var _bEl = _songDiv.querySelector('.sp-lyrics-wrap [data-src-start="' + _S + '"]');
-        if (_bEl) { _bEl.style.breakBefore = 'page'; _bEl.style.pageBreakBefore = 'always'; }
+        if (_bEl) { _bEl.style.breakBefore = 'page'; _bEl.style.pageBreakBefore = 'always'; _bEl.style.paddingTop = '40px'; }
       });
       songPages += _songDiv.outerHTML;
 
