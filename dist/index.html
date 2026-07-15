@@ -38185,8 +38185,13 @@ var WO = (function() {
     var lyric2 = rest.replace(/^\s+/, '');
 
     var re = /\S+/g, m, toks1 = [], toks2 = [];
+    // Chords past the split point normally move to the second half. But when that
+    // half is empty (Enter at the END of the line - just adding a blank line), there
+    // are no syllables for them to sit above, so keep trailing chords on the first
+    // line instead of orphaning them onto the new blank line.
+    var _lyric2Empty = (lyric2 === '');
     while ((m = re.exec(chordText)) !== null) {
-      if (m.index < pos) toks1.push({ pos: m.index, text: m[0] });
+      if (m.index < pos || _lyric2Empty) toks1.push({ pos: m.index, text: m[0] });
       else toks2.push({ pos: Math.max(0, m.index - pos - lead), text: m[0] });
     }
 
