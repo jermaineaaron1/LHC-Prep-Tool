@@ -34368,8 +34368,9 @@ var WO = (function() {
       '#sbSelToolbar button{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:28px;padding:0 8px;background:#334155;color:#e2e8f0;border:none;border-radius:6px;font-size:1rem;font-weight:700;cursor:pointer;line-height:1;}' +
       '#sbSelToolbar button:hover{background:#4f6178;}' +
       '#sbSelToolbar .sbst-sep{width:1px;height:20px;background:#475569;margin:0 3px;}' +
-      '#sbSelToolbar .sbst-color{display:inline-flex;width:28px;height:28px;border-radius:6px;overflow:hidden;cursor:pointer;border:1px solid #475569;}' +
-      '#sbSelToolbar .sbst-color input{width:150%;height:150%;margin:-25%;border:none;background:none;cursor:pointer;padding:0;}';
+      '#sbSelToolbar .sbst-colors{display:inline-flex;gap:3px;align-items:center;}' +
+      '#sbSelToolbar .sbst-dot{width:18px;height:18px;min-width:18px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,0.35);cursor:pointer;}' +
+      '#sbSelToolbar .sbst-dot:hover{transform:scale(1.15);}';
     document.head.appendChild(st);
     var bar = document.createElement('div');
     bar.id = 'sbSelToolbar';
@@ -34379,7 +34380,13 @@ var WO = (function() {
       '<button type="button" title="Underline" data-sbst="u" style="text-decoration:underline;">U</button>' +
       '<button type="button" title="Bigger" data-sbst="bigger">A+</button>' +
       '<button type="button" title="Smaller" data-sbst="smaller">A-</button>' +
-      '<label class="sbst-color" title="Text colour"><input type="color" data-sbst="color" value="#1e293b"></label>' +
+      '<span class="sbst-colors">' +
+        '<button type="button" class="sbst-dot" data-sbst="color" data-color="#dc2626" title="Red" style="background:#dc2626;"></button>' +
+        '<button type="button" class="sbst-dot" data-sbst="color" data-color="#ea580c" title="Orange" style="background:#ea580c;"></button>' +
+        '<button type="button" class="sbst-dot" data-sbst="color" data-color="#16a34a" title="Green" style="background:#16a34a;"></button>' +
+        '<button type="button" class="sbst-dot" data-sbst="color" data-color="#2563eb" title="Blue" style="background:#2563eb;"></button>' +
+        '<button type="button" class="sbst-dot" data-sbst="color" data-color="#7c3aed" title="Purple" style="background:#7c3aed;"></button>' +
+      '</span>' +
       '<button type="button" title="Clear formatting" data-sbst="clear">&#10005;</button>' +
       '<span class="sbst-sep"></span>' +
       '<span class="sbst-label">KEY</span>' +
@@ -34399,12 +34406,11 @@ var WO = (function() {
       else if (act === 'b') sbFmtSelection('b', true, true);
       else if (act === 'i') sbFmtSelection('i', true, true);
       else if (act === 'u') sbFmtSelection('u', true, true);
-      else if (act === 'bigger') sbFmtSelection('size', '1.28em', false);
-      else if (act === 'smaller') sbFmtSelection('size', '0.8em', false);
+      else if (act === 'bigger') sbFmtSize(1);
+      else if (act === 'smaller') sbFmtSize(-1);
+      else if (act === 'color') sbFmtSelection('color', b.getAttribute('data-color'), false);
       else if (act === 'clear') sbFmtSelection(null, null, false);
     });
-    var _clr = bar.querySelector('input[data-sbst="color"]');
-    if (_clr) _clr.addEventListener('input', function() { sbFmtSelection('color', this.value, false); });
     document.body.appendChild(bar);
     _sbSelToolbarEl = bar;
     return bar;
@@ -34617,11 +34623,11 @@ var WO = (function() {
   }
 
   // Toolbar action: set/toggle a style on the current selection.
-  function sbFmtSelection(key, value, isToggle) {
+  function _sbSelInfo() {
     var lyricsEl = _sbSelLyricsEl(), sid, s, e;
     if (lyricsEl) {
       var sel = window.getSelection();
-      if (!sel || !sel.rangeCount) return;
+      if (!sel || !sel.rangeCount) return null;
       var range = sel.getRangeAt(0);
       sid = lyricsEl.id.replace('sbLyrics-', '');
       s = _sbRawCaretOffset(lyricsEl, range.startContainer, range.startOffset);
@@ -34631,9 +34637,33 @@ var WO = (function() {
       lyricsEl = document.getElementById('sbLyrics-' + sid);
       s = _sbFmtSavedRange.s; e = _sbFmtSavedRange.e;
     }
-    if (!lyricsEl) return;
+    if (!lyricsEl) return null;
     if (e < s) { var t = s; s = e; e = t; }
-    if (e <= s) return;
+    if (e <= s) return null;
+    return { lyricsEl: lyricsEl, sid: sid, s: s, e: e };
+  }
+  function _sbStyleAt(spans, pos) {
+    var f = {};
+    (spans || []).forEach(function(sp) { if (sp.s <= pos && pos < sp.e) { for (var k in sp.f) f[k] = sp.f[k]; } });
+    return f;
+  }
+  // Step the selection's font-size through discrete levels; 1x removes the override
+  // (back to the page's normal size), so A-/A+ can always return to default.
+  function sbFmtSize(dir) {
+    var info = _sbSelInfo(); if (!info) return;
+    var curStr = _sbStyleAt(_sbSongSpans(info.sid), info.s).size;
+    var cur = curStr ? (parseFloat(curStr) || 1) : 1;
+    var sizes = [0.7, 0.8, 0.9, 1, 1.12, 1.28, 1.5, 1.8, 2.2];
+    var idx = 0, best = 1e9;
+    for (var i = 0; i < sizes.length; i++) { var dd = Math.abs(sizes[i] - cur); if (dd < best) { best = dd; idx = i; } }
+    idx = Math.max(0, Math.min(sizes.length - 1, idx + dir));
+    var nv = sizes[idx];
+    sbFmtSelection('size', nv === 1 ? null : (nv + 'em'), false);
+  }
+
+  function sbFmtSelection(key, value, isToggle) {
+    var info = _sbSelInfo(); if (!info) return;
+    var lyricsEl = info.lyricsEl, sid = info.sid, s = info.s, e = info.e;
     var spans = _sbSongSpans(sid);
     var v = value;
     if (isToggle) v = _sbRangeHasAll(spans, s, e, key) ? null : true;
