@@ -6330,6 +6330,10 @@
   #lyricsPreviewContent .section-header.intro   { background: #e0f2fe; color: #0369a1; }
   #lyricsPreviewContent .chord-line { color: #991b1b; font-weight: 700; font-family: 'Courier New', monospace; font-size: 17px; margin-bottom: -4px; white-space: pre; }
   #lyricsPreviewContent .lyric-line { color: #1f2937; font-size: 19px; line-height: 1.7; }
+  #lyricsPreviewContent .ci-line  { display: block; margin-bottom: 6px; }
+  #lyricsPreviewContent .ci-w     { display: inline-block; white-space: nowrap; vertical-align: bottom; }
+  #lyricsPreviewContent .ci-seg   { display: inline-block; position: relative; padding-top: 1.2em; vertical-align: bottom; white-space: pre; font-size: 19px; line-height: 1.5; color: #1f2937; }
+  #lyricsPreviewContent .ci-chord { position: absolute; top: 0; left: 0; font-family: 'Courier New', monospace; font-weight: 700; color: #991b1b; font-size: 0.78em; white-space: nowrap; line-height: 1.1; }
   
   /* Lyrics Editor Button */
   .lyrics-edit-trigger { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 16px 24px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%; transition: all 0.2s; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
@@ -10132,7 +10136,8 @@ function formatLyricsWithTranspose(text, showChords, transposeSteps) {
   var lines = text.split('\n');
   var html = '';
 
-  for (var i = 0; i < lines.length; i++) {
+  var i = 0;
+  while (i < lines.length) {
     var line = lines[i];
     var trimmed = line.trim();
 
@@ -10146,17 +10151,26 @@ function formatLyricsWithTranspose(text, showChords, transposeSteps) {
                   (sh.indexOf('ending') >= 0 || sh.indexOf('outro') >= 0) ? 'ending' :
                   sh.indexOf('intro') >= 0 ? 'intro' : 'other';
       html += '<div class="section-header ' + sType + '">' + escapeHtmlModal(sectionName) + '</div>';
+      i++;
     } else if (isChordLineGlobal(line)) {
       if (showChords) {
-        // Use the shared transposeLine engine — handles all chord qualities, no extra spacing
-        var transposedLine = transposeSteps !== 0 ? transposeLine(line, transposeSteps) : line;
-        html += '<div class="chord-line">' + escapeHtmlModal(transposedLine) + '</div>';
+        // Inline chords sitting above their own words (word-atomic, so they reflow
+        // cleanly even in a narrow 2-column layout) — same engine as the print,
+        // instead of a separate space-aligned chord line that scatters on wrap.
+        var nextLyric = (i + 1 < lines.length && lines[i + 1].trim() &&
+                         !isChordLineGlobal(lines[i + 1]) && !lines[i + 1].trim().match(/^\[.+\]$/))
+                        ? lines[i + 1] : null;
+        html += buildInlineChordHtml(line, nextLyric || '', transposeSteps);
+        i += (nextLyric !== null) ? 2 : 1;
+      } else {
+        i++; // chords hidden: drop the chord line
       }
-      // When chords are hidden, drop the chord line entirely (no extra blank div)
     } else if (trimmed) {
       html += '<div class="lyric-line">' + escapeHtmlModal(line) + '</div>';
+      i++;
     } else {
       html += '<div style="height: 10px;"></div>';
+      i++;
     }
   }
 
@@ -34400,7 +34414,7 @@ var WO = (function() {
     if (_sbSelToolbarEl) return _sbSelToolbarEl;
     var st = document.createElement('style');
     st.textContent =
-      '#sbSelToolbar{position:fixed;z-index:100000;display:none;align-items:center;gap:4px;padding:5px 7px;background:#1e293b;border:1px solid #334155;border-radius:9px;box-shadow:0 6px 22px rgba(0,0,0,0.4);font-family:Poppins,system-ui,sans-serif;}' +
+      '#sbSelToolbar{position:fixed;z-index:100000;display:none;flex-wrap:wrap;justify-content:center;align-items:center;gap:4px;padding:5px 7px;max-width:calc(100vw - 12px);background:#1e293b;border:1px solid #334155;border-radius:9px;box-shadow:0 6px 22px rgba(0,0,0,0.4);font-family:Poppins,system-ui,sans-serif;}' +
       '#sbSelToolbar .sbst-label{color:#94a3b8;font-size:0.7rem;font-weight:600;padding:0 3px;letter-spacing:.03em;}' +
       '#sbSelToolbar button{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:28px;padding:0 8px;background:#334155;color:#e2e8f0;border:none;border-radius:6px;font-size:1rem;font-weight:700;cursor:pointer;line-height:1;}' +
       '#sbSelToolbar button:hover{background:#4f6178;}' +
@@ -34471,8 +34485,11 @@ var WO = (function() {
     if (!rect || (!rect.width && !rect.height)) { bar.style.display = 'none'; return; }
     bar.style.display = 'flex';
     var bw = bar.offsetWidth, bh = bar.offsetHeight;
-    var top = rect.top - bh - 8;
-    if (top < 6) top = rect.bottom + 8;
+    // On touch devices the OS text-selection popup sits just above the selection —
+    // clear it so our toolbar isn't hidden underneath.
+    var _osClear = (('ontouchstart' in window) || navigator.maxTouchPoints > 0) ? 54 : 0;
+    var top = rect.top - bh - 8 - _osClear;
+    if (top < 6) top = rect.bottom + 8 + _osClear;
     var left = rect.left + rect.width / 2 - bw / 2;
     left = Math.max(6, Math.min(left, window.innerWidth - bw - 6));
     bar.style.top = Math.round(top) + 'px';
