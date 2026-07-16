@@ -10390,29 +10390,56 @@ function buildInlineChordHtml(chordLine, lyricLine, steps) {
   while ((m = re.exec(chordLine)) !== null) {
     tokens.push({ pos: m.index, ch: transposeChordLinePrint(m[0], steps) });
   }
-  if (!tokens.length) {
-    return '<div class="lyric-line">' + escapeHtmlModal(lyricLine || '') + '</div>';
-  }
-
   var lyric = lyricLine || '';
-  var html  = '<div class="ci-line">';
-
-  // Any lyric text that sits before the first chord position
-  if (tokens[0].pos > 0 && tokens[0].pos <= lyric.length) {
-    html += '<span class="ci-gap">' + escapeHtmlModal(lyric.substring(0, tokens[0].pos)) + '</span>';
+  if (!tokens.length) {
+    return '<div class="lyric-line">' + escapeHtmlModal(lyric) + '</div>';
   }
 
-  for (var i = 0; i < tokens.length; i++) {
-    var segStart = Math.min(tokens[i].pos, lyric.length);
-    var segEnd   = (i + 1 < tokens.length) ? Math.min(tokens[i + 1].pos, lyric.length) : lyric.length;
-    var seg      = lyric.substring(segStart, segEnd);
-    if (!seg) seg = '\u00a0'; // non-breaking space so the chord has something to sit above
-    html += '<span class="ci-word"><span class="ci-chord">' + escapeHtmlModal(tokens[i].ch) + '</span>'
-          + escapeHtmlModal(seg) + '</span>';
+  // Split the lyric into WHOLE WORDS. Each word (plus any chords sitting over it)
+  // becomes one atomic nowrap unit, so a chord landing mid-word can never split the
+  // word across lines. The real spaces between units are the only wrap points, so a
+  // long line simply flows onto the next line with words and chords intact.
+  var words = [], wre = /\S+/g, wm;
+  while ((wm = wre.exec(lyric)) !== null) words.push({ s: wm.index, e: wm.index + wm[0].length });
+
+  var parts = [], ti = 0;
+  function chordOnly(ch) {
+    return '<span class="ci-w"><span class="ci-seg"><span class="ci-chord">' +
+           escapeHtmlModal(ch) + '</span>&nbsp;</span></span>';
   }
 
-  html += '</div>';
-  return html;
+  if (!words.length) {
+    tokens.forEach(function(t) { parts.push(chordOnly(t.ch)); });
+    return '<div class="ci-line">' + parts.join(' ') + '</div>';
+  }
+
+  words.forEach(function(w) {
+    var mine = [];
+    while (ti < tokens.length && tokens[ti].pos < w.e) { mine.push(tokens[ti]); ti++; }
+    var unit = '<span class="ci-w">';
+    if (!mine.length) {
+      unit += '<span class="ci-seg">' + escapeHtmlModal(lyric.substring(w.s, w.e)) + '</span>';
+    } else {
+      var cursor = w.s;
+      mine.forEach(function(t, k) {
+        var cs = Math.min(Math.max(t.pos, w.s), w.e);
+        if (cs > cursor) unit += '<span class="ci-seg">' + escapeHtmlModal(lyric.substring(cursor, cs)) + '</span>';
+        var ce = (k + 1 < mine.length) ? Math.min(Math.max(mine[k + 1].pos, w.s), w.e) : w.e;
+        if (ce < cs) ce = cs;
+        var txt = lyric.substring(cs, ce);
+        unit += '<span class="ci-seg"><span class="ci-chord">' + escapeHtmlModal(t.ch) + '</span>' +
+                (txt ? escapeHtmlModal(txt) : '&nbsp;') + '</span>';
+        cursor = ce;
+      });
+      if (cursor < w.e) unit += '<span class="ci-seg">' + escapeHtmlModal(lyric.substring(cursor, w.e)) + '</span>';
+    }
+    unit += '</span>';
+    parts.push(unit);
+  });
+
+  while (ti < tokens.length) { parts.push(chordOnly(tokens[ti].ch)); ti++; }
+
+  return '<div class="ci-line">' + parts.join(' ') + '</div>';
 }
 
 // ── Main print function ────────────────────────────────────────────────────
@@ -10460,6 +10487,13 @@ function printLyricsPreview() {
   var title  = escapeHtmlModal(song.title);
   var artist = song.artist ? escapeHtmlModal(song.artist) : '';
 
+  // Honour the modal's 2-Col toggle — printing always in 2 columns crammed long
+  // lines into narrow columns and forced heavy wrapping.
+  var _twoColOn = (function() {
+    var b = document.getElementById('lyricsPreviewTwoColBtn');
+    return !!(b && b.classList.contains('lhc-pill-button-active'));
+  })();
+
   var css = [
     '@page { size: A4 portrait; margin: 15mm; }',
     '* { box-sizing: border-box; margin: 0; padding: 0; }',
@@ -10468,10 +10502,12 @@ function printLyricsPreview() {
     '.song-title  { font-size: 36px; font-weight: bold; text-align: center; margin-bottom: 4px; }',
     '.song-artist { font-size: 20px; text-align: center; color: #555; padding-bottom: 12px; margin-bottom: 16px; border-bottom: 2px solid #bbb; }',
 
-    '.lyrics-columns { column-count: 2; column-gap: 14mm; column-fill: auto; column-rule: 1px solid #ddd; }',
+    '.lyrics-columns { column-count: ' + (_twoColOn ? 2 : 1) + '; column-gap: 14mm; column-fill: auto;' + (_twoColOn ? ' column-rule: 1px solid #ddd;' : '') + ' }',
 
-    /* Atomic block — never split across column/page */
-    '.lyric-block { break-inside: avoid; -webkit-column-break-inside: avoid; page-break-inside: avoid; display: inline-block; width: 100%; margin-bottom: 18px; }',
+    /* Keep a verse together when it fits. NOT inline-block: that made the block an
+       atomic inline box that could never break, so a verse taller than a column was
+       pushed off and left a blank page. */
+    '.lyric-block { break-inside: avoid; -webkit-column-break-inside: avoid; page-break-inside: avoid; width: 100%; margin-bottom: 18px; }',
 
     '.section-header { font-size: 26px; font-weight: bold; color: #1a1aaa; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }',
     '.lyric-line { font-size: 25px; line-height: 1.55; margin-bottom: 3px; }',
@@ -10479,11 +10515,12 @@ function printLyricsPreview() {
     /* Inline chord layout — chord sits above its word, line wraps normally */
     '.ci-line  { display: block; margin-bottom: 5px; }',
 
-    /* ci-word: inline-block so the chord can be absolutely positioned above it */
-    '.ci-word  { display: inline-block; position: relative; padding-top: 1.1em; vertical-align: bottom; font-size: 25px; line-height: 1.45; }',
+    /* ci-w: one whole word (plus its chords) — nowrap so it can never be split
+       mid-word; the real spaces between units are the only wrap points */
+    '.ci-w     { display: inline-block; white-space: nowrap; vertical-align: bottom; }',
 
-    /* ci-gap: lyric text before the first chord — same height so baseline matches */
-    '.ci-gap   { display: inline-block; padding-top: 1.1em; vertical-align: bottom; font-size: 25px; line-height: 1.45; }',
+    /* ci-seg: a chord-aligned slice inside a word; relative so the chord sits above it */
+    '.ci-seg   { display: inline-block; position: relative; padding-top: 1.1em; vertical-align: bottom; font-size: 25px; line-height: 1.45; white-space: pre; }',
 
     /* ci-chord: the chord symbol floating above its lyric segment */
     '.ci-chord { position: absolute; top: 0; left: 0; font-family: "Courier New", Courier, monospace; font-size: 21px; font-weight: bold; color: #cc0000; white-space: nowrap; line-height: 1.1; }',
