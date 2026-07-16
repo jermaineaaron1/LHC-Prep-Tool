@@ -34356,6 +34356,109 @@ var WO = (function() {
     }
   });
 
+  // ── Floating selection toolbar (songbook) ──────────────────────────────
+  var _sbSelToolbarEl = null, _sbSelToolbarTimer = null;
+
+  function _sbEnsureSelToolbar() {
+    if (_sbSelToolbarEl) return _sbSelToolbarEl;
+    var st = document.createElement('style');
+    st.textContent =
+      '#sbSelToolbar{position:fixed;z-index:100000;display:none;align-items:center;gap:4px;padding:5px 7px;background:#1e293b;border:1px solid #334155;border-radius:9px;box-shadow:0 6px 22px rgba(0,0,0,0.4);font-family:Poppins,system-ui,sans-serif;}' +
+      '#sbSelToolbar .sbst-label{color:#94a3b8;font-size:0.7rem;font-weight:600;padding:0 3px;letter-spacing:.03em;}' +
+      '#sbSelToolbar button{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:28px;padding:0 8px;background:#334155;color:#e2e8f0;border:none;border-radius:6px;font-size:1rem;font-weight:700;cursor:pointer;line-height:1;}' +
+      '#sbSelToolbar button:hover{background:#4f6178;}';
+    document.head.appendChild(st);
+    var bar = document.createElement('div');
+    bar.id = 'sbSelToolbar';
+    bar.innerHTML =
+      '<span class="sbst-label">KEY</span>' +
+      '<button type="button" title="Transpose the selected chords down a semitone" data-sbst="down">&#9837;</button>' +
+      '<button type="button" title="Transpose the selected chords up a semitone" data-sbst="up">&#9839;</button>';
+    bar.addEventListener('mousedown', function(e) { e.preventDefault(); }); // keep the text selection
+    bar.addEventListener('click', function(e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-sbst]') : null;
+      if (!b) return;
+      var act = b.getAttribute('data-sbst');
+      if (act === 'up') sbSelTransposeInline(1);
+      else if (act === 'down') sbSelTransposeInline(-1);
+    });
+    document.body.appendChild(bar);
+    _sbSelToolbarEl = bar;
+    return bar;
+  }
+
+  function _sbSelLyricsEl() {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+    var n = sel.getRangeAt(0).commonAncestorContainer;
+    var el = n.nodeType === 1 ? n : n.parentElement;
+    return (el && el.closest) ? el.closest('[id^="sbLyrics-"]') : null;
+  }
+
+  function _sbPositionSelToolbar() {
+    var bar = _sbSelToolbarEl;
+    if (!bar) return;
+    var lyricsEl = _sbSelLyricsEl();
+    if (!lyricsEl) { bar.style.display = 'none'; return; }
+    var sel = window.getSelection();
+    var rect = sel.getRangeAt(0).getBoundingClientRect();
+    if (!rect || (!rect.width && !rect.height)) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    var bw = bar.offsetWidth, bh = bar.offsetHeight;
+    var top = rect.top - bh - 8;
+    if (top < 6) top = rect.bottom + 8;
+    var left = rect.left + rect.width / 2 - bw / 2;
+    left = Math.max(6, Math.min(left, window.innerWidth - bw - 6));
+    bar.style.top = Math.round(top) + 'px';
+    bar.style.left = Math.round(left) + 'px';
+  }
+
+  document.addEventListener('selectionchange', function() {
+    _sbEnsureSelToolbar();
+    clearTimeout(_sbSelToolbarTimer);
+    _sbSelToolbarTimer = setTimeout(_sbPositionSelToolbar, 10);
+  });
+  window.addEventListener('scroll', function() {
+    if (_sbSelToolbarEl && _sbSelToolbarEl.style.display === 'flex') _sbPositionSelToolbar();
+  }, true);
+
+  // Permanently transpose the chords inside the current songbook selection,
+  // persisting without a re-render so the selection + toolbar stay in place.
+  function sbSelTransposeInline(delta) {
+    var lyricsEl = _sbSelLyricsEl();
+    if (!lyricsEl) return;
+    var sid = lyricsEl.id.replace('sbLyrics-', '');
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    var affected = 0;
+    var nodes = lyricsEl.querySelectorAll('.wo-lyrics-chord-pair, .wo-lyrics-chord-line');
+    Array.prototype.forEach.call(nodes, function(node) {
+      if (!range.intersectsNode(node)) return;
+      if (node.classList.contains('wo-lyrics-chord-line')) {
+        var nt = sbTransposeChordLine(node.textContent || '', delta);
+        if (nt !== (node.textContent || '')) { node.textContent = nt; affected++; }
+      } else {
+        var chords = node.querySelectorAll('.wo-inline-chord');
+        Array.prototype.forEach.call(chords, function(ch) {
+          var t = (ch.textContent || '').replace(/ /g, ' ').trim();
+          if (t) { ch.textContent = sbTransposeToken(t, delta); affected++; }
+        });
+      }
+    });
+    if (!affected) { if (typeof showToast === 'function') showToast('Highlight some chords to transpose', 'warning'); return; }
+    _sbCanonicalText[sid] = sbExtractLyricsText(lyricsEl);
+    var baseId = sid.indexOf('__sb__') !== -1 ? sid.split('__sb__')[0] : sid;
+    var song = (songOrderSections || []).find(function(s) { return s.id === baseId; });
+    if (song) {
+      song.lyrics = _sbCanonicalText[sid];
+      if (typeof formatLyricsWithHighlights === 'function') song.richLyrics = formatLyricsWithHighlights(song.lyrics);
+      song.customLyrics = song.lyrics; song.customRichLyrics = song.richLyrics; song.hasCustomLyrics = true;
+    }
+    if (typeof sbAutoSave === 'function') sbAutoSave();
+    setTimeout(_sbPositionSelToolbar, 0);
+  }
+
   // ── Copy with chords ────────────────────────────────────────────────────
   function sbCopyWithChords() {
     var sel = window.getSelection();
