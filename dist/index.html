@@ -40843,26 +40843,30 @@ var WO = (function() {
         if (best > 0 && mStarts.indexOf(best) === -1) mStarts.push(best);
       });
       mStarts.sort(function(a, b) { return a - b; });
-      // Font-fit: shrink lyrics so each manual page fits one A4 page. Measure each
-      // page's height at base font; scale = min(available / pageHeight, 1).
+      // Font-fit: shrink lyrics so each manual page fits one A4 page. Only the block
+      // content scales with the font; the header and the wrap top/bottom padding are
+      // fixed overhead, so subtract them from the available height (otherwise the
+      // unscaled padding spills over and pushes a blank trailing page).
       var _fit = 1;
       if (blocks.length) {
-        var _contentEnd = bBot(blocks[blocks.length - 1]);
-        var _boundYs = [];
+        var _b0 = bTop(blocks[0]);
+        var _bEnd = bBot(blocks[blocks.length - 1]);
+        var _padTop = Math.max(0, _b0 - headerH);
+        var _padBot = Math.max(0, mDiv.scrollHeight - _bEnd);
+        var _starts = [_b0];
         mStarts.forEach(function(sl) {
           for (var _bi = 0; _bi < blocks.length; _bi++) {
-            if (parseInt(blocks[_bi].getAttribute('data-src-start'), 10) === sl) { _boundYs.push(bTop(blocks[_bi])); break; }
+            if (parseInt(blocks[_bi].getAttribute('data-src-start'), 10) === sl) { _starts.push(bTop(blocks[_bi])); break; }
           }
         });
-        _boundYs.sort(function(a, b) { return a - b; });
-        var _prevY = headerH, _availFirst = Math.max(1, A4H - headerH);
-        _boundYs.forEach(function(by, idx) {
-          var _h = by - _prevY, _av = (idx === 0) ? _availFirst : A4H;
-          if (_h > _av) _fit = Math.min(_fit, _av / _h);
-          _prevY = by;
-        });
-        var _lastH = _contentEnd - _prevY, _lastAv = (_boundYs.length === 0) ? _availFirst : A4H;
-        if (_lastH > _lastAv) _fit = Math.min(_fit, _lastAv / _lastH);
+        _starts.sort(function(a, b) { return a - b; });
+        for (var _pi = 0; _pi < _starts.length; _pi++) {
+          var _isFirst = (_pi === 0), _isLast = (_pi === _starts.length - 1);
+          var _pEnd = _isLast ? _bEnd : _starts[_pi + 1];
+          var _scalable = _pEnd - _starts[_pi];
+          var _fixed = (_isFirst ? headerH + _padTop : 0) + (_isLast ? _padBot : 0);
+          if (_scalable > 0) { var _s = (A4H - _fixed) / _scalable; if (_s < _fit) _fit = _s; }
+        }
       }
       if (mDiv.parentNode) mDiv.parentNode.removeChild(mDiv);
       return { pageStarts: mStarts, headerH: headerH, fitScale: _fit };
