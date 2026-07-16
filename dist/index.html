@@ -34826,6 +34826,7 @@ var WO = (function() {
     // page1End = A4H (the full book page boundary) — so the marker shows exactly
     // what content sits on book mode page 1, regardless of the live header height.
     // Subsequent breaks are each A4H further, keeping equal spacing between lines.
+    var _sbScaleChanged = false;
     body.querySelectorAll('.sb-song-page').forEach(function(page) {
       var sid      = page.getAttribute('data-song-id');
       var lyricsEl = sid ? document.getElementById('sbLyrics-' + sid) : null;
@@ -34848,8 +34849,14 @@ var WO = (function() {
       // that starts each A4 page. sbExtractLyricsText is the exact text the print
       // builds from, so the markers and the PDF agree line-for-line.
       var _srcText = (typeof sbExtractLyricsText === 'function') ? sbExtractLyricsText(lyricsEl) : '';
-      var _ps = _sbComputePageStarts(_srcText, headerHtml, sid).pageStarts;
+      var _r = _sbComputePageStarts(_srcText, headerHtml, sid);
+      var _ps = _r.pageStarts;
       _sbDisplayedStarts[sid] = _ps.slice();
+      // Auto-shrink the font so manually-merged pages each fit one A4 page.
+      var _wantScale = (Array.isArray(sbPageBreakLines[sid]) && _r.fitScale && _r.fitScale < 0.999) ? _r.fitScale : null;
+      var _curScale = sbSongFontOverrides[sid] || null;
+      if (_wantScale) { if (Math.abs((_curScale || 1) - _wantScale) > 0.01) { sbSongFontOverrides[sid] = _wantScale; _sbScaleChanged = true; } }
+      else if (_curScale != null) { delete sbSongFontOverrides[sid]; _sbScaleChanged = true; }
       if (!_ps.length) return;
 
       // Map each source-line index -> the live child holding it. A chord-pair child
@@ -34881,6 +34888,8 @@ var WO = (function() {
       });
     });
 
+    sbApplySongFontOverrides();
+    if (_sbScaleChanged) { setTimeout(function() { sbPaginateAll(); }, 50); return; }
     sbAttachTouchListeners(body);
     Object.keys(sbPaths).forEach(function(sid) { sbRedrawSong(sid); });
     // Keep print preview in sync after break recalculation
@@ -40834,8 +40843,29 @@ var WO = (function() {
         if (best > 0 && mStarts.indexOf(best) === -1) mStarts.push(best);
       });
       mStarts.sort(function(a, b) { return a - b; });
+      // Font-fit: shrink lyrics so each manual page fits one A4 page. Measure each
+      // page's height at base font; scale = min(available / pageHeight, 1).
+      var _fit = 1;
+      if (blocks.length) {
+        var _contentEnd = bBot(blocks[blocks.length - 1]);
+        var _boundYs = [];
+        mStarts.forEach(function(sl) {
+          for (var _bi = 0; _bi < blocks.length; _bi++) {
+            if (parseInt(blocks[_bi].getAttribute('data-src-start'), 10) === sl) { _boundYs.push(bTop(blocks[_bi])); break; }
+          }
+        });
+        _boundYs.sort(function(a, b) { return a - b; });
+        var _prevY = headerH, _availFirst = Math.max(1, A4H - headerH);
+        _boundYs.forEach(function(by, idx) {
+          var _h = by - _prevY, _av = (idx === 0) ? _availFirst : A4H;
+          if (_h > _av) _fit = Math.min(_fit, _av / _h);
+          _prevY = by;
+        });
+        var _lastH = _contentEnd - _prevY, _lastAv = (_boundYs.length === 0) ? _availFirst : A4H;
+        if (_lastH > _lastAv) _fit = Math.min(_fit, _lastAv / _lastH);
+      }
       if (mDiv.parentNode) mDiv.parentNode.removeChild(mDiv);
-      return { pageStarts: mStarts, headerH: headerH };
+      return { pageStarts: mStarts, headerH: headerH, fitScale: _fit };
     }
     // Auto mode: pack blocks into pages of A4H, breaking only between sections.
     var pageStarts = [], curTop = 0, i = 0, pageFirst = 0, guard = 0;
@@ -40850,7 +40880,7 @@ var WO = (function() {
       pageStarts.push(src); curTop = bTop(blocks[brokeAt]); pageFirst = brokeAt;
     }
     if (mDiv.parentNode) mDiv.parentNode.removeChild(mDiv);
-    return { pageStarts: pageStarts, headerH: headerH };
+    return { pageStarts: pageStarts, headerH: headerH, fitScale: 1 };
   }
 
   function _sbPrintBuildAndOpen(textCache, opts) {
@@ -41041,10 +41071,16 @@ var WO = (function() {
       // markers use) and force a page break before each, so the printed pages break
       // exactly where the songbook's markers say they will. Each song starts on a
       // fresh A4 page (.sp-song{break-before:page}) so the per-song markers line up.
-      var _pgStarts = (includeLyrics && _sbSrcTxt) ? _sbComputePageStarts(_sbSrcTxt, _printSongHeader, song.id).pageStarts : [];
+      var _r2 = (includeLyrics && _sbSrcTxt) ? _sbComputePageStarts(_sbSrcTxt, _printSongHeader, song.id) : { pageStarts: [], fitScale: 1 };
+      var _pgStarts = _r2.pageStarts;
       var _songDiv = document.createElement('div');
       _songDiv.className = 'sp-song';
       _songDiv.innerHTML = _printFullHtml;
+      // Manually-merged pages: shrink the lyrics font so the packed content fits.
+      if (Array.isArray(sbPageBreakLines[song.id]) && _r2.fitScale && _r2.fitScale < 0.999) {
+        var _wrapEl = _songDiv.querySelector('.sp-lyrics-wrap');
+        if (_wrapEl) _wrapEl.style.fontSize = Math.max(6, _sbParseFontPx(_sbFontSettings && _sbFontSettings.size) * _r2.fitScale).toFixed(1) + 'px';
+      }
       _pgStarts.forEach(function(_S) {
         var _bEl = _songDiv.querySelector('.sp-lyrics-wrap [data-src-start="' + _S + '"]');
         if (_bEl) { _bEl.style.breakBefore = 'page'; _bEl.style.pageBreakBefore = 'always'; _bEl.style.paddingTop = '40px'; }
