@@ -20144,27 +20144,40 @@ var SBQ_ROSTER = {
         var result = {};
         (r.data || []).forEach(function(row) {
           if (!result[row.name]) result[row.name] = [];
-          result[row.name].push({ startDate: row.start_date, endDate: row.end_date, reason: row.reason || '' });
+          result[row.name].push({ startDate: row.start_date, endDate: row.end_date, reason: row.reason || '', duty: row.duty || 'all' });
         });
         return result;
       });
   },
 
   // Save (upsert) one unavailability period
-  saveUnavailabilityPeriod: function(name, startDate, endDate, reason) {
+  saveUnavailabilityPeriod: function(name, startDate, endDate, reason, duty) {
     var sb = SBQ_ROSTER._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
     return sb.from('roster_unavailability')
-      .upsert({ name: name, start_date: startDate, end_date: endDate, reason: reason || '' }, { onConflict: 'name,start_date,end_date' })
-      .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
+      .upsert({ name: name, start_date: startDate, end_date: endDate, reason: reason || '', duty: duty || 'all' }, { onConflict: 'name,start_date,end_date,duty' })
+      .then(function(r) {
+        if (r.error) {
+          // Fallback for before the `duty` migration is applied: save without duty.
+          return sb.from('roster_unavailability')
+            .upsert({ name: name, start_date: startDate, end_date: endDate, reason: reason || '' }, { onConflict: 'name,start_date,end_date' })
+            .then(function(r2) { if (r2.error) throw new Error(r2.error.message); return { success: true }; });
+        }
+        return { success: true };
+      });
   },
 
   // Delete one unavailability period
-  deleteUnavailabilityPeriod: function(name, startDate, endDate) {
+  deleteUnavailabilityPeriod: function(name, startDate, endDate, duty) {
     var sb = SBQ_ROSTER._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
-    return sb.from('roster_unavailability').delete().eq('name', name).eq('start_date', startDate).eq('end_date', endDate)
-      .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
+    function base() { return sb.from('roster_unavailability').delete().eq('name', name).eq('start_date', startDate).eq('end_date', endDate); }
+    var q = base();
+    if (duty) q = q.eq('duty', duty);
+    return q.then(function(r) {
+      if (r.error) { return base().then(function(r2) { if (r2.error) throw new Error(r2.error.message); return { success: true }; }); }
+      return { success: true };
+    });
   },
 
   // Get all member metadata (status, joined date, etc.)
@@ -62337,25 +62350,39 @@ function filterLiturgyItems() {
     return new Date(year, m, d);
   }
 
-  function isPersonUnavailable(name, dateStr, year) {
+  // A period counts for a cell when its duty scope covers the cell's duty:
+  // all-day periods (no duty / 'all') always count; a duty-scoped period ('music')
+  // counts only for that duty; when the caller passes no roleCat it means "any
+  // duty" so a duty-scoped period still counts (the person is unavailable for
+  // something that day).
+  function _dutyScopeMatches(pDuty, roleCat) {
+    if (!pDuty || pDuty === 'all') return true;
+    if (!roleCat) return true;
+    if (pDuty === roleCat) return true;
+    return (typeof _AVAIL_GROUP_CATS !== 'undefined' && _AVAIL_GROUP_CATS[roleCat] === pDuty);
+  }
+
+  function isPersonUnavailable(name, dateStr, year, roleCat) {
     if (!name || !ROSTER_UNAVAILABILITY[name] || !ROSTER_UNAVAILABILITY[name].length) return false;
     var dt = _parseDateStr(dateStr, year);
     if (!dt) return false;
     var ts = dt.getTime();
     return ROSTER_UNAVAILABILITY[name].some(function(p) {
+      if (!_dutyScopeMatches(p.duty, roleCat)) return false;
       var s = new Date(p.startDate + 'T00:00:00').getTime();
       var e = new Date(p.endDate + 'T23:59:59').getTime();
       return ts >= s && ts <= e;
     });
   }
 
-  function getUnavailabilityInfo(name, dateStr, year) {
+  function getUnavailabilityInfo(name, dateStr, year, roleCat) {
     if (!name || !ROSTER_UNAVAILABILITY[name]) return null;
     var dt = _parseDateStr(dateStr, year);
     if (!dt) return null;
     var ts = dt.getTime();
     for (var i = 0; i < ROSTER_UNAVAILABILITY[name].length; i++) {
       var p = ROSTER_UNAVAILABILITY[name][i];
+      if (!_dutyScopeMatches(p.duty, roleCat)) continue;
       var s = new Date(p.startDate + 'T00:00:00').getTime();
       var e = new Date(p.endDate + 'T23:59:59').getTime();
       if (ts >= s && ts <= e) return p;
@@ -62363,12 +62390,13 @@ function filterLiturgyItems() {
     return null;
   }
 
-  function setPersonUnavailability(name, startDate, endDate, reason) {
+  function setPersonUnavailability(name, startDate, endDate, reason, duty) {
+    duty = duty || 'all';
     if (!ROSTER_UNAVAILABILITY[name]) ROSTER_UNAVAILABILITY[name] = [];
-    ROSTER_UNAVAILABILITY[name].push({ startDate: startDate, endDate: endDate, reason: reason || '' });
+    ROSTER_UNAVAILABILITY[name].push({ startDate: startDate, endDate: endDate, reason: reason || '', duty: duty });
     saveUnavailability();
     if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveUnavailabilityPeriod) {
-      SBQ_ROSTER.saveUnavailabilityPeriod(name, startDate, endDate, reason || '').catch(function(e) { console.warn('Unavailability sync error:', e); });
+      SBQ_ROSTER.saveUnavailabilityPeriod(name, startDate, endDate, reason || '', duty).catch(function(e) { console.warn('Unavailability sync error:', e); });
     }
   }
 
@@ -62379,9 +62407,231 @@ function filterLiturgyItems() {
     if (!ROSTER_UNAVAILABILITY[name].length) delete ROSTER_UNAVAILABILITY[name];
     saveUnavailability();
     if (period && typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.deleteUnavailabilityPeriod) {
-      SBQ_ROSTER.deleteUnavailabilityPeriod(name, period.startDate, period.endDate).catch(function(e) { console.warn('Unavailability delete sync error:', e); });
+      SBQ_ROSTER.deleteUnavailabilityPeriod(name, period.startDate, period.endDate, period.duty).catch(function(e) { console.warn('Unavailability delete sync error:', e); });
     }
+  }  // ========== MEMBER SELF-SERVICE AVAILABILITY (?view=availability) ==========
+  // Member-friendly duty groups. A group's id is stored as the period's `duty`;
+  // _dutyScopeMatches maps a cell's specific role category back to its group.
+  var AVAIL_DUTY_GROUPS = [
+    { id: 'all', label: 'All duties' },
+    { id: 'music', label: 'Music / Band', cats: ['pianist','guitarist','bassist','drummer'] },
+    { id: 'vocals', label: 'Singing / Vocals', cats: ['singer'] },
+    { id: 'preacher', label: 'Preaching', cats: ['preacher'] },
+    { id: 'liturgist', label: 'Liturgist', cats: ['liturgist'] },
+    { id: 'usher', label: 'Ushering', cats: ['usher'] },
+    { id: 'reader', label: 'Reading', cats: ['reader'] },
+    { id: 'communion', label: 'Communion', cats: ['communion'] },
+    { id: 'altar', label: 'Altar', cats: ['altar'] },
+    { id: 'tech', label: 'Tech / AV', cats: ['lcd','pa','livestream','tech'] },
+    { id: 'sundayschool', label: 'Sunday School', cats: ['sundayschool'] }
+  ];
+  var _AVAIL_GROUP_CATS = {};
+  AVAIL_DUTY_GROUPS.forEach(function(g) { if (g.cats) g.cats.forEach(function(c) { _AVAIL_GROUP_CATS[c] = g.id; }); });
+  function _availGroupLabel(id) { for (var i = 0; i < AVAIL_DUTY_GROUPS.length; i++) if (AVAIL_DUTY_GROUPS[i].id === id) return AVAIL_DUTY_GROUPS[i].label; return 'All duties'; }
+  var _availName = '';
+
+  function _availAllNames() {
+    var set = {};
+    Object.keys(ROSTER_NAME_OPTIONS || {}).forEach(function(cat) { (ROSTER_NAME_OPTIONS[cat] || []).forEach(function(n) { if (n) set[n] = 1; }); });
+    return Object.keys(set).sort(function(a, b) { return a.localeCompare(b); });
   }
+  function _availPad(n) { return (n < 10 ? '0' : '') + n; }
+  function _availIso(d) { return d.getFullYear() + '-' + _availPad(d.getMonth() + 1) + '-' + _availPad(d.getDate()); }
+  function _availDateLabel(d) {
+    var wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+    var mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+    return wd + ', ' + d.getDate() + ' ' + mo + ' ' + d.getFullYear();
+  }
+  function _availUpcomingDates() {
+    var out = [], seen = {};
+    if (!window.RosterEngine || !window.RosterEngine.getServiceDays) return out;
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var base = new Date(today.getFullYear(), today.getMonth(), 1);
+    for (var k = 0; k < 4; k++) {
+      var days = window.RosterEngine.getServiceDays(base.getFullYear(), base.getMonth()) || [];
+      days.forEach(function(dd) {
+        if (dd.date && dd.date >= today) {
+          var iso = _availIso(dd.date);
+          if (!seen[iso]) { seen[iso] = 1; out.push({ iso: iso, label: _availDateLabel(dd.date) }); }
+        }
+      });
+      base.setMonth(base.getMonth() + 1);
+    }
+    out.sort(function(a, b) { return a.iso < b.iso ? -1 : 1; });
+    return out.slice(0, 16);
+  }
+
+  function _availEnsureStyle() {
+    if (document.getElementById('availSelfCss')) return;
+    var st = document.createElement('style');
+    st.id = 'availSelfCss';
+    st.textContent =
+      '#availSelf{position:fixed;inset:0;z-index:200000;overflow:auto;background:linear-gradient(160deg,#f6f4ec,#eef1e8);font-family:Poppins,system-ui,sans-serif;color:#17271f;}' +
+      '#availSelf .as-wrap{max-width:640px;margin:0 auto;padding:26px 20px 60px;}' +
+      '#availSelf .as-head{background:linear-gradient(160deg,#1b5e43,#123c2c);color:#f3efe2;border-radius:16px;padding:24px 24px 22px;box-shadow:0 10px 30px rgba(0,0,0,.14);}' +
+      '#availSelf .as-head h1{font-family:Georgia,serif;font-size:1.55rem;margin:0 0 6px;font-weight:600;}' +
+      '#availSelf .as-head p{margin:0;color:#dfe8de;font-size:.95rem;}' +
+      '#availSelf .as-card{background:#fffefb;border:1px solid #e2ddcd;border-radius:14px;padding:18px 20px;margin-top:16px;box-shadow:0 6px 18px rgba(23,39,31,.05);}' +
+      '#availSelf label{display:block;font-size:.78rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#6b7d73;margin:0 0 7px;}' +
+      '#availSelf select,#availSelf input[type=date]{width:100%;padding:11px 12px;border:1px solid #d3ccb8;border-radius:9px;font-size:1rem;font-family:inherit;background:#fff;color:#17271f;}' +
+      '#availSelf .as-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}' +
+      '#availSelf .as-chip{border:1px solid #d3ccb8;background:#f6f4ec;color:#40544a;border-radius:999px;padding:8px 14px;font-size:.9rem;cursor:pointer;user-select:none;transition:all .12s;}' +
+      '#availSelf .as-chip:hover{border-color:#1b5e43;}' +
+      '#availSelf .as-chip.on{background:#9a3b2f;border-color:#9a3b2f;color:#fff;}' +
+      '#availSelf .as-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}' +
+      '#availSelf .as-row>div{flex:1;min-width:130px;}' +
+      '#availSelf .as-btn{background:#1b5e43;color:#fff;border:none;border-radius:9px;padding:11px 18px;font-size:.95rem;font-weight:600;cursor:pointer;}' +
+      '#availSelf .as-btn.ghost{background:#eef1e8;color:#1b5e43;border:1px solid #cbd8c9;}' +
+      '#availSelf .as-list{list-style:none;padding:0;margin:6px 0 0;display:grid;gap:8px;}' +
+      '#availSelf .as-item{display:flex;justify-content:space-between;align-items:center;gap:12px;background:#f6f4ec;border:1px solid #e2ddcd;border-radius:10px;padding:10px 14px;font-size:.94rem;}' +
+      '#availSelf .as-item .x{background:none;border:none;color:#9a3b2f;font-size:1.1rem;cursor:pointer;padding:2px 6px;line-height:1;}' +
+      '#availSelf .as-scope-pill{font-size:.72rem;font-weight:700;color:#a8781a;background:#f4ead0;border-radius:999px;padding:2px 9px;margin-left:8px;}' +
+      '#availSelf .as-muted{color:#6b7d73;font-size:.88rem;}' +
+      '#availSelf .as-done{display:block;width:100%;margin-top:22px;background:#1b5e43;color:#fff;border:none;border-radius:11px;padding:14px;font-size:1.02rem;font-weight:700;cursor:pointer;}' +
+      '@media(prefers-color-scheme:dark){#availSelf{background:linear-gradient(160deg,#0d1712,#111f18);color:#ecefe6;}#availSelf .as-card{background:#14211a;border-color:#24352b;}#availSelf select,#availSelf input[type=date]{background:#0f1a14;color:#ecefe6;border-color:#31473a;}#availSelf .as-chip{background:#182a21;border-color:#31473a;color:#b3c3b7;}#availSelf .as-item{background:#182a21;border-color:#24352b;}}';
+    document.head.appendChild(st);
+  }
+
+  function _availToast(msg) { if (typeof showToast === 'function') showToast(msg, 'success'); }
+
+  function _availRenderEntries() {
+    var box = document.getElementById('availEntries');
+    if (!box) return;
+    var list = (ROSTER_UNAVAILABILITY[_availName] || []).slice().sort(function(a, b) { return a.startDate < b.startDate ? -1 : 1; });
+    if (!list.length) { box.innerHTML = '<p class="as-muted">Nothing marked yet — you\'re available for everything.</p>'; return; }
+    var html = '<ul class="as-list">';
+    list.forEach(function(p) {
+      var span = (p.startDate === p.endDate) ? _availDateLabel(new Date(p.startDate + 'T00:00:00'))
+        : (_availDateLabel(new Date(p.startDate + 'T00:00:00')) + ' – ' + _availDateLabel(new Date(p.endDate + 'T00:00:00')));
+      var scope = (p.duty && p.duty !== 'all') ? '<span class="as-scope-pill">' + escapeHtmlModal(_availGroupLabel(p.duty)) + '</span>' : '';
+      html += '<li class="as-item"><span>' + span + scope + '</span>' +
+        '<button class="x" title="Remove" data-s="' + p.startDate + '" data-e="' + p.endDate + '" data-d="' + (p.duty || 'all') + '">×</button></li>';
+    });
+    html += '</ul>';
+    box.innerHTML = html;
+    box.querySelectorAll('.x').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var s = btn.getAttribute('data-s'), e = btn.getAttribute('data-e'), dq = btn.getAttribute('data-d');
+        var arr = ROSTER_UNAVAILABILITY[_availName] || [];
+        for (var i = 0; i < arr.length; i++) { if (arr[i].startDate === s && arr[i].endDate === e && (arr[i].duty || 'all') === dq) { removePersonUnavailability(_availName, i); break; } }
+        _availToast('Removed');
+        _availRenderPicked();
+      });
+    });
+  }
+
+  function _availAddPeriod(startIso, endIso) {
+    var duty = (document.getElementById('availScope') || {}).value || 'all';
+    // avoid exact duplicates
+    var arr = ROSTER_UNAVAILABILITY[_availName] || [];
+    var dup = arr.some(function(p) { return p.startDate === startIso && p.endDate === endIso && (p.duty || 'all') === duty; });
+    if (dup) { _availToast('Already marked'); return; }
+    setPersonUnavailability(_availName, startIso, endIso, '', duty);
+    _availToast('Saved');
+    _availRenderPicked();
+  }
+
+  function _availRenderPicked() {
+    var body = document.getElementById('availBody');
+    if (!body || !_availName) return;
+    var dates = _availUpcomingDates();
+    var marked = {};
+    (ROSTER_UNAVAILABILITY[_availName] || []).forEach(function(p) { if (p.startDate === p.endDate) marked[p.startDate + '|' + (p.duty || 'all')] = 1; });
+    var scopeOpts = AVAIL_DUTY_GROUPS.map(function(g) { return '<option value="' + g.id + '">' + escapeHtmlModal(g.label) + '</option>'; }).join('');
+    var chips = dates.map(function(d) {
+      return '<button class="as-chip" data-iso="' + d.iso + '">' + escapeHtmlModal(d.label.replace(/^\w+, /, '')) + '</button>';
+    }).join('');
+    body.innerHTML =
+      '<div class="as-card"><label>This applies to</label>' +
+        '<select id="availScope">' + scopeOpts + '</select>' +
+        '<p class="as-muted" style="margin:8px 0 0;">Pick a duty if you can only serve some roles that day (e.g. off Music but fine to usher). Leave on “All duties” otherwise.</p>' +
+      '</div>' +
+      '<div class="as-card"><label>Dates I can’t serve</label>' +
+        (chips ? '<div class="as-chips">' + chips + '</div>' : '<p class="as-muted">No upcoming service dates found.</p>') +
+      '</div>' +
+      '<div class="as-card"><label>Away for a stretch</label>' +
+        '<div class="as-row"><div><label>From</label><input type="date" id="availFrom"></div><div><label>To</label><input type="date" id="availTo"></div>' +
+        '<button class="as-btn" id="availAddRange">Add</button></div>' +
+      '</div>' +
+      '<div class="as-card"><label>What you’ve marked</label><div id="availEntries"></div></div>';
+    // wire chips
+    body.querySelectorAll('.as-chip').forEach(function(chip) {
+      var iso = chip.getAttribute('data-iso');
+      var duty = (document.getElementById('availScope') || {}).value || 'all';
+      if (marked[iso + '|' + duty]) chip.classList.add('on');
+      chip.addEventListener('click', function() {
+        var scope = (document.getElementById('availScope') || {}).value || 'all';
+        var arr = ROSTER_UNAVAILABILITY[_availName] || [];
+        var idx = -1;
+        for (var i = 0; i < arr.length; i++) { if (arr[i].startDate === iso && arr[i].endDate === iso && (arr[i].duty || 'all') === scope) { idx = i; break; } }
+        if (idx >= 0) { removePersonUnavailability(_availName, idx); _availToast('Removed'); }
+        else { _availAddPeriod(iso, iso); }
+        _availRenderPicked();
+      });
+    });
+    var addR = document.getElementById('availAddRange');
+    if (addR) addR.addEventListener('click', function() {
+      var f = (document.getElementById('availFrom') || {}).value, t = (document.getElementById('availTo') || {}).value;
+      if (!f) { _availToast('Pick a start date'); return; }
+      _availAddPeriod(f, t || f);
+    });
+    _availRenderEntries();
+  }
+
+  function _availOpen() {
+    _availEnsureStyle();
+    var ov = document.getElementById('availSelf');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'availSelf';
+      document.body.appendChild(ov);
+    }
+    var names = _availAllNames();
+    var nameOpts = '<option value="">— choose your name —</option>' + names.map(function(n) { return '<option value="' + escapeHtmlModal(n) + '">' + escapeHtmlModal(n) + '</option>'; }).join('');
+    ov.innerHTML =
+      '<div class="as-wrap">' +
+        '<div class="as-head"><h1>Worship Availability</h1><p>Tell us the dates you <b>can’t</b> serve, so we don’t roster you on. Takes a minute.</p></div>' +
+        '<div class="as-card"><label>Your name</label><select id="availNameSel">' + nameOpts + '</select>' +
+          (names.length ? '' : '<p class="as-muted" style="margin-top:8px;">Loading names… if this stays empty, refresh the page.</p>') +
+        '</div>' +
+        '<div id="availBody"></div>' +
+        '<button class="as-done" id="availDoneBtn">Done</button>' +
+      '</div>';
+    var sel = document.getElementById('availNameSel');
+    if (_availName) sel.value = _availName;
+    sel.addEventListener('change', function() { _availName = this.value; if (_availName) { _availRenderPicked(); } else { document.getElementById('availBody').innerHTML = ''; } });
+    document.getElementById('availDoneBtn').addEventListener('click', function() {
+      ov.innerHTML = '<div class="as-wrap"><div class="as-head"><h1>Thank you 🙌</h1><p>Your availability is saved. You can close this tab, or update it any time from the same link.</p></div></div>';
+    });
+    if (_availName) _availRenderPicked();
+    // names load async from Supabase; if empty, retry once they arrive
+    if (!names.length && typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.getNames) {
+      SBQ_ROSTER.getNames().then(function(opts) {
+        if (opts) { Object.keys(opts).forEach(function(c) { ROSTER_NAME_OPTIONS[c] = opts[c]; }); if (typeof _loadUnavailabilityFromCloud === 'function') _loadUnavailabilityFromCloud(); setTimeout(_availOpen, 200); }
+      }).catch(function() {});
+    } else if (typeof _loadUnavailabilityFromCloud === 'function') { _loadUnavailabilityFromCloud(); }
+  }
+  window.openAvailabilitySelfService = _availOpen;
+
+  // PIC: copy / WhatsApp-share the one member availability link.
+  function shareAvailabilityLink() {
+    var url = location.origin + location.pathname + '?view=availability';
+    var msg = 'Hi! Please mark the worship dates you CANNOT serve here (pick your name): ' + url;
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(function() { if (typeof showToast === 'function') showToast('Availability link copied', 'success'); }).catch(function() {});
+    window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+  }
+  window.shareAvailabilityLink = shareAvailabilityLink;
+
+  // Entry point: open the self-service screen when launched with ?view=availability.
+  (function() {
+    try {
+      if (new URLSearchParams(window.location.search).get('view') === 'availability') {
+        var go = function() { _availOpen(); };
+        if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(go, 400);
+        else window.addEventListener('DOMContentLoaded', function() { setTimeout(go, 400); });
+      }
+    } catch (e) {}
+  })();
 
   // ========== MEMBER STATUS SYSTEM ==========
   var ROSTER_MEMBER_STATUS = {};
@@ -63496,7 +63746,7 @@ function filterLiturgyItems() {
 
           filtered.forEach(function(name) {
             var isSelected = name === currentValue;
-            var unavailInfo = getUnavailabilityInfo(name, cellDate, cellYear);
+            var unavailInfo = getUnavailabilityInfo(name, cellDate, cellYear, getRoleCategory(td.getAttribute('data-role') || ''));
             var isUnavail = !!unavailInfo;
 
             var nameRow = document.createElement('div');
@@ -64821,7 +65071,7 @@ function filterLiturgyItems() {
         var dateStr = td.getAttribute('data-date') || '';
         td.classList.remove('roster-unavailable-cell');
         if (val && val !== '-' && val !== 'TBD' && dateStr) {
-          if (isPersonUnavailable(val, dateStr, STATE.rosterYear)) {
+          if (isPersonUnavailable(val, dateStr, STATE.rosterYear, getRoleCategory(td.getAttribute('data-role') || ''))) {
             td.classList.add('roster-unavailable-cell');
           }
         }
