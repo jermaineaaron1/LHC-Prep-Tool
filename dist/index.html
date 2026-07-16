@@ -6334,6 +6334,9 @@
   #lyricsPreviewContent .ci-w     { display: inline-block; white-space: nowrap; vertical-align: bottom; }
   #lyricsPreviewContent .ci-seg   { display: inline-block; position: relative; padding-top: 1.2em; vertical-align: bottom; white-space: pre; font-size: 19px; line-height: 1.5; color: #1f2937; }
   #lyricsPreviewContent .ci-chord { position: absolute; top: 0; left: 0; font-family: 'Courier New', monospace; font-weight: 700; color: #991b1b; font-size: 0.78em; white-space: nowrap; line-height: 1.1; }
+  #lyricsPreviewToolbar .lhc-pill-button-active { background: #2563eb !important; border-color: #1d4ed8 !important; color: #ffffff !important; box-shadow: 0 4px 12px rgba(37,99,235,0.35) !important; }
+  #lyricsPreviewScrollCue { position: fixed; z-index: 100001; display: none; align-items: center; gap: 6px; transform: translateX(-50%); padding: 6px 14px; background: #2563eb; color: #fff; border-radius: 999px; font-size: 0.8rem; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,0.28); cursor: pointer; animation: lpCueBounce 1.4s ease-in-out infinite; }
+  @keyframes lpCueBounce { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(4px); } }
   
   /* Lyrics Editor Button */
   .lyrics-edit-trigger { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 16px 24px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%; transition: all 0.2s; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
@@ -10124,7 +10127,36 @@ function renderLyricsPreviewContent() {
   
   var showChords = currentLyricsPreviewMode === 'chords';
   container.innerHTML = formatLyricsWithTranspose(lyrics, showChords, currentTransposeValue);
+  if (!container._lpCueBound) { container._lpCueBound = true; container.addEventListener('scroll', _lpUpdateScrollCue, { passive: true }); }
+  setTimeout(_lpUpdateScrollCue, 60);
 }
+
+// Floating "Scroll for more" cue: shows at the bottom of the lyrics area when the
+// content scrolls off-screen (either column in 2-col mode), hides at the bottom.
+function _lpUpdateScrollCue() {
+  var content = document.getElementById('lyricsPreviewContent');
+  if (!content) return;
+  var cue = document.getElementById('lyricsPreviewScrollCue');
+  if (!cue) {
+    cue = document.createElement('div');
+    cue.id = 'lyricsPreviewScrollCue';
+    cue.innerHTML = '<i class="fa-solid fa-chevron-down"></i> Scroll for more';
+    cue.addEventListener('click', function() {
+      content.scrollBy({ top: Math.round(content.clientHeight * 0.82), behavior: 'smooth' });
+    });
+    document.body.appendChild(cue);
+  }
+  var more = (content.scrollHeight - content.clientHeight - content.scrollTop) > 24;
+  if (more && content.offsetParent) {
+    var r = content.getBoundingClientRect();
+    cue.style.display = 'inline-flex';
+    cue.style.top = Math.round(r.bottom - 46) + 'px';
+    cue.style.left = Math.round(r.left + r.width / 2) + 'px';
+  } else {
+    cue.style.display = 'none';
+  }
+}
+window.addEventListener('resize', function() { if (typeof _lpUpdateScrollCue === 'function') _lpUpdateScrollCue(); });
 
 function applyTranspose() {
   var select = document.getElementById('transposeSelect');
@@ -10682,12 +10714,15 @@ window.toggleLyricsPreviewTwoCol = function() {
   if (isTwo) {
     content.style.columnCount = '';
     content.style.columnGap = '';
+    content.style.columnRule = '';
     if (btn) { btn.classList.remove('lhc-pill-button-active'); btn.style.background = '#f8fafc'; btn.style.borderColor = '#cbd5e1'; btn.style.color = '#475569'; }
   } else {
     content.style.columnCount = '2';
     content.style.columnGap = '32px';
+    content.style.columnRule = '1px solid #cbd5e1';
     if (btn) { btn.classList.add('lhc-pill-button-active'); btn.style.background = ''; btn.style.borderColor = ''; btn.style.color = ''; }
   }
+  setTimeout(_lpUpdateScrollCue, 60);
 };
 
 window.lyricsPreviewOpenEditor = function() {
