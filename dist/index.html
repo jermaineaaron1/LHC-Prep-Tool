@@ -34357,7 +34357,7 @@ var WO = (function() {
   });
 
   // ── Floating selection toolbar (songbook) ──────────────────────────────
-  var _sbSelToolbarEl = null, _sbSelToolbarTimer = null;
+  var _sbSelToolbarEl = null, _sbSelToolbarTimer = null, _sbFmtSavedRange = null;
 
   function _sbEnsureSelToolbar() {
     if (_sbSelToolbarEl) return _sbSelToolbarEl;
@@ -34366,22 +34366,45 @@ var WO = (function() {
       '#sbSelToolbar{position:fixed;z-index:100000;display:none;align-items:center;gap:4px;padding:5px 7px;background:#1e293b;border:1px solid #334155;border-radius:9px;box-shadow:0 6px 22px rgba(0,0,0,0.4);font-family:Poppins,system-ui,sans-serif;}' +
       '#sbSelToolbar .sbst-label{color:#94a3b8;font-size:0.7rem;font-weight:600;padding:0 3px;letter-spacing:.03em;}' +
       '#sbSelToolbar button{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:28px;padding:0 8px;background:#334155;color:#e2e8f0;border:none;border-radius:6px;font-size:1rem;font-weight:700;cursor:pointer;line-height:1;}' +
-      '#sbSelToolbar button:hover{background:#4f6178;}';
+      '#sbSelToolbar button:hover{background:#4f6178;}' +
+      '#sbSelToolbar .sbst-sep{width:1px;height:20px;background:#475569;margin:0 3px;}' +
+      '#sbSelToolbar .sbst-color{display:inline-flex;width:28px;height:28px;border-radius:6px;overflow:hidden;cursor:pointer;border:1px solid #475569;}' +
+      '#sbSelToolbar .sbst-color input{width:150%;height:150%;margin:-25%;border:none;background:none;cursor:pointer;padding:0;}';
     document.head.appendChild(st);
     var bar = document.createElement('div');
     bar.id = 'sbSelToolbar';
     bar.innerHTML =
+      '<button type="button" title="Bold" data-sbst="b" style="font-weight:800;">B</button>' +
+      '<button type="button" title="Italic" data-sbst="i" style="font-style:italic;font-family:Georgia,serif;">I</button>' +
+      '<button type="button" title="Underline" data-sbst="u" style="text-decoration:underline;">U</button>' +
+      '<button type="button" title="Bigger" data-sbst="bigger">A+</button>' +
+      '<button type="button" title="Smaller" data-sbst="smaller">A-</button>' +
+      '<label class="sbst-color" title="Text colour"><input type="color" data-sbst="color" value="#1e293b"></label>' +
+      '<button type="button" title="Clear formatting" data-sbst="clear">&#10005;</button>' +
+      '<span class="sbst-sep"></span>' +
       '<span class="sbst-label">KEY</span>' +
       '<button type="button" title="Transpose the selected chords down a semitone" data-sbst="down">&#9837;</button>' +
       '<button type="button" title="Transpose the selected chords up a semitone" data-sbst="up">&#9839;</button>';
-    bar.addEventListener('mousedown', function(e) { e.preventDefault(); }); // keep the text selection
+    bar.addEventListener('mousedown', function(e) {
+      var le = _sbSelLyricsEl();
+      if (le) { var _s2 = window.getSelection(); if (_s2 && _s2.rangeCount) { var _r2 = _s2.getRangeAt(0); _sbFmtSavedRange = { sid: le.id.replace('sbLyrics-', ''), s: _sbRawCaretOffset(le, _r2.startContainer, _r2.startOffset), e: _sbRawCaretOffset(le, _r2.endContainer, _r2.endOffset) }; } }
+      if (e.target && e.target.tagName !== 'INPUT') e.preventDefault(); // keep the text selection
+    });
     bar.addEventListener('click', function(e) {
       var b = e.target && e.target.closest ? e.target.closest('[data-sbst]') : null;
       if (!b) return;
       var act = b.getAttribute('data-sbst');
       if (act === 'up') sbSelTransposeInline(1);
       else if (act === 'down') sbSelTransposeInline(-1);
+      else if (act === 'b') sbFmtSelection('b', true, true);
+      else if (act === 'i') sbFmtSelection('i', true, true);
+      else if (act === 'u') sbFmtSelection('u', true, true);
+      else if (act === 'bigger') sbFmtSelection('size', '1.28em', false);
+      else if (act === 'smaller') sbFmtSelection('size', '0.8em', false);
+      else if (act === 'clear') sbFmtSelection(null, null, false);
     });
+    var _clr = bar.querySelector('input[data-sbst="color"]');
+    if (_clr) _clr.addEventListener('input', function() { sbFmtSelection('color', this.value, false); });
     document.body.appendChild(bar);
     _sbSelToolbarEl = bar;
     return bar;
@@ -34457,6 +34480,195 @@ var WO = (function() {
     }
     if (typeof sbAutoSave === 'function') sbAutoSave();
     setTimeout(_sbPositionSelToolbar, 0);
+  }
+
+  // ── Character-level font formatting (songbook) ──────────────────────────
+  var _sbFmtApplying = false;
+
+  function _sbSongForSid(sid) {
+    var baseId = sid.indexOf('__sb__') !== -1 ? sid.split('__sb__')[0] : sid;
+    return (songOrderSections || []).find(function(s) { return s.id === baseId; }) || null;
+  }
+  function _sbSongSpans(sid) {
+    var song = _sbSongForSid(sid);
+    if (!song) return [];
+    if (!Array.isArray(song.sbFormatSpans)) song.sbFormatSpans = [];
+    return song.sbFormatSpans;
+  }
+  function _sbFmtStyleStr(f) {
+    var s = '';
+    if (f.b) s += 'font-weight:700;';
+    if (f.i) s += 'font-style:italic;';
+    if (f.u) s += 'text-decoration:underline;';
+    if (f.size) s += 'font-size:' + f.size + ';';
+    if (f.color) s += 'color:' + f.color + ';';
+    if (f.family) s += 'font-family:' + f.family + ';';
+    return s;
+  }
+
+  // Set (value) / remove (value===null) a style key over [s,e); or clear ALL when
+  // key===null. Rebuilds a non-overlapping, merged interval list.
+  function _sbSetStyleOnRange(spans, s, e, key, value) {
+    if (e <= s) return spans;
+    var pts = [s, e];
+    spans.forEach(function(sp) { pts.push(sp.s); pts.push(sp.e); });
+    pts = pts.filter(function(v, i, a) { return v >= 0 && a.indexOf(v) === i; }).sort(function(a, b) { return a - b; });
+    function styleAt(pos) {
+      var f = {};
+      spans.forEach(function(sp) { if (sp.s <= pos && pos < sp.e) { for (var k in sp.f) f[k] = sp.f[k]; } });
+      return f;
+    }
+    var out = [];
+    for (var i = 0; i < pts.length - 1; i++) {
+      var a = pts[i], b = pts[i + 1];
+      if (b <= a) continue;
+      var f = styleAt(a);
+      if (a >= s && b <= e) {
+        if (key === null) f = {};
+        else if (value === null) delete f[key];
+        else f[key] = value;
+      }
+      if (Object.keys(f).length) out.push({ s: a, e: b, f: f });
+    }
+    var merged = [];
+    out.forEach(function(sp) {
+      var last = merged[merged.length - 1];
+      if (last && last.e === sp.s && JSON.stringify(last.f) === JSON.stringify(sp.f)) last.e = sp.e;
+      else merged.push({ s: sp.s, e: sp.e, f: sp.f });
+    });
+    return merged;
+  }
+  function _sbRangeHasAll(spans, s, e, key) {
+    var pos = s;
+    spans.slice().sort(function(a, b) { return a.s - b.s; }).forEach(function(sp) {
+      if (sp.s <= pos && pos < sp.e && sp.f[key]) pos = Math.max(pos, sp.e);
+    });
+    return pos >= e;
+  }
+
+  // Wrap the doc-offset range [s,e) (over lyricsEl's flat text) in a styled span,
+  // splitting text nodes and skipping line-div / BR boundaries.
+  function _sbWrapDocRange(lyricsEl, s, e, f) {
+    var walker = document.createTreeWalker(lyricsEl, NodeFilter.SHOW_ALL, null, false);
+    var cum = 0, first = true, node, hits = [];
+    while ((node = walker.nextNode())) {
+      if (node.nodeType === 1) {
+        if (_sbIsLineDiv(node)) { if (!first) cum += 1; first = false; }
+        else if (node.tagName === 'BR') cum += 1;
+      } else if (node.nodeType === 3) {
+        var len = node.textContent.length;
+        var a = Math.max(s, cum), b = Math.min(e, cum + len);
+        if (b > a) hits.push({ node: node, from: a - cum, to: b - cum });
+        cum += len;
+      }
+    }
+    var styleStr = _sbFmtStyleStr(f);
+    hits.forEach(function(h) {
+      var mid = h.node;
+      if (!mid.parentNode) return;
+      if (h.from > 0) mid = mid.splitText(h.from);
+      if (h.to - h.from < mid.textContent.length) mid.splitText(h.to - h.from);
+      var span = document.createElement('span');
+      span.className = 'sb-fmt';
+      span.setAttribute('style', styleStr);
+      mid.parentNode.insertBefore(span, mid);
+      span.appendChild(mid);
+    });
+  }
+
+  // Unwrap any existing .sb-fmt spans, then re-wrap from the model.
+  function _sbApplyFormatSpans(lyricsEl, spans) {
+    if (!lyricsEl) return;
+    _sbFmtApplying = true;
+    try {
+      Array.prototype.forEach.call(lyricsEl.querySelectorAll('span.sb-fmt'), function(sp) {
+        var parent = sp.parentNode; if (!parent) return;
+        while (sp.firstChild) parent.insertBefore(sp.firstChild, sp);
+        parent.removeChild(sp);
+      });
+      lyricsEl.normalize();
+      (spans || []).forEach(function(sp) { _sbWrapDocRange(lyricsEl, sp.s, sp.e, sp.f); });
+    } catch (e) {}
+    _sbFmtApplying = false;
+  }
+
+  // Place the selection back on doc-offset range [s,e] (offsets are style-invariant).
+  function _sbSetDocRange(lyricsEl, s, e) {
+    function locate(off) {
+      var walker = document.createTreeWalker(lyricsEl, NodeFilter.SHOW_ALL, null, false);
+      var cum = 0, first = true, node, lastText = null;
+      while ((node = walker.nextNode())) {
+        if (node.nodeType === 3) {
+          var len = node.textContent.length;
+          if (off <= cum + len) return { node: node, offset: Math.min(Math.max(0, off - cum), len) };
+          cum += len; lastText = node;
+        } else if (node.nodeType === 1) {
+          if (_sbIsLineDiv(node)) { if (!first) { if (off <= cum) return { node: node, offset: 0 }; cum += 1; } first = false; }
+          else if (node.tagName === 'BR') { if (off <= cum) return { node: node.parentNode, offset: 0 }; cum += 1; }
+        }
+      }
+      return lastText ? { node: lastText, offset: lastText.textContent.length } : { node: lyricsEl, offset: 0 };
+    }
+    try {
+      var a = locate(s), b = locate(e), r = document.createRange();
+      r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset);
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    } catch (err) {}
+  }
+
+  // Toolbar action: set/toggle a style on the current selection.
+  function sbFmtSelection(key, value, isToggle) {
+    var lyricsEl = _sbSelLyricsEl(), sid, s, e;
+    if (lyricsEl) {
+      var sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      var range = sel.getRangeAt(0);
+      sid = lyricsEl.id.replace('sbLyrics-', '');
+      s = _sbRawCaretOffset(lyricsEl, range.startContainer, range.startOffset);
+      e = _sbRawCaretOffset(lyricsEl, range.endContainer, range.endOffset);
+    } else if (_sbFmtSavedRange) {
+      sid = _sbFmtSavedRange.sid;
+      lyricsEl = document.getElementById('sbLyrics-' + sid);
+      s = _sbFmtSavedRange.s; e = _sbFmtSavedRange.e;
+    }
+    if (!lyricsEl) return;
+    if (e < s) { var t = s; s = e; e = t; }
+    if (e <= s) return;
+    var spans = _sbSongSpans(sid);
+    var v = value;
+    if (isToggle) v = _sbRangeHasAll(spans, s, e, key) ? null : true;
+    var newSpans = _sbSetStyleOnRange(spans, s, e, key, v);
+    var song = _sbSongForSid(sid);
+    if (song) song.sbFormatSpans = newSpans;
+    _sbApplyFormatSpans(lyricsEl, newSpans);
+    _sbSetDocRange(lyricsEl, s, e);
+    if (typeof _sbSaveSongLayout === 'function') _sbSaveSongLayout(sid);
+    if (typeof sbAutoSave === 'function') sbAutoSave();
+    setTimeout(_sbPositionSelToolbar, 0);
+  }
+
+  // Shift/trim format spans for an edit of `delta` chars at doc offset `p`.
+  function _sbShiftFormatSpans(sid, p, delta) {
+    var song = _sbSongForSid(sid);
+    if (!song || !Array.isArray(song.sbFormatSpans) || !song.sbFormatSpans.length || !delta) return;
+    var out = [];
+    song.sbFormatSpans.forEach(function(sp) {
+      var s = sp.s, e = sp.e;
+      if (delta > 0) { if (s >= p) s += delta; if (e >= p) e += delta; }
+      else { var rmEnd = p - delta; if (s >= rmEnd) s += delta; else if (s > p) s = p; if (e >= rmEnd) e += delta; else if (e > p) e = p; }
+      if (e > s) out.push({ s: s, e: e, f: sp.f });
+    });
+    song.sbFormatSpans = out;
+  }
+
+  // Re-apply a song's formatting to its live lyrics element (skipped while editing).
+  function _sbReapplyFormats(sid) {
+    var song = _sbSongForSid(sid);
+    if (!song || !Array.isArray(song.sbFormatSpans) || !song.sbFormatSpans.length) return;
+    var el = document.getElementById('sbLyrics-' + sid);
+    if (!el) return;
+    if (document.activeElement && el.contains(document.activeElement)) return; // don't disturb the caret
+    _sbApplyFormatSpans(el, song.sbFormatSpans);
   }
 
   // ── Copy with chords ────────────────────────────────────────────────────
@@ -34951,6 +35163,7 @@ var WO = (function() {
       // Measure the SAME inline layout the PDF uses and get the source-line index
       // that starts each A4 page. sbExtractLyricsText is the exact text the print
       // builds from, so the markers and the PDF agree line-for-line.
+      if (typeof _sbReapplyFormats === 'function') _sbReapplyFormats(sid);
       var _srcText = (typeof sbExtractLyricsText === 'function') ? sbExtractLyricsText(lyricsEl) : '';
       var _r = _sbComputePageStarts(_srcText, headerHtml, sid);
       var _ps = _r.pageStarts;
@@ -39148,6 +39361,9 @@ var WO = (function() {
     var newCanonical = oldText.substring(0, p) + insertedText + oldText.substring(oldText.length - s);
     var removedText = oldText.substring(p, oldText.length - s);
 
+    // Keep character-level formatting anchored to the text as it is edited.
+    if (typeof _sbShiftFormatSpans === 'function') _sbShiftFormatSpans(sid, p, insertedText.length - removedText.length);
+
     // Inline edit (no line added/removed): the native DOM already reflects it and
     // the caret is already where the user is typing. Re-rendering the whole
     // element on every keystroke and restoring the caret is what made the cursor
@@ -39172,6 +39388,7 @@ var WO = (function() {
 
     el.innerHTML = formatLyricsWithHighlights(newCanonical);
     if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
+    (function() { var _sp = _sbSongForSid(sid); if (_sp && Array.isArray(_sp.sbFormatSpans) && _sp.sbFormatSpans.length) _sbApplyFormatSpans(el, _sp.sbFormatSpans); })();
     _sbSetCaretAtDocOffset(el, newCaret);
     _sbCanonicalText[sid] = newCanonical;
   }
@@ -40297,8 +40514,10 @@ var WO = (function() {
       var scale  = sbSongFontOverrides[songId] || null;
       var breaks = sbManualBreaks[songId]      || null;
       var pbl    = Array.isArray(sbPageBreakLines[songId]) ? sbPageBreakLines[songId] : null;
-      if (scale || breaks || pbl) {
-        all[songId] = { fontScale: scale, manualBreaks: breaks, pageBreakLines: pbl };
+      var _fsong = (songOrderSections || []).find(function(s) { return s.id === songId; });
+      var fmts   = (_fsong && Array.isArray(_fsong.sbFormatSpans) && _fsong.sbFormatSpans.length) ? _fsong.sbFormatSpans : null;
+      if (scale || breaks || pbl || fmts) {
+        all[songId] = { fontScale: scale, manualBreaks: breaks, pageBreakLines: pbl, formatSpans: fmts };
       } else {
         delete all[songId];
       }
@@ -40331,6 +40550,7 @@ var WO = (function() {
           if (layout.fontScale)    sbSongFontOverrides[sid] = layout.fontScale;
           if (layout.manualBreaks) sbManualBreaks[sid]      = layout.manualBreaks;
           if (layout.pageBreakLines) sbPageBreakLines[sid]  = layout.pageBreakLines;
+          if (layout.formatSpans && Array.isArray(layout.formatSpans)) { var _fs = _sbSongForSid(sid); if (_fs && !Array.isArray(_fs.sbFormatSpans)) _fs.sbFormatSpans = layout.formatSpans; }
         }
       });
     } catch(e) {}
