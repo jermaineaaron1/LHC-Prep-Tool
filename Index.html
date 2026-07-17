@@ -62730,12 +62730,14 @@ function filterLiturgyItems() {
       '#subSelf .sg-gcal:hover{background:#1666d0;}' +
       '#subSelf .sg-copy{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:12px;background:#eef1e8;color:#1b5e43;border:1px solid #cbd8c9;border-radius:11px;padding:13px;font-size:.98rem;font-weight:600;cursor:pointer;}' +
       '#subSelf .sg-note{display:flex;gap:9px;align-items:flex-start;background:#f0fdf4;border:1px solid #bbe6c9;border-radius:11px;padding:13px 15px;margin-top:16px;font-size:.9rem;color:#215e3f;}' +
+      '#subSelf .sg-tip{margin-top:10px;font-size:.84rem;color:#6b7d73;line-height:1.5;text-align:center;}' +
+      '#subSelf .sg-tip b{cursor:pointer;color:#1b5e43;text-decoration:underline;}' +
       '#subSelf .sg-fallback{margin-top:16px;}' +
       '#subSelf .sg-fallback summary{cursor:pointer;font-weight:600;color:#1b5e43;font-size:.92rem;}' +
       '#subSelf .sg-fallback ol{margin:10px 0 0;padding-left:20px;font-size:.9rem;line-height:1.7;color:#40544a;}' +
       '#subSelf .sg-fallback b{color:#17271f;}' +
       '#subSelf .sg-linkbox{margin-top:12px;font-size:.75rem;color:#6b7d73;word-break:break-all;background:#f6f4ec;border:1px dashed #d3ccb8;border-radius:8px;padding:8px 10px;}' +
-      '@media(prefers-color-scheme:dark){#subSelf{background:linear-gradient(160deg,#0d1712,#111f18);color:#ecefe6;}#subSelf .sg-card{background:#14211a;border-color:#24352b;}#subSelf select{background:#0f1a14;color:#ecefe6;border-color:#31473a;}#subSelf .sg-copy{background:#182a21;color:#8fd6a8;border-color:#31473a;}#subSelf .sg-note{background:#14271c;border-color:#2b4a37;color:#a7e3bf;}#subSelf .sg-linkbox{background:#182a21;border-color:#31473a;color:#9db3a4;}}';
+      '@media(prefers-color-scheme:dark){#subSelf{background:linear-gradient(160deg,#0d1712,#111f18);color:#ecefe6;}#subSelf .sg-card{background:#14211a;border-color:#24352b;}#subSelf select{background:#0f1a14;color:#ecefe6;border-color:#31473a;}#subSelf .sg-copy{background:#182a21;color:#8fd6a8;border-color:#31473a;}#subSelf .sg-note{background:#14271c;border-color:#2b4a37;color:#a7e3bf;}#subSelf .sg-linkbox{background:#182a21;border-color:#31473a;color:#9db3a4;}#subSelf .sg-tip{color:#8fa396;}#subSelf .sg-tip b{color:#8fd6a8;}}';
     document.head.appendChild(st);
   }
 
@@ -62753,6 +62755,7 @@ function filterLiturgyItems() {
         '<div class="sg-head"><h1>Your worship duty calendar</h1><p>Hi ' + escapeHtmlModal(name) + ' &mdash; add your Luther House Chapel duties to your phone calendar in one tap.</p></div>' +
         '<div class="sg-card">' +
           '<a class="sg-gcal" href="' + gcal + '" target="_blank" rel="noopener"><i class="fa-brands fa-google"></i> Add to Google Calendar</a>' +
+          '<div class="sg-tip">Google sometimes opens an empty box instead of filling it in. If that happens, tap <b id="subTipCopy">Copy calendar link</b> below, then paste it into that box and tap <b>Add calendar</b>.</div>' +
           '<button class="sg-copy" id="subCopyBtn"><i class="fa-solid fa-copy"></i> Copy calendar link</button>' +
           '<div class="sg-note"><i class="fa-solid fa-rotate" style="margin-top:2px;"></i><span>Once added, your duties update <b>automatically</b> when the roster changes, and you get a reminder the day before each service.</span></div>' +
           '<details class="sg-fallback"><summary>Using Apple Calendar or Outlook instead?</summary>' +
@@ -62764,6 +62767,8 @@ function filterLiturgyItems() {
           '</details>' +
         '</div>' +
       '</div>';
+    var tipCp = document.getElementById('subTipCopy');
+    if (tipCp) tipCp.addEventListener('click', function() { var b = document.getElementById('subCopyBtn'); if (b) b.click(); });
     var cp = document.getElementById('subCopyBtn');
     if (cp) cp.addEventListener('click', function() {
       var done = function() { if (typeof showToast === 'function') showToast('Calendar link copied!', 'success'); cp.innerHTML = '<i class="fa-solid fa-check"></i> Copied!'; setTimeout(function() { cp.innerHTML = '<i class="fa-solid fa-copy"></i> Copy calendar link'; }, 2000); };
