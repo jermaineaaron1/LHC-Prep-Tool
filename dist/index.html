@@ -1993,6 +1993,17 @@
       box-sizing: border-box;
     }
     .roster-dropdown-search:focus { background-color: #fff; border-bottom-color: #4a6da7; }
+    .roster-name-panel { font-family: 'Poppins', sans-serif; }
+    .roster-dropdown-search { padding: 12px 12px 12px 34px !important; font-size: 14px !important; background-color: #f8fafc !important; border-bottom: 1px solid #eef2f7 !important; }
+    .roster-dropdown-search:focus { background-color: #fff !important; border-bottom-color: #14b8a6 !important; }
+    .roster-name-warn { padding: 11px 12px; border-top: 1px solid #fde68a; background: #fffbeb; font-size: 12px; color: #92400e; line-height: 1.45; }
+    .roster-name-warn b { color: #78350f; }
+    .roster-name-warn .rnw-chip { display: inline-flex; align-items: center; gap: 5px; background: #fff; border: 1px solid #fcd34d; color: #92400e; border-radius: 999px; padding: 3px 10px; font-weight: 600; font-size: 12px; margin: 4px 4px 0 0; cursor: pointer; }
+    .roster-name-warn .rnw-chip:hover { background: #fef3c7; }
+    .roster-name-warn .rnw-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .roster-name-warn .rnw-btn { flex: 1; border: none; border-radius: 8px; padding: 7px 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .roster-name-warn .rnw-add { background: linear-gradient(135deg,#f59e0b,#f97316); color: #fff; }
+    .roster-name-warn .rnw-cancel { background: #eef2f7; color: #374151; }
     /* Unavailability sub-panel inside dropdown */
     .roster-unavail-panel {
       padding: 8px 10px;
@@ -63848,7 +63859,7 @@ function filterLiturgyItems() {
         var rect = td.getBoundingClientRect();
         floatingPanel = document.createElement('div');
         floatingPanel.className = 'roster-name-panel';
-        floatingPanel.style.cssText = 'position:fixed;min-width:240px;max-width:320px;background:#fff;border:2px solid #4a6da7;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:10000;overflow:hidden;display:flex;flex-direction:column;';
+        floatingPanel.style.cssText = 'position:fixed;min-width:252px;max-width:330px;background:#fff;border:1px solid rgba(13,78,67,0.12);border-radius:16px;box-shadow:0 22px 55px rgba(13,78,67,0.22), 0 4px 14px rgba(0,0,0,0.10);z-index:10000;overflow:hidden;display:flex;flex-direction:column;';
         var top = rect.bottom + 2;
         var left = rect.left;
         if (top + 340 > window.innerHeight) top = Math.max(4, rect.top - 340);
@@ -63885,7 +63896,7 @@ function filterLiturgyItems() {
             var blankRow = document.createElement('div');
             blankRow.style.cssText = 'display:flex;align-items:center;padding:6px 10px;cursor:pointer;font-size:13px;color:#6b7280;font-style:italic;border-bottom:1px solid #e5e7eb;';
             blankRow.innerHTML = '<span style="flex:1;"><i class="fa-solid fa-ban" style="margin-right:6px;color:#9ca3af;"></i>Clear / Leave blank</span>';
-            blankRow.onmouseenter = function() { blankRow.style.background = '#f3f4f6'; };
+            blankRow.onmouseenter = function() { blankRow.style.background = '#f0fdfa'; };
             blankRow.onmouseleave = function() { blankRow.style.background = ''; };
             blankRow.onclick = function(e) { e.stopPropagation(); saveSelect('__BLANK__'); };
             listArea.appendChild(blankRow);
@@ -63963,7 +63974,7 @@ function filterLiturgyItems() {
             nameRow.appendChild(delBtn);
 
             if (!isUnavail) {
-              nameRow.onmouseenter = function() { if (!isSelected) nameRow.style.background = '#f3f4f6'; };
+              nameRow.onmouseenter = function() { if (!isSelected) nameRow.style.background = '#f0fdfa'; };
               nameRow.onmouseleave = function() { if (!isSelected) nameRow.style.background = isSelected ? '#eff6ff' : ''; };
               nameRow.onclick = function(e) { e.stopPropagation(); saveSelect(name); };
               // Double-click to rename
@@ -64030,7 +64041,7 @@ function filterLiturgyItems() {
 
         // ── "Add new name" section ──
         var addRow = document.createElement('div');
-        addRow.style.cssText = 'padding:6px 10px;border-top:1px solid #e5e7eb;background:#f9fafb;';
+        addRow.style.cssText = 'padding:10px 12px;border-top:1px solid #eef2f7;background:linear-gradient(180deg,#f8fafc,#f0fdfa);';
         var addLabel = document.createElement('div');
         addLabel.style.cssText = 'font-size:10px;color:#9ca3af;margin-bottom:4px;letter-spacing:0.05em;text-transform:uppercase;font-weight:600;';
         addLabel.textContent = 'Add new name to list';
@@ -64046,12 +64057,61 @@ function filterLiturgyItems() {
         var addBtn = document.createElement('button');
         addBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
         addBtn.title = 'Add to list & select';
-        addBtn.style.cssText = 'padding:5px 9px;background:#4a6da7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0;';
-        addBtn.onmouseenter = function() { addBtn.style.background = '#3a5d97'; };
-        addBtn.onmouseleave = function() { addBtn.style.background = '#4a6da7'; };
+        addBtn.style.cssText = 'padding:7px 11px;background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;flex-shrink:0;box-shadow:0 3px 8px rgba(13,148,136,0.28);';
+        addBtn.onmouseenter = function() { addBtn.style.filter = 'brightness(1.08)'; };
+        addBtn.onmouseleave = function() { addBtn.style.filter = 'none'; };
+        // Duplicate / similar-name guard. An exact (case/space-insensitive) match in THIS
+        // role's list is blocked and selects the existing name; a similar name in any role
+        // asks the user to confirm it is really a different person.
+        var _nameNorm = function(s) { return (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+        var _levDist = function(a, b) {
+          var m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+          var d = []; for (var i = 0; i <= m; i++) d[i] = [i]; for (var j = 0; j <= n; j++) d[0][j] = j;
+          for (var i2 = 1; i2 <= m; i2++) for (var j2 = 1; j2 <= n; j2++) {
+            var c = a.charAt(i2 - 1) === b.charAt(j2 - 1) ? 0 : 1;
+            d[i2][j2] = Math.min(d[i2 - 1][j2] + 1, d[i2][j2 - 1] + 1, d[i2 - 1][j2 - 1] + c);
+          }
+          return d[m][n];
+        };
+        var _nameSimilar = function(a, b) {
+          if (a === b) return false;
+          if (a.length >= 3 && b.length >= 3 && (a.indexOf(b) !== -1 || b.indexOf(a) !== -1)) return true;
+          if (Math.max(a.length, b.length) >= 4 && _levDist(a, b) <= 2) return true;
+          return false;
+        };
+        var _allRosterNames = function() {
+          var seen = {}, out = [];
+          Object.keys(ROSTER_NAME_OPTIONS).forEach(function(cat) {
+            (ROSTER_NAME_OPTIONS[cat] || []).forEach(function(n) { var k = _nameNorm(n); if (n && !seen[k]) { seen[k] = 1; out.push(n); } });
+          });
+          return out;
+        };
+        var showSimilarWarn = function(raw, sims) {
+          var esc = function(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+          addRow.innerHTML = '';
+          var w = document.createElement('div');
+          w.className = 'roster-name-warn';
+          var chips = sims.slice(0, 4).map(function(n) { return '<span class="rnw-chip" data-n="' + esc(n) + '"><i class="fa-solid fa-user-check"></i>' + esc(n) + '</span>'; }).join('');
+          w.innerHTML =
+            '<div><i class="fa-solid fa-triangle-exclamation" style="margin-right:6px;"></i><b>"' + esc(raw) + '"</b> is close to a name already on the list. Same person?</div>' +
+            '<div style="margin-top:2px;">' + chips + '</div>' +
+            '<div class="rnw-actions"><button class="rnw-btn rnw-add">Add "' + esc(raw) + '" anyway</button><button class="rnw-btn rnw-cancel">Cancel</button></div>';
+          addRow.appendChild(w);
+          w.querySelectorAll('.rnw-chip').forEach(function(c) { c.onclick = function(e) { e.stopPropagation(); saveSelect(c.getAttribute('data-n')); }; });
+          w.querySelector('.rnw-add').onclick = function(e) { e.stopPropagation(); addNameToRole(category, raw); saveSelect(raw); };
+          w.querySelector('.rnw-cancel').onclick = function(e) { e.stopPropagation(); buildDropdownPanel(true); };
+        };
         var confirmAdd = function() {
-          var newName = newInput.value.trim();
-          if (newName) { addNameToRole(category, newName); saveSelect(newName); }
+          var raw = newInput.value.trim();
+          if (!raw) return;
+          var target = _nameNorm(raw);
+          var catList = ROSTER_NAME_OPTIONS[category] || ROSTER_NAME_OPTIONS.general || [];
+          for (var i = 0; i < catList.length; i++) {
+            if (_nameNorm(catList[i]) === target) { self.showToast('"' + catList[i] + '" is already in this list - selecting it.', 'warning'); saveSelect(catList[i]); return; }
+          }
+          var sims = _allRosterNames().filter(function(n) { return _nameSimilar(_nameNorm(n), target); });
+          if (sims.length) { showSimilarWarn(raw, sims); return; }
+          addNameToRole(category, raw); saveSelect(raw);
         };
         addBtn.onclick = function(e) { e.stopPropagation(); confirmAdd(); };
         newInput.onkeydown = function(e) {
