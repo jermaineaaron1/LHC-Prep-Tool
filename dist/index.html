@@ -1839,6 +1839,62 @@
     .roster-frequent-cell {
       background: #fefce8 !important;
     }
+
+    /* ==================== ROSTER - GLASS COMMAND SKIN ==================== */
+    #worshipRosterView {
+      background:
+        radial-gradient(1100px 460px at 18% -12%, rgba(45,212,191,0.12), transparent 60%),
+        linear-gradient(165deg, #edf6f3 0%, #f5f7fb 55%, #e9f2ee 100%);
+      border-radius: 26px;
+      padding: 20px;
+      margin-bottom: 10px;
+    }
+    #worshipRosterView .roster-header-card {
+      background: rgba(255,255,255,0.66);
+      backdrop-filter: blur(16px) saturate(1.35);
+      -webkit-backdrop-filter: blur(16px) saturate(1.35);
+      border: 1px solid rgba(255,255,255,0.85);
+      box-shadow: 0 14px 34px rgba(13,78,67,0.12), 0 2px 6px rgba(13,78,67,0.06);
+    }
+    #worshipRosterView .roster-container {
+      background: rgba(255,255,255,0.86);
+      border: 1px solid rgba(255,255,255,0.9);
+      box-shadow: 0 18px 40px rgba(13,78,67,0.12), 0 2px 6px rgba(13,78,67,0.06);
+    }
+    #worshipRosterView .roster-action-btn {
+      border-radius: 999px;
+      padding: 11px 20px;
+      letter-spacing: 0.2px;
+      box-shadow: 0 6px 16px rgba(13,78,67,0.10);
+    }
+    #worshipRosterView .roster-action-btn:hover { transform: translateY(-2px); }
+    #worshipRosterView .roster-filter-btn { border-radius: 999px; }
+    #worshipRosterView .roster-section-cell { letter-spacing: 1px; }
+    #worshipRosterView .roster-status-row {
+      display: flex; align-items: center; justify-content: center;
+      gap: 10px; flex-wrap: wrap; margin-top: 16px;
+    }
+    #worshipRosterView .roster-status-pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: rgba(240,253,250,0.92); border: 1px solid #99f6e4; color: #0f766e;
+      border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 600;
+    }
+    #worshipRosterView .roster-status-pill .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #14b8a6; box-shadow: 0 0 0 3px rgba(20,184,166,0.18);
+    }
+    #worshipRosterView .roster-status-pill.cal {
+      cursor: pointer; background: rgba(234,242,255,0.92);
+      border-color: #bcd0f5; color: #2b4c86;
+    }
+    #worshipRosterView .roster-status-pill.cal .dot {
+      background: #1a73e8; box-shadow: 0 0 0 3px rgba(26,115,232,0.16);
+    }
+    #worshipRosterView .roster-status-pill.cal:hover { transform: translateY(-1px); filter: brightness(0.99); }
+    @media (max-width: 768px) {
+      #worshipRosterView { padding: 8px; border-radius: 14px; }
+      #worshipRosterView .roster-status-row { margin-top: 10px; }
+    }
     /* ==================== ENABLERS MODAL ==================== */
     /* ========== ENABLERS MODAL ========== */
     .enablers-tab {
@@ -4833,6 +4889,9 @@
             <button class="roster-action-btn secondary" id="rosterEnablersBtn" style="background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;border:none;">
               <i class="fa-solid fa-people-group"></i> Enablers
             </button>
+            <button class="roster-action-btn secondary" id="rosterCalendarsBtn" onclick="RosterEngine.openEnablersCalendar()" style="background:linear-gradient(135deg,#1a73e8,#4a6da7);color:#fff;border:none;">
+              <i class="fa-solid fa-calendar-check"></i> Calendars
+            </button>
             <button class="roster-action-btn secondary" id="rosterDownloadCSVBtn">
               <i class="fa-solid fa-file-csv"></i> Download CSV
             </button>
@@ -4852,8 +4911,9 @@
           </div>
 
           <!-- Sync Status -->
-          <div class="mt-4 text-xs text-slate-500">
-            <span id="rosterSyncStatus">Last synced: —</span>
+          <div class="roster-status-row">
+            <span class="roster-status-pill"><span class="dot"></span><span id="rosterSyncStatus">Last synced: —</span></span>
+            <span class="roster-status-pill cal" onclick="RosterEngine.openEnablersCalendar()" title="Manage Google Calendar subscriptions for your team"><span class="dot"></span>Google Calendar &middot; auto-syncing</span>
             <span id="rosterAutoSaveStatus" class="ml-3 font-semibold hidden"></span>
             <span id="rosterUnsavedIndicator" class="ml-3 text-amber-600 font-semibold hidden">
               <i class="fa-solid fa-triangle-exclamation"></i> Unsaved changes
@@ -64198,6 +64258,12 @@ function filterLiturgyItems() {
         cats:{preacher:'Preacher',liturgist:'Liturgist',usher:'Usher',reader:'Reader',communion:'Communion',altar:'Altar Guild',pianist:'Pianist',guitarist:'Guitarist',bassist:'Bassist',drummer:'Drummer',singer:'Singer',lcd:'LCD Operator',pa:'PA System',livestream:'Live Streaming',tech:'Tech',sundayschool:'Sunday School Teacher',flowerarrangement:'Flower Arrangement',general:'General'}
       };
     },
+    openEnablersCalendar: function() {
+      // Jump straight to the Calendar tab of the Enablers modal (subscription links).
+      this._enablersActiveTab = 'calendar';
+      this.openEnablersModal();
+    },
+
     openEnablersModal: function() {
       var self = this;
       var modal = document.getElementById('enablersModal');
