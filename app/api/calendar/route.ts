@@ -49,11 +49,17 @@ export async function GET(req: NextRequest) {
   today.setHours(0, 0, 0, 0);
   const thisYear = today.getFullYear();
 
+  // Match names case-insensitively AND tolerant of stray/doubled whitespace
+  // (the roster_names picker has had accidental near-duplicate entries like
+  // "Alison Phan" vs "Alison  Phan" -- an exact ilike would silently return
+  // zero rows for whichever spelling a person's actual duty rows don't use).
+  const likePattern = name.replace(/\s+/g, '%');
+
   // Fetch this person's duties for this year and next (case-insensitive)
   const { data, error } = await sb
     .from('roster')
     .select('role_id, service_date, month, year, value')
-    .ilike('value', name)
+    .ilike('value', likePattern)
     .gte('year', thisYear)
     .order('year')
     .order('month')
