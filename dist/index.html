@@ -62634,6 +62634,109 @@ function filterLiturgyItems() {
     } catch (e) {}
   })();
 
+  // ========== MEMBER CALENDAR SUBSCRIBE GUIDE (?view=subscribe) ==========
+  // No-login landing screen a member reaches from the share link. Reuses the
+  // Enablers Calendar ICS feed (/api/calendar?name=): a one-tap "Add to Google
+  // Calendar" plus copy-link and Apple/Outlook fallback, so tapping the shared
+  // link subscribes instead of just downloading a .ics file.
+  var _subName = '';
+  function _subIcsUrl(name) { return window.location.origin + '/api/calendar?name=' + encodeURIComponent(name); }
+
+  function _subEnsureStyle() {
+    if (document.getElementById('subSelfCss')) return;
+    var st = document.createElement('style');
+    st.id = 'subSelfCss';
+    st.textContent =
+      '#subSelf{position:fixed;inset:0;z-index:200000;overflow:auto;background:linear-gradient(160deg,#f6f4ec,#eef1e8);font-family:Poppins,system-ui,sans-serif;color:#17271f;}' +
+      '#subSelf .sg-wrap{max-width:600px;margin:0 auto;padding:26px 20px 60px;}' +
+      '#subSelf .sg-head{background:linear-gradient(160deg,#1b5e43,#123c2c);color:#f3efe2;border-radius:16px;padding:24px 24px 22px;box-shadow:0 10px 30px rgba(0,0,0,.14);}' +
+      '#subSelf .sg-head h1{font-family:Georgia,serif;font-size:1.5rem;margin:0 0 6px;font-weight:600;}' +
+      '#subSelf .sg-head p{margin:0;color:#dfe8de;font-size:.95rem;}' +
+      '#subSelf .sg-card{background:#fffefb;border:1px solid #e2ddcd;border-radius:14px;padding:20px;margin-top:16px;box-shadow:0 6px 18px rgba(23,39,31,.05);}' +
+      '#subSelf label{display:block;font-size:.78rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#6b7d73;margin:0 0 7px;}' +
+      '#subSelf select{width:100%;padding:11px 12px;border:1px solid #d3ccb8;border-radius:9px;font-size:1rem;font-family:inherit;background:#fff;color:#17271f;}' +
+      '#subSelf .sg-gcal{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#1a73e8;color:#fff;border:none;border-radius:11px;padding:15px;font-size:1.05rem;font-weight:700;cursor:pointer;text-decoration:none;box-shadow:0 6px 16px rgba(26,115,232,.28);}' +
+      '#subSelf .sg-gcal:hover{background:#1666d0;}' +
+      '#subSelf .sg-copy{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:12px;background:#eef1e8;color:#1b5e43;border:1px solid #cbd8c9;border-radius:11px;padding:13px;font-size:.98rem;font-weight:600;cursor:pointer;}' +
+      '#subSelf .sg-note{display:flex;gap:9px;align-items:flex-start;background:#f0fdf4;border:1px solid #bbe6c9;border-radius:11px;padding:13px 15px;margin-top:16px;font-size:.9rem;color:#215e3f;}' +
+      '#subSelf .sg-fallback{margin-top:16px;}' +
+      '#subSelf .sg-fallback summary{cursor:pointer;font-weight:600;color:#1b5e43;font-size:.92rem;}' +
+      '#subSelf .sg-fallback ol{margin:10px 0 0;padding-left:20px;font-size:.9rem;line-height:1.7;color:#40544a;}' +
+      '#subSelf .sg-fallback b{color:#17271f;}' +
+      '#subSelf .sg-linkbox{margin-top:12px;font-size:.75rem;color:#6b7d73;word-break:break-all;background:#f6f4ec;border:1px dashed #d3ccb8;border-radius:8px;padding:8px 10px;}' +
+      '@media(prefers-color-scheme:dark){#subSelf{background:linear-gradient(160deg,#0d1712,#111f18);color:#ecefe6;}#subSelf .sg-card{background:#14211a;border-color:#24352b;}#subSelf select{background:#0f1a14;color:#ecefe6;border-color:#31473a;}#subSelf .sg-copy{background:#182a21;color:#8fd6a8;border-color:#31473a;}#subSelf .sg-note{background:#14271c;border-color:#2b4a37;color:#a7e3bf;}#subSelf .sg-linkbox{background:#182a21;border-color:#31473a;color:#9db3a4;}}';
+    document.head.appendChild(st);
+  }
+
+  function _subCopyFallback(text, done) {
+    var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) {} document.body.removeChild(ta); if (done) done();
+  }
+
+  function _subRenderGuide(ov) {
+    var name = _subName;
+    var ics = _subIcsUrl(name);
+    var gcal = 'https://calendar.google.com/calendar/r/settings/addbyurl?url=' + encodeURIComponent(ics);
+    ov.innerHTML =
+      '<div class="sg-wrap">' +
+        '<div class="sg-head"><h1>Your worship duty calendar</h1><p>Hi ' + escapeHtmlModal(name) + ' &mdash; add your Luther House Chapel duties to your phone calendar in one tap.</p></div>' +
+        '<div class="sg-card">' +
+          '<a class="sg-gcal" href="' + gcal + '" target="_blank" rel="noopener"><i class="fa-brands fa-google"></i> Add to Google Calendar</a>' +
+          '<button class="sg-copy" id="subCopyBtn"><i class="fa-solid fa-copy"></i> Copy calendar link</button>' +
+          '<div class="sg-note"><i class="fa-solid fa-rotate" style="margin-top:2px;"></i><span>Once added, your duties update <b>automatically</b> when the roster changes, and you get a reminder the day before each service.</span></div>' +
+          '<details class="sg-fallback"><summary>Using Apple Calendar or Outlook instead?</summary>' +
+            '<ol>' +
+              '<li><b>iPhone / Apple:</b> Settings &#8594; Calendar &#8594; Accounts &#8594; Add Account &#8594; Other &#8594; <b>Add Subscribed Calendar</b> &#8594; paste the link.</li>' +
+              '<li><b>Outlook:</b> Add calendar &#8594; <b>Subscribe from web</b> &#8594; paste the link.</li>' +
+            '</ol>' +
+            '<div class="sg-linkbox" id="subLinkBox">' + escapeHtmlModal(ics) + '</div>' +
+          '</details>' +
+        '</div>' +
+      '</div>';
+    var cp = document.getElementById('subCopyBtn');
+    if (cp) cp.addEventListener('click', function() {
+      var done = function() { if (typeof showToast === 'function') showToast('Calendar link copied!', 'success'); cp.innerHTML = '<i class="fa-solid fa-check"></i> Copied!'; setTimeout(function() { cp.innerHTML = '<i class="fa-solid fa-copy"></i> Copy calendar link'; }, 2000); };
+      if (navigator.clipboard) navigator.clipboard.writeText(ics).then(done).catch(function() { _subCopyFallback(ics, done); });
+      else _subCopyFallback(ics, done);
+    });
+  }
+
+  function _subOpen(prefName) {
+    _subEnsureStyle();
+    var ov = document.getElementById('subSelf');
+    if (!ov) { ov = document.createElement('div'); ov.id = 'subSelf'; document.body.appendChild(ov); }
+    if (prefName) _subName = prefName;
+    if (_subName) { _subRenderGuide(ov); return; }
+    var names = _availAllNames();
+    var nameOpts = '<option value="">&mdash; choose your name &mdash;</option>' + names.map(function(n) { return '<option value="' + escapeHtmlModal(n) + '">' + escapeHtmlModal(n) + '</option>'; }).join('');
+    ov.innerHTML =
+      '<div class="sg-wrap">' +
+        '<div class="sg-head"><h1>Your worship duty calendar</h1><p>Pick your name to add your Luther House Chapel duties to your phone calendar.</p></div>' +
+        '<div class="sg-card"><label>Your name</label><select id="subNameSel">' + nameOpts + '</select>' +
+          (names.length ? '' : '<p style="margin-top:8px;color:#6b7d73;font-size:.88rem;">Loading names&hellip; if this stays empty, refresh the page.</p>') +
+        '</div>' +
+      '</div>';
+    var sel = document.getElementById('subNameSel');
+    if (sel) sel.addEventListener('change', function() { if (this.value) { _subName = this.value; _subRenderGuide(ov); } });
+    if (!names.length && typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.getNames) {
+      SBQ_ROSTER.getNames().then(function(opts) { if (opts) { Object.keys(opts).forEach(function(c) { ROSTER_NAME_OPTIONS[c] = opts[c]; }); setTimeout(function() { if (!_subName) _subOpen(''); }, 200); } }).catch(function() {});
+    }
+  }
+  window.openCalendarSubscribe = _subOpen;
+
+  // Entry point: open the subscribe guide when launched with ?view=subscribe.
+  (function() {
+    try {
+      var qs = new URLSearchParams(window.location.search);
+      if (qs.get('view') === 'subscribe') {
+        var nm = qs.get('name') || '';
+        var go = function() { _subOpen(nm); };
+        if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(go, 400);
+        else window.addEventListener('DOMContentLoaded', function() { setTimeout(go, 400); });
+      }
+    } catch (e) {}
+  })();
+
   // ========== MEMBER STATUS SYSTEM ==========
   var ROSTER_MEMBER_STATUS = {};
   (function() {
@@ -64216,9 +64319,10 @@ function filterLiturgyItems() {
         html += '<div style="font-size:11px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;">Enablers (' + allNames.length + ')</div>';
         allNames.forEach(function(name) {
           var calUrl = self.getCalendarSubscribeUrl(name);
-          var shortUrl = calUrl.replace(/^https?:\/\/[^/]+\//, '').substring(0,55);
+          var guideUrl = window.location.origin + '/?view=subscribe&name=' + encodeURIComponent(name);
+          var shortUrl = guideUrl.replace(/^https?:\/\/[^/]+\//, '').substring(0,55);
           var gcUrl  = 'https://calendar.google.com/calendar/r/settings/addbyurl?url=' + encodeURIComponent(calUrl);
-          var waText = 'Hi ' + name + '! Here is your personal LHC worship duty calendar link.\n\nTo subscribe:\n1. Open Google Calendar\n2. Other calendars → From URL\n3. Paste this link and tap Add Calendar\n\nYour duties and reminders will appear automatically.\n\n' + calUrl;
+          var waText = 'Hi ' + name + '! Add your LHC worship duties to your phone calendar - just open this link and tap the button:\n\n' + guideUrl + '\n\nYour duties update automatically and you get a reminder the day before each service.';
           var waUrl  = 'https://wa.me/?text=' + encodeURIComponent(waText);
 
           html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;background:#fff;border:1px solid #e5e7eb;margin-bottom:8px;">';
@@ -64227,7 +64331,7 @@ function filterLiturgyItems() {
           html += '<div style="font-size:10px;color:#9ca3af;word-break:break-all;margin-top:2px;">' + escapeHtml(shortUrl) + '...</div>';
           html += '</div>';
           html += '<a href="' + escapeHtml(gcUrl) + '" target="_blank" title="Add to Google Calendar" style="flex-shrink:0;background:#4a6da7;color:#fff;border:none;border-radius:6px;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:3px;"><i class="fa-brands fa-google"></i>GCal</a>';
-          html += '<button class="cal-copy-btn" data-cal-url="' + escapeHtml(calUrl) + '" title="Copy subscribe link" style="flex-shrink:0;background:#f4f5fb;color:#4a6da7;border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;"><i class="fa-solid fa-copy"></i></button>';
+          html += '<button class="cal-copy-btn" data-cal-url="' + escapeHtml(guideUrl) + '" title="Copy subscribe link" style="flex-shrink:0;background:#f4f5fb;color:#4a6da7;border:1px solid #d1d5db;border-radius:6px;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;"><i class="fa-solid fa-copy"></i></button>';
           html += '<a href="' + escapeHtml(waUrl) + '" target="_blank" title="Share via WhatsApp" style="flex-shrink:0;background:#25d366;color:#fff;border:none;border-radius:6px;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;text-decoration:none;"><i class="fa-brands fa-whatsapp"></i></a>';
           html += '</div>';
         });
