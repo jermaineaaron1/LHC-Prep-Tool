@@ -1580,6 +1580,192 @@
       border: 1px solid #e2e8f0;
     }
 
+    /* ==================== SONGS PAGE - "SONG ATLAS LIBRARY" (Phase 1 shell) ==================== */
+    #songFinderView {
+      --sa-blue: #4f6bf0;
+      --sa-blue-2: #7c5cf5;
+      --sa-purple: #8b5cf6;
+      --sa-ink: #211d52;
+      --sa-border: #c7d2fe;
+      --sa-shadow: 0 18px 40px rgba(99, 91, 219, 0.16), 0 2px 8px rgba(79, 70, 229, 0.08);
+    }
+    #songFinderView #sfSearchCard {
+      overflow: hidden;
+      box-shadow: var(--sa-shadow);
+      border: 1px solid var(--sa-border);
+    }
+    #songFinderView #sfCommandHeader {
+      background: linear-gradient(120deg, var(--sa-blue) 0%, var(--sa-blue-2) 55%, var(--sa-purple) 100%);
+      padding: 20px 22px 22px;
+    }
+    #songFinderView #sfCommandHeader .lhc-section-title { color: rgba(255,255,255,0.78); }
+    #songFinderView #sfCommandHeader h3.font-cinzel { color: #ffffff; }
+    #songFinderView #sfCommandHeader .form-label { color: rgba(255,255,255,0.88); }
+    #songFinderView #sfCommandHeader #searchInput {
+      background: #ffffff;
+      border: none;
+      border-radius: 999px;
+      color: var(--sa-ink);
+      box-shadow: 0 8px 20px rgba(30,27,75,0.18);
+    }
+    #songFinderView #sfCommandHeader #searchInput:focus {
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.55), 0 8px 20px rgba(30,27,75,0.18);
+      border: none;
+    }
+    #songFinderView #sfCommandHeader .lhc-pill-button {
+      background: rgba(255,255,255,0.16);
+      border-color: rgba(255,255,255,0.4);
+      color: #ffffff;
+    }
+    #songFinderView #sfCommandHeader .lhc-pill-button:hover { background: rgba(255,255,255,0.28); }
+    #songFinderView #sfCommandHeader #openAddSongBtn {
+      background: #ffffff !important;
+      color: var(--sa-blue-2) !important;
+      border-color: transparent !important;
+      font-weight: 700;
+    }
+    #songFinderView #sfFilterBar {
+      background: #ffffff;
+      padding: 16px 22px 18px;
+    }
+    #songFinderView #sfFilterBar .form-label { color: #64748b; }
+    #songFinderView #sfFilterBar .form-input.form-select,
+    #songFinderView #sfFilterBar select.form-input {
+      border: 1.5px solid var(--sa-border);
+      border-radius: 12px;
+      color: var(--sa-ink);
+    }
+    #songFinderView #sfFilterBar .form-input.form-select:hover,
+    #songFinderView #sfFilterBar select.form-input:hover { border-color: var(--sa-blue); }
+    #songFinderView #resultCount, #songFinderView #totalCount { color: var(--sa-ink); font-weight: 700; }
+
+    /* Results: compact list (left) + selected-song workspace (right) on wide desktop */
+    #songFinderView #sfResultsGrid { display: block; }
+    @media (min-width: 1080px) {
+      #songFinderView #sfResultsGrid {
+        display: grid;
+        grid-template-columns: minmax(320px, 380px) 1fr;
+        align-items: start;
+        gap: 16px;
+      }
+      #songFinderView #sfSongListCard { max-height: 74vh; overflow-y: auto; }
+    }
+    #songFinderView #sfSongListCard,
+    #songFinderView #sfWorkspacePanel {
+      box-shadow: var(--sa-shadow);
+      border: 1px solid var(--sa-border);
+    }
+    #songFinderView #sfWorkspacePanel {
+      min-height: 320px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+    }
+    #songFinderView .sf-workspace-empty { text-align: center; max-width: 320px; }
+    #songFinderView .sf-workspace-empty-icon {
+      width: 64px; height: 64px; margin: 0 auto 14px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, rgba(79,107,240,0.14), rgba(139,92,246,0.14));
+      color: var(--sa-blue-2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem;
+    }
+    #songFinderView .sf-workspace-empty h4 { color: var(--sa-ink); font-weight: 700; margin-bottom: 6px; font-family: 'Cinzel', serif; font-size: 1.05rem; }
+    #songFinderView .sf-workspace-empty p { color: #64748b; font-size: 0.85rem; line-height: 1.5; margin: 0; }
+
+    /* Song list rows */
+    #songFinderView .song-list-item:hover { background: rgba(79,107,240,0.05); border-left-color: var(--sa-blue); }
+    #songFinderView .meta-pill { background: #eef1ff; color: #4338ca; border-color: var(--sa-border); }
+
+    @media (max-width: 768px) {
+      #songFinderView #sfCommandHeader { padding: 14px 14px 16px; }
+      #songFinderView #sfFilterBar { padding: 12px 12px 14px; }
+      /* Phase 2: the lyrics-preview modal now lives inside #sfWorkspacePanel's
+         DOM (for the >=1080px inline layout below), so this panel must NOT be
+         display:none on mobile any more -- a display:none ancestor hides all
+         descendants regardless of their own position, which would silently
+         make the modal impossible to show at all on phones. Instead, collapse
+         only the panel's own visual footprint and hide its empty-state
+         placeholder; the modal keeps behaving exactly as it did before
+         (a normal full-viewport overlay), unchanged on mobile. */
+      #songFinderView #sfWorkspacePanel { padding: 0; min-height: 0; border: none; box-shadow: none; background: transparent; }
+      #songFinderView .sf-workspace-empty { display: none; }
+    }
+
+    /* Phase 2: on wide desktop, repaint the SAME (now-nested) lyrics preview
+       modal INLINE inside the workspace panel instead of as a fixed overlay.
+       Below this breakpoint the modal keeps its original full-viewport
+       behavior, byte-identical to before -- no JS is changed by this rule,
+       only how the same element is painted at this width. */
+    @media (min-width: 1080px) {
+      #sfWorkspacePanel #lyricsPreviewModal.show {
+        position: static;
+        inset: auto;
+        background: none;
+        backdrop-filter: none;
+        display: block;
+        z-index: auto;
+        padding: 0;
+        animation: none;
+      }
+      #sfWorkspacePanel #lyricsPreviewModalContent {
+        width: 100%;
+        max-width: 100%;
+        max-height: none;
+        box-shadow: none;
+        border-radius: 16px;
+        animation: none;
+      }
+      #sfWorkspacePanel:has(#lyricsPreviewModal.show) > .sf-workspace-empty { display: none; }
+    }
+
+    /* Resources panel (Documents + Links) inside the lyrics preview workspace */
+    .sf-res-wrap { padding: 4px 2px; }
+    .sf-res-section-title { font-family: 'Cinzel', serif; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; margin-bottom: 10px; }
+    .sf-res-empty { padding: 16px; text-align: center; color: #94a3b8; font-size: 0.85rem; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; }
+    .sf-res-grid { display: flex; flex-direction: column; gap: 8px; }
+    .sf-res-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; transition: box-shadow .15s, border-color .15s; }
+    .sf-res-card:hover { border-color: #c7d2fe; box-shadow: 0 4px 14px rgba(79,107,240,0.10); }
+    .sf-res-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.05rem; flex-shrink: 0; }
+    .sf-res-info { flex: 1; min-width: 0; }
+    .sf-res-label { font-weight: 600; font-size: 0.86rem; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sf-res-kind { font-size: 0.72rem; color: #94a3b8; margin-top: 1px; }
+    .sf-res-action { flex-shrink: 0; border: 1px solid #c7d2fe; background: #eef1ff; color: #4338ca; border-radius: 8px; padding: 6px 12px; font-size: 0.78rem; font-weight: 600; cursor: pointer; white-space: nowrap; font-family: 'Poppins', sans-serif; }
+    .sf-res-action:hover { background: #e0e7ff; }
+
+    /* ==================== SONGS PAGE — MOBILE FILTER SHEET (Phase 4) ==================== */
+    #sfMobileFiltersBtn, #sfMobileFilterApplyBtn, #sfFilterSheetBackdrop { display: none; }
+    @media (max-width: 768px) {
+      #songFinderView #sfMobileFiltersBtn {
+        display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+        background: linear-gradient(135deg, var(--sa-blue, #4f6bf0), var(--sa-blue-2, #7c5cf5));
+        color: #fff; border: none; border-radius: 999px; padding: 7px 13px; font-size: 0.74rem; font-weight: 700;
+      }
+      #songFinderView #sfResultsRow { flex-wrap: wrap; gap: 8px; row-gap: 6px; }
+      #sfFilterSheetBackdrop.sf-sheet-open {
+        display: block; position: fixed; inset: 0; background: rgba(15,23,42,0.45); z-index: 2999;
+      }
+      #sfFilterGrid {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 3000;
+        background: #fff; max-height: 78vh; overflow-y: auto;
+        border-radius: 20px 20px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,0.22);
+        grid-template-columns: 1fr !important; gap: 14px !important;
+        padding: 18px 18px calc(76px + env(safe-area-inset-bottom, 0px)) !important;
+        margin: 0 !important;
+        transform: translateY(115%);
+      }
+      #sfFilterGrid.sf-sheet-open { transform: translateY(0); }
+      #sfMobileFilterApplyBtn.sf-sheet-open {
+        display: block; position: fixed; left: 16px; right: 16px;
+        bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 3001;
+        background: linear-gradient(135deg, var(--sa-blue, #4f6bf0), var(--sa-blue-2, #7c5cf5));
+        color: #fff; border: none; border-radius: 999px; padding: 14px; font-weight: 700; font-size: 0.95rem;
+        box-shadow: 0 10px 26px rgba(79,107,240,0.35);
+      }
+      #sfFilterGrid label { color: #64748b; font-size: 0.72rem; }
+    }
+
     /* ==================== SEARCH SUGGESTIONS ==================== */
     #searchSuggestions {
       position: absolute;
@@ -4716,7 +4902,8 @@
         </div>
 
         <!-- Search & Filters Card -->
-        <div id="sfSearchCard" class="lhc-card" style="padding: 16px 18px; margin-bottom: 16px;">
+        <div id="sfSearchCard" class="lhc-card" style="margin-bottom: 16px;">
+          <div id="sfCommandHeader">
           <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
             <div>
               <p class="lhc-section-title">Library</p>
@@ -4727,7 +4914,7 @@
                 <i class="fa-solid fa-list mr-1"></i> All Songs
               </button>
               <button class="lhc-pill-button" id="clearSongsBtn" onclick="clearSongSearch()" title="Clear search and filters" style="background:#f1f5f9;border-color:#cbd5e1;color:#64748b;">
-                <i class="fa-solid fa-xmark mr-1"></i> Clear
+                <i class="fa-solid fa-xmark mr-1"></i> Clear all
               </button>
               <button class="lhc-pill-button" id="openAddSongBtn" style="background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: white; border-color: transparent;">
                 <i class="fa-solid fa-plus mr-1"></i> Add Song
@@ -4756,9 +4943,23 @@
               <div id="searchSuggestions"></div>
             </div>
           </div>
+          </div>
 
+          <div id="sfFilterBar">
+          <!-- Results Info -->
+          <div class="flex items-center justify-between text-xs text-slate-500" id="sfResultsRow">
+            <div id="activeFiltersDisplay" class="flex flex-wrap gap-1"></div>
+            <div>
+              <span id="resultCount">0</span> results • <span id="totalCount">0</span> in library
+            </div>
+            <button id="sfMobileFiltersBtn" type="button" onclick="toggleMobileFilterSheet()"><i class="fa-solid fa-sliders"></i> Filters</button>
+          </div>
+
+
+          <span id="sfFilterSheetHome" style="display:none;"></span>
+          <div id="sfFilterSheetBackdrop" onclick="toggleMobileFilterSheet(false)"></div>
           <!-- Filters Grid -->
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+          <div id="sfFilterGrid" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-4">
             <div>
               <label class="form-label">Theme</label>
               <div class="theme-multiselect" style="position:relative;">
@@ -4788,8 +4989,6 @@
                 <option value="">All</option>
               </select>
             </div>
-          </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <div>
               <label class="form-label">Season</label>
               <div class="theme-multiselect" style="position:relative;">
@@ -4817,18 +5016,13 @@
             </div>
             <div></div>
           </div>
-
-          <!-- Results Info -->
-          <div class="flex items-center justify-between text-xs text-slate-500">
-            <div id="activeFiltersDisplay" class="flex flex-wrap gap-1"></div>
-            <div>
-              <span id="resultCount">0</span> results • <span id="totalCount">0</span> in library
-            </div>
+          <button id="sfMobileFilterApplyBtn" type="button" onclick="toggleMobileFilterSheet(false)">Apply Filters</button>
           </div>
         </div>
 
+        <div id="sfResultsGrid">
         <!-- Song List Container (List View, not Grid) -->
-        <div id="sfSongListCard" class="lhc-card" style="padding: 0; overflow: hidden; border: 3px solid #0891b2;">
+        <div id="sfSongListCard" class="lhc-card" style="padding: 0; overflow: hidden;">
           <div id="songListContainer"></div>
 
           <!-- Empty State / Placeholder -->
@@ -4837,6 +5031,149 @@
             <h4 class="font-semibold text-slate-700 mb-1">Start typing to search songs</h4>
             <p class="text-sm text-slate-500">Songs starting with your search text will appear here.</p>
           </div>
+        </div>
+
+        <!-- Selected-song workspace. Phase 2: on wide desktop the lyrics
+             preview modal below renders INLINE here (see the >=1080px CSS
+             rule); on narrower screens the SAME element keeps its original
+             full-viewport modal behavior, completely unchanged. -->
+        <div id="sfWorkspacePanel" class="lhc-card">
+          <div class="sf-workspace-empty">
+            <div class="sf-workspace-empty-icon"><i class="fa-solid fa-music"></i></div>
+            <h4>Select a song</h4>
+            <p>Choose a song from the list to preview its lyrics, chords, and resources here.</p>
+          </div>
+  <!-- ==================== MODAL: LYRICS PREVIEW (from song card) ==================== -->
+  <div id="lyricsPreviewModal" class="modal-overlay">
+    <div id="lyricsPreviewModalContent" class="modal-content" style="width: min(750px, 95%); max-height: 90vh; display: flex; flex-direction: column; padding: 0;">
+      <div id="lyricsPreviewHeaderPanel" class="p-4 border-b border-slate-200">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <h3 id="lyricsPreviewTitle" class="font-cinzel text-xl font-bold text-slate-800"></h3>
+            <p id="lyricsPreviewArtist" class="text-sm text-slate-500 mt-1"></p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button" title="Fullscreen" onclick="toggleLyricsPreviewFullscreen()">
+              <i class="fa-solid fa-expand"></i>
+            </button>
+            <button class="lhc-pill-button" title="Close" onclick="closeLyricsPreviewModal()">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
+        <div id="lyricsPreviewToolbar" class="flex items-center justify-between mt-4 flex-wrap gap-2">
+          <div class="flex gap-2">
+            <button id="lyricsPreviewLyricsBtn" class="lhc-pill-button lhc-pill-button-active text-sm" onclick="switchLyricsPreviewMode('lyrics')">
+              <i class="fa-solid fa-file-lines mr-1"></i> Lyrics Only
+            </button>
+            <button id="lyricsPreviewChordsBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('chords')">
+              <i class="fa-solid fa-guitar mr-1"></i> Lyrics + Chords
+            </button>
+            <button id="lyricsPreviewResourcesBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('resources')">
+              <i class="fa-solid fa-folder-open mr-1"></i> Resources
+            </button>
+            <button id="lyricsPreviewTwoColBtn" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewTwoCol()" title="Toggle 2-column layout" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
+              <i class="fa-solid fa-table-columns mr-1"></i> 2 Col
+            </button>
+          </div>
+          <div class="flex gap-2 items-center flex-wrap">
+            <button id="lyricsPreviewEditBtn" class="lhc-pill-button text-sm" title="Edit song" onclick="lyricsPreviewOpenEditor()" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;">
+              <i class="fa-solid fa-pen-to-square mr-1"></i> Edit
+            </button>
+            <button id="lyricsPreviewShareBtn" class="lhc-pill-button text-sm" title="Share song link" onclick="lyricsPreviewShare(this)" style="background:#f0fdf4;border-color:#86efac;color:#15803d;">
+              <i class="fa-solid fa-share-nodes mr-1"></i> Share
+            </button>
+            <button id="lyricsPreviewBookmarkBtn" class="lhc-pill-button text-sm" title="Add to Service Order or Songbook" onclick="lyricsPreviewAddToSongbook(this)" style="background:linear-gradient(135deg,#4f6bf0,#8b5cf6);border-color:transparent;color:#fff;font-weight:700;">
+              <i class="fa-solid fa-plus mr-1"></i> Add to <i class="fa-solid fa-chevron-down" style="font-size:0.6em;margin-left:3px;"></i>
+            </button>
+            <!-- Transpose Dropdown -->
+            <div id="transposeContainer" class="hidden items-center gap-2">
+              <label class="text-xs text-slate-500">Transpose:</label>
+              <select id="transposeSelect" class="form-input text-sm py-1 px-2" style="width: auto;" onchange="applyTranspose()">
+                <option value="0">Original</option>
+                <option value="1">+1 (Half step up)</option>
+                <option value="2">+2</option>
+                <option value="3">+3</option>
+                <option value="4">+4</option>
+                <option value="5">+5</option>
+                <option value="6">+6</option>
+                <option value="-1">-1 (Half step down)</option>
+                <option value="-2">-2</option>
+                <option value="-3">-3</option>
+                <option value="-4">-4</option>
+                <option value="-5">-5</option>
+              </select>
+            </div>
+            <button id="lyricsPreviewAppearanceBtn" class="lhc-pill-button text-sm" title="Display appearance" onclick="toggleLyricsPreviewAppearance()" style="background:#fdf4ff;border-color:#f0abfc;color:#a21caf;">
+              <i class="fa-solid fa-palette mr-1"></i> Aa
+            </button>
+            <!-- View Doc button: shown when song has attachments -->
+            <button id="lyricsPreviewDocBtn" class="lhc-pill-button text-sm" style="display:none;background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;position:relative;" onclick="lyricsPreviewViewDoc()" title="View attached music score / document">
+              <i class="fa-solid fa-file-lines mr-1"></i> View Doc
+              <span id="lyricsPreviewDocBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#0369a1;color:white;border-radius:999px;font-size:10px;font-weight:700;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px;"></span>
+            </button>
+            <!-- Add Doc button: always shown for adding a document/score link -->
+            <button id="lyricsPreviewAddDocBtn" class="lhc-pill-button text-sm" style="background:#f0fdf4;border-color:#86efac;color:#15803d;" onclick="lyricsPreviewAddDoc()" title="Attach a music score or document link">
+              <i class="fa-solid fa-paperclip mr-1"></i> Add Doc
+            </button>
+            <button class="lhc-pill-button text-sm" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="printLyricsPreview()">
+              <i class="fa-solid fa-print mr-1"></i> Print / PDF
+            </button>
+          </div>
+        </div>
+      </div>
+      <div id="lyricsPreviewAppearanceBar" style="display:none;padding:10px 16px;background:#fdf4ff;border-bottom:1px solid #f0abfc;gap:18px;flex-wrap:wrap;align-items:flex-end;">
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <span style="font-size:10px;font-weight:700;color:#a21caf;text-transform:uppercase;letter-spacing:0.05em;">Lyrics</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="sfLyricFont" class="format-select" onchange="_sfApplyAppearance()" title="Lyrics font">
+              <option value="">Default font</option>
+              <option value="Courier New, monospace">Monospace</option>
+              <option value="Georgia, serif">Georgia</option>
+              <option value="Arial, sans-serif">Arial</option>
+              <option value="Times New Roman, serif">Times</option>
+            </select>
+            <select id="sfLyricSize" class="format-select" onchange="_sfApplyAppearance()" title="Lyrics size">
+              <option value="">Default size</option>
+              <option value="15px">15px</option>
+              <option value="17px">17px</option>
+              <option value="19px">19px</option>
+              <option value="22px">22px</option>
+              <option value="26px">26px</option>
+            </select>
+            <input type="color" id="sfLyricColor" value="#1f2937" onchange="_sfApplyAppearance()" title="Lyrics colour" style="width:30px;height:30px;padding:0;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;">
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <span style="font-size:10px;font-weight:700;color:#a21caf;text-transform:uppercase;letter-spacing:0.05em;">Chords</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="sfChordFont" class="format-select" onchange="_sfApplyAppearance()" title="Chords font">
+              <option value="">Default font</option>
+              <option value="Courier New, monospace">Monospace</option>
+              <option value="Georgia, serif">Georgia</option>
+              <option value="Arial, sans-serif">Arial</option>
+            </select>
+            <select id="sfChordSize" class="format-select" onchange="_sfApplyAppearance()" title="Chords size">
+              <option value="">Default size</option>
+              <option value="13px">13px</option>
+              <option value="15px">15px</option>
+              <option value="17px">17px</option>
+              <option value="20px">20px</option>
+            </select>
+            <input type="color" id="sfChordColor" value="#991b1b" onchange="_sfApplyAppearance()" title="Chords colour" style="width:30px;height:30px;padding:0;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;">
+          </div>
+        </div>
+        <div style="font-size:11px;color:#a21caf;max-width:220px;line-height:1.4;">Applies while you're viewing this song. Saving it permanently needs one small pending update.</div>
+      </div>
+      <div id="lyricsPreviewContent" class="flex-1 overflow-y-auto p-5" style="min-height: 300px;">
+        <!-- Lyrics content rendered here -->
+      </div>
+      <div class="p-3 border-t border-slate-200 text-right">
+        <span id="lyricsPreviewLastEdited" class="text-xs text-slate-400"></span>
+      </div>
+    </div>
+  </div>
+        </div>
         </div>
 
         <!-- ── Songbooks subsection ── -->
@@ -6399,12 +6736,13 @@
   #lyricsPreviewContent .section-header.prechorus { background: #ffedd5; color: #c2410c; }
   #lyricsPreviewContent .section-header.ending  { background: #fee2e2; color: #dc2626; }
   #lyricsPreviewContent .section-header.intro   { background: #e0f2fe; color: #0369a1; }
-  #lyricsPreviewContent .chord-line { color: #991b1b; font-weight: 700; font-family: 'Courier New', monospace; font-size: 17px; margin-bottom: -4px; white-space: pre; }
-  #lyricsPreviewContent .lyric-line { color: #1f2937; font-size: 19px; line-height: 1.7; }
-  #lyricsPreviewContent .ci-line  { display: block; margin-bottom: 6px; }
+  #lyricsPreviewContent .chord-line { color: var(--sf-chord-color, #991b1b); font-weight: 700; font-family: var(--sf-chord-font, 'Courier New', monospace); font-size: var(--sf-chord-size, 17px); margin-bottom: -4px; white-space: pre; }
+  #lyricsPreviewContent .lyric-line { color: var(--sf-lyric-color, #1f2937); font-family: var(--sf-lyric-font, inherit); font-size: var(--sf-lyric-size, 19px); line-height: 1.7; }
+  #lyricsPreviewAppearanceBtn.lhc-pill-button-active { background: #a21caf !important; border-color: #a21caf !important; color: #fff !important; }
+    #lyricsPreviewContent .ci-line  { display: block; margin-bottom: 6px; }
   #lyricsPreviewContent .ci-w     { display: inline-block; white-space: nowrap; vertical-align: bottom; }
-  #lyricsPreviewContent .ci-seg   { display: inline-block; position: relative; padding-top: 1.2em; vertical-align: bottom; white-space: pre; font-size: 19px; line-height: 1.5; color: #1f2937; }
-  #lyricsPreviewContent .ci-chord { position: absolute; top: 0; left: 0; font-family: 'Courier New', monospace; font-weight: 700; color: #991b1b; font-size: 0.78em; white-space: nowrap; line-height: 1.1; }
+  #lyricsPreviewContent .ci-seg   { display: inline-block; position: relative; padding-top: 1.2em; vertical-align: bottom; white-space: pre; font-size: var(--sf-lyric-size, 19px); line-height: 1.5; color: var(--sf-lyric-color, #1f2937); font-family: var(--sf-lyric-font, inherit); }
+  #lyricsPreviewContent .ci-chord { position: absolute; top: 0; left: 0; font-family: var(--sf-chord-font, 'Courier New', monospace); font-weight: 700; color: var(--sf-chord-color, #991b1b); font-size: var(--sf-chord-size, 0.78em); white-space: nowrap; line-height: 1.1; }
   #lyricsPreviewToolbar .lhc-pill-button-active { background: #2563eb !important; border-color: #1d4ed8 !important; color: #ffffff !important; box-shadow: 0 4px 12px rgba(37,99,235,0.35) !important; }
   #lyricsPreviewScrollCue { position: fixed; z-index: 100001; display: none; align-items: center; gap: 6px; transform: translateX(-50%); padding: 6px 14px; background: #2563eb; color: #fff; border-radius: 999px; font-size: 0.8rem; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,0.28); cursor: pointer; animation: lpCueBounce 1.4s ease-in-out infinite; }
   @keyframes lpCueBounce { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(4px); } }
@@ -7826,88 +8164,6 @@ I once was lost but now am found"
       </div>
       <div class="flex-1 overflow-hidden">
         <iframe id="previewFrame" class="w-full h-full border-0"></iframe>
-      </div>
-    </div>
-  </div>
-
-  <!-- ==================== MODAL: LYRICS PREVIEW (from song card) ==================== -->
-  <div id="lyricsPreviewModal" class="modal-overlay">
-    <div id="lyricsPreviewModalContent" class="modal-content" style="width: min(750px, 95%); max-height: 90vh; display: flex; flex-direction: column; padding: 0;">
-      <div id="lyricsPreviewHeaderPanel" class="p-4 border-b border-slate-200">
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <h3 id="lyricsPreviewTitle" class="font-cinzel text-xl font-bold text-slate-800"></h3>
-            <p id="lyricsPreviewArtist" class="text-sm text-slate-500 mt-1"></p>
-          </div>
-          <div class="flex items-center gap-2">
-            <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button" title="Fullscreen" onclick="toggleLyricsPreviewFullscreen()">
-              <i class="fa-solid fa-expand"></i>
-            </button>
-            <button class="lhc-pill-button" title="Close" onclick="closeLyricsPreviewModal()">
-              <i class="fa-solid fa-xmark"></i>
-            </button>
-          </div>
-        </div>
-        <div id="lyricsPreviewToolbar" class="flex items-center justify-between mt-4 flex-wrap gap-2">
-          <div class="flex gap-2">
-            <button id="lyricsPreviewLyricsBtn" class="lhc-pill-button lhc-pill-button-active text-sm" onclick="switchLyricsPreviewMode('lyrics')">
-              <i class="fa-solid fa-file-lines mr-1"></i> Lyrics Only
-            </button>
-            <button id="lyricsPreviewChordsBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('chords')">
-              <i class="fa-solid fa-guitar mr-1"></i> Lyrics + Chords
-            </button>
-            <button id="lyricsPreviewTwoColBtn" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewTwoCol()" title="Toggle 2-column layout" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
-              <i class="fa-solid fa-table-columns mr-1"></i> 2 Col
-            </button>
-          </div>
-          <div class="flex gap-2 items-center flex-wrap">
-            <button id="lyricsPreviewEditBtn" class="lhc-pill-button text-sm" title="Edit song" onclick="lyricsPreviewOpenEditor()" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;">
-              <i class="fa-solid fa-pen-to-square mr-1"></i> Edit
-            </button>
-            <button id="lyricsPreviewShareBtn" class="lhc-pill-button text-sm" title="Share song link" onclick="lyricsPreviewShare(this)" style="background:#f0fdf4;border-color:#86efac;color:#15803d;">
-              <i class="fa-solid fa-share-nodes mr-1"></i> Share
-            </button>
-            <button id="lyricsPreviewBookmarkBtn" class="lhc-pill-button text-sm" title="Add to Songbook" onclick="lyricsPreviewAddToSongbook(this)" style="background:#faf5ff;border-color:#d8b4fe;color:#7c3aed;">
-              <i class="fa-solid fa-bookmark mr-1"></i> Songbook
-            </button>
-            <!-- Transpose Dropdown -->
-            <div id="transposeContainer" class="hidden items-center gap-2">
-              <label class="text-xs text-slate-500">Transpose:</label>
-              <select id="transposeSelect" class="form-input text-sm py-1 px-2" style="width: auto;" onchange="applyTranspose()">
-                <option value="0">Original</option>
-                <option value="1">+1 (Half step up)</option>
-                <option value="2">+2</option>
-                <option value="3">+3</option>
-                <option value="4">+4</option>
-                <option value="5">+5</option>
-                <option value="6">+6</option>
-                <option value="-1">-1 (Half step down)</option>
-                <option value="-2">-2</option>
-                <option value="-3">-3</option>
-                <option value="-4">-4</option>
-                <option value="-5">-5</option>
-              </select>
-            </div>
-            <!-- View Doc button: shown when song has attachments -->
-            <button id="lyricsPreviewDocBtn" class="lhc-pill-button text-sm" style="display:none;background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;position:relative;" onclick="lyricsPreviewViewDoc()" title="View attached music score / document">
-              <i class="fa-solid fa-file-lines mr-1"></i> View Doc
-              <span id="lyricsPreviewDocBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#0369a1;color:white;border-radius:999px;font-size:10px;font-weight:700;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px;"></span>
-            </button>
-            <!-- Add Doc button: always shown for adding a document/score link -->
-            <button id="lyricsPreviewAddDocBtn" class="lhc-pill-button text-sm" style="background:#f0fdf4;border-color:#86efac;color:#15803d;" onclick="lyricsPreviewAddDoc()" title="Attach a music score or document link">
-              <i class="fa-solid fa-paperclip mr-1"></i> Add Doc
-            </button>
-            <button class="lhc-pill-button text-sm" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="printLyricsPreview()">
-              <i class="fa-solid fa-print mr-1"></i> Print / PDF
-            </button>
-          </div>
-        </div>
-      </div>
-      <div id="lyricsPreviewContent" class="flex-1 overflow-y-auto p-5" style="min-height: 300px;">
-        <!-- Lyrics content rendered here -->
-      </div>
-      <div class="p-3 border-t border-slate-200 text-right">
-        <span id="lyricsPreviewLastEdited" class="text-xs text-slate-400"></span>
       </div>
     </div>
   </div>
@@ -10170,12 +10426,15 @@ document.addEventListener('click', function(e) {
 var currentLyricsPreviewSong = null;
 var currentLyricsPreviewMode = 'lyrics';
 var currentTransposeValue = 0;
+var currentDisplayStyle = {};
 
 function switchLyricsPreviewMode(mode) {
   currentLyricsPreviewMode = mode;
   
   document.getElementById('lyricsPreviewLyricsBtn').classList.toggle('lhc-pill-button-active', mode === 'lyrics');
   document.getElementById('lyricsPreviewChordsBtn').classList.toggle('lhc-pill-button-active', mode === 'chords');
+  var _resBtn = document.getElementById('lyricsPreviewResourcesBtn');
+  if (_resBtn) _resBtn.classList.toggle('lhc-pill-button-active', mode === 'resources');
   
   // Show/hide transpose dropdown
   var transposeContainer = document.getElementById('transposeContainer');
@@ -10190,6 +10449,13 @@ function renderLyricsPreviewContent() {
   var container = document.getElementById('lyricsPreviewContent');
   if (!container || !currentLyricsPreviewSong) return;
   
+  if (currentLyricsPreviewMode === 'resources') {
+    var _appBar = document.getElementById('lyricsPreviewAppearanceBar'); if (_appBar) _appBar.style.display = 'none';
+    container.innerHTML = _sfRenderResourcesPanel(currentLyricsPreviewSong);
+    _sfBindResourceActions(container, currentLyricsPreviewSong);
+    return;
+  }
+  
   var lyrics = currentLyricsPreviewSong.lyrics || '';
   if (!lyrics.trim()) {
     container.innerHTML = '<div class="p-8 text-center text-slate-400"><i class="fa-solid fa-file-lines text-4xl mb-3 opacity-50"></i><p>No lyrics available for this song.</p></div>';
@@ -10200,7 +10466,213 @@ function renderLyricsPreviewContent() {
   container.innerHTML = formatLyricsWithTranspose(lyrics, showChords, currentTransposeValue);
   if (!container._lpCueBound) { container._lpCueBound = true; container.addEventListener('scroll', _lpUpdateScrollCue, { passive: true }); }
   setTimeout(_lpUpdateScrollCue, 60);
+
+  _sfPaintAppearance();
 }
+
+// ============ Resources panel (Documents + Links) ============
+// Classifies a resource URL so the Resources panel can pick the right icon
+// and action. PDFs / Google Docs / Drive-hosted files all reuse the existing,
+// tested openDocPreviewModal() flow. A raw (non-Drive-hosted) .doc/.docx URL
+// is the one case that flow can't render, so it gets an honest external
+// "Open in Word" action instead of a broken inline preview attempt.
+function _sfClassifyResource(url) {
+  var u = (url || '').toLowerCase();
+  if (u.indexOf('docs.google.com/document') !== -1) return { kind: 'gdoc', icon: 'fa-solid fa-file-lines', color: '#4285F4', bg: '#e8f0fe', label: 'Google Doc' };
+  if (u.indexOf('drive.google.com/file/d/') !== -1) return { kind: 'drive', icon: 'fa-solid fa-file-pdf', color: '#dc2626', bg: '#fee2e2', label: 'Drive File' };
+  if (/\.docx?(\?|#|$)/.test(u)) return { kind: 'word', icon: 'fa-solid fa-file-word', color: '#2b579a', bg: '#e8eef9', label: 'Word Document' };
+  if (/\.pdf(\?|#|$)/.test(u)) return { kind: 'pdf', icon: 'fa-solid fa-file-pdf', color: '#dc2626', bg: '#fee2e2', label: 'PDF' };
+  return { kind: 'other', icon: 'fa-solid fa-file-lines', color: '#64748b', bg: '#f1f5f9', label: 'Document' };
+}
+
+// Prefers a real name (attachment.name, or the existing runtime
+// window.songFileNames cache) before falling back to the SAME "Kind N"
+// numbering convention already used by showLinkSelectorPopup. No new
+// persisted label storage -- see handoff notes for that as a future item.
+function _sfResourceLabel(url, fallbackBase, idx, attName) {
+  if (attName && String(attName).trim()) return String(attName).trim();
+  if (window.songFileNames && window.songFileNames[url] && window.songFileNames[url].name) {
+    var n = window.songFileNames[url].name;
+    return n.length > 34 ? n.slice(0, 34) + '...' : n;
+  }
+  return fallbackBase + ' ' + (idx + 1);
+}
+
+function _sfRenderResourcesPanel(song) {
+  var atts = Array.isArray(song.attachments) ? song.attachments.filter(function(a) { return a && (a.url || typeof a === 'string'); }) : [];
+  var ytAll = Array.isArray(song.youtube) ? song.youtube.filter(Boolean) :
+    (typeof song.youtube === 'string' && song.youtube.trim() ? song.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []);
+  var ytUrls = ytAll.filter(function(u) { return u.indexOf('youtube') !== -1 || u.indexOf('youtu.be') !== -1; });
+  var spUrls = ytAll.filter(function(u) { return u.indexOf('spotify.com') !== -1; });
+
+  var html = '<div class="sf-res-wrap">';
+
+  html += '<div class="sf-res-section-title">Documents</div>';
+  if (!atts.length) {
+    html += '<div class="sf-res-empty">No documents attached yet. Use <b>Add Doc</b> above to attach a music score or file.</div>';
+  } else {
+    html += '<div class="sf-res-grid">';
+    atts.forEach(function(a, idx) {
+      var url = a.url || a;
+      var cls = _sfClassifyResource(url);
+      var label = _sfResourceLabel(url, cls.label, idx, a.name);
+      var actionLabel = cls.kind === 'word' ? '<i class="fa-solid fa-up-right-from-square"></i> Open in Word' : '<i class="fa-solid fa-eye"></i> Preview';
+      var action = cls.kind === 'word' ? 'word-open' : 'doc-preview';
+      html += '<div class="sf-res-card">' +
+        '<div class="sf-res-icon" style="background:' + cls.bg + ';color:' + cls.color + ';"><i class="' + cls.icon + '"></i></div>' +
+        '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div><div class="sf-res-kind">' + cls.label + '</div></div>' +
+        '<button class="sf-res-action" data-action="' + action + '" data-url="' + escapeHtml(url) + '">' + actionLabel + '</button>' +
+        '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '<div class="sf-res-section-title" style="margin-top:18px;">Links</div>';
+  if (!ytUrls.length && !spUrls.length) {
+    html += '<div class="sf-res-empty">No YouTube or Spotify links added yet.</div>';
+  } else {
+    html += '<div class="sf-res-grid">';
+    ytUrls.forEach(function(url, idx) {
+      var label = _sfResourceLabel(url, 'YouTube', idx, null);
+      html += '<div class="sf-res-card">' +
+        '<div class="sf-res-icon" style="background:#fee2e2;color:#dc2626;"><i class="fa-brands fa-youtube"></i></div>' +
+        '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div><div class="sf-res-kind">YouTube</div></div>' +
+        '<button class="sf-res-action" data-action="yt-play" data-url="' + escapeHtml(url) + '"><i class="fa-solid fa-play"></i> Play</button>' +
+        '</div>';
+    });
+    spUrls.forEach(function(url, idx) {
+      var label = _sfResourceLabel(url, 'Spotify', idx, null);
+      html += '<div class="sf-res-card">' +
+        '<div class="sf-res-icon" style="background:#dcfce7;color:#16a34a;"><i class="fa-brands fa-spotify"></i></div>' +
+        '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div><div class="sf-res-kind">Spotify</div></div>' +
+        '<button class="sf-res-action" data-action="sp-play" data-url="' + escapeHtml(url) + '"><i class="fa-solid fa-play"></i> Play</button>' +
+        '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// Delegated click binder -- reads data-action/data-url so no raw URL is ever
+// embedded inside an onclick string (same idiom as bindSongItemEvents).
+function _sfBindResourceActions(container, song) {
+  var btns = container.querySelectorAll('.sf-res-action');
+  btns.forEach(function(btn) {
+    btn.onclick = function() {
+      var url = btn.getAttribute('data-url');
+      var action = btn.getAttribute('data-action');
+      if (action === 'word-open') {
+        window.open(url, '_blank');
+      } else if (action === 'doc-preview') {
+        if (typeof openDocPreviewModal === 'function') openDocPreviewModal(url, song.title);
+      } else if (action === 'yt-play') {
+        if (typeof openYoutubePreviewModal === 'function') openYoutubePreviewModal(url, song.title);
+      } else if (action === 'sp-play') {
+        if (typeof openSpotifyPreviewModal === 'function') openSpotifyPreviewModal(url, song.title);
+        else window.open(url, '_blank');
+      }
+    };
+  });
+}
+
+// ============ Display appearance (Phase 3, render-only) ============
+// currentDisplayStyle is session-scoped per open song right now. Pre-filled
+// from song.display_style when openLyricsPreviewModal() runs, which is a
+// harmless no-op today (the column doesn't exist in Supabase yet -- see
+// migrations/2026-07-17_add_songs_display_style.sql, proposed but not run).
+// Nothing here touches formatLyricsWithTranspose() or the lyrics text --
+// purely a CSS custom-property overlay on the preview container.
+function toggleLyricsPreviewAppearance() {
+  var bar = document.getElementById('lyricsPreviewAppearanceBar');
+  if (!bar) return;
+  var showing = bar.style.display !== 'none';
+  bar.style.display = showing ? 'none' : 'flex';
+  var btn = document.getElementById('lyricsPreviewAppearanceBtn');
+  if (btn) btn.classList.toggle('lhc-pill-button-active', !showing);
+  if (!showing) _sfSyncAppearanceControls();
+}
+
+function _sfSyncAppearanceControls() {
+  var d = currentDisplayStyle || {};
+  var lf = document.getElementById('sfLyricFont'); if (lf) lf.value = d.lyricFont || '';
+  var ls = document.getElementById('sfLyricSize'); if (ls) ls.value = d.lyricSize || '';
+  var lc = document.getElementById('sfLyricColor'); if (lc) lc.value = d.lyricColor || '#1f2937';
+  var cf = document.getElementById('sfChordFont'); if (cf) cf.value = d.chordFont || '';
+  var cs = document.getElementById('sfChordSize'); if (cs) cs.value = d.chordSize || '';
+  var cc = document.getElementById('sfChordColor'); if (cc) cc.value = d.chordColor || '#991b1b';
+}
+
+function _sfApplyAppearance() {
+  var lf = (document.getElementById('sfLyricFont') || {}).value || '';
+  var ls = (document.getElementById('sfLyricSize') || {}).value || '';
+  var lc = (document.getElementById('sfLyricColor') || {}).value || '';
+  var cf = (document.getElementById('sfChordFont') || {}).value || '';
+  var cs = (document.getElementById('sfChordSize') || {}).value || '';
+  var cc = (document.getElementById('sfChordColor') || {}).value || '';
+  currentDisplayStyle = { lyricFont: lf, lyricSize: ls, lyricColor: lc, chordFont: cf, chordSize: cs, chordColor: cc };
+  _sfPaintAppearance();
+}
+
+// Sets CSS custom properties on the container; the .lyric-line/.chord-line
+// rules pick these up via var(..., <default that matches today's look>), so
+// an untouched song renders identically to before this feature existed.
+function _sfPaintAppearance() {
+  var container = document.getElementById('lyricsPreviewContent');
+  if (!container) return;
+  var d = currentDisplayStyle || {};
+  // Only set a custom property when the user actually picked a value --
+  // otherwise remove it so each CSS rule's OWN var(x, <original default>)
+  // fallback applies (e.g. .chord-line's 17px vs .ci-chord's relative 0.78em).
+  var _set = function(name, val) { if (val) container.style.setProperty(name, val); else container.style.removeProperty(name); };
+  _set('--sf-lyric-font', d.lyricFont);
+  _set('--sf-lyric-size', d.lyricSize);
+  _set('--sf-lyric-color', d.lyricColor);
+  _set('--sf-chord-font', d.chordFont);
+  _set('--sf-chord-size', d.chordSize);
+  _set('--sf-chord-color', d.chordColor);
+}
+
+// Phase 4 (mobile): purely a UI-state toggle for the filter bottom sheet.
+// Every filter control inside stays exactly as it was -- same elements,
+// same onclick/onchange handlers, same STATE.filters/applyFiltersAndSort()
+// logic. "Apply" just closes the sheet; filters already apply live as the
+// user interacts with them, same as on desktop.
+function toggleMobileFilterSheet(forceOpen) {
+  var grid = document.getElementById('sfFilterGrid');
+  var backdrop = document.getElementById('sfFilterSheetBackdrop');
+  var applyBtn = document.getElementById('sfMobileFilterApplyBtn');
+  var home = document.getElementById('sfFilterSheetHome');
+  if (!grid) return;
+  var isOpen = grid.classList.contains('sf-sheet-open');
+  var open = (typeof forceOpen === 'boolean') ? forceOpen : !isOpen;
+  if (open) {
+    // Reparent to <body> only while open: #songFinderView carries the
+    // app-wide .view-entering class after every view switch, and its
+    // (even trivial, settled) transform creates a new containing block
+    // for position:fixed descendants, which would otherwise silently
+    // break this sheet's viewport-relative positioning. Desktop never
+    // calls this (the Filters button that triggers it is mobile-only),
+    // so desktop's normal in-place layout is never touched.
+    document.body.appendChild(backdrop);
+    document.body.appendChild(grid);
+    document.body.appendChild(applyBtn);
+  }
+  grid.classList.toggle('sf-sheet-open', open);
+  if (backdrop) backdrop.classList.toggle('sf-sheet-open', open);
+  if (applyBtn) applyBtn.classList.toggle('sf-sheet-open', open);
+  if (!open && home && home.parentNode) {
+    // Move back to the exact original spot, in original order, now that
+    // the sheet is closed. ref is captured once before any move, so it
+    // stays a valid, stable insertion point throughout.
+    var ref = home.nextSibling;
+    home.parentNode.insertBefore(backdrop, ref);
+    home.parentNode.insertBefore(grid, ref);
+    home.parentNode.insertBefore(applyBtn, ref);
+  }
+}
+window.toggleMobileFilterSheet = toggleMobileFilterSheet;
 
 // Floating "Scroll for more" cue: shows at the bottom of the lyrics area when the
 // content scrolls off-screen (either column in 2-col mode), hides at the bottom.
@@ -16116,6 +16588,7 @@ window.loadEditSongData = function(song) {
   // ============================================================
   function openLyricsPreviewModal(song) {
     STATE.lyricsCurrentSong = song;
+    currentDisplayStyle = (song && song.display_style) ? Object.assign({}, song.display_style) : {};
     
     // Use the global function from Part 4
     if (typeof window.setLyricsPreviewSong === 'function') {
