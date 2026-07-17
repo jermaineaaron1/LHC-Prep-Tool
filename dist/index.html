@@ -1654,12 +1654,42 @@
     #songFinderView #sfResultsGrid { display: block; }
     @media (min-width: 1080px) {
       #songFinderView #sfResultsGrid {
-        display: grid;
-        grid-template-columns: minmax(320px, 380px) 1fr;
-        align-items: start;
+        display: flex;
+        align-items: flex-start;
         gap: 16px;
       }
-      #songFinderView #sfSongListCard { max-height: 74vh; overflow-y: auto; }
+      #songFinderView #sfSongListCard {
+        flex: 1 1 100%;
+        min-width: 0;
+        max-width: 100%;
+        max-height: 74vh;
+        overflow-y: auto;
+      }
+      #songFinderView #sfWorkspacePanel {
+        flex: 0 0 0%;
+        min-width: 0;
+        max-width: 0;
+        opacity: 0;
+        overflow: hidden;
+      }
+      #songFinderView #sfResultsGrid.sf-song-active #sfSongListCard {
+        flex: 0 0 380px;
+        max-width: 380px;
+      }
+      #songFinderView #sfResultsGrid.sf-song-active #sfWorkspacePanel {
+        flex: 1 1 auto;
+        max-width: 100%;
+        opacity: 1;
+      }
+      #songFinderView .sf-lyrics-edit-textarea {
+        width: 100%; min-height: 400px; padding: 16px;
+        border: 1.5px solid #c7d2fe; border-radius: 12px;
+        font-family: 'Courier New', monospace; font-size: 15px; line-height: 1.6;
+        color: #1e293b; resize: vertical; outline: none;
+      }
+      #songFinderView .sf-lyrics-edit-textarea:focus {
+        border-color: #4f6bf0; box-shadow: 0 0 0 3px rgba(79,107,240,0.15);
+      }
     }
     #songFinderView #sfSongListCard,
     #songFinderView #sfWorkspacePanel {
@@ -5088,8 +5118,17 @@
             </button>
           </div>
           <div class="flex gap-2 items-center flex-wrap">
-            <button id="lyricsPreviewEditBtn" class="lhc-pill-button text-sm" title="Edit song" onclick="lyricsPreviewOpenEditor()" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;">
+             <button id="lyricsPreviewEditBtn" class="lhc-pill-button text-sm" title="Edit lyrics inline" onclick="lyricsPreviewToggleInlineEdit(true)" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;">
               <i class="fa-solid fa-pen-to-square mr-1"></i> Edit
+            </button>
+            <button id="lyricsPreviewSaveBtn" class="lhc-pill-button text-sm hidden" title="Save lyrics" onclick="lyricsPreviewSaveInlineEdit()" style="background:#ecfdf5;border-color:#6ee7b7;color:#047857;">
+              <i class="fa-solid fa-check mr-1"></i> Save
+            </button>
+            <button id="lyricsPreviewCancelEditBtn" class="lhc-pill-button text-sm hidden" title="Cancel editing" onclick="lyricsPreviewToggleInlineEdit(false)" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
+              <i class="fa-solid fa-xmark mr-1"></i> Cancel
+            </button>
+            <button id="lyricsPreviewDetailsBtn" class="lhc-pill-button text-sm" title="Edit song details (title, key, theme, etc.)" onclick="lyricsPreviewOpenEditor()" style="background:#f8fafc;border-color:#cbd5e1;color:#64748b;">
+              <i class="fa-solid fa-sliders mr-1"></i> Details
             </button>
             <button id="lyricsPreviewShareBtn" class="lhc-pill-button text-sm" title="Share song link" onclick="lyricsPreviewShare(this)" style="background:#f0fdf4;border-color:#86efac;color:#15803d;">
               <i class="fa-solid fa-share-nodes mr-1"></i> Share
@@ -10460,6 +10499,11 @@ function renderLyricsPreviewContent() {
   var container = document.getElementById('lyricsPreviewContent');
   if (!container || !currentLyricsPreviewSong) return;
   
+  if (STATE.lyricsPreviewEditMode) {
+    container.innerHTML = '<textarea id="lyricsPreviewEditTextarea" class="sf-lyrics-edit-textarea" spellcheck="false">' + escapeHtml(currentLyricsPreviewSong.lyrics || '') + '</textarea>';
+    return;
+  }
+  
   if (currentLyricsPreviewMode === 'resources') {
     var _appBar = document.getElementById('lyricsPreviewAppearanceBar'); if (_appBar) _appBar.style.display = 'none';
     container.innerHTML = _sfRenderResourcesPanel(currentLyricsPreviewSong);
@@ -10480,6 +10524,53 @@ function renderLyricsPreviewContent() {
 
   _sfPaintAppearance();
 }
+
+// ============ Inline lyrics editing (in the Song Atlas workspace) ============
+// Uses the SAME minimal, scoped SBQ_SONGS.updateLyrics(id, lyrics) call as the
+// app's other lyrics-only save flows -- updates just the `lyrics` column, then
+// syncs the in-memory song object + STATE.songs so re-renders show the fresh
+// text. Does not call refreshSongSlidesInOrder(): that's only for keeping an
+// ALREADY-OPEN Worship Order in sync while editing from within an order/
+// songbook context, which the other lyrics-only editors don't do either.
+function lyricsPreviewToggleInlineEdit(enter) {
+  var song = currentLyricsPreviewSong;
+  if (!song) return;
+  STATE.lyricsPreviewEditMode = !!enter;
+  var editBtn = document.getElementById('lyricsPreviewEditBtn');
+  var saveBtn = document.getElementById('lyricsPreviewSaveBtn');
+  var cancelBtn = document.getElementById('lyricsPreviewCancelEditBtn');
+  if (editBtn) editBtn.classList.toggle('hidden', enter);
+  if (saveBtn) saveBtn.classList.toggle('hidden', !enter);
+  if (cancelBtn) cancelBtn.classList.toggle('hidden', !enter);
+  ['lyricsPreviewLyricsBtn', 'lyricsPreviewChordsBtn', 'lyricsPreviewResourcesBtn', 'lyricsPreviewTwoColBtn'].forEach(function(id) {
+    var b = document.getElementById(id);
+    if (b) { b.disabled = !!enter; b.style.opacity = enter ? '0.45' : ''; b.style.pointerEvents = enter ? 'none' : ''; }
+  });
+  renderLyricsPreviewContent();
+}
+window.lyricsPreviewToggleInlineEdit = lyricsPreviewToggleInlineEdit;
+
+function lyricsPreviewSaveInlineEdit() {
+  var song = currentLyricsPreviewSong;
+  var ta = document.getElementById('lyricsPreviewEditTextarea');
+  if (!song || !ta) return;
+  var newLyrics = ta.value;
+  if (typeof showLoader === 'function') showLoader(true);
+  SBQ_SONGS.updateLyrics(song.id, newLyrics).then(function() {
+    song.lyrics = newLyrics;
+    var idx = -1;
+    STATE.songs.forEach(function(s, i) { if (s.id === song.id) idx = i; });
+    if (idx >= 0) STATE.songs[idx].lyrics = newLyrics;
+    showToast('Lyrics saved!', 'success');
+    lyricsPreviewToggleInlineEdit(false);
+  }).catch(function(err) {
+    console.error(err);
+    showToast('Failed to save lyrics', 'error');
+  }).finally(function() {
+    if (typeof showLoader === 'function') showLoader(false);
+  });
+}
+window.lyricsPreviewSaveInlineEdit = lyricsPreviewSaveInlineEdit;
 
 // ============ Resources panel (Documents + Links) ============
 // Classifies a resource URL so the Resources panel can pick the right icon
@@ -10891,6 +10982,8 @@ function closeLyricsPreviewModal() {
   currentTransposeValue = 0;
   var select = document.getElementById('transposeSelect');
   if (select) select.value = '0';
+  STATE.lyricsPreviewEditMode = false;
+  var _srg = document.getElementById('sfResultsGrid'); if (_srg) _srg.classList.remove('sf-song-active');
   // Exit fullscreen if active
   if (document.fullscreenElement) document.exitFullscreen().catch(function(){});
 }
@@ -14652,6 +14745,7 @@ window.loadEditSongData = function(song) {
   }
 
   function showAllSongs() {
+    if (typeof closeLyricsPreviewModal === 'function') closeLyricsPreviewModal();
     var container = $('songListContainer');
     var emptyState = $('songEmptyState');
     if (!STATE.songs || !STATE.songs.length) {
@@ -16544,6 +16638,15 @@ window.loadEditSongData = function(song) {
   function openLyricsPreviewModal(song) {
     STATE.lyricsCurrentSong = song;
     currentDisplayStyle = (song && song.display_style) ? Object.assign({}, song.display_style) : {};
+    STATE.lyricsPreviewEditMode = false;
+    var _srg = document.getElementById('sfResultsGrid'); if (_srg) _srg.classList.add('sf-song-active');
+    var _eb = document.getElementById('lyricsPreviewEditBtn'); if (_eb) _eb.classList.remove('hidden');
+    var _svb = document.getElementById('lyricsPreviewSaveBtn'); if (_svb) _svb.classList.add('hidden');
+    var _cnb = document.getElementById('lyricsPreviewCancelEditBtn'); if (_cnb) _cnb.classList.add('hidden');
+    ['lyricsPreviewLyricsBtn', 'lyricsPreviewChordsBtn', 'lyricsPreviewResourcesBtn', 'lyricsPreviewTwoColBtn'].forEach(function(id) {
+      var b = document.getElementById(id);
+      if (b) { b.disabled = false; b.style.opacity = ''; b.style.pointerEvents = ''; }
+    });
     
     // Use the global function from Part 4
     if (typeof window.setLyricsPreviewSong === 'function') {
