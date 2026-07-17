@@ -1688,6 +1688,18 @@
         max-width: 100%;
         opacity: 1;
       }
+      /* At the compact 380px list width, a song-list-item's title/artist/pills
+         column and its row of action buttons no longer both fit on one line --
+         stack the buttons below instead of letting them squeeze the title down
+         to a couple of characters. */
+      #songFinderView #sfResultsGrid.sf-song-active .song-list-item {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      #songFinderView #sfResultsGrid.sf-song-active .song-list-item > div:last-child {
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
       #songFinderView .sf-lyrics-edit-textarea {
         width: 100%; min-height: 400px; padding: 16px;
         border: 1.5px solid #c7d2fe; border-radius: 12px;
@@ -1766,6 +1778,17 @@
         animation: none;
       }
       #sfWorkspacePanel:has(#lyricsPreviewModal.show) > .sf-workspace-empty { display: none; }
+      /* Long song titles must not run under the fullscreen/close icons --
+         same fix already applied for the mobile bottom-sheet layout, needed
+         here too since the workspace panel can be narrower than the modal. */
+      #sfWorkspacePanel #lyricsPreviewHeaderPanel .flex.items-center.justify-between > div:first-child {
+        flex: 1;
+        min-width: 0;
+      }
+      #sfWorkspacePanel #lyricsPreviewHeaderPanel .flex.items-center.justify-between > div:last-child {
+        flex-shrink: 0;
+      }
+      #sfWorkspacePanel #lyricsPreviewTitle { overflow-wrap: break-word; }
     }
 
     /* Resources panel (Documents + Links) inside the lyrics preview workspace */
@@ -10507,7 +10530,16 @@ function renderLyricsPreviewContent() {
   if (!container || !currentLyricsPreviewSong) return;
   
   if (STATE.lyricsPreviewEditMode) {
-    container.innerHTML = '<textarea id="lyricsPreviewEditTextarea" class="sf-lyrics-edit-textarea" spellcheck="false">' + escapeHtml(currentLyricsPreviewSong.lyrics || '') + '</textarea>';
+    container.innerHTML =
+      '<div class="section-buttons" style="margin-bottom:10px;">' +
+        '<span class="text-xs text-slate-500 mr-2">Insert Section:</span>' +
+        '<button type="button" class="section-btn verse" onclick="lyricsPreviewInsertSection(\'Verse\')">+ Verse</button>' +
+        '<button type="button" class="section-btn chorus" onclick="lyricsPreviewInsertSection(\'Chorus\')">+ Chorus</button>' +
+        '<button type="button" class="section-btn prechorus" onclick="lyricsPreviewInsertSection(\'Pre-Chorus\')">+ Pre-Chorus</button>' +
+        '<button type="button" class="section-btn bridge" onclick="lyricsPreviewInsertSection(\'Bridge\')">+ Bridge</button>' +
+        '<button type="button" class="section-btn ending" onclick="lyricsPreviewInsertSection(\'Ending\')">+ Ending</button>' +
+      '</div>' +
+      '<textarea id="lyricsPreviewEditTextarea" class="sf-lyrics-edit-textarea" spellcheck="false">' + escapeHtml(currentLyricsPreviewSong.lyrics || '') + '</textarea>';
     return;
   }
   
@@ -10578,6 +10610,31 @@ function lyricsPreviewSaveInlineEdit() {
   });
 }
 window.lyricsPreviewSaveInlineEdit = lyricsPreviewSaveInlineEdit;
+
+// Inserts a "[Section]" marker at the caret in the inline edit textarea. Verses
+// auto-number ([Verse 1], [Verse 2], ...) to match the bracket convention
+// already used in the app's lyrics data; other sections (Chorus, Bridge, etc.)
+// stay unnumbered since they typically repeat as-is.
+function lyricsPreviewInsertSection(sectionName) {
+  var ta = document.getElementById('lyricsPreviewEditTextarea');
+  if (!ta) return;
+  var text = ta.value;
+  if (sectionName === 'Verse') {
+    var count = (text.match(/\[Verse\s*\d+\]/gi) || []).length;
+    sectionName = 'Verse ' + (count + 1);
+  }
+  var caretPos = ta.selectionStart != null ? ta.selectionStart : text.length;
+  var insertion = '[' + sectionName + ']\n';
+  var before = text.slice(0, caretPos);
+  var after = text.slice(caretPos);
+  if (before.length > 0 && before[before.length - 1] !== '\n') insertion = '\n' + insertion;
+  if (after.length > 0 && after[0] !== '\n') insertion = insertion + '\n';
+  ta.value = before + insertion + after;
+  var newCaret = before.length + insertion.length;
+  ta.focus();
+  ta.setSelectionRange(newCaret, newCaret);
+}
+window.lyricsPreviewInsertSection = lyricsPreviewInsertSection;
 
 // ============ Resources panel (Documents + Links) ============
 // Classifies a resource URL so the Resources panel can pick the right icon
