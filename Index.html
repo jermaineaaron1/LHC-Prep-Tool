@@ -1379,6 +1379,17 @@
     .all-songs-badge-btn.add-sb { background: #fdf4ff; border-color: #e9d5ff; color: #7c3aed; margin-left:4px; }
     .all-songs-badge-btn.add-sb:hover { background: #ede9fe; }
 
+    /* All Songs view: light alphabet-letter dividers (replaces the old
+       two-column numbered table) */
+    #songFinderView .song-atlas-section-header {
+      position: sticky; top: 0; z-index: 5;
+      background: linear-gradient(135deg, rgba(79,107,240,0.10), rgba(139,92,246,0.10));
+      color: #4338ca; font-family: 'Cinzel', serif; font-weight: 700;
+      font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 6px 16px; border-top: 1px solid #c7d2fe; border-bottom: 1px solid #c7d2fe;
+    }
+    #songFinderView .song-atlas-section-header:first-child { border-top: none; }
+
     /* ==================== ADD TO SONGBOOK PICKER ==================== */
     #addToSongbookPicker {
       position: fixed;
@@ -14667,81 +14678,25 @@ window.loadEditSongData = function(song) {
       sorted.sort(function(a, b) { return (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }); });
     }
 
-    // Split sorted songs into 2 equal columns
-    var total = sorted.length;
-    var col1End = Math.ceil(total / 2);
-    var cols = [sorted.slice(0, col1End), sorted.slice(col1End)];
-
-    function renderAllSongsCol(songs, startNum) {
-      var h = '<div class="all-songs-col">';
-      songs.forEach(function(song, i) {
-        var num = startNum + i;
-        var initial = (song.title || '?')[0].toUpperCase();
-        // Badge 1: YouTube
-        var allMediaUrls = song.youtube ? (Array.isArray(song.youtube) ? song.youtube : String(song.youtube).split(/[,\s]+/)).filter(function(u){ return u.trim(); }) : [];
-        var ytUrls = allMediaUrls.filter(function(u){ return u.includes('youtube') || u.includes('youtu.be'); });
-        // Badge 2: Docs & weblinks (attachments — PDFs, Google Docs, plain URLs)
-        var attachments = Array.isArray(song.attachments) ? song.attachments : [];
-        var docUrls = attachments.filter(function(a) {
-          var u = a.url || a;
-          return u && !(a.type === 'local' || a.ext === 'local');
-        }).map(function(a) { return a.url || a; });
-        // Badge 3: Local uploaded files
-        var localFiles = attachments.filter(function(a) {
-          return a.type === 'local' || a.ext === 'local' || (a.url && a.url.includes('supabase'));
-        });
-
-        // Tile color keyed to song title for consistency
-        var _tileColors = ['#7c3aed','#0891b2','#1d4ed8','#b45309','#be185d','#047857'];
-        var _th = 0; for (var _ci = 0; _ci < song.title.length; _ci++) _th += song.title.charCodeAt(_ci);
-        var _tileColor = _tileColors[_th % _tileColors.length];
-        // Meta line: key · category
-        var _metaParts = [];
-        if (song.key) _metaParts.push(song.key);
-        if (song.category) _metaParts.push(song.category);
-        else if (song.artist) _metaParts.push(song.artist);
-
-        h += '<div class="all-songs-row" data-id="' + escapeHtml(song.id) + '" data-added="' + escapeHtml(song.dateAdded || '') + '" data-edited="' + escapeHtml(song.lastEdited || '') + '">';
-        h += '<span class="all-songs-num">' + num + '</span>';
-        h += '<span class="all-songs-initial">' + escapeHtml(initial) + '</span>';
-        h += '<span class="all-songs-music-tile" style="background:linear-gradient(135deg,'+_tileColor+','+_tileColor+'cc)"><i class="fa-solid fa-music"></i></span>';
-        h += '<div class="all-songs-title-wrap">';
-        h += '<span class="all-songs-title song-title-link" data-id="' + escapeHtml(song.id) + '">' + escapeHtml(song.title) + '</span>';
-        if (_metaParts.length) h += '<span class="all-songs-meta">' + escapeHtml(_metaParts.join(' · ')) + '</span>';
-        h += '</div>';
-        if (song.artist) h += '<span class="all-songs-artist">' + escapeHtml(song.artist) + '</span>';
-        h += '<button class="all-songs-mobile-action" data-id="' + escapeHtml(song.id) + '" title="Actions" onclick="event.stopPropagation();"><i class="fa-solid fa-ellipsis-vertical"></i></button>';
-        h += '<button class="all-songs-badge-btn edit-song-btn" data-id="' + escapeHtml(song.id) + '" title="Edit song"><i class="fa-solid fa-pen-to-square"></i></button>';
-        h += '<button class="all-songs-badge-btn preview btn-lyrics-preview" data-id="' + escapeHtml(song.id) + '" title="Preview lyrics, print PDF &amp; view links"><i class="fa-solid fa-music"></i></button>';
-        h += '<span class="all-songs-badges">';
-        if (ytUrls.length) {
-          h += '<button class="all-songs-badge-btn yt btn-youtube-preview" data-id="' + escapeHtml(song.id) + '" data-urls="' + escapeHtml(JSON.stringify(ytUrls)) + '" data-title="' + escapeHtml(song.title) + '" title="YouTube (' + ytUrls.length + ')"><i class="fa-brands fa-youtube"></i>' + (ytUrls.length > 1 ? ' ' + ytUrls.length : '') + '</button>';
-        }
-        if (docUrls.length) {
-          var docData = attachments.filter(function(a){ var u=a.url||a; return docUrls.indexOf(u)>=0; });
-          h += '<button class="all-songs-badge-btn doc btn-doc-preview" data-id="' + escapeHtml(song.id) + '" data-urls="' + escapeHtml(JSON.stringify(docUrls)) + '" data-title="' + escapeHtml(song.title) + '" title="Docs &amp; Links (' + docUrls.length + ')"><i class="fa-solid fa-file-lines"></i>' + (docUrls.length > 1 ? ' ' + docUrls.length : '') + '</button>';
-        }
-        if (localFiles.length) {
-          var localUrls = localFiles.map(function(a){ return a.url||a; });
-          h += '<button class="all-songs-badge-btn file btn-doc-preview" data-id="' + escapeHtml(song.id) + '" data-urls="' + escapeHtml(JSON.stringify(localUrls)) + '" data-title="' + escapeHtml(song.title) + '" title="Local Files (' + localFiles.length + ')"><i class="fa-solid fa-paperclip"></i>' + (localFiles.length > 1 ? ' ' + localFiles.length : '') + '</button>';
-        }
-        h += '</span>';
-        h += '<button class="all-songs-badge-btn add-sb" data-id="' + escapeHtml(song.id) + '" onclick="event.stopPropagation();showAddToSongbookPicker(event,\'' + escapeHtml(song.id) + '\')" title="Add to Songbook"><i class="fa-solid fa-bookmark"></i></button>';
-        h += '</div>';
-      });
-      h += '</div>';
-      return h;
-    }
-
-    var html = '<div class="all-songs-columns">' +
-      renderAllSongsCol(cols[0], 1) +
-      renderAllSongsCol(cols[1], cols[0].length + 1) +
-    '</div>';
+        // Render as the same compact card list used for search results
+    // (renderSongListItem), with a light alphabet-letter divider between
+    // groups for wayfinding. Same card markup + bindSongItemEvents() means
+    // identical click/preview/add-to/doc/youtube behavior to search mode.
+    var html = '';
+    var lastInitial = null;
+    sorted.forEach(function(song) {
+      var initial = (song.title || '?')[0].toUpperCase();
+      if (initial !== lastInitial) {
+        html += '<div class="song-atlas-section-header">' + escapeHtml(initial) + '</div>';
+        lastInitial = initial;
+      }
+      html += renderSongListItem(song);
+    });
 
     if (container) {
       container.innerHTML = html;
       bindSongItemEvents();
-      _staggerListItems(container, '.all-songs-row');
+      _staggerListItems(container, '.song-list-item');
     }
     updateResultCounts(sorted.length);
   }
