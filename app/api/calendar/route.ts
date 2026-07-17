@@ -72,8 +72,22 @@ export async function GET(req: NextRequest) {
     'METHOD:PUBLISH',
     `X-WR-CALNAME:LHC Duties – ${name}`,
     `X-WR-CALDESC:Worship duty roster for ${name} at Luther House Chapel`,
+    'X-WR-TIMEZONE:Asia/Kuala_Lumpur',
     'REFRESH-INTERVAL;VALUE=DURATION:PT12H',
     'X-PUBLISHED-TTL:PT12H',
+    // Malaysia (Asia/Kuala_Lumpur) is UTC+8 year-round with no DST, so a single
+    // STANDARD offset fully defines it. This pins service times to local time so
+    // 9am shows as 9am regardless of the subscriber's or calendar's own timezone.
+    'BEGIN:VTIMEZONE',
+    'TZID:Asia/Kuala_Lumpur',
+    'X-LIC-LOCATION:Asia/Kuala_Lumpur',
+    'BEGIN:STANDARD',
+    'TZOFFSETFROM:+0800',
+    'TZOFFSETTO:+0800',
+    'TZNAME:+08',
+    'DTSTART:19700101T000000',
+    'END:STANDARD',
+    'END:VTIMEZONE',
   ];
 
   const seen = new Set<string>();
@@ -108,8 +122,8 @@ export async function GET(req: NextRequest) {
       'BEGIN:VEVENT',
       `UID:${uid}@lutherhousechapel.org`,
       `DTSTAMP:${stamp}`,
-      `DTSTART:${dateNum}T090000`,
-      `DTEND:${dateNum}T120000`,
+      `DTSTART;TZID=Asia/Kuala_Lumpur:${dateNum}T090000`,
+      `DTEND;TZID=Asia/Kuala_Lumpur:${dateNum}T120000`,
       `SUMMARY:${roleName} – LHC Worship`,
       `DESCRIPTION:You are serving as ${roleName} at Luther House Chapel on ${dateStr} ${rowYear}.`,
       'LOCATION:Luther House Chapel',
