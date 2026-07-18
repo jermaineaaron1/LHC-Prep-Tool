@@ -1716,6 +1716,15 @@
       border: 1.5px solid #c7d2fe; border-radius: 12px;
       font-family: 'Courier New', monospace; font-size: 15px; line-height: 1.6;
       color: #1e293b; resize: vertical; outline: none;
+      /* A chord line's alignment above its lyric depends on every character
+         sitting in the same column, which only holds if both lines stay on
+         ONE physical row. Textareas soft-wrap by default, and a chord line
+         almost never wraps at the same point as the (usually longer) lyric
+         line below it, so wrapping silently breaks the alignment on any
+         narrow screen. Scroll horizontally instead -- the wrap="off"
+         attribute on the element covers browsers that weight it over these
+         CSS properties. */
+      white-space: pre; overflow-wrap: normal; overflow-x: auto;
     }
     .sf-lyrics-edit-textarea:focus {
       border-color: #4f6bf0; box-shadow: 0 0 0 3px rgba(79,107,240,0.15);
@@ -10572,7 +10581,7 @@ function renderLyricsPreviewContent() {
         '<button type="button" class="section-btn bridge" onclick="lyricsPreviewInsertSection(\'Bridge\')">+ Bridge</button>' +
         '<button type="button" class="section-btn ending" onclick="lyricsPreviewInsertSection(\'Ending\')">+ Ending</button>' +
       '</div>' +
-      '<textarea id="lyricsPreviewEditTextarea" class="sf-lyrics-edit-textarea" spellcheck="false">' + escapeHtml(currentLyricsPreviewSong.lyrics || '') + '</textarea>' +
+      '<textarea id="lyricsPreviewEditTextarea" class="sf-lyrics-edit-textarea" spellcheck="false" wrap="off">' + escapeHtml(currentLyricsPreviewSong.lyrics || '') + '</textarea>' +
       '<div class="sf-lyrics-edit-preview-label"><i class="fa-solid fa-eye mr-1"></i>Preview — exactly how this will look once saved</div>' +
       '<div id="lyricsPreviewEditLivePreview" class="sf-lyrics-edit-live-preview"></div>';
     _lpRenderEditLivePreview();
