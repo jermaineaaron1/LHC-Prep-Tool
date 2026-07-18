@@ -1700,15 +1700,25 @@
         margin-top: 10px;
         flex-wrap: wrap;
       }
-      #songFinderView .sf-lyrics-edit-textarea {
-        width: 100%; min-height: 400px; padding: 16px;
-        border: 1.5px solid #c7d2fe; border-radius: 12px;
-        font-family: 'Courier New', monospace; font-size: 15px; line-height: 1.6;
-        color: #1e293b; resize: vertical; outline: none;
-      }
-      #songFinderView .sf-lyrics-edit-textarea:focus {
-        border-color: #4f6bf0; box-shadow: 0 0 0 3px rgba(79,107,240,0.15);
-      }
+    }
+    /* Inline lyrics-edit textarea sizing -- unscoped (not "#songFinderView
+       .sf-lyrics-edit-textarea"): this rule was accidentally nested inside
+       the desktop-only >=1080px media query above, leaving mobile with an
+       unstyled default textarea (20 cols x 2 rows) that made a full song's
+       lyrics look like they'd been replaced by a couple of characters.
+       Scoping it under #songFinderView doesn't work either -- on mobile the
+       modal is reparented to <body> (see _lpSyncModalParent) specifically to
+       escape #songFinderView's containing-block trap, so anything counting
+       on that ancestor for its CSS breaks the moment it's moved. The class
+       name itself is unique enough to stay unscoped. */
+    .sf-lyrics-edit-textarea {
+      width: 100%; min-height: 400px; padding: 16px;
+      border: 1.5px solid #c7d2fe; border-radius: 12px;
+      font-family: 'Courier New', monospace; font-size: 15px; line-height: 1.6;
+      color: #1e293b; resize: vertical; outline: none;
+    }
+    .sf-lyrics-edit-textarea:focus {
+      border-color: #4f6bf0; box-shadow: 0 0 0 3px rgba(79,107,240,0.15);
     }
     #songFinderView #sfSongListCard,
     #songFinderView #sfWorkspacePanel {
@@ -3313,9 +3323,14 @@
     @media (max-width: 400px) {
       .lhc-pill-button { padding: 5px 7px; font-size: 0.62rem; }
       .lhc-pill-button i { display: none; }
-      /* Header close/fullscreen are icon-only — must stay visible */
-      #lyricsPreviewHeaderPanel .lhc-pill-button i { display: inline-block !important; font-size: 1rem !important; margin: 0 !important; }
-      #lyricsPreviewHeaderPanel .lhc-pill-button { padding: 8px 12px !important; min-width: 38px; min-height: 38px; display: inline-flex !important; align-items: center; justify-content: center; }
+      /* Header close/fullscreen are icon-only — must stay visible. Scoped to
+         .lp-header-icon-btn specifically (not all .lhc-pill-button in the
+         header panel): the old broad selector also matched the Edit/Save/
+         Cancel toolbar buttons, and its !important beat their .hidden class
+         (a plain display:none with no !important), forcing all three to
+         show at once regardless of which editing state was active. */
+      #lyricsPreviewHeaderPanel .lp-header-icon-btn i { display: inline-block !important; font-size: 1rem !important; margin: 0 !important; }
+      #lyricsPreviewHeaderPanel .lp-header-icon-btn { padding: 8px 12px !important; min-width: 38px; min-height: 38px; display: inline-flex !important; align-items: center; justify-content: center; }
       .lhc-topnav-right { display: none; }
       .lhc-topnav-btn { padding: 5px 6px; font-size: 0.6rem; }
       .lhc-topnav-links { padding: 2px; border-radius: 8px; }
@@ -5133,10 +5148,10 @@
             <p id="lyricsPreviewArtist" class="text-sm text-slate-500 mt-1"></p>
           </div>
           <div class="flex items-center gap-2">
-            <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button" title="Fullscreen" onclick="toggleLyricsPreviewFullscreen()">
+            <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button lp-header-icon-btn" title="Fullscreen" onclick="toggleLyricsPreviewFullscreen()">
               <i class="fa-solid fa-expand"></i>
             </button>
-            <button class="lhc-pill-button" title="Close" onclick="closeLyricsPreviewModal()">
+            <button class="lhc-pill-button lp-header-icon-btn" title="Close" onclick="closeLyricsPreviewModal()">
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
