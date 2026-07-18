@@ -13839,11 +13839,22 @@ function isChordLineGlobal(line) {
   var trimmed = line.trim();
   if (!trimmed || trimmed.length > 100) return false;
   var tokens = trimmed.split(/\s+/);
-  var hits = 0;
+  if (!tokens.length || !/[A-G]/.test(trimmed)) return false;
+  // "Am" is indistinguishable from the common English word "am" ("I Am",
+  // "Am I", "Great I Am" -- all over worship lyrics) purely by pattern
+  // matching; on a short line it's the ONLY thing that could tip the ≥50%
+  // threshold, misclassifying a normal lyric line as a chord line. Don't let
+  // it count as a match on its own -- a real chord progression's other
+  // tokens (G, D, C7...) still provide plenty of unambiguous signal.
+  var hits = 0, strongHits = 0;
   for (var i = 0; i < tokens.length; i++) {
-    if (isChordToken(tokens[i])) hits++;
+    if (isChordToken(tokens[i])) {
+      hits++;
+      if (tokens[i] !== 'Am') strongHits++;
+    }
   }
-  return tokens.length > 0 && (hits / tokens.length) >= 0.5 && /[A-G]/.test(trimmed);
+  if (strongHits === 0) return false;
+  return (hits / tokens.length) >= 0.5;
 }
 
 function transposeChord(chord, semitones) {
@@ -39006,16 +39017,33 @@ var WO = (function() {
       }
 
       // ── Rich lyrics ──────────────────────────────────────────────────────────
-      if (inc.richLyrics != null && inc.richLyrics !== song.richLyrics) {
-        song.richLyrics = inc.richLyrics;
-        p.lyrics = true;
-      }
+      // Skip while the user is actively focused in THIS song's lyrics box. The
+      // incoming snapshot comes from the 2-second poll (or a realtime echo of
+      // another device), which reads whatever was last SAVED -- that lags
+      // behind live keystrokes by up to the save-cycle interval, since local
+      // typing only updates song.lyrics/richLyrics in memory (via the fast
+      // typing broadcast) well before it's actually persisted. Applying a
+      // stale snapshot mid-edit silently reverts in-progress typing, and
+      // restoring the old cursor offset into that now-different content can
+      // overshoot past the end -- sbRestoreCursor's overflow fallback then
+      // collapses the caret to the end of the whole lyrics block, which is
+      // what made typing feel like it randomly jumps to the bottom of the
+      // page. Deferring here loses nothing: the very next poll after the
+      // user pauses typing (and the save catches up) applies cleanly.
+      var _sbLyricsElForThisSong = document.getElementById('sbLyrics-' + song.id);
+      var _sbActivelyEditingThisSong = _sbLyricsElForThisSong && document.activeElement === _sbLyricsElForThisSong;
+      if (!_sbActivelyEditingThisSong) {
+        if (inc.richLyrics != null && inc.richLyrics !== song.richLyrics) {
+          song.richLyrics = inc.richLyrics;
+          p.lyrics = true;
+        }
 
-      // ── Transpose ────────────────────────────────────────────────────────────
-      if (typeof inc.transposeSteps === 'number' && inc.transposeSteps !== song.transposeSteps) {
-        song.transposeSteps = inc.transposeSteps;
-        sbTransposeSteps[song.id] = inc.transposeSteps;
-        p.lyrics = true;
+        // ── Transpose ──────────────────────────────────────────────────────────
+        if (typeof inc.transposeSteps === 'number' && inc.transposeSteps !== song.transposeSteps) {
+          song.transposeSteps = inc.transposeSteps;
+          sbTransposeSteps[song.id] = inc.transposeSteps;
+          p.lyrics = true;
+        }
       }
 
       // ── Column layout ────────────────────────────────────────────────────────
