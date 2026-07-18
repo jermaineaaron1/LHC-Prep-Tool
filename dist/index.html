@@ -1720,6 +1720,14 @@
     .sf-lyrics-edit-textarea:focus {
       border-color: #4f6bf0; box-shadow: 0 0 0 3px rgba(79,107,240,0.15);
     }
+    .sf-lyrics-edit-preview-label {
+      margin-top: 16px; margin-bottom: 8px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8;
+    }
+    .sf-lyrics-edit-live-preview {
+      border: 1.5px dashed #c7d2fe; border-radius: 12px; padding: 16px;
+      background: #fafbff; min-height: 80px;
+    }
     #songFinderView #sfSongListCard,
     #songFinderView #sfWorkspacePanel {
       box-shadow: var(--sa-shadow);
@@ -10564,10 +10572,16 @@ function renderLyricsPreviewContent() {
         '<button type="button" class="section-btn bridge" onclick="lyricsPreviewInsertSection(\'Bridge\')">+ Bridge</button>' +
         '<button type="button" class="section-btn ending" onclick="lyricsPreviewInsertSection(\'Ending\')">+ Ending</button>' +
       '</div>' +
-      '<textarea id="lyricsPreviewEditTextarea" class="sf-lyrics-edit-textarea" spellcheck="false">' + escapeHtml(currentLyricsPreviewSong.lyrics || '') + '</textarea>';
+      '<textarea id="lyricsPreviewEditTextarea" class="sf-lyrics-edit-textarea" spellcheck="false">' + escapeHtml(currentLyricsPreviewSong.lyrics || '') + '</textarea>' +
+      '<div class="sf-lyrics-edit-preview-label"><i class="fa-solid fa-eye mr-1"></i>Preview — exactly how this will look once saved</div>' +
+      '<div id="lyricsPreviewEditLivePreview" class="sf-lyrics-edit-live-preview"></div>';
+    _lpRenderEditLivePreview();
+    var _lpTa = document.getElementById('lyricsPreviewEditTextarea');
+    if (_lpTa) _lpTa.addEventListener('input', _lpRenderEditLivePreview);
+    _sfPaintAppearance();
     return;
   }
-  
+
   if (currentLyricsPreviewMode === 'resources') {
     var _appBar = document.getElementById('lyricsPreviewAppearanceBar'); if (_appBar) _appBar.style.display = 'none';
     container.innerHTML = _sfRenderResourcesPanel(currentLyricsPreviewSong);
@@ -10587,6 +10601,25 @@ function renderLyricsPreviewContent() {
   setTimeout(_lpUpdateScrollCue, 60);
 
   _sfPaintAppearance();
+}
+
+// Live preview shown below the inline-edit textarea, using the exact same
+// formatLyricsWithTranspose()/buildInlineChordHtml() rendering the read-only
+// preview uses -- chords are positioned word-atomically over their lyric,
+// not via monospace column-alignment, so the raw source text in the
+// textarea can never visually match the saved-song look on its own. This
+// gives a guaranteed-identical preview instead of trying to make the
+// textarea itself look like the final result.
+function _lpRenderEditLivePreview() {
+  var ta = document.getElementById('lyricsPreviewEditTextarea');
+  var preview = document.getElementById('lyricsPreviewEditLivePreview');
+  if (!ta || !preview) return;
+  var text = ta.value;
+  if (!text.trim()) {
+    preview.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">Start typing to see the formatted preview…</div>';
+    return;
+  }
+  preview.innerHTML = formatLyricsWithTranspose(text, true, 0);
 }
 
 // ============ Inline lyrics editing (in the Song Atlas workspace) ============
