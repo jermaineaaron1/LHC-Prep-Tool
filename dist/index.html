@@ -34896,6 +34896,21 @@ var WO = (function() {
           }
           sbApplySectionBadges(document.getElementById('sbLyrics-' + s.id));
           if (s.id && s.itemType !== 'blank') sbAutoSplitOverflowLines(s.id);
+          // Seed the reconcile baseline from the ACTUALLY-RENDERED DOM, not
+          // from song.lyrics. The pad renders from song.richLyrics (saved
+          // HTML), which can flatten to different text than song.lyrics --
+          // e.g. saved chord-pair markup that _sbRawFlatText doesn't treat as
+          // line boundaries. Without this, the very first keystroke diffs the
+          // new DOM against a mismatched song.lyrics baseline, sees a phantom
+          // multi-line change, takes the slow full re-render path, and its
+          // caret-offset restore overshoots to the end of the block -- which
+          // is the "typing jumps the cursor to the bottom of the page" bug.
+          // Seeding here makes the first (and every) inline edit a clean
+          // single-region diff that stays on the fast, no-re-render path.
+          if (s.id && s.itemType !== 'blank') {
+            var _sbBaseEl = document.getElementById('sbLyrics-' + s.id);
+            if (_sbBaseEl) _sbCanonicalText[s.id] = _sbRawFlatText(_sbBaseEl);
+          }
         });
         sbRenderAllTextAnnots();
         (songOrderSections || []).forEach(function(s) {
@@ -39562,6 +39577,21 @@ var WO = (function() {
   function sbBeforeLyricsInput(evt, sid) {
     sbCapturePreEdit(sid);
     delete _sbChordEditState[sid];
+
+    // Seed the reconcile baseline from the TRUE pre-edit DOM, captured here on
+    // every beforeinput (before the browser applies the edit). This is the
+    // authoritative fix for the "cursor jumps to the bottom while typing" bug:
+    // the pad renders from song.richLyrics, which can flatten to different text
+    // than song.lyrics (the value sbReconcileLyrics otherwise falls back to as
+    // its baseline). A mismatched baseline makes even a single-character insert
+    // diff as a multi-line change, forcing the slow full re-render whose
+    // caret-offset restore overshoots to the end of the block. Capturing the
+    // real pre-edit DOM here guarantees the next reconcile sees exactly the one
+    // edit that happened and stays on the fast, no-re-render path. The special
+    // Backspace/Delete/Enter handlers below re-set this after their own
+    // restructure, so this early seed never conflicts with them.
+    var _sbPreEl = document.getElementById('sbLyrics-' + sid);
+    if (_sbPreEl) _sbCanonicalText[sid] = _sbRawFlatText(_sbPreEl);
 
     // Targeted hazard intercept: native contenteditable, on some engines
     // (observed on Android, not on this desktop browser), fuses a
