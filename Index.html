@@ -62950,6 +62950,17 @@ function filterLiturgyItems() {
     #songbookLiveModal .sb-header-toolbar .sb-tool-btn span { display:none; }
     #songbookLiveModal .sb-header-toolbar>.sb-close-btn { position:static !important; width:38px; min-width:38px; height:38px; padding:0; margin:0; }
     #songbookLiveModal .sb-more-menu { position:fixed; top:88px; right:8px; left:auto; max-width:calc(100vw - 16px); }
+    /* The Share and More dropdowns are absolutely positioned with right:0 --
+       right-aligned to their toolbar button. On desktop those buttons sit on
+       the right so the menus open leftward on-screen, but on mobile the
+       toolbar buttons are in the left half of the screen, so right-alignment
+       pushes the ~170-190px-wide menus off the LEFT edge (and the modal's
+       overflow:hidden then clips them, so they appear to do nothing when
+       tapped). Left-align them on mobile so they open rightward into the
+       screen instead. (An earlier rule here targeted .sb-more-menu, a class
+       these menus don't have, so it never applied.) */
+    #songbookLiveModal #sbSharePopover,
+    #songbookLiveModal #sbMoreMenu { left:0 !important; right:auto !important; }
 
     #songbookLiveModal .sb-view-strip { width:100%; min-height:0; padding:6px 9px 7px; display:grid; grid-template-columns:1fr; gap:6px; overflow:visible; }
     #songbookLiveModal .sb-view-tabs { width:100%; display:grid; grid-template-columns:1fr 1fr; padding:3px; }
