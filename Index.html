@@ -8809,6 +8809,7 @@ I once was lost but now am found"
             <button onclick="WO.sbOpenFullscreen();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#fff3dc;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(160,110,55,0.2)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-book-open" style="color:#fbbf24;width:16px;"></i> Book Mode</button>
             <button onclick="WO.sbSavePDF();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-print" style="color:#93c5fd;width:16px;"></i> Print / Save PDF</button>
             <div style="height:1px;background:#334155;margin:2px 0;"></div>
+            <button onclick="WO.sbResetAllPageLayouts();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-text-height" style="color:#fcd34d;width:16px;"></i> Reset page layout &amp; font</button>
             <button onclick="WO.sbClearActiveDraw();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#fca5a5;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-trash-can" style="color:#f87171;width:16px;"></i> Clear annotations</button>
           </div>
         </div>
@@ -41474,6 +41475,28 @@ var WO = (function() {
     sbAutoSave();
   }
 
+  // Reset every song's page layout in the current songbook back to defaults:
+  // clears the auto-shrink font scale, manual A4 page breaks, and page-break
+  // lines. Dragging/adding page-break markers can trigger the auto-fit font
+  // shrink (_sbA4ApplyPageFit) and leave tall, mostly-empty pages; the only
+  // existing undo was double-clicking a marker, which is undiscoverable
+  // (especially on a tablet). This gives a single, findable reset from the
+  // More menu.
+  function sbResetAllPageLayouts() {
+    if (!confirm('Reset page layout and font size for every song in this songbook? This clears any manual page breaks and the auto font-shrink, returning to normal size and automatic page fitting.')) return;
+    (songOrderSections || []).forEach(function(s) {
+      if (!s || !s.id) return;
+      delete sbSongFontOverrides[s.id];
+      delete sbManualBreaks[s.id];
+      delete sbPageBreakLines[s.id];
+      _sbSaveSongLayout(s.id); // clears localStorage entry AND syncs the cleared state to Supabase
+    });
+    sbApplySongFontOverrides();
+    setTimeout(function() { sbPaginateAll(); }, 30);
+    sbAutoSave();
+    if (typeof showToastWO === 'function') showToastWO('Page layout & font reset to default', 'success');
+  }
+
   // ── Cross-songbook song layout persistence (localStorage) ─────────────────
   // Saves per-song page-break settings so the same song carries its layout
   // into every future songbook automatically.
@@ -53461,6 +53484,7 @@ var WO = (function() {
     sbApplyBroadcast: sbApplyBroadcast,
     sbPatchSongDOM: sbPatchSongDOM,
     sbRefresh: sbRefresh,
+    sbResetAllPageLayouts: sbResetAllPageLayouts,
     sbResetTranspose: sbResetTranspose,
     sbInsertChordZones: sbInsertChordZones,
     sbActivateChordZone: sbActivateChordZone,
