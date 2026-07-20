@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  createSession, fetchAllSongs, fetchPlayers, fetchSectionScores, fetchSessionByCode, fetchSong, scheduleSessionStart,
+  createSession, fetchAllSongs, fetchPlayers, fetchSectionScores, fetchSessionByCode, fetchSong, scheduleSessionStart, updateSong,
   subscribeToPlayers, subscribeToSession,
 } from '@/lib/vocal-hero/supabaseClient';
 import type { GameSession, SectionScore, SessionPlayer, Song } from '@/lib/vocal-hero/types';
 import { SatbLane } from './SatbLane';
 import { isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
 import { measureServerClockOffset } from '@/lib/vocal-hero/clock';
+import { ArrangementEditor } from './ArrangementEditor';
 
 const PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ee86b5', '#f3a953', '#72aafb', '#6bd3a5'];
@@ -23,6 +24,7 @@ export default function VocalHeroHostPage() {
   const [clockOffset, setClockOffset] = useState(0);
   const [error, setError] = useState('');
   const [showIndividuals, setShowIndividuals] = useState(false);
+  const [editingSong, setEditingSong] = useState<Song | null>(null);
   const listeners = useRef<Array<() => void>>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const openedRoomRef = useRef(false);
@@ -73,6 +75,18 @@ export default function VocalHeroHostPage() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to create room.'); }
   }
 
+  async function saveArrangement(values: Pick<Song, 'id' | 'title' | 'notes'>) {
+    if (!editingSong) return;
+    try {
+      const saved = await updateSong(editingSong.id, { title: values.title, notes: values.notes });
+      setSongs(current => current.map(item => item.id === saved.id ? saved : item));
+      setEditingSong(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save the arrangement.');
+      throw cause;
+    }
+  }
+
   async function start() {
     if (!session) return;
     try {
@@ -112,26 +126,27 @@ export default function VocalHeroHostPage() {
 
       {error && <p className="border-b border-red-500/40 bg-red-950/50 px-6 py-3 text-sm text-red-200">{error}</p>}
 
-      {!session && <SongPicker songs={songs} onChoose={chooseSong} />}
+      {!session && <SongPicker songs={songs} onChoose={chooseSong} onEdit={setEditingSong} />}
       {session && song && session.status === 'lobby' && <Lobby song={song} session={session} players={players} phoneUrl={phoneUrl} onStart={start} audioRef={audioRef} />}
       {session && song && session.status === 'playing' && (
         <HostStage song={song} notes={notes} guideOnly={isGuideMelody(notes)} players={players} sections={sections} elapsed={songTime} phase={timeline.phase} lyric={currentLyric} showIndividuals={showIndividuals} setShowIndividuals={setShowIndividuals} />
       )}
       {session?.status === 'ended' && <Results players={players} sections={sections} />}
+      {editingSong && <ArrangementEditor song={editingSong} onClose={() => setEditingSong(null)} onSave={saveArrangement} />}
     </main>
   );
 }
 
-function SongPicker({ songs, onChoose }: { songs: Song[]; onChoose: (song: Song) => void }) {
+function SongPicker({ songs, onChoose, onEdit }: { songs: Song[]; onChoose: (song: Song) => void; onEdit: (song: Song) => void }) {
   return <section className="mx-auto max-w-4xl px-5 py-16">
     <p className="text-xs font-bold uppercase tracking-[.28em] text-[#f6c65b]">Choir practice</p>
     <h1 className="mt-3 font-serif text-5xl font-semibold sm:text-7xl">Open a room.<br />Raise every voice.</h1>
     <p className="mt-5 max-w-xl text-slate-300">Select a prepared song to create a QR-enabled choir room. Every singer receives a private pitch view and personal result.</p>
     <div className="mt-10 grid gap-3 sm:grid-cols-2">
-      {songs.map(song => <button key={song.id} onClick={() => onChoose(song)} className="rounded-2xl border border-white/10 bg-white/[.045] p-5 text-left transition hover:-translate-y-0.5 hover:border-[#f6c65b]/50 hover:bg-white/[.07]">
-        <div className="flex items-start justify-between gap-3"><div><h2 className="font-serif text-xl">{song.title}</h2><p className="mt-1 text-sm text-slate-400">{song.artist || 'Worship arrangement'}</p></div><span className="text-[#f6c65b]">Start →</span></div>
+      {songs.map(song => <article key={song.id} className="rounded-2xl border border-white/10 bg-white/[.045] p-5 text-left transition hover:-translate-y-0.5 hover:border-[#f6c65b]/50 hover:bg-white/[.07]">
+        <div className="flex items-start justify-between gap-3"><div><h2 className="font-serif text-xl">{song.title}</h2><p className="mt-1 text-sm text-slate-400">{song.artist || 'Worship arrangement'}</p></div><div className="flex gap-2"><button onClick={() => onEdit(song)} className="rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold">Edit</button><button onClick={() => onChoose(song)} className="rounded-lg bg-[#f6c65b] px-3 py-2 text-xs font-bold text-[#07111d]">Start</button></div></div>
         <div className="mt-5 flex gap-1.5">{PARTS.map((part, index) => <span key={part} className="h-1.5 flex-1 rounded-full" style={{ background: COLOURS[index] }} />)}</div>
-      </button>)}
+      </article>)}
       {!songs.length && <p className="text-slate-400">No ready songs yet. Complete a song in the Vocal Hero library first.</p>}
     </div>
   </section>;
