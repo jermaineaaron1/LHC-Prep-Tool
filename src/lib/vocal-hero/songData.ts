@@ -8,22 +8,37 @@ const FALLBACK_RANGES = [
 ] as const;
 
 /**
- * Bridges the legacy single-melody `game_notes` column with the newer note
- * timeline. Unassigned legacy notes are intentionally marked -1 so every
- * selected voice can use the melody guide until a proper SATB arrangement is
- * authored, without pretending that cloned notes are real harmonies.
+ * Bridges the legacy `game_notes` column with the newer note timeline. Legacy
+ * data is frequently exported as piano chords: several MIDI notes at exactly
+ * the same lyric position. We reduce each onset to its upper melody note so a
+ * singer sees one target per lyric instead of a stack of chord tones.
+ *
+ * The resulting -1 part is a shared melody guide. It must never be rendered as
+ * four cloned SATB parts: true SATB lanes require an authored arrangement.
  */
 export function playableNotes(song: Song): SongNote[] {
   if (song.notes?.length) return song.notes;
-  return (song.game_notes ?? []).map((note, index) => ({
-    id: `legacy-${song.id}-${index}`,
-    part: -1,
-    midi: note.m,
-    start: note.start,
-    end: note.start + note.dur,
-    lyric: note.l ?? '',
-    velocity: 100,
-  }));
+  const chordGroups: Array<Array<NonNullable<Song['game_notes']>[number]>> = [];
+  for (const note of [...(song.game_notes ?? [])].sort((a, b) => a.start - b.start || b.m - a.m)) {
+    const current = chordGroups[chordGroups.length - 1];
+    // MIDI imports can have a few milliseconds of jitter. Treat those notes as
+    // one chord/lyric rather than three separate singable targets.
+    if (current && Math.abs(current[0].start - note.start) <= 0.06) current.push(note);
+    else chordGroups.push([note]);
+  }
+  return chordGroups.map((chord, index) => {
+    const melody = chord.reduce((highest, note) => note.m > highest.m ? note : highest);
+    const lyric = chord.find(note => note.l?.trim())?.l ?? '';
+    return {
+      id: `legacy-${song.id}-${index}`,
+      part: -1,
+      midi: melody.m,
+      start: Math.min(...chord.map(note => note.start)),
+      end: Math.max(...chord.map(note => note.start + note.dur)),
+      lyric,
+      velocity: 100,
+    };
+  });
 }
 
 export function playablePart(song: Song, partIndex: number): SatbPart {

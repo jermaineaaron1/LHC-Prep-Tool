@@ -34,7 +34,7 @@ export class PitchEngine {
   constructor(options: PitchEngineOptions) {
     this.opts = {
       bufferSize:          2048,
-      smoothing:           0.80,
+      smoothing:           0.55,
       confidenceThreshold: 0.85,
       minHz:               70,
       maxHz:               1100,
@@ -49,13 +49,16 @@ export class PitchEngine {
 
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl:  true,
+        // Voice processing can buffer a phone microphone by hundreds of
+        // milliseconds. It is counterproductive for an on-beat pitch game.
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl:  false,
+        channelCount: 1,
       },
     });
 
-    this.context  = new AudioContext();
+    this.context  = new AudioContext({ latencyHint: 'interactive' });
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize        = this.opts.bufferSize;
     this.analyser.smoothingTimeConstant = 0; // we do our own smoothing

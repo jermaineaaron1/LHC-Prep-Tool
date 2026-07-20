@@ -157,24 +157,16 @@ export async function startSession(id: string): Promise<void> {
 export async function scheduleSessionStart(
   id: string,
   countdownSeconds = 5,
-  leadInSeconds = 2,
-  networkBufferSeconds = 3
+  leadInSeconds = 2
 ): Promise<GameSession> {
-  const playbackStartsAt = new Date(Date.now() + networkBufferSeconds * 1000).toISOString();
-  const { data, error } = await supabase
-    .from('vh_game_sessions')
-    .update({
-      status: 'playing',
-      started_at: new Date().toISOString(),
-      playback_starts_at: playbackStartsAt,
-      countdown_seconds: countdownSeconds,
-      lead_in_seconds: leadInSeconds,
-    })
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data as GameSession;
+  const response = await fetch('/api/vocal-hero/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: id, countdownSeconds, leadInSeconds }),
+  });
+  const payload = await response.json() as GameSession & { error?: string };
+  if (!response.ok) throw new Error(payload.error ?? 'Unable to schedule the session.');
+  return payload;
 }
 
 export async function endSession(id: string): Promise<void> {

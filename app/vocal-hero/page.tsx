@@ -7,7 +7,8 @@ import {
 } from '@/lib/vocal-hero/supabaseClient';
 import type { GameSession, SectionScore, SessionPlayer, Song } from '@/lib/vocal-hero/types';
 import { SatbLane } from './SatbLane';
-import { playableNotes } from '@/lib/vocal-hero/songData';
+import { isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
+import { measureServerClockOffset } from '@/lib/vocal-hero/clock';
 
 const PARTS = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ee86b5', '#f3a953', '#72aafb', '#6bd3a5'];
@@ -19,6 +20,7 @@ export default function VocalHeroHostPage() {
   const [players, setPlayers] = useState<SessionPlayer[]>([]);
   const [sections, setSections] = useState<SectionScore[]>([]);
   const [now, setNow] = useState(Date.now());
+  const [clockOffset, setClockOffset] = useState(0);
   const [error, setError] = useState('');
   const [showIndividuals, setShowIndividuals] = useState(false);
   const listeners = useRef<Array<() => void>>([]);
@@ -26,6 +28,7 @@ export default function VocalHeroHostPage() {
   const openedRoomRef = useRef(false);
 
   useEffect(() => { void fetchAllSongs().then(rows => setSongs(rows.filter(row => row.status === 'ready'))).catch(() => setError('Unable to load ready songs.')); }, []);
+  useEffect(() => { void measureServerClockOffset().then(setClockOffset).catch(() => undefined); }, []);
   useEffect(() => {
     const roomCode = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('room');
     if (!roomCode || openedRoomRef.current) return;
@@ -86,13 +89,13 @@ export default function VocalHeroHostPage() {
       setSession(scheduled);
       if (song?.audio_url && audioRef.current && scheduled.playback_starts_at) {
         const startAt = new Date(scheduled.playback_starts_at).getTime() + ((scheduled.countdown_seconds ?? 5) + (scheduled.lead_in_seconds ?? 2)) * 1000;
-        window.setTimeout(() => { void audioRef.current?.play(); }, Math.max(0, startAt - Date.now()));
+        window.setTimeout(() => { void audioRef.current?.play(); }, Math.max(0, startAt - (Date.now() + clockOffset)));
       }
     }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to schedule the session.'); }
   }
 
-  const timeline = useMemo(() => timelineFor(session, now), [session, now]);
+  const timeline = useMemo(() => timelineFor(session, now + clockOffset), [clockOffset, session, now]);
   const songTime = Math.max(0, timeline.songElapsed);
   const notes = song ? playableNotes(song) : [];
   const currentLyric = notes.find(note => (note.part === 0 || note.part === -1) && songTime >= note.start && songTime < note.end && note.lyric)?.lyric;
@@ -112,7 +115,7 @@ export default function VocalHeroHostPage() {
       {!session && <SongPicker songs={songs} onChoose={chooseSong} />}
       {session && song && session.status === 'lobby' && <Lobby song={song} session={session} players={players} phoneUrl={phoneUrl} onStart={start} audioRef={audioRef} />}
       {session && song && session.status === 'playing' && (
-        <HostStage song={song} notes={notes} players={players} sections={sections} elapsed={songTime} phase={timeline.phase} lyric={currentLyric} showIndividuals={showIndividuals} setShowIndividuals={setShowIndividuals} />
+        <HostStage song={song} notes={notes} guideOnly={isGuideMelody(notes)} players={players} sections={sections} elapsed={songTime} phase={timeline.phase} lyric={currentLyric} showIndividuals={showIndividuals} setShowIndividuals={setShowIndividuals} />
       )}
       {session?.status === 'ended' && <Results players={players} sections={sections} />}
     </main>
@@ -156,11 +159,13 @@ function Lobby({ song, session, players, phoneUrl, onStart, audioRef }: { song: 
   </section>;
 }
 
-function HostStage({ song, notes, players, sections, elapsed, phase, lyric, showIndividuals, setShowIndividuals }: { song: Song; notes: import('@/lib/vocal-hero/types').SongNote[]; players: SessionPlayer[]; sections: SectionScore[]; elapsed: number; phase: string; lyric?: string; showIndividuals: boolean; setShowIndividuals: (value: boolean) => void }) {
+function HostStage({ song, notes, guideOnly, players, sections, elapsed, phase, lyric, showIndividuals, setShowIndividuals }: { song: Song; notes: import('@/lib/vocal-hero/types').SongNote[]; guideOnly: boolean; players: SessionPlayer[]; sections: SectionScore[]; elapsed: number; phase: string; lyric?: string; showIndividuals: boolean; setShowIndividuals: (value: boolean) => void }) {
   return <section className="mx-auto max-w-[1600px] px-4 py-5">
     <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto]"><div className="rounded-2xl border border-white/10 bg-white/[.04] px-5 py-3"><span className="text-xs uppercase tracking-[.2em] text-[#f6c65b]">{phase}</span><p className="mt-1 min-h-8 text-2xl font-semibold sm:text-3xl">{lyric || 'Listen for the lead-in'}</p></div><button onClick={() => setShowIndividuals(!showIndividuals)} className="rounded-2xl border border-white/10 bg-[#0b1726] px-4 text-sm">{showIndividuals ? 'Hide individual scores' : 'Host analytics'}</button></div>
     <div className="grid gap-4 xl:grid-cols-[1fr_300px]">
-      <div className="space-y-3">{PARTS.map((part, index) => <SatbLane key={part} partIndex={index} partName={part} colour={COLOURS[index]} elapsed={elapsed} notes={notes} playerCount={players.filter(player => player.part_index === index && !player.is_spectator).length} />)}</div>
+      <div className="space-y-3">{guideOnly
+        ? <><div className="rounded-xl border border-[#f6c65b]/20 bg-[#f6c65b]/[.06] px-4 py-2 text-sm text-[#f7df9b]">Shared melody guide · one target is shown for each lyric. Add a SATB arrangement in the editor to show separate harmony lanes.</div><SatbLane partIndex={-1} partName="Melody guide" colour="#f6c65b" elapsed={elapsed} notes={notes} /></>
+        : PARTS.map((part, index) => <SatbLane key={part} partIndex={index} partName={part} colour={COLOURS[index]} elapsed={elapsed} notes={notes} playerCount={players.filter(player => player.part_index === index && !player.is_spectator).length} />)}</div>
       <aside className="rounded-3xl border border-white/10 bg-[#0b1726] p-5"><h2 className="font-serif text-2xl">Choir board</h2><div className="mt-4 space-y-3">{PARTS.map((part, index) => { const score = sections.find(item => item.part_index === index); return <div key={part} className="rounded-xl bg-white/[.04] p-3"><div className="flex justify-between"><b style={{ color: COLOURS[index] }}>{part}</b><span>{score ? `${Math.round(score.accuracy)}%` : '—'}</span></div><p className="mt-1 text-xs text-slate-400">Normalized team accuracy · {score?.active_players ?? 0} active</p></div>; })}</div>
       {showIndividuals && <div className="mt-6 border-t border-white/10 pt-4"><p className="text-xs uppercase tracking-[.18em] text-slate-400">Private host analytics</p>{[...players].sort((a,b) => b.score-a.score).slice(0, 12).map(player => <p key={player.id} className="mt-2 flex justify-between text-sm"><span>{player.player_name}</span><span className="font-mono text-[#6bd3a5]">{player.score}</span></p>)}</div>}</aside>
     </div>
