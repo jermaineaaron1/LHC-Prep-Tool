@@ -4,6 +4,8 @@ import type {
   GameSession,
   SessionPlayer,
   HighScore,
+  PlayerRoundStats,
+  SectionScore,
 } from './types';
 
 // ── Browser-side client (anon key) ────────────────────────────────────────
@@ -150,6 +152,31 @@ export async function startSession(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/** Starts a session against one shared wall-clock. The host gives every phone
+ * enough time to receive the update before the five-second count-in begins. */
+export async function scheduleSessionStart(
+  id: string,
+  countdownSeconds = 5,
+  leadInSeconds = 2,
+  networkBufferSeconds = 3
+): Promise<GameSession> {
+  const playbackStartsAt = new Date(Date.now() + networkBufferSeconds * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('vh_game_sessions')
+    .update({
+      status: 'playing',
+      started_at: new Date().toISOString(),
+      playback_starts_at: playbackStartsAt,
+      countdown_seconds: countdownSeconds,
+      lead_in_seconds: leadInSeconds,
+    })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as GameSession;
+}
+
 export async function endSession(id: string): Promise<void> {
   const { error } = await supabase
     .rpc('vh_finalise_session', { s_id: id });
@@ -161,15 +188,56 @@ export async function endSession(id: string): Promise<void> {
 export async function joinSession(
   sessionId: string,
   playerName: string,
-  partIndex: number
+  partIndex: number,
+  isSpectator = false
 ): Promise<SessionPlayer> {
   const { data, error } = await supabase
     .from('vh_session_players')
-    .insert({ session_id: sessionId, player_name: playerName, part_index: partIndex })
+    .insert({ session_id: sessionId, player_name: playerName, part_index: partIndex, is_spectator: isSpectator })
     .select()
     .single();
   if (error) throw new Error(error.message);
   return data as SessionPlayer;
+}
+
+export async function updatePlayerLobbyState(
+  playerId: string,
+  values: Pick<SessionPlayer, 'ready_at' | 'mic_status'>
+): Promise<void> {
+  const { error } = await supabase
+    .from('vh_session_players')
+    .update({ ...values, last_seen_at: new Date().toISOString() })
+    .eq('id', playerId);
+  if (error) throw new Error(error.message);
+}
+
+export async function fetchSectionScores(sessionId: string): Promise<SectionScore[]> {
+  const { data, error } = await supabase
+    .from('vh_session_part_scores')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('normalized_accuracy', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row, index) => ({
+    part_index: row.part_index,
+    active_players: row.active_players,
+    score: Number(row.normalized_score),
+    accuracy: Number(row.normalized_accuracy),
+    rank: index + 1,
+  }));
+}
+
+export async function savePlayerRoundStats(stats: PlayerRoundStats): Promise<void> {
+  const { error } = await supabase.rpc('vh_upsert_player_round_stats', {
+    p_session_id: stats.session_id,
+    p_player_id: stats.player_id,
+    p_score: stats.score,
+    p_accuracy: stats.accuracy,
+    p_notes_attempted: stats.notes_attempted,
+    p_notes_hit: stats.notes_hit,
+    p_timing_offset_ms: stats.timing_offset_ms ?? null,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function fetchPlayers(sessionId: string): Promise<SessionPlayer[]> {

@@ -1,5 +1,3 @@
-// TODO: Implement full TypeScript types for Vocal Hero
-
 export interface SatbPart {
   name: 'Soprano' | 'Alto' | 'Tenor' | 'Bass';
   rangeMin: number;   // Hz
@@ -42,9 +40,12 @@ export interface Song {
   parts: SatbPart[];
   timed_lyrics: TimedLyricSection[];
   notes?: SongNote[];     // DAW-style note events (replaces/augments timed_lyrics)
+  game_notes?: Array<{ m: number; start: number; dur: number; l?: string; phrase?: string }>;
   pipeline_log: string;
   yt_url: string;
   audio_url?: string;     // direct audio URL for gameplay (MP3 in Supabase Storage)
+  bpm?: number;
+  time_sig?: number;
   created_at: string;
 }
 
@@ -57,6 +58,12 @@ export interface GameSession {
   started_at: string | null;
   ended_at: string | null;
   created_at: string;
+  /** Absolute, server-issued playback time shared by every connected device. */
+  playback_starts_at?: string | null;
+  countdown_seconds?: number;
+  lead_in_seconds?: number;
+  paused?: boolean;
+  restart_seq?: number;
 }
 
 export interface SessionPlayer {
@@ -67,6 +74,30 @@ export interface SessionPlayer {
   score: number;
   accuracy: number;
   joined_at: string;
+  is_spectator?: boolean;
+  ready_at?: string | null;
+  mic_status?: 'unknown' | 'ready' | 'blocked' | 'noisy';
+  last_seen_at?: string | null;
+}
+
+export type SessionPhase = 'lobby' | 'countdown' | 'lead-in' | 'playing' | 'ended';
+
+export interface SectionScore {
+  part_index: number;
+  active_players: number;
+  score: number;
+  accuracy: number;
+  rank?: number;
+}
+
+export interface PlayerRoundStats {
+  session_id: string;
+  player_id: string;
+  score: number;
+  accuracy: number;
+  notes_attempted: number;
+  notes_hit: number;
+  timing_offset_ms?: number;
 }
 
 export interface ScoreEvent {

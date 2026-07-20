@@ -1,6 +1,6 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-07-02 by Claude Code_
+_Last updated: 2026-07-20 by Codex_
 
 ---
 
@@ -136,6 +136,14 @@ Defined in `.env.local` (not committed). Template at `.env.local.example`.
 ---
 
 ## What Is Unfinished
+
+### Vocal Hero modern multiplayer integration — branch `feature/vocal-hero-multiplayer`
+
+- The Worship Prep Practice iframe now redirects from `/practice-game` to the modern React host at `/vocal-hero`; `/vocal-hero/phone?room=ABCDE` is the mobile player route, and the host can open the active room in a dedicated full-screen browser window.
+- Added host QR lobby, unlimited SATB membership, ready/microphone indicators, scheduled five-second count-in plus lead-in, host-only individual analytics, normalised section-score display, mobile personal pitch/score view, phone full-board toggle, and persisted round-stat calls.
+- Added `migrations/2026-07-20_vocal_hero_multiplayer_foundation.sql`. **It has not been run.** Review it, then execute it manually in the Supabase SQL Editor before using the new lobby/start/stat features. It only adds columns/tables/functions/policies; it does not remove or alter existing data.
+- New runtime dependencies are not required. Production build passes when the three existing Supabase variables are present. `npm run lint` remains blocked because ESLint 9 has no `eslint.config.*` in this repository.
+- Current privacy/security limitation: anonymous Supabase policies remain fully public, as in the existing game. Before public internet exposure, replace these with signed room/player tokens or authenticated RLS policies. The approved no-login user experience can remain unchanged.
 
 - **Worship Orders — full-screen presentation/projection mode** — planned but not built
 - **Song queue management** — planned
