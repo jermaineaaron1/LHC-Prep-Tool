@@ -64,7 +64,21 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   function removeNote(id: string) { pushHistory(); setNotes(current => current.filter(note => note.id !== id)); setSelectedId(current => current === id ? null : current); setSelectedIds(current => current.filter(item => item !== id)); }
   function removeSelected() { if (!selectedIds.length) return; pushHistory(); setNotes(current => current.filter(note => !selectedIds.includes(note.id))); setSelectedId(null); setSelectedIds([]); }
   function beginResizeHistory() { pushHistory(); }
-  function resizeNote(id: string, end: number) { setNotes(current => current.map(note => note.id === id ? { ...note, end: Math.max(round(note.start + .1), round(end)) } : note)); }
+  function resizeNote(id: string, end: number) {
+    setNotes(current => {
+      const target = current.find(note => note.id === id);
+      if (!target) return current;
+      const nextEnd = Math.max(round(target.start + .1), round(end));
+      const delta = round(nextEnd - target.end);
+      if (!delta) return current;
+      // Ripple all later targets together so SATB harmony and lyric timing stay aligned.
+      return current.map(note => {
+        if (note.id === id) return { ...note, end: nextEnd };
+        if (note.start >= target.end - .001) return { ...note, start: Math.max(0, round(note.start + delta)), end: Math.max(.1, round(note.end + delta)) };
+        return note;
+      });
+    });
+  }
   function clearPlaybackSelections() { setPlayScope('all'); setPlayParts([true, true, true, true]); setPlayRange({ start: 0, end: 8 }); setSelectedId(null); setSelectedIds([]); }
   function selectPlayPart(part: number, additive = false) { setPlayParts(current => additive ? current.map((enabled, index) => index === part ? !enabled : enabled) : VOICES.map((_, index) => index === part)); setPlayScope('all'); setSelectedId(null); setSelectedIds([]); }
   function updateRangeSelection(range: { start: number; end: number }) { setPlayRange(range); const ids = notes.filter(note => note.end >= range.start && note.start <= range.end).map(note => note.id); setSelectedIds(ids); setSelectedId(ids[0] ?? null); }
