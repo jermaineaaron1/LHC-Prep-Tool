@@ -1,19 +1,22 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Song, SongNote } from '@/lib/vocal-hero/types';
+import type { BackingTrackSettings, Song, SongNote } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
+import { supabase } from '@/lib/vocal-hero/supabaseClient';
+import { BackingTrackPanel } from './BackingTrackPanel';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#ffae42', '#4ca0ff', '#43e2bb'];
 const MIN_MIDI = 42;
 const MAX_MIDI = 84;
-type EditableSong = Pick<Song, 'id' | 'title' | 'notes'>;
+type EditableSong = Pick<Song, 'id' | 'title' | 'notes' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>;
 type EditorTool = 'select' | 'draw' | 'erase';
 type PlaybackScope = 'all' | 'range' | 'note';
 type ArrangementSnapshot = { title: string; notes: SongNote[]; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
 type MidiPreview = { fileName: string; notes: ImportedMidiNote[] };
+const DEFAULT_TRACK_SETTINGS: BackingTrackSettings = { volume: 1, speed: 1, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, loop_enabled: false, skip_regions: [], split_markers: [], effect: 'none' };
 
 export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClose: () => void; onSave: (values: EditableSong) => Promise<void>; }) {
   const [title, setTitle] = useState(song.title);
@@ -40,6 +43,12 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [midiRanges, setMidiRanges] = useState<SatbMidiRanges>(DEFAULT_SATB_MIDI_RANGES);
   const [midiPart, setMidiPart] = useState<number | null>(null);
   const [midiMode, setMidiMode] = useState<'replace' | 'append'>('replace');
+  const [mediaUrl, setMediaUrl] = useState(song.backing_media_url ?? song.audio_url ?? '');
+  const [mediaKind, setMediaKind] = useState<'audio' | 'video'>(song.backing_media_kind ?? 'audio');
+  const [mediaName, setMediaName] = useState('');
+  const [trackSettings, setTrackSettings] = useState<BackingTrackSettings>({ ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) });
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
   const [history, setHistory] = useState<{ past: ArrangementSnapshot[]; future: ArrangementSnapshot[] }>({ past: [], future: [] });
   const audioContextRef = useRef<AudioContext | null>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -48,6 +57,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const recorderChunksRef = useRef<Blob[]>([]);
   const lassoRef = useRef<{ time: number; part: number } | null>(null);
   const midiInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const selected = notes.find(note => note.id === selectedId) ?? null;
   const duration = Math.max(32, song.duration || 0, ...notes.map(note => note.end + 4));
   const timelineWidth = Math.min(Math.max(duration * zoom, 1600), 48000);
@@ -142,7 +152,27 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     } catch (error) { setRecordError(error instanceof Error ? error.message : 'Unable to access the microphone.'); setRecording(false); }
   }
   function playRecordedTake() { if (recordingUrl) void new Audio(recordingUrl).play(); }
-  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, round(note.start)), end: Math.max(round(note.start) + .1, round(note.end)) })) }); } finally { setSaving(false); } }
+  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, round(note.start)), end: Math.max(round(note.start) + .1, round(note.end)) })), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: trackSettings }); } finally { setSaving(false); } }
+  async function uploadBackingTrack(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setMediaError(null);
+    setUploadingMedia(true);
+    try {
+      if (!/^(audio|video)\//.test(file.type)) throw new Error('Choose an audio or video file for the backing track.');
+      const prepared = await fetch('/api/vocal-hero/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ songId: song.id, fileName: file.name, contentType: file.type, size: file.size }) });
+      const payload = await prepared.json() as { bucket?: string; path?: string; token?: string; publicUrl?: string; error?: string };
+      if (!prepared.ok || !payload.bucket || !payload.path || !payload.token || !payload.publicUrl) throw new Error(payload.error || 'Unable to prepare the media upload.');
+      const { error } = await supabase.storage.from(payload.bucket).uploadToSignedUrl(payload.path, payload.token, file);
+      if (error) throw new Error(error.message);
+      setMediaUrl(payload.publicUrl);
+      setMediaKind(file.type.startsWith('video/') ? 'video' : 'audio');
+      setMediaName(file.name);
+      setTrackSettings(current => ({ ...current, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, skip_regions: [], split_markers: [] }));
+    } catch (error) { setMediaError(error instanceof Error ? error.message : 'Unable to upload the backing track.'); }
+    finally { setUploadingMedia(false); }
+  }
   async function openMidi(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -177,7 +207,13 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
           <span className="text-slate-500">Bring in piano, guitar, or vocal MIDI. Notes are classified by editable SATB pitch ranges.</span>
           <input ref={midiInputRef} className="hidden" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" onChange={openMidi} />
         </div>
-        <details open className="border-b border-white/[.06] bg-[#070a18] px-3 py-2 text-xs">
+        <details className="border-b border-white/[.06] bg-[#07101d] px-3 py-2 text-xs">
+          <summary className="cursor-pointer font-semibold text-cyan-100">Backing track {mediaUrl ? `• ${mediaKind} loaded` : '• upload audio or video'}</summary>
+          <BackingTrackPanel url={mediaUrl} kind={mediaKind} fileName={mediaName} settings={trackSettings} setSettings={setTrackSettings} uploading={uploadingMedia} onUpload={() => mediaInputRef.current?.click()} />
+          <input ref={mediaInputRef} className="hidden" type="file" accept="audio/*,video/*" onChange={uploadBackingTrack} />
+          {mediaError && <p className="mt-2 text-rose-200">Backing track: {mediaError}</p>}
+        </details>
+        <details className="border-b border-white/[.06] bg-[#070a18] px-3 py-2 text-xs">
           <summary className="cursor-pointer font-semibold text-slate-300">Show arrangement controls: dynamics, breath &amp; part mixer</summary>
           <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto]">
             <Automation notes={notes} />

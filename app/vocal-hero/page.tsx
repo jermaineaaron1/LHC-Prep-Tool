@@ -69,10 +69,10 @@ export default function VocalHeroHostPage() {
       setSong(next); setSession(created); setPlayers(await fetchPlayers(created.id));
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to create room.'); }
   }
-  async function saveArrangement(values: Pick<Song, 'id' | 'title' | 'notes'>) {
+  async function saveArrangement(values: Pick<Song, 'id' | 'title' | 'notes' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>) {
     if (!editingSong) return;
     try {
-      const saved = await updateSong(editingSong.id, { title: values.title, notes: values.notes });
+      const saved = await updateSong(editingSong.id, { title: values.title, notes: values.notes, backing_media_url: values.backing_media_url, backing_media_kind: values.backing_media_kind, backing_track_settings: values.backing_track_settings, audio_url: values.backing_media_url });
       setSongs(current => current.map(item => item.id === saved.id ? saved : item));
       setEditingSong(null);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save the arrangement.'); throw cause; }

@@ -27,6 +27,19 @@ export interface SongNote {
   velocity: number;  // 0-127 (dynamics)
 }
 
+export interface BackingTrackSettings {
+  volume: number;
+  speed: number;
+  trim_start: number;
+  trim_end: number | null;
+  loop_start: number;
+  loop_end: number | null;
+  loop_enabled: boolean;
+  skip_regions: Array<{ start: number; end: number }>;
+  split_markers: number[];
+  effect: 'none' | 'warm' | 'bright';
+}
+
 export interface Song {
   id: string;
   title: string;
@@ -44,6 +57,9 @@ export interface Song {
   pipeline_log: string;
   yt_url: string;
   audio_url?: string;     // direct audio URL for gameplay (MP3 in Supabase Storage)
+  backing_media_url?: string;
+  backing_media_kind?: 'audio' | 'video';
+  backing_track_settings?: BackingTrackSettings;
   bpm?: number;
   time_sig?: number;
   created_at: string;
