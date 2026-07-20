@@ -70,7 +70,7 @@ export class ScoreEngine {
       ...options,
     };
     this.noteList = this.opts.notes
-      .filter(note => note.part === this.opts.partIndex)
+      .filter(note => note.part === this.opts.partIndex || note.part === -1)
       .slice()
       .sort((a, b) => a.start - b.start);
   }

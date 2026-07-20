@@ -24,18 +24,21 @@ export function SatbLane({
 
   useEffect(() => {
     const canvas = ref.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-    const width = canvas.width = canvas.clientWidth * Math.min(devicePixelRatio, 2);
-    const height = canvas.height = canvas.clientHeight * Math.min(devicePixelRatio, 2);
-    ctx.scale(Math.min(devicePixelRatio, 2), Math.min(devicePixelRatio, 2));
+    if (!canvas) return;
+    const paint = () => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx || !canvas.clientWidth || !canvas.clientHeight) return;
+    const ratio = Math.min(devicePixelRatio, 2);
+    const width = canvas.width = canvas.clientWidth * ratio;
+    const height = canvas.height = canvas.clientHeight * ratio;
+    ctx.scale(ratio, ratio);
     const w = canvas.clientWidth, h = canvas.clientHeight;
     ctx.fillStyle = '#08111f'; ctx.fillRect(0, 0, w, h);
     for (let i = 1; i < 6; i += 1) {
       ctx.strokeStyle = i % 2 ? '#18304a' : '#10243a'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(0, h / 6 * i); ctx.lineTo(w, h / 6 * i); ctx.stroke();
     }
-    const partNotes = notes.filter(note => note.part === partIndex);
+    const partNotes = notes.filter(note => note.part === partIndex || note.part === -1);
     const pitches = partNotes.map(note => note.midi);
     let low = pitches.length ? Math.min(...pitches) - 2 : DEFAULT_RANGE[0];
     let high = pitches.length ? Math.max(...pitches) + 2 : DEFAULT_RANGE[1];
@@ -69,16 +72,21 @@ export function SatbLane({
       ctx.beginPath(); ctx.arc(cursor, y, compact ? 7 : 10, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     }
     void width; void height;
+    };
+    paint();
+    const observer = new ResizeObserver(paint);
+    observer.observe(canvas);
+    return () => observer.disconnect();
   }, [colour, compact, elapsed, hitNotes, notes, partIndex, pitchHz]);
 
   return (
-    <section className="flex min-h-[82px] overflow-hidden rounded-2xl border border-white/10 bg-[#08111f]" aria-label={`${partName} pitch lane`}>
+    <section className={`flex overflow-hidden rounded-2xl border border-white/10 bg-[#08111f] ${compact ? 'h-[64px]' : 'h-[92px]'}`} aria-label={`${partName} pitch lane`}>
       <div className="flex w-20 shrink-0 flex-col items-center justify-center border-r border-white/10 px-2" style={{ background: `${colour}18` }}>
         <strong className="text-lg" style={{ color: colour }}>{partName[0]}</strong>
         <span className="text-[10px] font-semibold uppercase tracking-[.16em]" style={{ color: colour }}>{partName}</span>
         {playerCount !== undefined && <span className="mt-1 text-xs text-slate-300">{playerCount} singers</span>}
       </div>
-      <canvas ref={ref} className="min-w-0 flex-1" />
+      <canvas ref={ref} className="block h-full min-w-0 flex-1 bg-[#08111f]" />
     </section>
   );
 }
