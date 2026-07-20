@@ -4,47 +4,65 @@ import { useMemo, useState } from 'react';
 import type { Song, SongNote } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 
-const PARTS = ['Shared guide', 'Soprano', 'Alto', 'Tenor', 'Bass'];
-const COLOURS = ['#f6c65b', '#ee86b5', '#f3a953', '#72aafb', '#6bd3a5'];
-
+const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
+const COLOURS = ['#ff60bc', '#ffae42', '#4ca0ff', '#43e2bb'];
+const MIN_MIDI = 42;
+const MAX_MIDI = 84;
 type EditableSong = Pick<Song, 'id' | 'title' | 'notes'>;
 
-export function ArrangementEditor({ song, onClose, onSave }: {
-  song: Song;
-  onClose: () => void;
-  onSave: (values: EditableSong) => Promise<void>;
-}) {
+export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClose: () => void; onSave: (values: EditableSong) => Promise<void>; }) {
   const [title, setTitle] = useState(song.title);
   const [notes, setNotes] = useState<SongNote[]>(() => playableNotes(song));
+  const [selectedId, setSelectedId] = useState<string | null>(() => playableNotes(song)[0]?.id ?? null);
+  const [selectedPart, setSelectedPart] = useState(0);
+  const [zoom, setZoom] = useState(16);
   const [saving, setSaving] = useState(false);
-  const sorted = useMemo(() => [...notes].sort((a, b) => a.start - b.start || a.part - b.part || a.midi - b.midi), [notes]);
+  const selected = notes.find(note => note.id === selectedId) ?? null;
+  const duration = Math.max(32, song.duration || 0, ...notes.map(note => note.end + 4));
+  const timelineWidth = Math.min(Math.max(duration * zoom, 900), 7200);
+  const visibleBars = Math.min(32, Math.ceil(duration / 2));
+  const noteByPart = useMemo(() => VOICES.map((_, index) => notes.filter(note => note.part === index || (note.part === -1 && index === selectedPart))), [notes, selectedPart]);
 
-  function update(id: string, values: Partial<SongNote>) {
-    setNotes(current => current.map(note => note.id === id ? { ...note, ...values } : note));
-  }
-  function addNote() {
-    const latest = notes.reduce((end, note) => Math.max(end, note.end), 0);
-    setNotes(current => [...current, { id: `note-${crypto.randomUUID()}`, part: -1, midi: 60, start: Math.round(latest * 10) / 10, end: Math.round((latest + 1) * 10) / 10, lyric: 'New lyric', velocity: 100 }]);
-  }
-  async function save() {
-    setSaving(true);
-    try {
-      await onSave({ id: song.id, title: title.trim() || song.title, notes: sorted.map(note => ({ ...note, start: Math.max(0, note.start), end: Math.max(note.start + .1, note.end) })) });
-    } finally { setSaving(false); }
-  }
+  function update(id: string, values: Partial<SongNote>) { setNotes(current => current.map(note => note.id === id ? { ...note, ...values } : note)); }
+  function selectNote(id: string) { const note = notes.find(item => item.id === id); if (note) setSelectedPart(note.part < 0 ? 0 : note.part); setSelectedId(id); }
+  function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60) { const id = `note-${crypto.randomUUID()}`; setNotes(current => [...current, { id, part, midi, start: round(start), end: round(start + 1), lyric: 'New lyric', velocity: 100 }]); setSelectedPart(part); setSelectedId(id); }
+  function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const start = Math.max(0, (event.clientX - bounds.left) / zoom); const midi = Math.max(MIN_MIDI, Math.min(MAX_MIDI, Math.round(MAX_MIDI - ((event.clientY - bounds.top) / bounds.height) * (MAX_MIDI - MIN_MIDI)))); addNote(part, start, midi); }
+  function duplicateSelected() { if (!selected) return; const id = `note-${crypto.randomUUID()}`; const copy = { ...selected, id, start: round(selected.end + .1), end: round(selected.end + .1 + (selected.end - selected.start)) }; setNotes(current => [...current, copy]); setSelectedId(id); }
+  function removeSelected() { if (!selectedId) return; setNotes(current => current.filter(note => note.id !== selectedId)); setSelectedId(null); }
+  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, round(note.start)), end: Math.max(round(note.start) + .1, round(note.end)) })) }); } finally { setSaving(false); } }
 
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-[#020712]/80 px-3 py-5 backdrop-blur-md sm:p-8">
-    <section className="mx-auto max-w-6xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#0b1726] shadow-2xl">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 bg-[#07111d] px-5 py-4 sm:px-7">
-        <div><p className="text-xs font-bold uppercase tracking-[.24em] text-[#f6c65b]">Song arrangement</p><h1 className="mt-1 font-serif text-2xl">Edit the sung targets</h1></div>
-        <div className="flex gap-2"><button onClick={onClose} disabled={saving} className="rounded-xl border border-white/15 px-4 py-2 text-sm">Cancel</button><button onClick={() => void save()} disabled={saving} className="rounded-xl bg-[#f6c65b] px-4 py-2 text-sm font-bold text-[#07111d] disabled:opacity-60">{saving ? 'Saving…' : 'Save arrangement'}</button></div>
-      </header>
-      <div className="p-5 sm:p-7">
-        <label className="block text-xs font-bold uppercase tracking-[.16em] text-slate-400">Song title<input value={title} onChange={event => setTitle(event.target.value)} className="mt-2 w-full rounded-xl border border-white/10 bg-[#07111d] px-4 py-3 text-lg text-white outline-none focus:border-[#f6c65b]" /></label>
-        <div className="mt-5 rounded-2xl border border-[#f6c65b]/20 bg-[#f6c65b]/[.06] p-4 text-sm text-[#f7df9b]">One row is one singable target. Use <b>Shared guide</b> for an unarranged melody, or assign Soprano, Alto, Tenor and Bass to create authentic independent lanes.</div>
-        <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10"><table className="min-w-[900px] w-full text-left text-sm"><thead className="bg-white/[.04] text-xs uppercase tracking-[.13em] text-slate-400"><tr><th className="px-3 py-3">Voice</th><th className="px-3 py-3">Lyric</th><th className="px-3 py-3">Pitch (MIDI)</th><th className="px-3 py-3">Start</th><th className="px-3 py-3">End</th><th className="px-3 py-3" /></tr></thead><tbody>{sorted.map(note => <tr key={note.id} className="border-t border-white/10"><td className="px-3 py-2"><select value={note.part} onChange={event => update(note.id, { part: Number(event.target.value) })} className="rounded-lg border border-white/10 bg-[#07111d] px-2 py-2" style={{ color: COLOURS[note.part + 1] ?? COLOURS[0] }}>{PARTS.map((voice, index) => <option key={voice} value={index - 1}>{voice}</option>)}</select></td><td className="px-3 py-2"><input value={note.lyric} onChange={event => update(note.id, { lyric: event.target.value })} className="w-full min-w-52 rounded-lg border border-white/10 bg-[#07111d] px-2 py-2" /></td><td className="px-3 py-2"><input type="number" min="24" max="108" value={note.midi} onChange={event => update(note.id, { midi: Number(event.target.value) })} className="w-24 rounded-lg border border-white/10 bg-[#07111d] px-2 py-2" /></td><td className="px-3 py-2"><input type="number" step="0.1" min="0" value={note.start} onChange={event => update(note.id, { start: Number(event.target.value) })} className="w-24 rounded-lg border border-white/10 bg-[#07111d] px-2 py-2" /></td><td className="px-3 py-2"><input type="number" step="0.1" min="0.1" value={note.end} onChange={event => update(note.id, { end: Number(event.target.value) })} className="w-24 rounded-lg border border-white/10 bg-[#07111d] px-2 py-2" /></td><td className="px-3 py-2"><button onClick={() => setNotes(current => current.filter(item => item.id !== note.id))} className="rounded-lg border border-red-300/30 px-3 py-2 text-red-200">Remove</button></td></tr>)}</tbody></table></div>
-        <button onClick={addNote} className="mt-4 rounded-xl border border-[#f6c65b]/40 bg-[#f6c65b]/10 px-4 py-2 text-sm font-semibold text-[#f7df9b]">+ Add target</button>
-      </div>
-    </section>
+  return <div className="fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
+    <header className="flex h-16 items-center gap-5 border-b border-white/10 bg-[#070a1b] px-5"><Brand /><nav className="hidden gap-5 text-xs text-slate-400 md:flex"><span>⌂ Home</span><span>♫ Library</span><b className="text-fuchsia-300">♫ Song Editor</b><span>♜ Leaderboards</span><span>♧ Rooms</span></nav><div className="ml-auto flex items-center gap-2"><span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-[10px] font-bold text-emerald-300">● LIVE</span><span className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 sm:block">Room Code <b className="ml-1 text-[#ffd15c]">ZHY32</b></span><button onClick={onClose} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button></div></header>
+    <div className="flex h-[calc(100vh-64px)] min-h-[620px] overflow-hidden">
+      <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#070b1e] p-3 lg:block"><p className="text-sm font-semibold">Song Editor</p><div className="mt-1 flex items-center gap-2"><input value={title} onChange={event => setTitle(event.target.value)} className="w-full border-0 bg-transparent text-xs text-slate-300 outline-none" /><span className="text-fuchsia-300">✎</span></div><div className="mt-4 space-y-2">{VOICES.map((voice, index) => <VoiceStrip key={voice} name={voice} index={index} active={selectedPart === index} onClick={() => setSelectedPart(index)} />)}</div><button onClick={() => addNote()} className="mt-3 w-full rounded-lg border border-dashed border-fuchsia-400/40 px-3 py-2 text-xs text-fuchsia-300">＋ Add Voice Target</button><div className="mt-6 border-t border-white/10 pt-4"><p className="text-[10px] tracking-[.16em] text-slate-500">PART MIXER</p><div className="mt-3 grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <div key={voice} className="rounded-lg bg-white/[.04] p-2 text-center"><b style={{ color: COLOURS[index] }}>{voice[0]}</b><div className="mx-auto mt-2 h-14 w-1 rounded-full bg-white/10"><span className="block w-full rounded-full" style={{ height: `${60 + index * 8}%`, background: COLOURS[index], transform: 'translateY(40%)' }} /></div><span className="mt-2 block text-[9px] text-slate-400">M</span></div>)}</div></div></aside>
+      <main className="min-w-0 flex-1 overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]"><EditorToolbar zoom={zoom} setZoom={setZoom} onAdd={() => addNote()} onDelete={removeSelected} onDuplicate={duplicateSelected} onSave={() => void save()} saving={saving} /><div className="flex h-[calc(100%-54px)] min-h-0"><section className="min-w-0 flex-1 overflow-auto p-3"><div className="mb-3 flex flex-wrap gap-2 text-xs"><Chip label="BPM 120" /><Chip label="Key C Major" /><Chip label="Time 4 / 4" /><span className="ml-auto rounded-lg border border-white/10 px-3 py-2 text-slate-400">Bar / Beat <b className="ml-1 text-white">17.2.3</b></span></div><div className="overflow-x-auto rounded-xl border border-[#7650d8]/30 bg-[#050716]"><div style={{ width: timelineWidth + 74 }}><div className="sticky left-0 z-20 flex h-9 border-b border-white/10 bg-[#0b0d22]"><div className="w-[74px] shrink-0 border-r border-white/10" />{Array.from({ length: visibleBars }, (_, index) => <span key={index} className="border-r border-white/[.07] px-2 pt-2 text-[10px] text-slate-500" style={{ width: zoom * 2 }}>{index * 2 + 1}</span>)}</div>{VOICES.map((voice, index) => <PianoTrack key={voice} name={voice} part={index} notes={noteByPart[index]} selectedId={selectedId} width={timelineWidth} zoom={zoom} onAdd={addAt} onSelect={selectNote} />)}</div></div><Automation notes={notes} /></section><Inspector selected={selected} update={update} onDelete={removeSelected} onDuplicate={duplicateSelected} /></div></main>
+    </div>
   </div>;
 }
+
+function Brand() { return <b className="text-xl">VOCAL<span className="text-fuchsia-400">Hero</span></b>; }
+function Chip({ label }: { label: string }) { return <span className="rounded-lg border border-white/10 bg-white/[.035] px-3 py-2 text-slate-400">{label}</span>; }
+function VoiceStrip({ name, index, active, onClick }: { name: string; index: number; active: boolean; onClick: () => void }) { return <button onClick={onClick} className="w-full rounded-xl border p-3 text-left" style={{ borderColor: active ? COLOURS[index] : `${COLOURS[index]}55`, background: active ? `${COLOURS[index]}19` : `${COLOURS[index]}08` }}><div className="flex items-center gap-2"><b className="text-2xl" style={{ color: COLOURS[index] }}>{name[0]}</b><span><b className="block text-xs" style={{ color: COLOURS[index] }}>{name.toUpperCase()}</b><span className="text-[10px] text-slate-500">⌁ mic · active</span></span></div><div className="mt-3 h-1 rounded-full bg-white/10"><span className="block h-full w-2/3 rounded-full" style={{ background: COLOURS[index] }} /></div></button>; }
+function EditorToolbar({ zoom, setZoom, onAdd, onDelete, onDuplicate, onSave, saving }: { zoom: number; setZoom: (value: number) => void; onAdd: () => void; onDelete: () => void; onDuplicate: () => void; onSave: () => void; saving: boolean }) { return <div className="flex h-[54px] items-center gap-2 overflow-x-auto border-b border-white/10 bg-[#0a0c20] px-3 text-xs"><button className="rounded-lg border border-fuchsia-400/40 bg-fuchsia-500/15 px-3 py-2 text-fuchsia-200">↖ Select</button><button onClick={onAdd} className="rounded-lg border border-white/10 px-3 py-2">✎ Draw</button><button onClick={onDelete} className="rounded-lg border border-white/10 px-3 py-2">⌫ Erase</button><button onClick={onDuplicate} className="rounded-lg border border-white/10 px-3 py-2">⧉ Duplicate</button><span className="h-6 w-px bg-white/10" /><button className="rounded-lg border border-white/10 px-3 py-2">▶ Play</button><button className="rounded-lg border border-white/10 px-3 py-2 text-rose-300">◉ Record</button><label className="ml-auto flex items-center gap-2 text-slate-400">Zoom<input type="range" min="8" max="28" value={zoom} onChange={event => setZoom(Number(event.target.value))} className="accent-fuchsia-400" /></label><button onClick={onSave} disabled={saving} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-bold text-cyan-100">{saving ? 'Saving…' : '▣ Save'}</button></div>; }
+function PianoTrack({ name, part, notes, selectedId, width, zoom, onAdd, onSelect }: { name: string; part: number; notes: SongNote[]; selectedId: string | null; width: number; zoom: number; onAdd: (part: number, event: React.MouseEvent<HTMLDivElement>) => void; onSelect: (id: string) => void }) { return <div className="flex h-32 border-b border-white/10"><div className="sticky left-0 z-10 flex w-[74px] shrink-0 flex-col justify-center border-r border-white/10 bg-[#0a0c1c] px-2"><b style={{ color: COLOURS[part] }}>{name[0]} <span className="text-xs">{name}</span></b><span className="mt-1 text-[9px] text-slate-500">C6<br />A5<br />F4<br />C3</span></div><div onDoubleClick={event => onAdd(part, event)} className="relative cursor-crosshair" style={{ width, backgroundImage: `repeating-linear-gradient(to bottom, transparent 0, transparent 15px, rgba(145,165,220,.12) 16px), repeating-linear-gradient(to right, transparent 0, transparent ${zoom - 1}px, rgba(145,165,220,.10) ${zoom}px)` }}>{notes.filter(note => note.part === part || note.part === -1).map(note => <button key={note.id} onClick={() => onSelect(note.id)} className="absolute overflow-hidden rounded-md px-1 text-left text-[10px] font-bold text-[#07111d] shadow-[0_0_13px]" style={{ left: note.start * zoom, top: `${Math.max(3, Math.min(86, 92 - ((note.midi - MIN_MIDI) / (MAX_MIDI - MIN_MIDI)) * 84))}%`, width: Math.max(18, (note.end - note.start) * zoom - 2), height: 15, transform: 'translateY(-50%)', background: COLOURS[part], color: '#07111d', boxShadow: selectedId === note.id ? `0 0 20px ${COLOURS[part]}` : undefined, outline: selectedId === note.id ? '2px solid white' : 'none' }}>{note.lyric}</button>)}</div></div>; }
+function Automation({ notes }: { notes: SongNote[] }) { const points = notes.slice(0, 18).map((note, index) => `${index * 55},${20 + (84 - note.midi) * .7}`).join(' '); return <div className="mt-3 rounded-xl border border-white/10 bg-[#060918] p-3"><p className="text-xs text-slate-400">♬ Dynamics <span className="ml-4 text-fuchsia-300">mf</span></p><svg className="mt-2 h-10 w-full" viewBox="0 0 1000 65" preserveAspectRatio="none"><polyline fill="none" stroke="#ff60bc" strokeWidth="2" points={points} /></svg><p className="text-xs text-slate-400">⌁ Breath <span className="ml-4 text-cyan-300">60%</span></p><svg className="mt-1 h-8 w-full" viewBox="0 0 1000 65" preserveAspectRatio="none"><polyline fill="none" stroke="#4ca0ff" strokeWidth="2" points={points} /></svg></div>; }
+function Inspector({ selected, update, onDelete, onDuplicate }: { selected: SongNote | null; update: (id: string, values: Partial<SongNote>) => void; onDelete: () => void; onDuplicate: () => void }) {
+  if (!selected) return <aside className="hidden w-60 shrink-0 border-l border-white/10 bg-[#090b1e] p-4 xl:block"><p className="text-xs tracking-[.18em] text-slate-500">INSPECTOR</p><p className="mt-6 text-sm text-slate-400">Select a note to edit its properties.</p></aside>;
+  const field = (label: string, value: string | number, setter: (value: string) => void, type = 'text') => <label className="mt-3 block text-[10px] tracking-[.12em] text-slate-500">{label}<input type={type} value={value} onChange={event => setter(event.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-[#050816] px-3 py-2 text-sm text-white outline-none focus:border-fuchsia-400" /></label>;
+  return <aside className="hidden w-60 shrink-0 overflow-y-auto border-l border-white/10 bg-[#090b1e] p-4 xl:block">
+    <div className="border-b border-fuchsia-400 pb-3 text-xs font-bold text-fuchsia-300">INSPECTOR</div>
+    <p className="mt-4 text-[10px] tracking-[.15em] text-slate-500">NOTE PROPERTIES</p>
+    <label className="mt-3 block text-[10px] tracking-[.12em] text-slate-500">VOICE PART
+      <select value={selected.part} onChange={event => update(selected.id, { part: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-fuchsia-400/30 bg-[#1c1033] px-3 py-2 text-sm text-fuchsia-100">
+        {VOICES.map((voice, index) => <option key={voice} value={index}>{voice}</option>)}<option value={-1}>Shared guide</option>
+      </select>
+    </label>
+    {field('PITCH (MIDI)', selected.midi, value => update(selected.id, { midi: Number(value) }), 'number')}
+    {field('START', selected.start, value => update(selected.id, { start: Number(value) }), 'number')}
+    {field('END', selected.end, value => update(selected.id, { end: Number(value) }), 'number')}
+    {field('LYRICS', selected.lyric, value => update(selected.id, { lyric: value }))}
+    <label className="mt-4 block text-[10px] tracking-[.12em] text-slate-500">VELOCITY <input type="range" min="0" max="127" value={selected.velocity} onChange={event => update(selected.id, { velocity: Number(event.target.value) })} className="mt-2 w-full accent-fuchsia-400" /></label>
+    <div className="mt-5 grid grid-cols-2 gap-2"><button onClick={onDuplicate} className="rounded-lg border border-fuchsia-300/30 px-2 py-2 text-xs text-fuchsia-200">Duplicate</button><button onClick={onDelete} className="rounded-lg border border-rose-300/30 px-2 py-2 text-xs text-rose-200">Remove</button></div>
+  </aside>;
+}
+function round(value: number) { return Math.round(value * 100) / 100; }
