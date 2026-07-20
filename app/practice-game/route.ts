@@ -1,22 +1,7 @@
-import { NextResponse } from 'next/server';
-import { readFile } from 'fs/promises';
-import path from 'path';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET() {
-  let html = await readFile(
-    path.join(process.cwd(), 'game', 'vocal-hero.html'),
-    'utf8'
-  );
-
-  // Inject Supabase credentials into the placeholder variables
-  const sbUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL  ?? '';
-  const sbKey  = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
-
-  html = html
-    .replace("'__SB_URL__'", JSON.stringify(sbUrl))
-    .replace("'__SB_KEY__'", JSON.stringify(sbKey));
-
-  return new NextResponse(html, {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
-  });
+export async function GET(request: NextRequest) {
+  // Keep the legacy HTML file in /game as a rollback artefact, while moving
+  // the Worship Prep iframe onto the modern React multiplayer experience.
+  return NextResponse.redirect(new URL('/vocal-hero', request.url));
 }

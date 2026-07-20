@@ -1,169 +1,181 @@
 'use client';
 
-// Scoring logic: compares live player pitch against the target SATB curve,
-// accumulates deltas, and batches them to Supabase every flushIntervalMs.
-
 import { PitchEngine } from './pitchEngine';
-import type { SatbPart } from './types';
+import type { SatbPart, SongNote } from './types';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
-/** Tolerance in cents for each difficulty level */
 export const CENT_TOLERANCE: Record<Difficulty, number> = {
-  easy:   100,
-  medium:  50,
-  hard:    25,
+  easy: 100,
+  medium: 50,
+  hard: 25,
 };
 
-/** Maximum points awarded per frame at perfect pitch */
-const MAX_DELTA = 10;
+const ONSET_WINDOW_SEC = 0.35;
+const NOTE_MAX_POINTS = 30;
+const WEIGHTS = { onset: 0.25, hold: 0.35, pitch: 0.4 };
 
-export interface ScoreEngineOptions {
-  part:            SatbPart;
-  songDuration:    number;   // seconds — used to map elapsed time → curve index
-  playerId:        string;
-  sessionId:       string;
-  difficulty?:     Difficulty;
-  flushIntervalMs?: number;  // default 500
-  onScoreUpdate:   (delta: number, total: number) => void;
+export interface NoteScoreResult {
+  noteId: string;
+  onset: number;
+  hold: number;
+  pitch: number;
+  points: number;
 }
 
+export interface ScoreEngineOptions {
+  part: SatbPart;
+  partIndex: number;
+  notes?: SongNote[];
+  songDuration: number;
+  playerId: string;
+  sessionId: string;
+  difficulty?: Difficulty;
+  flushIntervalMs?: number;
+  onScoreUpdate: (delta: number, total: number) => void;
+  onNoteResult?: (result: NoteScoreResult) => void;
+}
+
+interface ActiveNote {
+  note: SongNote;
+  onsetCaptured: boolean;
+  onsetDelaySec: number | null;
+  voicedSec: number;
+  inTuneSec: number;
+}
+
+/**
+ * Scores the local microphone only. A note is resolved after its target window
+ * has passed, using onset, sustained voicing and pitch accuracy. This keeps the
+ * strike-line experience fair without uploading raw audio.
+ */
 export class ScoreEngine {
-  private total         = 0;
-  private pendingDeltas: number[] = [];
-  private flushTimer:   ReturnType<typeof setInterval> | null = null;
+  private total = 0;
+  private pending: number[] = [];
+  private flushTimer: ReturnType<typeof setInterval> | null = null;
   private readonly opts: Required<ScoreEngineOptions>;
+  private readonly noteList: SongNote[];
+  private cursor = 0;
+  private current: ActiveNote | null = null;
+  private lastSampleSec = 0;
+  private attempted = 0;
+  private hit = 0;
 
   constructor(options: ScoreEngineOptions) {
     this.opts = {
-      difficulty:      'medium',
-      flushIntervalMs: 500,
+      difficulty: 'medium',
+      flushIntervalMs: 1000,
+      notes: [],
+      onNoteResult: () => {},
       ...options,
     };
+    this.noteList = this.opts.notes
+      .filter(note => note.part === this.opts.partIndex)
+      .slice()
+      .sort((a, b) => a.start - b.start);
   }
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
-
-  start(): void {
-    if (this.flushTimer) return;
-    this.flushTimer = setInterval(() => this.flush(), this.opts.flushIntervalMs);
+  start() {
+    if (!this.flushTimer) this.flushTimer = setInterval(() => void this.flush(), this.opts.flushIntervalMs);
   }
 
-  async stop(): Promise<void> {
-    if (this.flushTimer) {
-      clearInterval(this.flushTimer);
-      this.flushTimer = null;
-    }
-    await this.flush(); // drain remaining deltas
+  async stop() {
+    if (this.flushTimer) clearInterval(this.flushTimer);
+    this.flushTimer = null;
+    if (this.current) this.resolve(this.current.note);
+    await this.flush();
   }
 
-  reset(): void {
-    this.total = 0;
-    this.pendingDeltas = [];
-  }
+  get currentTotal() { return this.total; }
+  get stats() { return { attempted: this.attempted, hit: this.hit, accuracy: this.attempted ? Math.round(this.hit / this.attempted * 100) : 0 }; }
 
-  get currentTotal(): number {
-    return this.total;
-  }
-
-  // ── Scoring ───────────────────────────────────────────────────────────────
-
-  /**
-   * Call this on every pitch sample from PitchEngine.
-   *
-   * @param playerHz   Raw frequency from mic (0 = silence)
-   * @param elapsedSec Seconds since song started
-   * @returns Points awarded this frame (0–MAX_DELTA)
-   */
   scorePitch(playerHz: number, elapsedSec: number): number {
-    const { part, songDuration, difficulty } = this.opts;
-    const curve = part.curve;
+    if (!this.noteList.length) return this.scoreLegacyCurve(playerHz, elapsedSec);
+    const dt = Math.min(Math.max(elapsedSec - this.lastSampleSec, 0), 0.25);
+    this.lastSampleSec = elapsedSec;
+    let awarded = 0;
 
-    if (!curve || curve.length === 0) return 0;
+    while (this.cursor < this.noteList.length && this.noteList[this.cursor].end <= elapsedSec) {
+      awarded += this.resolve(this.noteList[this.cursor]);
+      this.cursor += 1;
+    }
+    const candidate = this.noteList[this.cursor];
+    if (!candidate || elapsedSec < candidate.start - ONSET_WINDOW_SEC) return awarded;
 
-    // Map elapsed time → curve index (curve has 24 keyframes over songDuration)
-    const progress  = Math.min(elapsedSec / songDuration, 1);
-    const rawIndex  = progress * (curve.length - 1);
-    const loIdx     = Math.floor(rawIndex);
-    const hiIdx     = Math.min(loIdx + 1, curve.length - 1);
-    const frac      = rawIndex - loIdx;
+    if (!this.current || this.current.note.id !== candidate.id) {
+      this.current = { note: candidate, onsetCaptured: false, onsetDelaySec: null, voicedSec: 0, inTuneSec: 0 };
+    }
+    const targetHz = PitchEngine.midiToHz(candidate.midi);
+    const voiced = playerHz > 0;
+    const inTune = voiced && Math.abs(PitchEngine.centsDiff(playerHz, targetHz)) <= CENT_TOLERANCE[this.opts.difficulty];
+    if (!this.current.onsetCaptured && voiced) {
+      this.current.onsetCaptured = true;
+      this.current.onsetDelaySec = elapsedSec - candidate.start;
+    }
+    if (elapsedSec >= candidate.start && elapsedSec < candidate.end && voiced) {
+      this.current.voicedSec += dt;
+      if (inTune) this.current.inTuneSec += dt;
+    }
+    return awarded;
+  }
 
-    // Interpolate between adjacent keyframes for smoother targets
-    const targetNorm = curve[loIdx] * (1 - frac) + curve[hiIdx] * frac;
+  targetNormAt(elapsedSec: number): number {
+    const active = this.noteList.find(note => elapsedSec >= note.start && elapsedSec < note.end);
+    if (active) return PitchEngine.normalise(PitchEngine.midiToHz(active.midi), this.opts.part.rangeMin, this.opts.part.rangeMax);
+    const curve = this.opts.part.curve;
+    if (!curve?.length) return 0;
+    const raw = Math.min(elapsedSec / this.opts.songDuration, 1) * (curve.length - 1);
+    const low = Math.floor(raw), high = Math.min(low + 1, curve.length - 1);
+    return curve[low] * (1 - (raw - low)) + curve[high] * (raw - low);
+  }
 
-    if (playerHz <= 0) {
-      // Silence — no points, no penalty
+  private resolve(note: SongNote): number {
+    const tracking = this.current?.note.id === note.id ? this.current : null;
+    this.current = null;
+    this.attempted += 1;
+    if (!tracking) {
+      this.opts.onNoteResult({ noteId: note.id, onset: 0, hold: 0, pitch: 0, points: 0 });
       return 0;
     }
-
-    // Convert target norm → Hz for cents comparison
-    const targetHz = PitchEngine.denormalise(targetNorm, part.rangeMin, part.rangeMax);
-    const cents    = Math.abs(PitchEngine.centsDiff(playerHz, targetHz));
-    const tol      = CENT_TOLERANCE[difficulty];
-
-    // Linear score: full points at 0 cents, zero points at tolerance
-    const delta = cents >= tol
-      ? 0
-      : Math.round(MAX_DELTA * (1 - cents / tol));
-
-    if (delta > 0) {
-      this.total += delta;
-      this.pendingDeltas.push(delta);
-      this.opts.onScoreUpdate(delta, this.total);
+    const duration = Math.max(note.end - note.start, 0.0001);
+    const onset = tracking.onsetCaptured && tracking.onsetDelaySec !== null
+      ? clamp01(1 - Math.abs(tracking.onsetDelaySec) / ONSET_WINDOW_SEC) : 0;
+    const hold = clamp01(tracking.voicedSec / duration);
+    const pitch = tracking.voicedSec ? clamp01(tracking.inTuneSec / tracking.voicedSec) : 0;
+    const points = Math.round((WEIGHTS.onset * onset + WEIGHTS.hold * hold + WEIGHTS.pitch * pitch) * NOTE_MAX_POINTS);
+    if (points > 0) {
+      this.total += points;
+      this.pending.push(points);
+      this.hit += 1;
+      this.opts.onScoreUpdate(points, this.total);
     }
-
-    return delta;
+    this.opts.onNoteResult({ noteId: note.id, onset, hold, pitch, points });
+    return points;
   }
 
-  /**
-   * Returns the target normalised pitch (0–1) at a given elapsed time.
-   * Useful for drawing the target line on screen.
-   */
-  targetNormAt(elapsedSec: number): number {
-    const curve = this.opts.part.curve;
-    if (!curve || curve.length === 0) return 0;
-    const progress = Math.min(elapsedSec / this.opts.songDuration, 1);
-    const rawIndex = progress * (curve.length - 1);
-    const loIdx    = Math.floor(rawIndex);
-    const hiIdx    = Math.min(loIdx + 1, curve.length - 1);
-    const frac     = rawIndex - loIdx;
-    return curve[loIdx] * (1 - frac) + curve[hiIdx] * frac;
+  private scoreLegacyCurve(playerHz: number, elapsedSec: number): number {
+    if (playerHz <= 0) return 0;
+    const target = this.targetNormAt(elapsedSec);
+    const hz = PitchEngine.denormalise(target, this.opts.part.rangeMin, this.opts.part.rangeMax);
+    const cents = Math.abs(PitchEngine.centsDiff(playerHz, hz));
+    const points = cents >= CENT_TOLERANCE[this.opts.difficulty] ? 0 : Math.round(10 * (1 - cents / CENT_TOLERANCE[this.opts.difficulty]));
+    if (points) { this.total += points; this.pending.push(points); this.opts.onScoreUpdate(points, this.total); }
+    return points;
   }
 
-  /**
-   * Returns accuracy as a percentage (0–100) based on frames with score > 0.
-   * Must be tracked externally — here we provide a helper that takes totals.
-   */
-  static accuracy(scoredFrames: number, totalFrames: number): number {
-    if (totalFrames === 0) return 0;
-    return Math.round((scoredFrames / totalFrames) * 100);
-  }
-
-  // ── Flush to Supabase ─────────────────────────────────────────────────────
-
-  private async flush(): Promise<void> {
-    if (this.pendingDeltas.length === 0) return;
-
-    const batch = [...this.pendingDeltas];
-    this.pendingDeltas = [];
-
-    const total = batch.reduce((s, d) => s + d, 0);
-    if (total === 0) return;
-
+  private async flush() {
+    if (!this.pending.length) return;
+    const delta = this.pending.reduce((total, value) => total + value, 0);
+    this.pending = [];
     try {
       await fetch('/api/score', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          playerId:  this.opts.playerId,
-          sessionId: this.opts.sessionId,
-          delta:     total,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: this.opts.playerId, sessionId: this.opts.sessionId, delta }),
       });
     } catch {
-      // Non-fatal — score is already tracked locally in this.total
-      // Put deltas back so next flush retries them
-      this.pendingDeltas.unshift(...batch);
+      this.pending.unshift(delta);
     }
   }
 }
+
+function clamp01(value: number) { return Math.min(1, Math.max(0, value)); }

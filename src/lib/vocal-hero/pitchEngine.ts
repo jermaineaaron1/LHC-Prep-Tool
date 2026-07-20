@@ -238,6 +238,10 @@ export class PitchEngine {
     if (playerHz <= 0 || targetHz <= 0) return 0;
     return 1200 * Math.log2(playerHz / targetHz);
   }
+
+  static midiToHz(midi: number): number {
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
