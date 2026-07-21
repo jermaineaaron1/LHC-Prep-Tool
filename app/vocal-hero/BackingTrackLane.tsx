@@ -4,11 +4,12 @@ import { useRef, useState } from 'react';
 import type { BackingTrackClip, BackingTrackSettings } from '@/lib/vocal-hero/types';
 
 type DragMode = 'move' | 'trim-left' | 'trim-right';
-type DragState = { mode: DragMode; x: number; clip: BackingTrackClip };
+type DragState = { mode: DragMode; x: number; clip: BackingTrackClip; moved: boolean };
 type MenuState = { x: number; y: number; time: number; clipId: string | null };
 
-export function BackingTrackLane({ url, fileName, width, zoom, playhead, settings, onClipsChange, onOpenSettings }: { url: string; fileName: string; width: number; zoom: number; playhead: number | null; settings: BackingTrackSettings; onClipsChange: (clips: BackingTrackClip[]) => void; onOpenSettings: () => void }) {
+export function BackingTrackLane({ url, fileName, width, zoom, playhead, settings, onClipsChange, onOpenSettings, onSeek }: { url: string; fileName: string; width: number; zoom: number; playhead: number | null; settings: BackingTrackSettings; onClipsChange: (clips: BackingTrackClip[]) => void; onOpenSettings: () => void; onSeek: (time: number) => void }) {
   const dragRef = useRef<DragState | null>(null);
+  const suppressSeekRef = useRef(false);
   const clipboardRef = useRef<BackingTrackClip | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -33,11 +34,12 @@ export function BackingTrackLane({ url, fileName, width, zoom, playhead, setting
   function beginDrag(event: React.PointerEvent<HTMLElement>, clip: BackingTrackClip, mode: DragMode) {
     if (event.button !== 0) return;
     event.preventDefault(); event.stopPropagation(); setMenu(null); setSelectedId(clip.id);
-    dragRef.current = { mode, x: event.clientX, clip: { ...clip } };
+    dragRef.current = { mode, x: event.clientX, clip: { ...clip }, moved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function drag(event: React.PointerEvent<HTMLElement>) {
     const active = dragRef.current; if (!active) return;
+    if (Math.abs(event.clientX - active.x) > 3) active.moved = true;
     const delta = (event.clientX - active.x) / zoom;
     let candidate = { ...active.clip };
     if (active.mode === 'move') candidate.timeline_start = Math.max(0, Math.round((active.clip.timeline_start + delta) * 100) / 100);
@@ -49,7 +51,7 @@ export function BackingTrackLane({ url, fileName, width, zoom, playhead, setting
     if (active.mode === 'trim-right') candidate.source_end = Math.round(Math.max(active.clip.source_start + .1, Math.min(settings.media_duration ?? Number.POSITIVE_INFINITY, active.clip.source_end + delta)) * 100) / 100;
     if (!conflicts(candidate, clips)) persist(clips.map(clip => clip.id === candidate.id ? candidate : clip));
   }
-  function finishDrag(event: React.PointerEvent<HTMLElement>) { drag(event); dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }
+  function finishDrag(event: React.PointerEvent<HTMLElement>) { drag(event); suppressSeekRef.current = Boolean(dragRef.current?.moved); dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }
   function splitClip(clip: BackingTrackClip, timelineTime: number) {
     if (timelineTime <= clip.timeline_start + .05 || timelineTime >= clipEnd(clip) - .05) return;
     const sourceSplit = clip.source_start + (timelineTime - clip.timeline_start);
@@ -89,7 +91,7 @@ export function BackingTrackLane({ url, fileName, width, zoom, playhead, setting
 
   return <div className="flex h-32 border-b border-cyan-300/20 bg-[#061421]">
     <div className="sticky left-0 z-10 flex w-[124px] shrink-0 flex-col justify-center border-r border-cyan-300/20 bg-[#081522] px-2 leading-tight"><b className="text-[19px] text-cyan-200">TRACK</b><span className="mt-1 truncate text-[16px] text-slate-400" title={url ? fileName || 'Backing track' : 'Not loaded'}>{url ? fileName || 'Backing track' : 'Not loaded'}</span><span className="mt-1 whitespace-nowrap font-mono text-[16px] text-cyan-100">{formatTime(url ? currentSourceTime ?? 0 : null)} / {formatTime(url ? totalDuration : null)}</span><span className="mt-1 text-[15px] text-cyan-300">Drag · trim<br />right-click</span></div>
-    <div onContextMenu={openMenu} onDoubleClick={handleDoubleClick} onPointerDown={() => { setMenu(null); setSelectedId(null); }} className="relative overflow-hidden" style={{ width }}>
+    <div onContextMenu={openMenu} onDoubleClick={handleDoubleClick} onClick={event => { if (suppressSeekRef.current) { suppressSeekRef.current = false; return; } onSeek(timeAt(event.clientX, event.currentTarget)); }} onPointerDown={() => { setMenu(null); setSelectedId(null); }} className="relative cursor-pointer overflow-hidden" style={{ width }}>
       {url ? <>
         {ordered.map((clip, index) => <div key={clip.id} onPointerDown={event => beginDrag(event, clip, 'move')} onPointerMove={drag} onPointerUp={finishDrag} onPointerCancel={finishDrag} className={`absolute inset-y-3 cursor-grab touch-none rounded-md border bg-cyan-300/10 active:cursor-grabbing ${selectedId === clip.id ? 'z-[4] border-white shadow-[0_0_16px_#67e8f966]' : 'z-[2] border-cyan-300/40'}`} style={{ left: clip.timeline_start * zoom, width: Math.max(12, (clip.source_end - clip.source_start) * zoom), backgroundImage: 'repeating-linear-gradient(90deg,transparent 0,transparent 5px,rgba(103,232,249,.38) 6px,rgba(103,232,249,.38) 8px,transparent 9px,transparent 13px)' }}>
           <button aria-label="Trim clip start" title="Drag right to skip the beginning" onPointerDown={event => beginDrag(event, clip, 'trim-left')} onPointerMove={drag} onPointerUp={finishDrag} onPointerCancel={finishDrag} className="absolute inset-y-0 left-0 z-10 w-3 cursor-ew-resize rounded-l bg-cyan-100/80 opacity-70 hover:opacity-100" />
