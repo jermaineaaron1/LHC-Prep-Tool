@@ -5017,9 +5017,10 @@
         <div id="sfSearchCard" class="lhc-card" style="margin-bottom: 16px;">
           <div id="sfCommandHeader">
           <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
-            <div>
-              <p class="lhc-section-title">Library</p>
-              <h3 class="font-cinzel text-lg font-bold text-slate-800">Find Worship Songs</h3>
+            <div class="sf-command-copy">
+              <p class="lhc-section-title"><i class="fa-solid fa-wave-square"></i> Worship music catalogue</p>
+              <h3 class="font-cinzel text-lg font-bold text-slate-800">Your service starts with the right song.</h3>
+              <p class="sf-command-subtitle">Search lyrics, themes, scripture and resources in one curated library.</p>
             </div>
             <div class="flex gap-2 flex-wrap items-center">
               <button class="lhc-pill-button" id="allSongsBtn" onclick="showAllSongs()" title="Show all songs A–Z">
@@ -5035,8 +5036,8 @@
           </div>
 
           <!-- Search Input with Suggestions -->
-          <div class="relative mb-4">
-            <label class="form-label" for="searchInput">Search</label>
+          <div class="relative sf-search-field">
+            <label class="form-label" for="searchInput">Search the catalogue</label>
             <div class="relative">
               <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                 <i class="fa-solid fa-magnifying-glass"></i>
@@ -5045,7 +5046,7 @@
                 id="searchInput" 
                 type="search" 
                 class="form-input pl-11 pr-10" 
-                placeholder="Type to search songs starting with..."
+                placeholder="Search title, artist, theme or scripture..."
                 autocomplete="off"
               >
               <button id="clearSearchBtn" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 hidden" title="Clear search">
@@ -5054,6 +5055,16 @@
               <!-- Search Suggestions Dropdown -->
               <div id="searchSuggestions"></div>
             </div>
+            <div class="sf-search-foot">
+              <span><i class="fa-solid fa-wand-magic-sparkles"></i> Try “Advent”, “Psalm 23” or an artist name</span>
+              <span class="sf-key-hint">/ to focus</span>
+            </div>
+          </div>
+          <div class="sf-library-metrics" aria-label="Library overview">
+            <div><strong id="sfLibraryMetric">0</strong><span>Songs</span></div>
+            <div><strong id="sfLyricsMetric">0</strong><span>Lyrics ready</span></div>
+            <div><strong id="sfMediaMetric">0</strong><span>With media</span></div>
+            <div class="sf-metric-note"><i class="fa-solid fa-circle-check"></i><span>Ready for Orders &amp; Songbooks</span></div>
           </div>
           </div>
 
@@ -5135,6 +5146,13 @@
         <div id="sfResultsGrid">
         <!-- Song List Container (List View, not Grid) -->
         <div id="sfSongListCard" class="lhc-card" style="padding: 0; overflow: hidden;">
+          <div class="sf-catalog-head">
+            <div>
+              <span class="sf-eyebrow">Catalogue</span>
+              <h4>Browse songs</h4>
+            </div>
+            <span class="sf-catalog-hint"><i class="fa-solid fa-arrow-pointer"></i> Select to open</span>
+          </div>
           <div id="songListContainer"></div>
 
           <!-- Empty State / Placeholder -->
@@ -5151,9 +5169,11 @@
              full-viewport modal behavior, completely unchanged. -->
         <div id="sfWorkspacePanel" class="lhc-card">
           <div class="sf-workspace-empty">
-            <div class="sf-workspace-empty-icon"><i class="fa-solid fa-music"></i></div>
-            <h4>Select a song</h4>
-            <p>Choose a song from the list to preview its lyrics, chords, and resources here.</p>
+            <div class="sf-workspace-empty-art"><span></span><i class="fa-solid fa-music"></i></div>
+            <span class="sf-eyebrow">Song dossier</span>
+            <h4>Everything for rehearsal and worship</h4>
+            <p>Select a song to inspect its lyrics and chords, watch media, open documents, edit details, or send it directly to an Order or Songbook.</p>
+            <div class="sf-workspace-capabilities"><span><i class="fa-solid fa-file-lines"></i> Chord sheet</span><span><i class="fa-brands fa-youtube"></i> Media</span><span><i class="fa-solid fa-paperclip"></i> Documents</span></div>
           </div>
   <!-- ==================== MODAL: LYRICS PREVIEW (from song card) ==================== -->
   <div id="lyricsPreviewModal" class="modal-overlay">
@@ -11115,6 +11135,7 @@ function closeLyricsPreviewModal() {
   if (select) select.value = '0';
   STATE.lyricsPreviewEditMode = false;
   var _srg = document.getElementById('sfResultsGrid'); if (_srg) _srg.classList.remove('sf-song-active');
+  document.querySelectorAll('#songListContainer .song-list-item').forEach(function(row) { row.classList.remove('is-selected'); });
   _lpSyncModalParent(false);
   _lpHideScrollCue();
   // Exit fullscreen if active
@@ -14815,9 +14836,10 @@ window.loadEditSongData = function(song) {
     if (f.q) {
       var q = f.q.toLowerCase();
       result = result.filter(function(s) {
-        // Match only from the START of the title (first characters)
-        var title = (s.title || '').toLowerCase();
-        return title.indexOf(q) === 0; // Must start with the search query
+        // Premium catalogue search: match the fields people actually use
+        // when planning worship, while keeping exact title matches first via sort.
+        return [s.title, s.artist, s.theme, s.scripture, s.style, s.season]
+          .some(function(value) { return String(value || '').toLowerCase().indexOf(q) >= 0; });
       });
     }
 
@@ -15819,40 +15841,62 @@ window.loadEditSongData = function(song) {
     var spotifyUrls = allMediaUrls.filter(function(u) { return u.includes('spotify.com'); });
     var docUrls = Array.isArray(song.attachments) ? song.attachments.map(function(a) { return a.url || a; }).filter(Boolean) : [];
 
-    var h = '<div class="song-list-item" data-song-id="' + escapeHtml(song.id) + '">';
-    h += '<div class="flex-1 min-w-0">';
-    h += '<div class="font-semibold text-slate-800 truncate song-title-link" data-id="' + escapeHtml(song.id) + '">' + escapeHtml(song.title) + '</div>';
-    h += '<div class="text-sm text-slate-500 truncate">' + escapeHtml(song.artist || 'Unknown Artist') + '</div>';
-    if (song.scripture) h += '<div class="text-xs text-indigo-600 truncate mt-1"><i class="fa-solid fa-book-open mr-1"></i>' + escapeHtml(song.scripture) + '</div>';
-    h += '<div class="flex flex-wrap gap-1 mt-2">' + pills.join('') + '</div>';
+    var isSelected = STATE.lyricsCurrentSong && STATE.lyricsCurrentSong.id === song.id;
+    var initial = (song.title || '?').charAt(0).toUpperCase();
+    var resourceCount = (song.lyrics ? 1 : 0) + docUrls.length + youtubeUrls.length + spotifyUrls.length;
+    var h = '<article class="song-list-item' + (isSelected ? ' is-selected' : '') + '" data-song-id="' + escapeHtml(song.id) + '" tabindex="0">';
+    h += '<div class="sf-song-monogram" aria-hidden="true"><span>' + escapeHtml(initial) + '</span><small>' + resourceCount + '</small></div>';
+    h += '<div class="sf-song-body">';
+    h += '<div class="sf-song-title-row"><div class="song-title-link" data-id="' + escapeHtml(song.id) + '">' + escapeHtml(song.title) + '</div>';
+    if (song.key) h += '<span class="sf-key-badge">' + escapeHtml(song.key) + '</span>';
     h += '</div>';
-    h += '<div class="flex gap-2 shrink-0 items-start">';
-    h += '<button class="lhc-pill-button text-xs btn-lyrics-preview" data-id="' + escapeHtml(song.id) + '" title="View Lyrics"><i class="fa-solid fa-file-lines"></i> Lyrics</button>';
-    h += '<button class="lhc-pill-button text-xs btn-add-order" data-id="' + escapeHtml(song.id) + '" title="Add to Order"><i class="fa-solid fa-plus"></i> Order</button>';
+    h += '<div class="sf-song-artist">' + escapeHtml(song.artist || 'Unknown Artist') + '</div>';
+    if (song.scripture) h += '<div class="sf-song-scripture"><i class="fa-solid fa-book-open"></i>' + escapeHtml(song.scripture) + '</div>';
+    h += '<div class="sf-song-pills">' + pills.filter(function(_, idx) { return idx > 0; }).slice(0, 3).join('') + '</div>';
+    h += '<div class="sf-resource-status">';
+    h += '<span class="' + (song.lyrics ? 'is-ready' : '') + '"><i class="fa-solid fa-file-lines"></i> Lyrics</span>';
+    h += '<span class="' + (youtubeUrls.length || spotifyUrls.length ? 'is-ready' : '') + '"><i class="fa-solid fa-circle-play"></i> Media</span>';
+    h += '<span class="' + (docUrls.length ? 'is-ready' : '') + '"><i class="fa-solid fa-paperclip"></i> Files</span>';
+    h += '</div></div>';
+    h += '<div class="sf-song-actions">';
+    h += '<button class="sf-open-song btn-lyrics-preview" data-id="' + escapeHtml(song.id) + '" title="Open song workspace"><span>Open</span><i class="fa-solid fa-arrow-right"></i></button>';
+    h += '<button class="sf-action-icon btn-add-order" data-id="' + escapeHtml(song.id) + '" title="Add to Order or Songbook"><i class="fa-solid fa-plus"></i></button>';
+    h += '<button class="sf-action-icon edit-song-btn" data-id="' + escapeHtml(song.id) + '" title="Edit song details"><i class="fa-solid fa-pen"></i></button>';
 
     // GOOGLE DOC BUTTON - if multiple, show count badge
     if (docUrls.length > 0) {
       var docBadge = docUrls.length > 1 ? '<span class="link-count-badge">' + docUrls.length + '</span>' : '';
-      h += '<button class="lhc-pill-button text-xs btn-doc-preview" data-id="' + escapeHtml(song.id) + '" data-urls="' + escapeHtml(JSON.stringify(docUrls)) + '" data-title="' + escapeHtml(song.title) + '" title="Preview Document" style="background:#e0f2fe;border-color:#7dd3fc;position:relative;"><i class="fa-solid fa-file-lines text-blue-600"></i>' + docBadge + '</button>';
+      h += '<button class="sf-action-icon btn-doc-preview" data-id="' + escapeHtml(song.id) + '" data-urls="' + escapeHtml(JSON.stringify(docUrls)) + '" data-title="' + escapeHtml(song.title) + '" title="Preview document"><i class="fa-solid fa-file-lines"></i>' + docBadge + '</button>';
     }
     
     // YOUTUBE BUTTON - if multiple, show count badge
     if (youtubeUrls.length > 0) {
       var ytBadge = youtubeUrls.length > 1 ? '<span class="link-count-badge">' + youtubeUrls.length + '</span>' : '';
-      h += '<button class="lhc-pill-button text-xs btn-youtube-preview" data-id="' + escapeHtml(song.id) + '" data-urls="' + escapeHtml(JSON.stringify(youtubeUrls)) + '" data-title="' + escapeHtml(song.title) + '" title="Preview Video" style="position:relative;"><i class="fa-brands fa-youtube text-red-500"></i>' + ytBadge + '</button>';
+      h += '<button class="sf-action-icon btn-youtube-preview" data-id="' + escapeHtml(song.id) + '" data-urls="' + escapeHtml(JSON.stringify(youtubeUrls)) + '" data-title="' + escapeHtml(song.title) + '" title="Watch video"><i class="fa-brands fa-youtube"></i>' + ytBadge + '</button>';
     }
 
     // SPOTIFY BUTTON - if any spotify links
     if (spotifyUrls.length > 0) {
       var spBadge = spotifyUrls.length > 1 ? '<span class="link-count-badge" style="background:#1DB954;">' + spotifyUrls.length + '</span>' : '';
-      h += '<button class="lhc-pill-button text-xs btn-spotify-preview" data-id="' + escapeHtml(song.id) + '" data-urls="' + escapeHtml(JSON.stringify(spotifyUrls)) + '" data-title="' + escapeHtml(song.title) + '" title="Spotify" style="background:#d1fae5;border-color:#6ee7b7;position:relative;"><i class="fa-brands fa-spotify" style="color:#1DB954;"></i>' + spBadge + '</button>';
+      h += '<button class="sf-action-icon btn-spotify-preview" data-id="' + escapeHtml(song.id) + '" data-urls="' + escapeHtml(JSON.stringify(spotifyUrls)) + '" data-title="' + escapeHtml(song.title) + '" title="Open Spotify"><i class="fa-brands fa-spotify"></i>' + spBadge + '</button>';
     }
     
-    h += '</div></div>';
+    h += '</div></article>';
     return h;
   }
 
   function bindSongItemEvents() {
+    // The full catalogue card opens the dossier; compact action buttons retain
+    // their own existing behaviours without triggering the card.
+    $$('.song-list-item').forEach(function(row) {
+      var openRow = function(e) {
+        if (e && e.target && e.target.closest('button, .song-title-link')) return;
+        var song = STATE.songs.find(function(s) { return s.id === row.dataset.songId; });
+        if (song) openLyricsPreviewModal(song);
+      };
+      row.onclick = openRow;
+      row.onkeydown = function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRow(e); } };
+    });
     // Lyrics preview buttons - opens preview modal
     $$('.btn-lyrics-preview').forEach(function(btn) {
       btn.onclick = function(e) {
@@ -16196,6 +16240,12 @@ window.loadEditSongData = function(song) {
     var totalCount = $('totalCount');
     if (resultCount) resultCount.textContent = count;
     if (totalCount) totalCount.textContent = STATE.songs.length;
+    var libraryMetric = $('sfLibraryMetric');
+    var lyricsMetric = $('sfLyricsMetric');
+    var mediaMetric = $('sfMediaMetric');
+    if (libraryMetric) libraryMetric.textContent = STATE.songs.length;
+    if (lyricsMetric) lyricsMetric.textContent = STATE.songs.filter(function(s) { return !!String(s.lyrics || '').trim(); }).length;
+    if (mediaMetric) mediaMetric.textContent = STATE.songs.filter(function(s) { return !!(String(s.youtube || '').trim() || (s.attachments && s.attachments.length)); }).length;
   }
 
   // ============================================================
@@ -16213,9 +16263,10 @@ window.loadEditSongData = function(song) {
 
     var q = query.toLowerCase();
     
-    // PREFIX MATCH: Only match songs that START with the query
+    // Search the same planning fields as the main catalogue filter.
     var matches = STATE.songs.filter(function(s) {
-      return s.title.toLowerCase().indexOf(q) === 0;
+      return [s.title, s.artist, s.theme, s.scripture, s.style, s.season]
+        .some(function(value) { return String(value || '').toLowerCase().indexOf(q) >= 0; });
     }).slice(0, 10);
 
     if (!matches.length) {
@@ -16828,6 +16879,9 @@ window.loadEditSongData = function(song) {
     currentDisplayStyle = (song && song.display_style) ? Object.assign({}, song.display_style) : {};
     STATE.lyricsPreviewEditMode = false;
     var _srg = document.getElementById('sfResultsGrid'); if (_srg) _srg.classList.add('sf-song-active');
+    document.querySelectorAll('#songListContainer .song-list-item').forEach(function(row) {
+      row.classList.toggle('is-selected', row.dataset.songId === song.id);
+    });
     var _eb = document.getElementById('lyricsPreviewEditBtn'); if (_eb) _eb.classList.remove('hidden');
     var _svb = document.getElementById('lyricsPreviewSaveBtn'); if (_svb) _svb.classList.add('hidden');
     var _cnb = document.getElementById('lyricsPreviewCancelEditBtn'); if (_cnb) _cnb.classList.add('hidden');
@@ -18921,6 +18975,17 @@ window.loadEditSongData = function(song) {
     var cb = $('clearSearchBtn'); if (cb) cb.onclick = function() { $('searchInput').value = ''; STATE.filters.q = ''; $('clearSearchBtn').classList.add('hidden'); $('searchSuggestions').classList.remove('show'); renderSongs(false); };
 
     document.onclick = function(e) { var sg = $('searchSuggestions'), si = $('searchInput'); if (sg && !sg.contains(e.target) && e.target !== si) sg.classList.remove('show'); };
+
+    // Familiar catalogue shortcut: slash focuses search unless the user is
+    // already typing in a form field or editor.
+    document.addEventListener('keydown', function(e) {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      var tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || (document.activeElement && document.activeElement.isContentEditable)) return;
+      if (!document.getElementById('songFinderView') || document.getElementById('songFinderView').style.display === 'none') return;
+      e.preventDefault();
+      if (si) { si.focus(); si.select(); }
+    });
 
     // filterStyle is now a custom dropdown (not a <select>) — handled by setStyleFilter()
     ['filterTempo','sortBy'].forEach(function(id) {
@@ -68468,7 +68533,227 @@ window.LHC_Install = (function() {
     #songbookLiveModal .wo-inline-chord { font-size:.78em; }
   }
 </style>
+<style id="premium-song-library-styles">
+  /* ================================================================
+     PREMIUM SONG LIBRARY — catalogue + dossier workspace
+     This layer intentionally sits last in the cascade. It preserves every
+     existing control ID/handler while replacing the former generic shell.
+     ================================================================ */
+  #songFinderView {
+    --sf-night:#071827;
+    --sf-night-2:#0b2a3d;
+    --sf-cobalt:#2563eb;
+    --sf-cyan:#22d3ee;
+    --sf-teal:#0f9f93;
+    --sf-gold:#d7a84b;
+    --sf-paper:#f8fafc;
+    --sf-ink:#102235;
+    --sf-muted:#64748b;
+    --sf-line:#d9e3ec;
+    padding: clamp(10px,1.5vw,22px);
+    border-radius: 28px;
+    background:
+      radial-gradient(circle at 92% 3%,rgba(34,211,238,.12),transparent 24rem),
+      linear-gradient(145deg,#edf4f8 0%,#f8fafc 48%,#eef4f7 100%);
+  }
+  #songFinderView #sfSearchCard {
+    border: 1px solid rgba(15,42,61,.15);
+    border-radius: 24px;
+    box-shadow: 0 25px 70px rgba(15,42,61,.14),0 2px 8px rgba(15,42,61,.08);
+    background:#fff;
+  }
+  #songFinderView #sfCommandHeader {
+    position:relative;
+    overflow:hidden;
+    padding: clamp(22px,3vw,38px);
+    background:
+      radial-gradient(circle at 82% -30%,rgba(34,211,238,.3),transparent 42%),
+      radial-gradient(circle at 58% 130%,rgba(37,99,235,.28),transparent 38%),
+      linear-gradient(122deg,var(--sf-night),var(--sf-night-2) 68%,#0d4050);
+  }
+  #songFinderView #sfCommandHeader::before {
+    content:"";position:absolute;inset:0;pointer-events:none;opacity:.38;
+    background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
+    background-size:32px 32px;
+    mask-image:linear-gradient(to right,#000,transparent 92%);
+  }
+  #songFinderView #sfCommandHeader > * { position:relative;z-index:1; }
+  #songFinderView .sf-command-copy { max-width:720px; }
+  #songFinderView #sfCommandHeader .lhc-section-title {
+    display:flex;align-items:center;gap:8px;color:#7ee8f2;font-size:.7rem;letter-spacing:.16em;margin-bottom:7px;
+  }
+  #songFinderView #sfCommandHeader h3.font-cinzel {
+    color:#f8fbff;font-size:clamp(1.35rem,2.2vw,2.15rem);line-height:1.18;letter-spacing:-.025em;
+  }
+  #songFinderView .sf-command-subtitle { color:#a9c0cf;font-size:.88rem;margin-top:7px; }
+  #songFinderView #sfCommandHeader .lhc-pill-button {
+    min-height:42px;padding:0 15px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);color:#dbeafe;backdrop-filter:blur(8px);
+  }
+  #songFinderView #sfCommandHeader .lhc-pill-button:hover { background:rgba(255,255,255,.13);transform:translateY(-1px); }
+  #songFinderView #sfCommandHeader #openAddSongBtn {
+    color:#062a3a !important;background:linear-gradient(135deg,#dffbff,#5ee6ee) !important;border:0 !important;box-shadow:0 10px 26px rgba(34,211,238,.24);
+  }
+  #songFinderView .sf-search-field { margin-top:4px; }
+  #songFinderView #sfCommandHeader .sf-search-field .form-label { display:none; }
+  #songFinderView #sfCommandHeader #searchInput {
+    height:64px;padding-left:54px !important;padding-right:48px !important;border-radius:16px;background:rgba(255,255,255,.97);color:var(--sf-ink);font-size:1rem;font-weight:550;border:1px solid rgba(255,255,255,.65);box-shadow:0 18px 35px rgba(0,0,0,.18);
+  }
+  #songFinderView #sfCommandHeader .sf-search-field .absolute.left-4 { left:20px;color:#0f7481;font-size:1.05rem; }
+  #songFinderView .sf-search-foot { display:flex;align-items:center;justify-content:space-between;color:#9db5c4;font-size:.72rem;margin-top:10px;padding:0 4px; }
+  #songFinderView .sf-search-foot i { color:#5ee6ee;margin-right:5px; }
+  #songFinderView .sf-key-hint { border:1px solid rgba(255,255,255,.16);border-radius:7px;padding:3px 8px;color:#cde0e9;background:rgba(255,255,255,.05); }
+  #songFinderView .sf-library-metrics { display:flex;align-items:stretch;gap:1px;margin-top:18px;border:1px solid rgba(255,255,255,.1);border-radius:14px;overflow:hidden;background:rgba(255,255,255,.04);max-width:720px; }
+  #songFinderView .sf-library-metrics > div { display:flex;flex-direction:column;justify-content:center;padding:10px 18px;border-right:1px solid rgba(255,255,255,.09);min-width:110px; }
+  #songFinderView .sf-library-metrics strong { color:#fff;font-size:1.05rem;line-height:1; }
+  #songFinderView .sf-library-metrics span { color:#91aabb;font-size:.67rem;margin-top:5px;white-space:nowrap; }
+  #songFinderView .sf-library-metrics .sf-metric-note { flex-direction:row;align-items:center;gap:8px;flex:1;border:0; }
+  #songFinderView .sf-library-metrics .sf-metric-note i { color:#4ade80; }
+  #songFinderView .sf-library-metrics .sf-metric-note span { margin:0;color:#c6d7df;white-space:normal; }
 
+  #songFinderView #sfFilterBar { padding:18px 22px 20px;background:linear-gradient(180deg,#fff,#f8fafc); }
+  #songFinderView #sfResultsRow { padding-bottom:13px;margin-bottom:13px;border-bottom:1px solid var(--sf-line); }
+  #songFinderView #sfFilterGrid { gap:10px;margin-bottom:0; }
+  #songFinderView #sfFilterGrid .form-label { font-size:.65rem;letter-spacing:.09em;text-transform:uppercase;color:#607387;margin:0 0 6px 3px; }
+  #songFinderView #sfFilterBar .form-input.form-select,
+  #songFinderView #sfFilterBar select.form-input {
+    min-height:43px;border:1px solid #d4e0e9;border-radius:11px;background:#fff;color:#19324a;font-size:.82rem;box-shadow:0 1px 2px rgba(15,42,61,.03);
+  }
+  #songFinderView #sfFilterBar .form-input.form-select:hover,
+  #songFinderView #sfFilterBar select.form-input:hover { border-color:#35aabd;box-shadow:0 0 0 3px rgba(34,211,238,.1); }
+  #songFinderView #activeFiltersDisplay .filter-chip { background:#e3f8f8;border-color:#9bdfe4;color:#12606c; }
+
+  #songFinderView #sfResultsGrid { gap:18px; }
+  #songFinderView #sfSongListCard,
+  #songFinderView #sfWorkspacePanel { border:1px solid rgba(15,42,61,.12);border-radius:20px;background:rgba(255,255,255,.94);box-shadow:0 18px 45px rgba(15,42,61,.10); }
+  #songFinderView .sf-catalog-head { display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px;border-bottom:1px solid var(--sf-line);background:linear-gradient(180deg,#fff,#fbfdfe); }
+  #songFinderView .sf-eyebrow { color:#0b8b91;text-transform:uppercase;font-size:.62rem;font-weight:800;letter-spacing:.15em; }
+  #songFinderView .sf-catalog-head h4 { color:var(--sf-ink);font-size:1.05rem;font-weight:760;margin-top:2px; }
+  #songFinderView .sf-catalog-hint { color:#8091a1;font-size:.7rem; }
+  #songFinderView .sf-catalog-hint i { margin-right:4px;color:#0f9f93; }
+  #songFinderView #songListContainer { padding:10px;background:#f5f8fa; }
+  #songFinderView .song-atlas-section-header { position:sticky;top:0;z-index:5;margin:3px 0 8px;padding:6px 10px;border:0;background:rgba(245,248,250,.94);backdrop-filter:blur(8px);color:#78909f;font-family:inherit;font-size:.65rem;letter-spacing:.16em; }
+  #songFinderView .song-list-item {
+    position:relative;display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:13px;margin:0 0 8px;padding:14px;border:1px solid #dce6ed;border-left:1px solid #dce6ed;border-radius:14px;background:#fff;cursor:pointer;box-shadow:0 2px 5px rgba(15,42,61,.035);transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease,background .18s ease;
+  }
+  #songFinderView .song-list-item:last-child { border-bottom:1px solid #dce6ed; }
+  #songFinderView .song-list-item:hover { transform:translateY(-2px);border-color:#8bcfd6;border-left-color:#8bcfd6;background:#fff;box-shadow:0 12px 28px rgba(15,42,61,.11); }
+  #songFinderView .song-list-item:focus-visible { outline:3px solid rgba(34,211,238,.28);outline-offset:2px; }
+  #songFinderView .song-list-item.is-selected { border-color:#1da2b2;background:linear-gradient(105deg,#f0fdff,#fff 60%);box-shadow:inset 4px 0 #0f9f93,0 12px 28px rgba(15,159,147,.14); }
+  #songFinderView .sf-song-monogram { position:relative;width:48px;height:52px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(155deg,#102f45,#0e5b69);color:#fff;box-shadow:inset 0 1px rgba(255,255,255,.18); }
+  #songFinderView .sf-song-monogram span { font-family:'Cinzel',serif;font-size:1.12rem;font-weight:700; }
+  #songFinderView .sf-song-monogram small { position:absolute;right:-4px;bottom:-4px;min-width:19px;height:19px;padding:0 4px;display:grid;place-items:center;border:2px solid #fff;border-radius:999px;background:#d7a84b;color:#13293a;font-size:.57rem;font-weight:800; }
+  #songFinderView .sf-song-body { min-width:0; }
+  #songFinderView .sf-song-title-row { display:flex;align-items:center;gap:8px;min-width:0; }
+  #songFinderView .song-title-link { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#102235;font-size:.94rem;font-weight:750;line-height:1.25; }
+  #songFinderView .song-title-link:hover { color:#087887;text-decoration:none; }
+  #songFinderView .sf-key-badge { flex:none;min-width:27px;padding:2px 6px;border:1px solid #b9dde0;border-radius:6px;background:#edfafa;color:#0b7480;text-align:center;font-size:.61rem;font-weight:800; }
+  #songFinderView .sf-song-artist { margin-top:3px;color:#728397;font-size:.74rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  #songFinderView .sf-song-scripture { margin-top:5px;color:#536f86;font-size:.68rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  #songFinderView .sf-song-scripture i { margin-right:5px;color:#bf8b2d; }
+  #songFinderView .sf-song-pills { display:flex;gap:4px;flex-wrap:wrap;margin-top:7px; }
+  #songFinderView .sf-song-pills .meta-pill { max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 7px;background:#f3f6f8 !important;color:#607184 !important;border:1px solid #e0e7ec !important;font-size:.59rem; }
+  #songFinderView .sf-resource-status { display:flex;gap:9px;margin-top:8px; }
+  #songFinderView .sf-resource-status span { color:#a0adba;font-size:.6rem;font-weight:650; }
+  #songFinderView .sf-resource-status span.is-ready { color:#0a877d; }
+  #songFinderView .sf-resource-status i { margin-right:3px; }
+  #songFinderView .sf-song-actions { display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;max-width:178px; }
+  #songFinderView .sf-open-song,#songFinderView .sf-action-icon { border:1px solid #d5e0e8;background:#fff;color:#516579;cursor:pointer;transition:.15s ease; }
+  #songFinderView .sf-open-song { height:35px;padding:0 12px;border-radius:9px;display:flex;align-items:center;gap:10px;color:#0b6670;font-size:.69rem;font-weight:800; }
+  #songFinderView .sf-open-song:hover { background:#0e8390;border-color:#0e8390;color:#fff; }
+  #songFinderView .sf-action-icon { position:relative;width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:.72rem; }
+  #songFinderView .sf-action-icon:hover { border-color:#70c7d0;background:#ebfbfc;color:#087887;transform:translateY(-1px); }
+  #songFinderView .btn-youtube-preview i { color:#dc2626; }
+  #songFinderView .btn-spotify-preview i { color:#16a34a; }
+  #songFinderView .link-count-badge { top:-7px;right:-7px; }
+
+  #songFinderView #sfWorkspacePanel { min-height:660px;overflow:hidden;padding:0; }
+  #songFinderView .sf-workspace-empty { max-width:440px;padding:54px 34px; }
+  #songFinderView .sf-workspace-empty-art { position:relative;width:120px;height:120px;margin:0 auto 26px;display:grid;place-items:center;border-radius:34px;background:linear-gradient(145deg,#0b263a,#0f5a68);color:#8af0f2;font-size:2.25rem;box-shadow:0 22px 45px rgba(15,42,61,.22);transform:rotate(-4deg); }
+  #songFinderView .sf-workspace-empty-art span { position:absolute;inset:12px;border:1px solid rgba(255,255,255,.16);border-radius:25px; }
+  #songFinderView .sf-workspace-empty h4 { margin:8px 0;color:#112b3f;font-family:'Cinzel',serif;font-size:1.22rem; }
+  #songFinderView .sf-workspace-empty p { color:#6b7f91;line-height:1.65; }
+  #songFinderView .sf-workspace-capabilities { display:flex;justify-content:center;gap:7px;flex-wrap:wrap;margin-top:20px; }
+  #songFinderView .sf-workspace-capabilities span { padding:6px 9px;border:1px solid #dbe6ec;border-radius:8px;background:#f8fafc;color:#526b7d;font-size:.65rem; }
+  #songFinderView .sf-workspace-capabilities i { margin-right:4px;color:#0f9f93; }
+
+  @media (min-width:1080px) {
+    #songFinderView #sfResultsGrid.sf-song-active #sfSongListCard { flex:0 0 400px;max-width:400px; }
+    #songFinderView #sfResultsGrid.sf-song-active .song-list-item { grid-template-columns:43px minmax(0,1fr);align-items:start; }
+    #songFinderView #sfResultsGrid.sf-song-active .sf-song-monogram { width:43px;height:47px; }
+    #songFinderView #sfResultsGrid.sf-song-active .sf-song-actions { grid-column:1/-1;max-width:none;justify-content:flex-start;padding-left:56px;margin-top:0; }
+    #songFinderView #sfWorkspacePanel { align-items:stretch;justify-content:flex-start; }
+    #sfWorkspacePanel #lyricsPreviewModal.show { width:100%;min-width:0;align-self:stretch; }
+    #sfWorkspacePanel #lyricsPreviewModalContent { width:100%;min-width:0;border:0;border-radius:0;background:#fff;box-shadow:none; }
+    #sfWorkspacePanel #lyricsPreviewHeaderPanel { padding:22px 24px;background:linear-gradient(125deg,#071827,#0b3547);border:0;color:#fff; }
+    #sfWorkspacePanel #lyricsPreviewTitle { color:#fff;font-size:1.45rem; }
+    #sfWorkspacePanel #lyricsPreviewArtist { color:#9eb6c4; }
+    #sfWorkspacePanel #lyricsPreviewToolbar { border-top:1px solid rgba(255,255,255,.1);padding-top:15px; }
+    #sfWorkspacePanel #lyricsPreviewToolbar .lhc-pill-button { background:rgba(255,255,255,.07) !important;border-color:rgba(255,255,255,.14) !important;color:#dcebf1 !important; }
+    #sfWorkspacePanel #lyricsPreviewToolbar .lhc-pill-button:hover,#sfWorkspacePanel #lyricsPreviewToolbar .lhc-pill-button-active { background:#e5fbfc !important;color:#0b5260 !important;border-color:#e5fbfc !important; }
+    #sfWorkspacePanel #lyricsPreviewBookmarkBtn { background:linear-gradient(135deg,#10a6a0,#22d3ee) !important;color:#052c36 !important; }
+    #sfWorkspacePanel #lyricsPreviewContent { background:linear-gradient(90deg,#fbfcfd,#fff);padding:30px clamp(24px,4vw,56px); }
+  }
+
+  /* Premium add/edit record — a professional cataloguing workspace. */
+  #addSongModal,#editSongModal { background:rgba(4,16,28,.72);backdrop-filter:blur(12px); }
+  #addSongModal .asm-content,#editSongModal .asm-content { width:min(1120px,94vw);max-height:92vh;border:1px solid rgba(255,255,255,.18);border-radius:22px;background:#f4f7f9;box-shadow:0 35px 100px rgba(0,0,0,.38);overflow:hidden; }
+  #addSongModal .asm-header,#editSongModal .asm-header { padding:18px 22px;background:linear-gradient(120deg,#071827,#0e3a4d);border:0; }
+  #addSongModal .asm-header h3,#editSongModal .asm-header h3 { color:#fff !important;font-size:1.16rem; }
+  #addSongModal .asm-header h3 span,#editSongModal .asm-header h3 span { background:linear-gradient(135deg,#0f9f93,#22d3ee) !important;box-shadow:0 8px 20px rgba(34,211,238,.2); }
+  #addSongModal .asm-header .lhc-pill-button,#editSongModal .asm-header .lhc-pill-button { background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.17);color:#fff; }
+  #addSongModal .asm-scroll,#editSongModal .asm-scroll { overflow-y:auto;padding:0 18px; }
+  #addSongModal .asm-body,#editSongModal .asm-body { gap:14px;padding:18px 0 22px; }
+  #addSongModal .asm-section,#editSongModal .asm-section { padding:16px;border:1px solid #d9e4ea;border-radius:14px;background:#fff;box-shadow:0 3px 10px rgba(15,42,61,.035); }
+  #addSongModal .asm-section-title,#editSongModal .asm-section-title { color:#0c7380;border-bottom-color:#e1e9ee;font-size:.7rem;letter-spacing:.09em; }
+  #addSongModal .form-label,#editSongModal .form-label { color:#587083;font-size:.66rem;letter-spacing:.07em;text-transform:uppercase; }
+  #addSongModal .form-input,#editSongModal .form-input { border-color:#d4e0e8;border-radius:10px;background:#fbfdfe; }
+  #addSongModal .form-input:focus,#editSongModal .form-input:focus { border-color:#1aa5af;box-shadow:0 0 0 3px rgba(34,211,238,.12); }
+  #addSongModal .lyrics-edit-trigger,#editSongModal .lyrics-edit-trigger { border:0;border-radius:11px;background:linear-gradient(135deg,#0b3345,#0c7781);box-shadow:0 10px 24px rgba(15,83,95,.18); }
+  #addSongModal .asm-footer,#editSongModal .asm-footer { padding:14px 22px;border-top:1px solid #d7e2e8;background:#fff;box-shadow:0 -10px 24px rgba(15,42,61,.05); }
+  #addSongModal .asm-footer .roster-action-btn.primary,#editSongModal .asm-footer .roster-action-btn.primary { background:linear-gradient(135deg,#0d827f,#17b9b1);border:0;box-shadow:0 8px 18px rgba(15,159,147,.22); }
+
+  @media (max-width:1079px) {
+    #songFinderView { padding:10px;border-radius:18px; }
+    #songFinderView #sfSearchCard { border-radius:18px; }
+    #songFinderView #sfCommandHeader { padding:20px 16px; }
+    #songFinderView #sfCommandHeader .flex.items-center.justify-between { align-items:flex-start; }
+    #songFinderView #sfCommandHeader h3.font-cinzel { font-size:1.35rem; }
+    #songFinderView #sfCommandHeader #searchInput { height:56px;border-radius:14px;font-size:16px; }
+    #songFinderView .sf-library-metrics { overflow-x:auto;scrollbar-width:none; }
+    #songFinderView .sf-library-metrics > div { min-width:105px;padding:9px 13px; }
+    #songFinderView #sfFilterBar { padding:13px 14px; }
+    #songFinderView .song-list-item { grid-template-columns:44px minmax(0,1fr) auto;padding:12px; }
+    #songFinderView .sf-song-monogram { width:44px;height:48px; }
+    #songFinderView .sf-song-actions { max-width:80px; }
+    #songFinderView .sf-song-actions .sf-open-song span { display:none; }
+    #songFinderView .sf-open-song { width:34px;padding:0;justify-content:center; }
+  }
+  @media (max-width:640px) {
+    #songFinderView { padding:6px;background:#eef4f7; }
+    #songFinderView #sfCommandHeader .flex.gap-2.flex-wrap.items-center { width:100%;display:grid;grid-template-columns:1fr 1fr 1.15fr;gap:6px; }
+    #songFinderView #sfCommandHeader .lhc-pill-button { min-height:38px;padding:0 8px;font-size:.7rem;justify-content:center; }
+    #songFinderView .sf-command-subtitle { font-size:.76rem; }
+    #songFinderView .sf-search-foot .sf-key-hint { display:none; }
+    #songFinderView .sf-search-foot { font-size:.64rem; }
+    #songFinderView .sf-library-metrics .sf-metric-note { display:none; }
+    #songFinderView .sf-catalog-head { padding:14px; }
+    #songFinderView #songListContainer { padding:7px; }
+    #songFinderView .song-list-item { grid-template-columns:40px minmax(0,1fr);gap:10px;padding:11px;border-radius:12px; }
+    #songFinderView .sf-song-monogram { width:40px;height:44px;border-radius:10px; }
+    #songFinderView .sf-song-actions { grid-column:1/-1;max-width:none;justify-content:flex-start;padding-left:50px;margin-top:0; }
+    #songFinderView .sf-song-actions .sf-open-song { width:auto;padding:0 11px; }
+    #songFinderView .sf-song-actions .sf-open-song span { display:inline; }
+    #songFinderView .sf-song-pills .meta-pill:nth-child(n+3) { display:none; }
+    #songFinderView .sf-resource-status { gap:7px; }
+    #addSongModal .asm-content,#editSongModal .asm-content { width:100vw;max-height:100dvh;border-radius:18px 18px 0 0; }
+    #addSongModal .asm-header,#editSongModal .asm-header { padding:14px 16px; }
+    #addSongModal .asm-scroll,#editSongModal .asm-scroll { padding:0 12px; }
+    #addSongModal .asm-section,#editSongModal .asm-section { padding:13px; }
+  }
+  @media (prefers-reduced-motion:reduce) {
+    #songFinderView .song-list-item,#songFinderView .lhc-pill-button,#songFinderView .sf-action-icon { transition:none !important; }
+  }
+</style>
 
 </body>
 </html>
