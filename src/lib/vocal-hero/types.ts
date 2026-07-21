@@ -27,6 +27,16 @@ export interface SongNote {
   velocity: number;  // 0-127 (dynamics)
 }
 
+export interface BackingTrackClip {
+  id: string;
+  /** In-point in the uploaded audio/video file, in seconds. */
+  source_start: number;
+  /** Out-point in the uploaded audio/video file, in seconds. */
+  source_end: number;
+  /** Position of this clip on the shared SATB timeline, in seconds. */
+  timeline_start: number;
+}
+
 export interface BackingTrackSettings {
   volume: number;
   speed: number;
@@ -39,6 +49,9 @@ export interface BackingTrackSettings {
   loop_enabled: boolean;
   skip_regions: Array<{ start: number; end: number }>;
   split_markers: number[];
+  /** Non-destructive timeline edits. Empty/missing means one legacy trim clip. */
+  clips?: BackingTrackClip[];
+  media_duration?: number | null;
   effect: 'none' | 'warm' | 'bright';
 }
 

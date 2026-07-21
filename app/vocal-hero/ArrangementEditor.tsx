@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { BackingTrackSettings, Song, SongNote } from '@/lib/vocal-hero/types';
+import type { BackingTrackClip, BackingTrackSettings, Song, SongNote } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
 import { supabase } from '@/lib/vocal-hero/supabaseClient';
@@ -17,7 +17,7 @@ type EditorTool = 'select' | 'draw' | 'erase';
 type PlaybackScope = 'all' | 'range' | 'note';
 type ArrangementSnapshot = { title: string; notes: SongNote[]; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
 type MidiPreview = { fileName: string; notes: ImportedMidiNote[] };
-const DEFAULT_TRACK_SETTINGS: BackingTrackSettings = { volume: 1, speed: 1, timeline_offset: 0, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, loop_enabled: false, skip_regions: [], split_markers: [], effect: 'none' };
+const DEFAULT_TRACK_SETTINGS: BackingTrackSettings = { volume: 1, speed: 1, timeline_offset: 0, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, loop_enabled: false, skip_regions: [], split_markers: [], media_duration: null, effect: 'none' };
 
 export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClose: () => void; onSave: (values: EditableSong) => Promise<void>; }) {
   const [title, setTitle] = useState(song.title);
@@ -63,7 +63,8 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const midiInputRef = useRef<HTMLInputElement | null>(null);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const selected = notes.find(note => note.id === selectedId) ?? null;
-  const duration = Math.max(32, song.duration || 0, ...notes.map(note => note.end + 4));
+  const editedTrackEnd = trackSettings.clips?.length ? Math.max(...trackSettings.clips.map(clip => clip.timeline_start + (clip.source_end - clip.source_start) + 4)) : trackSettings.timeline_offset + Math.max(0, (trackSettings.trim_end ?? trackSettings.media_duration ?? 0) - trackSettings.trim_start);
+  const duration = Math.max(32, song.duration || 0, editedTrackEnd, ...notes.map(note => note.end + 4));
   const timelineWidth = Math.min(Math.max(duration * zoom, 1600), 48000);
   const visibleBars = Math.min(32, Math.ceil(duration / 2));
   const noteByPart = useMemo(() => VOICES.map((_, index) => notes.filter(note => note.part === index || (note.part === -1 && index === selectedPart))), [notes, selectedPart]);
@@ -79,11 +80,14 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
 
   useEffect(() => {
     const media = backingMediaRef.current;
-    if (!isPlaying || playhead === null || !mediaUrl || !media || media.paused) return;
+    if (!isPlaying || playhead === null || !mediaUrl || !media) return;
     const expected = sourceTimeAt(playhead);
-    const trimEnd = trackSettings.trim_end ?? Number.POSITIVE_INFINITY;
-    if (expected >= trackSettings.trim_start && expected < trimEnd && Math.abs(media.currentTime - expected) > .3) media.currentTime = expected;
-  }, [isPlaying, mediaUrl, playhead, trackSettings.trim_end, trackSettings.trim_start, trackSettings.timeline_offset, trackSettings.skip_regions]);
+    if (expected === null) { if (!media.paused) media.pause(); return; }
+    if (Math.abs(media.currentTime - expected) > .3) media.currentTime = expected;
+    media.volume = Math.max(0, Math.min(1, trackSettings.volume));
+    media.playbackRate = Math.max(.5, Math.min(1.5, trackSettings.speed));
+    if (media.paused) void media.play().catch(() => undefined);
+  }, [isPlaying, mediaUrl, playhead, trackSettings.clips, trackSettings.media_duration, trackSettings.speed, trackSettings.trim_end, trackSettings.trim_start, trackSettings.timeline_offset, trackSettings.skip_regions, trackSettings.volume]);
 
   function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
   function pushHistory() { const snapshot = makeSnapshot(); setHistory(current => ({ past: [...current.past, snapshot].slice(-100), future: [] })); }
@@ -120,10 +124,23 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   function moveLasso(event: React.PointerEvent<HTMLDivElement>) { const start = lassoRef.current; if (!start) return; const bounds = event.currentTarget.getBoundingClientRect(); const point = { time: Math.max(0, (event.clientX - bounds.left) / zoom), part: Math.max(0, Math.min(3, Math.floor((event.clientY - bounds.top) / 128))) }; updateRangeSelection({ start: Math.min(start.time, point.time), end: Math.max(start.time, point.time) }, { start: Math.min(start.part, point.part), end: Math.max(start.part, point.part) }); }
   function endLasso(event: React.PointerEvent<HTMLDivElement>) { const start = lassoRef.current; if (!start) return; const bounds = event.currentTarget.getBoundingClientRect(); const end = { time: Math.max(0, (event.clientX - bounds.left) / zoom), part: Math.max(0, Math.min(3, Math.floor((event.clientY - bounds.top) / 128))) }; if (Math.abs(end.time - start.time) < .1 && end.part === start.part) clearPlaybackSelections(); else { const parts = { start: Math.min(start.part, end.part), end: Math.max(start.part, end.part) }; setPlayParts(VOICES.map((_, index) => index >= parts.start && index <= parts.end)); setSelectedId(null); } if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); lassoRef.current = null; }
   function stopBackingTrack() { if (backingStartTimerRef.current) clearTimeout(backingStartTimerRef.current); backingStartTimerRef.current = null; backingMediaRef.current?.pause(); }
+  function effectiveTrackClips() {
+    if (trackSettings.clips !== undefined) return [...trackSettings.clips].sort((a, b) => a.timeline_start - b.timeline_start);
+    const sourceEnd = trackSettings.trim_end ?? trackSettings.media_duration ?? duration;
+    return mediaUrl ? [{ id: 'legacy-base', source_start: trackSettings.trim_start, source_end: Math.max(trackSettings.trim_start + .1, sourceEnd), timeline_start: trackSettings.timeline_offset }] : [];
+  }
   function sourceTimeAt(timelineTime: number) {
-    const sourceTime = trackSettings.trim_start + timelineTime - trackSettings.timeline_offset;
+    const clip = effectiveTrackClips().find(item => timelineTime >= item.timeline_start && timelineTime < item.timeline_start + (item.source_end - item.source_start));
+    if (!clip) return null;
+    const sourceTime = clip.source_start + timelineTime - clip.timeline_start;
     const skipped = trackSettings.skip_regions.find(region => sourceTime >= region.start && sourceTime < region.end);
     return skipped ? skipped.end : sourceTime;
+  }
+  function updateTrackClips(clips: BackingTrackClip[]) {
+    setTrackSettings(current => {
+      const first = [...clips].sort((a, b) => a.timeline_start - b.timeline_start)[0];
+      return { ...current, clips, timeline_offset: first?.timeline_start ?? current.timeline_offset, trim_start: first?.source_start ?? current.trim_start, trim_end: first?.source_end ?? current.trim_end };
+    });
   }
   function startBackingTrack(timelineTime: number, transportRate: number) {
     const media = backingMediaRef.current;
@@ -133,16 +150,16 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     media.volume = targetVolume;
     media.playbackRate = transportRate;
     const sourceTime = sourceTimeAt(timelineTime);
-    const trimEnd = trackSettings.trim_end ?? Number.POSITIVE_INFINITY;
-    if (sourceTime >= trimEnd) return;
+    const nextClip = effectiveTrackClips().find(clip => clip.timeline_start >= timelineTime);
+    if (sourceTime === null && !nextClip) return;
     const play = () => { void media.play().then(() => setMediaError(null)).catch(() => setMediaError('Browser blocked backing-track playback. Press Play again to allow audio.')); };
-    if (sourceTime < trackSettings.trim_start) {
-      media.currentTime = trackSettings.trim_start;
+    if (sourceTime === null && nextClip) {
+      media.currentTime = nextClip.source_start;
       media.volume = 0;
       play();
-      backingStartTimerRef.current = setTimeout(() => { media.currentTime = trackSettings.trim_start; media.volume = targetVolume; }, ((trackSettings.trim_start - sourceTime) / transportRate) * 1000);
+      backingStartTimerRef.current = setTimeout(() => { media.currentTime = nextClip.source_start; media.volume = targetVolume; }, ((nextClip.timeline_start - timelineTime) / transportRate) * 1000);
     } else {
-      media.currentTime = Math.max(trackSettings.trim_start, sourceTime);
+      media.currentTime = sourceTime ?? 0;
       play();
     }
   }
@@ -150,7 +167,8 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     const media = event.currentTarget;
     const skipped = trackSettings.skip_regions.find(region => media.currentTime >= region.start && media.currentTime < region.end);
     if (skipped) media.currentTime = skipped.end;
-    if (trackSettings.trim_end !== null && media.currentTime >= trackSettings.trim_end) media.pause();
+    const activeClip = playhead === null ? null : effectiveTrackClips().find(clip => playhead >= clip.timeline_start && playhead < clip.timeline_start + (clip.source_end - clip.source_start));
+    if (activeClip && media.currentTime >= activeClip.source_end) media.pause();
   }
   function stopPlayback() { if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current); if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); animationFrameRef.current = null; playbackTimerRef.current = null; stopBackingTrack(); void audioContextRef.current?.close(); audioContextRef.current = null; setPlayhead(null); setIsPlaying(false); }
   function previewArrangement() {
@@ -218,7 +236,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       setMediaUrl(payload.publicUrl);
       setMediaKind(file.type.startsWith('video/') ? 'video' : 'audio');
       setMediaName(file.name);
-      setTrackSettings(current => ({ ...current, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, skip_regions: [], split_markers: [] }));
+      setTrackSettings(current => ({ ...current, trim_start: 0, trim_end: null, timeline_offset: 0, loop_start: 0, loop_end: null, skip_regions: [], split_markers: [], clips: undefined, media_duration: null }));
     } catch (error) { setMediaError(error instanceof Error ? error.message : 'Unable to upload the backing track.'); }
     finally { setUploadingMedia(false); }
   }
@@ -246,7 +264,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   }
 
   return <div className="fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
-    <audio ref={backingMediaRef} src={mediaUrl || undefined} preload="auto" className="hidden" onTimeUpdate={enforceBackingEdits} />
+    <audio ref={backingMediaRef} src={mediaUrl || undefined} preload="auto" className="hidden" onLoadedMetadata={event => { const media_duration = event.currentTarget.duration; if (Number.isFinite(media_duration)) setTrackSettings(current => current.media_duration === media_duration ? current : { ...current, media_duration }); }} onTimeUpdate={enforceBackingEdits} />
     <header className="flex h-16 items-center gap-5 border-b border-white/10 bg-[#070a1b] px-5"><Brand /><nav className="hidden gap-5 text-xs text-slate-400 md:flex"><span>⌂ Home</span><span>♫ Library</span><b className="text-fuchsia-300">♫ Song Editor</b><span>♜ Leaderboards</span><span>♧ Rooms</span></nav><div className="ml-auto flex items-center gap-2"><span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-[10px] font-bold text-emerald-300">● LIVE</span><span className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 sm:block">Room Code <b className="ml-1 text-[#ffd15c]">ZHY32</b></span><button onClick={onClose} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button></div></header>
     <div className="flex h-[calc(100vh-64px)] min-h-[620px] overflow-auto">
       <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#070b1e] p-3 lg:block"><p className="text-sm font-semibold">Song Editor</p><div className="mt-1 flex items-center gap-2"><input value={title} onChange={event => setTitle(event.target.value)} className="w-full border-0 bg-transparent text-xs text-slate-300 outline-none" /><span className="text-fuchsia-300">✎</span></div><div className="mt-4 space-y-2">{VOICES.map((voice, index) => <VoiceStrip key={voice} name={voice} index={index} active={selectedPart === index} onClick={() => setSelectedPart(index)} />)}</div><button onClick={() => addNote()} className="mt-3 w-full rounded-lg border border-dashed border-fuchsia-400/40 px-3 py-2 text-xs text-fuchsia-300">＋ Add Voice Target</button><div className="mt-6 border-t border-white/10 pt-4"><p className="text-[10px] tracking-[.16em] text-slate-500">PART MIXER</p><div className="mt-3 grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <div key={voice} className="rounded-lg bg-white/[.04] p-2 text-center"><b style={{ color: COLOURS[index] }}>{voice[0]}</b><div className="mx-auto mt-2 h-14 w-1 rounded-full bg-white/10"><span className="block w-full rounded-full" style={{ height: `${60 + index * 8}%`, background: COLOURS[index], transform: 'translateY(40%)' }} /></div><span className="mt-2 block text-[9px] text-slate-400">M</span></div>)}</div></div></aside>
@@ -255,7 +273,6 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
         <div className="flex flex-wrap items-center gap-3 border-b border-white/[.06] bg-[#090c20] px-3 py-2 text-xs">
           <button onClick={() => midiInputRef.current?.click()} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100">Import MIDI</button>
           <button onClick={() => mediaInputRef.current?.click()} disabled={uploadingMedia} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100 disabled:opacity-50">{uploadingMedia ? 'Uploading…' : mediaUrl ? 'Replace backing track' : 'Upload backing track'}</button>
-          <button onClick={() => setShowBackingEditor(true)} className="rounded-lg border border-fuchsia-300/30 px-3 py-2 font-semibold text-fuchsia-100">Edit backing track</button>
           <span className="min-w-0 truncate text-slate-500">{mediaUrl ? `${mediaName || 'Backing track'} · synchronized with SATB` : 'Import MIDI notes or add an audio/video backing track.'}</span>
           <input ref={midiInputRef} className="hidden" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" onChange={openMidi} />
           <input ref={mediaInputRef} className="hidden" type="file" accept="audio/*,video/*" onChange={uploadBackingTrack} />
@@ -266,11 +283,11 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
         <div className="flex min-h-0 flex-1">
           <section className="min-w-0 flex-1 overflow-auto p-3">
             <div className="mb-3 flex flex-wrap gap-2 text-xs"><Chip label="BPM 120" /><Chip label="Key C Major" /><Chip label="Time 4 / 4" /><span className="ml-auto rounded-lg border border-white/10 px-3 py-2 text-slate-400">Bar / Beat <b className="ml-1 text-white">17.2.3</b></span></div>
-            <p className="mb-2 text-[11px] text-slate-500">The backing track and SATB targets share this timeline. Drag a note&apos;s right edge to resize, or drag empty space to lasso notes.</p>
+            <p className="mb-2 text-[11px] text-slate-500">The backing track and SATB targets share this timeline. Drag cyan clip edges to trim, drag its body to move, and double-click or right-click it to split/copy/paste. Clips cannot overlap.</p>
             <div className="overflow-x-auto rounded-xl border border-[#7650d8]/30 bg-[#050716]">
               <div style={{ width: timelineWidth + 74 }}>
                 <div className="sticky left-0 z-20 flex h-9 border-b border-white/10 bg-[#0b0d22]"><div className="w-[74px] shrink-0 border-r border-white/10" />{Array.from({ length: visibleBars }, (_, index) => <span key={index} className="border-r border-white/[.07] px-2 pt-2 text-[10px] text-slate-500" style={{ width: zoom * 2 }}>{index * 2 + 1}</span>)}</div>
-                <BackingTrackLane url={mediaUrl} fileName={mediaName} width={timelineWidth} zoom={zoom} playhead={playhead} settings={trackSettings} onOffsetChange={timeline_offset => setTrackSettings(current => ({ ...current, timeline_offset }))} />
+                <BackingTrackLane url={mediaUrl} fileName={mediaName} width={timelineWidth} zoom={zoom} playhead={playhead} settings={trackSettings} onClipsChange={updateTrackClips} onOpenSettings={() => setShowBackingEditor(true)} />
                 <div onPointerDown={beginLasso} onPointerMove={moveLasso} onPointerUp={endLasso}>{VOICES.map((voice, index) => <PianoTrack key={voice} name={voice} part={index} notes={noteByPart[index]} selectedId={selectedId} selectedIds={selectedIds} tool={tool} playhead={playhead} selectedRange={playScope === 'range' && rangeParts && index >= rangeParts.start && index <= rangeParts.end ? playRange : null} width={timelineWidth} zoom={zoom} onAdd={addAt} onSelect={selectNote} onRemove={removeNote} onResizeStart={beginResizeHistory} onResize={resizeNote} onEmptyClick={clearPlaybackSelections} />)}</div>
               </div>
             </div>

@@ -18,6 +18,7 @@ alter table public.vh_songs
     "loop_enabled": false,
     "skip_regions": [],
     "split_markers": [],
+    "media_duration": null,
     "effect": "none"
   }'::jsonb;
 
