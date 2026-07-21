@@ -53,9 +53,11 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [history, setHistory] = useState<{ past: ArrangementSnapshot[]; future: ArrangementSnapshot[] }>({ past: [], future: [] });
   const audioContextRef = useRef<AudioContext | null>(null);
+  const transportRunningRef = useRef(false);
   const animationFrameRef = useRef<number | null>(null);
   const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backingStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backingPlayGenerationRef = useRef(0);
   const backingMediaRef = useRef<HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderChunksRef = useRef<Blob[]>([]);
@@ -80,7 +82,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
 
   useEffect(() => {
     const media = backingMediaRef.current;
-    if (!isPlaying || playhead === null || !mediaUrl || !media) return;
+    if (!transportRunningRef.current || !isPlaying || playhead === null || !mediaUrl || !media) return;
     const expected = sourceTimeAt(playhead);
     if (expected === null) { if (!media.paused) media.pause(); return; }
     if (Math.abs(media.currentTime - expected) > .3) media.currentTime = expected;
@@ -123,7 +125,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   function beginLasso(event: React.PointerEvent<HTMLDivElement>) { if (tool !== 'select' || event.button !== 0) return; const bounds = event.currentTarget.getBoundingClientRect(); const point = { time: Math.max(0, (event.clientX - bounds.left) / zoom), part: Math.max(0, Math.min(3, Math.floor((event.clientY - bounds.top) / 128))) }; lassoRef.current = point; event.currentTarget.setPointerCapture(event.pointerId); updateRangeSelection({ start: point.time, end: point.time }, { start: point.part, end: point.part }); setPlayScope('range'); }
   function moveLasso(event: React.PointerEvent<HTMLDivElement>) { const start = lassoRef.current; if (!start) return; const bounds = event.currentTarget.getBoundingClientRect(); const point = { time: Math.max(0, (event.clientX - bounds.left) / zoom), part: Math.max(0, Math.min(3, Math.floor((event.clientY - bounds.top) / 128))) }; updateRangeSelection({ start: Math.min(start.time, point.time), end: Math.max(start.time, point.time) }, { start: Math.min(start.part, point.part), end: Math.max(start.part, point.part) }); }
   function endLasso(event: React.PointerEvent<HTMLDivElement>) { const start = lassoRef.current; if (!start) return; const bounds = event.currentTarget.getBoundingClientRect(); const end = { time: Math.max(0, (event.clientX - bounds.left) / zoom), part: Math.max(0, Math.min(3, Math.floor((event.clientY - bounds.top) / 128))) }; if (Math.abs(end.time - start.time) < .1 && end.part === start.part) clearPlaybackSelections(); else { const parts = { start: Math.min(start.part, end.part), end: Math.max(start.part, end.part) }; setPlayParts(VOICES.map((_, index) => index >= parts.start && index <= parts.end)); setSelectedId(null); } if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); lassoRef.current = null; }
-  function stopBackingTrack() { if (backingStartTimerRef.current) clearTimeout(backingStartTimerRef.current); backingStartTimerRef.current = null; backingMediaRef.current?.pause(); }
+  function stopBackingTrack() { backingPlayGenerationRef.current += 1; if (backingStartTimerRef.current) clearTimeout(backingStartTimerRef.current); backingStartTimerRef.current = null; backingMediaRef.current?.pause(); }
   function effectiveTrackClips() {
     if (trackSettings.clips !== undefined) return [...trackSettings.clips].sort((a, b) => a.timeline_start - b.timeline_start);
     const sourceEnd = trackSettings.trim_end ?? trackSettings.media_duration ?? duration;
@@ -146,18 +148,19 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     const media = backingMediaRef.current;
     stopBackingTrack();
     if (!mediaUrl || !media) return;
+    const playGeneration = backingPlayGenerationRef.current;
     const targetVolume = Math.max(0, Math.min(1, trackSettings.volume));
     media.volume = targetVolume;
     media.playbackRate = transportRate;
     const sourceTime = sourceTimeAt(timelineTime);
     const nextClip = effectiveTrackClips().find(clip => clip.timeline_start >= timelineTime);
     if (sourceTime === null && !nextClip) return;
-    const play = () => { void media.play().then(() => setMediaError(null)).catch(() => setMediaError('Browser blocked backing-track playback. Press Play again to allow audio.')); };
+    const play = () => { void media.play().then(() => { if (playGeneration !== backingPlayGenerationRef.current) media.pause(); else setMediaError(null); }).catch(() => { if (playGeneration === backingPlayGenerationRef.current) setMediaError('Browser blocked backing-track playback. Press Play again to allow audio.'); }); };
     if (sourceTime === null && nextClip) {
       media.currentTime = nextClip.source_start;
       media.volume = 0;
       play();
-      backingStartTimerRef.current = setTimeout(() => { media.currentTime = nextClip.source_start; media.volume = targetVolume; }, ((nextClip.timeline_start - timelineTime) / transportRate) * 1000);
+      backingStartTimerRef.current = setTimeout(() => { if (playGeneration !== backingPlayGenerationRef.current) return; media.currentTime = nextClip.source_start; media.volume = targetVolume; }, ((nextClip.timeline_start - timelineTime) / transportRate) * 1000);
     } else {
       media.currentTime = sourceTime ?? 0;
       play();
@@ -170,7 +173,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     const activeClip = playhead === null ? null : effectiveTrackClips().find(clip => playhead >= clip.timeline_start && playhead < clip.timeline_start + (clip.source_end - clip.source_start));
     if (activeClip && media.currentTime >= activeClip.source_end) media.pause();
   }
-  function stopPlayback() { if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current); if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); animationFrameRef.current = null; playbackTimerRef.current = null; stopBackingTrack(); void audioContextRef.current?.close(); audioContextRef.current = null; setPlayhead(null); setIsPlaying(false); }
+  function stopPlayback() { transportRunningRef.current = false; if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current); if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); animationFrameRef.current = null; playbackTimerRef.current = null; stopBackingTrack(); void audioContextRef.current?.close(); audioContextRef.current = null; setPlayhead(null); setIsPlaying(false); }
   function previewArrangement() {
     if (isPlaying) { stopPlayback(); return; }
     const enabled = notes.filter(note => note.part < 0 || playParts[note.part]);
@@ -193,8 +196,8 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       playPianoTone(context, note, context.currentTime + at, length);
     });
     const startedAt = performance.now();
-    const tick = () => { setPlayhead(first + ((performance.now() - startedAt) / 1000) * transportRate); animationFrameRef.current = requestAnimationFrame(tick); };
-    setIsPlaying(true); tick();
+    const tick = () => { if (!transportRunningRef.current) return; setPlayhead(first + ((performance.now() - startedAt) / 1000) * transportRate); animationFrameRef.current = requestAnimationFrame(tick); };
+    transportRunningRef.current = true; setIsPlaying(true); tick();
     playbackTimerRef.current = setTimeout(stopPlayback, last * 1000 + 550);
   }
   async function toggleRecording() {
