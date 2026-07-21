@@ -24,11 +24,13 @@ export default function VocalHeroHostPage() {
   const [clockOffset, setClockOffset] = useState(0);
   const [error, setError] = useState('');
   const [editingSong, setEditingSong] = useState<Song | null>(null);
+  const [showCreateSong, setShowCreateSong] = useState(false);
+  const [creatingSong, setCreatingSong] = useState(false);
   const listeners = useRef<Array<() => void>>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const openedRoomRef = useRef(false);
 
-  useEffect(() => { void fetchAllSongs().then(rows => setSongs(rows.filter(row => row.status === 'ready'))).catch(() => setError('Unable to load ready songs.')); }, []);
+  useEffect(() => { void fetchAllSongs().then(rows => setSongs(rows.filter(row => row.status === 'ready' || row.status === 'draft'))).catch(() => setError('Unable to load the song library.')); }, []);
   useEffect(() => { void measureServerClockOffset().then(setClockOffset).catch(() => undefined); }, []);
   useEffect(() => {
     const roomCode = new URLSearchParams(window.location.search).get('room');
@@ -72,10 +74,22 @@ export default function VocalHeroHostPage() {
   async function saveArrangement(values: Pick<Song, 'id' | 'title' | 'notes' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>) {
     if (!editingSong) return;
     try {
-      const saved = await updateSong(editingSong.id, { title: values.title, notes: values.notes, backing_media_url: values.backing_media_url, backing_media_kind: values.backing_media_kind, backing_track_settings: values.backing_track_settings, audio_url: values.backing_media_url });
-      setSongs(current => current.map(item => item.id === saved.id ? saved : item));
+      const saved = await updateSong(editingSong.id, { title: values.title, notes: values.notes, backing_media_url: values.backing_media_url, backing_media_kind: values.backing_media_kind, backing_track_settings: values.backing_track_settings, audio_url: values.backing_media_url, status: values.notes?.length ? 'ready' : 'draft' });
+      setSongs(current => current.some(item => item.id === saved.id) ? current.map(item => item.id === saved.id ? saved : item) : [saved, ...current]);
       setEditingSong(null);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save the arrangement.'); throw cause; }
+  }
+  async function createNewSong(title: string, artist: string) {
+    setCreatingSong(true); setError('');
+    try {
+      const response = await fetch('/api/songs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, artist, tags: 'vocal-hero-manual' }) });
+      const created = await response.json() as Song & { error?: string };
+      if (!response.ok) throw new Error(created.error ?? 'Unable to create the song.');
+      setSongs(current => [created, ...current.filter(item => item.id !== created.id)]);
+      setShowCreateSong(false);
+      setEditingSong(created);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to create the song.'); }
+    finally { setCreatingSong(false); }
   }
   async function start() {
     if (!session) return;
@@ -101,13 +115,14 @@ export default function VocalHeroHostPage() {
       : <CountdownStage song={song} players={players} phase={timeline.phase} />
     : session && song
       ? <Lobby song={song} session={session} players={players} phoneUrl={phoneUrl} onStart={start} audioRef={audioRef} />
-      : <SongPicker songs={songs} onChoose={chooseSong} onEdit={setEditingSong} />;
+      : <SongPicker songs={songs} onChoose={chooseSong} onEdit={setEditingSong} onCreate={() => setShowCreateSong(true)} />;
 
   return <main className="vh-app min-h-screen text-slate-100">
     <header className="vh-topbar"><Brand /><span className="vh-divider" /><span className="text-xs tracking-[.2em] text-slate-400">{session ? 'LIVE SESSION' : 'SONG LIBRARY'}</span><span className="vh-live-dot">Live</span><div className="ml-auto flex items-center gap-2">{session && <RoomCode code={session.room_code} />}<button onClick={() => window.open(session ? `/vocal-hero?fullscreen=1&room=${session.room_code}` : '/vocal-hero?fullscreen=1', '_blank', 'noopener')} className="vh-outline-button">Open full screen</button></div></header>
     {error && <p className="border-y border-rose-400/30 bg-rose-950/50 px-5 py-3 text-sm text-rose-200">{error}</p>}
     {stage}
     {editingSong && <ArrangementEditor song={editingSong} onClose={() => setEditingSong(null)} onSave={saveArrangement} />}
+    {showCreateSong && <CreateSongDialog creating={creatingSong} onCancel={() => setShowCreateSong(false)} onCreate={createNewSong} />}
   </main>;
 }
 
@@ -117,8 +132,14 @@ function SongArt() { return <div className="grid h-24 w-24 shrink-0 place-items-
 function SongDetails({ song }: { song: Song }) { return <div className="flex min-w-0 items-center gap-4"><SongArt /><div><h1 className="truncate text-2xl font-bold">{song.title}</h1><p className="mt-1 text-sm text-slate-400">{song.artist ? `Arr. by ${song.artist}` : 'Vocal Hero arrangement'}</p><div className="mt-3 flex flex-wrap gap-2"><Badge label={`${Math.round(song.duration / 60) || 3}:${String(Math.round(song.duration % 60) || 0).padStart(2, '0')}`} /><Badge label={`${song.time_sig ?? '4/4'}`} /><Badge label="Medium" /></div></div></div>; }
 function Badge({ label }: { label: string }) { return <span className="rounded-lg border border-cyan-300/20 bg-cyan-300/[.05] px-2 py-1 text-xs text-cyan-200">{label}</span>; }
 
-function SongPicker({ songs, onChoose, onEdit }: { songs: Song[]; onChoose: (song: Song) => void; onEdit: (song: Song) => void }) {
-  return <section className="mx-auto max-w-6xl px-5 py-14"><p className="text-xs font-bold tracking-[.26em] text-fuchsia-300">VOCAL HERO LIBRARY</p><h1 className="mt-3 max-w-3xl text-5xl font-black tracking-tight sm:text-7xl">Build a room.<br /><span className="text-cyan-300">Raise every voice.</span></h1><div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{songs.map(song => <article key={song.id} className="vh-panel p-5"><SongDetails song={song} /><div className="mt-5 flex gap-2"><button onClick={() => onEdit(song)} className="vh-outline-button flex-1">Edit arrangement</button><button onClick={() => onChoose(song)} className="vh-primary-button flex-1">Open lobby</button></div></article>)}</div>{!songs.length && <p className="mt-10 text-slate-400">No ready songs yet.</p>}</section>;
+function SongPicker({ songs, onChoose, onEdit, onCreate }: { songs: Song[]; onChoose: (song: Song) => void; onEdit: (song: Song) => void; onCreate: () => void }) {
+  return <section className="mx-auto max-w-6xl px-5 py-14"><div className="flex flex-wrap items-end justify-between gap-6"><div><p className="text-xs font-bold tracking-[.26em] text-fuchsia-300">VOCAL HERO LIBRARY</p><h1 className="mt-3 max-w-3xl text-5xl font-black tracking-tight sm:text-7xl">Build a room.<br /><span className="text-cyan-300">Raise every voice.</span></h1></div><button onClick={onCreate} className="vh-primary-button min-w-52 text-base">＋ Create new song</button></div><div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{songs.map(song => <article key={song.id} className="vh-panel p-5"><div className="mb-3 flex justify-end">{song.status === 'draft' && <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[.16em] text-amber-200">Draft</span>}</div><SongDetails song={song} /><div className="mt-5 flex gap-2"><button onClick={() => onEdit(song)} className="vh-outline-button flex-1">{song.status === 'draft' ? 'Continue editing' : 'Edit arrangement'}</button><button onClick={() => onChoose(song)} disabled={song.status !== 'ready'} title={song.status === 'ready' ? 'Open a multiplayer lobby' : 'Add at least one note and save before opening a lobby'} className="vh-primary-button flex-1 disabled:cursor-not-allowed disabled:opacity-35">{song.status === 'ready' ? 'Open lobby' : 'Finish setup'}</button></div></article>)}</div>{!songs.length && <div className="vh-panel mt-10 grid place-items-center px-6 py-16 text-center"><p className="text-xl font-semibold">Your Vocal Hero library is empty.</p><p className="mt-2 text-sm text-slate-400">Create a song, then draw notes or import MIDI in the arrangement editor.</p><button onClick={onCreate} className="vh-primary-button mt-6">＋ Create your first song</button></div>}</section>;
+}
+
+function CreateSongDialog({ creating, onCancel, onCreate }: { creating: boolean; onCancel: () => void; onCreate: (title: string, artist: string) => Promise<void> }) {
+  const [title, setTitle] = useState('');
+  const [artist, setArtist] = useState('');
+  return <div className="fixed inset-0 z-[70] grid place-items-center bg-[#020510]/85 p-4 backdrop-blur-md" onMouseDown={event => { if (event.target === event.currentTarget && !creating) onCancel(); }}><form onSubmit={event => { event.preventDefault(); if (title.trim()) void onCreate(title.trim(), artist.trim()); }} className="w-full max-w-lg overflow-hidden rounded-3xl border border-fuchsia-300/30 bg-[radial-gradient(circle_at_80%_0%,#3b1c6b88,transparent_38%),#090d22] shadow-[0_0_80px_#d946ef33]"><div className="border-b border-white/10 px-6 py-5"><p className="text-[10px] font-bold tracking-[.24em] text-fuchsia-300">NEW VOCAL HERO SONG</p><h2 className="mt-2 text-2xl font-black">Create a blank arrangement</h2><p className="mt-2 text-sm text-slate-400">Start with the song details, then draw notes, import MIDI, or add a synchronized backing track.</p></div><div className="space-y-4 px-6 py-5"><label className="block text-xs font-semibold text-slate-300">Song title <span className="text-fuchsia-300">*</span><input autoFocus required maxLength={160} value={title} onChange={event => setTitle(event.target.value)} placeholder="e.g. Great Is Thy Faithfulness" className="mt-2 w-full rounded-xl border border-white/15 bg-black/25 px-4 py-3 text-base text-white outline-none transition focus:border-fuchsia-300/70 focus:ring-2 focus:ring-fuchsia-400/15" /></label><label className="block text-xs font-semibold text-slate-300">Artist or arranger <span className="font-normal text-slate-500">(optional)</span><input maxLength={160} value={artist} onChange={event => setArtist(event.target.value)} placeholder="Name shown in the library" className="mt-2 w-full rounded-xl border border-white/15 bg-black/25 px-4 py-3 text-base text-white outline-none transition focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-400/15" /></label><div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[.05] p-3 text-xs leading-relaxed text-cyan-100">The song is saved immediately as a draft. It becomes ready for a lobby after you add at least one note and save the arrangement.</div></div><div className="flex justify-end gap-3 border-t border-white/10 px-6 py-4"><button type="button" onClick={onCancel} disabled={creating} className="vh-outline-button disabled:opacity-40">Cancel</button><button type="submit" disabled={creating || !title.trim()} className="vh-primary-button min-w-36 disabled:cursor-not-allowed disabled:opacity-40">{creating ? 'Creating…' : 'Create & edit'}</button></div></form></div>;
 }
 
 function Lobby({ song, session, players, phoneUrl, onStart, audioRef }: { song: Song; session: GameSession; players: SessionPlayer[]; phoneUrl: string; onStart: () => void; audioRef: React.RefObject<HTMLAudioElement | null> }) {
