@@ -55,6 +55,8 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const audioContextRef = useRef<AudioContext | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backingStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backingMediaRef = useRef<HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderChunksRef = useRef<Blob[]>([]);
   const lassoRef = useRef<{ time: number; part: number } | null>(null);
@@ -69,9 +71,19 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   useEffect(() => () => {
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+    if (backingStartTimerRef.current) clearTimeout(backingStartTimerRef.current);
+    backingMediaRef.current?.pause();
     recorderRef.current?.stream.getTracks().forEach(track => track.stop());
     void audioContextRef.current?.close();
   }, []);
+
+  useEffect(() => {
+    const media = backingMediaRef.current;
+    if (!isPlaying || playhead === null || !mediaUrl || !media || media.paused) return;
+    const expected = sourceTimeAt(playhead);
+    const trimEnd = trackSettings.trim_end ?? Number.POSITIVE_INFINITY;
+    if (expected >= trackSettings.trim_start && expected < trimEnd && Math.abs(media.currentTime - expected) > .3) media.currentTime = expected;
+  }, [isPlaying, mediaUrl, playhead, trackSettings.trim_end, trackSettings.trim_start, trackSettings.timeline_offset, trackSettings.skip_regions]);
 
   function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
   function pushHistory() { const snapshot = makeSnapshot(); setHistory(current => ({ past: [...current.past, snapshot].slice(-100), future: [] })); }
@@ -107,7 +119,40 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   function beginLasso(event: React.PointerEvent<HTMLDivElement>) { if (tool !== 'select' || event.button !== 0) return; const bounds = event.currentTarget.getBoundingClientRect(); const point = { time: Math.max(0, (event.clientX - bounds.left) / zoom), part: Math.max(0, Math.min(3, Math.floor((event.clientY - bounds.top) / 128))) }; lassoRef.current = point; event.currentTarget.setPointerCapture(event.pointerId); updateRangeSelection({ start: point.time, end: point.time }, { start: point.part, end: point.part }); setPlayScope('range'); }
   function moveLasso(event: React.PointerEvent<HTMLDivElement>) { const start = lassoRef.current; if (!start) return; const bounds = event.currentTarget.getBoundingClientRect(); const point = { time: Math.max(0, (event.clientX - bounds.left) / zoom), part: Math.max(0, Math.min(3, Math.floor((event.clientY - bounds.top) / 128))) }; updateRangeSelection({ start: Math.min(start.time, point.time), end: Math.max(start.time, point.time) }, { start: Math.min(start.part, point.part), end: Math.max(start.part, point.part) }); }
   function endLasso(event: React.PointerEvent<HTMLDivElement>) { const start = lassoRef.current; if (!start) return; const bounds = event.currentTarget.getBoundingClientRect(); const end = { time: Math.max(0, (event.clientX - bounds.left) / zoom), part: Math.max(0, Math.min(3, Math.floor((event.clientY - bounds.top) / 128))) }; if (Math.abs(end.time - start.time) < .1 && end.part === start.part) clearPlaybackSelections(); else { const parts = { start: Math.min(start.part, end.part), end: Math.max(start.part, end.part) }; setPlayParts(VOICES.map((_, index) => index >= parts.start && index <= parts.end)); setSelectedId(null); } if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); lassoRef.current = null; }
-  function stopPlayback() { if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current); if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); animationFrameRef.current = null; playbackTimerRef.current = null; void audioContextRef.current?.close(); audioContextRef.current = null; setPlayhead(null); setIsPlaying(false); }
+  function stopBackingTrack() { if (backingStartTimerRef.current) clearTimeout(backingStartTimerRef.current); backingStartTimerRef.current = null; backingMediaRef.current?.pause(); }
+  function sourceTimeAt(timelineTime: number) {
+    const sourceTime = trackSettings.trim_start + timelineTime - trackSettings.timeline_offset;
+    const skipped = trackSettings.skip_regions.find(region => sourceTime >= region.start && sourceTime < region.end);
+    return skipped ? skipped.end : sourceTime;
+  }
+  function startBackingTrack(timelineTime: number, transportRate: number) {
+    const media = backingMediaRef.current;
+    stopBackingTrack();
+    if (!mediaUrl || !media) return;
+    const targetVolume = Math.max(0, Math.min(1, trackSettings.volume));
+    media.volume = targetVolume;
+    media.playbackRate = transportRate;
+    const sourceTime = sourceTimeAt(timelineTime);
+    const trimEnd = trackSettings.trim_end ?? Number.POSITIVE_INFINITY;
+    if (sourceTime >= trimEnd) return;
+    const play = () => { void media.play().then(() => setMediaError(null)).catch(() => setMediaError('Browser blocked backing-track playback. Press Play again to allow audio.')); };
+    if (sourceTime < trackSettings.trim_start) {
+      media.currentTime = trackSettings.trim_start;
+      media.volume = 0;
+      play();
+      backingStartTimerRef.current = setTimeout(() => { media.currentTime = trackSettings.trim_start; media.volume = targetVolume; }, ((trackSettings.trim_start - sourceTime) / transportRate) * 1000);
+    } else {
+      media.currentTime = Math.max(trackSettings.trim_start, sourceTime);
+      play();
+    }
+  }
+  function enforceBackingEdits(event: React.SyntheticEvent<HTMLAudioElement>) {
+    const media = event.currentTarget;
+    const skipped = trackSettings.skip_regions.find(region => media.currentTime >= region.start && media.currentTime < region.end);
+    if (skipped) media.currentTime = skipped.end;
+    if (trackSettings.trim_end !== null && media.currentTime >= trackSettings.trim_end) media.pause();
+  }
+  function stopPlayback() { if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current); if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); animationFrameRef.current = null; playbackTimerRef.current = null; stopBackingTrack(); void audioContextRef.current?.close(); audioContextRef.current = null; setPlayhead(null); setIsPlaying(false); }
   function previewArrangement() {
     if (isPlaying) { stopPlayback(); return; }
     const enabled = notes.filter(note => note.part < 0 || playParts[note.part]);
@@ -115,13 +160,14 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     const ordered = [...scoped].sort((a, b) => a.start - b.start);
     if (!ordered.length) return;
     const transportRate = Math.max(.5, Math.min(1.5, trackSettings.speed));
-    const first = playScope === 'range' ? playRange.start : ordered[0].start;
+    const first = playScope === 'range' ? playRange.start : playScope === 'note' ? ordered[0].start : 0;
     const finalTime = playScope === 'range' ? playRange.end : Math.min(first + 20, Math.max(...ordered.map(note => note.end)));
     const preview = ordered.filter(note => note.start <= finalTime && note.end >= first);
     const last = Math.max(.1, (finalTime - first) / transportRate);
     const context = new AudioContext();
     audioContextRef.current = context;
     void context.resume();
+    startBackingTrack(first, transportRate);
     preview.forEach(note => {
       const audibleStart = Math.max(note.start, first);
       const at = (audibleStart - first) / transportRate;
@@ -200,6 +246,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   }
 
   return <div className="fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
+    <audio ref={backingMediaRef} src={mediaUrl || undefined} preload="auto" className="hidden" onTimeUpdate={enforceBackingEdits} />
     <header className="flex h-16 items-center gap-5 border-b border-white/10 bg-[#070a1b] px-5"><Brand /><nav className="hidden gap-5 text-xs text-slate-400 md:flex"><span>⌂ Home</span><span>♫ Library</span><b className="text-fuchsia-300">♫ Song Editor</b><span>♜ Leaderboards</span><span>♧ Rooms</span></nav><div className="ml-auto flex items-center gap-2"><span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-[10px] font-bold text-emerald-300">● LIVE</span><span className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 sm:block">Room Code <b className="ml-1 text-[#ffd15c]">ZHY32</b></span><button onClick={onClose} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button></div></header>
     <div className="flex h-[calc(100vh-64px)] min-h-[620px] overflow-auto">
       <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#070b1e] p-3 lg:block"><p className="text-sm font-semibold">Song Editor</p><div className="mt-1 flex items-center gap-2"><input value={title} onChange={event => setTitle(event.target.value)} className="w-full border-0 bg-transparent text-xs text-slate-300 outline-none" /><span className="text-fuchsia-300">✎</span></div><div className="mt-4 space-y-2">{VOICES.map((voice, index) => <VoiceStrip key={voice} name={voice} index={index} active={selectedPart === index} onClick={() => setSelectedPart(index)} />)}</div><button onClick={() => addNote()} className="mt-3 w-full rounded-lg border border-dashed border-fuchsia-400/40 px-3 py-2 text-xs text-fuchsia-300">＋ Add Voice Target</button><div className="mt-6 border-t border-white/10 pt-4"><p className="text-[10px] tracking-[.16em] text-slate-500">PART MIXER</p><div className="mt-3 grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <div key={voice} className="rounded-lg bg-white/[.04] p-2 text-center"><b style={{ color: COLOURS[index] }}>{voice[0]}</b><div className="mx-auto mt-2 h-14 w-1 rounded-full bg-white/10"><span className="block w-full rounded-full" style={{ height: `${60 + index * 8}%`, background: COLOURS[index], transform: 'translateY(40%)' }} /></div><span className="mt-2 block text-[9px] text-slate-400">M</span></div>)}</div></div></aside>
@@ -214,13 +261,6 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
           <input ref={mediaInputRef} className="hidden" type="file" accept="audio/*,video/*" onChange={uploadBackingTrack} />
           {mediaError && <p className="text-rose-200">Backing track: {mediaError}</p>}
         </div>
-        <details className="border-b border-white/[.06] bg-[#070a18] px-3 py-2 text-xs">
-          <summary className="cursor-pointer font-semibold text-slate-300">Show arrangement controls: dynamics, breath &amp; part mixer</summary>
-          <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto]">
-            <Automation notes={notes} />
-            <div className="grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <button key={voice} onClick={() => setSelectedPart(index)} className="rounded-lg border px-3 py-2 text-center" style={{ borderColor: `${COLOURS[index]}66`, color: COLOURS[index], background: `${COLOURS[index]}12` }}><b className="block text-base">{voice[0]}</b><span className="text-[10px]">{voice}</span></button>)}</div>
-          </div>
-        </details>
         {recordError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">Microphone: {recordError}</div>}
         {midiError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">MIDI import: {midiError}</div>}
         <div className="flex min-h-0 flex-1">
@@ -230,15 +270,21 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
             <div className="overflow-x-auto rounded-xl border border-[#7650d8]/30 bg-[#050716]">
               <div style={{ width: timelineWidth + 74 }}>
                 <div className="sticky left-0 z-20 flex h-9 border-b border-white/10 bg-[#0b0d22]"><div className="w-[74px] shrink-0 border-r border-white/10" />{Array.from({ length: visibleBars }, (_, index) => <span key={index} className="border-r border-white/[.07] px-2 pt-2 text-[10px] text-slate-500" style={{ width: zoom * 2 }}>{index * 2 + 1}</span>)}</div>
-                <BackingTrackLane url={mediaUrl} fileName={mediaName} width={timelineWidth} zoom={zoom} playhead={playhead} settings={trackSettings} />
+                <BackingTrackLane url={mediaUrl} fileName={mediaName} width={timelineWidth} zoom={zoom} playhead={playhead} settings={trackSettings} onOffsetChange={timeline_offset => setTrackSettings(current => ({ ...current, timeline_offset }))} />
                 <div onPointerDown={beginLasso} onPointerMove={moveLasso} onPointerUp={endLasso}>{VOICES.map((voice, index) => <PianoTrack key={voice} name={voice} part={index} notes={noteByPart[index]} selectedId={selectedId} selectedIds={selectedIds} tool={tool} playhead={playhead} selectedRange={playScope === 'range' && rangeParts && index >= rangeParts.start && index <= rangeParts.end ? playRange : null} width={timelineWidth} zoom={zoom} onAdd={addAt} onSelect={selectNote} onRemove={removeNote} onResizeStart={beginResizeHistory} onResize={resizeNote} onEmptyClick={clearPlaybackSelections} />)}</div>
               </div>
             </div>
-            <Automation notes={notes} />
+            <details className="mt-3 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
+              <summary className="cursor-pointer font-semibold text-slate-300">Arrangement controls: dynamics, breath &amp; part mixer</summary>
+              <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto]">
+                <Automation notes={notes} />
+                <div className="grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <button key={voice} onClick={() => setSelectedPart(index)} className="rounded-lg border px-3 py-2 text-center" style={{ borderColor: `${COLOURS[index]}66`, color: COLOURS[index], background: `${COLOURS[index]}12` }}><b className="block text-base">{voice[0]}</b><span className="text-[10px]">{voice}</span></button>)}</div>
+              </div>
+            </details>
           </section>
           <Inspector selected={selected} update={update} onDelete={removeSelected} onDuplicate={duplicateSelected} />
         </div>
-        {showBackingEditor && <div className="absolute inset-0 z-40 grid place-items-center bg-[#020510]/85 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-label="Backing track editor" className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-cyan-300/30 bg-[#08101f] shadow-[0_0_60px_#22d3ee20]"><header className="flex items-center gap-3 border-b border-white/10 px-5 py-4"><div><p className="text-[10px] font-bold tracking-[.2em] text-cyan-300">BACKING TRACK</p><h2 className="text-lg font-semibold">Audio/video arrangement</h2></div><button onClick={() => setShowBackingEditor(false)} className="ml-auto rounded-lg border border-white/15 px-4 py-2 text-xs">Done</button></header><div className="min-h-0 overflow-y-auto p-4"><BackingTrackPanel url={mediaUrl} kind={mediaKind} fileName={mediaName} settings={trackSettings} setSettings={setTrackSettings} uploading={uploadingMedia} transportTime={playhead} transportPlaying={isPlaying} onUpload={() => mediaInputRef.current?.click()} /></div></section></div>}
+        {showBackingEditor && <div className="absolute inset-0 z-40 grid place-items-center bg-[#020510]/85 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-label="Backing track editor" className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-cyan-300/30 bg-[#08101f] shadow-[0_0_60px_#22d3ee20]"><header className="flex items-center gap-3 border-b border-white/10 px-5 py-4"><div><p className="text-[10px] font-bold tracking-[.2em] text-cyan-300">BACKING TRACK</p><h2 className="text-lg font-semibold">Audio/video arrangement</h2></div><button onClick={() => setShowBackingEditor(false)} className="ml-auto rounded-lg border border-white/15 px-4 py-2 text-xs">Done</button></header><div className="min-h-0 overflow-y-auto p-4"><BackingTrackPanel url={mediaUrl} kind={mediaKind} fileName={mediaName} settings={trackSettings} setSettings={setTrackSettings} uploading={uploadingMedia} transportTime={null} transportPlaying={false} onUpload={() => mediaInputRef.current?.click()} /></div></section></div>}
         {midiPreview && <MidiImportDialog preview={midiPreview} ranges={midiRanges} setRanges={setMidiRanges} fixedPart={midiPart} setFixedPart={setMidiPart} mode={midiMode} setMode={setMidiMode} onCancel={() => setMidiPreview(null)} onApply={applyMidiImport} />}
       </main>
     </div>
