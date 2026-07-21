@@ -13,9 +13,9 @@ export const DEFAULT_SATB_MIDI_RANGES: SatbMidiRanges = {
   altoMax: 67,
 };
 
-export type ImportedMidiNote = Omit<SongNote, 'id' | 'part' | 'lyric'>;
-type NoteOnEvent = { tick: number; type: 'on'; midi: number; velocity: number; channel: number };
-type NoteOffEvent = { tick: number; type: 'off'; midi: number; velocity: number; channel: number };
+export type ImportedMidiNote = Omit<SongNote, 'id' | 'part' | 'lyric'> & { sourceTrack: number; channel: number };
+type NoteOnEvent = { tick: number; type: 'on'; midi: number; velocity: number; channel: number; track: number };
+type NoteOffEvent = { tick: number; type: 'off'; midi: number; velocity: number; channel: number; track: number };
 type MidiEvent = NoteOnEvent | NoteOffEvent | { tick: number; type: 'tempo'; microsecondsPerBeat: number };
 
 function u16(bytes: Uint8Array, offset: number) { return (bytes[offset] << 8) | bytes[offset + 1]; }
@@ -47,14 +47,22 @@ export function normaliseSatbMidiRanges(ranges: SatbMidiRanges): SatbMidiRanges 
   return { bassMax, tenorMax, altoMax };
 }
 
-export function assignMidiParts(notes: ImportedMidiNote[], ranges: SatbMidiRanges, fixedPart: number | null = null): SongNote[] {
+export function midiSourceKey(note: Pick<ImportedMidiNote, 'sourceTrack' | 'channel'>) { return `${note.sourceTrack}:${note.channel}`; }
+
+export function assignMidiParts(notes: ImportedMidiNote[], ranges: SatbMidiRanges, fixedPart: number | null = null, sourceParts: Record<string, number> = {}): SongNote[] {
   const safeRanges = normaliseSatbMidiRanges(ranges);
-  return notes.map((note, index) => ({
-    ...note,
-    id: `midi-${crypto.randomUUID()}-${index}`,
-    part: fixedPart === null ? partForMidi(note.midi, safeRanges) : fixedPart,
-    lyric: '',
-  }));
+  return notes.map((note, index) => {
+    const mappedPart = sourceParts[midiSourceKey(note)];
+    return {
+      midi: note.midi,
+      start: note.start,
+      end: note.end,
+      velocity: note.velocity,
+      id: `midi-${crypto.randomUUID()}-${index}`,
+      part: fixedPart === null ? (mappedPart >= 0 && mappedPart <= 3 ? mappedPart : partForMidi(note.midi, safeRanges)) : fixedPart,
+      lyric: '',
+    };
+  });
 }
 
 /**
@@ -72,12 +80,14 @@ export function parseMidiNotes(buffer: ArrayBuffer): ImportedMidiNote[] {
 
   const events: MidiEvent[] = [];
   let offset = 8 + headerLength;
+  let trackIndex = 0;
   while (offset + 8 <= bytes.length) {
     const id = String.fromCharCode(...bytes.slice(offset, offset + 4));
     const length = u32(bytes, offset + 4);
     offset += 8;
     const end = Math.min(bytes.length, offset + length);
     if (id !== 'MTrk') { offset = end; continue; }
+    const currentTrack = trackIndex++;
     let position = offset;
     let tick = 0;
     let runningStatus = 0;
@@ -114,8 +124,8 @@ export function parseMidiNotes(buffer: ArrayBuffer): ImportedMidiNote[] {
       const data1 = firstData ?? bytes[position++];
       const data2 = dataLength === 2 ? bytes[position++] : 0;
       if (data1 === undefined || (dataLength === 2 && data2 === undefined)) break;
-      if (command === 0x90 && data2 > 0) events.push({ tick, type: 'on', midi: data1, velocity: data2, channel });
-      if (command === 0x80 || (command === 0x90 && data2 === 0)) events.push({ tick, type: 'off', midi: data1, velocity: data2, channel });
+      if (command === 0x90 && data2 > 0) events.push({ tick, type: 'on', midi: data1, velocity: data2, channel, track: currentTrack });
+      if (command === 0x80 || (command === 0x90 && data2 === 0)) events.push({ tick, type: 'off', midi: data1, velocity: data2, channel, track: currentTrack });
     }
     offset = end;
   }
@@ -137,7 +147,7 @@ export function parseMidiNotes(buffer: ArrayBuffer): ImportedMidiNote[] {
   const open = new Map<string, Array<Extract<MidiEvent, { type: 'on' }>>>();
   const notes: ImportedMidiNote[] = [];
   for (const event of events.filter((item): item is Extract<MidiEvent, { type: 'on' | 'off' }> => item.type === 'on' || item.type === 'off').sort((a, b) => a.tick - b.tick || (a.type === 'off' ? -1 : 1))) {
-    const key = `${event.channel}:${event.midi}`;
+    const key = `${event.track}:${event.channel}:${event.midi}`;
     if (event.type === 'on') {
       open.set(key, [...(open.get(key) ?? []), event]);
       continue;
@@ -147,7 +157,7 @@ export function parseMidiNotes(buffer: ArrayBuffer): ImportedMidiNote[] {
     if (!start) continue;
     const startSeconds = secondsAtTick(start.tick);
     const endSeconds = Math.max(startSeconds + 0.05, secondsAtTick(event.tick));
-    notes.push({ midi: start.midi, start: Number(startSeconds.toFixed(3)), end: Number(endSeconds.toFixed(3)), velocity: start.velocity });
+    notes.push({ midi: start.midi, start: Number(startSeconds.toFixed(3)), end: Number(endSeconds.toFixed(3)), velocity: start.velocity, sourceTrack: start.track, channel: start.channel });
   }
   return notes.sort((a, b) => a.start - b.start || a.midi - b.midi);
 }
