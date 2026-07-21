@@ -30,6 +30,8 @@ export interface SongNote {
 export interface BackingTrackSettings {
   volume: number;
   speed: number;
+  /** Seconds to nudge the backing track relative to arrangement time. */
+  timeline_offset: number;
   trim_start: number;
   trim_end: number | null;
   loop_start: number;

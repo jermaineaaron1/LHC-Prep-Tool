@@ -16,7 +16,7 @@ type EditorTool = 'select' | 'draw' | 'erase';
 type PlaybackScope = 'all' | 'range' | 'note';
 type ArrangementSnapshot = { title: string; notes: SongNote[]; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
 type MidiPreview = { fileName: string; notes: ImportedMidiNote[] };
-const DEFAULT_TRACK_SETTINGS: BackingTrackSettings = { volume: 1, speed: 1, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, loop_enabled: false, skip_regions: [], split_markers: [], effect: 'none' };
+const DEFAULT_TRACK_SETTINGS: BackingTrackSettings = { volume: 1, speed: 1, timeline_offset: 0, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, loop_enabled: false, skip_regions: [], split_markers: [], effect: 'none' };
 
 export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClose: () => void; onSave: (values: EditableSong) => Promise<void>; }) {
   const [title, setTitle] = useState(song.title);
@@ -112,21 +112,22 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     const scoped = playScope === 'note' ? enabled.filter(note => selectedIds.includes(note.id)) : playScope === 'range' ? enabled.filter(note => note.end >= playRange.start && note.start <= playRange.end) : enabled;
     const ordered = [...scoped].sort((a, b) => a.start - b.start);
     if (!ordered.length) return;
+    const transportRate = Math.max(.5, Math.min(1.5, trackSettings.speed));
     const first = playScope === 'range' ? playRange.start : ordered[0].start;
     const finalTime = playScope === 'range' ? playRange.end : Math.min(first + 20, Math.max(...ordered.map(note => note.end)));
     const preview = ordered.filter(note => note.start <= finalTime && note.end >= first);
-    const last = Math.max(.1, finalTime - first);
+    const last = Math.max(.1, (finalTime - first) / transportRate);
     const context = new AudioContext();
     audioContextRef.current = context;
     void context.resume();
     preview.forEach(note => {
       const audibleStart = Math.max(note.start, first);
-      const at = audibleStart - first;
-      const length = Math.max(.07, Math.min(note.end, finalTime) - audibleStart);
+      const at = (audibleStart - first) / transportRate;
+      const length = Math.max(.07, (Math.min(note.end, finalTime) - audibleStart) / transportRate);
       playPianoTone(context, note, context.currentTime + at, length);
     });
     const startedAt = performance.now();
-    const tick = () => { setPlayhead(first + ((performance.now() - startedAt) / 1000)); animationFrameRef.current = requestAnimationFrame(tick); };
+    const tick = () => { setPlayhead(first + ((performance.now() - startedAt) / 1000) * transportRate); animationFrameRef.current = requestAnimationFrame(tick); };
     setIsPlaying(true); tick();
     playbackTimerRef.current = setTimeout(stopPlayback, last * 1000 + 550);
   }
@@ -209,7 +210,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
         </div>
         <details className="border-b border-white/[.06] bg-[#07101d] px-3 py-2 text-xs">
           <summary className="cursor-pointer font-semibold text-cyan-100">Backing track {mediaUrl ? `• ${mediaKind} loaded` : '• upload audio or video'}</summary>
-          <BackingTrackPanel url={mediaUrl} kind={mediaKind} fileName={mediaName} settings={trackSettings} setSettings={setTrackSettings} uploading={uploadingMedia} onUpload={() => mediaInputRef.current?.click()} />
+          <BackingTrackPanel url={mediaUrl} kind={mediaKind} fileName={mediaName} settings={trackSettings} setSettings={setTrackSettings} uploading={uploadingMedia} transportTime={playhead} transportPlaying={isPlaying} onUpload={() => mediaInputRef.current?.click()} />
           <input ref={mediaInputRef} className="hidden" type="file" accept="audio/*,video/*" onChange={uploadBackingTrack} />
           {mediaError && <p className="mt-2 text-rose-200">Backing track: {mediaError}</p>}
         </details>

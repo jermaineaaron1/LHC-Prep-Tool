@@ -10,6 +10,7 @@ alter table public.vh_songs
   add column if not exists backing_track_settings jsonb not null default '{
     "volume": 1,
     "speed": 1,
+    "timeline_offset": 0,
     "trim_start": 0,
     "trim_end": null,
     "loop_start": 0,
