@@ -324,6 +324,14 @@ Full 3-panel songbook layout implemented in both `Index.html` and `dist/index.ht
 - **Manual database step required:** run `migrations/2026-07-20_vocal_hero_backing_tracks.sql` in Supabase before using uploads. It creates the public-read `vocal-hero-media` bucket and the `vh_songs` backing media/settings fields. Public read is necessary for connected singers to retrieve a shared backing track; uploads remain service-signed.
 - Verified with `npm.cmd run build` using placeholder Supabase build values. No new npm package is required.
 
+### Vocal Hero piano-roll interaction and rhythm-grid upgrade (2026-07-23)
+
+- On `feature/vocal-hero-piano-roll-interactions`, note bodies are directly selectable in both Select and Draw modes. Ctrl/Cmd/Shift-click builds or toggles a multi-selection, double-click activates a note without collapsing an existing multi-selection, and a real two-dimensional lasso selects every rendered note intersecting the cursor rectangle across any included SATB lanes.
+- Dragging a selected note body now edits both dimensions: left/right moves the selected notes anywhere on the timeline with millisecond precision, while up/down transposes them chromatically within each voice's configured range. Multi-note timing, pitch, and durations remain relative, and the complete gesture is recorded as one Undo/Redo operation.
+- Reworked the piano-roll visual hierarchy with a dedicated Bars & Beats ruler, numbered bars and beats, strong bar lines, beat lines, quarter-beat subdivisions, alternating measure shading, clearer chromatic rows, octave emphasis, improved note depth/selection states, and stronger sticky pitch headers. The grid is deliberately visual rather than quantized, so syncopated and freely timed notes remain possible.
+- Updated the Worship app iframe release key to `20260723-1` in both `Index.html` and `dist/index.html` so the deployed shell requests the upgraded editor rather than a cached practice-game document.
+- Verification: `next build` completes, including TypeScript and static generation. `npm run lint` remains blocked by the existing ESLint 9 setup having no `eslint.config.*`; no new package, database migration, or environment variable is required.
+
 ## Recommended Next Steps
 
 ### Songs mobile interactions (2026-07-22)
