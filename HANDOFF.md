@@ -4,6 +4,17 @@ _Last updated: 2026-07-22 by Codex_
 
 ---
 
+## 2026-07-22 — Mobile primary filters
+
+- Mobile Songs now keeps three decision-focused filters visible: Theme, Feel, and Scripture.
+- Renamed the mobile `Filters` trigger to `More filters`.
+- The More filters bottom sheet now contains only Key, Style, Season, and Sort By; it reuses the original controls and state rather than duplicating filter logic.
+- Desktop retains all seven filters in its existing single row.
+- Browser QA completed at 390×844 for the inline filters, More filters sheet, and Apply/close interaction.
+- No database changes were required; `Index.html` and `dist/index.html` remain synchronized.
+
+---
+
 ## 2026-07-22 — Song card resource and WhatsApp actions
 
 - Renamed each card's `Lyrics` readiness indicator to `Chords / Lyrics` so the stored chord-sheet resource is unambiguous.
@@ -33,7 +44,7 @@ _Last updated: 2026-07-22 by Codex_
 | **Project name** | LHC Worship Prep |
 | **Purpose** | Worship preparation tool for Luther House Chapel — manages songs, rosters, liturgy, and worship orders |
 | **GitHub repo** | `https://github.com/jermaineaaron1/LHC-Prep-Tool.git` |
-| **Current branch** | `feature/song-card-share` |
+| **Current branch** | `feature/mobile-primary-filters` |
 | **Default branch** | `master` |
 | **Vercel deployment branch** | `master` (auto-deploys on push; production URL is `lhc-prep-tool.vercel.app`) |
 | **Version** | 2.8 (per CLAUDE.md) |

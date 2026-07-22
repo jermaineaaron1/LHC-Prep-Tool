@@ -1845,15 +1845,34 @@
         display: block; position: fixed; inset: 0; background: rgba(15,23,42,0.45); z-index: 2999;
       }
       #sfFilterGrid {
-        position: fixed; left: 0; right: 0; bottom: 0; z-index: 3000;
-        background: #fff; max-height: 78vh; overflow-y: auto;
-        border-radius: 20px 20px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,0.22);
-        grid-template-columns: 1fr !important; gap: 14px !important;
-        padding: 18px 18px calc(76px + env(safe-area-inset-bottom, 0px)) !important;
-        margin: 0 !important;
-        transform: translateY(115%);
+        position: static; display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 7px !important;
+        width: 100%; max-height: none; overflow: visible;
+        padding: 12px 0 0 !important; margin: 0 !important;
+        background: transparent; border-radius: 0; box-shadow: none;
+        transform: none;
       }
-      #sfFilterGrid.sf-sheet-open { transform: translateY(0); }
+      #sfFilterGrid .sf-more-filter, #sfFilterGrid .sf-filter-spacer { display: none; }
+      #sfFilterGrid .sf-primary-filter { display: block; min-width: 0; }
+      #sfFilterGrid .sf-primary-filter .form-label { margin-left: 2px; }
+      #sfFilterGrid .sf-primary-filter .form-input {
+        width: 100%; min-width: 0; height: 42px; padding: 0 10px;
+        font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis;
+      }
+      #sfFilterGrid.sf-sheet-open {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 3000;
+        display: grid; grid-template-columns: 1fr !important; gap: 14px !important;
+        width: auto; max-height: 78vh; overflow-y: auto;
+        padding: 22px 18px calc(76px + env(safe-area-inset-bottom, 0px)) !important;
+        margin: 0 !important; background: #fff;
+        border-radius: 20px 20px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,0.22);
+      }
+      #sfFilterGrid.sf-sheet-open::before {
+        content: 'More filters'; color: #1e293b; font-size: 1rem; font-weight: 800;
+        padding-bottom: 10px; border-bottom: 1px solid #e2e8f0;
+      }
+      #sfFilterGrid.sf-sheet-open .sf-primary-filter { display: none; }
+      #sfFilterGrid.sf-sheet-open .sf-more-filter { display: block; }
       #sfMobileFilterApplyBtn.sf-sheet-open {
         display: block; position: fixed; left: 16px; right: 16px;
         bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 3001;
@@ -1861,7 +1880,7 @@
         color: #fff; border: none; border-radius: 999px; padding: 14px; font-weight: 700; font-size: 0.95rem;
         box-shadow: 0 10px 26px rgba(79,107,240,0.35);
       }
-      #sfFilterGrid label { color: #64748b; font-size: 0.72rem; }
+      #sfFilterGrid label { color: #64748b; font-size: 0.68rem; }
     }
 
     /* ==================== SEARCH SUGGESTIONS ==================== */
@@ -5075,7 +5094,7 @@
             <div>
               <span id="resultCount">0</span> results • <span id="totalCount">0</span> in library
             </div>
-            <button id="sfMobileFiltersBtn" type="button" onclick="toggleMobileFilterSheet()"><i class="fa-solid fa-sliders"></i> Filters</button>
+            <button id="sfMobileFiltersBtn" type="button" onclick="toggleMobileFilterSheet()"><i class="fa-solid fa-sliders"></i> More filters</button>
           </div>
 
 
@@ -5083,21 +5102,21 @@
           <div id="sfFilterSheetBackdrop" onclick="toggleMobileFilterSheet(false)"></div>
           <!-- Filters Grid -->
           <div id="sfFilterGrid" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-4">
-            <div>
+            <div class="sf-primary-filter">
               <label class="form-label">Theme</label>
               <div class="theme-multiselect" style="position:relative;">
                 <div id="filterThemeDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterThemeDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Themes</div>
                 <div id="filterThemeDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
-            <div>
+            <div class="sf-more-filter">
               <label class="form-label">Key</label>
               <div class="theme-multiselect" style="position:relative;">
                 <div id="filterKeyDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterKeyDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Keys</div>
                 <div id="filterKeyDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:160px;"></div>
               </div>
             </div>
-            <div>
+            <div class="sf-more-filter">
               <label class="form-label">Style</label>
               <div class="theme-multiselect" style="position:relative;">
                 <div id="filterStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterStyleDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Styles</div>
@@ -5106,20 +5125,20 @@
                 </div>
               </div>
             </div>
-            <div>
-              <label class="form-label" for="filterTempo">Feel/Tempo</label>
+            <div class="sf-primary-filter">
+              <label class="form-label" for="filterTempo">Feel</label>
               <select id="filterTempo" class="form-input form-select text-sm py-2">
                 <option value="">All</option>
               </select>
             </div>
-            <div>
+            <div class="sf-more-filter">
               <label class="form-label">Season</label>
               <div class="theme-multiselect" style="position:relative;">
                 <div id="filterSeasonDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterSeasonDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Seasons</div>
                 <div id="filterSeasonDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
-            <div>
+            <div class="sf-primary-filter">
               <label class="form-label">Scripture</label>
               <div id="filterScriptureWrap" style="position:relative;">
                 <div id="filterScriptureDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="openBiblePickerModal()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Scripture</div>
@@ -5127,7 +5146,7 @@
                 <div id="filterScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;"></div>
               </div>
             </div>
-            <div>
+            <div class="sf-more-filter">
               <label class="form-label" for="sortBy">Sort By</label>
               <select id="sortBy" class="form-input form-select text-sm py-2">
                 <option value="title-asc">Title A→Z</option>
@@ -5137,7 +5156,7 @@
                 <option value="latest">Latest Added / Edited</option>
               </select>
             </div>
-            <div></div>
+            <div class="sf-filter-spacer"></div>
           </div>
           <button id="sfMobileFilterApplyBtn" type="button" onclick="toggleMobileFilterSheet(false)">Apply Filters</button>
           </div>
