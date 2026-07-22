@@ -5107,9 +5107,9 @@
           <!-- Filters Grid -->
           <div id="sfFilterGrid" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-4">
             <div class="sf-primary-filter">
-              <label class="form-label">Theme</label>
+              <label class="form-label"><i class="fa-solid fa-tags" aria-hidden="true"></i> Theme</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterThemeDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterThemeDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Themes</div>
+                <div id="filterThemeDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-label="Choose theme filter" onclick="toggleFilterThemeDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterThemeDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
                 <div id="filterThemeDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
@@ -5130,7 +5130,7 @@
               </div>
             </div>
             <div class="sf-primary-filter">
-              <label class="form-label" for="filterTempo">Feel</label>
+              <label class="form-label" for="filterTempo"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> Feel</label>
               <select id="filterTempo" class="form-input form-select text-sm py-2">
                 <option value="">All</option>
               </select>
@@ -5143,9 +5143,9 @@
               </div>
             </div>
             <div class="sf-primary-filter">
-              <label class="form-label">Scripture</label>
+              <label class="form-label"><i class="fa-solid fa-book-bible" aria-hidden="true"></i> Scripture</label>
               <div id="filterScriptureWrap" style="position:relative;">
-                <div id="filterScriptureDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="openBiblePickerModal()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Scripture</div>
+                <div id="filterScriptureDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Choose scripture filter" onclick="openBiblePickerModal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openBiblePickerModal();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
                 <!-- Selected passage chips shown below -->
                 <div id="filterScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;"></div>
               </div>
@@ -8328,23 +8328,6 @@ I once was lost but now am found"
     </div>
   </div>
 
-  <!-- ==================== MODAL: YOUTUBE PREVIEW ==================== -->
-  <div id="youtubePreviewModal" class="modal-overlay">
-    <div class="modal-content" style="width: min(800px, 95%); padding: 0; overflow: hidden; border-radius: 16px;">
-      <div class="flex items-center justify-between gap-4 p-4 border-b border-slate-200">
-        <h3 class="font-semibold text-slate-800">
-          <i class="fa-brands fa-youtube mr-2 text-red-500"></i> YouTube Preview
-        </h3>
-        <button id="closeYoutubePreviewBtn" class="lhc-pill-button" title="Close" onclick="closeYoutubePreview()">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-      <div class="aspect-video bg-black">
-        <iframe id="youtubePreviewFrame" class="w-full h-full" src="" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-      </div>
-    </div>
-  </div>
-
   <!-- ==================== MODAL: DOCUMENT PREVIEW ==================== -->
   <div id="previewModal" class="modal-overlay">
     <div class="modal-content" style="width: min(900px, 95%); height: 80vh; display: flex; flex-direction: column; padding: 0;">
@@ -8365,13 +8348,13 @@ I once was lost but now am found"
   <!-- ==================== MODAL: DOC PREVIEW ==================== -->
   <div id="docPreviewModal" class="modal-overlay">
     <div class="modal-content" style="width: min(950px, 96%); height: 94vh; display: flex; flex-direction: column; padding: 0;">
-      <div class="flex items-center justify-between gap-4 p-4 border-b border-slate-200">
+      <div id="docPreviewHeader" class="flex items-center justify-between gap-4 p-4 border-b border-slate-200">
         <h3 class="font-semibold text-slate-800 flex items-center gap-2">
           <i class="fa-solid fa-file-lines text-blue-500"></i>
           <span id="docPreviewTitle">Document</span>
         </h3>
-        <div class="flex gap-2 items-center">
-          <div style="display:flex;align-items:center;gap:4px;background:#f1f5f9;border-radius:8px;padding:2px;">
+        <div class="doc-preview-actions flex gap-2 items-center">
+          <div class="doc-preview-zoom" style="display:flex;align-items:center;gap:4px;background:#f1f5f9;border-radius:8px;padding:2px;">
             <button onclick="docPreviewZoom(-1)" title="Zoom Out" style="width:30px;height:30px;border:none;background:none;cursor:pointer;border-radius:6px;font-size:14px;color:#475569;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='none'"><i class="fa-solid fa-minus"></i></button>
             <span id="docPreviewZoomLevel" style="font-size:0.75rem;color:#64748b;min-width:36px;text-align:center;">100%</span>
             <button onclick="docPreviewZoom(1)" title="Zoom In" style="width:30px;height:30px;border:none;background:none;cursor:pointer;border-radius:6px;font-size:14px;color:#475569;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='none'"><i class="fa-solid fa-plus"></i></button>
@@ -8379,7 +8362,7 @@ I once was lost but now am found"
           <button id="docPreviewOpenBtn" class="lhc-pill-button text-sm" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;">
             <i class="fa-solid fa-external-link mr-1"></i> Open in New Tab
           </button>
-          <button class="lhc-pill-button" title="Close" onclick="closeDocPreview()">
+          <button id="docPreviewCloseBtn" class="lhc-pill-button" title="Close document preview" aria-label="Close document preview" onclick="closeDocPreview()">
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
@@ -8394,16 +8377,16 @@ I once was lost but now am found"
   <!-- ==================== MODAL: YOUTUBE PREVIEW ==================== -->
   <div id="youtubePreviewModal" class="modal-overlay">
     <div class="modal-content" style="width: min(900px, 95%); padding: 0; overflow: hidden; border-radius: 16px;">
-      <div class="flex items-center justify-between gap-4 p-4 border-b border-slate-200">
+      <div id="youtubePreviewHeader" class="flex items-center justify-between gap-4 p-4 border-b border-slate-200">
         <h3 class="font-semibold text-slate-800 flex items-center gap-2">
           <i class="fa-brands fa-youtube text-red-500"></i>
           <span id="youtubePreviewTitle">Video</span>
         </h3>
-        <div class="flex gap-2">
+        <div class="youtube-preview-actions flex gap-2">
           <button id="youtubePreviewOpenBtn" class="lhc-pill-button text-sm" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;">
             <i class="fa-brands fa-youtube mr-1"></i> Open on YouTube
           </button>
-          <button class="lhc-pill-button" title="Close" onclick="closeYoutubePreview()">
+          <button id="youtubePreviewCloseBtn" class="lhc-pill-button" title="Close video preview" aria-label="Close video preview" onclick="closeYoutubePreview()">
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
@@ -9594,7 +9577,7 @@ function updateFilterTheme(changedCb) {
   window.LHC_STATE.filters.themes = selected;
   // Update display text
   if (display) {
-    if (selected.length === 0) display.textContent = 'All Themes';
+    if (selected.length === 0) display.textContent = 'All';
     else if (selected.length <= 2) display.textContent = selected.join(', ');
     else display.textContent = selected.slice(0, 2).join(', ') + ' +' + (selected.length - 2) + ' more';
   }
@@ -9641,7 +9624,7 @@ function _msChange(changedCb, cbClass) {
   } else if (cbClass === 'filter-scripture-cb') {
     window.LHC_STATE.filters.scriptures = selected;
     var d = document.getElementById('filterScriptureDisplay');
-    if (d) d.textContent = selected.length === 0 ? 'All Scripture' : selected.length <= 2 ? selected.join(', ') : selected.slice(0,2).join(', ') + ' +' + (selected.length-2) + ' more';
+    if (d) d.textContent = selected.length === 0 ? 'All' : selected.length <= 2 ? selected.join(', ') : selected.slice(0,2).join(', ') + ' +' + (selected.length-2) + ' more';
   }
   window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
 }
@@ -10372,7 +10355,7 @@ function bpRemoveSongPassage(mode, idx) {
 function _updateScriptureDisplay() {
   var passages = (window.LHC_STATE && window.LHC_STATE.filters.scriptures) || [];
   var disp = document.getElementById('filterScriptureDisplay');
-  if (disp) disp.textContent = passages.length === 0 ? 'All Scripture' : passages.length <= 2 ? passages.join(', ') : passages.slice(0,2).join(', ') + ' +' + (passages.length - 2) + ' more';
+  if (disp) disp.textContent = passages.length === 0 ? 'All' : passages.length <= 2 ? passages.join(', ') : passages.slice(0,2).join(', ') + ' +' + (passages.length - 2) + ' more';
   // Update chips below the display
   var chipsEl = document.getElementById('filterScriptureChips');
   if (chipsEl) {
@@ -16026,11 +16009,11 @@ window.loadEditSongData = function(song) {
     if (filterTempo) filterTempo.value = '';
     // Reset multi-select display labels
     var d;
-    d = document.getElementById('filterThemeDisplay'); if (d) d.textContent = 'All Themes';
+    d = document.getElementById('filterThemeDisplay'); if (d) d.textContent = 'All';
     d = document.getElementById('filterKeyDisplay'); if (d) d.textContent = 'All Keys';
     d = document.getElementById('filterStyleDisplay'); if (d) d.textContent = 'All Styles';
     d = document.getElementById('filterSeasonDisplay'); if (d) d.textContent = 'All Seasons';
-    d = document.getElementById('filterScriptureDisplay'); if (d) d.textContent = 'All Scripture';
+    d = document.getElementById('filterScriptureDisplay'); if (d) d.textContent = 'All';
     d = document.getElementById('filterScriptureChips'); if (d) d.innerHTML = '';
     // Re-populate dropdowns to reset checkboxes
     populateKeyFilterDropdown(STATE.songMeta.keys);
@@ -16483,6 +16466,25 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 10) SEARCH SUGGESTIONS - PREFIX MATCH ONLY
   // ============================================================
+  function focusSongCardFromSuggestion(songId, retries) {
+    var cards = document.querySelectorAll('#songListContainer .song-list-item[data-song-id]');
+    var target = Array.prototype.find.call(cards, function(card) {
+      return String(card.dataset.songId) === String(songId);
+    });
+    if (!target && (retries || 0) > 0) {
+      window.setTimeout(function() { focusSongCardFromSuggestion(songId, retries - 1); }, 70);
+      return;
+    }
+    if (!target) return;
+    document.querySelectorAll('#songListContainer .song-list-item.sf-suggestion-target').forEach(function(card) {
+      card.classList.remove('sf-suggestion-target');
+    });
+    target.classList.add('sf-suggestion-target');
+    var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center', inline: 'nearest' });
+    window.setTimeout(function() { target.classList.remove('sf-suggestion-target'); }, 2200);
+  }
+
   function renderSearchSuggestions(query) {
     var container = $('searchSuggestions');
     if (!container) return;
@@ -16522,10 +16524,16 @@ window.loadEditSongData = function(song) {
       item.onclick = function() {
         var song = STATE.songs.find(function(s) { return s.id === item.dataset.id; });
         if (song) {
-          $('searchInput').value = song.title;
+          var searchInput = $('searchInput');
+          searchInput.value = song.title;
           STATE.filters.q = song.title;
           container.classList.remove('show');
+          container.innerHTML = '';
           renderSongs(true);
+          searchInput.blur();
+          // Allow the mobile keyboard and the freshly-rendered catalogue to
+          // settle before bringing the exact selected card into view.
+          window.setTimeout(function() { focusSongCardFromSuggestion(song.id, 4); }, window.innerWidth <= 768 ? 180 : 20);
         }
       };
     });
@@ -17214,9 +17222,21 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 13B) DOC PREVIEW MODAL
   // ============================================================
+  function promoteSongResourceModal(modal) {
+    if (!modal) return;
+    // The mobile lyrics workspace is portalled to <body> when opened. Move
+    // each child resource viewer after it as well, so equal/ancestor stacking
+    // contexts can never place a document or video behind the workspace.
+    if (modal.parentNode !== document.body || document.body.lastElementChild !== modal) {
+      document.body.appendChild(modal);
+    }
+    modal.classList.add('song-resource-modal');
+  }
+
   function openDocPreviewModal(url, title) {
     var modal = $('docPreviewModal');
     if (!modal) return;
+    promoteSongResourceModal(modal);
 
     $('docPreviewTitle').textContent = title || 'Document';
 
@@ -17323,6 +17343,7 @@ window.loadEditSongData = function(song) {
   function openYoutubePreviewModal(url, title) {
     var modal = $('youtubePreviewModal');
     if (!modal) return;
+    promoteSongResourceModal(modal);
     
     $('youtubePreviewTitle').textContent = title || 'Video';
     
@@ -19196,7 +19217,16 @@ window.loadEditSongData = function(song) {
       }, 200);
 
       si.onkeydown = function(e) {
-        if (e.key === 'Enter') { $('searchSuggestions').classList.remove('show'); renderSongs(true); }
+        if (e.key === 'Enter') {
+          var activeSuggestion = $('searchSuggestions').querySelector('.suggestion-item.active');
+          if (activeSuggestion) {
+            e.preventDefault();
+            activeSuggestion.click();
+          } else {
+            $('searchSuggestions').classList.remove('show');
+            renderSongs(true);
+          }
+        }
         if (e.key === 'Escape') { $('searchSuggestions').classList.remove('show'); }
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); navSuggestions(e.key === 'ArrowDown' ? 1 : -1); }
       };
@@ -68903,6 +68933,19 @@ window.LHC_Install = (function() {
   #songFinderView .btn-youtube-preview i { color:#dc2626; }
   #songFinderView .btn-spotify-preview i { color:#16a34a; }
   #songFinderView .link-count-badge { top:-7px;right:-7px; }
+  #songFinderView .song-list-item.sf-suggestion-target {
+    border-color:#22c6ca;outline:3px solid rgba(34,198,202,.2);box-shadow:0 16px 34px rgba(8,120,135,.2);
+    animation:sfSuggestionArrival .72s ease-out 2;
+  }
+  @keyframes sfSuggestionArrival {
+    0%,100% { transform:translateY(0); }
+    45% { transform:translateY(-3px); }
+  }
+
+  /* Resource viewers always sit above the portalled mobile song workspace. */
+  #docPreviewModal.song-resource-modal,
+  #youtubePreviewModal.song-resource-modal,
+  #spotifyPreviewModal.song-resource-modal { z-index:120000 !important; }
 
   #songFinderView #sfWorkspacePanel { min-height:660px;overflow:hidden;padding:0; }
   #songFinderView .sf-workspace-empty { max-width:440px;padding:54px 34px; }
@@ -68981,12 +69024,22 @@ window.LHC_Install = (function() {
     #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-label {
       display:block;margin:0 0 6px 2px;color:#b8d6e2;font-size:.63rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
     }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-label i { margin-right:4px;color:#67e8f9;font-size:.68rem; }
     #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-input.form-select,
     #songFinderView #sfMobilePrioritySlot #sfFilterGrid select.form-input {
-      width:100%;min-height:43px;padding-left:10px;padding-right:24px;border:1px solid rgba(151,226,234,.34);
-      border-radius:10px;background:rgba(255,255,255,.97);color:#143249;font-size:.76rem;font-weight:650;
-      box-shadow:0 7px 18px rgba(0,0,0,.13);
+      width:100%;min-height:48px;padding-left:12px;padding-right:28px;border:1.5px solid rgba(103,232,249,.62);
+      border-radius:12px;background-color:#fff;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%230b8793'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2.5' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E"),linear-gradient(180deg,#fff 0%,#edfafe 100%);
+      background-repeat:no-repeat,no-repeat;background-position:right 9px center,0 0;background-size:15px,100% 100%;color:#0c344a;
+      font-size:.8rem;font-weight:800;box-shadow:0 8px 20px rgba(0,0,0,.16),inset 0 1px 0 #fff;
+      cursor:pointer;transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease;
     }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-input.form-select:hover,
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-input.form-select:focus,
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid select.form-input:focus {
+      border-color:#22d3ee;outline:none;box-shadow:0 0 0 3px rgba(34,211,238,.2),0 9px 22px rgba(0,0,0,.18);
+    }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-input.form-select:active { transform:translateY(1px); }
     #songFinderView #sfMobilePrioritySlot #filterScriptureChips { display:none !important; }
     #songFinderView #sfMobilePrioritySlot #sfMobileFiltersBtn {
       display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;margin:11px 0 0 auto;padding:0 13px;
@@ -69008,6 +69061,42 @@ window.LHC_Install = (function() {
     #songFinderView #sfStatsMobileSlot .sf-library-metrics .sf-metric-note { display:none; }
     #songFinderView #sfResultsRow { margin-bottom:0;padding-bottom:11px; }
     #songFinderView #sfResultsRow > div:nth-child(2) { margin-left:auto;white-space:nowrap; }
+
+    #docPreviewModal.song-resource-modal,
+    #youtubePreviewModal.song-resource-modal {
+      inset:0;width:100vw;max-width:100vw;height:100dvh;max-height:100dvh;padding:0 !important;overflow:hidden !important;
+    }
+    #docPreviewModal.song-resource-modal .modal-content {
+      width:100vw !important;max-width:100vw !important;height:100dvh !important;max-height:100dvh !important;
+      margin:0 !important;border-radius:0 !important;overflow:hidden !important;box-sizing:border-box;min-width:0;
+    }
+    #docPreviewHeader {
+      width:100%;min-width:0;box-sizing:border-box;flex:none;padding:10px 12px !important;gap:8px !important;background:#fff;
+    }
+    #docPreviewHeader h3 { flex:1;min-width:0;overflow:hidden;margin:0; }
+    #docPreviewTitle { display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    #docPreviewHeader .doc-preview-actions { flex:none;min-width:0;gap:6px !important; }
+    #docPreviewHeader .doc-preview-zoom { display:none !important; }
+    #docPreviewOpenBtn {
+      width:40px;height:40px;min-width:40px;padding:0 !important;display:grid;place-items:center;font-size:0 !important;
+    }
+    #docPreviewOpenBtn i { display:block !important;margin:0 !important;font-size:.9rem; }
+    #docPreviewCloseBtn { width:40px;height:40px;min-width:40px;padding:0 !important;display:grid;place-items:center; }
+    #docPreviewCloseBtn i { display:block !important;margin:0 !important;color:#334155;font-size:1rem !important; }
+    #docPreviewModal #docPreviewFrame,
+    #docPreviewModal #docPreviewContent { min-width:0;max-width:100%; }
+
+    #youtubePreviewModal.song-resource-modal .modal-content {
+      width:100vw !important;max-width:100vw !important;margin:0 !important;border-radius:0 !important;overflow:hidden !important;min-width:0;
+    }
+    #youtubePreviewHeader { width:100%;min-width:0;box-sizing:border-box;padding:10px 12px !important;gap:8px !important; }
+    #youtubePreviewHeader h3 { flex:1;min-width:0;overflow:hidden; }
+    #youtubePreviewTitle { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    #youtubePreviewHeader .youtube-preview-actions { flex:none;gap:6px !important; }
+    #youtubePreviewOpenBtn { width:40px;height:40px;min-width:40px;padding:0 !important;font-size:0 !important;display:grid;place-items:center; }
+    #youtubePreviewOpenBtn i { display:block !important;margin:0 !important;font-size:.95rem; }
+    #youtubePreviewCloseBtn { width:40px;height:40px;min-width:40px;padding:0 !important;display:grid;place-items:center; }
+    #youtubePreviewCloseBtn i { display:block !important;margin:0 !important;color:#334155;font-size:1rem !important; }
   }
   @media (max-width:640px) {
     #songFinderView { padding:6px;background:#eef4f7; }
@@ -69035,6 +69124,7 @@ window.LHC_Install = (function() {
   }
   @media (prefers-reduced-motion:reduce) {
     #songFinderView .song-list-item,#songFinderView .lhc-pill-button,#songFinderView .sf-action-icon { transition:none !important; }
+    #songFinderView .song-list-item.sf-suggestion-target { animation:none !important; }
   }
 </style>
 

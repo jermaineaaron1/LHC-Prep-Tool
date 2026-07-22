@@ -326,6 +326,15 @@ Full 3-panel songbook layout implemented in both `Index.html` and `dist/index.ht
 
 ## Recommended Next Steps
 
+### Songs mobile interactions (2026-07-22)
+
+- On `fix/mobile-song-interactions`, search suggestion selection now filters the catalogue, dismisses the mobile keyboard, scrolls the exact result card into the center of view, and briefly highlights it. Keyboard Enter follows the active suggestion through the same path.
+- Theme, Feel, and Scripture are stronger 48px mobile filter targets with icons, chevrons, focus states, and the concise default label `All`; Theme and Scripture also support keyboard activation.
+- Document and YouTube resource viewers are portalled to the end of `<body>` and raised above the mobile song workspace. Duplicate YouTube preview markup was removed, eliminating conflicting IDs.
+- The mobile document viewer is constrained to the viewport. Its title truncates safely, zoom controls collapse on phones, and the open/close icon controls remain visible without horizontal scrolling.
+- Mirrored the focused changes into both `Index.html` and `dist/index.html` without replacing deployed-only code. No schema or environment changes are required.
+- Browser verification at 390x844 confirmed suggestion-to-card alignment, all three `All` defaults, document/video z-index `120000`, one YouTube modal, and a fully visible document close control.
+
 1. **Worship Orders — presentation mode** — build a full-screen projection view for orders (slides fill the screen, keyboard/remote navigation, altar-colour theming). This is the most requested unfinished feature.
 2. **Sync `dist/index.html` automation** — add a simple npm script or git hook that copies `Index.html` → `dist/index.html` on commit, eliminating the manual dual-edit risk.
 3. **Supabase schema snapshot** — run a fresh `pg_dump --schema-only` from the Supabase dashboard and replace `supabase-schema.sql` so future agents have an accurate reference.
