@@ -7,10 +7,13 @@ _Last updated: 2026-07-22 by Codex_
 ## 2026-07-22 — Mobile primary filters
 
 - Mobile Songs now keeps three decision-focused filters visible: Theme, Feel, and Scripture.
+- Follow-up: the actual Theme/Feel/Scripture controls now occupy the high-visibility navy search panel, while the Songs/Lyrics ready/With media statistics have moved into the white information panel below. Desktop placement is unchanged.
 - Renamed the mobile `Filters` trigger to `More filters`.
 - The More filters bottom sheet now contains only Key, Style, Season, and Sort By; it reuses the original controls and state rather than duplicating filter logic.
+- Rebuilt the Theme filter as a viewport-level, scrollable menu so the entire theme catalogue is accessible without being clipped by the Songs card. The menu shows the available-theme count and keeps its add-theme controls visible.
+- New themes can be created from the filter menu, persist through the existing `lhc_custom_themes` local-storage mechanism, appear in Add/Edit Song theme choices, and become immediately selectable as a filter. No database schema change was required.
 - Desktop retains all seven filters in its existing single row.
-- Browser QA completed at 390×844 for the inline filters, More filters sheet, and Apply/close interaction.
+- Browser QA completed at 390×844 for the swapped hierarchy, full Theme list, custom-theme creation/selection, More filters sheet, and Apply/close interaction.
 - No database changes were required; `Index.html` and `dist/index.html` remain synchronized.
 
 ---
@@ -44,7 +47,7 @@ _Last updated: 2026-07-22 by Codex_
 | **Project name** | LHC Worship Prep |
 | **Purpose** | Worship preparation tool for Luther House Chapel — manages songs, rosters, liturgy, and worship orders |
 | **GitHub repo** | `https://github.com/jermaineaaron1/LHC-Prep-Tool.git` |
-| **Current branch** | `feature/mobile-primary-filters` |
+| **Current branch** | `feature/mobile-filter-priority` |
 | **Default branch** | `master` |
 | **Vercel deployment branch** | `master` (auto-deploys on push; production URL is `lhc-prep-tool.vercel.app`) |
 | **Version** | 2.8 (per CLAUDE.md) |

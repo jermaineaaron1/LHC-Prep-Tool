@@ -5079,12 +5079,14 @@
               <span class="sf-key-hint">/ to focus</span>
             </div>
           </div>
+          <span id="sfMetricsDesktopHome" style="display:none;"></span>
           <div class="sf-library-metrics" aria-label="Library overview">
             <div><strong id="sfLibraryMetric">0</strong><span>Songs</span></div>
             <div><strong id="sfLyricsMetric">0</strong><span>Lyrics ready</span></div>
             <div><strong id="sfMediaMetric">0</strong><span>With media</span></div>
             <div class="sf-metric-note"><i class="fa-solid fa-circle-check"></i><span>Ready for Orders &amp; Songbooks</span></div>
           </div>
+          <div id="sfMobilePrioritySlot" aria-label="Primary song filters"></div>
           </div>
 
           <div id="sfFilterBar">
@@ -5094,10 +5096,12 @@
             <div>
               <span id="resultCount">0</span> results • <span id="totalCount">0</span> in library
             </div>
+            <span id="sfMobileFiltersBtnHome" style="display:none;"></span>
             <button id="sfMobileFiltersBtn" type="button" onclick="toggleMobileFilterSheet()"><i class="fa-solid fa-sliders"></i> More filters</button>
           </div>
 
-
+          <div id="sfStatsMobileSlot" aria-label="Library statistics"></div>
+          <span id="sfFilterDesktopHome" style="display:none;"></span>
           <span id="sfFilterSheetHome" style="display:none;"></span>
           <div id="sfFilterSheetBackdrop" onclick="toggleMobileFilterSheet(false)"></div>
           <!-- Filters Grid -->
@@ -7317,6 +7321,35 @@
   .theme-multiselect { position: relative; }
   .theme-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); z-index: 100; max-height: 280px; overflow-y: auto; margin-top: 4px; }
   .theme-dropdown.hidden { display: none; }
+  #filterThemeDropdown.filter-theme-portal {
+    display:flex;flex-direction:column;margin:0;border:1px solid #cbdbe5;border-radius:14px;
+    background:#fff;box-shadow:0 24px 70px rgba(4,20,34,.3);color:#173047;
+  }
+  #filterThemeDropdown .sf-filter-theme-menu-head {
+    flex:none;display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;
+    border-bottom:1px solid #e3ebf0;background:linear-gradient(180deg,#fbfdff,#f4f8fa);
+  }
+  #filterThemeDropdown .sf-filter-theme-menu-head strong { font-size:.84rem;color:#102d43; }
+  #filterThemeDropdown .sf-filter-theme-menu-head span { font-size:.66rem;color:#718597; }
+  #filterThemeDropdown .sf-filter-theme-options { flex:1;min-height:0;overflow-y:auto;padding:5px 0;overscroll-behavior:contain; }
+  #filterThemeDropdown .sf-filter-theme-option { padding:0 7px; }
+  #filterThemeDropdown .sf-filter-theme-option label {
+    display:flex;align-items:center;gap:9px;min-height:36px;padding:6px 8px;border-radius:8px;
+    color:#334b5f;font-size:.8rem;cursor:pointer;
+  }
+  #filterThemeDropdown .sf-filter-theme-option label:hover { background:#eef9fa;color:#086d78; }
+  #filterThemeDropdown .sf-filter-theme-option input { width:16px;height:16px;accent-color:#0f9f93; }
+  #filterThemeDropdown .sf-filter-theme-all { padding-bottom:5px;margin-bottom:4px;border-bottom:1px solid #edf2f5; }
+  #filterThemeDropdown .sf-filter-theme-all label { color:#0b7180;font-weight:750; }
+  #filterThemeDropdown .sf-filter-theme-add { flex:none;padding:11px 12px 12px;border-top:1px solid #dfe8ed;background:#f7fafc; }
+  #filterThemeDropdown .sf-filter-theme-add > div:first-child { display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:7px; }
+  #filterThemeDropdown .sf-filter-theme-add strong { color:#17364b;font-size:.72rem; }
+  #filterThemeDropdown .sf-filter-theme-add small { color:#8293a1;font-size:.59rem; }
+  #filterThemeDropdown .sf-filter-theme-add-controls { display:flex;gap:7px; }
+  #filterThemeDropdown .sf-filter-theme-add input { min-width:0;flex:1;height:36px;padding:0 10px;border:1px solid #cddce5;border-radius:8px;background:#fff;color:#173047;font-size:.76rem; }
+  #filterThemeDropdown .sf-filter-theme-add input:focus { outline:0;border-color:#13a3aa;box-shadow:0 0 0 3px rgba(19,163,170,.12); }
+  #filterThemeDropdown .sf-filter-theme-add button { height:36px;padding:0 12px;border:0;border-radius:8px;background:#0b7e89;color:#fff;font-size:.72rem;font-weight:750;cursor:pointer; }
+  #filterThemeDropdown .sf-filter-theme-add button:hover { background:#086a75; }
   .theme-option { padding: 8px 14px; }
   .theme-option:hover { background: #f8fafc; }
   .theme-option label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: #374151; }
@@ -9421,25 +9454,124 @@ var songData = window.songData; // local reference
 var currentLyricsMode = 'new';
 
 // ============ Songs Page Theme Filter Multi-Select ============
+function _getFilterThemeOptions(themes) {
+  var combined = (Array.isArray(themes) ? themes : []).concat(
+    typeof _getCustomThemes === 'function' ? _getCustomThemes() : []
+  );
+  var seen = {};
+  return combined.filter(function(theme) {
+    var clean = String(theme || '').trim();
+    var key = clean.toLowerCase();
+    if (!clean || seen[key]) return false;
+    seen[key] = true;
+    return true;
+  }).map(function(theme) { return String(theme).trim(); }).sort(function(a, b) {
+    return a.localeCompare(b);
+  });
+}
+
+function closeFilterThemeDropdown() {
+  var dd = document.getElementById('filterThemeDropdown');
+  var display = document.getElementById('filterThemeDisplay');
+  var host = display && display.parentElement;
+  if (!dd) return;
+  dd.classList.add('hidden');
+  dd.classList.remove('filter-theme-portal');
+  ['position','left','right','top','bottom','width','maxHeight','overflow','zIndex'].forEach(function(prop) {
+    dd.style[prop] = '';
+  });
+  if (host && dd.parentElement !== host) host.appendChild(dd);
+}
+
+function _positionFilterThemeDropdown() {
+  var dd = document.getElementById('filterThemeDropdown');
+  var display = document.getElementById('filterThemeDisplay');
+  if (!dd || !display || dd.classList.contains('hidden')) return;
+  var rect = display.getBoundingClientRect();
+  var viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+  var viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+  var width = Math.min(Math.max(rect.width, 300), viewportWidth - 24);
+  var left = Math.max(12, Math.min(rect.left, viewportWidth - width - 12));
+  var below = viewportHeight - rect.bottom - 12;
+  var preferredHeight = Math.min(430, Math.max(260, viewportHeight * 0.62));
+  var top = rect.bottom + 7;
+  if (below < 260 && rect.top > below) top = Math.max(12, rect.top - preferredHeight - 7);
+  dd.style.position = 'fixed';
+  dd.style.left = left + 'px';
+  dd.style.right = 'auto';
+  dd.style.top = top + 'px';
+  dd.style.width = width + 'px';
+  dd.style.maxHeight = Math.min(preferredHeight, viewportHeight - top - 12) + 'px';
+  dd.style.overflow = 'hidden';
+  dd.style.zIndex = '100050';
+}
+
 function toggleFilterThemeDropdown() {
   var dd = document.getElementById('filterThemeDropdown');
-  if (dd) dd.classList.toggle('hidden');
+  var display = document.getElementById('filterThemeDisplay');
+  if (!dd || !display) return;
+  if (!dd.classList.contains('hidden')) {
+    closeFilterThemeDropdown();
+    return;
+  }
+  var themes = (window.STATE && STATE.songMeta && STATE.songMeta.themes) || [];
+  populateThemeFilterDropdown(themes);
+  document.body.appendChild(dd);
+  dd.classList.add('filter-theme-portal');
+  dd.classList.remove('hidden');
+  _positionFilterThemeDropdown();
 }
 
 function populateThemeFilterDropdown(themes) {
   var dd = document.getElementById('filterThemeDropdown');
   if (!dd) return;
+  themes = _getFilterThemeOptions(themes);
   var selected = (window.LHC_STATE && window.LHC_STATE.filters.themes) || [];
-  var html = '<div style="padding:6px 10px;border-bottom:1px solid #e2e8f0;">' +
-    '<label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;cursor:pointer;">' +
+  var html = '<div class="sf-filter-theme-menu-head"><strong>Choose themes</strong><span>' + themes.length + ' available</span></div>' +
+    '<div class="sf-filter-theme-options">' +
+    '<div class="sf-filter-theme-option sf-filter-theme-all"><label>' +
     '<input type="checkbox" id="filterThemeAll" onchange="updateFilterTheme(this)" ' + (selected.length === 0 ? 'checked' : '') + '> All Themes</label></div>';
   themes.forEach(function(t) {
     var isChecked = selected.indexOf(t) >= 0;
-    html += '<div style="padding:4px 10px;">' +
-      '<label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;cursor:pointer;">' +
+    html += '<div class="sf-filter-theme-option">' +
+      '<label>' +
       '<input type="checkbox" class="filter-theme-cb" value="' + escapeHtml(t) + '" onchange="updateFilterTheme(this)" ' + (isChecked ? 'checked' : '') + '> ' + escapeHtml(t) + '</label></div>';
   });
+  html += '</div><div class="sf-filter-theme-add">' +
+    '<div><strong>Add a theme</strong><small>Make it available in filters and song editing.</small></div>' +
+    '<div class="sf-filter-theme-add-controls"><input id="filterThemeNewInput" type="text" maxlength="60" placeholder="e.g. Family, Mission" ' +
+    'onkeydown="if(event.key===\'Enter\'){event.preventDefault();addFilterCustomTheme();}">' +
+    '<button type="button" onclick="addFilterCustomTheme()"><i class="fa-solid fa-plus"></i> Add</button></div></div>';
   dd.innerHTML = html;
+}
+
+function addFilterCustomTheme() {
+  var input = document.getElementById('filterThemeNewInput');
+  var newTheme = input ? input.value.trim() : '';
+  if (!newTheme) return;
+  var currentOptions = _getFilterThemeOptions((window.STATE && STATE.songMeta && STATE.songMeta.themes) || []);
+  var match = currentOptions.find(function(theme) { return theme.toLowerCase() === newTheme.toLowerCase(); });
+  if (!match) {
+    var customs = typeof _getCustomThemes === 'function' ? _getCustomThemes() : [];
+    customs.push(newTheme);
+    customs = _getFilterThemeOptions(customs);
+    if (typeof _saveCustomThemes === 'function') _saveCustomThemes(customs);
+    if (window.STATE && STATE.songMeta) {
+      STATE.songMeta.themes = _getFilterThemeOptions((STATE.songMeta.themes || []).concat(newTheme));
+    }
+    if (typeof loadCustomThemes === 'function') loadCustomThemes();
+    match = newTheme;
+  }
+  populateThemeFilterDropdown((window.STATE && STATE.songMeta && STATE.songMeta.themes) || []);
+  var checkbox = Array.prototype.find.call(document.querySelectorAll('#filterThemeDropdown .filter-theme-cb'), function(cb) {
+    return cb.value.toLowerCase() === match.toLowerCase();
+  });
+  if (checkbox) {
+    checkbox.checked = true;
+    updateFilterTheme(checkbox);
+  }
+  _positionFilterThemeDropdown();
+  if (typeof showToast === 'function') showToast('Theme "' + match + '" is now available.', 'success');
 }
 
 function updateFilterTheme(changedCb) {
@@ -10576,11 +10708,17 @@ function setThemeSelection(mode, themesStr) {
 
 // Close theme dropdown when clicking outside
 document.addEventListener('click', function(e) {
-  if (!e.target.closest('.theme-multiselect')) {
+  if (!e.target.closest('.theme-multiselect') && !e.target.closest('#filterThemeDropdown')) {
+    closeFilterThemeDropdown();
     document.querySelectorAll('.theme-dropdown').forEach(function(dd) {
       dd.classList.add('hidden');
     });
   }
+});
+
+window.addEventListener('resize', function() {
+  if (window.innerWidth > 768) closeFilterThemeDropdown();
+  else _positionFilterThemeDropdown();
 });
 
 // ============ Lyrics Preview Functions (Fixed) ============
@@ -10945,6 +11083,62 @@ function toggleMobileFilterSheet(forceOpen) {
   }
 }
 window.toggleMobileFilterSheet = toggleMobileFilterSheet;
+
+// Mobile prioritises decision-making controls: Theme, Feel and Scripture live
+// in the dark search command area, while the library totals move into the
+// quieter white information panel. The original controls are reparented (not
+// duplicated), so their listeners, values and filter state remain intact.
+function syncMobileSongFilterPriority() {
+  var isMobile = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+  var grid = document.getElementById('sfFilterGrid');
+  var gridHome = document.getElementById('sfFilterSheetHome');
+  var gridDesktopHome = document.getElementById('sfFilterDesktopHome');
+  var backdrop = document.getElementById('sfFilterSheetBackdrop');
+  var applyBtn = document.getElementById('sfMobileFilterApplyBtn');
+  var mobileSlot = document.getElementById('sfMobilePrioritySlot');
+  var metrics = document.querySelector('#songFinderView .sf-library-metrics');
+  var metricsDesktopHome = document.getElementById('sfMetricsDesktopHome');
+  var statsMobileSlot = document.getElementById('sfStatsMobileSlot');
+  var moreBtn = document.getElementById('sfMobileFiltersBtn');
+  var moreBtnHome = document.getElementById('sfMobileFiltersBtnHome');
+  if (!grid || !gridHome || !mobileSlot || !metrics) return;
+
+  if (grid.classList.contains('sf-sheet-open')) toggleMobileFilterSheet(false);
+  closeFilterThemeDropdown();
+
+  if (isMobile) {
+    statsMobileSlot.appendChild(metrics);
+    mobileSlot.appendChild(gridHome);
+    mobileSlot.appendChild(grid);
+    if (moreBtn) mobileSlot.appendChild(moreBtn);
+  } else {
+    if (metricsDesktopHome && metricsDesktopHome.parentNode) {
+      metricsDesktopHome.parentNode.insertBefore(metrics, metricsDesktopHome.nextSibling);
+    }
+    if (gridDesktopHome && gridDesktopHome.parentNode) {
+      var ref = gridDesktopHome.nextSibling;
+      gridDesktopHome.parentNode.insertBefore(gridHome, ref);
+      if (backdrop) gridDesktopHome.parentNode.insertBefore(backdrop, ref);
+      gridDesktopHome.parentNode.insertBefore(grid, ref);
+      if (applyBtn) gridDesktopHome.parentNode.insertBefore(applyBtn, ref);
+    }
+    if (moreBtn && moreBtnHome && moreBtnHome.parentNode) {
+      moreBtnHome.parentNode.insertBefore(moreBtn, moreBtnHome.nextSibling);
+    }
+  }
+}
+window.syncMobileSongFilterPriority = syncMobileSongFilterPriority;
+
+var _sfPriorityResizeTimer = null;
+window.addEventListener('resize', function() {
+  clearTimeout(_sfPriorityResizeTimer);
+  _sfPriorityResizeTimer = setTimeout(syncMobileSongFilterPriority, 120);
+});
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', syncMobileSongFilterPriority);
+} else {
+  syncMobileSongFilterPriority();
+}
 
 // Floating "Scroll for more" cue: shows at the bottom of the lyrics area when the
 // content scrolls off-screen (either column in 2-col mode), hides at the bottom.
@@ -68659,6 +68853,8 @@ window.LHC_Install = (function() {
   #songFinderView #sfFilterBar .form-input.form-select:hover,
   #songFinderView #sfFilterBar select.form-input:hover { border-color:#35aabd;box-shadow:0 0 0 3px rgba(34,211,238,.1); }
   #songFinderView #activeFiltersDisplay .filter-chip { background:#e3f8f8;border-color:#9bdfe4;color:#12606c; }
+  #songFinderView #sfMobilePrioritySlot:empty,
+  #songFinderView #sfStatsMobileSlot:empty { display:none; }
 
   #songFinderView #sfResultsGrid { gap:18px; }
   #songFinderView #sfSongListCard,
@@ -68771,6 +68967,47 @@ window.LHC_Install = (function() {
     #songFinderView .sf-song-actions .sf-action-share span { display:none; }
     #songFinderView .sf-song-actions .sf-action-share { width:34px;padding:0;justify-content:center; }
     #songFinderView .sf-open-song { width:34px;padding:0;justify-content:center; }
+  }
+  @media (max-width:768px) {
+    #songFinderView #sfMobilePrioritySlot { display:block;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.11); }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid {
+      position:static;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;width:100%;
+      margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;transform:none;
+    }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid::before { display:none; }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .sf-primary-filter { display:block;min-width:0; }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .sf-more-filter,
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .sf-filter-spacer { display:none; }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-label {
+      display:block;margin:0 0 6px 2px;color:#b8d6e2;font-size:.63rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-input.form-select,
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid select.form-input {
+      width:100%;min-height:43px;padding-left:10px;padding-right:24px;border:1px solid rgba(151,226,234,.34);
+      border-radius:10px;background:rgba(255,255,255,.97);color:#143249;font-size:.76rem;font-weight:650;
+      box-shadow:0 7px 18px rgba(0,0,0,.13);
+    }
+    #songFinderView #sfMobilePrioritySlot #filterScriptureChips { display:none !important; }
+    #songFinderView #sfMobilePrioritySlot #sfMobileFiltersBtn {
+      display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;margin:11px 0 0 auto;padding:0 13px;
+      border:1px solid rgba(142,234,241,.42);border-radius:10px;background:rgba(61,218,229,.12);color:#d7fbff;
+      font-size:.7rem;font-weight:800;box-shadow:none;
+    }
+    #songFinderView #sfMobilePrioritySlot #sfMobileFiltersBtn i { color:#67e8f9; }
+    #songFinderView #sfStatsMobileSlot { display:block;margin-top:12px; }
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics {
+      display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;width:100%;max-width:none;margin:0;
+      overflow:hidden;border:1px solid #d7e3e9;border-radius:12px;background:#f1f6f8;box-shadow:inset 0 1px #fff;
+    }
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics > div {
+      min-width:0;padding:10px 9px;border-right:1px solid #d9e5ea;background:transparent;text-align:left;
+    }
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics > div:nth-child(3) { border-right:0; }
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics strong { color:#173348;font-size:1rem; }
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics span { color:#718596;font-size:.62rem; }
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics .sf-metric-note { display:none; }
+    #songFinderView #sfResultsRow { margin-bottom:0;padding-bottom:11px; }
+    #songFinderView #sfResultsRow > div:nth-child(2) { margin-left:auto;white-space:nowrap; }
   }
   @media (max-width:640px) {
     #songFinderView { padding:6px;background:#eef4f7; }
