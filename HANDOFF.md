@@ -1,6 +1,16 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-07-21 by Codex_
+_Last updated: 2026-07-22 by Codex_
+
+---
+
+## 2026-07-22 — Song card resource and WhatsApp actions
+
+- Renamed each card's `Lyrics` readiness indicator to `Chords / Lyrics` so the stored chord-sheet resource is unambiguous.
+- Added a dedicated WhatsApp Share action to every song card. It opens WhatsApp with the title, artist, and the app's existing `?song=<id>` deep link to that exact song dossier.
+- Preserved the existing Open, Add to Order/Songbook, Edit, document, YouTube, and Spotify actions.
+- Responsive behaviour: full `Share` label on wide cards and mobile card rows; compact WhatsApp icon at intermediate widths to avoid crowding.
+- `Index.html` and `dist/index.html` remain synchronized. No database changes were required.
 
 ---
 
@@ -23,7 +33,7 @@ _Last updated: 2026-07-21 by Codex_
 | **Project name** | LHC Worship Prep |
 | **Purpose** | Worship preparation tool for Luther House Chapel — manages songs, rosters, liturgy, and worship orders |
 | **GitHub repo** | `https://github.com/jermaineaaron1/LHC-Prep-Tool.git` |
-| **Current branch** | `feature/premium-song-library` |
+| **Current branch** | `feature/song-card-share` |
 | **Default branch** | `master` |
 | **Vercel deployment branch** | `master` (auto-deploys on push; production URL is `lhc-prep-tool.vercel.app`) |
 | **Version** | 2.8 (per CLAUDE.md) |

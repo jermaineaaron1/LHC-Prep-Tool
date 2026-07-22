@@ -15854,11 +15854,12 @@ window.loadEditSongData = function(song) {
     if (song.scripture) h += '<div class="sf-song-scripture"><i class="fa-solid fa-book-open"></i>' + escapeHtml(song.scripture) + '</div>';
     h += '<div class="sf-song-pills">' + pills.filter(function(_, idx) { return idx > 0; }).slice(0, 3).join('') + '</div>';
     h += '<div class="sf-resource-status">';
-    h += '<span class="' + (song.lyrics ? 'is-ready' : '') + '"><i class="fa-solid fa-file-lines"></i> Lyrics</span>';
+    h += '<span class="' + (song.lyrics ? 'is-ready' : '') + '"><i class="fa-solid fa-file-lines"></i> Chords / Lyrics</span>';
     h += '<span class="' + (youtubeUrls.length || spotifyUrls.length ? 'is-ready' : '') + '"><i class="fa-solid fa-circle-play"></i> Media</span>';
     h += '<span class="' + (docUrls.length ? 'is-ready' : '') + '"><i class="fa-solid fa-paperclip"></i> Files</span>';
     h += '</div></div>';
     h += '<div class="sf-song-actions">';
+    h += '<button class="sf-action-share btn-song-whatsapp" data-id="' + escapeHtml(song.id) + '" title="Share song via WhatsApp"><i class="fa-brands fa-whatsapp"></i><span>Share</span></button>';
     h += '<button class="sf-open-song btn-lyrics-preview" data-id="' + escapeHtml(song.id) + '" title="Open song workspace"><span>Open</span><i class="fa-solid fa-arrow-right"></i></button>';
     h += '<button class="sf-action-icon btn-add-order" data-id="' + escapeHtml(song.id) + '" title="Add to Order or Songbook"><i class="fa-solid fa-plus"></i></button>';
     h += '<button class="sf-action-icon edit-song-btn" data-id="' + escapeHtml(song.id) + '" title="Edit song details"><i class="fa-solid fa-pen"></i></button>';
@@ -15885,6 +15886,15 @@ window.loadEditSongData = function(song) {
     return h;
   }
 
+  function shareSongCardWhatsApp(song) {
+    if (!song) return;
+    var baseUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
+    var songUrl = baseUrl + '?song=' + encodeURIComponent(song.id);
+    var artist = song.artist ? ' — ' + song.artist : '';
+    var message = '🎵 *' + (song.title || 'Worship Song') + '*' + artist + '\n\nOpen the chords and lyrics:\n' + songUrl;
+    window.open('https://wa.me/?text=' + encodeURIComponent(message), '_blank', 'noopener,noreferrer');
+  }
+
   function bindSongItemEvents() {
     // The full catalogue card opens the dossier; compact action buttons retain
     // their own existing behaviours without triggering the card.
@@ -15903,6 +15913,15 @@ window.loadEditSongData = function(song) {
         e.stopPropagation();
         var song = STATE.songs.find(function(s) { return s.id === btn.dataset.id; });
         if (song) openLyricsPreviewModal(song);
+      };
+    });
+
+    // WhatsApp share buttons — send a deep link to this exact song dossier.
+    $$('.btn-song-whatsapp').forEach(function(btn) {
+      btn.onclick = function(e) {
+        e.stopPropagation();
+        var song = STATE.songs.find(function(s) { return s.id === btn.dataset.id; });
+        shareSongCardWhatsApp(song);
       };
     });
 
@@ -68656,12 +68675,16 @@ window.LHC_Install = (function() {
   #songFinderView .sf-resource-status span { color:#a0adba;font-size:.6rem;font-weight:650; }
   #songFinderView .sf-resource-status span.is-ready { color:#0a877d; }
   #songFinderView .sf-resource-status i { margin-right:3px; }
-  #songFinderView .sf-song-actions { display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;max-width:178px; }
-  #songFinderView .sf-open-song,#songFinderView .sf-action-icon { border:1px solid #d5e0e8;background:#fff;color:#516579;cursor:pointer;transition:.15s ease; }
+  #songFinderView .sf-song-actions { display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;max-width:260px; }
+  #songFinderView .sf-open-song,#songFinderView .sf-action-icon,#songFinderView .sf-action-share { border:1px solid #d5e0e8;background:#fff;color:#516579;cursor:pointer;transition:.15s ease; }
   #songFinderView .sf-open-song { height:35px;padding:0 12px;border-radius:9px;display:flex;align-items:center;gap:10px;color:#0b6670;font-size:.69rem;font-weight:800; }
   #songFinderView .sf-open-song:hover { background:#0e8390;border-color:#0e8390;color:#fff; }
   #songFinderView .sf-action-icon { position:relative;width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:.72rem; }
   #songFinderView .sf-action-icon:hover { border-color:#70c7d0;background:#ebfbfc;color:#087887;transform:translateY(-1px); }
+  #songFinderView .sf-action-share { height:35px;padding:0 11px;border-color:#a9e8c0;border-radius:9px;display:flex;align-items:center;gap:7px;background:#effcf4;color:#148447;font-size:.69rem;font-weight:800; }
+  #songFinderView .sf-action-share i { color:#1cad5e;font-size:.9rem; }
+  #songFinderView .sf-action-share:hover { border-color:#20b861;background:#20b861;color:#fff;transform:translateY(-1px);box-shadow:0 5px 14px rgba(32,184,97,.2); }
+  #songFinderView .sf-action-share:hover i { color:#fff; }
   #songFinderView .btn-youtube-preview i { color:#dc2626; }
   #songFinderView .btn-spotify-preview i { color:#16a34a; }
   #songFinderView .link-count-badge { top:-7px;right:-7px; }
@@ -68724,8 +68747,10 @@ window.LHC_Install = (function() {
     #songFinderView #sfFilterBar { padding:13px 14px; }
     #songFinderView .song-list-item { grid-template-columns:44px minmax(0,1fr) auto;padding:12px; }
     #songFinderView .sf-song-monogram { width:44px;height:48px; }
-    #songFinderView .sf-song-actions { max-width:80px; }
+    #songFinderView .sf-song-actions { max-width:120px; }
     #songFinderView .sf-song-actions .sf-open-song span { display:none; }
+    #songFinderView .sf-song-actions .sf-action-share span { display:none; }
+    #songFinderView .sf-song-actions .sf-action-share { width:34px;padding:0;justify-content:center; }
     #songFinderView .sf-open-song { width:34px;padding:0;justify-content:center; }
   }
   @media (max-width:640px) {
@@ -68743,6 +68768,8 @@ window.LHC_Install = (function() {
     #songFinderView .sf-song-actions { grid-column:1/-1;max-width:none;justify-content:flex-start;padding-left:50px;margin-top:0; }
     #songFinderView .sf-song-actions .sf-open-song { width:auto;padding:0 11px; }
     #songFinderView .sf-song-actions .sf-open-song span { display:inline; }
+    #songFinderView .sf-song-actions .sf-action-share { width:auto;padding:0 11px; }
+    #songFinderView .sf-song-actions .sf-action-share span { display:inline; }
     #songFinderView .sf-song-pills .meta-pill:nth-child(n+3) { display:none; }
     #songFinderView .sf-resource-status { gap:7px; }
     #addSongModal .asm-content,#editSongModal .asm-content { width:100vw;max-height:100dvh;border-radius:18px 18px 0 0; }
