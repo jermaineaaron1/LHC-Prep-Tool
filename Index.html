@@ -34419,6 +34419,25 @@ var WO = (function() {
     }).join('\n');
   }
 
+  // Remove trailing blank lines from plain lyrics text (the source that
+  // formatLyricsWithHighlights renders). Only strips the run of empty lines at
+  // the very END -- blank lines between sections are preserved.
+  function _sbStripTrailingEmptyText(text) {
+    return (text || '').replace(/(?:\r?\n[ \t ]*)+$/, '');
+  }
+  // Same, but for saved rich-lyrics HTML: drop trailing empty-line divs.
+  function _sbStripTrailingEmptyHtml(html) {
+    if (!html) return html;
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    var last;
+    while ((last = tmp.lastElementChild) &&
+           last.classList && last.classList.contains('wo-lyrics-empty-line')) {
+      tmp.removeChild(last);
+    }
+    return tmp.innerHTML;
+  }
+
   function renderSongbookLive() {
     var body = $('sbBody');
     if (!body) return;
@@ -34828,7 +34847,13 @@ var WO = (function() {
       var keyDisplay = key ? (steps !== 0 ? key + ' (' + (steps > 0 ? '+' : '') + steps + ')' : key) : '';
       // Always render from the un-transposed source, then apply saved steps so
       // remote devices and page reloads show the correct transposition immediately.
-      var lyricsHtml = song.richLyrics || formatLyricsWithHighlights(song.lyrics || '');
+      // Strip trailing blank lines first: they render as empty-line divs that
+      // pad the A4 page with a large dead gap after the song's last line (the
+      // "extra spacing lines at the end" a user sees). Stripping at render also
+      // means the next save writes the cleaned-up lyrics back.
+      var lyricsHtml = song.richLyrics
+        ? _sbStripTrailingEmptyHtml(song.richLyrics)
+        : formatLyricsWithHighlights(_sbStripTrailingEmptyText(song.lyrics || ''));
       if (steps !== 0) lyricsHtml = _sbTransposeHtml(lyricsHtml, steps);
 
       // Collect all docs for this song (filter out library docs the user removed from songbook)
@@ -61590,6 +61615,19 @@ function filterLiturgyItems() {
   .sb-header { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:linear-gradient(135deg,#1e3a8a,#2563eb); color:white; flex-shrink:0; gap:12px; flex-wrap:nowrap; position:relative; z-index:3000; min-height:52px; }
   .sb-header-center { display:flex; align-items:center; gap:6px; flex:1 1 auto; min-width:0; justify-content:center; flex-wrap:nowrap; }
   .sb-header-right { display:flex; align-items:center; gap:6px; flex:0 1 auto; min-width:0; flex-wrap:nowrap; }
+  /* Portrait-tablet "dead zone" (821-1024px): too wide for the mobile column
+     header, but the desktop one-row header's brand + center + right groups
+     don't all fit -- the right group overflows and its last button (Close)
+     gets clipped off the right edge. Let the header wrap and drop the right
+     group (Share/Playlist/Fullscreen/More/Save/Close) onto its own full-width
+     row so every button, especially Close, stays reachable. Excluded in
+     fullscreen (its header is a slim auto-hiding bar). */
+  @media (min-width:821px) and (max-width:1024px) {
+    #songbookLiveModal:not(.sb-live-fullscreen) .sb-header { flex-wrap:wrap; }
+    #songbookLiveModal:not(.sb-live-fullscreen) .sb-header-right {
+      flex:1 0 100%; justify-content:flex-end; margin-top:4px; overflow-x:auto;
+    }
+  }
   .sb-icon-btn { padding:7px 10px !important; }
   .sb-font-size-grp { display:flex; align-items:center; gap:2px; background:rgba(255,255,255,0.1); border-radius:8px; padding:2px 4px; }
   .sb-font-pct { font-size:0.78rem; color:rgba(255,255,255,0.85); min-width:38px; text-align:center; font-weight:500; }
