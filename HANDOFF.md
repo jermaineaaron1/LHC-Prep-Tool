@@ -1,6 +1,19 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-07-22 by Codex_
+_Last updated: 2026-07-23 by Codex_
+
+---
+
+## 2026-07-23 — Vocal Hero dotted, double-dotted and tuplet note values
+
+- Replaced the editor's single rhythm divisor with independent `Default drawn length` and `Placement grid` controls. A dotted note can therefore end on its precise duration while a shorter quaver, semiquaver, rest, or syncopated note can follow it.
+- Added written music symbols and named values for straight whole through thirty-second notes, dotted and double-dotted variants, and half/quarter/eighth/sixteenth/thirty-second triplets.
+- Added contextual guidance for complementary dotted-note values, while preserving manual resizing so the DAW does not impose an invalid following pitch or note.
+- Added an explicit `Latch all` action. Selecting a default value affects new notes only; rewriting the entire arrangement requires this intentional action and remains undoable.
+- Selected notes now show their nearest written rhythm symbol/value alongside exact duration and bar/beat placement. Imported MIDI retains exact PPQN start/duration data for all non-conflicting notes; only same-voice overlaps are moved forward to uphold the monophonic SATB-lane rule.
+- The new `snap_value` is stored inside the existing `backing_track_settings.musical_timeline` JSON object. No SQL migration or environment-variable change is required, and older arrangements default safely to a sixteenth note.
+- Practice-game release cache key advanced to `20260723-7` in both `Index.html` and `dist/index.html`.
+- Validation: `npm run build` passes with placeholder Supabase build variables and `git diff --check` passes.
 
 ---
 
@@ -47,7 +60,7 @@ _Last updated: 2026-07-22 by Codex_
 | **Project name** | LHC Worship Prep |
 | **Purpose** | Worship preparation tool for Luther House Chapel — manages songs, rosters, liturgy, and worship orders |
 | **GitHub repo** | `https://github.com/jermaineaaron1/LHC-Prep-Tool.git` |
-| **Current branch** | `feature/mobile-filter-priority` |
+| **Current branch** | `feature/vocal-hero-dotted-note-values` |
 | **Default branch** | `master` |
 | **Vercel deployment branch** | `master` (auto-deploys on push; production URL is `lhc-prep-tool.vercel.app`) |
 | **Version** | 2.8 (per CLAUDE.md) |

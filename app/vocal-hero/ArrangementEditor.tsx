@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, Song, SongNote } from '@/lib/vocal-hero/types';
+import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, RhythmicNoteValue, Song, SongNote } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, midiSourceKey, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
 import { supabase } from '@/lib/vocal-hero/supabaseClient';
@@ -17,6 +17,7 @@ const DEFAULT_BPM = 120;
 const DEFAULT_BEATS_PER_BAR = 4;
 const DEFAULT_BEAT_UNIT = 4;
 const DEFAULT_SNAP_DIVISION = 16;
+const DEFAULT_NOTE_VALUE: RhythmicNoteValue = 'sixteenth';
 const LASSO_THRESHOLD = 5;
 const KEY_TONICS = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
 const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian'];
@@ -46,14 +47,55 @@ type MusicalBeat = { start: number; end: number; beat: number; bar: number; subd
 type MusicalBar = MusicalState & { start: number; end: number; number: number; beats: MusicalBeat[] };
 type BeatPosition = MusicalState & { bar: number; beat: number; fraction: number; start: number; end: number };
 type NoteDivision = NonNullable<MusicalTimelineSettings['snap_division']>;
-const NOTE_DIVISIONS: Array<{ value: NoteDivision; label: string; short: string }> = [
-  { value: 1, label: 'Whole note / semibreve', short: 'Whole' },
-  { value: 2, label: 'Half note / minim', short: '1/2' },
-  { value: 4, label: 'Quarter note / crotchet', short: '1/4' },
-  { value: 8, label: 'Eighth note / quaver', short: '1/8' },
-  { value: 16, label: 'Sixteenth note / semiquaver', short: '1/16' },
-  { value: 32, label: 'Thirty-second note / demisemiquaver', short: '1/32' },
+type NoteValueDefinition = { value: RhythmicNoteValue; label: string; short: string; symbol: string; quarterBeats: number; requiredGrid: NoteDivision; group: 'Straight' | 'Dotted' | 'Double-dotted' | 'Tuplets' };
+const GRID_DIVISIONS: Array<{ value: NoteDivision; label: string }> = [
+  { value: 4, label: 'Quarter-note grid' }, { value: 6, label: 'Quarter-note triplet grid' },
+  { value: 8, label: 'Eighth-note grid' }, { value: 12, label: 'Eighth-note triplet grid' },
+  { value: 16, label: 'Sixteenth-note grid' }, { value: 24, label: 'Sixteenth-note triplet grid' },
+  { value: 32, label: 'Thirty-second-note grid' }, { value: 48, label: 'Thirty-second-note triplet grid' },
+  { value: 64, label: 'Sixty-fourth-note grid' }, { value: 96, label: 'Hybrid 1/96 grid' },
+  { value: 128, label: 'Ultra-fine 1/128 grid' }, { value: 192, label: 'Hybrid 1/192 grid' },
 ];
+const NOTE_VALUES: NoteValueDefinition[] = [
+  { value: 'whole', label: 'Whole note / semibreve', short: 'Whole', symbol: '𝅝', quarterBeats: 4, requiredGrid: 1, group: 'Straight' },
+  { value: 'half', label: 'Half note / minim', short: 'Half', symbol: '𝅗𝅥', quarterBeats: 2, requiredGrid: 2, group: 'Straight' },
+  { value: 'quarter', label: 'Quarter note / crotchet', short: 'Quarter', symbol: '♩', quarterBeats: 1, requiredGrid: 4, group: 'Straight' },
+  { value: 'eighth', label: 'Eighth note / quaver', short: 'Eighth', symbol: '♪', quarterBeats: .5, requiredGrid: 8, group: 'Straight' },
+  { value: 'sixteenth', label: 'Sixteenth note / semiquaver', short: '1/16', symbol: '𝅘𝅥𝅯', quarterBeats: .25, requiredGrid: 16, group: 'Straight' },
+  { value: 'thirty-second', label: 'Thirty-second note / demisemiquaver', short: '1/32', symbol: '𝅘𝅥𝅰', quarterBeats: .125, requiredGrid: 32, group: 'Straight' },
+  { value: 'dotted-whole', label: 'Dotted whole / dotted semibreve', short: 'Dotted whole', symbol: '𝅝 ·', quarterBeats: 6, requiredGrid: 2, group: 'Dotted' },
+  { value: 'dotted-half', label: 'Dotted half / dotted minim', short: 'Dotted half', symbol: '𝅗𝅥 ·', quarterBeats: 3, requiredGrid: 4, group: 'Dotted' },
+  { value: 'dotted-quarter', label: 'Dotted quarter / dotted crotchet', short: 'Dotted quarter', symbol: '♩ ·', quarterBeats: 1.5, requiredGrid: 8, group: 'Dotted' },
+  { value: 'dotted-eighth', label: 'Dotted eighth / dotted quaver', short: 'Dotted eighth', symbol: '♪ ·', quarterBeats: .75, requiredGrid: 16, group: 'Dotted' },
+  { value: 'dotted-sixteenth', label: 'Dotted sixteenth / dotted semiquaver', short: 'Dotted 1/16', symbol: '𝅘𝅥𝅯 ·', quarterBeats: .375, requiredGrid: 32, group: 'Dotted' },
+  { value: 'dotted-thirty-second', label: 'Dotted thirty-second / dotted demisemiquaver', short: 'Dotted 1/32', symbol: '𝅘𝅥𝅰 ·', quarterBeats: .1875, requiredGrid: 64, group: 'Dotted' },
+  { value: 'double-dotted-whole', label: 'Double-dotted whole', short: 'Double-dotted whole', symbol: '𝅝 ··', quarterBeats: 7, requiredGrid: 4, group: 'Double-dotted' },
+  { value: 'double-dotted-half', label: 'Double-dotted half', short: 'Double-dotted half', symbol: '𝅗𝅥 ··', quarterBeats: 3.5, requiredGrid: 8, group: 'Double-dotted' },
+  { value: 'double-dotted-quarter', label: 'Double-dotted quarter', short: 'Double-dotted quarter', symbol: '♩ ··', quarterBeats: 1.75, requiredGrid: 16, group: 'Double-dotted' },
+  { value: 'double-dotted-eighth', label: 'Double-dotted eighth', short: 'Double-dotted eighth', symbol: '♪ ··', quarterBeats: .875, requiredGrid: 32, group: 'Double-dotted' },
+  { value: 'double-dotted-sixteenth', label: 'Double-dotted sixteenth', short: 'Double-dotted 1/16', symbol: '𝅘𝅥𝅯 ··', quarterBeats: .4375, requiredGrid: 64, group: 'Double-dotted' },
+  { value: 'double-dotted-thirty-second', label: 'Double-dotted thirty-second', short: 'Double-dotted 1/32', symbol: '𝅘𝅥𝅰 ··', quarterBeats: .21875, requiredGrid: 128, group: 'Double-dotted' },
+  { value: 'half-triplet', label: 'Half-note triplet', short: 'Half triplet', symbol: '𝅗𝅥 ₃', quarterBeats: 4 / 3, requiredGrid: 3, group: 'Tuplets' },
+  { value: 'quarter-triplet', label: 'Quarter-note triplet', short: 'Quarter triplet', symbol: '♩ ₃', quarterBeats: 2 / 3, requiredGrid: 6, group: 'Tuplets' },
+  { value: 'eighth-triplet', label: 'Eighth-note triplet', short: 'Eighth triplet', symbol: '♪ ₃', quarterBeats: 1 / 3, requiredGrid: 12, group: 'Tuplets' },
+  { value: 'sixteenth-triplet', label: 'Sixteenth-note triplet', short: '1/16 triplet', symbol: '𝅘𝅥𝅯 ₃', quarterBeats: 1 / 6, requiredGrid: 24, group: 'Tuplets' },
+  { value: 'thirty-second-triplet', label: 'Thirty-second-note triplet', short: '1/32 triplet', symbol: '𝅘𝅥𝅰 ₃', quarterBeats: 1 / 12, requiredGrid: 48, group: 'Tuplets' },
+];
+const NOTE_VALUE_GROUPS: NoteValueDefinition['group'][] = ['Straight', 'Dotted', 'Double-dotted', 'Tuplets'];
+function noteValue(value: RhythmicNoteValue | undefined) { return NOTE_VALUES.find(item => item.value === value) ?? NOTE_VALUES.find(item => item.value === DEFAULT_NOTE_VALUE)!; }
+function compatibleGrid(current: NoteDivision, required: NoteDivision) { return GRID_DIVISIONS.find(item => item.value >= current && item.value % required === 0)?.value ?? 192; }
+function rhythmicCompanionHint(value: RhythmicNoteValue) {
+  const hints: Partial<Record<RhythmicNoteValue, string>> = {
+    'dotted-whole': 'Leaves a half-note pulse available', 'dotted-half': 'Pairs naturally with a quarter note',
+    'dotted-quarter': 'Pairs naturally with an eighth note or two sixteenths', 'dotted-eighth': 'Pairs naturally with a sixteenth note',
+    'dotted-sixteenth': 'Pairs naturally with a thirty-second note', 'dotted-thirty-second': 'Leaves a sixty-fourth-note pulse available',
+    'double-dotted-whole': 'Leaves a quarter-note pulse available', 'double-dotted-half': 'Leaves an eighth-note pulse available',
+    'double-dotted-quarter': 'Pairs naturally with a sixteenth note', 'double-dotted-eighth': 'Pairs naturally with a thirty-second note',
+    'double-dotted-sixteenth': 'Leaves a sixty-fourth-note pulse available', 'double-dotted-thirty-second': 'Leaves a 1/128-note pulse available',
+  };
+  if (value.endsWith('-triplet')) return 'Triplet spacing remains available for the other two notes in the group';
+  return hints[value] ?? 'The independent grid still permits rests, ties, syncopation and custom resized lengths';
+}
 
 function sortByTime<T extends { at: number }>(items: T[]) { return [...items].sort((a, b) => a.at - b.at); }
 function normaliseMusicalTimeline(song: Song, settings: BackingTrackSettings): MusicalTimelineSettings {
@@ -62,11 +104,14 @@ function normaliseMusicalTimeline(song: Song, settings: BackingTrackSettings): M
     const valid = sortByTime(items.filter(item => Number.isFinite(item.at) && item.at >= 0));
     return valid.some(item => item.at === 0) ? valid : [fallback, ...valid];
   };
+  const snapValue = NOTE_VALUES.some(item => item.value === stored?.snap_value) ? stored!.snap_value! : DEFAULT_NOTE_VALUE;
+  const storedGrid = GRID_DIVISIONS.some(item => item.value === stored?.snap_division) ? stored!.snap_division as NoteDivision : DEFAULT_SNAP_DIVISION;
   return {
     tempo_changes: ensureBase(stored?.tempo_changes ?? [], { at: 0, bpm: Math.max(20, Number(song.bpm) || DEFAULT_BPM) }).map(item => ({ ...item, bpm: Math.max(20, Math.min(400, Number(item.bpm) || DEFAULT_BPM)) })),
     meter_changes: ensureBase(stored?.meter_changes ?? [], { at: 0, numerator: Math.max(1, Number(song.time_sig) || DEFAULT_BEATS_PER_BAR), denominator: DEFAULT_BEAT_UNIT }).map(item => ({ ...item, numerator: Math.max(1, Math.min(32, Math.round(Number(item.numerator) || DEFAULT_BEATS_PER_BAR))), denominator: [1, 2, 4, 8, 16, 32].includes(Number(item.denominator)) ? Number(item.denominator) : DEFAULT_BEAT_UNIT })),
     key_changes: ensureBase(stored?.key_changes ?? [], { at: 0, tonic: 'C', mode: 'Major' }).map(item => ({ ...item, tonic: item.tonic || 'C', mode: item.mode || 'Major' })),
-    snap_division: NOTE_DIVISIONS.some(item => item.value === stored?.snap_division) ? stored!.snap_division as NoteDivision : DEFAULT_SNAP_DIVISION,
+    snap_division: compatibleGrid(storedGrid, noteValue(snapValue).requiredGrid),
+    snap_value: snapValue,
   };
 }
 function eventAt<T extends { at: number }>(items: T[], at: number) { return sortByTime(items).filter(item => item.at <= at + .001).at(-1) ?? items[0]; }
@@ -133,6 +178,17 @@ function snapStepAt(bars: MusicalBar[], time: number, division: NoteDivision) {
   const position = beatPositionAt(bars, time);
   return (60 / (position?.bpm ?? DEFAULT_BPM)) * (4 / division);
 }
+function noteDurationAt(bars: MusicalBar[], time: number, value: RhythmicNoteValue) {
+  const position = beatPositionAt(bars, time);
+  return (60 / (position?.bpm ?? DEFAULT_BPM)) * noteValue(value).quarterBeats;
+}
+function closestNoteValue(bars: MusicalBar[], start: number, end: number) {
+  const duration = Math.max(.001, end - start);
+  return NOTE_VALUES.reduce((closest, item) => {
+    const error = Math.abs(noteDurationAt(bars, start, item.value) - duration);
+    return error < closest.error ? { item, error } : closest;
+  }, { item: noteValue(DEFAULT_NOTE_VALUE), error: Number.POSITIVE_INFINITY });
+}
 function snapTimeToGrid(bars: MusicalBar[], time: number, division: NoteDivision, mode: 'round' | 'ceil' | 'floor' = 'round') {
   const safe = Math.max(0, time);
   const position = beatPositionAt(bars, safe);
@@ -149,6 +205,10 @@ function quantizeNote(note: SongNote, bars: MusicalBar[], division: NoteDivision
   const units = Math.max(1, Math.round((note.end - note.start) / Math.max(.001, step)));
   return { ...note, start, end: roundPrecise(start + units * step) };
 }
+function latchNoteToValue(note: SongNote, bars: MusicalBar[], division: NoteDivision, value: RhythmicNoteValue) {
+  const start = snapTimeToGrid(bars, note.start, division);
+  return { ...note, start, end: roundPrecise(start + noteDurationAt(bars, start, value)) };
+}
 function notesOverlap(a: SongNote, b: SongNote) { return a.part === b.part && a.start < b.end - .0005 && a.end > b.start + .0005; }
 function collisionInVoice(candidates: SongNote[], fixed: SongNote[]) {
   const all = [...fixed, ...candidates].sort((a, b) => a.part - b.part || a.start - b.start || a.end - b.end);
@@ -162,6 +222,35 @@ function quantizeAndResolveNotes(input: SongNote[], bars: MusicalBar[], division
     let voiceEnd = 0;
     quantized.filter(note => note.part === part).sort((a, b) => a.start - b.start || a.end - b.end).forEach(note => {
       const duration = Math.max(snapStepAt(bars, note.start, division), note.end - note.start);
+      const start = note.start < voiceEnd - .0005 ? snapTimeToGrid(bars, voiceEnd, division, 'ceil') : note.start;
+      const next = { ...note, start, end: roundPrecise(start + duration) };
+      adjusted.set(note.id, next);
+      voiceEnd = next.end;
+    });
+  });
+  return input.map(note => adjusted.get(note.id) ?? note);
+}
+function latchAndResolveNotes(input: SongNote[], bars: MusicalBar[], division: NoteDivision, value: RhythmicNoteValue) {
+  const latched = input.map(note => latchNoteToValue(note, bars, division, value));
+  const adjusted = new Map<string, SongNote>();
+  Array.from(new Set(latched.map(note => note.part))).forEach(part => {
+    let voiceEnd = 0;
+    latched.filter(note => note.part === part).sort((a, b) => a.start - b.start || a.end - b.end).forEach(note => {
+      const duration = note.end - note.start;
+      const start = note.start < voiceEnd - .0005 ? snapTimeToGrid(bars, voiceEnd, division, 'ceil') : note.start;
+      const next = { ...note, start, end: roundPrecise(start + duration) };
+      adjusted.set(note.id, next);
+      voiceEnd = next.end;
+    });
+  });
+  return input.map(note => adjusted.get(note.id) ?? note);
+}
+function resolveVoiceCollisionsPreservingTiming(input: SongNote[], bars: MusicalBar[], division: NoteDivision) {
+  const adjusted = new Map<string, SongNote>();
+  Array.from(new Set(input.map(note => note.part))).forEach(part => {
+    let voiceEnd = 0;
+    input.filter(note => note.part === part).sort((a, b) => a.start - b.start || a.end - b.end).forEach(note => {
+      const duration = Math.max(.001, note.end - note.start);
       const start = note.start < voiceEnd - .0005 ? snapTimeToGrid(bars, voiceEnd, division, 'ceil') : note.start;
       const next = { ...note, start, end: roundPrecise(start + duration) };
       adjusted.set(note.id, next);
@@ -235,7 +324,6 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const duration = Math.max(32, transportEnd + 4);
   const timelineWidth = Math.min(Math.max(duration * zoom, 1600), 48000);
   const musicalBars = useMemo(() => buildMusicalGrid(duration, musicalTimeline), [duration, musicalTimeline]);
-  const musicalBeats = useMemo(() => musicalBars.flatMap(bar => bar.beats), [musicalBars]);
   const cursorMusicalState = musicalStateAt(musicalTimeline, playhead ?? 0);
   const noteByPart = useMemo(() => VOICES.map((_, index) => notes.filter(note => note.part === index || (note.part === -1 && index === selectedPart))), [notes, selectedPart]);
   const selectedNotes = useMemo(() => notes.filter(note => selectedIds.includes(note.id)).sort((a, b) => a.start - b.start || a.part - b.part), [notes, selectedIds]);
@@ -249,7 +337,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setNotes(current => {
       const latched = quantizeAndResolveNotes(current, musicalBars, division);
       const changed = latched.some((note, index) => Math.abs(note.start - current[index].start) > .0005 || Math.abs(note.end - current[index].end) > .0005);
-      if (changed) setEditorNotice(`Arrangement latched to ${NOTE_DIVISIONS.find(item => item.value === division)?.label ?? `1/${division}`} timing; same-voice clashes were moved to the next available grid position.`);
+      if (changed) setEditorNotice(`Arrangement aligned to the ${GRID_DIVISIONS.find(item => item.value === division)?.label ?? `1/${division} grid`}; same-voice clashes were moved to the next available position.`);
       return latched;
     });
   }, [musicalBars, musicalTimeline.snap_division]);
@@ -304,7 +392,24 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     const latched = quantizeAndResolveNotes(notes, musicalBars, division);
     setMusicalTimeline(current => ({ ...current, snap_division: division }));
     setNotes(latched);
-    setEditorNotice(`All notes latched to ${NOTE_DIVISIONS.find(item => item.value === division)?.label ?? `1/${division}`} timing. Same-voice overlaps were moved forward automatically.`);
+    setEditorNotice(`All notes aligned to the ${GRID_DIVISIONS.find(item => item.value === division)?.label ?? `1/${division} grid`}. Same-voice overlaps were moved forward automatically.`);
+  }
+
+  function changeNoteValue(value: RhythmicNoteValue) {
+    pushHistory();
+    const definition = noteValue(value);
+    setMusicalTimeline(current => ({ ...current, snap_value: value, snap_division: compatibleGrid(current.snap_division ?? DEFAULT_SNAP_DIVISION, definition.requiredGrid) }));
+    setEditorNotice(`${definition.symbol} ${definition.label} selected. New notes use this length; the placement grid remains fine enough for the shorter notes that may follow it.`);
+  }
+
+  function latchAllToNoteValue() {
+    const value = musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
+    const definition = noteValue(value);
+    const division = compatibleGrid(musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, definition.requiredGrid);
+    pushHistory();
+    setMusicalTimeline(current => ({ ...current, snap_value: value, snap_division: division }));
+    setNotes(latchAndResolveNotes(notes, musicalBars, division, value));
+    setEditorNotice(`Every note now uses ${definition.symbol} ${definition.label}. Same-voice overlaps were moved forward automatically.`);
   }
 
   function removeMusicalEvent(kind: 'tempo' | 'meter' | 'key', at: number) {
@@ -324,9 +429,9 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     if (media.paused) void media.play().catch(() => undefined);
   }, [isPlaying, mediaUrl, playhead, trackSettings.clips, trackSettings.media_duration, trackSettings.speed, trackSettings.trim_end, trackSettings.trim_start, trackSettings.timeline_offset, trackSettings.skip_regions, trackSettings.volume]);
 
-  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: musicalTimeline.snap_division }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
+  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: musicalTimeline.snap_division, snap_value: musicalTimeline.snap_value }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
   function pushHistory() { const snapshot = makeSnapshot(); setHistory(current => ({ past: [...current.past, snapshot].slice(-100), future: [] })); }
-  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
+  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, snap_value: snapshot.musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
   function undo() { const previous = history.past.at(-1); if (!previous) return; const current = makeSnapshot(); restoreSnapshot(previous); setHistory({ past: history.past.slice(0, -1), future: [current, ...history.future] }); }
   function redo() { const next = history.future[0]; if (!next) return; const current = makeSnapshot(); restoreSnapshot(next); setHistory({ past: [...history.past, current].slice(-100), future: history.future.slice(1) }); }
   function update(id: string, values: Partial<SongNote>) {
@@ -345,11 +450,10 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   }
   function selectNote(id: string, additive = false) { const note = notes.find(item => item.id === id); if (!note) return; setSelectedPart(note.part < 0 ? 0 : note.part); setSelectedId(id); setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]); setPlayScope('note'); }
   function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number) {
-    const state = musicalStateAt(musicalTimeline, start);
-    const beatLength = (60 / state.bpm) * (4 / state.denominator);
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+    const value = musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
     const id = `note-${crypto.randomUUID()}`;
-    const candidate = quantizeNote({ id, part, midi, start, end: end ?? start + beatLength, lyric: 'New lyric', velocity: 100 }, musicalBars, division);
+    const candidate = quantizeNote({ id, part, midi, start, end: end ?? start + noteDurationAt(musicalBars, start, value), lyric: 'New lyric', velocity: 100 }, musicalBars, division);
     if (collisionInVoice([candidate], notes)) {
       setEditorNotice(`${VOICES[part] ?? 'This voice'} already has a note on ${compactBeatLabel(beatPositionAt(musicalBars, candidate.start))}. Notes in one voice cannot overlap.`);
       return;
@@ -358,7 +462,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setNotes(current => [...current, candidate]);
     setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); setEditorNotice(null);
   }
-  function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const pointerTime = Math.max(0, (event.clientX - bounds.left) / zoom); const beat = musicalBeats.find(item => pointerTime >= item.start && pointerTime < item.end); const range = pitchRangeForPart(part); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, beat?.start ?? pointerTime, range.max - row, beat?.end); }
+  function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const pointerTime = Math.max(0, (event.clientX - bounds.left) / zoom); const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION; const range = pitchRangeForPart(part); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, snapTimeToGrid(musicalBars, pointerTime, division), range.max - row); }
   function duplicateSelected() {
     if (!selected) return;
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
@@ -709,15 +813,15 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     const imported = assignMidiParts(midiPreview.notes, normaliseSatbMidiRanges(midiRanges), midiPart, midiSourceParts);
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
     const merged = midiMode === 'replace' ? imported : [...notes, ...imported];
-    const latched = quantizeAndResolveNotes(merged, musicalBars, division);
+    const prepared = resolveVoiceCollisionsPreservingTiming(merged, musicalBars, division);
     pushHistory();
-    setNotes(latched);
+    setNotes(prepared);
     setSelectedIds(imported.map(note => note.id));
     setSelectedId(imported[0]?.id ?? null);
     setSelectedPart(imported[0]?.part ?? 0);
     setMidiPreview(null);
     setTool('select');
-    setEditorNotice(`Imported MIDI latched to ${NOTE_DIVISIONS.find(item => item.value === division)?.short ?? `1/${division}`}; same-voice clashes were moved to free grid positions.`);
+    setEditorNotice('Imported exact PPQN MIDI starts and durations. Only same-voice collisions were moved forward; pitch and every non-conflicting rhythm were preserved.');
   }
 
   return <div ref={editorRootRef} className="vh-editor-scrollbars fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
@@ -740,7 +844,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
         {editorNotice && <div className="flex items-center gap-3 border-b border-amber-300/20 bg-amber-300/10 px-4 py-2 text-xs text-amber-100"><span>{editorNotice}</span><button onClick={() => setEditorNotice(null)} aria-label="Dismiss editor notice" className="ml-auto rounded border border-amber-200/20 px-2 py-0.5 text-amber-100">Close</button></div>}
         <div className="flex min-h-0 flex-1">
           <section className="min-w-0 flex-1 overflow-auto p-3">
-            <MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onSnapDivision={changeSnapDivision} onRemove={removeMusicalEvent} />
+            <MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onSnapDivision={changeSnapDivision} onNoteValue={changeNoteValue} onLatchAll={latchAllToNoteValue} onRemove={removeMusicalEvent} />
             <BeatPrecisionPanel selectedNotes={selectedNotes} bars={musicalBars} cursor={playhead ?? 0} clipboardCount={noteClipboard.length} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} />
             <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><p className="mr-auto max-w-4xl leading-relaxed"><b className="text-slate-200">Select in either Select or Draw mode.</b> Drag a note body left/right for timing and up/down for pitch. Ctrl-click adds individual notes; drag empty space to lasso any notes inside the rectangle. Starts and durations latch to the selected musical note value; a single voice cannot contain overlapping targets.</p><button onClick={() => setCollapsedVoices([true, true, true, true])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Collapse all voices</button><button onClick={() => setCollapsedVoices([false, false, false, false])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Expand all voices</button></div>
             <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: 'max(420px, calc(100vh - 290px))' }}>
@@ -786,7 +890,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
 
 function Brand() { return <b className="text-xl">VOCAL<span className="text-fuchsia-400">Hero</span></b>; }
 function VoiceStrip({ name, index, active, onClick }: { name: string; index: number; active: boolean; onClick: () => void }) { return <button onClick={onClick} className="w-full rounded-xl border p-3 text-left" style={{ borderColor: active ? COLOURS[index] : `${COLOURS[index]}55`, background: active ? `${COLOURS[index]}19` : `${COLOURS[index]}08` }}><div className="flex items-center gap-2"><b className="text-2xl" style={{ color: COLOURS[index] }}>{name[0]}</b><span><b className="block text-xs" style={{ color: COLOURS[index] }}>{name.toUpperCase()}</b><span className="text-[10px] text-slate-500">⌁ mic · active</span></span></div><div className="mt-3 h-1 rounded-full bg-white/10"><span className="block h-full w-2/3 rounded-full" style={{ background: COLOURS[index] }} /></div></button>; }
-function MusicalTimelineControls({ timeline, cursor, state, onTempo, onMeter, onKey, onSnapDivision, onRemove }: { timeline: MusicalTimelineSettings; cursor: number; state: MusicalState; onTempo: (bpm: number) => void; onMeter: (numerator: number, denominator: number) => void; onKey: (tonic: string, mode: string) => void; onSnapDivision: (division: NoteDivision) => void; onRemove: (kind: 'tempo' | 'meter' | 'key', at: number) => void }) {
+function MusicalTimelineControls({ timeline, cursor, state, onTempo, onMeter, onKey, onSnapDivision, onNoteValue, onLatchAll, onRemove }: { timeline: MusicalTimelineSettings; cursor: number; state: MusicalState; onTempo: (bpm: number) => void; onMeter: (numerator: number, denominator: number) => void; onKey: (tonic: string, mode: string) => void; onSnapDivision: (division: NoteDivision) => void; onNoteValue: (value: RhythmicNoteValue) => void; onLatchAll: () => void; onRemove: (kind: 'tempo' | 'meter' | 'key', at: number) => void }) {
   const [bpmDraft, setBpmDraft] = useState(String(state.bpm));
   const [numeratorDraft, setNumeratorDraft] = useState(String(state.numerator));
   useEffect(() => setBpmDraft(String(state.bpm)), [state.bpm]);
@@ -798,14 +902,16 @@ function MusicalTimelineControls({ timeline, cursor, state, onTempo, onMeter, on
     ...timeline.meter_changes.filter(item => item.at > 0).map(item => ({ kind: 'meter' as const, at: item.at, label: `${item.numerator}/${item.denominator}` })),
     ...timeline.key_changes.filter(item => item.at > 0).map(item => ({ kind: 'key' as const, at: item.at, label: `${item.tonic} ${item.mode}` })),
   ].sort((a, b) => a.at - b.at);
+  const selectedValue = noteValue(timeline.snap_value ?? DEFAULT_NOTE_VALUE);
   const field = 'rounded-lg border border-white/15 bg-[#070b1d] px-2 py-2 text-sm font-semibold text-white outline-none focus:border-fuchsia-300/70 focus:ring-2 focus:ring-fuchsia-400/15';
   return <details open className="mb-3 rounded-xl border border-fuchsia-300/20 bg-[linear-gradient(135deg,#15102e,#081326)] text-xs shadow-[0_8px_24px_#0006]">
     <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2.5"><span className="grid h-8 w-8 place-items-center rounded-lg bg-fuchsia-400/15 text-lg text-fuchsia-200">♩</span><span><b className="block text-sm text-white">Musical timeline</b><small className="text-slate-400">Editable BPM, metre and key at the playhead</small></span><span className="ml-auto rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 py-1 font-mono text-cyan-100">Cursor {formatClock(cursor)}</span></summary>
-    <div className="grid gap-3 border-t border-white/10 p-3 sm:grid-cols-2 xl:grid-cols-[150px_190px_240px_minmax(260px,1fr)]">
+    <div className="grid gap-3 border-t border-white/10 p-3 sm:grid-cols-2 xl:grid-cols-[140px_180px_220px_minmax(300px,1.5fr)_210px]">
       <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Quarter-note BPM<input aria-label="BPM at cursor" value={bpmDraft} onChange={event => setBpmDraft(event.target.value)} onBlur={commitBpm} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} inputMode="numeric" className={`${field} mt-1 w-full`} /></label>
       <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Time signature<span className="mt-1 flex items-center gap-1"><input aria-label="Time signature numerator" value={numeratorDraft} onChange={event => setNumeratorDraft(event.target.value)} onBlur={commitNumerator} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} inputMode="numeric" className={`${field} min-w-0 flex-1 text-center`} /><b className="text-lg text-slate-500">/</b><select aria-label="Time signature denominator" value={state.denominator} onChange={event => onMeter(state.numerator, Number(event.target.value))} className={`${field} min-w-0 flex-1 text-center`}>{[1, 2, 4, 8, 16, 32].map(value => <option key={value}>{value}</option>)}</select></span></label>
       <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Key at cursor<span className="mt-1 flex gap-1"><select aria-label="Key tonic" value={state.tonic} onChange={event => onKey(event.target.value, state.mode)} className={`${field} min-w-0 flex-1`}>{KEY_TONICS.map(value => <option key={value}>{value}</option>)}</select><select aria-label="Key mode" value={state.mode} onChange={event => onKey(state.tonic, event.target.value)} className={`${field} min-w-0 flex-[1.4]`}>{KEY_MODES.map(value => <option key={value}>{value}</option>)}</select></span></label>
-      <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Rhythmic latch<span className="mt-1 flex gap-1"><select aria-label="Rhythmic note value" value={timeline.snap_division ?? DEFAULT_SNAP_DIVISION} onChange={event => onSnapDivision(Number(event.target.value) as NoteDivision)} className={`${field} min-w-0 flex-1`}>{NOTE_DIVISIONS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select><button type="button" onClick={() => onSnapDivision(timeline.snap_division ?? DEFAULT_SNAP_DIVISION)} title="Relatch every note to this value" className="rounded-lg border border-fuchsia-300/30 bg-fuchsia-400/10 px-2 text-fuchsia-100">Latch all</button></span></label>
+      <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Default drawn length<span className="mt-1 flex gap-1"><select aria-label="Rhythmic note value" value={selectedValue.value} onChange={event => onNoteValue(event.target.value as RhythmicNoteValue)} className={`${field} min-w-0 flex-1 font-['Segoe_UI_Symbol','Noto_Music',sans-serif] text-base`}>{NOTE_VALUE_GROUPS.map(group => <optgroup key={group} label={group}>{NOTE_VALUES.filter(item => item.group === group).map(item => <option key={item.value} value={item.value}>{item.symbol}  {item.label}</option>)}</optgroup>)}</select><button type="button" onClick={onLatchAll} title="Set every note to this displayed value" className="rounded-lg border border-fuchsia-300/30 bg-fuchsia-400/10 px-2 text-fuchsia-100">Latch all</button></span><small className="mt-1 block normal-case tracking-normal text-cyan-200/75"><span className="mr-1 font-['Segoe_UI_Symbol','Noto_Music',serif] text-base text-fuchsia-200">{selectedValue.symbol}</span>{rhythmicCompanionHint(selectedValue.value)}.</small></label>
+      <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Placement grid<select aria-label="Rhythmic placement grid" value={timeline.snap_division ?? DEFAULT_SNAP_DIVISION} onChange={event => onSnapDivision(Number(event.target.value) as NoteDivision)} className={`${field} mt-1 w-full`}>{GRID_DIVISIONS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select><small className="mt-1 block normal-case tracking-normal text-slate-500">Independent of note length for dotted and tuplet rhythms.</small></label>
     </div>
     {changes.length > 0 && <div className="flex flex-wrap items-center gap-2 border-t border-white/[.07] px-3 py-2"><span className="mr-1 text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Later changes</span>{changes.map(change => <button key={`${change.kind}-${change.at}`} onClick={() => onRemove(change.kind, change.at)} title="Remove this musical change" className="rounded-full border border-white/10 bg-white/[.04] px-2.5 py-1 text-slate-300 hover:border-rose-300/40 hover:text-rose-200"><b className="mr-1 text-cyan-200">{formatClock(change.at)}</b>{change.label} ×</button>)}</div>}
   </details>;
@@ -814,6 +920,8 @@ function BeatPrecisionPanel({ selectedNotes, bars, cursor, clipboardCount, onCop
   const primary = selectedNotes[0];
   const position = primary ? beatPositionAt(bars, primary.start) : beatPositionAt(bars, cursor);
   const hold = primary ? durationInBeats(bars, primary.start, primary.end) : 0;
+  const detectedRhythm = primary ? closestNoteValue(bars, primary.start, primary.end) : null;
+  const rhythmError = primary && detectedRhythm ? detectedRhythm.error / Math.max(.001, primary.end - primary.start) : 0;
   const stateLabel = position ? beatOffsetLabel(position.fraction) : 'NO POSITION';
   const onGrid = stateLabel !== 'NO POSITION' && !stateLabel.startsWith('OFF GRID');
   return <section className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-cyan-300/20 bg-[linear-gradient(90deg,#071729,#11102d)] px-3 py-2.5 text-xs shadow-[0_8px_24px_#0005]" aria-label="Beat precision" aria-live="polite">
@@ -822,7 +930,7 @@ function BeatPrecisionPanel({ selectedNotes, bars, cursor, clipboardCount, onCop
     <span className="h-8 w-px bg-white/10" />
     <span><small className="block text-[9px] uppercase tracking-[.12em] text-slate-500">Bar · beat</small><b className="font-mono text-base text-white">{compactBeatLabel(position)}</b></span>
     <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black tracking-[.08em] ${onGrid ? 'border-emerald-300/30 bg-emerald-300/10 text-emerald-200' : 'border-amber-300/35 bg-amber-300/10 text-amber-100'}`}>{stateLabel}</span>
-    {primary && <><span><small className="block text-[9px] uppercase tracking-[.12em] text-slate-500">Hold length</small><b className="font-mono text-sm text-fuchsia-200">{hold.toFixed(2)} beats</b></span><span><small className="block text-[9px] uppercase tracking-[.12em] text-slate-500">Exact time</small><b className="font-mono text-[11px] text-slate-200">{primary.start.toFixed(3)}s–{primary.end.toFixed(3)}s</b></span></>}
+    {primary && <><span title="Nearest written rhythmic value; exact imported MIDI timing remains unchanged"><small className="block text-[9px] uppercase tracking-[.12em] text-slate-500">Rhythm value</small><b className="text-sm text-violet-100"><span className="mr-1 font-['Segoe_UI_Symbol','Noto_Music',serif] text-lg leading-none text-fuchsia-200">{detectedRhythm?.item.symbol}</span>{rhythmError > .08 ? '≈ ' : ''}{detectedRhythm?.item.short}</b></span><span><small className="block text-[9px] uppercase tracking-[.12em] text-slate-500">Hold length</small><b className="font-mono text-sm text-fuchsia-200">{hold.toFixed(2)} beats</b></span><span><small className="block text-[9px] uppercase tracking-[.12em] text-slate-500">Exact time</small><b className="font-mono text-[11px] text-slate-200">{primary.start.toFixed(3)}s–{primary.end.toFixed(3)}s</b></span></>}
     <span className="ml-auto flex items-center gap-2"><button onClick={onCopy} disabled={!selectedNotes.length} className="rounded-lg border border-cyan-300/25 px-3 py-2 text-cyan-100 disabled:opacity-35">Copy <kbd className="ml-1 text-[9px] text-slate-400">Ctrl+C</kbd></button><button onClick={onPaste} disabled={!clipboardCount} title="Pastes the earliest copied note at the current playhead" className="rounded-lg border border-fuchsia-300/35 bg-fuchsia-300/10 px-3 py-2 text-fuchsia-100 disabled:opacity-35">Paste here <kbd className="ml-1 text-[9px] text-slate-400">Ctrl+V</kbd></button></span>
   </section>;
 }
