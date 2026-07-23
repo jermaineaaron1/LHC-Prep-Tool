@@ -212,10 +212,10 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   function selectPlayPart(part: number, additive = false) { setPlayParts(current => additive ? current.map((enabled, index) => index === part ? !enabled : enabled) : VOICES.map((_, index) => index === part)); setPlayScope('all'); setRangeParts(null); setSelectedId(null); setSelectedIds([]); haltPlaybackEngine(); setTransportPosition(0); setIsPaused(false); }
   function beginLasso(event: React.PointerEvent<HTMLDivElement>) {
     if ((tool !== 'select' && tool !== 'draw') || event.button !== 0 || (event.target as HTMLElement).closest('[data-note-id]')) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
     lassoRef.current = { originX: event.clientX, originY: event.clientY, additive: event.ctrlKey || event.metaKey, baseIds: event.ctrlKey || event.metaKey ? [...selectedIds] : [], moved: false };
-    setLassoBox({ left: event.clientX - bounds.left, top: event.clientY - bounds.top, width: 0, height: 0 });
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // Do not capture a plain pointer-down: Draw mode still needs the lane's
+    // ensuing click to create a note. Capture only after this becomes a drag.
+    setLassoBox(null);
   }
   function moveLasso(event: React.PointerEvent<HTMLDivElement>) {
     const active = lassoRef.current;
@@ -223,6 +223,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     const dx = event.clientX - active.originX;
     const dy = event.clientY - active.originY;
     if (!active.moved && Math.hypot(dx, dy) < LASSO_THRESHOLD) return;
+    if (!active.moved && !event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
     active.moved = true;
     const containerBounds = event.currentTarget.getBoundingClientRect();
     const selectionBounds = { left: Math.min(active.originX, event.clientX), right: Math.max(active.originX, event.clientX), top: Math.min(active.originY, event.clientY), bottom: Math.max(active.originY, event.clientY) };

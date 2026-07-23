@@ -331,6 +331,7 @@ Full 3-panel songbook layout implemented in both `Index.html` and `dist/index.ht
 - Reworked the piano-roll visual hierarchy with a dedicated Bars & Beats ruler, numbered bars and beats, strong bar lines, beat lines, quarter-beat subdivisions, alternating measure shading, clearer chromatic rows, octave emphasis, improved note depth/selection states, and stronger sticky pitch headers. The grid is deliberately visual rather than quantized, so syncopated and freely timed notes remain possible.
 - Updated the Worship app iframe release key to `20260723-1` in both `Index.html` and `dist/index.html` so the deployed shell requests the upgraded editor rather than a cached practice-game document.
 - Verification: `next build` completes, including TypeScript and static generation. `npm run lint` remains blocked by the existing ESLint 9 setup having no `eslint.config.*`; no new package, database migration, or environment variable is required.
+- Follow-up on `fix/vocal-hero-draw-notes`: fixed Draw-mode note creation after the lasso upgrade. The lasso container now waits until pointer movement exceeds the drag threshold before capturing the pointer, allowing a normal empty-lane click to reach the note-creation handler while genuine drag gestures still select notes. The iframe release key is `20260723-2`.
 
 ## Recommended Next Steps
 
