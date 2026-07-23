@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { BackingTrackClip, BackingTrackSettings, Song, SongNote } from '@/lib/vocal-hero/types';
+import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, Song, SongNote } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, midiSourceKey, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
 import { supabase } from '@/lib/vocal-hero/supabaseClient';
@@ -15,7 +15,10 @@ const PITCH_ROW_HEIGHT = 22;
 const PITCH_HEADER_HEIGHT = 34;
 const DEFAULT_BPM = 120;
 const DEFAULT_BEATS_PER_BAR = 4;
+const DEFAULT_BEAT_UNIT = 4;
 const LASSO_THRESHOLD = 5;
+const KEY_TONICS = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian'];
 const VOICE_MIDI_RANGES = [
   { min: 60, max: 81 }, // Soprano C4-A5
   { min: 53, max: 74 }, // Alto F3-D5
@@ -25,6 +28,7 @@ const VOICE_MIDI_RANGES = [
 const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 
 function midiNoteName(midi: number) { const safe = Math.max(0, Math.min(127, Math.round(midi))); return `${NOTE_NAMES[safe % 12]}${Math.floor(safe / 12) - 1}`; }
+function formatClock(seconds: number) { const safe = Math.max(0, seconds); return `${Math.floor(safe / 60)}:${String(Math.floor(safe) % 60).padStart(2, '0')}.${Math.floor((safe % 1) * 10)}`; }
 function pitchRangeForPart(part: number) {
   const natural = VOICE_MIDI_RANGES[part] ?? VOICE_MIDI_RANGES[0];
   return { min: natural.min, max: natural.max };
@@ -32,9 +36,59 @@ function pitchRangeForPart(part: number) {
 type EditableSong = Pick<Song, 'id' | 'title' | 'notes' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>;
 type EditorTool = 'select' | 'draw' | 'erase';
 type PlaybackScope = 'all' | 'range' | 'note';
-type ArrangementSnapshot = { title: string; notes: SongNote[]; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
+type ArrangementSnapshot = { title: string; notes: SongNote[]; musicalTimeline: MusicalTimelineSettings; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
 type MidiPreview = { fileName: string; notes: ImportedMidiNote[] };
 const DEFAULT_TRACK_SETTINGS: BackingTrackSettings = { volume: 1, speed: 1, timeline_offset: 0, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, loop_enabled: false, skip_regions: [], split_markers: [], media_duration: null, effect: 'none' };
+
+type MusicalState = { bpm: number; numerator: number; denominator: number; tonic: string; mode: string };
+type MusicalBeat = { start: number; end: number; beat: number; bar: number; subdivisionStarts: number[] };
+type MusicalBar = MusicalState & { start: number; end: number; number: number; beats: MusicalBeat[] };
+
+function sortByTime<T extends { at: number }>(items: T[]) { return [...items].sort((a, b) => a.at - b.at); }
+function normaliseMusicalTimeline(song: Song, settings: BackingTrackSettings): MusicalTimelineSettings {
+  const stored = settings.musical_timeline;
+  const ensureBase = <T extends { at: number }>(items: T[], fallback: T) => {
+    const valid = sortByTime(items.filter(item => Number.isFinite(item.at) && item.at >= 0));
+    return valid.some(item => item.at === 0) ? valid : [fallback, ...valid];
+  };
+  return {
+    tempo_changes: ensureBase(stored?.tempo_changes ?? [], { at: 0, bpm: Math.max(20, Number(song.bpm) || DEFAULT_BPM) }).map(item => ({ ...item, bpm: Math.max(20, Math.min(400, Number(item.bpm) || DEFAULT_BPM)) })),
+    meter_changes: ensureBase(stored?.meter_changes ?? [], { at: 0, numerator: Math.max(1, Number(song.time_sig) || DEFAULT_BEATS_PER_BAR), denominator: DEFAULT_BEAT_UNIT }).map(item => ({ ...item, numerator: Math.max(1, Math.min(32, Math.round(Number(item.numerator) || DEFAULT_BEATS_PER_BAR))), denominator: [1, 2, 4, 8, 16, 32].includes(Number(item.denominator)) ? Number(item.denominator) : DEFAULT_BEAT_UNIT })),
+    key_changes: ensureBase(stored?.key_changes ?? [], { at: 0, tonic: 'C', mode: 'Major' }).map(item => ({ ...item, tonic: item.tonic || 'C', mode: item.mode || 'Major' })),
+  };
+}
+function eventAt<T extends { at: number }>(items: T[], at: number) { return sortByTime(items).filter(item => item.at <= at + .001).at(-1) ?? items[0]; }
+function musicalStateAt(timeline: MusicalTimelineSettings, at: number): MusicalState {
+  const tempo = eventAt(timeline.tempo_changes, at);
+  const meter = eventAt(timeline.meter_changes, at);
+  const key = eventAt(timeline.key_changes, at);
+  return { bpm: tempo?.bpm ?? DEFAULT_BPM, numerator: meter?.numerator ?? DEFAULT_BEATS_PER_BAR, denominator: meter?.denominator ?? DEFAULT_BEAT_UNIT, tonic: key?.tonic ?? 'C', mode: key?.mode ?? 'Major' };
+}
+function buildMusicalGrid(duration: number, timeline: MusicalTimelineSettings): MusicalBar[] {
+  const changePoints = Array.from(new Set([0, duration, ...timeline.tempo_changes.map(item => item.at), ...timeline.meter_changes.map(item => item.at), ...timeline.key_changes.map(item => item.at)].filter(at => at >= 0 && at <= duration))).sort((a, b) => a - b);
+  const bars: MusicalBar[] = [];
+  let barNumber = 1;
+  for (let segment = 0; segment < changePoints.length - 1; segment += 1) {
+    const start = changePoints[segment];
+    const end = changePoints[segment + 1];
+    const state = musicalStateAt(timeline, start);
+    const beatLength = (60 / state.bpm) * (4 / state.denominator);
+    const barLength = beatLength * state.numerator;
+    for (let barStart = start; barStart < end - .0001; barStart += barLength) {
+      const barEnd = Math.min(end, barStart + barLength);
+      const beats: MusicalBeat[] = [];
+      for (let beat = 0; beat < state.numerator; beat += 1) {
+        const beatStart = barStart + beat * beatLength;
+        if (beatStart >= barEnd - .0001) break;
+        const beatEnd = Math.min(barEnd, beatStart + beatLength);
+        beats.push({ start: beatStart, end: beatEnd, beat: beat + 1, bar: barNumber, subdivisionStarts: [1, 2, 3].map(part => beatStart + ((beatEnd - beatStart) * part) / 4).filter(value => value < beatEnd - .0001) });
+      }
+      bars.push({ ...state, start: barStart, end: barEnd, number: barNumber, beats });
+      barNumber += 1;
+    }
+  }
+  return bars;
+}
 
 export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClose: () => void; onSave: (values: EditableSong) => Promise<void>; }) {
   const [title, setTitle] = useState(song.title);
@@ -69,6 +123,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [mediaName, setMediaName] = useState('');
   const [showBackingEditor, setShowBackingEditor] = useState(false);
   const [trackSettings, setTrackSettings] = useState<BackingTrackSettings>({ ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) });
+  const [musicalTimeline, setMusicalTimeline] = useState<MusicalTimelineSettings>(() => normaliseMusicalTimeline(song, { ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) }));
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [history, setHistory] = useState<{ past: ArrangementSnapshot[]; future: ArrangementSnapshot[] }>({ past: [], future: [] });
@@ -95,11 +150,9 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const transportEnd = Math.max(.1, song.duration || 0, backingTimelineEnd, ...notes.map(note => note.end));
   const duration = Math.max(32, transportEnd + 4);
   const timelineWidth = Math.min(Math.max(duration * zoom, 1600), 48000);
-  const bpm = song.bpm && song.bpm > 0 ? song.bpm : DEFAULT_BPM;
-  const beatsPerBar = song.time_sig && song.time_sig > 0 ? song.time_sig : DEFAULT_BEATS_PER_BAR;
-  const secondsPerBeat = 60 / bpm;
-  const secondsPerBar = secondsPerBeat * beatsPerBar;
-  const visibleBars = Math.ceil(duration / secondsPerBar);
+  const musicalBars = useMemo(() => buildMusicalGrid(duration, musicalTimeline), [duration, musicalTimeline]);
+  const musicalBeats = useMemo(() => musicalBars.flatMap(bar => bar.beats), [musicalBars]);
+  const cursorMusicalState = musicalStateAt(musicalTimeline, playhead ?? 0);
   const noteByPart = useMemo(() => VOICES.map((_, index) => notes.filter(note => note.part === index || (note.part === -1 && index === selectedPart))), [notes, selectedPart]);
 
   useEffect(() => () => {
@@ -124,6 +177,35 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     else await root.requestFullscreen();
   }
 
+  function focusVoice(part: number) {
+    setSelectedPart(part);
+    setCollapsedVoices(current => current.map((value, index) => index === part ? false : value));
+    requestAnimationFrame(() => document.getElementById(`vh-voice-${part}`)?.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' }));
+  }
+
+  function upsertMusicalEvent(kind: 'tempo' | 'meter' | 'key', values: Partial<MusicalState>, at = playhead ?? 0) {
+    const eventTime = roundPrecise(Math.max(0, at));
+    pushHistory();
+    setMusicalTimeline(current => {
+      if (kind === 'tempo') {
+        const next = { at: eventTime, bpm: Math.max(20, Math.min(400, Number(values.bpm) || DEFAULT_BPM)) };
+        return { ...current, tempo_changes: sortByTime([...current.tempo_changes.filter(item => Math.abs(item.at - eventTime) > .001), next]) };
+      }
+      if (kind === 'meter') {
+        const next = { at: eventTime, numerator: Math.max(1, Math.min(32, Math.round(Number(values.numerator) || DEFAULT_BEATS_PER_BAR))), denominator: [1, 2, 4, 8, 16, 32].includes(Number(values.denominator)) ? Number(values.denominator) : DEFAULT_BEAT_UNIT };
+        return { ...current, meter_changes: sortByTime([...current.meter_changes.filter(item => Math.abs(item.at - eventTime) > .001), next]) };
+      }
+      const next = { at: eventTime, tonic: values.tonic || 'C', mode: values.mode || 'Major' };
+      return { ...current, key_changes: sortByTime([...current.key_changes.filter(item => Math.abs(item.at - eventTime) > .001), next]) };
+    });
+  }
+
+  function removeMusicalEvent(kind: 'tempo' | 'meter' | 'key', at: number) {
+    if (at === 0) return;
+    pushHistory();
+    setMusicalTimeline(current => kind === 'tempo' ? { ...current, tempo_changes: current.tempo_changes.filter(item => item.at !== at) } : kind === 'meter' ? { ...current, meter_changes: current.meter_changes.filter(item => item.at !== at) } : { ...current, key_changes: current.key_changes.filter(item => item.at !== at) });
+  }
+
   useEffect(() => {
     const media = backingMediaRef.current;
     if (!transportRunningRef.current || !isPlaying || playhead === null || !mediaUrl || !media) return;
@@ -135,16 +217,16 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     if (media.paused) void media.play().catch(() => undefined);
   }, [isPlaying, mediaUrl, playhead, trackSettings.clips, trackSettings.media_duration, trackSettings.speed, trackSettings.trim_end, trackSettings.trim_start, trackSettings.timeline_offset, trackSettings.skip_regions, trackSettings.volume]);
 
-  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
+  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })) }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
   function pushHistory() { const snapshot = makeSnapshot(); setHistory(current => ({ past: [...current.past, snapshot].slice(-100), future: [] })); }
-  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
+  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })) }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
   function undo() { const previous = history.past.at(-1); if (!previous) return; const current = makeSnapshot(); restoreSnapshot(previous); setHistory({ past: history.past.slice(0, -1), future: [current, ...history.future] }); }
   function redo() { const next = history.future[0]; if (!next) return; const current = makeSnapshot(); restoreSnapshot(next); setHistory({ past: [...history.past, current].slice(-100), future: history.future.slice(1) }); }
   function update(id: string, values: Partial<SongNote>) { pushHistory(); setNotes(current => current.map(note => note.id === id ? { ...note, ...values } : note)); }
   function selectNote(id: string, additive = false) { const note = notes.find(item => item.id === id); if (!note) return; setSelectedPart(note.part < 0 ? 0 : note.part); setSelectedId(id); setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]); setPlayScope('note'); }
-  function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60) { pushHistory(); const id = `note-${crypto.randomUUID()}`; setNotes(current => [...current, { id, part, midi, start: round(start), end: round(start + 1), lyric: 'New lyric', velocity: 100 }]); setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); }
-  function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const start = Math.max(0, (event.clientX - bounds.left) / zoom); const range = pitchRangeForPart(part); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, start, range.max - row); }
-  function duplicateSelected() { if (!selected) return; pushHistory(); const id = `note-${crypto.randomUUID()}`; const copy = { ...selected, id, start: round(selected.end + .1), end: round(selected.end + .1 + (selected.end - selected.start)) }; setNotes(current => [...current, copy]); setSelectedId(id); setSelectedIds([id]); setTool('select'); }
+  function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number) { const state = musicalStateAt(musicalTimeline, start); const beatLength = (60 / state.bpm) * (4 / state.denominator); pushHistory(); const id = `note-${crypto.randomUUID()}`; setNotes(current => [...current, { id, part, midi, start: roundPrecise(start), end: roundPrecise(end ?? start + beatLength), lyric: 'New lyric', velocity: 100 }]); setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); }
+  function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const pointerTime = Math.max(0, (event.clientX - bounds.left) / zoom); const beat = musicalBeats.find(item => pointerTime >= item.start && pointerTime < item.end); const range = pitchRangeForPart(part); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, beat?.start ?? pointerTime, range.max - row, beat?.end); }
+  function duplicateSelected() { if (!selected) return; pushHistory(); const id = `note-${crypto.randomUUID()}`; const copy = { ...selected, id, start: roundPrecise(selected.end + .1), end: roundPrecise(selected.end + .1 + (selected.end - selected.start)) }; setNotes(current => [...current, copy]); setSelectedId(id); setSelectedIds([id]); setTool('select'); }
   function removeNote(id: string) { pushHistory(); setNotes(current => current.filter(note => note.id !== id)); setSelectedId(current => current === id ? null : current); setSelectedIds(current => current.filter(item => item !== id)); }
   function removeSelected() { if (!selectedIds.length) return; pushHistory(); setNotes(current => current.filter(note => !selectedIds.includes(note.id))); setSelectedId(null); setSelectedIds([]); }
   function beginResizeHistory() { pushHistory(); }
@@ -196,20 +278,20 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setNotes(current => {
       const target = current.find(note => note.id === id);
       if (!target) return current;
-      const nextEnd = Math.max(round(target.start + .1), round(end));
-      const delta = round(nextEnd - target.end);
+      const nextEnd = Math.max(roundPrecise(target.start + .1), roundPrecise(end));
+      const delta = roundPrecise(nextEnd - target.end);
       if (!delta) return current;
       // Ripple all later targets together so SATB harmony and lyric timing stay aligned.
       return current.map(note => {
         if (note.id === id) return { ...note, end: nextEnd };
-        if (note.start >= target.end - .001) return { ...note, start: Math.max(0, round(note.start + delta)), end: Math.max(.1, round(note.end + delta)) };
+        if (note.start >= target.end - .001) return { ...note, start: Math.max(0, roundPrecise(note.start + delta)), end: Math.max(.1, roundPrecise(note.end + delta)) };
         return note;
       });
     });
   }
   function clearPlaybackSelections() { setPlayScope('all'); setPlayParts([true, true, true, true]); setPlayRange({ start: 0, end: 8 }); setRangeParts(null); setSelectedId(null); setSelectedIds([]); }
   function selectAllVoices() { clearPlaybackSelections(); haltPlaybackEngine(); setTransportPosition(0); setIsPaused(false); }
-  function selectPlayPart(part: number, additive = false) { setPlayParts(current => additive ? current.map((enabled, index) => index === part ? !enabled : enabled) : VOICES.map((_, index) => index === part)); setPlayScope('all'); setRangeParts(null); setSelectedId(null); setSelectedIds([]); haltPlaybackEngine(); setTransportPosition(0); setIsPaused(false); }
+  function selectPlayPart(part: number, additive = false) { setPlayParts(current => additive ? current.map((enabled, index) => index === part ? !enabled : enabled) : VOICES.map((_, index) => index === part)); setPlayScope('all'); setRangeParts(null); setSelectedId(null); setSelectedIds([]); haltPlaybackEngine(); setTransportPosition(0); setIsPaused(false); focusVoice(part); }
   function beginLasso(event: React.PointerEvent<HTMLDivElement>) {
     if ((tool !== 'select' && tool !== 'draw') || event.button !== 0 || (event.target as HTMLElement).closest('[data-note-id]')) return;
     lassoRef.current = { originX: event.clientX, originY: event.clientY, additive: event.ctrlKey || event.metaKey, baseIds: event.ctrlKey || event.metaKey ? [...selectedIds] : [], moved: false };
@@ -401,7 +483,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     } catch (error) { setRecordError(error instanceof Error ? error.message : 'Unable to access the microphone.'); setRecording(false); }
   }
   function playRecordedTake() { if (recordingUrl) void new Audio(recordingUrl).play(); }
-  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, round(note.start)), end: Math.max(round(note.start) + .1, round(note.end)) })), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: trackSettings }); } finally { setSaving(false); } }
+  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .1, roundPrecise(note.end)) })), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, musical_timeline: musicalTimeline } }); } finally { setSaving(false); } }
   async function uploadBackingTrack(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -446,11 +528,11 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setTool('select');
   }
 
-  return <div ref={editorRootRef} className="fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
+  return <div ref={editorRootRef} className="vh-editor-scrollbars fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
     <audio ref={backingMediaRef} src={mediaUrl || undefined} preload="auto" className="hidden" onLoadedMetadata={event => { const media_duration = event.currentTarget.duration; if (Number.isFinite(media_duration)) setTrackSettings(current => current.media_duration === media_duration ? current : { ...current, media_duration }); }} onTimeUpdate={enforceBackingEdits} />
     <header className="flex h-16 items-center gap-5 border-b border-white/10 bg-[#070a1b] px-5"><Brand /><nav className="hidden gap-5 text-xs text-slate-400 md:flex"><span>⌂ Home</span><span>♫ Library</span><b className="text-fuchsia-300">♫ Song Editor</b><span>♜ Leaderboards</span><span>♧ Rooms</span></nav><div className="ml-auto flex items-center gap-2"><span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-[10px] font-bold text-emerald-300">● LIVE</span><button onClick={() => void toggleFullscreen()} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit Vocal Hero fullscreen (Esc)' : 'Open the entire Vocal Hero editor fullscreen'} className="rounded-lg border border-fuchsia-300/35 bg-fuchsia-400/10 px-3 py-2 text-xs font-semibold text-fuchsia-100"><span aria-hidden="true" className="mr-1">{isFullscreen ? '⊙' : '⛶'}</span>{isFullscreen ? 'Exit fullscreen' : 'Full screen'}</button><span className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 sm:block">Room Code <b className="ml-1 text-[#ffd15c]">ZHY32</b></span><button onClick={onClose} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button></div></header>
     <div className="flex h-[calc(100vh-64px)] min-h-[620px] overflow-auto">
-      <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#070b1e] p-3 lg:block"><p className="text-sm font-semibold">Song Editor</p><div className="mt-1 flex items-center gap-2"><input value={title} onChange={event => setTitle(event.target.value)} className="w-full border-0 bg-transparent text-xs text-slate-300 outline-none" /><span className="text-fuchsia-300">✎</span></div><div className="mt-4 space-y-2">{VOICES.map((voice, index) => <VoiceStrip key={voice} name={voice} index={index} active={selectedPart === index} onClick={() => setSelectedPart(index)} />)}</div><button onClick={() => addNote()} className="mt-3 w-full rounded-lg border border-dashed border-fuchsia-400/40 px-3 py-2 text-xs text-fuchsia-300">＋ Add Voice Target</button><div className="mt-6 border-t border-white/10 pt-4"><p className="text-[10px] tracking-[.16em] text-slate-500">PART MIXER</p><div className="mt-3 grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <div key={voice} className="rounded-lg bg-white/[.04] p-2 text-center"><b style={{ color: COLOURS[index] }}>{voice[0]}</b><div className="mx-auto mt-2 h-14 w-1 rounded-full bg-white/10"><span className="block w-full rounded-full" style={{ height: `${60 + index * 8}%`, background: COLOURS[index], transform: 'translateY(40%)' }} /></div><span className="mt-2 block text-[9px] text-slate-400">M</span></div>)}</div></div></aside>
+      <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#070b1e] p-3 lg:block"><p className="text-sm font-semibold">Song Editor</p><div className="mt-1 flex items-center gap-2"><input value={title} onChange={event => setTitle(event.target.value)} className="w-full border-0 bg-transparent text-xs text-slate-300 outline-none" /><span className="text-fuchsia-300">✎</span></div><div className="mt-4 space-y-2">{VOICES.map((voice, index) => <VoiceStrip key={voice} name={voice} index={index} active={selectedPart === index} onClick={() => focusVoice(index)} />)}</div><button onClick={() => addNote()} className="mt-3 w-full rounded-lg border border-dashed border-fuchsia-400/40 px-3 py-2 text-xs text-fuchsia-300">＋ Add Voice Target</button><div className="mt-6 border-t border-white/10 pt-4"><p className="text-[10px] tracking-[.16em] text-slate-500">PART MIXER</p><div className="mt-3 grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <div key={voice} className="rounded-lg bg-white/[.04] p-2 text-center"><b style={{ color: COLOURS[index] }}>{voice[0]}</b><div className="mx-auto mt-2 h-14 w-1 rounded-full bg-white/10"><span className="block w-full rounded-full" style={{ height: `${60 + index * 8}%`, background: COLOURS[index], transform: 'translateY(40%)' }} /></div><span className="mt-2 block text-[9px] text-slate-400">M</span></div>)}</div></div></aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
         <EditorToolbar tool={tool} setTool={setTool} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onSave={() => void save()} saving={saving} />
         <div className="flex flex-wrap items-center gap-3 border-b border-white/[.06] bg-[#090c20] px-3 py-2 text-xs">
@@ -465,18 +547,18 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
         {midiError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">MIDI import: {midiError}</div>}
         <div className="flex min-h-0 flex-1">
           <section className="min-w-0 flex-1 overflow-auto p-3">
-            <div className="mb-3 flex flex-wrap gap-2 text-xs"><Chip label={`BPM ${bpm}`} /><Chip label="Key C Major" /><Chip label={`Time ${beatsPerBar} / 4`} /><span className="ml-auto rounded-lg border border-cyan-300/20 bg-cyan-300/[.05] px-3 py-2 text-cyan-100"><b>Free timing</b><span className="ml-2 text-cyan-300/60">bar · beat · 1/4-beat guides</span></span></div>
+            <MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onRemove={removeMusicalEvent} />
             <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><p className="mr-auto max-w-4xl leading-relaxed"><b className="text-slate-200">Select in either Select or Draw mode.</b> Drag a note body left/right for timing and up/down for pitch. Ctrl-click adds individual notes; drag empty space to lasso any notes inside the rectangle. Grid lines guide rhythm without forcing quantization.</p><button onClick={() => setCollapsedVoices([true, true, true, true])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Collapse all voices</button><button onClick={() => setCollapsedVoices([false, false, false, false])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Expand all voices</button></div>
             <div className="overflow-x-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]">
               <div style={{ width: timelineWidth + TIMELINE_LABEL_WIDTH }}>
                 <div onClick={event => { const bounds = event.currentTarget.getBoundingClientRect(); seekFromTimeline((event.clientX - bounds.left - TIMELINE_LABEL_WIDTH) / zoom); }} className="relative z-20 flex h-12 cursor-pointer border-b border-cyan-200/15 bg-[linear-gradient(180deg,#141936,#090d21)] shadow-[0_7px_18px_#0008]" title="Click to move the playhead">
                   <div className="sticky left-0 z-30 flex w-[124px] shrink-0 items-center border-r border-cyan-200/15 bg-[#11162f] px-3 text-[10px] font-bold uppercase tracking-[.15em] text-cyan-200">Bars &amp; beats</div>
-                  {Array.from({ length: visibleBars }, (_, index) => <span key={index} className="relative shrink-0 border-r-2 border-cyan-200/30 pt-1.5 text-[10px] font-semibold text-slate-300" style={{ width: secondsPerBar * zoom }}><b className="ml-2 text-cyan-200">BAR {index + 1}</b><span className="absolute inset-x-0 bottom-1 flex justify-around text-[9px] font-normal text-slate-500">{Array.from({ length: beatsPerBar }, (_, beat) => <i key={beat} className="not-italic">{beat + 1}</i>)}</span></span>)}
+                  {musicalBars.map(bar => <span key={`${bar.number}-${bar.start}`} className="relative shrink-0 border-r-2 border-cyan-200/35 pt-1 text-[10px] font-semibold text-slate-300" style={{ width: Math.max(1, (bar.end - bar.start) * zoom), background: bar.number % 2 ? '#17203b88' : '#0e153088' }}><b className="ml-2 text-cyan-100">BAR {bar.number}</b><small className="ml-2 text-[8px] font-normal text-fuchsia-200/80">{bar.numerator}/{bar.denominator} · {bar.bpm} · {bar.tonic} {bar.mode.slice(0, 3)}</small><span className="absolute inset-x-0 bottom-1 flex text-[9px] font-normal text-slate-400">{bar.beats.map(beat => <i key={beat.start} className="not-italic text-center" style={{ width: `${100 / Math.max(1, bar.beats.length)}%` }}>{beat.beat}</i>)}</span></span>)}
                 </div>
                 <BackingTrackLane url={mediaUrl} fileName={mediaName} width={timelineWidth} zoom={zoom} playhead={playhead} settings={trackSettings} onClipsChange={updateTrackClips} onOpenSettings={() => setShowBackingEditor(true)} onSeek={seekFromTimeline} />
                 <div className="relative" onPointerDown={beginLasso} onPointerMove={moveLasso} onPointerUp={endLasso} onPointerCancel={endLasso}>
                   {lassoBox && <span className="pointer-events-none absolute z-50 rounded border border-fuchsia-200 bg-fuchsia-400/15 shadow-[0_0_22px_#f0abfc55]" style={lassoBox} />}
-                  {VOICES.map((voice, index) => <PianoTrack key={voice} name={voice} part={index} notes={noteByPart[index]} selectedId={selectedId} selectedIds={selectedIds} tool={tool} playhead={playhead} selectedRange={playScope === 'range' && rangeParts && index >= rangeParts.start && index <= rangeParts.end ? playRange : null} width={timelineWidth} zoom={zoom} secondsPerBeat={secondsPerBeat} secondsPerBar={secondsPerBar} collapsed={collapsedVoices[index]} onToggleCollapse={() => setCollapsedVoices(current => current.map((value, part) => part === index ? !value : value))} onAdd={handleLaneClick} onSelect={selectNote} onRemove={removeNote} onNoteMoveStart={beginNoteMove} onNoteMove={moveNote} onNoteMoveEnd={endNoteMove} onResizeStart={beginResizeHistory} onResize={resizeNote} onEmptyClick={clearPlaybackSelections} />)}
+                  {VOICES.map((voice, index) => <PianoTrack key={voice} name={voice} part={index} notes={noteByPart[index]} selectedId={selectedId} selectedIds={selectedIds} tool={tool} playhead={playhead} selectedRange={playScope === 'range' && rangeParts && index >= rangeParts.start && index <= rangeParts.end ? playRange : null} width={timelineWidth} zoom={zoom} bars={musicalBars} collapsed={collapsedVoices[index]} onToggleCollapse={() => setCollapsedVoices(current => current.map((value, part) => part === index ? !value : value))} onAdd={handleLaneClick} onSelect={selectNote} onRemove={removeNote} onNoteMoveStart={beginNoteMove} onNoteMove={moveNote} onNoteMoveEnd={endNoteMove} onResizeStart={beginResizeHistory} onResize={resizeNote} onEmptyClick={clearPlaybackSelections} />)}
                 </div>
               </div>
             </div>
@@ -484,7 +566,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
               <summary className="cursor-pointer font-semibold text-slate-300">Arrangement controls: dynamics, breath &amp; part mixer</summary>
               <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto]">
                 <Automation notes={notes} />
-                <div className="grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <button key={voice} onClick={() => setSelectedPart(index)} className="rounded-lg border px-3 py-2 text-center" style={{ borderColor: `${COLOURS[index]}66`, color: COLOURS[index], background: `${COLOURS[index]}12` }}><b className="block text-base">{voice[0]}</b><span className="text-[10px]">{voice}</span></button>)}</div>
+                <div className="grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <button key={voice} onClick={() => focusVoice(index)} className="rounded-lg border px-3 py-2 text-center" style={{ borderColor: `${COLOURS[index]}66`, color: COLOURS[index], background: `${COLOURS[index]}12` }}><b className="block text-base">{voice[0]}</b><span className="text-[10px]">{voice}</span></button>)}</div>
               </div>
             </details>
           </section>
@@ -494,12 +576,44 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
         {midiPreview && <MidiImportDialog preview={midiPreview} ranges={midiRanges} setRanges={setMidiRanges} sourceParts={midiSourceParts} setSourceParts={setMidiSourceParts} fixedPart={midiPart} setFixedPart={setMidiPart} mode={midiMode} setMode={setMidiMode} onCancel={() => setMidiPreview(null)} onApply={applyMidiImport} />}
       </main>
     </div>
+    <style jsx global>{`
+      .vh-editor-scrollbars, .vh-editor-scrollbars * { scrollbar-width: thin; scrollbar-color: #a855f7 #090d22; }
+      .vh-editor-scrollbars ::-webkit-scrollbar { width: 12px; height: 12px; }
+      .vh-editor-scrollbars ::-webkit-scrollbar-track { background: linear-gradient(90deg,#070a19,#111735); border: 1px solid #67e8f922; }
+      .vh-editor-scrollbars ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+      .vh-editor-scrollbars ::-webkit-scrollbar-thumb { min-height: 42px; border: 3px solid #090d22; border-radius: 999px; background: linear-gradient(180deg,#f05acb,#8b5cf6 55%,#22d3ee); box-shadow: inset 0 0 0 1px #ffffff38,0 0 10px #a855f766; }
+      .vh-editor-scrollbars ::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg,#ff8bdd,#a879ff 55%,#57e8ff); }
+      .vh-editor-scrollbars ::-webkit-scrollbar-corner { background: #090d22; }
+    `}</style>
   </div>;
 }
 
 function Brand() { return <b className="text-xl">VOCAL<span className="text-fuchsia-400">Hero</span></b>; }
-function Chip({ label }: { label: string }) { return <span className="rounded-lg border border-white/10 bg-white/[.035] px-3 py-2 text-slate-400">{label}</span>; }
 function VoiceStrip({ name, index, active, onClick }: { name: string; index: number; active: boolean; onClick: () => void }) { return <button onClick={onClick} className="w-full rounded-xl border p-3 text-left" style={{ borderColor: active ? COLOURS[index] : `${COLOURS[index]}55`, background: active ? `${COLOURS[index]}19` : `${COLOURS[index]}08` }}><div className="flex items-center gap-2"><b className="text-2xl" style={{ color: COLOURS[index] }}>{name[0]}</b><span><b className="block text-xs" style={{ color: COLOURS[index] }}>{name.toUpperCase()}</b><span className="text-[10px] text-slate-500">⌁ mic · active</span></span></div><div className="mt-3 h-1 rounded-full bg-white/10"><span className="block h-full w-2/3 rounded-full" style={{ background: COLOURS[index] }} /></div></button>; }
+function MusicalTimelineControls({ timeline, cursor, state, onTempo, onMeter, onKey, onRemove }: { timeline: MusicalTimelineSettings; cursor: number; state: MusicalState; onTempo: (bpm: number) => void; onMeter: (numerator: number, denominator: number) => void; onKey: (tonic: string, mode: string) => void; onRemove: (kind: 'tempo' | 'meter' | 'key', at: number) => void }) {
+  const [bpmDraft, setBpmDraft] = useState(String(state.bpm));
+  const [numeratorDraft, setNumeratorDraft] = useState(String(state.numerator));
+  useEffect(() => setBpmDraft(String(state.bpm)), [state.bpm]);
+  useEffect(() => setNumeratorDraft(String(state.numerator)), [state.numerator]);
+  const commitBpm = () => { const value = Math.max(20, Math.min(400, Number(bpmDraft) || state.bpm)); setBpmDraft(String(value)); onTempo(value); };
+  const commitNumerator = () => { const value = Math.max(1, Math.min(32, Math.round(Number(numeratorDraft) || state.numerator))); setNumeratorDraft(String(value)); onMeter(value, state.denominator); };
+  const changes = [
+    ...timeline.tempo_changes.filter(item => item.at > 0).map(item => ({ kind: 'tempo' as const, at: item.at, label: `${item.bpm} BPM` })),
+    ...timeline.meter_changes.filter(item => item.at > 0).map(item => ({ kind: 'meter' as const, at: item.at, label: `${item.numerator}/${item.denominator}` })),
+    ...timeline.key_changes.filter(item => item.at > 0).map(item => ({ kind: 'key' as const, at: item.at, label: `${item.tonic} ${item.mode}` })),
+  ].sort((a, b) => a.at - b.at);
+  const field = 'rounded-lg border border-white/15 bg-[#070b1d] px-2 py-2 text-sm font-semibold text-white outline-none focus:border-fuchsia-300/70 focus:ring-2 focus:ring-fuchsia-400/15';
+  return <details open className="mb-3 rounded-xl border border-fuchsia-300/20 bg-[linear-gradient(135deg,#15102e,#081326)] text-xs shadow-[0_8px_24px_#0006]">
+    <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2.5"><span className="grid h-8 w-8 place-items-center rounded-lg bg-fuchsia-400/15 text-lg text-fuchsia-200">♩</span><span><b className="block text-sm text-white">Musical timeline</b><small className="text-slate-400">Editable BPM, metre and key at the playhead</small></span><span className="ml-auto rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 py-1 font-mono text-cyan-100">Cursor {formatClock(cursor)}</span></summary>
+    <div className="grid gap-3 border-t border-white/10 p-3 sm:grid-cols-2 xl:grid-cols-[150px_190px_240px_1fr]">
+      <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Quarter-note BPM<input aria-label="BPM at cursor" value={bpmDraft} onChange={event => setBpmDraft(event.target.value)} onBlur={commitBpm} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} inputMode="numeric" className={`${field} mt-1 w-full`} /></label>
+      <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Time signature<span className="mt-1 flex items-center gap-1"><input aria-label="Time signature numerator" value={numeratorDraft} onChange={event => setNumeratorDraft(event.target.value)} onBlur={commitNumerator} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} inputMode="numeric" className={`${field} min-w-0 flex-1 text-center`} /><b className="text-lg text-slate-500">/</b><select aria-label="Time signature denominator" value={state.denominator} onChange={event => onMeter(state.numerator, Number(event.target.value))} className={`${field} min-w-0 flex-1 text-center`}>{[1, 2, 4, 8, 16, 32].map(value => <option key={value}>{value}</option>)}</select></span></label>
+      <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Key at cursor<span className="mt-1 flex gap-1"><select aria-label="Key tonic" value={state.tonic} onChange={event => onKey(event.target.value, state.mode)} className={`${field} min-w-0 flex-1`}>{KEY_TONICS.map(value => <option key={value}>{value}</option>)}</select><select aria-label="Key mode" value={state.mode} onChange={event => onKey(state.tonic, event.target.value)} className={`${field} min-w-0 flex-[1.4]`}>{KEY_MODES.map(value => <option key={value}>{value}</option>)}</select></span></label>
+      <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/[.045] px-3 py-2 leading-relaxed text-cyan-100"><b>Draw behavior:</b> a new note snaps to the current beat and fills that beat. Afterwards it remains freely movable and resizable for pickups, ties and syncopation.</div>
+    </div>
+    {changes.length > 0 && <div className="flex flex-wrap items-center gap-2 border-t border-white/[.07] px-3 py-2"><span className="mr-1 text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Later changes</span>{changes.map(change => <button key={`${change.kind}-${change.at}`} onClick={() => onRemove(change.kind, change.at)} title="Remove this musical change" className="rounded-full border border-white/10 bg-white/[.04] px-2.5 py-1 text-slate-300 hover:border-rose-300/40 hover:text-rose-200"><b className="mr-1 text-cyan-200">{formatClock(change.at)}</b>{change.label} ×</button>)}</div>}
+  </details>;
+}
 function EditorToolbar({ tool, setTool, playScope, playParts, onPlayAll, onPlayPart, playRange, playhead, onClearSelection, selectedCount, onRemove, canUndo, canRedo, onUndo, onRedo, zoom, setZoom, onDuplicate, onPlay, onPlayFromStart, onPause, onStop, onSkip, isPlaying, isPaused, onRecord, recording, onPlayTake, hasTake, onSave, saving }: { tool: EditorTool; setTool: (tool: EditorTool) => void; playScope: PlaybackScope; playParts: boolean[]; onPlayAll: () => void; onPlayPart: (part: number, additive?: boolean) => void; playRange: { start: number; end: number }; playhead: number | null; onClearSelection: () => void; selectedCount: number; onRemove: () => void; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; zoom: number; setZoom: (value: number) => void; onDuplicate: () => void; onPlay: () => void; onPlayFromStart: () => void; onPause: () => void; onStop: () => void; onSkip: (seconds: number) => void; isPlaying: boolean; isPaused: boolean; onRecord: () => void; recording: boolean; onPlayTake: () => void; hasTake: boolean; onSave: () => void; saving: boolean }) {
   const toolButton = (value: EditorTool, label: string) => <button onClick={() => setTool(value)} className={`rounded-lg border px-3 py-2 ${tool === value ? 'border-fuchsia-400/60 bg-fuchsia-500/20 text-fuchsia-100' : 'border-white/10 text-slate-100'}`}>{label}</button>;
   const status = playScope === 'range' ? `Range ${playRange.start.toFixed(2)}s–${playRange.end.toFixed(2)}s` : playScope === 'note' ? `${selectedCount || 1} selected note${selectedCount === 1 ? '' : 's'}` : playParts.every(Boolean) ? 'All voices' : VOICES.filter((_, index) => playParts[index]).join(' + ');
@@ -551,13 +665,10 @@ function MidiImportDialog({ preview, ranges, setRanges, sourceParts, setSourcePa
   }, [0, 0, 0, 0]);
   return <div className="absolute inset-0 z-40 grid place-items-center bg-[#020510]/85 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-label="Import MIDI" className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-cyan-300/30 bg-[#0a1024] p-5 shadow-[0_0_50px_#27d9ff25]"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold tracking-[.2em] text-cyan-300">MIDI IMPORT</p><h2 className="mt-1 text-xl font-semibold">Review exact note targets</h2><p className="mt-1 text-xs text-slate-400">{preview.fileName} · {preview.notes.length} note events · {midiNoteName(previewLow)}–{midiNoteName(previewHigh)}</p></div><button onClick={onCancel} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300">Cancel</button></div><p className="mt-4 rounded-lg border border-cyan-300/20 bg-cyan-300/5 p-3 text-xs leading-relaxed text-cyan-100"><b>Pitch is imported as the exact MIDI note number.</b> PPQN timing and tempo changes are converted with millisecond precision. SATB placement is separate: use source mapping when the file has distinct tracks/channels, or adjust the pitch ceilings for a single merged performance.</p><div className="mt-4 grid gap-4 md:grid-cols-2"><label className="text-xs text-slate-400">Overall placement<select value={fixedPart === null ? 'auto' : String(fixedPart)} onChange={event => setFixedPart(event.target.value === 'auto' ? null : Number(event.target.value))} className="mt-1 w-full rounded-lg border border-white/10 bg-[#050816] px-3 py-2 text-sm text-white"><option value="auto">Use source mapping, then pitch range</option>{VOICES.map((voice, index) => <option key={voice} value={index}>Place every note in {voice}</option>)}</select></label><label className="text-xs text-slate-400">Import action<select value={mode} onChange={event => setMode(event.target.value as 'replace' | 'append')} className="mt-1 w-full rounded-lg border border-white/10 bg-[#050816] px-3 py-2 text-sm text-white"><option value="replace">Replace current arrangement</option><option value="append">Append to current arrangement</option></select></label></div>{fixedPart === null && <><div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4"><div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold text-slate-200">MIDI track/channel mapping</p><p className="text-[10px] text-slate-500">Overrides pitch guessing</p></div><div className="mt-3 grid gap-2">{sources.map(source => { const low = source.notes.reduce((lowest, note) => Math.min(lowest, note.midi), 127), high = source.notes.reduce((highest, note) => Math.max(highest, note.midi), 0); return <label key={source.key} className="grid items-center gap-2 rounded-lg border border-white/[.07] bg-white/[.025] p-2 text-xs sm:grid-cols-[1fr_190px]"><span><b className="text-slate-200">Track {source.track + 1} · Channel {source.channel + 1}</b><span className="mt-1 block text-[10px] text-slate-500">{source.notes.length} notes · {midiNoteName(low)}–{midiNoteName(high)}</span></span><select value={sourceParts[source.key] ?? -1} onChange={event => setSourceParts({ ...sourceParts, [source.key]: Number(event.target.value) })} className="rounded-lg border border-white/10 bg-[#050816] px-3 py-2 text-white"><option value={-1}>Auto by pitch</option>{VOICES.map((voice, index) => <option key={voice} value={index}>{voice}</option>)}</select></label>; })}</div></div><div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-slate-200">Automatic SATB pitch buckets</p><p className="text-[10px] text-slate-500">Used by sources left on Auto</p></div><div className="mt-3 grid gap-3 sm:grid-cols-3">{([{ key: 'bassMax', label: 'Bass ceiling' }, { key: 'tenorMax', label: 'Tenor ceiling' }, { key: 'altoMax', label: 'Alto ceiling' }] as const).map(({ key, label }) => <label key={key} className="text-xs text-slate-400">{label} <b className="text-cyan-200">{midiNoteName(ranges[key])}</b><input type="number" min="0" max="127" value={ranges[key]} onChange={event => updateRange(key, Number(event.target.value))} className="mt-1 w-full rounded-lg border border-white/10 bg-[#050816] px-3 py-2 text-white" /></label>)}</div><div className="mt-3 grid grid-cols-4 gap-2 text-center text-[11px]">{VOICES.map((voice, index) => <div key={voice} className="rounded-lg border p-2" style={{ borderColor: `${COLOURS[index]}55`, color: COLOURS[index] }}><b className="block text-base">{counts[index]}</b>{voice}</div>)}</div></div></>}<div className="mt-5 flex justify-end gap-3"><button onClick={onCancel} className="rounded-lg border border-white/10 px-4 py-2 text-sm">Cancel</button><button onClick={onApply} className="rounded-lg border border-cyan-300/40 bg-cyan-300/15 px-4 py-2 text-sm font-semibold text-cyan-100">Import {preview.notes.length} exact notes</button></div></section></div>;
 }
-function timelineGrid(secondsPerBeat: number, secondsPerBar: number, zoom: number) {
-  const subdivision = Math.max(2, secondsPerBeat * zoom / 4);
-  const beat = Math.max(4, secondsPerBeat * zoom);
-  const bar = Math.max(8, secondsPerBar * zoom);
-  return { backgroundImage: `repeating-linear-gradient(to right, rgba(103,232,249,.30) 0 2px, transparent 2px ${bar}px), repeating-linear-gradient(to right, rgba(148,163,184,.18) 0 1px, transparent 1px ${beat}px), repeating-linear-gradient(to right, rgba(148,163,184,.065) 0 1px, transparent 1px ${subdivision}px), repeating-linear-gradient(to right, rgba(30,41,74,.18) 0 ${bar / 2}px, rgba(8,11,28,.04) ${bar / 2}px ${bar}px)` };
+function MusicalGridOverlay({ bars, zoom }: { bars: MusicalBar[]; zoom: number }) {
+  return <span className="pointer-events-none absolute inset-0 z-[2]" aria-hidden="true">{bars.map(bar => <span key={`${bar.number}-${bar.start}`}><i className="absolute inset-y-0 w-0.5 bg-cyan-200/45 shadow-[0_0_8px_#22d3ee33]" style={{ left: bar.start * zoom }} />{bar.beats.map(beat => <span key={beat.start}><i className="absolute inset-y-0 w-px bg-slate-300/20" style={{ left: beat.start * zoom }} />{beat.subdivisionStarts.map(value => <i key={value} className="absolute inset-y-0 w-px bg-slate-400/[.07]" style={{ left: value * zoom }} />)}</span>)}</span>)}</span>;
 }
-function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead, selectedRange, width, zoom, secondsPerBeat, secondsPerBar, collapsed, onToggleCollapse, onAdd, onSelect, onRemove, onNoteMoveStart, onNoteMove, onNoteMoveEnd, onResizeStart, onResize }: { name: string; part: number; notes: SongNote[]; selectedId: string | null; selectedIds: string[]; tool: EditorTool; playhead: number | null; selectedRange: { start: number; end: number } | null; width: number; zoom: number; secondsPerBeat: number; secondsPerBar: number; collapsed: boolean; onToggleCollapse: () => void; onAdd: (part: number, event: React.MouseEvent<HTMLDivElement>) => void; onSelect: (id: string, additive?: boolean) => void; onRemove: (id: string) => void; onNoteMoveStart: (id: string, clientX: number, clientY: number, additive?: boolean) => void; onNoteMove: (clientX: number, clientY: number) => boolean; onNoteMoveEnd: () => boolean; onResizeStart: () => void; onResize: (id: string, end: number) => void; onEmptyClick: () => void }) {
+function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead, selectedRange, width, zoom, bars, collapsed, onToggleCollapse, onAdd, onSelect, onRemove, onNoteMoveStart, onNoteMove, onNoteMoveEnd, onResizeStart, onResize }: { name: string; part: number; notes: SongNote[]; selectedId: string | null; selectedIds: string[]; tool: EditorTool; playhead: number | null; selectedRange: { start: number; end: number } | null; width: number; zoom: number; bars: MusicalBar[]; collapsed: boolean; onToggleCollapse: () => void; onAdd: (part: number, event: React.MouseEvent<HTMLDivElement>) => void; onSelect: (id: string, additive?: boolean) => void; onRemove: (id: string) => void; onNoteMoveStart: (id: string, clientX: number, clientY: number, additive?: boolean) => void; onNoteMove: (clientX: number, clientY: number) => boolean; onNoteMoveEnd: () => boolean; onResizeStart: () => void; onResize: (id: string, end: number) => void; onEmptyClick: () => void }) {
   const resizing = useRef<{ id: string; start: number; initialEnd: number; noteStart: number } | null>(null);
   const notePointerActive = useRef(false);
   const suppressNoteClick = useRef(false);
@@ -570,24 +681,24 @@ function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead
   function beginMove(event: React.PointerEvent<HTMLButtonElement>, note: SongNote) { event.stopPropagation(); if ((tool !== 'select' && tool !== 'draw') || event.button !== 0) return; notePointerActive.current = true; suppressNoteClick.current = true; onNoteMoveStart(note.id, event.clientX, event.clientY, event.ctrlKey || event.metaKey || event.shiftKey); event.currentTarget.setPointerCapture(event.pointerId); }
   function move(event: React.PointerEvent<HTMLButtonElement>) { if (!notePointerActive.current) return; suppressNoteClick.current = onNoteMove(event.clientX, event.clientY) || suppressNoteClick.current; }
   function finishMove(event: React.PointerEvent<HTMLButtonElement>) { if (!notePointerActive.current) return; suppressNoteClick.current = onNoteMoveEnd() || suppressNoteClick.current; notePointerActive.current = false; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }
-  if (collapsed) return <div className="flex h-14 overflow-hidden border-b border-cyan-100/10" data-voice-part={part}>
+  if (collapsed) return <div id={`vh-voice-${part}`} className="flex h-14 scroll-mt-3 overflow-hidden border-b border-cyan-100/10" data-voice-part={part}>
     <button onPointerDown={event => event.stopPropagation()} onClick={onToggleCollapse} title={`Expand ${name} piano roll`} className="sticky left-0 z-10 flex w-[124px] shrink-0 items-center gap-2 border-r border-cyan-100/10 bg-[#0c1025] px-2 text-left"><span className="text-lg" style={{ color: COLOURS[part] }}>{name[0]}</span><span><b className="block text-xs" style={{ color: COLOURS[part] }}>{name}</b><small className="text-[9px] text-slate-500">{midiNoteName(range.min)}–{midiNoteName(range.max)}</small></span><span className="ml-auto text-slate-400">▸</span></button>
-    <div className="relative bg-[#070a19]" style={{ width, ...timelineGrid(secondsPerBeat, secondsPerBar, zoom) }}>
+    <div className="relative bg-[#070a19]" style={{ width }}><MusicalGridOverlay bars={bars} zoom={zoom} />
       {notes.map(note => <span key={note.id} className="pointer-events-none absolute h-2 rounded-full" style={{ left: note.start * zoom, top: 8 + ((range.max - note.midi) / Math.max(1, range.max - range.min)) * 32, width: Math.max(3, (note.end - note.start) * zoom), background: COLOURS[part], boxShadow: selectedIds.includes(note.id) ? `0 0 12px ${COLOURS[part]}` : undefined }} />)}
       {playhead !== null && <span className="pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-white shadow-[0_0_12px_#f4a5ff]" style={{ left: playhead * zoom }} />}
     </div>
   </div>;
-  return <div className="flex overflow-hidden border-b border-cyan-100/10" data-voice-part={part} style={{ height: laneHeight }}>
+  return <div id={`vh-voice-${part}`} className="flex scroll-mt-3 overflow-hidden border-b border-cyan-100/10" data-voice-part={part} style={{ height: laneHeight }}>
     <div className="sticky left-0 z-30 w-[124px] shrink-0 border-r border-cyan-100/15 bg-[#090d20] shadow-[7px_0_18px_#0008]">
       <div className="absolute inset-x-0 top-0 flex h-[34px] items-center gap-1 border-b border-cyan-100/15 bg-[#111631] px-2"><b className="text-[23px] leading-none" style={{ color: COLOURS[part] }}>{name[0]}</b><b className="truncate text-[17px]" style={{ color: COLOURS[part] }}>{name}</b><button onPointerDown={event => event.stopPropagation()} onClick={onToggleCollapse} title={`Collapse ${name} piano roll`} className="ml-auto rounded px-1 text-sm text-slate-400 hover:bg-white/10 hover:text-white">▾</button></div>
-      {pitches.map((pitch, index) => <span key={pitch} className={`absolute inset-x-0 flex items-center justify-end border-b pr-3 font-mono text-[14px] ${[1, 3, 6, 8, 10].includes(pitch % 12) ? 'border-white/[.035] bg-black/30 text-slate-500' : pitch % 12 === 0 ? 'border-cyan-100/20 bg-cyan-200/[.035] font-bold text-cyan-100' : 'border-white/[.07] text-slate-300'}`} style={{ top: PITCH_HEADER_HEIGHT + index * PITCH_ROW_HEIGHT, height: PITCH_ROW_HEIGHT }}>{midiNoteName(pitch)}</span>)}
+      {pitches.map((pitch, index) => { const sharp = [1, 3, 6, 8, 10].includes(pitch % 12); return <span key={pitch} className={`absolute right-1 flex items-center justify-end border font-mono text-[12px] font-bold shadow-sm ${sharp ? 'w-[86px] rounded-l-md border-slate-600 bg-[linear-gradient(90deg,#05070d,#222a3d)] pr-2 text-cyan-100' : 'left-1 rounded-l-md border-slate-300/30 bg-[linear-gradient(90deg,#edf4ff,#aebbd2)] pr-3 text-[#111827]'}`} style={{ top: PITCH_HEADER_HEIGHT + index * PITCH_ROW_HEIGHT + 1, height: PITCH_ROW_HEIGHT - 2 }}><span className="mr-auto ml-2 text-[8px] opacity-55">{sharp ? '♯' : '▏'}</span>{midiNoteName(pitch)}</span>; })}
     </div>
-    <div onClick={event => onAdd(part, event)} className={`relative ${tool === 'draw' ? 'cursor-crosshair' : tool === 'erase' ? 'cursor-not-allowed' : 'cursor-default'}`} style={{ width, height: laneHeight, ...timelineGrid(secondsPerBeat, secondsPerBar, zoom) }}>
+    <div onClick={event => onAdd(part, event)} className={`relative bg-[#060919] ${tool === 'draw' ? 'cursor-crosshair' : tool === 'erase' ? 'cursor-not-allowed' : 'cursor-default'}`} style={{ width, height: laneHeight }}><MusicalGridOverlay bars={bars} zoom={zoom} />
       <span className="pointer-events-none absolute inset-x-0 top-0 h-[34px] border-b border-cyan-200/15 bg-[linear-gradient(90deg,rgba(255,255,255,.035),transparent)] px-3 py-2 text-[10px] font-semibold uppercase tracking-[.16em] text-slate-500">{name} chromatic roll · {midiNoteName(range.min)}–{midiNoteName(range.max)} · unsnapped timing</span>
       {pitches.map((pitch, index) => <span key={pitch} className={`pointer-events-none absolute inset-x-0 border-b ${[1, 3, 6, 8, 10].includes(pitch % 12) ? 'border-white/[.035] bg-black/25' : pitch % 12 === 0 ? 'border-cyan-100/20 bg-cyan-200/[.025]' : 'border-white/[.075]'}`} style={{ top: PITCH_HEADER_HEIGHT + index * PITCH_ROW_HEIGHT, height: PITCH_ROW_HEIGHT }} />)}
       {selectedRange && <span className="pointer-events-none absolute inset-y-0 z-[1] bg-fuchsia-300/15 ring-1 ring-inset ring-fuchsia-200/60" style={{ left: selectedRange.start * zoom, width: Math.max(2, (selectedRange.end - selectedRange.start) * zoom) }} />}
       {playhead !== null && <span className="pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-white shadow-[0_0_12px_#f4a5ff]" style={{ left: playhead * zoom }} />}
-      {notes.filter(note => note.part === part || note.part === -1).map(note => { const active = playhead !== null && playhead >= note.start && playhead < note.end; const inRange = selectedRange && note.end >= selectedRange.start && note.start <= selectedRange.end; const isSelected = selectedIds.includes(note.id); return <button key={note.id} data-note-id={note.id} aria-pressed={isSelected} title={`${midiNoteName(note.midi)} · MIDI ${note.midi} · ${note.start.toFixed(3)}s–${note.end.toFixed(3)}s · drag in any direction`} onPointerDown={event => beginMove(event, note)} onPointerMove={move} onPointerUp={finishMove} onPointerCancel={finishMove} onDoubleClick={event => { event.stopPropagation(); const additive = event.ctrlKey || event.metaKey || event.shiftKey; if (!isSelected || additive) onSelect(note.id, additive); }} onClick={event => { event.stopPropagation(); if (suppressNoteClick.current) { suppressNoteClick.current = false; return; } if (tool === 'erase') onRemove(note.id); else onSelect(note.id, event.ctrlKey || event.metaKey || event.shiftKey); }} className={`absolute z-10 touch-none overflow-visible rounded-[6px] border px-1 text-left text-[10px] font-extrabold text-[#07111d] transition-[filter,box-shadow] ${tool === 'select' || tool === 'draw' ? 'cursor-move active:cursor-grabbing' : ''}`} style={{ left: note.start * zoom, top: PITCH_HEADER_HEIGHT + (range.max - note.midi) * PITCH_ROW_HEIGHT + 2, width: Math.max(18, (note.end - note.start) * zoom - 2), height: PITCH_ROW_HEIGHT - 4, background: `linear-gradient(180deg, #ffffff55, transparent 45%), ${COLOURS[part]}`, borderColor: isSelected ? '#fff' : `${COLOURS[part]}bb`, boxShadow: active ? `0 0 28px 6px ${COLOURS[part]}` : isSelected ? `0 0 0 2px #fff,0 0 22px ${COLOURS[part]}` : `0 3px 7px #0009,0 0 8px ${COLOURS[part]}55`, outline: active ? '2px solid white' : inRange ? '2px solid #f5d0fe' : 'none' }}><span className="block overflow-hidden whitespace-nowrap">{note.lyric || midiNoteName(note.midi)}</span>{tool !== 'erase' && <span aria-label="Drag to resize note" onPointerDown={event => beginResize(event, note)} onPointerMove={resize} onPointerUp={finishResize} onPointerCancel={finishResize} className="absolute -right-1 top-0 h-full w-2 cursor-ew-resize rounded-r bg-white/85 opacity-0 transition-opacity hover:opacity-100 focus:opacity-100" />}</button>; })}
+      {notes.filter(note => note.part === part || note.part === -1).map(note => { const active = playhead !== null && playhead >= note.start && playhead < note.end; const inRange = selectedRange && note.end >= selectedRange.start && note.start <= selectedRange.end; const isSelected = selectedIds.includes(note.id); return <button key={note.id} data-note-id={note.id} aria-pressed={isSelected} title={`${midiNoteName(note.midi)} · MIDI ${note.midi} · ${note.start.toFixed(3)}s–${note.end.toFixed(3)}s · drag in any direction`} onPointerDown={event => beginMove(event, note)} onPointerMove={move} onPointerUp={finishMove} onPointerCancel={finishMove} onDoubleClick={event => { event.stopPropagation(); const additive = event.ctrlKey || event.metaKey || event.shiftKey; if (!isSelected || additive) onSelect(note.id, additive); }} onClick={event => { event.stopPropagation(); if (suppressNoteClick.current) { suppressNoteClick.current = false; return; } if (tool === 'erase') onRemove(note.id); else onSelect(note.id, event.ctrlKey || event.metaKey || event.shiftKey); }} className={`absolute z-10 touch-none overflow-visible rounded-md border text-left text-[9px] font-black text-[#07111d] transition-[filter,box-shadow] ${tool === 'select' || tool === 'draw' ? 'cursor-move active:cursor-grabbing' : ''}`} style={{ left: note.start * zoom, top: PITCH_HEADER_HEIGHT + (range.max - note.midi) * PITCH_ROW_HEIGHT + 2, width: Math.max(24, (note.end - note.start) * zoom - 2), height: PITCH_ROW_HEIGHT - 4, background: `linear-gradient(180deg,#ffffffaa 0,#ffffff20 42%,#00000018 100%),${COLOURS[part]}`, borderColor: isSelected ? '#fff' : `${COLOURS[part]}dd`, boxShadow: active ? `0 0 28px 6px ${COLOURS[part]}` : isSelected ? `0 0 0 2px #fff,0 0 22px ${COLOURS[part]}` : `0 4px 8px #000b,0 0 8px ${COLOURS[part]}55`, outline: active ? '2px solid white' : inRange ? '2px solid #f5d0fe' : 'none' }}><span className="flex h-full min-w-0 items-center gap-1 overflow-hidden px-1"><b className="shrink-0 rounded bg-black/65 px-1 py-px text-[8px] text-white">{midiNoteName(note.midi)}</b><em className="truncate not-italic">{note.lyric || 'Note'}</em></span>{tool !== 'erase' && <span aria-label="Drag to resize note" onPointerDown={event => beginResize(event, note)} onPointerMove={resize} onPointerUp={finishResize} onPointerCancel={finishResize} className="absolute -right-1 top-0 h-full w-2 cursor-ew-resize rounded-r bg-white/85 opacity-0 transition-opacity hover:opacity-100 focus:opacity-100" />}</button>; })}
     </div>
   </div>;
 }

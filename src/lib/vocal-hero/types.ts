@@ -37,6 +37,12 @@ export interface BackingTrackClip {
   timeline_start: number;
 }
 
+export interface MusicalTimelineSettings {
+  tempo_changes: Array<{ at: number; bpm: number }>;
+  meter_changes: Array<{ at: number; numerator: number; denominator: number }>;
+  key_changes: Array<{ at: number; tonic: string; mode: string }>;
+}
+
 export interface BackingTrackSettings {
   volume: number;
   speed: number;
@@ -53,6 +59,8 @@ export interface BackingTrackSettings {
   clips?: BackingTrackClip[];
   media_duration?: number | null;
   effect: 'none' | 'warm' | 'bright';
+  /** Musical ruler events stored with the arrangement for backwards-compatible mixed metre/key songs. */
+  musical_timeline?: MusicalTimelineSettings;
 }
 
 export interface Song {
