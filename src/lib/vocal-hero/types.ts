@@ -42,7 +42,7 @@ export interface MusicalTimelineSettings {
   meter_changes: Array<{ at: number; numerator: number; denominator: number }>;
   key_changes: Array<{ at: number; tonic: string; mode: string }>;
   /** Fine placement grid. Triplet denominators (6/12/24/48) and 64/96 PPQN-style resolutions are supported. */
-  snap_division?: 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 | 24 | 32 | 48 | 64 | 96 | 128 | 192;
+  snap_division?: 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 | 24 | 32 | 48 | 64 | 96 | 128 | 192 | 256;
   /** Default duration for newly drawn notes. Kept separate from the placement grid so mixed rhythms remain possible. */
   snap_value?: RhythmicNoteValue;
 }
@@ -53,7 +53,8 @@ export type RhythmicNoteValue =
   | 'quarter' | 'dotted-quarter' | 'double-dotted-quarter' | 'quarter-triplet'
   | 'eighth' | 'dotted-eighth' | 'double-dotted-eighth' | 'eighth-triplet'
   | 'sixteenth' | 'dotted-sixteenth' | 'double-dotted-sixteenth' | 'sixteenth-triplet'
-  | 'thirty-second' | 'dotted-thirty-second' | 'double-dotted-thirty-second' | 'thirty-second-triplet';
+  | 'thirty-second' | 'dotted-thirty-second' | 'double-dotted-thirty-second' | 'thirty-second-triplet'
+  | 'sixty-fourth' | 'dotted-sixty-fourth' | 'double-dotted-sixty-fourth' | 'sixty-fourth-triplet';
 
 export interface BackingTrackSettings {
   volume: number;

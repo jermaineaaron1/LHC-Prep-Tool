@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, RhythmicNoteValue, Song, SongNote } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, midiSourceKey, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
@@ -55,6 +56,7 @@ const GRID_DIVISIONS: Array<{ value: NoteDivision; label: string }> = [
   { value: 32, label: 'Thirty-second-note grid' }, { value: 48, label: 'Thirty-second-note triplet grid' },
   { value: 64, label: 'Sixty-fourth-note grid' }, { value: 96, label: 'Hybrid 1/96 grid' },
   { value: 128, label: 'Ultra-fine 1/128 grid' }, { value: 192, label: 'Hybrid 1/192 grid' },
+  { value: 256, label: 'Ultra-fine 1/256 grid' },
 ];
 const NOTE_VALUES: NoteValueDefinition[] = [
   { value: 'whole', label: 'Whole note / semibreve', short: 'Whole', symbol: '𝅝', quarterBeats: 4, requiredGrid: 1, group: 'Straight' },
@@ -63,23 +65,27 @@ const NOTE_VALUES: NoteValueDefinition[] = [
   { value: 'eighth', label: 'Eighth note / quaver', short: 'Eighth', symbol: '♪', quarterBeats: .5, requiredGrid: 8, group: 'Straight' },
   { value: 'sixteenth', label: 'Sixteenth note / semiquaver', short: '1/16', symbol: '𝅘𝅥𝅯', quarterBeats: .25, requiredGrid: 16, group: 'Straight' },
   { value: 'thirty-second', label: 'Thirty-second note / demisemiquaver', short: '1/32', symbol: '𝅘𝅥𝅰', quarterBeats: .125, requiredGrid: 32, group: 'Straight' },
+  { value: 'sixty-fourth', label: 'Sixty-fourth note / hemidemisemiquaver', short: '1/64', symbol: '𝅘𝅥𝅱', quarterBeats: .0625, requiredGrid: 64, group: 'Straight' },
   { value: 'dotted-whole', label: 'Dotted whole / dotted semibreve', short: 'Dotted whole', symbol: '𝅝 ·', quarterBeats: 6, requiredGrid: 2, group: 'Dotted' },
   { value: 'dotted-half', label: 'Dotted half / dotted minim', short: 'Dotted half', symbol: '𝅗𝅥 ·', quarterBeats: 3, requiredGrid: 4, group: 'Dotted' },
   { value: 'dotted-quarter', label: 'Dotted quarter / dotted crotchet', short: 'Dotted quarter', symbol: '♩ ·', quarterBeats: 1.5, requiredGrid: 8, group: 'Dotted' },
   { value: 'dotted-eighth', label: 'Dotted eighth / dotted quaver', short: 'Dotted eighth', symbol: '♪ ·', quarterBeats: .75, requiredGrid: 16, group: 'Dotted' },
   { value: 'dotted-sixteenth', label: 'Dotted sixteenth / dotted semiquaver', short: 'Dotted 1/16', symbol: '𝅘𝅥𝅯 ·', quarterBeats: .375, requiredGrid: 32, group: 'Dotted' },
   { value: 'dotted-thirty-second', label: 'Dotted thirty-second / dotted demisemiquaver', short: 'Dotted 1/32', symbol: '𝅘𝅥𝅰 ·', quarterBeats: .1875, requiredGrid: 64, group: 'Dotted' },
+  { value: 'dotted-sixty-fourth', label: 'Dotted sixty-fourth / dotted hemidemisemiquaver', short: 'Dotted 1/64', symbol: '𝅘𝅥𝅱 ·', quarterBeats: .09375, requiredGrid: 128, group: 'Dotted' },
   { value: 'double-dotted-whole', label: 'Double-dotted whole', short: 'Double-dotted whole', symbol: '𝅝 ··', quarterBeats: 7, requiredGrid: 4, group: 'Double-dotted' },
   { value: 'double-dotted-half', label: 'Double-dotted half', short: 'Double-dotted half', symbol: '𝅗𝅥 ··', quarterBeats: 3.5, requiredGrid: 8, group: 'Double-dotted' },
   { value: 'double-dotted-quarter', label: 'Double-dotted quarter', short: 'Double-dotted quarter', symbol: '♩ ··', quarterBeats: 1.75, requiredGrid: 16, group: 'Double-dotted' },
   { value: 'double-dotted-eighth', label: 'Double-dotted eighth', short: 'Double-dotted eighth', symbol: '♪ ··', quarterBeats: .875, requiredGrid: 32, group: 'Double-dotted' },
   { value: 'double-dotted-sixteenth', label: 'Double-dotted sixteenth', short: 'Double-dotted 1/16', symbol: '𝅘𝅥𝅯 ··', quarterBeats: .4375, requiredGrid: 64, group: 'Double-dotted' },
   { value: 'double-dotted-thirty-second', label: 'Double-dotted thirty-second', short: 'Double-dotted 1/32', symbol: '𝅘𝅥𝅰 ··', quarterBeats: .21875, requiredGrid: 128, group: 'Double-dotted' },
+  { value: 'double-dotted-sixty-fourth', label: 'Double-dotted sixty-fourth', short: 'Double-dotted 1/64', symbol: '𝅘𝅥𝅱 ··', quarterBeats: .109375, requiredGrid: 256, group: 'Double-dotted' },
   { value: 'half-triplet', label: 'Half-note triplet', short: 'Half triplet', symbol: '𝅗𝅥 ₃', quarterBeats: 4 / 3, requiredGrid: 3, group: 'Tuplets' },
   { value: 'quarter-triplet', label: 'Quarter-note triplet', short: 'Quarter triplet', symbol: '♩ ₃', quarterBeats: 2 / 3, requiredGrid: 6, group: 'Tuplets' },
   { value: 'eighth-triplet', label: 'Eighth-note triplet', short: 'Eighth triplet', symbol: '♪ ₃', quarterBeats: 1 / 3, requiredGrid: 12, group: 'Tuplets' },
   { value: 'sixteenth-triplet', label: 'Sixteenth-note triplet', short: '1/16 triplet', symbol: '𝅘𝅥𝅯 ₃', quarterBeats: 1 / 6, requiredGrid: 24, group: 'Tuplets' },
   { value: 'thirty-second-triplet', label: 'Thirty-second-note triplet', short: '1/32 triplet', symbol: '𝅘𝅥𝅰 ₃', quarterBeats: 1 / 12, requiredGrid: 48, group: 'Tuplets' },
+  { value: 'sixty-fourth-triplet', label: 'Sixty-fourth-note triplet', short: '1/64 triplet', symbol: '𝅘𝅥𝅱 ₃', quarterBeats: 1 / 24, requiredGrid: 96, group: 'Tuplets' },
 ];
 const NOTE_VALUE_GROUPS: NoteValueDefinition['group'][] = ['Straight', 'Dotted', 'Double-dotted', 'Tuplets'];
 function noteValue(value: RhythmicNoteValue | undefined) { return NOTE_VALUES.find(item => item.value === value) ?? NOTE_VALUES.find(item => item.value === DEFAULT_NOTE_VALUE)!; }
@@ -88,10 +94,12 @@ function rhythmicCompanionHint(value: RhythmicNoteValue) {
   const hints: Partial<Record<RhythmicNoteValue, string>> = {
     'dotted-whole': 'Leaves a half-note pulse available', 'dotted-half': 'Pairs naturally with a quarter note',
     'dotted-quarter': 'Pairs naturally with an eighth note or two sixteenths', 'dotted-eighth': 'Pairs naturally with a sixteenth note',
-    'dotted-sixteenth': 'Pairs naturally with a thirty-second note', 'dotted-thirty-second': 'Leaves a sixty-fourth-note pulse available',
+    'dotted-sixteenth': 'Pairs naturally with a thirty-second note', 'dotted-thirty-second': 'Pairs naturally with a sixty-fourth note',
+    'dotted-sixty-fourth': 'Leaves a 1/128-note pulse available',
     'double-dotted-whole': 'Leaves a quarter-note pulse available', 'double-dotted-half': 'Leaves an eighth-note pulse available',
     'double-dotted-quarter': 'Pairs naturally with a sixteenth note', 'double-dotted-eighth': 'Pairs naturally with a thirty-second note',
     'double-dotted-sixteenth': 'Leaves a sixty-fourth-note pulse available', 'double-dotted-thirty-second': 'Leaves a 1/128-note pulse available',
+    'double-dotted-sixty-fourth': 'Leaves a 1/256-note pulse available',
   };
   if (value.endsWith('-triplet')) return 'Triplet spacing remains available for the other two notes in the group';
   return hints[value] ?? 'The independent grid still permits rests, ties, syncopation and custom resized lengths';
@@ -362,6 +370,14 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     if (!root) return;
     if (document.fullscreenElement === root) await document.exitFullscreen();
     else await root.requestFullscreen();
+  }
+
+  async function closeOrExitFullscreen() {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+    onClose();
   }
 
   function focusVoice(part: number) {
@@ -826,11 +842,11 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
 
   return <div ref={editorRootRef} className="vh-editor-scrollbars fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
     <audio ref={backingMediaRef} src={mediaUrl || undefined} preload="auto" className="hidden" onLoadedMetadata={event => { const media_duration = event.currentTarget.duration; if (Number.isFinite(media_duration)) setTrackSettings(current => current.media_duration === media_duration ? current : { ...current, media_duration }); }} onTimeUpdate={enforceBackingEdits} />
-    <header className="flex h-16 items-center gap-5 border-b border-white/10 bg-[#070a1b] px-5"><Brand /><nav className="hidden gap-5 text-xs text-slate-400 md:flex"><span>⌂ Home</span><span>♫ Library</span><b className="text-fuchsia-300">♫ Song Editor</b><span>♜ Leaderboards</span><span>♧ Rooms</span></nav><div className="ml-auto flex items-center gap-2"><span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-[10px] font-bold text-emerald-300">● LIVE</span><button onClick={() => void toggleFullscreen()} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit Vocal Hero fullscreen (Esc)' : 'Open the entire Vocal Hero editor fullscreen'} className="rounded-lg border border-fuchsia-300/35 bg-fuchsia-400/10 px-3 py-2 text-xs font-semibold text-fuchsia-100"><span aria-hidden="true" className="mr-1">{isFullscreen ? '⊙' : '⛶'}</span>{isFullscreen ? 'Exit fullscreen' : 'Full screen'}</button><span className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 sm:block">Room Code <b className="ml-1 text-[#ffd15c]">ZHY32</b></span><button onClick={onClose} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button></div></header>
+    <header className="flex h-16 items-center gap-5 border-b border-white/10 bg-[#070a1b] px-5"><Brand /><nav className="hidden gap-5 text-xs text-slate-400 md:flex"><span>⌂ Home</span><span>♫ Library</span><b className="text-fuchsia-300">♫ Song Editor</b><span>♜ Leaderboards</span><span>♧ Rooms</span></nav><div className="ml-auto flex items-center gap-2"><span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-[10px] font-bold text-emerald-300">● LIVE</span><button onClick={() => void toggleFullscreen()} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit Vocal Hero fullscreen (Esc)' : 'Open the entire Vocal Hero editor fullscreen'} className="rounded-lg border border-fuchsia-300/35 bg-fuchsia-400/10 px-3 py-2 text-xs font-semibold text-fuchsia-100"><span aria-hidden="true" className="mr-1">{isFullscreen ? '⊙' : '⛶'}</span>{isFullscreen ? 'Exit fullscreen' : 'Full screen'}</button><span className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 sm:block">Room Code <b className="ml-1 text-[#ffd15c]">ZHY32</b></span><button onClick={() => void closeOrExitFullscreen()} title={isFullscreen ? 'Exit full screen without closing the editor' : 'Close the song editor'} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button></div></header>
     <div className="flex h-[calc(100vh-64px)] min-h-[620px] overflow-auto">
       <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#070b1e] p-3 lg:block"><p className="text-sm font-semibold">Song Editor</p><div className="mt-1 flex items-center gap-2"><input value={title} onChange={event => setTitle(event.target.value)} className="w-full border-0 bg-transparent text-xs text-slate-300 outline-none" /><span className="text-fuchsia-300">✎</span></div><div className="mt-4 space-y-2">{VOICES.map((voice, index) => <VoiceStrip key={voice} name={voice} index={index} active={selectedPart === index} onClick={() => focusVoice(index)} />)}</div><button onClick={() => addNote()} className="mt-3 w-full rounded-lg border border-dashed border-fuchsia-400/40 px-3 py-2 text-xs text-fuchsia-300">＋ Add Voice Target</button><div className="mt-6 border-t border-white/10 pt-4"><p className="text-[10px] tracking-[.16em] text-slate-500">PART MIXER</p><div className="mt-3 grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <div key={voice} className="rounded-lg bg-white/[.04] p-2 text-center"><b style={{ color: COLOURS[index] }}>{voice[0]}</b><div className="mx-auto mt-2 h-14 w-1 rounded-full bg-white/10"><span className="block w-full rounded-full" style={{ height: `${60 + index * 8}%`, background: COLOURS[index], transform: 'translateY(40%)' }} /></div><span className="mt-2 block text-[9px] text-slate-400">M</span></div>)}</div></div></aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
-        <EditorToolbar tool={tool} setTool={setTool} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onSave={() => void save()} saving={saving} />
+        <EditorToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onSave={() => void save()} saving={saving} />
         <div className="flex flex-wrap items-center gap-3 border-b border-white/[.06] bg-[#090c20] px-3 py-2 text-xs">
           <button onClick={() => midiInputRef.current?.click()} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100">Import MIDI</button>
           <button onClick={() => mediaInputRef.current?.click()} disabled={uploadingMedia} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100 disabled:opacity-50">{uploadingMedia ? 'Uploading…' : mediaUrl ? 'Replace backing track' : 'Upload backing track'}</button>
@@ -934,7 +950,56 @@ function BeatPrecisionPanel({ selectedNotes, bars, cursor, clipboardCount, onCop
     <span className="ml-auto flex items-center gap-2"><button onClick={onCopy} disabled={!selectedNotes.length} className="rounded-lg border border-cyan-300/25 px-3 py-2 text-cyan-100 disabled:opacity-35">Copy <kbd className="ml-1 text-[9px] text-slate-400">Ctrl+C</kbd></button><button onClick={onPaste} disabled={!clipboardCount} title="Pastes the earliest copied note at the current playhead" className="rounded-lg border border-fuchsia-300/35 bg-fuchsia-300/10 px-3 py-2 text-fuchsia-100 disabled:opacity-35">Paste here <kbd className="ml-1 text-[9px] text-slate-400">Ctrl+V</kbd></button></span>
   </section>;
 }
-function EditorToolbar({ tool, setTool, playScope, playParts, onPlayAll, onPlayPart, playRange, playhead, onClearSelection, selectedCount, onRemove, canUndo, canRedo, onUndo, onRedo, zoom, setZoom, onDuplicate, onCopy, onPaste, clipboardCount, onPlay, onPlayFromStart, onPause, onStop, onSkip, isPlaying, isPaused, onRecord, recording, onPlayTake, hasTake, onSave, saving }: { tool: EditorTool; setTool: (tool: EditorTool) => void; playScope: PlaybackScope; playParts: boolean[]; onPlayAll: () => void; onPlayPart: (part: number, additive?: boolean) => void; playRange: { start: number; end: number }; playhead: number | null; onClearSelection: () => void; selectedCount: number; onRemove: () => void; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; zoom: number; setZoom: (value: number) => void; onDuplicate: () => void; onCopy: () => void; onPaste: () => void; clipboardCount: number; onPlay: () => void; onPlayFromStart: () => void; onPause: () => void; onStop: () => void; onSkip: (seconds: number) => void; isPlaying: boolean; isPaused: boolean; onRecord: () => void; recording: boolean; onPlayTake: () => void; hasTake: boolean; onSave: () => void; saving: boolean }) {
+function DrawNoteValuePicker({ value, onChange }: { value: RhythmicNoteValue; onChange: (value: RhythmicNoteValue) => void }) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressOpenedRef = useRef(false);
+  const selectedValue = noteValue(value);
+  const selectedIndex = Math.max(0, NOTE_VALUES.findIndex(item => item.value === selectedValue.value));
+  const cycle = (direction: -1 | 1) => onChange(NOTE_VALUES[(selectedIndex + direction + NOTE_VALUES.length) % NOTE_VALUES.length].value);
+  const clearHold = () => { if (holdTimerRef.current) clearTimeout(holdTimerRef.current); holdTimerRef.current = null; };
+  const beginHold = () => {
+    clearHold();
+    longPressOpenedRef.current = false;
+    holdTimerRef.current = setTimeout(() => { longPressOpenedRef.current = true; setOpen(true); }, 450);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!buttonRef.current?.contains(target) && !panelRef.current?.contains(target)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
+    const closeOnViewportChange = () => setOpen(false);
+    document.addEventListener('pointerdown', closeOnOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', closeOnViewportChange);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', closeOnViewportChange);
+    };
+  }, [open]);
+  useEffect(() => () => clearHold(), []);
+  const rect = open ? buttonRef.current?.getBoundingClientRect() : null;
+  const panelWidth = typeof window === 'undefined' ? 640 : Math.min(720, window.innerWidth - 24);
+  const panelLeft = rect && typeof window !== 'undefined' ? Math.max(12, Math.min(window.innerWidth - panelWidth - 12, rect.left + rect.width / 2 - panelWidth / 2)) : 12;
+  const panelTop = rect ? rect.bottom + 8 : 80;
+  return <div className="flex shrink-0 items-center rounded-xl border border-fuchsia-300/35 bg-[linear-gradient(135deg,#241044,#0b1831)] p-1 shadow-[0_0_22px_#d946ef22]" aria-label="Draw note length">
+    <button type="button" onClick={() => cycle(-1)} title="Previous rhythmic value" aria-label="Previous rhythmic value" className="grid h-8 w-8 place-items-center rounded-lg text-lg text-fuchsia-100 hover:bg-white/10">‹</button>
+    <button ref={buttonRef} type="button" aria-haspopup="dialog" aria-expanded={open} title="Click or press and hold to open the complete note-value glossary" onPointerDown={beginHold} onPointerUp={clearHold} onPointerCancel={clearHold} onPointerLeave={clearHold} onClick={() => { if (longPressOpenedRef.current) { longPressOpenedRef.current = false; return; } setOpen(current => !current); }} className="flex min-w-40 items-center justify-center gap-2 rounded-lg border border-fuchsia-200/25 bg-fuchsia-400/10 px-3 py-1.5 text-left hover:border-fuchsia-200/50">
+      <span aria-hidden="true" className="font-['Segoe_UI_Symbol','Noto_Music',serif] text-2xl leading-none text-fuchsia-200">{selectedValue.symbol}</span><span><small className="block text-[8px] font-bold uppercase tracking-[.14em] text-cyan-300">Draw note</small><b className="block whitespace-nowrap text-[11px] text-white">{selectedValue.short}</b></span><span aria-hidden="true" className="ml-1 text-slate-400">⌄</span>
+    </button>
+    <button type="button" onClick={() => cycle(1)} title="Next rhythmic value" aria-label="Next rhythmic value" className="grid h-8 w-8 place-items-center rounded-lg text-lg text-fuchsia-100 hover:bg-white/10">›</button>
+    {open && rect && createPortal(<div ref={panelRef} role="dialog" aria-label="Rhythmic note glossary" className="fixed z-[100] overflow-y-auto rounded-2xl border border-fuchsia-300/35 bg-[#080b1d]/[.98] p-4 shadow-[0_24px_80px_#000c,0_0_45px_#a855f733] backdrop-blur-xl" style={{ left: panelLeft, top: panelTop, width: panelWidth, maxHeight: `calc(100vh - ${panelTop + 12}px)` }}>
+      <div className="mb-3 flex items-start justify-between gap-4"><div><p className="text-[9px] font-bold uppercase tracking-[.2em] text-cyan-300">Draw-note glossary</p><h3 className="mt-1 text-base font-semibold text-white">Choose the next note length</h3><p className="mt-1 text-[10px] text-slate-400">Straight, dotted, double-dotted and triplet values. You can still resize any note afterward.</p></div><button type="button" onClick={() => setOpen(false)} aria-label="Close note glossary" className="rounded-lg border border-white/10 px-2.5 py-1.5 text-slate-300">×</button></div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{NOTE_VALUE_GROUPS.map(group => <section key={group} className="rounded-xl border border-white/[.08] bg-white/[.025] p-2"><h4 className="mb-2 px-1 text-[9px] font-bold uppercase tracking-[.16em] text-slate-400">{group}</h4><div className="grid gap-1">{NOTE_VALUES.filter(item => item.group === group).map(item => <button key={item.value} type="button" onClick={() => { onChange(item.value); setOpen(false); }} aria-pressed={item.value === selectedValue.value} className={`flex items-center gap-2 rounded-lg border px-2 py-2 text-left ${item.value === selectedValue.value ? 'border-fuchsia-300/60 bg-fuchsia-400/15 text-white' : 'border-transparent text-slate-300 hover:border-cyan-300/25 hover:bg-cyan-300/[.05]'}`}><span className="w-8 shrink-0 text-center font-['Segoe_UI_Symbol','Noto_Music',serif] text-xl leading-none" style={{ color: item.value === selectedValue.value ? '#f5b8ff' : '#91e9ff' }}>{item.symbol}</span><span className="min-w-0"><b className="block text-[10px] leading-tight">{item.short}</b><small className="mt-0.5 block truncate text-[8px] text-slate-500">{item.label}</small></span></button>)}</div></section>)}</div>
+    </div>, document.body)}
+  </div>;
+}
+function EditorToolbar({ tool, setTool, drawNoteValue, onDrawNoteValueChange, playScope, playParts, onPlayAll, onPlayPart, playRange, playhead, onClearSelection, selectedCount, onRemove, canUndo, canRedo, onUndo, onRedo, zoom, setZoom, onDuplicate, onCopy, onPaste, clipboardCount, onPlay, onPlayFromStart, onPause, onStop, onSkip, isPlaying, isPaused, onRecord, recording, onPlayTake, hasTake, onSave, saving }: { tool: EditorTool; setTool: (tool: EditorTool) => void; drawNoteValue: RhythmicNoteValue; onDrawNoteValueChange: (value: RhythmicNoteValue) => void; playScope: PlaybackScope; playParts: boolean[]; onPlayAll: () => void; onPlayPart: (part: number, additive?: boolean) => void; playRange: { start: number; end: number }; playhead: number | null; onClearSelection: () => void; selectedCount: number; onRemove: () => void; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; zoom: number; setZoom: (value: number) => void; onDuplicate: () => void; onCopy: () => void; onPaste: () => void; clipboardCount: number; onPlay: () => void; onPlayFromStart: () => void; onPause: () => void; onStop: () => void; onSkip: (seconds: number) => void; isPlaying: boolean; isPaused: boolean; onRecord: () => void; recording: boolean; onPlayTake: () => void; hasTake: boolean; onSave: () => void; saving: boolean }) {
   const toolButton = (value: EditorTool, label: string) => <button onClick={() => setTool(value)} className={`rounded-lg border px-3 py-2 ${tool === value ? 'border-fuchsia-400/60 bg-fuchsia-500/20 text-fuchsia-100' : 'border-white/10 text-slate-100'}`}>{label}</button>;
   const status = playScope === 'range' ? `Range ${playRange.start.toFixed(2)}s–${playRange.end.toFixed(2)}s` : playScope === 'note' ? `${selectedCount || 1} selected note${selectedCount === 1 ? '' : 's'}` : playParts.every(Boolean) ? 'All voices' : VOICES.filter((_, index) => playParts[index]).join(' + ');
   const formatTime = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds)) % 60).padStart(2, '0')}`;
@@ -961,6 +1026,7 @@ function EditorToolbar({ tool, setTool, playScope, playParts, onPlayAll, onPlayP
       <button onClick={() => onSkip(5)} title="Fast-forward five seconds" className="rounded-lg border border-white/10 px-3 py-2 text-slate-200">+5s</button>
       <span className="min-w-16 whitespace-nowrap font-mono text-cyan-200">{formatTime(playhead ?? 0)}</span>
       <button onClick={onRecord} className={`rounded-lg border px-3 py-2 ${recording ? 'border-rose-300 bg-rose-500/20 text-rose-100' : 'border-white/10 text-rose-300'}`}>{recording ? 'Stop recording' : 'Record'}</button>
+      {tool === 'draw' && <DrawNoteValuePicker value={drawNoteValue} onChange={onDrawNoteValueChange} />}
       {hasTake && <button onClick={onPlayTake} className="rounded-lg border border-emerald-300/30 px-3 py-2 text-emerald-200">Play take</button>}
       <label className="ml-auto flex shrink-0 items-center gap-2 text-slate-400">Zoom <b className="w-8 text-right text-fuchsia-200">{Math.round((zoom / 16) * 10) / 10}x</b><input aria-label="Timeline zoom" type="range" min="16" max="160" step="2" value={zoom} onChange={event => setZoom(Number(event.target.value))} className="accent-fuchsia-400" /></label>
     </div>

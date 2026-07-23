@@ -4,6 +4,17 @@ _Last updated: 2026-07-23 by Codex_
 
 ---
 
+## 2026-07-23 — Fullscreen-safe Close and draw-note glossary
+
+- The editor's `Close` button is now context-aware: while Vocal Hero is fullscreen it exits fullscreen only and keeps the arrangement editor open; outside fullscreen it retains the existing close-editor action.
+- Draw mode now reveals a compact rhythmic-value badge in the transport row. Previous/next buttons cycle values without leaving the piano roll, and clicking or pressing-and-holding the badge opens the complete grouped note glossary.
+- The glossary uses the persisted `musical_timeline.snap_value`, so its selection is identical to the main timeline control and determines the next drawn note's duration.
+- Extended the supported notation set through sixty-fourth notes, including dotted, double-dotted and triplet sixty-fourth values and the required fine placement grids.
+- Practice-game release cache key advanced to `20260723-8` in both `Index.html` and `dist/index.html`. No SQL migration or environment-variable change is required.
+- Validation: `npm run build` passes with placeholder Supabase build variables.
+
+---
+
 ## 2026-07-23 — Vocal Hero dotted, double-dotted and tuplet note values
 
 - Replaced the editor's single rhythm divisor with independent `Default drawn length` and `Placement grid` controls. A dotted note can therefore end on its precise duration while a shorter quaver, semiquaver, rest, or syncopated note can follow it.
@@ -60,7 +71,7 @@ _Last updated: 2026-07-23 by Codex_
 | **Project name** | LHC Worship Prep |
 | **Purpose** | Worship preparation tool for Luther House Chapel — manages songs, rosters, liturgy, and worship orders |
 | **GitHub repo** | `https://github.com/jermaineaaron1/LHC-Prep-Tool.git` |
-| **Current branch** | `feature/vocal-hero-dotted-note-values` |
+| **Current branch** | `fix/vocal-hero-fullscreen-draw-palette` |
 | **Default branch** | `master` |
 | **Vercel deployment branch** | `master` (auto-deploys on push; production URL is `lhc-prep-tool.vercel.app`) |
 | **Version** | 2.8 (per CLAUDE.md) |
