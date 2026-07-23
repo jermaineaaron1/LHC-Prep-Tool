@@ -16,6 +16,7 @@ const PITCH_HEADER_HEIGHT = 34;
 const DEFAULT_BPM = 120;
 const DEFAULT_BEATS_PER_BAR = 4;
 const DEFAULT_BEAT_UNIT = 4;
+const DEFAULT_SNAP_DIVISION = 16;
 const LASSO_THRESHOLD = 5;
 const KEY_TONICS = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
 const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian'];
@@ -44,6 +45,15 @@ type MusicalState = { bpm: number; numerator: number; denominator: number; tonic
 type MusicalBeat = { start: number; end: number; beat: number; bar: number; subdivisionStarts: number[] };
 type MusicalBar = MusicalState & { start: number; end: number; number: number; beats: MusicalBeat[] };
 type BeatPosition = MusicalState & { bar: number; beat: number; fraction: number; start: number; end: number };
+type NoteDivision = NonNullable<MusicalTimelineSettings['snap_division']>;
+const NOTE_DIVISIONS: Array<{ value: NoteDivision; label: string; short: string }> = [
+  { value: 1, label: 'Whole note / semibreve', short: 'Whole' },
+  { value: 2, label: 'Half note / minim', short: '1/2' },
+  { value: 4, label: 'Quarter note / crotchet', short: '1/4' },
+  { value: 8, label: 'Eighth note / quaver', short: '1/8' },
+  { value: 16, label: 'Sixteenth note / semiquaver', short: '1/16' },
+  { value: 32, label: 'Thirty-second note / demisemiquaver', short: '1/32' },
+];
 
 function sortByTime<T extends { at: number }>(items: T[]) { return [...items].sort((a, b) => a.at - b.at); }
 function normaliseMusicalTimeline(song: Song, settings: BackingTrackSettings): MusicalTimelineSettings {
@@ -56,6 +66,7 @@ function normaliseMusicalTimeline(song: Song, settings: BackingTrackSettings): M
     tempo_changes: ensureBase(stored?.tempo_changes ?? [], { at: 0, bpm: Math.max(20, Number(song.bpm) || DEFAULT_BPM) }).map(item => ({ ...item, bpm: Math.max(20, Math.min(400, Number(item.bpm) || DEFAULT_BPM)) })),
     meter_changes: ensureBase(stored?.meter_changes ?? [], { at: 0, numerator: Math.max(1, Number(song.time_sig) || DEFAULT_BEATS_PER_BAR), denominator: DEFAULT_BEAT_UNIT }).map(item => ({ ...item, numerator: Math.max(1, Math.min(32, Math.round(Number(item.numerator) || DEFAULT_BEATS_PER_BAR))), denominator: [1, 2, 4, 8, 16, 32].includes(Number(item.denominator)) ? Number(item.denominator) : DEFAULT_BEAT_UNIT })),
     key_changes: ensureBase(stored?.key_changes ?? [], { at: 0, tonic: 'C', mode: 'Major' }).map(item => ({ ...item, tonic: item.tonic || 'C', mode: item.mode || 'Major' })),
+    snap_division: NOTE_DIVISIONS.some(item => item.value === stored?.snap_division) ? stored!.snap_division as NoteDivision : DEFAULT_SNAP_DIVISION,
   };
 }
 function eventAt<T extends { at: number }>(items: T[], at: number) { return sortByTime(items).filter(item => item.at <= at + .001).at(-1) ?? items[0]; }
@@ -82,7 +93,8 @@ function buildMusicalGrid(duration: number, timeline: MusicalTimelineSettings): 
         const beatStart = barStart + beat * beatLength;
         if (beatStart >= barEnd - .0001) break;
         const beatEnd = Math.min(barEnd, beatStart + beatLength);
-        beats.push({ start: beatStart, end: beatEnd, beat: beat + 1, bar: barNumber, subdivisionStarts: [1, 2, 3].map(part => beatStart + ((beatEnd - beatStart) * part) / 4).filter(value => value < beatEnd - .0001) });
+        const subdivisions = Math.max(1, Math.round((timeline.snap_division ?? DEFAULT_SNAP_DIVISION) / state.denominator));
+        beats.push({ start: beatStart, end: beatEnd, beat: beat + 1, bar: barNumber, subdivisionStarts: Array.from({ length: Math.max(0, subdivisions - 1) }, (_, part) => beatStart + ((beatEnd - beatStart) * (part + 1)) / subdivisions).filter(value => value < beatEnd - .0001) });
       }
       bars.push({ ...state, start: barStart, end: barEnd, number: barNumber, beats });
       barNumber += 1;
@@ -117,6 +129,47 @@ function durationInBeats(bars: MusicalBar[], start: number, end: number) {
     return total + overlap / Math.max(.001, beat.end - beat.start);
   }, 0);
 }
+function snapStepAt(bars: MusicalBar[], time: number, division: NoteDivision) {
+  const position = beatPositionAt(bars, time);
+  return (60 / (position?.bpm ?? DEFAULT_BPM)) * (4 / division);
+}
+function snapTimeToGrid(bars: MusicalBar[], time: number, division: NoteDivision, mode: 'round' | 'ceil' | 'floor' = 'round') {
+  const safe = Math.max(0, time);
+  const position = beatPositionAt(bars, safe);
+  const bar = position ? bars.find(item => item.number === position.bar) : bars[0];
+  const origin = bar?.start ?? 0;
+  const step = snapStepAt(bars, safe, division);
+  const units = (safe - origin) / Math.max(.001, step);
+  const snappedUnits = mode === 'ceil' ? Math.ceil(units - .0001) : mode === 'floor' ? Math.floor(units + .0001) : Math.round(units);
+  return roundPrecise(Math.max(0, origin + snappedUnits * step));
+}
+function quantizeNote(note: SongNote, bars: MusicalBar[], division: NoteDivision) {
+  const start = snapTimeToGrid(bars, note.start, division);
+  const step = snapStepAt(bars, start, division);
+  const units = Math.max(1, Math.round((note.end - note.start) / Math.max(.001, step)));
+  return { ...note, start, end: roundPrecise(start + units * step) };
+}
+function notesOverlap(a: SongNote, b: SongNote) { return a.part === b.part && a.start < b.end - .0005 && a.end > b.start + .0005; }
+function collisionInVoice(candidates: SongNote[], fixed: SongNote[]) {
+  const all = [...fixed, ...candidates].sort((a, b) => a.part - b.part || a.start - b.start || a.end - b.end);
+  return all.some((note, index) => index > 0 && notesOverlap(all[index - 1], note));
+}
+function quantizeAndResolveNotes(input: SongNote[], bars: MusicalBar[], division: NoteDivision) {
+  const quantized = input.map(note => quantizeNote(note, bars, division));
+  const adjusted = new Map<string, SongNote>();
+  const parts = Array.from(new Set(quantized.map(note => note.part)));
+  parts.forEach(part => {
+    let voiceEnd = 0;
+    quantized.filter(note => note.part === part).sort((a, b) => a.start - b.start || a.end - b.end).forEach(note => {
+      const duration = Math.max(snapStepAt(bars, note.start, division), note.end - note.start);
+      const start = note.start < voiceEnd - .0005 ? snapTimeToGrid(bars, voiceEnd, division, 'ceil') : note.start;
+      const next = { ...note, start, end: roundPrecise(start + duration) };
+      adjusted.set(note.id, next);
+      voiceEnd = next.end;
+    });
+  });
+  return input.map(note => adjusted.get(note.id) ?? note);
+}
 
 export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClose: () => void; onSave: (values: EditableSong) => Promise<void>; }) {
   const [title, setTitle] = useState(song.title);
@@ -141,6 +194,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [recording, setRecording] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
+  const [editorNotice, setEditorNotice] = useState<string | null>(null);
   const [midiPreview, setMidiPreview] = useState<MidiPreview | null>(null);
   const [midiError, setMidiError] = useState<string | null>(null);
   const [midiRanges, setMidiRanges] = useState<SatbMidiRanges>(DEFAULT_SATB_MIDI_RANGES);
@@ -174,6 +228,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const noteMoveRef = useRef<{ originX: number; originY: number; ids: string[]; initial: Record<string, { midi: number; start: number; end: number }>; targetId: string; deltaMidi: number; deltaTime: number; moved: boolean; historyPushed: boolean; selectionApplied: boolean } | null>(null);
   const midiInputRef = useRef<HTMLInputElement | null>(null);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const musicalLatchSignatureRef = useRef('');
   const selected = notes.find(note => note.id === selectedId) ?? null;
   const backingTimelineEnd = trackSettings.clips?.length ? Math.max(...trackSettings.clips.map(clip => clip.timeline_start + (clip.source_end - clip.source_start))) : trackSettings.timeline_offset + Math.max(0, (trackSettings.trim_end ?? trackSettings.media_duration ?? 0) - trackSettings.trim_start);
   const transportEnd = Math.max(.1, song.duration || 0, backingTimelineEnd, ...notes.map(note => note.end));
@@ -184,6 +239,20 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const cursorMusicalState = musicalStateAt(musicalTimeline, playhead ?? 0);
   const noteByPart = useMemo(() => VOICES.map((_, index) => notes.filter(note => note.part === index || (note.part === -1 && index === selectedPart))), [notes, selectedPart]);
   const selectedNotes = useMemo(() => notes.filter(note => selectedIds.includes(note.id)).sort((a, b) => a.start - b.start || a.part - b.part), [notes, selectedIds]);
+
+  useEffect(() => {
+    if (!musicalBars.length) return;
+    const signature = JSON.stringify([musicalTimeline.tempo_changes, musicalTimeline.meter_changes, musicalTimeline.snap_division]);
+    if (musicalLatchSignatureRef.current === signature) return;
+    musicalLatchSignatureRef.current = signature;
+    const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+    setNotes(current => {
+      const latched = quantizeAndResolveNotes(current, musicalBars, division);
+      const changed = latched.some((note, index) => Math.abs(note.start - current[index].start) > .0005 || Math.abs(note.end - current[index].end) > .0005);
+      if (changed) setEditorNotice(`Arrangement latched to ${NOTE_DIVISIONS.find(item => item.value === division)?.label ?? `1/${division}`} timing; same-voice clashes were moved to the next available grid position.`);
+      return latched;
+    });
+  }, [musicalBars, musicalTimeline.snap_division]);
 
   useEffect(() => () => {
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -230,6 +299,14 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     });
   }
 
+  function changeSnapDivision(division: NoteDivision) {
+    pushHistory();
+    const latched = quantizeAndResolveNotes(notes, musicalBars, division);
+    setMusicalTimeline(current => ({ ...current, snap_division: division }));
+    setNotes(latched);
+    setEditorNotice(`All notes latched to ${NOTE_DIVISIONS.find(item => item.value === division)?.label ?? `1/${division}`} timing. Same-voice overlaps were moved forward automatically.`);
+  }
+
   function removeMusicalEvent(kind: 'tempo' | 'meter' | 'key', at: number) {
     if (at === 0) return;
     pushHistory();
@@ -247,16 +324,50 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     if (media.paused) void media.play().catch(() => undefined);
   }, [isPlaying, mediaUrl, playhead, trackSettings.clips, trackSettings.media_duration, trackSettings.speed, trackSettings.trim_end, trackSettings.trim_start, trackSettings.timeline_offset, trackSettings.skip_regions, trackSettings.volume]);
 
-  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })) }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
+  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: musicalTimeline.snap_division }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
   function pushHistory() { const snapshot = makeSnapshot(); setHistory(current => ({ past: [...current.past, snapshot].slice(-100), future: [] })); }
-  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })) }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
+  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
   function undo() { const previous = history.past.at(-1); if (!previous) return; const current = makeSnapshot(); restoreSnapshot(previous); setHistory({ past: history.past.slice(0, -1), future: [current, ...history.future] }); }
   function redo() { const next = history.future[0]; if (!next) return; const current = makeSnapshot(); restoreSnapshot(next); setHistory({ past: [...history.past, current].slice(-100), future: history.future.slice(1) }); }
-  function update(id: string, values: Partial<SongNote>) { pushHistory(); setNotes(current => current.map(note => note.id === id ? { ...note, ...values } : note)); }
+  function update(id: string, values: Partial<SongNote>) {
+    const target = notes.find(note => note.id === id);
+    if (!target) return;
+    const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+    const timingChanged = values.start !== undefined || values.end !== undefined || values.part !== undefined;
+    const candidate = timingChanged ? quantizeNote({ ...target, ...values }, musicalBars, division) : { ...target, ...values };
+    if (collisionInVoice([candidate], notes.filter(note => note.id !== id))) {
+      setEditorNotice(`${VOICES[candidate.part] ?? 'This voice'} already has a note in that position. Move or resize the existing target first.`);
+      return;
+    }
+    pushHistory();
+    setNotes(current => current.map(note => note.id === id ? candidate : note));
+    setEditorNotice(null);
+  }
   function selectNote(id: string, additive = false) { const note = notes.find(item => item.id === id); if (!note) return; setSelectedPart(note.part < 0 ? 0 : note.part); setSelectedId(id); setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]); setPlayScope('note'); }
-  function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number) { const state = musicalStateAt(musicalTimeline, start); const beatLength = (60 / state.bpm) * (4 / state.denominator); pushHistory(); const id = `note-${crypto.randomUUID()}`; setNotes(current => [...current, { id, part, midi, start: roundPrecise(start), end: roundPrecise(end ?? start + beatLength), lyric: 'New lyric', velocity: 100 }]); setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); }
+  function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number) {
+    const state = musicalStateAt(musicalTimeline, start);
+    const beatLength = (60 / state.bpm) * (4 / state.denominator);
+    const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+    const id = `note-${crypto.randomUUID()}`;
+    const candidate = quantizeNote({ id, part, midi, start, end: end ?? start + beatLength, lyric: 'New lyric', velocity: 100 }, musicalBars, division);
+    if (collisionInVoice([candidate], notes)) {
+      setEditorNotice(`${VOICES[part] ?? 'This voice'} already has a note on ${compactBeatLabel(beatPositionAt(musicalBars, candidate.start))}. Notes in one voice cannot overlap.`);
+      return;
+    }
+    pushHistory();
+    setNotes(current => [...current, candidate]);
+    setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); setEditorNotice(null);
+  }
   function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const pointerTime = Math.max(0, (event.clientX - bounds.left) / zoom); const beat = musicalBeats.find(item => pointerTime >= item.start && pointerTime < item.end); const range = pitchRangeForPart(part); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, beat?.start ?? pointerTime, range.max - row, beat?.end); }
-  function duplicateSelected() { if (!selected) return; pushHistory(); const id = `note-${crypto.randomUUID()}`; const copy = { ...selected, id, start: roundPrecise(selected.end + .1), end: roundPrecise(selected.end + .1 + (selected.end - selected.start)) }; setNotes(current => [...current, copy]); setSelectedId(id); setSelectedIds([id]); setTool('select'); }
+  function duplicateSelected() {
+    if (!selected) return;
+    const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+    const id = `note-${crypto.randomUUID()}`;
+    const start = snapTimeToGrid(musicalBars, selected.end, division, 'ceil');
+    const copy = quantizeNote({ ...selected, id, start, end: start + (selected.end - selected.start) }, musicalBars, division);
+    if (collisionInVoice([copy], notes)) { setEditorNotice(`Cannot duplicate here because ${VOICES[copy.part] ?? 'this voice'} already contains a note.`); return; }
+    pushHistory(); setNotes(current => [...current, copy]); setSelectedId(id); setSelectedIds([id]); setTool('select'); setEditorNotice(null);
+  }
   function copySelectedNotes() {
     const copied = notes.filter(note => selectedIds.includes(note.id)).sort((a, b) => a.start - b.start || a.part - b.part).map(note => ({ ...note }));
     if (copied.length) { setNoteClipboard(copied); setTool('select'); }
@@ -264,8 +375,10 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   function pasteCopiedNotes() {
     if (!noteClipboard.length) return;
     const anchor = Math.min(...noteClipboard.map(note => note.start));
-    const destination = Math.max(0, playhead ?? 0);
-    const pasted = noteClipboard.map(note => ({ ...note, id: `note-${crypto.randomUUID()}`, start: roundPrecise(destination + note.start - anchor), end: roundPrecise(destination + note.end - anchor) }));
+    const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+    const destination = snapTimeToGrid(musicalBars, Math.max(0, playhead ?? 0), division);
+    const pasted = noteClipboard.map(note => quantizeNote({ ...note, id: `note-${crypto.randomUUID()}`, start: destination + note.start - anchor, end: destination + note.end - anchor }, musicalBars, division));
+    if (collisionInVoice(pasted, notes)) { setEditorNotice('Paste cancelled: one or more notes would overlap an existing note in the same voice. Move the playhead to a free beat and paste again.'); return; }
     pushHistory();
     setNotes(current => [...current, ...pasted]);
     setSelectedIds(pasted.map(note => note.id));
@@ -273,6 +386,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setSelectedPart(pasted[0]?.part < 0 ? 0 : pasted[0]?.part ?? 0);
     setPlayScope('note');
     setTool('select');
+    setEditorNotice(null);
   }
   function removeNote(id: string) { pushHistory(); setNotes(current => current.filter(note => note.id !== id)); setSelectedId(current => current === id ? null : current); setSelectedIds(current => current.filter(item => item !== id)); }
   function removeSelected() { if (!selectedIds.length) return; pushHistory(); setNotes(current => current.filter(note => !selectedIds.includes(note.id))); setSelectedId(null); setSelectedIds([]); }
@@ -299,8 +413,9 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     const deltaMidi = minimumMidiDelta <= maximumMidiDelta ? Math.max(minimumMidiDelta, Math.min(maximumMidiDelta, requestedMidiDelta)) : 0;
     const earliestStart = Math.min(...Object.values(active.initial).map(value => value.start));
     const requestedTimeDelta = (clientX - active.originX) / zoom;
-    // Time remains millisecond-friendly and deliberately unsnapped so syncopation is preserved.
-    const deltaTime = Math.max(-earliestStart, Math.round(requestedTimeDelta * 1000) / 1000);
+    const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+    const snappedEarliest = snapTimeToGrid(musicalBars, Math.max(0, earliestStart + requestedTimeDelta), division);
+    const deltaTime = roundPrecise(snappedEarliest - earliestStart);
     if (deltaMidi === active.deltaMidi && deltaTime === active.deltaTime) return active.moved;
     if (!active.selectionApplied) {
       const target = notes.find(note => note.id === active.targetId);
@@ -310,6 +425,14 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       setPlayScope('note');
       active.selectionApplied = true;
     }
+    const candidates = targets.map(note => {
+      const initial = active.initial[note.id];
+      return { ...note, midi: initial.midi + deltaMidi, start: roundPrecise(initial.start + deltaTime), end: roundPrecise(initial.end + deltaTime) };
+    });
+    if (collisionInVoice(candidates, notes.filter(note => !active.ids.includes(note.id)))) {
+      setEditorNotice('Move blocked: notes may overlap across SATB parts, but not inside the same individual voice.');
+      return active.moved;
+    }
     if (!active.historyPushed && (deltaMidi !== 0 || Math.abs(deltaTime) >= .001)) { pushHistory(); active.historyPushed = true; }
     active.deltaMidi = deltaMidi;
     active.deltaTime = deltaTime;
@@ -318,6 +441,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       const initial = active.initial[note.id];
       return initial === undefined ? note : { ...note, midi: initial.midi + deltaMidi, start: roundPrecise(initial.start + deltaTime), end: roundPrecise(initial.end + deltaTime) };
     }));
+    setEditorNotice(null);
     return active.moved;
   }
   function endNoteMove() { const moved = Boolean(noteMoveRef.current?.moved); noteMoveRef.current = null; return moved; }
@@ -325,13 +449,15 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setNotes(current => {
       const target = current.find(note => note.id === id);
       if (!target) return current;
-      const nextEnd = Math.max(roundPrecise(target.start + .1), roundPrecise(end));
+      const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+      const step = snapStepAt(musicalBars, target.start, division);
+      const nextEnd = Math.max(roundPrecise(target.start + step), snapTimeToGrid(musicalBars, end, division));
       const delta = roundPrecise(nextEnd - target.end);
       if (!delta) return current;
-      // Ripple all later targets together so SATB harmony and lyric timing stay aligned.
+      // Ripple only the edited voice. Other SATB parts remain independent and may harmonically overlap.
       return current.map(note => {
         if (note.id === id) return { ...note, end: nextEnd };
-        if (note.start >= target.end - .001) return { ...note, start: Math.max(0, roundPrecise(note.start + delta)), end: Math.max(.1, roundPrecise(note.end + delta)) };
+        if (note.part === target.part && note.start >= target.end - .001) return { ...note, start: Math.max(0, roundPrecise(note.start + delta)), end: Math.max(step, roundPrecise(note.end + delta)) };
         return note;
       });
     });
@@ -389,10 +515,12 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
 
   useEffect(() => {
     const handleClipboardShortcut = (event: KeyboardEvent) => {
-      if ((!event.ctrlKey && !event.metaKey) || event.altKey || midiPreview || showBackingEditor) return;
+      if (midiPreview || showBackingEditor) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       const key = event.key.toLowerCase();
+      if ((key === 'backspace' || key === 'delete') && selectedIds.length) { event.preventDefault(); removeSelected(); return; }
+      if ((!event.ctrlKey && !event.metaKey) || event.altKey) return;
       if (key === 'c' && selectedIds.length) { event.preventDefault(); copySelectedNotes(); }
       if (key === 'v' && noteClipboard.length) { event.preventDefault(); pasteCopiedNotes(); }
     };
@@ -464,7 +592,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setPlayhead(next);
     return next;
   }
-  function stopPlayback() { haltPlaybackEngine(); setTransportPosition(0); setIsPaused(false); }
+  function stopPlayback() { haltPlaybackEngine(); setTransportPosition(0); setIsPaused(false); clearPlaybackSelections(); }
   function pausePlayback() { if (!transportRunningRef.current) return; haltPlaybackEngine(); setIsPaused(true); }
   function finishPlayback(time: number) { haltPlaybackEngine(); setTransportPosition(time); setIsPaused(false); }
   function playbackSelection(forceAll = false) {
@@ -543,7 +671,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     } catch (error) { setRecordError(error instanceof Error ? error.message : 'Unable to access the microphone.'); setRecording(false); }
   }
   function playRecordedTake() { if (recordingUrl) void new Audio(recordingUrl).play(); }
-  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .1, roundPrecise(note.end)) })), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, musical_timeline: musicalTimeline } }); } finally { setSaving(false); } }
+  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .001, roundPrecise(note.end)) })), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, musical_timeline: musicalTimeline } }); } finally { setSaving(false); } }
   async function uploadBackingTrack(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -579,13 +707,17 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   function applyMidiImport() {
     if (!midiPreview) return;
     const imported = assignMidiParts(midiPreview.notes, normaliseSatbMidiRanges(midiRanges), midiPart, midiSourceParts);
+    const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+    const merged = midiMode === 'replace' ? imported : [...notes, ...imported];
+    const latched = quantizeAndResolveNotes(merged, musicalBars, division);
     pushHistory();
-    setNotes(current => midiMode === 'replace' ? imported : [...current, ...imported]);
+    setNotes(latched);
     setSelectedIds(imported.map(note => note.id));
     setSelectedId(imported[0]?.id ?? null);
     setSelectedPart(imported[0]?.part ?? 0);
     setMidiPreview(null);
     setTool('select');
+    setEditorNotice(`Imported MIDI latched to ${NOTE_DIVISIONS.find(item => item.value === division)?.short ?? `1/${division}`}; same-voice clashes were moved to free grid positions.`);
   }
 
   return <div ref={editorRootRef} className="vh-editor-scrollbars fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
@@ -605,11 +737,12 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
         </div>
         {recordError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">Microphone: {recordError}</div>}
         {midiError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">MIDI import: {midiError}</div>}
+        {editorNotice && <div className="flex items-center gap-3 border-b border-amber-300/20 bg-amber-300/10 px-4 py-2 text-xs text-amber-100"><span>{editorNotice}</span><button onClick={() => setEditorNotice(null)} aria-label="Dismiss editor notice" className="ml-auto rounded border border-amber-200/20 px-2 py-0.5 text-amber-100">Close</button></div>}
         <div className="flex min-h-0 flex-1">
           <section className="min-w-0 flex-1 overflow-auto p-3">
-            <MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onRemove={removeMusicalEvent} />
+            <MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onSnapDivision={changeSnapDivision} onRemove={removeMusicalEvent} />
             <BeatPrecisionPanel selectedNotes={selectedNotes} bars={musicalBars} cursor={playhead ?? 0} clipboardCount={noteClipboard.length} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} />
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><p className="mr-auto max-w-4xl leading-relaxed"><b className="text-slate-200">Select in either Select or Draw mode.</b> Drag a note body left/right for timing and up/down for pitch. Ctrl-click adds individual notes; drag empty space to lasso any notes inside the rectangle. Grid lines guide rhythm without forcing quantization.</p><button onClick={() => setCollapsedVoices([true, true, true, true])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Collapse all voices</button><button onClick={() => setCollapsedVoices([false, false, false, false])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Expand all voices</button></div>
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><p className="mr-auto max-w-4xl leading-relaxed"><b className="text-slate-200">Select in either Select or Draw mode.</b> Drag a note body left/right for timing and up/down for pitch. Ctrl-click adds individual notes; drag empty space to lasso any notes inside the rectangle. Starts and durations latch to the selected musical note value; a single voice cannot contain overlapping targets.</p><button onClick={() => setCollapsedVoices([true, true, true, true])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Collapse all voices</button><button onClick={() => setCollapsedVoices([false, false, false, false])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Expand all voices</button></div>
             <div className="overflow-x-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]">
               <div style={{ width: timelineWidth + TIMELINE_LABEL_WIDTH }}>
                 <div onClick={event => { const bounds = event.currentTarget.getBoundingClientRect(); seekFromTimeline((event.clientX - bounds.left - TIMELINE_LABEL_WIDTH) / zoom); }} className="relative z-20 flex h-12 cursor-pointer border-b border-cyan-200/15 bg-[linear-gradient(180deg,#141936,#090d21)] shadow-[0_7px_18px_#0008]" title="Click to move the playhead">
@@ -651,7 +784,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
 
 function Brand() { return <b className="text-xl">VOCAL<span className="text-fuchsia-400">Hero</span></b>; }
 function VoiceStrip({ name, index, active, onClick }: { name: string; index: number; active: boolean; onClick: () => void }) { return <button onClick={onClick} className="w-full rounded-xl border p-3 text-left" style={{ borderColor: active ? COLOURS[index] : `${COLOURS[index]}55`, background: active ? `${COLOURS[index]}19` : `${COLOURS[index]}08` }}><div className="flex items-center gap-2"><b className="text-2xl" style={{ color: COLOURS[index] }}>{name[0]}</b><span><b className="block text-xs" style={{ color: COLOURS[index] }}>{name.toUpperCase()}</b><span className="text-[10px] text-slate-500">⌁ mic · active</span></span></div><div className="mt-3 h-1 rounded-full bg-white/10"><span className="block h-full w-2/3 rounded-full" style={{ background: COLOURS[index] }} /></div></button>; }
-function MusicalTimelineControls({ timeline, cursor, state, onTempo, onMeter, onKey, onRemove }: { timeline: MusicalTimelineSettings; cursor: number; state: MusicalState; onTempo: (bpm: number) => void; onMeter: (numerator: number, denominator: number) => void; onKey: (tonic: string, mode: string) => void; onRemove: (kind: 'tempo' | 'meter' | 'key', at: number) => void }) {
+function MusicalTimelineControls({ timeline, cursor, state, onTempo, onMeter, onKey, onSnapDivision, onRemove }: { timeline: MusicalTimelineSettings; cursor: number; state: MusicalState; onTempo: (bpm: number) => void; onMeter: (numerator: number, denominator: number) => void; onKey: (tonic: string, mode: string) => void; onSnapDivision: (division: NoteDivision) => void; onRemove: (kind: 'tempo' | 'meter' | 'key', at: number) => void }) {
   const [bpmDraft, setBpmDraft] = useState(String(state.bpm));
   const [numeratorDraft, setNumeratorDraft] = useState(String(state.numerator));
   useEffect(() => setBpmDraft(String(state.bpm)), [state.bpm]);
@@ -666,11 +799,12 @@ function MusicalTimelineControls({ timeline, cursor, state, onTempo, onMeter, on
   const field = 'rounded-lg border border-white/15 bg-[#070b1d] px-2 py-2 text-sm font-semibold text-white outline-none focus:border-fuchsia-300/70 focus:ring-2 focus:ring-fuchsia-400/15';
   return <details open className="mb-3 rounded-xl border border-fuchsia-300/20 bg-[linear-gradient(135deg,#15102e,#081326)] text-xs shadow-[0_8px_24px_#0006]">
     <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2.5"><span className="grid h-8 w-8 place-items-center rounded-lg bg-fuchsia-400/15 text-lg text-fuchsia-200">♩</span><span><b className="block text-sm text-white">Musical timeline</b><small className="text-slate-400">Editable BPM, metre and key at the playhead</small></span><span className="ml-auto rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 py-1 font-mono text-cyan-100">Cursor {formatClock(cursor)}</span></summary>
-    <div className="grid gap-3 border-t border-white/10 p-3 sm:grid-cols-2 xl:grid-cols-[150px_190px_240px_1fr]">
+    <div className="grid gap-3 border-t border-white/10 p-3 sm:grid-cols-2 xl:grid-cols-[150px_190px_240px_220px_1fr]">
       <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Quarter-note BPM<input aria-label="BPM at cursor" value={bpmDraft} onChange={event => setBpmDraft(event.target.value)} onBlur={commitBpm} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} inputMode="numeric" className={`${field} mt-1 w-full`} /></label>
       <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Time signature<span className="mt-1 flex items-center gap-1"><input aria-label="Time signature numerator" value={numeratorDraft} onChange={event => setNumeratorDraft(event.target.value)} onBlur={commitNumerator} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} inputMode="numeric" className={`${field} min-w-0 flex-1 text-center`} /><b className="text-lg text-slate-500">/</b><select aria-label="Time signature denominator" value={state.denominator} onChange={event => onMeter(state.numerator, Number(event.target.value))} className={`${field} min-w-0 flex-1 text-center`}>{[1, 2, 4, 8, 16, 32].map(value => <option key={value}>{value}</option>)}</select></span></label>
       <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Key at cursor<span className="mt-1 flex gap-1"><select aria-label="Key tonic" value={state.tonic} onChange={event => onKey(event.target.value, state.mode)} className={`${field} min-w-0 flex-1`}>{KEY_TONICS.map(value => <option key={value}>{value}</option>)}</select><select aria-label="Key mode" value={state.mode} onChange={event => onKey(state.tonic, event.target.value)} className={`${field} min-w-0 flex-[1.4]`}>{KEY_MODES.map(value => <option key={value}>{value}</option>)}</select></span></label>
-      <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/[.045] px-3 py-2 leading-relaxed text-cyan-100"><b>Draw behavior:</b> a new note snaps to the current beat and fills that beat. Afterwards it remains freely movable and resizable for pickups, ties and syncopation.</div>
+      <label className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">Rhythmic latch<span className="mt-1 flex gap-1"><select aria-label="Rhythmic note value" value={timeline.snap_division ?? DEFAULT_SNAP_DIVISION} onChange={event => onSnapDivision(Number(event.target.value) as NoteDivision)} className={`${field} min-w-0 flex-1`}>{NOTE_DIVISIONS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select><button type="button" onClick={() => onSnapDivision(timeline.snap_division ?? DEFAULT_SNAP_DIVISION)} title="Relatch every note to this value" className="rounded-lg border border-fuchsia-300/30 bg-fuchsia-400/10 px-2 text-fuchsia-100">Latch all</button></span></label>
+      <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/[.045] px-3 py-2 leading-relaxed text-cyan-100"><b>Draw behavior:</b> a new target starts on the active beat and its length is latched to the selected musical value. Every start, move and resize remains on that whole, half, quarter, eighth, sixteenth or thirty-second-note grid—even through BPM and metre changes.</div>
     </div>
     {changes.length > 0 && <div className="flex flex-wrap items-center gap-2 border-t border-white/[.07] px-3 py-2"><span className="mr-1 text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Later changes</span>{changes.map(change => <button key={`${change.kind}-${change.at}`} onClick={() => onRemove(change.kind, change.at)} title="Remove this musical change" className="rounded-full border border-white/10 bg-white/[.04] px-2.5 py-1 text-slate-300 hover:border-rose-300/40 hover:text-rose-200"><b className="mr-1 text-cyan-200">{formatClock(change.at)}</b>{change.label} ×</button>)}</div>}
   </details>;
@@ -755,7 +889,7 @@ function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead
   const pitches = Array.from({ length: range.max - range.min + 1 }, (_, index) => range.max - index);
   const laneHeight = PITCH_HEADER_HEIGHT + pitches.length * PITCH_ROW_HEIGHT;
   function beginResize(event: React.PointerEvent<HTMLSpanElement>, note: SongNote) { event.stopPropagation(); onResizeStart(); resizing.current = { id: note.id, start: event.clientX, initialEnd: note.end, noteStart: note.start }; event.currentTarget.setPointerCapture(event.pointerId); }
-  function resize(event: React.PointerEvent<HTMLSpanElement>) { const active = resizing.current; if (!active) return; onResize(active.id, Math.max(active.noteStart + .1, active.initialEnd + ((event.clientX - active.start) / zoom))); }
+  function resize(event: React.PointerEvent<HTMLSpanElement>) { const active = resizing.current; if (!active) return; onResize(active.id, Math.max(active.noteStart + .001, active.initialEnd + ((event.clientX - active.start) / zoom))); }
   function finishResize(event: React.PointerEvent<HTMLSpanElement>) { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); resizing.current = null; }
   function beginMove(event: React.PointerEvent<HTMLButtonElement>, note: SongNote) { event.stopPropagation(); if ((tool !== 'select' && tool !== 'draw') || event.button !== 0) return; notePointerActive.current = true; suppressNoteClick.current = true; onNoteMoveStart(note.id, event.clientX, event.clientY, event.ctrlKey || event.metaKey || event.shiftKey); event.currentTarget.setPointerCapture(event.pointerId); }
   function move(event: React.PointerEvent<HTMLButtonElement>) { if (!notePointerActive.current) return; suppressNoteClick.current = onNoteMove(event.clientX, event.clientY) || suppressNoteClick.current; }

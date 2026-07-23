@@ -41,6 +41,8 @@ export interface MusicalTimelineSettings {
   tempo_changes: Array<{ at: number; bpm: number }>;
   meter_changes: Array<{ at: number; numerator: number; denominator: number }>;
   key_changes: Array<{ at: number; tonic: string; mode: string }>;
+  /** Global rhythmic latch expressed as a standard note denominator (1=whole, 4=quarter, 32=thirty-second). */
+  snap_division?: 1 | 2 | 4 | 8 | 16 | 32;
 }
 
 export interface BackingTrackSettings {
