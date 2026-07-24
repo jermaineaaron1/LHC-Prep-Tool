@@ -65607,6 +65607,21 @@ function filterLiturgyItems() {
       html += '<div style="margin-top:8px;font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 8px;"><i class="fa-solid fa-triangle-exclamation" style="margin-right:4px;"></i>Google sometimes opens the "From URL" box empty instead of filling it in -- tapping <strong>GCal</strong> below also copies the link, so just paste it if that happens.</div>';
       html += '</div>';
 
+      // Bulk-send bar (PIC only): WhatsApp each member their personal
+      // subscribe link in one go, using saved phone numbers.
+      if (STATE.picMode) {
+        var _bmc = self._enablersMetaCache || {};
+        var _bmetaNorm = {};
+        Object.keys(_bmc).forEach(function(k){ _bmetaNorm[k.trim().replace(/\s+/g, ' ')] = _bmc[k]; });
+        var _bWithPhone = allNames.filter(function(n){ return _bmetaNorm[n] && _bmetaNorm[n].phone; }).length;
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">';
+        html += '<i class="fa-brands fa-whatsapp" style="color:#25d366;font-size:18px;flex-shrink:0;"></i>';
+        html += '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;color:#065f46;">Send everyone their subscribe link</div>';
+        html += '<div style="font-size:11px;color:#6b7280;">' + _bWithPhone + ' of ' + allNames.length + ' members have a phone number saved</div></div>';
+        html += '<button onclick="RosterEngine._bulkSendSubscribeLinks()"' + (_bWithPhone ? '' : ' disabled') + ' style="flex-shrink:0;padding:7px 14px;background:' + (_bWithPhone ? '#25d366' : '#cbd5e1') + ';color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:' + (_bWithPhone ? 'pointer' : 'not-allowed') + ';"><i class="fa-solid fa-paper-plane mr-1"></i> Send All Links</button>';
+        html += '</div>';
+      }
+
       if (allNames.length === 0) {
         html += '<div style="text-align:center;padding:30px;color:#9ca3af;font-size:13px;"><i class="fa-solid fa-users-slash" style="display:block;font-size:24px;margin-bottom:8px;"></i>No enablers loaded yet</div>';
       } else {
@@ -67790,6 +67805,44 @@ function filterLiturgyItems() {
         var m = withPhone[idx++];
         self.sendDutyCardWhatsApp(m.name, m.phone);
         if (idx < withPhone.length) setTimeout(sendNext, 1500);
+      }
+      sendNext();
+    },
+
+    // WhatsApp one member their personal calendar-subscribe guide link. The
+    // guide (?view=subscribe&name=) shows a friendly "Add to Google Calendar"
+    // page; subscribing once then auto-updates whenever the roster changes.
+    sendSubscribeLinkWhatsApp: function(memberName, phone) {
+      if (!phone) { this.showToast('No phone number saved for ' + memberName, 'error'); return; }
+      var guideUrl = window.location.origin + '/?view=subscribe&name=' + encodeURIComponent(memberName);
+      var msg = 'Hi ' + memberName + '! Add your LHC worship duties to your phone calendar - just open this link and tap "Add to Google Calendar":\n\n' + guideUrl + '\n\nYou only need to do this once. After that, your duties update automatically whenever the roster changes, and you get a reminder the day before each service.';
+      var cleanPhone = phone.replace(/[\s\-\(\)]/g, '');
+      var waUrl = 'https://wa.me/' + cleanPhone.replace('+', '') + '?text=' + encodeURIComponent(msg);
+      window.open(waUrl, '_blank');
+    },
+
+    // Bulk version: opens a WhatsApp window per member (with a saved phone),
+    // 1.5s apart, each carrying that member's own subscribe link.
+    _bulkSendSubscribeLinks: function() {
+      var self = this;
+      if (!STATE.picMode) { self.showToast('PIC login required.', 'error'); return; }
+      var catOrder = ['preacher','liturgist','usher','reader','communion','altar','pianist','guitarist','bassist','drummer','singer','lcd','pa','livestream','tech','sundayschool','general'];
+      var namesSet = {};
+      catOrder.forEach(function(c){ (ROSTER_NAME_OPTIONS[c]||[]).forEach(function(n){ if(n) namesSet[n.trim().replace(/\s+/g, ' ')] = true; }); });
+      var mc = self._enablersMetaCache || {};
+      var metaNorm = {};
+      Object.keys(mc).forEach(function(k){ metaNorm[k.trim().replace(/\s+/g, ' ')] = mc[k]; });
+      var members = Object.keys(namesSet)
+        .filter(function(n){ return metaNorm[n] && metaNorm[n].phone; })
+        .map(function(n){ return { name: n, phone: metaNorm[n].phone }; });
+      if (!members.length) { self.showToast('No members have phone numbers saved yet. Add them in the All Enablers tab first.', 'error'); return; }
+      if (!confirm('Send the calendar subscribe link to ' + members.length + ' members via WhatsApp?\n\nThis opens ' + members.length + ' WhatsApp windows one after another (one per member with a saved phone number).')) return;
+      var idx = 0;
+      function sendNext() {
+        if (idx >= members.length) { self.showToast('All ' + members.length + ' subscribe links opened!', 'success'); return; }
+        var m = members[idx++];
+        self.sendSubscribeLinkWhatsApp(m.name, m.phone);
+        if (idx < members.length) setTimeout(sendNext, 1500);
       }
       sendNext();
     }
