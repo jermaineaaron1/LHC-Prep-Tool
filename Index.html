@@ -66844,6 +66844,21 @@ function filterLiturgyItems() {
         return { roleId: e.roleId, date: e.date.replace(/\s/g, ' '), oldValue: e._oldValue, newValue: e._newValue };
       });
 
+      // Separate list for the instant Google Calendar push: unlike
+      // changeLogs (the human-readable "recent updates" audit feed, which
+      // intentionally hides blank/clear actions), the calendar push needs
+      // EVERY cell whose value actually changed, including a real name
+      // being cleared to blank -- that's exactly when a stale invite needs
+      // to be cancelled on the assignee's calendar. syncCell always re-reads
+      // the current roster value itself, so this array only needs to name
+      // which cells to check, not what the new value is.
+      var calendarSyncCells = edits.filter(function(e) {
+        var origRaw = STATE.rosterOriginalValues ? STATE.rosterOriginalValues.get(e.roleId + '__' + e.date.replace(/\s/g, '_')) : undefined;
+        var orig = (origRaw && typeof origRaw === 'object') ? (origRaw.day || JSON.stringify(origRaw)) : (origRaw || '');
+        var val = (e.value && typeof e.value === 'object') ? (e.value.day || JSON.stringify(e.value)) : (e.value || '');
+        return val !== orig;
+      });
+
       this.showLoader(true);
       SBQ_ROSTER.saveEdits(edits).then(function() {
         if (silent) {
@@ -66859,18 +66874,19 @@ function filterLiturgyItems() {
           if (typeof loadRosterUpdates === 'function') loadRosterUpdates();
         });
         // Push only the cells that actually changed to Google Calendar right
-        // away (Phase 3) -- reuse changeLogs (already diffed against
-        // rosterOriginalValues just above) rather than the full `edits`
-        // array, since saveChanges re-upserts the *entire* current month on
-        // every save and most of those cells didn't actually change.
+        // away (Phase 3) -- reuse calendarSyncCells (already diffed against
+        // rosterOriginalValues just above, INCLUDING blank-outs) rather than
+        // the full `edits` array, since saveChanges re-upserts the *entire*
+        // current month on every save and most of those cells didn't
+        // actually change.
         // Fire-and-forget: a failure here must never affect the save that
         // already succeeded -- the daily/manual reconciliation self-heals
         // anything missed here.
-        if (changeLogs.length) {
+        if (calendarSyncCells.length) {
           fetch('/api/calendar-sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cells: changeLogs.map(function(c) { return { roleId: c.roleId, date: c.date, month: STATE.rosterMonth, year: STATE.rosterYear }; }) })
+            body: JSON.stringify({ cells: calendarSyncCells.map(function(c) { return { roleId: c.roleId, date: c.date, month: STATE.rosterMonth, year: STATE.rosterYear }; }) })
           }).catch(function(err) { console.warn('[calendar-sync] push failed, will self-heal via reconciliation:', err); });
         }
         // Update snapshot so next save compares correctly
