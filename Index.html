@@ -47555,9 +47555,13 @@ var WO = (function() {
         var pptBtn = '<button class="lcd-rail-addbtn lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add a PowerPoint / presentation"><i class="fa-solid fa-file-powerpoint"></i></button>';
         var isScripture = (sectionEl.getAttribute('data-service-section-id') === 'scripture');
         var readingsBtn = isScripture ? '<button class="lcd-rail-addbtn lcd-rail-add-readings" onclick="WO.addScriptureReadingsTemplate(\'' + sectionId + '\')" title="Insert the First / Psalm / Second / Gospel readings template"><i class="fa-solid fa-book-open"></i></button>' : '';
+        // Available on every section, same as "Add Slide" -- an empty
+        // section should still be able to open the big editor and start
+        // typing content, not just sections that already have slide rows.
+        var allSlidesBtn = '<button class="lcd-rail-addbtn lcd-rail-all-slides" onclick="WO.openSectionAllSlides(\'' + sectionId + '\')" title="All Slides — type or paste this section\'s content as one block of text, blank line = new slide"><i class="fa-solid fa-align-left"></i></button>';
         var renameBtn = '<button class="lcd-rail-addbtn lcd-rail-rename-section" onclick="WO.lcdRenameSection(\'' + sectionId + '\')" title="Rename this section"><i class="fa-solid fa-pen"></i></button>';
         var delBtn = '<button class="lcd-rail-addbtn lcd-rail-del-section" onclick="WO.lcdDeleteSection(\'' + sectionId + '\')" title="Delete this section and all its slides"><i class="fa-solid fa-trash"></i></button>';
-        var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + pptBtn + renameBtn + delBtn + '</span>';
+        var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + pptBtn + allSlidesBtn + renameBtn + delBtn + '</span>';
         var _collapsed = !!_lcdCollapsedSections[sectionId];
         var _chev = '<button class="lcd-rail-collapse" onclick="event.stopPropagation(); WO.lcdToggleSectionCollapse(\'' + sectionId + '\')" title="Collapse / expand section"><i class="fa-solid fa-chevron-' + (_collapsed ? 'right' : 'down') + '"></i></button>';
         var _addSlideRow = '<div class="lcd-rail-addslide-row" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide to this section"><i class="fa-solid fa-plus"></i> Add Slide</div>';
@@ -49019,6 +49023,28 @@ var WO = (function() {
     var section = triggerEl ? triggerEl.closest('.wo-worship-section') : null;
     if (!section) return;
     openAllSlidesModal('content', section.id, section.id, triggerEl);
+  }
+
+  // Section-level "All Slides" entry point (LCD Projection rail button on
+  // each section header): auto-detects the section's primary content group
+  // -- its liturgy item, else its song, else its custom content boxes --
+  // and reuses the exact same modal/split logic already proven per-item, so
+  // a section with one cohesive item (the common case) gets one big text
+  // editor for its whole content without introducing any new save/parse path.
+  function openSectionAllSlides(sectionId) {
+    var container = $(sectionId + '-boxes');
+    if (!container) return;
+    var liturgyBanner = container.querySelector('.wo-liturgy-banner-bar[data-liturgy-id]');
+    if (liturgyBanner) {
+      openAllSlidesModal('liturgy', liturgyBanner.getAttribute('data-liturgy-id'), sectionId);
+      return;
+    }
+    var songBanner = container.querySelector('.wo-song-banner[data-song-id]:not(.scripture-banner)');
+    if (songBanner) {
+      openAllSlidesModal('song', songBanner.getAttribute('data-song-id'), sectionId);
+      return;
+    }
+    openAllSlidesModal('content', sectionId, sectionId);
   }
 
   function openAllSlidesModal(type, groupId, sectionId, triggerEl) {
@@ -53660,6 +53686,7 @@ var WO = (function() {
     lb2OpenBookMode: lb2OpenBookMode,
     lb2BreakDragStart: lb2BreakDragStart,
     openContentAllSlides: openContentAllSlides,
+    openSectionAllSlides: openSectionAllSlides,
     lb2ItemBreakDragStart: lb2ItemBreakDragStart,
     lb2SaveSlideEdit: lb2SaveSlideEdit,
     lb2SaveSongSlideEdit: lb2SaveSongSlideEdit,
@@ -59554,6 +59581,8 @@ function filterLiturgyItems() {
   .lcd-rail-add-song:hover { background: rgba(37,99,235,0.24); }
   .lcd-rail-add-liturgy { background: rgba(124,58,237,0.12); border-color: rgba(124,58,237,0.4); color: #7c3aed; }
   .lcd-rail-add-liturgy:hover { background: rgba(124,58,237,0.24); }
+  .lcd-rail-all-slides { background: rgba(13,148,136,0.12); border-color: rgba(13,148,136,0.4); color: #0d9488; }
+  .lcd-rail-all-slides:hover { background: rgba(13,148,136,0.24); }
   .lcd-rail-del-section { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: #dc2626; }
   .lcd-rail-del-section:hover { background: rgba(239,68,68,0.26); }
   .lcd-rail-rename-section { background: rgba(148,163,184,0.14); border-color: rgba(148,163,184,0.4); color: #64748b; }
