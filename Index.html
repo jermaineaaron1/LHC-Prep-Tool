@@ -5496,9 +5496,17 @@
         <div class="wo-container">
           <!-- Main Menu Screen -->
           <div class="wo-main-menu" id="woMainMenu">
-            <div class="wo-main-menu-header">
-              <h1>🌹 Worship Order ✝</h1>
-              <p>Create, Organize, and Present Beautiful Worship Services</p>
+            <div class="wo-hero">
+              <div class="wo-hero-text">
+                <div class="wo-hero-eyebrow"><i class="fa-solid fa-tv"></i> LCD Projection</div>
+                <h1 class="wo-hero-title">Select Worship Order</h1>
+                <p class="wo-hero-subtitle">Open an existing order or create a new one for projection.</p>
+                <button class="wo-hero-create-btn" onclick="WO.showNewOrderOptions()">
+                  <i class="fa-solid fa-plus"></i>
+                  <span><strong>Create New Order</strong><small>Start a new worship order</small></span>
+                </button>
+              </div>
+              <div class="wo-hero-art"><i class="fa-solid fa-cross"></i></div>
             </div>
 
             <!-- New Order Options (inline, hidden until triggered) -->
@@ -5523,14 +5531,24 @@
 
             <!-- Always-visible orders panel -->
             <div class="wo-orders-panel" id="woOrdersPanel">
+              <div class="wo-controls-row">
+                <div class="wo-search-wrap">
+                  <i class="fa-solid fa-magnifying-glass"></i>
+                  <input type="text" id="woOrderSearchInput" class="wo-search-input" placeholder="Search worship orders…" oninput="WO._woApplyFilters()">
+                </div>
+                <div class="wo-filter-pills" id="woFilterPills">
+                  <button class="wo-filter-pill active" data-type="all" onclick="WO._woSetFilter('all')">All</button>
+                  <button class="wo-filter-pill" data-type="traditional" onclick="WO._woSetFilter('traditional')"><i class="fa-solid fa-church"></i> Traditional</button>
+                  <button class="wo-filter-pill" data-type="contemporary" onclick="WO._woSetFilter('contemporary')"><i class="fa-solid fa-music"></i> Contemporary</button>
+                  <button class="wo-filter-pill" data-type="special" onclick="WO._woSetFilter('special')"><i class="fa-solid fa-star"></i> Special</button>
+                </div>
+              </div>
               <div class="wo-orders-panel-toolbar">
-                <button class="wo-new-order-fab" onclick="WO.showNewOrderOptions()">
-                  <i class="fa-solid fa-plus"></i> New Worship Order
-                </button>
                 <div class="wo-orders-panel-actions">
                   <button class="wo-sync-btn" onclick="WO.syncOrdersFromBackend()" title="Refresh from cloud"><i class="fa-solid fa-cloud-arrow-down"></i></button>
-                  <button class="wo-select-all-btn" onclick="WO.toggleSelectAll()"><i class="fa-solid fa-check-double mr-1"></i> Select All</button>
-                  <button class="wo-delete-selected-btn" onclick="WO.deleteSelectedOrders()"><i class="fa-solid fa-trash mr-1"></i> Delete</button>
+                  <button class="wo-select-toggle-btn" id="woSelectToggleBtn" onclick="WO._woToggleSelectMode()"><i class="fa-solid fa-square-check mr-1"></i> Select</button>
+                  <button class="wo-select-all-btn" id="woSelectAllBtn" style="display:none;" onclick="WO.toggleSelectAll()"><i class="fa-solid fa-check-double mr-1"></i> Select All</button>
+                  <button class="wo-delete-selected-btn" id="woDeleteSelectedBtn" style="display:none;" onclick="WO.deleteSelectedOrders()"><i class="fa-solid fa-trash mr-1"></i> Delete</button>
                 </div>
               </div>
               <!-- Hidden inbox elements (used by WO_Inbox module, not displayed in toolbar) -->
@@ -21856,6 +21874,11 @@ var WO = (function() {
   var selectedSongs = [];
   var currentOrderData = null;
   var savedOrders = [];
+  // Orders main-menu search/filter/select-mode state (redesigned card list).
+  var _woSearchQuery = '';
+  var _woActiveFilter = 'all';
+  var _woSelectMode = false;
+  var _woOrderCounts = {}; // orderId -> { songs: N, sections: M }, filled in by _woFetchOrderCounts
   var songOrderSections = [];
   var _woFilterThemes = [];      // currently selected themes in song popup
   var _woFilterScriptures = [];  // currently selected scripture refs in song popup      // Legacy: local song copies
@@ -22023,6 +22046,7 @@ var WO = (function() {
         try { localStorage.setItem('lhc_worship_orders', JSON.stringify(savedOrders)); } catch(e) {}
         // Update the DOM only if the orders panel is already showing
         if (document.getElementById('woSavedOrdersContainer')) renderSavedOrders();
+        _woFetchOrderCounts();
       })
       .catch(function() { _ordersPreloaded = false; }); // allow retry
   }
@@ -22086,6 +22110,7 @@ var WO = (function() {
         try { localStorage.setItem('lhc_worship_orders', JSON.stringify(savedOrders)); } catch(e) {}
 
         renderSavedOrders();
+        _woFetchOrderCounts();
       })
       .catch(function(err) {
         console.error('Failed to load orders:', err);
@@ -22137,6 +22162,81 @@ var WO = (function() {
     // No-op: orders are always visible on the main page now
   }
 
+  // Applies the current search text + type filter, keeping each order's
+  // REAL index into `savedOrders` alongside it -- all the existing
+  // onclick handlers (WO.loadOrder(idx), WO.deleteOrder(idx), etc.) index
+  // into the full array, not whatever subset happens to be visible.
+  function _woGetFilteredOrders() {
+    var q = (_woSearchQuery || '').trim().toLowerCase();
+    return savedOrders
+      .map(function(order, idx) { return { order: order, idx: idx }; })
+      .filter(function(entry) {
+        if (_woActiveFilter !== 'all' && (entry.order.type || 'traditional') !== _woActiveFilter) return false;
+        if (q && (entry.order.title || '').toLowerCase().indexOf(q) === -1) return false;
+        return true;
+      });
+  }
+
+  function _woApplyFilters() {
+    var input = $('woOrderSearchInput');
+    _woSearchQuery = input ? input.value : '';
+    renderSavedOrders();
+  }
+
+  function _woSetFilter(type) {
+    _woActiveFilter = type;
+    var pills = document.querySelectorAll('#woFilterPills .wo-filter-pill');
+    pills.forEach(function(p) { p.classList.toggle('active', p.getAttribute('data-type') === type); });
+    renderSavedOrders();
+  }
+
+  function _woToggleSelectMode() {
+    _woSelectMode = !_woSelectMode;
+    var btn = $('woSelectToggleBtn');
+    var allBtn = $('woSelectAllBtn');
+    var delBtn = $('woDeleteSelectedBtn');
+    if (btn) btn.innerHTML = _woSelectMode
+      ? '<i class="fa-solid fa-xmark mr-1"></i> Cancel'
+      : '<i class="fa-solid fa-square-check mr-1"></i> Select';
+    if (allBtn) allBtn.style.display = _woSelectMode ? '' : 'none';
+    if (delBtn) delBtn.style.display = _woSelectMode ? '' : 'none';
+    renderSavedOrders();
+  }
+
+  // Batched, single-query song/section counts for every order currently
+  // known -- NOT one query per order. Called after savedOrders loads;
+  // silently no-ops (leaves counts blank) if Supabase isn't reachable,
+  // since these are a nice-to-have stat, not load-bearing.
+  function _woFetchOrderCounts() {
+    var ids = savedOrders.map(function(o) { return o.id; }).filter(Boolean);
+    if (!ids.length) return;
+    var sb = (typeof SBQ !== 'undefined' && SBQ._sb) ? SBQ._sb() : null;
+    if (!sb) return;
+    sb.from('order_items').select('order_id,item_type,section_id').in('order_id', ids).then(function(r) {
+      if (r.error || !r.data) return;
+      var counts = {};
+      r.data.forEach(function(row) {
+        var c = counts[row.order_id] || (counts[row.order_id] = { songs: 0, sectionSet: {} });
+        if (row.item_type === 'song') c.songs++;
+        if (row.section_id) c.sectionSet[row.section_id] = true;
+      });
+      Object.keys(counts).forEach(function(oid) {
+        _woOrderCounts[oid] = { songs: counts[oid].songs, sections: Object.keys(counts[oid].sectionSet).length };
+      });
+      renderSavedOrders();
+    }).catch(function() { /* stat is best-effort */ });
+  }
+
+  var _woOpenMoreMenuIdx = null;
+  function _woToggleMoreMenu(idx, evt) {
+    if (evt) evt.stopPropagation();
+    _woOpenMoreMenuIdx = (_woOpenMoreMenuIdx === idx) ? null : idx;
+    renderSavedOrders();
+  }
+  document.addEventListener('click', function() {
+    if (_woOpenMoreMenuIdx !== null) { _woOpenMoreMenuIdx = null; renderSavedOrders(); }
+  });
+
   function renderSavedOrders() {
     var container = $('woSavedOrdersContainer');
     if (!container) return;
@@ -22163,8 +22263,16 @@ var WO = (function() {
       '</div>';
     }
 
-    var html = savedOrders.map(function(order, idx) {
-      var typeIcon = order.type === 'traditional' ? 'fa-church' : (order.type === 'contemporary' ? 'fa-guitar' : 'fa-star');
+    var filtered = _woGetFilteredOrders();
+    if (filtered.length === 0) {
+      container.innerHTML = strip + '<div class="wo-empty-state"><i class="fa-solid fa-magnifying-glass"></i><p>No worship orders match your search or filter.</p></div>';
+      return;
+    }
+
+    var html = filtered.map(function(entry) {
+      var order = entry.order, idx = entry.idx;
+      var type = order.type || 'traditional';
+      var typeIcon = type === 'traditional' ? 'fa-church' : (type === 'contemporary' ? 'fa-music' : 'fa-star');
       var cloudIcon = order.id
         ? '<i class="fa-solid fa-cloud" style="color:#22c55e;font-size:.7rem;" title="Saved to cloud"></i>'
         : '<i class="fa-solid fa-laptop" style="color:#f59e0b;font-size:.7rem;" title="Local draft"></i>';
@@ -22176,6 +22284,10 @@ var WO = (function() {
         if (cleanSD) dateStr += ' · ' + cleanSD;
       }
       var creatorStr = order.createdBy ? ' · ' + order.createdBy.split('@')[0] : '';
+      var counts = order.id ? _woOrderCounts[order.id] : null;
+      var statsHtml = counts
+        ? '<div class="wo-order-card-stats"><span><i class="fa-solid fa-music"></i> ' + counts.songs + ' Songs</span><span><i class="fa-solid fa-list"></i> ' + counts.sections + ' Sections</span></div>'
+        : '';
 
       var actions, rowExtra;
       if (ps) {
@@ -22187,23 +22299,30 @@ var WO = (function() {
         '</div>';
       } else {
         rowExtra = (order.id ? ' cloud-synced' : ' local-only') + '"';
-        var addSongsBtn = order.id
-          ? '<button class="wo-saved-order-btn add-songs" onclick="event.stopPropagation(); openAddSongsModal(\'order\',\'' + escapeHtml(order.id) + '\',\'' + escapeHtml(order.title || 'Untitled').replace(/'/g,'&#39;') + '\')" title="Add Songs"><i class="fa-solid fa-plus"></i> Songs</button>'
+        var moreOpen = _woOpenMoreMenuIdx === idx;
+        var moreMenu = moreOpen
+          ? '<div class="wo-order-more-menu" onclick="event.stopPropagation()">' +
+              (order.id ? '<button onclick="openAddSongsModal(\'order\',\'' + escapeHtml(order.id) + '\',\'' + escapeHtml(order.title || 'Untitled').replace(/'/g,'&#39;') + '\');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-plus"></i> Add Songs</button>' : '') +
+              '<button onclick="WO.editOrderTitle(' + idx + ');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-pen"></i> Rename</button>' +
+              '<button class="danger" onclick="WO.deleteOrder(' + idx + ');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-trash"></i> Delete</button>' +
+            '</div>'
           : '';
         actions = '<div class="wo-saved-order-actions">' +
-          addSongsBtn +
-          '<button class="wo-saved-order-btn open" onclick="event.stopPropagation(); WO.loadOrder(' + idx + ')"><i class="fa-solid fa-folder-open"></i> Open</button>' +
+          (_woSelectMode ? '' : '<button class="wo-saved-order-btn open" onclick="event.stopPropagation(); WO.loadOrder(' + idx + ')"><i class="fa-solid fa-folder-open"></i> Open</button>' +
           '<button class="wo-saved-order-btn edit" onclick="event.stopPropagation(); WO.editOrderTitle(' + idx + ')"><i class="fa-solid fa-pen"></i></button>' +
-          '<button class="wo-saved-order-btn delete" onclick="event.stopPropagation(); WO.deleteOrder(' + idx + ')"><i class="fa-solid fa-trash"></i></button>' +
+          '<div class="wo-order-more-wrap"><button class="wo-saved-order-btn wo-order-more-btn" onclick="WO._woToggleMoreMenu(' + idx + ', event)"><i class="fa-solid fa-ellipsis"></i></button>' + moreMenu + '</div>') +
         '</div>';
       }
 
+      var checkbox = (_woSelectMode && !ps) ? '<input type="checkbox" class="wo-saved-order-checkbox" data-idx="' + idx + '" onclick="event.stopPropagation()">' : '';
+
       return '<div class="wo-saved-order-item' + rowExtra + '>' +
-        '<input type="checkbox" class="wo-saved-order-checkbox" data-idx="' + idx + '" onclick="event.stopPropagation()">' +
-        '<i class="fa-solid ' + typeIcon + '" style="color:#6366f1;font-size:1.2rem;"></i>' +
+        checkbox +
+        '<div class="wo-order-card-icon ' + type + '"><i class="fa-solid ' + typeIcon + '"></i></div>' +
         '<div class="wo-saved-order-info">' +
-          '<div class="wo-saved-order-title">' + escapeHtml(order.title || 'Untitled') + ' ' + cloudIcon + '</div>' +
-          '<div class="wo-saved-order-date">' + (order.type || 'Order') + (dateStr ? ' · ' + dateStr : '') + creatorStr + '</div>' +
+          '<div class="wo-saved-order-title">' + escapeHtml(order.title || 'Untitled') + ' <span class="wo-order-badge ' + type + '">' + type + '</span> ' + cloudIcon + '</div>' +
+          '<div class="wo-saved-order-date">' + (dateStr || 'Order') + creatorStr + '</div>' +
+          statsHtml +
         '</div>' +
         actions +
       '</div>';
@@ -53395,6 +53514,10 @@ var WO = (function() {
     linkMediaToSong: linkMediaToSong,
     _doLinkMedia: _doLinkMedia,
     renderSavedOrders: renderSavedOrders,
+    _woApplyFilters: _woApplyFilters,
+    _woSetFilter: _woSetFilter,
+    _woToggleSelectMode: _woToggleSelectMode,
+    _woToggleMoreMenu: _woToggleMoreMenu,
     silentPreloadOrders: silentPreloadOrders,
     toggleAddLinkInput: toggleAddLinkInput,
     submitLinkInput: submitLinkInput,
@@ -59100,8 +59223,40 @@ function filterLiturgyItems() {
   /* amber dot on nav buttons when inbox has items */
   .wo-nav-inbox-dot { position:absolute; top:2px; right:2px; width:8px; height:8px; background:#f59e0b; border-radius:50%; border:1.5px solid #fff; }
 
+  /* ── Hero (redesigned main-menu header, replaces the old cursive title) ── */
+  .wo-hero { max-width: 1040px; margin: 0 auto 22px; text-align: left; display: flex; align-items: center; gap: 24px; background: linear-gradient(120deg,#eef3fc,#f7fafe); border: 1px solid #dce6f7; border-radius: 18px; padding: 26px 30px; overflow: hidden; position: relative; }
+  .wo-hero-text { flex: 1 1 auto; min-width: 0; }
+  .wo-hero-eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; border-radius: 99px; padding: 4px 12px; margin-bottom: 12px; font-family: 'Poppins',sans-serif; }
+  .wo-hero-title { font-size: 2rem; font-weight: 800; color: #1e3a6d; margin: 0 0 8px; font-family: 'Poppins',sans-serif; line-height: 1.15; }
+  .wo-hero-subtitle { font-size: .95rem; color: #5b6b85; margin: 0 0 18px; }
+  .wo-hero-create-btn { display: inline-flex; align-items: center; gap: 12px; background: #1e3a6d; color: #fff; border: none; border-radius: 12px; padding: 12px 20px; cursor: pointer; font-family: 'Poppins',sans-serif; box-shadow: 0 6px 18px rgba(30,58,109,.25); transition: transform .15s, box-shadow .15s; }
+  .wo-hero-create-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(30,58,109,.32); }
+  .wo-hero-create-btn i { font-size: 1.1rem; }
+  .wo-hero-create-btn span { display: flex; flex-direction: column; align-items: flex-start; text-align: left; line-height: 1.3; }
+  .wo-hero-create-btn strong { font-size: .92rem; font-weight: 700; }
+  .wo-hero-create-btn small { font-size: .72rem; font-weight: 500; opacity: .85; }
+  .wo-hero-art { flex: 0 0 auto; width: 92px; height: 92px; border-radius: 50%; background: linear-gradient(135deg,#bcd0f5,#e8f0fd); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(30,58,109,.08); }
+  .wo-hero-art i { font-size: 2.1rem; color: #4a6da7; }
+  @media (max-width: 640px) {
+    .wo-hero { flex-direction: column; text-align: center; padding: 20px; }
+    .wo-hero-text { text-align: center; }
+    .wo-hero-create-btn span { align-items: center; text-align: center; }
+    .wo-hero-art { display: none; }
+  }
+
+  /* ── Search + filter controls row ────────────────────────────────── */
+  .wo-controls-row { max-width: 1040px; margin: 0 auto 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .wo-search-wrap { position: relative; flex: 1 1 260px; min-width: 200px; }
+  .wo-search-wrap i { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: #9aa7bd; font-size: .85rem; }
+  .wo-search-input { width: 100%; padding: 10px 14px 10px 34px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: .88rem; font-family: 'Poppins',sans-serif; background: #fff; color: #334155; }
+  .wo-search-input:focus { outline: none; border-color: #4a6da7; box-shadow: 0 0 0 3px rgba(74,109,167,.15); }
+  .wo-filter-pills { display: flex; gap: 6px; background: #eef2f8; border-radius: 12px; padding: 4px; flex-wrap: wrap; }
+  .wo-filter-pill { border: none; background: transparent; color: #556180; font-size: .78rem; font-weight: 600; padding: 7px 13px; border-radius: 9px; cursor: pointer; font-family: 'Poppins',sans-serif; display: inline-flex; align-items: center; gap: 6px; transition: background .15s, color .15s; }
+  .wo-filter-pill:hover { background: rgba(74,109,167,.1); }
+  .wo-filter-pill.active { background: #1e3a6d; color: #fff; }
+
   /* ── Always-visible orders panel ─────────────────────────────────── */
-  .wo-orders-panel { max-width: 800px; margin: 0 auto; text-align: left; }
+  .wo-orders-panel { max-width: 1040px; margin: 0 auto; text-align: left; }
   .wo-orders-panel-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
   .wo-new-order-fab { background: linear-gradient(135deg,#28a745,#20c997); color: #fff; border: none; padding: 11px 22px; border-radius: 10px; font-size: .95rem; font-weight: 700; cursor: pointer; font-family: 'Poppins',sans-serif; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(40,167,69,.3); transition: all .2s; flex-shrink: 0; }
   .wo-new-order-fab:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(40,167,69,.4); }
@@ -59985,15 +60140,35 @@ function filterLiturgyItems() {
   }
   .wo-saved-order-item:hover { border-color: #6366f1; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15); }
   .wo-saved-order-checkbox { width: 20px; height: 20px; accent-color: #6366f1; cursor: pointer; }
-  .wo-saved-order-info { flex: 1; }
-  .wo-saved-order-title { font-weight: 600; color: #1e293b; font-size: 0.95rem; }
+  .wo-saved-order-info { flex: 1; min-width: 0; }
+  .wo-saved-order-title { font-weight: 600; color: #1e293b; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .wo-saved-order-date { font-size: 0.8rem; color: #64748b; margin-top: 2px; }
-  .wo-saved-order-actions { display: flex; gap: 6px; }
+  .wo-saved-order-actions { display: flex; gap: 6px; align-items: center; }
   .wo-saved-order-btn { padding: 6px 10px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.75rem; display: flex; align-items: center; gap: 4px; transition: all 0.2s; }
   .wo-saved-order-btn.open { background: #3b82f6; color: white; }
   .wo-saved-order-btn.edit { background: #f59e0b; color: white; }
   .wo-saved-order-btn.delete { background: #ef4444; color: white; }
   .wo-saved-order-btn:hover { transform: scale(1.05); }
+
+  /* ── Redesigned card inner elements (icon box, type badge, stats row, "..." menu) ── */
+  .wo-order-card-icon { flex-shrink: 0; width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.05rem; }
+  .wo-order-card-icon.traditional { background: #e0e9fb; color: #3457a8; }
+  .wo-order-card-icon.contemporary { background: #f1e6fb; color: #7c3aed; }
+  .wo-order-card-icon.special { background: #fef3c7; color: #b45309; }
+  .wo-order-badge { font-size: .68rem; font-weight: 700; padding: 2px 9px; border-radius: 99px; text-transform: capitalize; }
+  .wo-order-badge.traditional { background: #e0e9fb; color: #3457a8; }
+  .wo-order-badge.contemporary { background: #f1e6fb; color: #7c3aed; }
+  .wo-order-badge.special { background: #fef3c7; color: #b45309; }
+  .wo-order-card-stats { display: flex; align-items: center; gap: 14px; font-size: .78rem; color: #64748b; margin-top: 5px; }
+  .wo-order-card-stats span { display: inline-flex; align-items: center; gap: 5px; }
+  .wo-order-more-wrap { position: relative; }
+  .wo-order-more-btn { background: #f4f5fb; color: #4a5568; border: 1px solid #e2e8f0; }
+  .wo-order-more-btn:hover { background: #eef1f8; transform: none; }
+  .wo-order-more-menu { position: absolute; top: calc(100% + 6px); right: 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 28px rgba(15,23,42,.14); min-width: 168px; z-index: 40; overflow: hidden; }
+  .wo-order-more-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 14px; border: none; background: none; text-align: left; font-size: .82rem; color: #334155; cursor: pointer; font-family: 'Poppins',sans-serif; }
+  .wo-order-more-menu button:hover { background: #f4f5fb; }
+  .wo-order-more-menu button.danger { color: #dc2626; }
+  .wo-order-more-menu button.danger:hover { background: #fef2f2; }
   .wo-saved-orders-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
   .wo-saved-orders-toolbar button { padding: 6px 12px; border: none; border-radius: 6px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px; }
   .wo-pending-strip { display:flex; align-items:center; gap:10px; background:linear-gradient(135deg,#4a6da7,#6b9ac4); color:#fff; border-radius:12px; padding:12px 14px; margin-bottom:12px; }
