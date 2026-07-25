@@ -2203,6 +2203,112 @@
     #worshipRosterView .roster-status-pill.sync-now.syncing { opacity: 0.7; pointer-events: none; }
     #worshipRosterView .roster-status-pill.pic-only { display: none; }
     body.pic-mode #worshipRosterView .roster-status-pill.pic-only { display: inline-flex; }
+
+    /* ── Header v2: title, month nav, filter pills, instructions ──────── */
+    .roster-header-v2 .roster-title-row { display: flex; align-items: center; justify-content: center; gap: 14px; }
+    .roster-header-v2 .roster-title-icon {
+      flex-shrink: 0; width: 52px; height: 52px; border-radius: 16px;
+      background: linear-gradient(135deg, var(--roster-teal-dark), var(--roster-teal));
+      color: #fff; display: flex; align-items: center; justify-content: center;
+      font-size: 22px; box-shadow: 0 8px 20px rgba(13,148,136,0.28);
+    }
+    .roster-header-v2 .roster-title-text { text-align: left; }
+    .roster-header-v2 .roster-title-h2 {
+      font-family: 'Playfair Display', serif; font-weight: 800; font-size: 1.7rem;
+      color: #0f3d38; margin: 0; line-height: 1.15;
+    }
+    .roster-header-v2 .roster-title-subtitle { font-size: 0.85rem; color: #5b7a74; font-style: italic; margin-top: 2px; }
+    @media (max-width: 640px) {
+      .roster-header-v2 .roster-title-row { gap: 10px; }
+      .roster-header-v2 .roster-title-icon { width: 42px; height: 42px; border-radius: 13px; font-size: 18px; }
+      .roster-header-v2 .roster-title-h2 { font-size: 1.25rem; }
+      .roster-header-v2 .roster-title-subtitle { font-size: 0.72rem; }
+    }
+
+    .roster-header-v2 .roster-month-nav { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 16px; }
+    .roster-header-v2 .roster-month-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: #fff; border: 1px solid #dbe7e4; border-radius: 999px;
+      padding: 9px 20px; font-family: 'Poppins',sans-serif; font-weight: 700;
+      font-size: 0.95rem; color: #0f3d38; box-shadow: 0 4px 12px rgba(13,78,67,0.08);
+    }
+    .roster-header-v2 .roster-month-pill i { color: var(--roster-teal-dark); }
+    @media (max-width: 640px) {
+      .roster-header-v2 .roster-month-nav { gap: 8px; margin-top: 10px; }
+      .roster-header-v2 .roster-month-pill { padding: 7px 14px; font-size: 0.8rem; }
+    }
+
+    .roster-header-v2 .roster-filter-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; margin-bottom: 6px; }
+    .roster-header-v2 .roster-filter-btn {
+      padding: 11px 24px !important; font-size: 0.88rem !important; font-weight: 700 !important;
+      border-radius: 999px !important; display: inline-flex; align-items: center; gap: 8px;
+      border: 1.5px solid #d7e6e2 !important;
+    }
+    .roster-header-v2 .roster-filter-btn.active { border-color: transparent !important; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
+    @media (max-width: 640px) {
+      .roster-header-v2 .roster-filter-btn { padding: 9px 16px !important; font-size: 0.78rem !important; }
+    }
+
+    .roster-header-v2 .roster-instructions-hint { text-align: center; color: #8a9c98; font-size: 0.72rem; margin-top: 4px; }
+
+    /* ── Undo/Redo/Save icon buttons, next to the status pills ────────── */
+    .roster-header-v2 .roster-icon-btn {
+      width: 32px; height: 32px; border-radius: 50%; border: 1px solid #e2e8f0;
+      background: #fff; color: #475569; display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 0.82rem; transition: transform .15s, background .15s;
+    }
+    .roster-header-v2 .roster-icon-btn:hover:not(:disabled) { transform: translateY(-1px); background: #f4f5fb; }
+    .roster-header-v2 .roster-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .roster-header-v2 .roster-icon-btn-save { background: var(--roster-teal-dark); border-color: var(--roster-teal-dark); color: #fff; }
+    .roster-header-v2 .roster-icon-btn-save:hover { background: var(--roster-teal); }
+
+    /* ── Bottom action nav ─────────────────────────────────────────────── */
+    .roster-bottom-nav {
+      display: flex; align-items: flex-end; justify-content: center; gap: 6px;
+      margin-top: 18px; padding: 10px 8px 6px; background: rgba(255,255,255,0.7);
+      border: 1px solid rgba(255,255,255,0.9); border-radius: 20px;
+      box-shadow: 0 10px 24px rgba(13,78,67,0.1);
+    }
+    .roster-bottom-nav-btn {
+      flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px;
+      background: none; border: none; cursor: pointer; padding: 8px 4px; border-radius: 14px;
+      color: #4a5568; font-family: 'Poppins',sans-serif; transition: background .15s, color .15s;
+    }
+    .roster-bottom-nav-btn i { font-size: 1.05rem; color: #0d9488; }
+    .roster-bottom-nav-btn span { font-size: 0.66rem; font-weight: 700; white-space: nowrap; }
+    .roster-bottom-nav-btn:hover { background: rgba(13,148,136,0.08); }
+    .roster-bottom-nav-btn.roster-bottom-nav-icononly { flex: 0 0 auto; padding: 8px 10px; }
+    .roster-bottom-nav-btn.roster-bottom-nav-icononly i { color: #25d366; font-size: 1.15rem; }
+    .roster-bottom-nav-center {
+      flex: 0 0 auto; width: 62px; height: 62px; border-radius: 50%;
+      background: linear-gradient(135deg, #1a73e8, #2563eb); color: #fff;
+      margin: -22px 4px 0; box-shadow: 0 10px 22px rgba(26,115,232,0.4), 0 0 0 4px #fff;
+      justify-content: center; padding: 0;
+    }
+    .roster-bottom-nav-center i, .roster-bottom-nav-center span { color: #fff; }
+    .roster-bottom-nav-center i { font-size: 1.15rem; }
+    .roster-bottom-nav-center span { font-size: 0.6rem; }
+    .roster-bottom-nav-center:hover { background: linear-gradient(135deg, #2563eb, #1a73e8); }
+    body.pic-mode .roster-bottom-nav-center { background: linear-gradient(135deg, #16a34a, #22c55e); }
+    @media (max-width: 640px) {
+      .roster-bottom-nav { gap: 2px; border-radius: 16px; padding: 8px 4px 5px; }
+      .roster-bottom-nav-btn span { font-size: 0.58rem; }
+      .roster-bottom-nav-btn i { font-size: 0.92rem; }
+      .roster-bottom-nav-center { width: 54px; height: 54px; margin-top: -18px; }
+      .roster-bottom-nav-center i { font-size: 1rem; }
+      .roster-bottom-nav-center span { font-size: 0.52rem; }
+    }
+
+    /* ── Bigger, rounder category bands + date chips (mockup visual language) ── */
+    #worshipRosterView .roster-section-header td.roster-section-cell {
+      padding: 12px 16px !important; border-radius: 12px; font-size: 0.92rem !important;
+    }
+    #worshipRosterView .roster-date-chip { border-radius: 14px; padding: 8px 14px; font-size: 0.9rem; }
+    @media (max-width: 640px) {
+      #worshipRosterView .roster-section-header td.roster-section-cell { padding: 8px 10px !important; font-size: 0.74rem !important; }
+      #worshipRosterView .roster-date-chip { border-radius: 10px; padding: 5px 9px; font-size: 0.72rem; }
+    }
+
     @media (max-width: 768px) {
       #worshipRosterView { padding: 8px; border-radius: 14px; }
       #worshipRosterView .roster-status-row { margin-top: 10px; }
@@ -5357,75 +5463,44 @@
       <section id="worshipRosterView" style="display: none;">
 
         <!-- Roster Header Card -->
-        <div class="roster-header-card" style="margin-bottom: 16px;">
-          <div class="flex items-center justify-center gap-6 flex-wrap">
-            <!-- Previous Month Button -->
-            <button class="roster-nav-btn" id="rosterPrevMonthBtn" title="Previous Month" style="background:#1f2937;width:56px;height:56px;border-radius:50%;border:3px solid #374151;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
-              <i class="fa-solid fa-chevron-left" style="font-size:22px;color:#fff;"></i>
-            </button>
+        <div class="roster-header-card roster-header-v2" style="margin-bottom: 16px;">
 
-            <!-- Month Title -->
-            <div class="text-center" style="min-width: 220px;">
-              <h2 class="font-playfair text-gradient text-2xl md:text-3xl font-bold">Worship Duty Roster</h2>
-              <div id="rosterMonthTitle" class="font-poppins text-lg font-semibold text-slate-600 mt-2">
-                January 2025
-              </div>
-              <div id="rosterSeasonTitle" class="text-sm text-slate-500 italic">
-                Epiphany Season
-              </div>
+          <!-- Title row -->
+          <div class="roster-title-row">
+            <div class="roster-title-icon"><i class="fa-solid fa-calendar-days"></i></div>
+            <div class="roster-title-text">
+              <h2 class="roster-title-h2">Worship Duty Roster</h2>
+              <div id="rosterSeasonTitle" class="roster-title-subtitle">Epiphany Season</div>
             </div>
+          </div>
 
-            <!-- Next Month Button -->
-            <button class="roster-nav-btn" id="rosterNextMonthBtn" title="Next Month" style="background:#1f2937;width:56px;height:56px;border-radius:50%;border:3px solid #374151;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
-              <i class="fa-solid fa-chevron-right" style="font-size:22px;color:#fff;"></i>
+          <!-- Month nav -->
+          <div class="roster-month-nav">
+            <button class="roster-nav-btn" id="rosterPrevMonthBtn" title="Previous Month">
+              <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <div class="roster-month-pill"><i class="fa-solid fa-calendar"></i> <span id="rosterMonthTitle">January 2025</span></div>
+            <button class="roster-nav-btn" id="rosterNextMonthBtn" title="Next Month">
+              <i class="fa-solid fa-chevron-right"></i>
             </button>
           </div>
 
           <!-- Filter Buttons -->
-          <div id="rosterFilterContainer" class="flex gap-2 justify-center flex-wrap mt-4 mb-2"></div>
+          <div id="rosterFilterContainer" class="roster-filter-row"></div>
 
           <!-- Instructions -->
-          <p id="rosterInstructions" class="text-xs text-slate-500 mt-2">
+          <p id="rosterInstructions" class="roster-instructions-hint">
             <i class="fa-solid fa-info-circle mr-1"></i>
             Double-click to edit • Right-click for options • Click color dot to cycle
           </p>
 
-          <!-- Action Buttons -->
-          <div id="rosterActionBtns" class="flex gap-3 justify-center flex-wrap mt-6">
-            <button class="roster-action-btn primary" id="rosterSaveBtn">
-              <i class="fa-solid fa-floppy-disk"></i> Save Changes
-            </button>
-            <button class="roster-action-btn secondary" id="rosterUndoBtn" disabled title="Undo last change (Ctrl+Z)" style="opacity:0.45;cursor:not-allowed;">
-              <i class="fa-solid fa-rotate-left"></i> Undo
-            </button>
-            <button class="roster-action-btn secondary" id="rosterEnablersBtn" style="background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;border:none;">
-              <i class="fa-solid fa-people-group"></i> Enablers
-            </button>
-            <button class="roster-action-btn secondary" id="rosterCalendarsBtn" onclick="RosterEngine.openEnablersCalendar()" style="background:linear-gradient(135deg,#1a73e8,#4a6da7);color:#fff;border:none;">
-              <i class="fa-solid fa-calendar-check"></i> Calendars
-            </button>
-            <button class="roster-action-btn secondary" id="rosterDownloadCSVBtn">
-              <i class="fa-solid fa-file-csv"></i> Download CSV
-            </button>
-            <button class="roster-action-btn secondary" id="rosterDownloadPDFBtn">
-              <i class="fa-solid fa-file-pdf"></i> Print / PDF
-            </button>
-            <button class="roster-action-btn secondary" id="rosterSharePDFBtn" style="background:linear-gradient(135deg,#25d366,#1ebc59);color:#fff;border:none;">
-              <i class="fa-brands fa-whatsapp"></i> Share PDF
-            </button>
-            <button class="roster-action-btn secondary" id="rosterShareLinkBtn" style="background:linear-gradient(135deg,#4a6da7,#6495ed);color:#fff;border:none;">
-              <i class="fa-solid fa-link"></i> Share Live Link
-            </button>
-            <button class="roster-action-btn pic-login-btn" id="rosterPicLoginBtn" onclick="RosterEngine.showPicLoginModal()">
-              <i class="fa-solid fa-lock" id="rosterPicLockIcon"></i>
-              <span id="rosterPicBtnLabel">PIC Login</span>
-            </button>
-          </div>
-
-          <!-- Sync Status -->
+          <!-- Sync Status + Undo/Redo/Save -->
           <div class="roster-status-row">
             <span class="roster-status-pill"><span class="dot"></span><span id="rosterSyncStatus">Last synced: —</span></span>
             <span class="roster-status-pill cal" onclick="RosterEngine.openEnablersCalendar()" title="Manage Google Calendar invites &amp; subscribe links for your team"><span class="dot"></span>Google Calendar &middot; auto-syncing</span>
+            <button class="roster-icon-btn" id="rosterUndoBtn" disabled title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+            <button class="roster-icon-btn" id="rosterRedoBtn" disabled title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
+            <button class="roster-icon-btn roster-icon-btn-save" id="rosterSaveBtn" title="Save Changes"><i class="fa-solid fa-floppy-disk"></i></button>
             <span class="roster-status-pill sync-now pic-only" id="rosterSyncNowBtn" onclick="RosterEngine.syncCalendarNow()" title="Force an immediate Google Calendar reconciliation pass"><span class="dot"></span>Sync Now</span>
             <span id="rosterAutoSaveStatus" class="ml-3 font-semibold hidden"></span>
             <span id="rosterUnsavedIndicator" class="ml-3 text-amber-600 font-semibold hidden">
@@ -5487,6 +5562,20 @@
             <span class="inline-block px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-xs mx-1">Scripture</span>
             <span class="inline-block px-2 py-0.5 rounded bg-white border text-slate-600 text-xs mx-1">Normal</span>
           </p>
+        </div>
+
+        <!-- Bottom action nav -->
+        <div class="roster-bottom-nav">
+          <button class="roster-bottom-nav-btn" id="rosterEnablersBtn"><i class="fa-solid fa-people-group"></i><span>Enablers</span></button>
+          <button class="roster-bottom-nav-btn" id="rosterCalendarsBtn" onclick="RosterEngine.openEnablersCalendar()"><i class="fa-solid fa-calendar-check"></i><span>Calendar</span></button>
+          <button class="roster-bottom-nav-btn roster-bottom-nav-export" id="rosterDownloadCSVBtn"><i class="fa-solid fa-file-csv"></i><span>Export</span></button>
+          <button class="roster-bottom-nav-btn roster-bottom-nav-center" id="rosterPicLoginBtn" onclick="RosterEngine.showPicLoginModal()" title="PIC Login">
+            <i class="fa-solid fa-lock" id="rosterPicLockIcon"></i>
+            <span id="rosterPicBtnLabel">PIC Login</span>
+          </button>
+          <button class="roster-bottom-nav-btn" id="rosterDownloadPDFBtn"><i class="fa-solid fa-file-pdf"></i><span>Print</span></button>
+          <button class="roster-bottom-nav-btn" id="rosterShareLinkBtn"><i class="fa-solid fa-link"></i><span>Share Live</span></button>
+          <button class="roster-bottom-nav-btn roster-bottom-nav-icononly" id="rosterSharePDFBtn" title="Share PDF via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>
         </div>
 
       </section>
@@ -64233,14 +64322,25 @@ function filterLiturgyItems() {
 
   function _rUpdateUndoBtn() {
     var btn = document.getElementById('rosterUndoBtn');
-    if (!btn) return;
-    var canUndo = _rUndoStack.length > 0;
-    btn.disabled = !canUndo;
-    btn.style.opacity = canUndo ? '1' : '0.45';
-    btn.style.cursor  = canUndo ? 'pointer' : 'not-allowed';
-    btn.title = canUndo
-      ? 'Undo last change (Ctrl+Z) ' + String.fromCodePoint(0x2014) + ' ' + _rUndoStack.length + ' step(s)'
-      : 'Nothing to undo';
+    if (btn) {
+      var canUndo = _rUndoStack.length > 0;
+      btn.disabled = !canUndo;
+      btn.style.opacity = canUndo ? '1' : '0.45';
+      btn.style.cursor  = canUndo ? 'pointer' : 'not-allowed';
+      btn.title = canUndo
+        ? 'Undo last change (Ctrl+Z) ' + String.fromCodePoint(0x2014) + ' ' + _rUndoStack.length + ' step(s)'
+        : 'Nothing to undo';
+    }
+    var redoBtn = document.getElementById('rosterRedoBtn');
+    if (redoBtn) {
+      var canRedo = _rRedoStack.length > 0;
+      redoBtn.disabled = !canRedo;
+      redoBtn.style.opacity = canRedo ? '1' : '0.45';
+      redoBtn.style.cursor  = canRedo ? 'pointer' : 'not-allowed';
+      redoBtn.title = canRedo
+        ? 'Redo (Ctrl+Y) ' + String.fromCodePoint(0x2014) + ' ' + _rRedoStack.length + ' step(s)'
+        : 'Nothing to redo';
+    }
   }
 
   function _rShowAutoSave(msg, isErr) {
@@ -64528,7 +64628,7 @@ function filterLiturgyItems() {
     renderFilterButtons: function() {
       var container = document.getElementById('rosterFilterContainer');
       if (!container) return;
-      container.innerHTML = '<button class="roster-filter-btn ' + (STATE.rosterFilter === 'all' ? 'active' : '') + '" data-filter="all">All Roles</button><button class="roster-filter-btn ' + (STATE.rosterFilter === 'worship' ? 'active' : '') + '" data-filter="worship">Worship Team</button>';
+      container.innerHTML = '<button class="roster-filter-btn ' + (STATE.rosterFilter === 'all' ? 'active' : '') + '" data-filter="all"><i class="fa-solid fa-user-group"></i> All Roles</button><button class="roster-filter-btn ' + (STATE.rosterFilter === 'worship' ? 'active' : '') + '" data-filter="worship"><i class="fa-solid fa-people-group"></i> Worship Team</button>';
       var self = this;
       container.querySelectorAll('.roster-filter-btn').forEach(function(btn) {
         btn.onclick = function() {
@@ -64775,8 +64875,10 @@ function filterLiturgyItems() {
       var nextBtn  = document.getElementById('rosterNextMonthBtn');
       var saveBtn  = document.getElementById('rosterSaveBtn');
       var undoBtn  = document.getElementById('rosterUndoBtn');
+      var redoBtn  = document.getElementById('rosterRedoBtn');
       var csvBtn   = document.getElementById('rosterDownloadCSVBtn');
       var pdfBtn   = document.getElementById('rosterDownloadPDFBtn');
+      if (redoBtn) redoBtn.onclick = function() { self.redo(); };
       if (prevBtn) prevBtn.onclick = function() { self.changeMonth(-1); };
       if (nextBtn) nextBtn.onclick = function() { self.changeMonth(1); };
       if (saveBtn) saveBtn.onclick = function() { self.saveChanges(); };
