@@ -2203,6 +2203,35 @@
     #worshipRosterView .roster-status-pill.sync-now.syncing { opacity: 0.7; pointer-events: none; }
     #worshipRosterView .roster-status-pill.pic-only { display: none; }
     body.pic-mode #worshipRosterView .roster-status-pill.pic-only { display: inline-flex; }
+    /* A generic, unscoped .roster-nav-btn rule elsewhere in the file (for an
+       unrelated small sidebar pagination button) collides with this class
+       name and, appearing later in the cascade, was winning once this
+       button's inline background/color styles were removed -- re-assert
+       the intended dark-circle look here with ID-scoped specificity so it
+       wins regardless of source order, without touching the other component. */
+    #worshipRosterView .roster-nav-btn {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+      color: #fff; box-shadow: 0 4px 12px rgba(31,41,55,0.4);
+    }
+    #worshipRosterView .roster-nav-btn i { color: #fff; }
+    @media (max-width: 640px) {
+      #worshipRosterView .roster-nav-btn { width: 40px; height: 40px; }
+      #worshipRosterView .roster-nav-btn i { font-size: 16px; }
+    }
+
+    /* Liturgical Day / Scripture Reading cells hold the longest text in the
+       table (e.g. "9th Sunday after Pentecost", full Bible reference
+       ranges). The base .roster-table td rule sets overflow:hidden without
+       white-space:nowrap, so long text DOES wrap onto multiple lines, but
+       the row's fixed min-height then clips those wrapped lines instead of
+       growing to fit them -- this is the "cut off" text. Let these two row
+       types grow to their natural (wrapped) height instead of clipping. */
+    #worshipRosterView .roster-liturgical-row td,
+    #worshipRosterView .roster-scripture-row td {
+      overflow: visible; white-space: normal; text-overflow: clip;
+      height: auto; line-height: 1.35;
+    }
 
     /* ── Header v2: title, month nav, filter pills, instructions ──────── */
     .roster-header-v2 .roster-title-row { display: flex; align-items: center; justify-content: center; gap: 14px; }
@@ -5509,6 +5538,20 @@
           </div>
         </div>
 
+        <!-- Action nav (placed just before the table) -->
+        <div class="roster-bottom-nav">
+          <button class="roster-bottom-nav-btn" id="rosterEnablersBtn"><i class="fa-solid fa-people-group"></i><span>Enablers</span></button>
+          <button class="roster-bottom-nav-btn" id="rosterCalendarsBtn" onclick="RosterEngine.openEnablersCalendar()"><i class="fa-solid fa-calendar-check"></i><span>Calendar</span></button>
+          <button class="roster-bottom-nav-btn roster-bottom-nav-export" id="rosterDownloadCSVBtn"><i class="fa-solid fa-file-csv"></i><span>Export</span></button>
+          <button class="roster-bottom-nav-btn roster-bottom-nav-center" id="rosterPicLoginBtn" onclick="RosterEngine.showPicLoginModal()" title="PIC Login">
+            <i class="fa-solid fa-lock" id="rosterPicLockIcon"></i>
+            <span id="rosterPicBtnLabel">PIC Login</span>
+          </button>
+          <button class="roster-bottom-nav-btn" id="rosterDownloadPDFBtn"><i class="fa-solid fa-file-pdf"></i><span>Print</span></button>
+          <button class="roster-bottom-nav-btn" id="rosterShareLinkBtn"><i class="fa-solid fa-link"></i><span>Share Live</span></button>
+          <button class="roster-bottom-nav-btn roster-bottom-nav-icononly" id="rosterSharePDFBtn" title="Share PDF via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>
+        </div>
+
         <!-- Mobile 2-up service navigation -->
         <div id="rosterMobileNav" class="roster-mobile-nav">
           <button class="roster-mobile-nav-btn" id="rosterMobilePrev" onclick="RosterEngine.mobileShift(-1)" title="Previous services"><i class="fa-solid fa-chevron-left"></i></button>
@@ -5562,20 +5605,6 @@
             <span class="inline-block px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-xs mx-1">Scripture</span>
             <span class="inline-block px-2 py-0.5 rounded bg-white border text-slate-600 text-xs mx-1">Normal</span>
           </p>
-        </div>
-
-        <!-- Bottom action nav -->
-        <div class="roster-bottom-nav">
-          <button class="roster-bottom-nav-btn" id="rosterEnablersBtn"><i class="fa-solid fa-people-group"></i><span>Enablers</span></button>
-          <button class="roster-bottom-nav-btn" id="rosterCalendarsBtn" onclick="RosterEngine.openEnablersCalendar()"><i class="fa-solid fa-calendar-check"></i><span>Calendar</span></button>
-          <button class="roster-bottom-nav-btn roster-bottom-nav-export" id="rosterDownloadCSVBtn"><i class="fa-solid fa-file-csv"></i><span>Export</span></button>
-          <button class="roster-bottom-nav-btn roster-bottom-nav-center" id="rosterPicLoginBtn" onclick="RosterEngine.showPicLoginModal()" title="PIC Login">
-            <i class="fa-solid fa-lock" id="rosterPicLockIcon"></i>
-            <span id="rosterPicBtnLabel">PIC Login</span>
-          </button>
-          <button class="roster-bottom-nav-btn" id="rosterDownloadPDFBtn"><i class="fa-solid fa-file-pdf"></i><span>Print</span></button>
-          <button class="roster-bottom-nav-btn" id="rosterShareLinkBtn"><i class="fa-solid fa-link"></i><span>Share Live</span></button>
-          <button class="roster-bottom-nav-btn roster-bottom-nav-icononly" id="rosterSharePDFBtn" title="Share PDF via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>
         </div>
 
       </section>
