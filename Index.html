@@ -64969,7 +64969,12 @@ function filterLiturgyItems() {
       var shareLinkBtn = document.getElementById('rosterShareLinkBtn');
       if (shareLinkBtn) shareLinkBtn.onclick = function() { self.shareLiveLink(); };
       var enablersBtn = document.getElementById('rosterEnablersBtn');
-      if (enablersBtn) enablersBtn.onclick = function() { self.openEnablersModal(); };
+      // Always land on the All Enablers tab from this button, regardless
+      // of whatever tab was last open (openEnablersModal reuses
+      // _enablersActiveTab as-is, and openEnablersCalendar/the "By
+      // Individual" duty-history links leave it set to 'calendar' or
+      // 'individual', which was leaking into this button's next use).
+      if (enablersBtn) enablersBtn.onclick = function() { self._enablersActiveTab = 'all'; self.openEnablersModal(); };
       var enablersClose = document.getElementById('enablersModalClose');
       if (enablersClose) enablersClose.onclick = function() { document.getElementById('enablersModal').style.display = 'none'; };
       // Ctrl+Z undo — scoped to when the Roster view is active
