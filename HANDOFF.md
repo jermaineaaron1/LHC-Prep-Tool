@@ -1,6 +1,15 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-07-23 by Codex_
+_Last updated: 2026-07-28 by Codex_
+
+---
+
+## 2026-07-28 — Vocal Hero bar-aware rhythm assistant
+
+- Drawn notes remain latched to the active musical grid and time signature. A selected rhythmic value that would cross the current measure is now fitted to the exact remaining bar duration instead of spilling into the next measure.
+- Draw mode shows a clickable next-value suggestion computed from the selected note end or playhead and the precise beats remaining in that bar. The full glossary presents several fitting alternatives; the editor never changes the chosen value unless the user selects one.
+- MIDI import guidance now states its real limits: MIDI pitches and PPQN note timing/tempo conversion are preserved, while automatic SATB pitch buckets are heuristic. Meter/key signatures, sustain pedal, pitch bend, and controller automation are not yet transferred to the editor timeline, so separate SATB tracks/channels and manual source mapping remain the dependable workflow.
+- Practice-game release cache key advanced to `20260728-1` in both `Index.html` and `dist/index.html`. No SQL migration, package, or environment-variable change is required.
 
 ---
 
@@ -71,7 +80,7 @@ _Last updated: 2026-07-23 by Codex_
 | **Project name** | LHC Worship Prep |
 | **Purpose** | Worship preparation tool for Luther House Chapel — manages songs, rosters, liturgy, and worship orders |
 | **GitHub repo** | `https://github.com/jermaineaaron1/LHC-Prep-Tool.git` |
-| **Current branch** | `fix/vocal-hero-fullscreen-draw-palette` |
+| **Current branch** | `feature/vocal-hero-bar-rhythm-assistant` |
 | **Default branch** | `master` |
 | **Vercel deployment branch** | `master` (auto-deploys on push; production URL is `lhc-prep-tool.vercel.app`) |
 | **Version** | 2.8 (per CLAUDE.md) |
