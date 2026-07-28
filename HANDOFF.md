@@ -4,6 +4,17 @@ _Last updated: 2026-07-28 by Codex_
 
 ---
 
+## 2026-07-28 — Vocal Hero live pitch coach and karaoke lyrics
+
+- Rebuilt the host and phone gameplay lanes to display named target pitches, the active target at the strike line, the microphone's detected note, and immediate `ON PITCH`, `TOO HIGH`, `TOO LOW`, `GET READY`, and `ON TIME` guidance.
+- Added a live singer-coach panel showing target versus detected note plus the completed note's timing, pitch, and hold percentages, so a score is explainable rather than just a number.
+- Added phrase-level karaoke lyrics. The full sentence remains visible while a blue overlay advances through its characters using timed lyric sections where available and authored note/syllable timing as the fallback.
+- Enlarged and clarified the SATB highway with pitch-name rails, denser pitch guides, active-note outlines, and note names inside every target bar. The compact full-choir board retains the same pitch vocabulary.
+- Practice-game release cache key advanced to `20260728-3` in both `Index.html` and `dist/index.html`. No SQL migration, package, or environment-variable change is required.
+- Validation: production Next.js build and TypeScript checks pass. Browser QA confirmed the local Vocal Hero route renders; live-session visual QA requires songs in the connected Supabase environment.
+
+---
+
 ## 2026-07-28 — Vocal Hero single-player mode
 
 - Added a prominent **Start solo practice** path inside every Vocal Hero lobby. The user selects Soprano, Alto, Tenor, or Bass directly on the host device; no QR scan or second device is required.
@@ -82,7 +93,7 @@ _Last updated: 2026-07-28 by Codex_
 | **Project name** | LHC Worship Prep |
 | **Purpose** | Worship preparation tool for Luther House Chapel — manages songs, rosters, liturgy, and worship orders |
 | **GitHub repo** | `https://github.com/jermaineaaron1/LHC-Prep-Tool.git` |
-| **Current branch** | `feature/vocal-hero-solo-mode` |
+| **Current branch** | `feature/vocal-hero-live-feedback` |
 | **Default branch** | `master` |
 | **Vercel deployment branch** | `master` (auto-deploys on push; production URL is `lhc-prep-tool.vercel.app`) |
 | **Version** | 2.8 (per CLAUDE.md) |
