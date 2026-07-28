@@ -1,6 +1,17 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-07-23 by Codex_
+_Last updated: 2026-07-28 by Codex_
+
+---
+
+## 2026-07-28 — Vocal Hero single-player mode
+
+- Added a prominent **Start solo practice** path inside every Vocal Hero lobby. The user selects Soprano, Alto, Tenor, or Bass directly on the host device; no QR scan or second device is required.
+- Solo practice reuses the real multiplayer session pipeline: it creates a ready `Solo Singer`, requests the local microphone, schedules the existing synchronized countdown/lead-in, runs the shared pitch and score engines, and persists round statistics through the existing Supabase functions.
+- Added focused solo countdown and gameplay screens with prominent lyrics, the chosen note lane, detected pitch, personal score, section accuracy, microphone status, and an optional full-choir board.
+- The backing-track audio element now remains mounted across lobby, countdown, and gameplay, preventing it from disappearing when the lobby unmounts at session start. Headphone guidance is shown to avoid speaker bleed into solo pitch detection.
+- Practice-game release cache key advanced to `20260728-2` in both `Index.html` and `dist/index.html`. No SQL migration, package, or environment-variable change is required.
+- Validation: the production Next.js build completes successfully with the existing Vocal Hero and worship-app routes.
 
 ---
 
@@ -71,7 +82,7 @@ _Last updated: 2026-07-23 by Codex_
 | **Project name** | LHC Worship Prep |
 | **Purpose** | Worship preparation tool for Luther House Chapel — manages songs, rosters, liturgy, and worship orders |
 | **GitHub repo** | `https://github.com/jermaineaaron1/LHC-Prep-Tool.git` |
-| **Current branch** | `fix/vocal-hero-fullscreen-draw-palette` |
+| **Current branch** | `feature/vocal-hero-solo-mode` |
 | **Default branch** | `master` |
 | **Vercel deployment branch** | `master` (auto-deploys on push; production URL is `lhc-prep-tool.vercel.app`) |
 | **Version** | 2.8 (per CLAUDE.md) |
