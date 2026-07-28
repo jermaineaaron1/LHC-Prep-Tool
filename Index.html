@@ -2203,6 +2203,191 @@
     #worshipRosterView .roster-status-pill.sync-now.syncing { opacity: 0.7; pointer-events: none; }
     #worshipRosterView .roster-status-pill.pic-only { display: none; }
     body.pic-mode #worshipRosterView .roster-status-pill.pic-only { display: inline-flex; }
+    /* A generic, unscoped .roster-nav-btn rule elsewhere in the file (for an
+       unrelated small sidebar pagination button) collides with this class
+       name and, appearing later in the cascade, was winning once this
+       button's inline background/color styles were removed -- re-assert
+       the intended dark-circle look here with ID-scoped specificity so it
+       wins regardless of source order, without touching the other component. */
+    #worshipRosterView .roster-nav-btn {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+      color: #fff; box-shadow: 0 4px 12px rgba(31,41,55,0.4);
+    }
+    #worshipRosterView .roster-nav-btn i { color: #fff; }
+    @media (max-width: 640px) {
+      #worshipRosterView .roster-nav-btn { width: 40px; height: 40px; }
+      #worshipRosterView .roster-nav-btn i { font-size: 16px; }
+    }
+
+    /* Liturgical Day / Scripture Reading cells hold the longest text in the
+       table (e.g. "9th Sunday after Pentecost", full Bible reference
+       ranges). The base .roster-table td rule sets overflow:hidden without
+       white-space:nowrap, so long text DOES wrap onto multiple lines, but
+       the row's fixed min-height then clips those wrapped lines instead of
+       growing to fit them -- this is the "cut off" text. Let these two row
+       types grow to their natural (wrapped) height instead of clipping. */
+    #worshipRosterView .roster-liturgical-row td,
+    #worshipRosterView .roster-scripture-row td {
+      overflow: visible; white-space: normal; text-overflow: clip;
+      height: auto; line-height: 1.35;
+    }
+
+    /* The mobile "2-up" nav scrolls so the FIRST of a date pair sits right
+       after the sticky column, but with table-layout:fixed and no explicit
+       per-column width, each date column's width is just the table's own
+       width divided by however many service dates exist that month -- so
+       the SECOND column of the pair often doesn't fully fit the viewport
+       and gets visibly cut off on the right (this is what looked like
+       "chopped text", but it's really a partially off-screen column, not a
+       text-wrap bug). Pin date columns to a width that, combined with the
+       82px sticky column, reliably fits exactly two within a ~375px phone. */
+    @media (max-width: 640px) {
+      /* table-layout:fixed treats each column's declared width as a
+         PROPORTION of the table's own overall width -- with the base
+         .roster-table's unconditional min-width:820px still in force, the
+         browser was stretching every column past its declared 140px to
+         fill that 820px floor (140px measured out at ~179px pre-zoom).
+         Drop that floor on mobile so 140px is honored as an actual pixel
+         width, not just a ratio. */
+      #worshipRosterView .roster-table { min-width: 0 !important; }
+      #worshipRosterView .roster-table th:not(:first-child),
+      #worshipRosterView .roster-table td:not(:first-child) {
+        width: 140px !important; min-width: 140px !important; max-width: 140px !important;
+        box-sizing: border-box !important;
+      }
+    }
+
+    /* Enablers modal header: on narrow phones there isn't room for the
+       title + "Availability link" button + year select + close button all
+       on one line -- the close button was getting pushed past the edge of
+       the screen with no way to reach it. Drop the Availability-link
+       button to icon-only so the year select and Close (the two most
+       important controls) always stay on the visible row. */
+    @media (max-width: 480px) {
+      .enablers-share-avail-label { display: none; }
+      #enablersShareAvail { padding: 5px 9px !important; }
+      #enablersYearFilter { padding: 5px 5px !important; font-size: 11px !important; }
+    }
+
+    /* ── Header v2: title, month nav, filter pills, instructions ──────── */
+    .roster-header-v2 .roster-title-row { display: flex; align-items: center; justify-content: center; gap: 14px; }
+    .roster-header-v2 .roster-title-icon {
+      flex-shrink: 0; width: 52px; height: 52px; border-radius: 16px;
+      background: linear-gradient(135deg, var(--roster-teal-dark), var(--roster-teal));
+      color: #fff; display: flex; align-items: center; justify-content: center;
+      font-size: 22px; box-shadow: 0 8px 20px rgba(13,148,136,0.28);
+    }
+    .roster-header-v2 .roster-title-text { text-align: left; }
+    .roster-header-v2 .roster-title-h2 {
+      font-family: 'Playfair Display', serif; font-weight: 800; font-size: 1.7rem;
+      color: #0f3d38; margin: 0; line-height: 1.15;
+    }
+    .roster-header-v2 .roster-title-subtitle { font-size: 0.85rem; color: #5b7a74; font-style: italic; margin-top: 2px; }
+    @media (max-width: 640px) {
+      .roster-header-v2 .roster-title-row { gap: 10px; }
+      .roster-header-v2 .roster-title-icon { width: 42px; height: 42px; border-radius: 13px; font-size: 18px; }
+      .roster-header-v2 .roster-title-h2 { font-size: 1.25rem; }
+      .roster-header-v2 .roster-title-subtitle { font-size: 0.72rem; }
+    }
+
+    .roster-header-v2 .roster-month-nav { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 16px; }
+    .roster-header-v2 .roster-month-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: #fff; border: 1px solid #dbe7e4; border-radius: 999px;
+      padding: 9px 20px; font-family: 'Poppins',sans-serif; font-weight: 700;
+      font-size: 0.95rem; color: #0f3d38; box-shadow: 0 4px 12px rgba(13,78,67,0.08);
+    }
+    .roster-header-v2 .roster-month-pill i { color: var(--roster-teal-dark); }
+    .roster-header-v2 .roster-month-pill { justify-content: center; flex-wrap: nowrap; }
+    /* Un-box the two native <select>s so they read as one unified pill with
+       bigger, centered text, instead of two separate bordered boxes that
+       could wrap onto their own lines when space is tight. */
+    .roster-header-v2 .roster-month-select,
+    .roster-header-v2 .roster-year-select {
+      border: none !important; background: transparent !important; box-shadow: none !important;
+      font-size: 1.05rem !important; font-weight: 800 !important; color: #0f3d38 !important;
+      padding: 0 16px 0 2px !important; text-align: center; text-align-last: center;
+    }
+    @media (max-width: 640px) {
+      .roster-header-v2 .roster-month-nav { gap: 6px; margin-top: 10px; }
+      .roster-header-v2 .roster-nav-btn { width: 36px !important; height: 36px !important; }
+      .roster-header-v2 .roster-month-pill { padding: 7px 10px; }
+      .roster-header-v2 .roster-month-select,
+      .roster-header-v2 .roster-year-select { font-size: 0.92rem !important; padding: 0 13px 0 2px !important; }
+    }
+
+    .roster-header-v2 .roster-filter-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; margin-bottom: 6px; }
+    .roster-header-v2 .roster-filter-btn {
+      padding: 11px 24px !important; font-size: 0.88rem !important; font-weight: 700 !important;
+      border-radius: 999px !important; display: inline-flex; align-items: center; gap: 8px;
+      border: 1.5px solid #d7e6e2 !important;
+    }
+    .roster-header-v2 .roster-filter-btn.active { border-color: transparent !important; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
+    @media (max-width: 640px) {
+      .roster-header-v2 .roster-filter-btn { padding: 9px 16px !important; font-size: 0.78rem !important; }
+    }
+
+    .roster-header-v2 .roster-instructions-hint { text-align: center; color: #8a9c98; font-size: 0.72rem; margin-top: 4px; }
+
+    /* ── Undo/Redo/Save icon buttons, next to the status pills ────────── */
+    .roster-header-v2 .roster-icon-btn {
+      width: 32px; height: 32px; border-radius: 50%; border: 1px solid #e2e8f0;
+      background: #fff; color: #475569; display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 0.82rem; transition: transform .15s, background .15s;
+    }
+    .roster-header-v2 .roster-icon-btn:hover:not(:disabled) { transform: translateY(-1px); background: #f4f5fb; }
+    .roster-header-v2 .roster-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .roster-header-v2 .roster-icon-btn-save { background: var(--roster-teal-dark); border-color: var(--roster-teal-dark); color: #fff; }
+    .roster-header-v2 .roster-icon-btn-save:hover { background: var(--roster-teal); }
+
+    /* ── Bottom action nav ─────────────────────────────────────────────── */
+    .roster-bottom-nav {
+      display: flex; align-items: flex-end; justify-content: center; gap: 6px;
+      margin-top: 18px; padding: 10px 8px 6px; background: rgba(255,255,255,0.7);
+      border: 1px solid rgba(255,255,255,0.9); border-radius: 20px;
+      box-shadow: 0 10px 24px rgba(13,78,67,0.1);
+    }
+    .roster-bottom-nav-btn {
+      flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px;
+      background: none; border: none; cursor: pointer; padding: 8px 4px; border-radius: 14px;
+      color: #4a5568; font-family: 'Poppins',sans-serif; transition: background .15s, color .15s;
+    }
+    .roster-bottom-nav-btn i { font-size: 1.05rem; color: #0d9488; }
+    .roster-bottom-nav-btn span { font-size: 0.66rem; font-weight: 700; white-space: nowrap; }
+    .roster-bottom-nav-btn:hover { background: rgba(13,148,136,0.08); }
+    .roster-bottom-nav-btn.roster-bottom-nav-icononly { flex: 0 0 auto; padding: 8px 10px; }
+    .roster-bottom-nav-btn.roster-bottom-nav-icononly i { color: #25d366; font-size: 1.15rem; }
+    .roster-bottom-nav-center {
+      flex: 0 0 auto; width: 62px; height: 62px; border-radius: 50%;
+      background: linear-gradient(135deg, #1a73e8, #2563eb); color: #fff;
+      margin: -22px 4px 0; box-shadow: 0 10px 22px rgba(26,115,232,0.4), 0 0 0 4px #fff;
+      justify-content: center; padding: 0;
+    }
+    .roster-bottom-nav-center i, .roster-bottom-nav-center span { color: #fff; }
+    .roster-bottom-nav-center i { font-size: 1.15rem; }
+    .roster-bottom-nav-center span { font-size: 0.6rem; }
+    .roster-bottom-nav-center:hover { background: linear-gradient(135deg, #2563eb, #1a73e8); }
+    body.pic-mode .roster-bottom-nav-center { background: linear-gradient(135deg, #16a34a, #22c55e); }
+    @media (max-width: 640px) {
+      .roster-bottom-nav { gap: 2px; border-radius: 16px; padding: 8px 4px 5px; }
+      .roster-bottom-nav-btn span { font-size: 0.58rem; }
+      .roster-bottom-nav-btn i { font-size: 0.92rem; }
+      .roster-bottom-nav-center { width: 54px; height: 54px; margin-top: -18px; }
+      .roster-bottom-nav-center i { font-size: 1rem; }
+      .roster-bottom-nav-center span { font-size: 0.52rem; }
+    }
+
+    /* ── Bigger, rounder category bands + date chips (mockup visual language) ── */
+    #worshipRosterView .roster-section-header td.roster-section-cell {
+      padding: 12px 16px !important; border-radius: 12px; font-size: 0.92rem !important;
+    }
+    #worshipRosterView .roster-date-chip { border-radius: 14px; padding: 8px 14px; font-size: 0.9rem; }
+    @media (max-width: 640px) {
+      #worshipRosterView .roster-section-header td.roster-section-cell { padding: 8px 10px !important; font-size: 0.74rem !important; }
+      #worshipRosterView .roster-date-chip { border-radius: 10px; padding: 5px 9px; font-size: 0.72rem; }
+    }
+
     @media (max-width: 768px) {
       #worshipRosterView { padding: 8px; border-radius: 14px; }
       #worshipRosterView .roster-status-row { margin-top: 10px; }
@@ -5357,81 +5542,64 @@
       <section id="worshipRosterView" style="display: none;">
 
         <!-- Roster Header Card -->
-        <div class="roster-header-card" style="margin-bottom: 16px;">
-          <div class="flex items-center justify-center gap-6 flex-wrap">
-            <!-- Previous Month Button -->
-            <button class="roster-nav-btn" id="rosterPrevMonthBtn" title="Previous Month" style="background:#1f2937;width:56px;height:56px;border-radius:50%;border:3px solid #374151;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
-              <i class="fa-solid fa-chevron-left" style="font-size:22px;color:#fff;"></i>
-            </button>
+        <div class="roster-header-card roster-header-v2" style="margin-bottom: 16px;">
 
-            <!-- Month Title -->
-            <div class="text-center" style="min-width: 220px;">
-              <h2 class="font-playfair text-gradient text-2xl md:text-3xl font-bold">Worship Duty Roster</h2>
-              <div id="rosterMonthTitle" class="font-poppins text-lg font-semibold text-slate-600 mt-2">
-                January 2025
-              </div>
-              <div id="rosterSeasonTitle" class="text-sm text-slate-500 italic">
-                Epiphany Season
-              </div>
+          <!-- Title row -->
+          <div class="roster-title-row">
+            <div class="roster-title-icon"><i class="fa-solid fa-calendar-days"></i></div>
+            <div class="roster-title-text">
+              <h2 class="roster-title-h2">Worship Duty Roster</h2>
+              <div id="rosterSeasonTitle" class="roster-title-subtitle">Epiphany Season</div>
             </div>
+          </div>
 
-            <!-- Next Month Button -->
-            <button class="roster-nav-btn" id="rosterNextMonthBtn" title="Next Month" style="background:#1f2937;width:56px;height:56px;border-radius:50%;border:3px solid #374151;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
-              <i class="fa-solid fa-chevron-right" style="font-size:22px;color:#fff;"></i>
+          <!-- Month nav -->
+          <div class="roster-month-nav">
+            <button class="roster-nav-btn" id="rosterPrevMonthBtn" title="Previous Month">
+              <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <div class="roster-month-pill"><i class="fa-solid fa-calendar"></i> <span id="rosterMonthTitle">January 2025</span></div>
+            <button class="roster-nav-btn" id="rosterNextMonthBtn" title="Next Month">
+              <i class="fa-solid fa-chevron-right"></i>
             </button>
           </div>
 
           <!-- Filter Buttons -->
-          <div id="rosterFilterContainer" class="flex gap-2 justify-center flex-wrap mt-4 mb-2"></div>
+          <div id="rosterFilterContainer" class="roster-filter-row"></div>
 
           <!-- Instructions -->
-          <p id="rosterInstructions" class="text-xs text-slate-500 mt-2">
+          <p id="rosterInstructions" class="roster-instructions-hint">
             <i class="fa-solid fa-info-circle mr-1"></i>
             Double-click to edit • Right-click for options • Click color dot to cycle
           </p>
 
-          <!-- Action Buttons -->
-          <div id="rosterActionBtns" class="flex gap-3 justify-center flex-wrap mt-6">
-            <button class="roster-action-btn primary" id="rosterSaveBtn">
-              <i class="fa-solid fa-floppy-disk"></i> Save Changes
-            </button>
-            <button class="roster-action-btn secondary" id="rosterUndoBtn" disabled title="Undo last change (Ctrl+Z)" style="opacity:0.45;cursor:not-allowed;">
-              <i class="fa-solid fa-rotate-left"></i> Undo
-            </button>
-            <button class="roster-action-btn secondary" id="rosterEnablersBtn" style="background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;border:none;">
-              <i class="fa-solid fa-people-group"></i> Enablers
-            </button>
-            <button class="roster-action-btn secondary" id="rosterCalendarsBtn" onclick="RosterEngine.openEnablersCalendar()" style="background:linear-gradient(135deg,#1a73e8,#4a6da7);color:#fff;border:none;">
-              <i class="fa-solid fa-calendar-check"></i> Calendars
-            </button>
-            <button class="roster-action-btn secondary" id="rosterDownloadCSVBtn">
-              <i class="fa-solid fa-file-csv"></i> Download CSV
-            </button>
-            <button class="roster-action-btn secondary" id="rosterDownloadPDFBtn">
-              <i class="fa-solid fa-file-pdf"></i> Print / PDF
-            </button>
-            <button class="roster-action-btn secondary" id="rosterSharePDFBtn" style="background:linear-gradient(135deg,#25d366,#1ebc59);color:#fff;border:none;">
-              <i class="fa-brands fa-whatsapp"></i> Share PDF
-            </button>
-            <button class="roster-action-btn secondary" id="rosterShareLinkBtn" style="background:linear-gradient(135deg,#4a6da7,#6495ed);color:#fff;border:none;">
-              <i class="fa-solid fa-link"></i> Share Live Link
-            </button>
-            <button class="roster-action-btn pic-login-btn" id="rosterPicLoginBtn" onclick="RosterEngine.showPicLoginModal()">
-              <i class="fa-solid fa-lock" id="rosterPicLockIcon"></i>
-              <span id="rosterPicBtnLabel">PIC Login</span>
-            </button>
-          </div>
-
-          <!-- Sync Status -->
+          <!-- Sync Status + Undo/Redo/Save -->
           <div class="roster-status-row">
             <span class="roster-status-pill"><span class="dot"></span><span id="rosterSyncStatus">Last synced: —</span></span>
-            <span class="roster-status-pill cal" onclick="RosterEngine.openEnablersCalendar()" title="Manage Google Calendar subscriptions for your team"><span class="dot"></span>Google Calendar &middot; auto-syncing</span>
+            <span class="roster-status-pill cal" onclick="RosterEngine.openEnablersCalendar()" title="Manage Google Calendar invites &amp; subscribe links for your team"><span class="dot"></span>Google Calendar &middot; auto-syncing</span>
+            <button class="roster-icon-btn" id="rosterUndoBtn" disabled title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+            <button class="roster-icon-btn" id="rosterRedoBtn" disabled title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
+            <button class="roster-icon-btn roster-icon-btn-save" id="rosterSaveBtn" title="Save Changes"><i class="fa-solid fa-floppy-disk"></i></button>
             <span class="roster-status-pill sync-now pic-only" id="rosterSyncNowBtn" onclick="RosterEngine.syncCalendarNow()" title="Force an immediate Google Calendar reconciliation pass"><span class="dot"></span>Sync Now</span>
             <span id="rosterAutoSaveStatus" class="ml-3 font-semibold hidden"></span>
             <span id="rosterUnsavedIndicator" class="ml-3 text-amber-600 font-semibold hidden">
               <i class="fa-solid fa-triangle-exclamation"></i> Unsaved changes
             </span>
           </div>
+        </div>
+
+        <!-- Action nav (placed just before the table) -->
+        <div class="roster-bottom-nav">
+          <button class="roster-bottom-nav-btn" id="rosterEnablersBtn"><i class="fa-solid fa-people-group"></i><span>Enablers</span></button>
+          <button class="roster-bottom-nav-btn" id="rosterCalendarsBtn" onclick="RosterEngine.openEnablersCalendar()"><i class="fa-solid fa-calendar-check"></i><span>Calendar</span></button>
+          <button class="roster-bottom-nav-btn roster-bottom-nav-export" id="rosterDownloadCSVBtn"><i class="fa-solid fa-file-csv"></i><span>Export</span></button>
+          <button class="roster-bottom-nav-btn roster-bottom-nav-center" id="rosterPicLoginBtn" onclick="RosterEngine.showPicLoginModal()" title="PIC Login">
+            <i class="fa-solid fa-lock" id="rosterPicLockIcon"></i>
+            <span id="rosterPicBtnLabel">PIC Login</span>
+          </button>
+          <button class="roster-bottom-nav-btn" id="rosterDownloadPDFBtn"><i class="fa-solid fa-file-pdf"></i><span>Print</span></button>
+          <button class="roster-bottom-nav-btn" id="rosterShareLinkBtn"><i class="fa-solid fa-link"></i><span>Share Live</span></button>
+          <button class="roster-bottom-nav-btn roster-bottom-nav-icononly" id="rosterSharePDFBtn" title="Share PDF via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>
         </div>
 
         <!-- Mobile 2-up service navigation -->
@@ -5496,9 +5664,17 @@
         <div class="wo-container">
           <!-- Main Menu Screen -->
           <div class="wo-main-menu" id="woMainMenu">
-            <div class="wo-main-menu-header">
-              <h1>🌹 Worship Order ✝</h1>
-              <p>Create, Organize, and Present Beautiful Worship Services</p>
+            <div class="wo-hero">
+              <div class="wo-hero-text">
+                <div class="wo-hero-eyebrow"><i class="fa-solid fa-tv"></i> LCD Projection</div>
+                <h1 class="wo-hero-title">Select Worship Order</h1>
+                <p class="wo-hero-subtitle">Open an existing order or create a new one for projection.</p>
+                <button class="wo-hero-create-btn" onclick="WO.showNewOrderOptions()">
+                  <i class="fa-solid fa-plus"></i>
+                  <span><strong>Create New Order</strong><small>Start a new worship order</small></span>
+                </button>
+              </div>
+              <div class="wo-hero-art"><i class="fa-solid fa-cross"></i></div>
             </div>
 
             <!-- New Order Options (inline, hidden until triggered) -->
@@ -5523,14 +5699,24 @@
 
             <!-- Always-visible orders panel -->
             <div class="wo-orders-panel" id="woOrdersPanel">
+              <div class="wo-controls-row">
+                <div class="wo-search-wrap">
+                  <i class="fa-solid fa-magnifying-glass"></i>
+                  <input type="text" id="woOrderSearchInput" class="wo-search-input" placeholder="Search worship orders…" oninput="WO._woApplyFilters()">
+                </div>
+                <div class="wo-filter-pills" id="woFilterPills">
+                  <button class="wo-filter-pill active" data-type="all" onclick="WO._woSetFilter('all')">All</button>
+                  <button class="wo-filter-pill" data-type="traditional" onclick="WO._woSetFilter('traditional')"><i class="fa-solid fa-church"></i> Traditional</button>
+                  <button class="wo-filter-pill" data-type="contemporary" onclick="WO._woSetFilter('contemporary')"><i class="fa-solid fa-music"></i> Contemporary</button>
+                  <button class="wo-filter-pill" data-type="special" onclick="WO._woSetFilter('special')"><i class="fa-solid fa-star"></i> Special</button>
+                </div>
+              </div>
               <div class="wo-orders-panel-toolbar">
-                <button class="wo-new-order-fab" onclick="WO.showNewOrderOptions()">
-                  <i class="fa-solid fa-plus"></i> New Worship Order
-                </button>
                 <div class="wo-orders-panel-actions">
                   <button class="wo-sync-btn" onclick="WO.syncOrdersFromBackend()" title="Refresh from cloud"><i class="fa-solid fa-cloud-arrow-down"></i></button>
-                  <button class="wo-select-all-btn" onclick="WO.toggleSelectAll()"><i class="fa-solid fa-check-double mr-1"></i> Select All</button>
-                  <button class="wo-delete-selected-btn" onclick="WO.deleteSelectedOrders()"><i class="fa-solid fa-trash mr-1"></i> Delete</button>
+                  <button class="wo-select-toggle-btn" id="woSelectToggleBtn" onclick="WO._woToggleSelectMode()"><i class="fa-solid fa-square-check mr-1"></i> Select</button>
+                  <button class="wo-select-all-btn" id="woSelectAllBtn" style="display:none;" onclick="WO.toggleSelectAll()"><i class="fa-solid fa-check-double mr-1"></i> Select All</button>
+                  <button class="wo-delete-selected-btn" id="woDeleteSelectedBtn" style="display:none;" onclick="WO.deleteSelectedOrders()"><i class="fa-solid fa-trash mr-1"></i> Delete</button>
                 </div>
               </div>
               <!-- Hidden inbox elements (used by WO_Inbox module, not displayed in toolbar) -->
@@ -21856,6 +22042,11 @@ var WO = (function() {
   var selectedSongs = [];
   var currentOrderData = null;
   var savedOrders = [];
+  // Orders main-menu search/filter/select-mode state (redesigned card list).
+  var _woSearchQuery = '';
+  var _woActiveFilter = 'all';
+  var _woSelectMode = false;
+  var _woOrderCounts = {}; // orderId -> { songs: N, sections: M }, filled in by _woFetchOrderCounts
   var songOrderSections = [];
   var _woFilterThemes = [];      // currently selected themes in song popup
   var _woFilterScriptures = [];  // currently selected scripture refs in song popup      // Legacy: local song copies
@@ -22023,6 +22214,7 @@ var WO = (function() {
         try { localStorage.setItem('lhc_worship_orders', JSON.stringify(savedOrders)); } catch(e) {}
         // Update the DOM only if the orders panel is already showing
         if (document.getElementById('woSavedOrdersContainer')) renderSavedOrders();
+        _woFetchOrderCounts();
       })
       .catch(function() { _ordersPreloaded = false; }); // allow retry
   }
@@ -22086,6 +22278,7 @@ var WO = (function() {
         try { localStorage.setItem('lhc_worship_orders', JSON.stringify(savedOrders)); } catch(e) {}
 
         renderSavedOrders();
+        _woFetchOrderCounts();
       })
       .catch(function(err) {
         console.error('Failed to load orders:', err);
@@ -22137,6 +22330,81 @@ var WO = (function() {
     // No-op: orders are always visible on the main page now
   }
 
+  // Applies the current search text + type filter, keeping each order's
+  // REAL index into `savedOrders` alongside it -- all the existing
+  // onclick handlers (WO.loadOrder(idx), WO.deleteOrder(idx), etc.) index
+  // into the full array, not whatever subset happens to be visible.
+  function _woGetFilteredOrders() {
+    var q = (_woSearchQuery || '').trim().toLowerCase();
+    return savedOrders
+      .map(function(order, idx) { return { order: order, idx: idx }; })
+      .filter(function(entry) {
+        if (_woActiveFilter !== 'all' && (entry.order.type || 'traditional') !== _woActiveFilter) return false;
+        if (q && (entry.order.title || '').toLowerCase().indexOf(q) === -1) return false;
+        return true;
+      });
+  }
+
+  function _woApplyFilters() {
+    var input = $('woOrderSearchInput');
+    _woSearchQuery = input ? input.value : '';
+    renderSavedOrders();
+  }
+
+  function _woSetFilter(type) {
+    _woActiveFilter = type;
+    var pills = document.querySelectorAll('#woFilterPills .wo-filter-pill');
+    pills.forEach(function(p) { p.classList.toggle('active', p.getAttribute('data-type') === type); });
+    renderSavedOrders();
+  }
+
+  function _woToggleSelectMode() {
+    _woSelectMode = !_woSelectMode;
+    var btn = $('woSelectToggleBtn');
+    var allBtn = $('woSelectAllBtn');
+    var delBtn = $('woDeleteSelectedBtn');
+    if (btn) btn.innerHTML = _woSelectMode
+      ? '<i class="fa-solid fa-xmark mr-1"></i> Cancel'
+      : '<i class="fa-solid fa-square-check mr-1"></i> Select';
+    if (allBtn) allBtn.style.display = _woSelectMode ? '' : 'none';
+    if (delBtn) delBtn.style.display = _woSelectMode ? '' : 'none';
+    renderSavedOrders();
+  }
+
+  // Batched, single-query song/section counts for every order currently
+  // known -- NOT one query per order. Called after savedOrders loads;
+  // silently no-ops (leaves counts blank) if Supabase isn't reachable,
+  // since these are a nice-to-have stat, not load-bearing.
+  function _woFetchOrderCounts() {
+    var ids = savedOrders.map(function(o) { return o.id; }).filter(Boolean);
+    if (!ids.length) return;
+    var sb = (typeof SBQ !== 'undefined' && SBQ._sb) ? SBQ._sb() : null;
+    if (!sb) return;
+    sb.from('order_items').select('order_id,item_type,section_id').in('order_id', ids).then(function(r) {
+      if (r.error || !r.data) return;
+      var counts = {};
+      r.data.forEach(function(row) {
+        var c = counts[row.order_id] || (counts[row.order_id] = { songs: 0, sectionSet: {} });
+        if (row.item_type === 'song') c.songs++;
+        if (row.section_id) c.sectionSet[row.section_id] = true;
+      });
+      Object.keys(counts).forEach(function(oid) {
+        _woOrderCounts[oid] = { songs: counts[oid].songs, sections: Object.keys(counts[oid].sectionSet).length };
+      });
+      renderSavedOrders();
+    }).catch(function() { /* stat is best-effort */ });
+  }
+
+  var _woOpenMoreMenuIdx = null;
+  function _woToggleMoreMenu(idx, evt) {
+    if (evt) evt.stopPropagation();
+    _woOpenMoreMenuIdx = (_woOpenMoreMenuIdx === idx) ? null : idx;
+    renderSavedOrders();
+  }
+  document.addEventListener('click', function() {
+    if (_woOpenMoreMenuIdx !== null) { _woOpenMoreMenuIdx = null; renderSavedOrders(); }
+  });
+
   function renderSavedOrders() {
     var container = $('woSavedOrdersContainer');
     if (!container) return;
@@ -22163,8 +22431,16 @@ var WO = (function() {
       '</div>';
     }
 
-    var html = savedOrders.map(function(order, idx) {
-      var typeIcon = order.type === 'traditional' ? 'fa-church' : (order.type === 'contemporary' ? 'fa-guitar' : 'fa-star');
+    var filtered = _woGetFilteredOrders();
+    if (filtered.length === 0) {
+      container.innerHTML = strip + '<div class="wo-empty-state"><i class="fa-solid fa-magnifying-glass"></i><p>No worship orders match your search or filter.</p></div>';
+      return;
+    }
+
+    var html = filtered.map(function(entry) {
+      var order = entry.order, idx = entry.idx;
+      var type = order.type || 'traditional';
+      var typeIcon = type === 'traditional' ? 'fa-church' : (type === 'contemporary' ? 'fa-music' : 'fa-star');
       var cloudIcon = order.id
         ? '<i class="fa-solid fa-cloud" style="color:#22c55e;font-size:.7rem;" title="Saved to cloud"></i>'
         : '<i class="fa-solid fa-laptop" style="color:#f59e0b;font-size:.7rem;" title="Local draft"></i>';
@@ -22176,6 +22452,10 @@ var WO = (function() {
         if (cleanSD) dateStr += ' · ' + cleanSD;
       }
       var creatorStr = order.createdBy ? ' · ' + order.createdBy.split('@')[0] : '';
+      var counts = order.id ? _woOrderCounts[order.id] : null;
+      var statsHtml = counts
+        ? '<div class="wo-order-card-stats"><span><i class="fa-solid fa-music"></i> ' + counts.songs + ' Songs</span><span><i class="fa-solid fa-list"></i> ' + counts.sections + ' Sections</span></div>'
+        : '';
 
       var actions, rowExtra;
       if (ps) {
@@ -22187,23 +22467,30 @@ var WO = (function() {
         '</div>';
       } else {
         rowExtra = (order.id ? ' cloud-synced' : ' local-only') + '"';
-        var addSongsBtn = order.id
-          ? '<button class="wo-saved-order-btn add-songs" onclick="event.stopPropagation(); openAddSongsModal(\'order\',\'' + escapeHtml(order.id) + '\',\'' + escapeHtml(order.title || 'Untitled').replace(/'/g,'&#39;') + '\')" title="Add Songs"><i class="fa-solid fa-plus"></i> Songs</button>'
+        var moreOpen = _woOpenMoreMenuIdx === idx;
+        var moreMenu = moreOpen
+          ? '<div class="wo-order-more-menu" onclick="event.stopPropagation()">' +
+              (order.id ? '<button onclick="openAddSongsModal(\'order\',\'' + escapeHtml(order.id) + '\',\'' + escapeHtml(order.title || 'Untitled').replace(/'/g,'&#39;') + '\');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-plus"></i> Add Songs</button>' : '') +
+              '<button onclick="WO.editOrderTitle(' + idx + ');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-pen"></i> Rename</button>' +
+              '<button class="danger" onclick="WO.deleteOrder(' + idx + ');WO._woToggleMoreMenu(' + idx + ')"><i class="fa-solid fa-trash"></i> Delete</button>' +
+            '</div>'
           : '';
         actions = '<div class="wo-saved-order-actions">' +
-          addSongsBtn +
-          '<button class="wo-saved-order-btn open" onclick="event.stopPropagation(); WO.loadOrder(' + idx + ')"><i class="fa-solid fa-folder-open"></i> Open</button>' +
+          (_woSelectMode ? '' : '<button class="wo-saved-order-btn open" onclick="event.stopPropagation(); WO.loadOrder(' + idx + ')"><i class="fa-solid fa-folder-open"></i> Open</button>' +
           '<button class="wo-saved-order-btn edit" onclick="event.stopPropagation(); WO.editOrderTitle(' + idx + ')"><i class="fa-solid fa-pen"></i></button>' +
-          '<button class="wo-saved-order-btn delete" onclick="event.stopPropagation(); WO.deleteOrder(' + idx + ')"><i class="fa-solid fa-trash"></i></button>' +
+          '<div class="wo-order-more-wrap"><button class="wo-saved-order-btn wo-order-more-btn" onclick="WO._woToggleMoreMenu(' + idx + ', event)"><i class="fa-solid fa-ellipsis"></i></button>' + moreMenu + '</div>') +
         '</div>';
       }
 
+      var checkbox = (_woSelectMode && !ps) ? '<input type="checkbox" class="wo-saved-order-checkbox" data-idx="' + idx + '" onclick="event.stopPropagation()">' : '';
+
       return '<div class="wo-saved-order-item' + rowExtra + '>' +
-        '<input type="checkbox" class="wo-saved-order-checkbox" data-idx="' + idx + '" onclick="event.stopPropagation()">' +
-        '<i class="fa-solid ' + typeIcon + '" style="color:#6366f1;font-size:1.2rem;"></i>' +
+        checkbox +
+        '<div class="wo-order-card-icon ' + type + '"><i class="fa-solid ' + typeIcon + '"></i></div>' +
         '<div class="wo-saved-order-info">' +
-          '<div class="wo-saved-order-title">' + escapeHtml(order.title || 'Untitled') + ' ' + cloudIcon + '</div>' +
-          '<div class="wo-saved-order-date">' + (order.type || 'Order') + (dateStr ? ' · ' + dateStr : '') + creatorStr + '</div>' +
+          '<div class="wo-saved-order-title">' + escapeHtml(order.title || 'Untitled') + ' <span class="wo-order-badge ' + type + '">' + type + '</span> ' + cloudIcon + '</div>' +
+          '<div class="wo-saved-order-date">' + (dateStr || 'Order') + creatorStr + '</div>' +
+          statsHtml +
         '</div>' +
         actions +
       '</div>';
@@ -47436,9 +47723,13 @@ var WO = (function() {
         var pptBtn = '<button class="lcd-rail-addbtn lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add a PowerPoint / presentation"><i class="fa-solid fa-file-powerpoint"></i></button>';
         var isScripture = (sectionEl.getAttribute('data-service-section-id') === 'scripture');
         var readingsBtn = isScripture ? '<button class="lcd-rail-addbtn lcd-rail-add-readings" onclick="WO.addScriptureReadingsTemplate(\'' + sectionId + '\')" title="Insert the First / Psalm / Second / Gospel readings template"><i class="fa-solid fa-book-open"></i></button>' : '';
+        // Available on every section, same as "Add Slide" -- an empty
+        // section should still be able to open the big editor and start
+        // typing content, not just sections that already have slide rows.
+        var allSlidesBtn = '<button class="lcd-rail-addbtn lcd-rail-all-slides" onclick="WO.openSectionAllSlides(\'' + sectionId + '\')" title="All Slides — type or paste this section\'s content as one block of text, blank line = new slide"><i class="fa-solid fa-align-left"></i></button>';
         var renameBtn = '<button class="lcd-rail-addbtn lcd-rail-rename-section" onclick="WO.lcdRenameSection(\'' + sectionId + '\')" title="Rename this section"><i class="fa-solid fa-pen"></i></button>';
         var delBtn = '<button class="lcd-rail-addbtn lcd-rail-del-section" onclick="WO.lcdDeleteSection(\'' + sectionId + '\')" title="Delete this section and all its slides"><i class="fa-solid fa-trash"></i></button>';
-        var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + pptBtn + renameBtn + delBtn + '</span>';
+        var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + pptBtn + allSlidesBtn + renameBtn + delBtn + '</span>';
         var _collapsed = !!_lcdCollapsedSections[sectionId];
         var _chev = '<button class="lcd-rail-collapse" onclick="event.stopPropagation(); WO.lcdToggleSectionCollapse(\'' + sectionId + '\')" title="Collapse / expand section"><i class="fa-solid fa-chevron-' + (_collapsed ? 'right' : 'down') + '"></i></button>';
         var _addSlideRow = '<div class="lcd-rail-addslide-row" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide to this section"><i class="fa-solid fa-plus"></i> Add Slide</div>';
@@ -48900,6 +49191,28 @@ var WO = (function() {
     var section = triggerEl ? triggerEl.closest('.wo-worship-section') : null;
     if (!section) return;
     openAllSlidesModal('content', section.id, section.id, triggerEl);
+  }
+
+  // Section-level "All Slides" entry point (LCD Projection rail button on
+  // each section header): auto-detects the section's primary content group
+  // -- its liturgy item, else its song, else its custom content boxes --
+  // and reuses the exact same modal/split logic already proven per-item, so
+  // a section with one cohesive item (the common case) gets one big text
+  // editor for its whole content without introducing any new save/parse path.
+  function openSectionAllSlides(sectionId) {
+    var container = $(sectionId + '-boxes');
+    if (!container) return;
+    var liturgyBanner = container.querySelector('.wo-liturgy-banner-bar[data-liturgy-id]');
+    if (liturgyBanner) {
+      openAllSlidesModal('liturgy', liturgyBanner.getAttribute('data-liturgy-id'), sectionId);
+      return;
+    }
+    var songBanner = container.querySelector('.wo-song-banner[data-song-id]:not(.scripture-banner)');
+    if (songBanner) {
+      openAllSlidesModal('song', songBanner.getAttribute('data-song-id'), sectionId);
+      return;
+    }
+    openAllSlidesModal('content', sectionId, sectionId);
   }
 
   function openAllSlidesModal(type, groupId, sectionId, triggerEl) {
@@ -53395,6 +53708,10 @@ var WO = (function() {
     linkMediaToSong: linkMediaToSong,
     _doLinkMedia: _doLinkMedia,
     renderSavedOrders: renderSavedOrders,
+    _woApplyFilters: _woApplyFilters,
+    _woSetFilter: _woSetFilter,
+    _woToggleSelectMode: _woToggleSelectMode,
+    _woToggleMoreMenu: _woToggleMoreMenu,
     silentPreloadOrders: silentPreloadOrders,
     toggleAddLinkInput: toggleAddLinkInput,
     submitLinkInput: submitLinkInput,
@@ -53537,6 +53854,7 @@ var WO = (function() {
     lb2OpenBookMode: lb2OpenBookMode,
     lb2BreakDragStart: lb2BreakDragStart,
     openContentAllSlides: openContentAllSlides,
+    openSectionAllSlides: openSectionAllSlides,
     lb2ItemBreakDragStart: lb2ItemBreakDragStart,
     lb2SaveSlideEdit: lb2SaveSlideEdit,
     lb2SaveSongSlideEdit: lb2SaveSongSlideEdit,
@@ -59100,8 +59418,40 @@ function filterLiturgyItems() {
   /* amber dot on nav buttons when inbox has items */
   .wo-nav-inbox-dot { position:absolute; top:2px; right:2px; width:8px; height:8px; background:#f59e0b; border-radius:50%; border:1.5px solid #fff; }
 
+  /* ── Hero (redesigned main-menu header, replaces the old cursive title) ── */
+  .wo-hero { max-width: 1040px; margin: 0 auto 22px; text-align: left; display: flex; align-items: center; gap: 24px; background: linear-gradient(120deg,#eef3fc,#f7fafe); border: 1px solid #dce6f7; border-radius: 18px; padding: 26px 30px; overflow: hidden; position: relative; }
+  .wo-hero-text { flex: 1 1 auto; min-width: 0; }
+  .wo-hero-eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; border-radius: 99px; padding: 4px 12px; margin-bottom: 12px; font-family: 'Poppins',sans-serif; }
+  .wo-hero-title { font-size: 2rem; font-weight: 800; color: #1e3a6d; margin: 0 0 8px; font-family: 'Poppins',sans-serif; line-height: 1.15; }
+  .wo-hero-subtitle { font-size: .95rem; color: #5b6b85; margin: 0 0 18px; }
+  .wo-hero-create-btn { display: inline-flex; align-items: center; gap: 12px; background: #1e3a6d; color: #fff; border: none; border-radius: 12px; padding: 12px 20px; cursor: pointer; font-family: 'Poppins',sans-serif; box-shadow: 0 6px 18px rgba(30,58,109,.25); transition: transform .15s, box-shadow .15s; }
+  .wo-hero-create-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(30,58,109,.32); }
+  .wo-hero-create-btn i { font-size: 1.1rem; }
+  .wo-hero-create-btn span { display: flex; flex-direction: column; align-items: flex-start; text-align: left; line-height: 1.3; }
+  .wo-hero-create-btn strong { font-size: .92rem; font-weight: 700; }
+  .wo-hero-create-btn small { font-size: .72rem; font-weight: 500; opacity: .85; }
+  .wo-hero-art { flex: 0 0 auto; width: 92px; height: 92px; border-radius: 50%; background: linear-gradient(135deg,#bcd0f5,#e8f0fd); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(30,58,109,.08); }
+  .wo-hero-art i { font-size: 2.1rem; color: #4a6da7; }
+  @media (max-width: 640px) {
+    .wo-hero { flex-direction: column; text-align: center; padding: 20px; }
+    .wo-hero-text { text-align: center; }
+    .wo-hero-create-btn span { align-items: center; text-align: center; }
+    .wo-hero-art { display: none; }
+  }
+
+  /* ── Search + filter controls row ────────────────────────────────── */
+  .wo-controls-row { max-width: 1040px; margin: 0 auto 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .wo-search-wrap { position: relative; flex: 1 1 260px; min-width: 200px; }
+  .wo-search-wrap i { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: #9aa7bd; font-size: .85rem; }
+  .wo-search-input { width: 100%; padding: 10px 14px 10px 34px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: .88rem; font-family: 'Poppins',sans-serif; background: #fff; color: #334155; }
+  .wo-search-input:focus { outline: none; border-color: #4a6da7; box-shadow: 0 0 0 3px rgba(74,109,167,.15); }
+  .wo-filter-pills { display: flex; gap: 6px; background: #eef2f8; border-radius: 12px; padding: 4px; flex-wrap: wrap; }
+  .wo-filter-pill { border: none; background: transparent; color: #556180; font-size: .78rem; font-weight: 600; padding: 7px 13px; border-radius: 9px; cursor: pointer; font-family: 'Poppins',sans-serif; display: inline-flex; align-items: center; gap: 6px; transition: background .15s, color .15s; }
+  .wo-filter-pill:hover { background: rgba(74,109,167,.1); }
+  .wo-filter-pill.active { background: #1e3a6d; color: #fff; }
+
   /* ── Always-visible orders panel ─────────────────────────────────── */
-  .wo-orders-panel { max-width: 800px; margin: 0 auto; text-align: left; }
+  .wo-orders-panel { max-width: 1040px; margin: 0 auto; text-align: left; }
   .wo-orders-panel-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
   .wo-new-order-fab { background: linear-gradient(135deg,#28a745,#20c997); color: #fff; border: none; padding: 11px 22px; border-radius: 10px; font-size: .95rem; font-weight: 700; cursor: pointer; font-family: 'Poppins',sans-serif; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(40,167,69,.3); transition: all .2s; flex-shrink: 0; }
   .wo-new-order-fab:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(40,167,69,.4); }
@@ -59399,6 +59749,8 @@ function filterLiturgyItems() {
   .lcd-rail-add-song:hover { background: rgba(37,99,235,0.24); }
   .lcd-rail-add-liturgy { background: rgba(124,58,237,0.12); border-color: rgba(124,58,237,0.4); color: #7c3aed; }
   .lcd-rail-add-liturgy:hover { background: rgba(124,58,237,0.24); }
+  .lcd-rail-all-slides { background: rgba(13,148,136,0.12); border-color: rgba(13,148,136,0.4); color: #0d9488; }
+  .lcd-rail-all-slides:hover { background: rgba(13,148,136,0.24); }
   .lcd-rail-del-section { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: #dc2626; }
   .lcd-rail-del-section:hover { background: rgba(239,68,68,0.26); }
   .lcd-rail-rename-section { background: rgba(148,163,184,0.14); border-color: rgba(148,163,184,0.4); color: #64748b; }
@@ -59985,15 +60337,35 @@ function filterLiturgyItems() {
   }
   .wo-saved-order-item:hover { border-color: #6366f1; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15); }
   .wo-saved-order-checkbox { width: 20px; height: 20px; accent-color: #6366f1; cursor: pointer; }
-  .wo-saved-order-info { flex: 1; }
-  .wo-saved-order-title { font-weight: 600; color: #1e293b; font-size: 0.95rem; }
+  .wo-saved-order-info { flex: 1; min-width: 0; }
+  .wo-saved-order-title { font-weight: 600; color: #1e293b; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .wo-saved-order-date { font-size: 0.8rem; color: #64748b; margin-top: 2px; }
-  .wo-saved-order-actions { display: flex; gap: 6px; }
+  .wo-saved-order-actions { display: flex; gap: 6px; align-items: center; }
   .wo-saved-order-btn { padding: 6px 10px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.75rem; display: flex; align-items: center; gap: 4px; transition: all 0.2s; }
   .wo-saved-order-btn.open { background: #3b82f6; color: white; }
   .wo-saved-order-btn.edit { background: #f59e0b; color: white; }
   .wo-saved-order-btn.delete { background: #ef4444; color: white; }
   .wo-saved-order-btn:hover { transform: scale(1.05); }
+
+  /* ── Redesigned card inner elements (icon box, type badge, stats row, "..." menu) ── */
+  .wo-order-card-icon { flex-shrink: 0; width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.05rem; }
+  .wo-order-card-icon.traditional { background: #e0e9fb; color: #3457a8; }
+  .wo-order-card-icon.contemporary { background: #f1e6fb; color: #7c3aed; }
+  .wo-order-card-icon.special { background: #fef3c7; color: #b45309; }
+  .wo-order-badge { font-size: .68rem; font-weight: 700; padding: 2px 9px; border-radius: 99px; text-transform: capitalize; }
+  .wo-order-badge.traditional { background: #e0e9fb; color: #3457a8; }
+  .wo-order-badge.contemporary { background: #f1e6fb; color: #7c3aed; }
+  .wo-order-badge.special { background: #fef3c7; color: #b45309; }
+  .wo-order-card-stats { display: flex; align-items: center; gap: 14px; font-size: .78rem; color: #64748b; margin-top: 5px; }
+  .wo-order-card-stats span { display: inline-flex; align-items: center; gap: 5px; }
+  .wo-order-more-wrap { position: relative; }
+  .wo-order-more-btn { background: #f4f5fb; color: #4a5568; border: 1px solid #e2e8f0; }
+  .wo-order-more-btn:hover { background: #eef1f8; transform: none; }
+  .wo-order-more-menu { position: absolute; top: calc(100% + 6px); right: 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 28px rgba(15,23,42,.14); min-width: 168px; z-index: 40; overflow: hidden; }
+  .wo-order-more-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 14px; border: none; background: none; text-align: left; font-size: .82rem; color: #334155; cursor: pointer; font-family: 'Poppins',sans-serif; }
+  .wo-order-more-menu button:hover { background: #f4f5fb; }
+  .wo-order-more-menu button.danger { color: #dc2626; }
+  .wo-order-more-menu button.danger:hover { background: #fef2f2; }
   .wo-saved-orders-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
   .wo-saved-orders-toolbar button { padding: 6px 12px; border: none; border-radius: 6px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px; }
   .wo-pending-strip { display:flex; align-items:center; gap:10px; background:linear-gradient(135deg,#4a6da7,#6b9ac4); color:#fff; border-radius:12px; padding:12px 14px; margin-bottom:12px; }
@@ -63376,7 +63748,11 @@ function filterLiturgyItems() {
     #songbookLiveModal .sb-song-page::before { display:none; }
     #songbookLiveModal .sb-page-header { min-height:54px; padding:10px 12px; gap:9px; }
     #songbookLiveModal .sb-page-title { font-size:1.16rem; line-height:1.2; }
-    #songbookLiveModal .sb-page-lyrics { min-height:180px; padding:22px 17px 38px !important; font-size:1.08rem !important; line-height:1.75 !important; overflow-wrap:anywhere; }
+    /* !important on family/weight: sbApplyAppearance() injects a
+       #sb-appear-dyn-css <style> tag later in <head> that otherwise wins on
+       source order for this same selector -- this is a fixed mobile
+       default, not a user preference, so it must beat that injection. */
+    #songbookLiveModal .sb-page-lyrics { min-height:180px; padding:22px 17px 38px !important; font-size:1.08rem !important; line-height:1.75 !important; overflow-wrap:anywhere; font-family:"Comic Sans MS","Comic Sans",cursive !important; font-weight:700 !important; }
     #songbookLiveModal .wo-lyrics-chord-line { font-size:.82rem !important; }
     #songbookLiveModal .sb-page-lyrics--two-col { column-count:1 !important; }
     #songbookLiveModal #sbHorzSpacer { display:none !important; }
@@ -63419,16 +63795,16 @@ function filterLiturgyItems() {
 <div id="enablersModal" style="display:none;position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,0.55);overflow-y:auto;padding:16px;">
   <div style="max-width:960px;margin:0 auto;background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;display:flex;flex-direction:column;min-height:560px;">
     <!-- Header -->
-    <div style="background:linear-gradient(135deg,#0d9488,#14b8a6);padding:16px 22px;display:flex;align-items:center;gap:12px;">
+    <div class="enablers-header-row" style="background:linear-gradient(135deg,#0d9488,#14b8a6);padding:16px 22px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <i class="fa-solid fa-people-group" style="font-size:20px;color:#fff;"></i>
-      <div style="flex:1;">
+      <div style="flex:1;min-width:120px;">
         <div style="font-family:'Cinzel',serif;font-size:17px;color:#fff;font-weight:700;letter-spacing:0.04em;">Worship Enablers</div>
         <div style="font-size:11px;color:rgba(255,255,255,0.8);margin-top:1px;">Ministry member directory &amp; serving history</div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <button id="enablersShareAvail" title="Copy &amp; WhatsApp the members self-service availability link" onclick="shareAvailabilityLink()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:5px 11px;border-radius:6px;font-size:12px;cursor:pointer;font-family:&#39;Poppins&#39;,sans-serif;white-space:nowrap;"><i class="fa-solid fa-share-nodes" style="margin-right:5px;"></i>Availability link</button>
-        <select id="enablersYearFilter" style="padding:5px 8px;border:1px solid rgba(255,255,255,0.4);border-radius:6px;font-size:12px;background:rgba(255,255,255,0.15);color:#fff;outline:none;font-family:'Poppins',sans-serif;cursor:pointer;"></select>
-        <button id="enablersModalClose" style="background:rgba(255,255,255,0.2);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-xmark"></i></button>
+      <div class="enablers-header-actions" style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto;">
+        <button id="enablersShareAvail" title="Copy &amp; WhatsApp the members self-service availability link" onclick="shareAvailabilityLink()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:5px 11px;border-radius:6px;font-size:12px;cursor:pointer;font-family:&#39;Poppins&#39;,sans-serif;white-space:nowrap;flex-shrink:0;"><i class="fa-solid fa-share-nodes" style="margin-right:5px;"></i><span class="enablers-share-avail-label">Availability link</span></button>
+        <select id="enablersYearFilter" style="padding:5px 8px;border:1px solid rgba(255,255,255,0.4);border-radius:6px;font-size:12px;background:rgba(255,255,255,0.15);color:#fff;outline:none;font-family:'Poppins',sans-serif;cursor:pointer;flex-shrink:0;"></select>
+        <button id="enablersModalClose" style="background:rgba(255,255,255,0.2);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fa-solid fa-xmark"></i></button>
       </div>
     </div>
     <!-- Tabs -->
@@ -64029,14 +64405,25 @@ function filterLiturgyItems() {
 
   function _rUpdateUndoBtn() {
     var btn = document.getElementById('rosterUndoBtn');
-    if (!btn) return;
-    var canUndo = _rUndoStack.length > 0;
-    btn.disabled = !canUndo;
-    btn.style.opacity = canUndo ? '1' : '0.45';
-    btn.style.cursor  = canUndo ? 'pointer' : 'not-allowed';
-    btn.title = canUndo
-      ? 'Undo last change (Ctrl+Z) ' + String.fromCodePoint(0x2014) + ' ' + _rUndoStack.length + ' step(s)'
-      : 'Nothing to undo';
+    if (btn) {
+      var canUndo = _rUndoStack.length > 0;
+      btn.disabled = !canUndo;
+      btn.style.opacity = canUndo ? '1' : '0.45';
+      btn.style.cursor  = canUndo ? 'pointer' : 'not-allowed';
+      btn.title = canUndo
+        ? 'Undo last change (Ctrl+Z) ' + String.fromCodePoint(0x2014) + ' ' + _rUndoStack.length + ' step(s)'
+        : 'Nothing to undo';
+    }
+    var redoBtn = document.getElementById('rosterRedoBtn');
+    if (redoBtn) {
+      var canRedo = _rRedoStack.length > 0;
+      redoBtn.disabled = !canRedo;
+      redoBtn.style.opacity = canRedo ? '1' : '0.45';
+      redoBtn.style.cursor  = canRedo ? 'pointer' : 'not-allowed';
+      redoBtn.title = canRedo
+        ? 'Redo (Ctrl+Y) ' + String.fromCodePoint(0x2014) + ' ' + _rRedoStack.length + ' step(s)'
+        : 'Nothing to redo';
+    }
   }
 
   function _rShowAutoSave(msg, isErr) {
@@ -64324,7 +64711,7 @@ function filterLiturgyItems() {
     renderFilterButtons: function() {
       var container = document.getElementById('rosterFilterContainer');
       if (!container) return;
-      container.innerHTML = '<button class="roster-filter-btn ' + (STATE.rosterFilter === 'all' ? 'active' : '') + '" data-filter="all">All Roles</button><button class="roster-filter-btn ' + (STATE.rosterFilter === 'worship' ? 'active' : '') + '" data-filter="worship">Worship Team</button>';
+      container.innerHTML = '<button class="roster-filter-btn ' + (STATE.rosterFilter === 'all' ? 'active' : '') + '" data-filter="all"><i class="fa-solid fa-user-group"></i> All Roles</button><button class="roster-filter-btn ' + (STATE.rosterFilter === 'worship' ? 'active' : '') + '" data-filter="worship"><i class="fa-solid fa-people-group"></i> Worship Team</button>';
       var self = this;
       container.querySelectorAll('.roster-filter-btn').forEach(function(btn) {
         btn.onclick = function() {
@@ -64571,8 +64958,10 @@ function filterLiturgyItems() {
       var nextBtn  = document.getElementById('rosterNextMonthBtn');
       var saveBtn  = document.getElementById('rosterSaveBtn');
       var undoBtn  = document.getElementById('rosterUndoBtn');
+      var redoBtn  = document.getElementById('rosterRedoBtn');
       var csvBtn   = document.getElementById('rosterDownloadCSVBtn');
       var pdfBtn   = document.getElementById('rosterDownloadPDFBtn');
+      if (redoBtn) redoBtn.onclick = function() { self.redo(); };
       if (prevBtn) prevBtn.onclick = function() { self.changeMonth(-1); };
       if (nextBtn) nextBtn.onclick = function() { self.changeMonth(1); };
       if (saveBtn) saveBtn.onclick = function() { self.saveChanges(); };
@@ -64584,7 +64973,12 @@ function filterLiturgyItems() {
       var shareLinkBtn = document.getElementById('rosterShareLinkBtn');
       if (shareLinkBtn) shareLinkBtn.onclick = function() { self.shareLiveLink(); };
       var enablersBtn = document.getElementById('rosterEnablersBtn');
-      if (enablersBtn) enablersBtn.onclick = function() { self.openEnablersModal(); };
+      // Always land on the All Enablers tab from this button, regardless
+      // of whatever tab was last open (openEnablersModal reuses
+      // _enablersActiveTab as-is, and openEnablersCalendar/the "By
+      // Individual" duty-history links leave it set to 'calendar' or
+      // 'individual', which was leaking into this button's next use).
+      if (enablersBtn) enablersBtn.onclick = function() { self._enablersActiveTab = 'all'; self.openEnablersModal(); };
       var enablersClose = document.getElementById('enablersModalClose');
       if (enablersClose) enablersClose.onclick = function() { document.getElementById('enablersModal').style.display = 'none'; };
       // Ctrl+Z undo — scoped to when the Roster view is active
@@ -65649,7 +66043,23 @@ function filterLiturgyItems() {
       html += '</ol>';
       html += '<div style="margin-top:8px;font-size:11px;color:#6b7280;"><i class="fa-solid fa-rotate" style="margin-right:4px;color:#14b8a6;"></i>Calendar auto-updates whenever the roster changes. Google will send reminders 1 day before each service.</div>';
       html += '<div style="margin-top:8px;font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 8px;"><i class="fa-solid fa-triangle-exclamation" style="margin-right:4px;"></i>Google sometimes opens the "From URL" box empty instead of filling it in -- tapping <strong>GCal</strong> below also copies the link, so just paste it if that happens.</div>';
+      html += '<div style="margin-top:8px;font-size:11px;color:#0d9488;"><i class="fa-solid fa-bolt" style="margin-right:4px;"></i>Enablers with an email on file get invited to their duties automatically -- no subscribing needed. The link below is only a fallback for anyone without one.</div>';
       html += '</div>';
+
+      // Bulk-send bar (PIC only): WhatsApp each member their personal
+      // subscribe link in one go, using saved phone numbers.
+      if (STATE.picMode) {
+        var _bmc = self._enablersMetaCache || {};
+        var _bmetaNorm = {};
+        Object.keys(_bmc).forEach(function(k){ _bmetaNorm[k.trim().replace(/\s+/g, ' ')] = _bmc[k]; });
+        var _bWithPhone = allNames.filter(function(n){ return _bmetaNorm[n] && _bmetaNorm[n].phone; }).length;
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">';
+        html += '<i class="fa-brands fa-whatsapp" style="color:#25d366;font-size:18px;flex-shrink:0;"></i>';
+        html += '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;color:#065f46;">Send everyone their subscribe link</div>';
+        html += '<div style="font-size:11px;color:#6b7280;">' + _bWithPhone + ' of ' + allNames.length + ' members have a phone number saved</div></div>';
+        html += '<button onclick="RosterEngine._bulkSendSubscribeLinks()"' + (_bWithPhone ? '' : ' disabled') + ' style="flex-shrink:0;padding:7px 14px;background:' + (_bWithPhone ? '#25d366' : '#cbd5e1') + ';color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:' + (_bWithPhone ? 'pointer' : 'not-allowed') + ';"><i class="fa-solid fa-paper-plane mr-1"></i> Send All Links</button>';
+        html += '</div>';
+      }
 
       if (allNames.length === 0) {
         html += '<div style="text-align:center;padding:30px;color:#9ca3af;font-size:13px;"><i class="fa-solid fa-users-slash" style="display:block;font-size:24px;margin-bottom:8px;"></i>No enablers loaded yet</div>';
@@ -66828,6 +67238,21 @@ function filterLiturgyItems() {
         return { roleId: e.roleId, date: e.date.replace(/\s/g, ' '), oldValue: e._oldValue, newValue: e._newValue };
       });
 
+      // Separate list for the instant Google Calendar push: unlike
+      // changeLogs (the human-readable "recent updates" audit feed, which
+      // intentionally hides blank/clear actions), the calendar push needs
+      // EVERY cell whose value actually changed, including a real name
+      // being cleared to blank -- that's exactly when a stale invite needs
+      // to be cancelled on the assignee's calendar. syncCell always re-reads
+      // the current roster value itself, so this array only needs to name
+      // which cells to check, not what the new value is.
+      var calendarSyncCells = edits.filter(function(e) {
+        var origRaw = STATE.rosterOriginalValues ? STATE.rosterOriginalValues.get(e.roleId + '__' + e.date.replace(/\s/g, '_')) : undefined;
+        var orig = (origRaw && typeof origRaw === 'object') ? (origRaw.day || JSON.stringify(origRaw)) : (origRaw || '');
+        var val = (e.value && typeof e.value === 'object') ? (e.value.day || JSON.stringify(e.value)) : (e.value || '');
+        return val !== orig;
+      });
+
       this.showLoader(true);
       SBQ_ROSTER.saveEdits(edits).then(function() {
         if (silent) {
@@ -66843,18 +67268,19 @@ function filterLiturgyItems() {
           if (typeof loadRosterUpdates === 'function') loadRosterUpdates();
         });
         // Push only the cells that actually changed to Google Calendar right
-        // away (Phase 3) -- reuse changeLogs (already diffed against
-        // rosterOriginalValues just above) rather than the full `edits`
-        // array, since saveChanges re-upserts the *entire* current month on
-        // every save and most of those cells didn't actually change.
+        // away (Phase 3) -- reuse calendarSyncCells (already diffed against
+        // rosterOriginalValues just above, INCLUDING blank-outs) rather than
+        // the full `edits` array, since saveChanges re-upserts the *entire*
+        // current month on every save and most of those cells didn't
+        // actually change.
         // Fire-and-forget: a failure here must never affect the save that
         // already succeeded -- the daily/manual reconciliation self-heals
         // anything missed here.
-        if (changeLogs.length) {
+        if (calendarSyncCells.length) {
           fetch('/api/calendar-sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cells: changeLogs.map(function(c) { return { roleId: c.roleId, date: c.date, month: STATE.rosterMonth, year: STATE.rosterYear }; }) })
+            body: JSON.stringify({ cells: calendarSyncCells.map(function(c) { return { roleId: c.roleId, date: c.date, month: STATE.rosterMonth, year: STATE.rosterYear }; }) })
           }).catch(function(err) { console.warn('[calendar-sync] push failed, will self-heal via reconciliation:', err); });
         }
         // Update snapshot so next save compares correctly
@@ -67875,6 +68301,44 @@ function filterLiturgyItems() {
         var m = withPhone[idx++];
         self.sendDutyCardWhatsApp(m.name, m.phone);
         if (idx < withPhone.length) setTimeout(sendNext, 1500);
+      }
+      sendNext();
+    },
+
+    // WhatsApp one member their personal calendar-subscribe guide link. The
+    // guide (?view=subscribe&name=) shows a friendly "Add to Google Calendar"
+    // page; subscribing once then auto-updates whenever the roster changes.
+    sendSubscribeLinkWhatsApp: function(memberName, phone) {
+      if (!phone) { this.showToast('No phone number saved for ' + memberName, 'error'); return; }
+      var guideUrl = window.location.origin + '/?view=subscribe&name=' + encodeURIComponent(memberName);
+      var msg = 'Hi ' + memberName + '! Add your LHC worship duties to your phone calendar - just open this link and tap "Add to Google Calendar":\n\n' + guideUrl + '\n\nYou only need to do this once. After that, your duties update automatically whenever the roster changes, and you get a reminder the day before each service.';
+      var cleanPhone = phone.replace(/[\s\-\(\)]/g, '');
+      var waUrl = 'https://wa.me/' + cleanPhone.replace('+', '') + '?text=' + encodeURIComponent(msg);
+      window.open(waUrl, '_blank');
+    },
+
+    // Bulk version: opens a WhatsApp window per member (with a saved phone),
+    // 1.5s apart, each carrying that member's own subscribe link.
+    _bulkSendSubscribeLinks: function() {
+      var self = this;
+      if (!STATE.picMode) { self.showToast('PIC login required.', 'error'); return; }
+      var catOrder = ['preacher','liturgist','usher','reader','communion','altar','pianist','guitarist','bassist','drummer','singer','lcd','pa','livestream','tech','sundayschool','general'];
+      var namesSet = {};
+      catOrder.forEach(function(c){ (ROSTER_NAME_OPTIONS[c]||[]).forEach(function(n){ if(n) namesSet[n.trim().replace(/\s+/g, ' ')] = true; }); });
+      var mc = self._enablersMetaCache || {};
+      var metaNorm = {};
+      Object.keys(mc).forEach(function(k){ metaNorm[k.trim().replace(/\s+/g, ' ')] = mc[k]; });
+      var members = Object.keys(namesSet)
+        .filter(function(n){ return metaNorm[n] && metaNorm[n].phone; })
+        .map(function(n){ return { name: n, phone: metaNorm[n].phone }; });
+      if (!members.length) { self.showToast('No members have phone numbers saved yet. Add them in the All Enablers tab first.', 'error'); return; }
+      if (!confirm('Send the calendar subscribe link to ' + members.length + ' members via WhatsApp?\n\nThis opens ' + members.length + ' WhatsApp windows one after another (one per member with a saved phone number).')) return;
+      var idx = 0;
+      function sendNext() {
+        if (idx >= members.length) { self.showToast('All ' + members.length + ' subscribe links opened!', 'success'); return; }
+        var m = members[idx++];
+        self.sendSubscribeLinkWhatsApp(m.name, m.phone);
+        if (idx < members.length) setTimeout(sendNext, 1500);
       }
       sendNext();
     }
