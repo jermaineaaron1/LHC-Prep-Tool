@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, RhythmicNoteValue, Song, SongNote } from '@/lib/vocal-hero/types';
+import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, RhythmicNoteValue, Song, SongNote, TimedLyricSection } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, midiSourceKey, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
 import { supabase } from '@/lib/vocal-hero/supabaseClient';
@@ -36,10 +36,10 @@ function pitchRangeForPart(part: number) {
   const natural = VOICE_MIDI_RANGES[part] ?? VOICE_MIDI_RANGES[0];
   return { min: natural.min, max: natural.max };
 }
-type EditableSong = Pick<Song, 'id' | 'title' | 'notes' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>;
+type EditableSong = Pick<Song, 'id' | 'title' | 'notes' | 'timed_lyrics' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>;
 type EditorTool = 'select' | 'draw' | 'erase';
 type PlaybackScope = 'all' | 'range' | 'note';
-type ArrangementSnapshot = { title: string; notes: SongNote[]; musicalTimeline: MusicalTimelineSettings; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
+type ArrangementSnapshot = { title: string; notes: SongNote[]; timedLyrics: TimedLyricSection[]; karaokeLyrics: BackingTrackSettings['karaoke_lyrics']; musicalTimeline: MusicalTimelineSettings; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
 type MidiPreview = { fileName: string; notes: ImportedMidiNote[] };
 const DEFAULT_TRACK_SETTINGS: BackingTrackSettings = { volume: 1, speed: 1, timeline_offset: 0, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, loop_enabled: false, skip_regions: [], split_markers: [], media_duration: null, effect: 'none' };
 
@@ -238,6 +238,44 @@ function quantizeAndResolveNotes(input: SongNote[], bars: MusicalBar[], division
   });
   return input.map(note => adjusted.get(note.id) ?? note);
 }
+
+function phraseText(events: Array<{ lyric: string }>) {
+  let text = '';
+  let joinNext = false;
+  events.forEach(event => {
+    const raw = event.lyric.trim();
+    const joinsPrevious = joinNext || /^[-–—]/.test(raw);
+    if (text && !joinsPrevious) text += ' ';
+    text += raw.replace(/^[-–—]+|[-–—]+$/g, '');
+    joinNext = /[-–—]$/.test(raw);
+  });
+  return text.trim();
+}
+
+function timedLyricsFromNotes(notes: SongNote[], targetsPerPhrase: number): TimedLyricSection[] {
+  const events: Array<{ lyric: string; start: number; end: number }> = [];
+  [...notes].filter(note => note.lyric.trim()).sort((a, b) => a.start - b.start || a.part - b.part).forEach(note => {
+    const existing = events.find(event => Math.abs(event.start - note.start) <= .07);
+    if (existing) {
+      existing.end = Math.max(existing.end, note.end);
+      if (note.lyric.trim().length > existing.lyric.length) existing.lyric = note.lyric.trim();
+    } else events.push({ lyric: note.lyric.trim(), start: note.start, end: note.end });
+  });
+  const result: TimedLyricSection[] = [];
+  let phrase: typeof events = [];
+  const flush = () => {
+    if (!phrase.length) return;
+    result.push({ primary: phraseText(phrase), translation: '', start: phrase[0].start, end: phrase[phrase.length - 1].end });
+    phrase = [];
+  };
+  events.forEach(event => {
+    const previous = phrase.at(-1);
+    if (previous && (event.start - previous.end > 1.15 || /[.!?;:]$/.test(previous.lyric) || (phrase.length >= targetsPerPhrase && !/[-–—]$/.test(previous.lyric)))) flush();
+    phrase.push(event);
+  });
+  flush();
+  return result;
+}
 function latchAndResolveNotes(input: SongNote[], bars: MusicalBar[], division: NoteDivision, value: RhythmicNoteValue) {
   const latched = input.map(note => latchNoteToValue(note, bars, division, value));
   const adjusted = new Map<string, SongNote>();
@@ -271,6 +309,7 @@ function resolveVoiceCollisionsPreservingTiming(input: SongNote[], bars: Musical
 export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClose: () => void; onSave: (values: EditableSong) => Promise<void>; }) {
   const [title, setTitle] = useState(song.title);
   const [notes, setNotes] = useState<SongNote[]>(() => playableNotes(song));
+  const [timedLyrics, setTimedLyrics] = useState<TimedLyricSection[]>(() => (song.timed_lyrics ?? []).map(section => ({ ...section })));
   const [selectedId, setSelectedId] = useState<string | null>(() => playableNotes(song)[0]?.id ?? null);
   const [selectedIds, setSelectedIds] = useState<string[]>(() => playableNotes(song)[0]?.id ? [playableNotes(song)[0].id] : []);
   const [noteClipboard, setNoteClipboard] = useState<SongNote[]>([]);
@@ -302,6 +341,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [mediaKind, setMediaKind] = useState<'audio' | 'video'>(song.backing_media_kind ?? 'audio');
   const [mediaName, setMediaName] = useState('');
   const [showBackingEditor, setShowBackingEditor] = useState(false);
+  const [showLyricsEditor, setShowLyricsEditor] = useState(false);
   const [trackSettings, setTrackSettings] = useState<BackingTrackSettings>({ ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) });
   const [musicalTimeline, setMusicalTimeline] = useState<MusicalTimelineSettings>(() => normaliseMusicalTimeline(song, { ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) }));
   const [uploadingMedia, setUploadingMedia] = useState(false);
@@ -451,9 +491,9 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     if (media.paused) void media.play().catch(() => undefined);
   }, [isPlaying, mediaUrl, playhead, trackSettings.clips, trackSettings.media_duration, trackSettings.speed, trackSettings.trim_end, trackSettings.trim_start, trackSettings.timeline_offset, trackSettings.skip_regions, trackSettings.volume]);
 
-  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: musicalTimeline.snap_division, snap_value: musicalTimeline.snap_value }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
+  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), timedLyrics: timedLyrics.map(section => ({ ...section })), karaokeLyrics: trackSettings.karaoke_lyrics ? { ...trackSettings.karaoke_lyrics } : undefined, musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: musicalTimeline.snap_division, snap_value: musicalTimeline.snap_value }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
   function pushHistory() { const snapshot = makeSnapshot(); setHistory(current => ({ past: [...current.past, snapshot].slice(-100), future: [] })); }
-  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, snap_value: snapshot.musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
+  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setTimedLyrics(snapshot.timedLyrics.map(section => ({ ...section }))); setTrackSettings(current => ({ ...current, karaoke_lyrics: snapshot.karaokeLyrics ? { ...snapshot.karaokeLyrics } : undefined })); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, snap_value: snapshot.musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
   function undo() { const previous = history.past.at(-1); if (!previous) return; const current = makeSnapshot(); restoreSnapshot(previous); setHistory({ past: history.past.slice(0, -1), future: [current, ...history.future] }); }
   function redo() { const next = history.future[0]; if (!next) return; const current = makeSnapshot(); restoreSnapshot(next); setHistory({ past: [...history.past, current].slice(-100), future: history.future.slice(1) }); }
   function update(id: string, values: Partial<SongNote>) {
@@ -468,6 +508,11 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     }
     pushHistory();
     setNotes(current => current.map(note => note.id === id ? candidate : note));
+    if (values.lyric !== undefined) {
+      setTrackSettings(current => ({ ...current, karaoke_lyrics: { targets_per_phrase: current.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: current.karaoke_lyrics?.max_lines ?? 2, source: 'notes' } }));
+      setEditorNotice('Note lyric updated. Gameplay lyric source switched to Note lyrics so this edit will appear after Save.');
+      return;
+    }
     setEditorNotice(null);
   }
   function selectNote(id: string, additive = false) { const note = notes.find(item => item.id === id); if (!note) return; setSelectedPart(note.part < 0 ? 0 : note.part); setSelectedId(id); setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]); setPlayScope('note'); auditionNote(note); }
@@ -820,7 +865,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     } catch (error) { setRecordError(error instanceof Error ? error.message : 'Unable to access the microphone.'); setRecording(false); }
   }
   function playRecordedTake() { if (recordingUrl) void new Audio(recordingUrl).play(); }
-  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .001, roundPrecise(note.end)) })), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, musical_timeline: musicalTimeline } }); } finally { setSaving(false); } }
+  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .001, roundPrecise(note.end)) })), timed_lyrics: timedLyrics.map(section => ({ ...section, primary: section.primary.trim(), translation: section.translation.trim(), start: Math.max(0, roundPrecise(section.start)), end: Math.max(roundPrecise(section.start) + .01, roundPrecise(section.end)) })).filter(section => section.primary), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, musical_timeline: musicalTimeline } }); } finally { setSaving(false); } }
   async function uploadBackingTrack(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -877,6 +922,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
         <EditorToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onSave={() => void save()} saving={saving} />
         <div className="flex flex-wrap items-center gap-3 border-b border-white/[.06] bg-[#090c20] px-3 py-2 text-xs">
+          <button onClick={() => setShowLyricsEditor(true)} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100">Edit gameplay lyrics</button>
           <button onClick={() => midiInputRef.current?.click()} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100">Import MIDI</button>
           <button onClick={() => mediaInputRef.current?.click()} disabled={uploadingMedia} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100 disabled:opacity-50">{uploadingMedia ? 'Uploading…' : mediaUrl ? 'Replace backing track' : 'Upload backing track'}</button>
           <span className="min-w-0 truncate text-slate-500">{mediaUrl ? `${mediaName || 'Backing track'} · synchronized with SATB` : 'Import MIDI notes or add an audio/video backing track.'}</span>
@@ -917,6 +963,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
           </section>
           <Inspector selected={selected} bars={musicalBars} update={update} onDelete={removeSelected} onDuplicate={duplicateSelected} />
         </div>
+        {showLyricsEditor && <GameplayLyricsDialog notes={notes} phrases={timedLyrics} settings={trackSettings} onPhrasesChange={setTimedLyrics} onSettingsChange={karaoke_lyrics => setTrackSettings(current => ({ ...current, karaoke_lyrics }))} onHistory={pushHistory} onClose={() => setShowLyricsEditor(false)} />}
         {showBackingEditor && <div className="absolute inset-0 z-40 grid place-items-center bg-[#020510]/85 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-label="Backing track editor" className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-cyan-300/30 bg-[#08101f] shadow-[0_0_60px_#22d3ee20]"><header className="flex items-center gap-3 border-b border-white/10 px-5 py-4"><div><p className="text-[10px] font-bold tracking-[.2em] text-cyan-300">BACKING TRACK</p><h2 className="text-lg font-semibold">Audio/video arrangement</h2></div><button onClick={() => setShowBackingEditor(false)} className="ml-auto rounded-lg border border-white/15 px-4 py-2 text-xs">Done</button></header><div className="min-h-0 overflow-y-auto p-4"><BackingTrackPanel url={mediaUrl} kind={mediaKind} fileName={mediaName} settings={trackSettings} setSettings={setTrackSettings} uploading={uploadingMedia} transportTime={playhead} transportPlaying={isPlaying} onUpload={() => mediaInputRef.current?.click()} /></div></section></div>}
         {midiPreview && <MidiImportDialog preview={midiPreview} ranges={midiRanges} setRanges={setMidiRanges} sourceParts={midiSourceParts} setSourceParts={setMidiSourceParts} fixedPart={midiPart} setFixedPart={setMidiPart} mode={midiMode} setMode={setMidiMode} onCancel={() => setMidiPreview(null)} onApply={applyMidiImport} />}
       </main>
@@ -933,8 +980,48 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   </div>;
 }
 
+function GameplayLyricsDialog({ notes, phrases, settings, onPhrasesChange, onSettingsChange, onHistory, onClose }: { notes: SongNote[]; phrases: TimedLyricSection[]; settings: BackingTrackSettings; onPhrasesChange: (value: TimedLyricSection[]) => void; onSettingsChange: (value: NonNullable<BackingTrackSettings['karaoke_lyrics']>) => void; onHistory: () => void; onClose: () => void }) {
+  const lyricSettings = { targets_per_phrase: settings.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: settings.karaoke_lyrics?.max_lines ?? 2 as 1 | 2, source: settings.karaoke_lyrics?.source ?? (phrases.length ? 'phrases' : 'notes') as 'phrases' | 'notes' };
+  const notePhrases = useMemo(() => timedLyricsFromNotes(notes, lyricSettings.targets_per_phrase), [notes, lyricSettings.targets_per_phrase]);
+  const activePhrases = lyricSettings.source === 'notes' ? notePhrases : phrases;
+  const setSource = (source: 'phrases' | 'notes') => { onHistory(); onSettingsChange({ ...lyricSettings, source }); };
+  const updatePhrase = (index: number, values: Partial<TimedLyricSection>) => {
+    onPhrasesChange(phrases.map((phrase, phraseIndex) => phraseIndex === index ? { ...phrase, ...values } : phrase));
+    if (lyricSettings.source !== 'phrases') onSettingsChange({ ...lyricSettings, source: 'phrases' });
+  };
+  const addPhrase = () => {
+    onHistory();
+    const start = roundPrecise(phrases.at(-1)?.end ?? 0);
+    onPhrasesChange([...phrases, { primary: 'New gameplay lyric phrase', translation: '', start, end: roundPrecise(start + 4) }]);
+    onSettingsChange({ ...lyricSettings, source: 'phrases' });
+  };
+  const removePhrase = (index: number) => { onHistory(); onPhrasesChange(phrases.filter((_, phraseIndex) => phraseIndex !== index)); };
+  const rebuild = () => {
+    onHistory();
+    onPhrasesChange(notePhrases);
+    onSettingsChange({ ...lyricSettings, source: 'phrases' });
+  };
+  return <div className="absolute inset-0 z-[70] grid place-items-center bg-[#020510]/90 p-3 backdrop-blur-md">
+    <section role="dialog" aria-modal="true" aria-label="Gameplay lyrics editor" className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-fuchsia-300/35 bg-[#080c1e] shadow-[0_0_80px_#d946ef2b]">
+      <header className="flex items-center gap-4 border-b border-white/10 px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-cyan-300">Karaoke authoring</p><h2 className="text-xl font-semibold text-white">Gameplay lyrics</h2><p className="mt-1 text-xs text-slate-400">Choose the lyric source used by the live game, then edit its wording and timing.</p></div><button onClick={onClose} className="ml-auto rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold">Done</button></header>
+      <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+        <div className="grid gap-3 md:grid-cols-2">
+          <button onClick={() => setSource('notes')} className={`rounded-xl border p-4 text-left ${lyricSettings.source === 'notes' ? 'border-cyan-300 bg-cyan-300/10 shadow-[0_0_22px_#22d3ee20]' : 'border-white/10 bg-white/[.025]'}`}><span className="flex items-center justify-between"><b className="text-cyan-100">Note lyrics</b>{lyricSettings.source === 'notes' && <em className="rounded-full bg-cyan-300/15 px-2 py-1 text-[9px] font-bold not-italic text-cyan-200">LIVE SOURCE</em>}</span><small className="mt-2 block leading-relaxed text-slate-400">Uses the Lyrics field on each piano-roll note. Changes to a note lyric automatically switch gameplay to this source.</small></button>
+          <button onClick={() => setSource('phrases')} disabled={!phrases.length} className={`rounded-xl border p-4 text-left disabled:opacity-45 ${lyricSettings.source === 'phrases' ? 'border-fuchsia-300 bg-fuchsia-300/10 shadow-[0_0_22px_#e879f920]' : 'border-white/10 bg-white/[.025]'}`}><span className="flex items-center justify-between"><b className="text-fuchsia-100">Phrase timeline</b>{lyricSettings.source === 'phrases' && <em className="rounded-full bg-fuchsia-300/15 px-2 py-1 text-[9px] font-bold not-italic text-fuchsia-200">LIVE SOURCE</em>}</span><small className="mt-2 block leading-relaxed text-slate-400">Uses the complete sentences below. Phrase start/end times drive the character-by-character karaoke highlight.</small></button>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-[#050817] p-3"><span className="mr-auto text-xs text-slate-400"><b className="text-white">{activePhrases.length}</b> gameplay phrase{activePhrases.length === 1 ? '' : 's'} currently produced</span><button onClick={rebuild} disabled={!notePhrases.length} className="rounded-lg border border-cyan-300/30 px-3 py-2 text-xs font-semibold text-cyan-100 disabled:opacity-40">Build phrase timeline from note lyrics</button><button onClick={addPhrase} className="rounded-lg border border-fuchsia-300/30 bg-fuchsia-300/10 px-3 py-2 text-xs font-semibold text-fuchsia-100">+ Add phrase</button></div>
+        {lyricSettings.source === 'notes' && <div className="mt-4 rounded-xl border border-cyan-300/20 bg-cyan-300/[.05] p-4"><b className="text-sm text-cyan-100">Live preview from piano-roll notes</b><p className="mt-1 text-xs text-slate-400">Edit an individual target by selecting its note and changing <b>Lyrics</b> in the Inspector. Save the arrangement before starting a new game.</p><div className="mt-3 space-y-2">{notePhrases.map((phrase, index) => <div key={`${phrase.start}-${index}`} className="grid gap-2 rounded-lg border border-white/10 bg-black/15 p-3 sm:grid-cols-[72px_1fr]"><span className="font-mono text-[10px] text-cyan-300">{formatClock(phrase.start)}<br />{formatClock(phrase.end)}</span><p className="text-sm text-white">{phrase.primary}</p></div>)}</div></div>}
+        <div className={`${lyricSettings.source === 'notes' ? 'mt-5 border-t border-white/10 pt-5' : 'mt-4'}`}><div className="mb-3 flex items-end justify-between gap-3"><span><b className="text-sm text-white">Phrase timeline editor</b><small className="mt-1 block text-slate-400">Editing any row makes Phrase timeline the live source.</small></span></div>
+          <div className="space-y-3">{phrases.map((phrase, index) => <article key={index} className="rounded-xl border border-white/10 bg-white/[.025] p-3"><div className="grid gap-3 lg:grid-cols-[44px_minmax(240px,1fr)_110px_110px_auto]"><span className="grid h-10 w-10 place-items-center rounded-lg bg-fuchsia-300/10 font-mono text-sm font-bold text-fuchsia-200">{index + 1}</span><label className="text-[9px] font-bold uppercase tracking-[.12em] text-slate-500">Sentence / phrase<textarea value={phrase.primary} onFocus={onHistory} onChange={event => updatePhrase(index, { primary: event.target.value })} rows={2} className="mt-1 block w-full resize-y rounded-lg border border-white/15 bg-[#050817] px-3 py-2 text-sm text-white outline-none focus:border-fuchsia-300" /></label><label className="text-[9px] font-bold uppercase tracking-[.12em] text-slate-500">Start (seconds)<input type="number" min="0" step="0.01" value={phrase.start} onFocus={onHistory} onChange={event => updatePhrase(index, { start: Math.max(0, Number(event.target.value) || 0) })} className="mt-1 block w-full rounded-lg border border-white/15 bg-[#050817] px-3 py-2 text-sm text-white" /></label><label className="text-[9px] font-bold uppercase tracking-[.12em] text-slate-500">End (seconds)<input type="number" min="0" step="0.01" value={phrase.end} onFocus={onHistory} onChange={event => updatePhrase(index, { end: Math.max(phrase.start + .01, Number(event.target.value) || phrase.start + .01) })} className="mt-1 block w-full rounded-lg border border-white/15 bg-[#050817] px-3 py-2 text-sm text-white" /></label><button onClick={() => removePhrase(index)} className="self-end rounded-lg border border-rose-300/25 px-3 py-2 text-xs text-rose-200">Remove</button></div></article>)}{!phrases.length && <div className="rounded-xl border border-dashed border-white/15 p-8 text-center text-sm text-slate-500">No phrase rows yet. Build them from note lyrics or add the first phrase manually.</div>}</div>
+        </div>
+      </div>
+      <footer className="flex flex-wrap items-center gap-3 border-t border-white/10 bg-[#050817] px-5 py-3 text-xs text-slate-400"><span className="mr-auto">Press the main <b className="text-white">Save</b> button after closing this window to publish these lyrics to gameplay.</span><button onClick={onClose} className="rounded-lg bg-[linear-gradient(90deg,#d946ef,#38bdf8)] px-5 py-2 font-bold text-white">Done editing</button></footer>
+    </section>
+  </div>;
+}
+
 function KaraokePhraseControls({ settings, onChange }: { settings: BackingTrackSettings; onChange: (value: NonNullable<BackingTrackSettings['karaoke_lyrics']>) => void }) {
-  const value = { targets_per_phrase: settings.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: settings.karaoke_lyrics?.max_lines ?? 2 as 1 | 2 };
+  const value = { targets_per_phrase: settings.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: settings.karaoke_lyrics?.max_lines ?? 2 as 1 | 2, source: settings.karaoke_lyrics?.source ?? 'phrases' as 'phrases' | 'notes' };
   return <section className="rounded-xl border border-cyan-300/20 bg-[linear-gradient(135deg,#071729,#120d29)] p-3">
     <div className="flex flex-wrap items-start gap-4"><span className="mr-auto"><b className="block text-sm text-white">Gameplay lyric phrases</b><small className="text-slate-400">Choose how many timed lyric targets appear together. The same phrase sequence is retained after refresh.</small></span>
       <label className="text-[10px] font-bold uppercase tracking-[.12em] text-cyan-300">Targets per phrase<input type="number" min={4} max={20} value={value.targets_per_phrase} onChange={event => onChange({ ...value, targets_per_phrase: Math.max(4, Math.min(20, Math.round(Number(event.target.value) || 10))) })} className="mt-1 block w-24 rounded-lg border border-white/15 bg-[#070b1d] px-3 py-2 text-sm text-white" /></label>

@@ -418,6 +418,14 @@ Full 3-panel songbook layout implemented in both `Index.html` and `dist/index.ht
 - The exact comparison appears in the desktop singing coach, the active pitch-lane header, and the compact mobile feedback card. The Worship iframe release key is `20260729-3`; no migration, package, or environment change is required.
 - Follow-up on `feature/vocal-hero-note-click-audition`: clicking or pressing any existing note body in Select or Draw mode now auditions that note for its full authored duration. The editor uses a single monophonic preview channel: selecting a different note fades the previous preview within 18ms before sounding the new pitch, rapid suspended-audio callbacks are generation-guarded, and transport Play/Stop/Pause also cancels the preview. The Worship iframe release key is `20260729-4`.
 
+### Vocal Hero gameplay-lyrics authoring (2026-07-29)
+
+- Added a visible **Edit gameplay lyrics** workspace to the arrangement editor. Authors can explicitly choose the live lyric source: per-note piano-roll lyrics or complete phrase-timeline rows.
+- Per-note lyric edits now automatically select the note-lyrics source instead of being silently hidden behind legacy `timed_lyrics`. Note lyrics are grouped into stable karaoke phrases using their authored timing, rests, punctuation, hyphenated syllables, and the configured targets-per-phrase limit.
+- Phrase rows expose editable sentence text and start/end seconds, plus add/remove and **Build phrase timeline from note lyrics** actions. Their timing drives character-progress highlighting in gameplay. Phrase/source edits participate in the existing Undo/Redo snapshots.
+- `timed_lyrics` and the selected lyric source now persist through the existing `vh_songs` update path. No migration is required: phrase rows use the existing `timed_lyrics` column and source selection lives in `backing_track_settings.karaoke_lyrics` JSON.
+- Bumped both Worship-shell practice-game release keys to `20260729-5`. Verification: `npx tsc --noEmit`, production `next build` with placeholder Supabase build variables, and `git diff --check` pass.
+
 ### Songs mobile interactions (2026-07-22)
 
 - On `fix/mobile-song-interactions`, search suggestion selection now filters the catalogue, dismisses the mobile keyboard, scrolls the exact result card into the center of view, and briefly highlights it. Keyboard Enter follows the active suggestion through the same path.

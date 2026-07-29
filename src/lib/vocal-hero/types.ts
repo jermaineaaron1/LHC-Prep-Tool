@@ -80,6 +80,8 @@ export interface BackingTrackSettings {
     targets_per_phrase: number;
     /** Preferred maximum visual line count for the phrase. */
     max_lines: 1 | 2;
+    /** Choose whether gameplay is authored from phrase rows or live note lyrics. */
+    source?: 'phrases' | 'notes';
   };
 }
 

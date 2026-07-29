@@ -166,10 +166,10 @@ export default function VocalHeroHostPage() {
     } catch (cause) { soloPitchRef.current?.stop(); soloPitchRef.current = null; setSoloMic('unknown'); setError(cause instanceof Error ? cause.message : 'Unable to start solo practice.'); }
     finally { setSoloStarting(null); }
   }
-  async function saveArrangement(values: Pick<Song, 'id' | 'title' | 'notes' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>) {
+  async function saveArrangement(values: Pick<Song, 'id' | 'title' | 'notes' | 'timed_lyrics' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>) {
     if (!editingSong) return;
     try {
-      const saved = await updateSong(editingSong.id, { title: values.title, notes: values.notes, backing_media_url: values.backing_media_url, backing_media_kind: values.backing_media_kind, backing_track_settings: values.backing_track_settings, audio_url: values.backing_media_url, status: values.notes?.length ? 'ready' : 'draft' });
+      const saved = await updateSong(editingSong.id, { title: values.title, notes: values.notes, timed_lyrics: values.timed_lyrics, backing_media_url: values.backing_media_url, backing_media_kind: values.backing_media_kind, backing_track_settings: values.backing_track_settings, audio_url: values.backing_media_url, status: values.notes?.length ? 'ready' : 'draft' });
       setSongs(current => current.some(item => item.id === saved.id) ? current.map(item => item.id === saved.id ? saved : item) : [saved, ...current]);
       setEditingSong(null);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save the arrangement.'); throw cause; }

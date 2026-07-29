@@ -54,12 +54,13 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
   const timedLyrics = [...(song.timed_lyrics ?? [])]
     .filter(section => section.primary?.trim())
     .sort((a, b) => a.start - b.start);
-  const authoredPhrases = phraseLikeTimedLyrics(timedLyrics) ? timedLyrics : legacyPhrases(song);
+  const useNoteLyrics = song.backing_track_settings?.karaoke_lyrics?.source === 'notes';
+  const authoredPhrases = useNoteLyrics ? [] : phraseLikeTimedLyrics(timedLyrics) ? timedLyrics : legacyPhrases(song);
   if (authoredPhrases.length) return timedPhraseCue(authoredPhrases, elapsed);
 
   // Pick one granular lyric source for the whole performance. Never switch
   // sources after refresh or after the final timed entry has elapsed.
-  const timedEvents = !phraseLikeTimedLyrics(timedLyrics)
+  const timedEvents = !useNoteLyrics && !phraseLikeTimedLyrics(timedLyrics)
     ? timedLyrics.map(section => ({ lyric: section.primary.trim(), start: section.start, end: section.end }))
     : [];
   const voiceEvents = lyricEvents(notes.filter(note => note.part === partIndex || note.part === -1));
