@@ -311,6 +311,8 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const editorRootRef = useRef<HTMLDivElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const noteAuditionContextRef = useRef<AudioContext | null>(null);
+  const noteAuditionStopRef = useRef<(() => void) | null>(null);
+  const noteAuditionGenerationRef = useRef(0);
   const transportRunningRef = useRef(false);
   const playheadRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
@@ -358,6 +360,8 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     backingMediaRef.current?.pause();
     recorderRef.current?.stream.getTracks().forEach(track => track.stop());
     void audioContextRef.current?.close();
+    noteAuditionGenerationRef.current += 1;
+    noteAuditionStopRef.current?.();
     void noteAuditionContextRef.current?.close();
   }, []);
 
@@ -466,15 +470,25 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setNotes(current => current.map(note => note.id === id ? candidate : note));
     setEditorNotice(null);
   }
-  function selectNote(id: string, additive = false) { const note = notes.find(item => item.id === id); if (!note) return; setSelectedPart(note.part < 0 ? 0 : note.part); setSelectedId(id); setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]); setPlayScope('note'); }
-  function auditionAddedNote(note: SongNote) {
-    const play = (context: AudioContext) => playPianoTone(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start), 0);
+  function selectNote(id: string, additive = false) { const note = notes.find(item => item.id === id); if (!note) return; setSelectedPart(note.part < 0 ? 0 : note.part); setSelectedId(id); setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]); setPlayScope('note'); auditionNote(note); }
+  function stopNoteAudition() {
+    noteAuditionGenerationRef.current += 1;
+    noteAuditionStopRef.current?.();
+    noteAuditionStopRef.current = null;
+  }
+  function auditionNote(note: SongNote) {
+    stopNoteAudition();
+    const generation = noteAuditionGenerationRef.current;
+    const play = (context: AudioContext) => {
+      if (generation !== noteAuditionGenerationRef.current) return;
+      noteAuditionStopRef.current = playPianoTone(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start), 0);
+    };
     let context = noteAuditionContextRef.current;
     if (!context || context.state === 'closed') {
       context = new AudioContext({ latencyHint: 'interactive' });
       noteAuditionContextRef.current = context;
     }
-    if (context.state === 'suspended') void context.resume().then(() => play(context));
+    if (context.state === 'suspended') void context.resume().then(() => play(context)).catch(() => undefined);
     else play(context);
   }
   function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number) {
@@ -489,7 +503,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     pushHistory();
     setNotes(current => [...current, candidate]);
     setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); setEditorNotice(null);
-    auditionAddedNote(candidate);
+    auditionNote(candidate);
   }
   function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const pointerTime = Math.max(0, (event.clientX - bounds.left) / zoom); const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION; const range = pitchRangeForPart(part); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, snapTimeToGrid(musicalBars, pointerTime, division), range.max - row); }
   function duplicateSelected() {
@@ -527,6 +541,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   function beginNoteMove(id: string, clientX: number, clientY: number, additive = false) {
     const target = notes.find(note => note.id === id);
     if (!target) return;
+    auditionNote(target);
     const ids = additive ? (selectedIds.includes(id) ? selectedIds.filter(item => item !== id) : [...selectedIds, id]) : selectedIds.includes(id) ? [...selectedIds] : [id];
     const initial = notes.reduce<Record<string, { midi: number; start: number; end: number }>>((values, note) => { if (ids.includes(note.id)) values[note.id] = { midi: note.midi, start: note.start, end: note.end }; return values; }, {});
     noteMoveRef.current = { originX: clientX, originY: clientY, ids: Object.keys(initial), initial, targetId: ids.includes(id) ? id : ids[0] ?? id, deltaMidi: 0, deltaTime: 0, moved: false, historyPushed: false, selectionApplied: false };
@@ -709,6 +724,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     if (activeClip && media.currentTime >= activeClip.source_end) media.pause();
   }
   function haltPlaybackEngine() {
+    stopNoteAudition();
     transportRunningRef.current = false;
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
@@ -1129,6 +1145,7 @@ function playPianoTone(context: AudioContext, note: SongNote, startAt: number, l
   master.gain.exponentialRampToValueAtTime(velocity * .36, startAt + Math.min(.11, audibleLength * .55));
   master.gain.exponentialRampToValueAtTime(.0001, releaseAt);
   master.connect(filter).connect(context.destination);
+  const oscillators: OscillatorNode[] = [];
   [[1, 'triangle', 1], [2, 'sine', .26], [3, 'sine', .12], [4.2, 'sine', .05]].forEach(([ratio, wave, level]) => {
     const oscillator = context.createOscillator();
     const gain = context.createGain();
@@ -1138,7 +1155,18 @@ function playPianoTone(context: AudioContext, note: SongNote, startAt: number, l
     oscillator.connect(gain).connect(master);
     oscillator.start(startAt);
     oscillator.stop(releaseAt + .03);
+    oscillators.push(oscillator);
   });
+  let stopped = false;
+  return () => {
+    if (stopped || context.state === 'closed') return;
+    stopped = true;
+    const now = context.currentTime;
+    try { master.gain.cancelAndHoldAtTime(now); }
+    catch { master.gain.cancelScheduledValues(now); master.gain.setValueAtTime(Math.max(.0001, master.gain.value), now); }
+    master.gain.exponentialRampToValueAtTime(.0001, now + .018);
+    oscillators.forEach(oscillator => { try { oscillator.stop(now + .02); } catch { /* The scheduled note may already have ended. */ } });
+  };
 }
 function Inspector({ selected, bars, update, onDelete, onDuplicate }: { selected: SongNote | null; bars: MusicalBar[]; update: (id: string, values: Partial<SongNote>) => void; onDelete: () => void; onDuplicate: () => void }) {
   if (!selected) return <aside className="hidden w-60 shrink-0 border-l border-white/10 bg-[#090b1e] p-4 xl:block"><p className="text-xs tracking-[.18em] text-slate-500">INSPECTOR</p><p className="mt-6 text-sm text-slate-400">Select a note to edit its properties.</p></aside>;
