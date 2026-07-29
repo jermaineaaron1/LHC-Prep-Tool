@@ -411,6 +411,12 @@ Full 3-panel songbook layout implemented in both `Index.html` and `dist/index.ht
 - Added `/api/vocal-hero/control` and `setSessionPaused` for synchronized pause/resume using the already-installed session columns; no new migration or environment variable is required. Bumped both Worship-shell iframe release keys to `20260729-2`.
 - Verification: `npx tsc --noEmit`, `next build` (with placeholder Supabase build values), and `git diff --check` pass. The existing ESLint 9/no-flat-config limitation remains unchanged.
 
+### Vocal Hero note audition and exact live pitch comparison (2026-07-29)
+
+- Manually drawing a note in the arrangement editor now auditions its actual MIDI pitch immediately through the existing piano-style Web Audio voice. The preview is gated to the generated target's exact duration, so whole, dotted, quarter, eighth, and other selected rhythmic values sound for their BPM/metre-derived length rather than a fixed preview length.
+- Gameplay now keeps the microphone's raw detected pitch for visual feedback instead of silently octave-normalizing its displayed note. The singer sees **You sang** and **Target** note names, the number of semitones above/below the target, cents offset, and a live detected-pitch marker on the exact chromatic row. Octave/harmonic tolerance remains isolated to the scoring engine.
+- The exact comparison appears in the desktop singing coach, the active pitch-lane header, and the compact mobile feedback card. The Worship iframe release key is `20260729-3`; no migration, package, or environment change is required.
+
 ### Songs mobile interactions (2026-07-22)
 
 - On `fix/mobile-song-interactions`, search suggestion selection now filters the catalogue, dismisses the mobile keyboard, scrolls the exact result card into the center of view, and briefly highlights it. Keyboard Enter follows the active suggestion through the same path.

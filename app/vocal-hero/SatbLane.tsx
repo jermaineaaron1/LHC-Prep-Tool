@@ -2,7 +2,6 @@
 
 import type { SongNote } from '@/lib/vocal-hero/types';
 import { hzToMidi, livePitchFeedback, midiNoteName } from '@/lib/vocal-hero/liveCues';
-import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
 
 const VOICE_RANGES = [
   { low: 60, high: 81 }, // Soprano C4-A5
@@ -46,7 +45,7 @@ export function SatbLane({
   const visible = partNotes.filter(note => note.end >= elapsed - .6 && note.start <= elapsed + lookAheadSeconds);
   const target = partNotes.find(note => elapsed >= note.start && elapsed < note.end) ?? null;
   const next = partNotes.find(note => note.start > elapsed) ?? null;
-  const displayPitchHz = target && pitchHz ? PitchEngine.alignOctaveToTarget(pitchHz, target.midi) : pitchHz;
+  const displayPitchHz = pitchHz;
   const pitchY = displayPitchHz && displayPitchHz > 0
     ? Math.max(headerHeight + gridPadding, Math.min(laneHeight - gridPadding, yFor(hzToMidi(displayPitchHz))))
     : null;
@@ -69,7 +68,7 @@ export function SatbLane({
       })}
       <div className="absolute inset-y-0 z-20 w-[3px] bg-[#f6c65b] shadow-[0_0_14px_#f6c65b]" style={{ left: `${cursor}%` }} aria-label="Strike line" />
       <div className="absolute inset-y-0 border-l border-dashed border-white/10" style={{ left: '50%' }} />
-      {!compact && <div className="absolute inset-x-0 top-0 z-30 flex h-10 items-center justify-between border-b border-white/10 bg-[#07101f]/95 px-3 pl-[14%] text-[10px] font-black uppercase tracking-[.13em]"><span style={{ color: feedbackColour }}>{feedback.label}<small className="ml-2 font-medium normal-case tracking-normal text-slate-400">{feedback.instruction}</small></span><span className={target ? 'text-emerald-300' : 'text-amber-300'}>{timingLabel}</span></div>}
+      {!compact && <div className="absolute inset-x-0 top-0 z-30 grid h-10 grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-white/10 bg-[#07101f]/95 px-3 pl-[14%] text-[10px] font-black uppercase tracking-[.13em]"><span style={{ color: feedbackColour }}>{feedback.label}<small className="ml-2 hidden font-medium normal-case tracking-normal text-slate-400 lg:inline">{feedback.instruction}</small></span><span className="hidden rounded-full border border-cyan-300/20 bg-cyan-300/[.06] px-3 py-1 text-[11px] tracking-normal text-white sm:inline-flex"><small className="mr-1 text-[8px] text-slate-500">YOU</small><b className="text-cyan-200">{feedback.detected}</b><span className="mx-2 text-slate-600">→</span><small className="mr-1 text-[8px] text-slate-500">TARGET</small><b>{feedback.target}</b></span><span className={`text-right ${target ? 'text-emerald-300' : 'text-amber-300'}`}>{timingLabel}</span></div>}
       {visible.map(note => {
         const left = cursor + ((note.start - elapsed) / lookAheadSeconds) * trackWidth;
         const width = Math.max(.35, ((note.end - note.start) / lookAheadSeconds) * trackWidth - .35);

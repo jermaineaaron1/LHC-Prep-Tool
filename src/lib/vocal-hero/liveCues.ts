@@ -1,5 +1,4 @@
 import type { Song, SongNote } from './types';
-import { PitchEngine } from './pitchEngine';
 
 const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 
@@ -32,16 +31,23 @@ export function hzToMidi(hz: number) {
 }
 
 export function livePitchFeedback(targetMidi: number | null, pitchHz: number) {
-  const comparisonHz = targetMidi === null ? pitchHz : PitchEngine.alignOctaveToTarget(pitchHz, targetMidi);
-  const detectedMidi = hzToMidi(comparisonHz);
-  const detected = pitchHz > 0 ? midiNoteName(detectedMidi) : '—';
+  const rawDetectedMidi = hzToMidi(pitchHz);
+  const detected = pitchHz > 0 ? midiNoteName(rawDetectedMidi) : '—';
   const target = targetMidi === null ? '—' : midiNoteName(targetMidi);
-  if (targetMidi === null) return { target, detected, cents: null, state: 'waiting' as const, label: 'WAIT FOR YOUR NOTE', instruction: 'Listen for the next entrance' };
-  if (pitchHz <= 0) return { target, detected, cents: null, state: 'silent' as const, label: `SING ${target}`, instruction: 'Your note is at the strike line' };
-  const cents = Math.round(1200 * Math.log2(comparisonHz / (440 * 2 ** ((targetMidi - 69) / 12))));
-  if (Math.abs(cents) <= 50) return { target, detected, cents, state: 'correct' as const, label: 'ON PITCH', instruction: `Hold ${target}` };
-  if (cents < 0) return { target, detected, cents, state: 'low' as const, label: 'TOO LOW', instruction: `Sing higher toward ${target} ↑` };
-  return { target, detected, cents, state: 'high' as const, label: 'TOO HIGH', instruction: `Sing lower toward ${target} ↓` };
+  if (targetMidi === null) return { target, detected, cents: null, detectedCents: null, semitoneDifference: null, difference: 'Waiting for target', state: 'waiting' as const, label: 'WAIT FOR YOUR NOTE', instruction: 'Listen for the next entrance' };
+  if (pitchHz <= 0) return { target, detected, cents: null, detectedCents: null, semitoneDifference: null, difference: 'No voice detected', state: 'silent' as const, label: `SING ${target}`, instruction: 'Your note is at the strike line' };
+  const nearestDetectedMidi = Math.round(rawDetectedMidi);
+  const semitoneDifference = nearestDetectedMidi - Math.round(targetMidi);
+  const difference = semitoneDifference === 0
+    ? 'Same note as target'
+    : `${Math.abs(semitoneDifference)} semitone${Math.abs(semitoneDifference) === 1 ? '' : 's'} ${semitoneDifference > 0 ? 'above' : 'below'} target`;
+  const nearestDetectedHz = 440 * 2 ** ((nearestDetectedMidi - 69) / 12);
+  const detectedCents = Math.round(1200 * Math.log2(pitchHz / nearestDetectedHz));
+  const cents = Math.round(1200 * Math.log2(pitchHz / (440 * 2 ** ((targetMidi - 69) / 12))));
+  const shared = { target, detected, cents, detectedCents, semitoneDifference, difference };
+  if (Math.abs(cents) <= 50) return { ...shared, state: 'correct' as const, label: 'ON PITCH', instruction: `Hold ${target}` };
+  if (cents < 0) return { ...shared, state: 'low' as const, label: 'TOO LOW', instruction: `Sing higher toward ${target} ↑` };
+  return { ...shared, state: 'high' as const, label: 'TOO HIGH', instruction: `Sing lower toward ${target} ↓` };
 }
 
 export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, elapsed: number): KaraokeCue {

@@ -310,6 +310,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [isFullscreen, setIsFullscreen] = useState(false);
   const editorRootRef = useRef<HTMLDivElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const noteAuditionContextRef = useRef<AudioContext | null>(null);
   const transportRunningRef = useRef(false);
   const playheadRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
@@ -357,6 +358,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     backingMediaRef.current?.pause();
     recorderRef.current?.stream.getTracks().forEach(track => track.stop());
     void audioContextRef.current?.close();
+    void noteAuditionContextRef.current?.close();
   }, []);
 
   useEffect(() => {
@@ -465,6 +467,16 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setEditorNotice(null);
   }
   function selectNote(id: string, additive = false) { const note = notes.find(item => item.id === id); if (!note) return; setSelectedPart(note.part < 0 ? 0 : note.part); setSelectedId(id); setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]); setPlayScope('note'); }
+  function auditionAddedNote(note: SongNote) {
+    const play = (context: AudioContext) => playPianoTone(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start), 0);
+    let context = noteAuditionContextRef.current;
+    if (!context || context.state === 'closed') {
+      context = new AudioContext({ latencyHint: 'interactive' });
+      noteAuditionContextRef.current = context;
+    }
+    if (context.state === 'suspended') void context.resume().then(() => play(context));
+    else play(context);
+  }
   function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number) {
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
     const value = musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
@@ -477,6 +489,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     pushHistory();
     setNotes(current => [...current, candidate]);
     setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); setEditorNotice(null);
+    auditionAddedNote(candidate);
   }
   function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const pointerTime = Math.max(0, (event.clientX - bounds.left) / zoom); const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION; const range = pitchRangeForPart(part); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, snapTimeToGrid(musicalBars, pointerTime, division), range.max - row); }
   function duplicateSelected() {
@@ -1101,18 +1114,19 @@ function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead
   </div>;
 }
 function Automation({ notes }: { notes: SongNote[] }) { const points = notes.slice(0, 18).map((note, index) => `${index * 55},${20 + (84 - note.midi) * .7}`).join(' '); return <div className="mt-3 rounded-xl border border-white/10 bg-[#060918] p-3"><p className="text-xs text-slate-400">♬ Dynamics <span className="ml-4 text-fuchsia-300">mf</span></p><svg className="mt-2 h-10 w-full" viewBox="0 0 1000 65" preserveAspectRatio="none"><polyline fill="none" stroke="#ff60bc" strokeWidth="2" points={points} /></svg><p className="text-xs text-slate-400">⌁ Breath <span className="ml-4 text-cyan-300">60%</span></p><svg className="mt-1 h-8 w-full" viewBox="0 0 1000 65" preserveAspectRatio="none"><polyline fill="none" stroke="#4ca0ff" strokeWidth="2" points={points} /></svg></div>; }
-function playPianoTone(context: AudioContext, note: SongNote, startAt: number, length: number) {
+function playPianoTone(context: AudioContext, note: SongNote, startAt: number, length: number, releaseTail = .28) {
   const frequency = 440 * Math.pow(2, (note.midi - 69) / 12);
   const master = context.createGain();
   const filter = context.createBiquadFilter();
   const velocity = Math.max(.025, Math.min(.12, note.velocity / 1150));
-  const releaseAt = startAt + Math.max(.32, length + .28);
+  const audibleLength = Math.max(.04, length);
+  const releaseAt = startAt + audibleLength + Math.max(0, releaseTail);
   filter.type = 'lowpass';
   filter.frequency.value = Math.min(7200, Math.max(1800, frequency * 8));
   filter.Q.value = .7;
   master.gain.setValueAtTime(.0001, startAt);
-  master.gain.exponentialRampToValueAtTime(velocity, startAt + .009);
-  master.gain.exponentialRampToValueAtTime(velocity * .36, startAt + .11);
+  master.gain.exponentialRampToValueAtTime(velocity, startAt + Math.min(.009, audibleLength * .12));
+  master.gain.exponentialRampToValueAtTime(velocity * .36, startAt + Math.min(.11, audibleLength * .55));
   master.gain.exponentialRampToValueAtTime(.0001, releaseAt);
   master.connect(filter).connect(context.destination);
   [[1, 'triangle', 1], [2, 'sine', .26], [3, 'sine', .12], [4.2, 'sine', .05]].forEach(([ratio, wave, level]) => {
