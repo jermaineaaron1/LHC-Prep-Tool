@@ -169,6 +169,19 @@ export async function scheduleSessionStart(
   return payload;
 }
 
+/** Pause/resume through the server clock so every connected device receives
+ * the same state and resume anchor. */
+export async function setSessionPaused(id: string, paused: boolean, pauseDurationMs = 0): Promise<GameSession> {
+  const response = await fetch('/api/vocal-hero/control', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: id, paused, pauseDurationMs }),
+  });
+  const payload = await response.json() as GameSession & { error?: string };
+  if (!response.ok) throw new Error(payload.error ?? 'Unable to update playback.');
+  return payload;
+}
+
 export async function endSession(id: string): Promise<void> {
   const { error } = await supabase
     .rpc('vh_finalise_session', { s_id: id });

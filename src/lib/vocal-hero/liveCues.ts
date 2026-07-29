@@ -1,4 +1,5 @@
 import type { Song, SongNote } from './types';
+import { PitchEngine } from './pitchEngine';
 
 const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 
@@ -31,12 +32,13 @@ export function hzToMidi(hz: number) {
 }
 
 export function livePitchFeedback(targetMidi: number | null, pitchHz: number) {
-  const detectedMidi = hzToMidi(pitchHz);
+  const comparisonHz = targetMidi === null ? pitchHz : PitchEngine.alignOctaveToTarget(pitchHz, targetMidi);
+  const detectedMidi = hzToMidi(comparisonHz);
   const detected = pitchHz > 0 ? midiNoteName(detectedMidi) : '—';
   const target = targetMidi === null ? '—' : midiNoteName(targetMidi);
   if (targetMidi === null) return { target, detected, cents: null, state: 'waiting' as const, label: 'WAIT FOR YOUR NOTE', instruction: 'Listen for the next entrance' };
   if (pitchHz <= 0) return { target, detected, cents: null, state: 'silent' as const, label: `SING ${target}`, instruction: 'Your note is at the strike line' };
-  const cents = Math.round(1200 * Math.log2(pitchHz / (440 * 2 ** ((targetMidi - 69) / 12))));
+  const cents = Math.round(1200 * Math.log2(comparisonHz / (440 * 2 ** ((targetMidi - 69) / 12))));
   if (Math.abs(cents) <= 50) return { target, detected, cents, state: 'correct' as const, label: 'ON PITCH', instruction: `Hold ${target}` };
   if (cents < 0) return { target, detected, cents, state: 'low' as const, label: 'TOO LOW', instruction: `Sing higher toward ${target} ↑` };
   return { target, detected, cents, state: 'high' as const, label: 'TOO HIGH', instruction: `Sing lower toward ${target} ↓` };

@@ -152,6 +152,7 @@ export class PitchEngine {
 
     let bestLag = -1;
     let bestCorr = -1;
+    const correlations = new Float32Array(Math.min(maxLag + 2, SIZE));
 
     for (let lag = minLag; lag <= maxLag && lag < SIZE; lag++) {
       let num = 0, d1 = 0, d2 = 0;
@@ -163,6 +164,7 @@ export class PitchEngine {
       }
       const denom = Math.sqrt(d1 * d2);
       const corr  = denom > 0 ? num / denom : 0;
+      correlations[lag] = corr;
       if (corr > bestCorr) {
         bestCorr = corr;
         bestLag  = lag;
@@ -171,11 +173,24 @@ export class PitchEngine {
 
     if (bestLag < 1 || bestCorr < 0) return { hz: 0, confidence: 0 };
 
+    // The largest correlation is often a second/third multiple of the true
+    // period. Prefer the first strong local peak so a singer is not reported
+    // one or two octaves too low. The relative threshold still tolerates
+    // breathy voices whose fundamental is weaker than an overtone.
+    const strongPeak = Math.max(0.72, bestCorr * 0.9);
+    for (let lag = minLag + 1; lag < Math.min(maxLag, correlations.length - 1); lag++) {
+      if (correlations[lag] >= strongPeak && correlations[lag] >= correlations[lag - 1] && correlations[lag] > correlations[lag + 1]) {
+        bestLag = lag;
+        bestCorr = correlations[lag];
+        break;
+      }
+    }
+
     // Sub-sample refinement via parabolic interpolation around best lag
     const refined = parabolicPeak(
-      bestLag > 0              ? bestCorr : 0,  // dummy guard
+      bestLag > 0              ? correlations[bestLag - 1] : bestCorr,
       bestCorr,
-      bestLag < SIZE - 1       ? this.corrAt(buf, bestLag + 1) : bestCorr,
+      bestLag < correlations.length - 1 ? correlations[bestLag + 1] : bestCorr,
       bestLag,
     );
 
@@ -244,6 +259,22 @@ export class PitchEngine {
 
   static midiToHz(midi: number): number {
     return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  /** Correct the common octave-harmonic error without changing the detected
+   * pitch class. This is target-aware and therefore only used while a target
+   * note is active, never for the raw microphone readout at rest. */
+  static alignOctaveToTarget(hz: number, targetMidi: number): number {
+    if (hz <= 0) return 0;
+    const rawMidi = 12 * Math.log2(hz / 440) + 69;
+    let alignedMidi = rawMidi;
+    let distance = Math.abs(rawMidi - targetMidi);
+    for (let octaves = -3; octaves <= 3; octaves++) {
+      const candidate = rawMidi + octaves * 12;
+      const candidateDistance = Math.abs(candidate - targetMidi);
+      if (candidateDistance < distance) { alignedMidi = candidate; distance = candidateDistance; }
+    }
+    return PitchEngine.midiToHz(alignedMidi);
   }
 }
 

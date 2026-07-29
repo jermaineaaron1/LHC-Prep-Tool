@@ -107,8 +107,11 @@ export class ScoreEngine {
     }
     const targetHz = PitchEngine.midiToHz(candidate.midi);
     const voiced = playerHz > 0;
-    const inTune = voiced && Math.abs(PitchEngine.centsDiff(playerHz, targetHz)) <= CENT_TOLERANCE[this.opts.difficulty];
-    if (!this.current.onsetCaptured && voiced) {
+    const alignedPlayerHz = voiced ? PitchEngine.alignOctaveToTarget(playerHz, candidate.midi) : 0;
+    const inTune = voiced && Math.abs(PitchEngine.centsDiff(alignedPlayerHz, targetHz)) <= CENT_TOLERANCE[this.opts.difficulty];
+    // Room noise or a loud backing track must not count as the singer's
+    // entrance. Capture onset only once the expected pitch is present.
+    if (!this.current.onsetCaptured && inTune) {
       this.current.onsetCaptured = true;
       this.current.onsetDelaySec = elapsedSec - candidate.start;
     }
@@ -142,7 +145,11 @@ export class ScoreEngine {
       ? clamp01(1 - Math.abs(tracking.onsetDelaySec) / ONSET_WINDOW_SEC) : 0;
     const hold = clamp01(tracking.voicedSec / duration);
     const pitch = tracking.voicedSec ? clamp01(tracking.inTuneSec / tracking.voicedSec) : 0;
-    const points = Math.round((WEIGHTS.onset * onset + WEIGHTS.hold * hold + WEIGHTS.pitch * pitch) * NOTE_MAX_POINTS);
+    // Vocal Hero awards a target only when both the entrance and pitch are
+    // valid; simply making sound for the duration is not enough.
+    const points = onset > 0 && pitch >= .5
+      ? Math.round((WEIGHTS.onset * onset + WEIGHTS.hold * hold + WEIGHTS.pitch * pitch) * NOTE_MAX_POINTS)
+      : 0;
     if (points > 0) {
       this.total += points;
       this.pending.push(points);

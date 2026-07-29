@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createSession, fetchAllSongs, fetchPlayers, fetchSectionScores, fetchSessionByCode, fetchSong, joinSession, savePlayerRoundStats,
-  scheduleSessionStart, subscribeToPlayers, subscribeToSession, updatePlayerLobbyState, updateSong,
+  scheduleSessionStart, setSessionPaused, subscribeToPlayers, subscribeToSession, updatePlayerLobbyState, updateSong,
 } from '@/lib/vocal-hero/supabaseClient';
 import type { GameSession, SectionScore, SessionPlayer, Song, SongNote } from '@/lib/vocal-hero/types';
 import { SatbLane } from './SatbLane';
@@ -18,6 +18,7 @@ import { KaraokeLyrics } from './KaraokeLyrics';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
+const PITCH_RANGES = [{ low: 60, high: 81 }, { low: 53, high: 74 }, { low: 48, high: 67 }, { low: 40, high: 64 }];
 
 export default function VocalHeroHostPage() {
   const [songs, setSongs] = useState<Song[]>([]);
@@ -40,6 +41,8 @@ export default function VocalHeroHostPage() {
   const [soloHits, setSoloHits] = useState<Record<string, boolean>>({});
   const [soloLastResult, setSoloLastResult] = useState<NoteScoreResult | null>(null);
   const [soloFullBoard, setSoloFullBoard] = useState(false);
+  const [gamePaused, setGamePaused] = useState(false);
+  const [pausedElapsed, setPausedElapsed] = useState(0);
   const listeners = useRef<Array<() => void>>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const openedRoomRef = useRef(false);
@@ -49,7 +52,9 @@ export default function VocalHeroHostPage() {
   const soloElapsedRef = useRef(0);
   const soloPhaseRef = useRef('Waiting');
   const soloLastPitchPaintRef = useRef(0);
-  const timeline = timelineFor(session, now + clockOffset);
+  const pauseStartedRef = useRef(0);
+  const runningTimeline = timelineFor(session, now + clockOffset);
+  const timeline = gamePaused ? { phase: 'Paused', songElapsed: pausedElapsed } : runningTimeline;
   const backingTrackUrl = song?.audio_url || song?.backing_media_url || '';
 
   useEffect(() => { void fetchAllSongs().then(rows => setSongs(rows.filter(row => row.status === 'ready' || row.status === 'draft'))).catch(() => setError('Unable to load the song library.')); }, []);
@@ -86,6 +91,11 @@ export default function VocalHeroHostPage() {
   }, [session?.status]);
   useEffect(() => { soloElapsedRef.current = timeline.songElapsed; soloPhaseRef.current = timeline.phase; }, [timeline.phase, timeline.songElapsed]);
   useEffect(() => {
+    if (session?.paused && !gamePaused) {
+      setPausedElapsed(runningTimeline.songElapsed); setGamePaused(true); pauseStartedRef.current = Date.now(); audioRef.current?.pause();
+    }
+  }, [session?.paused]);
+  useEffect(() => {
     if (!session || !song || !soloPlayer || soloPart === null || session.status !== 'playing' || soloScoreStartedRef.current) return;
     soloScoreStartedRef.current = true;
     const scorer = new ScoreEngine({
@@ -119,16 +129,18 @@ export default function VocalHeroHostPage() {
     try {
       soloPitchRef.current?.stop(); void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
       setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false);
+      setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
       const created = await createSession(next.id, 'worship-host');
       listeners.current.forEach(close => close());
       listeners.current = [subscribeToPlayers(created.id, setPlayers), subscribeToSession(created.id, setSession)];
       setSong(next); setSession(created); setPlayers(await fetchPlayers(created.id));
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to create room.'); }
   }
-  async function startSoloPitchTracking() {
+  async function startSoloPitchTracking(part: number) {
     if (soloPitchRef.current?.isRunning) return true;
     setSoloMic('checking');
-    const engine = new PitchEngine({ bufferSize: 1024, confidenceThreshold: .72, smoothing: .35, onPitch: sample => {
+    const range = PITCH_RANGES[part] ?? PITCH_RANGES[0];
+    const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, minHz: PitchEngine.midiToHz(range.low - 3), maxHz: PitchEngine.midiToHz(range.high + 3), onPitch: sample => {
       if (performance.now() - soloLastPitchPaintRef.current > 33) { setSoloPitch(sample.frequency); soloLastPitchPaintRef.current = performance.now(); }
       if (soloPhaseRef.current === 'Live' && sample.confidence > .78) soloScoreRef.current?.scorePitch(sample.frequency, Math.max(0, soloElapsedRef.current));
     } });
@@ -144,7 +156,7 @@ export default function VocalHeroHostPage() {
         audioRef.current.muted = true;
         void audioRef.current.play().then(() => { if (!audioRef.current) return; audioRef.current.pause(); audioRef.current.currentTime = 0; audioRef.current.muted = false; }).catch(() => undefined);
       }
-      if (!await startSoloPitchTracking()) throw new Error('Microphone access is required for solo scoring. Please allow the microphone and try again.');
+      if (!await startSoloPitchTracking(part)) throw new Error('Microphone access is required for solo scoring. Please allow the microphone and try again.');
       const joined = await joinSession(session.id, 'Solo Singer', part);
       const readyAt = new Date().toISOString();
       await updatePlayerLobbyState(joined.id, { ready_at: readyAt, mic_status: 'ready' });
@@ -181,6 +193,7 @@ export default function VocalHeroHostPage() {
         audioRef.current.muted = true; await audioRef.current.play(); audioRef.current.pause(); audioRef.current.currentTime = 0; audioRef.current.muted = false;
       }
       const scheduled = await scheduleSessionStart(session.id);
+      setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
       setSession(scheduled);
       if (backingTrackUrl && audioRef.current && scheduled.playback_starts_at) {
         const startAt = new Date(scheduled.playback_starts_at).getTime() + ((scheduled.countdown_seconds ?? 5) + (scheduled.lead_in_seconds ?? 2)) * 1000;
@@ -189,10 +202,44 @@ export default function VocalHeroHostPage() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to schedule the session.'); }
   }
 
+  async function pauseGame() {
+    if (session?.status !== 'playing' || gamePaused) return;
+    setPausedElapsed(runningTimeline.songElapsed);
+    pauseStartedRef.current = Date.now();
+    setGamePaused(true);
+    audioRef.current?.pause();
+    try { setSession(await setSessionPaused(session.id, true)); }
+    catch (cause) { setGamePaused(false); setError(cause instanceof Error ? cause.message : 'Unable to pause the session.'); }
+  }
+
+  async function resumeGame() {
+    if (!gamePaused || !session) return;
+    const pauseDuration = Math.max(0, Date.now() - pauseStartedRef.current);
+    try {
+      const updated = await setSessionPaused(session.id, false, pauseDuration);
+      setSession(updated); pauseStartedRef.current = 0; setGamePaused(false);
+      if (backingTrackUrl && audioRef.current) {
+        audioRef.current.currentTime = Math.min(pausedElapsed, Number.isFinite(audioRef.current.duration) ? audioRef.current.duration : pausedElapsed);
+        void audioRef.current.play().catch(() => setError('Press Resume again to allow backing-track playback.'));
+      }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to resume the session.'); }
+  }
+
+  function returnToLibrary() {
+    audioRef.current?.pause();
+    if (audioRef.current) audioRef.current.currentTime = 0;
+    soloPitchRef.current?.stop(); soloPitchRef.current = null;
+    void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
+    listeners.current.forEach(close => close()); listeners.current = [];
+    setSession(null); setSong(null); setPlayers([]); setSections([]);
+    setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false);
+    setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
+  }
+
   const notes = song ? playableNotes(song) : [];
   const phoneUrl = session ? `${window.location.origin}/vocal-hero/phone?room=${session.room_code}` : '';
   const stage = session?.status === 'playing' && song
-      ? timeline.phase === 'Live'
+      ? timeline.phase === 'Live' || timeline.phase === 'Paused'
       ? soloPlayer && soloPart !== null
         ? <SoloLiveStage song={song} notes={notes} part={soloPart} elapsed={timeline.songElapsed} pitch={soloPitch} score={soloScore} hits={soloHits} lastResult={soloLastResult} sections={sections} mic={soloMic} fullBoard={soloFullBoard} setFullBoard={setSoloFullBoard} />
         : <LiveStage song={song} notes={notes} players={players} sections={sections} elapsed={timeline.songElapsed} />
@@ -205,7 +252,7 @@ export default function VocalHeroHostPage() {
 
   return <main className="vh-app min-h-screen text-slate-100">
     {backingTrackUrl && <audio ref={audioRef} preload="auto" src={backingTrackUrl} className="hidden" />}
-    <header className="vh-topbar"><Brand /><span className="vh-divider" /><span className="text-xs tracking-[.2em] text-slate-400">{session ? 'LIVE SESSION' : 'SONG LIBRARY'}</span><span className="vh-live-dot">Live</span><div className="ml-auto flex items-center gap-2">{session && <RoomCode code={session.room_code} />}<button onClick={() => window.open(session ? `/vocal-hero?fullscreen=1&room=${session.room_code}` : '/vocal-hero?fullscreen=1', '_blank', 'noopener')} className="vh-outline-button">Open full screen</button></div></header>
+    <header className="vh-topbar"><Brand /><span className="vh-divider" /><span className="text-xs tracking-[.2em] text-slate-400">{session ? 'LIVE SESSION' : 'SONG LIBRARY'}</span><span className="vh-live-dot">Live</span><div className="ml-auto flex flex-wrap items-center justify-end gap-2">{session?.status === 'playing' && <button onClick={gamePaused ? resumeGame : pauseGame} className="vh-outline-button border-cyan-300/35 text-cyan-100">{gamePaused ? '▶ Resume' : 'Ⅱ Pause'}</button>}{session && <button onClick={returnToLibrary} className="vh-outline-button">← Back to menu</button>}{session && <RoomCode code={session.room_code} />}<button onClick={() => window.open(session ? `/vocal-hero?fullscreen=1&room=${session.room_code}` : '/vocal-hero?fullscreen=1', '_blank', 'noopener')} className="vh-outline-button">Open full screen</button></div></header>
     {error && <p className="border-y border-rose-400/30 bg-rose-950/50 px-5 py-3 text-sm text-rose-200">{error}</p>}
     {stage}
     {editingSong && <ArrangementEditor song={editingSong} onClose={() => setEditingSong(null)} onSave={saveArrangement} />}

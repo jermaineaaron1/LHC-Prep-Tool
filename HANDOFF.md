@@ -402,6 +402,15 @@ Full 3-panel songbook layout implemented in both `Index.html` and `dist/index.ht
 
 ## Recommended Next Steps
 
+### Vocal Hero gameplay controls and pitch precision (2026-07-29)
+
+- Added visible Pause/Resume and Back to menu controls to the host/solo gameplay header. Pause is synchronized through the existing `vh_game_sessions.paused` field; resume shifts the shared server-issued playback anchor by the pause duration, and connected phones show a dedicated paused screen instead of advancing their score clock.
+- Rebuilt gameplay note lanes as exact chromatic piano rolls. Every semitone between the arrangement's displayed low/high pitches has its own horizontal row and persistent piano-key label; target blocks and the live detected-pitch marker now use the identical MIDI-to-row transform instead of a compressed three-label scale.
+- Corrected the detector's autocorrelation refinement to use both neighboring samples, prefers the first strong period peak to reduce subharmonic/octave errors, uses a 2048-sample low-latency analysis window, and constrains desktop/mobile detection to the selected SATB voice range. Target-time feedback corrects common octave-harmonic locks without changing pitch class.
+- Tightened scoring: ambient/backing-track sound no longer captures an entrance; onset requires the expected pitch, and a note earns points only when both timing and at least half of its voiced samples are in tune. Headphones remain recommended because browser pitch detection cannot fully isolate a singer from loudspeaker bleed in the same room.
+- Added `/api/vocal-hero/control` and `setSessionPaused` for synchronized pause/resume using the already-installed session columns; no new migration or environment variable is required. Bumped both Worship-shell iframe release keys to `20260729-2`.
+- Verification: `npx tsc --noEmit`, `next build` (with placeholder Supabase build values), and `git diff --check` pass. The existing ESLint 9/no-flat-config limitation remains unchanged.
+
 ### Songs mobile interactions (2026-07-22)
 
 - On `fix/mobile-song-interactions`, search suggestion selection now filters the catalogue, dismisses the mobile keyboard, scrolls the exact result card into the center of view, and briefly highlights it. Keyboard Enter follows the active suggestion through the same path.
