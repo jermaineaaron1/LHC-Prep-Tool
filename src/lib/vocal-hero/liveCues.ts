@@ -46,27 +46,22 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
   const timedLyrics = [...(song.timed_lyrics ?? [])]
     .filter(section => section.primary?.trim())
     .sort((a, b) => a.start - b.start);
-  const timed = timedLyrics.length ? timedLyrics : legacyPhrases(song);
-  const activeTimed = timed.find(section => elapsed >= section.start && elapsed < section.end)
-    ?? timed.find(section => section.start > elapsed);
-  if (activeTimed) {
-    const duration = Math.max(.01, activeTimed.end - activeTimed.start);
-    const index = timed.indexOf(activeTimed);
-    return {
-      text: activeTimed.primary.trim(),
-      progress: clamp((elapsed - activeTimed.start) / duration),
-      currentLyric: activeTimed.primary.trim(),
-      nextText: timed[index + 1]?.primary?.trim() ?? '',
-      waiting: elapsed < activeTimed.start,
-    };
-  }
+  const authoredPhrases = phraseLikeTimedLyrics(timedLyrics) ? timedLyrics : legacyPhrases(song);
+  if (authoredPhrases.length) return timedPhraseCue(authoredPhrases, elapsed);
 
+  // Pick one granular lyric source for the whole performance. Never switch
+  // sources after refresh or after the final timed entry has elapsed.
+  const timedEvents = !phraseLikeTimedLyrics(timedLyrics)
+    ? timedLyrics.map(section => ({ lyric: section.primary.trim(), start: section.start, end: section.end }))
+    : [];
   const voiceEvents = lyricEvents(notes.filter(note => note.part === partIndex || note.part === -1));
   const legacyEvents = (song.game_notes ?? []).filter(note => note.l?.trim()).map(note => ({ lyric: note.l!.trim(), start: note.start, end: note.start + note.dur }));
   const allEvents = mergeEvents([...lyricEvents(notes), ...legacyEvents]);
-  const events = voiceEvents.length >= allEvents.length - 2 ? voiceEvents : allEvents;
+  const noteEvents = voiceEvents.length >= allEvents.length - 2 ? voiceEvents : allEvents;
+  const events = timedEvents.length ? mergeEvents(timedEvents) : noteEvents;
   if (!events.length) return { text: 'Instrumental — listen for your entrance', progress: 0, currentLyric: '', nextText: '', waiting: true };
-  const phrases = phraseEvents(events);
+  const phraseSize = clampInteger(song.backing_track_settings?.karaoke_lyrics?.targets_per_phrase, 4, 20, 10);
+  const phrases = phraseEvents(events, phraseSize);
   let phraseIndex = phrases.findIndex(phrase => elapsed >= phrase[0].start - .35 && elapsed <= phrase[phrase.length - 1].end + .8);
   if (phraseIndex < 0) phraseIndex = phrases.findIndex(phrase => phrase[0].start > elapsed);
   if (phraseIndex < 0) phraseIndex = phrases.length - 1;
@@ -89,6 +84,27 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
     currentLyric,
     nextText: phrases[phraseIndex + 1] ? displayPhrase(phrases[phraseIndex + 1]).text : '',
     waiting: elapsed < phrase[0].start,
+  };
+}
+
+function phraseLikeTimedLyrics(sections: Array<{ primary: string }>) {
+  if (!sections.length) return false;
+  const phraseCount = sections.filter(section => section.primary.trim().split(/\s+/).length >= 3).length;
+  return phraseCount >= Math.max(1, Math.ceil(sections.length * .6));
+}
+
+function timedPhraseCue(timed: Array<{ primary: string; start: number; end: number }>, elapsed: number): KaraokeCue {
+  let index = timed.findIndex(section => elapsed >= section.start && elapsed < section.end);
+  if (index < 0) index = timed.findIndex(section => section.start > elapsed);
+  if (index < 0) index = timed.length - 1;
+  const active = timed[Math.max(0, index)];
+  const duration = Math.max(.01, active.end - active.start);
+  return {
+    text: active.primary.trim(),
+    progress: clamp((elapsed - active.start) / duration),
+    currentLyric: active.primary.trim(),
+    nextText: timed[index + 1]?.primary?.trim() ?? '',
+    waiting: elapsed < active.start,
   };
 }
 
@@ -128,12 +144,13 @@ function legacyPhrases(song: Song) {
   return phrases;
 }
 
-function phraseEvents(events: LyricEvent[]) {
+function phraseEvents(events: LyricEvent[], maxTargets: number) {
   const phrases: LyricEvent[][] = [];
   let phrase: LyricEvent[] = [];
   for (const event of events) {
     const previous = phrase[phrase.length - 1];
-    if (previous && (event.start - previous.end > 1.15 || /[.!?;:]$/.test(previous.lyric) || phrase.length >= 12)) {
+    const reachedTargetLimit = previous && phrase.length >= maxTargets && !/[-\u2013\u2014]$/.test(previous.lyric);
+    if (previous && (event.start - previous.end > 1.15 || /[.!?;:]$/.test(previous.lyric) || reachedTargetLimit)) {
       phrases.push(phrase);
       phrase = [];
     }
@@ -145,18 +162,22 @@ function phraseEvents(events: LyricEvent[]) {
 
 function displayPhrase(events: LyricEvent[]) {
   let text = '';
+  let joinNext = false;
   const displayEvents: DisplayEvent[] = [];
   for (const event of events) {
-    let lyric = event.lyric.replace(/^[-–—]+/, '');
-    const joinsPrevious = /[-–—]$/.test(text);
-    if (joinsPrevious) text = text.replace(/[-–—]+$/, '');
-    else if (text) text += ' ';
+    const rawLyric = event.lyric.trim();
+    const joinsPrevious = joinNext || /^[-\u2013\u2014]/.test(rawLyric);
+    if (!joinsPrevious && text) text += ' ';
     const charStart = text.length;
-    lyric = lyric.replace(/[-–—]+$/, '');
+    const lyric = rawLyric.replace(/^[-\u2013\u2014]+|[-\u2013\u2014]+$/g, '');
     text += lyric;
     displayEvents.push({ ...event, lyric, charStart, charEnd: text.length });
+    joinNext = /[-\u2013\u2014]$/.test(rawLyric);
   }
   return { text, events: displayEvents };
 }
 
 function clamp(value: number) { return Math.max(0, Math.min(1, value)); }
+function clampInteger(value: number | undefined, min: number, max: number, fallback: number) {
+  return Math.max(min, Math.min(max, Math.round(Number.isFinite(value) ? value! : fallback)));
+}

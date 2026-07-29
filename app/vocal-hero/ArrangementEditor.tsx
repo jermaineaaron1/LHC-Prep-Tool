@@ -881,7 +881,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
             <details className="mt-3 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
               <summary className="cursor-pointer font-semibold text-slate-300">Arrangement controls: dynamics, breath &amp; part mixer</summary>
               <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto]">
-                <Automation notes={notes} />
+                <div className="space-y-3"><KaraokePhraseControls settings={trackSettings} onChange={karaoke_lyrics => setTrackSettings(current => ({ ...current, karaoke_lyrics }))} /><Automation notes={notes} /></div>
                 <div className="grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <button key={voice} onClick={() => focusVoice(index)} className="rounded-lg border px-3 py-2 text-center" style={{ borderColor: `${COLOURS[index]}66`, color: COLOURS[index], background: `${COLOURS[index]}12` }}><b className="block text-base">{voice[0]}</b><span className="text-[10px]">{voice}</span></button>)}</div>
               </div>
             </details>
@@ -902,6 +902,16 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       .vh-editor-scrollbars ::-webkit-scrollbar-corner { background: #090d22; }
     `}</style>
   </div>;
+}
+
+function KaraokePhraseControls({ settings, onChange }: { settings: BackingTrackSettings; onChange: (value: NonNullable<BackingTrackSettings['karaoke_lyrics']>) => void }) {
+  const value = { targets_per_phrase: settings.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: settings.karaoke_lyrics?.max_lines ?? 2 as 1 | 2 };
+  return <section className="rounded-xl border border-cyan-300/20 bg-[linear-gradient(135deg,#071729,#120d29)] p-3">
+    <div className="flex flex-wrap items-start gap-4"><span className="mr-auto"><b className="block text-sm text-white">Gameplay lyric phrases</b><small className="text-slate-400">Choose how many timed lyric targets appear together. The same phrase sequence is retained after refresh.</small></span>
+      <label className="text-[10px] font-bold uppercase tracking-[.12em] text-cyan-300">Targets per phrase<input type="number" min={4} max={20} value={value.targets_per_phrase} onChange={event => onChange({ ...value, targets_per_phrase: Math.max(4, Math.min(20, Math.round(Number(event.target.value) || 10))) })} className="mt-1 block w-24 rounded-lg border border-white/15 bg-[#070b1d] px-3 py-2 text-sm text-white" /></label>
+      <label className="text-[10px] font-bold uppercase tracking-[.12em] text-cyan-300">Display lines<select value={value.max_lines} onChange={event => onChange({ ...value, max_lines: Number(event.target.value) === 1 ? 1 : 2 })} className="mt-1 block w-32 rounded-lg border border-white/15 bg-[#070b1d] px-3 py-2 text-sm text-white"><option value={1}>One line</option><option value={2}>Up to two lines</option></select></label>
+    </div>
+  </section>;
 }
 
 function Brand() { return <b className="text-xl">VOCAL<span className="text-fuchsia-400">Hero</span></b>; }

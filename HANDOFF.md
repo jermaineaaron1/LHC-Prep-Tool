@@ -1,6 +1,17 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-07-28 by Codex_
+_Last updated: 2026-07-29 by Codex_
+
+---
+
+## 2026-07-29 — Stable Vocal Hero lyric phrases and readable pitch lane
+
+- Removed the gameplay lyric-source handoff that caused a single syllable to appear first and a different concatenated phrase after refresh or tab navigation. Each performance now chooses one canonical authored/timed/note lyric source and keeps it for the entire song.
+- Added per-song `Gameplay lyric phrases` controls in the editor's low-priority arrangement panel. Editors can choose 4–20 timed lyric targets per phrase and a one-line or two-line presentation; values persist inside the existing `backing_track_settings` JSON and require no SQL migration.
+- Karaoke continues to reveal the full visible phrase with the blue character-progress overlay, while phrase grouping observes long rests, punctuation, and the saved target count.
+- Replaced the crowded stack of every visible pitch name at the strike line with a three-point pitch ruler. Target bars use larger note labels and the active target remains stated prominently in the feedback header.
+- Practice-game release cache key advanced to `20260729-1` in both `Index.html` and `dist/index.html`.
+- Validation: `npx tsc --noEmit`, `git diff --check`, and the production `next build` pass (the build used placeholder Supabase variables, as required in this worktree). The repository's ESLint 9 script remains unconfigured (`eslint.config.*` is absent).
 
 ---
 

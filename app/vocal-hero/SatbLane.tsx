@@ -39,7 +39,7 @@ export function SatbLane({
   const target = partNotes.find(note => elapsed >= note.start && elapsed < note.end) ?? null;
   const next = partNotes.find(note => note.start > elapsed) ?? null;
   const feedback = livePitchFeedback(target?.midi ?? null, pitchHz ?? 0);
-  const pitchLabels = [...new Set(visible.map(note => Math.round(note.midi)))];
+  const pitchGuide = [Math.round(high), Math.round((high + low) / 2), Math.round(low)];
   const timingLabel = target ? 'ON TIME' : next && next.start - elapsed <= .8 ? `GET READY · ${(next.start - elapsed).toFixed(1)}s` : 'WAIT';
   const feedbackColour = feedback.state === 'correct' ? '#6ee7b7' : feedback.state === 'high' || feedback.state === 'low' ? '#fbbf24' : '#94a3b8';
 
@@ -54,7 +54,9 @@ export function SatbLane({
         <div className="absolute inset-y-0 z-20 w-[3px] bg-[#f6c65b] shadow-[0_0_14px_#f6c65b]" style={{ left: `${cursor}%` }} aria-label="Strike line" />
         <div className="absolute inset-y-0 border-l border-dashed border-white/10" style={{ left: '50%' }} />
         {!compact && <div className="absolute inset-x-0 top-0 z-30 flex h-10 items-center justify-between border-b border-white/10 bg-[#07101f]/95 px-3 pl-[14%] text-[10px] font-black uppercase tracking-[.13em]"><span style={{ color: feedbackColour }}>{feedback.label}<small className="ml-2 font-medium normal-case tracking-normal text-slate-400">{feedback.instruction}</small></span><span className={target ? 'text-emerald-300' : 'text-amber-300'}>{timingLabel}</span></div>}
-        {pitchLabels.map(midi => <span key={midi} className={`pointer-events-none absolute left-1 z-10 rounded bg-[#020817]/85 px-1 font-mono font-bold text-cyan-100 ${compact ? 'text-[7px]' : 'text-[9px]'}`} style={{ top: `${yFor(midi)}%`, transform: 'translateY(-50%)' }}>{midiNoteName(midi)}</span>)}
+        {!compact && <div className="pointer-events-none absolute inset-y-10 left-0 z-10 w-11 border-r border-white/10 bg-[#020817]/70">
+          {pitchGuide.map(midi => <span key={midi} className="absolute right-1 rounded bg-[#0b1728] px-1.5 py-0.5 font-mono text-[10px] font-black text-cyan-100 shadow-sm" style={{ top: `${yFor(midi)}%`, transform: 'translateY(-50%)' }}>{midiNoteName(midi)}</span>)}
+        </div>}
         {visible.map(note => {
           const left = cursor + ((note.start - elapsed) / lookAheadSeconds) * trackWidth;
           const width = Math.max(3, ((note.end - note.start) / lookAheadSeconds) * trackWidth - .5);
@@ -62,7 +64,7 @@ export function SatbLane({
           const result = hitNotes[note.id];
           const fill = past ? (result ? '#65d6a4' : '#44566d') : colour;
           const active = target?.id === note.id;
-          return <div key={note.id} title={`${midiNoteName(note.midi)} · ${note.lyric || 'no lyric'} · ${note.start.toFixed(2)}–${note.end.toFixed(2)}s`} className="absolute flex min-w-[22px] items-center overflow-hidden rounded-md border px-1 text-[9px] font-black text-[#07111d]" style={{ left: `${left}%`, top: `${yFor(note.midi)}%`, width: `${width}%`, height: compact ? 15 : 24, transform: 'translateY(-50%)', background: fill, borderColor: active ? '#fff' : `${fill}bb`, boxShadow: active ? `0 0 0 2px #fff,0 0 20px ${fill}` : `0 0 10px ${fill}66`, opacity: past && !result ? .45 : 1 }}>
+          return <div key={note.id} title={`${midiNoteName(note.midi)} · ${note.lyric || 'no lyric'} · ${note.start.toFixed(2)}–${note.end.toFixed(2)}s`} className="absolute flex min-w-[28px] items-center overflow-hidden rounded-md border px-1.5 text-[11px] font-black text-[#07111d]" style={{ left: `${left}%`, top: `${yFor(note.midi)}%`, width: `${width}%`, height: compact ? 17 : 27, transform: 'translateY(-50%)', background: fill, borderColor: active ? '#fff' : `${fill}bb`, boxShadow: active ? `0 0 0 2px #fff,0 0 20px ${fill}` : `0 0 10px ${fill}66`, opacity: past && !result ? .45 : 1 }}>
             <span className="shrink-0">{midiNoteName(note.midi)}</span>{showLyrics && width > 11 && note.lyric && <span className="ml-1 truncate border-l border-black/25 pl-1">{note.lyric}</span>}
           </div>;
         })}

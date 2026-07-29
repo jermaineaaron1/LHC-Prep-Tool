@@ -74,6 +74,13 @@ export interface BackingTrackSettings {
   effect: 'none' | 'warm' | 'bright';
   /** Musical ruler events stored with the arrangement for backwards-compatible mixed metre/key songs. */
   musical_timeline?: MusicalTimelineSettings;
+  /** Per-song gameplay lyric layout. Stored in the existing JSON settings column. */
+  karaoke_lyrics?: {
+    /** Number of lyric targets grouped into one stable karaoke phrase. */
+    targets_per_phrase: number;
+    /** Preferred maximum visual line count for the phrase. */
+    max_lines: 1 | 2;
+  };
 }
 
 export interface Song {
