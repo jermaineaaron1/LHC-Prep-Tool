@@ -21,6 +21,8 @@ interface DisplayEvent extends LyricEvent {
   charEnd: number;
 }
 
+type PhraseTimelineRow = { primary: string; start: number; end: number };
+
 export function midiNoteName(midi: number) {
   const rounded = Math.round(midi);
   return `${NOTE_NAMES[((rounded % 12) + 12) % 12]}${Math.floor(rounded / 12) - 1}`;
@@ -55,7 +57,7 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
     .filter(section => section.primary?.trim())
     .sort((a, b) => a.start - b.start);
   const useNoteLyrics = song.backing_track_settings?.karaoke_lyrics?.source === 'notes';
-  const authoredPhrases = useNoteLyrics ? [] : phraseLikeTimedLyrics(timedLyrics) ? timedLyrics : legacyPhrases(song);
+  const authoredPhrases = useNoteLyrics ? [] : gameplayPhraseTimeline(song);
   if (authoredPhrases.length) return timedPhraseCue(authoredPhrases, elapsed);
 
   // Pick one granular lyric source for the whole performance. Never switch
@@ -94,6 +96,81 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
     nextText: phrases[phraseIndex + 1] ? displayPhrase(phrases[phraseIndex + 1]).text : '',
     waiting: elapsed < phrase[0].start,
   };
+}
+
+/** The cleaned phrase timeline shared by the karaoke display and note lane. */
+export function gameplayPhraseTimeline(song: Song): PhraseTimelineRow[] {
+  const timed = [...(song.timed_lyrics ?? [])]
+    .filter(section => section.primary?.trim())
+    .sort((a, b) => a.start - b.start);
+  const rows = phraseLikeTimedLyrics(timed) ? timed : legacyPhrases(song);
+  const result: PhraseTimelineRow[] = [];
+  for (const row of rows) {
+    const primary = row.primary.trim().replace(/\s+/g, ' ');
+    const next = { primary, start: Math.max(0, row.start), end: Math.max(row.start + .01, row.end) };
+    const previous = result[result.length - 1];
+    const duplicate = previous
+      && previous.primary.localeCompare(next.primary, undefined, { sensitivity: 'base' }) === 0
+      && next.start <= previous.end + 1.5;
+    if (duplicate) previous.end = Math.max(previous.end, next.end);
+    else result.push(next);
+  }
+  return result;
+}
+
+/**
+ * Distribute phrase words across notes in the same time range for display.
+ * Saved note lyrics remain untouched; both gameplay surfaces use one source.
+ */
+export function gameplayLaneNotes(song: Song, notes: SongNote[], partIndex: number): SongNote[] {
+  if (song.backing_track_settings?.karaoke_lyrics?.source === 'notes') return notes;
+  const phrases = gameplayPhraseTimeline(song);
+  if (!phrases.length) return notes;
+
+  const voiceNotes = notes
+    .filter(note => note.part === partIndex || note.part === -1)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  const notesByPhrase = new Map<number, SongNote[]>();
+
+  for (const note of voiceNotes) {
+    let bestIndex = -1;
+    let bestOverlap = 0;
+    phrases.forEach((phrase, index) => {
+      const overlap = Math.max(0, Math.min(note.end, phrase.end) - Math.max(note.start, phrase.start));
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestIndex = index;
+      }
+    });
+    if (bestIndex >= 0 && bestOverlap > .001) {
+      const group = notesByPhrase.get(bestIndex) ?? [];
+      group.push(note);
+      notesByPhrase.set(bestIndex, group);
+    }
+  }
+
+  const labels = new Map<string, string>();
+  notesByPhrase.forEach((group, phraseIndex) => {
+    const words = phrases[phraseIndex].primary.split(/\s+/).filter(Boolean);
+    if (!words.length) return;
+    group.forEach((note, noteIndex) => {
+      if (group.length <= words.length) {
+        const from = Math.floor(noteIndex * words.length / group.length);
+        const to = Math.max(from + 1, Math.floor((noteIndex + 1) * words.length / group.length));
+        labels.set(note.id, words.slice(from, to).join(' '));
+      } else {
+        labels.set(note.id, words[Math.min(words.length - 1, Math.floor(noteIndex * words.length / group.length))]);
+      }
+    });
+  });
+
+  return notes.map(note => labels.has(note.id) ? { ...note, lyric: labels.get(note.id)! } : note);
+}
+
+/** Prepare every authored voice (and a shared guide, if present) for gameplay. */
+export function gameplayNotes(song: Song, notes: SongNote[]): SongNote[] {
+  const parts = [...new Set(notes.map(note => note.part))];
+  return parts.reduce((result, partIndex) => gameplayLaneNotes(song, result, partIndex), notes);
 }
 
 function phraseLikeTimedLyrics(sections: Array<{ primary: string }>) {

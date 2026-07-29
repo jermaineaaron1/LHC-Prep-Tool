@@ -13,7 +13,7 @@ import { ArrangementEditor } from './ArrangementEditor';
 import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
 import { ScoreEngine } from '@/lib/vocal-hero/scoreEngine';
 import type { NoteScoreResult } from '@/lib/vocal-hero/scoreEngine';
-import { livePitchFeedback } from '@/lib/vocal-hero/liveCues';
+import { gameplayNotes, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { KaraokeLyrics } from './KaraokeLyrics';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
@@ -236,7 +236,7 @@ export default function VocalHeroHostPage() {
     setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
   }
 
-  const notes = song ? playableNotes(song) : [];
+  const notes = useMemo(() => song ? gameplayNotes(song, playableNotes(song)) : [], [song]);
   const phoneUrl = session ? `${window.location.origin}/vocal-hero/phone?room=${session.room_code}` : '';
   const stage = session?.status === 'playing' && song
       ? timeline.phase === 'Live' || timeline.phase === 'Paused'

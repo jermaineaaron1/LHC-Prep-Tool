@@ -426,6 +426,13 @@ Full 3-panel songbook layout implemented in both `Index.html` and `dist/index.ht
 - `timed_lyrics` and the selected lyric source now persist through the existing `vh_songs` update path. No migration is required: phrase rows use the existing `timed_lyrics` column and source selection lives in `backing_track_settings.karaoke_lyrics` JSON.
 - Bumped both Worship-shell practice-game release keys to `20260729-5`. Verification: `npx tsc --noEmit`, production `next build` with placeholder Supabase build variables, and `git diff --check` pass.
 
+### Vocal Hero gameplay lyric-lane alignment (2026-07-29)
+
+- Phrase-authored gameplay now uses one normalized lyric timeline for both the large karaoke sentence and the words inside the note highway. Old per-note fragments and blank labels are replaced at render time by the words belonging to the phrase that overlaps each note; saved pitch, timing, and editor lyric data remain untouched.
+- Phrase words are distributed in order across every overlapping note. Extra notes repeat the relevant word for melismatic passages, while fewer notes group adjacent words so the complete sentence remains represented.
+- Adjacent duplicate phrase rows with the same text are collapsed for gameplay, preventing the same sentence from appearing as both the current and next cue while preserving legitimate repeated lyrics later in the song.
+- The same alignment is applied on the host, solo, full-board, and phone gameplay views. Bumped both Worship-shell practice-game release keys to `20260729-6`; no migration, package, or environment change is required.
+
 ### Songs mobile interactions (2026-07-22)
 
 - On `fix/mobile-song-interactions`, search suggestion selection now filters the catalogue, dismisses the mobile keyboard, scrolls the exact result card into the center of view, and briefly highlights it. Keyboard Enter follows the active suggestion through the same path.
