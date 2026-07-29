@@ -433,6 +433,13 @@ Full 3-panel songbook layout implemented in both `Index.html` and `dist/index.ht
 - Adjacent duplicate phrase rows with the same text are collapsed for gameplay, preventing the same sentence from appearing as both the current and next cue while preserving legitimate repeated lyrics later in the song.
 - The same alignment is applied on the host, solo, full-board, and phone gameplay views. Bumped both Worship-shell practice-game release keys to `20260729-6`; no migration, package, or environment change is required.
 
+### Vocal Hero voice-aware gameplay lyrics (2026-07-30)
+
+- Personal and phone gameplay now derive the lyric banner strictly from the singer's selected Soprano, Alto, Tenor, or Bass notes. A true SATB part never borrows words from another voice; an un-authored part receives an explicit wait/instrumental cue.
+- The global phrase timeline is used only for a shared guide or when all four complete SATB lyric streams normalize to the same words. This keeps convenient shared worship lyrics while preserving contrapuntal or independent choir text.
+- The host choir board now shows one compact shared karaoke banner when all parts match, or four colour-coded S/A/T/B lyric cards with independent progress when their words differ.
+- Phrase-to-note label distribution is restricted by the same safety rule, so divergent per-voice lyrics are no longer overwritten visually by a song-wide phrase. Bumped both Worship-shell practice-game release keys to `20260730-1`; no migration, package, or environment change is required.
+
 ### Songs mobile interactions (2026-07-22)
 
 - On `fix/mobile-song-interactions`, search suggestion selection now filters the catalogue, dismisses the mobile keyboard, scrolls the exact result card into the center of view, and briefly highlights it. Keyboard Enter follows the active suggestion through the same path.

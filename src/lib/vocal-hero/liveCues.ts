@@ -57,18 +57,21 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
     .filter(section => section.primary?.trim())
     .sort((a, b) => a.start - b.start);
   const useNoteLyrics = song.backing_track_settings?.karaoke_lyrics?.source === 'notes';
-  const authoredPhrases = useNoteLyrics ? [] : gameplayPhraseTimeline(song);
+  const hasAuthoredSatb = notes.some(note => note.part >= 0);
+  const phraseTimeline = gameplayPhraseTimeline(song);
+  const sharedPhraseAllowed = !hasAuthoredSatb || phraseTimelineMatchesSatb(notes, phraseTimeline);
+  const authoredPhrases = useNoteLyrics || !sharedPhraseAllowed ? [] : phraseTimeline;
   if (authoredPhrases.length) return timedPhraseCue(authoredPhrases, elapsed);
 
   // Pick one granular lyric source for the whole performance. Never switch
   // sources after refresh or after the final timed entry has elapsed.
-  const timedEvents = !useNoteLyrics && !phraseLikeTimedLyrics(timedLyrics)
+  const timedEvents = !hasAuthoredSatb && !useNoteLyrics && !phraseLikeTimedLyrics(timedLyrics)
     ? timedLyrics.map(section => ({ lyric: section.primary.trim(), start: section.start, end: section.end }))
     : [];
-  const voiceEvents = lyricEvents(notes.filter(note => note.part === partIndex || note.part === -1));
+  const voiceEvents = lyricEvents(notes.filter(note => hasAuthoredSatb ? note.part === partIndex : note.part === partIndex || note.part === -1));
   const legacyEvents = (song.game_notes ?? []).filter(note => note.l?.trim()).map(note => ({ lyric: note.l!.trim(), start: note.start, end: note.start + note.dur }));
   const allEvents = mergeEvents([...lyricEvents(notes), ...legacyEvents]);
-  const noteEvents = voiceEvents.length >= allEvents.length - 2 ? voiceEvents : allEvents;
+  const noteEvents = hasAuthoredSatb ? voiceEvents : voiceEvents.length >= allEvents.length - 2 ? voiceEvents : allEvents;
   const events = timedEvents.length ? mergeEvents(timedEvents) : noteEvents;
   if (!events.length) return { text: 'Instrumental — listen for your entrance', progress: 0, currentLyric: '', nextText: '', waiting: true };
   const phraseSize = clampInteger(song.backing_track_settings?.karaoke_lyrics?.targets_per_phrase, 4, 20, 10);
@@ -125,6 +128,7 @@ export function gameplayPhraseTimeline(song: Song): PhraseTimelineRow[] {
 export function gameplayLaneNotes(song: Song, notes: SongNote[], partIndex: number): SongNote[] {
   if (song.backing_track_settings?.karaoke_lyrics?.source === 'notes') return notes;
   const phrases = gameplayPhraseTimeline(song);
+  if (notes.some(note => note.part >= 0) && !phraseTimelineMatchesSatb(notes, phrases)) return notes;
   if (!phrases.length) return notes;
 
   const voiceNotes = notes
@@ -171,6 +175,29 @@ export function gameplayLaneNotes(song: Song, notes: SongNote[], partIndex: numb
 export function gameplayNotes(song: Song, notes: SongNote[]): SongNote[] {
   const parts = [...new Set(notes.map(note => note.part))];
   return parts.reduce((result, partIndex) => gameplayLaneNotes(song, result, partIndex), notes);
+}
+
+/** Global phrases are safe only when every SATB part has the same authored words. */
+export function allSatbVoicesShareLyrics(notes: SongNote[]): boolean {
+  return Boolean(sharedSatbLyricSignature(notes));
+}
+
+function sharedSatbLyricSignature(notes: SongNote[]): string | null {
+  const signatures = [0, 1, 2, 3].map(partIndex => {
+    const events = lyricEvents(notes.filter(note => note.part === partIndex));
+    return normaliseLyric(displayPhrase(events).text);
+  });
+  return signatures.every(Boolean) && new Set(signatures).size === 1 ? signatures[0] : null;
+}
+
+function phraseTimelineMatchesSatb(notes: SongNote[], phrases: PhraseTimelineRow[]) {
+  const shared = sharedSatbLyricSignature(notes);
+  if (!shared || !phrases.length) return false;
+  return normaliseLyric(phrases.map(phrase => phrase.primary).join(' ')) === shared;
+}
+
+function normaliseLyric(value: string) {
+  return value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
 function phraseLikeTimedLyrics(sections: Array<{ primary: string }>) {

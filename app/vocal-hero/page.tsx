@@ -14,7 +14,7 @@ import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
 import { ScoreEngine } from '@/lib/vocal-hero/scoreEngine';
 import type { NoteScoreResult } from '@/lib/vocal-hero/scoreEngine';
 import { gameplayNotes, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
-import { KaraokeLyrics } from './KaraokeLyrics';
+import { ChoirKaraokeLyrics, KaraokeLyrics } from './KaraokeLyrics';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
@@ -308,7 +308,29 @@ function SoloLiveStage({ song, notes, part, elapsed, pitch, score, hits, lastRes
 
 function Metric({ label, value }: { label: string; value: number }) { return <div className="rounded-lg bg-black/20 p-2"><b className={value >= .65 ? 'text-emerald-300' : value > 0 ? 'text-amber-300' : 'text-slate-500'}>{Math.round(value * 100)}%</b><small className="mt-1 block text-[9px] uppercase tracking-wider text-slate-500">{label}</small></div>; }
 
-function LiveStage({ song, notes, players, sections, elapsed }: { song: Song; notes: SongNote[]; players: SessionPlayer[]; sections: SectionScore[]; elapsed: number }) { const guide = isGuideMelody(notes); const sectionList = [...sections].sort((a, b) => b.accuracy - a.accuracy); return <section className="mx-auto max-w-[1500px] px-5 py-6"><div className="grid gap-5 xl:grid-cols-[1fr_330px]"><div><div className="vh-panel mb-4 flex flex-wrap items-center gap-5 p-4"><SongDetails song={song} /><div className="ml-auto text-right"><p className="text-xs tracking-[.2em] text-slate-400">NOW PLAYING</p><p className="text-2xl font-bold text-cyan-200">{elapsed.toFixed(1)}s</p></div></div><div className="space-y-3">{guide ? <><p className="vh-guide-notice">Shared melody guide · author true SATB targets in Edit arrangement to show independent harmony lanes.</p><SatbLane partIndex={-1} partName="Melody guide" colour="#ff60bc" elapsed={elapsed} notes={notes} playerCount={players.length} /></> : VOICES.map((voice, index) => <SatbLane key={voice} partIndex={index} partName={voice} colour={COLOURS[index]} elapsed={elapsed} notes={notes} playerCount={players.filter(player => player.part_index === index && !player.is_spectator).length} />)}</div><div className="mt-4 grid gap-3 lg:grid-cols-2"><Leaderboard players={players} /><div className="vh-panel p-4"><p className="text-xs tracking-[.2em] text-slate-400">SECTION BLEND</p><div className="mt-4 grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <div key={voice} className="rounded-xl bg-white/[.04] p-3 text-center"><b style={{ color: COLOURS[index] }}>{voice[0]}</b><p className="mt-1 text-xs text-slate-400">{Math.round(sections.find(item => item.part_index === index)?.accuracy ?? 0)}%</p></div>)}</div></div></div></div><aside className="vh-panel h-fit p-5"><p className="text-xs tracking-[.2em] text-slate-400">LIVE SECTION BATTLE</p><div className="mt-4 space-y-3">{sectionList.length ? sectionList.map((section, rank) => <div key={section.part_index} className="rounded-xl border border-white/10 bg-white/[.035] p-3"><div className="flex items-center justify-between"><b style={{ color: COLOURS[section.part_index] }}>#{rank + 1} {VOICES[section.part_index]}</b><b>{Math.round(section.accuracy)}%</b></div><div className="mt-2 h-1.5 rounded-full bg-white/10"><span className="block h-full rounded-full" style={{ width: `${section.accuracy}%`, background: COLOURS[section.part_index] }} /></div></div>) : <p className="text-sm text-slate-500">Scores will appear as singers perform.</p>}</div></aside></div></section>; }
+function LiveStage({ song, notes, players, sections, elapsed }: { song: Song; notes: SongNote[]; players: SessionPlayer[]; sections: SectionScore[]; elapsed: number }) {
+  const guide = isGuideMelody(notes);
+  const sectionList = [...sections].sort((a, b) => b.accuracy - a.accuracy);
+  return <section className="mx-auto max-w-[1500px] px-5 py-6">
+    <div className="grid gap-5 xl:grid-cols-[1fr_330px]">
+      <div>
+        <div className="vh-panel mb-4 flex flex-wrap items-center gap-5 p-4">
+          <SongDetails song={song} />
+          <div className="ml-auto text-right"><p className="text-xs tracking-[.2em] text-slate-400">NOW PLAYING</p><p className="text-2xl font-bold text-cyan-200">{elapsed.toFixed(1)}s</p></div>
+        </div>
+        <div className="mb-4">{guide ? <KaraokeLyrics song={song} notes={notes} partIndex={-1} elapsed={elapsed} compact /> : <ChoirKaraokeLyrics song={song} notes={notes} elapsed={elapsed} />}</div>
+        <div className="space-y-3">
+          {guide ? <><p className="vh-guide-notice">Shared melody guide · author true SATB targets in Edit arrangement to show independent harmony lanes.</p><SatbLane partIndex={-1} partName="Melody guide" colour="#ff60bc" elapsed={elapsed} notes={notes} playerCount={players.length} /></> : VOICES.map((voice, index) => <SatbLane key={voice} partIndex={index} partName={voice} colour={COLOURS[index]} elapsed={elapsed} notes={notes} playerCount={players.filter(player => player.part_index === index && !player.is_spectator).length} />)}
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <Leaderboard players={players} />
+          <div className="vh-panel p-4"><p className="text-xs tracking-[.2em] text-slate-400">SECTION BLEND</p><div className="mt-4 grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <div key={voice} className="rounded-xl bg-white/[.04] p-3 text-center"><b style={{ color: COLOURS[index] }}>{voice[0]}</b><p className="mt-1 text-xs text-slate-400">{Math.round(sections.find(item => item.part_index === index)?.accuracy ?? 0)}%</p></div>)}</div></div>
+        </div>
+      </div>
+      <aside className="vh-panel h-fit p-5"><p className="text-xs tracking-[.2em] text-slate-400">LIVE SECTION BATTLE</p><div className="mt-4 space-y-3">{sectionList.length ? sectionList.map((section, rank) => <div key={section.part_index} className="rounded-xl border border-white/10 bg-white/[.035] p-3"><div className="flex items-center justify-between"><b style={{ color: COLOURS[section.part_index] }}>#{rank + 1} {VOICES[section.part_index]}</b><b>{Math.round(section.accuracy)}%</b></div><div className="mt-2 h-1.5 rounded-full bg-white/10"><span className="block h-full rounded-full" style={{ width: `${section.accuracy}%`, background: COLOURS[section.part_index] }} /></div></div>) : <p className="text-sm text-slate-500">Scores will appear as singers perform.</p>}</div></aside>
+    </div>
+  </section>;
+}
 function Leaderboard({ players }: { players: SessionPlayer[] }) { return <div className="vh-panel p-4"><div className="flex items-center justify-between"><p className="text-xs tracking-[.2em] text-slate-400">INDIVIDUAL LEADERBOARD</p><span className="text-xs text-fuchsia-300">Host only</span></div><div className="mt-3 space-y-2">{[...players].sort((a, b) => b.score - a.score).slice(0, 5).map((player, index) => <div key={player.id} className="flex items-center gap-2 text-sm"><span className="w-4 text-slate-500">{index + 1}</span><Avatar name={player.player_name} colour={COLOURS[player.part_index]} /><span className="flex-1 truncate">{player.player_name}</span><b className="font-mono">{player.score.toLocaleString()}</b></div>)}</div></div>; }
 
 function timelineFor(session: GameSession | null, now: number) { if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 }; const delta = now - new Date(session.playback_starts_at).getTime(); const countdown = session.countdown_seconds ?? 5, lead = session.lead_in_seconds ?? 2; if (delta < 0) return { phase: `Starts in ${Math.ceil(-delta / 1000)}`, songElapsed: 0 }; const seconds = delta / 1000; if (seconds < countdown) return { phase: `Count-in ${countdown - Math.floor(seconds)}`, songElapsed: 0 }; if (seconds < countdown + lead) return { phase: 'Lead-in · listen', songElapsed: 0 }; return { phase: 'Live', songElapsed: seconds - countdown - lead }; }
