@@ -6569,6 +6569,12 @@
 
           <!-- ===== WELCOME OVERVIEW (default landing) ===== -->
           <div id="liturgyWelcome">
+
+            <!-- New default: Lectionary Reading home (Phase 3a) -->
+            <div id="lectionaryHomeView"><!-- Rendered by JS: renderLectionaryHome() --></div>
+
+            <!-- Old occasion-card grid, now reached via sidebar "All Services" -->
+            <div id="occasionGridView" style="display:none;">
             <!-- Welcome Header -->
             <div class="lit-welcome-header">
               <div class="lit-welcome-header-inner">
@@ -6824,7 +6830,8 @@
                 </div>
               </div>
             </div>
-          </div>
+            </div><!-- /occasionGridView -->
+          </div><!-- /liturgyWelcome -->
 
           <!-- Global green + FAB -->
           <button id="litAddFAB" class="lit-add-fab" onclick="LiturgyModule.openQuickAddModal(null, null)" title="Add content to library">
@@ -54347,6 +54354,51 @@ var LiturgyModule = (function() {
   var CONTENT_TYPES = ['liturgies','readings','prayers','responses','hymns','meditations'];
   var _occContentTypeFilter = null; // same values, null = "All Items" -- for the Liturgy Order tab's filter row
 
+  // Lectionary Reading home (Phase 3a) -- day-by-day, user-set readings.
+  // No standard lectionary dataset is built this pass; each date's readings
+  // are manually assigned via the existing Bible Browser.
+  var _currentReadingDate = null;        // 'YYYY-MM-DD', defaults to today
+  var _readingViewMode = 'day';          // 'day' | 'week' | 'month'
+  var _lectionaryReadingsCache = {};     // { 'YYYY-MM-DD': [ {label, reference, translation, passageText, verseCount} ] }
+  var _lectionaryPickerSlotIndex = null; // which slot openReadingSlotPicker() targets
+  var READING_SLOT_LABELS = ['1st Reading', 'Psalm', '2nd Reading', 'Gospel'];
+  var LIT_SEASON_STRIP = [
+    { cls: 'advent', icon: 'fa-star', label: 'Advent' },
+    { cls: 'christmas', icon: 'fa-fire', label: 'Christmas' },
+    { cls: 'ordinary', icon: 'fa-church', label: 'Ordinary' },
+    { cls: 'lent', icon: 'fa-cross', label: 'Lent' },
+    { cls: 'holy-week', icon: 'fa-cross', label: 'Holy Week' },
+    { cls: 'easter', icon: 'fa-sun', label: 'Easter' },
+    { cls: 'pentecost', icon: 'fa-fire-flame-curved', label: 'Pentecost' }
+  ];
+
+  var SBQ_LECTIONARY = {
+    _sb: function() { return getSupabaseClient(); },
+    loadReadingsForDate: function(dateStr) {
+      var sb = this._sb();
+      if (!sb) return Promise.resolve(null);
+      return sb.from('lectionary_readings').select('*').eq('reading_date', dateStr).maybeSingle()
+        .then(function(r) { if (r.error) throw new Error(r.error.message); return r.data; });
+    },
+    saveSlot: function(dateStr, slotIndex, slotData) {
+      var sb = this._sb();
+      if (!sb) return Promise.reject(new Error('Supabase not ready'));
+      return this.loadReadingsForDate(dateStr).then(function(existing) {
+        var slots = (existing && existing.slots) ? existing.slots.slice() : [];
+        while (slots.length <= slotIndex) slots.push(null);
+        slots[slotIndex] = slotData;
+        return sb.from('lectionary_readings').upsert({
+          reading_date: dateStr,
+          slots: slots,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'reading_date' }).then(function(r) {
+          if (r.error) throw new Error(r.error.message);
+          return slots;
+        });
+      });
+    }
+  };
+
   // Sacred Library: season + favorites filters (additive, layered onto the
   // existing getFilteredItems pipeline -- General Library folder / folder
   // navigation / category filter all still work exactly as before).
@@ -57581,7 +57633,9 @@ var LiturgyModule = (function() {
 
     var btnText = document.getElementById('bbPrimaryBtnText');
     if (btnText) {
-      btnText.textContent = bibleBrowserMode === 'insert-wo' ? 'Insert into Service Order' : 'Save to Scripture Library';
+      btnText.textContent = bibleBrowserMode === 'insert-wo' ? 'Insert into Service Order'
+        : bibleBrowserMode === 'lectionary-slot' ? 'Use This Reading'
+        : 'Save to Scripture Library';
     }
 
     modal.classList.add('show');
@@ -57729,6 +57783,8 @@ var LiturgyModule = (function() {
     if (!bbState.passage) return;
     if (bibleBrowserMode === 'insert-wo') {
       bbInsertIntoWO();
+    } else if (bibleBrowserMode === 'lectionary-slot') {
+      bbSaveToLectionarySlot();
     } else {
       bbSaveToLibrary();
     }
@@ -58054,6 +58110,193 @@ var LiturgyModule = (function() {
 
   /* ===== END OCCASION FOLDER SYSTEM ===== */
 
+  /* ===== LECTIONARY READING HOME (Phase 3a) ===== */
+
+  function _todayISO() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function _isoFromDate(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  // Toggles between the new Lectionary Reading home and the old occasion-card
+  // grid, both living inside #liturgyWelcome so every existing "go home" call
+  // site (selectOccasion(null), back-buttons, sidebar Dashboard) keeps working
+  // without being individually rewired.
+  function showWelcomeSubview(which) {
+    var lecView = document.getElementById('lectionaryHomeView');
+    var occView = document.getElementById('occasionGridView');
+    if (lecView) lecView.style.display = which === 'lectionary' ? '' : 'none';
+    if (occView) occView.style.display = which === 'occasions' ? '' : 'none';
+  }
+
+  // Sidebar "All Services" entry point -- same panel reset as
+  // selectOccasion(null), but surfaces the old occasion grid (and the real,
+  // working Occasion Panel it leads to) instead of the new Lectionary home.
+  function showAllServices() {
+    _currentOccasion = null;
+    var welcome  = document.getElementById('liturgyWelcome');
+    var occPanel = document.getElementById('liturgyOccasionPanel');
+    var libPanel = document.getElementById('liturgyLibraryPanel');
+    if (welcome)  welcome.style.display = '';
+    if (occPanel) occPanel.style.display = 'none';
+    if (libPanel) libPanel.style.display = 'none';
+    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) { btn.classList.remove('active'); });
+    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) { btn.classList.remove('active'); });
+    showWelcomeSubview('occasions');
+  }
+
+  function goToToday() { selectReadingDate(_todayISO()); }
+
+  function selectReadingDate(dateStr) {
+    _currentReadingDate = dateStr;
+    renderReadingDateNav();
+    renderReadingSlots();
+  }
+
+  function changeReadingDate(dir) {
+    var d = new Date(_currentReadingDate + 'T00:00:00');
+    var stepDays = _readingViewMode === 'day' ? 1 : _readingViewMode === 'week' ? 7 : 30;
+    d.setDate(d.getDate() + dir * stepDays);
+    selectReadingDate(_isoFromDate(d));
+  }
+
+  function setReadingViewMode(mode) {
+    _readingViewMode = mode;
+    renderReadingDateNav();
+  }
+
+  function renderReadingDateNav() {
+    var nav = document.getElementById('lectionaryDateNav');
+    if (!nav) return;
+    var d = new Date(_currentReadingDate + 'T00:00:00');
+    var dateLabel = d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    var modes = ['day', 'week', 'month'];
+    nav.innerHTML =
+      '<button class="lit-datenav-arrow" onclick="LiturgyModule.changeReadingDate(-1)" title="Previous"><i class="fa-solid fa-chevron-left"></i></button>' +
+      '<div class="lit-datenav-title">' + escapeHtml(dateLabel) + '</div>' +
+      '<button class="lit-datenav-arrow" onclick="LiturgyModule.changeReadingDate(1)" title="Next"><i class="fa-solid fa-chevron-right"></i></button>' +
+      '<div class="lit-datenav-modes">' +
+        modes.map(function(m) {
+          return '<button class="' + (m === _readingViewMode ? 'active' : '') + '" onclick="LiturgyModule.setReadingViewMode(\'' + m + '\')">' + m.charAt(0).toUpperCase() + m.slice(1) + '</button>';
+        }).join('') +
+      '</div>';
+  }
+
+  function renderReadingSlots() {
+    var grid = document.getElementById('lectionaryReadingSlots');
+    if (!grid) return;
+    var dateStr = _currentReadingDate;
+    if (_lectionaryReadingsCache[dateStr]) {
+      _renderReadingSlotsFromCache(dateStr);
+      return;
+    }
+    grid.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Loading readings…</p></div>';
+    SBQ_LECTIONARY.loadReadingsForDate(dateStr).then(function(row) {
+      _lectionaryReadingsCache[dateStr] = (row && row.slots) || [];
+      if (_currentReadingDate === dateStr) _renderReadingSlotsFromCache(dateStr);
+    }).catch(function(err) {
+      console.error('LiturgyModule: loadReadingsForDate failed', err);
+      _lectionaryReadingsCache[dateStr] = [];
+      if (_currentReadingDate === dateStr) _renderReadingSlotsFromCache(dateStr);
+    });
+  }
+
+  function _renderReadingSlotsFromCache(dateStr) {
+    var grid = document.getElementById('lectionaryReadingSlots');
+    if (!grid) return;
+    var slots = _lectionaryReadingsCache[dateStr] || [];
+    grid.innerHTML = READING_SLOT_LABELS.map(function(label, idx) {
+      var slot = slots[idx];
+      if (slot && slot.reference) {
+        return '<div class="lit-reading-slot filled" onclick="LiturgyModule.openReadingSlotPicker(' + idx + ')">' +
+          '<div class="lit-reading-slot-label">' + escapeHtml(slot.label || label) + '</div>' +
+          '<div class="lit-reading-slot-ref">' + escapeHtml(slot.reference) + '</div>' +
+        '</div>';
+      }
+      return '<div class="lit-reading-slot empty" onclick="LiturgyModule.openReadingSlotPicker(' + idx + ')">' +
+        '<div class="lit-reading-slot-label">' + escapeHtml(label) + '</div>' +
+        '<div class="lit-reading-slot-ref"><i class="fa-solid fa-plus mr-1"></i>Add reading</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function openReadingSlotPicker(idx) {
+    _lectionaryPickerSlotIndex = idx;
+    openBibleBrowser('lectionary-slot', null, null);
+  }
+
+  function bbSaveToLectionarySlot() {
+    if (!bbState.passage || _lectionaryPickerSlotIndex === null) return;
+    var idx = _lectionaryPickerSlotIndex;
+    var dateStr = _currentReadingDate;
+    var slotData = {
+      label: READING_SLOT_LABELS[idx] || 'Reading',
+      reference: bbState.passage.reference || '',
+      translation: bbState.passage.translation || '',
+      passageText: bbState.passage.text || '',
+      verseCount: bbState.passage.verseCount || 0
+    };
+    SBQ_LECTIONARY.saveSlot(dateStr, idx, slotData).then(function(slots) {
+      _lectionaryReadingsCache[dateStr] = slots;
+      if (_currentReadingDate === dateStr) _renderReadingSlotsFromCache(dateStr);
+      closeBibleBrowser();
+      if (typeof showToast === 'function') showToast('Reading saved', 'success');
+    }).catch(function(err) {
+      console.error('LiturgyModule: saveSlot failed', err);
+      if (typeof showToast === 'function') showToast('Could not save reading: ' + err.message, 'error');
+    });
+  }
+
+  function renderLectionaryHome() {
+    if (!_currentReadingDate) _currentReadingDate = _todayISO();
+    var container = document.getElementById('lectionaryHomeView');
+    if (!container) return;
+    container.innerHTML =
+      '<div class="lit-welcome-header">' +
+        '<div class="lit-welcome-header-inner">' +
+          '<div class="lit-welcome-cross-icon"><i class="fa-solid fa-book-bible"></i></div>' +
+          '<div>' +
+            '<h1 class="font-cinzel" style="font-size:1.5rem;font-weight:700;margin:0 0 4px;color:white;">Lectionary Reading</h1>' +
+            '<p style="margin:0;opacity:0.85;font-size:0.9rem;font-style:italic;color:white;">Seek, study, and respond to God&#39;s Word</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="lit-welcome-actions">' +
+          '<button class="liturgy-action-btn" onclick="LiturgyModule.goToToday()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.4);">' +
+            '<i class="fa-solid fa-calendar-day mr-1"></i> Today' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="lit-year-strip lit-year-strip-readonly">' +
+        LIT_SEASON_STRIP.map(function(s) {
+          return '<div class="lit-year-season ' + s.cls + '"><i class="fa-solid ' + s.icon + '"></i><span>' + s.label + '</span></div>';
+        }).join('') +
+      '</div>' +
+      '<div class="lit-lectionary-body">' +
+        '<div id="lectionaryDateNav" class="lit-reading-datenav"></div>' +
+        '<div class="lit-reading-slots-panel">' +
+          '<h2 class="lit-occ-group-title"><i class="fa-solid fa-book-open mr-2" style="color:#7c3aed;"></i>This Week&#39;s Readings</h2>' +
+          '<div id="lectionaryReadingSlots" class="lit-reading-slots-grid"></div>' +
+        '</div>' +
+        '<div class="lit-reading-engage-panel">' +
+          '<h2 class="lit-occ-group-title"><i class="fa-solid fa-hand-holding-heart mr-2" style="color:#7c3aed;"></i>How would you like to engage?</h2>' +
+          '<div class="lit-engage-grid">' +
+            '<div class="lit-engage-card" onclick="LiturgyModule.showAllServices()">' +
+              '<div class="lit-engage-card-icon" style="background:rgba(124,58,237,0.12);color:#7c3aed;"><i class="fa-solid fa-music"></i></div>' +
+              '<div class="lit-engage-card-title">Worship Planning</div>' +
+              '<div class="lit-engage-card-desc">Find songs and plan worship elements</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    renderReadingDateNav();
+    renderReadingSlots();
+  }
+
+  /* ===== END LECTIONARY READING HOME ===== */
+
   function selectOccasion(occasionId) {
     _currentOccasion = occasionId;
     _currentGeneralFolder = null; // Clear general folder when navigating to a season
@@ -58073,6 +58316,8 @@ var LiturgyModule = (function() {
       if (welcome)  welcome.style.display = '';
       if (occPanel) occPanel.style.display = 'none';
       if (libPanel) libPanel.style.display = 'none';
+      showWelcomeSubview('lectionary');
+      renderLectionaryHome();
       return;
     }
     if (occasionId === 'library') {
@@ -59939,6 +60184,15 @@ var LiturgyModule = (function() {
     _doDeleteFolder: _doDeleteFolder,
     // Occasion-based navigation
     selectOccasion: selectOccasion,
+    showWelcomeSubview: showWelcomeSubview,
+    showAllServices: showAllServices,
+    renderLectionaryHome: renderLectionaryHome,
+    goToToday: goToToday,
+    selectReadingDate: selectReadingDate,
+    changeReadingDate: changeReadingDate,
+    setReadingViewMode: setReadingViewMode,
+    openReadingSlotPicker: openReadingSlotPicker,
+    bbSaveToLectionarySlot: bbSaveToLectionarySlot,
     selectGeneralFolder: selectGeneralFolder,
     openLibraryFilter: openLibraryFilter,
     // Occasion year/folder system (434)
@@ -64047,6 +64301,36 @@ function filterLiturgyItems() {
   .lit-year-season.holy-week { background: #f9fafb; color: #374151; border-bottom-color: #374151; }
   .lit-year-season.easter    { background: #fffbeb; color: #b45309; border-bottom-color: #b45309; }
   .lit-year-season.pentecost { background: #fef2f2; color: #dc2626; border-bottom-color: #dc2626; }
+  /* Lectionary home's season strip is a display-only strip (no per-date
+     liturgical-season computation exists yet) -- kill the pointer/hover cues
+     so it doesn't look clickable for something that can't do anything yet. */
+  .lit-year-strip-readonly .lit-year-season { cursor: default; }
+  .lit-year-strip-readonly .lit-year-season:hover { filter: none; }
+
+  /* Lectionary Reading home (Phase 3a) */
+  .lit-lectionary-body { padding: 24px 28px; }
+  .lit-reading-datenav { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; overflow-x: auto; padding-bottom: 2px; }
+  .lit-datenav-arrow { flex-shrink: 0; width: 34px; height: 34px; border: 1.5px solid #e5e7eb; background: white; color: #6b7280; border-radius: 8px; cursor: pointer; font-size: 0.85rem; transition: all 0.15s; }
+  .lit-datenav-arrow:hover { border-color: #7c3aed; color: #7c3aed; }
+  .lit-datenav-title { flex-shrink: 0; font-weight: 700; color: #1f2933; font-family: 'Cinzel', Georgia, serif; font-size: 0.95rem; white-space: nowrap; }
+  .lit-datenav-modes { flex-shrink: 0; display: flex; gap: 2px; background: #f3f4f6; border-radius: 8px; padding: 3px; margin-left: auto; }
+  .lit-datenav-modes button { padding: 6px 14px; border: none; background: transparent; color: #6b7280; font-size: 0.78rem; font-weight: 600; font-family: 'Poppins', sans-serif; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  .lit-datenav-modes button.active { background: white; color: #7c3aed; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .lit-reading-slots-panel { margin-bottom: 30px; }
+  .lit-reading-slots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .lit-reading-slot { background: white; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: all 0.2s; }
+  .lit-reading-slot:hover { border-color: #7c3aed; box-shadow: 0 3px 10px rgba(124,58,237,0.1); transform: translateY(-1px); }
+  .lit-reading-slot-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #9ca3af; margin-bottom: 6px; }
+  .lit-reading-slot.filled .lit-reading-slot-ref { font-size: 0.92rem; font-weight: 600; color: #1f2933; font-family: 'Poppins', sans-serif; }
+  .lit-reading-slot.empty { border-style: dashed; }
+  .lit-reading-slot.empty .lit-reading-slot-ref { font-size: 0.85rem; color: #a78bfa; font-family: 'Poppins', sans-serif; }
+  .lit-reading-engage-panel { margin-bottom: 10px; }
+  .lit-engage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .lit-engage-card { background: white; border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px; cursor: pointer; transition: all 0.25s; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+  .lit-engage-card:hover { border-color: #7c3aed; box-shadow: 0 4px 14px rgba(124,58,237,0.12); transform: translateY(-2px); }
+  .lit-engage-card-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; margin-bottom: 12px; }
+  .lit-engage-card-title { font-weight: 700; color: #1f2933; font-family: 'Poppins', sans-serif; font-size: 0.92rem; margin-bottom: 4px; }
+  .lit-engage-card-desc { font-size: 0.8rem; color: #6b7280; font-family: 'Poppins', sans-serif; }
 
   /* Welcome body */
   .lit-welcome-body { padding: 24px 28px; }
