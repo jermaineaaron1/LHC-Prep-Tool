@@ -58655,7 +58655,16 @@ var LiturgyModule = (function() {
 
   function _litDefaultBackground(item) {
     var color = CATEGORY_ACCENT_COLOR[getCategoryForItem(item)] || '#374151';
-    return { type: 'gradient', value: 'linear-gradient(160deg, ' + color + ' 0%, #0f172a 85%)' };
+    return { type: 'gradient', value: _litProjGradient(color) };
+  }
+
+  // Layered radial "spotlight" + linear falloff so the gradient reads as a
+  // moody projected-slide backdrop rather than a flat color swatch (per
+  // user's request to keep gradients but make them richer/darker, deferring
+  // real photo backgrounds to a later pass).
+  function _litProjGradient(color) {
+    return 'radial-gradient(ellipse at 50% 20%, ' + color + '55 0%, transparent 60%), ' +
+           'linear-gradient(165deg, ' + color + ' 0%, #0f172a 80%)';
   }
 
   function renderLitProjectionPreview() {
@@ -58666,7 +58675,7 @@ var LiturgyModule = (function() {
     var text = _litPreviewSlides[_litPreviewIdx] || '';
     var colorOverride = LIT_PROJ_COLOR_OVERRIDES[_litProjColorIdx];
     var bg = colorOverride
-      ? { type: 'gradient', value: 'linear-gradient(160deg, ' + colorOverride + ' 0%, #0f172a 85%)' }
+      ? { type: 'gradient', value: _litProjGradient(colorOverride) }
       : _litDefaultBackground(item);
     var swatchColor = colorOverride || CATEGORY_ACCENT_COLOR[getCategoryForItem(item)] || '#374151';
 
@@ -58680,28 +58689,27 @@ var LiturgyModule = (function() {
 
     panel.innerHTML =
       '<div style="width:100%;height:100%;display:flex;flex-direction:column;background:#1e293b;">' +
-        '<div style="padding:10px 16px;background:#0f172a;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">' +
-          '<span style="color:rgba(255,255,255,0.7);font-size:0.8rem;font-family:Poppins,sans-serif;">' + escapeHtml(item.title || '') + '</span>' +
-          '<div style="display:flex;align-items:center;gap:8px;">' +
-            '<button onclick="LiturgyModule._litPrevSlide()" style="background:rgba(255,255,255,0.1);border:none;color:white;border-radius:5px;padding:4px 10px;cursor:pointer;"><i class="fa-solid fa-chevron-left"></i></button>' +
-            '<span style="color:rgba(255,255,255,0.6);font-size:0.75rem;" id="litOccSlideCounter">' + (_litPreviewIdx + 1) + ' / ' + _litPreviewSlides.length + '</span>' +
-            '<button onclick="LiturgyModule._litNextSlide()" style="background:rgba(255,255,255,0.1);border:none;color:white;border-radius:5px;padding:4px 10px;cursor:pointer;"><i class="fa-solid fa-chevron-right"></i></button>' +
-          '</div>' +
-          '<button onclick="LiturgyModule.editItem(\'' + _litPreviewItem + '\')" style="background:#7c3aed;border:none;color:white;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:0.75rem;font-family:Poppins,sans-serif;"><i class="fa-solid fa-pen mr-1"></i>Edit</button>' +
-        '</div>' +
-        '<div class="lit-proj-controls-row">' +
-          '<label>Size<select onchange="LiturgyModule.selectProjSize(this.value)">' + sizeOptions + '</select></label>' +
-          '<label>Style<select onchange="LiturgyModule.selectProjStyle(this.value)">' + styleOptions + '</select></label>' +
-          '<button class="lit-proj-color-btn" onclick="LiturgyModule.cycleProjColor()" style="background:' + swatchColor + ';" title="Cycle background color"></button>' +
+        '<div class="lit-proj-header">' +
+          '<span><i class="fa-solid fa-display mr-1"></i> Projection Preview</span>' +
           '<div class="lit-proj-device-toggle">' +
             '<button class="' + (_litProjDevice === 'desktop' ? 'active' : '') + '" onclick="LiturgyModule.selectProjDevice(\'desktop\')" title="Desktop preview"><i class="fa-solid fa-display"></i></button>' +
             '<button class="' + (_litProjDevice === 'mobile' ? 'active' : '') + '" onclick="LiturgyModule.selectProjDevice(\'mobile\')" title="Mobile preview"><i class="fa-solid fa-mobile-screen-button"></i></button>' +
           '</div>' +
         '</div>' +
+        '<div class="lit-proj-controls-row">' +
+          '<label>Size<select onchange="LiturgyModule.selectProjSize(this.value)">' + sizeOptions + '</select></label>' +
+          '<label>Style<select onchange="LiturgyModule.selectProjStyle(this.value)">' + styleOptions + '</select></label>' +
+          '<label>Color<button class="lit-proj-color-btn" onclick="LiturgyModule.cycleProjColor()" style="background:' + swatchColor + ';" title="Cycle background color"></button></label>' +
+        '</div>' +
         '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto;">' +
           '<div id="litProjFrame" class="lit-proj-frame lit-proj-size-' + _litProjSize + ' lit-proj-style-' + _litProjStyle + ' lit-proj-device-' + _litProjDevice + '">' +
             '<div class="lit-proj-frame-inner">' + _litProjectionHtml(text) + '</div>' +
           '</div>' +
+        '</div>' +
+        '<div class="lit-proj-counter-row">' +
+          '<button onclick="LiturgyModule._litPrevSlide()" title="Previous Slide"><i class="fa-solid fa-chevron-left"></i></button>' +
+          '<span id="litOccSlideCounter">Slide ' + (_litPreviewIdx + 1) + ' of ' + _litPreviewSlides.length + '</span>' +
+          '<button onclick="LiturgyModule._litNextSlide()" title="Next Slide"><i class="fa-solid fa-chevron-right"></i></button>' +
         '</div>' +
       '</div>';
     _litApplyBgToPreview(document.getElementById('litProjFrame'), bg);
@@ -58718,9 +58726,33 @@ var LiturgyModule = (function() {
   // `item.slides` field for library items. Edits are joined back with
   // SLIDE_BREAK and saved via updateItem(id, {content}) so they persist
   // everywhere that item is used (WO insertions, other occasions, etc).
+  function _litEditorPillLabel(item) {
+    var ct = _getContentTypeFromTags(item.tags);
+    var raw = ct || getCategoryForItem(item) || '';
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+  }
+
+  function _litSlideEditorHeaderHtml(item) {
+    return '<div class="lit-slide-editor-header">' +
+      '<div class="lit-slide-editor-title-row">' +
+        '<span class="lit-slide-editor-title">' + escapeHtml(item.title || '') + '</span>' +
+        '<span class="lit-slide-editor-pill">' + escapeHtml(_litEditorPillLabel(item)) + '</span>' +
+      '</div>' +
+      '<div class="lit-slide-editor-header-actions">' +
+        '<button class="lit-slide-editor-nav-btn" onclick="LiturgyModule._litPrevSlide()" title="Previous Slide"><i class="fa-solid fa-chevron-left"></i></button>' +
+        '<span class="lit-slide-editor-counter" id="litOccEditorCounter">' + (_litPreviewIdx + 1) + ' of ' + _litPreviewSlides.length + '</span>' +
+        '<button class="lit-slide-editor-nav-btn" onclick="LiturgyModule._litNextSlide()" title="Next Slide"><i class="fa-solid fa-chevron-right"></i></button>' +
+        '<button class="lit-slide-editor-icon-btn" onclick="LiturgyModule.openLitOccAllSlides()" title="Type all content at once — auto-split into slides"><i class="fa-solid fa-align-left"></i></button>' +
+        '<button class="lit-slide-editor-icon-btn" onclick="LiturgyModule.editItem(\'' + item.id + '\')" title="Expand full editor"><i class="fa-solid fa-expand"></i></button>' +
+      '</div>' +
+    '</div>';
+  }
+
   function renderLitSlideEditorBoxes() {
     var editorEl = document.getElementById('litOccSlideEditor');
     if (!editorEl) return;
+    var item = getItem(_litPreviewItem);
+    var headerHtml = item ? _litSlideEditorHeaderHtml(item) : '';
     var boxesHtml = _litPreviewSlides.map(function(text, idx) {
       return '<div class="lit-slide-box' + (idx === _litPreviewIdx ? ' lit-slide-current' : '') + '" data-slide-idx="' + idx + '">' +
         '<div class="lit-slide-box-header">' +
@@ -58730,14 +58762,20 @@ var LiturgyModule = (function() {
         '<textarea class="lit-slide-textarea" onfocus="LiturgyModule.selectLitSlide(' + idx + ')" onblur="LiturgyModule._saveLitSlideEdit(' + idx + ', this.value)">' + escapeHtml(text) + '</textarea>' +
       '</div>';
     }).join('');
-    editorEl.innerHTML = boxesHtml +
+    editorEl.innerHTML = headerHtml + boxesHtml +
       '<div class="lit-add-slide-row"><button class="lit-add-slide-btn" onclick="LiturgyModule.addLitSlide()"><i class="fa-solid fa-plus mr-1"></i>Add Slide</button></div>';
+  }
+
+  function _updateLitSlideEditorCounter() {
+    var counterEl = document.getElementById('litOccEditorCounter');
+    if (counterEl) counterEl.textContent = (_litPreviewIdx + 1) + ' of ' + _litPreviewSlides.length;
   }
 
   function selectLitSlide(idx) {
     if (idx < 0 || idx >= _litPreviewSlides.length) return;
     _litPreviewIdx = idx;
     renderLitProjectionPreview();
+    _updateLitSlideEditorCounter();
     document.querySelectorAll('#litOccSlideEditor .lit-slide-box').forEach(function(box) {
       box.classList.toggle('lit-slide-current', Number(box.getAttribute('data-slide-idx')) === idx);
     });
@@ -58754,6 +58792,131 @@ var LiturgyModule = (function() {
     if (_litPreviewSlides[idx] === text) return; // no change, skip a needless save
     _litPreviewSlides[idx] = text;
     _saveLitSlides();
+  }
+
+  // "All Slides" for the Occasion Panel's slide editor -- paste a chunk of
+  // content (from a PDF, Word doc, anywhere) into one pad, then split it into
+  // individual slides. Mirrors the existing item-editor All Slides modal
+  // (openLitAllSlides/saveLitAllSlides above) but reads/writes
+  // _litPreviewSlides + the Occasion Panel's own render/save functions
+  // instead of the item-editor's pane system, since the two editors keep
+  // separate in-memory slide state.
+  function openLitOccAllSlides() {
+    if (!_litPreviewItem) return;
+    var editorHtml = _litPreviewSlides.map(function(s) {
+      var lines = (s || '').split('\n');
+      return lines.map(function(l) { return '<p>' + (l ? escapeHtml(l) : '<br>') + '</p>'; }).join('');
+    }).join('<hr class="lit-asl-break">');
+    if (!editorHtml) editorHtml = '<p><br></p>';
+
+    var existing = document.getElementById('litOccAllSlidesModal');
+    if (existing) existing.remove();
+
+    var modal = document.createElement('div');
+    modal.id = 'litOccAllSlidesModal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:200000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
+    modal.innerHTML =
+      '<style>' +
+        '#litOccAllSlidesEditor { flex:1; padding:20px; font-size:0.95rem; font-family:Georgia,serif; line-height:1.8; outline:none; overflow-y:auto; min-height:380px; }' +
+        '#litOccAllSlidesEditor p { margin:0; min-height:1.4em; }' +
+        '#litOccAllSlidesEditor hr.lit-asl-break { border:none; border-top:2px dashed #7c3aed; margin:14px 0; cursor:default; }' +
+      '</style>' +
+      '<div style="background:white;border-radius:14px;width:min(700px,96vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.35);overflow:hidden;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:#7c3aed;color:white;">' +
+          '<div>' +
+            '<div style="font-weight:700;font-size:1rem;">All Slides</div>' +
+            '<div style="font-size:0.75rem;opacity:0.85;">Paste your content, then press <strong>Enter</strong> on an empty line to start a new slide</div>' +
+          '</div>' +
+          '<button id="litOccAllSlidesCloseBtn" style="background:rgba(255,255,255,0.15);border:none;color:white;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-times"></i></button>' +
+        '</div>' +
+        '<div id="litOccAllSlidesEditor" contenteditable="true" spellcheck="true"></div>' +
+        '<div style="padding:12px 20px;background:#f8fafc;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;">' +
+          '<button id="litOccAllSlidesCancelBtn" style="padding:9px 20px;border:1.5px solid #e5e7eb;border-radius:8px;background:white;color:#6b7280;cursor:pointer;font-weight:600;">Cancel</button>' +
+          '<button id="litOccAllSlidesSaveBtn" style="padding:9px 20px;border:none;border-radius:8px;background:#7c3aed;color:white;cursor:pointer;font-weight:600;"><i class="fa-solid fa-check" style="margin-right:6px;"></i> Apply Slides</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(modal);
+
+    var editor = document.getElementById('litOccAllSlidesEditor');
+    editor.innerHTML = editorHtml;
+
+    function _close() { modal.remove(); }
+    document.getElementById('litOccAllSlidesCloseBtn').addEventListener('click', _close);
+    document.getElementById('litOccAllSlidesCancelBtn').addEventListener('click', _close);
+    document.getElementById('litOccAllSlidesSaveBtn').addEventListener('click', function() { LiturgyModule.saveLitOccAllSlides(); });
+    modal.addEventListener('keydown', function(e) { if (e.key === 'Escape') _close(); });
+
+    editor.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter') return;
+      var sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      var range = sel.getRangeAt(0);
+      var node = range.startContainer;
+      var block = (node.nodeType === 3) ? node.parentElement : node;
+      while (block && block.parentNode !== editor) block = block.parentNode;
+      if (!block || block === editor) return;
+      var blockText = (block.innerText !== undefined ? block.innerText : (block.textContent || ''));
+      if (blockText.replace(/​| /g, '').trim() === '') {
+        e.preventDefault();
+        var hr = document.createElement('hr');
+        hr.className = 'lit-asl-break';
+        var newP = document.createElement('p');
+        newP.innerHTML = '<br>';
+        editor.replaceChild(hr, block);
+        hr.insertAdjacentElement('afterend', newP);
+        try {
+          var nr = document.createRange();
+          nr.setStart(newP, 0);
+          nr.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(nr);
+        } catch(err) {}
+      }
+    });
+
+    setTimeout(function() {
+      editor.focus();
+      try {
+        var s = window.getSelection();
+        var r = document.createRange();
+        r.selectNodeContents(editor);
+        r.collapse(false);
+        s.removeAllRanges();
+        s.addRange(r);
+      } catch(e) {}
+    }, 80);
+  }
+
+  function saveLitOccAllSlides() {
+    var editor = document.getElementById('litOccAllSlidesEditor');
+    if (!editor) return;
+    var slides = [];
+    var current = [];
+    Array.from(editor.childNodes).forEach(function(node) {
+      if (node.nodeType === 1 && node.tagName === 'HR') {
+        slides.push(current.join('\n').trim());
+        current = [];
+      } else if (node.nodeType === 1) {
+        var text = (node.innerText !== undefined ? node.innerText : node.textContent) || '';
+        current.push(text === '\n' ? '' : text);
+      } else if (node.nodeType === 3) {
+        current.push(node.textContent || '');
+      }
+    });
+    slides.push(current.join('\n').trim());
+    slides = slides.filter(function(s) { return s.length > 0; });
+    if (slides.length === 0) slides = [''];
+
+    _litPreviewSlides = slides;
+    _litPreviewIdx = 0;
+    _saveLitSlides();
+    renderLitSlideEditorBoxes();
+    renderLitProjectionPreview();
+
+    var modal = document.getElementById('litOccAllSlidesModal');
+    if (modal) modal.remove();
+    if (typeof showToast === 'function') showToast('Slides updated', 'success');
   }
 
   function addLitSlide() {
@@ -58780,6 +58943,7 @@ var LiturgyModule = (function() {
   function _litPrevSlide() {
     _litPreviewIdx = (_litPreviewIdx - 1 + _litPreviewSlides.length) % _litPreviewSlides.length;
     renderLitProjectionPreview();
+    _updateLitSlideEditorCounter();
     document.querySelectorAll('#litOccSlideEditor .lit-slide-box').forEach(function(box) {
       box.classList.toggle('lit-slide-current', Number(box.getAttribute('data-slide-idx')) === _litPreviewIdx);
     });
@@ -58788,6 +58952,7 @@ var LiturgyModule = (function() {
   function _litNextSlide() {
     _litPreviewIdx = (_litPreviewIdx + 1) % _litPreviewSlides.length;
     renderLitProjectionPreview();
+    _updateLitSlideEditorCounter();
     document.querySelectorAll('#litOccSlideEditor .lit-slide-box').forEach(function(box) {
       box.classList.toggle('lit-slide-current', Number(box.getAttribute('data-slide-idx')) === _litPreviewIdx);
     });
@@ -59900,6 +60065,8 @@ var LiturgyModule = (function() {
     splitSlideAtCursor: splitSlideAtCursor,
     openLitAllSlides: openLitAllSlides,
     saveLitAllSlides: saveLitAllSlides,
+    openLitOccAllSlides: openLitOccAllSlides,
+    saveLitOccAllSlides: saveLitOccAllSlides,
     selectLitOccItem: selectLitOccItem,
     _litPrevSlide: _litPrevSlide,
     _litNextSlide: _litNextSlide,
@@ -64160,6 +64327,16 @@ function filterLiturgyItems() {
   .lit-move-row:disabled { cursor:default; }
 
   /* Occasion Panel — slide editor column (middle of the 3-column layout) */
+  .lit-slide-editor-header { display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1.5px solid #e5e7eb; }
+  .lit-slide-editor-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .lit-slide-editor-title { font-weight: 700; font-size: 0.92rem; color: #1f2933; font-family: 'Poppins', sans-serif; }
+  .lit-slide-editor-pill { padding: 2px 10px; border-radius: 999px; background: #ede9fe; color: #7c3aed; font-size: 0.68rem; font-weight: 600; font-family: 'Poppins', sans-serif; }
+  .lit-slide-editor-header-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .lit-slide-editor-nav-btn { width: 26px; height: 26px; border: 1px solid #e5e7eb; background: #f8fafc; color: #6b7280; border-radius: 6px; cursor: pointer; font-size: 0.72rem; transition: all 0.15s; }
+  .lit-slide-editor-nav-btn:hover { border-color: #7c3aed; color: #7c3aed; }
+  .lit-slide-editor-counter { font-size: 0.75rem; color: #6b7280; font-family: 'Poppins', sans-serif; min-width: 56px; text-align: center; }
+  .lit-slide-editor-icon-btn { width: 26px; height: 26px; border: 1px solid #e5e7eb; background: #f8fafc; color: #6b7280; border-radius: 6px; cursor: pointer; font-size: 0.72rem; margin-left: 4px; transition: all 0.15s; }
+  .lit-slide-editor-icon-btn:hover { border-color: #7c3aed; color: #7c3aed; background: #faf5ff; }
   .lit-slide-box { border: 2px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 8px; transition: all 0.2s; position: relative; }
   .lit-slide-box:hover { border-color: #a78bfa; }
   .lit-slide-box.lit-slide-current { border-color: #7c3aed; background: #faf5ff; box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
@@ -64173,6 +64350,8 @@ function filterLiturgyItems() {
   .lit-add-slide-btn:hover { border-color: #7c3aed; color: #7c3aed; background: #faf5ff; }
 
   /* Occasion Panel — real Projection Preview (right column) */
+  .lit-proj-header { padding: 10px 16px; background: #0f172a; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+  .lit-proj-header > span { color: rgba(255,255,255,0.7); font-size: 0.8rem; font-family: 'Poppins', sans-serif; }
   .lit-proj-controls-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: #0f172a; border-top: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; }
   .lit-proj-controls-row label { color: rgba(255,255,255,0.6); font-size: 0.7rem; font-family: 'Poppins', sans-serif; display: flex; align-items: center; gap: 4px; }
   .lit-proj-controls-row select { background: rgba(255,255,255,0.08); color: white; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 2px 6px; font-size: 0.72rem; }
@@ -64180,6 +64359,10 @@ function filterLiturgyItems() {
   .lit-proj-device-toggle { display: flex; gap: 2px; background: rgba(255,255,255,0.08); border-radius: 6px; padding: 2px; }
   .lit-proj-device-toggle button { width: 26px; height: 22px; border: none; background: transparent; color: rgba(255,255,255,0.5); cursor: pointer; border-radius: 4px; font-size: 0.7rem; }
   .lit-proj-device-toggle button.active { background: #7c3aed; color: white; }
+  .lit-proj-counter-row { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 16px 14px; background: #1e293b; }
+  .lit-proj-counter-row button { width: 26px; height: 26px; border: none; background: rgba(255,255,255,0.1); color: white; border-radius: 5px; cursor: pointer; font-size: 0.7rem; }
+  .lit-proj-counter-row button:hover { background: rgba(255,255,255,0.18); }
+  .lit-proj-counter-row span { color: rgba(255,255,255,0.6); font-size: 0.75rem; font-family: 'Poppins', sans-serif; min-width: 80px; text-align: center; }
   .lit-proj-frame { position: relative; display: flex; align-items: center; justify-content: center; padding: 30px; text-align: center; color: white; overflow: hidden; width: 100%; }
   .lit-proj-size-sm { max-width: 220px; aspect-ratio: 16/9; }
   .lit-proj-size-md { max-width: 380px; aspect-ratio: 16/9; }
