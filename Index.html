@@ -5040,7 +5040,7 @@
         <!-- Quick Actions -->
         <div class="mt-3 pt-3 border-t border-white/10 pb-3">
           <div class="flex gap-1.5 flex-wrap">
-            <button class="liturgy-action-sidebar-btn flex-1" onclick="LiturgyModule.openUploadModal()" style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.4);padding:8px;justify-content:center;" title="Upload File">
+            <button class="liturgy-action-sidebar-btn flex-1" onclick="LiturgyModule.openQuickAddModal(null,null)" style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.4);padding:8px;justify-content:center;" title="Upload File">
               <i class="fa-solid fa-upload"></i>
             </button>
             <button class="liturgy-action-sidebar-btn flex-1" onclick="openAddLiturgyModal()" style="background:rgba(124,58,237,0.2);border:1px solid rgba(124,58,237,0.4);padding:8px;justify-content:center;" title="Create New">
@@ -6863,6 +6863,9 @@
               <button class="lit-occ-tab" data-tab="special-elements" onclick="LiturgyModule.switchOccasionTab('special-elements')">
                 <i class="fa-solid fa-star mr-1"></i> Special Elements
               </button>
+              <button class="lit-occ-tab" data-tab="documents" onclick="LiturgyModule.switchOccasionTab('documents')">
+                <i class="fa-solid fa-folder-open mr-1"></i> Documents
+              </button>
             </div>
 
             <!-- Year/Folder bar (rendered by JS per occasion) -->
@@ -6886,6 +6889,8 @@
                     <i class="fa-solid fa-plus mr-1"></i> Add Item
                   </button>
                 </div>
+                <!-- Content-type filter chips (independent of Category; see selectContentType) -->
+                <div id="litOccContentTypeFilterRow" class="lit-occ-content-filter-row"></div>
                 <!-- 566 — two-panel layout: cards left, preview right -->
                 <div class="lit-occ-split-layout" style="display:flex;gap:0;margin-top:14px;min-height:420px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
                   <div id="litOccItemsGrid" class="liturgy-items-grid" style="flex:1;min-width:0;overflow-y:auto;padding:10px;border-right:1px solid #e5e7eb;background:#fafafa;">
@@ -6951,6 +6956,17 @@
                 </div>
               </div>
             </div>
+
+            <!-- Tab: Documents -->
+            <div id="litTabDocuments" class="lit-tab-content" style="display:none;">
+              <div class="lit-tab-inner">
+                <div style="margin-bottom:12px;">
+                  <h3 style="margin:0 0 3px;font-family:'Cinzel',Georgia,serif;font-size:1rem;"><i class="fa-solid fa-folder-open mr-2" style="color:#7c3aed;"></i>Documents</h3>
+                  <p style="margin:0;font-size:0.8rem;color:#6b7280;">Files uploaded or linked for this service — PDFs, slides, song sheets, and more.</p>
+                </div>
+                <div id="litOccDocumentsList"><!-- Rendered by JS --></div>
+              </div>
+            </div>
           </div>
 
           <!-- ===== CONTENT LIBRARY PANEL ===== -->
@@ -6969,7 +6985,7 @@
                 <button class="liturgy-action-btn" onclick="LiturgyModule.syncAll()" style="background:#f3f4f6;color:#374151;border-color:#e5e7eb;" title="Sync from cloud">
                   <i class="fa-solid fa-rotate mr-1"></i> Sync
                 </button>
-                <button class="liturgy-action-btn upload" onclick="LiturgyModule.openUploadModal()">
+                <button class="liturgy-action-btn upload" onclick="LiturgyModule.openQuickAddModal(null,null)">
                   <i class="fa-solid fa-upload mr-1"></i> Upload
                 </button>
                 <button class="liturgy-action-btn" onclick="openAddLiturgyModal()">
@@ -6993,6 +7009,7 @@
               <select id="liturgyCategoryFilter" style="display:none;"><option value=""></option></select>
               <select id="liturgySeasonFilter" style="display:none;"><option value=""></option></select>
             </div>
+            <div id="liturgyLibraryFilterRow" class="lit-occ-content-filter-row" style="padding:0 20px 10px;"></div>
             <div class="liturgy-content">
               <div id="liturgyBreadcrumb" class="liturgy-breadcrumb" style="display:none;"></div>
               <div id="liturgyItemsGrid" class="liturgy-items-grid">
@@ -54298,6 +54315,61 @@ var LiturgyModule = (function() {
   var folderBreadcrumb = [];
   var currentExpandedCategory = null;
   var editingItem = null;
+  var _selectedContentType = null; // 'liturgies'|'readings'|'prayers'|'responses'|'hymns'|'meditations'|null, for the modal's Content Type chips
+  var CONTENT_TYPES = ['liturgies','readings','prayers','responses','hymns','meditations'];
+  var _occContentTypeFilter = null; // same values, null = "All Items" -- for the Liturgy Order tab's filter row
+
+  // Sacred Library: season + favorites filters (additive, layered onto the
+  // existing getFilteredItems pipeline -- General Library folder / folder
+  // navigation / category filter all still work exactly as before).
+  var _librarySeasonFilter = null; // null | 'advent'|'christmas'|'ordinary'|'lent'|'holy-week'|'easter'|'pentecost'
+  var _libraryFavoritesOnly = false;
+  // Maps each OCCASIONS id to the liturgical-year-strip season it belongs to
+  // (same 7 groupings already used by the Welcome screen's year strip).
+  var OCCASION_SEASON = {
+    'ordinary-traditional': 'ordinary', 'ordinary-contemporary': 'ordinary',
+    'advent': 'advent',
+    'christmas-eve': 'christmas', 'christmas-day': 'christmas', 'watchnight': 'christmas',
+    'ash-wednesday': 'lent',
+    'palm-sunday': 'holy-week', 'maundy-thursday': 'holy-week', 'good-friday': 'holy-week',
+    'easter': 'easter',
+    'pentecost': 'pentecost', 'holy-trinity': 'pentecost', 'reformation': 'pentecost'
+  };
+  var SEASON_LABELS = { advent: 'Advent', christmas: 'Christmas', ordinary: 'Ordinary Time', lent: 'Lent', 'holy-week': 'Holy Week', easter: 'Easter', pentecost: 'Pentecost' };
+  var _detailItemId = null; // currently-open item in the Sacred Library detail modal
+
+  function toggleItemFavorite(id) {
+    var item = getItem(id);
+    if (!item) return;
+    var tags = (item.tags || []).slice();
+    var idx = tags.indexOf('collection:favorites');
+    if (idx === -1) tags.push('collection:favorites'); else tags.splice(idx, 1);
+    updateItem(id, { tags: tags });
+    renderItems(document.getElementById('liturgySearchInput') ? document.getElementById('liturgySearchInput').value : '');
+  }
+
+  function filterLibraryBySeason(season) {
+    _librarySeasonFilter = (_librarySeasonFilter === season) ? null : season;
+    renderLibraryFilterRow();
+    renderItems();
+  }
+
+  function toggleLibraryFavoritesOnly() {
+    _libraryFavoritesOnly = !_libraryFavoritesOnly;
+    renderLibraryFilterRow();
+    renderItems();
+  }
+
+  function renderLibraryFilterRow() {
+    var row = document.getElementById('liturgyLibraryFilterRow');
+    if (!row) return;
+    var seasonChips = ['advent','christmas','ordinary','lent','holy-week','easter','pentecost'].map(function(s) {
+      var active = _librarySeasonFilter === s;
+      return '<button type="button" class="lit-content-type-chip' + (active ? ' active' : '') + '" onclick="LiturgyModule.filterLibraryBySeason(\'' + s + '\')">' + SEASON_LABELS[s] + '</button>';
+    }).join('');
+    var favChip = '<button type="button" class="lit-content-type-chip lit-fav-chip' + (_libraryFavoritesOnly ? ' active' : '') + '" onclick="LiturgyModule.toggleLibraryFavoritesOnly()"><i class="fa-solid fa-star"></i> My Favorites</button>';
+    row.innerHTML = '<span class="lit-filter-row-label">Season:</span>' + seasonChips + '<span class="lit-filter-row-sep"></span>' + favChip;
+  }
   var liturgyFolders = {};
 
   // General Library — 6 fixed folders (separate from season storage)
@@ -54330,7 +54402,7 @@ var LiturgyModule = (function() {
 
     // Map item camelCase fields → DB snake_case row
     _itemToRow: function(item) {
-      return {
+      var row = {
         id:                      item.id,
         category:                item.type || item.category || 'liturgy',
         title:                   item.title            || '',
@@ -54373,6 +54445,15 @@ var LiturgyModule = (function() {
         created_at:              item.created ? new Date(item.created).toISOString() : null,
         projectable:             item.projectable      || false
       };
+      // scripture_refs is an additive column (see migrations/2026-07-30_add_liturgy_scripture_refs.sql)
+      // that may not exist yet in every environment's Supabase schema -- Supabase/PostgREST rejects the
+      // ENTIRE insert/update if the payload references an unknown column, so only attach this key when
+      // there's actually a scripture ref to save, keeping every other save (favorites, edits, etc.)
+      // working even before the migration has been run.
+      if (item.scriptureRefs && item.scriptureRefs.length) {
+        row.scripture_refs = item.scriptureRefs;
+      }
+      return row;
     },
 
     // Map DB row → item camelCase
@@ -54416,7 +54497,8 @@ var LiturgyModule = (function() {
         fileData:              row.file_data           || null,
         projectable:           row.projectable         || false,
         created:               row.created_at ? new Date(row.created_at).getTime() : Date.now(),
-        modified:              row.last_modified ? new Date(row.last_modified).getTime() : Date.now()
+        modified:              row.last_modified ? new Date(row.last_modified).getTime() : Date.now(),
+        scriptureRefs:         row.scripture_refs      || []
       };
     },
 
@@ -54764,9 +54846,18 @@ var LiturgyModule = (function() {
     return liturgyFolders[categoryType] || [];
   }
 
+  // The 5 sidebar categories are prayer/scripture/liturgy/media/documents. The
+  // "Create New" modal's Category dropdown used to also offer
+  // announcements/planning, which aren't in that set -- an item saved with
+  // one of those values had no home in the sidebar tree (getCountForCategory
+  // would never match it, so it just silently vanished from browsing). The
+  // dropdown itself is now fixed to only offer the 5 real categories, but
+  // existing items already saved with the old values still need a home.
+  var LEGACY_TYPE_FALLBACK = { announcements: 'documents', planning: 'documents' };
   function getCategoryForItem(item) {
     if (item.fileName || item.type === 'documents') return 'documents';
     if (item.type === 'creed') return 'liturgy'; // Creed items appear under Liturgy tab
+    if (LEGACY_TYPE_FALLBACK[item.type]) return LEGACY_TYPE_FALLBACK[item.type];
     return item.type || 'liturgy';
   }
 
@@ -55206,6 +55297,20 @@ var LiturgyModule = (function() {
   function getFilteredItems(searchQuery) {
     var filtered = liturgyItems;
 
+    // Sacred Library season/favorites filters -- applied first, on top of
+    // whatever folder/category filtering happens below, since an item can
+    // simultaneously belong to a season (via its occasionId) and a folder.
+    if (_librarySeasonFilter) {
+      filtered = filtered.filter(function(item) {
+        return item.occasionId && OCCASION_SEASON[item.occasionId] === _librarySeasonFilter;
+      });
+    }
+    if (_libraryFavoritesOnly) {
+      filtered = filtered.filter(function(item) {
+        return (item.tags || []).indexOf('collection:favorites') !== -1;
+      });
+    }
+
     // General Library folder takes priority
     if (_currentGeneralFolder) {
       filtered = filtered.filter(function(item) {
@@ -55362,9 +55467,15 @@ var LiturgyModule = (function() {
     var html = items.map(function(item) {
       // Show first 50 characters as preview (per screenshot 88)
       var previewText = item.content ? item.content.substring(0, 30) + (item.content.length > 30 ? '...' : '') : '';
-      var tagsHtml = item.tags ? item.tags.map(function(tag) {
+      // content:/collection: prefixed entries are internal metadata (Content
+      // Type chip, Saved Collections), not user-facing labels -- don't show
+      // them as plain tag chips here.
+      var tagsHtml = item.tags ? item.tags.filter(function(t) {
+        return (t || '').indexOf('content:') !== 0 && (t || '').indexOf('collection:') !== 0;
+      }).map(function(tag) {
         return '<span class="liturgy-item-tag">' + escapeHtml(tag) + '</span>';
       }).join('') : '';
+      var isFavorited = (item.tags || []).indexOf('collection:favorites') !== -1;
 
       // Check if this is an uploaded file
       var isUploadedFile = item.fileName || (item.tags && item.tags.indexOf('uploaded') >= 0);
@@ -55451,6 +55562,8 @@ var LiturgyModule = (function() {
         '<div class="liturgy-item-meta">' +
           '<div class="liturgy-item-tags">' + tagsHtml + '</div>' +
           '<div class="liturgy-item-actions">' +
+            '<button class="liturgy-item-action-btn' + (isFavorited ? ' favorited' : '') + '" onclick="event.stopPropagation(); LiturgyModule.toggleItemFavorite(\'' + item.id + '\')" title="' + (isFavorited ? 'Remove from Favorites' : 'Save to Favorites') + '"><i class="fa-' + (isFavorited ? 'solid' : 'regular') + ' fa-star"></i></button>' +
+            '<button class="liturgy-item-action-btn" onclick="event.stopPropagation(); LiturgyModule.showLibraryItemDetail(\'' + item.id + '\')" title="View details"><i class="fa-solid fa-circle-info"></i></button>' +
             (item.fileUrl || item.fileData ? '<button class="liturgy-item-action-btn preview" onclick="event.stopPropagation(); LiturgyModule.previewDocument(\'' + item.id + '\')" title="Preview"><i class="fa-solid fa-eye"></i></button>' : '') +
             (item.fileUrl || item.fileData ? '<button class="liturgy-item-action-btn download" onclick="event.stopPropagation(); LiturgyModule.downloadFile(\'' + item.id + '\')" title="Download"><i class="fa-solid fa-download"></i></button>' : '') +
             '<button class="liturgy-item-action-btn" onclick="event.stopPropagation(); LiturgyModule.openMoveItemModal(\'' + item.id + '\')" title="Move to folder"><i class="fa-solid fa-right-left"></i></button>' +
@@ -55506,6 +55619,102 @@ var LiturgyModule = (function() {
     if (countLiturgy) countLiturgy.textContent = counts.liturgy;
     if (countMedia) countMedia.textContent = counts.media;
     if (countDocuments) countDocuments.textContent = counts.documents;
+  }
+
+  // Sacred Library item detail panel: Overview / Content / Notes tabs.
+  // Deliberately does NOT show "Used In: N services" or "Saved by N others"
+  // (shown in the original mockup) since that data isn't tracked anywhere --
+  // fabricating counts would be worse than omitting them. Overview instead
+  // shows real data: category, content-type, tags, and which Worship Order
+  // section (if any) this item is assigned to via its real sectionAssignment.
+  function showLibraryItemDetail(id) {
+    var item = getItem(id);
+    if (!item) return;
+    var modal = document.getElementById('litItemDetailModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'litItemDetailModal';
+      modal.className = 'modal-overlay';
+      modal.style.display = 'none';
+      modal.onclick = function(e) { if (e.target === modal) closeLibraryItemDetail(); };
+      modal.innerHTML =
+        '<div class="modal-content lit-detail-modal">' +
+          '<div class="modal-header">' +
+            '<h2 id="litDetailTitle"></h2>' +
+            '<button class="modal-close" onclick="LiturgyModule.closeLibraryItemDetail()">&times;</button>' +
+          '</div>' +
+          '<div class="lit-detail-tabs">' +
+            '<button class="lit-detail-tab active" data-dtab="overview" onclick="LiturgyModule.switchDetailTab(\'overview\')">Overview</button>' +
+            '<button class="lit-detail-tab" data-dtab="content" onclick="LiturgyModule.switchDetailTab(\'content\')">Content</button>' +
+            '<button class="lit-detail-tab" data-dtab="notes" onclick="LiturgyModule.switchDetailTab(\'notes\')">Notes</button>' +
+          '</div>' +
+          '<div id="litDetailBody" class="lit-detail-body"></div>' +
+        '</div>';
+      document.body.appendChild(modal);
+    }
+    _detailItemId = id;
+    modal.style.display = 'flex';
+    renderDetailTab('overview');
+  }
+
+  function closeLibraryItemDetail() {
+    var modal = document.getElementById('litItemDetailModal');
+    if (modal) modal.style.display = 'none';
+    _detailItemId = null;
+  }
+
+  function switchDetailTab(tab) {
+    document.querySelectorAll('.lit-detail-tab').forEach(function(t) { t.classList.toggle('active', t.getAttribute('data-dtab') === tab); });
+    renderDetailTab(tab);
+  }
+
+  function renderDetailTab(tab) {
+    var item = getItem(_detailItemId);
+    var titleEl = document.getElementById('litDetailTitle');
+    var body = document.getElementById('litDetailBody');
+    if (!item || !body) return;
+    if (titleEl) titleEl.textContent = item.title || 'Untitled';
+
+    if (tab === 'content') {
+      body.innerHTML = '<div class="lit-detail-content-view">' + (item.content ? escapeHtml(item.content).replace(/\n/g, '<br>') : '<span style="color:#9ca3af;">No content.</span>') + '</div>';
+      return;
+    }
+    if (tab === 'notes') {
+      body.innerHTML = '<textarea id="litDetailNotesInput" class="lit-detail-notes-input" placeholder="Add notes about this item...">' + escapeHtml(item.editorNotes || '') + '</textarea>' +
+        '<button class="liturgy-action-btn" style="background:#7c3aed;color:white;border-color:#7c3aed;margin-top:10px;" onclick="LiturgyModule.saveDetailNotes()"><i class="fa-solid fa-floppy-disk mr-1"></i> Save Notes</button>';
+      return;
+    }
+    // Overview
+    var visibleTags = (item.tags || []).filter(function(t) { return (t || '').indexOf('content:') !== 0 && (t || '').indexOf('collection:') !== 0; });
+    var contentType = _getContentTypeFromTags(item.tags);
+    var isFav = (item.tags || []).indexOf('collection:favorites') !== -1;
+    var scriptureRefs = item.scriptureRefs || [];
+    var sa = item.sectionAssignment;
+    var usageLine = 'Not assigned to a service section';
+    if (sa) {
+      if (sa.serviceType === 'both') usageLine = 'Traditional + Contemporary orders';
+      else usageLine = (sa.serviceType === 'traditional' ? 'Traditional' : 'Contemporary') + ' order';
+    }
+    body.innerHTML =
+      '<div class="lit-detail-overview">' +
+        (item.description ? '<p class="lit-detail-desc">' + escapeHtml(item.description) + '</p>' : '') +
+        (item.content ? '<p class="lit-detail-excerpt">' + escapeHtml(item.content.slice(0, 180)) + (item.content.length > 180 ? '…' : '') + '</p>' : '') +
+        '<div class="lit-detail-row"><span class="lit-detail-row-label">Category</span><span class="lit-detail-badge">' + escapeHtml(item.type || 'liturgy') + '</span></div>' +
+        (contentType ? '<div class="lit-detail-row"><span class="lit-detail-row-label">Content Type</span><span class="lit-detail-badge">' + escapeHtml(contentType) + '</span></div>' : '') +
+        (scriptureRefs.length ? '<div class="lit-detail-row"><span class="lit-detail-row-label">Scripture</span>' + scriptureRefs.map(function(r) { return '<span class="lit-detail-badge scripture">' + escapeHtml(r) + '</span>'; }).join('') + '</div>' : '') +
+        (visibleTags.length ? '<div class="lit-detail-row"><span class="lit-detail-row-label">Tags</span>' + visibleTags.map(function(t) { return '<span class="lit-detail-badge">' + escapeHtml(t) + '</span>'; }).join('') + '</div>' : '') +
+        '<div class="lit-detail-row"><span class="lit-detail-row-label">Used In</span><span>' + usageLine + '</span></div>' +
+        '<button class="liturgy-action-btn' + (isFav ? '' : '') + '" style="background:' + (isFav ? '#f59e0b' : '#f3f4f6') + ';color:' + (isFav ? 'white' : '#374151') + ';border-color:' + (isFav ? '#f59e0b' : '#e5e7eb') + ';margin-top:10px;" onclick="LiturgyModule.toggleItemFavorite(\'' + item.id + '\');LiturgyModule.renderDetailTab(\'overview\')">' +
+          '<i class="fa-solid fa-star mr-1"></i>' + (isFav ? 'Saved to Favorites' : 'Save to Favorites') +
+        '</button>' +
+      '</div>';
+  }
+
+  function saveDetailNotes() {
+    var input = document.getElementById('litDetailNotesInput');
+    if (!input || !_detailItemId) return;
+    updateItem(_detailItemId, { editorNotes: input.value });
+    showToast('Notes saved', 'success');
   }
 
   // Preview uploaded document in large modal - supports ALL file types (per screenshot 89)
@@ -55697,6 +55906,7 @@ var LiturgyModule = (function() {
       if (titleInput) titleInput.value = item.title || '';
       if (typeSelect) typeSelect.value = item.type || 'liturgy';
       renderTags(item.tags || []);
+      _setContentTypeChip(_getContentTypeFromTags(item.tags));
 
       // Split content by SLIDE_BREAK into individual slide panes
       var slideTexts = (item.content || '').split(SLIDE_BREAK.trim()).map(function(s) { return s.trim(); });
@@ -55728,6 +55938,7 @@ var LiturgyModule = (function() {
       if (titleInput) titleInput.value = '';
       if (typeSelect) typeSelect.value = 'liturgy';
       renderTags([]);
+      _setContentTypeChip(null);
       // 583 — pre-select service type based on folder; locked options are disabled in HTML
       var defaultServiceType = _currentOccasion === 'ordinary-contemporary' ? 'contemporary'
                              : _currentOccasion === 'ordinary-traditional'  ? 'traditional'
@@ -55850,12 +56061,21 @@ var LiturgyModule = (function() {
             '<label class="liturgy-form-label">Category</label>' +
             '<select id="liturgyFormType" class="liturgy-form-input" style="margin-bottom:16px;">' +
               '<option value="prayer">Prayers</option>' +
-              '<option value="announcements">Announcements</option>' +
-              '<option value="liturgy" selected>Liturgies</option>' +
+              '<option value="scripture">Scripture</option>' +
+              '<option value="liturgy" selected>Liturgy</option>' +
               '<option value="media">Media / Memories</option>' +
-              '<option value="planning">Planning Notes</option>' +
               '<option value="documents">Documents</option>' +
             '</select>' +
+            // Content Type: a finer-grained tag (independent of Category above) that
+            // powers the Liturgy Order tab's filter chips. Stored as a single
+            // "content:<type>" entry in item.tags rather than a new column, since tags
+            // already exist on the row and nothing else uses that field today.
+            '<label class="liturgy-form-label">Content Type <span style="font-weight:400;color:#9ca3af;font-size:0.75rem;">(optional — powers the filter chips)</span></label>' +
+            '<div id="liturgyContentTypeChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;">' +
+              ['liturgies','readings','prayers','responses','hymns','meditations'].map(function(ct) {
+                return '<button type="button" class="lit-content-type-chip" data-ct="' + ct + '" onclick="LiturgyModule.selectContentType(\'' + ct + '\')">' + ct.charAt(0).toUpperCase() + ct.slice(1) + '</button>';
+              }).join('') +
+            '</div>' +
             '<!-- Section Assignment -->' +
             (showServiceAssign ? '<div class="liturgy-form-group" style="background:#f8f9fa;padding:15px;border-radius:10px;flex:1;">' : '<div style="display:none;">') +
               '<label class="liturgy-form-label" style="margin-bottom:10px;"><i class="fa-solid fa-church mr-1"></i> Assign to Service Section</label>' +
@@ -56470,6 +56690,27 @@ var LiturgyModule = (function() {
     });
   }
 
+  // Content Type chips (Liturgies/Readings/Prayers/Responses/Hymns/Meditations) --
+  // stored as a single "content:<type>" entry in item.tags, since that field
+  // already exists on every liturgy_items row and nothing else uses it today.
+  // Independent of the Category dropdown above (which drives the sidebar's
+  // folder tree); this instead powers the Liturgy Order tab's filter chips.
+  function _getContentTypeFromTags(tags) {
+    var match = (tags || []).find(function(t) { return (t || '').indexOf('content:') === 0; });
+    return match ? match.slice('content:'.length) : null;
+  }
+
+  function selectContentType(type) {
+    _setContentTypeChip(_selectedContentType === type ? null : type); // click again to clear
+  }
+
+  function _setContentTypeChip(type) {
+    _selectedContentType = type;
+    document.querySelectorAll('#liturgyContentTypeChips .lit-content-type-chip').forEach(function(chip) {
+      chip.classList.toggle('active', chip.dataset.ct === type);
+    });
+  }
+
   // Get selected type from modal (works with both old and new modal)
   function getSelectedType() {
     // New dropdown version
@@ -56547,7 +56788,8 @@ var LiturgyModule = (function() {
     var slidePanes = collectSlideTexts();
     var content = slidePanes.map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; }).join(SLIDE_BREAK);
     var type = getSelectedType();
-    var tags = getCurrentTags();
+    var tags = getCurrentTags().filter(function(t) { return (t || '').indexOf('content:') !== 0; });
+    if (_selectedContentType) tags.push('content:' + _selectedContentType);
 
     // Get section assignment
     var sectionAssignment = getSectionAssignment();
@@ -57447,7 +57689,7 @@ var LiturgyModule = (function() {
     var titleInput = document.getElementById('bbPassageTitle');
     var title = (titleInput ? titleInput.value : '') || bbState.passage.reference || 'Scripture';
     var content = (bbState.passage.text || '').trim();
-    addItem({ title: title, type: 'scripture', content: content, tags: ['bible', bbState.passage.translation || 'kjv'] });
+    addItem({ title: title, type: 'scripture', content: content, tags: ['bible', bbState.passage.translation || 'kjv'], scriptureRefs: bbState.passage.reference ? [bbState.passage.reference] : [] });
     closeBibleBrowser();
     if (typeof showToast === 'function') showToast('"' + title + '" saved to Scripture library', 'success');
     filterByCategory('scripture');
@@ -57764,6 +58006,7 @@ var LiturgyModule = (function() {
   function selectOccasion(occasionId) {
     _currentOccasion = occasionId;
     _currentGeneralFolder = null; // Clear general folder when navigating to a season
+    _occContentTypeFilter = null; // Reset content-type filter so it doesn't leak between services
     // Sidebar active state
     document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
       btn.classList.toggle('active', btn.getAttribute('data-occasion') === occasionId);
@@ -57787,6 +58030,7 @@ var LiturgyModule = (function() {
       _currentGeneralFolder = null;
       var libTitle = document.getElementById('libPanelTitle');
       if (libTitle) libTitle.textContent = 'General Library';
+      renderLibraryFilterRow();
       renderItems();
       updateCategoryCounts();
       return;
@@ -57821,10 +58065,71 @@ var LiturgyModule = (function() {
     document.querySelectorAll('.lit-occ-tab').forEach(function(t) {
       t.classList.toggle('active', t.getAttribute('data-tab') === tabId);
     });
-    var tabMap = { 'liturgy-order': 'litTabLiturgyOrder', 'planning-notes': 'litTabPlanningNotes', 'special-elements': 'litTabSpecialElements' };
+    var tabMap = { 'liturgy-order': 'litTabLiturgyOrder', 'planning-notes': 'litTabPlanningNotes', 'special-elements': 'litTabSpecialElements', 'documents': 'litTabDocuments' };
     document.querySelectorAll('.lit-tab-content').forEach(function(c) { c.style.display = 'none'; });
     var el = document.getElementById(tabMap[tabId]);
     if (el) el.style.display = '';
+    if (tabId === 'documents') renderOccDocumentsTab();
+  }
+
+  // Documents tab: this occasion's items that have an attached file, shown as
+  // a simple table (name/type/size/modified) -- reuses the same liturgyItems
+  // data already loaded for the Liturgy Order tab, just filtered + listed
+  // differently. Does not pull in Songs/YouTube links from the separate Song
+  // Atlas subsystem (a larger, separate unification project).
+  function renderOccDocumentsTab() {
+    var container = document.getElementById('litOccDocumentsList');
+    if (!container) return;
+    var items = liturgyItems.filter(function(item) {
+      return item.occasionId === _currentOccasion && !!(item.fileUrl || item.fileData || item.fileName);
+    });
+    if (!items.length) {
+      container.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-folder-open"></i><h3>No documents yet</h3><p>Files uploaded or linked for this service (PDFs, slides, song sheets, etc.) will appear here.</p></div>';
+      return;
+    }
+    function fmtSize(bytes) {
+      if (!bytes) return '—';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      var d = new Date(iso);
+      return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+    }
+    var rows = items.map(function(item) {
+      var ext = (item.fileName || '').split('.').pop().toUpperCase();
+      var displayName = item.title || item.fileName || 'Untitled';
+      return '<tr class="lit-doc-row" onclick="LiturgyModule.selectLitOccItem(\'' + item.id + '\')">' +
+        '<td><i class="fa-solid fa-file-lines mr-2" style="color:#7c3aed;"></i>' + escapeHtml(displayName) + '</td>' +
+        '<td>' + escapeHtml(ext || (item.storageProvider === 'external' ? 'Link' : 'File')) + '</td>' +
+        '<td>' + fmtSize(item.fileSize) + '</td>' +
+        '<td>' + fmtDate(item.modified || item.created) + '</td>' +
+        '<td class="lit-doc-actions" onclick="event.stopPropagation()">' +
+          '<button onclick="LiturgyModule.editItem(\'' + item.id + '\')" title="Edit"><i class="fa-solid fa-pen"></i></button>' +
+          '<button onclick="LiturgyModule.confirmDelete(\'' + item.id + '\')" title="Delete"><i class="fa-solid fa-trash"></i></button>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+    container.innerHTML = '<table class="lit-doc-table"><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  function filterOccByContentType(type) {
+    _occContentTypeFilter = (_occContentTypeFilter === type) ? null : type;
+    renderOccasionItems(document.getElementById('litOccSearchInput') ? document.getElementById('litOccSearchInput').value : '');
+  }
+
+  function renderOccContentTypeFilterRow() {
+    var row = document.getElementById('litOccContentTypeFilterRow');
+    if (!row) return;
+    var chips = [{ id: null, label: 'All Items' }].concat(CONTENT_TYPES.map(function(ct) {
+      return { id: ct, label: ct.charAt(0).toUpperCase() + ct.slice(1) };
+    }));
+    row.innerHTML = chips.map(function(c) {
+      var active = _occContentTypeFilter === c.id;
+      return '<button type="button" class="lit-content-type-chip' + (active ? ' active' : '') + '" onclick="LiturgyModule.filterOccByContentType(' + (c.id ? "'" + c.id + "'" : 'null') + ')">' + c.label + '</button>';
+    }).join('');
   }
 
   function renderOccasionItems(searchQuery) {
@@ -57846,6 +58151,13 @@ var LiturgyModule = (function() {
         return item.occasionFolderId === _currentOccFolder || !item.occasionFolderId;
       });
     }
+    // Filter by Content Type chip ("All Items" = _occContentTypeFilter is null)
+    if (_occContentTypeFilter) {
+      items = items.filter(function(item) {
+        return _getContentTypeFromTags(item.tags) === _occContentTypeFilter;
+      });
+    }
+    renderOccContentTypeFilterRow();
     if (searchQuery) {
       var q = searchQuery.toLowerCase();
       items = items.filter(function(item) {
@@ -58892,6 +59204,7 @@ var LiturgyModule = (function() {
     var folder = GENERAL_FOLDERS.find(function(f) { return f.id === folderId; });
     var libTitle = document.getElementById('libPanelTitle');
     if (libTitle && folder) libTitle.textContent = folder.label;
+    renderLibraryFilterRow();
     renderItems();
     updateCategoryCounts();
   }
@@ -59098,6 +59411,16 @@ var LiturgyModule = (function() {
     setSelectedType: setSelectedType,
     handleTagInput: handleTagInput,
     removeTag: removeTag,
+    selectContentType: selectContentType,
+    filterOccByContentType: filterOccByContentType,
+    toggleItemFavorite: toggleItemFavorite,
+    filterLibraryBySeason: filterLibraryBySeason,
+    toggleLibraryFavoritesOnly: toggleLibraryFavoritesOnly,
+    showLibraryItemDetail: showLibraryItemDetail,
+    closeLibraryItemDetail: closeLibraryItemDetail,
+    switchDetailTab: switchDetailTab,
+    renderDetailTab: renderDetailTab,
+    saveDetailNotes: saveDetailNotes,
     saveItem: saveItem,
     renderItems: renderItems,
     setViewMode: setViewMode,
@@ -63100,6 +63423,25 @@ function filterLiturgyItems() {
   /* Liturgy Modal Styles */
   .liturgy-modal-content { max-width: 550px; width: 100%; }
 
+  /* Sacred Library: filter row, favorite star, item detail modal */
+  .lit-filter-row-label { font-size: 0.72rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.04em; align-self: center; margin-right: 2px; }
+  .lit-filter-row-sep { width: 1px; align-self: stretch; background: #e5e7eb; margin: 2px 4px; }
+  .lit-fav-chip.active { background: linear-gradient(135deg,#f59e0b,#fbbf24) !important; }
+  .liturgy-item-action-btn.favorited { color: #f59e0b; }
+  .lit-detail-modal { max-width: 520px; width: 92%; }
+  .lit-detail-tabs { display: flex; border-bottom: 1px solid #e5e7eb; padding: 0 20px; gap: 4px; }
+  .lit-detail-tab { background: none; border: none; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: 10px 14px; font-size: 0.82rem; font-weight: 600; color: #6b7280; cursor: pointer; font-family: 'Poppins',sans-serif; }
+  .lit-detail-tab.active { color: #7c3aed; border-bottom-color: #7c3aed; }
+  .lit-detail-body { padding: 18px 20px; min-height: 180px; }
+  .lit-detail-desc { color: #6b7280; font-size: 0.85rem; margin: 0 0 10px; }
+  .lit-detail-excerpt { color: #374151; font-size: 0.85rem; font-style: italic; background: #f8f9fa; border-left: 3px solid #c4b5fd; padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 0 0 14px; }
+  .lit-detail-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; font-size: 0.85rem; }
+  .lit-detail-row-label { font-size: 0.7rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.04em; min-width: 90px; }
+  .lit-detail-badge { display: inline-block; background: #ede9fe; color: #6d28d9; font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+  .lit-detail-badge.scripture { background: #dbeafe; color: #1d4ed8; }
+  .lit-detail-content-view { white-space: pre-wrap; font-size: 0.88rem; color: #374151; line-height: 1.6; max-height: 320px; overflow-y: auto; }
+  .lit-detail-notes-input { width: 100%; min-height: 140px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; font-family: 'Poppins',sans-serif; font-size: 0.85rem; resize: vertical; }
+
   /* Enhanced Liturgy Editor Modal */
   /* 572 — 3-col editor: metadata left | slides centre | preview right */
   .liturgy-editor-modal { max-width: 1250px; width: 98%; }
@@ -63153,6 +63495,9 @@ function filterLiturgyItems() {
   .liturgy-tag-chip button { background: none; border: none; color: white; cursor: pointer; padding: 0; font-size: 0.9rem; opacity: 0.8; }
   .liturgy-tag-chip button:hover { opacity: 1; }
   .liturgy-tags-input input { flex: 1; min-width: 100px; border: none; outline: none; font-size: 0.9rem; padding: 5px; font-family: 'Poppins', sans-serif; }
+  .lit-content-type-chip { padding: 6px 13px; border-radius: 999px; border: 1.5px solid #e5e7eb; background: white; color: #6b7280; font-size: 0.78rem; font-weight: 600; cursor: pointer; font-family: 'Poppins',sans-serif; transition: all 0.15s; }
+  .lit-content-type-chip:hover { border-color: #c4b5fd; background: #faf5ff; }
+  .lit-content-type-chip.active { background: linear-gradient(135deg,#7c3aed,#a855f7); color: white; border-color: transparent; }
   .liturgy-file-upload { border: 2px dashed #d1d5db; border-radius: 12px; padding: 30px; text-align: center; cursor: pointer; transition: all 0.3s ease; background: #f9fafb; }
   .liturgy-file-upload:hover { border-color: #7c3aed; background: #faf5ff; }
   .liturgy-file-upload i { font-size: 2.5rem; color: #a855f7; margin-bottom: 10px; }
@@ -63243,10 +63588,12 @@ function filterLiturgyItems() {
   .lit-nav-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
   /* Welcome header */
-  .lit-welcome-header { background: linear-gradient(135deg, #7c3aed, #a855f7, #ec4899); color: white; padding: 22px 28px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; }
-  .lit-welcome-header-inner { display: flex; align-items: center; gap: 14px; }
-  .lit-welcome-cross-icon { font-size: 1.8rem; opacity: 0.6; color: white; }
+  .lit-welcome-header { background: linear-gradient(135deg, #7c3aed, #a855f7, #ec4899); color: white; padding: 28px 30px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; }
+  .lit-welcome-header-inner { display: flex; align-items: center; gap: 16px; }
+  .lit-welcome-cross-icon { font-size: 1.8rem; opacity: 0.6; color: white; width: 52px; height: 52px; border-radius: 16px; background: rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .lit-welcome-actions { display: flex; gap: 10px; }
+  .lit-welcome-header h1 { font-size: 1.75rem !important; }
+  .lit-welcome-header p { font-size: 0.95rem !important; }
 
   /* Liturgical Year Strip */
   .lit-year-strip { display: flex; overflow-x: auto; border-bottom: 2px solid #e5e7eb; background: white; }
@@ -63287,7 +63634,11 @@ function filterLiturgyItems() {
   .lit-back-btn:hover { background: rgba(255,255,255,0.3); }
   .lit-occ-panel-title-row { display: flex; align-items: center; gap: 12px; }
   .lit-occ-panel-icon { width: 44px; height: 44px; border-radius: 12px; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; color: white; }
-  .lit-occ-panel-header-actions { display: flex; gap: 10px; }
+  .lit-occ-panel-header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  @media (max-width: 768px) {
+    .lit-occ-panel-header-actions { gap: 8px; }
+    .lit-occ-panel-header-actions .liturgy-action-btn { padding: 8px 12px; font-size: 0.8rem; }
+  }
 
   /* Occasion Tabs */
   /* Occasion year/folder bar */
@@ -63335,11 +63686,30 @@ function filterLiturgyItems() {
   .lit-occ-tab { background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; padding: 12px 16px; font-size: 0.84rem; font-weight: 500; font-family: 'Poppins', sans-serif; color: #6b7280; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   .lit-occ-tab:hover { color: #374151; }
   .lit-occ-tab.active { color: #7c3aed; border-bottom-color: #7c3aed; font-weight: 600; }
+  @media (max-width: 768px) {
+    /* 4 tabs (Liturgy Order/Planning Notes/Special Elements/Documents) no longer
+       fit one row on phones -- scroll the strip itself instead of letting it
+       push the whole page into horizontal overflow. */
+    .lit-occ-tabs { padding: 0 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .lit-occ-tabs::-webkit-scrollbar { display: none; }
+    .lit-occ-tab { padding: 12px 10px; font-size: 0.76rem; flex-shrink: 0; }
+  }
 
   /* Tab Content */
   .lit-tab-inner { padding: 20px 24px; min-height: 400px; }
   #litTabLiturgyOrder .lit-tab-inner { min-height: 480px; }
   .lit-occ-search-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .lit-occ-content-filter-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+
+  /* Documents tab */
+  #litOccDocumentsList { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .lit-doc-table { width: 100%; border-collapse: collapse; font-family: 'Poppins',sans-serif; font-size: 0.85rem; }
+  .lit-doc-table th { text-align: left; padding: 10px 12px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; border-bottom: 2px solid #e5e7eb; }
+  .lit-doc-row { cursor: pointer; transition: background 0.15s; }
+  .lit-doc-row:hover { background: #faf5ff; }
+  .lit-doc-row td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #374151; }
+  .lit-doc-actions button { background: #f3f4f6; color: #6b7280; border: none; border-radius: 5px; padding: 5px 9px; cursor: pointer; margin-right: 4px; font-size: 0.78rem; }
+  .lit-doc-actions button:hover { background: #ede9fe; color: #7c3aed; }
 
   /* Planning Notes — Sticky Board */
   .sticky-board-header { display:flex; justify-content:space-between; align-items:flex-start; padding:16px 24px 12px; border-bottom:1px solid #e5e7eb; background:#fafafa; gap:14px; flex-wrap:wrap; }
