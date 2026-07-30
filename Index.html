@@ -4977,13 +4977,6 @@
         <div class="lit-nav-group">
           <div class="lit-nav-group-label">Files &amp; Links</div>
           <div class="lit-occ-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-other" onclick="LiturgyModule.selectGeneralFolder('gen-other')">
-              <span class="lit-nav-dot" style="background:#6b7280;"></span>
-              <i class="fa-solid fa-folder-open" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Documents</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
             <button class="lit-nav-occ-btn" data-libfilter="links" onclick="LiturgyModule.openLibraryFilter('links')">
               <span class="lit-nav-dot" style="background:#0ea5e9;"></span>
               <i class="fa-solid fa-link" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
@@ -6885,9 +6878,6 @@
               <button class="lit-occ-tab" data-tab="special-elements" onclick="LiturgyModule.switchOccasionTab('special-elements')">
                 <i class="fa-solid fa-star mr-1"></i> Checklist
               </button>
-              <button class="lit-occ-tab" data-tab="documents" onclick="LiturgyModule.switchOccasionTab('documents')">
-                <i class="fa-solid fa-folder-open mr-1"></i> Attachments
-              </button>
             </div>
 
             <!-- Year/Folder bar (rendered by JS per occasion) -->
@@ -7005,16 +6995,6 @@
               </div>
             </div>
 
-            <!-- Tab: Documents -->
-            <div id="litTabDocuments" class="lit-tab-content" style="display:none;">
-              <div class="lit-tab-inner">
-                <div style="margin-bottom:12px;">
-                  <h3 style="margin:0 0 3px;font-family:'Cinzel',Georgia,serif;font-size:1rem;"><i class="fa-solid fa-folder-open mr-2" style="color:#7c3aed;"></i>Documents</h3>
-                  <p style="margin:0;font-size:0.8rem;color:#6b7280;">Files uploaded or linked for this service — PDFs, slides, song sheets, and more.</p>
-                </div>
-                <div id="litOccDocumentsList"><!-- Rendered by JS --></div>
-              </div>
-            </div>
           </div>
 
           <!-- ===== CONTENT LIBRARY PANEL ===== -->
@@ -54365,9 +54345,6 @@ var LiturgyModule = (function() {
   var editingItem = null;
   var _selectedContentType = null; // 'liturgies'|'readings'|'prayers'|'responses'|'hymns'|'meditations'|null, for the modal's Content Type chips
   var CONTENT_TYPES = ['liturgies','readings','prayers','responses','hymns','meditations'];
-  var _selectedDocCategory = null; // for the modal's Document Category chips (Documents Library, Phase 2)
-  var DOC_CATEGORIES = ['service-plans','teaching-exegesis','notes','graphics-media','templates'];
-  var DOC_CATEGORY_LABELS = { 'service-plans': 'Service Plans', 'teaching-exegesis': 'Teaching & Exegesis', 'notes': 'Notes', 'graphics-media': 'Graphics & Media', 'templates': 'Templates' };
   var _occContentTypeFilter = null; // same values, null = "All Items" -- for the Liturgy Order tab's filter row
 
   // Sacred Library: season + favorites filters (additive, layered onto the
@@ -55544,7 +55521,7 @@ var LiturgyModule = (function() {
       // Type chip, Saved Collections), not user-facing labels -- don't show
       // them as plain tag chips here.
       var tagsHtml = item.tags ? item.tags.filter(function(t) {
-        return (t || '').indexOf('content:') !== 0 && (t || '').indexOf('collection:') !== 0 && (t || '').indexOf('doccat:') !== 0;
+        return (t || '').indexOf('content:') !== 0 && (t || '').indexOf('collection:') !== 0;
       }).map(function(tag) {
         return '<span class="liturgy-item-tag">' + escapeHtml(tag) + '</span>';
       }).join('') : '';
@@ -55758,7 +55735,7 @@ var LiturgyModule = (function() {
       return;
     }
     // Overview
-    var visibleTags = (item.tags || []).filter(function(t) { return (t || '').indexOf('content:') !== 0 && (t || '').indexOf('collection:') !== 0 && (t || '').indexOf('doccat:') !== 0; });
+    var visibleTags = (item.tags || []).filter(function(t) { return (t || '').indexOf('content:') !== 0 && (t || '').indexOf('collection:') !== 0; });
     var contentType = _getContentTypeFromTags(item.tags);
     var isFav = (item.tags || []).indexOf('collection:favorites') !== -1;
     var scriptureRefs = item.scriptureRefs || [];
@@ -55980,7 +55957,6 @@ var LiturgyModule = (function() {
       if (typeSelect) typeSelect.value = item.type || 'liturgy';
       renderTags(item.tags || []);
       _setContentTypeChip(_getContentTypeFromTags(item.tags));
-      _setDocCategoryChip(_getDocCategoryFromTags(item.tags));
 
       // Split content by SLIDE_BREAK into individual slide panes
       var slideTexts = (item.content || '').split(SLIDE_BREAK.trim()).map(function(s) { return s.trim(); });
@@ -56013,7 +55989,6 @@ var LiturgyModule = (function() {
       if (typeSelect) typeSelect.value = 'liturgy';
       renderTags([]);
       _setContentTypeChip(null);
-      _setDocCategoryChip(null);
       // 583 — pre-select service type based on folder; locked options are disabled in HTML
       var defaultServiceType = _currentOccasion === 'ordinary-contemporary' ? 'contemporary'
                              : _currentOccasion === 'ordinary-traditional'  ? 'traditional'
@@ -56149,16 +56124,6 @@ var LiturgyModule = (function() {
             '<div id="liturgyContentTypeChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;">' +
               ['liturgies','readings','prayers','responses','hymns','meditations'].map(function(ct) {
                 return '<button type="button" class="lit-content-type-chip" data-ct="' + ct + '" onclick="LiturgyModule.selectContentType(\'' + ct + '\')">' + ct.charAt(0).toUpperCase() + ct.slice(1) + '</button>';
-              }).join('') +
-            '</div>' +
-            // Document Category: same reserved-tag mechanism as Content Type above,
-            // but a distinct vocabulary for the Attachments/Documents Library tab
-            // (Service Plans/Teaching & Exegesis/Notes/Graphics & Media/Templates).
-            // Stored as "doccat:<value>" in item.tags.
-            '<label class="liturgy-form-label">Document Category <span style="font-weight:400;color:#9ca3af;font-size:0.75rem;">(optional — powers the Documents Library filters)</span></label>' +
-            '<div id="liturgyDocCategoryChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;">' +
-              DOC_CATEGORIES.map(function(dc) {
-                return '<button type="button" class="lit-content-type-chip" data-doccat="' + dc + '" onclick="LiturgyModule.selectDocCategory(\'' + dc + '\')">' + DOC_CATEGORY_LABELS[dc] + '</button>';
               }).join('') +
             '</div>' +
             '<!-- Section Assignment -->' +
@@ -56796,22 +56761,6 @@ var LiturgyModule = (function() {
     });
   }
 
-  function _getDocCategoryFromTags(tags) {
-    var match = (tags || []).find(function(t) { return (t || '').indexOf('doccat:') === 0; });
-    return match ? match.slice('doccat:'.length) : null;
-  }
-
-  function selectDocCategory(cat) {
-    _setDocCategoryChip(_selectedDocCategory === cat ? null : cat); // click again to clear
-  }
-
-  function _setDocCategoryChip(cat) {
-    _selectedDocCategory = cat;
-    document.querySelectorAll('#liturgyDocCategoryChips .lit-content-type-chip').forEach(function(chip) {
-      chip.classList.toggle('active', chip.dataset.doccat === cat);
-    });
-  }
-
   // Get selected type from modal (works with both old and new modal)
   function getSelectedType() {
     // New dropdown version
@@ -56889,9 +56838,8 @@ var LiturgyModule = (function() {
     var slidePanes = collectSlideTexts();
     var content = slidePanes.map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; }).join(SLIDE_BREAK);
     var type = getSelectedType();
-    var tags = getCurrentTags().filter(function(t) { return (t || '').indexOf('content:') !== 0 && (t || '').indexOf('doccat:') !== 0; });
+    var tags = getCurrentTags().filter(function(t) { return (t || '').indexOf('content:') !== 0; });
     if (_selectedContentType) tags.push('content:' + _selectedContentType);
-    if (_selectedDocCategory) tags.push('doccat:' + _selectedDocCategory);
 
     // Get section assignment
     var sectionAssignment = getSectionAssignment();
@@ -58111,7 +58059,6 @@ var LiturgyModule = (function() {
     _currentGeneralFolder = null; // Clear general folder when navigating to a season
     _occContentTypeFilter = null; // Reset content-type filter so it doesn't leak between services
     _libraryTagFilter = null; // Reset sidebar RESOURCES/PLANNING/FILES filter so it doesn't leak
-    _occDocCategoryFilter = null; _occDocTypeFilter = null; _occDocSearchQuery = ''; _occDocSort = 'modified'; // Reset Attachments tab filters
     // Sidebar active state
     document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
       btn.classList.toggle('active', btn.getAttribute('data-occasion') === occasionId);
@@ -58171,162 +58118,11 @@ var LiturgyModule = (function() {
     document.querySelectorAll('.lit-occ-tab').forEach(function(t) {
       t.classList.toggle('active', t.getAttribute('data-tab') === tabId);
     });
-    var tabMap = { 'liturgy-order': 'litTabLiturgyOrder', 'planning-notes': 'litTabPlanningNotes', 'team-planning': 'litTabTeamPlanning', 'special-elements': 'litTabSpecialElements', 'documents': 'litTabDocuments' };
+    var tabMap = { 'liturgy-order': 'litTabLiturgyOrder', 'planning-notes': 'litTabPlanningNotes', 'team-planning': 'litTabTeamPlanning', 'special-elements': 'litTabSpecialElements' };
     document.querySelectorAll('.lit-tab-content').forEach(function(c) { c.style.display = 'none'; });
     var el = document.getElementById(tabMap[tabId]);
     if (el) el.style.display = '';
-    if (tabId === 'documents') renderOccDocumentsTab();
   }
-
-  // Documents tab: this occasion's items that have an attached file, shown as
-  // a simple table (name/type/size/modified) -- reuses the same liturgyItems
-  // data already loaded for the Liturgy Order tab, just filtered + listed
-  // differently. Does not pull in Songs/YouTube links from the separate Song
-  // Atlas subsystem (a larger, separate unification project).
-  // Attachments/Documents Library state (Phase 2). Search input lives in its
-  // own sub-container (#litOccDocToolbar) separate from the results
-  // (#litOccDocResults) so typing in the search box doesn't get its focus
-  // wiped by re-rendering the whole tab on every keystroke.
-  var _occDocCategoryFilter = null; // null | one of DOC_CATEGORIES
-  var _occDocTypeFilter = null;     // null | a getFileVisuals().label string
-  var _occDocSort = 'modified';     // 'modified' | 'name'
-  var _occDocSearchQuery = '';
-
-  function fmtDocSize(bytes) {
-    if (!bytes) return '—';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  }
-  function fmtDocDate(iso) {
-    if (!iso) return '—';
-    var d = new Date(iso);
-    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
-  }
-  function _occDocAllItems() {
-    return liturgyItems.filter(function(item) {
-      return item.occasionId === _currentOccasion && !!(item.fileUrl || item.fileData || item.fileName);
-    });
-  }
-
-  function renderOccDocumentsTab() {
-    var container = document.getElementById('litOccDocumentsList');
-    if (!container) return;
-    container.innerHTML = '<div id="litOccDocToolbar"></div><div id="litOccDocResults"></div>';
-    _renderOccDocToolbar();
-    _renderOccDocResults();
-  }
-
-  function _renderOccDocToolbar() {
-    var toolbar = document.getElementById('litOccDocToolbar');
-    if (!toolbar) return;
-    var allDocItems = _occDocAllItems();
-    var counts = { all: allDocItems.length };
-    DOC_CATEGORIES.forEach(function(dc) { counts[dc] = 0; });
-    allDocItems.forEach(function(item) {
-      var dc = _getDocCategoryFromTags(item.tags);
-      if (dc && counts.hasOwnProperty(dc)) counts[dc]++;
-    });
-    var typeLabels = [];
-    allDocItems.forEach(function(item) {
-      var l = getFileVisuals(item).label;
-      if (typeLabels.indexOf(l) === -1) typeLabels.push(l);
-    });
-    typeLabels.sort();
-
-    var pillsHtml = '<button type="button" class="lit-doccat-chip' + (!_occDocCategoryFilter ? ' active' : '') + '" onclick="LiturgyModule.filterOccDocsByCategory(null)">All Documents <span class="lit-doccat-count">' + counts.all + '</span></button>' +
-      DOC_CATEGORIES.map(function(dc) {
-        return '<button type="button" class="lit-doccat-chip' + (_occDocCategoryFilter === dc ? ' active' : '') + '" onclick="LiturgyModule.filterOccDocsByCategory(\'' + dc + '\')">' + DOC_CATEGORY_LABELS[dc] + ' <span class="lit-doccat-count">' + counts[dc] + '</span></button>';
-      }).join('');
-    var typeOptionsHtml = '<option value="">All Types</option>' + typeLabels.map(function(l) {
-      return '<option value="' + escapeHtml(l) + '"' + (_occDocTypeFilter === l ? ' selected' : '') + '>' + escapeHtml(l) + '</option>';
-    }).join('');
-
-    toolbar.innerHTML =
-      '<div class="lit-doc-toolbar-row">' +
-        '<input type="text" class="liturgy-search-input" placeholder="Search documents..." value="' + escapeHtml(_occDocSearchQuery) + '" oninput="LiturgyModule.searchOccDocs(this.value)">' +
-        '<select onchange="LiturgyModule.filterOccDocsByType(this.value)">' + typeOptionsHtml + '</select>' +
-        '<select onchange="LiturgyModule.sortOccDocs(this.value)">' +
-          '<option value="modified"' + (_occDocSort === 'modified' ? ' selected' : '') + '>Date Modified</option>' +
-          '<option value="name"' + (_occDocSort === 'name' ? ' selected' : '') + '>Name</option>' +
-        '</select>' +
-      '</div>' +
-      '<div class="lit-doccat-filter-row">' + pillsHtml + '</div>';
-  }
-
-  function _renderOccDocResults() {
-    var results = document.getElementById('litOccDocResults');
-    if (!results) return;
-    var allDocItems = _occDocAllItems();
-    var items = allDocItems;
-    if (_occDocCategoryFilter) {
-      items = items.filter(function(item) { return _getDocCategoryFromTags(item.tags) === _occDocCategoryFilter; });
-    }
-    if (_occDocTypeFilter) {
-      items = items.filter(function(item) { return getFileVisuals(item).label === _occDocTypeFilter; });
-    }
-    if (_occDocSearchQuery && _occDocSearchQuery.trim()) {
-      var q = _occDocSearchQuery.toLowerCase().trim();
-      items = items.filter(function(item) { return (item.title || item.fileName || '').toLowerCase().indexOf(q) !== -1; });
-    }
-    items = items.slice().sort(function(a, b) {
-      if (_occDocSort === 'name') return (a.title || a.fileName || '').localeCompare(b.title || b.fileName || '');
-      return (b.modified || b.created || 0) - (a.modified || a.created || 0);
-    });
-
-    if (!items.length) {
-      results.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-folder-open"></i><h3>No documents</h3><p>' +
-        (allDocItems.length ? 'No documents match this filter.' : 'Files uploaded or linked for this service (PDFs, slides, song sheets, etc.) will appear here.') +
-        '</p></div>';
-      return;
-    }
-
-    var rows = items.map(function(item) {
-      var vis = getFileVisuals(item);
-      var displayName = item.title || item.fileName || 'Untitled';
-      var dc = _getDocCategoryFromTags(item.tags);
-      // A <select> rather than a read-only pill: file items (the main use case
-      // here) route to inlineRenameItem on Edit, not the full item modal, so
-      // there'd otherwise be no way to assign a document category to them.
-      var dcPicker = '<select class="lit-doccat-picker" onclick="event.stopPropagation()" onchange="LiturgyModule.setItemDocCategory(\'' + item.id + '\', this.value)">' +
-        '<option value="">—</option>' +
-        DOC_CATEGORIES.map(function(cat) {
-          return '<option value="' + cat + '"' + (dc === cat ? ' selected' : '') + '>' + DOC_CATEGORY_LABELS[cat] + '</option>';
-        }).join('') +
-        '</select>';
-      return '<tr class="lit-doc-row" onclick="LiturgyModule.selectLitOccItem(\'' + item.id + '\')">' +
-        '<td><i class="fa-solid ' + vis.icon + ' mr-2" style="color:' + vis.color + ';"></i>' + escapeHtml(displayName) + '</td>' +
-        '<td>' + dcPicker + '</td>' +
-        '<td>' + escapeHtml(vis.label) + '</td>' +
-        '<td>' + fmtDocSize(item.fileSize) + '</td>' +
-        '<td>' + fmtDocDate(item.modified || item.created) + '</td>' +
-        '<td class="lit-doc-actions" onclick="event.stopPropagation()">' +
-          '<button onclick="LiturgyModule.editItem(\'' + item.id + '\')" title="Edit"><i class="fa-solid fa-pen"></i></button>' +
-          '<button onclick="LiturgyModule.confirmDelete(\'' + item.id + '\')" title="Delete"><i class="fa-solid fa-trash"></i></button>' +
-        '</td>' +
-      '</tr>';
-    }).join('');
-    results.innerHTML = '<table class="lit-doc-table"><thead><tr><th>Name</th><th>Category</th><th>Type</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
-  }
-
-  function setItemDocCategory(itemId, value) {
-    var item = getItem(itemId);
-    if (!item) return;
-    var tags = (item.tags || []).filter(function(t) { return (t || '').indexOf('doccat:') !== 0; });
-    if (value) tags.push('doccat:' + value);
-    updateItem(itemId, { tags: tags });
-    _renderOccDocToolbar();
-    _renderOccDocResults();
-  }
-
-  function filterOccDocsByCategory(cat) {
-    _occDocCategoryFilter = (_occDocCategoryFilter === cat) ? null : cat;
-    _renderOccDocToolbar();
-    _renderOccDocResults();
-  }
-  function filterOccDocsByType(label) { _occDocTypeFilter = label || null; _renderOccDocResults(); }
-  function sortOccDocs(key) { _occDocSort = key; _renderOccDocResults(); }
-  function searchOccDocs(query) { _occDocSearchQuery = query; _renderOccDocResults(); }
 
   function filterOccByContentType(type) {
     _occContentTypeFilter = (_occContentTypeFilter === type) ? null : type;
@@ -60084,16 +59880,10 @@ var LiturgyModule = (function() {
     selectProjStyle: selectProjStyle,
     cycleProjColor: cycleProjColor,
     selectProjDevice: selectProjDevice,
-    selectDocCategory: selectDocCategory,
-    setItemDocCategory: setItemDocCategory,
     renderTeamPlanning: renderTeamPlanning,
     addTeamAssignment: addTeamAssignment,
     updateTeamAssignment: updateTeamAssignment,
     removeTeamAssignment: removeTeamAssignment,
-    filterOccDocsByCategory: filterOccDocsByCategory,
-    filterOccDocsByType: filterOccDocsByType,
-    sortOccDocs: sortOccDocs,
-    searchOccDocs: searchOccDocs,
     duplicateLitItem: duplicateLitItem,
     moveItemToOccasion: moveItemToOccasion,
     _doMoveItem: _doMoveItem,
@@ -64414,27 +64204,6 @@ function filterLiturgyItems() {
   .lit-occ-chips-group { display: flex; gap: 6px; flex-wrap: wrap; }
   .lit-occ-add-item-btn { padding: 7px 16px; border-radius: 999px; border: none; background: linear-gradient(135deg,#7c3aed,#a855f7); color: white; font-size: 0.78rem; font-weight: 600; font-family: 'Poppins',sans-serif; cursor: pointer; white-space: nowrap; transition: opacity 0.15s; }
   .lit-occ-add-item-btn:hover { opacity: 0.9; }
-
-  /* Documents tab */
-  #litOccDocumentsList { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .lit-doc-table { width: 100%; border-collapse: collapse; font-family: 'Poppins',sans-serif; font-size: 0.85rem; }
-  .lit-doc-table th { text-align: left; padding: 10px 12px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; border-bottom: 2px solid #e5e7eb; }
-  .lit-doc-row { cursor: pointer; transition: background 0.15s; }
-  .lit-doc-row:hover { background: #faf5ff; }
-  .lit-doc-row td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #374151; }
-  .lit-doc-actions button { background: #f3f4f6; color: #6b7280; border: none; border-radius: 5px; padding: 5px 9px; cursor: pointer; margin-right: 4px; font-size: 0.78rem; }
-  .lit-doc-actions button:hover { background: #ede9fe; color: #7c3aed; }
-  .lit-doccat-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
-  .lit-doccat-picker { border: 1px solid #e5e7eb; border-radius: 6px; padding: 3px 6px; font-size: 0.75rem; font-family: 'Poppins', sans-serif; color: #374151; background: white; cursor: pointer; }
-  .lit-doc-toolbar-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px 4px; }
-  .lit-doc-toolbar-row .liturgy-search-input { flex: 1; min-width: 160px; padding: 7px 12px; border: 1px solid #e5e7eb; border-radius: 7px; font-size: 0.82rem; font-family: 'Poppins', sans-serif; }
-  .lit-doc-toolbar-row select { padding: 7px 10px; border: 1px solid #e5e7eb; border-radius: 7px; font-size: 0.8rem; font-family: 'Poppins', sans-serif; color: #374151; background: white; }
-  .lit-doccat-filter-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 4px 10px; }
-  .lit-doccat-chip { padding: 6px 12px; border-radius: 999px; border: 1.5px solid #e5e7eb; background: white; color: #6b7280; font-size: 0.78rem; font-family: 'Poppins', sans-serif; cursor: pointer; transition: all 0.15s; }
-  .lit-doccat-chip:hover { border-color: #a78bfa; color: #7c3aed; }
-  .lit-doccat-chip.active { background: linear-gradient(135deg,#7c3aed,#a855f7); color: white; border-color: transparent; }
-  .lit-doccat-count { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; border-radius: 9px; background: rgba(0,0,0,0.1); font-size: 0.68rem; padding: 0 5px; margin-left: 3px; }
-  .lit-doccat-chip.active .lit-doccat-count { background: rgba(255,255,255,0.25); }
 
   /* Planning Notes — Sticky Board */
   .sticky-board-header { display:flex; justify-content:space-between; align-items:flex-start; padding:16px 24px 12px; border-bottom:1px solid #e5e7eb; background:#fafafa; gap:14px; flex-wrap:wrap; }
