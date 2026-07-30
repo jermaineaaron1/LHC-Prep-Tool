@@ -6910,6 +6910,13 @@
                       <p>Add items to this service.</p>
                     </div>
                   </div>
+                  <div id="litOccSlideEditor" class="lit-slide-editor" style="flex:1.2;min-width:0;overflow-y:auto;padding:10px;border-right:1px solid #e5e7eb;background:#ffffff;">
+                    <div class="liturgy-empty-state">
+                      <i class="fa-solid fa-layer-group"></i>
+                      <h3>No item selected</h3>
+                      <p>Click a card to edit its slides.</p>
+                    </div>
+                  </div>
                   <div id="litOccPreviewPanel" style="flex:1;display:flex;align-items:center;justify-content:center;background:#1e293b;color:rgba(255,255,255,0.65);font-size:0.95rem;min-height:200px;">
                     <div style="text-align:center;"><i class="fa-solid fa-eye" style="font-size:2.5rem;margin-bottom:10px;display:block;opacity:0.55;"></i>Click a card to preview</div>
                   </div>
@@ -58415,6 +58422,8 @@ var LiturgyModule = (function() {
 
       panel.innerHTML = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1e293b;position:relative;">' +
         openBtn + previewHtml + '</div>';
+      var editorEl = document.getElementById('litOccSlideEditor');
+      if (editorEl) editorEl.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-file"></i><h3>No slides</h3><p>Files don\'t have editable slides.</p></div>';
       return;
     }
 
@@ -58447,9 +58456,81 @@ var LiturgyModule = (function() {
     }
 
     renderSlidePreview();
+    renderLitSlideEditorBoxes();
   }
 
   var _litPreviewSlides = [], _litPreviewIdx = 0, _litPreviewItem = null;
+
+  // ===== Occasion Panel slide editor (middle column, Phase 2) =====
+  // Operates on the SAME slide array as the preview panel (_litPreviewSlides),
+  // which is just item.content split on SLIDE_BREAK -- there is no separate
+  // `item.slides` field for library items. Edits are joined back with
+  // SLIDE_BREAK and saved via updateItem(id, {content}) so they persist
+  // everywhere that item is used (WO insertions, other occasions, etc).
+  function renderLitSlideEditorBoxes() {
+    var editorEl = document.getElementById('litOccSlideEditor');
+    if (!editorEl) return;
+    var boxesHtml = _litPreviewSlides.map(function(text, idx) {
+      return '<div class="lit-slide-box' + (idx === _litPreviewIdx ? ' lit-slide-current' : '') + '" data-slide-idx="' + idx + '">' +
+        '<div class="lit-slide-box-header">' +
+          '<span class="lit-slide-box-number" onclick="LiturgyModule.selectLitSlide(' + idx + ')">Slide ' + (idx + 1) + ' / ' + _litPreviewSlides.length + '</span>' +
+          '<button class="lit-slide-box-remove" onclick="LiturgyModule.removeLitSlide(' + idx + ')" title="Remove slide"><i class="fa-solid fa-xmark"></i></button>' +
+        '</div>' +
+        '<textarea class="lit-slide-textarea" onfocus="LiturgyModule.selectLitSlide(' + idx + ')" onblur="LiturgyModule._saveLitSlideEdit(' + idx + ', this.value)">' + escapeHtml(text) + '</textarea>' +
+      '</div>';
+    }).join('');
+    editorEl.innerHTML = boxesHtml +
+      '<div class="lit-add-slide-row"><button class="lit-add-slide-btn" onclick="LiturgyModule.addLitSlide()"><i class="fa-solid fa-plus mr-1"></i>Add Slide</button></div>';
+  }
+
+  function selectLitSlide(idx) {
+    if (idx < 0 || idx >= _litPreviewSlides.length) return;
+    _litPreviewIdx = idx;
+    var counter = document.getElementById('litOccSlideCounter');
+    if (counter) counter.textContent = (idx + 1) + ' / ' + _litPreviewSlides.length;
+    var panel = document.getElementById('litOccPreviewPanel');
+    if (panel) {
+      var textEl = panel.querySelector('div[style*="font-family:Georgia"]');
+      if (textEl) textEl.textContent = _litPreviewSlides[idx] || '';
+    }
+    document.querySelectorAll('#litOccSlideEditor .lit-slide-box').forEach(function(box) {
+      box.classList.toggle('lit-slide-current', Number(box.getAttribute('data-slide-idx')) === idx);
+    });
+  }
+
+  function _saveLitSlides() {
+    if (!_litPreviewItem) return;
+    var joined = _litPreviewSlides.join(SLIDE_BREAK);
+    updateItem(_litPreviewItem, { content: joined });
+  }
+
+  function _saveLitSlideEdit(idx, text) {
+    if (idx < 0 || idx >= _litPreviewSlides.length) return;
+    if (_litPreviewSlides[idx] === text) return; // no change, skip a needless save
+    _litPreviewSlides[idx] = text;
+    _saveLitSlides();
+  }
+
+  function addLitSlide() {
+    _litPreviewSlides.push('');
+    _saveLitSlides();
+    renderLitSlideEditorBoxes();
+    selectLitSlide(_litPreviewSlides.length - 1);
+    var boxes = document.querySelectorAll('#litOccSlideEditor .lit-slide-textarea');
+    var lastBox = boxes[boxes.length - 1];
+    if (lastBox) lastBox.focus();
+  }
+
+  function removeLitSlide(idx) {
+    if (_litPreviewSlides.length <= 1) {
+      if (typeof showToast === 'function') showToast('An item needs at least one slide', 'error');
+      return;
+    }
+    _litPreviewSlides.splice(idx, 1);
+    _saveLitSlides();
+    renderLitSlideEditorBoxes();
+    selectLitSlide(Math.min(idx, _litPreviewSlides.length - 1));
+  }
 
   function _litPrevSlide() {
     _litPreviewIdx = (_litPreviewIdx - 1 + _litPreviewSlides.length) % _litPreviewSlides.length;
@@ -58460,6 +58541,9 @@ var LiturgyModule = (function() {
       var textEl = panel.querySelector('div[style*="font-family:Georgia"]');
       if (textEl) textEl.textContent = _litPreviewSlides[_litPreviewIdx] || '';
     }
+    document.querySelectorAll('#litOccSlideEditor .lit-slide-box').forEach(function(box) {
+      box.classList.toggle('lit-slide-current', Number(box.getAttribute('data-slide-idx')) === _litPreviewIdx);
+    });
   }
 
   function _litNextSlide() {
@@ -58471,6 +58555,9 @@ var LiturgyModule = (function() {
       var textEl = panel.querySelector('div[style*="font-family:Georgia"]');
       if (textEl) textEl.textContent = _litPreviewSlides[_litPreviewIdx] || '';
     }
+    document.querySelectorAll('#litOccSlideEditor .lit-slide-box').forEach(function(box) {
+      box.classList.toggle('lit-slide-current', Number(box.getAttribute('data-slide-idx')) === _litPreviewIdx);
+    });
   }
 
   // 586 — Move item to a different service occasion folder
@@ -59512,6 +59599,10 @@ var LiturgyModule = (function() {
     selectLitOccItem: selectLitOccItem,
     _litPrevSlide: _litPrevSlide,
     _litNextSlide: _litNextSlide,
+    selectLitSlide: selectLitSlide,
+    _saveLitSlideEdit: _saveLitSlideEdit,
+    addLitSlide: addLitSlide,
+    removeLitSlide: removeLitSlide,
     duplicateLitItem: duplicateLitItem,
     moveItemToOccasion: moveItemToOccasion,
     _doMoveItem: _doMoveItem,
@@ -63750,6 +63841,19 @@ function filterLiturgyItems() {
   .lit-move-row--current { color:#94a3b8; cursor:default; }
   .lit-move-row:disabled { cursor:default; }
 
+  /* Occasion Panel — slide editor column (middle of the 3-column layout) */
+  .lit-slide-box { border: 2px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 8px; transition: all 0.2s; position: relative; }
+  .lit-slide-box:hover { border-color: #a78bfa; }
+  .lit-slide-box.lit-slide-current { border-color: #7c3aed; background: #faf5ff; box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
+  .lit-slide-box-header { display: flex; justify-content: space-between; align-items: center; padding: 3px 8px; background: #faf5ff; border-bottom: 1px solid #e9d5ff; margin: -10px -10px 8px -10px; border-radius: 7px 7px 0 0; }
+  .lit-slide-box-number { font-size: 0.68rem; font-weight: 600; color: #a78bfa; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; }
+  .lit-slide-box-remove { width: 20px; height: 20px; border: none; background: transparent; color: #94a3b8; cursor: pointer; font-size: 0.65rem; border-radius: 4px; transition: all 0.15s; }
+  .lit-slide-box-remove:hover { background: #fee2e2; color: #ef4444; }
+  .lit-slide-textarea { width: 100%; border: none; outline: none; resize: vertical; min-height: 60px; font-family: Georgia, serif; font-size: 0.85rem; color: #334155; line-height: 1.5; background: transparent; }
+  .lit-add-slide-row { display: flex; justify-content: center; padding: 6px 0; margin: 4px 0 12px 0; }
+  .lit-add-slide-btn { padding: 6px 14px; border: 1.5px dashed #cbd5e1; background: #f8fafc; color: #64748b; font-size: 0.75rem; font-weight: 600; border-radius: 7px; cursor: pointer; font-family: 'Poppins', sans-serif; transition: all 0.15s; }
+  .lit-add-slide-btn:hover { border-color: #7c3aed; color: #7c3aed; background: #faf5ff; }
+
   .lit-occ-tabs { display: flex; background: white; border-bottom: 2px solid #e5e7eb; padding: 0 24px; gap: 0; }
   .lit-occ-tab { background: transparent; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; padding: 12px 16px; font-size: 0.84rem; font-weight: 500; font-family: 'Poppins', sans-serif; color: #6b7280; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   .lit-occ-tab:hover { color: #374151; }
@@ -63761,6 +63865,15 @@ function filterLiturgyItems() {
     .lit-occ-tabs { padding: 0 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
     .lit-occ-tabs::-webkit-scrollbar { display: none; }
     .lit-occ-tab { padding: 12px 10px; font-size: 0.76rem; flex-shrink: 0; }
+  }
+
+  @media (max-width: 768px) {
+    /* The 3-column layout (items | slide editor | projection preview) squeezes
+       each column down to an unreadable ~40px on phones -- stack them full-width
+       instead. Uses !important because the columns' flex/width are set inline. */
+    .lit-occ-split-layout { flex-direction: column !important; }
+    .lit-occ-split-layout > div { flex: none !important; width: 100% !important; border-right: none !important; border-bottom: 1px solid #e5e7eb; max-height: 340px; }
+    .lit-occ-split-layout > #litOccPreviewPanel { border-bottom: none; min-height: 260px; }
   }
 
   /* Tab Content */
