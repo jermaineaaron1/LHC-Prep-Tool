@@ -380,7 +380,16 @@
       deleteCloudBackground: async function() { return { success: false }; },
       getCloudBackgrounds:   async function() { return []; },
       getSectionBackgrounds: async function() { return {}; },
-      saveSectionBackgrounds:async function() { return { success: true }; }
+      saveSectionBackgrounds:async function() { return { success: true }; },
+
+      // Proxies to /api/bible-passage since the real fetchBiblePassage (ESV/
+      // bible-api.com) only exists in the Google Apps Script backend, which
+      // this Vercel build can't reach.
+      fetchBiblePassage: async function(reference, translation) {
+        var qs = 'reference=' + encodeURIComponent(reference || '') + '&translation=' + encodeURIComponent(translation || 'web');
+        var res = await fetch('/api/bible-passage?' + qs);
+        return await res.json();
+      }
     };
 
     // ── Mock google.script.run (handles both callGAS and raw calls) ──
