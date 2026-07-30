@@ -6870,8 +6870,11 @@
               <button class="lit-occ-tab" data-tab="planning-notes" onclick="LiturgyModule.switchOccasionTab('planning-notes')">
                 <i class="fa-solid fa-clipboard-list mr-1"></i> Planning Notes
               </button>
+              <button class="lit-occ-tab" data-tab="team-planning" onclick="LiturgyModule.switchOccasionTab('team-planning')">
+                <i class="fa-solid fa-users mr-1"></i> Team Planning
+              </button>
               <button class="lit-occ-tab" data-tab="special-elements" onclick="LiturgyModule.switchOccasionTab('special-elements')">
-                <i class="fa-solid fa-star mr-1"></i> Special Elements
+                <i class="fa-solid fa-star mr-1"></i> Checklist
               </button>
               <button class="lit-occ-tab" data-tab="documents" onclick="LiturgyModule.switchOccasionTab('documents')">
                 <i class="fa-solid fa-folder-open mr-1"></i> Attachments
@@ -6943,6 +6946,28 @@
               </div>
               <div id="litStickyBoard" class="sticky-board">
                 <!-- Rendered by JS -->
+              </div>
+            </div>
+
+            <!-- Tab: Team Planning -->
+            <div id="litTabTeamPlanning" class="lit-tab-content" style="display:none;">
+              <div class="lit-tab-inner">
+                <div class="lit-special-panel">
+                  <div class="lit-special-panel-header">
+                    <div>
+                      <h3 style="margin:0 0 4px;font-family:'Cinzel',Georgia,serif;font-size:1rem;"><i class="fa-solid fa-users mr-2" style="color:#16a34a;"></i>Team Planning</h3>
+                      <p style="margin:0;font-size:0.82rem;color:#6b7280;">Who's doing what for this service — roles, names, and any notes.</p>
+                    </div>
+                  </div>
+                  <div id="litTeamPlanningList" class="lit-team-list">
+                    <!-- Rendered by JS -->
+                  </div>
+                  <div class="lit-special-add-row">
+                    <button class="liturgy-action-btn" onclick="LiturgyModule.addTeamAssignment()" style="background:#7c3aed;color:white;border-color:#7c3aed;">
+                      <i class="fa-solid fa-plus mr-1"></i> Add Assignment
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -54645,6 +54670,7 @@ var LiturgyModule = (function() {
         if (_currentOccasion) {
           renderPlanningNotes();
           renderSpecialElements(_currentOccasion);
+          renderTeamPlanning();
         }
       })
       .catch(function(e) { console.warn('Occasion data cloud sync failed:', e); });
@@ -58005,6 +58031,7 @@ var LiturgyModule = (function() {
     renderFolderBadge();
     // Reload special elements for this folder
     renderSpecialElements(_currentOccasion);
+    renderTeamPlanning();
   }
 
   function renderFolderBadge() {
@@ -58131,13 +58158,14 @@ var LiturgyModule = (function() {
     // Load sticky notes
     renderPlanningNotes();
     renderSpecialElements(occasionId);
+    renderTeamPlanning();
   }
 
   function switchOccasionTab(tabId) {
     document.querySelectorAll('.lit-occ-tab').forEach(function(t) {
       t.classList.toggle('active', t.getAttribute('data-tab') === tabId);
     });
-    var tabMap = { 'liturgy-order': 'litTabLiturgyOrder', 'planning-notes': 'litTabPlanningNotes', 'special-elements': 'litTabSpecialElements', 'documents': 'litTabDocuments' };
+    var tabMap = { 'liturgy-order': 'litTabLiturgyOrder', 'planning-notes': 'litTabPlanningNotes', 'team-planning': 'litTabTeamPlanning', 'special-elements': 'litTabSpecialElements', 'documents': 'litTabDocuments' };
     document.querySelectorAll('.lit-tab-content').forEach(function(c) { c.style.display = 'none'; });
     var el = document.getElementById(tabMap[tabId]);
     if (el) el.style.display = '';
@@ -59014,6 +59042,76 @@ var LiturgyModule = (function() {
     return data.folders[_currentOccFolder];
   }
 
+  /* ===== TEAM PLANNING (Phase 2) ===== */
+  // Same simple CRUD-over-localStorage pattern as Planning Notes above, mirrored
+  // to Supabase via saveOccasionData -- lightweight per-occasion role/person
+  // planning, not tied to the real Worship Roster (no member accounts/duty
+  // scheduling here, just a free-text list).
+  function _getTeamAssignments() {
+    if (!_currentOccasion) return [];
+    var data = loadOccasionData(_currentOccasion);
+    var fd = _getOccFolderData(data);
+    return fd.teamAssignments || [];
+  }
+
+  function _saveTeamAssignmentsData(assignments) {
+    var data = loadOccasionData(_currentOccasion);
+    var fd = _getOccFolderData(data);
+    fd.teamAssignments = assignments;
+    saveOccasionData(_currentOccasion, data);
+  }
+
+  function renderTeamPlanning() {
+    var list = document.getElementById('litTeamPlanningList');
+    if (!list) return;
+    var assignments = _getTeamAssignments();
+    if (assignments.length === 0) {
+      list.innerHTML = '<p style="color:#9ca3af;font-size:0.85rem;padding:14px;text-align:center;">No team assignments yet. Add one below.</p>';
+      return;
+    }
+    list.innerHTML = assignments.map(function(a) {
+      return '<div class="lit-team-row" data-id="' + a.id + '">' +
+        '<input type="text" class="lit-team-input lit-team-role" placeholder="Role (e.g. Sound Tech)" value="' + escapeHtml(a.role || '') + '" oninput="LiturgyModule.updateTeamAssignment(\'' + a.id + '\',\'role\',this.value)">' +
+        '<input type="text" class="lit-team-input lit-team-person" placeholder="Person" value="' + escapeHtml(a.person || '') + '" oninput="LiturgyModule.updateTeamAssignment(\'' + a.id + '\',\'person\',this.value)">' +
+        '<input type="text" class="lit-team-input lit-team-notes" placeholder="Notes (optional)" value="' + escapeHtml(a.notes || '') + '" oninput="LiturgyModule.updateTeamAssignment(\'' + a.id + '\',\'notes\',this.value)">' +
+        '<button class="lit-special-remove-btn" onclick="LiturgyModule.removeTeamAssignment(\'' + a.id + '\')" title="Remove"><i class="fa-solid fa-times"></i></button>' +
+      '</div>';
+    }).join('');
+  }
+
+  function addTeamAssignment() {
+    if (!_currentOccasion) return;
+    var assignments = _getTeamAssignments();
+    var newA = { id: 'team-' + Date.now(), role: '', person: '', notes: '' };
+    assignments.push(newA);
+    _saveTeamAssignmentsData(assignments);
+    renderTeamPlanning();
+    setTimeout(function() {
+      var el = document.querySelector('.lit-team-row[data-id="' + newA.id + '"] .lit-team-role');
+      if (el) el.focus();
+    }, 50);
+  }
+
+  var _teamAssignmentTimers = {};
+  function updateTeamAssignment(id, field, value) {
+    // Keyed per row+field (not a single shared timer) -- editing Role then
+    // quickly tabbing to Person would otherwise cancel Role's pending save
+    // before it ever fires, silently dropping that edit.
+    var key = id + ':' + field;
+    clearTimeout(_teamAssignmentTimers[key]);
+    _teamAssignmentTimers[key] = setTimeout(function() {
+      var assignments = _getTeamAssignments();
+      var a = assignments.find(function(x) { return x.id === id; });
+      if (a) { a[field] = value; _saveTeamAssignmentsData(assignments); }
+    }, 500);
+  }
+
+  function removeTeamAssignment(id) {
+    var assignments = _getTeamAssignments().filter(function(a) { return a.id !== id; });
+    _saveTeamAssignmentsData(assignments);
+    renderTeamPlanning();
+  }
+
   function toggleSpecialElement(idx) {
     if (!_currentOccasion) return;
     var data = loadOccasionData(_currentOccasion);
@@ -59746,6 +59844,7 @@ var LiturgyModule = (function() {
         renderOccasionItems('');
         renderPlanningNotes();
         renderSpecialElements(_currentOccasion);
+        renderTeamPlanning();
       } else {
         renderItems();
       }
@@ -59814,6 +59913,10 @@ var LiturgyModule = (function() {
     selectProjDevice: selectProjDevice,
     selectDocCategory: selectDocCategory,
     setItemDocCategory: setItemDocCategory,
+    renderTeamPlanning: renderTeamPlanning,
+    addTeamAssignment: addTeamAssignment,
+    updateTeamAssignment: updateTeamAssignment,
+    removeTeamAssignment: removeTeamAssignment,
     filterOccDocsByCategory: filterOccDocsByCategory,
     filterOccDocsByType: filterOccDocsByType,
     sortOccDocs: sortOccDocs,
@@ -64158,6 +64261,18 @@ function filterLiturgyItems() {
   /* Special Elements */
   .lit-special-panel { background: white; border: 1px solid #e5e7eb; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
   .lit-special-panel-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 20px; border-bottom: 1px solid #f3f4f6; background: #fafafa; gap: 14px; }
+  .lit-team-list { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; min-height: 60px; }
+  .lit-team-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; }
+  .lit-team-input { border: 1.5px solid #e5e7eb; border-radius: 7px; padding: 7px 10px; font-size: 0.83rem; font-family: 'Poppins', sans-serif; outline: none; transition: all 0.2s; background: white; }
+  .lit-team-input:focus { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,0.1); }
+  .lit-team-role { flex: 0 0 160px; }
+  .lit-team-person { flex: 0 0 160px; }
+  .lit-team-notes { flex: 1; min-width: 100px; }
+  @media (max-width: 600px) {
+    .lit-team-row { flex-wrap: wrap; }
+    .lit-team-role, .lit-team-person, .lit-team-notes { flex: 1 1 100%; }
+  }
+
   .lit-special-list { padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; min-height: 60px; }
   .lit-special-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; transition: all 0.2s; }
   .lit-special-item:hover { background: #f3f4f6; }
