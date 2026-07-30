@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, RhythmicNoteValue, Song, SongNote, TimedLyricSection } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, midiSourceKey, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
-import { detectVocalNotes } from '@/lib/vocal-hero/audioToNotes';
+import { detectVocalNotes, type AudioNoteDetectionDiagnostics } from '@/lib/vocal-hero/audioToNotes';
 import { supabase } from '@/lib/vocal-hero/supabaseClient';
 import { BackingTrackPanel } from './BackingTrackPanel';
 import { BackingTrackLane } from './BackingTrackLane';
@@ -333,6 +333,8 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [recordingTake, setRecordingTake] = useState<Blob | null>(null);
   const [transcribingTake, setTranscribingTake] = useState(false);
   const [recordingPart, setRecordingPart] = useState(0);
+  const [transcriptionSnap, setTranscriptionSnap] = useState(false);
+  const [transcriptionDiagnostics, setTranscriptionDiagnostics] = useState<AudioNoteDetectionDiagnostics | null>(null);
   const [recordingTimelineOffset, setRecordingTimelineOffset] = useState(0);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [editorNotice, setEditorNotice] = useState<string | null>(null);
@@ -885,7 +887,8 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
         if (take.size) {
           setRecordingTake(take);
           setRecordingUrl(previous => { if (previous) URL.revokeObjectURL(previous); return URL.createObjectURL(take); });
-          setEditorNotice(`Vocal take captured for ${VOICES[Math.max(0, Math.min(3, selectedPart))]}. Review it, then convert the monophonic recording into editable timeline notes.`);
+          setTranscriptionDiagnostics(null);
+          setEditorNotice(`Vocal take captured. Review it, choose its destination voice and timing treatment, then convert the monophonic recording into editable timeline notes.`);
         }
         setRecording(false);
         recorderRef.current = null;
@@ -905,24 +908,28 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       const decoded = await context.decodeAudioData(await recordingTake.arrayBuffer());
       await context.close();
       const range = pitchRangeForPart(recordingPart);
-      const detected = await detectVocalNotes(decoded, { part: recordingPart, timelineOffset: recordingTimelineOffset, minMidi: range.min, maxMidi: range.max });
-      if (!detected.length) throw new Error('No stable solo vocal pitches were detected. Record one unaccompanied melody close to the microphone and try again.');
+      const result = await detectVocalNotes(decoded, { part: recordingPart, timelineOffset: recordingTimelineOffset, minMidi: range.min, maxMidi: range.max });
+      const detected = result.notes;
+      setTranscriptionDiagnostics(result.diagnostics);
+      if (!detected.length) throw new Error(`No stable pitches were detected inside the ${VOICES[recordingPart]} range (${midiNoteName(range.min)}–${midiNoteName(range.max)}). Choose the correct destination voice or record a clean, unaccompanied solo closer to the microphone.`);
       const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
       const accepted: SongNote[] = [];
       let skipped = 0;
       for (const raw of detected) {
-        const candidate = quantizeNote(raw, musicalBars, division);
+        const candidate = transcriptionSnap ? quantizeNote(raw, musicalBars, division) : raw;
         if (collisionInVoice([candidate], [...notes, ...accepted])) skipped += 1;
         else accepted.push(candidate);
       }
-      if (!accepted.length) throw new Error(`The take produced ${detected.length} pitches, but they overlap existing ${VOICES[recordingPart]} notes. Move the playhead to a clear range or remove those notes first.`);
+      if (!accepted.length) throw new Error(`The take produced ${detected.length} pitches at ${Math.round(result.diagnostics.averageConfidence * 100)}% mean confidence, but they overlap existing ${VOICES[recordingPart]} notes. Move the playhead to a clear range or remove those notes first.`);
       pushHistory();
       setNotes(current => [...current, ...accepted].sort((a, b) => a.start - b.start || a.part - b.part));
       setSelectedIds(accepted.map(note => note.id));
       setSelectedId(accepted[0].id);
       setSelectedPart(recordingPart);
       setTool('select');
-      setEditorNotice(`Converted the vocal take into ${accepted.length} editable ${VOICES[recordingPart]} note${accepted.length === 1 ? '' : 's'} at ${formatClock(recordingTimelineOffset)}.${skipped ? ` ${skipped} overlapping detection${skipped === 1 ? ' was' : 's were'} skipped.` : ''} Add lyrics in the selected-note toolbar or Inspector, then Save.`);
+      const pitchSpan = result.diagnostics.lowestMidi === null || result.diagnostics.highestMidi === null ? '' : ` Pitch range ${midiNoteName(result.diagnostics.lowestMidi)}–${midiNoteName(result.diagnostics.highestMidi)}.`;
+      const rejected = result.diagnostics.rejectedOutOfRangeFrames ? ` ${result.diagnostics.rejectedOutOfRangeFrames} out-of-range analysis frames were rejected instead of being clamped to a false boundary note.` : '';
+      setEditorNotice(`Converted ${accepted.length} editable ${VOICES[recordingPart]} note${accepted.length === 1 ? '' : 's'} at ${formatClock(recordingTimelineOffset)} using ${transcriptionSnap ? 'grid-snapped' : 'measured performance'} timing. Mean confidence ${Math.round(result.diagnostics.averageConfidence * 100)}%; mean pitch drift ${Math.round(result.diagnostics.averagePitchDriftCents)} cents.${pitchSpan}${rejected}${skipped ? ` ${skipped} overlapping detection${skipped === 1 ? ' was' : 's were'} skipped.` : ''} Add lyrics, review against the take, then Save.`);
     } catch (error) {
       setRecordError(error instanceof Error ? error.message : 'Unable to convert this vocal take into notes.');
     } finally {
@@ -984,7 +991,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     <div className={`flex ${timelineFocus ? 'h-screen min-h-0' : 'h-[calc(100vh-64px)] min-h-[620px]'} overflow-auto`}>
       <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#070b1e] p-3 lg:block"><p className="text-sm font-semibold">Song Editor</p><div className="mt-1 flex items-center gap-2"><input value={title} onChange={event => setTitle(event.target.value)} className="w-full border-0 bg-transparent text-xs text-slate-300 outline-none" /><span className="text-fuchsia-300">✎</span></div><div className="mt-4 space-y-2">{VOICES.map((voice, index) => <VoiceStrip key={voice} name={voice} index={index} active={selectedPart === index} onClick={() => focusVoice(index)} />)}</div><button onClick={() => addNote()} className="mt-3 w-full rounded-lg border border-dashed border-fuchsia-400/40 px-3 py-2 text-xs text-fuchsia-300">＋ Add Voice Target</button><div className="mt-6 border-t border-white/10 pt-4"><p className="text-[10px] tracking-[.16em] text-slate-500">PART MIXER</p><div className="mt-3 grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <div key={voice} className="rounded-lg bg-white/[.04] p-2 text-center"><b style={{ color: COLOURS[index] }}>{voice[0]}</b><div className="mx-auto mt-2 h-14 w-1 rounded-full bg-white/10"><span className="block w-full rounded-full" style={{ height: `${60 + index * 8}%`, background: COLOURS[index], transform: 'translateY(40%)' }} /></div><span className="mt-2 block text-[9px] text-slate-400">M</span></div>)}</div></div></aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
-        {!timelineFocus && <EditorToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onConvertTake={() => void convertRecordedTake()} convertingTake={transcribingTake} recordingPart={recordingPart} onSave={() => void save()} saving={saving} />}
+        {!timelineFocus && <EditorToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onConvertTake={() => void convertRecordedTake()} convertingTake={transcribingTake} recordingPart={recordingPart} onRecordingPartChange={part => { setRecordingPart(part); setTranscriptionDiagnostics(null); setRecordError(null); }} transcriptionSnap={transcriptionSnap} onTranscriptionSnapChange={setTranscriptionSnap} onSave={() => void save()} saving={saving} />}
         {timelineFocus && <TimelineFocusToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} selected={selected} bars={musicalBars} onLyricChange={lyric => selected && update(selected.id, { lyric })} onTrack={() => setShowBackingEditor(true)} onExit={() => void exitTimelineFocus()} onPlay={playFromCursor} onPause={pausePlayback} onStop={stopPlayback} isPlaying={isPlaying} isPaused={isPaused} playhead={playhead} zoom={zoom} setZoom={setZoom} onSave={() => void save()} saving={saving} />}
         {!timelineFocus && <div className="flex flex-wrap items-center gap-3 border-b border-white/[.06] bg-[#090c20] px-3 py-2 text-xs">
           <button onClick={() => void enterTimelineFocus()} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100">⛶ Timeline full screen</button>
@@ -996,6 +1003,14 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
           {mediaError && <p className="text-rose-200">Backing track: {mediaError}</p>}
         </div>}
         {recordError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">Microphone: {recordError}</div>}
+        {transcriptionDiagnostics && !recordError && <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-cyan-300/15 bg-cyan-300/[.05] px-4 py-2 text-[11px] text-cyan-100">
+          <b className="uppercase tracking-[.14em] text-cyan-300">Last vocal analysis</b>
+          <span>{Math.round(transcriptionDiagnostics.averageConfidence * 100)}% mean pitch confidence</span>
+          <span>{Math.round(transcriptionDiagnostics.averagePitchDriftCents)}¢ mean tuning drift</span>
+          <span>{transcriptionDiagnostics.voicedFrames}/{transcriptionDiagnostics.analyzedFrames} voiced frames</span>
+          {transcriptionDiagnostics.lowestMidi !== null && transcriptionDiagnostics.highestMidi !== null && <span>{midiNoteName(transcriptionDiagnostics.lowestMidi)}–{midiNoteName(transcriptionDiagnostics.highestMidi)}</span>}
+          {transcriptionDiagnostics.rejectedOutOfRangeFrames > 0 && <span className="text-amber-200">{transcriptionDiagnostics.rejectedOutOfRangeFrames} frames outside {VOICES[recordingPart]} range rejected</span>}
+        </div>}
         {midiError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">MIDI import: {midiError}</div>}
         {editorNotice && <div className="flex items-center gap-3 border-b border-amber-300/20 bg-amber-300/10 px-4 py-2 text-xs text-amber-100"><span>{editorNotice}</span><button onClick={() => setEditorNotice(null)} aria-label="Dismiss editor notice" className="ml-auto rounded border border-amber-200/20 px-2 py-0.5 text-amber-100">Close</button></div>}
         <div className="flex min-h-0 flex-1">
@@ -1190,7 +1205,7 @@ function DrawNoteValuePicker({ value, onChange }: { value: RhythmicNoteValue; on
     </div>, document.body)}
   </div>;
 }
-function EditorToolbar({ tool, setTool, drawNoteValue, onDrawNoteValueChange, playScope, playParts, onPlayAll, onPlayPart, playRange, playhead, onClearSelection, selectedCount, onRemove, canUndo, canRedo, onUndo, onRedo, zoom, setZoom, onDuplicate, onCopy, onPaste, clipboardCount, onPlay, onPlayFromStart, onPause, onStop, onSkip, isPlaying, isPaused, onRecord, recording, onPlayTake, hasTake, onConvertTake, convertingTake, recordingPart, onSave, saving }: { tool: EditorTool; setTool: (tool: EditorTool) => void; drawNoteValue: RhythmicNoteValue; onDrawNoteValueChange: (value: RhythmicNoteValue) => void; playScope: PlaybackScope; playParts: boolean[]; onPlayAll: () => void; onPlayPart: (part: number, additive?: boolean) => void; playRange: { start: number; end: number }; playhead: number | null; onClearSelection: () => void; selectedCount: number; onRemove: () => void; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; zoom: number; setZoom: (value: number) => void; onDuplicate: () => void; onCopy: () => void; onPaste: () => void; clipboardCount: number; onPlay: () => void; onPlayFromStart: () => void; onPause: () => void; onStop: () => void; onSkip: (seconds: number) => void; isPlaying: boolean; isPaused: boolean; onRecord: () => void; recording: boolean; onPlayTake: () => void; hasTake: boolean; onConvertTake: () => void; convertingTake: boolean; recordingPart: number; onSave: () => void; saving: boolean }) {
+function EditorToolbar({ tool, setTool, drawNoteValue, onDrawNoteValueChange, playScope, playParts, onPlayAll, onPlayPart, playRange, playhead, onClearSelection, selectedCount, onRemove, canUndo, canRedo, onUndo, onRedo, zoom, setZoom, onDuplicate, onCopy, onPaste, clipboardCount, onPlay, onPlayFromStart, onPause, onStop, onSkip, isPlaying, isPaused, onRecord, recording, onPlayTake, hasTake, onConvertTake, convertingTake, recordingPart, onRecordingPartChange, transcriptionSnap, onTranscriptionSnapChange, onSave, saving }: { tool: EditorTool; setTool: (tool: EditorTool) => void; drawNoteValue: RhythmicNoteValue; onDrawNoteValueChange: (value: RhythmicNoteValue) => void; playScope: PlaybackScope; playParts: boolean[]; onPlayAll: () => void; onPlayPart: (part: number, additive?: boolean) => void; playRange: { start: number; end: number }; playhead: number | null; onClearSelection: () => void; selectedCount: number; onRemove: () => void; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; zoom: number; setZoom: (value: number) => void; onDuplicate: () => void; onCopy: () => void; onPaste: () => void; clipboardCount: number; onPlay: () => void; onPlayFromStart: () => void; onPause: () => void; onStop: () => void; onSkip: (seconds: number) => void; isPlaying: boolean; isPaused: boolean; onRecord: () => void; recording: boolean; onPlayTake: () => void; hasTake: boolean; onConvertTake: () => void; convertingTake: boolean; recordingPart: number; onRecordingPartChange: (part: number) => void; transcriptionSnap: boolean; onTranscriptionSnapChange: (snap: boolean) => void; onSave: () => void; saving: boolean }) {
   const toolButton = (value: EditorTool, label: string) => <button onClick={() => setTool(value)} className={`rounded-lg border px-3 py-2 ${tool === value ? 'border-fuchsia-400/60 bg-fuchsia-500/20 text-fuchsia-100' : 'border-white/10 text-slate-100'}`}>{label}</button>;
   const status = playScope === 'range' ? `Range ${playRange.start.toFixed(2)}s–${playRange.end.toFixed(2)}s` : playScope === 'note' ? `${selectedCount || 1} selected note${selectedCount === 1 ? '' : 's'}` : playParts.every(Boolean) ? 'All voices' : VOICES.filter((_, index) => playParts[index]).join(' + ');
   const formatTime = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds)) % 60).padStart(2, '0')}`;
@@ -1218,7 +1233,12 @@ function EditorToolbar({ tool, setTool, drawNoteValue, onDrawNoteValueChange, pl
       <span className="min-w-16 whitespace-nowrap font-mono text-cyan-200">{formatTime(playhead ?? 0)}</span>
       <button onClick={onRecord} className={`rounded-lg border px-3 py-2 ${recording ? 'border-rose-300 bg-rose-500/20 text-rose-100' : 'border-white/10 text-rose-300'}`}>{recording ? 'Stop recording' : 'Record'}</button>
       {tool === 'draw' && <DrawNoteValuePicker value={drawNoteValue} onChange={onDrawNoteValueChange} />}
-      {hasTake && <><button onClick={onPlayTake} className="rounded-lg border border-emerald-300/30 px-3 py-2 text-emerald-200">Play take</button><button onClick={onConvertTake} disabled={convertingTake} title={`Detect the solo recording and place editable notes in ${VOICES[recordingPart]}`} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100 disabled:opacity-50">{convertingTake ? 'Detecting pitch…' : `Convert take → ${VOICES[recordingPart]}`}</button></>}
+      {hasTake && <div className="flex shrink-0 items-center gap-2 rounded-xl border border-cyan-300/20 bg-cyan-300/[.05] p-1">
+        <button onClick={onPlayTake} className="rounded-lg border border-emerald-300/30 px-3 py-2 text-emerald-200">Play take</button>
+        <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-slate-500"><span>Put in</span><select aria-label="Transcription destination voice" value={recordingPart} onChange={event => onRecordingPartChange(Number(event.target.value))} className="rounded-lg border border-white/10 bg-[#080b1c] px-2 py-2 text-xs font-semibold normal-case tracking-normal outline-none" style={{ color: COLOURS[recordingPart] }}>{VOICES.map((voice, index) => <option key={voice} value={index}>{voice} · {midiNoteName(VOICE_MIDI_RANGES[index].min)}–{midiNoteName(VOICE_MIDI_RANGES[index].max)}</option>)}</select></label>
+        <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-slate-500"><span>Timing</span><select aria-label="Transcription timing treatment" value={transcriptionSnap ? 'grid' : 'exact'} onChange={event => onTranscriptionSnapChange(event.target.value === 'grid')} className="rounded-lg border border-white/10 bg-[#080b1c] px-2 py-2 text-xs font-semibold normal-case tracking-normal text-slate-100 outline-none"><option value="exact">Exact performance</option><option value="grid">Snap to editor grid</option></select></label>
+        <button onClick={onConvertTake} disabled={convertingTake} title={`Detect the solo recording, reject pitches outside ${midiNoteName(VOICE_MIDI_RANGES[recordingPart].min)}–${midiNoteName(VOICE_MIDI_RANGES[recordingPart].max)}, and place editable notes in ${VOICES[recordingPart]}`} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100 disabled:opacity-50">{convertingTake ? 'Analyzing pitch + timing…' : `Convert → ${VOICES[recordingPart]}`}</button>
+      </div>}
       <label className="ml-auto flex shrink-0 items-center gap-2 text-slate-400">Zoom <b className="w-8 text-right text-fuchsia-200">{Math.round((zoom / 16) * 10) / 10}x</b><input aria-label="Timeline zoom" type="range" min="16" max="160" step="2" value={zoom} onChange={event => setZoom(Number(event.target.value))} className="accent-fuchsia-400" /></label>
     </div>
   </div>;

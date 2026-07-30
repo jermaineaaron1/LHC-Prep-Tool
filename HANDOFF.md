@@ -6,13 +6,15 @@ _Last updated: 2026-07-30 by Codex_
 
 ## 2026-07-30 — Vocal recording transcription, measure lyrics, and timeline focus
 
-- Added browser-local monophonic vocal transcription. A take recorded from the song editor can now be reviewed and converted into editable SATB timeline notes for the voice selected when recording began; detections use autocorrelation, confidence filtering, smoothing, voice-range constraints, the current placement grid, and same-voice collision protection.
+- Added browser-local monophonic vocal transcription. A take recorded from the song editor can now be reviewed and converted into editable SATB timeline notes. The conversion strip explicitly chooses Soprano (C4–A5), Alto (F3–D5), Tenor (C3–G4), or Bass (E2–E4), independent of the voice active when recording began.
+- Accuracy follow-up: the detector now measures pitch beyond the destination range and rejects out-of-range frames instead of clamping them into false boundary notes. Its 2048-sample analysis window improves onset/offset precision while retaining synthetic E2 support; median smoothing, confidence filtering, cents drift, pitch span, voiced-frame, and rejected-frame diagnostics are reported after conversion.
+- Recorded timing now defaults to **Exact performance**, preserving measured starts and durations. **Snap to editor grid** is an explicit optional conversion treatment rather than an automatic destructive quantization step. Same-voice collision protection remains active in either mode.
 - Kept recordings on the device during analysis and reused the existing `SongNote` structure. No upload, package, environment variable, database schema, or SQL migration is required.
 - Removed the exposed Gameplay Lyrics editor from the workflow. Live karaoke now reads only the chosen player voice's authored note lyrics and groups all of that voice's lyric-bearing notes by the active musical measure (for example, the four beats of a 4/4 measure), following saved tempo and meter changes.
 - Added a dedicated **Timeline full screen** workspace that hides the surrounding editor chrome and side panels. Its compact toolbar keeps Select/Draw/Erase, rhythmic note value, on/off-beat placement, selected-note lyric editing, backing-track access, transport, zoom, Save, and a safe **Exit timeline** action visible above the piano roll.
 - Exiting timeline focus returns to the complete editor without closing the app or discarding unsaved arrangement state.
-- Accuracy boundary: audio transcription is intentionally optimized for one clean, unaccompanied vocal line. Background music, chords, room echo, or multiple simultaneous singers can produce ambiguous pitches and should be corrected in the editable piano roll.
-- Validation: `npx tsc --noEmit`, `git diff --check`, and the production `next build` pass with placeholder Supabase build variables. `npm run lint` remains unavailable because the repository uses ESLint 9 without an `eslint.config.*` file.
+- Accuracy boundary: audio transcription is intentionally optimized for one clean, unaccompanied vocal line. Background music, chords, room echo, vibrato near a semitone boundary, or multiple simultaneous singers can produce ambiguous pitches; the displayed diagnostics and take playback are review aids, not a guarantee, and results remain editable in the piano roll.
+- Validation: `npx tsc --noEmit`, `git diff --check`, and the production Next.js build with placeholder Supabase build variables pass. Synthetic Web Audio checks resolve A4/C5 and low Bass E2 correctly, preserve onsets within roughly 25 ms at 44.1 kHz, and reject an out-of-range A2 rather than fabricating a Soprano boundary note. `npm run lint` remains unavailable because the repository uses ESLint 9 without an `eslint.config.*` file.
 
 ---
 
