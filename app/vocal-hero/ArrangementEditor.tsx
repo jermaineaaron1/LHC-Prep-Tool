@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, RhythmicNoteValue, Song, SongNote, TimedLyricSection } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, midiSourceKey, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
+import { detectVocalNotes } from '@/lib/vocal-hero/audioToNotes';
 import { supabase } from '@/lib/vocal-hero/supabaseClient';
 import { BackingTrackPanel } from './BackingTrackPanel';
 import { BackingTrackLane } from './BackingTrackLane';
@@ -329,6 +330,10 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [collapsedVoices, setCollapsedVoices] = useState([false, false, false, false]);
   const [recording, setRecording] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [recordingTake, setRecordingTake] = useState<Blob | null>(null);
+  const [transcribingTake, setTranscribingTake] = useState(false);
+  const [recordingPart, setRecordingPart] = useState(0);
+  const [recordingTimelineOffset, setRecordingTimelineOffset] = useState(0);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [editorNotice, setEditorNotice] = useState<string | null>(null);
   const [midiPreview, setMidiPreview] = useState<MidiPreview | null>(null);
@@ -341,13 +346,13 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [mediaKind, setMediaKind] = useState<'audio' | 'video'>(song.backing_media_kind ?? 'audio');
   const [mediaName, setMediaName] = useState('');
   const [showBackingEditor, setShowBackingEditor] = useState(false);
-  const [showLyricsEditor, setShowLyricsEditor] = useState(false);
   const [trackSettings, setTrackSettings] = useState<BackingTrackSettings>({ ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) });
   const [musicalTimeline, setMusicalTimeline] = useState<MusicalTimelineSettings>(() => normaliseMusicalTimeline(song, { ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) }));
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [history, setHistory] = useState<{ past: ArrangementSnapshot[]; future: ArrangementSnapshot[] }>({ past: [], future: [] });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [timelineFocus, setTimelineFocus] = useState(false);
   const editorRootRef = useRef<HTMLDivElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const noteAuditionContextRef = useRef<AudioContext | null>(null);
@@ -406,7 +411,11 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   }, []);
 
   useEffect(() => {
-    const syncFullscreenState = () => setIsFullscreen(document.fullscreenElement === editorRootRef.current);
+    const syncFullscreenState = () => {
+      const active = document.fullscreenElement === editorRootRef.current;
+      setIsFullscreen(active);
+      if (!active) setTimelineFocus(false);
+    };
     document.addEventListener('fullscreenchange', syncFullscreenState);
     return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
   }, []);
@@ -419,11 +428,27 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   }
 
   async function closeOrExitFullscreen() {
+    if (timelineFocus) {
+      setTimelineFocus(false);
+      if (document.fullscreenElement) await document.exitFullscreen();
+      return;
+    }
     if (document.fullscreenElement) {
       await document.exitFullscreen();
       return;
     }
     onClose();
+  }
+
+  async function enterTimelineFocus() {
+    setTimelineFocus(true);
+    const root = editorRootRef.current;
+    if (root && document.fullscreenElement !== root) await root.requestFullscreen();
+  }
+
+  async function exitTimelineFocus() {
+    setTimelineFocus(false);
+    if (document.fullscreenElement) await document.exitFullscreen();
   }
 
   function focusVoice(part: number) {
@@ -510,7 +535,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setNotes(current => current.map(note => note.id === id ? candidate : note));
     if (values.lyric !== undefined) {
       setTrackSettings(current => ({ ...current, karaoke_lyrics: { targets_per_phrase: current.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: current.karaoke_lyrics?.max_lines ?? 2, source: 'notes' } }));
-      setEditorNotice('Note lyric updated. Gameplay lyric source switched to Note lyrics so this edit will appear after Save.');
+      setEditorNotice('Note lyric updated. Gameplay always reads the chosen voice directly from note lyrics and groups them one musical measure at a time. Save to publish the change.');
       return;
     }
     setEditorNotice(null);
@@ -848,14 +873,20 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setRecordError(null);
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') throw new Error('Recording is not supported in this browser.');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
       const recorder = new MediaRecorder(stream);
+      setRecordingPart(Math.max(0, Math.min(3, selectedPart)));
+      setRecordingTimelineOffset(Math.max(0, playheadRef.current));
       recorderChunksRef.current = [];
       recorder.ondataavailable = event => { if (event.data.size) recorderChunksRef.current.push(event.data); };
       recorder.onstop = () => {
         stream.getTracks().forEach(track => track.stop());
         const take = new Blob(recorderChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        if (take.size) setRecordingUrl(previous => { if (previous) URL.revokeObjectURL(previous); return URL.createObjectURL(take); });
+        if (take.size) {
+          setRecordingTake(take);
+          setRecordingUrl(previous => { if (previous) URL.revokeObjectURL(previous); return URL.createObjectURL(take); });
+          setEditorNotice(`Vocal take captured for ${VOICES[Math.max(0, Math.min(3, selectedPart))]}. Review it, then convert the monophonic recording into editable timeline notes.`);
+        }
         setRecording(false);
         recorderRef.current = null;
       };
@@ -865,7 +896,40 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     } catch (error) { setRecordError(error instanceof Error ? error.message : 'Unable to access the microphone.'); setRecording(false); }
   }
   function playRecordedTake() { if (recordingUrl) void new Audio(recordingUrl).play(); }
-  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .001, roundPrecise(note.end)) })), timed_lyrics: timedLyrics.map(section => ({ ...section, primary: section.primary.trim(), translation: section.translation.trim(), start: Math.max(0, roundPrecise(section.start)), end: Math.max(roundPrecise(section.start) + .01, roundPrecise(section.end)) })).filter(section => section.primary), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, musical_timeline: musicalTimeline } }); } finally { setSaving(false); } }
+  async function convertRecordedTake() {
+    if (!recordingTake || transcribingTake) return;
+    setRecordError(null);
+    setTranscribingTake(true);
+    try {
+      const context = new AudioContext();
+      const decoded = await context.decodeAudioData(await recordingTake.arrayBuffer());
+      await context.close();
+      const range = pitchRangeForPart(recordingPart);
+      const detected = await detectVocalNotes(decoded, { part: recordingPart, timelineOffset: recordingTimelineOffset, minMidi: range.min, maxMidi: range.max });
+      if (!detected.length) throw new Error('No stable solo vocal pitches were detected. Record one unaccompanied melody close to the microphone and try again.');
+      const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+      const accepted: SongNote[] = [];
+      let skipped = 0;
+      for (const raw of detected) {
+        const candidate = quantizeNote(raw, musicalBars, division);
+        if (collisionInVoice([candidate], [...notes, ...accepted])) skipped += 1;
+        else accepted.push(candidate);
+      }
+      if (!accepted.length) throw new Error(`The take produced ${detected.length} pitches, but they overlap existing ${VOICES[recordingPart]} notes. Move the playhead to a clear range or remove those notes first.`);
+      pushHistory();
+      setNotes(current => [...current, ...accepted].sort((a, b) => a.start - b.start || a.part - b.part));
+      setSelectedIds(accepted.map(note => note.id));
+      setSelectedId(accepted[0].id);
+      setSelectedPart(recordingPart);
+      setTool('select');
+      setEditorNotice(`Converted the vocal take into ${accepted.length} editable ${VOICES[recordingPart]} note${accepted.length === 1 ? '' : 's'} at ${formatClock(recordingTimelineOffset)}.${skipped ? ` ${skipped} overlapping detection${skipped === 1 ? ' was' : 's were'} skipped.` : ''} Add lyrics in the selected-note toolbar or Inspector, then Save.`);
+    } catch (error) {
+      setRecordError(error instanceof Error ? error.message : 'Unable to convert this vocal take into notes.');
+    } finally {
+      setTranscribingTake(false);
+    }
+  }
+  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .001, roundPrecise(note.end)) })), timed_lyrics: timedLyrics.map(section => ({ ...section, primary: section.primary.trim(), translation: section.translation.trim(), start: Math.max(0, roundPrecise(section.start)), end: Math.max(roundPrecise(section.start) + .01, roundPrecise(section.end)) })).filter(section => section.primary), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, karaoke_lyrics: { targets_per_phrase: trackSettings.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: trackSettings.karaoke_lyrics?.max_lines ?? 2, source: 'notes' }, musical_timeline: musicalTimeline } }); } finally { setSaving(false); } }
   async function uploadBackingTrack(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -914,31 +978,32 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setEditorNotice('Imported exact PPQN MIDI starts and durations. Only same-voice collisions were moved forward; pitch and every non-conflicting rhythm were preserved.');
   }
 
-  return <div ref={editorRootRef} className="vh-editor-scrollbars fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
+  return <div ref={editorRootRef} data-timeline-focus={timelineFocus ? 'true' : 'false'} className="vh-editor-scrollbars fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
     <audio ref={backingMediaRef} src={mediaUrl || undefined} preload="auto" className="hidden" onLoadedMetadata={event => { const media_duration = event.currentTarget.duration; if (Number.isFinite(media_duration)) setTrackSettings(current => current.media_duration === media_duration ? current : { ...current, media_duration }); }} onTimeUpdate={enforceBackingEdits} />
-    <header className="flex h-16 items-center gap-5 border-b border-white/10 bg-[#070a1b] px-5"><Brand /><nav className="hidden gap-5 text-xs text-slate-400 md:flex"><span>⌂ Home</span><span>♫ Library</span><b className="text-fuchsia-300">♫ Song Editor</b><span>♜ Leaderboards</span><span>♧ Rooms</span></nav><div className="ml-auto flex items-center gap-2"><span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-[10px] font-bold text-emerald-300">● LIVE</span><button onClick={() => void toggleFullscreen()} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit Vocal Hero fullscreen (Esc)' : 'Open the entire Vocal Hero editor fullscreen'} className="rounded-lg border border-fuchsia-300/35 bg-fuchsia-400/10 px-3 py-2 text-xs font-semibold text-fuchsia-100"><span aria-hidden="true" className="mr-1">{isFullscreen ? '⊙' : '⛶'}</span>{isFullscreen ? 'Exit fullscreen' : 'Full screen'}</button><span className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 sm:block">Room Code <b className="ml-1 text-[#ffd15c]">ZHY32</b></span><button onClick={() => void closeOrExitFullscreen()} title={isFullscreen ? 'Exit full screen without closing the editor' : 'Close the song editor'} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button></div></header>
-    <div className="flex h-[calc(100vh-64px)] min-h-[620px] overflow-auto">
+    <header className={`${timelineFocus ? 'hidden' : 'flex'} h-16 items-center gap-5 border-b border-white/10 bg-[#070a1b] px-5`}><Brand /><nav className="hidden gap-5 text-xs text-slate-400 md:flex"><span>⌂ Home</span><span>♫ Library</span><b className="text-fuchsia-300">♫ Song Editor</b><span>♜ Leaderboards</span><span>♧ Rooms</span></nav><div className="ml-auto flex items-center gap-2"><span className="rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3 py-1 text-[10px] font-bold text-emerald-300">● LIVE</span><button onClick={() => void toggleFullscreen()} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit Vocal Hero fullscreen (Esc)' : 'Open the entire Vocal Hero editor fullscreen'} className="rounded-lg border border-fuchsia-300/35 bg-fuchsia-400/10 px-3 py-2 text-xs font-semibold text-fuchsia-100"><span aria-hidden="true" className="mr-1">{isFullscreen ? '⊙' : '⛶'}</span>{isFullscreen ? 'Exit fullscreen' : 'Full screen'}</button><span className="hidden rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400 sm:block">Room Code <b className="ml-1 text-[#ffd15c]">ZHY32</b></span><button onClick={() => void closeOrExitFullscreen()} title={isFullscreen ? 'Exit full screen without closing the editor' : 'Close the song editor'} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button></div></header>
+    <div className={`flex ${timelineFocus ? 'h-screen min-h-0' : 'h-[calc(100vh-64px)] min-h-[620px]'} overflow-auto`}>
       <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#070b1e] p-3 lg:block"><p className="text-sm font-semibold">Song Editor</p><div className="mt-1 flex items-center gap-2"><input value={title} onChange={event => setTitle(event.target.value)} className="w-full border-0 bg-transparent text-xs text-slate-300 outline-none" /><span className="text-fuchsia-300">✎</span></div><div className="mt-4 space-y-2">{VOICES.map((voice, index) => <VoiceStrip key={voice} name={voice} index={index} active={selectedPart === index} onClick={() => focusVoice(index)} />)}</div><button onClick={() => addNote()} className="mt-3 w-full rounded-lg border border-dashed border-fuchsia-400/40 px-3 py-2 text-xs text-fuchsia-300">＋ Add Voice Target</button><div className="mt-6 border-t border-white/10 pt-4"><p className="text-[10px] tracking-[.16em] text-slate-500">PART MIXER</p><div className="mt-3 grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <div key={voice} className="rounded-lg bg-white/[.04] p-2 text-center"><b style={{ color: COLOURS[index] }}>{voice[0]}</b><div className="mx-auto mt-2 h-14 w-1 rounded-full bg-white/10"><span className="block w-full rounded-full" style={{ height: `${60 + index * 8}%`, background: COLOURS[index], transform: 'translateY(40%)' }} /></div><span className="mt-2 block text-[9px] text-slate-400">M</span></div>)}</div></div></aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
-        <EditorToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onSave={() => void save()} saving={saving} />
-        <div className="flex flex-wrap items-center gap-3 border-b border-white/[.06] bg-[#090c20] px-3 py-2 text-xs">
-          <button onClick={() => setShowLyricsEditor(true)} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100">Edit gameplay lyrics</button>
+        {!timelineFocus && <EditorToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onConvertTake={() => void convertRecordedTake()} convertingTake={transcribingTake} recordingPart={recordingPart} onSave={() => void save()} saving={saving} />}
+        {timelineFocus && <TimelineFocusToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} selected={selected} bars={musicalBars} onLyricChange={lyric => selected && update(selected.id, { lyric })} onTrack={() => setShowBackingEditor(true)} onExit={() => void exitTimelineFocus()} onPlay={playFromCursor} onPause={pausePlayback} onStop={stopPlayback} isPlaying={isPlaying} isPaused={isPaused} playhead={playhead} zoom={zoom} setZoom={setZoom} onSave={() => void save()} saving={saving} />}
+        {!timelineFocus && <div className="flex flex-wrap items-center gap-3 border-b border-white/[.06] bg-[#090c20] px-3 py-2 text-xs">
+          <button onClick={() => void enterTimelineFocus()} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100">⛶ Timeline full screen</button>
           <button onClick={() => midiInputRef.current?.click()} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100">Import MIDI</button>
           <button onClick={() => mediaInputRef.current?.click()} disabled={uploadingMedia} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100 disabled:opacity-50">{uploadingMedia ? 'Uploading…' : mediaUrl ? 'Replace backing track' : 'Upload backing track'}</button>
           <span className="min-w-0 truncate text-slate-500">{mediaUrl ? `${mediaName || 'Backing track'} · synchronized with SATB` : 'Import MIDI notes or add an audio/video backing track.'}</span>
           <input ref={midiInputRef} className="hidden" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" onChange={openMidi} />
           <input ref={mediaInputRef} className="hidden" type="file" accept="audio/*,video/*" onChange={uploadBackingTrack} />
           {mediaError && <p className="text-rose-200">Backing track: {mediaError}</p>}
-        </div>
+        </div>}
         {recordError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">Microphone: {recordError}</div>}
         {midiError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">MIDI import: {midiError}</div>}
         {editorNotice && <div className="flex items-center gap-3 border-b border-amber-300/20 bg-amber-300/10 px-4 py-2 text-xs text-amber-100"><span>{editorNotice}</span><button onClick={() => setEditorNotice(null)} aria-label="Dismiss editor notice" className="ml-auto rounded border border-amber-200/20 px-2 py-0.5 text-amber-100">Close</button></div>}
         <div className="flex min-h-0 flex-1">
-          <section className="min-w-0 flex-1 overflow-auto p-3">
-            <MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onSnapDivision={changeSnapDivision} onNoteValue={changeNoteValue} onLatchAll={latchAllToNoteValue} onRemove={removeMusicalEvent} />
+          <section className={`min-w-0 flex-1 overflow-auto ${timelineFocus ? 'p-1' : 'p-3'}`}>
+            {!timelineFocus && <><MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onSnapDivision={changeSnapDivision} onNoteValue={changeNoteValue} onLatchAll={latchAllToNoteValue} onRemove={removeMusicalEvent} />
             <BeatPrecisionPanel selectedNotes={selectedNotes} bars={musicalBars} cursor={playhead ?? 0} clipboardCount={noteClipboard.length} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} />
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><p className="mr-auto max-w-4xl leading-relaxed"><b className="text-slate-200">Select in either Select or Draw mode.</b> Drag a note body left/right for timing and up/down for pitch. Ctrl-click adds individual notes; drag empty space to lasso any notes inside the rectangle. Starts and durations latch to the selected musical note value; a single voice cannot contain overlapping targets.</p><button onClick={() => setCollapsedVoices([true, true, true, true])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Collapse all voices</button><button onClick={() => setCollapsedVoices([false, false, false, false])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Expand all voices</button></div>
-            <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: 'max(420px, calc(100vh - 290px))' }}>
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><p className="mr-auto max-w-4xl leading-relaxed"><b className="text-slate-200">Select in either Select or Draw mode.</b> Drag a note body left/right for timing and up/down for pitch. Ctrl-click adds individual notes; drag empty space to lasso any notes inside the rectangle. Starts and durations latch to the selected musical note value; a single voice cannot contain overlapping targets.</p><button onClick={() => setCollapsedVoices([true, true, true, true])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Collapse all voices</button><button onClick={() => setCollapsedVoices([false, false, false, false])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Expand all voices</button></div></>}
+            <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <div style={{ width: timelineWidth + TIMELINE_LABEL_WIDTH }}>
                 <div className="sticky top-0 z-40 bg-[#050716] shadow-[0_12px_28px_#02030ccc]">
                   <div onClick={event => { const bounds = event.currentTarget.getBoundingClientRect(); seekFromTimeline((event.clientX - bounds.left - TIMELINE_LABEL_WIDTH) / zoom); }} className="relative flex h-12 cursor-pointer border-b border-cyan-200/15 bg-[linear-gradient(180deg,#141936,#090d21)]" title="Click to move the playhead">
@@ -953,17 +1018,16 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
                 </div>
               </div>
             </div>
-            <details className="mt-3 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
+            {!timelineFocus && <details className="mt-3 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
               <summary className="cursor-pointer font-semibold text-slate-300">Arrangement controls: dynamics, breath &amp; part mixer</summary>
               <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto]">
-                <div className="space-y-3"><KaraokePhraseControls settings={trackSettings} onChange={karaoke_lyrics => setTrackSettings(current => ({ ...current, karaoke_lyrics }))} /><Automation notes={notes} /></div>
+                <div className="space-y-3"><div className="rounded-lg border border-cyan-300/20 bg-cyan-300/5 p-3 text-cyan-100"><b>Gameplay lyrics follow the selected voice.</b><span className="mt-1 block text-slate-400">Add lyrics directly to piano-roll notes. The live display groups those lyrics by musical measure using this song’s tempo and time-signature map.</span></div><Automation notes={notes} /></div>
                 <div className="grid grid-cols-4 gap-2">{VOICES.map((voice, index) => <button key={voice} onClick={() => focusVoice(index)} className="rounded-lg border px-3 py-2 text-center" style={{ borderColor: `${COLOURS[index]}66`, color: COLOURS[index], background: `${COLOURS[index]}12` }}><b className="block text-base">{voice[0]}</b><span className="text-[10px]">{voice}</span></button>)}</div>
               </div>
-            </details>
+            </details>}
           </section>
-          <Inspector selected={selected} bars={musicalBars} update={update} onDelete={removeSelected} onDuplicate={duplicateSelected} />
+          {!timelineFocus && <Inspector selected={selected} bars={musicalBars} update={update} onDelete={removeSelected} onDuplicate={duplicateSelected} />}
         </div>
-        {showLyricsEditor && <GameplayLyricsDialog notes={notes} phrases={timedLyrics} settings={trackSettings} onPhrasesChange={setTimedLyrics} onSettingsChange={karaoke_lyrics => setTrackSettings(current => ({ ...current, karaoke_lyrics }))} onHistory={pushHistory} onClose={() => setShowLyricsEditor(false)} />}
         {showBackingEditor && <div className="absolute inset-0 z-40 grid place-items-center bg-[#020510]/85 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-label="Backing track editor" className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-cyan-300/30 bg-[#08101f] shadow-[0_0_60px_#22d3ee20]"><header className="flex items-center gap-3 border-b border-white/10 px-5 py-4"><div><p className="text-[10px] font-bold tracking-[.2em] text-cyan-300">BACKING TRACK</p><h2 className="text-lg font-semibold">Audio/video arrangement</h2></div><button onClick={() => setShowBackingEditor(false)} className="ml-auto rounded-lg border border-white/15 px-4 py-2 text-xs">Done</button></header><div className="min-h-0 overflow-y-auto p-4"><BackingTrackPanel url={mediaUrl} kind={mediaKind} fileName={mediaName} settings={trackSettings} setSettings={setTrackSettings} uploading={uploadingMedia} transportTime={playhead} transportPlaying={isPlaying} onUpload={() => mediaInputRef.current?.click()} /></div></section></div>}
         {midiPreview && <MidiImportDialog preview={midiPreview} ranges={midiRanges} setRanges={setMidiRanges} sourceParts={midiSourceParts} setSourceParts={setMidiSourceParts} fixedPart={midiPart} setFixedPart={setMidiPart} mode={midiMode} setMode={setMidiMode} onCancel={() => setMidiPreview(null)} onApply={applyMidiImport} />}
       </main>
@@ -976,6 +1040,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       .vh-editor-scrollbars ::-webkit-scrollbar-thumb { min-height: 42px; border: 3px solid #090d22; border-radius: 999px; background: linear-gradient(180deg,#f05acb,#8b5cf6 55%,#22d3ee); box-shadow: inset 0 0 0 1px #ffffff38,0 0 10px #a855f766; }
       .vh-editor-scrollbars ::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg,#ff8bdd,#a879ff 55%,#57e8ff); }
       .vh-editor-scrollbars ::-webkit-scrollbar-corner { background: #090d22; }
+      .vh-editor-scrollbars[data-timeline-focus="true"] > div > aside { display: none !important; }
     `}</style>
   </div>;
 }
@@ -1125,7 +1190,7 @@ function DrawNoteValuePicker({ value, onChange }: { value: RhythmicNoteValue; on
     </div>, document.body)}
   </div>;
 }
-function EditorToolbar({ tool, setTool, drawNoteValue, onDrawNoteValueChange, playScope, playParts, onPlayAll, onPlayPart, playRange, playhead, onClearSelection, selectedCount, onRemove, canUndo, canRedo, onUndo, onRedo, zoom, setZoom, onDuplicate, onCopy, onPaste, clipboardCount, onPlay, onPlayFromStart, onPause, onStop, onSkip, isPlaying, isPaused, onRecord, recording, onPlayTake, hasTake, onSave, saving }: { tool: EditorTool; setTool: (tool: EditorTool) => void; drawNoteValue: RhythmicNoteValue; onDrawNoteValueChange: (value: RhythmicNoteValue) => void; playScope: PlaybackScope; playParts: boolean[]; onPlayAll: () => void; onPlayPart: (part: number, additive?: boolean) => void; playRange: { start: number; end: number }; playhead: number | null; onClearSelection: () => void; selectedCount: number; onRemove: () => void; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; zoom: number; setZoom: (value: number) => void; onDuplicate: () => void; onCopy: () => void; onPaste: () => void; clipboardCount: number; onPlay: () => void; onPlayFromStart: () => void; onPause: () => void; onStop: () => void; onSkip: (seconds: number) => void; isPlaying: boolean; isPaused: boolean; onRecord: () => void; recording: boolean; onPlayTake: () => void; hasTake: boolean; onSave: () => void; saving: boolean }) {
+function EditorToolbar({ tool, setTool, drawNoteValue, onDrawNoteValueChange, playScope, playParts, onPlayAll, onPlayPart, playRange, playhead, onClearSelection, selectedCount, onRemove, canUndo, canRedo, onUndo, onRedo, zoom, setZoom, onDuplicate, onCopy, onPaste, clipboardCount, onPlay, onPlayFromStart, onPause, onStop, onSkip, isPlaying, isPaused, onRecord, recording, onPlayTake, hasTake, onConvertTake, convertingTake, recordingPart, onSave, saving }: { tool: EditorTool; setTool: (tool: EditorTool) => void; drawNoteValue: RhythmicNoteValue; onDrawNoteValueChange: (value: RhythmicNoteValue) => void; playScope: PlaybackScope; playParts: boolean[]; onPlayAll: () => void; onPlayPart: (part: number, additive?: boolean) => void; playRange: { start: number; end: number }; playhead: number | null; onClearSelection: () => void; selectedCount: number; onRemove: () => void; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; zoom: number; setZoom: (value: number) => void; onDuplicate: () => void; onCopy: () => void; onPaste: () => void; clipboardCount: number; onPlay: () => void; onPlayFromStart: () => void; onPause: () => void; onStop: () => void; onSkip: (seconds: number) => void; isPlaying: boolean; isPaused: boolean; onRecord: () => void; recording: boolean; onPlayTake: () => void; hasTake: boolean; onConvertTake: () => void; convertingTake: boolean; recordingPart: number; onSave: () => void; saving: boolean }) {
   const toolButton = (value: EditorTool, label: string) => <button onClick={() => setTool(value)} className={`rounded-lg border px-3 py-2 ${tool === value ? 'border-fuchsia-400/60 bg-fuchsia-500/20 text-fuchsia-100' : 'border-white/10 text-slate-100'}`}>{label}</button>;
   const status = playScope === 'range' ? `Range ${playRange.start.toFixed(2)}s–${playRange.end.toFixed(2)}s` : playScope === 'note' ? `${selectedCount || 1} selected note${selectedCount === 1 ? '' : 's'}` : playParts.every(Boolean) ? 'All voices' : VOICES.filter((_, index) => playParts[index]).join(' + ');
   const formatTime = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds)) % 60).padStart(2, '0')}`;
@@ -1153,9 +1218,25 @@ function EditorToolbar({ tool, setTool, drawNoteValue, onDrawNoteValueChange, pl
       <span className="min-w-16 whitespace-nowrap font-mono text-cyan-200">{formatTime(playhead ?? 0)}</span>
       <button onClick={onRecord} className={`rounded-lg border px-3 py-2 ${recording ? 'border-rose-300 bg-rose-500/20 text-rose-100' : 'border-white/10 text-rose-300'}`}>{recording ? 'Stop recording' : 'Record'}</button>
       {tool === 'draw' && <DrawNoteValuePicker value={drawNoteValue} onChange={onDrawNoteValueChange} />}
-      {hasTake && <button onClick={onPlayTake} className="rounded-lg border border-emerald-300/30 px-3 py-2 text-emerald-200">Play take</button>}
+      {hasTake && <><button onClick={onPlayTake} className="rounded-lg border border-emerald-300/30 px-3 py-2 text-emerald-200">Play take</button><button onClick={onConvertTake} disabled={convertingTake} title={`Detect the solo recording and place editable notes in ${VOICES[recordingPart]}`} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100 disabled:opacity-50">{convertingTake ? 'Detecting pitch…' : `Convert take → ${VOICES[recordingPart]}`}</button></>}
       <label className="ml-auto flex shrink-0 items-center gap-2 text-slate-400">Zoom <b className="w-8 text-right text-fuchsia-200">{Math.round((zoom / 16) * 10) / 10}x</b><input aria-label="Timeline zoom" type="range" min="16" max="160" step="2" value={zoom} onChange={event => setZoom(Number(event.target.value))} className="accent-fuchsia-400" /></label>
     </div>
+  </div>;
+}
+
+function TimelineFocusToolbar({ tool, setTool, drawNoteValue, onDrawNoteValueChange, selected, bars, onLyricChange, onTrack, onExit, onPlay, onPause, onStop, isPlaying, isPaused, playhead, zoom, setZoom, onSave, saving }: { tool: EditorTool; setTool: (tool: EditorTool) => void; drawNoteValue: RhythmicNoteValue; onDrawNoteValueChange: (value: RhythmicNoteValue) => void; selected: SongNote | null; bars: MusicalBar[]; onLyricChange: (value: string) => void; onTrack: () => void; onExit: () => void; onPlay: () => void; onPause: () => void; onStop: () => void; isPlaying: boolean; isPaused: boolean; playhead: number | null; zoom: number; setZoom: (value: number) => void; onSave: () => void; saving: boolean }) {
+  const placement = selected ? beatPositionAt(bars, selected.start) : null;
+  return <div className="sticky top-0 z-[70] flex min-h-16 items-center gap-2 overflow-x-auto border-b border-fuchsia-300/25 bg-[#070a19]/95 px-3 py-2 text-xs shadow-[0_14px_40px_#000b,0_0_30px_#a855f722] backdrop-blur-xl">
+    <button onClick={onExit} title="Return to the complete editor without discarding unsaved work" className="rounded-lg border border-white/15 bg-white/[.04] px-3 py-2 font-semibold">← Exit timeline</button>
+    <span className="h-8 w-px shrink-0 bg-white/10" />
+    {(['select', 'draw', 'erase'] as EditorTool[]).map(value => <button key={value} onClick={() => setTool(value)} className={`rounded-lg border px-3 py-2 capitalize ${tool === value ? 'border-fuchsia-300/60 bg-fuchsia-400/15 text-fuchsia-100' : 'border-white/10 text-slate-300'}`}>{value}</button>)}
+    <DrawNoteValuePicker value={drawNoteValue} onChange={onDrawNoteValueChange} />
+    <div className="flex shrink-0 items-center gap-2 rounded-xl border border-cyan-300/20 bg-cyan-300/[.06] px-3 py-2"><span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">Placement</span>{placement ? <><b className="text-cyan-100">{placement.bar}.{placement.beat}</b><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${beatOffsetLabel(placement.fraction) === 'ON BEAT' ? 'bg-emerald-300/15 text-emerald-200' : 'bg-amber-300/15 text-amber-200'}`}>{beatOffsetLabel(placement.fraction)}</span></> : <span className="text-slate-500">Select a note</span>}</div>
+    <label className="flex min-w-64 shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2"><span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">Note lyric</span><input value={selected?.lyric ?? ''} onChange={event => onLyricChange(event.target.value)} disabled={!selected} placeholder="Select one note" className="min-w-0 flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-slate-600 disabled:opacity-50" /></label>
+    <button onClick={onTrack} className="rounded-lg border border-cyan-300/35 bg-cyan-300/10 px-3 py-2 text-cyan-100">Track</button>
+    <button onClick={isPlaying ? onPause : onPlay} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-400/10 px-3 py-2 font-semibold text-fuchsia-100">{isPlaying ? 'Pause' : isPaused ? 'Resume' : 'Play'}</button><button onClick={onStop} className="rounded-lg border border-cyan-300/30 px-3 py-2 text-cyan-100">Stop</button><span className="font-mono text-cyan-200">{formatClock(playhead ?? 0)}</span>
+    <label className="ml-auto flex shrink-0 items-center gap-2 text-slate-400">Zoom <b className="text-fuchsia-200">{Math.round((zoom / 16) * 10) / 10}x</b><input aria-label="Timeline zoom" type="range" min="16" max="160" step="2" value={zoom} onChange={event => setZoom(Number(event.target.value))} className="w-24 accent-fuchsia-400" /></label>
+    <button onClick={onSave} disabled={saving} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-bold text-cyan-100">{saving ? 'Saving…' : 'Save'}</button>
   </div>;
 }
 /* Legacy toolbar retained temporarily for visual regression reference.

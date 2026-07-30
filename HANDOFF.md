@@ -1,6 +1,18 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-07-29 by Codex_
+_Last updated: 2026-07-30 by Codex_
+
+---
+
+## 2026-07-30 — Vocal recording transcription, measure lyrics, and timeline focus
+
+- Added browser-local monophonic vocal transcription. A take recorded from the song editor can now be reviewed and converted into editable SATB timeline notes for the voice selected when recording began; detections use autocorrelation, confidence filtering, smoothing, voice-range constraints, the current placement grid, and same-voice collision protection.
+- Kept recordings on the device during analysis and reused the existing `SongNote` structure. No upload, package, environment variable, database schema, or SQL migration is required.
+- Removed the exposed Gameplay Lyrics editor from the workflow. Live karaoke now reads only the chosen player voice's authored note lyrics and groups all of that voice's lyric-bearing notes by the active musical measure (for example, the four beats of a 4/4 measure), following saved tempo and meter changes.
+- Added a dedicated **Timeline full screen** workspace that hides the surrounding editor chrome and side panels. Its compact toolbar keeps Select/Draw/Erase, rhythmic note value, on/off-beat placement, selected-note lyric editing, backing-track access, transport, zoom, Save, and a safe **Exit timeline** action visible above the piano roll.
+- Exiting timeline focus returns to the complete editor without closing the app or discarding unsaved arrangement state.
+- Accuracy boundary: audio transcription is intentionally optimized for one clean, unaccompanied vocal line. Background music, chords, room echo, or multiple simultaneous singers can produce ambiguous pitches and should be corrected in the editable piano roll.
+- Validation: `npx tsc --noEmit`, `git diff --check`, and the production `next build` pass with placeholder Supabase build variables. `npm run lint` remains unavailable because the repository uses ESLint 9 without an `eslint.config.*` file.
 
 ---
 

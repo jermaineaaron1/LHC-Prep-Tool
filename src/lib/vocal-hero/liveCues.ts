@@ -53,29 +53,14 @@ export function livePitchFeedback(targetMidi: number | null, pitchHz: number) {
 }
 
 export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, elapsed: number): KaraokeCue {
-  const timedLyrics = [...(song.timed_lyrics ?? [])]
-    .filter(section => section.primary?.trim())
-    .sort((a, b) => a.start - b.start);
-  const useNoteLyrics = song.backing_track_settings?.karaoke_lyrics?.source === 'notes';
   const hasAuthoredSatb = notes.some(note => note.part >= 0);
-  const phraseTimeline = gameplayPhraseTimeline(song);
-  const sharedPhraseAllowed = !hasAuthoredSatb || phraseTimelineMatchesSatb(notes, phraseTimeline);
-  const authoredPhrases = useNoteLyrics || !sharedPhraseAllowed ? [] : phraseTimeline;
-  if (authoredPhrases.length) return timedPhraseCue(authoredPhrases, elapsed);
-
-  // Pick one granular lyric source for the whole performance. Never switch
-  // sources after refresh or after the final timed entry has elapsed.
-  const timedEvents = !hasAuthoredSatb && !useNoteLyrics && !phraseLikeTimedLyrics(timedLyrics)
-    ? timedLyrics.map(section => ({ lyric: section.primary.trim(), start: section.start, end: section.end }))
-    : [];
-  const voiceEvents = lyricEvents(notes.filter(note => hasAuthoredSatb ? note.part === partIndex : note.part === partIndex || note.part === -1));
-  const legacyEvents = (song.game_notes ?? []).filter(note => note.l?.trim()).map(note => ({ lyric: note.l!.trim(), start: note.start, end: note.start + note.dur }));
-  const allEvents = mergeEvents([...lyricEvents(notes), ...legacyEvents]);
-  const noteEvents = hasAuthoredSatb ? voiceEvents : voiceEvents.length >= allEvents.length - 2 ? voiceEvents : allEvents;
-  const events = timedEvents.length ? mergeEvents(timedEvents) : noteEvents;
+  // Note lyrics are the sole gameplay source. For authored SATB arrangements
+  // the chosen voice never borrows a phrase or lyric from another part.
+  const events = lyricEvents(notes.filter(note => hasAuthoredSatb ? note.part === partIndex : note.part === partIndex || note.part === -1));
   if (!events.length) return { text: 'Instrumental — listen for your entrance', progress: 0, currentLyric: '', nextText: '', waiting: true };
-  const phraseSize = clampInteger(song.backing_track_settings?.karaoke_lyrics?.targets_per_phrase, 4, 20, 10);
-  const phrases = phraseEvents(events, phraseSize);
+  // Each stable lyric phrase is one musical measure. A 4/4 measure therefore
+  // presents all note lyrics beginning within its four beats at the same time.
+  const phrases = measurePhraseEvents(events, song);
   let phraseIndex = phrases.findIndex(phrase => elapsed >= phrase[0].start - .35 && elapsed <= phrase[phrase.length - 1].end + .8);
   if (phraseIndex < 0) phraseIndex = phrases.findIndex(phrase => phrase[0].start > elapsed);
   if (phraseIndex < 0) phraseIndex = phrases.length - 1;
@@ -126,55 +111,15 @@ export function gameplayPhraseTimeline(song: Song): PhraseTimelineRow[] {
  * Saved note lyrics remain untouched; both gameplay surfaces use one source.
  */
 export function gameplayLaneNotes(song: Song, notes: SongNote[], partIndex: number): SongNote[] {
-  if (song.backing_track_settings?.karaoke_lyrics?.source === 'notes') return notes;
-  const phrases = gameplayPhraseTimeline(song);
-  if (notes.some(note => note.part >= 0) && !phraseTimelineMatchesSatb(notes, phrases)) return notes;
-  if (!phrases.length) return notes;
-
-  const voiceNotes = notes
-    .filter(note => note.part === partIndex || note.part === -1)
-    .sort((a, b) => a.start - b.start || a.end - b.end);
-  const notesByPhrase = new Map<number, SongNote[]>();
-
-  for (const note of voiceNotes) {
-    let bestIndex = -1;
-    let bestOverlap = 0;
-    phrases.forEach((phrase, index) => {
-      const overlap = Math.max(0, Math.min(note.end, phrase.end) - Math.max(note.start, phrase.start));
-      if (overlap > bestOverlap) {
-        bestOverlap = overlap;
-        bestIndex = index;
-      }
-    });
-    if (bestIndex >= 0 && bestOverlap > .001) {
-      const group = notesByPhrase.get(bestIndex) ?? [];
-      group.push(note);
-      notesByPhrase.set(bestIndex, group);
-    }
-  }
-
-  const labels = new Map<string, string>();
-  notesByPhrase.forEach((group, phraseIndex) => {
-    const words = phrases[phraseIndex].primary.split(/\s+/).filter(Boolean);
-    if (!words.length) return;
-    group.forEach((note, noteIndex) => {
-      if (group.length <= words.length) {
-        const from = Math.floor(noteIndex * words.length / group.length);
-        const to = Math.max(from + 1, Math.floor((noteIndex + 1) * words.length / group.length));
-        labels.set(note.id, words.slice(from, to).join(' '));
-      } else {
-        labels.set(note.id, words[Math.min(words.length - 1, Math.floor(noteIndex * words.length / group.length))]);
-      }
-    });
-  });
-
-  return notes.map(note => labels.has(note.id) ? { ...note, lyric: labels.get(note.id)! } : note);
+  void song;
+  void partIndex;
+  return notes;
 }
 
 /** Prepare every authored voice (and a shared guide, if present) for gameplay. */
 export function gameplayNotes(song: Song, notes: SongNote[]): SongNote[] {
-  const parts = [...new Set(notes.map(note => note.part))];
-  return parts.reduce((result, partIndex) => gameplayLaneNotes(song, result, partIndex), notes);
+  void song;
+  return notes;
 }
 
 /** Global phrases are safe only when every SATB part has the same authored words. */
@@ -219,6 +164,39 @@ function timedPhraseCue(timed: Array<{ primary: string; start: number; end: numb
     nextText: timed[index + 1]?.primary?.trim() ?? '',
     waiting: elapsed < active.start,
   };
+}
+
+function measurePhraseEvents(events: LyricEvent[], song: Song) {
+  const end = Math.max(song.duration || 0, ...events.map(event => event.end), 1);
+  const measures = musicalMeasures(song, end + 1);
+  const grouped = new Map<number, LyricEvent[]>();
+  for (const event of events) {
+    const found = measures.findIndex(measure => event.start >= measure.start - .0001 && event.start < measure.end - .0001);
+    const index = found < 0 ? measures.length - 1 : found;
+    const group = grouped.get(index) ?? [];
+    group.push(event);
+    grouped.set(index, group);
+  }
+  return [...grouped.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, group]) => group.sort((a, b) => a.start - b.start || a.end - b.end));
+}
+
+function musicalMeasures(song: Song, end: number) {
+  const timeline = song.backing_track_settings?.musical_timeline;
+  const tempos = [...(timeline?.tempo_changes ?? [{ at: 0, bpm: song.bpm || 120 }])].sort((a, b) => a.at - b.at);
+  const meters = [...(timeline?.meter_changes ?? [{ at: 0, numerator: song.time_sig || 4, denominator: 4 }])].sort((a, b) => a.at - b.at);
+  const changes = [...new Set([0, end, ...tempos.map(item => item.at), ...meters.map(item => item.at)].filter(value => value >= 0 && value <= end))].sort((a, b) => a - b);
+  const result: Array<{ start: number; end: number }> = [];
+  for (let segment = 0; segment < changes.length - 1; segment += 1) {
+    const segmentStart = changes[segment];
+    const segmentEnd = changes[segment + 1];
+    const tempo = tempos.filter(item => item.at <= segmentStart + .0001).at(-1)?.bpm ?? 120;
+    const meter = meters.filter(item => item.at <= segmentStart + .0001).at(-1) ?? { numerator: 4, denominator: 4 };
+    const measureSeconds = (60 / Math.max(20, tempo)) * (4 / Math.max(1, meter.denominator)) * Math.max(1, meter.numerator);
+    for (let start = segmentStart; start < segmentEnd - .0001; start += measureSeconds) result.push({ start, end: Math.min(segmentEnd, start + measureSeconds) });
+  }
+  return result.length ? result : [{ start: 0, end }];
 }
 
 function lyricEvents(notes: SongNote[]): LyricEvent[] {
