@@ -6892,14 +6892,11 @@
                     <i class="fa-solid fa-magnifying-glass"></i>
                     <input type="text" id="litOccSearchInput" placeholder="Search items for this service..." oninput="LiturgyModule.searchOccasionItems(this.value)">
                   </div>
-                  <button class="liturgy-action-btn" onclick="LiturgyModule.openBibleBrowser('library')" style="background:#1e40af;color:white;border-color:#1e40af;" title="Browse Bible">
-                    <i class="fa-solid fa-book-bible mr-1"></i> Bible
+                  <button class="lit-occ-search-row-icon-btn" onclick="LiturgyModule.openBibleBrowser('library')" title="Browse Bible">
+                    <i class="fa-solid fa-book-bible"></i>
                   </button>
-                  <button class="liturgy-action-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'season',null)" style="background:#0d9488;color:white;border-color:#0d9488;" title="Upload a file or paste a link">
-                    <i class="fa-solid fa-cloud-arrow-up mr-1"></i> Upload / Link
-                  </button>
-                  <button class="liturgy-action-btn" onclick="openAddLiturgyModal()" style="background:#7c3aed;color:white;border-color:#7c3aed;">
-                    <i class="fa-solid fa-plus mr-1"></i> Add Item
+                  <button class="lit-occ-search-row-icon-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'season',null)" title="Upload a file or paste a link">
+                    <i class="fa-solid fa-cloud-arrow-up"></i>
                   </button>
                 </div>
                 <!-- Content-type filter chips (independent of Category; see selectContentType) -->
@@ -58333,10 +58330,12 @@ var LiturgyModule = (function() {
     var chips = [{ id: null, label: 'All Items' }].concat(CONTENT_TYPES.map(function(ct) {
       return { id: ct, label: ct.charAt(0).toUpperCase() + ct.slice(1) };
     }));
-    row.innerHTML = chips.map(function(c) {
+    var chipsHtml = chips.map(function(c) {
       var active = _occContentTypeFilter === c.id;
       return '<button type="button" class="lit-content-type-chip' + (active ? ' active' : '') + '" onclick="LiturgyModule.filterOccByContentType(' + (c.id ? "'" + c.id + "'" : 'null') + ')">' + c.label + '</button>';
     }).join('');
+    row.innerHTML = '<div class="lit-occ-chips-group">' + chipsHtml + '</div>' +
+      '<button type="button" class="lit-occ-add-item-btn" onclick="openAddLiturgyModal()"><i class="fa-solid fa-plus mr-1"></i>Add Item</button>';
   }
 
   // File type → icon + color (hoisted to module scope in Phase 2 so both
@@ -58431,9 +58430,7 @@ var LiturgyModule = (function() {
       var isFile = !!(item.fileUrl || item.fileData);
       var vis = isFile ? getFileVisuals(item) : { icon:'fa-scroll', color:'#7c3aed', label: (item.type||'Liturgy'), bg:'#ede9fe' };
       var displayName = item.title || item.fileName || 'Untitled';
-      var subLine = item.storageProvider === 'external'
-        ? (item.fileUrl||'').replace(/^https?:\/\//,'').substring(0,45)
-        : item.fileName || (item.content||'').replace(/═+\n?/g,'').substring(0,45);
+      var pillLabel = _litEditorPillLabel(item);
       return '<div class="occ-file-card" data-id="' + item.id + '"' +
         ' onclick="LiturgyModule.selectLitOccItem(\'' + item.id + '\')"' +
         ' draggable="true" ondragstart="event.dataTransfer.setData(\'text/plain\',\'' + item.id + '\');event.dataTransfer.effectAllowed=\'move\'">' +
@@ -58442,7 +58439,7 @@ var LiturgyModule = (function() {
         '</div>' +
         '<div class="occ-file-card-body" style="flex:1;min-width:0;">' +
           '<div class="occ-file-card-name" title="' + escapeHtml(displayName) + '">' + escapeHtml(displayName) + '</div>' +
-          '<div class="occ-file-card-sub" style="font-size:0.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(subLine) + '</div>' +
+          '<div class="occ-file-card-category" style="color:' + vis.color + ';">' + escapeHtml(pillLabel) + '</div>' +
         '</div>' +
         '<div class="occ-file-card-actions" style="flex-direction:column;gap:3px;">' +
           '<button onclick="event.stopPropagation();LiturgyModule.editItem(\'' + item.id + '\')" title="Edit" style="background:#f3f4f6;color:#6b7280;border:none;border-radius:5px;padding:3px 7px;cursor:pointer;font-size:0.7rem;width:100%;"><i class="fa-solid fa-pen"></i></button>' +
@@ -64285,21 +64282,22 @@ function filterLiturgyItems() {
   }
 
   /* Occasion Tabs */
-  /* Occasion year/folder bar */
-  .lit-occ-folder-bar { display:flex; gap:10px; align-items:flex-start; padding:14px 20px; background:#f8fafc; border-bottom:1px solid #e5e7eb; flex-wrap:wrap; min-height:60px; }
+  /* Occasion year/folder bar — kept compact/secondary since the reference
+     design doesn't surface year-folder browsing as a prominent row */
+  .lit-occ-folder-bar { display:flex; gap:8px; align-items:center; padding:8px 20px; background:#f8fafc; border-bottom:1px solid #e5e7eb; flex-wrap:wrap; min-height:auto; }
   /* "All" pill stays as a pill */
-  .lit-occ-folder-pill { padding:8px 18px; border-radius:20px; border:1.5px solid #e5e7eb; background:white; font-size:0.82rem; cursor:pointer; color:#6b7280; font-family:'Poppins',sans-serif; display:flex; align-items:center; gap:6px; transition:all 0.15s; align-self:center; }
+  .lit-occ-folder-pill { padding:5px 14px; border-radius:20px; border:1.5px solid #e5e7eb; background:white; font-size:0.76rem; cursor:pointer; color:#6b7280; font-family:'Poppins',sans-serif; display:flex; align-items:center; gap:6px; transition:all 0.15s; align-self:center; }
   .lit-occ-folder-pill:hover { background:#f3f4f6; border-color:#d1d5db; }
   .lit-occ-folder-pill.active { background:#7c3aed; color:white; border-color:#7c3aed; font-weight:600; }
-  /* Year folder cards — bigger, like mini folder tiles */
-  .lit-occ-folder-card { position:relative; min-width:90px; padding:10px 14px; border-radius:10px; border:1.5px solid #e5e7eb; background:white; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px; transition:all 0.15s; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+  /* Year folder cards — compact row, not oversized tiles */
+  .lit-occ-folder-card { position:relative; min-width:64px; padding:5px 10px; border-radius:8px; border:1.5px solid #e5e7eb; background:white; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:1px; transition:all 0.15s; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
   .lit-occ-folder-card:hover { border-color:#7c3aed; background:#faf5ff; transform:translateY(-1px); box-shadow:0 3px 10px rgba(124,58,237,0.12); }
   .lit-occ-folder-card.active { border-color:#7c3aed; background:linear-gradient(135deg,#f5f3ff,#ede9fe); box-shadow:0 2px 8px rgba(124,58,237,0.2); }
   .lit-occ-folder-card.drag-over { border-color:#10b981; background:#f0fdf4; border-style:dashed; transform:scale(1.05); }
-  .lit-occ-folder-card-icon { font-size:1.6rem; color:#7c3aed; line-height:1; }
+  .lit-occ-folder-card-icon { font-size:1.05rem; color:#7c3aed; line-height:1; }
   .lit-occ-folder-card.active .lit-occ-folder-card-icon { color:#6d28d9; }
-  .lit-occ-folder-card-name { font-size:0.82rem; font-weight:700; color:#374151; font-family:'Poppins',sans-serif; text-align:center; }
-  .lit-occ-folder-card-count { font-size:0.7rem; color:#9ca3af; font-family:'Poppins',sans-serif; }
+  .lit-occ-folder-card-name { font-size:0.74rem; font-weight:700; color:#374151; font-family:'Poppins',sans-serif; text-align:center; }
+  .lit-occ-folder-card-count { font-size:0.62rem; color:#9ca3af; font-family:'Poppins',sans-serif; }
   .lit-occ-folder-card-del { position:absolute; top:4px; right:5px; opacity:0; font-size:0.65rem; color:#9ca3af; cursor:pointer; transition:opacity 0.15s; line-height:1; }
   .lit-occ-folder-card:hover .lit-occ-folder-card-del { opacity:1; }
   .lit-occ-folder-card-del:hover { color:#ef4444; }
@@ -64313,7 +64311,7 @@ function filterLiturgyItems() {
   .occ-file-card-icon { width:44px; height:44px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.3rem; flex-shrink:0; }
   .occ-file-card-body { flex:1; min-width:0; }
   .occ-file-card-name { font-size:0.85rem; font-weight:600; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:'Poppins',sans-serif; }
-  .occ-file-card-sub { font-size:0.72rem; color:#9ca3af; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px; }
+  .occ-file-card-category { font-size:0.68rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
   .occ-file-card-badge { display:inline-block; margin-top:4px; font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; padding:1px 7px; border-radius:20px; font-family:'Poppins',sans-serif; }
   .occ-file-card-actions { display:flex; gap:4px; flex-shrink:0; opacity:0; transition:opacity 0.15s; }
   .occ-file-card:hover .occ-file-card-actions { opacity:1; }
@@ -64400,8 +64398,13 @@ function filterLiturgyItems() {
   /* Tab Content */
   .lit-tab-inner { padding: 20px 24px; min-height: 400px; }
   #litTabLiturgyOrder .lit-tab-inner { min-height: 480px; }
-  .lit-occ-search-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-  .lit-occ-content-filter-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .lit-occ-search-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .lit-occ-search-row-icon-btn { width: 34px; height: 34px; flex-shrink: 0; border: 1.5px solid #e5e7eb; background: white; color: #6b7280; border-radius: 8px; cursor: pointer; font-size: 0.85rem; transition: all 0.15s; }
+  .lit-occ-search-row-icon-btn:hover { border-color: #7c3aed; color: #7c3aed; background: #faf5ff; }
+  .lit-occ-content-filter-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .lit-occ-chips-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .lit-occ-add-item-btn { padding: 7px 16px; border-radius: 999px; border: none; background: linear-gradient(135deg,#7c3aed,#a855f7); color: white; font-size: 0.78rem; font-weight: 600; font-family: 'Poppins',sans-serif; cursor: pointer; white-space: nowrap; transition: opacity 0.15s; }
+  .lit-occ-add-item-btn:hover { opacity: 0.9; }
 
   /* Documents tab */
   #litOccDocumentsList { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
