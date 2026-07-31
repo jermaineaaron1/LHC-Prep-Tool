@@ -1,6 +1,19 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-07-30 by Codex_
+_Last updated: 2026-07-31 by Codex_
+
+---
+
+## 2026-07-31 — High-resolution vocal transcription and expression capture
+
+- Replaced the editor's normalized-autocorrelation vocal converter with a browser-local YIN/CMNDF analysis path. It uses roughly 10.7 ms pitch hops, adaptive recording noise-floor detection, confidence gating, three-frame median stabilization, and hysteretic pitch-change segmentation so genuine short notes remain separate while normal vibrato does not fragment into false semitones.
+- Added envelope-based onset/offset refinement. Silent gaps between pitches are now located with 4 ms RMS windows, preserving both sides of a phrase break instead of forcing neighbouring notes to share one coarse pitch-frame boundary.
+- Vocal conversion now preserves optional expression data in each existing `SongNote` JSON object: continuous cents contour, normalized intensity contour, confidence, mean tuning, pitch spread, detected vibrato rate/depth, attack character, and release character. This is backward-compatible and requires no SQL migration.
+- Converted notes derive velocity from captured intensity rather than using a fixed value. Clicking or playing a converted note auditions its measured tuning movement, vibrato, dynamics, and exact hold duration; choosing grid-snapped timing remains an explicit optional treatment.
+- Added transcription diagnostics to the editor and a selected-note expression inspector with pitch/dynamics curves. Resizing or rhythm-latching an expressive note scales its stored contour to the new duration; moving it preserves the performance shape.
+- Corrected a pitch-transition bug that could discard the first analysis frames of a new sung note. Out-of-range frames continue to be rejected rather than being clamped into false SATB boundary pitches.
+- Validation: `npx tsc --noEmit` passes. Deterministic synthetic audio checks pass for precise two-note boundaries, a rapid three-note sequence, 5.4 Hz vibrato remaining one note, low Bass E2, a 42-cent glide plus crescendo, and out-of-range rejection. Production build and final Git checks are recorded below before publishing.
+- Accuracy boundary: this remains monophonic fundamental-frequency transcription, not voice cloning. A clean solo take can preserve pitch trajectory, timing, vibrato, and intensity, but consonants, breath timbre, formants, rasp, and polyphonic/backing-track audio cannot be represented by MIDI-like `SongNote` events and still require the original recording for exact vocal colour.
 
 ---
 

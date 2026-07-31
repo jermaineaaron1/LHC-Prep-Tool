@@ -25,6 +25,29 @@ export interface SongNote {
   end: number;       // seconds
   lyric: string;     // syllable / word
   velocity: number;  // 0-127 (dynamics)
+  /** Optional high-resolution performance data captured from a solo vocal.
+   * Times are offsets in seconds from this note's start. Cents are relative
+   * to `midi`; level is normalized 0-1. Stored inside the existing notes JSON.
+   */
+  expression?: VocalNoteExpression;
+}
+
+export interface VocalExpressionPoint {
+  offset: number;
+  cents: number;
+  level: number;
+  confidence: number;
+}
+
+export interface VocalNoteExpression {
+  contour: VocalExpressionPoint[];
+  mean_cents: number;
+  pitch_spread_cents: number;
+  vibrato_rate_hz: number | null;
+  vibrato_depth_cents: number;
+  attack: 'soft' | 'medium' | 'strong';
+  release: 'cut' | 'natural' | 'held';
+  source: 'vocal-analysis';
 }
 
 export interface BackingTrackClip {

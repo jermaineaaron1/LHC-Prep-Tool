@@ -212,11 +212,26 @@ function quantizeNote(note: SongNote, bars: MusicalBar[], division: NoteDivision
   const start = snapTimeToGrid(bars, note.start, division);
   const step = snapStepAt(bars, start, division);
   const units = Math.max(1, Math.round((note.end - note.start) / Math.max(.001, step)));
-  return { ...note, start, end: roundPrecise(start + units * step) };
+  return remapNoteExpression(note, start, roundPrecise(start + units * step));
 }
 function latchNoteToValue(note: SongNote, bars: MusicalBar[], division: NoteDivision, value: RhythmicNoteValue) {
   const start = snapTimeToGrid(bars, note.start, division);
-  return { ...note, start, end: roundPrecise(start + noteDurationAt(bars, start, value)) };
+  return remapNoteExpression(note, start, roundPrecise(start + noteDurationAt(bars, start, value)));
+}
+function remapNoteExpression(note: SongNote, start: number, end: number) {
+  if (!note.expression?.contour.length) return { ...note, start, end };
+  const originalDuration = Math.max(.001, note.end - note.start);
+  const nextDuration = Math.max(.001, end - start);
+  const scale = nextDuration / originalDuration;
+  return {
+    ...note,
+    start,
+    end,
+    expression: {
+      ...note.expression,
+      contour: note.expression.contour.map(point => ({ ...point, offset: roundPrecise(Math.min(nextDuration, Math.max(0, point.offset * scale))) })),
+    },
+  };
 }
 function notesOverlap(a: SongNote, b: SongNote) { return a.part === b.part && a.start < b.end - .0005 && a.end > b.start + .0005; }
 function collisionInVoice(candidates: SongNote[], fixed: SongNote[]) {
@@ -676,7 +691,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       if (!delta) return current;
       // Ripple only the edited voice. Other SATB parts remain independent and may harmonically overlap.
       return current.map(note => {
-        if (note.id === id) return { ...note, end: nextEnd };
+        if (note.id === id) return remapNoteExpression(note, note.start, nextEnd);
         if (note.part === target.part && note.start >= target.end - .001) return { ...note, start: Math.max(0, roundPrecise(note.start + delta)), end: Math.max(step, roundPrecise(note.end + delta)) };
         return note;
       });
@@ -929,7 +944,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       setTool('select');
       const pitchSpan = result.diagnostics.lowestMidi === null || result.diagnostics.highestMidi === null ? '' : ` Pitch range ${midiNoteName(result.diagnostics.lowestMidi)}–${midiNoteName(result.diagnostics.highestMidi)}.`;
       const rejected = result.diagnostics.rejectedOutOfRangeFrames ? ` ${result.diagnostics.rejectedOutOfRangeFrames} out-of-range analysis frames were rejected instead of being clamped to a false boundary note.` : '';
-      setEditorNotice(`Converted ${accepted.length} editable ${VOICES[recordingPart]} note${accepted.length === 1 ? '' : 's'} at ${formatClock(recordingTimelineOffset)} using ${transcriptionSnap ? 'grid-snapped' : 'measured performance'} timing. Mean confidence ${Math.round(result.diagnostics.averageConfidence * 100)}%; mean pitch drift ${Math.round(result.diagnostics.averagePitchDriftCents)} cents.${pitchSpan}${rejected}${skipped ? ` ${skipped} overlapping detection${skipped === 1 ? ' was' : 's were'} skipped.` : ''} Add lyrics, review against the take, then Save.`);
+      setEditorNotice(`Converted ${accepted.length} editable ${VOICES[recordingPart]} note${accepted.length === 1 ? '' : 's'} at ${formatClock(recordingTimelineOffset)} using ${transcriptionSnap ? 'grid-snapped' : 'measured performance'} timing. YIN analysis resolution ${result.diagnostics.timingResolutionMs.toFixed(1)} ms; mean confidence ${Math.round(result.diagnostics.averageConfidence * 100)}%; ${result.diagnostics.expressiveNotes} note${result.diagnostics.expressiveNotes === 1 ? '' : 's'} captured with pitch movement or vibrato.${pitchSpan}${rejected}${skipped ? ` ${skipped} overlapping detection${skipped === 1 ? ' was' : 's were'} skipped.` : ''} Add lyrics, audition the expressive notes against the take, then Save.`);
     } catch (error) {
       setRecordError(error instanceof Error ? error.message : 'Unable to convert this vocal take into notes.');
     } finally {
@@ -1007,6 +1022,8 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
           <b className="uppercase tracking-[.14em] text-cyan-300">Last vocal analysis</b>
           <span>{Math.round(transcriptionDiagnostics.averageConfidence * 100)}% mean pitch confidence</span>
           <span>{Math.round(transcriptionDiagnostics.averagePitchDriftCents)}¢ mean tuning drift</span>
+          <span>{transcriptionDiagnostics.algorithm} · {transcriptionDiagnostics.timingResolutionMs.toFixed(1)} ms hops</span>
+          <span>{transcriptionDiagnostics.expressiveNotes} expressive note{transcriptionDiagnostics.expressiveNotes === 1 ? '' : 's'}</span>
           <span>{transcriptionDiagnostics.voicedFrames}/{transcriptionDiagnostics.analyzedFrames} voiced frames</span>
           {transcriptionDiagnostics.lowestMidi !== null && transcriptionDiagnostics.highestMidi !== null && <span>{midiNoteName(transcriptionDiagnostics.lowestMidi)}–{midiNoteName(transcriptionDiagnostics.highestMidi)}</span>}
           {transcriptionDiagnostics.rejectedOutOfRangeFrames > 0 && <span className="text-amber-200">{transcriptionDiagnostics.rejectedOutOfRangeFrames} frames outside {VOICES[recordingPart]} range rejected</span>}
@@ -1321,6 +1338,7 @@ function Automation({ notes }: { notes: SongNote[] }) { const points = notes.sli
 function playPianoTone(context: AudioContext, note: SongNote, startAt: number, length: number, releaseTail = .28) {
   const frequency = 440 * Math.pow(2, (note.midi - 69) / 12);
   const master = context.createGain();
+  const expressionGain = context.createGain();
   const filter = context.createBiquadFilter();
   const velocity = Math.max(.025, Math.min(.12, note.velocity / 1150));
   const audibleLength = Math.max(.04, length);
@@ -1332,15 +1350,28 @@ function playPianoTone(context: AudioContext, note: SongNote, startAt: number, l
   master.gain.exponentialRampToValueAtTime(velocity, startAt + Math.min(.009, audibleLength * .12));
   master.gain.exponentialRampToValueAtTime(velocity * .36, startAt + Math.min(.11, audibleLength * .55));
   master.gain.exponentialRampToValueAtTime(.0001, releaseAt);
+  expressionGain.gain.setValueAtTime(.85, startAt);
+  const expressionScale = audibleLength / Math.max(.001, note.end - note.start);
+  note.expression?.contour.forEach(point => {
+    const at = startAt + Math.min(audibleLength, Math.max(0, point.offset * expressionScale));
+    expressionGain.gain.linearRampToValueAtTime(Math.max(.22, Math.min(1.15, .25 + point.level * .9)), at);
+  });
+  expressionGain.connect(master);
   master.connect(filter).connect(context.destination);
   const oscillators: OscillatorNode[] = [];
   [[1, 'triangle', 1], [2, 'sine', .26], [3, 'sine', .12], [4.2, 'sine', .05]].forEach(([ratio, wave, level]) => {
     const oscillator = context.createOscillator();
     const gain = context.createGain();
     oscillator.type = wave as OscillatorType;
-    oscillator.frequency.value = frequency * Number(ratio);
+    const harmonic = Number(ratio);
+    oscillator.frequency.setValueAtTime(frequency * harmonic, startAt);
+    note.expression?.contour.forEach(point => {
+      const at = startAt + Math.min(audibleLength, Math.max(0, point.offset * expressionScale));
+      const expressiveFrequency = 440 * Math.pow(2, (note.midi + point.cents / 100 - 69) / 12);
+      oscillator.frequency.linearRampToValueAtTime(expressiveFrequency * harmonic, at);
+    });
     gain.gain.value = Number(level);
-    oscillator.connect(gain).connect(master);
+    oscillator.connect(gain).connect(expressionGain);
     oscillator.start(startAt);
     oscillator.stop(releaseAt + .03);
     oscillators.push(oscillator);
@@ -1374,9 +1405,33 @@ function Inspector({ selected, bars, update, onDelete, onDuplicate }: { selected
     {field('START', selected.start, value => update(selected.id, { start: Number(value) }), 'number')}
     {field('END', selected.end, value => update(selected.id, { end: Number(value) }), 'number')}
     {field('LYRICS', selected.lyric, value => update(selected.id, { lyric: value }))}
+    {selected.expression && <VocalExpressionInspector note={selected} />}
     <label className="mt-4 block text-[10px] tracking-[.12em] text-slate-500">VELOCITY <input type="range" min="0" max="127" value={selected.velocity} onChange={event => update(selected.id, { velocity: Number(event.target.value) })} className="mt-2 w-full accent-fuchsia-400" /></label>
     <div className="mt-5 grid grid-cols-2 gap-2"><button onClick={onDuplicate} className="rounded-lg border border-fuchsia-300/30 px-2 py-2 text-xs text-fuchsia-200">Duplicate</button><button onClick={onDelete} className="rounded-lg border border-rose-300/30 px-2 py-2 text-xs text-rose-200">Remove</button></div>
   </aside>;
+}
+function VocalExpressionInspector({ note }: { note: SongNote }) {
+  const expression = note.expression;
+  if (!expression?.contour.length) return null;
+  const duration = Math.max(.001, note.end - note.start);
+  const pitchPoints = expression.contour.map(point => `${(point.offset / duration) * 200},${22 - Math.max(-100, Math.min(100, point.cents)) * .18}`).join(' ');
+  const levelPoints = expression.contour.map(point => `${(point.offset / duration) * 200},${42 - point.level * 18}`).join(' ');
+  const signedTuning = `${expression.mean_cents >= 0 ? '+' : ''}${Math.round(expression.mean_cents)}¢`;
+  return <section className="mt-4 rounded-xl border border-fuchsia-300/20 bg-fuchsia-300/[.055] p-3">
+    <div className="flex items-center justify-between"><b className="text-[10px] uppercase tracking-[.14em] text-fuchsia-200">Captured vocal expression</b><span className="rounded-full border border-cyan-300/20 px-2 py-0.5 text-[8px] font-bold text-cyan-200">YIN contour</span></div>
+    <svg className="mt-2 h-12 w-full overflow-visible rounded bg-[#050816]" viewBox="0 0 200 46" preserveAspectRatio="none" aria-label="Detected pitch and loudness contour">
+      <line x1="0" x2="200" y1="22" y2="22" stroke="#ffffff20" strokeDasharray="3 3" />
+      <polyline points={pitchPoints} fill="none" stroke="#f472d0" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      <polyline points={levelPoints} fill="none" stroke="#45e6f5" strokeWidth="1.2" opacity=".8" vectorEffect="non-scaling-stroke" />
+    </svg>
+    <div className="mt-2 grid grid-cols-2 gap-2 text-[9px] text-slate-400">
+      <span>Tuning <b className="block text-xs text-white">{signedTuning}</b></span>
+      <span>Pitch movement <b className="block text-xs text-white">{Math.round(expression.pitch_spread_cents)}¢ spread</b></span>
+      <span>Vibrato <b className="block text-xs text-white">{expression.vibrato_rate_hz ? `${expression.vibrato_rate_hz.toFixed(1)} Hz · ${Math.round(expression.vibrato_depth_cents)}¢` : 'Not stable enough'}</b></span>
+      <span>Shape <b className="block text-xs capitalize text-white">{expression.attack} attack · {expression.release} release</b></span>
+    </div>
+    <p className="mt-2 text-[9px] leading-relaxed text-slate-500">Pink follows tuning and vibrato; cyan follows captured intensity. Note audition uses both contours.</p>
+  </section>;
 }
 function round(value: number) { return Math.round(value * 100) / 100; }
 function roundPrecise(value: number) { return Math.round(value * 1000) / 1000; }
