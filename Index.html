@@ -6908,22 +6908,28 @@
                 <!-- Content-type filter chips (independent of Category; see selectContentType) -->
                 <div id="litOccContentTypeFilterRow" class="lit-occ-content-filter-row"></div>
                 <!-- 566 — two-panel layout: cards left, preview right -->
-                <div class="lit-occ-split-layout" style="display:flex;gap:0;margin-top:14px;min-height:420px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
-                  <div id="litOccItemsGrid" class="liturgy-items-grid" style="flex:1;min-width:0;overflow-y:auto;padding:10px;border-right:1px solid #e5e7eb;background:#fafafa;">
+                <!-- overflow:hidden removed from this row on purpose -- it silently
+                     breaks position:sticky on #litOccPreviewPanel (a sticky
+                     descendant can't escape a clipped/hidden-overflow ancestor
+                     to stick against the real page scroll). Corner-rounding is
+                     done on the first/last children instead, so the box still
+                     reads as one rounded panel. -->
+                <div class="lit-occ-split-layout" style="display:flex;gap:0;margin-top:14px;min-height:420px;border:1px solid #e5e7eb;border-radius:10px;">
+                  <div id="litOccItemsGrid" class="liturgy-items-grid" style="flex:1;min-width:0;overflow-y:auto;padding:10px;border-right:1px solid #e5e7eb;background:#fafafa;border-radius:10px 0 0 10px;">
                     <div class="liturgy-empty-state">
                       <i class="fa-solid fa-book-open"></i>
                       <h3>No items assigned yet</h3>
                       <p>Add items to this service.</p>
                     </div>
                   </div>
-                  <div id="litOccSlideEditor" class="lit-slide-editor" style="flex:1.2;min-width:0;overflow-y:auto;padding:10px;border-right:1px solid #e5e7eb;background:#ffffff;">
+                  <div id="litOccSlideEditor" class="lit-slide-editor" style="flex:1.15;min-width:0;overflow-y:auto;padding:10px;border-right:1px solid #e5e7eb;background:#ffffff;">
                     <div class="liturgy-empty-state">
                       <i class="fa-solid fa-layer-group"></i>
                       <h3>No item selected</h3>
                       <p>Click a card to edit its slides.</p>
                     </div>
                   </div>
-                  <div id="litOccPreviewPanel" style="flex:1;display:flex;align-items:center;justify-content:center;background:#1e293b;color:rgba(255,255,255,0.65);font-size:0.95rem;min-height:200px;max-height:min(70vh,560px);position:sticky;top:14px;align-self:flex-start;">
+                  <div id="litOccPreviewPanel" style="flex:1.05;display:flex;align-items:center;justify-content:center;background:#1e293b;color:rgba(255,255,255,0.65);font-size:0.95rem;min-height:200px;max-height:calc(100vh - 28px);position:sticky;top:14px;align-self:flex-start;border-radius:0 10px 10px 0;overflow:hidden;">
                     <div style="text-align:center;"><i class="fa-solid fa-eye" style="font-size:2.5rem;margin-bottom:10px;display:block;opacity:0.55;"></i>Click a card to preview</div>
                   </div>
                 </div>
@@ -58638,12 +58644,22 @@ var LiturgyModule = (function() {
 
       panel.innerHTML = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1e293b;position:relative;">' +
         openBtn + previewHtml + '</div>';
+      // Files have no editable slides, so the middle slide-editor column is
+      // dead space for this item type -- hide it and hand its width to the
+      // preview so documents/images/audio/video get a much bigger viewer.
       var editorEl = document.getElementById('litOccSlideEditor');
-      if (editorEl) editorEl.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-file"></i><h3>No slides</h3><p>Files don\'t have editable slides.</p></div>';
+      if (editorEl) editorEl.style.display = 'none';
+      panel.style.flex = '2.2';
       return;
     }
 
-    // Liturgy text item → show slides
+    // Liturgy text item → show slides. Restore the slide-editor column and
+    // the preview's normal width share in case the previous selection was a
+    // file item (which hides/expands them, see above).
+    var editorElRestore = document.getElementById('litOccSlideEditor');
+    if (editorElRestore) editorElRestore.style.display = '';
+    panel.style.flex = '1.05';
+
     var slides = (item.content || '').split(SLIDE_BREAK.trim()).map(function(s) { return s.trim(); }).filter(function(s) { return s; });
     if (slides.length === 0) slides = ['(No content)'];
     _litPreviewSlides = slides;
