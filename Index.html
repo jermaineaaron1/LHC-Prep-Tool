@@ -3090,9 +3090,13 @@
       #sfSongbooksCard { display: none !important; }
       #songFinderView.mobile-books-mode #sfSongbooksCard { display: block !important; margin-top: 0; }
 
-      /* In songbooks mode: hide search/filter and song list */
+      /* In songbooks mode: hide search/filter, song list, and the results/
+         catalogue grid -- without this, #sfResultsGrid (the full song
+         catalogue) stayed visible above the songbooks card, pushing it
+         below the fold and forcing a scroll to find it. */
       #songFinderView.mobile-books-mode #sfSearchCard,
-      #songFinderView.mobile-books-mode #sfSongListCard { display: none !important; }
+      #songFinderView.mobile-books-mode #sfSongListCard,
+      #songFinderView.mobile-books-mode #sfResultsGrid { display: none !important; }
 
       /* Songbook rows: wrap so rename/delete buttons appear below on narrow screens */
       .sb-list-item { flex-wrap: wrap; gap: 6px 12px; align-items: flex-start; padding: 10px 12px; }
@@ -40506,6 +40510,26 @@ var WO = (function() {
           var block0 = n0.nodeType === 1 ? n0 : n0.parentElement;
           while (block0 && block0.parentElement !== lyricsEl0) block0 = block0.parentElement;
           var kind0 = _sbLineClass(block0);
+          if (block0 && kind0 === 'section' && (it === 'insertParagraph' || it === 'insertLineBreak')) {
+            // A section-header's text is only recognised as a header by
+            // matching the whole "[...]" bracketed pattern. Letting native
+            // Enter split the div mid-text breaks that pattern across two
+            // divs -- neither half matches "[...]" anymore, so both silently
+            // downgrade to plain lyric lines, permanently losing the badge
+            // (this was the "cursor doesn't move down / badge disappears"
+            // bug). Instead: never split the header's own text. Enter always
+            // just inserts a fresh empty line directly after the header and
+            // moves the caret there, leaving the header untouched.
+            evt.preventDefault();
+            var newEmptySec = document.createElement('div');
+            newEmptySec.className = 'wo-lyrics-empty-line';
+            newEmptySec.setAttribute('spellcheck', 'false');
+            lyricsEl0.insertBefore(newEmptySec, block0.nextSibling);
+            _sbSetLineCaret(newEmptySec, 0);
+            _sbCanonicalText[sid] = _sbRawFlatText(lyricsEl0);
+            sbOnLyricsChange(sid);
+            return;
+          }
           if (block0 && (kind0 === 'lyric' || kind0 === 'chord' || kind0 === 'empty')) {
             if (kind0 === 'empty') {
               if (it === 'deleteContentBackward') {
