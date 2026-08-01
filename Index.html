@@ -34575,8 +34575,57 @@ var WO = (function() {
       });
       // Fill in layouts for songs not overridden at the songbook level
       _sbApplyStoredSongLayouts();
-      // Allow opening even if empty — songbook will show empty state
-      _openSongbookModal();
+
+      // The SBQ_SONGBOOKS list snapshot (sb.items[].annotations) can lag
+      // behind reality -- live edits (drawings, transpose, custom lyrics)
+      // auto-save into the orders/order_items backend via SBQ.syncItems,
+      // not back into SBQ_SONGBOOKS. Without this fetch, a songbook opened
+      // fresh could silently show stale/missing annotations until the user
+      // manually hits "Sync from cloud" (sbRefresh, which does this same
+      // merge). Fetch the authoritative customizations before the first
+      // render so it's correct from the start; never block opening on it.
+      SBQ.loadOrder(currentOrderData.id).then(function(result) {
+        if (result && result.items) {
+          result.items.forEach(function(item) {
+            var song = songOrderSections.find(function(s) { return s.id === item.id; });
+            if (!song) return;
+            var c = item.customizations || {};
+            if (Array.isArray(c.annotations)) song.annotations = c.annotations;
+            if (c.imgAnnotations && typeof c.imgAnnotations === 'object') song.imgAnnotations = c.imgAnnotations;
+            if (c.customRichLyrics != null) song.richLyrics = c.customRichLyrics;
+            if (typeof c.transposeSteps === 'number') song.transposeSteps = c.transposeSteps;
+            if (c.liturgistNotes != null) song.liturgistNotes = c.liturgistNotes;
+          });
+        }
+      }).catch(function(e) {
+        console.warn('openSongbookStandalone: could not fetch latest customizations, using songbook snapshot:', e);
+      }).finally(function() {
+        // Seed sbPaths/sbImgPaths/sbTextAnnots from song.annotations -- this
+        // is the step that actually feeds the redraw loop in
+        // renderSongbookLive(). openSongbook() (the regular Worship-Order
+        // path) does this before every open; _openSongbookModal() (this
+        // standalone path) never did, so sbPaths stayed empty and no
+        // annotation was ever drawn on first open, no matter how correct
+        // song.annotations was.
+        sbPaths = {};
+        sbImgPaths = {};
+        songOrderSections.forEach(function(song) {
+          if (Array.isArray(song.annotations) && song.annotations.length > 0) {
+            sbPaths[song.id] = song.annotations.slice();
+            sbTextAnnots[song.id] = (song.textAnnotations || []).slice();
+          }
+          if (song.imgAnnotations && typeof song.imgAnnotations === 'object') {
+            sbImgPaths[song.id] = {};
+            Object.keys(song.imgAnnotations).forEach(function(k) {
+              if (Array.isArray(song.imgAnnotations[k]) && song.imgAnnotations[k].length > 0) {
+                sbImgPaths[song.id][k] = song.imgAnnotations[k].slice();
+              }
+            });
+          }
+        });
+        // Allow opening even if empty — songbook will show empty state
+        _openSongbookModal();
+      });
     }
     // Try Supabase first, fall back to localStorage
     SBQ_SONGBOOKS.loadAll().then(function(sbList) {
@@ -34615,10 +34664,16 @@ var WO = (function() {
       var fit = (bw - pad) / 794;
       return fit >= 1 ? 1 : Math.max(0.2, fit);
     }
+    // Show the modal BEFORE rendering -- renderSongbookLive() measures
+    // layout (scrollHeight, pagination, annotation-canvas sizing) that
+    // reads as 0/wrong while the modal is display:none, which silently
+    // dropped saved annotation drawings on the very first open (a
+    // subsequent refresh always fixed it, since by then the modal was
+    // already visible and measurements were accurate).
+    modal.style.display = 'flex';
     sbZoom = _sbCalcFitZoom();
     renderSongbookLive();
     sbLoadFontSettings();
-    modal.style.display = 'flex';
     var goBtn = document.getElementById('sbGoToOrderBtn');
     if (goBtn) goBtn.style.display = 'none'; // standalone — no "Go to Order"
     setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); sbJoinPresence(currentOrderData && currentOrderData.id); }, 2000);
@@ -34697,9 +34752,15 @@ var WO = (function() {
     }
 
     function _doOpenSongbook() {
+      // Show the modal BEFORE rendering -- renderSongbookLive() measures
+      // layout (scrollHeight, pagination, annotation-canvas sizing) that
+      // reads as 0/wrong while the modal is display:none, which silently
+      // dropped saved annotation drawings on the very first open (a
+      // subsequent refresh always fixed it, since by then the modal was
+      // already visible and measurements were accurate).
+      modal.style.display = 'flex';
       renderSongbookLive();
       sbLoadFontSettings();
-      modal.style.display = 'flex';
       _sbBindFloatToolbar(); // attach floating text-format toolbar
       // Show "Go to Order" button only for order-based songbooks
       var goBtn = document.getElementById('sbGoToOrderBtn');
