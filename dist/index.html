@@ -2210,6 +2210,19 @@
     #worshipRosterView .roster-status-pill.sync-now .dot { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.16); }
     #worshipRosterView .roster-status-pill.sync-now:hover { transform: translateY(-1px); filter: brightness(0.99); }
     #worshipRosterView .roster-status-pill.sync-now.syncing { opacity: 0.7; pointer-events: none; }
+    #worshipRosterView .roster-status-pill.autosuggest {
+      cursor: pointer; background: rgba(250,245,255,0.92);
+      border-color: #d8b4fe; color: #6b21a8;
+    }
+    #worshipRosterView .roster-status-pill.autosuggest .dot { background: #a855f7; box-shadow: 0 0 0 3px rgba(168,85,247,0.16); }
+    #worshipRosterView .roster-status-pill.autosuggest:hover { transform: translateY(-1px); filter: brightness(0.99); }
+    #worshipRosterView .roster-status-pill.confirm-pending {
+      cursor: pointer; background: rgba(254,249,195,0.92);
+      border-color: #fde047; color: #854d0e;
+    }
+    #worshipRosterView .roster-status-pill.confirm-pending .dot { background: #eab308; box-shadow: 0 0 0 3px rgba(234,179,8,0.18); }
+    #worshipRosterView .roster-status-pill.confirm-pending:hover { transform: translateY(-1px); filter: brightness(0.99); }
+    #worshipRosterView .roster-status-pill.hidden { display: none !important; }
     #worshipRosterView .roster-status-pill.pic-only { display: none; }
     body.pic-mode #worshipRosterView .roster-status-pill.pic-only { display: inline-flex; }
     /* A generic, unscoped .roster-nav-btn rule elsewhere in the file (for an
@@ -2565,6 +2578,16 @@
       background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%) !important;
       color: #1e40af !important;
     }
+    .roster-servicetype-row td:not(:first-child) { padding: 6px !important; background: #fafafa !important; }
+    .roster-servicetype-toggle { display: flex; gap: 4px; }
+    .roster-servicetype-btn {
+      flex: 1; padding: 6px 4px; border: 1.5px solid #e5e7eb; border-radius: 7px; background: white;
+      font-size: 0.72rem; font-weight: 700; font-family: 'Poppins', sans-serif; cursor: pointer;
+      color: #9ca3af; transition: all 0.15s; white-space: nowrap;
+    }
+    .roster-servicetype-btn:hover { border-color: #cbd5e1; color: #4b5563; }
+    .roster-servicetype-btn.trad.active { background: #fef3c7; border-color: #d97706; color: #92400e; }
+    .roster-servicetype-btn.cont.active { background: rgba(20,184,166,0.15); border-color: var(--roster-teal-dark); color: var(--roster-teal-dark); }
     .altar-color-dot {
       width: 20px;
       height: 20px;
@@ -2596,6 +2619,16 @@
       align-items: center;
       justify-content: center;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    /* Auto-Suggest pending cells -- awaiting PIC confirmation, no calendar push yet */
+    .roster-cell-pending { background: #fef9c3 !important; }
+    .roster-cell-pending .roster-cell-value { color: #713f12 !important; font-weight: 600; }
+    .roster-cell-pending-icon {
+      position: absolute;
+      top: 3px;
+      left: 4px;
+      font-size: 10px;
+      line-height: 1;
     }
     /* Dropdown indicator for role cells */
     .roster-role-cell {
@@ -5593,6 +5626,8 @@
             <button class="roster-icon-btn" id="rosterRedoBtn" disabled title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
             <button class="roster-icon-btn roster-icon-btn-save" id="rosterSaveBtn" title="Save Changes"><i class="fa-solid fa-floppy-disk"></i></button>
             <span class="roster-status-pill sync-now pic-only" id="rosterSyncNowBtn" onclick="RosterEngine.syncCalendarNow()" title="Force an immediate Google Calendar reconciliation pass"><span class="dot"></span>Sync Now</span>
+            <span class="roster-status-pill autosuggest pic-only" id="rosterAutoSuggestBtn" onclick="RosterEngine.confirmAutoSuggestPrompt()" title="Auto-fill blank duties this month based on rotation, availability, and the 2x/month cap"><span class="dot"></span>Auto-Suggest</span>
+            <span class="roster-status-pill confirm-pending pic-only hidden" id="rosterConfirmPendingBtn" onclick="RosterEngine.confirmAllPending()" title="Confirm all auto-suggested assignments this month and notify their calendars"><span class="dot"></span>Confirm Pending (<span id="rosterPendingCount">0</span>)</span>
             <span id="rosterAutoSaveStatus" class="ml-3 font-semibold hidden"></span>
             <span id="rosterUnsavedIndicator" class="ml-3 text-amber-600 font-semibold hidden">
               <i class="fa-solid fa-triangle-exclamation"></i> Unsaved changes
@@ -21383,7 +21418,8 @@ var SBQ_ROSTER = {
             value:     row.value || '',
             month:     row.month,
             year:      row.year,
-            timestamp: row.updated_at || ''
+            timestamp: row.updated_at || '',
+            pending:   !!row.pending_confirmation
           };
         });
       });
@@ -21396,18 +21432,34 @@ var SBQ_ROSTER = {
     var now = new Date().toISOString();
     var rows = edits.map(function(e) {
       return {
-        role_id:      e.roleId,
-        service_date: e.date,
-        value:        e.value,
-        month:        e.month,
-        year:         e.year,
-        updated_at:   now
+        role_id:              e.roleId,
+        service_date:         e.date,
+        value:                e.value,
+        month:                e.month,
+        year:                 e.year,
+        updated_at:           now,
+        pending_confirmation: !!e.pending
       };
     });
     return sb.from('roster').upsert(rows, { onConflict: 'month,year,role_id,service_date' })
       .then(function(r) {
         if (r.error) throw new Error(r.error.message);
         return { success: true, updated: rows.length };
+      });
+  },
+
+  // Clear the pending-confirmation flag for every flagged cell in a month,
+  // without touching any cell's value -- a targeted update, not a reuse of
+  // saveEdits' whole-month upsert (which would needlessly rewrite every
+  // cell's value just to flip one flag).
+  confirmPending: function(month, year) {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('roster').update({ pending_confirmation: false })
+      .eq('month', month).eq('year', year).eq('pending_confirmation', true)
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return { success: true };
       });
   },
 
@@ -21552,7 +21604,8 @@ var SBQ_ROSTER = {
             suspendedFrom: row.suspended_from || '',
             suspendedTo: row.suspended_to || '',
             suspendedReason: row.suspended_reason || '',
-            inactiveDate: row.inactive_date || ''
+            inactiveDate: row.inactive_date || '',
+            team: row.team || ''
           };
         });
         return result;
@@ -21560,7 +21613,7 @@ var SBQ_ROSTER = {
   },
 
   // Save (upsert) member metadata
-  saveMemberMeta: function(name, status, note, joinedDate, suspendedFrom, suspendedTo, suspendedReason, inactiveDate) {
+  saveMemberMeta: function(name, status, note, joinedDate, suspendedFrom, suspendedTo, suspendedReason, inactiveDate, team) {
     var sb = SBQ_ROSTER._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
     return sb.from('roster_member_meta')
@@ -21572,7 +21625,8 @@ var SBQ_ROSTER = {
         suspended_from: suspendedFrom || null,
         suspended_to: suspendedTo || null,
         suspended_reason: suspendedReason || null,
-        inactive_date: inactiveDate || null
+        inactive_date: inactiveDate || null,
+        team: team || null
       }, { onConflict: 'name' })
       .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
   },
@@ -58277,7 +58331,10 @@ var LiturgyModule = (function() {
       '<div class="lit-lectionary-body">' +
         '<div id="lectionaryDateNav" class="lit-reading-datenav"></div>' +
         '<div class="lit-reading-slots-panel">' +
-          '<h2 class="lit-occ-group-title"><i class="fa-solid fa-book-open mr-2" style="color:#7c3aed;"></i>This Week&#39;s Readings</h2>' +
+          '<div class="lit-reading-slots-header">' +
+            '<h2 class="lit-occ-group-title" style="margin-bottom:0;"><i class="fa-solid fa-book-open mr-2" style="color:#7c3aed;"></i>This Week&#39;s Readings</h2>' +
+            '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryUploadModal()"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Auto-Fill from Bulletin</button>' +
+          '</div>' +
           '<div id="lectionaryReadingSlots" class="lit-reading-slots-grid"></div>' +
         '</div>' +
         '<div class="lit-reading-engage-panel">' +
@@ -58293,6 +58350,216 @@ var LiturgyModule = (function() {
       '</div>';
     renderReadingDateNav();
     renderReadingSlots();
+  }
+
+  // ── AI-assisted "Auto-Fill from Bulletin" upload ──────────────────────
+  // Uploads a bulletin file (or a pasted link) to /api/parse-lectionary,
+  // shows an editable review form pre-filled with what the AI found, then
+  // saves confirmed references through the exact same fetchBiblePassage ->
+  // SBQ_LECTIONARY.saveSlot pipeline the manual Bible Browser picker uses.
+  var _lectUploadFile = null;
+  var _lectUploadResult = null;
+
+  function openLectionaryUploadModal() {
+    _lectUploadFile = null;
+    _lectUploadResult = null;
+    buildLectionaryUploadModal();
+    var modal = document.getElementById('lectionaryUploadModal');
+    if (modal) modal.classList.add('show');
+  }
+
+  function closeLectionaryUploadModal() {
+    var modal = document.getElementById('lectionaryUploadModal');
+    if (modal) modal.remove();
+  }
+
+  function buildLectionaryUploadModal() {
+    var existing = document.getElementById('lectionaryUploadModal');
+    if (existing) existing.remove();
+    var modalHtml = '<div id="lectionaryUploadModal" class="modal">' +
+      '<div class="modal-content lectionary-upload-modal">' +
+        '<div class="modal-header">' +
+          '<h2><i class="fa-solid fa-wand-magic-sparkles mr-2"></i> Auto-Fill from Bulletin</h2>' +
+          '<button class="modal-close" onclick="LiturgyModule.closeLectionaryUploadModal()">&times;</button>' +
+        '</div>' +
+        '<div class="lectionary-upload-body" id="lectionaryUploadBody"></div>' +
+      '</div>' +
+    '</div>';
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    _renderLectionaryUploadStep();
+  }
+
+  function _readingDateLabel() {
+    var d = new Date(_currentReadingDate + 'T00:00:00');
+    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  }
+
+  function _renderLectionaryUploadStep() {
+    var body = document.getElementById('lectionaryUploadBody');
+    if (!body) return;
+    body.innerHTML =
+      '<p style="font-size:0.85rem;color:#6b7280;margin:0 0 16px;">' +
+        'Upload a bulletin (PDF, Word, or Excel) or paste a link to one, and AI will try to identify the 1st Reading, Psalm, 2nd Reading, and Gospel for <strong>' + escapeHtml(_readingDateLabel()) + '</strong>. You&#39;ll be able to review and edit everything before it&#39;s saved.' +
+      '</p>' +
+      '<div class="lectionary-upload-row">' +
+        '<label class="lectionary-upload-file-btn">' +
+          '<i class="fa-solid fa-file-arrow-up mr-1"></i> Choose File' +
+          '<input type="file" id="lectUploadFileInput" accept=".pdf,.doc,.docx,.xls,.xlsx" style="display:none;" onchange="LiturgyModule.onLectUploadFileChosen(this)">' +
+        '</label>' +
+        '<span id="lectUploadFileName" style="font-size:0.85rem;color:#6b7280;"></span>' +
+      '</div>' +
+      '<div class="lectionary-upload-divider">— or —</div>' +
+      '<input type="text" id="lectUploadLinkInput" class="liturgy-form-input" placeholder="Paste a link to a PDF/Word/Excel bulletin" style="width:100%;padding:9px 12px;font-size:0.85rem;box-sizing:border-box;">' +
+      '<div id="lectUploadError" class="bible-passage-error" style="display:none;margin-top:14px;"></div>' +
+      '<div class="bible-browser-actions" style="margin-top:18px;">' +
+        '<button class="modal-btn modal-btn-secondary" onclick="LiturgyModule.closeLectionaryUploadModal()">Cancel</button>' +
+        '<button class="modal-btn modal-btn-primary" id="lectUploadAnalyzeBtn" onclick="LiturgyModule.analyzeLectionaryUpload()"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Analyze</button>' +
+      '</div>';
+  }
+
+  function onLectUploadFileChosen(input) {
+    _lectUploadFile = (input.files && input.files[0]) || null;
+    var nameEl = document.getElementById('lectUploadFileName');
+    if (nameEl) nameEl.textContent = _lectUploadFile ? _lectUploadFile.name : '';
+    var linkInput = document.getElementById('lectUploadLinkInput');
+    if (_lectUploadFile && linkInput) linkInput.value = '';
+  }
+
+  function analyzeLectionaryUpload() {
+    var errorEl = document.getElementById('lectUploadError');
+    var btn = document.getElementById('lectUploadAnalyzeBtn');
+    if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
+
+    var linkInput = document.getElementById('lectUploadLinkInput');
+    var linkUrl = linkInput ? linkInput.value.trim() : '';
+
+    if (!_lectUploadFile && !linkUrl) {
+      if (errorEl) { errorEl.textContent = 'Choose a file or paste a link first.'; errorEl.style.display = 'block'; }
+      return;
+    }
+
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Analyzing…'; }
+
+    var uploadPromise = _lectUploadFile
+      ? uploadToSupabase(_lectUploadFile, 'lectionary-uploads').then(function(res) {
+          if (res.error) throw new Error(res.error);
+          return res.url;
+        })
+      : Promise.resolve(linkUrl);
+
+    uploadPromise.then(function(url) {
+      return fetch('/api/parse-lectionary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url, readingDate: _currentReadingDate })
+      }).then(function(res) {
+        return res.json().then(function(data) { return { ok: res.ok, data: data }; });
+      });
+    }).then(function(result) {
+      if (!result.ok || result.data.error) {
+        throw new Error(result.data.error || 'Could not analyze this document.');
+      }
+      _lectUploadResult = result.data;
+      _renderLectionaryReviewStep();
+    }).catch(function(err) {
+      if (errorEl) { errorEl.textContent = err.message || String(err); errorEl.style.display = 'block'; }
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Analyze'; }
+    });
+  }
+
+  var LECT_REVIEW_FIELD_KEYS = ['firstReading', 'psalm', 'secondReading', 'gospel'];
+
+  function _renderLectionaryReviewStep() {
+    var body = document.getElementById('lectionaryUploadBody');
+    if (!body || !_lectUploadResult) return;
+    var result = _lectUploadResult;
+    var fieldsHtml = LECT_REVIEW_FIELD_KEYS.map(function(key, idx) {
+      var label = READING_SLOT_LABELS[idx];
+      var value = result[key] || '';
+      var notFoundNote = value ? '' : ' <span class="not-found-note">— not found, enter manually</span>';
+      return '<div class="lectionary-review-field">' +
+        '<label>' + escapeHtml(label) + notFoundNote + '</label>' +
+        '<input type="text" class="liturgy-form-input" id="lectReviewInput' + idx + '" value="' + escapeHtml(value) + '" placeholder="e.g. Isaiah 6:1-8" style="width:100%;padding:9px 12px;font-size:0.85rem;box-sizing:border-box;">' +
+      '</div>';
+    }).join('');
+
+    body.innerHTML =
+      '<p style="font-size:0.85rem;color:#6b7280;margin:0 0 16px;">Review the readings AI found below, edit anything that looks wrong, then confirm to save. Fields left blank stay empty and can be filled in manually later.</p>' +
+      fieldsHtml +
+      '<div id="lectReviewError" class="bible-passage-error" style="display:none;margin-top:6px;"></div>' +
+      '<div class="bible-browser-actions" style="margin-top:16px;">' +
+        '<button class="modal-btn modal-btn-secondary" onclick="LiturgyModule.closeLectionaryUploadModal()">Cancel</button>' +
+        '<button class="modal-btn modal-btn-primary" id="lectReviewSaveBtn" onclick="LiturgyModule.saveLectionaryReview()"><i class="fa-solid fa-check mr-1"></i> Confirm &amp; Save</button>' +
+      '</div>';
+  }
+
+  function _fetchBiblePassagePromise(reference, translation) {
+    return new Promise(function(resolve) {
+      google.script.run
+        .withSuccessHandler(function(result) { resolve(result); })
+        .withFailureHandler(function(err) { resolve({ error: String(err) }); })
+        .fetchBiblePassage(reference, translation);
+    });
+  }
+
+  function saveLectionaryReview() {
+    var errorEl = document.getElementById('lectReviewError');
+    var btn = document.getElementById('lectReviewSaveBtn');
+    if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
+
+    var entries = [];
+    for (var i = 0; i < LECT_REVIEW_FIELD_KEYS.length; i++) {
+      var input = document.getElementById('lectReviewInput' + i);
+      var ref = input ? input.value.trim() : '';
+      if (ref) entries.push({ idx: i, reference: ref });
+    }
+    if (!entries.length) {
+      if (errorEl) { errorEl.textContent = 'Enter at least one reading reference.'; errorEl.style.display = 'block'; }
+      return;
+    }
+
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving…'; }
+    var dateStr = _currentReadingDate;
+    var savedCount = 0;
+    var failedRefs = [];
+
+    // Saved sequentially (never Promise.all) -- SBQ_LECTIONARY.saveSlot reads
+    // the existing slots array, splices in one index, then upserts the whole
+    // array, so parallel calls for the same date would clobber each other.
+    function saveNext(i) {
+      if (i >= entries.length) {
+        if (_currentReadingDate === dateStr) _renderReadingSlotsFromCache(dateStr);
+        if (failedRefs.length) {
+          if (errorEl) { errorEl.textContent = 'Could not save: ' + failedRefs.join(', '); errorEl.style.display = 'block'; }
+          if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Confirm & Save'; }
+        } else {
+          closeLectionaryUploadModal();
+          if (typeof showToast === 'function') showToast('Saved ' + savedCount + ' reading' + (savedCount === 1 ? '' : 's'), 'success');
+        }
+        return;
+      }
+      var entry = entries[i];
+      _fetchBiblePassagePromise(entry.reference, 'esv').then(function(passage) {
+        if (passage.error) throw new Error(passage.error);
+        var slotData = {
+          label: READING_SLOT_LABELS[entry.idx] || 'Reading',
+          reference: passage.reference || entry.reference,
+          translation: passage.translation || '',
+          passageText: passage.text || '',
+          verseCount: passage.verseCount || 0
+        };
+        return SBQ_LECTIONARY.saveSlot(dateStr, entry.idx, slotData);
+      }).then(function(slots) {
+        _lectionaryReadingsCache[dateStr] = slots;
+        savedCount++;
+        saveNext(i + 1);
+      }).catch(function(err) {
+        console.error('LiturgyModule: saveLectionaryReview slot failed', err);
+        failedRefs.push(entry.reference);
+        saveNext(i + 1);
+      });
+    }
+    saveNext(0);
   }
 
   /* ===== END LECTIONARY READING HOME ===== */
@@ -60193,6 +60460,11 @@ var LiturgyModule = (function() {
     setReadingViewMode: setReadingViewMode,
     openReadingSlotPicker: openReadingSlotPicker,
     bbSaveToLectionarySlot: bbSaveToLectionarySlot,
+    openLectionaryUploadModal: openLectionaryUploadModal,
+    closeLectionaryUploadModal: closeLectionaryUploadModal,
+    onLectUploadFileChosen: onLectUploadFileChosen,
+    analyzeLectionaryUpload: analyzeLectionaryUpload,
+    saveLectionaryReview: saveLectionaryReview,
     selectGeneralFolder: selectGeneralFolder,
     openLibraryFilter: openLibraryFilter,
     // Occasion year/folder system (434)
@@ -64317,6 +64589,7 @@ function filterLiturgyItems() {
   .lit-datenav-modes button { padding: 6px 14px; border: none; background: transparent; color: #6b7280; font-size: 0.78rem; font-weight: 600; font-family: 'Poppins', sans-serif; border-radius: 6px; cursor: pointer; white-space: nowrap; }
   .lit-datenav-modes button.active { background: white; color: #7c3aed; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   .lit-reading-slots-panel { margin-bottom: 30px; }
+  .lit-reading-slots-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
   .lit-reading-slots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
   .lit-reading-slot { background: white; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: all 0.2s; }
   .lit-reading-slot:hover { border-color: #7c3aed; box-shadow: 0 3px 10px rgba(124,58,237,0.1); transform: translateY(-1px); }
@@ -64573,6 +64846,17 @@ function filterLiturgyItems() {
   .bible-browser-title-row label { font-weight: 600; font-size: 0.85rem; color: #374151; white-space: nowrap; font-family: 'Poppins', sans-serif; }
   .bible-browser-title-row input { flex: 1; }
   .bible-browser-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+  /* Lectionary AI Upload Modal */
+  .lectionary-upload-modal { max-width: 560px; width: 94%; }
+  .lectionary-upload-body { padding: 22px 24px; }
+  .lectionary-upload-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .lectionary-upload-file-btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border: 1.5px dashed #a78bfa; border-radius: 8px; color: #7c3aed; font-size: 0.85rem; font-weight: 600; font-family: 'Poppins', sans-serif; cursor: pointer; background: #faf5ff; transition: background 0.15s; }
+  .lectionary-upload-file-btn:hover { background: #f3e8ff; }
+  .lectionary-upload-divider { margin: 14px 0; text-align: center; font-size: 0.78rem; color: #9ca3af; font-family: 'Poppins', sans-serif; }
+  .lectionary-review-field { margin-bottom: 14px; }
+  .lectionary-review-field label { display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin-bottom: 5px; font-family: 'Poppins', sans-serif; }
+  .lectionary-review-field .not-found-note { color: #d97706; font-weight: 400; text-transform: none; letter-spacing: normal; }
 
   /* Scripture slides in WO */
   .wo-scripture-slides-group { display: flex; flex-direction: column; gap: 0; }
@@ -65013,7 +65297,7 @@ function filterLiturgyItems() {
   var _picSession = (function(){try{return JSON.parse(sessionStorage.getItem('lhc_pic_session')||'null');}catch(e){return null;}}());
   var STATE = { rosterMonth: new Date().getMonth(), rosterYear: new Date().getFullYear(), rosterEdits: new Map(), rosterOriginalValues: new Map(), rosterHasUnsaved: false, rosterFilter: 'all', rosterCellTimestamps: new Map(),
     picMode: !!(_picSession && _picSession.phone), picName: (_picSession && _picSession.name) || '', picPhone: (_picSession && _picSession.phone) || '',
-    rosterMobileOffset: 0 };
+    rosterMobileOffset: 0, rosterPendingCells: new Set() };
 
   // "Fun Facts" emoji set — used by both the Enablers individual-profile editor
   // and the printed/shared profile PDF.
@@ -65080,6 +65364,50 @@ function filterLiturgyItems() {
     if (roleId === 'streaming') return 'livestream';
     if (roleId.startsWith('ssteacher')) return 'sundayschool';
     return 'general';
+  }
+
+  // ── Roster Auto-Suggest (monthly auto-fill) ──────────────────────────────
+  // Preferred rotation pools per role, per service team. These are NOT a
+  // whitelist -- if everyone in the named list is unavailable/already used
+  // this month, the algorithm falls back to the rest of that role's general
+  // dropdown list (ROSTER_NAME_OPTIONS[category]). A team with no entry here
+  // (e.g. singer1/singer2 on 'contemporary') just uses the general dropdown
+  // directly with no preferred subset.
+  var TEAM_ROLE_CONFIG = {
+    liturgist: {
+      traditional:  ['Allan Yip', 'Danny Wong', 'Margaret Loo'],
+      contemporary: ['Aaron Jayaraj', 'Dorine Nathaniel', 'Edwin Nathaniel', 'Peter Soo', 'Eva Muthusamy', 'Esther Lee', 'Margaret Loo']
+    },
+    pianist: {
+      traditional:  ['Alwyn Lau', 'Elyse Teoh', 'Aaron Jayaraj'],
+      contemporary: ['Aaron Jayaraj', 'Luke Yong', 'Esther Lee']
+    },
+    singer1: { traditional: ['Gina Tai', 'Alison Phan', 'Allan Yip', 'Cynthia Chin', 'Margaret Loo'] },
+    singer2: { traditional: ['Gina Tai', 'Alison Phan', 'Allan Yip', 'Cynthia Chin', 'Margaret Loo'] }
+  };
+
+  // Roles that simply don't apply on a given service team -- skipped
+  // entirely for that team's dates (cell stays blank, not "could not fill").
+  var ROLE_NOT_APPLICABLE = {
+    communion1: ['contemporary'], communion2: ['contemporary'], communion3: ['contemporary'],
+    altar1: ['contemporary'], altar2: ['contemporary'],
+    guitarist: ['traditional'], bassist: ['traditional'], drummer: ['traditional'],
+    singer3: ['traditional'], singer4: ['traditional']
+  };
+
+  function _autoFillRoleApplies(roleId, team) {
+    var na = ROLE_NOT_APPLICABLE[roleId];
+    return !na || na.indexOf(team) === -1;
+  }
+
+  // Preferred-list-first, general-dropdown-fallback pool for one role/team.
+  function _autoFillPoolForRole(roleId, category, team) {
+    var dropdown = (ROSTER_NAME_OPTIONS[category] || []).slice();
+    var cfg = TEAM_ROLE_CONFIG[roleId];
+    var curated = cfg && cfg[team];
+    if (!curated || !curated.length) return dropdown;
+    var rest = dropdown.filter(function(n) { return curated.indexOf(n) === -1; });
+    return curated.concat(rest);
   }
 
   function addNameToRole(category, name) {
@@ -65644,6 +65972,7 @@ function filterLiturgyItems() {
     DEFAULT_COLORS: {0:'Green',1:'Green',2:'Purple',3:'White',4:'White',5:'Green',6:'Green',7:'Green',8:'Green',9:'Red',10:'Green',11:'Purple'},
 
     ROLES: [
+      {type:'service-type',id:'service_type',label:'🎼 Service Type',group:'all'},
       {type:'liturgical',id:'liturgical',label:_re.cal+' Liturgical Day',group:'all'},
       {type:'role',id:'preacher',label:_re.church+' Preacher',group:'all'},
       {type:'role',id:'liturgist',label:_re.dove+' Liturgist',group:'worship'},
@@ -65843,6 +66172,7 @@ function filterLiturgyItems() {
             if (STATE.rosterOriginalValues) STATE.rosterOriginalValues.set(key, value);
           }
           if (entry.timestamp) STATE.rosterCellTimestamps.set(key, entry.timestamp);
+          if (entry.pending) STATE.rosterPendingCells.add(key);
         });
       }).catch(function(err) { console.error('Error loading roster data:', err); });
     },
@@ -65873,6 +66203,7 @@ function filterLiturgyItems() {
       STATE.rosterEdits.clear();
       if (STATE.rosterOriginalValues) STATE.rosterOriginalValues.clear();
       STATE.rosterCellTimestamps.clear();
+      STATE.rosterPendingCells.clear();
       this.showLoader(true);
       this.loadRosterData().then(function() { self.render(); }).catch(function(err) { console.error('Failed:', err); self.render(); }).finally(function() { self.showLoader(false); });
     },
@@ -65927,7 +66258,7 @@ function filterLiturgyItems() {
         if (role.type === 'header') {
           bodyHtml += '<tr class="roster-section-header ' + (role.cls || '') + '"><td colspan="' + (serviceDays.length + 1) + '" class="roster-section-cell">' + self.escapeHtml(role.label) + '</td></tr>';
         } else {
-          var rowClass = role.type === 'liturgical' ? 'roster-liturgical-row' : (role.type === 'scripture' ? 'roster-scripture-row' : '');
+          var rowClass = role.type === 'liturgical' ? 'roster-liturgical-row' : (role.type === 'scripture' ? 'roster-scripture-row' : (role.type === 'service-type' ? 'roster-servicetype-row' : ''));
           var dutyTdClass = role.wideCol ? ' class="roster-duty-wide"' : '';
           bodyHtml += '<tr class="' + rowClass + '"><td' + dutyTdClass + '>' + (role.labelHtml || self.escapeHtml(role.label)) + '</td>';
           serviceDays.forEach(function(day, idx) {
@@ -65940,16 +66271,26 @@ function filterLiturgyItems() {
               var colorHex = self.COLORS[color] || self.COLORS.Green;
               var borderStyle = color === 'White' ? 'border: 1px solid #cbd5e1;' : '';
               bodyHtml += '<td data-col-idx="' + idx + '" data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-color="' + color + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + (savedValue ? 'roster-cell-edited' : '') + '"><span class="altar-color-dot" style="background:' + colorHex + ';' + borderStyle + '" title="Click to change color"></span><span class="liturgical-text">' + self.escapeHtml(dayText) + '</span></td>';
+            } else if (role.type === 'service-type') {
+              var svcValue = (savedValue && savedValue !== '__BLANK__') ? savedValue : '';
+              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + (svcValue ? 'roster-cell-edited' : '') + '">' +
+                '<div class="roster-servicetype-toggle">' +
+                  '<button type="button" class="roster-servicetype-btn trad' + (svcValue === 'Traditional' ? ' active' : '') + '" data-value="Traditional">Traditional</button>' +
+                  '<button type="button" class="roster-servicetype-btn cont' + (svcValue === 'Contemporary' ? ' active' : '') + '" data-value="Contemporary">Contemporary</button>' +
+                '</div>' +
+              '</td>';
             } else {
               var isBlankCell = savedValue === '__BLANK__';
               var value = isBlankCell ? '-' : (savedValue || '-');
               if (typeof value === 'string' && value.toUpperCase() === 'TBD') value = '-';
               var hasValue = !isBlankCell && value && value !== '-';
               var isRoleCell = role.type === 'role';
-              var cellClass = (hasValue ? 'roster-cell-edited' : '') + (isRoleCell ? ' roster-role-cell' : '');
+              var isPending = isRoleCell && STATE.rosterPendingCells.has(cellKey);
+              var cellClass = (hasValue ? 'roster-cell-edited' : '') + (isRoleCell ? ' roster-role-cell' : '') + (isPending ? ' roster-cell-pending' : '');
               var dropdownIcon = isRoleCell ? '<span class="roster-cell-dropdown-icon"' + (isBlankCell ? ' style="color:#9ca3af;"' : '') + '><i class="fa-solid fa-caret-down"></i></span>' : '';
+              var pendingIcon = isPending ? '<span class="roster-cell-pending-icon" title="Auto-suggested — awaiting PIC confirmation">⏳</span>' : '';
               var blankStyle = isBlankCell ? ' style="background:#4b5563;"' : '';
-              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + cellClass + '"' + blankStyle + '><span class="roster-cell-value"' + (isBlankCell ? ' style="color:#d1d5db;"' : '') + '>' + self.escapeHtml(value) + '</span>' + dropdownIcon + '</td>';
+              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + cellClass + '"' + blankStyle + '><span class="roster-cell-value"' + (isBlankCell ? ' style="color:#d1d5db;"' : '') + '>' + self.escapeHtml(value) + '</span>' + pendingIcon + dropdownIcon + '</td>';
             }
           });
           bodyHtml += '</tr>';
@@ -65957,7 +66298,7 @@ function filterLiturgyItems() {
       });
       tbody.innerHTML = bodyHtml;
       this.bindCellEvents();
- 
+
       if (typeof this.applyMobileVisibility === 'function') this.applyMobileVisibility(serviceDays);     // Run anti-clashing detection on render
       this.checkClashes(null);
       // Highlight any cells where assigned person is unavailable
@@ -65966,6 +66307,16 @@ function filterLiturgyItems() {
       this.setupStickyHeaders();
       // Setup mobile pinch-to-zoom on table wrapper
       this.setupPinchZoom();
+      this._updateConfirmPendingButton();
+    },
+
+    _updateConfirmPendingButton: function() {
+      var btn = document.getElementById('rosterConfirmPendingBtn');
+      var countEl = document.getElementById('rosterPendingCount');
+      if (!btn) return;
+      var count = STATE.rosterPendingCells.size;
+      if (countEl) countEl.textContent = count;
+      btn.classList.toggle('hidden', count === 0);
     },
 
     setupPinchZoom: function() {
@@ -66168,6 +66519,8 @@ function filterLiturgyItems() {
       var tbody = document.getElementById('rosterTbody');
       if (!tbody) return;
       tbody.querySelectorAll('td[data-key]').forEach(function(td) {
+        var isServiceTypeCell = td.closest('tr') && td.closest('tr').classList.contains('roster-servicetype-row');
+        if (isServiceTypeCell) return; // Toggle buttons are the whole interaction surface -- no dblclick text-edit or options menu
         // Double-click still edits (PIC only in practice via UI)
         td.ondblclick = function() { if (STATE.picMode) self.editCell(td); };
         // Right-click opens same dropdown
@@ -66185,6 +66538,14 @@ function filterLiturgyItems() {
       });
       tbody.querySelectorAll('.altar-color-dot').forEach(function(dot) {
         dot.onclick = function(e) { e.stopPropagation(); var td = dot.closest('td'); if (td) self.cycleColor(td); };
+      });
+      tbody.querySelectorAll('.roster-servicetype-btn').forEach(function(btn) {
+        btn.onclick = function(e) {
+          e.stopPropagation();
+          if (!STATE.picMode) return;
+          var td = btn.closest('td');
+          if (td) self.setServiceType(td, btn.getAttribute('data-value'));
+        };
       });
       var thead = document.getElementById('rosterThead');
       if (thead) {
@@ -67738,6 +68099,12 @@ function filterLiturgyItems() {
       html += '<input id="enInd_inactDate" type="month" value="'+(meta.inactiveDate||'')+'" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;width:100%;box-sizing:border-box;"></div>';
       html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Note (optional)</label>';
       html += '<input id="enInd_note" type="text" value="'+self.escapeHtml(meta.note||'')+'" placeholder="Any notes..." style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;box-sizing:border-box;"></div>';
+      html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Team (for Roster Auto-Suggest)</label>';
+      html += '<select id="enInd_team" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;">';
+      [['','Not set'],['traditional','Traditional'],['contemporary','Contemporary'],['both','Both']].forEach(function(t){
+        html += '<option value="'+t[0]+'"'+((meta.team||'')===t[0]?' selected':'')+'>'+t[1]+'</option>';
+      });
+      html += '</select></div>';
       html += '<button onclick="RosterEngine._saveEnablerStatus(\''+self.escapeHtml(selectedName)+'\')" style="width:100%;padding:9px;background:#0d9488;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">Save Status</button>';
       html += '</div>';
 
@@ -68101,6 +68468,7 @@ function filterLiturgyItems() {
       var suspRsnEl   = document.getElementById('enInd_suspReason');
       var inactEl     = document.getElementById('enInd_inactDate');
       var noteEl      = document.getElementById('enInd_note');
+      var teamEl      = document.getElementById('enInd_team');
       if (!statusEl) return;
       var status          = statusEl.value;
       var note            = noteEl ? noteEl.value.trim() : '';
@@ -68109,6 +68477,7 @@ function filterLiturgyItems() {
       var suspendedTo     = (suspToEl   && status==='suspended')  ? suspToEl.value   : '';
       var suspendedReason = (suspRsnEl  && status==='suspended')  ? suspRsnEl.value.trim() : '';
       var inactiveDate    = (inactEl    && status==='inactive')   ? inactEl.value    : '';
+      var team            = teamEl ? teamEl.value : '';
       var meta = getMemberStatus(name) || {};
       meta.status          = status;
       meta.note            = note;
@@ -68117,9 +68486,10 @@ function filterLiturgyItems() {
       meta.suspendedTo     = suspendedTo;
       meta.suspendedReason = suspendedReason;
       meta.inactiveDate    = inactiveDate;
+      meta.team            = team;
       ROSTER_MEMBER_STATUS[name] = meta;
       if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveMemberMeta) {
-        SBQ_ROSTER.saveMemberMeta(name, status, note, joinedDate, suspendedFrom, suspendedTo, suspendedReason, inactiveDate).catch(function(e){ console.warn('saveMemberMeta failed', e); });
+        SBQ_ROSTER.saveMemberMeta(name, status, note, joinedDate, suspendedFrom, suspendedTo, suspendedReason, inactiveDate, team).catch(function(e){ console.warn('saveMemberMeta failed', e); });
       }
       showToast('Status updated for ' + name, 'success');
       RosterEngine._renderEnablersIndividual(name);
@@ -68369,6 +68739,22 @@ function filterLiturgyItems() {
       this.markUnsaved();
     },
 
+    setServiceType: function(td, value) {
+      var key = td.getAttribute('data-key');
+      var oldVal = STATE.rosterEdits.get(key);
+      if (oldVal === value) return;
+      _rPushUndo(key, oldVal, value);
+      var timestamp = new Date().toISOString();
+      STATE.rosterEdits.set(key, value);
+      STATE.rosterCellTimestamps.set(key, timestamp);
+      td.setAttribute('data-timestamp', timestamp);
+      td.classList.add('roster-cell-edited');
+      td.querySelectorAll('.roster-servicetype-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-value') === value);
+      });
+      this.markUnsaved();
+    },
+
     markUnsaved: function() {
       STATE.rosterHasUnsaved = true;
       var indicator = document.getElementById('rosterUnsavedIndicator');
@@ -68390,7 +68776,7 @@ function filterLiturgyItems() {
       var edits = [];
       STATE.rosterEdits.forEach(function(value, key) {
         var parts = key.split('__');
-        edits.push({ roleId: parts[0], date: parts[1].replace(/_/g, ' '), value: typeof value === 'object' ? JSON.stringify(value) : value, month: STATE.rosterMonth, year: STATE.rosterYear, timestamp: STATE.rosterCellTimestamps.get(key) || '' });
+        edits.push({ roleId: parts[0], date: parts[1].replace(/_/g, ' '), value: typeof value === 'object' ? JSON.stringify(value) : value, month: STATE.rosterMonth, year: STATE.rosterYear, timestamp: STATE.rosterCellTimestamps.get(key) || '', pending: STATE.rosterPendingCells.has(key) });
       });
       // Build change log entries (compare new value vs original loaded value)
       // Skip blank/clear actions — only log real name assignments
@@ -68415,7 +68801,11 @@ function filterLiturgyItems() {
       // to be cancelled on the assignee's calendar. syncCell always re-reads
       // the current roster value itself, so this array only needs to name
       // which cells to check, not what the new value is.
+      // Pending (unconfirmed auto-suggest) cells are excluded here -- those
+      // don't push a calendar invite until the PIC explicitly confirms them
+      // via confirmAllPending(), which does its own calendar-sync push.
       var calendarSyncCells = edits.filter(function(e) {
+        if (e.pending) return false;
         var origRaw = STATE.rosterOriginalValues ? STATE.rosterOriginalValues.get(e.roleId + '__' + e.date.replace(/\s/g, '_')) : undefined;
         var orig = (origRaw && typeof origRaw === 'object') ? (origRaw.day || JSON.stringify(origRaw)) : (origRaw || '');
         var val = (e.value && typeof e.value === 'object') ? (e.value.day || JSON.stringify(e.value)) : (e.value || '');
@@ -68462,6 +68852,267 @@ function filterLiturgyItems() {
         // Refresh home dashboard
         if (typeof loadDashboardData === 'function') loadDashboardData();
       }).catch(function(err) { console.error('Save error:', err); if (silent) { _rShowAutoSave('<i class="fa-solid fa-triangle-exclamation"></i> Auto-save failed', true); } else { self.showToast('Failed to save changes', 'error'); } }).finally(function() { self.showLoader(false); });
+    },
+
+    // ── Auto-Suggest: fills every blank, applicable role cell for the
+    // currently-viewed month, respecting: a soft 2-duties/month cap per
+    // person (relaxed if nobody else is eligible), even rotation within
+    // each role's eligible pool, no same-date clash, no same-role
+    // back-to-back repeat (also relaxed as a last resort), unavailability,
+    // and per-date Traditional/Contemporary team eligibility. Never
+    // overwrites an existing manually-entered value. Every cell it writes
+    // is marked pending -- visible immediately, but excluded from the
+    // instant Google Calendar push until the PIC confirms it.
+    runAutoSuggest: function() {
+      var self = this;
+      if (!STATE.picMode) return;
+
+      var serviceDays = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      if (!serviceDays.length) { this.showToast('No service dates this month', 'warning'); return; }
+
+      var dateTeam = {};       // dateStr -> 'traditional' | 'contemporary'
+      var missingServiceType = [];
+      serviceDays.forEach(function(day) {
+        var key = 'service_type__' + day.dateStr.replace(/\s/g, '_');
+        var val = STATE.rosterEdits.get(key);
+        if (val === 'Traditional') dateTeam[day.dateStr] = 'traditional';
+        else if (val === 'Contemporary') dateTeam[day.dateStr] = 'contemporary';
+        else missingServiceType.push(day.dateStr);
+      });
+      var datesToFill = serviceDays.filter(function(day) { return !!dateTeam[day.dateStr]; });
+      if (!datesToFill.length) {
+        this.showToast('Set Service Type (Traditional/Contemporary) for at least one date before auto-suggesting.', 'warning');
+        return;
+      }
+
+      var roleDefs = this.ROLES.filter(function(r) { return r.type === 'role'; });
+      var roleIdSet = {};
+      roleDefs.forEach(function(r) { roleIdSet[r.id] = true; });
+
+      // Normalize a name for identity comparisons only (clash/cap/back-to-
+      // back bookkeeping) -- never for the value actually written to a
+      // cell. Different role dropdowns can hold the same real person with
+      // inconsistent spacing (e.g. "Alison Phan" vs "Alison  Phan"); without
+      // this, that same person could be double-booked on one date or slip
+      // past the 2x/month cap under two different spellings.
+      function _afKey(name) { return (name || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
+
+      // Tally each person's existing duty count THIS month (manual entries
+      // and any earlier auto-suggest run already in rosterEdits).
+      var monthCount = {};
+      STATE.rosterEdits.forEach(function(value, key) {
+        var roleId = key.split('__')[0];
+        if (!roleIdSet[roleId] || !value || value === '__BLANK__' || typeof value === 'object') return;
+        var k = _afKey(value);
+        monthCount[k] = (monthCount[k] || 0) + 1;
+      });
+
+      this.showLoader(true);
+      SBQ_ROSTER.getAllForYear(STATE.rosterYear).then(function(rows) {
+        // Least-recently-used tiebreak: most recent OTHER month each person served.
+        var lastServedMonth = {};
+        rows.forEach(function(row) {
+          if (!roleIdSet[row.role_id] || row.month === STATE.rosterMonth || !row.value) return;
+          var k = _afKey(row.value);
+          if (lastServedMonth[k] === undefined || row.month > lastServedMonth[k]) {
+            lastServedMonth[k] = row.month;
+          }
+        });
+
+        var fills = [];         // {date, roleLabel, name}
+        var couldNotFill = [];  // {date, roleLabel}
+
+        datesToFill.forEach(function(day, dateIdx) {
+          var dateStr = day.dateStr;
+          var team = dateTeam[dateStr];
+          var dateKeySuffix = dateStr.replace(/\s/g, '_');
+
+          // Seed same-date clash tracking with whatever's already filled
+          // (manual entries + roles processed earlier in this same date).
+          var assignedToday = {};
+          roleDefs.forEach(function(role) {
+            var v = STATE.rosterEdits.get(role.id + '__' + dateKeySuffix);
+            if (v && v !== '__BLANK__' && typeof v !== 'object') assignedToday[_afKey(v)] = true;
+          });
+
+          var prevDay = dateIdx > 0 ? datesToFill[dateIdx - 1] : null;
+
+          roleDefs.forEach(function(role) {
+            if (!_autoFillRoleApplies(role.id, team)) return; // not applicable this team -- silently skip
+
+            var cellKey = role.id + '__' + dateKeySuffix;
+            var existing = STATE.rosterEdits.get(cellKey);
+            if (existing && existing !== '__BLANK__' && typeof existing !== 'object') return; // never overwrite manual entries
+
+            var category = getRoleCategory(role.id);
+            var pool = _autoFillPoolForRole(role.id, category, team);
+
+            // Back-to-back guard: whoever did this exact role on the
+            // immediately preceding filled date (manual or auto-suggested).
+            var backToBackKey = null;
+            if (prevDay) {
+              var prevVal = STATE.rosterEdits.get(role.id + '__' + prevDay.dateStr.replace(/\s/g, '_'));
+              if (prevVal && prevVal !== '__BLANK__' && typeof prevVal !== 'object') backToBackKey = _afKey(prevVal);
+            }
+
+            var candidates = pool.filter(function(name) {
+              if (assignedToday[_afKey(name)]) return false;
+              if (isPersonUnavailable(name, dateStr, STATE.rosterYear, category)) return false;
+              return true;
+            });
+
+            if (!candidates.length) {
+              couldNotFill.push({ date: dateStr, roleLabel: role.label });
+              return;
+            }
+
+            // Score: lower is better. Both the 2x/month cap and the
+            // back-to-back rule are soft -- relaxed only if relaxing them
+            // is the only way to fill the cell (established by sorting
+            // rather than hard-excluding).
+            function score(name) {
+              var k = _afKey(name);
+              return ((monthCount[k] || 0) >= 2 ? 1 : 0) + (k === backToBackKey ? 1 : 0);
+            }
+            candidates.sort(function(a, b) {
+              var sa = score(a), sb = score(b);
+              if (sa !== sb) return sa - sb;
+              var ca = monthCount[_afKey(a)] || 0, cb = monthCount[_afKey(b)] || 0;
+              if (ca !== cb) return ca - cb;
+              var la = lastServedMonth[_afKey(a)] === undefined ? -Infinity : lastServedMonth[_afKey(a)];
+              var lb = lastServedMonth[_afKey(b)] === undefined ? -Infinity : lastServedMonth[_afKey(b)];
+              if (la !== lb) return la - lb;
+              return a.localeCompare(b);
+            });
+
+            var winner = candidates[0];
+            var winnerKey = _afKey(winner);
+            STATE.rosterEdits.set(cellKey, winner);
+            STATE.rosterPendingCells.add(cellKey);
+            STATE.rosterCellTimestamps.set(cellKey, new Date().toISOString());
+            monthCount[winnerKey] = (monthCount[winnerKey] || 0) + 1;
+            assignedToday[winnerKey] = true;
+            fills.push({ date: dateStr, roleLabel: role.label, name: winner });
+          });
+        });
+
+        self.showLoader(false);
+        if (!fills.length) {
+          self.showToast('Nothing to auto-fill -- all applicable cells already have values.', 'info');
+          return;
+        }
+        self.render();
+        self.saveChanges();
+        self._showAutoSuggestSummary(fills, couldNotFill, missingServiceType);
+      }).catch(function(err) {
+        console.error('runAutoSuggest error:', err);
+        self.showLoader(false);
+        self.showToast('Auto-Suggest failed: ' + err.message, 'error');
+      });
+    },
+
+    _showAutoSuggestSummary: function(fills, couldNotFill, missingServiceType) {
+      var existing = document.getElementById('rosterAutoSuggestSummaryModal');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      var self = this;
+
+      var byDate = {};
+      fills.forEach(function(f) { (byDate[f.date] = byDate[f.date] || []).push(f); });
+      var filledHtml = Object.keys(byDate).map(function(d) {
+        var rows = byDate[d].map(function(f) { return '<li>' + self.escapeHtml(f.roleLabel) + ' &mdash; <strong>' + self.escapeHtml(f.name) + '</strong></li>'; }).join('');
+        return '<div style="margin-bottom:10px;"><div style="font-weight:700;color:#0d9488;font-size:0.85rem;margin-bottom:4px;">' + self.escapeHtml(d) + '</div><ul style="margin:0;padding-left:20px;font-size:0.85rem;color:#374151;">' + rows + '</ul></div>';
+      }).join('');
+
+      var warnHtml = '';
+      if (missingServiceType.length) {
+        warnHtml += '<p style="margin:0 0 8px;font-size:0.85rem;color:#b45309;"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Skipped entirely (no Service Type set): ' + self.escapeHtml(missingServiceType.join(', ')) + '</p>';
+      }
+      if (couldNotFill.length) {
+        var cnfRows = couldNotFill.map(function(c) { return '<li>' + self.escapeHtml(c.roleLabel) + ' on ' + self.escapeHtml(c.date) + '</li>'; }).join('');
+        warnHtml += '<p style="margin:0 0 4px;font-size:0.85rem;color:#b45309;font-weight:600;">Could not fill (no eligible person available):</p><ul style="margin:0 0 8px;padding-left:20px;font-size:0.83rem;color:#92400e;">' + cnfRows + '</ul>';
+      }
+
+      var overlay = document.createElement('div');
+      overlay.id = 'rosterAutoSuggestSummaryModal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
+      overlay.innerHTML =
+        '<div style="background:#fff;max-width:480px;width:92%;max-height:82vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
+          '<div style="background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;">' +
+            '<i class="fa-solid fa-wand-magic-sparkles" style="font-size:1.3rem;"></i>' +
+            '<div style="font-weight:700;font-size:1.02rem;">Auto-Suggest Results</div>' +
+          '</div>' +
+          '<div style="padding:18px 20px;overflow-y:auto;flex:1;">' +
+            '<p style="margin:0 0 12px;font-size:0.85rem;color:#374151;">Filled <strong>' + fills.length + '</strong> cell' + (fills.length === 1 ? '' : 's') + ', highlighted yellow for your review. Nothing is synced to Google Calendar until you confirm with &ldquo;Confirm Pending&rdquo;.</p>' +
+            warnHtml +
+            filledHtml +
+          '</div>' +
+          '<div style="display:flex;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;flex-shrink:0;">' +
+            '<button id="rosterAutoSuggestCloseBtn" style="padding:8px 18px;border-radius:8px;border:none;background:#0d9488;color:#fff;font-weight:600;font-size:0.85rem;cursor:pointer;">Done</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      overlay.querySelector('#rosterAutoSuggestCloseBtn').onclick = function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+    },
+
+    confirmAutoSuggestPrompt: function() {
+      var existing = document.getElementById('rosterAutoSuggestConfirmModal');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      var self = this;
+      var overlay = document.createElement('div');
+      overlay.id = 'rosterAutoSuggestConfirmModal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
+      overlay.innerHTML =
+        '<div style="background:#fff;max-width:420px;width:90%;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
+          '<div style="background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;">' +
+            '<i class="fa-solid fa-wand-magic-sparkles" style="font-size:1.3rem;"></i>' +
+            '<div style="font-weight:700;font-size:1.05rem;">Auto-Suggest This Month?</div>' +
+          '</div>' +
+          '<div style="padding:18px 20px;">' +
+            '<p style="margin:0;font-size:0.88rem;color:#1f2933;line-height:1.55;">This fills every blank, applicable duty for ' + this.escapeHtml(this.MONTHS[STATE.rosterMonth]) + ' ' + STATE.rosterYear + ' based on rotation, availability, and the 2x/month cap. Existing entries are never overwritten. Filled cells are highlighted yellow until you confirm them -- nothing is sent to Google Calendar yet.</p>' +
+          '</div>' +
+          '<div style="display:flex;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;gap:10px;">' +
+            '<button id="rosterAutoSuggestCancelBtn" style="padding:8px 16px;border-radius:8px;border:1px solid #d1d5db;background:#fff;color:#4b5563;font-weight:600;font-size:0.85rem;cursor:pointer;">Cancel</button>' +
+            '<button id="rosterAutoSuggestGoBtn" style="padding:8px 16px;border-radius:8px;border:none;background:#0d9488;color:#fff;font-weight:600;font-size:0.85rem;cursor:pointer;">Auto-Suggest</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      var close = function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+      overlay.querySelector('#rosterAutoSuggestCancelBtn').onclick = close;
+      overlay.querySelector('#rosterAutoSuggestGoBtn').onclick = function() { close(); self.runAutoSuggest(); };
+    },
+
+    // Clear the pending flag for every pending cell in the viewed month and
+    // push those (now-confirmed) cells to Google Calendar -- the one point
+    // where an auto-suggested assignment actually notifies the assignee.
+    confirmAllPending: function() {
+      var self = this;
+      if (!STATE.picMode) return;
+      var pendingThisMonth = [];
+      STATE.rosterPendingCells.forEach(function(key) {
+        var parts = key.split('__');
+        pendingThisMonth.push({ roleId: parts[0], date: parts[1].replace(/_/g, ' ') });
+      });
+      if (!pendingThisMonth.length) { this.showToast('No pending cells to confirm', 'warning'); return; }
+
+      this.showLoader(true);
+      SBQ_ROSTER.confirmPending(STATE.rosterMonth, STATE.rosterYear).then(function() {
+        pendingThisMonth.forEach(function(c) {
+          STATE.rosterPendingCells.delete(c.roleId + '__' + c.date.replace(/\s/g, '_'));
+        });
+        self.render();
+        self.showLoader(false);
+        self.showToast('Confirmed ' + pendingThisMonth.length + ' assignment' + (pendingThisMonth.length === 1 ? '' : 's'), 'success');
+        // Now notify calendars for the newly-confirmed cells only.
+        fetch('/api/calendar-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cells: pendingThisMonth.map(function(c) { return { roleId: c.roleId, date: c.date, month: STATE.rosterMonth, year: STATE.rosterYear }; }) })
+        }).catch(function(err) { console.warn('[calendar-sync] confirm push failed, will self-heal via reconciliation:', err); });
+      }).catch(function(err) {
+        console.error('confirmAllPending error:', err);
+        self.showLoader(false);
+        self.showToast('Failed to confirm: ' + err.message, 'error');
+      });
     },
 
     downloadCSV: function() {
