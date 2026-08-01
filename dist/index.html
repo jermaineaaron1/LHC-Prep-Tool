@@ -21370,6 +21370,13 @@ SBQ.getSongUsageStats = function() {
 // ================================================================
 // SBQ_ROSTER — Direct Supabase queries for Roster data
 // ================================================================
+// Local copy of the name-normalization helper: this script block and the
+// RosterEngine module (where the canonical _nameNorm lives) are separate
+// inline <script> tags with no shared closure, so this can't reference that
+// one directly. Kept in sync by hand (one-line function, low drift risk) --
+// matches this codebase's existing convention of small duplicated helpers
+// across module boundaries rather than a cross-block global.
+var _nameNormForMerge = function(s) { return (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
 var SBQ_ROSTER = {
   _sb: function() { return getSupabaseClient(); },
 
@@ -21597,6 +21604,71 @@ var SBQ_ROSTER = {
     if (!sb) return Promise.resolve();
     return sb.from('roster').update({ value: '' }).eq('value', name)
       .then(function(r) { if (r.error) console.warn('cascadeBlankName error:', r.error.message); });
+  },
+
+  // Merge two duplicate person records into one, per a human-confirmed
+  // (oldName -> newName) decision from the Enablers Duplicates tab. Touches
+  // 4 of the 5 name-keyed stores; roster_changes (the audit log) is
+  // deliberately left untouched -- historical entries keep their original
+  // spelling. resolvedPhone/resolvedEmail are the ALREADY-DECIDED contact
+  // values (chosen by the human in the merge UI before this is ever called,
+  // e.g. via the survivor's existing values when there's no conflict, or via
+  // an explicit per-field picker when both spellings had different saved
+  // contact info) -- this function never guesses or auto-resolves a
+  // phone/email conflict itself.
+  mergeNames: function(oldName, newName, resolvedPhone, resolvedEmail) {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    var errors = [];
+
+    return sb.from('roster').update({ value: newName }).eq('value', oldName)
+      .then(function(r) { if (r.error) errors.push('roster: ' + r.error.message); })
+      .then(function() {
+        return sb.from('roster_unavailability').update({ name: newName }).eq('name', oldName)
+          .then(function(r) { if (r.error) errors.push('roster_unavailability: ' + r.error.message); })
+          .catch(function(e) { errors.push('roster_unavailability: ' + e.message); }); // e.g. a (name,start,end) collision with an existing row under newName
+      })
+      .then(function() { return sb.from('roster_names').select('category').eq('name', oldName); })
+      .then(function(r) {
+        if (r.error) { errors.push('roster_names read: ' + r.error.message); return; }
+        var cats = (r.data || []).map(function(row) { return row.category; });
+        return Promise.all(cats.map(function(cat) {
+          return sb.from('roster_names').upsert({ category: cat, name: newName }, { onConflict: 'category,name' })
+            .then(function() { return sb.from('roster_names').delete().eq('category', cat).eq('name', oldName); })
+            .catch(function(e) { errors.push('roster_names (' + cat + '): ' + e.message); });
+        }));
+      })
+      .then(function() {
+        return sb.from('roster_member_meta')
+          .upsert({ name: newName, phone: resolvedPhone || '', email: resolvedEmail || '', updated_at: new Date().toISOString() }, { onConflict: 'name' })
+          .then(function(r) { if (r.error) errors.push('roster_member_meta upsert: ' + r.error.message); })
+          .then(function() { return sb.from('roster_member_meta').delete().eq('name', oldName); })
+          .then(function(r) { if (r.error) errors.push('roster_member_meta delete: ' + r.error.message); });
+      })
+      .then(function() { return { success: errors.length === 0, errors: errors }; });
+  },
+
+  // Dismissed-pair tracking for the Duplicates tab -- "Not a duplicate" for a
+  // suggested pair persists here so it never resurfaces as a suggestion.
+  getDismissedPairs: function() {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.resolve([]);
+    return sb.from('roster_name_merge_dismissals').select('name_a_norm, name_b_norm')
+      .then(function(r) {
+        if (r.error) { console.warn('getDismissedPairs error:', r.error.message); return []; }
+        return r.data || [];
+      });
+  },
+
+  dismissDuplicatePair: function(nameA, nameB) {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    var normA = _nameNormForMerge(nameA), normB = _nameNormForMerge(nameB);
+    var row = normA <= normB
+      ? { name_a_norm: normA, name_b_norm: normB, name_a: nameA, name_b: nameB }
+      : { name_a_norm: normB, name_b_norm: normA, name_a: nameB, name_b: nameA };
+    return sb.from('roster_name_merge_dismissals').upsert(row, { onConflict: 'name_a_norm,name_b_norm' })
+      .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
   },
 
   // Get roster frequency for a person — returns [{role_id, month}] for given year
@@ -65006,6 +65078,7 @@ function filterLiturgyItems() {
       <button class="enablers-tab" data-tab="duty" style="flex:1;"><i class="fa-solid fa-layer-group" style="margin-right:6px;"></i>By Duty</button>
       <button class="enablers-tab" data-tab="individual" style="flex:1;"><i class="fa-solid fa-user-clock" style="margin-right:6px;"></i>By Individual</button>
       <button class="enablers-tab" data-tab="calendar" style="flex:1;"><i class="fa-solid fa-calendar-plus" style="margin-right:6px;"></i>Calendar</button>
+      <button class="enablers-tab" data-tab="duplicates" style="flex:1;"><i class="fa-solid fa-users-rectangle" style="margin-right:6px;"></i>Duplicates</button>
     </div>
     <!-- Content area -->
     <div id="enablersContent" style="flex:1;overflow-y:auto;padding:16px 20px;min-height:400px;">
@@ -65060,6 +65133,37 @@ function filterLiturgyItems() {
     singer: [], lcd: [], pa: [], livestream: [], tech: [], sundayschool: [], general: []
   };
 
+  // Name identity helpers -- hoisted to module scope so addNameToRole, the
+  // Enablers render functions, and the Duplicates review tab all share one
+  // definition (previously this lived only inside the roster-cell "add new
+  // name" dropdown's closure). _nameSimilar's thresholds (substring
+  // containment for names >=3 chars, or Levenshtein distance <=2 for names
+  // >=4 chars) are the same calibration already battle-tested in that flow --
+  // not a new threshold decision.
+  var _nameNorm = function(s) { return (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+  var _levDist = function(a, b) {
+    var m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+    var d = []; for (var i = 0; i <= m; i++) d[i] = [i]; for (var j = 0; j <= n; j++) d[0][j] = j;
+    for (var i2 = 1; i2 <= m; i2++) for (var j2 = 1; j2 <= n; j2++) {
+      var c = a.charAt(i2 - 1) === b.charAt(j2 - 1) ? 0 : 1;
+      d[i2][j2] = Math.min(d[i2 - 1][j2] + 1, d[i2][j2 - 1] + 1, d[i2 - 1][j2 - 1] + c);
+    }
+    return d[m][n];
+  };
+  var _nameSimilar = function(a, b) {
+    if (a === b) return false;
+    if (a.length >= 3 && b.length >= 3 && (a.indexOf(b) !== -1 || b.indexOf(a) !== -1)) return true;
+    if (Math.max(a.length, b.length) >= 4 && _levDist(a, b) <= 2) return true;
+    return false;
+  };
+  var _allRosterNames = function() {
+    var seen = {}, out = [];
+    Object.keys(ROSTER_NAME_OPTIONS).forEach(function(cat) {
+      (ROSTER_NAME_OPTIONS[cat] || []).forEach(function(n) { var k = _nameNorm(n); if (n && !seen[k]) { seen[k] = 1; out.push(n); } });
+    });
+    return out;
+  };
+
   // Load roster names — Supabase only
   function loadRosterNamesFromCloud() {
     if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.getNames) {
@@ -65108,16 +65212,29 @@ function filterLiturgyItems() {
 
   function addNameToRole(category, name) {
     if (!ROSTER_NAME_OPTIONS[category]) ROSTER_NAME_OPTIONS[category] = [];
-    if (!ROSTER_NAME_OPTIONS[category].includes(name)) {
-      ROSTER_NAME_OPTIONS[category].push(name);
+    // Cross-category exact-match reuse: if a name that normalizes the same
+    // (case/whitespace-insensitive) already exists in ANY category, reuse
+    // that exact stored string instead of inserting a new, subtly-different
+    // variant. This is the only *automatic* resolution here -- safe because
+    // it's an exact match after normalization, never a fuzzy one. Fuzzy
+    // near-matches still only ever surface as a suggestion (the roster-cell
+    // "add new name" dropdown's own similar-name warning, or the Enablers
+    // Duplicates review tab) for a human to confirm.
+    var norm = _nameNorm(name);
+    var canonical = name;
+    var existing = _allRosterNames().find(function(n) { return _nameNorm(n) === norm; });
+    if (existing) canonical = existing;
+
+    if (!ROSTER_NAME_OPTIONS[category].includes(canonical)) {
+      ROSTER_NAME_OPTIONS[category].push(canonical);
       ROSTER_NAME_OPTIONS[category].sort();
       // Supabase is the only store
       if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.addName) {
-        SBQ_ROSTER.addName(category, name).catch(function(e) { console.warn('addName sync error:', e); });
+        SBQ_ROSTER.addName(category, canonical).catch(function(e) { console.warn('addName sync error:', e); });
       }
       // Also seed a default 'active' status in Enablers if not already set
-      if (!ROSTER_MEMBER_STATUS[name]) {
-        setMemberStatus(name, 'active', '', '');
+      if (!ROSTER_MEMBER_STATUS[canonical]) {
+        setMemberStatus(canonical, 'active', '', '');
       }
     }
   }
@@ -66824,29 +66941,7 @@ function filterLiturgyItems() {
         // Duplicate / similar-name guard. An exact (case/space-insensitive) match in THIS
         // role's list is blocked and selects the existing name; a similar name in any role
         // asks the user to confirm it is really a different person.
-        var _nameNorm = function(s) { return (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
-        var _levDist = function(a, b) {
-          var m = a.length, n = b.length; if (!m) return n; if (!n) return m;
-          var d = []; for (var i = 0; i <= m; i++) d[i] = [i]; for (var j = 0; j <= n; j++) d[0][j] = j;
-          for (var i2 = 1; i2 <= m; i2++) for (var j2 = 1; j2 <= n; j2++) {
-            var c = a.charAt(i2 - 1) === b.charAt(j2 - 1) ? 0 : 1;
-            d[i2][j2] = Math.min(d[i2 - 1][j2] + 1, d[i2][j2 - 1] + 1, d[i2 - 1][j2 - 1] + c);
-          }
-          return d[m][n];
-        };
-        var _nameSimilar = function(a, b) {
-          if (a === b) return false;
-          if (a.length >= 3 && b.length >= 3 && (a.indexOf(b) !== -1 || b.indexOf(a) !== -1)) return true;
-          if (Math.max(a.length, b.length) >= 4 && _levDist(a, b) <= 2) return true;
-          return false;
-        };
-        var _allRosterNames = function() {
-          var seen = {}, out = [];
-          Object.keys(ROSTER_NAME_OPTIONS).forEach(function(cat) {
-            (ROSTER_NAME_OPTIONS[cat] || []).forEach(function(n) { var k = _nameNorm(n); if (n && !seen[k]) { seen[k] = 1; out.push(n); } });
-          });
-          return out;
-        };
+        // (_nameNorm/_levDist/_nameSimilar/_allRosterNames are module-scoped, see ~65063)
         var showSimilarWarn = function(raw, sims) {
           var esc = function(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
           addRow.innerHTML = '';
@@ -67066,7 +67161,8 @@ function filterLiturgyItems() {
       var m = getMemberStatus(name); return m.status||'active';
     },
     _enablersFreqFor: function(name) {
-      var rows=(this._enablersFreqCache||[]).filter(function(r){return(r.value||'').toLowerCase()===name.toLowerCase();});
+      var target = _nameNorm(name);
+      var rows=(this._enablersFreqCache||[]).filter(function(r){return _nameNorm(r.value||'')===target;});
       var nowM=new Date().getMonth(), nowQ=Math.floor(nowM/3), mo={}, roles={};
       rows.forEach(function(r){mo[r.month]=(mo[r.month]||0)+1; roles[r.role_id]=(roles[r.role_id]||0)+1;});
       var q=0; for(var m2=nowQ*3;m2<nowQ*3+3;m2++)q+=mo[m2]||0;
@@ -67208,6 +67304,7 @@ function filterLiturgyItems() {
       else if (tab === 'duty') self._renderEnablersDuty(self._enablersActiveDuty || null);
       else if (tab === 'individual') self._renderEnablersIndividual(self._enablersActiveIndividual || null);
       else if (tab === 'calendar') self._renderEnablersCalendar();
+      else if (tab === 'duplicates') self._renderEnablersDuplicates();
     },
 
     _renderEnablersCalendar: function() {
@@ -67215,14 +67312,19 @@ function filterLiturgyItems() {
       var content = document.getElementById('enablersContent');
       if (!content) return;
 
-      // Gather all unique names from ROSTER_NAME_OPTIONS, collapsing stray
-      // whitespace so a near-duplicate picker entry (e.g. "Alison  Phan" vs
-      // "Alison Phan") doesn't show up as two separate people with two
-      // different links -- only one, correctly-spelled row per person.
+      // Gather all unique names from ROSTER_NAME_OPTIONS, collapsing
+      // whitespace/case variants (e.g. "Alison  Phan" vs "alison phan") so a
+      // near-duplicate picker entry doesn't show up as two separate people
+      // with two different links -- only one, correctly-spelled row per
+      // person (same _nameNorm key used by _renderEnablersAll).
       var allNamesSet = {};
       var catOrder = ['preacher','liturgist','usher','reader','communion','altar','pianist','guitarist','bassist','drummer','singer','lcd','pa','livestream','tech','sundayschool','general'];
-      catOrder.forEach(function(c){ (ROSTER_NAME_OPTIONS[c]||[]).forEach(function(n){ if(n) { var norm = n.trim().replace(/\s+/g, ' '); allNamesSet[norm]=true; } }); });
-      var allNames = Object.keys(allNamesSet).sort();
+      catOrder.forEach(function(c){ (ROSTER_NAME_OPTIONS[c]||[]).forEach(function(n){
+        if (!n) return;
+        var k = _nameNorm(n);
+        if (!allNamesSet[k]) allNamesSet[k] = n;
+      }); });
+      var allNames = Object.values(allNamesSet).sort();
 
       var html = '';
       html += '<div style="margin-bottom:16px;">';
@@ -67349,11 +67451,17 @@ function filterLiturgyItems() {
       var sm = self._statusMeta();
       var meta = self._enablersMetaCache || {};
 
-      // Gather all unique member names
+      // Gather all unique member names -- keyed by normalized name so
+      // whitespace/case variants across categories collapse into one row
+      // (first-seen spelling wins as the display string).
       var catOrder = ['preacher','liturgist','usher','reader','communion','altar','pianist','guitarist','bassist','drummer','singer','lcd','pa','livestream','tech','sundayschool','general'];
       var allNamesSet = {};
-      catOrder.forEach(function(c){ (ROSTER_NAME_OPTIONS[c]||[]).forEach(function(n){ allNamesSet[n] = true; }); });
-      var allNames = Object.keys(allNamesSet).sort();
+      catOrder.forEach(function(c){ (ROSTER_NAME_OPTIONS[c]||[]).forEach(function(n){
+        if (!n) return;
+        var k = _nameNorm(n);
+        if (!allNamesSet[k]) allNamesSet[k] = n;
+      }); });
+      var allNames = Object.values(allNamesSet).sort();
       var totalMembers = allNames.length;
 
       // Count members with/without contacts
@@ -67494,6 +67602,247 @@ function filterLiturgyItems() {
           self._saveContactToSupabase(name, phone, email, btn);
         });
       });
+    },
+
+    // ===== Duplicates tab (merge duplicate person records) =====
+    // Never auto-merges: _nameSimilar only ever produces a suggestion for a
+    // human to accept ("Merge") or reject ("Not a duplicate"). Reuses the
+    // exact _nameSimilar calibration already battle-tested in the roster-cell
+    // "add new name" dropdown's own similar-name warning.
+    _renderEnablersDuplicates: function() {
+      var self = this;
+      var content = document.getElementById('enablersContent');
+      if (!content) return;
+      content.innerHTML = '<div style="text-align:center;padding:40px;color:#9ca3af;"><i class="fa-solid fa-spinner fa-spin"></i> Scanning for possible duplicates...</div>';
+
+      var allNames = _allRosterNames();
+      var pairs = [];
+      for (var i = 0; i < allNames.length; i++) {
+        for (var j = i + 1; j < allNames.length; j++) {
+          var a = allNames[i], b = allNames[j];
+          if (_nameSimilar(_nameNorm(a), _nameNorm(b))) pairs.push([a, b]);
+        }
+      }
+
+      if (typeof SBQ_ROSTER === 'undefined' || !SBQ_ROSTER.getDismissedPairs) {
+        self._renderDuplicatesPairs(pairs, []);
+        return;
+      }
+      SBQ_ROSTER.getDismissedPairs().then(function(dismissed) {
+        self._renderDuplicatesPairs(pairs, dismissed || []);
+      }).catch(function() {
+        self._renderDuplicatesPairs(pairs, []);
+      });
+    },
+
+    _renderDuplicatesPairs: function(pairs, dismissed) {
+      var self = this;
+      var content = document.getElementById('enablersContent');
+      if (!content) return;
+
+      var dismissedSet = {};
+      dismissed.forEach(function(d) { dismissedSet[d.name_a_norm + '|' + d.name_b_norm] = true; });
+      var filtered = pairs.filter(function(p) {
+        var na = _nameNorm(p[0]), nb = _nameNorm(p[1]);
+        var key = na <= nb ? (na + '|' + nb) : (nb + '|' + na);
+        return !dismissedSet[key];
+      });
+
+      if (!filtered.length) {
+        content.innerHTML = '<div style="text-align:center;padding:40px;color:#9ca3af;"><i class="fa-solid fa-circle-check" style="font-size:28px;margin-bottom:10px;display:block;color:#16a34a;"></i><h3 style="margin:0 0 4px;color:#374151;font-size:15px;">No possible duplicates found</h3><p style="margin:0;font-size:13px;">All ' + _allRosterNames().length + ' names look distinct.</p></div>';
+        return;
+      }
+
+      var meta = self._enablersMetaCache || {};
+      var html = '<div style="padding:0 4px;">';
+      html += '<div style="margin-bottom:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;font-size:12px;color:#92400e;"><i class="fa-solid fa-circle-info mr-1"></i>These pairs look similar and might be the same person entered differently by different PICs. Review each one -- nothing merges automatically.</div>';
+
+      filtered.forEach(function(p) {
+        var a = p[0], b = p[1];
+        var freqA = self._enablersFreqFor(a).year, freqB = self._enablersFreqFor(b).year;
+        var contactA = !!(meta[a] && (meta[a].phone || meta[a].email));
+        var contactB = !!(meta[b] && (meta[b].phone || meta[b].email));
+        html += '<div class="en-dup-card" style="border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;margin-bottom:10px;background:#fff;">';
+        html += '<div style="display:flex;gap:10px;align-items:stretch;">';
+        [{ n: a, freq: freqA, contact: contactA }, { n: b, freq: freqB, contact: contactB }].forEach(function(side, si) {
+          if (si === 1) html += '<div style="display:flex;align-items:center;color:#9ca3af;font-size:12px;font-weight:600;">vs</div>';
+          html += '<div style="flex:1;padding:10px 12px;background:#f9fafb;border-radius:8px;min-width:0;">';
+          html += '<div style="font-weight:700;color:#1f2933;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + self.escapeHtml(side.n) + '</div>';
+          html += '<div style="font-size:11px;color:#6b7280;margin-top:2px;">' + side.freq + ' duties this year</div>';
+          html += '<div style="font-size:11px;margin-top:4px;color:' + (side.contact ? '#16a34a' : '#ef4444') + ';"><i class="fa-solid ' + (side.contact ? 'fa-check' : 'fa-xmark') + ' mr-1"></i>' + (side.contact ? 'Has contact info' : 'No contact info') + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+        html += '<div style="display:flex;gap:8px;margin-top:10px;">';
+        html += '<button class="en-dup-merge-btn" data-name-a="' + self.escapeHtml(a) + '" data-name-b="' + self.escapeHtml(b) + '" style="flex:1;padding:8px;background:#7c3aed;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;"><i class="fa-solid fa-code-merge mr-1"></i>Merge</button>';
+        html += '<button class="en-dup-dismiss-btn" data-name-a="' + self.escapeHtml(a) + '" data-name-b="' + self.escapeHtml(b) + '" style="flex:1;padding:8px;background:#f3f4f6;color:#374151;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;">Not a duplicate</button>';
+        html += '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+      content.innerHTML = html;
+
+      content.querySelectorAll('.en-dup-merge-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          self._openMergeDialog(btn.getAttribute('data-name-a'), btn.getAttribute('data-name-b'));
+        });
+      });
+      content.querySelectorAll('.en-dup-dismiss-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var nameA = btn.getAttribute('data-name-a'), nameB = btn.getAttribute('data-name-b');
+          var card = btn.closest('.en-dup-card');
+          if (typeof SBQ_ROSTER === 'undefined' || !SBQ_ROSTER.dismissDuplicatePair) return;
+          SBQ_ROSTER.dismissDuplicatePair(nameA, nameB).then(function() {
+            if (card) card.remove();
+            self.showToast('Marked as not a duplicate', 'success');
+          }).catch(function(e) {
+            self.showToast('Could not save: ' + (e.message || e), 'error');
+          });
+        });
+      });
+    },
+
+    // Merge confirmation dialog: pick the surviving spelling, resolve a
+    // contact-info conflict if one exists (both spellings have DIFFERENT
+    // saved phone/email -- the one place a merge could silently lose real
+    // data), then call SBQ_ROSTER.mergeNames with the human-confirmed result.
+    _openMergeDialog: function(nameA, nameB) {
+      var self = this;
+      var meta = self._enablersMetaCache || {};
+      var metaA = meta[nameA] || {}, metaB = meta[nameB] || {};
+      var freqA = self._enablersFreqFor(nameA).year, freqB = self._enablersFreqFor(nameB).year;
+
+      // Default survivor: prefers whichever has contact info, then higher
+      // duty count, then alphabetical -- just a pre-filled default, the user
+      // can flip it before confirming.
+      var hasContactA = !!(metaA.phone || metaA.email), hasContactB = !!(metaB.phone || metaB.email);
+      var defaultSurvivor = hasContactA !== hasContactB ? (hasContactA ? nameA : nameB)
+        : (freqA !== freqB ? (freqA > freqB ? nameA : nameB)
+        : (nameA <= nameB ? nameA : nameB));
+
+      var existing = document.getElementById('enMergeDialog');
+      if (existing) existing.remove();
+
+      var overlay = document.createElement('div');
+      overlay.id = 'enMergeDialog';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:200000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
+      overlay.innerHTML =
+        '<div style="background:white;border-radius:14px;width:min(460px,94vw);max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.35);">' +
+          '<div style="padding:16px 20px;background:#7c3aed;color:white;border-radius:14px 14px 0 0;">' +
+            '<div style="font-weight:700;font-size:1rem;">Merge duplicate</div>' +
+            '<div style="font-size:0.8rem;opacity:0.9;">Choose which spelling to keep</div>' +
+          '</div>' +
+          '<div style="padding:18px 20px;">' +
+            '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">' +
+              [nameA, nameB].map(function(n) {
+                return '<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid ' + (n === defaultSurvivor ? '#7c3aed' : '#e5e7eb') + ';border-radius:8px;cursor:pointer;">' +
+                  '<input type="radio" name="enMergeSurvivor" value="' + self.escapeHtml(n) + '"' + (n === defaultSurvivor ? ' checked' : '') + ' style="accent-color:#7c3aed;">' +
+                  '<span style="font-weight:600;color:#1f2933;">' + self.escapeHtml(n) + '</span>' +
+                '</label>';
+              }).join('') +
+            '</div>' +
+            '<div id="enMergeConflictArea"></div>' +
+            '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">' +
+              '<button id="enMergeCancelBtn" style="padding:9px 18px;border:1.5px solid #e5e7eb;border-radius:8px;background:white;color:#6b7280;cursor:pointer;font-weight:600;">Cancel</button>' +
+              '<button id="enMergeConfirmBtn" style="padding:9px 18px;border:none;border-radius:8px;background:#7c3aed;color:white;cursor:pointer;font-weight:600;">Confirm merge</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+      document.getElementById('enMergeCancelBtn').onclick = function() { overlay.remove(); };
+
+      function selectedSurvivor() {
+        var checked = overlay.querySelector('input[name="enMergeSurvivor"]:checked');
+        return checked ? checked.value : defaultSurvivor;
+      }
+
+      // Render (or clear) the contact-conflict picker whenever the chosen
+      // survivor changes, since which side is "the other spelling" flips.
+      function renderConflictArea() {
+        var survivor = selectedSurvivor();
+        var other = survivor === nameA ? nameB : nameA;
+        var survivorMeta = survivor === nameA ? metaA : metaB;
+        var otherMeta = other === nameA ? metaA : metaB;
+        var area = document.getElementById('enMergeConflictArea');
+        if (!area) return;
+
+        var phoneConflict = survivorMeta.phone && otherMeta.phone && survivorMeta.phone !== otherMeta.phone;
+        var emailConflict = survivorMeta.email && otherMeta.email && survivorMeta.email !== otherMeta.email;
+
+        if (!phoneConflict && !emailConflict) {
+          area.innerHTML = '';
+          return;
+        }
+        var rows = '';
+        if (phoneConflict) {
+          rows += '<div style="margin-bottom:10px;"><div style="font-size:12px;font-weight:600;color:#92400e;margin-bottom:4px;">Phone number differs -- keep which one?</div>' +
+            '<label style="display:block;font-size:13px;margin-bottom:3px;"><input type="radio" name="enMergePhone" value="' + self.escapeHtml(survivorMeta.phone) + '" checked style="accent-color:#7c3aed;"> ' + self.escapeHtml(survivorMeta.phone) + ' (' + self.escapeHtml(survivor) + ')</label>' +
+            '<label style="display:block;font-size:13px;"><input type="radio" name="enMergePhone" value="' + self.escapeHtml(otherMeta.phone) + '" style="accent-color:#7c3aed;"> ' + self.escapeHtml(otherMeta.phone) + ' (' + self.escapeHtml(other) + ')</label></div>';
+        }
+        if (emailConflict) {
+          rows += '<div style="margin-bottom:10px;"><div style="font-size:12px;font-weight:600;color:#92400e;margin-bottom:4px;">Email differs -- keep which one?</div>' +
+            '<label style="display:block;font-size:13px;margin-bottom:3px;"><input type="radio" name="enMergeEmail" value="' + self.escapeHtml(survivorMeta.email) + '" checked style="accent-color:#7c3aed;"> ' + self.escapeHtml(survivorMeta.email) + ' (' + self.escapeHtml(survivor) + ')</label>' +
+            '<label style="display:block;font-size:13px;"><input type="radio" name="enMergeEmail" value="' + self.escapeHtml(otherMeta.email) + '" style="accent-color:#7c3aed;"> ' + self.escapeHtml(otherMeta.email) + ' (' + self.escapeHtml(other) + ')</label></div>';
+        }
+        area.innerHTML = '<div style="padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;">' + rows + '</div>';
+      }
+      overlay.querySelectorAll('input[name="enMergeSurvivor"]').forEach(function(r) {
+        r.addEventListener('change', function() {
+          overlay.querySelectorAll('label').forEach(function(l) {
+            var input = l.querySelector('input[name="enMergeSurvivor"]');
+            if (input) l.style.borderColor = input.checked ? '#7c3aed' : '#e5e7eb';
+          });
+          renderConflictArea();
+        });
+      });
+      renderConflictArea();
+
+      document.getElementById('enMergeConfirmBtn').onclick = function() {
+        var survivor = selectedSurvivor();
+        var other = survivor === nameA ? nameB : nameA;
+        var survivorMeta = survivor === nameA ? metaA : metaB;
+        var otherMeta = other === nameA ? metaA : metaB;
+
+        var phoneRadio = overlay.querySelector('input[name="enMergePhone"]:checked');
+        var emailRadio = overlay.querySelector('input[name="enMergeEmail"]:checked');
+        var resolvedPhone = phoneRadio ? phoneRadio.value : (survivorMeta.phone || otherMeta.phone || '');
+        var resolvedEmail = emailRadio ? emailRadio.value : (survivorMeta.email || otherMeta.email || '');
+
+        var btn = document.getElementById('enMergeConfirmBtn');
+        btn.disabled = true; btn.textContent = 'Merging...';
+
+        if (typeof SBQ_ROSTER === 'undefined' || !SBQ_ROSTER.mergeNames) {
+          self.showToast('Merge is unavailable right now.', 'error');
+          overlay.remove();
+          return;
+        }
+        SBQ_ROSTER.mergeNames(other, survivor, resolvedPhone, resolvedEmail).then(function(result) {
+          if (!result.success) {
+            self.showToast('Merge had some errors: ' + result.errors.join('; '), 'error');
+          } else {
+            self.showToast('Merged "' + other + '" into "' + survivor + '"', 'success');
+          }
+          // Update in-memory option lists so the UI reflects the merge
+          // immediately, then do a full refresh from Supabase for consistency.
+          var otherCats = (self._enablersNameMap() || {})[other] || [];
+          Object.keys(ROSTER_NAME_OPTIONS).forEach(function(cat) {
+            var idx = ROSTER_NAME_OPTIONS[cat].indexOf(other);
+            if (idx !== -1) ROSTER_NAME_OPTIONS[cat].splice(idx, 1);
+            if (ROSTER_NAME_OPTIONS[cat].indexOf(survivor) === -1 && otherCats.indexOf(cat) !== -1) {
+              ROSTER_NAME_OPTIONS[cat].push(survivor);
+            }
+          });
+          delete ROSTER_MEMBER_STATUS[other];
+          delete ROSTER_UNAVAILABILITY[other];
+          overlay.remove();
+          self._loadEnablersData(self._enablersYear || new Date().getFullYear());
+        }).catch(function(e) {
+          self.showToast('Merge failed: ' + (e.message || e), 'error');
+          btn.disabled = false; btn.textContent = 'Confirm merge';
+        });
+      };
     },
 
     _saveContactToSupabase: function(name, phone, email, btn) {
@@ -69517,13 +69866,13 @@ function filterLiturgyItems() {
       if (!STATE.picMode) { self.showToast('PIC login required.', 'error'); return; }
       var catOrder = ['preacher','liturgist','usher','reader','communion','altar','pianist','guitarist','bassist','drummer','singer','lcd','pa','livestream','tech','sundayschool','general'];
       var namesSet = {};
-      catOrder.forEach(function(c){ (ROSTER_NAME_OPTIONS[c]||[]).forEach(function(n){ if(n) namesSet[n.trim().replace(/\s+/g, ' ')] = true; }); });
+      catOrder.forEach(function(c){ (ROSTER_NAME_OPTIONS[c]||[]).forEach(function(n){ if (!n) return; var k = _nameNorm(n); if (!namesSet[k]) namesSet[k] = n; }); });
       var mc = self._enablersMetaCache || {};
       var metaNorm = {};
-      Object.keys(mc).forEach(function(k){ metaNorm[k.trim().replace(/\s+/g, ' ')] = mc[k]; });
+      Object.keys(mc).forEach(function(k){ metaNorm[_nameNorm(k)] = mc[k]; });
       var members = Object.keys(namesSet)
-        .filter(function(n){ return metaNorm[n] && metaNorm[n].phone; })
-        .map(function(n){ return { name: n, phone: metaNorm[n].phone }; });
+        .filter(function(k){ return metaNorm[k] && metaNorm[k].phone; })
+        .map(function(k){ return { name: namesSet[k], phone: metaNorm[k].phone }; });
       if (!members.length) { self.showToast('No members have phone numbers saved yet. Add them in the All Enablers tab first.', 'error'); return; }
       if (!confirm('Send the calendar subscribe link to ' + members.length + ' members via WhatsApp?\n\nThis opens ' + members.length + ' WhatsApp windows one after another (one per member with a saved phone number).')) return;
       var idx = 0;
