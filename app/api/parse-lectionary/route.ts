@@ -105,7 +105,11 @@ export async function POST(req: NextRequest) {
     parts.push({ text: promptText });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      // Version-agnostic alias -- always points to the current, non-
+      // deprecated flash-tier model, so this route doesn't break every
+      // time Google retires an old dated model version (e.g. gemini-2.5-flash
+      // was retired for new API keys/projects).
+      model: 'gemini-flash-latest',
       contents: [{ role: 'user', parts }],
       config: {
         responseMimeType: 'application/json',
