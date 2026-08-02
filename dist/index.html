@@ -69321,12 +69321,22 @@ function filterLiturgyItems() {
     // overwrites an existing manually-entered value. Every cell it writes
     // is marked pending -- visible immediately, but excluded from the
     // instant Google Calendar push until the PIC confirms it.
-    runAutoSuggest: function() {
+    runAutoSuggest: function(selectedDates) {
       var self = this;
       if (!STATE.picMode) return;
 
       var serviceDays = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
       if (!serviceDays.length) { this.showToast('No service dates this month', 'warning'); return; }
+
+      // Optional scoping from the date-selection prompt -- when provided,
+      // only these dates are considered at all (others are neither filled
+      // nor reported as "missing service type").
+      if (Array.isArray(selectedDates) && selectedDates.length) {
+        var selectedSet = {};
+        selectedDates.forEach(function(d) { selectedSet[d] = true; });
+        serviceDays = serviceDays.filter(function(day) { return selectedSet[day.dateStr]; });
+        if (!serviceDays.length) { this.showToast('No dates selected', 'warning'); return; }
+      }
 
       var dateTeam = {};       // dateStr -> 'traditional' | 'contemporary'
       var missingServiceType = [];
@@ -69401,6 +69411,24 @@ function filterLiturgyItems() {
             var cellKey = role.id + '__' + dateKeySuffix;
             var existing = STATE.rosterEdits.get(cellKey);
             if (existing && existing !== '__BLANK__' && typeof existing !== 'object') return; // never overwrite manual entries
+
+            // Communion Assistant 1 is a combined duty with the Liturgist --
+            // not an independent rotation pick, so it just mirrors whatever
+            // was assigned to Liturgist for this date (no separate candidate
+            // scoring, no separate 2x/month count, since it's one duty, not two).
+            if (role.id === 'communion1') {
+              var liturgistVal = STATE.rosterEdits.get('liturgist__' + dateKeySuffix);
+              if (liturgistVal && liturgistVal !== '__BLANK__' && typeof liturgistVal !== 'object') {
+                STATE.rosterEdits.set(cellKey, liturgistVal);
+                STATE.rosterPendingCells.add(cellKey);
+                STATE.rosterCellTimestamps.set(cellKey, new Date().toISOString());
+                assignedToday[_afKey(liturgistVal)] = true;
+                fills.push({ date: dateStr, roleLabel: role.label, name: liturgistVal });
+              } else {
+                couldNotFill.push({ date: dateStr, roleLabel: role.label + ' (needs Liturgist assigned first)' });
+              }
+              return;
+            }
 
             var category = getRoleCategory(role.id);
             var pool = _autoFillPoolForRole(role.id, category, team);
@@ -69516,19 +69544,43 @@ function filterLiturgyItems() {
       var existing = document.getElementById('rosterAutoSuggestConfirmModal');
       if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
       var self = this;
+
+      var serviceDays = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      if (!serviceDays.length) { this.showToast('No service dates this month', 'warning'); return; }
+
+      var rowsHtml = serviceDays.map(function(day, idx) {
+        var key = 'service_type__' + day.dateStr.replace(/\s/g, '_');
+        var val = STATE.rosterEdits.get(key);
+        var hasType = val === 'Traditional' || val === 'Contemporary';
+        var warn = hasType ? '' : '<span style="margin-left:auto;font-size:0.7rem;color:#b45309;font-weight:600;white-space:nowrap;">No Service Type set</span>';
+        return '<label style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
+          '<input type="checkbox" class="roster-as-date-cb" data-date="' + self.escapeHtml(day.dateStr) + '" checked style="width:16px;height:16px;flex-shrink:0;">' +
+          '<span style="font-size:0.85rem;color:#1f2933;">' + self.escapeHtml(day.displayName || day.dateStr) + '</span>' +
+          warn +
+        '</label>';
+      }).join('');
+
       var overlay = document.createElement('div');
       overlay.id = 'rosterAutoSuggestConfirmModal';
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
       overlay.innerHTML =
-        '<div style="background:#fff;max-width:420px;width:90%;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
-          '<div style="background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;">' +
+        '<div style="background:#fff;max-width:440px;width:92%;max-height:82vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
+          '<div style="background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;">' +
             '<i class="fa-solid fa-wand-magic-sparkles" style="font-size:1.3rem;"></i>' +
-            '<div style="font-weight:700;font-size:1.05rem;">Auto-Suggest This Month?</div>' +
+            '<div style="font-weight:700;font-size:1.05rem;">Auto-Suggest This Month</div>' +
           '</div>' +
-          '<div style="padding:18px 20px;">' +
-            '<p style="margin:0;font-size:0.88rem;color:#1f2933;line-height:1.55;">This fills every blank, applicable duty for ' + this.escapeHtml(this.MONTHS[STATE.rosterMonth]) + ' ' + STATE.rosterYear + ' based on rotation, availability, and the 2x/month cap. Existing entries are never overwritten. Filled cells are highlighted yellow until you confirm them -- nothing is sent to Google Calendar yet.</p>' +
+          '<div style="padding:16px 20px 8px;flex:1;overflow-y:auto;">' +
+            '<p style="margin:0 0 12px;font-size:0.85rem;color:#1f2933;line-height:1.5;">Fills every blank, applicable duty based on rotation, availability, and the 2x/month cap. Existing entries are never overwritten. Filled cells are highlighted yellow until you confirm them -- nothing is sent to Google Calendar yet.</p>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+              '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Dates to include</span>' +
+              '<div style="display:flex;gap:8px;">' +
+                '<button type="button" id="rosterAsSelectAll" style="background:none;border:none;color:#0d9488;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select All</button>' +
+                '<button type="button" id="rosterAsSelectNone" style="background:none;border:none;color:#6b7280;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select None</button>' +
+              '</div>' +
+            '</div>' +
+            '<div style="border:1px solid #e5e7eb;border-radius:8px;">' + rowsHtml + '</div>' +
           '</div>' +
-          '<div style="display:flex;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;gap:10px;">' +
+          '<div style="display:flex;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;gap:10px;flex-shrink:0;">' +
             '<button id="rosterAutoSuggestCancelBtn" style="padding:8px 16px;border-radius:8px;border:1px solid #d1d5db;background:#fff;color:#4b5563;font-weight:600;font-size:0.85rem;cursor:pointer;">Cancel</button>' +
             '<button id="rosterAutoSuggestGoBtn" style="padding:8px 16px;border-radius:8px;border:none;background:#0d9488;color:#fff;font-weight:600;font-size:0.85rem;cursor:pointer;">Auto-Suggest</button>' +
           '</div>' +
@@ -69536,7 +69588,18 @@ function filterLiturgyItems() {
       document.body.appendChild(overlay);
       var close = function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
       overlay.querySelector('#rosterAutoSuggestCancelBtn').onclick = close;
-      overlay.querySelector('#rosterAutoSuggestGoBtn').onclick = function() { close(); self.runAutoSuggest(); };
+      overlay.querySelector('#rosterAsSelectAll').onclick = function() {
+        overlay.querySelectorAll('.roster-as-date-cb').forEach(function(cb) { cb.checked = true; });
+      };
+      overlay.querySelector('#rosterAsSelectNone').onclick = function() {
+        overlay.querySelectorAll('.roster-as-date-cb').forEach(function(cb) { cb.checked = false; });
+      };
+      overlay.querySelector('#rosterAutoSuggestGoBtn').onclick = function() {
+        var selected = Array.from(overlay.querySelectorAll('.roster-as-date-cb:checked')).map(function(cb) { return cb.getAttribute('data-date'); });
+        if (!selected.length) { self.showToast('Select at least one date', 'warning'); return; }
+        close();
+        self.runAutoSuggest(selected);
+      };
     },
 
     // Clear the pending flag for every pending cell in the viewed month and
