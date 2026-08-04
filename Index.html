@@ -69498,6 +69498,7 @@ function filterLiturgyItems() {
             if (role.id === 'communion1') {
               var liturgistVal = STATE.rosterEdits.get('liturgist__' + dateKeySuffix);
               if (liturgistVal && liturgistVal !== '__BLANK__' && typeof liturgistVal !== 'object') {
+                _rPushUndo(cellKey, existing, liturgistVal, false, true);
                 STATE.rosterEdits.set(cellKey, liturgistVal);
                 STATE.rosterPendingCells.add(cellKey);
                 STATE.rosterCellTimestamps.set(cellKey, new Date().toISOString());
@@ -69598,6 +69599,7 @@ function filterLiturgyItems() {
 
             var winner = candidates[0];
             var winnerKey = _afKey(winner);
+            _rPushUndo(cellKey, existing, winner, false, true);
             STATE.rosterEdits.set(cellKey, winner);
             STATE.rosterPendingCells.add(cellKey);
             STATE.rosterCellTimestamps.set(cellKey, new Date().toISOString());
@@ -70574,7 +70576,15 @@ function filterLiturgyItems() {
       }
       this._refreshCellPendingVisual(entry.key);
       this._updateConfirmPendingButton();
-      this.saveChanges(true);
+      // Debounced, not an immediate saveChanges() -- saveChanges always
+      // re-uploads the WHOLE month's current state, and a rapid run of
+      // undo/redo clicks (or holding Ctrl+Z) fires this on every single
+      // step. Two overlapping async saves can resolve out of order, so
+      // an earlier (now-stale) request finishing last would silently
+      // clobber the correct final state in the database. markUnsaved()
+      // reuses the same debounce as normal cell edits: it coalesces a
+      // burst of steps into exactly one save of the true end state.
+      this.markUnsaved();
       // A step that just turned a pending cell into confirmed (whether
       // that's the forward action on redo, or undoing an "un-confirm")
       // notifies the assignee's calendar -- the same trigger a direct
