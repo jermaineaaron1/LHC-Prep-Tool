@@ -5645,7 +5645,7 @@
             <button class="roster-icon-btn roster-icon-btn-save" id="rosterSaveBtn" title="Save Changes"><i class="fa-solid fa-floppy-disk"></i></button>
             <span class="roster-status-pill sync-now pic-only" id="rosterSyncNowBtn" onclick="RosterEngine.syncCalendarNow()" title="Force an immediate Google Calendar reconciliation pass"><span class="dot"></span>Sync Now</span>
             <span class="roster-status-pill autosuggest pic-only" id="rosterAutoSuggestBtn" onclick="RosterEngine.confirmAutoSuggestPrompt()" title="Auto-fill blank duties this month based on rotation, availability, and the 2x/month cap"><span class="dot"></span>Auto-Suggest</span>
-            <span class="roster-status-pill confirm-pending pic-only hidden" id="rosterConfirmPendingBtn" onclick="RosterEngine.confirmAllPending()" title="Confirm all auto-suggested assignments this month and notify their calendars"><span class="dot"></span>Confirm Pending (<span id="rosterPendingCount">0</span>)</span>
+            <span class="roster-status-pill confirm-pending pic-only hidden" id="rosterConfirmPendingBtn" onclick="RosterEngine.confirmPendingPrompt()" title="Confirm auto-suggested assignments (individually, per role, or all) and notify their calendars"><span class="dot"></span>Confirm Pending (<span id="rosterPendingCount">0</span>)</span>
             <span class="roster-status-pill clear-services pic-only" id="rosterClearServicesBtn" onclick="RosterEngine.confirmClearServicesPrompt()" title="Blank all duty assignments for one or more dates"><span class="dot"></span>Clear Services</span>
             <span id="rosterAutoSaveStatus" class="ml-3 font-semibold hidden"></span>
             <span id="rosterUnsavedIndicator" class="ml-3 text-amber-600 font-semibold hidden">
@@ -65469,6 +65469,7 @@ function filterLiturgyItems() {
 <div id="rosterContextMenu" class="roster-context-menu">
   <div class="roster-context-menu-item" id="ctxEditCell"><i class="fa-solid fa-pen mr-2"></i> Edit Cell</div>
   <div class="roster-context-menu-item" id="ctxClearCell"><i class="fa-solid fa-eraser mr-2"></i> Clear Cell</div>
+  <div class="roster-context-menu-item hidden" id="ctxConfirmCell"><i class="fa-solid fa-circle-check mr-2"></i> Confirm This Assignment</div>
   <div class="roster-context-menu-item" id="ctxSeeChangeLog"><i class="fa-solid fa-clock-rotate-left mr-2"></i> See Change Log</div>
   <div class="roster-context-menu-divider"></div>
   <div class="roster-context-menu-info" id="ctxLastEdited"><i class="fa-solid fa-clock mr-1"></i> Last edited: Never</div>
@@ -65616,7 +65617,8 @@ function filterLiturgyItems() {
     communion1: ['contemporary'], communion2: ['contemporary'], communion3: ['contemporary'],
     altar1: ['contemporary'], altar2: ['contemporary'],
     guitarist: ['traditional'], bassist: ['traditional'], drummer: ['traditional'],
-    singer3: ['traditional'], singer4: ['traditional']
+    singer3: ['traditional'], singer4: ['traditional'],
+    ssteacher1: ['traditional'], ssteacher2: ['traditional'], ssteacher3: ['traditional']
   };
 
   function _autoFillRoleApplies(roleId, team) {
@@ -66126,12 +66128,18 @@ function filterLiturgyItems() {
   }
 
   // ── Roster undo/redo stack (session-only — cleared on page refresh) ─────────
-  var _rUndoStack = [];   // [{key, oldVal, newVal}]
+  // oldPending/newPending are optional -- undefined means "this step doesn't
+  // touch the pending-confirmation flag" (the vast majority of plain cell
+  // edits). Clear Services and Confirm Pending both pass real before/after
+  // pending states so undo/redo can restore BOTH the value and whether the
+  // cell counts as pending -- e.g. undoing a Confirm puts the exact same
+  // assignment back to "awaiting confirmation," not just re-writes the name.
+  var _rUndoStack = [];   // [{key, oldVal, newVal, oldPending, newPending}]
   var _rRedoStack = [];
   var _rAutoSaveTimer = null;
 
-  function _rPushUndo(key, oldVal, newVal) {
-    _rUndoStack.push({ key: key, oldVal: oldVal, newVal: newVal });
+  function _rPushUndo(key, oldVal, newVal, oldPending, newPending) {
+    _rUndoStack.push({ key: key, oldVal: oldVal, newVal: newVal, oldPending: oldPending, newPending: newPending });
     if (_rUndoStack.length > 100) _rUndoStack.shift();
     _rRedoStack = [];
     _rUpdateUndoBtn();
@@ -66896,9 +66904,17 @@ function filterLiturgyItems() {
       document.addEventListener('click', function() { if (menu) menu.classList.remove('show'); });
       var editBtn = document.getElementById('ctxEditCell');
       var clearBtn = document.getElementById('ctxClearCell');
+      var confirmBtn = document.getElementById('ctxConfirmCell');
       var changeLogBtn = document.getElementById('ctxSeeChangeLog');
       if (editBtn) editBtn.onclick = function() { if (self._contextCell) self.editCell(self._contextCell); menu.classList.remove('show'); };
       if (clearBtn) clearBtn.onclick = function() { if (self._contextCell) self.clearCell(self._contextCell); menu.classList.remove('show'); };
+      if (confirmBtn) confirmBtn.onclick = function() {
+        if (self._contextCell) {
+          var key = self._contextCell.getAttribute('data-key');
+          self.confirmPendingCells([key], null);
+        }
+        menu.classList.remove('show');
+      };
       if (changeLogBtn) changeLogBtn.onclick = function() { 
         if (self._contextCell) {
           var roleId = self._contextCell.getAttribute('data-role');
@@ -66961,6 +66977,11 @@ function filterLiturgyItems() {
       if (y + 220 > window.innerHeight) y = window.innerHeight - 230;
       menu.style.left = x + 'px';
       menu.style.top = y + 'px';
+      var confirmBtn = document.getElementById('ctxConfirmCell');
+      if (confirmBtn) {
+        var cellKey = td.getAttribute('data-key');
+        confirmBtn.classList.toggle('hidden', !(cellKey && STATE.rosterPendingCells.has(cellKey)));
+      }
       var timestamp = td.getAttribute('data-timestamp');
       var lastEditedEl = document.getElementById('ctxLastEdited');
       if (lastEditedEl) {
@@ -67020,15 +67041,20 @@ function filterLiturgyItems() {
     clearCell: function(td) {
       var key = td.getAttribute('data-key');
       var oldVal = STATE.rosterEdits.get(key);
+      var wasPending = STATE.rosterPendingCells.has(key);
       var isLiturgical = td.closest('tr') && td.closest('tr').classList.contains('roster-liturgical-row');
       // Use '__BLANK__' so auto-save can push the cleared state to Supabase.
       // Deleting from the map would leave the old value in the DB - cleared
       // cells would reappear on next load from any device.
-      _rPushUndo(key, oldVal, '__BLANK__');
+      _rPushUndo(key, oldVal, '__BLANK__', wasPending, false);
       STATE.rosterEdits.set(key, '__BLANK__');
       STATE.rosterCellTimestamps.delete(key);
+      STATE.rosterPendingCells.delete(key);
       td.removeAttribute('data-timestamp');
-      td.classList.remove('roster-cell-edited');
+      td.classList.remove('roster-cell-edited', 'roster-cell-pending');
+      var pendingIcon = td.querySelector('.roster-cell-pending-icon');
+      if (pendingIcon) pendingIcon.remove();
+      this._updateConfirmPendingButton();
       if (isLiturgical) {
         var color = this.DEFAULT_COLORS[STATE.rosterMonth] || 'Green';
         td.setAttribute('data-color', color);
@@ -67154,6 +67180,11 @@ function filterLiturgyItems() {
         removeFloatingPanel();
         var oldVal = STATE.rosterEdits.get(key);
         var timestamp = new Date().toISOString();
+        // A manual pick is an implicit confirm -- a PIC directly choosing
+        // (or blanking) this cell means it's no longer "awaiting review,"
+        // whatever it was before.
+        var wasPending = STATE.rosterPendingCells.has(key);
+        STATE.rosterPendingCells.delete(key);
         if (newValue === '__BLANK__') {
           STATE.rosterEdits.set(key, '__BLANK__');
           td.innerHTML = '<span class="roster-cell-value" style="color:#d1d5db;">-</span><span class="roster-cell-dropdown-icon" style="color:#9ca3af;"><i class="fa-solid fa-caret-down"></i></span>';
@@ -67168,9 +67199,11 @@ function filterLiturgyItems() {
           td.removeAttribute('data-blank');
           if (displayValue !== '-') td.classList.add('roster-cell-edited');
         }
+        td.classList.remove('roster-cell-pending');
         STATE.rosterCellTimestamps.set(key, timestamp);
         td.setAttribute('data-timestamp', timestamp);
-        _rPushUndo(key, oldVal, newValue);
+        _rPushUndo(key, oldVal, newValue, wasPending, false);
+        self._updateConfirmPendingButton();
         self.markUnsaved();
         self.bindCellEvents();
         self.checkClashes(td);
@@ -69387,13 +69420,20 @@ function filterLiturgyItems() {
       function _afKey(name) { return (name || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
 
       // Tally each person's existing duty count THIS month (manual entries
-      // and any earlier auto-suggest run already in rosterEdits).
+      // and any earlier auto-suggest run already in rosterEdits) -- both
+      // overall (any role) and per-role (this exact role only). Per-role
+      // count is checked first during selection so a team rotates through
+      // everyone else in its pool before repeating the same person for the
+      // SAME role, even if that person is otherwise "fresh" overall.
       var monthCount = {};
+      var perRoleMonthCount = {}; // roleId -> { personKey: count }
       STATE.rosterEdits.forEach(function(value, key) {
         var roleId = key.split('__')[0];
         if (!roleIdSet[roleId] || !value || value === '__BLANK__' || typeof value === 'object') return;
         var k = _afKey(value);
         monthCount[k] = (monthCount[k] || 0) + 1;
+        if (!perRoleMonthCount[roleId]) perRoleMonthCount[roleId] = {};
+        perRoleMonthCount[roleId][k] = (perRoleMonthCount[roleId][k] || 0) + 1;
       });
 
       this.showLoader(true);
@@ -69535,13 +69575,23 @@ function filterLiturgyItems() {
               if (role.id === 'liturgist') return tier;
               return tier * 10 + ((monthCount[k] || 0) >= 2 ? 1 : 0) + (k === backToBackKey ? 1 : 0);
             }
+            var roleCounts = perRoleMonthCount[role.id] || {};
             candidates.sort(function(a, b) {
               var sa = score(a), sb = score(b);
               if (sa !== sb) return sa - sb;
-              var ca = monthCount[_afKey(a)] || 0, cb = monthCount[_afKey(b)] || 0;
+              var ka = _afKey(a), kb = _afKey(b);
+              // Per-role rotation: prefer whoever hasn't done THIS role yet
+              // this month, so a repeat only happens once everyone else in
+              // the pool has already had a turn -- and when a repeat is
+              // unavoidable, this naturally pushes it to the latest
+              // possible date (dates are processed chronologically, and
+              // fresher candidates keep winning earlier dates first).
+              var ra = roleCounts[ka] || 0, rb = roleCounts[kb] || 0;
+              if (ra !== rb) return ra - rb;
+              var ca = monthCount[ka] || 0, cb = monthCount[kb] || 0;
               if (ca !== cb) return ca - cb;
-              var la = lastServedMonth[_afKey(a)] === undefined ? -Infinity : lastServedMonth[_afKey(a)];
-              var lb = lastServedMonth[_afKey(b)] === undefined ? -Infinity : lastServedMonth[_afKey(b)];
+              var la = lastServedMonth[ka] === undefined ? -Infinity : lastServedMonth[ka];
+              var lb = lastServedMonth[kb] === undefined ? -Infinity : lastServedMonth[kb];
               if (la !== lb) return la - lb;
               return a.localeCompare(b);
             });
@@ -69552,6 +69602,8 @@ function filterLiturgyItems() {
             STATE.rosterPendingCells.add(cellKey);
             STATE.rosterCellTimestamps.set(cellKey, new Date().toISOString());
             monthCount[winnerKey] = (monthCount[winnerKey] || 0) + 1;
+            if (!perRoleMonthCount[role.id]) perRoleMonthCount[role.id] = {};
+            perRoleMonthCount[role.id][winnerKey] = (perRoleMonthCount[role.id][winnerKey] || 0) + 1;
             assignedToday[winnerKey] = true;
             fills.push({ date: dateStr, roleLabel: role.label, name: winner });
           });
@@ -69726,7 +69778,18 @@ function filterLiturgyItems() {
             '<div style="font-weight:700;font-size:1.05rem;">Clear Services</div>' +
           '</div>' +
           '<div style="padding:16px 20px 8px;flex:1;overflow-y:auto;">' +
-            '<p style="margin:0 0 12px;font-size:0.85rem;color:#991b1b;line-height:1.5;"><strong>This blanks every duty and Service Type for the dates you select</strong> -- roles, ushers, readers, communion, music, tech, all of it. This cannot be undone once saved. Select the date(s) to reset:</p>' +
+            '<p style="margin:0 0 12px;font-size:0.85rem;color:#991b1b;line-height:1.5;"><strong>This blanks duties and Service Type for the dates you select</strong> -- roles, ushers, readers, communion, music, tech, all of it. This can be undone via the Undo button right after. Select the date(s) to reset:</p>' +
+            '<div style="margin-bottom:14px;">' +
+              '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;display:block;margin-bottom:6px;">Clear which duties</span>' +
+              '<div style="display:flex;gap:6px;">' +
+                '<label style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 4px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;font-size:0.78rem;color:#374151;font-weight:600;">' +
+                  '<input type="radio" name="rosterCsFilter" value="all" checked style="margin:0;">All</label>' +
+                '<label style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 4px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;font-size:0.78rem;color:#b45309;font-weight:600;">' +
+                  '<input type="radio" name="rosterCsFilter" value="pending" style="margin:0;">Pending only</label>' +
+                '<label style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 4px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;font-size:0.78rem;color:#0d9488;font-weight:600;">' +
+                  '<input type="radio" name="rosterCsFilter" value="confirmed" style="margin:0;">Confirmed only</label>' +
+              '</div>' +
+            '</div>' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
               '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Dates to clear</span>' +
               '<div style="display:flex;gap:8px;">' +
@@ -69753,20 +69816,26 @@ function filterLiturgyItems() {
       overlay.querySelector('#rosterClearServicesGoBtn').onclick = function() {
         var selected = Array.from(overlay.querySelectorAll('.roster-cs-date-cb:checked')).map(function(cb) { return cb.getAttribute('data-date'); });
         if (!selected.length) { self.showToast('Select at least one date', 'warning'); return; }
+        var filterEl = overlay.querySelector('input[name="rosterCsFilter"]:checked');
+        var filter = filterEl ? filterEl.value : 'all';
         close();
-        self.clearServices(selected);
+        self.clearServices(selected, filter);
       };
     },
 
     // Blanks every role/scripture/service-type cell for the given dates
     // (leaves the liturgical day/color row and header rows untouched --
-    // those aren't duty assignments). Pushes each change onto the undo
-    // stack individually so "Undo" can restore one cell at a time if a PIC
-    // clears the wrong date by mistake.
-    clearServices: function(selectedDates) {
+    // those aren't duty assignments). `filter` narrows WHICH cells count:
+    // 'pending' only clears cells still awaiting confirmation, 'confirmed'
+    // only clears cells a PIC already approved, 'all' (default) clears
+    // both. Pushes each change onto the undo stack individually -- with
+    // its pre-clear pending state -- so "Undo" restores the exact value
+    // AND whether it was still pending, one cell at a time.
+    clearServices: function(selectedDates, filter) {
       var self = this;
       if (!STATE.picMode) return;
       if (!selectedDates || !selectedDates.length) return;
+      filter = filter || 'all';
       var clearDefs = this.ROLES.filter(function(r) { return r.type === 'role' || r.type === 'scripture' || r.type === 'service-type'; });
       var dateSet = {};
       selectedDates.forEach(function(d) { dateSet[d.replace(/\s/g, '_')] = true; });
@@ -69776,51 +69845,132 @@ function filterLiturgyItems() {
           var cellKey = role.id + '__' + dateKeySuffix;
           var oldVal = STATE.rosterEdits.get(cellKey);
           if (oldVal === undefined || oldVal === '__BLANK__') return;
-          _rPushUndo(cellKey, oldVal, '__BLANK__');
+          var isPending = STATE.rosterPendingCells.has(cellKey);
+          if (filter === 'pending' && !isPending) return;
+          if (filter === 'confirmed' && isPending) return;
+          _rPushUndo(cellKey, oldVal, '__BLANK__', isPending, false);
           STATE.rosterEdits.set(cellKey, '__BLANK__');
           STATE.rosterCellTimestamps.delete(cellKey);
           STATE.rosterPendingCells.delete(cellKey);
           count++;
         });
       });
-      if (!count) { this.showToast('Nothing to clear for the selected date(s)', 'warning'); return; }
+      if (!count) {
+        var scopeNote = filter === 'pending' ? ' (pending only)' : filter === 'confirmed' ? ' (confirmed only)' : '';
+        this.showToast('Nothing to clear for the selected date(s)' + scopeNote, 'warning');
+        return;
+      }
       this.render();
       this.saveChanges();
       this.showToast('Cleared ' + count + ' cell' + (count === 1 ? '' : 's') + ' across ' + selectedDates.length + ' date' + (selectedDates.length === 1 ? '' : 's'), 'success');
     },
 
-    // Clear the pending flag for every pending cell in the viewed month and
-    // push those (now-confirmed) cells to Google Calendar -- the one point
-    // where an auto-suggested assignment actually notifies the assignee.
-    confirmAllPending: function() {
+    // Core confirm action, shared by the individual context-menu "Confirm
+    // This Assignment," the role-scoped checklist, and "confirm everything"
+    // -- all three just gather a different cellKeys list and call this.
+    // Clears the pending flag (with a proper undo entry per cell, so an
+    // accidental confirm can be reverted), persists via the normal
+    // rosterEdits/saveChanges pipeline, then notifies calendars for
+    // exactly the cells that just became confirmed -- the one point where
+    // an auto-suggested assignment actually reaches the assignee.
+    confirmPendingCells: function(cellKeys, scopeLabel) {
       var self = this;
       if (!STATE.picMode) return;
-      var pendingThisMonth = [];
-      STATE.rosterPendingCells.forEach(function(key) {
-        var parts = key.split('__');
-        pendingThisMonth.push({ roleId: parts[0], date: parts[1].replace(/_/g, ' ') });
-      });
-      if (!pendingThisMonth.length) { this.showToast('No pending cells to confirm', 'warning'); return; }
+      cellKeys = (cellKeys || []).filter(function(key) { return STATE.rosterPendingCells.has(key); });
+      if (!cellKeys.length) { this.showToast('No pending cells to confirm', 'warning'); return; }
 
-      this.showLoader(true);
-      SBQ_ROSTER.confirmPending(STATE.rosterMonth, STATE.rosterYear).then(function() {
-        pendingThisMonth.forEach(function(c) {
-          STATE.rosterPendingCells.delete(c.roleId + '__' + c.date.replace(/\s/g, '_'));
-        });
-        self.render();
-        self.showLoader(false);
-        self.showToast('Confirmed ' + pendingThisMonth.length + ' assignment' + (pendingThisMonth.length === 1 ? '' : 's'), 'success');
-        // Now notify calendars for the newly-confirmed cells only.
-        fetch('/api/calendar-sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cells: pendingThisMonth.map(function(c) { return { roleId: c.roleId, date: c.date, month: STATE.rosterMonth, year: STATE.rosterYear }; }) })
-        }).catch(function(err) { console.warn('[calendar-sync] confirm push failed, will self-heal via reconciliation:', err); });
-      }).catch(function(err) {
-        console.error('confirmAllPending error:', err);
-        self.showLoader(false);
-        self.showToast('Failed to confirm: ' + err.message, 'error');
+      var calendarCells = [];
+      cellKeys.forEach(function(key) {
+        var value = STATE.rosterEdits.get(key);
+        var parts = key.split('__');
+        _rPushUndo(key, value, value, true, false);
+        STATE.rosterPendingCells.delete(key);
+        self._refreshCellPendingVisual(key);
+        calendarCells.push({ roleId: parts[0], date: parts[1].replace(/_/g, ' '), month: STATE.rosterMonth, year: STATE.rosterYear });
       });
+      this._updateConfirmPendingButton();
+      this.saveChanges();
+      this.showToast('Confirmed ' + cellKeys.length + ' assignment' + (cellKeys.length === 1 ? '' : 's') + (scopeLabel ? ' (' + scopeLabel + ')' : ''), 'success');
+      fetch('/api/calendar-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cells: calendarCells })
+      }).catch(function(err) { console.warn('[calendar-sync] confirm push failed, will self-heal via reconciliation:', err); });
+    },
+
+    // Role-scoped checklist -- lets a PIC confirm one role's pending
+    // assignments across the month, several roles, or everything at once,
+    // instead of only an all-or-nothing confirm.
+    confirmPendingPrompt: function() {
+      var existing = document.getElementById('rosterConfirmPendingModal');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      var self = this;
+      if (!STATE.picMode) return;
+
+      var countByRole = {}; // roleId -> count
+      STATE.rosterPendingCells.forEach(function(key) {
+        var roleId = key.split('__')[0];
+        countByRole[roleId] = (countByRole[roleId] || 0) + 1;
+      });
+      var pendingRoleIds = Object.keys(countByRole);
+      if (!pendingRoleIds.length) { this.showToast('No pending cells to confirm', 'warning'); return; }
+
+      var roleDefs = this.ROLES.filter(function(r) { return pendingRoleIds.indexOf(r.id) !== -1; });
+      var rowsHtml = roleDefs.map(function(role) {
+        return '<label style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
+          '<input type="checkbox" class="roster-cp-role-cb" data-role="' + self.escapeHtml(role.id) + '" checked style="width:16px;height:16px;flex-shrink:0;">' +
+          '<span style="font-size:0.85rem;color:#1f2933;flex:1;">' + self.escapeHtml(role.label) + '</span>' +
+          '<span style="font-size:0.72rem;color:#b45309;font-weight:600;">' + countByRole[role.id] + ' pending</span>' +
+        '</label>';
+      }).join('');
+
+      var overlay = document.createElement('div');
+      overlay.id = 'rosterConfirmPendingModal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
+      overlay.innerHTML =
+        '<div style="background:#fff;max-width:440px;width:92%;max-height:82vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
+          '<div style="background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;">' +
+            '<i class="fa-solid fa-circle-check" style="font-size:1.3rem;"></i>' +
+            '<div style="font-weight:700;font-size:1.05rem;">Confirm Pending</div>' +
+          '</div>' +
+          '<div style="padding:16px 20px 8px;flex:1;overflow-y:auto;">' +
+            '<p style="margin:0 0 12px;font-size:0.85rem;color:#1f2933;line-height:1.5;">Approves the auto-suggested picks for the roles you select and notifies their calendars. This can be undone via the Undo button right after.</p>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+              '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Roles to confirm</span>' +
+              '<div style="display:flex;gap:8px;">' +
+                '<button type="button" id="rosterCpSelectAll" style="background:none;border:none;color:#0d9488;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select All</button>' +
+                '<button type="button" id="rosterCpSelectNone" style="background:none;border:none;color:#6b7280;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select None</button>' +
+              '</div>' +
+            '</div>' +
+            '<div style="border:1px solid #e5e7eb;border-radius:8px;">' + rowsHtml + '</div>' +
+          '</div>' +
+          '<div style="display:flex;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;gap:10px;flex-shrink:0;">' +
+            '<button id="rosterConfirmPendingCancelBtn" style="padding:8px 16px;border-radius:8px;border:1px solid #d1d5db;background:#fff;color:#4b5563;font-weight:600;font-size:0.85rem;cursor:pointer;">Cancel</button>' +
+            '<button id="rosterConfirmPendingGoBtn" style="padding:8px 16px;border-radius:8px;border:none;background:#0d9488;color:#fff;font-weight:600;font-size:0.85rem;cursor:pointer;">Confirm Selected</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      var close = function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+      overlay.querySelector('#rosterConfirmPendingCancelBtn').onclick = close;
+      overlay.querySelector('#rosterCpSelectAll').onclick = function() {
+        overlay.querySelectorAll('.roster-cp-role-cb').forEach(function(cb) { cb.checked = true; });
+      };
+      overlay.querySelector('#rosterCpSelectNone').onclick = function() {
+        overlay.querySelectorAll('.roster-cp-role-cb').forEach(function(cb) { cb.checked = false; });
+      };
+      overlay.querySelector('#rosterConfirmPendingGoBtn').onclick = function() {
+        var selectedRoleIds = Array.from(overlay.querySelectorAll('.roster-cp-role-cb:checked')).map(function(cb) { return cb.getAttribute('data-role'); });
+        if (!selectedRoleIds.length) { self.showToast('Select at least one role', 'warning'); return; }
+        var roleSet = {};
+        selectedRoleIds.forEach(function(id) { roleSet[id] = true; });
+        var cellKeys = [];
+        STATE.rosterPendingCells.forEach(function(key) {
+          if (roleSet[key.split('__')[0]]) cellKeys.push(key);
+        });
+        var scopeLabel = selectedRoleIds.length === pendingRoleIds.length ? 'all roles' : selectedRoleIds.length + ' role' + (selectedRoleIds.length === 1 ? '' : 's');
+        close();
+        self.confirmPendingCells(cellKeys, scopeLabel);
+      };
     },
 
     downloadCSV: function() {
@@ -70393,7 +70543,7 @@ function filterLiturgyItems() {
       if (!_rUndoStack.length) { this.showToast('Nothing to undo', 'info'); return; }
       var entry = _rUndoStack.pop();
       _rRedoStack.push(entry);
-      this._applyRosterVal(entry.key, entry.oldVal);
+      this._applyUndoRedoEntry(entry, true);
       _rUpdateUndoBtn();
       this.showToast('Undo: ' + entry.key.split('__')[0].replace(/([A-Z])/g,' $1'), 'info');
     },
@@ -70402,8 +70552,60 @@ function filterLiturgyItems() {
       if (!_rRedoStack.length) return;
       var entry = _rRedoStack.pop();
       _rUndoStack.push(entry);
-      this._applyRosterVal(entry.key, entry.newVal);
+      this._applyUndoRedoEntry(entry, false);
       _rUpdateUndoBtn();
+      this.showToast('Redo: ' + entry.key.split('__')[0].replace(/([A-Z])/g,' $1'), 'info');
+    },
+
+    // Shared restore step for both undo (toOld=true) and redo (toOld=false).
+    // Handles the value AND, when the entry carries it, the pending-
+    // confirmation flag -- so undoing a Clear restores exactly what was
+    // there before (including whether it was still awaiting confirmation),
+    // and undoing a Confirm puts the cell back to "pending" rather than
+    // just leaving the name in place with no way to tell it was reverted.
+    _applyUndoRedoEntry: function(entry, toOld) {
+      var value = toOld ? entry.oldVal : entry.newVal;
+      var pending = toOld ? entry.oldPending : entry.newPending;
+      var wasPending = STATE.rosterPendingCells.has(entry.key);
+      this._applyRosterVal(entry.key, value);
+      if (pending !== undefined) {
+        if (pending) STATE.rosterPendingCells.add(entry.key);
+        else STATE.rosterPendingCells.delete(entry.key);
+      }
+      this._refreshCellPendingVisual(entry.key);
+      this._updateConfirmPendingButton();
+      this.saveChanges(true);
+      // A step that just turned a pending cell into confirmed (whether
+      // that's the forward action on redo, or undoing an "un-confirm")
+      // notifies the assignee's calendar -- the same trigger a direct
+      // Confirm uses. The reverse (confirmed -> pending) never notifies.
+      if (pending === false && wasPending) {
+        var parts = entry.key.split('__');
+        fetch('/api/calendar-sync', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cells: [{ roleId: parts[0], date: parts[1].replace(/_/g, ' '), month: STATE.rosterMonth, year: STATE.rosterYear }] })
+        }).catch(function(err) { console.warn('[calendar-sync] undo/redo confirm push failed:', err); });
+      }
+    },
+
+    // _applyRosterVal rebuilds the cell's innerHTML from scratch, so any
+    // pending indicator it had gets dropped -- this puts the class/icon
+    // back in sync with STATE.rosterPendingCells afterward.
+    _refreshCellPendingVisual: function(key) {
+      var td = document.querySelector('.roster-table td[data-key="' + key.replace(/\\/g,'\\\\').replace(/"/g,'\\"') + '"]');
+      if (!td) return;
+      var isPending = STATE.rosterPendingCells.has(key);
+      td.classList.toggle('roster-cell-pending', isPending);
+      var existingIcon = td.querySelector('.roster-cell-pending-icon');
+      if (isPending && !existingIcon) {
+        var icon = document.createElement('span');
+        icon.className = 'roster-cell-pending-icon';
+        icon.title = 'Auto-suggested — awaiting PIC confirmation';
+        icon.textContent = String.fromCodePoint(0x23F3);
+        td.appendChild(icon);
+      } else if (!isPending && existingIcon) {
+        existingIcon.remove();
+      }
     },
 
     _applyRosterVal: function(key, value) {
