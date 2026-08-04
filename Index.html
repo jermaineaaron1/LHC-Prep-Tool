@@ -2222,6 +2222,12 @@
     }
     #worshipRosterView .roster-status-pill.confirm-pending .dot { background: #eab308; box-shadow: 0 0 0 3px rgba(234,179,8,0.18); }
     #worshipRosterView .roster-status-pill.confirm-pending:hover { transform: translateY(-1px); filter: brightness(0.99); }
+    #worshipRosterView .roster-status-pill.clear-services {
+      cursor: pointer; background: rgba(254,242,242,0.92);
+      border-color: #fecaca; color: #991b1b;
+    }
+    #worshipRosterView .roster-status-pill.clear-services .dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.16); }
+    #worshipRosterView .roster-status-pill.clear-services:hover { transform: translateY(-1px); filter: brightness(0.99); }
     #worshipRosterView .roster-status-pill.hidden { display: none !important; }
     #worshipRosterView .roster-status-pill.pic-only { display: none; }
     body.pic-mode #worshipRosterView .roster-status-pill.pic-only { display: inline-flex; }
@@ -5640,6 +5646,7 @@
             <span class="roster-status-pill sync-now pic-only" id="rosterSyncNowBtn" onclick="RosterEngine.syncCalendarNow()" title="Force an immediate Google Calendar reconciliation pass"><span class="dot"></span>Sync Now</span>
             <span class="roster-status-pill autosuggest pic-only" id="rosterAutoSuggestBtn" onclick="RosterEngine.confirmAutoSuggestPrompt()" title="Auto-fill blank duties this month based on rotation, availability, and the 2x/month cap"><span class="dot"></span>Auto-Suggest</span>
             <span class="roster-status-pill confirm-pending pic-only hidden" id="rosterConfirmPendingBtn" onclick="RosterEngine.confirmAllPending()" title="Confirm all auto-suggested assignments this month and notify their calendars"><span class="dot"></span>Confirm Pending (<span id="rosterPendingCount">0</span>)</span>
+            <span class="roster-status-pill clear-services pic-only" id="rosterClearServicesBtn" onclick="RosterEngine.confirmClearServicesPrompt()" title="Blank all duty assignments for one or more dates"><span class="dot"></span>Clear Services</span>
             <span id="rosterAutoSaveStatus" class="ml-3 font-semibold hidden"></span>
             <span id="rosterUnsavedIndicator" class="ml-3 text-amber-600 font-semibold hidden">
               <i class="fa-solid fa-triangle-exclamation"></i> Unsaved changes
@@ -65586,17 +65593,21 @@ function filterLiturgyItems() {
   // dropdown list (ROSTER_NAME_OPTIONS[category]). A team with no entry here
   // (e.g. singer1/singer2 on 'contemporary') just uses the general dropdown
   // directly with no preferred subset.
+  var TRADITIONAL_SINGERS = ['Alison Phan', 'Cynthia Chin', 'Gina Tai', 'Cheng Jun Hao', 'Audrey Yap', 'Margaret Loo'];
+  var CONTEMPORARY_SINGERS = ['Peter Soo', 'Patrina Goh', 'Karen Tham', 'Tang Xiao Ming', 'Lani Low', 'Sharon Wee', 'Jeannie Tan', 'Margaret Loo'];
   var TEAM_ROLE_CONFIG = {
     liturgist: {
-      traditional:  ['Allan Yip', 'Danny Wong', 'Margaret Loo'],
-      contemporary: ['Aaron Jayaraj', 'Dorine Nathaniel', 'Edwin Nathaniel', 'Peter Soo', 'Eva Muthusamy', 'Esther Lee', 'Margaret Loo']
+      traditional:  ['Danny Wong', 'Allan Yip', 'Margaret Loo'],
+      contemporary: ['Edwin Nathaniel', 'Dorine Nathaniel', 'Aaron Jayaraj', 'Esther Lee', 'Margaret Loo']
     },
     pianist: {
-      traditional:  ['Alwyn Lau', 'Elyse Teoh', 'Aaron Jayaraj'],
-      contemporary: ['Aaron Jayaraj', 'Luke Yong', 'Esther Lee']
+      traditional:  ['Alwyn Lau', 'Elyse Teoh', 'Aaron Jayaraj', 'Luke Yong'],
+      contemporary: ['Esther Lee', 'Luke Yong', 'Aaron Jayaraj']
     },
-    singer1: { traditional: ['Gina Tai', 'Alison Phan', 'Allan Yip', 'Cynthia Chin', 'Margaret Loo'] },
-    singer2: { traditional: ['Gina Tai', 'Alison Phan', 'Allan Yip', 'Cynthia Chin', 'Margaret Loo'] }
+    singer1: { traditional: TRADITIONAL_SINGERS, contemporary: CONTEMPORARY_SINGERS },
+    singer2: { traditional: TRADITIONAL_SINGERS, contemporary: CONTEMPORARY_SINGERS },
+    singer3: { contemporary: CONTEMPORARY_SINGERS },
+    singer4: { contemporary: CONTEMPORARY_SINGERS }
   };
 
   // Roles that simply don't apply on a given service team -- skipped
@@ -69328,6 +69339,16 @@ function filterLiturgyItems() {
       var serviceDays = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
       if (!serviceDays.length) { this.showToast('No service dates this month', 'warning'); return; }
 
+      // The actual first calendar service day of the month (before any
+      // date-selection scoping below) -- used to anchor the cross-month
+      // back-to-back check further down, so it only ever fires on the
+      // genuine first Sunday of the month, not just "first date in this run."
+      var firstServiceDayOfMonth = serviceDays[0].dateStr;
+      var prevMonth = STATE.rosterMonth - 1, prevYear = STATE.rosterYear;
+      if (prevMonth < 0) { prevMonth = 11; prevYear -= 1; }
+      var prevMonthDays = this.getServiceDays(prevYear, prevMonth);
+      var lastServiceDayOfPrevMonth = prevMonthDays.length ? prevMonthDays[prevMonthDays.length - 1].dateStr : null;
+
       // Optional scoping from the date-selection prompt -- when provided,
       // only these dates are considered at all (others are neither filled
       // nor reported as "missing service type").
@@ -69376,7 +69397,12 @@ function filterLiturgyItems() {
       });
 
       this.showLoader(true);
-      SBQ_ROSTER.getAllForYear(STATE.rosterYear).then(function(rows) {
+      Promise.all([
+        SBQ_ROSTER.getAllForYear(STATE.rosterYear),
+        lastServiceDayOfPrevMonth ? SBQ_ROSTER.getData(prevMonth, prevYear).catch(function() { return []; }) : Promise.resolve([])
+      ]).then(function(results) {
+        var rows = results[0];
+        var prevMonthRows = results[1];
         // Least-recently-used tiebreak: most recent OTHER month each person served.
         var lastServedMonth = {};
         rows.forEach(function(row) {
@@ -69386,6 +69412,19 @@ function filterLiturgyItems() {
             lastServedMonth[k] = row.month;
           }
         });
+
+        // Who did each role on the LAST service day of the PREVIOUS month --
+        // feeds the back-to-back guard below so the first Sunday of this
+        // month doesn't repeat the same person as the last Sunday of last
+        // month, even though that's a different auto-suggest run.
+        var crossMonthPrevKey = {}; // roleId -> _afKey(value)
+        if (lastServiceDayOfPrevMonth) {
+          prevMonthRows.forEach(function(row) {
+            if (row.date === lastServiceDayOfPrevMonth && roleIdSet[row.roleId] && row.value && row.value !== '__BLANK__' && typeof row.value !== 'object') {
+              crossMonthPrevKey[row.roleId] = _afKey(row.value);
+            }
+          });
+        }
 
         var fills = [];         // {date, roleLabel, name}
         var couldNotFill = [];  // {date, roleLabel}
@@ -69433,12 +69472,32 @@ function filterLiturgyItems() {
             var category = getRoleCategory(role.id);
             var pool = _autoFillPoolForRole(role.id, category, team);
 
+            // Curated-team membership for this role/team, if one is defined
+            // (see TEAM_ROLE_CONFIG) -- used below to make sure a named team
+            // member is always preferred over a general-dropdown fallback,
+            // even if that team member already served a DIFFERENT role
+            // earlier this month and so has a higher overall monthCount.
+            var curatedList = TEAM_ROLE_CONFIG[role.id] && TEAM_ROLE_CONFIG[role.id][team];
+            var curatedSet = null;
+            if (curatedList && curatedList.length) {
+              curatedSet = {};
+              curatedList.forEach(function(n) { curatedSet[_afKey(n)] = true; });
+            }
+
             // Back-to-back guard: whoever did this exact role on the
             // immediately preceding filled date (manual or auto-suggested).
+            // If there's no earlier date in THIS run but today is the
+            // genuine first service day of the calendar month, fall back to
+            // whoever did this role on the last service day of the PREVIOUS
+            // month -- so a month-by-month run doesn't repeat the same
+            // person across the month boundary just because that boundary
+            // falls outside "this run."
             var backToBackKey = null;
             if (prevDay) {
               var prevVal = STATE.rosterEdits.get(role.id + '__' + prevDay.dateStr.replace(/\s/g, '_'));
               if (prevVal && prevVal !== '__BLANK__' && typeof prevVal !== 'object') backToBackKey = _afKey(prevVal);
+            } else if (dateStr === firstServiceDayOfMonth && crossMonthPrevKey[role.id]) {
+              backToBackKey = crossMonthPrevKey[role.id];
             }
 
             var candidates = pool.filter(function(name) {
@@ -69452,13 +69511,29 @@ function filterLiturgyItems() {
               return;
             }
 
-            // Score: lower is better. Both the 2x/month cap and the
-            // back-to-back rule are soft -- relaxed only if relaxing them
-            // is the only way to fill the cell (established by sorting
-            // rather than hard-excluding).
+            // Score: lower is better. Curated-team membership (if this
+            // role/team has one) is checked FIRST and dominates everything
+            // else -- a named team member always outranks a general-
+            // dropdown fallback, even if that member's overall monthCount
+            // is higher from serving a different role earlier this month.
+            // Without this, monthCount/lastServedMonth alone could let an
+            // uninvolved general-dropdown person win over the curated team
+            // just for being "fresher," silently defeating the whole point
+            // of naming a team. Within the same tier, the 2x/month cap and
+            // the back-to-back rule are soft -- relaxed only if relaxing
+            // them is the only way to fill the cell (established by sorting
+            // rather than hard-excluding). Liturgist is fully exempt from
+            // both (but still curated-tier-first): Communion Assistant 1
+            // mirrors whoever gets picked here, so penalizing the Liturgist
+            // pool for serving twice already (or serving back-to-back)
+            // would just needlessly leave both roles blank -- rotation
+            // fairness still applies via the monthCount/lastServedMonth
+            // tiebreakers below, just never as a hard block.
             function score(name) {
               var k = _afKey(name);
-              return ((monthCount[k] || 0) >= 2 ? 1 : 0) + (k === backToBackKey ? 1 : 0);
+              var tier = (curatedSet && !curatedSet[k]) ? 1 : 0;
+              if (role.id === 'liturgist') return tier;
+              return tier * 10 + ((monthCount[k] || 0) >= 2 ? 1 : 0) + (k === backToBackKey ? 1 : 0);
             }
             candidates.sort(function(a, b) {
               var sa = score(a), sb = score(b);
@@ -69548,6 +69623,25 @@ function filterLiturgyItems() {
       var serviceDays = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
       if (!serviceDays.length) { this.showToast('No service dates this month', 'warning'); return; }
 
+      // Auto-assign Service Type for plain Sundays that don't have one yet,
+      // using the default pattern: 1st & 3rd Sunday = Traditional, 2nd & 4th
+      // = Contemporary. A 5th Sunday, or any non-Sunday "special"/extra
+      // service day, is deliberately left unset -- the PIC decides those
+      // manually (shown below as "No Service Type set"). Never overwrites
+      // an existing Traditional/Contemporary choice.
+      var sundayOrdinal = 0;
+      var autoAssignedCount = 0;
+      serviceDays.forEach(function(day) {
+        if (day.type === 'sunday') sundayOrdinal++;
+        var key = 'service_type__' + day.dateStr.replace(/\s/g, '_');
+        var existingVal = STATE.rosterEdits.get(key);
+        var hasType = existingVal === 'Traditional' || existingVal === 'Contemporary';
+        if (hasType || day.type !== 'sunday' || sundayOrdinal > 4) return;
+        var autoType = (sundayOrdinal === 1 || sundayOrdinal === 3) ? 'Traditional' : 'Contemporary';
+        var td = document.querySelector('td[data-key="' + key + '"]');
+        if (td) { self.setServiceType(td, autoType); autoAssignedCount++; }
+      });
+
       var rowsHtml = serviceDays.map(function(day, idx) {
         var key = 'service_type__' + day.dateStr.replace(/\s/g, '_');
         var val = STATE.rosterEdits.get(key);
@@ -69570,7 +69664,8 @@ function filterLiturgyItems() {
             '<div style="font-weight:700;font-size:1.05rem;">Auto-Suggest This Month</div>' +
           '</div>' +
           '<div style="padding:16px 20px 8px;flex:1;overflow-y:auto;">' +
-            '<p style="margin:0 0 12px;font-size:0.85rem;color:#1f2933;line-height:1.5;">Fills every blank, applicable duty based on rotation, availability, and the 2x/month cap. Existing entries are never overwritten. Filled cells are highlighted yellow until you confirm them -- nothing is sent to Google Calendar yet.</p>' +
+            '<p style="margin:0 0 8px;font-size:0.85rem;color:#1f2933;line-height:1.5;">Fills every blank, applicable duty based on rotation, availability, and the 2x/month cap. Existing entries are never overwritten. Filled cells are highlighted yellow until you confirm them -- nothing is sent to Google Calendar yet.</p>' +
+            (autoAssignedCount ? '<p style="margin:0 0 12px;font-size:0.8rem;color:#0d9488;line-height:1.5;"><i class="fa-solid fa-circle-check mr-1"></i>Set Service Type for ' + autoAssignedCount + ' date' + (autoAssignedCount === 1 ? '' : 's') + ' automatically (1st &amp; 3rd Sunday = Traditional, 2nd &amp; 4th = Contemporary). A 5th Sunday or extra service is left for you to choose below.</p>' : '') +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
               '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Dates to include</span>' +
               '<div style="display:flex;gap:8px;">' +
@@ -69600,6 +69695,98 @@ function filterLiturgyItems() {
         close();
         self.runAutoSuggest(selected);
       };
+    },
+
+    // Date-selection prompt for wiping duty assignments -- mirrors
+    // confirmAutoSuggestPrompt's checklist UI but red/danger-themed, and
+    // with no Service Type prerequisite logic (clearing doesn't care).
+    confirmClearServicesPrompt: function() {
+      var existing = document.getElementById('rosterClearServicesModal');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      var self = this;
+      if (!STATE.picMode) return;
+
+      var serviceDays = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      if (!serviceDays.length) { this.showToast('No service dates this month', 'warning'); return; }
+
+      var rowsHtml = serviceDays.map(function(day) {
+        return '<label style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
+          '<input type="checkbox" class="roster-cs-date-cb" data-date="' + self.escapeHtml(day.dateStr) + '" style="width:16px;height:16px;flex-shrink:0;">' +
+          '<span style="font-size:0.85rem;color:#1f2933;">' + self.escapeHtml(day.displayName || day.dateStr) + '</span>' +
+        '</label>';
+      }).join('');
+
+      var overlay = document.createElement('div');
+      overlay.id = 'rosterClearServicesModal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
+      overlay.innerHTML =
+        '<div style="background:#fff;max-width:440px;width:92%;max-height:82vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
+          '<div style="background:linear-gradient(135deg,#b91c1c,#ef4444);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;">' +
+            '<i class="fa-solid fa-triangle-exclamation" style="font-size:1.3rem;"></i>' +
+            '<div style="font-weight:700;font-size:1.05rem;">Clear Services</div>' +
+          '</div>' +
+          '<div style="padding:16px 20px 8px;flex:1;overflow-y:auto;">' +
+            '<p style="margin:0 0 12px;font-size:0.85rem;color:#991b1b;line-height:1.5;"><strong>This blanks every duty and Service Type for the dates you select</strong> -- roles, ushers, readers, communion, music, tech, all of it. This cannot be undone once saved. Select the date(s) to reset:</p>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+              '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Dates to clear</span>' +
+              '<div style="display:flex;gap:8px;">' +
+                '<button type="button" id="rosterCsSelectAll" style="background:none;border:none;color:#b91c1c;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select All</button>' +
+                '<button type="button" id="rosterCsSelectNone" style="background:none;border:none;color:#6b7280;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select None</button>' +
+              '</div>' +
+            '</div>' +
+            '<div style="border:1px solid #e5e7eb;border-radius:8px;">' + rowsHtml + '</div>' +
+          '</div>' +
+          '<div style="display:flex;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;gap:10px;flex-shrink:0;">' +
+            '<button id="rosterClearServicesCancelBtn" style="padding:8px 16px;border-radius:8px;border:1px solid #d1d5db;background:#fff;color:#4b5563;font-weight:600;font-size:0.85rem;cursor:pointer;">Cancel</button>' +
+            '<button id="rosterClearServicesGoBtn" style="padding:8px 16px;border-radius:8px;border:none;background:#b91c1c;color:#fff;font-weight:600;font-size:0.85rem;cursor:pointer;">Clear Selected</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      var close = function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+      overlay.querySelector('#rosterClearServicesCancelBtn').onclick = close;
+      overlay.querySelector('#rosterCsSelectAll').onclick = function() {
+        overlay.querySelectorAll('.roster-cs-date-cb').forEach(function(cb) { cb.checked = true; });
+      };
+      overlay.querySelector('#rosterCsSelectNone').onclick = function() {
+        overlay.querySelectorAll('.roster-cs-date-cb').forEach(function(cb) { cb.checked = false; });
+      };
+      overlay.querySelector('#rosterClearServicesGoBtn').onclick = function() {
+        var selected = Array.from(overlay.querySelectorAll('.roster-cs-date-cb:checked')).map(function(cb) { return cb.getAttribute('data-date'); });
+        if (!selected.length) { self.showToast('Select at least one date', 'warning'); return; }
+        close();
+        self.clearServices(selected);
+      };
+    },
+
+    // Blanks every role/scripture/service-type cell for the given dates
+    // (leaves the liturgical day/color row and header rows untouched --
+    // those aren't duty assignments). Pushes each change onto the undo
+    // stack individually so "Undo" can restore one cell at a time if a PIC
+    // clears the wrong date by mistake.
+    clearServices: function(selectedDates) {
+      var self = this;
+      if (!STATE.picMode) return;
+      if (!selectedDates || !selectedDates.length) return;
+      var clearDefs = this.ROLES.filter(function(r) { return r.type === 'role' || r.type === 'scripture' || r.type === 'service-type'; });
+      var dateSet = {};
+      selectedDates.forEach(function(d) { dateSet[d.replace(/\s/g, '_')] = true; });
+      var count = 0;
+      clearDefs.forEach(function(role) {
+        Object.keys(dateSet).forEach(function(dateKeySuffix) {
+          var cellKey = role.id + '__' + dateKeySuffix;
+          var oldVal = STATE.rosterEdits.get(cellKey);
+          if (oldVal === undefined || oldVal === '__BLANK__') return;
+          _rPushUndo(cellKey, oldVal, '__BLANK__');
+          STATE.rosterEdits.set(cellKey, '__BLANK__');
+          STATE.rosterCellTimestamps.delete(cellKey);
+          STATE.rosterPendingCells.delete(cellKey);
+          count++;
+        });
+      });
+      if (!count) { this.showToast('Nothing to clear for the selected date(s)', 'warning'); return; }
+      this.render();
+      this.saveChanges();
+      this.showToast('Cleared ' + count + ' cell' + (count === 1 ? '' : 's') + ' across ' + selectedDates.length + ' date' + (selectedDates.length === 1 ? '' : 's'), 'success');
     },
 
     // Clear the pending flag for every pending cell in the viewed month and
