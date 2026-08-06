@@ -2151,6 +2151,24 @@
     .roster-frequent-cell {
       background: #fefce8 !important;
     }
+    /* Same person serving 2 duties same day where one is Flower
+       Arrangement -- not a real clash (flowers are done the day before),
+       but still worth flagging so it's visible at a glance. */
+    .roster-multi-duty-ok-cell {
+      background: #eff6ff !important;
+      border: 1px solid #bfdbfe !important;
+      position: relative;
+    }
+    .roster-multi-duty-ok-cell::after {
+      content: '\f0c1';
+      font-family: 'Font Awesome 6 Free';
+      font-weight: 900;
+      position: absolute;
+      top: 2px;
+      right: 3px;
+      font-size: 8px;
+      color: #2563eb;
+    }
 
     /* ==================== ROSTER - GLASS COMMAND SKIN ==================== */
     #worshipRosterView {
@@ -69020,6 +69038,9 @@ function filterLiturgyItems() {
 
     // Pairs of duty categories that are explicitly allowed to clash without warning.
     // Order doesn't matter — checked both ways.
+    // Flower Arrangement is handled separately below (always excepted,
+    // regardless of pairing) since it's done the day before the service --
+    // never listed here.
     CLASH_EXCEPTION_PAIRS: [
       ['singer', 'communion'],
       ['singer', 'altar'],
@@ -69028,16 +69049,13 @@ function filterLiturgyItems() {
       ['liturgist', 'communion'],
       ['preacher', 'communion'],
       ['reader', 'singer'],
-      ['reader', 'flowerarrangement'],
-      ['usher', 'flowerarrangement'],
       ['pianist', 'liturgist'],
       ['guitarist', 'liturgist'],
       ['preacher', 'pianist'],
       ['usher', 'communion'],
       ['usher', 'altar'],
       ['reader', 'communion'],
-      ['pa', 'communion'],
-      ['communion', 'flowerarrangement']
+      ['pa', 'communion']
     ],
 
     _clashDutyCategory: function(roleId) {
@@ -69057,6 +69075,11 @@ function filterLiturgyItems() {
       return 'general';
     },
 
+    // Flower Arrangement is deliberately NOT handled here -- it's stripped
+    // out by the caller (checkClashes) before this ever runs, so a genuine
+    // clash between two OTHER duties for the same person still warns even
+    // when that person is ALSO on Flower Arrangement that day (e.g. Usher +
+    // Reader + Flower Arrangement should still warn about Usher/Reader).
     _clashIsExcepted: function(roleIds) {
       var self = this;
       var cats = {};
@@ -69141,7 +69164,7 @@ function filterLiturgyItems() {
 
       // 2. Clear all previous clash/frequency highlighting
       allCells.forEach(function(td) {
-        td.classList.remove('roster-clash-cell', 'roster-frequent-cell');
+        td.classList.remove('roster-clash-cell', 'roster-frequent-cell', 'roster-multi-duty-ok-cell');
         td.style.removeProperty('--clash-bg');
       });
 
@@ -69160,10 +69183,26 @@ function filterLiturgyItems() {
         });
         Object.keys(nameCounts).forEach(function(key) {
           if (nameCounts[key].length > 1) {
-            var roleIds = nameCounts[key].map(function(e) { return e.roleId; });
+            // Flower Arrangement is done the day before the service, so it
+            // never actually conflicts with a same-day duty. Pull those
+            // entries out and flag them with a soft "serving twice, no
+            // clash" highlight BEFORE running clash detection on whatever
+            // duties are left -- otherwise a genuine clash between two
+            // OTHER duties (e.g. Usher + Reader) would be silently missed
+            // just because that same person also happens to be on Flower
+            // Arrangement that day.
+            var flowerEntries = nameCounts[key].filter(function(e) { return self._clashDutyCategory(e.roleId) === 'flowerarrangement'; });
+            var otherEntries = nameCounts[key].filter(function(e) { return self._clashDutyCategory(e.roleId) !== 'flowerarrangement'; });
+            if (flowerEntries.length) {
+              flowerEntries.forEach(function(entry) { entry.td.classList.add('roster-multi-duty-ok-cell'); });
+              if (otherEntries.length === 1) otherEntries[0].td.classList.add('roster-multi-duty-ok-cell');
+            }
+            if (otherEntries.length < 2) return; // nothing left to clash-check
+
+            var roleIds = otherEntries.map(function(e) { return e.roleId; });
             if (self._clashIsExcepted(roleIds)) return;
             // Duplicate found — highlight all
-            nameCounts[key].forEach(function(entry) {
+            otherEntries.forEach(function(entry) {
               entry.td.classList.add('roster-clash-cell');
             });
             // Check if the changed cell is one of the duplicates (for warning)
@@ -69174,9 +69213,9 @@ function filterLiturgyItems() {
                 var changedName = changedVal ? changedVal.textContent.trim().toLowerCase() : '';
                 if (changedName === key) {
                   clashFound = true;
-                  clashName = nameCounts[key][0].name;
+                  clashName = otherEntries[0].name;
                   clashDate = dateStr;
-                  clashDutyLabels = nameCounts[key]
+                  clashDutyLabels = otherEntries
                     .filter(function(e) { return e.td !== changedTd; })
                     .map(function(e) { return self._roleLabel(e.roleId); });
                 }
@@ -69365,7 +69404,7 @@ function filterLiturgyItems() {
     // overwrites an existing manually-entered value. Every cell it writes
     // is marked pending -- visible immediately, but excluded from the
     // instant Google Calendar push until the PIC confirms it.
-    runAutoSuggest: function(selectedDates) {
+    runAutoSuggest: function(selectedDates, selectedRoleIds) {
       var self = this;
       if (!STATE.picMode) return;
 
@@ -69407,9 +69446,23 @@ function filterLiturgyItems() {
         return;
       }
 
-      var roleDefs = this.ROLES.filter(function(r) { return r.type === 'role'; });
+      // roleIdSet stays built from EVERY duty role, not just the ones
+      // selected this run -- monthCount/lastServedMonth fairness needs to
+      // see a person's full workload across all duties regardless of what
+      // this particular run is scoped to. activeRoleDefs is the actual
+      // per-date fill loop's scope: all duties by default, or a narrowed
+      // set when the PIC picked specific ones (e.g. "just Communion
+      // Assistants and Bible Readers") from the prompt.
+      var allRoleDefs = this.ROLES.filter(function(r) { return r.type === 'role'; });
       var roleIdSet = {};
-      roleDefs.forEach(function(r) { roleIdSet[r.id] = true; });
+      allRoleDefs.forEach(function(r) { roleIdSet[r.id] = true; });
+      var activeRoleDefs = allRoleDefs;
+      if (Array.isArray(selectedRoleIds) && selectedRoleIds.length) {
+        var roleFilterSet = {};
+        selectedRoleIds.forEach(function(id) { roleFilterSet[id] = true; });
+        activeRoleDefs = allRoleDefs.filter(function(r) { return roleFilterSet[r.id]; });
+        if (!activeRoleDefs.length) { this.showToast('Select at least one duty', 'warning'); return; }
+      }
 
       // Normalize a name for identity comparisons only (clash/cap/back-to-
       // back bookkeeping) -- never for the value actually written to a
@@ -69476,15 +69529,22 @@ function filterLiturgyItems() {
 
           // Seed same-date clash tracking with whatever's already filled
           // (manual entries + roles processed earlier in this same date).
+          // Scans EVERY role, not just the ones active this run, so a
+          // manually-entered duty outside today's selection still blocks a
+          // double-booking. Flower Arrangement is excluded entirely: it's
+          // done the day before the service, so it never actually
+          // conflicts with a same-day duty -- the same person can be
+          // picked for both without it counting as "already assigned today."
           var assignedToday = {};
-          roleDefs.forEach(function(role) {
+          allRoleDefs.forEach(function(role) {
+            if (role.id === 'flowerarrangement') return;
             var v = STATE.rosterEdits.get(role.id + '__' + dateKeySuffix);
             if (v && v !== '__BLANK__' && typeof v !== 'object') assignedToday[_afKey(v)] = true;
           });
 
           var prevDay = dateIdx > 0 ? datesToFill[dateIdx - 1] : null;
 
-          roleDefs.forEach(function(role) {
+          activeRoleDefs.forEach(function(role) {
             if (!_autoFillRoleApplies(role.id, team)) return; // not applicable this team -- silently skip
 
             var cellKey = role.id + '__' + dateKeySuffix;
@@ -69542,7 +69602,10 @@ function filterLiturgyItems() {
             }
 
             var candidates = pool.filter(function(name) {
-              if (assignedToday[_afKey(name)]) return false;
+              // Flower Arrangement never counts as "already serving today"
+              // in either direction -- see the assignedToday seeding
+              // comment above.
+              if (role.id !== 'flowerarrangement' && assignedToday[_afKey(name)]) return false;
               if (isPersonUnavailable(name, dateStr, STATE.rosterYear, category)) return false;
               return true;
             });
@@ -69606,8 +69669,36 @@ function filterLiturgyItems() {
             monthCount[winnerKey] = (monthCount[winnerKey] || 0) + 1;
             if (!perRoleMonthCount[role.id]) perRoleMonthCount[role.id] = {};
             perRoleMonthCount[role.id][winnerKey] = (perRoleMonthCount[role.id][winnerKey] || 0) + 1;
-            assignedToday[winnerKey] = true;
+            if (role.id !== 'flowerarrangement') assignedToday[winnerKey] = true;
             fills.push({ date: dateStr, roleLabel: role.label, name: winner });
+
+            // Communion Assistant 1 is the same duty as Liturgist, not an
+            // independent pick -- whenever this run just decided a new
+            // Liturgist, force Communion Assistant 1 to match immediately,
+            // even if it wasn't itself selected for this run (so running
+            // "Liturgist" alone still keeps the two in sync) and even if it
+            // already held a DIFFERENT auto-suggested pick from an earlier,
+            // separate run (so generating Communion Assistants before
+            // Liturgist doesn't leave them mismatched). A CONFIRMED
+            // mismatch is left alone and flagged for manual review instead
+            // of being silently overwritten.
+            if (role.id === 'liturgist' && _autoFillRoleApplies('communion1', team)) {
+              var c1Key = 'communion1__' + dateKeySuffix;
+              var c1Existing = STATE.rosterEdits.get(c1Key);
+              if (c1Existing !== winner) {
+                var c1IsBlank = !c1Existing || c1Existing === '__BLANK__';
+                var c1IsPending = STATE.rosterPendingCells.has(c1Key);
+                if (c1IsBlank || c1IsPending) {
+                  _rPushUndo(c1Key, c1Existing, winner, c1IsPending, true);
+                  STATE.rosterEdits.set(c1Key, winner);
+                  STATE.rosterPendingCells.add(c1Key);
+                  STATE.rosterCellTimestamps.set(c1Key, new Date().toISOString());
+                  fills.push({ date: dateStr, roleLabel: self._roleLabel('communion1'), name: winner });
+                } else {
+                  couldNotFill.push({ date: dateStr, roleLabel: 'Communion Assistant 1 (confirmed as "' + c1Existing + '" -- doesn\'t match new Liturgist "' + winner + '"; review manually)' });
+                }
+              }
+            }
           });
         });
 
@@ -69618,6 +69709,11 @@ function filterLiturgyItems() {
         }
         self.render();
         self.saveChanges();
+        // No changedTd -- this only re-scans and highlights (clash cells,
+        // frequency cells, and the new "2 duties, no clash" flag for
+        // Flower Arrangement overlaps), it never pops the blocking warning
+        // modal for a batch fill.
+        self.checkClashes();
         self._showAutoSuggestSummary(fills, couldNotFill, missingServiceType);
       }).catch(function(err) {
         console.error('runAutoSuggest error:', err);
@@ -69708,6 +69804,19 @@ function filterLiturgyItems() {
         '</label>';
       }).join('');
 
+      // Duty checklist -- lets a PIC scope a run to just the roles they
+      // need (e.g. only Communion Assistants and Bible Readers) instead of
+      // always regenerating every duty. All checked by default so the
+      // existing "fill everything" behavior is one click away, same as
+      // before this was added.
+      var roleDutyDefs = this.ROLES.filter(function(r) { return r.type === 'role'; });
+      var roleRowsHtml = roleDutyDefs.map(function(role) {
+        return '<label style="display:flex;align-items:center;gap:8px;padding:6px 6px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
+          '<input type="checkbox" class="roster-as-role-cb" data-role="' + self.escapeHtml(role.id) + '" checked style="width:16px;height:16px;flex-shrink:0;">' +
+          '<span style="font-size:0.83rem;color:#1f2933;">' + self.escapeHtml(role.label) + '</span>' +
+        '</label>';
+      }).join('');
+
       var overlay = document.createElement('div');
       overlay.id = 'rosterAutoSuggestConfirmModal';
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
@@ -69718,8 +69827,16 @@ function filterLiturgyItems() {
             '<div style="font-weight:700;font-size:1.05rem;">Auto-Suggest This Month</div>' +
           '</div>' +
           '<div style="padding:16px 20px 8px;flex:1;overflow-y:auto;">' +
-            '<p style="margin:0 0 8px;font-size:0.85rem;color:#1f2933;line-height:1.5;">Fills every blank, applicable duty based on rotation, availability, and the 2x/month cap. Existing entries are never overwritten. Filled cells are highlighted yellow until you confirm them -- nothing is sent to Google Calendar yet.</p>' +
+            '<p style="margin:0 0 8px;font-size:0.85rem;color:#1f2933;line-height:1.5;">Fills every blank, applicable duty (or just the ones you pick below) based on rotation, availability, and the 2x/month cap. Existing entries are never overwritten. Filled cells are highlighted yellow until you confirm them -- nothing is sent to Google Calendar yet.</p>' +
             (autoAssignedCount ? '<p style="margin:0 0 12px;font-size:0.8rem;color:#0d9488;line-height:1.5;"><i class="fa-solid fa-circle-check mr-1"></i>Set Service Type for ' + autoAssignedCount + ' date' + (autoAssignedCount === 1 ? '' : 's') + ' automatically (1st &amp; 3rd Sunday = Traditional, 2nd &amp; 4th = Contemporary). A 5th Sunday or extra service is left for you to choose below.</p>' : '') +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+              '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Duties to include</span>' +
+              '<div style="display:flex;gap:8px;">' +
+                '<button type="button" id="rosterAsRoleSelectAll" style="background:none;border:none;color:#0d9488;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select All</button>' +
+                '<button type="button" id="rosterAsRoleSelectNone" style="background:none;border:none;color:#6b7280;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select None</button>' +
+              '</div>' +
+            '</div>' +
+            '<div style="border:1px solid #e5e7eb;border-radius:8px;max-height:180px;overflow-y:auto;margin-bottom:14px;">' + roleRowsHtml + '</div>' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
               '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Dates to include</span>' +
               '<div style="display:flex;gap:8px;">' +
@@ -69743,11 +69860,19 @@ function filterLiturgyItems() {
       overlay.querySelector('#rosterAsSelectNone').onclick = function() {
         overlay.querySelectorAll('.roster-as-date-cb').forEach(function(cb) { cb.checked = false; });
       };
+      overlay.querySelector('#rosterAsRoleSelectAll').onclick = function() {
+        overlay.querySelectorAll('.roster-as-role-cb').forEach(function(cb) { cb.checked = true; });
+      };
+      overlay.querySelector('#rosterAsRoleSelectNone').onclick = function() {
+        overlay.querySelectorAll('.roster-as-role-cb').forEach(function(cb) { cb.checked = false; });
+      };
       overlay.querySelector('#rosterAutoSuggestGoBtn').onclick = function() {
         var selected = Array.from(overlay.querySelectorAll('.roster-as-date-cb:checked')).map(function(cb) { return cb.getAttribute('data-date'); });
         if (!selected.length) { self.showToast('Select at least one date', 'warning'); return; }
+        var selectedRoles = Array.from(overlay.querySelectorAll('.roster-as-role-cb:checked')).map(function(cb) { return cb.getAttribute('data-role'); });
+        if (!selectedRoles.length) { self.showToast('Select at least one duty', 'warning'); return; }
         close();
-        self.runAutoSuggest(selected);
+        self.runAutoSuggest(selected, selectedRoles);
       };
     },
 
@@ -70792,15 +70917,56 @@ function filterLiturgyItems() {
       if (!wrapper || !thead) return;
       var th = thead.querySelector('th[data-col-idx="' + STATE.rosterMobileOffset + '"]');
       var firstTh = thead.querySelector('th');
-      if (!th) return;
-      var stickyW = firstTh ? firstTh.getBoundingClientRect().width : 0;
-      var left = Math.max(0, th.offsetLeft - stickyW);
+      if (!th || !firstTh) return;
+      // Measure via getBoundingClientRect deltas, not offsetLeft -- with
+      // border-spacing and a position:sticky first column in the mix,
+      // offsetLeft doesn't reliably line up with where cells actually
+      // render (confirmed empirically: it was off by ~50px), which is why
+      // "the pair after next" used to land with the target column visibly
+      // sliced in half instead of flush against the sticky column.
+      var thRect = th.getBoundingClientRect();
+      var firstThRect = firstTh.getBoundingClientRect();
+      var delta = thRect.left - firstThRect.right;
+      var maxScroll = Math.max(0, wrapper.scrollWidth - wrapper.clientWidth);
+      var left = Math.min(maxScroll, Math.max(0, wrapper.scrollLeft + delta));
       var self = this;
       this._rosterProgScroll = true;
       clearTimeout(this._rosterProgScrollTimer);
       this._rosterProgScrollTimer = setTimeout(function() { self._rosterProgScroll = false; }, 500);
-      try { wrapper.scrollTo({ left: left, behavior: smooth ? 'smooth' : 'auto' }); }
-      catch (e) { wrapper.scrollLeft = left; }
+      // Native scrollTo({behavior:'smooth'}) on this wrapper (sticky first
+      // column + -webkit-overflow-scrolling:touch) is unreliable -- it can
+      // silently no-op and leave the pager label out of sync with what's
+      // actually on screen (confirmed both in testing and on a real
+      // device: the label reads correctly but the table never actually
+      // scrolls, leaving a column half cut off). A manual rAF-driven
+      // scroll doesn't depend on the browser's native implementation, so
+      // it always actually lands on the target.
+      if (smooth) {
+        this._animateScrollLeft(wrapper, left, 280);
+      } else {
+        wrapper.scrollLeft = left;
+      }
+    },
+
+    // Minimal eased scrollLeft animation -- see scrollToMobileOffset for why
+    // this replaces the native smooth scrollTo. Stepped with setTimeout
+    // rather than requestAnimationFrame: rAF is throttled/suspended by the
+    // browser whenever the document isn't actively compositing (e.g. a
+    // backgrounded tab), which would silently strand the animation
+    // partway -- exactly the class of bug this function exists to avoid.
+    _animateScrollLeft: function(wrapper, target, duration) {
+      var start = wrapper.scrollLeft;
+      var delta = target - start;
+      if (Math.abs(delta) < 1) { wrapper.scrollLeft = target; return; }
+      var startTime = Date.now();
+      var stepMs = 16;
+      function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+      function step() {
+        var progress = Math.min(1, (Date.now() - startTime) / duration);
+        wrapper.scrollLeft = start + delta * ease(progress);
+        if (progress < 1) setTimeout(step, stepMs);
+      }
+      step();
     },
 
     // Wire a one-time debounced scroll listener: after a swipe settles,
@@ -70824,15 +70990,16 @@ function filterLiturgyItems() {
       if (!wrapper || !thead) return;
       var days = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
       var firstTh = thead.querySelector('th');
-      var stickyW = firstTh ? firstTh.getBoundingClientRect().width : 0;
-      var s = wrapper.scrollLeft;
+      if (!firstTh) return;
+      // Same getBoundingClientRect-based measurement as scrollToMobileOffset
+      // -- see its comment for why offsetLeft isn't trustworthy here.
+      var firstThRect = firstTh.getBoundingClientRect();
       var maxOffset = Math.max(0, days.length - 2);
       var best = STATE.rosterMobileOffset, bestDist = Infinity;
       for (var o = 0; o <= maxOffset; o += 2) {
         var th = thead.querySelector('th[data-col-idx="' + o + '"]');
         if (!th) continue;
-        var target = Math.max(0, th.offsetLeft - stickyW);
-        var dist = Math.abs(target - s);
+        var dist = Math.abs(th.getBoundingClientRect().left - firstThRect.right);
         if (dist < bestDist) { bestDist = dist; best = o; }
       }
       STATE.rosterMobileOffset = best;
