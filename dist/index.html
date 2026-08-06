@@ -69780,7 +69780,6 @@ function filterLiturgyItems() {
       // manually (shown below as "No Service Type set"). Never overwrites
       // an existing Traditional/Contemporary choice.
       var sundayOrdinal = 0;
-      var autoAssignedCount = 0;
       serviceDays.forEach(function(day) {
         if (day.type === 'sunday') sundayOrdinal++;
         var key = 'service_type__' + day.dateStr.replace(/\s/g, '_');
@@ -69789,7 +69788,7 @@ function filterLiturgyItems() {
         if (hasType || day.type !== 'sunday' || sundayOrdinal > 4) return;
         var autoType = (sundayOrdinal === 1 || sundayOrdinal === 3) ? 'Traditional' : 'Contemporary';
         var td = document.querySelector('td[data-key="' + key + '"]');
-        if (td) { self.setServiceType(td, autoType); autoAssignedCount++; }
+        if (td) self.setServiceType(td, autoType);
       });
 
       var rowsHtml = serviceDays.map(function(day, idx) {
@@ -69821,14 +69820,13 @@ function filterLiturgyItems() {
       overlay.id = 'rosterAutoSuggestConfirmModal';
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
       overlay.innerHTML =
-        '<div style="background:#fff;max-width:440px;width:92%;max-height:82vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
+        '<div style="background:#fff;max-width:560px;width:94%;max-height:92vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
           '<div style="background:linear-gradient(135deg,#0d9488,#14b8a6);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;">' +
             '<i class="fa-solid fa-wand-magic-sparkles" style="font-size:1.3rem;"></i>' +
             '<div style="font-weight:700;font-size:1.05rem;">Auto-Suggest This Month</div>' +
           '</div>' +
           '<div style="padding:16px 20px 8px;flex:1;overflow-y:auto;">' +
-            '<p style="margin:0 0 8px;font-size:0.85rem;color:#1f2933;line-height:1.5;">Fills every blank, applicable duty (or just the ones you pick below) based on rotation, availability, and the 2x/month cap. Existing entries are never overwritten. Filled cells are highlighted yellow until you confirm them -- nothing is sent to Google Calendar yet.</p>' +
-            (autoAssignedCount ? '<p style="margin:0 0 12px;font-size:0.8rem;color:#0d9488;line-height:1.5;"><i class="fa-solid fa-circle-check mr-1"></i>Set Service Type for ' + autoAssignedCount + ' date' + (autoAssignedCount === 1 ? '' : 's') + ' automatically (1st &amp; 3rd Sunday = Traditional, 2nd &amp; 4th = Contemporary). A 5th Sunday or extra service is left for you to choose below.</p>' : '') +
+            '<p style="margin:0 0 14px;font-size:0.85rem;color:#1f2933;line-height:1.5;">This automatically generates for the selected duties, upon generating please check through the schedule before sharing it with the rest of the team. Upon checking, please confirm the duties and upon which the automatically google calendar updates will be sent.</p>' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
               '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Duties to include</span>' +
               '<div style="display:flex;gap:8px;">' +
@@ -69836,7 +69834,7 @@ function filterLiturgyItems() {
                 '<button type="button" id="rosterAsRoleSelectNone" style="background:none;border:none;color:#6b7280;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select None</button>' +
               '</div>' +
             '</div>' +
-            '<div style="border:1px solid #e5e7eb;border-radius:8px;max-height:180px;overflow-y:auto;margin-bottom:14px;">' + roleRowsHtml + '</div>' +
+            '<div style="border:1px solid #e5e7eb;border-radius:8px;max-height:320px;overflow-y:auto;margin-bottom:14px;display:grid;grid-template-columns:1fr 1fr;align-content:start;">' + roleRowsHtml + '</div>' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
               '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Dates to include</span>' +
               '<div style="display:flex;gap:8px;">' +
@@ -69844,7 +69842,7 @@ function filterLiturgyItems() {
                 '<button type="button" id="rosterAsSelectNone" style="background:none;border:none;color:#6b7280;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select None</button>' +
               '</div>' +
             '</div>' +
-            '<div style="border:1px solid #e5e7eb;border-radius:8px;">' + rowsHtml + '</div>' +
+            '<div style="border:1px solid #e5e7eb;border-radius:8px;max-height:220px;overflow-y:auto;">' + rowsHtml + '</div>' +
           '</div>' +
           '<div style="display:flex;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;gap:10px;flex-shrink:0;">' +
             '<button id="rosterAutoSuggestCancelBtn" style="padding:8px 16px;border-radius:8px;border:1px solid #d1d5db;background:#fff;color:#4b5563;font-weight:600;font-size:0.85rem;cursor:pointer;">Cancel</button>' +
