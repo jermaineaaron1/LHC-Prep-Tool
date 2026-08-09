@@ -70671,6 +70671,7 @@ function filterLiturgyItems() {
       var dateSet = {};
       selectedDates.forEach(function(d) { dateSet[d.replace(/\s/g, '_')] = true; });
       var count = 0;
+      var clearedPerDate = {}; // dateKeySuffix -> {roleId: oldVal}
       clearDefs.forEach(function(role) {
         Object.keys(dateSet).forEach(function(dateKeySuffix) {
           var cellKey = role.id + '__' + dateKeySuffix;
@@ -70684,8 +70685,37 @@ function filterLiturgyItems() {
           STATE.rosterCellTimestamps.delete(cellKey);
           STATE.rosterPendingCells.delete(cellKey);
           count++;
+          if (!clearedPerDate[dateKeySuffix]) clearedPerDate[dateKeySuffix] = {};
+          clearedPerDate[dateKeySuffix][role.id] = oldVal;
         });
       });
+
+      // Communion Assistant 1 mirrors the Liturgist (see runAutoSuggest) --
+      // if this clear just blanked the Liturgist but Communion Assistant 1
+      // wasn't itself part of the selected duties (e.g. a scoped clear of
+      // "just Liturgist"), its remaining value would silently go stale,
+      // still showing whoever the Liturgist used to be. Clear it too, but
+      // only when its current value still exactly matches the Liturgist
+      // value that was just cleared -- if a PIC has since set a genuinely
+      // different Communion Assistant 1, that's an intentional override and
+      // is left untouched, exactly like the auto-suggest cascade does.
+      Object.keys(clearedPerDate).forEach(function(dateKeySuffix) {
+        var litOldVal = clearedPerDate[dateKeySuffix].liturgist;
+        if (litOldVal === undefined) return;
+        if (clearedPerDate[dateKeySuffix].communion1 !== undefined) return; // already cleared directly above
+        var c1Key = 'communion1__' + dateKeySuffix;
+        var c1Val = STATE.rosterEdits.get(c1Key);
+        if (c1Val === undefined || c1Val === '__BLANK__' || c1Val !== litOldVal) return;
+        var c1Pending = STATE.rosterPendingCells.has(c1Key);
+        if (filter === 'pending' && !c1Pending) return;
+        if (filter === 'confirmed' && c1Pending) return;
+        _rPushUndo(c1Key, c1Val, '__BLANK__', c1Pending, false);
+        STATE.rosterEdits.set(c1Key, '__BLANK__');
+        STATE.rosterCellTimestamps.delete(c1Key);
+        STATE.rosterPendingCells.delete(c1Key);
+        count++;
+      });
+
       if (!count) {
         var scopeNote = filter === 'pending' ? ' (pending only)' : filter === 'confirmed' ? ' (confirmed only)' : '';
         this.showToast('Nothing to clear for the selected date(s)' + scopeNote, 'warning');
