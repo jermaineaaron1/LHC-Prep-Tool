@@ -1,6 +1,28 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-07-31 by Codex_
+_Last updated: 2026-08-09 by Claude Code_
+
+---
+
+## 2026-08-09 — Premium mobile-only Worship Roster redesign (branch `feature/premium-mobile-roster`, not yet merged)
+
+Implemented the approved premium mobile redesign of the Worship Roster page (mobile only, ≤768px). This is an **additive layer** on top of the existing `RosterEngine`/`STATE`/Supabase `roster` data model — no schema changes, no desktop changes, no duplicated business logic. Full audit findings, design rationale, and verification are in the session transcript; summary below.
+
+**What changed (all inside `Index.html` / `dist/index.html`, no other files touched):**
+- New `#rosterMobilePremium` block: dark-emerald compact app bar (title, live Calendar-sync status, PIC status), a prominent month selector, a **2-week roster / Whole month** view toggle, and a compact command row (PIC, gold Auto Suggest, Undo, Redo, Enablers, Save) with a collapsible **Tools** sheet (Calendar, Export CSV, Print/PDF, Share Live, WhatsApp, Clear Services, Confirm Pending). Every control calls the *existing* `RosterEngine` method directly (`undo()`, `redo()`, `saveChanges()`, `showPicLoginModal()`, `openEnablersModal()`, `openEnablersCalendar()`, `downloadCSV()`, `downloadPDF()`, `shareLiveLink()`, `sharePDFViaWhatsApp()`, `confirmClearServicesPrompt()`, `confirmPendingPrompt()`) — no new handler logic, only presentation.
+- Old desktop header/toolbar/mobile-pager-nav are CSS-hidden at ≤768px; the new block is CSS-hidden above it. Both read the same `STATE` — `render()` now also calls a new `_syncMobilePremiumHeader()`, and `updatePicUI()`/`_updateConfirmPendingButton()` now also drive the mobile elements, so there is a single source of truth.
+- Two-week table view: readability-only CSS bump (larger font/padding). No markup or JS change — reuses the same table/pager fixed earlier this session.
+- **New whole-month grouped view** (`renderMobileMonthView()`): every duty for a service date rendered together, read from the same `STATE.rosterEdits`/`ROLES`/`getServiceDays` the desktop table uses. Sticky date-jump bar scrolls to a service card. Multi-person duties (Ushers, Sunday School Teachers, Singers, Altar Guild, Communion Assistants) collapse into one row with numbered chips (`MOBILE_MULTI_PERSON_GROUPS`); Bible readers stay separate, each paired with its linked scripture passage via convention (`MOBILE_READER_PASSAGE`: Reader 1 ↔ 1st Reading, Reader 2 ↔ 2nd Reading).
+- **Deliberate scoping decision:** the whole-month view is read-oriented. Tapping a duty slot in PIC mode calls `jumpToDateAndEdit()`, which switches to the 2-week view already scrolled to that date and opens the real `editCell()` control on the real `<td>` — editing always goes through the one existing edit path, never a second parallel write path. This was chosen deliberately over building an independent in-place editor for the month view, to avoid duplicating/forking the clash-detection, undo, pending-flag, and Supabase-write machinery that the desktop `<td>` editing already relies on.
+- **Auto Suggest preview:** `runAutoSuggest()` gained a `previewOnly` parameter. It runs the *identical* scoring/eligibility logic (curated-team tiers, per-role rotation, 2×/month soft cap, back-to-back and cross-month guards, unavailability, the Liturgist↔Communion Assistant 1 cascade, the Flower Arrangement clash exemption) but resolves with a list instead of writing anything. The new mobile panel shows date/duty/name/reason/warning per suggestion — reason and warning text is derived from the real scoring signals (curated-tier membership, month duty count, back-to-back match), never fabricated — and supports applying one suggestion or all warning-free ("safe") ones; anything flagged with a warning requires an individual tap to apply.
+
+**Testing performed:** verified against disposable roster year 2099 (never real data) — header sync, PIC-only visibility (logged out vs. logged in), whole-month grouping including completion counts, multi-person chip rows, reader/passage pairing, sticky date-jump, tap-to-jump-and-edit opening the real edit control, Auto Suggest preview scan/reason/warning/apply-one/apply-all, and full test-data cleanup. Confirmed no page-level horizontal overflow at 320/360/390/430px. Confirmed the original desktop header/toolbar/table render unchanged at 1280px (no regression). `node --check` passes on all 18 inline `<script>` blocks; `Index.html` and `dist/index.html` are byte-identical.
+
+**Known limitations / remaining risks:**
+- The whole-month view cannot edit in place — see the scoping decision above. If a future request wants true in-place month-view editing, that needs its own design pass (likely reusing `editCell`'s dropdown-panel builder against a non-`<td>` element, which currently assumes table-cell DOM).
+- The Auto Suggest preview's "Use" button for a single suggestion re-runs the real algorithm scoped to that one date+role rather than literally replaying the previously-computed candidate; since nothing else changes between the scan and the click, this is deterministic and safe, but if a user applies suggestions **out of the natural role order** (e.g. taps a Communion Assistant 1 suggestion before its paired Liturgist suggestion), the mirror can silently no-op until the Liturgist is applied — the row's "Mirrors the Liturgist suggested above" reason text is the only hint. "Apply all safe suggestions" is unaffected since it batches by date+role and lets `runAutoSuggest`'s own internal ordering handle this correctly.
+- No SQL migration, RLS change, or new environment variable was needed or made.
+- **Branch not yet merged to master** — push this branch, do not merge until a further explicit review/request.
 
 ---
 
