@@ -46,6 +46,15 @@ Both fixes: `node --check` passes on all 18 script blocks, byte-identical `dist/
 
 All fixes: `node --check` passes on all 18 script blocks, byte-identical `dist/index.html`, no real WhatsApp messages/tabs sent during testing (spied), year-2099 test data cleaned up afterward.
 
+**Broader regression audit (same day, requested separately: "do further audit to make sure everything works well just as it did - PDF, share link, changing enablers, removing and adding autosuggested")** — no code changes this pass; every item verified working, no new bugs found:
+- **Print/PDF** (`downloadPDF()`) — mocked `window.open` to capture the generated document instead of relying on a real popup (a synthetic/non-trusted JS call gets popup-blocked by the browser regardless of app code, which is expected and irrelevant to real user clicks). Confirmed the print HTML is well-formed: correct title, correct table structure (7 columns, service dates, role rows), correct liturgical-color styling. Working.
+- **Share Live Link deep-link** (`?view=roster&rmonth=&ryear=`) — followed the generated URL and confirmed the roster view loads directly to the linked month/year via `STATE_OVERRIDE_MONTH`/`STATE_OVERRIDE_YEAR` (title and table both correctly showed the target month). The year `<select>` widget itself only lists a few real-world years (2025-2028) and doesn't grow an option for the disposable test year 2099 used throughout this session's testing, so the dropdown *widget* shows a mismatched value in that one synthetic case -- harmless, since no real share link ever targets a year that far outside the normal range. Working.
+- **Changing Enablers** — added a real test enabler (`ZZTEST Person 2099`) via the roster cell dropdown's "New name..." input, confirmed it wrote to `roster_names` and immediately appeared in the Enablers "By Duty" list and profile view (Status/Team/Prayer Requests/Fun Facts editing panels all intact), then cleared/removed it and cleaned up the test row. Working.
+- **Removing and re-adding auto-suggested duties** — full lifecycle exercised on one cell: Auto-Suggest fill (pending, ⏳) → clear via the cell dropdown's "Clear / Leave blank" → Auto-Suggest re-fill (pending again) → Undo (reverts to blank) → Redo (restores the pending fill) → Confirm Pending (clears the pending flag, keeps the value) → manual clear of the now-confirmed cell. Every step behaved correctly, confirming this session's earlier undo/redo and Auto-Suggest fixes hold up under a full add/remove/confirm cycle.
+- **CSV export** (`downloadCSV()`) — spot-checked, correct header row and structure.
+
+Test data (year 2099 roster rows + the test enabler) cleaned up after each check.
+
 ---
 
 ## 2026-07-31 — High-resolution vocal transcription and expression capture
