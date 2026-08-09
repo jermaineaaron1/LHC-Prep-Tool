@@ -66439,6 +66439,16 @@ function filterLiturgyItems() {
   var _rUndoStack = [];   // [{key, oldVal, newVal, oldPending, newPending}]
   var _rRedoStack = [];
   var _rAutoSaveTimer = null;
+  // Serializes every saveChanges() call (manual Save button, debounced
+  // auto-save, runAutoSuggest, clearServices, etc.) onto one promise chain
+  // so two saves are never in flight at once. saveChanges() always uploads
+  // the ENTIRE current rosterEdits map, not a diff -- without this, two
+  // overlapping requests (e.g. a natural 3-second debounce firing while an
+  // explicit save from moments earlier is still in flight) can land out of
+  // order, letting an older, less-complete snapshot silently overwrite a
+  // newer one. Each link in the chain reads STATE fresh when its turn comes,
+  // so the save that's actually LAST to run is also guaranteed last to land.
+  var _rSaveChain = Promise.resolve();
 
   function _rPushUndo(key, oldVal, newVal, oldPending, newPending) {
     _rUndoStack.push({ key: key, oldVal: oldVal, newVal: newVal, oldPending: oldPending, newPending: newPending });
@@ -67663,7 +67673,9 @@ function filterLiturgyItems() {
     },
 
     clearCell: function(td) {
+      var self = this;
       var key = td.getAttribute('data-key');
+      var roleId = key ? key.split('__')[0] : '';
       var oldVal = STATE.rosterEdits.get(key);
       var wasPending = STATE.rosterPendingCells.has(key);
       var isLiturgical = td.closest('tr') && td.closest('tr').classList.contains('roster-liturgical-row');
@@ -67688,9 +67700,39 @@ function filterLiturgyItems() {
         td.textContent = '-';
       }
       this.markUnsaved();
-      this.bindCellEvents();
-      this.checkClashes(null);
-      this.highlightUnavailableCells();
+
+      // Communion Assistant 1 mirrors the Liturgist -- see the matching
+      // comment in saveSelect() inside editCell(). Same rule here: only
+      // clears Communion Assistant 1 when it's blank, still pending, or
+      // still exactly equal to the Liturgist value just cleared.
+      var cascadeFired = false;
+      if (roleId === 'liturgist' && oldVal && oldVal !== '__BLANK__') {
+        var dateKeySuffix = key.split('__')[1];
+        var svcVal = STATE.rosterEdits.get('service_type__' + dateKeySuffix);
+        var team = svcVal === 'Traditional' ? 'traditional' : svcVal === 'Contemporary' ? 'contemporary' : null;
+        if (team && _autoFillRoleApplies('communion1', team)) {
+          var c1Key = 'communion1__' + dateKeySuffix;
+          var c1Val = STATE.rosterEdits.get(c1Key);
+          var c1IsPending = STATE.rosterPendingCells.has(c1Key);
+          if (c1Val === oldVal || c1IsPending) {
+            if (c1Val !== undefined && c1Val !== '__BLANK__') {
+              _rPushUndo(c1Key, c1Val, '__BLANK__', c1IsPending, false);
+              STATE.rosterEdits.set(c1Key, '__BLANK__');
+              STATE.rosterCellTimestamps.delete(c1Key);
+              STATE.rosterPendingCells.delete(c1Key);
+              cascadeFired = true;
+            }
+          }
+        }
+      }
+
+      if (cascadeFired) {
+        self.render();
+      } else {
+        this.bindCellEvents();
+        this.checkClashes(null);
+        this.highlightUnavailableCells();
+      }
     },
 
     changeMonth: function(direction) {
@@ -67827,11 +67869,52 @@ function filterLiturgyItems() {
         STATE.rosterCellTimestamps.set(key, timestamp);
         td.setAttribute('data-timestamp', timestamp);
         _rPushUndo(key, oldVal, newValue, wasPending, false);
+
+        // Communion Assistant 1 mirrors the Liturgist (see the cascade in
+        // runAutoSuggest) -- keep it in sync on a manual pick or clear too,
+        // not just when Auto-Suggest sets it. Without this, hand-editing the
+        // Liturgist (the normal, everyday way most cells get filled) left
+        // Communion Assistant 1 silently pointing at whoever the Liturgist
+        // used to be. Only touches Communion Assistant 1 when it's currently
+        // blank, still pending, or exactly equal to the Liturgist's OLD
+        // value (proving it was a mirror, not an independent pick) -- a
+        // Communion Assistant 1 the PIC has confirmed as someone genuinely
+        // different is left untouched, exactly like the auto-suggest
+        // cascade already does.
+        var cascadeFired = false;
+        if (roleId === 'liturgist' && newValue !== oldVal) {
+          var dateKeySuffix = key.split('__')[1];
+          var svcVal = STATE.rosterEdits.get('service_type__' + dateKeySuffix);
+          var team = svcVal === 'Traditional' ? 'traditional' : svcVal === 'Contemporary' ? 'contemporary' : null;
+          if (team && _autoFillRoleApplies('communion1', team)) {
+            var c1Key = 'communion1__' + dateKeySuffix;
+            var c1Val = STATE.rosterEdits.get(c1Key);
+            var c1IsBlank = !c1Val || c1Val === '__BLANK__';
+            var c1IsPending = STATE.rosterPendingCells.has(c1Key);
+            if ((c1IsBlank || c1IsPending || c1Val === oldVal) && c1Val !== newValue) {
+              var c1NewVal = newValue === '__BLANK__' ? '__BLANK__' : (newValue || '-');
+              _rPushUndo(c1Key, c1Val, c1NewVal, c1IsPending, false);
+              STATE.rosterEdits.set(c1Key, c1NewVal);
+              STATE.rosterCellTimestamps.set(c1Key, timestamp);
+              STATE.rosterPendingCells.delete(c1Key);
+              cascadeFired = true;
+            }
+          }
+        }
+
         self._updateConfirmPendingButton();
         self.markUnsaved();
-        self.bindCellEvents();
-        self.checkClashes(td);
-        self.highlightUnavailableCells();
+        if (cascadeFired) {
+          // Communion Assistant 1's own <td> also needs to reflect the
+          // change -- a full render() is the simplest correct way to update
+          // both cells at once (same pattern clearServices/runAutoSuggest
+          // already use for any multi-cell consequence).
+          self.render();
+        } else {
+          self.bindCellEvents();
+          self.checkClashes(td);
+          self.highlightUnavailableCells();
+        }
       };
 
       var cancelSelect = function() {
@@ -69918,6 +70001,19 @@ function filterLiturgyItems() {
     saveChanges: function(silent) {
       var self = this;
       clearTimeout(_rAutoSaveTimer);
+      // Every call (manual Save, debounced auto-save, runAutoSuggest,
+      // clearServices, ...) queues onto _rSaveChain rather than firing its
+      // own independent request -- see the comment on _rSaveChain. This
+      // call's own work only actually runs once every save queued ahead of
+      // it has finished, so it always uploads a truly-current snapshot and
+      // is guaranteed to land last if it IS the last one queued.
+      var run = function() { return self._doSaveChanges(silent); };
+      _rSaveChain = _rSaveChain.then(run, run);
+      return _rSaveChain;
+    },
+
+    _doSaveChanges: function(silent) {
+      var self = this;
       if (!STATE.rosterEdits.size) { if (!silent) this.showToast('No changes to save', 'warning'); return Promise.resolve(); }
       if (silent) _rShowAutoSave('<i class="fa-solid fa-circle-notch fa-spin"></i> Auto-saving...', false);
       var edits = [];
