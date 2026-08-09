@@ -71860,14 +71860,30 @@ function filterLiturgyItems() {
       return duties;
     },
 
+    // wa.me links require a full international number with no leading 0/+
+    // (digits only). Members' saved phone numbers are a mix of "+60..."
+    // (already international) and local Malaysian format "0..." -- the PIC
+    // login check (submitPicLogin) already normalizes 0->+60 for its own DB
+    // lookup, but that normalization never applied here, so any member saved
+    // in local format got a wa.me link built from their raw "0..." number,
+    // which WhatsApp cannot resolve to a contact and silently fails to open
+    // the right chat. Confirmed against real saved numbers: most of this
+    // church's members are saved in local format, so most Duty Card /
+    // Subscribe Link WhatsApp sends were broken before this fix.
+    _waPhone: function(phone) {
+      var p = String(phone || '').replace(/[\s\-\(\)]/g, '');
+      if (p[0] === '+') p = p.slice(1);
+      else if (p[0] === '0') p = '60' + p.slice(1);
+      return p;
+    },
+
     sendDutyCardWhatsApp: function(memberName, phone) {
       var self = this;
       if (!phone) { this.showToast('No phone number saved for ' + memberName, 'error'); return; }
       var duties = this.getDutiesForMember(memberName, STATE.rosterMonth, STATE.rosterYear);
       var calUrl = STATE.picMode ? this.getCalendarSubscribeUrl(memberName) : '';
       var msg = this.buildDutyCardMessage(memberName, STATE.rosterMonth, STATE.rosterYear, duties, calUrl);
-      var cleanPhone = phone.replace(/[\s\-\(\)]/g, '');
-      var waUrl = 'https://wa.me/' + cleanPhone.replace('+','') + '?text=' + encodeURIComponent(msg);
+      var waUrl = 'https://wa.me/' + this._waPhone(phone) + '?text=' + encodeURIComponent(msg);
       window.open(waUrl, '_blank');
     },
 
@@ -71893,8 +71909,7 @@ function filterLiturgyItems() {
       if (!phone) { this.showToast('No phone number saved for ' + memberName, 'error'); return; }
       var guideUrl = window.location.origin + '/?view=subscribe&name=' + encodeURIComponent(memberName);
       var msg = 'Hi ' + memberName + '! Add your LHC worship duties to your phone calendar - just open this link and tap "Add to Google Calendar":\n\n' + guideUrl + '\n\nYou only need to do this once. After that, your duties update automatically whenever the roster changes, and you get a reminder the day before each service.';
-      var cleanPhone = phone.replace(/[\s\-\(\)]/g, '');
-      var waUrl = 'https://wa.me/' + cleanPhone.replace('+', '') + '?text=' + encodeURIComponent(msg);
+      var waUrl = 'https://wa.me/' + this._waPhone(phone) + '?text=' + encodeURIComponent(msg);
       window.open(waUrl, '_blank');
     },
 
