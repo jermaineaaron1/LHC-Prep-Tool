@@ -70555,19 +70555,33 @@ function filterLiturgyItems() {
         '</label>';
       }).join('');
 
+      // Duty checklist -- lets a PIC clear just a few specific duties (e.g.
+      // undo a couple of Auto-Suggest picks they don't like) instead of being
+      // forced to wipe every duty for the date. All checked by default so the
+      // existing "clear everything" behavior (plus Service Type, per the note
+      // below) is unchanged for anyone who doesn't touch this list -- see the
+      // isFullClear check in clearServices().
+      var roleDutyDefs = this.ROLES.filter(function(r) { return r.type === 'role'; });
+      var roleRowsHtml = roleDutyDefs.map(function(role) {
+        return '<label style="display:flex;align-items:center;gap:8px;padding:6px 6px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
+          '<input type="checkbox" class="roster-cs-role-cb" data-role="' + self.escapeHtml(role.id) + '" checked style="width:16px;height:16px;flex-shrink:0;">' +
+          '<span style="font-size:0.83rem;color:#1f2933;">' + self.escapeHtml(role.label) + '</span>' +
+        '</label>';
+      }).join('');
+
       var overlay = document.createElement('div');
       overlay.id = 'rosterClearServicesModal';
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
       overlay.innerHTML =
-        '<div style="background:#fff;max-width:440px;width:92%;max-height:82vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
+        '<div style="background:#fff;max-width:560px;width:94%;max-height:92vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
           '<div style="background:linear-gradient(135deg,#b91c1c,#ef4444);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;">' +
             '<i class="fa-solid fa-triangle-exclamation" style="font-size:1.3rem;"></i>' +
             '<div style="font-weight:700;font-size:1.05rem;">Clear Services</div>' +
           '</div>' +
           '<div style="padding:16px 20px 8px;flex:1;overflow-y:auto;">' +
-            '<p style="margin:0 0 12px;font-size:0.85rem;color:#991b1b;line-height:1.5;"><strong>This blanks duties and Service Type for the dates you select</strong> -- roles, ushers, readers, communion, music, tech, all of it. This can be undone via the Undo button right after. Select the date(s) to reset:</p>' +
+            '<p style="margin:0 0 12px;font-size:0.85rem;color:#991b1b;line-height:1.5;"><strong>This blanks the duties you select below, for the dates you select below.</strong> Leave every duty checked to also reset Service Type, ushers, readers, communion, music, tech -- literally all of it, same as before. Uncheck the ones you want to keep to remove just a few picks instead. This can be undone via the Undo button right after.</p>' +
             '<div style="margin-bottom:14px;">' +
-              '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;display:block;margin-bottom:6px;">Clear which duties</span>' +
+              '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;display:block;margin-bottom:6px;">Clear which status</span>' +
               '<div style="display:flex;gap:6px;">' +
                 '<label style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 4px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;font-size:0.78rem;color:#374151;font-weight:600;">' +
                   '<input type="radio" name="rosterCsFilter" value="all" checked style="margin:0;">All</label>' +
@@ -70577,6 +70591,14 @@ function filterLiturgyItems() {
                   '<input type="radio" name="rosterCsFilter" value="confirmed" style="margin:0;">Confirmed only</label>' +
               '</div>' +
             '</div>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+              '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Duties to clear</span>' +
+              '<div style="display:flex;gap:8px;">' +
+                '<button type="button" id="rosterCsRoleSelectAll" style="background:none;border:none;color:#b91c1c;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select All</button>' +
+                '<button type="button" id="rosterCsRoleSelectNone" style="background:none;border:none;color:#6b7280;font-size:0.78rem;font-weight:600;cursor:pointer;padding:0;">Select None</button>' +
+              '</div>' +
+            '</div>' +
+            '<div style="border:1px solid #e5e7eb;border-radius:8px;max-height:260px;overflow-y:auto;margin-bottom:14px;display:grid;grid-template-columns:1fr 1fr;align-content:start;">' + roleRowsHtml + '</div>' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
               '<span style="font-size:0.78rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.03em;">Dates to clear</span>' +
               '<div style="display:flex;gap:8px;">' +
@@ -70600,30 +70622,52 @@ function filterLiturgyItems() {
       overlay.querySelector('#rosterCsSelectNone').onclick = function() {
         overlay.querySelectorAll('.roster-cs-date-cb').forEach(function(cb) { cb.checked = false; });
       };
+      overlay.querySelector('#rosterCsRoleSelectAll').onclick = function() {
+        overlay.querySelectorAll('.roster-cs-role-cb').forEach(function(cb) { cb.checked = true; });
+      };
+      overlay.querySelector('#rosterCsRoleSelectNone').onclick = function() {
+        overlay.querySelectorAll('.roster-cs-role-cb').forEach(function(cb) { cb.checked = false; });
+      };
       overlay.querySelector('#rosterClearServicesGoBtn').onclick = function() {
         var selected = Array.from(overlay.querySelectorAll('.roster-cs-date-cb:checked')).map(function(cb) { return cb.getAttribute('data-date'); });
         if (!selected.length) { self.showToast('Select at least one date', 'warning'); return; }
+        var selectedRoles = Array.from(overlay.querySelectorAll('.roster-cs-role-cb:checked')).map(function(cb) { return cb.getAttribute('data-role'); });
+        if (!selectedRoles.length) { self.showToast('Select at least one duty', 'warning'); return; }
         var filterEl = overlay.querySelector('input[name="rosterCsFilter"]:checked');
         var filter = filterEl ? filterEl.value : 'all';
         close();
-        self.clearServices(selected, filter);
+        self.clearServices(selected, filter, selectedRoles);
       };
     },
 
-    // Blanks every role/scripture/service-type cell for the given dates
-    // (leaves the liturgical day/color row and header rows untouched --
-    // those aren't duty assignments). `filter` narrows WHICH cells count:
-    // 'pending' only clears cells still awaiting confirmation, 'confirmed'
-    // only clears cells a PIC already approved, 'all' (default) clears
-    // both. Pushes each change onto the undo stack individually -- with
-    // its pre-clear pending state -- so "Undo" restores the exact value
-    // AND whether it was still pending, one cell at a time.
-    clearServices: function(selectedDates, filter) {
+    // Blanks role/scripture/service-type cells for the given dates (leaves
+    // the liturgical day/color row and header rows untouched -- those aren't
+    // duty assignments). `filter` narrows WHICH cells count: 'pending' only
+    // clears cells still awaiting confirmation, 'confirmed' only clears
+    // cells a PIC already approved, 'all' (default) clears both.
+    // `selectedRoleIds` narrows WHICH duties count: when omitted, or when it
+    // covers every `type:'role'` duty (the PIC left the checklist fully
+    // checked), this clears role+scripture+service-type cells exactly like
+    // before this scoping was added. When it's a genuine subset (the PIC
+    // unchecked some duties -- e.g. to undo a couple of unwanted Auto-Suggest
+    // picks without wiping the whole date), only those specific role cells
+    // are touched; scripture and service-type are left alone in that case,
+    // since narrowing to "just these duties" shouldn't also reset unrelated
+    // date-level settings the PIC didn't ask to clear.
+    // Pushes each change onto the undo stack individually -- with its
+    // pre-clear pending state -- so "Undo" restores the exact value AND
+    // whether it was still pending, one cell at a time.
+    clearServices: function(selectedDates, filter, selectedRoleIds) {
       var self = this;
       if (!STATE.picMode) return;
       if (!selectedDates || !selectedDates.length) return;
       filter = filter || 'all';
-      var clearDefs = this.ROLES.filter(function(r) { return r.type === 'role' || r.type === 'scripture' || r.type === 'service-type'; });
+      var allRoleTypeIds = this.ROLES.filter(function(r) { return r.type === 'role'; }).map(function(r) { return r.id; });
+      var isFullClear = !Array.isArray(selectedRoleIds) || !selectedRoleIds.length ||
+        allRoleTypeIds.every(function(id) { return selectedRoleIds.indexOf(id) !== -1; });
+      var clearDefs = isFullClear
+        ? this.ROLES.filter(function(r) { return r.type === 'role' || r.type === 'scripture' || r.type === 'service-type'; })
+        : this.ROLES.filter(function(r) { return r.type === 'role' && selectedRoleIds.indexOf(r.id) !== -1; });
       var dateSet = {};
       selectedDates.forEach(function(d) { dateSet[d.replace(/\s/g, '_')] = true; });
       var count = 0;

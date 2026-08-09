@@ -55,6 +55,11 @@ All fixes: `node --check` passes on all 18 script blocks, byte-identical `dist/i
 
 Test data (year 2099 roster rows + the test enabler) cleaned up after each check.
 
+**New feature (same day, requested after the audit): duty-scoped Clear Services.** "Clear Services" previously only let a PIC narrow by date and by pending/confirmed status -- it always wiped *every* duty for the chosen date(s), so undoing a couple of unwanted Auto-Suggest picks meant either clearing everything and redoing the rest, or clearing cells one at a time in the table. Added a "Duties to clear" checklist to `confirmClearServicesPrompt()`, matching the same checklist pattern already used by Auto-Suggest's "Duties to include" and Confirm Pending's "Roles to confirm" (all checked by default, Select All/Select None, 2-column grid).
+- `clearServices(selectedDates, filter, selectedRoleIds)` gained the third parameter. When every `type:'role'` duty is checked (the default, unchanged path), it clears role+scripture+service-type cells exactly as before. When the PIC has unchecked some duties, it clears **only** the checked role cells -- scripture and Service Type are left alone in that narrowed case, since picking "just these duties" shouldn't also reset date-level settings the PIC didn't select.
+- Verified: Auto-Suggested Preacher/Liturgist/Usher 1/Usher 2 for one date, opened Clear Services, selected only Usher 1 + Usher 2 (Select None then check two), cleared just that date -- Ushers went blank, Preacher/Liturgist and Service Type were untouched. Undo restored both cleared Ushers (value + pending flag). Re-ran with every duty left checked (the default) and confirmed the original full-clear behavior (including Service Type) is unchanged.
+- `node --check` passes on all 18 script blocks, byte-identical `dist/index.html`, no new console errors, test data cleaned from year 2099 afterward.
+
 ---
 
 ## 2026-07-31 — High-resolution vocal transcription and expression capture
