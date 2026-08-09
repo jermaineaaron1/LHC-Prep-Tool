@@ -3278,6 +3278,211 @@
       #rosterActionBtns .roster-action-btn { width: 100%; justify-content: center; }
       .roster-header-card .mt-4.text-xs { margin-top: 4px !important; }
 
+      /* ==================================================================
+         PREMIUM MOBILE ROSTER (≤768px only). Swaps the desktop header/
+         toolbar for the compact rmp-* block above, and adds the whole-month
+         grouped view + Auto Suggest preview panel. Every control here calls
+         an existing RosterEngine method -- no new business logic, only
+         presentation and (for the whole-month view / suggest preview) new
+         read-oriented rendering functions.
+         ================================================================== */
+      #worshipRosterView .roster-header-card,
+      #worshipRosterView .roster-bottom-nav,
+      #worshipRosterView #rosterMobileNav { display: none !important; }
+      #worshipRosterView #rosterMobilePremium { display: block !important; }
+
+      #rosterMobilePremium {
+        margin: 0 0 12px; border-radius: 16px; overflow: hidden;
+        background: linear-gradient(155deg,#f8fbf9 0%,#edf3f0 100%);
+        border: 1px solid #9eb6ab;
+        box-shadow: 0 18px 40px rgba(15,48,36,.18), 0 4px 10px rgba(15,48,36,.09), inset 0 1px 0 rgba(255,255,255,.9);
+      }
+      .rmp-appbar {
+        padding: 10px 12px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px;
+        color: #fff;
+        background: radial-gradient(circle at 92% 5%, rgba(240,203,102,.22), transparent 27%), linear-gradient(145deg,#0a3f34 0%,#0b6c58 68%,#10846c 100%);
+        border-bottom: 1px solid #062e26;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.17), inset 0 -1px 0 rgba(0,0,0,.2);
+      }
+      .rmp-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .rmp-mark {
+        width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 11px; font-size: 15px;
+        background: linear-gradient(145deg, rgba(255,255,255,.2), rgba(255,255,255,.07));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.26), 0 3px 8px rgba(0,0,0,.16);
+      }
+      .rmp-brand-text b { display: block; font-family: Georgia,"Times New Roman",serif; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .rmp-brand-text small { display: flex; align-items: center; gap: 4px; color: rgba(255,255,255,.78); font-size: 9px; font-weight: 600; }
+      .rmp-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 0 2px rgba(74,222,128,.25); flex: 0 0 auto; }
+      .rmp-more {
+        width: 34px; height: 34px; border-radius: 10px; color: #fff; font-size: 14px;
+        background: linear-gradient(145deg, rgba(255,255,255,.2), rgba(255,255,255,.07));
+        border: 1px solid rgba(255,255,255,.2);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.26), 0 3px 8px rgba(0,0,0,.16);
+      }
+      .rmp-info-sheet {
+        display: none; padding: 8px 12px; font-size: 10px; color: #52665d; background: #fff9e0; border-bottom: 1px solid #eadfbf;
+      }
+      .rmp-info-sheet.open { display: block; }
+
+      .rmp-monthbar {
+        padding: 8px 10px; display: grid; grid-template-columns: 38px 1fr 38px; gap: 8px; align-items: center;
+        background: linear-gradient(180deg,#ffffff 0%,#f1f6f3 100%);
+        box-shadow: inset 0 1px 0 #fff, 0 5px 13px rgba(31,69,54,.09);
+      }
+      .rmp-nav-btn {
+        height: 38px; border-radius: 10px; color: #087b63; font-size: 16px;
+        border: 1px solid #b8cbc2;
+        background: linear-gradient(180deg,#ffffff 0%,#e9f0ec 100%);
+        box-shadow: inset 0 1px 0 #fff, 0 3px 7px rgba(21,62,47,.14);
+      }
+      .rmp-monthtitle { text-align: center; min-width: 0; }
+      .rmp-monthtitle span { display: block; color: #18332a; font-size: 14px; font-weight: 800; text-shadow: 0 1px 0 #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .rmp-monthtitle small { display: block; color: #71847b; font-size: 9px; font-weight: 600; }
+
+      .rmp-tabs { padding: 6px 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: #edf4f0; border-bottom: 1px solid #d5e2db; }
+      .rmp-tab {
+        min-height: 36px; border-radius: 10px; font-size: 10px; font-weight: 800; color: #456158;
+        border: 1px solid #bfd1c8;
+        background: linear-gradient(180deg,#fff,#e9f0ec);
+        box-shadow: inset 0 1px 0 #fff, 0 3px 7px rgba(24,63,49,.10);
+      }
+      .rmp-tab[aria-pressed="true"] {
+        color: #fff; border-color: #075b4a;
+        background: linear-gradient(145deg,#08705a,#0a9576);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.24), inset 0 -2px 0 rgba(0,0,0,.12), 0 5px 10px rgba(8,123,99,.22);
+      }
+
+      .rmp-cmdbar { padding: 8px 10px; display: flex; align-items: center; gap: 8px; background: linear-gradient(180deg,#f9fbfa,#e9f0ec); box-shadow: inset 0 1px 0 #fff; }
+      .rmp-cmd-scroll { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+      .rmp-cmd-scroll::-webkit-scrollbar { display: none; }
+      .rmp-chip {
+        flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 8px 10px; border-radius: 9px;
+        font-size: 10px; font-weight: 800; color: #315348; white-space: nowrap; cursor: pointer;
+        border: 1px solid #bdcec6;
+        background: linear-gradient(180deg,#ffffff,#eaf1ed);
+        box-shadow: inset 0 1px 0 #fff, 0 3px 6px rgba(26,63,49,.11);
+      }
+      .rmp-chip.hidden { display: none !important; }
+      .rmp-chip-pic { color: #fff; border-color: #235a92; background: linear-gradient(145deg,#2c69a9,#3b82c4); box-shadow: inset 0 1px 0 rgba(255,255,255,.24), inset 0 -2px 0 rgba(0,0,0,.1), 0 4px 8px rgba(43,103,165,.22); }
+      .rmp-chip-pic.pic-active { background: linear-gradient(145deg,#1d8a4c,#25b868); border-color: #146336; }
+      .rmp-chip-gold { color: #4c3405; border-color: #c99122; background: linear-gradient(145deg,#f6d77d 0%,#e8ad38 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.55), inset 0 -2px 0 rgba(117,76,0,.12), 0 5px 10px rgba(177,121,14,.25); font-size: 10.5px; }
+      /* PIC-only controls -- scoped to the mobile premium block (the
+         existing .roster-status-pill.pic-only rule doesn't match these
+         new element classes). */
+      #rosterMobilePremium .rmp-chip.pic-only,
+      #rosterMobilePremium .rmp-save-btn.pic-only { display: none !important; }
+      body.pic-mode #rosterMobilePremium .rmp-chip.pic-only { display: inline-flex !important; }
+      body.pic-mode #rosterMobilePremium .rmp-save-btn.pic-only { display: inline-flex !important; }
+      #rosterMobilePremium .rmp-tools-sheet button.pic-only { display: none !important; }
+      body.pic-mode #rosterMobilePremium .rmp-tools-sheet.open button.pic-only { display: flex !important; }
+      .rmp-save-btn {
+        flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 9px; font-size: 10px; font-weight: 800; color: #fff;
+        border: 1px solid #075b4a;
+        background: linear-gradient(145deg,#08745e,#0a9878);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -2px 0 rgba(0,0,0,.12), 0 5px 10px rgba(8,123,99,.23);
+      }
+      .rmp-tools-sheet {
+        display: none; grid-template-columns: repeat(3,1fr); gap: 6px; padding: 10px; background: #fff; border-top: 1px solid #dce6e1;
+      }
+      .rmp-tools-sheet.open { display: grid; }
+      .rmp-tools-sheet button {
+        display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: 10px; font-size: 9px; font-weight: 700; color: #526c61;
+        border: 1px solid #d4e0da; background: linear-gradient(180deg,#fff,#f6f9f8);
+        box-shadow: inset 0 1px 0 #fff, 0 2px 5px rgba(26,63,49,.08);
+      }
+      .rmp-tools-sheet button i { font-size: 15px; color: #087b63; }
+
+      /* Two-week table readability: larger names/labels than the stock
+         mobile compaction above, still inside the same table/pager. */
+      #worshipRosterView .roster-table { font-size: 12px !important; }
+      #worshipRosterView .roster-table th, #worshipRosterView .roster-table td { padding: 9px 6px !important; }
+      #worshipRosterView .roster-table th:first-child, #worshipRosterView .roster-table td:first-child { font-size: 10.5px !important; min-width: 96px !important; max-width: 96px !important; width: 96px !important; }
+      #worshipRosterView .roster-table td:not(:first-child) { font-weight: 600; }
+      #worshipRosterView .roster-cell-value { font-size: 12px; }
+
+      /* Whole-month grouped view */
+      .rmp-month-view { padding: 4px 0 90px; }
+      .rmp-date-jump {
+        position: sticky; top: 0; z-index: 5; margin-bottom: 10px; padding: 6px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(52px,1fr); gap: 5px; overflow-x: auto;
+        border: 1px solid #bfd2c9; border-radius: 12px;
+        background: rgba(239,246,242,.97); backdrop-filter: blur(2px);
+        box-shadow: 0 6px 13px rgba(22,63,48,.12), inset 0 1px 0 #fff;
+      }
+      .rmp-date-jump button {
+        min-height: 38px; border-radius: 9px; font-size: 9px; font-weight: 800; color: #345b4f; white-space: nowrap;
+        border: 1px solid #bfd2c9;
+        background: linear-gradient(180deg,#fff,#e7f1ec);
+        box-shadow: inset 0 1px 0 #fff, 0 2px 5px rgba(20,61,46,.08);
+      }
+      .rmp-date-jump button.on {
+        color: #fff; border-color: #075b49;
+        background: linear-gradient(145deg,#08705a,#0a9576);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 8px rgba(8,123,99,.2);
+      }
+      .rmp-service-ledger {
+        margin-bottom: 12px; overflow: hidden; scroll-margin-top: 56px;
+        border: 1px solid #bfd3ca; border-radius: 14px; background: #fff;
+        box-shadow: 0 10px 22px rgba(22,62,47,.13), inset 0 1px 0 #fff;
+      }
+      .rmp-service-head {
+        padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #fff;
+        background: linear-gradient(145deg,#086a56,#0a9072);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.2), inset 0 -2px 0 rgba(0,0,0,.12);
+      }
+      .rmp-service-head b { display: block; font-family: Georgia,"Times New Roman",serif; font-size: 14px; }
+      .rmp-service-head span { display: block; color: rgba(255,255,255,.78); font-size: 9.5px; margin-top: 1px; }
+      .rmp-service-status {
+        flex: 0 0 auto; padding: 5px 8px; border-radius: 8px; font-size: 9px; font-weight: 800; color: #17483a;
+        background: linear-gradient(180deg,#fff,#dff1e9); box-shadow: inset 0 1px 0 #fff, 0 3px 7px rgba(0,0,0,.14);
+      }
+      .rmp-service-status.gap { color: #76520c; background: linear-gradient(180deg,#fff7df,#f4d47f); }
+      .rmp-duty-row { min-height: 40px; display: grid; grid-template-columns: 118px 1fr; border-bottom: 1px solid #e0e9e4; }
+      .rmp-duty-row:last-child { border-bottom: 0; }
+      .rmp-duty-label {
+        padding: 8px 9px; display: flex; align-items: center; color: #15513f; font-size: 10.5px; font-weight: 800; line-height: 1.25;
+        background: linear-gradient(180deg,#edf8f3,#dff0e8); border-right: 1px solid #d0e0d8;
+      }
+      .rmp-person {
+        padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #253f36; font-size: 12px; font-weight: 700;
+        background: linear-gradient(180deg,#fff,#f8fbf9);
+      }
+      .rmp-person small { color: #71837b; font-size: 9.5px; font-weight: 700; }
+      .rmp-person.open { color: #77520c; background: linear-gradient(180deg,#fff9e9,#f9e5ad); }
+      .rmp-person.pending { color: #78400d; background: linear-gradient(180deg,#fffbea,#fdf0c7); }
+      .rmp-person.pic-tappable { cursor: pointer; }
+      .rmp-shared-team { padding: 6px 7px; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; background: linear-gradient(180deg,#fff,#f8fbf9); }
+      .rmp-person-slot {
+        min-width: 0; padding: 6px 7px; display: flex; align-items: center; gap: 5px; border-radius: 8px; font-size: 10px; font-weight: 800; color: #2d493f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        border: 1px solid #c8d9d1; background: linear-gradient(180deg,#fff,#eaf3ef); box-shadow: inset 0 1px 0 #fff;
+      }
+      .rmp-person-slot b { width: 17px; height: 17px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 5px; color: #fff; font-size: 8px; background: linear-gradient(145deg,#08705a,#0a9576); }
+      .rmp-person-slot.open { color: #76520c; border-color: #dfbd6a; background: linear-gradient(180deg,#fff9e8,#f8e3a6); }
+      .rmp-person-slot.open b { background: linear-gradient(145deg,#d59b25,#edc65e); color: #4c3508; }
+      .rmp-person-slot.pending { color: #78400d; border-color: #e4c377; background: linear-gradient(180deg,#fffbea,#fdf0c7); }
+      .rmp-month-legend { margin: 4px 4px 12px; display: flex; justify-content: center; gap: 14px; color: #60786e; font-size: 9px; font-weight: 700; }
+
+      /* Auto Suggest preview panel */
+      .rmp-suggest-panel {
+        margin-bottom: 12px; overflow: hidden; border: 1px solid #d5bd80; border-radius: 15px; background: #fffdf7;
+        box-shadow: 0 18px 36px rgba(70,48,8,.2), 0 5px 12px rgba(70,48,8,.1);
+      }
+      .rmp-suggest-head { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #4f390d; background: #f8e5ae; border-bottom: 1px solid #e4cc8d; }
+      .rmp-suggest-head b { font-size: 12px; }
+      .rmp-suggest-head span { display: block; font-size: 9px; font-weight: 700; color: #7a5c14; }
+      .rmp-suggest-close { width: 28px; height: 28px; border-radius: 8px; color: #4f390d; background: rgba(255,255,255,.5); border: none; }
+      .rmp-suggest-rows { max-height: 46vh; overflow-y: auto; }
+      .rmp-suggest-row { padding: 10px 12px; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; border-bottom: 1px solid #eee5cc; }
+      .rmp-suggest-role { color: #8a6b27; font-size: 9.5px; font-weight: 800; }
+      .rmp-suggest-name { color: #263e35; font-size: 12px; font-weight: 800; }
+      .rmp-suggest-reason { display: block; color: #77877f; font-size: 9.5px; font-weight: 600; margin-top: 2px; }
+      .rmp-suggest-warn { display: block; color: #b8590c; font-size: 9.5px; font-weight: 700; margin-top: 2px; }
+      .rmp-suggest-use { padding: 7px 10px; border-radius: 8px; font-size: 9px; font-weight: 800; color: #087b63; border: 1px solid #b9d3c7; background: #eef8f4; }
+      .rmp-suggest-use.applied { color: #fff; background: #087b63; }
+      .rmp-suggest-empty { padding: 20px 14px; text-align: center; color: #8a6b27; font-size: 11px; }
+      .rmp-suggest-actions { padding: 10px 12px 12px; display: flex; gap: 8px; }
+      .rmp-suggest-cancel { flex: 0 0 auto; padding: 10px 14px; border-radius: 10px; font-size: 10px; font-weight: 800; color: #6b7280; background: #fff; border: 1px solid #d1d5db; }
+      .rmp-suggest-apply-all { flex: 1; padding: 10px; border-radius: 10px; font-size: 10px; font-weight: 800; color: #fff; border: none; background: #087b63; }
+
       /* ---- WORSHIP ORDERS ---- */
       .wo-container { min-height: 400px; }
       .wo-main-menu { padding: 20px 10px; }
@@ -5622,6 +5827,59 @@
       <!-- ==================== VIEW: WORSHIP ROSTER ==================== -->
       <section id="worshipRosterView" style="display: none;">
 
+        <!-- ── Premium mobile-only header/toolbar (≤768px). Desktop keeps
+             the original header/toolbar below unchanged; this block reuses
+             the exact same RosterEngine methods via inline onclick, so
+             there is no duplicated business logic -- only presentation. ── -->
+        <div id="rosterMobilePremium" class="rmp-root" style="display:none;">
+          <header class="rmp-appbar">
+            <div class="rmp-brand">
+              <div class="rmp-mark"><i class="fa-solid fa-church"></i></div>
+              <div class="rmp-brand-text">
+                <b>Worship Roster</b>
+                <small id="rmpSyncStatus"><span class="rmp-dot"></span>Google Calendar &middot; auto-syncing</small>
+              </div>
+            </div>
+            <button type="button" class="rmp-more" id="rmpMoreBtn" title="Roster help" onclick="document.getElementById('rmpInfoSheet').classList.toggle('open')"><i class="fa-solid fa-ellipsis"></i></button>
+          </header>
+          <div class="rmp-info-sheet" id="rmpInfoSheet">
+            <i class="fa-solid fa-circle-info mr-1"></i>
+            Tap a name to edit &bull; Hold for options &bull; Tap the color dot to cycle liturgical colors
+          </div>
+
+          <div class="rmp-monthbar">
+            <button type="button" class="rmp-nav-btn" onclick="RosterEngine.changeMonth(-1)" title="Previous month"><i class="fa-solid fa-chevron-left"></i></button>
+            <div class="rmp-monthtitle"><span id="rmpMonthTitle">&nbsp;</span><small id="rmpSeasonTitle">&nbsp;</small></div>
+            <button type="button" class="rmp-nav-btn" onclick="RosterEngine.changeMonth(1)" title="Next month"><i class="fa-solid fa-chevron-right"></i></button>
+          </div>
+
+          <div class="rmp-tabs" role="tablist">
+            <button type="button" class="rmp-tab" id="rmpTabWeeks" aria-pressed="true" onclick="RosterEngine.setMobileScheduleView('weeks')">2-week roster</button>
+            <button type="button" class="rmp-tab" id="rmpTabMonth" aria-pressed="false" onclick="RosterEngine.setMobileScheduleView('month')">Whole month</button>
+          </div>
+
+          <div class="rmp-cmdbar">
+            <div class="rmp-cmd-scroll">
+              <span class="rmp-chip rmp-chip-pic" id="rmpPicChip" onclick="RosterEngine.showPicLoginModal()" title="PIC Login"><i class="fa-solid fa-lock" id="rmpPicIcon"></i><span id="rmpPicLabel">PIC Login</span></span>
+              <span class="rmp-chip rmp-chip-gold pic-only" id="rmpAutoSuggestChip" onclick="RosterEngine.openMobileAutoSuggest()" title="Auto Suggest for the whole month"><i class="fa-solid fa-wand-magic-sparkles"></i>Auto Suggest</span>
+              <span class="rmp-chip" id="rmpUndoChip" onclick="RosterEngine.undo()" title="Undo last change"><i class="fa-solid fa-rotate-left"></i>Undo</span>
+              <span class="rmp-chip" id="rmpRedoChip" onclick="RosterEngine.redo()" title="Redo"><i class="fa-solid fa-rotate-right"></i>Redo</span>
+              <span class="rmp-chip" id="rmpEnablersChip" onclick="RosterEngine._enablersActiveTab='all';RosterEngine.openEnablersModal()" title="Enablers"><i class="fa-solid fa-people-group"></i>Enablers</span>
+              <span class="rmp-chip rmp-chip-tools" id="rmpToolsChip" onclick="document.getElementById('rmpToolsSheet').classList.toggle('open')" title="More tools"><i class="fa-solid fa-ellipsis"></i>Tools</span>
+            </div>
+            <button type="button" class="rmp-save-btn pic-only" id="rmpSaveBtn" onclick="RosterEngine.saveChanges()" title="Save changes"><i class="fa-solid fa-floppy-disk"></i>Save</button>
+          </div>
+          <div class="rmp-tools-sheet" id="rmpToolsSheet">
+            <button type="button" onclick="RosterEngine.openEnablersCalendar()"><i class="fa-solid fa-calendar-check"></i><span>Calendar</span></button>
+            <button type="button" onclick="RosterEngine.downloadCSV()"><i class="fa-solid fa-file-csv"></i><span>Export CSV</span></button>
+            <button type="button" onclick="RosterEngine.downloadPDF()"><i class="fa-solid fa-file-pdf"></i><span>Print/PDF</span></button>
+            <button type="button" onclick="RosterEngine.shareLiveLink()"><i class="fa-solid fa-link"></i><span>Share Live</span></button>
+            <button type="button" onclick="RosterEngine.sharePDFViaWhatsApp()"><i class="fa-brands fa-whatsapp"></i><span>WhatsApp</span></button>
+            <button type="button" class="pic-only" onclick="RosterEngine.confirmClearServicesPrompt()"><i class="fa-solid fa-eraser"></i><span>Clear Services</span></button>
+            <button type="button" class="pic-only" id="rmpConfirmPendingToolBtn" onclick="RosterEngine.confirmPendingPrompt()"><i class="fa-solid fa-circle-check"></i><span>Confirm Pending (<span id="rmpPendingCount">0</span>)</span></button>
+          </div>
+        </div>
+
         <!-- Roster Header Card -->
         <div class="roster-header-card roster-header-v2" style="margin-bottom: 16px;">
 
@@ -5702,6 +5960,31 @@
               </thead>
               <tbody id="rosterTbody"></tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- ── Mobile-only whole-month grouped view. Read-focused: tapping a
+             duty slot (PIC mode) jumps back to the 2-week view already
+             scrolled to that date and opens the real edit control, so all
+             editing still goes through the one existing editCell() path --
+             this view never edits STATE.rosterEdits directly. ── -->
+        <div id="rosterMobileMonthView" class="rmp-month-view" style="display:none;">
+          <div class="rmp-date-jump" id="rmpDateJump"></div>
+          <div id="rmpServiceLedgers"></div>
+        </div>
+
+        <!-- ── Mobile-only Auto Suggest preview panel. Shows a dry-run of
+             the exact same RosterEngine.runAutoSuggest() scoring, computed
+             for the whole month, before anything is written. ── -->
+        <div id="rmpSuggestPanel" class="rmp-suggest-panel" style="display:none;">
+          <div class="rmp-suggest-head">
+            <div><b><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Month-aware suggestions</b><span id="rmpSuggestScanned"></span></div>
+            <button type="button" class="rmp-suggest-close" onclick="RosterEngine.closeMobileAutoSuggest()"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div id="rmpSuggestRows" class="rmp-suggest-rows"></div>
+          <div class="rmp-suggest-actions">
+            <button type="button" class="rmp-suggest-cancel" onclick="RosterEngine.closeMobileAutoSuggest()">Cancel</button>
+            <button type="button" class="rmp-suggest-apply-all" id="rmpApplyAllBtn" onclick="RosterEngine.applyAllMobileSuggestions()">Apply all safe suggestions</button>
           </div>
         </div>
 
@@ -66571,15 +66854,302 @@ function filterLiturgyItems() {
       // Setup mobile pinch-to-zoom on table wrapper
       this.setupPinchZoom();
       this._updateConfirmPendingButton();
+      this._syncMobilePremiumHeader();
+      if (this._mobileScheduleView === 'month') this.renderMobileMonthView();
     },
 
     _updateConfirmPendingButton: function() {
       var btn = document.getElementById('rosterConfirmPendingBtn');
       var countEl = document.getElementById('rosterPendingCount');
-      if (!btn) return;
       var count = STATE.rosterPendingCells.size;
-      if (countEl) countEl.textContent = count;
-      btn.classList.toggle('hidden', count === 0);
+      if (btn) {
+        if (countEl) countEl.textContent = count;
+        btn.classList.toggle('hidden', count === 0);
+      }
+      var rmpCountEl = document.getElementById('rmpPendingCount');
+      var rmpBtn = document.getElementById('rmpConfirmPendingToolBtn');
+      if (rmpCountEl) rmpCountEl.textContent = count;
+      if (rmpBtn) rmpBtn.style.display = count === 0 ? 'none' : 'flex';
+    },
+
+    // Keeps the compact mobile header's month/season/sync-status/PIC display
+    // in sync with the exact same STATE the desktop header reads -- single
+    // source of truth, no parallel state.
+    _syncMobilePremiumHeader: function() {
+      var monthEl = document.getElementById('rmpMonthTitle');
+      var seasonEl = document.getElementById('rmpSeasonTitle');
+      var syncEl = document.getElementById('rmpSyncStatus');
+      if (monthEl) monthEl.textContent = this.MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear;
+      if (seasonEl) seasonEl.textContent = this.SEASONS[STATE.rosterMonth] || '';
+      if (syncEl) syncEl.innerHTML = '<span class="rmp-dot"></span>Google Calendar &middot; auto-syncing';
+      this.updatePicUI();
+    },
+
+    // ================================================================
+    // MOBILE SCHEDULE VIEW TOGGLE (2-week table vs whole-month grouped view)
+    // ================================================================
+    _mobileScheduleView: 'weeks',
+    setMobileScheduleView: function(view) {
+      this._mobileScheduleView = view;
+      var tabWeeks = document.getElementById('rmpTabWeeks');
+      var tabMonth = document.getElementById('rmpTabMonth');
+      if (tabWeeks) tabWeeks.setAttribute('aria-pressed', String(view === 'weeks'));
+      if (tabMonth) tabMonth.setAttribute('aria-pressed', String(view === 'month'));
+      var weeksNav = document.getElementById('rosterMobileNav');
+      var weeksTable = document.querySelector('#worshipRosterView .roster-container');
+      var monthView = document.getElementById('rosterMobileMonthView');
+      var isWeeks = view === 'weeks';
+      if (weeksNav) weeksNav.style.display = isWeeks ? '' : 'none';
+      if (weeksTable) weeksTable.style.display = isWeeks ? '' : 'none';
+      if (monthView) monthView.style.display = isWeeks ? 'none' : 'block';
+      var toolsSheet = document.getElementById('rmpToolsSheet');
+      if (toolsSheet) toolsSheet.classList.remove('open');
+      this.closeMobileAutoSuggest();
+      if (!isWeeks) this.renderMobileMonthView();
+    },
+
+    // Which individual role IDs share one row, and what that row is
+    // labelled. Bible readers are deliberately NOT included here -- they
+    // stay one row each so the linked scripture passage can sit beside the
+    // reader's name (handled separately below).
+    MOBILE_MULTI_PERSON_GROUPS: {
+      usher1: 'ushers', usher2: 'ushers',
+      ssteacher1: 'ssteachers', ssteacher2: 'ssteachers', ssteacher3: 'ssteachers',
+      singer1: 'singers', singer2: 'singers', singer3: 'singers', singer4: 'singers',
+      altar1: 'altar', altar2: 'altar',
+      communion1: 'communion', communion2: 'communion', communion3: 'communion'
+    },
+    MOBILE_MULTI_PERSON_LABELS: {
+      ushers: 'Ushers', ssteachers: 'Sunday School Teachers', singers: 'Singers', altar: 'Altar Guild', communion: 'Communion Assistants'
+    },
+    // Reader duty -> the scripture passage row conventionally paired with it.
+    MOBILE_READER_PASSAGE: { reader1: 'reading1', reader2: 'reading2' },
+
+    // Whole-month grouped view: every duty for a service date rendered
+    // together, read from the exact same STATE.rosterEdits/ROLES the
+    // desktop table and 2-week view already use. Read-only by design --
+    // tapping a slot (PIC mode) jumps to the 2-week view already scrolled
+    // to that date and opens the real editCell() control there, so editing
+    // always goes through the one existing edit path.
+    renderMobileMonthView: function() {
+      var self = this;
+      var jumpEl = document.getElementById('rmpDateJump');
+      var ledgersEl = document.getElementById('rmpServiceLedgers');
+      if (!jumpEl || !ledgersEl) return;
+      var serviceDays = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      if (!serviceDays.length) {
+        jumpEl.innerHTML = '';
+        ledgersEl.innerHTML = '<p style="padding:20px;text-align:center;color:#71847b;font-size:12px;">No service dates this month.</p>';
+        return;
+      }
+
+      jumpEl.innerHTML = serviceDays.map(function(day, idx) {
+        return '<button type="button" data-jump-idx="' + idx + '"' + (idx === 0 ? ' class="on"' : '') + '>' + self.escapeHtml(day.displayName) + '</button>';
+      }).join('');
+
+      var roleDefs = this.ROLES.filter(function(r) { return r.type === 'role'; });
+      var groups = this.MOBILE_MULTI_PERSON_GROUPS;
+      var groupLabels = this.MOBILE_MULTI_PERSON_LABELS;
+      var readerPassage = this.MOBILE_READER_PASSAGE;
+
+      var ledgersHtml = serviceDays.map(function(day) {
+        var dateKeySuffix = day.dateStr.replace(/\s/g, '_');
+        var svcKey = 'service_type__' + dateKeySuffix;
+        var svcVal = STATE.rosterEdits.get(svcKey);
+        var hasSvcType = svcVal === 'Traditional' || svcVal === 'Contemporary';
+        var team = hasSvcType ? svcVal.toLowerCase() : null;
+
+        // Build the ordered row list for this date: individual roles as
+        // their own row, grouped-role IDs collapsed into one row per group
+        // (first occurrence), readers paired with their linked passage.
+        var rows = [];
+        var seenGroup = {};
+        var filledCount = 0, totalCount = 0;
+        roleDefs.forEach(function(role) {
+          if (team && !_autoFillRoleApplies(role.id, team)) return;
+          var groupKey = groups[role.id];
+          if (groupKey) {
+            if (seenGroup[groupKey]) return;
+            seenGroup[groupKey] = true;
+            var memberIds = Object.keys(groups).filter(function(rid) { return groups[rid] === groupKey; });
+            var slots = memberIds.map(function(rid, i) {
+              var ck = rid + '__' + dateKeySuffix;
+              var v = STATE.rosterEdits.get(ck);
+              var hasVal = v && v !== '__BLANK__' && typeof v !== 'object';
+              totalCount++;
+              if (hasVal) filledCount++;
+              return { num: i + 1, value: hasVal ? v : null, pending: hasVal && STATE.rosterPendingCells.has(ck), cellKey: ck };
+            });
+            rows.push({ kind: 'group', label: groupLabels[groupKey], slots: slots });
+            return;
+          }
+          if (readerPassage[role.id]) {
+            var rck = role.id + '__' + dateKeySuffix;
+            var rv = STATE.rosterEdits.get(rck);
+            var rHasVal = rv && rv !== '__BLANK__' && typeof rv !== 'object';
+            totalCount++;
+            if (rHasVal) filledCount++;
+            var passageKey = readerPassage[role.id] + '__' + dateKeySuffix;
+            var passageVal = STATE.rosterEdits.get(passageKey);
+            var passageText = (passageVal && passageVal !== '__BLANK__' && typeof passageVal !== 'object') ? passageVal : '';
+            rows.push({
+              kind: 'single', label: role.label + ' &middot; ' + (role.id === 'reader1' ? '1st Reading' : '2nd Reading'),
+              value: rHasVal ? rv : null, pending: rHasVal && STATE.rosterPendingCells.has(rck), cellKey: rck, passage: passageText
+            });
+            return;
+          }
+          var ck2 = role.id + '__' + dateKeySuffix;
+          var v2 = STATE.rosterEdits.get(ck2);
+          var hasVal2 = v2 && v2 !== '__BLANK__' && typeof v2 !== 'object';
+          totalCount++;
+          if (hasVal2) filledCount++;
+          rows.push({ kind: 'single', label: role.label, value: hasVal2 ? v2 : null, pending: hasVal2 && STATE.rosterPendingCells.has(ck2), cellKey: ck2 });
+        });
+
+        var rowsHtml = rows.map(function(row) {
+          if (row.kind === 'group') {
+            var slotsHtml = row.slots.map(function(slot) {
+              var cls = 'rmp-person-slot' + (slot.value ? (slot.pending ? ' pending' : '') : ' open');
+              var tap = STATE.picMode ? ' onclick="RosterEngine.jumpToDateAndEdit(\'' + self.escapeHtml(day.dateStr).replace(/'/g, "\\'") + '\',\'' + slot.cellKey.split('__')[0] + '\')"' : '';
+              var text = slot.value ? self.escapeHtml(slot.value) : 'Not assigned';
+              return '<span class="' + cls + '"' + tap + '><b>' + slot.num + '</b>' + text + '</span>';
+            }).join('');
+            return '<div class="rmp-duty-row"><div class="rmp-duty-label">' + self.escapeHtml(row.label) + '</div><div class="rmp-shared-team">' + slotsHtml + '</div></div>';
+          }
+          var pcls = 'rmp-person' + (row.value ? (row.pending ? ' pending' : '') : ' open') + (STATE.picMode ? ' pic-tappable' : '');
+          var ptap = STATE.picMode ? ' onclick="RosterEngine.jumpToDateAndEdit(\'' + self.escapeHtml(day.dateStr).replace(/'/g, "\\'") + '\',\'' + row.cellKey.split('__')[0] + '\')"' : '';
+          var ptext = row.value ? self.escapeHtml(row.value) : 'Not assigned';
+          var small = row.passage ? '<small>' + self.escapeHtml(row.passage) + '</small>' : (row.pending ? '<small>Auto Suggest</small>' : '');
+          return '<div class="rmp-duty-row"><div class="rmp-duty-label">' + row.label + '</div><div class="' + pcls + '"' + ptap + '>' + ptext + small + '</div></div>';
+        }).join('');
+
+        var statusCls = filledCount === totalCount ? '' : ' gap';
+        var statusText = filledCount === totalCount ? (totalCount + '/' + totalCount + ' filled') : (totalCount - filledCount) + ' open';
+        var subtitle = (day.name || day.displayName) + (hasSvcType ? ' &middot; ' + svcVal : '');
+
+        return '<div class="rmp-service-ledger" data-service-idx="' + serviceDays.indexOf(day) + '">' +
+          '<div class="rmp-service-head"><div><b>' + self.escapeHtml(day.displayName) + '</b><span>' + self.escapeHtml(subtitle) + '</span></div>' +
+          '<div class="rmp-service-status' + statusCls + '">' + statusText + '</div></div>' +
+          rowsHtml +
+        '</div>';
+      }).join('');
+
+      ledgersHtml += '<div class="rmp-month-legend"><span>Gold = awaiting confirmation</span><span>Tap a slot to edit</span></div>';
+      ledgersEl.innerHTML = ledgersHtml;
+
+      jumpEl.querySelectorAll('button[data-jump-idx]').forEach(function(btn) {
+        btn.onclick = function() {
+          var idx = btn.getAttribute('data-jump-idx');
+          jumpEl.querySelectorAll('button').forEach(function(b) { b.classList.toggle('on', b === btn); });
+          var target = ledgersEl.querySelector('[data-service-idx="' + idx + '"]');
+          if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      });
+    },
+
+    // Switches back to the 2-week table, scrolls it to the given date, and
+    // opens the real edit control on the real <td> for that role -- the
+    // whole-month view never mutates STATE.rosterEdits itself.
+    jumpToDateAndEdit: function(dateStr, roleId) {
+      if (!STATE.picMode) return;
+      var self = this;
+      this.setMobileScheduleView('weeks');
+      var days = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      var idx = days.findIndex(function(d) { return d.dateStr === dateStr; });
+      if (idx === -1) return;
+      var offset = idx % 2 === 0 ? idx : idx - 1;
+      var maxOffset = Math.max(0, days.length - 2);
+      STATE.rosterMobileOffset = Math.max(0, Math.min(maxOffset, offset));
+      this.scrollToMobileOffset(false);
+      this.updateMobileNav(days);
+      setTimeout(function() {
+        var key = roleId + '__' + dateStr.replace(/\s/g, '_');
+        var td = document.querySelector('.roster-table td[data-key="' + key.replace(/"/g, '\\"') + '"]');
+        if (td) self.editCell(td);
+      }, 260);
+    },
+
+    // ================================================================
+    // MOBILE AUTO SUGGEST PREVIEW (dry-run before writing anything)
+    // ================================================================
+    openMobileAutoSuggest: function() {
+      if (!STATE.picMode) { this.showPicLoginModal(); return; }
+      var self = this;
+      var panel = document.getElementById('rmpSuggestPanel');
+      var rowsEl = document.getElementById('rmpSuggestRows');
+      if (!panel || !rowsEl) return;
+      panel.style.display = 'block';
+      rowsEl.innerHTML = '<div class="rmp-suggest-empty"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Scanning every service this month&hellip;</div>';
+      var toolsSheet = document.getElementById('rmpToolsSheet');
+      if (toolsSheet) toolsSheet.classList.remove('open');
+      Promise.resolve(this.runAutoSuggest(null, null, true)).then(function(result) {
+        self._mobileSuggestResult = result || { fills: [], couldNotFill: [], missingServiceType: [] };
+        self._renderMobileSuggestRows();
+      }).catch(function(err) {
+        console.error('Mobile Auto Suggest preview error:', err);
+        rowsEl.innerHTML = '<div class="rmp-suggest-empty">Could not compute suggestions. Please try again.</div>';
+      });
+    },
+
+    _renderMobileSuggestRows: function() {
+      var self = this;
+      var result = this._mobileSuggestResult || { fills: [] };
+      var rowsEl = document.getElementById('rmpSuggestRows');
+      var scannedEl = document.getElementById('rmpSuggestScanned');
+      var applyAllBtn = document.getElementById('rmpApplyAllBtn');
+      if (!rowsEl) return;
+      var days = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
+      if (scannedEl) scannedEl.textContent = 'All ' + days.length + ' service' + (days.length === 1 ? '' : 's') + ' scanned';
+      if (!result.fills.length) {
+        rowsEl.innerHTML = '<div class="rmp-suggest-empty">Nothing to suggest &mdash; every applicable duty this month already has a value.</div>';
+        if (applyAllBtn) applyAllBtn.style.display = 'none';
+        return;
+      }
+      if (applyAllBtn) applyAllBtn.style.display = '';
+      rowsEl.innerHTML = result.fills.map(function(f, idx) {
+        var warnHtml = f.warning ? '<span class="rmp-suggest-warn"><i class="fa-solid fa-triangle-exclamation mr-1"></i>' + self.escapeHtml(f.warning) + '</span>' : '';
+        return '<div class="rmp-suggest-row" data-suggest-idx="' + idx + '">' +
+          '<div><div class="rmp-suggest-role">' + self.escapeHtml(f.date) + ' &middot; ' + self.escapeHtml(f.roleLabel) + '</div>' +
+          '<div class="rmp-suggest-name">' + self.escapeHtml(f.name) + '<span class="rmp-suggest-reason">' + self.escapeHtml(f.reason) + '</span>' + warnHtml + '</div></div>' +
+          '<button type="button" class="rmp-suggest-use" onclick="RosterEngine.applyOneMobileSuggestion(' + idx + ')">Use</button>' +
+        '</div>';
+      }).join('');
+    },
+
+    // Re-runs the real (non-preview) algorithm scoped to just this one
+    // date+role -- since nothing else has changed since the scan, it
+    // deterministically lands on the same winner just shown.
+    applyOneMobileSuggestion: function(idx) {
+      var self = this;
+      var result = this._mobileSuggestResult;
+      if (!result || !result.fills[idx]) return;
+      var f = result.fills[idx];
+      this.runAutoSuggest([f.date], [f.roleId]).then(function() {
+        if (self._mobileSuggestResult === result) {
+          result.fills.splice(idx, 1);
+          self._renderMobileSuggestRows();
+        }
+      });
+    },
+
+    // "Safe" = no warning attached (soft cap relaxed / unavoidable repeat)
+    // -- those still get a human glance via the individual "Use" button
+    // rather than being silently batch-applied.
+    applyAllMobileSuggestions: function() {
+      var result = this._mobileSuggestResult;
+      if (!result || !result.fills.length) return;
+      var safe = result.fills.filter(function(f) { return !f.warning; });
+      if (!safe.length) { this.showToast('No safe suggestions to apply -- review the flagged ones individually', 'warning'); return; }
+      var dates = {}, roles = {};
+      safe.forEach(function(f) { dates[f.date] = true; roles[f.roleId] = true; });
+      this.runAutoSuggest(Object.keys(dates), Object.keys(roles));
+      this.closeMobileAutoSuggest();
+    },
+
+    closeMobileAutoSuggest: function() {
+      var panel = document.getElementById('rmpSuggestPanel');
+      if (panel) panel.style.display = 'none';
+      this._mobileSuggestResult = null;
     },
 
     setupPinchZoom: function() {
@@ -69404,7 +69974,13 @@ function filterLiturgyItems() {
     // overwrites an existing manually-entered value. Every cell it writes
     // is marked pending -- visible immediately, but excluded from the
     // instant Google Calendar push until the PIC confirms it.
-    runAutoSuggest: function(selectedDates, selectedRoleIds) {
+    // previewOnly: when true, computes the exact same candidate/scoring
+    // logic but never writes to STATE.rosterEdits, pushes undo, or saves --
+    // it resolves with {fills, couldNotFill, missingServiceType} for a
+    // caller (the mobile Auto Suggest preview panel) to review before
+    // applying anything. Every scoring rule below runs identically in both
+    // modes; only whether a decision gets written differs.
+    runAutoSuggest: function(selectedDates, selectedRoleIds, previewOnly) {
       var self = this;
       if (!STATE.picMode) return;
 
@@ -69489,8 +70065,8 @@ function filterLiturgyItems() {
         perRoleMonthCount[roleId][k] = (perRoleMonthCount[roleId][k] || 0) + 1;
       });
 
-      this.showLoader(true);
-      Promise.all([
+      if (!previewOnly) this.showLoader(true);
+      return Promise.all([
         SBQ_ROSTER.getAllForYear(STATE.rosterYear),
         lastServiceDayOfPrevMonth ? SBQ_ROSTER.getData(prevMonth, prevYear).catch(function() { return []; }) : Promise.resolve([])
       ]).then(function(results) {
@@ -69521,6 +70097,7 @@ function filterLiturgyItems() {
 
         var fills = [];         // {date, roleLabel, name}
         var couldNotFill = [];  // {date, roleLabel}
+        var previewList = [];   // {date, roleId, roleLabel, name, reason, warning} -- previewOnly mode only
 
         datesToFill.forEach(function(day, dateIdx) {
           var dateStr = day.dateStr;
@@ -69558,6 +70135,11 @@ function filterLiturgyItems() {
             if (role.id === 'communion1') {
               var liturgistVal = STATE.rosterEdits.get('liturgist__' + dateKeySuffix);
               if (liturgistVal && liturgistVal !== '__BLANK__' && typeof liturgistVal !== 'object') {
+                if (previewOnly) {
+                  previewList.push({ date: dateStr, roleId: role.id, roleLabel: role.label, name: liturgistVal, reason: 'Mirrors the Liturgist assigned to this service', warning: '' });
+                  assignedToday[_afKey(liturgistVal)] = true;
+                  return;
+                }
                 _rPushUndo(cellKey, existing, liturgistVal, false, true);
                 STATE.rosterEdits.set(cellKey, liturgistVal);
                 STATE.rosterPendingCells.add(cellKey);
@@ -69662,15 +70244,38 @@ function filterLiturgyItems() {
 
             var winner = candidates[0];
             var winnerKey = _afKey(winner);
-            _rPushUndo(cellKey, existing, winner, false, true);
-            STATE.rosterEdits.set(cellKey, winner);
-            STATE.rosterPendingCells.add(cellKey);
-            STATE.rosterCellTimestamps.set(cellKey, new Date().toISOString());
+
+            // Derive a plain-language reason/warning from the exact same
+            // signals score() and the sort just used -- never fabricated,
+            // always read off the real tier/monthCount/back-to-back state.
+            var winnerTier = (curatedSet && !curatedSet[winnerKey]) ? 1 : 0;
+            var winnerMonthCount = monthCount[winnerKey] || 0;
+            var reason = (winnerTier === 0 && curatedSet ? 'On the ' + team + ' team roster' : 'Available this month') +
+              (winnerMonthCount === 0 ? ', not yet served this month' : ', served ' + winnerMonthCount + ' time' + (winnerMonthCount === 1 ? '' : 's') + ' this month');
+            var warning = '';
+            if (role.id !== 'liturgist') {
+              if (winnerMonthCount >= 2) warning = 'Already serving 2+ times this month (soft cap relaxed -- no one fresher was available)';
+              else if (winnerKey === backToBackKey) warning = 'Also did this duty last time (repeat unavoidable -- no one else was available)';
+            }
+
+            // Bookkeeping (monthCount/perRoleMonthCount/assignedToday) always
+            // happens, preview or not -- later candidates in this same run
+            // must see this pick either way for their own scoring to be
+            // accurate in the preview.
             monthCount[winnerKey] = (monthCount[winnerKey] || 0) + 1;
             if (!perRoleMonthCount[role.id]) perRoleMonthCount[role.id] = {};
             perRoleMonthCount[role.id][winnerKey] = (perRoleMonthCount[role.id][winnerKey] || 0) + 1;
             if (role.id !== 'flowerarrangement') assignedToday[winnerKey] = true;
-            fills.push({ date: dateStr, roleLabel: role.label, name: winner });
+
+            if (previewOnly) {
+              previewList.push({ date: dateStr, roleId: role.id, roleLabel: role.label, name: winner, reason: reason, warning: warning });
+            } else {
+              _rPushUndo(cellKey, existing, winner, false, true);
+              STATE.rosterEdits.set(cellKey, winner);
+              STATE.rosterPendingCells.add(cellKey);
+              STATE.rosterCellTimestamps.set(cellKey, new Date().toISOString());
+              fills.push({ date: dateStr, roleLabel: role.label, name: winner });
+            }
 
             // Communion Assistant 1 is the same duty as Liturgist, not an
             // independent pick -- whenever this run just decided a new
@@ -69689,12 +70294,16 @@ function filterLiturgyItems() {
                 var c1IsBlank = !c1Existing || c1Existing === '__BLANK__';
                 var c1IsPending = STATE.rosterPendingCells.has(c1Key);
                 if (c1IsBlank || c1IsPending) {
-                  _rPushUndo(c1Key, c1Existing, winner, c1IsPending, true);
-                  STATE.rosterEdits.set(c1Key, winner);
-                  STATE.rosterPendingCells.add(c1Key);
-                  STATE.rosterCellTimestamps.set(c1Key, new Date().toISOString());
-                  fills.push({ date: dateStr, roleLabel: self._roleLabel('communion1'), name: winner });
-                } else {
+                  if (previewOnly) {
+                    previewList.push({ date: dateStr, roleId: 'communion1', roleLabel: self._roleLabel('communion1'), name: winner, reason: 'Mirrors the Liturgist suggested above', warning: '' });
+                  } else {
+                    _rPushUndo(c1Key, c1Existing, winner, c1IsPending, true);
+                    STATE.rosterEdits.set(c1Key, winner);
+                    STATE.rosterPendingCells.add(c1Key);
+                    STATE.rosterCellTimestamps.set(c1Key, new Date().toISOString());
+                    fills.push({ date: dateStr, roleLabel: self._roleLabel('communion1'), name: winner });
+                  }
+                } else if (!previewOnly) {
                   couldNotFill.push({ date: dateStr, roleLabel: 'Communion Assistant 1 (confirmed as "' + c1Existing + '" -- doesn\'t match new Liturgist "' + winner + '"; review manually)' });
                 }
               }
@@ -69703,6 +70312,9 @@ function filterLiturgyItems() {
         });
 
         self.showLoader(false);
+        if (previewOnly) {
+          return { fills: previewList, couldNotFill: couldNotFill, missingServiceType: missingServiceType, scannedCount: datesToFill.length };
+        }
         if (!fills.length) {
           self.showToast('Nothing to auto-fill -- all applicable cells already have values.', 'info');
           return;
@@ -69718,7 +70330,8 @@ function filterLiturgyItems() {
       }).catch(function(err) {
         console.error('runAutoSuggest error:', err);
         self.showLoader(false);
-        self.showToast('Auto-Suggest failed: ' + err.message, 'error');
+        if (!previewOnly) self.showToast('Auto-Suggest failed: ' + err.message, 'error');
+        throw err;
       });
     },
 
@@ -70857,15 +71470,24 @@ function filterLiturgyItems() {
       var lbl = document.getElementById('rosterPicBtnLabel');
       var icon = document.getElementById('rosterPicLockIcon');
       var btn = document.getElementById('rosterPicLoginBtn');
+      var rmpLbl = document.getElementById('rmpPicLabel');
+      var rmpIcon = document.getElementById('rmpPicIcon');
+      var rmpChip = document.getElementById('rmpPicChip');
       if (STATE.picMode) {
         if (lbl) lbl.textContent = STATE.picName + ' (Logout)';
         if (icon) { icon.className = 'fa-solid fa-lock-open'; }
         if (btn) btn.classList.add('pic-active');
+        if (rmpLbl) rmpLbl.textContent = STATE.picName + ' (Logout)';
+        if (rmpIcon) rmpIcon.className = 'fa-solid fa-lock-open';
+        if (rmpChip) rmpChip.classList.add('pic-active');
         document.body.classList.add('pic-mode');
       } else {
         if (lbl) lbl.textContent = 'PIC Login';
         if (icon) { icon.className = 'fa-solid fa-lock'; }
         if (btn) btn.classList.remove('pic-active');
+        if (rmpLbl) rmpLbl.textContent = 'PIC Login';
+        if (rmpIcon) rmpIcon.className = 'fa-solid fa-lock';
+        if (rmpChip) rmpChip.classList.remove('pic-active');
         document.body.classList.remove('pic-mode');
       }
     },
