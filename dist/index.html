@@ -67145,17 +67145,38 @@ function filterLiturgyItems() {
 
     // "Safe" = no warning attached (soft cap relaxed / unavoidable repeat)
     // -- those still get a human glance via the individual "Use" button
-    // rather than being silently batch-applied.
+    // rather than being silently batch-applied. Batched ONE DATE AT A TIME,
+    // each call scoped to only THAT date's own safe roles -- NOT by collecting
+    // every safe date and every safe role across the whole month and scoping
+    // one runAutoSuggest call to that combined cross product, which would also
+    // sweep in a *flagged* pair that merely shares its date with some other
+    // date's safe role, or its role with some other role's safe date
+    // (confirmed to happen in practice: a single flagged suggestion can share
+    // both its date and its role with otherwise-unrelated safe suggestions),
+    // silently applying the very suggestion this button is supposed to leave
+    // for individual review. Per-date batching still can't cross-contaminate
+    // that way (a date's call only ever sees roles that were themselves safe
+    // for that exact date), while staying far cheaper than one network round
+    // trip per individual suggestion.
     applyAllMobileSuggestions: function() {
+      var self = this;
       var result = this._mobileSuggestResult;
       if (!result || !result.fills.length) return;
       var safe = result.fills.filter(function(f) { return !f.warning; });
       if (!safe.length) { this.showToast('No safe suggestions to apply -- review the flagged ones individually', 'warning'); return; }
-      var dates = {}, roles = {};
-      safe.forEach(function(f) { dates[f.date] = true; roles[f.roleId] = true; });
-      var self = this;
       var count = safe.length;
-      this.runAutoSuggest(Object.keys(dates), Object.keys(roles), false, true).then(function() {
+      var rolesByDate = {};
+      var dateOrder = [];
+      safe.forEach(function(f) {
+        if (!rolesByDate[f.date]) { rolesByDate[f.date] = {}; dateOrder.push(f.date); }
+        rolesByDate[f.date][f.roleId] = true;
+      });
+      var chain = Promise.resolve();
+      dateOrder.forEach(function(date) {
+        var roles = Object.keys(rolesByDate[date]);
+        chain = chain.then(function() { return self.runAutoSuggest([date], roles, false, true); });
+      });
+      chain.then(function() {
         self.showToast('Applied ' + count + ' safe suggestion' + (count === 1 ? '' : 's') + '.', 'success');
       });
       this.closeMobileAutoSuggest();
@@ -69897,7 +69918,7 @@ function filterLiturgyItems() {
     saveChanges: function(silent) {
       var self = this;
       clearTimeout(_rAutoSaveTimer);
-      if (!STATE.rosterEdits.size) { if (!silent) this.showToast('No changes to save', 'warning'); return; }
+      if (!STATE.rosterEdits.size) { if (!silent) this.showToast('No changes to save', 'warning'); return Promise.resolve(); }
       if (silent) _rShowAutoSave('<i class="fa-solid fa-circle-notch fa-spin"></i> Auto-saving...', false);
       var edits = [];
       STATE.rosterEdits.forEach(function(value, key) {
@@ -69939,7 +69960,7 @@ function filterLiturgyItems() {
       });
 
       this.showLoader(true);
-      SBQ_ROSTER.saveEdits(edits).then(function() {
+      return SBQ_ROSTER.saveEdits(edits).then(function() {
         if (silent) {
           _rShowAutoSave('<i class="fa-solid fa-circle-check"></i> Auto-saved', false);
         } else {
@@ -70335,7 +70356,16 @@ function filterLiturgyItems() {
           return;
         }
         self.render();
-        self.saveChanges();
+        // Capture and return the save promise (saveChanges() now returns one)
+        // so a caller chaining multiple runAutoSuggest calls back-to-back --
+        // like the mobile "Apply all" per-date batch -- can wait for each
+        // upload to actually land before firing the next one. saveChanges()
+        // always re-uploads the WHOLE month's rosterEdits on every call; with
+        // no ordering guarantee, two overlapping un-awaited calls could let
+        // an earlier, less-complete snapshot land after a later, fuller one
+        // and silently drop the newer date's writes from the database (the
+        // same class of race already fixed for undo/redo earlier).
+        var saveP = self.saveChanges();
         // No changedTd -- this only re-scans and highlights (clash cells,
         // frequency cells, and the new "2 duties, no clash" flag for
         // Flower Arrangement overlaps), it never pops the blocking warning
@@ -70345,6 +70375,7 @@ function filterLiturgyItems() {
         // their own lightweight preview panel already, so the full desktop
         // summary modal here would just be a redundant popup to dismiss.
         if (!quiet) self._showAutoSuggestSummary(fills, couldNotFill, missingServiceType);
+        return saveP;
       }).catch(function(err) {
         console.error('runAutoSuggest error:', err);
         self.showLoader(false);
