@@ -3479,6 +3479,7 @@
       .rmp-suggest-use { padding: 7px 10px; border-radius: 8px; font-size: 9px; font-weight: 800; color: #087b63; border: 1px solid #b9d3c7; background: #eef8f4; }
       .rmp-suggest-use.applied { color: #fff; background: #087b63; }
       .rmp-suggest-empty { padding: 20px 14px; text-align: center; color: #8a6b27; font-size: 11px; }
+      .rmp-suggest-notice { padding: 8px 14px; font-size: 10px; font-weight: 700; color: #7a5c14; background: #f8e5ae; border-bottom: 1px solid #e4cc8d; line-height: 1.5; }
       .rmp-suggest-actions { padding: 10px 12px 12px; display: flex; gap: 8px; }
       .rmp-suggest-cancel { flex: 0 0 auto; padding: 10px 14px; border-radius: 10px; font-size: 10px; font-weight: 800; color: #6b7280; background: #fff; border: 1px solid #d1d5db; }
       .rmp-suggest-apply-all { flex: 1; padding: 10px; border-radius: 10px; font-size: 10px; font-weight: 800; color: #fff; border: none; background: #087b63; }
@@ -67098,15 +67099,24 @@ function filterLiturgyItems() {
       var scannedEl = document.getElementById('rmpSuggestScanned');
       var applyAllBtn = document.getElementById('rmpApplyAllBtn');
       if (!rowsEl) return;
-      var days = this.getServiceDays(STATE.rosterYear, STATE.rosterMonth);
-      if (scannedEl) scannedEl.textContent = 'All ' + days.length + ' service' + (days.length === 1 ? '' : 's') + ' scanned';
+      var scannedCount = typeof result.scannedCount === 'number' ? result.scannedCount : this.getServiceDays(STATE.rosterYear, STATE.rosterMonth).length;
+      if (scannedEl) scannedEl.textContent = scannedCount + ' service' + (scannedCount === 1 ? '' : 's') + ' with a Service Type scanned';
+      var noticeHtml = '';
+      var missing = result.missingServiceType || [];
+      var couldNot = result.couldNotFill || [];
+      if (missing.length) {
+        noticeHtml += '<div class="rmp-suggest-notice"><i class="fa-solid fa-circle-info mr-1"></i>Set Service Type first: ' + missing.map(function(d) { return self.escapeHtml(d); }).join(', ') + '</div>';
+      }
+      if (couldNot.length) {
+        noticeHtml += '<div class="rmp-suggest-notice"><i class="fa-solid fa-circle-exclamation mr-1"></i>Could not fill: ' + couldNot.map(function(c) { return self.escapeHtml(c.date + ' · ' + c.roleLabel); }).join('; ') + '</div>';
+      }
       if (!result.fills.length) {
-        rowsEl.innerHTML = '<div class="rmp-suggest-empty">Nothing to suggest &mdash; every applicable duty this month already has a value.</div>';
+        rowsEl.innerHTML = noticeHtml + '<div class="rmp-suggest-empty">Nothing to suggest &mdash; every applicable duty this month already has a value.</div>';
         if (applyAllBtn) applyAllBtn.style.display = 'none';
         return;
       }
       if (applyAllBtn) applyAllBtn.style.display = '';
-      rowsEl.innerHTML = result.fills.map(function(f, idx) {
+      rowsEl.innerHTML = noticeHtml + result.fills.map(function(f, idx) {
         var warnHtml = f.warning ? '<span class="rmp-suggest-warn"><i class="fa-solid fa-triangle-exclamation mr-1"></i>' + self.escapeHtml(f.warning) + '</span>' : '';
         return '<div class="rmp-suggest-row" data-suggest-idx="' + idx + '">' +
           '<div><div class="rmp-suggest-role">' + self.escapeHtml(f.date) + ' &middot; ' + self.escapeHtml(f.roleLabel) + '</div>' +
@@ -67124,11 +67134,12 @@ function filterLiturgyItems() {
       var result = this._mobileSuggestResult;
       if (!result || !result.fills[idx]) return;
       var f = result.fills[idx];
-      this.runAutoSuggest([f.date], [f.roleId]).then(function() {
+      this.runAutoSuggest([f.date], [f.roleId], false, true).then(function() {
         if (self._mobileSuggestResult === result) {
           result.fills.splice(idx, 1);
           self._renderMobileSuggestRows();
         }
+        self.showToast('Assigned ' + f.name + ' to ' + f.roleLabel + ' on ' + f.date + '.', 'success');
       });
     },
 
@@ -67142,7 +67153,11 @@ function filterLiturgyItems() {
       if (!safe.length) { this.showToast('No safe suggestions to apply -- review the flagged ones individually', 'warning'); return; }
       var dates = {}, roles = {};
       safe.forEach(function(f) { dates[f.date] = true; roles[f.roleId] = true; });
-      this.runAutoSuggest(Object.keys(dates), Object.keys(roles));
+      var self = this;
+      var count = safe.length;
+      this.runAutoSuggest(Object.keys(dates), Object.keys(roles), false, true).then(function() {
+        self.showToast('Applied ' + count + ' safe suggestion' + (count === 1 ? '' : 's') + '.', 'success');
+      });
       this.closeMobileAutoSuggest();
     },
 
@@ -69980,7 +69995,7 @@ function filterLiturgyItems() {
     // caller (the mobile Auto Suggest preview panel) to review before
     // applying anything. Every scoring rule below runs identically in both
     // modes; only whether a decision gets written differs.
-    runAutoSuggest: function(selectedDates, selectedRoleIds, previewOnly) {
+    runAutoSuggest: function(selectedDates, selectedRoleIds, previewOnly, quiet) {
       var self = this;
       if (!STATE.picMode) return;
 
@@ -70326,7 +70341,10 @@ function filterLiturgyItems() {
         // Flower Arrangement overlaps), it never pops the blocking warning
         // modal for a batch fill.
         self.checkClashes();
-        self._showAutoSuggestSummary(fills, couldNotFill, missingServiceType);
+        // Mobile "Use"/"Apply all" pass quiet=true -- they show suggestions in
+        // their own lightweight preview panel already, so the full desktop
+        // summary modal here would just be a redundant popup to dismiss.
+        if (!quiet) self._showAutoSuggestSummary(fills, couldNotFill, missingServiceType);
       }).catch(function(err) {
         console.error('runAutoSuggest error:', err);
         self.showLoader(false);
@@ -71490,6 +71508,11 @@ function filterLiturgyItems() {
         if (rmpChip) rmpChip.classList.remove('pic-active');
         document.body.classList.remove('pic-mode');
       }
+      // The whole-month view bakes STATE.picMode into whether each duty slot's
+      // tap-to-edit handler exists in its rendered HTML (unlike the desktop table,
+      // which checks STATE.picMode live at click-time) -- so a PIC login/logout
+      // while that view is already on-screen needs an explicit re-render here.
+      if (this._mobileScheduleView === 'month') this.renderMobileMonthView();
     },
 
     // ================================================================
