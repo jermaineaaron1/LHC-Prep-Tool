@@ -3431,11 +3431,17 @@
       }
       .rmp-service-head b { display: block; font-family: Georgia,"Times New Roman",serif; font-size: 14px; }
       .rmp-service-head span { display: block; color: rgba(255,255,255,.78); font-size: 9.5px; margin-top: 1px; }
+      .rmp-service-head-right { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
       .rmp-service-status {
         flex: 0 0 auto; padding: 5px 8px; border-radius: 8px; font-size: 9px; font-weight: 800; color: #17483a;
         background: linear-gradient(180deg,#fff,#dff1e9); box-shadow: inset 0 1px 0 #fff, 0 3px 7px rgba(0,0,0,.14);
       }
       .rmp-service-status.gap { color: #76520c; background: linear-gradient(180deg,#fff7df,#f4d47f); }
+      .rmp-card-share-btn {
+        flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 8px; font-size: 13px;
+        color: #fff; border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.14);
+      }
+      .rmp-card-share-btn:active { background: rgba(255,255,255,.3); }
       .rmp-duty-row { min-height: 40px; display: grid; grid-template-columns: 118px 1fr; border-bottom: 1px solid #e0e9e4; }
       .rmp-duty-row:last-child { border-bottom: 0; }
       .rmp-duty-label {
@@ -5855,8 +5861,8 @@
           </div>
 
           <div class="rmp-tabs" role="tablist">
-            <button type="button" class="rmp-tab" id="rmpTabWeeks" aria-pressed="true" onclick="RosterEngine.setMobileScheduleView('weeks')">2-week roster</button>
-            <button type="button" class="rmp-tab" id="rmpTabMonth" aria-pressed="false" onclick="RosterEngine.setMobileScheduleView('month')">Whole month</button>
+            <button type="button" class="rmp-tab" id="rmpTabWeeks" aria-pressed="true" onclick="RosterEngine.setMobileScheduleView('weeks')">Whole Month</button>
+            <button type="button" class="rmp-tab" id="rmpTabMonth" aria-pressed="false" onclick="RosterEngine.setMobileScheduleView('month')">Service Cards</button>
           </div>
 
           <div class="rmp-cmdbar">
@@ -67036,11 +67042,23 @@ function filterLiturgyItems() {
 
         var statusCls = filledCount === totalCount ? '' : ' gap';
         var statusText = filledCount === totalCount ? (totalCount + '/' + totalCount + ' filled') : (totalCount - filledCount) + ' open';
-        var subtitle = (day.name || day.displayName) + (hasSvcType ? ' &middot; ' + svcVal : '');
+        // Lead with the service type (Traditional/Contemporary) rather than
+        // repeating the date -- the card header above already shows the date,
+        // so for an ordinary Sunday (day.name is null; only genuinely special
+        // days like Christmas Eve carry a name) the old "AUG 2 · Traditional"
+        // subtitle just duplicated the header. Only prefix a real day name
+        // when there is one. Uses an actual middle-dot character, not the
+        // "&middot;" HTML entity -- that string was going through escapeHtml()
+        // below, which escaped its "&" and rendered the entity as literal text.
+        var svcLabel = hasSvcType ? svcVal : 'Service Type not set';
+        var subtitle = day.name ? (day.name + ' · ' + svcLabel) : svcLabel;
 
-        return '<div class="rmp-service-ledger" data-service-idx="' + serviceDays.indexOf(day) + '">' +
+        return '<div class="rmp-service-ledger" data-service-idx="' + serviceDays.indexOf(day) + '" data-date="' + self.escapeHtml(day.dateStr) + '">' +
           '<div class="rmp-service-head"><div><b>' + self.escapeHtml(day.displayName) + '</b><span>' + self.escapeHtml(subtitle) + '</span></div>' +
-          '<div class="rmp-service-status' + statusCls + '">' + statusText + '</div></div>' +
+          '<div class="rmp-service-head-right">' +
+            '<div class="rmp-service-status' + statusCls + '">' + statusText + '</div>' +
+            '<button type="button" class="rmp-card-share-btn" title="Share this service as a picture via WhatsApp" onclick="event.stopPropagation();RosterEngine.shareServiceCardImage(\'' + self.escapeHtml(day.dateStr).replace(/'/g, "\\'") + '\')"><i class="fa-brands fa-whatsapp"></i></button>' +
+          '</div></div>' +
           rowsHtml +
         '</div>';
       }).join('');
@@ -71133,11 +71151,14 @@ function filterLiturgyItems() {
       });
     },
 
-    // A floating "PDF ready" prompt whose button click is itself a fresh user
-    // gesture — navigator.share() must be called directly inside that click
-    // handler (no awaits first) for the browser to honor it.
-    _showShareReadyPrompt: function(file, titleText, shareText, pdfBlob, fileName) {
+    // A floating "ready to share" prompt whose button click is itself a fresh
+    // user gesture — navigator.share() must be called directly inside that
+    // click handler (no awaits first) for the browser to honor it. Shared by
+    // both the PDF export and the per-service-card image share; `kindLabel`
+    // ('PDF' or 'Image') only changes the copy, never the mechanics.
+    _showShareReadyPrompt: function(file, titleText, shareText, fileBlob, fileName, kindLabel) {
       var self = this;
+      kindLabel = kindLabel || 'PDF';
       var existing = document.getElementById('rosterPdfReadyToast');
       if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
 
@@ -71145,7 +71166,7 @@ function filterLiturgyItems() {
       el.id = 'rosterPdfReadyToast';
       el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0d9488;color:#fff;padding:12px 14px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.3);z-index:100000;display:flex;align-items:center;gap:12px;font-family:"Poppins",Arial,sans-serif;max-width:92vw;';
       el.innerHTML =
-        '<span style="font-size:0.82rem;white-space:nowrap;">PDF ready!</span>' +
+        '<span style="font-size:0.82rem;white-space:nowrap;">' + self.escapeHtml(kindLabel) + ' ready!</span>' +
         '<button id="rosterPdfReadyBtn" style="padding:8px 16px;border-radius:8px;border:none;background:#fff;color:#0d9488;font-weight:700;font-size:0.82rem;cursor:pointer;white-space:nowrap;"><i class="fa-brands fa-whatsapp" style="margin-right:6px;"></i>Tap to Share</button>' +
         '<button id="rosterPdfReadyClose" style="background:none;border:none;color:#fff;cursor:pointer;font-size:1rem;opacity:0.8;line-height:1;">&times;</button>';
       document.body.appendChild(el);
@@ -71157,13 +71178,114 @@ function filterLiturgyItems() {
         navigator.share({ title: 'LHC Worship Roster - ' + titleText, text: shareText, files: [file] })
           .catch(function(err) {
             if (err.name !== 'AbortError') {
-              console.log('[Share PDF] navigator.share() rejected on direct tap, downloading instead:', err);
-              self._downloadBlob(pdfBlob, fileName);
-              self.showToast('Share failed (' + err.name + ') — PDF downloaded instead. Attach it in WhatsApp.', 'warning');
+              console.log('[Share ' + kindLabel + '] navigator.share() rejected on direct tap, downloading instead:', err);
+              self._downloadBlob(fileBlob, fileName);
+              self.showToast('Share failed (' + err.name + ') — ' + kindLabel + ' downloaded instead. Attach it in WhatsApp.', 'warning');
             }
           });
       };
       el.querySelector('#rosterPdfReadyClose').onclick = close;
+    },
+
+    // Render one whole-month view service card to a real PNG picture (same
+    // server-side Chrome engine as Share PDF, see render-roster-pdf) and
+    // share it via WhatsApp -- a faithful capture of exactly what's on the
+    // card, not a redesigned graphic. Clones the LIVE card (current data,
+    // current styling) rather than regenerating its content by hand, so it
+    // can never drift from what's actually on screen.
+    shareServiceCardImage: function(dateStr) {
+      var self = this;
+      var card = document.querySelector('.rmp-service-ledger[data-date="' + dateStr.replace(/"/g, '\\"') + '"]');
+      if (!card) { this.showToast('Could not find that service card', 'error'); return; }
+
+      this.showToast('Generating picture...', 'info');
+
+      var cardClone = card.cloneNode(true);
+      // Strip the share button and any tap-to-edit affordance from the
+      // static picture -- neither means anything once it's a still image.
+      var shareBtn = cardClone.querySelector('.rmp-card-share-btn');
+      if (shareBtn) shareBtn.remove();
+      cardClone.querySelectorAll('[onclick]').forEach(function(el) { el.removeAttribute('onclick'); });
+
+      var titleText = this.MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear;
+      var stamp = this._rosterStampText();
+      var fullHtml =
+        '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        '<link rel="preconnect" href="https://fonts.googleapis.com">' +
+        '<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">' +
+        '<style>' + this._rmpCardShareCSS() + '</style>' +
+        '</head><body>' +
+        '<div class="rmp-share-frame">' + cardClone.outerHTML +
+        '<div class="rmp-share-stamp">Luther House Chapel &middot; ' + self.escapeHtml(stamp) + '</div></div>' +
+        '</body></html>';
+
+      fetch('/api/render-roster-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: fullHtml, format: 'png' })
+      }).then(function(res) {
+        if (!res.ok) return res.json().then(function(j) { throw new Error(j && j.error ? j.error : 'render-failed'); });
+        return res.blob();
+      }).then(function(imgBlob) {
+        var fileName = 'LHC-Roster-' + dateStr.replace(/\s+/g, '-') + '-' + STATE.rosterYear + '.png';
+        var file = new File([imgBlob], fileName, { type: 'image/png' });
+        var shareText = 'Worship Duty Roster — ' + dateStr + ', ' + STATE.rosterYear;
+
+        var reason = '';
+        if (!navigator.share) reason = 'navigator.share unsupported';
+        else if (!navigator.canShare) reason = 'navigator.canShare unsupported';
+        else if (!navigator.canShare({ files: [file] })) reason = 'canShare({files}) returned false for this image';
+        console.log('[Share Card Image] file-share capability check:', reason || 'available');
+
+        if (!reason) {
+          self._showShareReadyPrompt(file, dateStr, shareText, imgBlob, fileName, 'Image');
+        } else {
+          self._downloadBlob(imgBlob, fileName);
+          self.showToast('This browser can\'t hand files to WhatsApp directly (' + reason + ') — picture downloaded, please attach it manually.', 'warning');
+        }
+      }).catch(function(err) {
+        console.error('Service card image render failed:', err);
+        self.showToast('Failed to generate picture', 'error');
+      });
+    },
+
+    // Hand-written, self-contained CSS for shareServiceCardImage()'s
+    // standalone render -- NOT extracted from the live page's stylesheet.
+    // The real .rmp-* rules live inside an @media (max-width:768px) block;
+    // copying that block verbatim into a standalone document would only
+    // apply if CloudConvert's Chrome instance happens to render at a narrow
+    // viewport, which isn't guaranteed. Values below are copied directly
+    // from the live rules (same colors/spacing/radii), just unwrapped so
+    // they always apply, and framed at a fixed width matching a realistic
+    // mobile card instead of stretching to whatever viewport Chrome defaults
+    // to server-side.
+    _rmpCardShareCSS: function() {
+      return [
+        '* { margin:0; padding:0; box-sizing:border-box; }',
+        'body { background:#eef3f0; font-family:"Poppins",Arial,sans-serif; padding:18px 14px; }',
+        '.rmp-share-frame { width:360px; margin:0 auto; }',
+        '.rmp-service-ledger { margin-bottom:0; overflow:hidden; border:1px solid #bfd3ca; border-radius:14px; background:#fff; box-shadow:0 10px 22px rgba(22,62,47,.13), inset 0 1px 0 #fff; }',
+        '.rmp-service-head { padding:10px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; color:#fff; background:linear-gradient(145deg,#086a56,#0a9072); box-shadow:inset 0 1px 0 rgba(255,255,255,.2), inset 0 -2px 0 rgba(0,0,0,.12); }',
+        '.rmp-service-head b { display:block; font-family:Georgia,"Times New Roman",serif; font-size:14px; }',
+        '.rmp-service-head span { display:block; color:rgba(255,255,255,.78); font-size:9.5px; margin-top:1px; }',
+        '.rmp-service-head-right { flex:0 0 auto; display:flex; align-items:center; gap:6px; }',
+        '.rmp-service-status { flex:0 0 auto; padding:5px 8px; border-radius:8px; font-size:9px; font-weight:800; color:#17483a; background:linear-gradient(180deg,#fff,#dff1e9); box-shadow:inset 0 1px 0 #fff, 0 3px 7px rgba(0,0,0,.14); }',
+        '.rmp-service-status.gap { color:#76520c; background:linear-gradient(180deg,#fff7df,#f4d47f); }',
+        '.rmp-duty-row { min-height:40px; display:grid; grid-template-columns:118px 1fr; border-bottom:1px solid #e0e9e4; }',
+        '.rmp-duty-row:last-child { border-bottom:0; }',
+        '.rmp-duty-label { padding:8px 9px; display:flex; align-items:center; color:#15513f; font-size:10.5px; font-weight:800; line-height:1.25; background:linear-gradient(180deg,#edf8f3,#dff0e8); border-right:1px solid #d0e0d8; }',
+        '.rmp-person { padding:8px 10px; display:flex; align-items:center; justify-content:space-between; gap:8px; color:#253f36; font-size:12px; font-weight:700; background:linear-gradient(180deg,#fff,#f8fbf9); }',
+        '.rmp-person small { color:#71837b; font-size:9.5px; font-weight:700; }',
+        '.rmp-person.open { color:#77520c; background:linear-gradient(180deg,#fff9e9,#f9e5ad); }',
+        '.rmp-person.pending { color:#78400d; background:linear-gradient(180deg,#fffbea,#fdf0c7); }',
+        '.rmp-shared-team { padding:6px 7px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; background:linear-gradient(180deg,#fff,#f8fbf9); }',
+        '.rmp-person-slot { min-width:0; padding:6px 7px; display:flex; align-items:center; gap:5px; border-radius:8px; font-size:10px; font-weight:800; color:#2d493f; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border:1px solid #c8d9d1; background:linear-gradient(180deg,#fff,#eaf3ef); box-shadow:inset 0 1px 0 #fff; }',
+        '.rmp-person-slot b { width:17px; height:17px; flex:0 0 auto; display:grid; place-items:center; border-radius:5px; color:#fff; font-size:8px; background:linear-gradient(145deg,#08705a,#0a9576); }',
+        '.rmp-person-slot.open { color:#76520c; border-color:#dfbd6a; background:linear-gradient(180deg,#fff9e8,#f8e3a6); }',
+        '.rmp-person-slot.open b { background:linear-gradient(145deg,#d59b25,#edc65e); color:#4c3508; }',
+        '.rmp-person-slot.pending { color:#78400d; border-color:#e4c377; background:linear-gradient(180deg,#fffbea,#fdf0c7); }',
+        '.rmp-share-stamp { text-align:center; color:#6b8078; font-size:9px; font-weight:700; letter-spacing:.04em; margin-top:10px; text-transform:uppercase; }'
+      ].join(' ');
     },
 
     _downloadBlob: function(blob, fileName) {
