@@ -71818,12 +71818,22 @@ function filterLiturgyItems() {
       var firstThRect = firstTh.getBoundingClientRect();
       var maxOffset = Math.max(0, days.length - 2);
       var best = STATE.rosterMobileOffset, bestDist = Infinity;
-      for (var o = 0; o <= maxOffset; o += 2) {
+      // Candidates are every even step from 0, PLUS maxOffset itself. For an
+      // odd-length month (e.g. 5 dates -> maxOffset=3), stepping by 2 from 0
+      // never lands on 3, so the final "page" -- the one that fully reveals
+      // the last date -- was never a snap candidate: scrolling to the end
+      // always got pulled back to offset 2, permanently cutting off the 5th
+      // date. mobileShift (the Prev/Next buttons) never had this bug since
+      // it clamps straight to maxOffset instead of iterating a fixed step.
+      var candidates = [];
+      for (var o = 0; o <= maxOffset; o += 2) candidates.push(o);
+      if (candidates[candidates.length - 1] !== maxOffset) candidates.push(maxOffset);
+      candidates.forEach(function(o) {
         var th = thead.querySelector('th[data-col-idx="' + o + '"]');
-        if (!th) continue;
+        if (!th) return;
         var dist = Math.abs(th.getBoundingClientRect().left - firstThRect.right);
         if (dist < bestDist) { bestDist = dist; best = o; }
-      }
+      });
       STATE.rosterMobileOffset = best;
       this.updateMobileNav(days);
       if (bestDist > 4) this.scrollToMobileOffset(true);
