@@ -4,7 +4,15 @@ _Last updated: 2026-08-10 by Claude Code_
 
 ---
 
-## 2026-08-10 — Auto-Suggest dialog: duties box 5px shorter, pulling dates box up (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+## 2026-08-10 — Auto-Suggest dialog: duties box another 10px shorter (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+Real-device screenshot follow-up on the entry below: the 5px trim wasn't enough on the user's actual phone -- their screenshot showed the visible viewport still only reaching "AUG 2 / AUG 9" (the first of 3 date rows) before hitting the Cancel/Auto-Suggest footer, annotated "shorten by 10px" (pointing at the duties box) and "bring higher" (pointing at the dates section). Same mechanism as last time, just a bigger number: shrink the duties box further, which pulls everything below it up in normal document flow.
+1. Duties checklist box `max-height`: `315px` -> `305px` (10px less than its current live value, not 10px off the original 320px). Dates box untouched, same as the previous round.
+- **Verified live**: duties box now measures exactly `305px` (was `315px`); dates box still `280px`; duties box's bottom edge -- and the dates section below it -- moved up by exactly 10px, confirmed via `getBoundingClientRect()`. No horizontal overflow, no new console errors, `node --check` on all 18 script blocks, byte-identical `dist/index.html`.
+
+---
+
+## 2026-08-10 — Auto-Suggest dialog: duties box 5px shorter, pulling dates box up (branch `feature/premium-mobile-roster`, merged to master `0d74a96`)
 
 Follow-up on the two entries below. Rather than shrinking the dates box's own `min-height`/`max-height` (280px/320px, unchanged), the user asked to shrink the *duties* box above it by exactly 5px instead -- since these sit in normal document flow inside the dialog's scrollable body, a shorter duties box means everything below it (the "Dates to include" header and its box) starts 5px higher up, with less scrolling needed to reach it.
 1. Changed the duties checklist box's `max-height` from `320px` to `315px`. The dates box's own sizing is untouched.
