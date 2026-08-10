@@ -4,7 +4,14 @@ _Last updated: 2026-08-10 by Claude Code_
 
 ---
 
-## 2026-08-10 — Auto Suggest becomes a direct-apply dialog + colorless empty slots (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+## 2026-08-10 — Auto-Suggest dialog: dates checklist as a 2-column grid (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+Follow-up on the just-shipped Auto-Suggest dialog (entry below): a screenshot from the user's real phone showed the "Dates to include" checklist appearing to have only one date ("AUG 2") with a lot of empty space below it, annotated "please expand the dates section". Direct testing (both dev and live production, real synthetic taps) showed all 5 August dates were actually present in the DOM and technically reachable by scrolling within that box -- so this wasn't a missing-data bug, but the single-column list with a `max-height:220px` scroll area made a 5-item month barely fit, with no visible scrollbar affordance on mobile to hint there was more below. Changed the dates checklist to the same 2-column grid the "Duties to include" list above it already uses (`display:grid;grid-template-columns:1fr 1fr;align-content:start;`), plus a taller `max-height:300px`. A typical 4-6 date month now fits in 2-3 rows with zero scrolling needed, matching how the (much longer, 26-item) duties list already handles density.
+- **Verified live** on both mobile (375px) and desktop (1280px), dev server and production: all 5 real August dates render in a 2-column grid, box `scrollHeight` no longer exceeds its visible height (previously right at the edge), no console errors beyond the pre-existing unrelated `vocal-hero` module noise, no horizontal overflow. `node --check` on all 18 script blocks, byte-identical `dist/index.html`.
+
+---
+
+## 2026-08-10 — Auto Suggest becomes a direct-apply dialog + colorless empty slots (branch `feature/premium-mobile-roster`, merged to master `12e0fed`)
 
 The user's "Auto Suggest doesn't work" report (investigated in the entry below) turned out to be a stale-production symptom, not a real bug -- it started working once production caught up. But testing it prompted new, more specific feedback: the mobile flow's *design* wasn't what was wanted at all.
 
