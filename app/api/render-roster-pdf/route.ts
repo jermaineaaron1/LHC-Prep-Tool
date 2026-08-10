@@ -52,12 +52,21 @@ export async function POST(req: NextRequest) {
           input_format: 'html',
           output_format: 'png',
           engine: 'chrome',
-          // Renders at 2x for a crisp, retina-quality image. No page_size/
-          // orientation/margins here (PDF-only concepts) -- CloudConvert's
-          // HTML-to-image conversion auto-sizes to the rendered content's
-          // natural dimensions, which is what "capture exactly this element"
-          // needs, given the source HTML is sized to its content already.
-          zoom: 2,
+          // No page_size/orientation/margins here (PDF-only concepts) --
+          // CloudConvert's HTML-to-image conversion auto-sizes to the
+          // rendered content's natural dimensions, which is what "capture
+          // exactly this element" needs. Deliberately NOT using a zoom/DPI
+          // multiplier here: a first version tried `zoom: 2` to get a
+          // sharper image while keeping the source HTML at its normal
+          // on-screen size, but a real WhatsApp share came back small and
+          // pixelated, meaning that parameter wasn't reliably doing what it
+          // looked like it should. The source HTML's own CSS pixel
+          // dimensions are now sized 3x larger to begin with (see
+          // _rmpCardShareCSS() client-side), which guarantees a genuinely
+          // large, crisp render regardless of whether any particular
+          // CloudConvert scale parameter is honored -- Chrome renders
+          // larger markup at native sharpness, it isn't stretching a small
+          // screenshot.
           print_background: true,
         }
       : {
