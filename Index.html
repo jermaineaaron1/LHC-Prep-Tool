@@ -71936,9 +71936,16 @@ function filterLiturgyItems() {
         var cfb = document.getElementById('cellDdConfirm');
         if (eb) eb.onclick = function() { self.closeCellDropdown(); self.editCell(td); };
         if (cb) cb.onclick = function() {
-          var key = td.getAttribute('data-key');
-          if (key) { STATE.rosterEdits.set(key, '__BLANK__'); td.classList.add('roster-cell-edited'); self.markUnsaved(); self.render(); }
+          // Delegate to the one real clear path (matches the context menu's
+          // "Clear this cell" and the cell dropdown's "Clear / Leave blank")
+          // instead of duplicating it here -- the duplicate this replaced
+          // never pushed an undo entry, never cleared the pending flag/icon,
+          // incorrectly ADDED the "edited" highlight to a cell it was
+          // blanking, and predated the Liturgist/Communion Assistant 1
+          // mirror fix, so clearing the Liturgist through this specific
+          // button never kept Communion Assistant 1 in sync.
           self.closeCellDropdown();
+          self.clearCell(td);
         };
         if (cfb) cfb.onclick = function() {
           var key = td.getAttribute('data-key');
