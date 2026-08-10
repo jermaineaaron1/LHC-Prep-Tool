@@ -4,7 +4,14 @@ _Last updated: 2026-08-10 by Claude Code_
 
 ---
 
-## 2026-08-10 — Auto-Suggest dialog: dates checklist as a 2-column grid (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+## 2026-08-10 — Auto-Suggest dialog: taller dates checklist box (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+Direct follow-up on the entry below: the dates checklist box now uses a 2-column grid, but for a normal month (5 dates = 3 rows) it only actually stretches to ~110-130px of content -- looked visually small/squat next to the "Duties to include" box above it (which fills close to its full 320px, since it holds 26 items). User asked to make the dates box taller so it reaches down closer to where the duties box's last visible rows are. Added `min-height:280px` (previously had none -- the box only ever grew to fit its content) and raised `max-height` from `300px` to `320px` to match the duties box's own cap exactly.
+- **Verified live** on mobile (375px) and desktop (1280px): dates box now measures a fixed 280px regardless of how few dates a month has (vs. duties box's 320px, both capped identically) -- confirmed via `getBoundingClientRect()`, not just reading the CSS. The dialog's own scrollable body (`overflow-y:auto`, sits above the fixed Cancel/Auto-Suggest footer) absorbs the extra height on mobile without pushing the action buttons off-screen. `node --check` on all 18 script blocks, byte-identical `dist/index.html`, no page-level horizontal overflow.
+
+---
+
+## 2026-08-10 — Auto-Suggest dialog: dates checklist as a 2-column grid (branch `feature/premium-mobile-roster`, merged to master `e4c6bb9`)
 
 Follow-up on the just-shipped Auto-Suggest dialog (entry below): a screenshot from the user's real phone showed the "Dates to include" checklist appearing to have only one date ("AUG 2") with a lot of empty space below it, annotated "please expand the dates section". Direct testing (both dev and live production, real synthetic taps) showed all 5 August dates were actually present in the DOM and technically reachable by scrolling within that box -- so this wasn't a missing-data bug, but the single-column list with a `max-height:220px` scroll area made a 5-item month barely fit, with no visible scrollbar affordance on mobile to hint there was more below. Changed the dates checklist to the same 2-column grid the "Duties to include" list above it already uses (`display:grid;grid-template-columns:1fr 1fr;align-content:start;`), plus a taller `max-height:300px`. A typical 4-6 date month now fits in 2-3 rows with zero scrolling needed, matching how the (much longer, 26-item) duties list already handles density.
 - **Verified live** on both mobile (375px) and desktop (1280px), dev server and production: all 5 real August dates render in a 2-column grid, box `scrollHeight` no longer exceeds its visible height (previously right at the edge), no console errors beyond the pre-existing unrelated `vocal-hero` module noise, no horizontal overflow. `node --check` on all 18 script blocks, byte-identical `dist/index.html`.
