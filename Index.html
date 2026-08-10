@@ -2096,6 +2096,11 @@
       border-top-right-radius: 20px;
     }
     .roster-date-header { padding: 12px 8px 14px 8px !important; }
+    /* Stacks the date chip above the share button and centers each on its
+       own line -- previously both sat inline-block on one line, so
+       text-align:center centered the *pair*, leaving the chip itself
+       sitting left of the column's true center. */
+    .roster-date-header-inner { display: flex; flex-direction: column; align-items: center; }
     .roster-date-chip {
       background: rgba(255, 255, 255, 0.25);
       border-radius: 20px;
@@ -3251,7 +3256,7 @@
         border-radius: 12px;
       }
       .roster-table { font-size: 10px !important; }
-      .roster-table th, .roster-table td { padding: 6px 4px !important; }
+      .roster-table th, .roster-table td { padding: 6px 4px !important; border-bottom: 2px solid #334155 !important; border-right: 2px solid #334155 !important; }
       .roster-table th:first-child { min-width: 90px !important; max-width: 90px !important; width: 90px !important; padding-left: 8px !important; font-size: 9px !important; }
       .roster-table td:first-child {
         padding-left: 8px !important; font-size: 9px !important;
@@ -3262,10 +3267,17 @@
         white-space: normal !important; word-break: break-word;
         min-width: 56px; max-width: 120px;
       }
-      .roster-date-chip { padding: 3px 6px !important; font-size: 8px !important; margin-bottom: 2px !important; }
+      .roster-date-chip { padding: 5px 10px !important; font-size: 13px !important; margin-bottom: 3px !important; }
       .roster-share-btn { padding: 2px 6px !important; font-size: 8px !important; }
       .altar-color-dot { width: 10px !important; height: 10px !important; }
       .roster-section-header td { padding: 6px !important; font-size: 10px !important; }
+      /* "..." cell-options icon: was only meant to appear on desktop :hover,
+         but touch has no real hover so it was rendering at full size on
+         every filled cell. Force it small and unobtrusive instead of
+         hover-gated on mobile. */
+      .roster-cell-dropdown-icon { opacity: 0.35 !important; font-size: 7px !important; }
+      /* Traditional/Contemporary toggle: 3px smaller than the base 0.72rem (11.52px) */
+      .roster-servicetype-btn { font-size: 8.52px !important; }
       /* Clone zoom is synced from the real table via JS — no font-size overrides needed */
       /* Compact roster header on mobile to expose more table rows */
       #rosterInstructions { display: none !important; }
@@ -66807,8 +66819,10 @@ function filterLiturgyItems() {
           var specialClass = day.type === 'special' ? 'roster-special-day' : '';
           var fullDate = day.dateStr + ' ' + STATE.rosterYear;
           headerHtml += '<th data-col-idx="' + colIdx + '" class="roster-date-header ' + specialClass + '">';
+          headerHtml += '<div class="roster-date-header-inner">';
           headerHtml += '<div class="roster-date-chip roster-date-link" data-date="' + self.escapeHtml(fullDate) + '" data-name="' + self.escapeHtml(day.name || day.dateStr) + '" title="Click to open/create Worship Order">' + day.displayName + '</div>';
           headerHtml += '<button class="roster-share-btn" data-date="' + self.escapeHtml(day.dateStr) + '" data-name="' + self.escapeHtml(day.name || day.dateStr) + '" title="Share via WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>';
+          headerHtml += '</div>';
           headerHtml += '</th>';
         });
         thead.innerHTML = headerHtml;
