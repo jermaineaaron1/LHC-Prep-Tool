@@ -4,7 +4,15 @@ _Last updated: 2026-08-10 by Claude Code_
 
 ---
 
-## 2026-08-10 — Auto-Suggest dialog: duties box another 10px shorter (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+## 2026-08-10 — Auto-Suggest dialog: duties box a further 30px shorter (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+Third iteration of the same request from the two entries below (5px, then 10px, now 30px) -- same mechanism, bigger number.
+1. Duties checklist box `max-height`: `305px` -> `275px`. Dates box's own sizing (`min-height:280px;max-height:320px`) is still untouched, same as every round of this adjustment so far.
+- **Verified live**: duties box now measures exactly `275px` (was `305px`), dates box still `280px`, no horizontal overflow, no new console errors. `node --check` on all 18 script blocks, byte-identical `dist/index.html`.
+
+---
+
+## 2026-08-10 — Auto-Suggest dialog: duties box another 10px shorter (branch `feature/premium-mobile-roster`, merged to master `fa2c6b9`)
 
 Real-device screenshot follow-up on the entry below: the 5px trim wasn't enough on the user's actual phone -- their screenshot showed the visible viewport still only reaching "AUG 2 / AUG 9" (the first of 3 date rows) before hitting the Cancel/Auto-Suggest footer, annotated "shorten by 10px" (pointing at the duties box) and "bring higher" (pointing at the dates section). Same mechanism as last time, just a bigger number: shrink the duties box further, which pulls everything below it up in normal document flow.
 1. Duties checklist box `max-height`: `315px` -> `305px` (10px less than its current live value, not 10px off the original 320px). Dates box untouched, same as the previous round.
