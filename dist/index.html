@@ -48147,10 +48147,15 @@ var WO = (function() {
     var isSelected = slideBoxEl.classList.contains('selected');
     var rowId = 'lcdRailRow-' + (_lcdRailRowSeq++);
     _lcdRailRowMap[rowId] = slideBoxEl;
+    // Long liturgy/song names clamp to two lines in the narrow rail, so carry
+    // the full text as a tooltip. WO's escapeHtml() leaves double quotes
+    // intact (it serialises via textContent), hence the extra replace before
+    // this goes into an attribute.
+    var titleAttr = escapeHtml(groupTitle).replace(/"/g, '&quot;');
     return '<div class="lcd-rail-slide-row' + (isSelected ? ' selected' : '') + '" id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
       '<div class="lcd-rail-slide-num"><i class="fa-solid ' + iconClass + '"></i> ' + (sIdx + 1) + '.' + slideNum + '</div>' +
       '<div class="lcd-rail-slide-body">' +
-        '<div class="lcd-rail-item-title">' + escapeHtml(groupTitle) + '</div>' +
+        '<div class="lcd-rail-item-title" title="' + titleAttr + '">' + escapeHtml(groupTitle) + '</div>' +
         (preview ? '<div class="lcd-rail-slide-preview">' + escapeHtml(preview) + '</div>' : '') +
       '</div>' +
       '<button class="lcd-rail-slide-del" draggable="false" onclick="event.stopPropagation(); WO._lcdDeleteRailRow(\'' + rowId + '\')" title="Delete this slide"><i class="fa-solid fa-trash"></i></button>' +
@@ -48197,6 +48202,7 @@ var WO = (function() {
 
     _lcdRailRowMap = {};
     var railHtml = '';
+    var totalSlides = 0;
 
     sections.forEach(function(sectionEl, sIdx) {
       var sectionId = sectionEl.id;
@@ -48280,6 +48286,8 @@ var WO = (function() {
         i++;
       }
 
+      totalSlides += slideCounter;
+
       if (rowsHtml || canPpt) {
         var songBtn = '<button class="lcd-rail-addbtn lcd-rail-add-song" onclick="WO.openSongLibraryForSection(\'' + sectionId + '\')" title="Add a song from the Song library"><i class="fa-solid fa-music"></i></button>';
         var liturgyBtn = '<button class="lcd-rail-addbtn lcd-rail-add-liturgy" onclick="WO.openLiturgyLibraryForSection(\'' + sectionId + '\')" title="Add liturgy from the Liturgy library"><i class="fa-solid fa-book-bible"></i></button>';
@@ -48296,8 +48304,14 @@ var WO = (function() {
         var _collapsed = !!_lcdCollapsedSections[sectionId];
         var _chev = '<button class="lcd-rail-collapse" onclick="event.stopPropagation(); WO.lcdToggleSectionCollapse(\'' + sectionId + '\')" title="Collapse / expand section"><i class="fa-solid fa-chevron-' + (_collapsed ? 'right' : 'down') + '"></i></button>';
         var _addSlideRow = '<div class="lcd-rail-addslide-row" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide to this section"><i class="fa-solid fa-plus"></i> Add Slide</div>';
+        // Item count per section. Only shown when the section actually has
+        // slides -- an absent badge already reads as "empty", and 19 zeroes
+        // down the rail would just be noise.
+        var _cnt = slideCounter > 0
+          ? '<span class="lcd-rail-section-count" title="' + slideCounter + ' slide' + (slideCounter === 1 ? '' : 's') + ' in this section">' + slideCounter + '</span>'
+          : '';
         railHtml += '<div class="lcd-rail-section' + (_collapsed ? ' collapsed' : '') + '">' +
-          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '">' + _chev + '<span class="lcd-rail-section-title" ondblclick="event.stopPropagation(); WO.lcdRenameSection(\'' + sectionId + '\')" title="Double-click to rename">' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
+          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '">' + _chev + '<span class="lcd-rail-section-title" ondblclick="event.stopPropagation(); WO.lcdRenameSection(\'' + sectionId + '\')" title="Double-click to rename">' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + _cnt + addBtns + '</div>' +
           (_collapsed ? '' : (rowsHtml + _addSlideRow)) +
         '</div>';
       }
@@ -48308,11 +48322,40 @@ var WO = (function() {
       rail = document.createElement('div');
       rail.className = 'lcd-compact-rail';
       rail.id = 'lcdCompactRail';
-      root.insertBefore(rail, root.firstChild);
+      // Keep the rail below the schedule header when the header already
+      // exists; both are wiped together whenever Song Order mode rebuilds
+      // #woWorshipOrder, so normally neither is present here.
+      var _existingHdr = document.getElementById('lcdScheduleHeader');
+      root.insertBefore(rail, _existingHdr ? _existingHdr.nextSibling : root.firstChild);
     }
     rail.innerHTML = '<button class="lcd-rail-add-section" onclick="WO.addNewSection()" title="Add a new section"><i class="fa-solid fa-plus"></i> Add New Section</button>' + railHtml;
+    _lcdEnsureScheduleHeader(root, totalSlides);
     _lcdWireRailDrag(rail);
     _lcdWireSectionDrag(rail);
+  }
+
+  // Static "Service Schedule" header sitting above the compact rail.
+  // Created once and thereafter only its count text is rewritten -- it is
+  // deliberately NOT part of the rail's innerHTML replace, which reruns on
+  // every debounced observer tick and would make the header flicker.
+  function _lcdEnsureScheduleHeader(root, totalSlides) {
+    var hdr = document.getElementById('lcdScheduleHeader');
+    if (!hdr) {
+      hdr = document.createElement('div');
+      hdr.className = 'lcd-schedule-header';
+      hdr.id = 'lcdScheduleHeader';
+      hdr.innerHTML = '<span class="lcd-schedule-header-title"><i class="fa-solid fa-list-ol"></i> Service Schedule</span>' +
+        '<span class="lcd-schedule-count" id="lcdScheduleCount"></span>';
+      root.insertBefore(hdr, root.firstChild);
+    }
+    var cnt = document.getElementById('lcdScheduleCount');
+    if (cnt) {
+      var label = totalSlides + (totalSlides === 1 ? ' slide' : ' slides');
+      // Only write when it actually changed. The rail observer ignores this
+      // header (see _lcdSetupCompactRailObserver), but skipping no-op writes
+      // keeps it from queueing pointless mutation records regardless.
+      if (cnt.textContent !== label) cnt.textContent = label;
+    }
   }
 
   // ---- Order-level undo / redo for the LCD Projection view -----------
@@ -48581,10 +48624,12 @@ var WO = (function() {
     var target = document.getElementById('woWorshipOrder');
     if (!target || _lcdRailObserver) return;
     _lcdRailObserver = new MutationObserver(function(muts) {
-      // Ignore our own writes to #lcdCompactRail, else we loop forever.
+      // Ignore our own writes to #lcdCompactRail and to the schedule header
+      // above it, else we loop forever -- rendering the rail rewrites the
+      // header's count text, which would otherwise re-trigger this observer.
       var relevant = muts.some(function(m) {
         var t = m.target;
-        return !(t && t.closest && t.closest('#lcdCompactRail'));
+        return !(t && t.closest && (t.closest('#lcdCompactRail') || t.closest('#lcdScheduleHeader')));
       });
       if (!relevant) return;
       clearTimeout(_lcdRailRefreshTimer);
@@ -61533,56 +61578,122 @@ function filterLiturgyItems() {
   .wo-main-content:not(.wo-song-order) .wo-content-box[data-subsection-type="scripture"] {
     display: none;
   }
-  .lcd-rail-esv-row { border: 1px dashed rgba(59,130,246,0.5); }
-  .lcd-rail-esv-row .lcd-rail-slide-preview { color: #3b82f6; }
+  /* Service Schedule column: dark navy to match the LCD shell beside it.
+     Scoped to LCD Projection mode only -- in Song Order mode this same
+     column is the full-width light song list and must stay untouched. */
+  .wo-main-content:not(.wo-song-order) .wo-worship-order {
+    background: var(--lcd-navy-900, #111a2e);
+    border-bottom-left-radius: 12px;
+  }
+
+  /* Static header above the rail. Built once by _lcdEnsureScheduleHeader()
+     and never re-created, so it does not flicker on observer re-renders. */
+  .lcd-schedule-header {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--lcd-space-2, 8px);
+    padding: 10px 12px; margin-bottom: var(--lcd-space-3, 12px);
+    background: var(--lcd-navy-800, #16213b);
+    border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    border-radius: var(--lcd-radius-md, 10px);
+    box-shadow: var(--lcd-shadow-sm, 0 1px 2px rgba(0,0,0,.24));
+    position: sticky; top: 0; z-index: 4;
+  }
+  .lcd-schedule-header-title {
+    display: inline-flex; align-items: center; gap: 7px; min-width: 0;
+    font-family: 'Poppins', sans-serif; font-size: 0.82rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--lcd-ivory-100, #f8f4ea);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .lcd-schedule-header-title i { color: var(--lcd-gold-400, #d9b46a); font-size: 0.78rem; flex-shrink: 0; }
+  .lcd-schedule-count {
+    flex-shrink: 0; padding: 3px 9px; border-radius: 999px;
+    background: var(--lcd-gold-wash, rgba(193,153,63,.14));
+    border: 1px solid rgba(193,153,63,0.35);
+    color: var(--lcd-gold-400, #d9b46a);
+    font-family: 'Poppins', sans-serif; font-size: var(--lcd-font-numbering, 12px);
+    font-weight: 700; white-space: nowrap;
+  }
+  .wo-main-content.wo-song-order #lcdScheduleHeader { display: none; }
+
+  .lcd-rail-esv-row { border: 1px dashed rgba(125,211,252,0.45) !important; }
+  .lcd-rail-esv-row .lcd-rail-slide-preview { color: #7dd3fc; }
   .lcd-compact-rail { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
-  .lcd-rail-section { margin-bottom: 6px; }
-  .lcd-rail-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #4338ca; background: linear-gradient(90deg, rgba(99,102,241,0.18), rgba(99,102,241,0.06)); border-left: 3px solid #6366f1; border-radius: 6px; padding: 6px 8px; margin-bottom: 4px; }
-  .lcd-rail-add-slides { display: inline-flex; align-items: center; gap: 4px; background: rgba(234,88,12,0.14); border: 1px solid rgba(234,88,12,0.4); color: #ea580c; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
-  .lcd-rail-add-slides:hover { background: rgba(234,88,12,0.26); }
-  .lcd-rail-add-btns { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
-  .lcd-rail-collapse { flex-shrink: 0; background: none; border: none; color: #94a3b8; cursor: pointer; padding: 0 2px; font-size: 0.7rem; }
-  .lcd-rail-collapse:hover { color: #6366f1; }
+  .lcd-rail-section { margin-bottom: var(--lcd-space-3, 12px); }
+  /* position:relative anchors the hover-revealed action buttons below */
+  .lcd-rail-section-header { position: relative; display: flex; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--lcd-ivory-100, #f8f4ea); background: linear-gradient(90deg, var(--lcd-gold-wash, rgba(193,153,63,.14)), rgba(22,33,59,0)), var(--lcd-navy-800, #16213b); border-left: 3px solid var(--lcd-gold-500, #c1993f); border-radius: var(--lcd-radius-sm, 8px); padding: 8px 10px; margin-bottom: 6px; }
+  .lcd-rail-add-slides { display: inline-flex; align-items: center; gap: 4px; background: rgba(251,146,60,0.16); border: 1px solid rgba(251,146,60,0.42); color: #fb923c; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
+  .lcd-rail-add-slides:hover { background: rgba(251,146,60,0.3); }
+  /* Overlaid on the right of the section header and revealed on hover /
+     keyboard focus, so at rest the section title gets the full column
+     width instead of being squeezed into ~76px by 7 icon buttons.
+     Absolute positioning keeps this from shifting layout on hover. */
+  .lcd-rail-add-btns {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+    padding-left: 24px; border-radius: var(--lcd-radius-sm, 8px);
+    background: linear-gradient(90deg, rgba(22,33,59,0) 0%, var(--lcd-navy-800, #16213b) 20%, var(--lcd-navy-800, #16213b) 100%);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--lcd-motion-fast, 150ms) ease;
+  }
+  .lcd-rail-section-header:hover .lcd-rail-add-btns,
+  .lcd-rail-section-header:focus-within .lcd-rail-add-btns { opacity: 1; pointer-events: auto; }
+  .lcd-rail-collapse { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: none; border: none; color: var(--lcd-ivory-muted, #9aa3bf); cursor: pointer; padding: 0; border-radius: 5px; font-size: 0.72rem; transition: color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms); }
+  .lcd-rail-collapse:hover { color: var(--lcd-gold-400, #d9b46a); background: rgba(255,255,255,0.06); }
   .lcd-rail-section-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lcd-rail-add-slide { display: inline-flex; align-items: center; gap: 4px; background: rgba(99,102,241,0.14); border: 1px solid rgba(99,102,241,0.4); color: #6366f1; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
-  .lcd-rail-add-slide:hover { background: rgba(99,102,241,0.26); }
-  .lcd-rail-add-readings { display: inline-flex; align-items: center; gap: 4px; background: rgba(59,130,246,0.14); border: 1px solid rgba(59,130,246,0.45); color: #3b82f6; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
-  .lcd-rail-add-readings:hover { background: rgba(59,130,246,0.26); }
-  .lcd-rail-addbtn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; border: 1px solid rgba(0,0,0,0.12); cursor: pointer; font-size: 0.62rem; padding: 0; }
-  .lcd-rail-add-song { background: rgba(37,99,235,0.12); border-color: rgba(37,99,235,0.4); color: #2563eb; }
-  .lcd-rail-add-song:hover { background: rgba(37,99,235,0.24); }
-  .lcd-rail-add-liturgy { background: rgba(124,58,237,0.12); border-color: rgba(124,58,237,0.4); color: #7c3aed; }
-  .lcd-rail-add-liturgy:hover { background: rgba(124,58,237,0.24); }
-  .lcd-rail-all-slides { background: rgba(13,148,136,0.12); border-color: rgba(13,148,136,0.4); color: #0d9488; }
-  .lcd-rail-all-slides:hover { background: rgba(13,148,136,0.24); }
-  .lcd-rail-del-section { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: #dc2626; }
-  .lcd-rail-del-section:hover { background: rgba(239,68,68,0.26); }
-  .lcd-rail-rename-section { background: rgba(148,163,184,0.14); border-color: rgba(148,163,184,0.4); color: #64748b; }
-  .lcd-rail-rename-section:hover { background: rgba(148,163,184,0.28); }
+  /* Per-section slide count. Letter-spacing/transform reset because the
+     section header sets uppercase + tracking on the whole row. */
+  .lcd-rail-section-count {
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    min-width: 21px; height: 19px; padding: 0 6px; margin-right: 2px;
+    background: var(--lcd-gold-wash, rgba(193,153,63,.14));
+    border: 1px solid rgba(193,153,63,0.35); border-radius: 999px;
+    color: var(--lcd-gold-400, #d9b46a);
+    font-size: var(--lcd-font-numbering, 12px); font-weight: 700;
+    letter-spacing: 0; text-transform: none; font-family: 'Poppins', sans-serif;
+  }
+  .lcd-rail-add-slide { display: inline-flex; align-items: center; gap: 4px; background: rgba(167,139,250,0.16); border: 1px solid rgba(167,139,250,0.42); color: #a78bfa; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
+  .lcd-rail-add-slide:hover { background: rgba(167,139,250,0.3); }
+  .lcd-rail-add-readings { display: inline-flex; align-items: center; gap: 4px; background: rgba(125,211,252,0.16); border: 1px solid rgba(125,211,252,0.45); color: #7dd3fc; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
+  .lcd-rail-add-readings:hover { background: rgba(125,211,252,0.3); }
+  .lcd-rail-addbtn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); cursor: pointer; font-size: 0.72rem; padding: 0; transition: background var(--lcd-motion-fast, 150ms); }
+  .lcd-rail-add-song { background: rgba(96,165,250,0.16); border-color: rgba(96,165,250,0.42); color: #60a5fa; }
+  .lcd-rail-add-song:hover { background: rgba(96,165,250,0.3); }
+  .lcd-rail-add-liturgy { background: rgba(167,139,250,0.16); border-color: rgba(167,139,250,0.42); color: #a78bfa; }
+  .lcd-rail-add-liturgy:hover { background: rgba(167,139,250,0.3); }
+  .lcd-rail-all-slides { background: rgba(45,212,191,0.16); border-color: rgba(45,212,191,0.42); color: #2dd4bf; }
+  .lcd-rail-all-slides:hover { background: rgba(45,212,191,0.3); }
+  .lcd-rail-del-section { background: rgba(248,113,113,0.16); border-color: rgba(248,113,113,0.42); color: #f87171; }
+  .lcd-rail-del-section:hover { background: rgba(248,113,113,0.3); }
+  .lcd-rail-rename-section { background: rgba(203,213,225,0.14); border-color: rgba(203,213,225,0.35); color: #cbd5e1; }
+  .lcd-rail-rename-section:hover { background: rgba(203,213,225,0.28); }
   .lcd-rail-section-title { cursor: text; }
-  .lcd-rail-addslide-row { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px; margin: 3px 2px 8px; border: 1px dashed rgba(99,102,241,0.45); border-radius: 6px; color: #6366f1; font-size: 0.68rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; }
-  .lcd-rail-addslide-row:hover { background: rgba(99,102,241,0.1); }
-  .lcd-rail-add-section { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; background: rgba(34,197,94,0.14); border: 1px solid rgba(34,197,94,0.4); color: #16a34a; border-radius: 7px; padding: 7px 10px; margin-bottom: 8px; font-size: 0.72rem; font-weight: 700; cursor: pointer; font-family: 'Poppins', sans-serif; }
-  .lcd-rail-add-section:hover { background: rgba(34,197,94,0.24); }
+  .lcd-rail-addslide-row { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px; margin: 4px 2px 4px; border: 1px dashed rgba(193,153,63,0.4); border-radius: 6px; color: var(--lcd-gold-400, #d9b46a); font-size: 0.7rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; transition: background var(--lcd-motion-fast, 150ms); }
+  .lcd-rail-addslide-row:hover { background: var(--lcd-gold-wash, rgba(193,153,63,.14)); }
+  .lcd-rail-add-section { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: var(--lcd-btn-h-secondary, 42px); background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border: 1px solid var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-400, #d9b46a); border-radius: var(--lcd-radius-sm, 8px); padding: 0 10px; margin-bottom: var(--lcd-space-3, 12px); font-size: 0.75rem; font-weight: 700; cursor: pointer; font-family: 'Poppins', sans-serif; transition: background var(--lcd-motion-fast, 150ms); }
+  .lcd-rail-add-section:hover { background: rgba(193,153,63,0.26); }
   .lcd-rail-section-header[draggable="true"] { cursor: grab; }
   .lcd-rail-section-header[draggable="true"]:active { cursor: grabbing; }
   .lcd-rail-ppt-row { align-items: center; }
-  .lcd-rail-ppt-thumb { width: 42px; height: 24px; flex-shrink: 0; border-radius: 3px; background-color: #1e293b; background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; color: #ea580c; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.12); }
-  .lcd-rail-slide-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1.5px solid transparent; transition: background 0.12s, border-color 0.12s; }
-  .lcd-rail-slide-row:hover { background: #f1f5f9; }
-  .lcd-rail-slide-row.selected { background: #eef2ff; border-color: #6366f1; }
+  .lcd-rail-ppt-thumb { width: 42px; height: 24px; flex-shrink: 0; border-radius: 3px; background-color: #1e293b; background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; color: #fb923c; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.12); }
+  .lcd-rail-slide-row { display: flex; gap: var(--lcd-space-2, 8px); align-items: flex-start; padding: 8px 10px; border-radius: var(--lcd-radius-sm, 8px); cursor: pointer; border: 1.5px solid transparent; transition: background var(--lcd-motion-fast, 150ms), border-color var(--lcd-motion-fast, 150ms); }
+  .lcd-rail-slide-row:hover { background: var(--lcd-navy-700, #1e2c4a); }
+  .lcd-rail-slide-row.selected { background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border-color: var(--lcd-gold-500, #c1993f); }
   .lcd-rail-slide-row[draggable="true"] { cursor: grab; }
   .lcd-rail-slide-row[draggable="true"]:active { cursor: grabbing; }
-  .lcd-rail-drop-above { box-shadow: inset 0 4px 0 0 #4f46e5; }
-  .lcd-rail-drop-below { box-shadow: inset 0 -4px 0 0 #4f46e5; }
-  .lcd-rail-slide-num { flex-shrink: 0; font-size: 0.66rem; font-weight: 700; color: #94a3b8; padding-top: 1px; min-width: 26px; }
-  .lcd-rail-slide-row.selected .lcd-rail-slide-num { color: #6366f1; }
+  .lcd-rail-drop-above { box-shadow: inset 0 4px 0 0 var(--lcd-gold-400, #d9b46a); }
+  .lcd-rail-drop-below { box-shadow: inset 0 -4px 0 0 var(--lcd-gold-400, #d9b46a); }
+  /* Numbering stays deliberately small and quiet -- it must never compete
+     with the item title, which is the thing you actually scan for. */
+  .lcd-rail-slide-num { flex-shrink: 0; font-size: var(--lcd-font-numbering, 12px); font-weight: 700; color: var(--lcd-ivory-muted, #9aa3bf); padding-top: 3px; min-width: 38px; }
+  .lcd-rail-slide-row.selected .lcd-rail-slide-num { color: var(--lcd-gold-400, #d9b46a); }
   .lcd-rail-slide-body { min-width: 0; flex: 1; }
-  .lcd-rail-item-title { font-size: 0.78rem; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .lcd-rail-slide-preview { font-size: 0.7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .lcd-rail-slide-del { flex-shrink: 0; align-self: center; background: transparent; border: none; color: #cbd5e1; cursor: pointer; padding: 4px 7px; margin-left: 2px; border-radius: 5px; font-size: 0.72rem; opacity: 0.35; transition: opacity 0.12s, color 0.12s, background 0.12s; }
+  /* Two-line clamp rather than a single ellipsised line: in a 270px column
+     most song/liturgy titles would otherwise truncate mid-word. */
+  .lcd-rail-item-title { font-size: var(--lcd-font-item-title, 16.5px); font-weight: 600; color: var(--lcd-ivory-100, #f8f4ea); line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .lcd-rail-slide-preview { font-size: var(--lcd-font-item-meta, 12.5px); color: var(--lcd-ivory-muted, #9aa3bf); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .lcd-rail-slide-del { flex-shrink: 0; align-self: center; background: transparent; border: none; color: var(--lcd-ivory-muted, #9aa3bf); cursor: pointer; padding: 5px 8px; margin-left: 2px; border-radius: 5px; font-size: 0.72rem; opacity: 0.3; transition: opacity var(--lcd-motion-fast, 150ms), color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms); }
   .lcd-rail-slide-row:hover .lcd-rail-slide-del { opacity: 1; }
-  .lcd-rail-slide-del:hover { color: #dc2626; background: rgba(239,68,68,0.14); }
+  .lcd-rail-slide-del:hover { color: var(--lcd-danger, #c65a4e); background: rgba(198,90,78,0.18); }
 
   /* ── Worship Sections — Badge-left / Slides-middle (590) ── */
   .wo-worship-section { margin-bottom: 10px; }
