@@ -6208,6 +6208,7 @@
                 <div class="lcd-lib-header">
                   <span class="lcd-lib-title"><i class="fa-solid fa-music"></i> Song Library</span>
                   <button class="lcd-lib-iconbtn" onclick="WO.openSongLibrary()" title="Advanced filters — season, tempo, key, themes, scripture"><i class="fa-solid fa-sliders"></i></button>
+                  <button class="lcd-lib-iconbtn" onclick="WO.lcdToggleLibrary()" title="Collapse the Song Library"><i class="fa-solid fa-angles-left"></i></button>
                 </div>
                 <input type="text" class="lcd-lib-search" id="lcdLibSearch" placeholder="Search songs..." oninput="WO.lcdLibraryFilter()" autocomplete="off">
                 <div class="lcd-lib-chips" id="lcdLibChips"></div>
@@ -6242,6 +6243,9 @@
                   <div class="wo-preview-title"><i class="fa-solid fa-tv mr-2"></i> LCD Projection</div>
                   <button class="lcd-song-order-btn" onclick="WO.selectOrder('song')" title="Switch to Song Order">
                     <i class="fa-solid fa-music"></i> Song Order
+                  </button>
+                  <button class="lcd-fullscreen-btn" id="lcdWorkspaceFsBtn" onclick="WO.lcdToggleWorkspaceFullscreen()" title="Show the whole projection workspace on one screen (Esc to exit)">
+                    <i class="fa-solid fa-expand" id="lcdWorkspaceFsIcon"></i> <span id="lcdWorkspaceFsLabel">Full Screen</span>
                   </button>
                   <button class="wo-preview-toggle-btn" id="woPreviewToggleBtn"
                           onclick="WO.toggleMobilePreview()"
@@ -49292,6 +49296,60 @@ var WO = (function() {
     _enterServiceOrderLayout();
   }
 
+  // ---- Full-screen projection workspace ----------------------------------
+  // Distinct from goFullscreen(), which projects the SLIDE to the audience.
+  // This one gives the OPERATOR the whole viewport: the app chrome and the
+  // 337px-tall Orders header come off, leaving Library / Schedule / Editor /
+  // Output / Media Tray on one screen. Implemented by fixing the view to the
+  // viewport, which also sidesteps the app grid entirely.
+  function lcdToggleWorkspaceFullscreen(force) {
+    var on = (typeof force === 'boolean')
+      ? force
+      : !document.body.classList.contains('lcd-workspace-fullscreen');
+    document.body.classList.toggle('lcd-workspace-fullscreen', on);
+
+    // Ask for real browser fullscreen too, but never depend on it: it can be
+    // refused (no user gesture, permissions policy) and the CSS mode has to
+    // work regardless.
+    try {
+      if (on && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+        var p = document.documentElement.requestFullscreen();
+        if (p && p.catch) p.catch(function() {});
+      } else if (!on && document.fullscreenElement && document.exitFullscreen) {
+        var q = document.exitFullscreen();
+        if (q && q.catch) q.catch(function() {});
+      }
+    } catch (e) {}
+
+    var icon = document.getElementById('lcdWorkspaceFsIcon');
+    var lbl = document.getElementById('lcdWorkspaceFsLabel');
+    var btn = document.getElementById('lcdWorkspaceFsBtn');
+    if (icon) icon.className = on ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+    if (lbl) lbl.textContent = on ? 'Exit Full Screen' : 'Full Screen';
+    if (btn) btn.classList.toggle('active', on);
+    // The sticky preview panel measures against the scroll container, which
+    // just changed size.
+    if (typeof _enterServiceOrderLayout === 'function') _enterServiceOrderLayout();
+  }
+
+  // Esc leaves the workspace. Ignored while typing in the slide editor or any
+  // field, so it can never eat an edit.
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+    if (!document.body.classList.contains('lcd-workspace-fullscreen')) return;
+    var ae = document.activeElement;
+    if (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return;
+    lcdToggleWorkspaceFullscreen(false);
+  });
+
+  // Leaving the browser's own fullscreen (F11 / Esc) must not strand the page
+  // in workspace mode with no obvious way back.
+  document.addEventListener('fullscreenchange', function() {
+    if (!document.fullscreenElement && document.body.classList.contains('lcd-workspace-fullscreen')) {
+      lcdToggleWorkspaceFullscreen(false);
+    }
+  });
+
   function lcdToggleLibrary() {
     var mc = document.querySelector('.wo-main-content');
     var flaggedHidden = localStorage.getItem(_LCD_LIB_HIDDEN_KEY) === '1';
@@ -55306,6 +55364,7 @@ var WO = (function() {
     lcdLibraryDragEnd: lcdLibraryDragEnd,
     lcdToggleScheduleExpand: lcdToggleScheduleExpand,
     lcdToggleLibrary: lcdToggleLibrary,
+    lcdToggleWorkspaceFullscreen: lcdToggleWorkspaceFullscreen,
     lcdRestoreSidebar: lcdRestoreSidebar,
     woPopupToggle: woPopupToggle,
     woPopupOpenDrop: woPopupOpenDrop,
@@ -62756,10 +62815,21 @@ function filterLiturgyItems() {
   .lcd-lyrics-body { background: var(--lcd-ivory); }
   .lcd-lyrics-summary { color: var(--lcd-ink-soft); }
   /* Primary editor toolbar: real, pressable buttons */
-  .lcd-fmt-toolbar { gap: 8px; padding: 10px 12px; background: var(--lcd-ivory-3); border-bottom: 1px solid var(--lcd-ivory-line); }
+  /* One scrolling row rather than a wrapping block: wrapping let the toolbar
+     grow to ~300px and starve the canvas, which is the whole point of the
+     panel. Fixed height, scroll sideways when the column is narrow. */
+  .lcd-fmt-toolbar {
+    gap: 8px; padding: 8px 10px; background: var(--lcd-ivory-3);
+    border-bottom: 1px solid var(--lcd-ivory-line);
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+    flex: 0 0 auto; scrollbar-width: thin;
+  }
+  .lcd-fmt-toolbar::-webkit-scrollbar { height: 6px; }
+  .lcd-fmt-toolbar::-webkit-scrollbar-thumb { background: rgba(120,105,75,.35); border-radius: 3px; }
   .lcd-fmt-group {
     background: var(--lcd-ivory-2); border: 1px solid var(--lcd-ivory-line);
-    box-shadow: 0 1px 2px rgba(60,50,30,.06); padding: 7px 10px 7px 8px; gap: 6px;
+    box-shadow: 0 1px 2px rgba(60,50,30,.06); padding: 6px 9px 6px 7px; gap: 6px;
+    flex-wrap: nowrap; flex: 0 0 auto;
   }
   .lcd-fmt-group-label { color: var(--lcd-ink-soft); font-size: 0.6rem; }
   .lcd-fmt-btn, .lcd-fmt-select, .lcd-fmt-color {
@@ -62855,6 +62925,56 @@ function filterLiturgyItems() {
   .lcd-media-item:hover { border-color: var(--lcd-gold-500); transform: translateY(-2px); box-shadow: var(--lcd-shadow-lift); }
   .lcd-media-cap { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
   .lcd-lower-row { gap: var(--lcd-space-4); }
+
+  /* ---- 6b. Full-screen projection workspace ------------------------------
+     Fixing the view to the viewport lifts it out of the app grid, so the
+     sidebar track and the 337px Orders header stop costing anything and every
+     panel can be sized against real screen height instead of page flow. */
+  .lcd-fullscreen-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: var(--lcd-btn-h-secondary, 42px); padding: 0 15px;
+    border-radius: var(--lcd-radius-md, 10px);
+    background: var(--lcd-navy-700, #1e2c4a); border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    color: var(--lcd-ivory-200, #e6dfc9); font-family: 'Poppins', sans-serif;
+    font-size: 0.78rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+    transition: border-color var(--lcd-motion-fast, 150ms), color var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-fullscreen-btn:hover { border-color: var(--lcd-gold-500); color: var(--lcd-ivory-100); }
+  .lcd-fullscreen-btn.active { background: var(--lcd-gold-wash); border-color: var(--lcd-gold-500); color: var(--lcd-gold-400); }
+
+  body.lcd-workspace-fullscreen #worshipOrderView {
+    position: fixed !important; inset: 0 !important; z-index: 9000;
+    width: 100vw !important; height: 100vh !important; max-height: 100vh !important;
+    margin: 0 !important; padding: 0 !important; overflow: hidden !important;
+    background: var(--lcd-navy-950, #0b1220);
+  }
+  /* The Orders banner and mode cards are page furniture, not workspace. */
+  body.lcd-workspace-fullscreen .wo-header,
+  body.lcd-workspace-fullscreen #woMainMenu,
+  body.lcd-workspace-fullscreen #woModeLanding,
+  body.lcd-workspace-fullscreen .wo-preview-fab { display: none !important; }
+  body.lcd-workspace-fullscreen .wo-container,
+  body.lcd-workspace-fullscreen #woEditor { height: 100% !important; min-height: 0 !important; }
+  body.lcd-workspace-fullscreen .wo-main-content {
+    height: 100% !important; min-height: 0 !important; border-radius: 0 !important;
+  }
+  /* Each column scrolls on its own so nothing pushes the page taller. */
+  body.lcd-workspace-fullscreen .wo-worship-order,
+  body.lcd-workspace-fullscreen .lcd-library-panel {
+    height: 100% !important; max-height: 100vh !important; overflow-y: auto !important;
+    position: static !important;
+  }
+  body.lcd-workspace-fullscreen .wo-preview-panel {
+    position: static !important; height: 100% !important; max-height: 100vh !important;
+    overflow: hidden !important; display: flex !important; flex-direction: column;
+  }
+  /* Editor and Output now get the height they were starved of. */
+  body.lcd-workspace-fullscreen .lcd-outputs-row { flex: 1 1 auto; min-height: 0; }
+  body.lcd-workspace-fullscreen .lcd-lyrics-panel { display: flex; flex-direction: column; min-height: 0; }
+  body.lcd-workspace-fullscreen .lcd-lyrics-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  body.lcd-workspace-fullscreen .lcd-editor-canvas { flex: 1 1 auto; min-height: 220px; }
+  body.lcd-workspace-fullscreen .lcd-lower-row { flex: 0 0 auto; max-height: 210px; }
+  body.lcd-workspace-fullscreen .lcd-media-panel { max-height: 210px; overflow-y: auto; }
 
   /* ---- 7. Workspace bar + shell breathing room --------------------------- */
   .lcd-shell { padding: var(--lcd-space-5); gap: 0; }
