@@ -50243,7 +50243,6 @@ var WO = (function() {
     _lcdClearDropMarkers();
   }
   function lcdRailDrop(e, rowId) {
-    _lcdPushUndo();
     if (e.preventDefault) e.preventDefault();
     var dragged = _lcdDragRowId ? _lcdRailRowMap[_lcdDragRowId] : null;
     var target = _lcdRailRowMap[rowId];
@@ -50255,6 +50254,11 @@ var WO = (function() {
     var kids = Array.from(parent.children);
     var di = kids.indexOf(dragged), ti = kids.indexOf(target);
     if (di < 0 || ti < 0) return;
+    // Undo is pushed only once the drop is known to be valid -- matching
+    // lcdSectionDrop(). Pushing it first meant every abandoned or cross-item
+    // drag (slides can only be reordered inside their own song/liturgy item)
+    // silently ate an undo step, so the next Ctrl+Z appeared to do nothing.
+    _lcdPushUndo();
     // Reordering renumbers the section's slides, so the per-slide background
     // map has to be re-pinned the same way an insert does (see
     // _lcdCaptureSectionBgs) -- otherwise the moved slide swaps backgrounds
