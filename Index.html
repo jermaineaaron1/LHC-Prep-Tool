@@ -616,6 +616,53 @@
       grid-template-columns: 1fr !important;
     }
 
+    /* On desktop, collapsing turns the sidebar into a 68px icon rail instead
+       of hiding it outright: navigation stays one click away and the active
+       page stays visible, while the LCD Projection workspace gets the width
+       back. Phone/tablet keep the original hide-completely behaviour above,
+       because there the sidebar is an overlay. */
+    @media (min-width: 1025px) {
+      /* The sidebar carries its own width:280px, so the grid track alone does
+         nothing here -- the element's width has to be overridden too. */
+      .lhc-root.sidebar-collapsed #playlistSidebar {
+        display: flex !important; overflow: visible;
+        width: 68px !important; min-width: 68px !important; max-width: 68px !important;
+      }
+      /* .lhc-root.sidebar-collapsed (0,2,0) so it beats both the base
+         .lhc-root track definition and the mobile .sidebar-collapsed rule
+         without depending on source order. */
+      .lhc-root.sidebar-collapsed { grid-template-columns: 68px minmax(0, 1fr) !important; }
+      /* font-size:0 collapses the bare text node beside each icon; the icon
+         gets its size back explicitly. */
+      .sidebar-collapsed #playlistSidebar .lhc-pill-button {
+        font-size: 0; width: 44px; height: 44px; padding: 0;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 12px; position: relative;
+      }
+      .sidebar-collapsed #playlistSidebar .lhc-pill-button i { font-size: 1rem; margin: 0 !important; }
+      .sidebar-collapsed #playlistSidebar .flex.gap-2.flex-wrap { flex-direction: column; align-items: center; gap: 8px; }
+      .sidebar-collapsed #playlistSidebar .px-4 { padding-left: 10px !important; padding-right: 10px !important; }
+      /* Everything that is prose rather than navigation goes away in rail mode */
+      .sidebar-collapsed #playlistSidebar > *:not(.relative),
+      .sidebar-collapsed #playlistSidebar hr,
+      .sidebar-collapsed #playlistSidebar h1,
+      .sidebar-collapsed #playlistSidebar h2,
+      .sidebar-collapsed #playlistSidebar h3,
+      .sidebar-collapsed #playlistSidebar p,
+      .sidebar-collapsed #playlistSidebar #songStatsSection,
+      .sidebar-collapsed #playlistSidebar #rosterUpdatesSection { display: none !important; }
+      .sidebar-collapsed #playlistSidebar .relative.px-4.pt-4 { display: block !important; }
+      /* Tooltip from the title attribute we add in markup */
+      .sidebar-collapsed #playlistSidebar .lhc-pill-button::after {
+        content: attr(title);
+        position: absolute; left: 52px; top: 50%; transform: translateY(-50%);
+        background: #1f2937; color: #fff; font-size: 0.72rem; font-weight: 600;
+        padding: 5px 9px; border-radius: 6px; white-space: nowrap;
+        opacity: 0; pointer-events: none; transition: opacity 150ms ease; z-index: 60;
+      }
+      .sidebar-collapsed #playlistSidebar .lhc-pill-button:hover::after { opacity: 1; }
+    }
+
     /* ==================== SCROLLBARS ==================== */
     .lhc-scroll-y {
       scrollbar-width: thin;
@@ -5064,22 +5111,22 @@
       <!-- Navigation Buttons -->
       <div class="relative px-4 pt-4">
         <div class="flex gap-2 flex-wrap">
-          <button class="lhc-pill-button lhc-pill-button-active" id="navHomeBtn">
+          <button class="lhc-pill-button lhc-pill-button-active" id="navHomeBtn" title="Home">
             <i class="fa-solid fa-house mr-1"></i> Home
           </button>
-          <button class="lhc-pill-button" id="navSongFinderBtn">
+          <button class="lhc-pill-button" id="navSongFinderBtn" title="Songs">
             <i class="fa-solid fa-magnifying-glass mr-1"></i> Songs
           </button>
-          <button class="lhc-pill-button" id="navRosterBtn">
+          <button class="lhc-pill-button" id="navRosterBtn" title="Roster">
             <i class="fa-solid fa-table mr-1"></i> Roster
           </button>
-          <button class="lhc-pill-button" id="navOrdersBtn">
+          <button class="lhc-pill-button" id="navOrdersBtn" title="Orders">
             <i class="fa-solid fa-calendar-days mr-1"></i> Orders
           </button>
-          <button class="lhc-pill-button" id="navLiturgyBtn">
+          <button class="lhc-pill-button" id="navLiturgyBtn" title="Liturgy">
             <i class="fa-solid fa-book-bible mr-1"></i> Liturgy
           </button>
-          <button class="lhc-pill-button" id="navPracticeBtn">
+          <button class="lhc-pill-button" id="navPracticeBtn" title="Practice">
             <i class="fa-solid fa-microphone mr-1"></i> Practice
           </button>
         </div>
@@ -14379,12 +14426,30 @@ function _isSidebarOverlayMode() {
   return false;
 }
 
+// Collapse the sidebar's GRID TRACK, not just the element. The element's own
+// width:280px and the .lhc-root track are set in separate rules, and the track
+// rule was reliably losing the cascade here, leaving a dead 212px gutter beside
+// a 68px rail. Setting it inline is deterministic and survives whatever wins in
+// the stylesheet. Desktop only -- below 1025px the sidebar is an overlay and
+// the original single-column behaviour applies.
+function _applySidebarRailTrack(isCollapsed) {
+  var root = document.querySelector('.lhc-root');
+  if (!root) return;
+  var desktop = window.matchMedia('(min-width: 1025px)').matches;
+  // setProperty with 'important': a plain inline value still loses to the
+  // existing `.sidebar-collapsed { grid-template-columns: 1fr !important }`
+  // rule, which is why the rail left a dead gutter.
+  if (isCollapsed && desktop) root.style.setProperty('grid-template-columns', '68px minmax(0, 1fr)', 'important');
+  else root.style.removeProperty('grid-template-columns');
+}
+
 function toggleSidebar() {
   var root = document.querySelector('.lhc-root');
   var sidebar = document.getElementById('playlistSidebar');
   if (!root || !sidebar) return;
   var isCollapsed = root.classList.toggle('sidebar-collapsed');
   localStorage.setItem('lhc_sidebar_collapsed', isCollapsed ? '1' : '0');
+  _applySidebarRailTrack(isCollapsed);
   // Update toggle icon
   var btn = document.getElementById('sidebarToggleBtn');
   if (btn) {
@@ -14423,6 +14488,13 @@ function initSidebar() {
     var btn = document.getElementById('sidebarToggleBtn');
     if (btn) btn.querySelector('i').className = 'fa-solid fa-times';
   }
+  // Restore the rail track for a saved collapsed state, and keep it correct
+  // when the window crosses the desktop/overlay breakpoint.
+  _applySidebarRailTrack(shouldCollapse);
+  window.addEventListener('resize', function() {
+    var r = document.querySelector('.lhc-root');
+    _applySidebarRailTrack(!!(r && r.classList.contains('sidebar-collapsed')));
+  });
 
   // Tap outside the sidebar to close it — works in ALL overlay modes
   root.addEventListener('click', function(e) {
@@ -15356,6 +15428,12 @@ window.loadEditSongData = function(song) {
     var _leavingOrders = _ordersEl && _ordersEl.style.display !== 'none' && viewId !== 'worshipOrderView';
     if (_leavingOrders && typeof WO !== 'undefined' && WO.saveImmediately) {
       WO.saveImmediately();
+    }
+    // Put the sidebar back if LCD Projection auto-collapsed it. Done on
+    // leaving Orders rather than on the Song Order toggle, so flipping
+    // between the two modes doesn't animate the sidebar back and forth.
+    if (_leavingOrders && typeof WO !== 'undefined' && WO.lcdRestoreSidebar) {
+      WO.lcdRestoreSidebar();
     }
 
     // Close sidebar on mobile when switching views
@@ -25415,6 +25493,7 @@ var WO = (function() {
       _lcdSetupCompactRailObserver();
       _lcdRenderLibraryPanel();
       _lcdApplyLayoutFlags();
+      _lcdAutoCollapseSidebar();
       _lcdStartSongLiveSync();
       _lcdUpdateProgramBarrier();
       // Make preview panel follow while scrolling
@@ -48807,7 +48886,7 @@ var WO = (function() {
       hdr.innerHTML = '<span class="lcd-schedule-header-title"><i class="fa-solid fa-list-ol"></i> Service Schedule</span>' +
         '<span class="lcd-schedule-header-right">' +
           '<span class="lcd-schedule-count" id="lcdScheduleCount"></span>' +
-          '<button class="lcd-schedule-expand" id="lcdScheduleExpandBtn" onclick="WO.lcdToggleScheduleExpand()" title="Expand / collapse the schedule column"><i class="fa-solid fa-left-right"></i></button>' +
+          '<button class="lcd-schedule-expand" id="lcdScheduleExpandBtn" onclick="WO.lcdToggleScheduleExpand()" title="Give the schedule more room"><i class="fa-solid fa-left-right"></i> <span id="lcdScheduleExpandLabel">Expand Schedule</span></button>' +
         '</span>';
       root.insertBefore(hdr, root.firstChild);
     }
@@ -48966,6 +49045,11 @@ var WO = (function() {
 
   function lcdLibraryDragStart(event, songId) {
     _lcdDragSongId = songId;
+    // Lift the card clear of the list so it reads as a detached object.
+    try {
+      var card = event && event.currentTarget;
+      if (card && card.classList) card.classList.add('lcd-dragging');
+    } catch (x) {}
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'copy';
       // Prefixed so the media drop zone's savedBackgrounds lookup can never
@@ -48977,6 +49061,9 @@ var WO = (function() {
   function lcdLibraryDragEnd() {
     _lcdDragSongId = null;
     _lcdClearDropMarkers();
+    document.querySelectorAll('.lcd-lib-card.lcd-dragging').forEach(function(el) {
+      el.classList.remove('lcd-dragging');
+    });
   }
 
   // The contiguous run of nodes making up one song/liturgy group (banner +
@@ -49142,6 +49229,45 @@ var WO = (function() {
   // Column-width toggles. Both persist like toggleSidebar() does, and both
   // re-run _enterServiceOrderLayout() because the sticky preview panel's
   // measured max-height depends on the layout it just changed.
+  // ---- Auto-collapse the app sidebar for LCD Projection ------------------
+  // The projection workspace wants every pixel, so entering it drops the
+  // sidebar to its icon rail automatically and leaving Orders puts it back.
+  // Two things this deliberately does NOT do: it never touches the sidebar if
+  // the operator already had it collapsed (that is their choice, and we must
+  // not "restore" something they never opened), and it never lets the
+  // automatic collapse overwrite their saved preference -- otherwise closing
+  // the tab from in here would silently change what they see next session.
+  var _lcdSidebarAutoCollapsed = false;
+
+  function _lcdPrefWrite(saved) {
+    if (saved === null) localStorage.removeItem('lhc_sidebar_collapsed');
+    else localStorage.setItem('lhc_sidebar_collapsed', saved);
+  }
+
+  function _lcdAutoCollapseSidebar() {
+    // Below 1025px the sidebar is an overlay that already manages itself.
+    if (!window.matchMedia('(min-width: 1025px)').matches) return;
+    var root = document.querySelector('.lhc-root');
+    if (!root || root.classList.contains('sidebar-collapsed')) return;
+    if (typeof toggleSidebar !== 'function') return;
+    var saved = localStorage.getItem('lhc_sidebar_collapsed');
+    toggleSidebar();
+    _lcdPrefWrite(saved);
+    _lcdSidebarAutoCollapsed = true;
+  }
+
+  function lcdRestoreSidebar() {
+    if (!_lcdSidebarAutoCollapsed) return;
+    _lcdSidebarAutoCollapsed = false;
+    var root = document.querySelector('.lhc-root');
+    // If they re-opened it by hand while in here, leave it exactly as they set it.
+    if (!root || !root.classList.contains('sidebar-collapsed')) return;
+    if (typeof toggleSidebar !== 'function') return;
+    var saved = localStorage.getItem('lhc_sidebar_collapsed');
+    toggleSidebar();
+    _lcdPrefWrite(saved);
+  }
+
   function _lcdApplyLayoutFlags() {
     var mc = document.querySelector('.wo-main-content');
     if (!mc) return;
@@ -49150,7 +49276,13 @@ var WO = (function() {
     mc.classList.toggle('lcd-schedule-expanded', expanded);
     mc.classList.toggle('lcd-library-hidden', libHidden);
     var btn = document.getElementById('lcdScheduleExpandBtn');
-    if (btn) btn.classList.toggle('active', expanded);
+    if (btn) {
+      btn.classList.toggle('active', expanded);
+      // The control states what it will do next, so it is never ambiguous.
+      var lbl = document.getElementById('lcdScheduleExpandLabel');
+      if (lbl) lbl.textContent = expanded ? 'Restore Workspace' : 'Expand Schedule';
+      btn.title = expanded ? 'Return to the standard layout' : 'Give the schedule more room';
+    }
   }
 
   function lcdToggleScheduleExpand() {
@@ -55174,6 +55306,7 @@ var WO = (function() {
     lcdLibraryDragEnd: lcdLibraryDragEnd,
     lcdToggleScheduleExpand: lcdToggleScheduleExpand,
     lcdToggleLibrary: lcdToggleLibrary,
+    lcdRestoreSidebar: lcdRestoreSidebar,
     woPopupToggle: woPopupToggle,
     woPopupOpenDrop: woPopupOpenDrop,
     openNewSongFromWO: openNewSongFromWO,
@@ -62488,6 +62621,248 @@ function filterLiturgyItems() {
   }
   .lcd-row-highlight { animation: lcdRowHighlightPulse 1.6s ease; }
 
+  /* ==========================================================================
+     LCD PROJECTION — VISUAL CORRECTION PASS
+     Applied on top of the phase-0..7 rules above, from feedback on the
+     rendered result: it read as a cramped technical dashboard rather than the
+     approved worship-planning surface. Kept as one clearly-bounded layer so it
+     can be reviewed (or reverted) as a unit rather than as edits scattered
+     through the earlier blocks.
+     Direction: Song Library stays dark navy; Service Schedule, Slide Editor
+     and Media Tray become warm ivory working surfaces; more width, bigger
+     controls, restrained gold, 16:9 projector output.
+     ========================================================================== */
+  .wo-main-content:not(.wo-song-order) {
+    --lcd-ivory:      #f7f3ea;   /* main parchment working surface */
+    --lcd-ivory-2:    #fffdf8;   /* raised cards on top of it */
+    --lcd-ivory-3:    #ece5d7;   /* recessed / header bands */
+    --lcd-ivory-line: #ddd3c0;
+    --lcd-ink:        #2c2a25;   /* body text on ivory */
+    --lcd-ink-soft:   #6d6656;   /* secondary text on ivory */
+    --lcd-shadow-paper: 0 1px 2px rgba(60,50,30,.06), 0 6px 18px rgba(60,50,30,.10);
+    --lcd-shadow-lift:  0 2px 4px rgba(60,50,30,.08), 0 12px 28px rgba(60,50,30,.16);
+  }
+
+  /* ---- 1. Column widths (targets: library 17 / schedule 29 / workspace 54) -- */
+  .wo-main-content:not(.wo-song-order) {
+    grid-template-columns: minmax(190px, 17fr) minmax(310px, 29fr) minmax(470px, 54fr);
+  }
+  @media (min-width: 1800px) {
+    .wo-main-content:not(.wo-song-order) { grid-template-columns: minmax(210px, 16fr) minmax(360px, 30fr) minmax(560px, 54fr); }
+  }
+  @media (max-width: 1439px) {
+    .wo-main-content:not(.wo-song-order) { grid-template-columns: minmax(170px, 16fr) minmax(280px, 30fr) minmax(420px, 54fr); }
+  }
+  .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px minmax(310px, 30fr) minmax(470px, 56fr); }
+  /* Expanded: schedule takes the lion's share, library yields */
+  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded { grid-template-columns: 44px minmax(420px, 46fr) minmax(430px, 54fr); }
+  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded #lcdLibraryPanel { display: none; }
+  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-lib-reopen { display: flex; }
+  .wo-main-content:not(.wo-song-order) { transition: grid-template-columns 200ms ease; }
+
+  /* ---- 2. Service Schedule as a warm manuscript surface ------------------- */
+  .wo-main-content:not(.wo-song-order) .wo-worship-order {
+    background:
+      linear-gradient(180deg, #fbf8f1 0%, var(--lcd-ivory) 120px),
+      var(--lcd-ivory);
+    border-right: 1px solid var(--lcd-ivory-line);
+    padding: var(--lcd-space-4);
+  }
+  .lcd-schedule-header {
+    background: var(--lcd-ivory-2);
+    border: 1px solid var(--lcd-ivory-line);
+    border-top: 3px solid var(--lcd-gold-500);
+    box-shadow: var(--lcd-shadow-paper);
+    padding: 13px 15px;
+  }
+  .lcd-schedule-header-title { color: var(--lcd-ink); font-family: 'Cinzel', Georgia, serif; font-size: 0.9rem; letter-spacing: 0.06em; }
+  .lcd-schedule-header-title i { color: var(--lcd-gold-600); }
+  .lcd-schedule-count { background: rgba(193,153,63,.12); border-color: rgba(193,153,63,.45); color: var(--lcd-gold-600); }
+  .lcd-schedule-expand {
+    width: auto; height: 40px; padding: 0 13px; gap: 7px;
+    border: 1px solid var(--lcd-ivory-line); background: var(--lcd-ivory-3);
+    color: var(--lcd-ink-soft); font-family: 'Poppins', sans-serif;
+    font-size: 0.72rem; font-weight: 600; white-space: nowrap;
+  }
+  .lcd-schedule-expand:hover { background: #e4dbc9; color: var(--lcd-ink); }
+  .lcd-schedule-expand.active { background: var(--lcd-gold-wash); border-color: var(--lcd-gold-500); color: var(--lcd-gold-600); }
+
+  /* Section cards: layered paper, not outlined boxes */
+  .lcd-rail-section {
+    background: var(--lcd-ivory-2);
+    border: 1px solid var(--lcd-ivory-line);
+    border-radius: var(--lcd-radius-md);
+    box-shadow: var(--lcd-shadow-paper);
+    padding: 7px 7px 9px;
+    margin-bottom: var(--lcd-space-4);
+  }
+  .lcd-rail-section-header {
+    background: linear-gradient(180deg, #f3ecdd, var(--lcd-ivory-3));
+    border-left: 3px solid var(--lcd-gold-500);
+    border-bottom: 1px solid var(--lcd-ivory-line);
+    color: var(--lcd-ink);
+    font-family: 'Cinzel', Georgia, serif;
+    font-size: 0.82rem; letter-spacing: 0.05em; text-transform: none;
+    padding: 10px 11px; border-radius: var(--lcd-radius-sm);
+  }
+  .lcd-rail-add-btns { background: linear-gradient(90deg, rgba(236,229,215,0), var(--lcd-ivory-3) 20%, var(--lcd-ivory-3)); }
+  .lcd-rail-collapse { color: var(--lcd-ink-soft); }
+  .lcd-rail-collapse:hover { color: var(--lcd-gold-600); background: rgba(0,0,0,0.05); }
+  .lcd-rail-section-count { background: rgba(193,153,63,.14); border-color: rgba(193,153,63,.4); color: var(--lcd-gold-600); }
+  .lcd-rail-slide-row { padding: 10px 11px; border-radius: var(--lcd-radius-sm); }
+  .lcd-rail-slide-row:hover { background: #f2ebdc; }
+  .lcd-rail-slide-row.selected {
+    background: var(--lcd-ivory-2); border-color: var(--lcd-gold-500);
+    box-shadow: var(--lcd-shadow-paper); transform: translateY(-1px);
+  }
+  /* Titles get room to sit on ONE line where width allows */
+  .lcd-rail-item-title {
+    color: var(--lcd-ink); font-size: 15.5px; font-weight: 600; line-height: 1.3;
+    display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    -webkit-line-clamp: none;
+  }
+  .lcd-rail-slide-preview { color: var(--lcd-ink-soft); font-size: 12.5px; }
+  .lcd-rail-slide-num { color: #a99a7c; font-size: 11.5px; min-width: 36px; }
+  .lcd-rail-slide-row.selected .lcd-rail-slide-num { color: var(--lcd-gold-600); }
+  .lcd-rail-slide-del { color: #b9ad95; }
+  .lcd-rail-addslide-row { color: var(--lcd-gold-600); border-color: rgba(193,153,63,.45); background: rgba(193,153,63,.05); }
+  .lcd-rail-addslide-row:hover { background: rgba(193,153,63,.14); }
+  .lcd-rail-add-section {
+    background: linear-gradient(180deg, #fffdf8, var(--lcd-ivory-3));
+    border: 1px solid var(--lcd-gold-500); color: var(--lcd-gold-600);
+    box-shadow: var(--lcd-shadow-paper); height: 46px; font-size: 0.8rem;
+  }
+  .lcd-rail-add-section:hover { background: var(--lcd-gold-wash); }
+  .lcd-rail-addbtn { border-color: rgba(0,0,0,0.10); }
+  .lcd-lyric-flag.library { background: rgba(193,153,63,.16); color: var(--lcd-gold-600); border-color: rgba(193,153,63,.5); }
+  .lcd-lyric-flag.custom  { background: rgba(37,99,235,.12); color: #2563eb; border-color: rgba(37,99,235,.4); }
+  /* Drop indicators stay obvious on the light surface */
+  .lcd-rail-drop-above { box-shadow: inset 0 4px 0 0 var(--lcd-gold-600); }
+  .lcd-rail-drop-below { box-shadow: inset 0 -4px 0 0 var(--lcd-gold-600); }
+
+  /* ---- 3. Slide Editor on the same parchment ----------------------------- */
+  .lcd-lyrics-panel {
+    background: var(--lcd-ivory); border: 1px solid var(--lcd-ivory-line);
+    border-radius: var(--lcd-radius-lg); box-shadow: var(--lcd-shadow-paper);
+  }
+  .lcd-lyrics-panel .lcd-panel-header {
+    background: linear-gradient(180deg, #f3ecdd, var(--lcd-ivory-3));
+    color: var(--lcd-ink); border-bottom: 1px solid var(--lcd-ivory-line);
+    font-family: 'Cinzel', Georgia, serif; padding: 11px 14px;
+  }
+  .lcd-lyrics-panel .lcd-panel-header i { color: var(--lcd-gold-600); }
+  .lcd-lyrics-song-title { color: var(--lcd-ink); }
+  .lcd-slide-num-badge { background: rgba(193,153,63,.14); color: var(--lcd-gold-600); }
+  .lcd-lyrics-body { background: var(--lcd-ivory); }
+  .lcd-lyrics-summary { color: var(--lcd-ink-soft); }
+  /* Primary editor toolbar: real, pressable buttons */
+  .lcd-fmt-toolbar { gap: 8px; padding: 10px 12px; background: var(--lcd-ivory-3); border-bottom: 1px solid var(--lcd-ivory-line); }
+  .lcd-fmt-group {
+    background: var(--lcd-ivory-2); border: 1px solid var(--lcd-ivory-line);
+    box-shadow: 0 1px 2px rgba(60,50,30,.06); padding: 7px 10px 7px 8px; gap: 6px;
+  }
+  .lcd-fmt-group-label { color: var(--lcd-ink-soft); font-size: 0.6rem; }
+  .lcd-fmt-btn, .lcd-fmt-select, .lcd-fmt-color {
+    height: 40px; min-width: 40px; border-radius: 8px;
+    background: var(--lcd-ivory-2); border: 1px solid var(--lcd-ivory-line);
+    color: var(--lcd-ink); font-size: 0.82rem;
+  }
+  .lcd-fmt-btn:hover, .lcd-fmt-select:hover { background: #fff; border-color: var(--lcd-gold-500); }
+  .lcd-fmt-toolbar .wo-barrier-btn,
+  .lcd-fmt-toolbar .wo-bg-btn,
+  .lcd-fmt-toolbar .wo-text-btn {
+    height: 44px; padding: 0 15px; font-size: 0.78rem;
+    background: var(--lcd-ivory-2); border: 1px solid var(--lcd-ivory-line);
+    color: var(--lcd-ink); box-shadow: 0 1px 2px rgba(60,50,30,.06);
+  }
+  .lcd-fmt-toolbar .wo-barrier-btn:hover,
+  .lcd-fmt-toolbar .wo-bg-btn:hover,
+  .lcd-fmt-toolbar .wo-text-btn:hover { background: #fff; border-color: var(--lcd-gold-500); color: var(--lcd-ink); }
+  .lcd-fmt-toolbar .wo-align-btn { width: 40px; height: 40px; color: var(--lcd-ink-soft); border-radius: 8px; }
+  .lcd-fmt-toolbar .wo-align-btn:hover { background: rgba(0,0,0,0.06); color: var(--lcd-ink); }
+  .lcd-fmt-toolbar .wo-align-btn.active { background: var(--lcd-gold-500); color: #fff; }
+  .lcd-fmt-toolbar .wo-align-group { background: var(--lcd-ivory-3); padding: 3px; border-radius: 9px; }
+  .lcd-mini-btn { height: 40px; padding: 0 14px; font-size: 0.76rem; border-radius: 8px; }
+  .lcd-lyrics-actions { gap: 8px; }
+  /* The canvas is the point of the panel: give it the room */
+  .lcd-editor-canvas {
+    min-height: 300px; flex: 1 1 auto;
+    border: 1px solid var(--lcd-ivory-line); border-radius: var(--lcd-radius-md);
+    box-shadow: inset 0 2px 10px rgba(60,50,30,.10);
+    background: #14203a; margin: 12px;
+  }
+  .lcd-lyrics-editor { font-size: 1.25rem; line-height: 1.55; padding: 22px 26px; }
+  .lcd-lyric-banner { margin: 12px 12px 0; }
+
+  /* ---- 4. Program Output: landscape 16:9, the hero of the workspace ------- */
+  .lcd-outputs-row { gap: var(--lcd-space-4); align-items: stretch; }
+  .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 55%; min-width: 0; }
+  .lcd-outputs-row .lcd-program-box { flex: 0 1 45%; min-width: 300px; }
+  .lcd-program-box .lcd-output-label {
+    font-family: 'Cinzel', Georgia, serif; font-size: 0.8rem; letter-spacing: 0.1em;
+    color: var(--lcd-ivory-100); margin-bottom: 9px;
+  }
+  /* .wo-preview-screen sets an explicit height, which beats aspect-ratio --
+     height must be released for the 16:9 box to take effect. */
+  .lcd-program-box .lcd-program-screen {
+    aspect-ratio: 16 / 9 !important; width: 100% !important;
+    height: auto !important; min-height: 0 !important; max-height: none !important;
+    flex: 0 0 auto;
+    border: 1px solid rgba(193,153,63,.45);
+    border-radius: var(--lcd-radius-md);
+    box-shadow: 0 0 0 1px rgba(193,153,63,.18), 0 14px 34px rgba(0,0,0,.45);
+  }
+  .lcd-program-actions { margin-top: var(--lcd-space-4); gap: 10px; }
+  .lcd-program-actions .wo-blank-btn { height: 46px; padding: 0 18px; font-size: 0.82rem; }
+  .lcd-program-actions .wo-live-present-btn { height: 50px; font-size: 0.9rem; }
+
+  /* ---- 5. Song Library: song objects, not list rows ---------------------- */
+  .lcd-library-panel { padding: var(--lcd-space-4); gap: var(--lcd-space-3); }
+  .lcd-lib-card {
+    padding: 12px 12px; gap: 10px; align-items: center;
+    background: var(--lcd-navy-800); border: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 1px 2px rgba(0,0,0,.25);
+  }
+  .lcd-lib-card:hover {
+    background: var(--lcd-navy-700); border-color: var(--lcd-gold-600);
+    transform: translateY(-1px); box-shadow: var(--lcd-shadow-md);
+  }
+  .lcd-lib-card-title { font-size: 0.95rem; }
+  .lcd-lib-add { width: 40px; height: 40px; font-size: 0.85rem; border-radius: 9px; }
+  .lcd-lib-search { height: 44px; }
+  .lcd-lib-chip { padding: 7px 12px; font-size: 0.7rem; }
+  /* Dragging a song lifts it clear of the list */
+  .lcd-lib-card.lcd-dragging {
+    opacity: 0.55; transform: scale(0.97) rotate(-0.6deg);
+    box-shadow: var(--lcd-shadow-lg); border-color: var(--lcd-gold-500);
+  }
+
+  /* ---- 6. Media Tray: visual assets on paper ------------------------------ */
+  .lcd-media-panel {
+    background: var(--lcd-ivory); border: 1px solid var(--lcd-ivory-line);
+    border-radius: var(--lcd-radius-lg); box-shadow: var(--lcd-shadow-paper);
+  }
+  .lcd-media-panel .lcd-panel-header {
+    background: linear-gradient(180deg, #f3ecdd, var(--lcd-ivory-3));
+    color: var(--lcd-ink); border-bottom: 1px solid var(--lcd-ivory-line);
+    font-family: 'Cinzel', Georgia, serif; padding: 11px 14px;
+  }
+  .lcd-media-panel .lcd-panel-header i { color: var(--lcd-gold-600); }
+  .lcd-media-panel .lcd-mini-btn { background: var(--lcd-ivory-2); border: 1px solid var(--lcd-ivory-line); color: var(--lcd-ink); }
+  .lcd-media-hint { color: var(--lcd-ink-soft); }
+  .lcd-media-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
+  .lcd-media-item { border-color: var(--lcd-ivory-line); box-shadow: var(--lcd-shadow-paper); border-radius: var(--lcd-radius-md); }
+  .lcd-media-item:hover { border-color: var(--lcd-gold-500); transform: translateY(-2px); box-shadow: var(--lcd-shadow-lift); }
+  .lcd-media-cap { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  .lcd-lower-row { gap: var(--lcd-space-4); }
+
+  /* ---- 7. Workspace bar + shell breathing room --------------------------- */
+  .lcd-shell { padding: var(--lcd-space-5); gap: 0; }
+  .lcd-topbar { padding-bottom: var(--lcd-space-4); margin-bottom: var(--lcd-space-4); border-bottom: 1px solid var(--lcd-navy-line); }
+  .lcd-topbar .wo-preview-title { font-family: 'Cinzel', Georgia, serif; font-size: 1.15rem; letter-spacing: 0.06em; }
+  .lcd-controls-row { padding: var(--lcd-space-3) var(--lcd-space-4); gap: var(--lcd-space-3); }
+  .lcd-outputs-row { min-height: 340px; }
+
   /* ===== Compact slide rail (Chunk 8) ===== */
   /* Hides the old bulky song/liturgy/scripture banner+slide-box UI in
      LCD Projection mode only - Song Order mode never renders these
@@ -62775,6 +63150,52 @@ function filterLiturgyItems() {
   .lcd-rail-slide-del { flex-shrink: 0; align-self: center; background: transparent; border: none; color: var(--lcd-ivory-muted, #9aa3bf); cursor: pointer; padding: 5px 8px; margin-left: 2px; border-radius: 5px; font-size: 0.72rem; opacity: 0.3; transition: opacity var(--lcd-motion-fast, 150ms), color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms); }
   .lcd-rail-slide-row:hover .lcd-rail-slide-del { opacity: 1; }
   .lcd-rail-slide-del:hover { color: var(--lcd-danger, #c65a4e); background: rgba(198,90,78,0.18); }
+
+  /* --- Correction pass, part 2 -------------------------------------------
+     These properties are also set by the phase-1 rail block ABOVE, which wins
+     on source order at equal specificity, so the ivory treatment has to be
+     re-asserted here rather than in the main correction block earlier. Keep
+     these two blocks together if either is edited. */
+  .wo-main-content:not(.wo-song-order) .wo-worship-order {
+    background:
+      linear-gradient(180deg, #fbf8f1 0%, var(--lcd-ivory) 120px),
+      var(--lcd-ivory);
+    border-right: 1px solid var(--lcd-ivory-line);
+  }
+  .lcd-schedule-header { background: var(--lcd-ivory-2); border: 1px solid var(--lcd-ivory-line); border-top: 3px solid var(--lcd-gold-500); box-shadow: var(--lcd-shadow-paper); }
+  .lcd-schedule-header-title { color: var(--lcd-ink); font-family: 'Cinzel', Georgia, serif; }
+  .lcd-schedule-header-title i { color: var(--lcd-gold-600); }
+  .lcd-schedule-count { background: rgba(193,153,63,.12); border-color: rgba(193,153,63,.45); color: var(--lcd-gold-600); }
+  .lcd-schedule-expand { width: auto; height: 40px; padding: 0 13px; gap: 7px; background: var(--lcd-ivory-3); border: 1px solid var(--lcd-ivory-line); color: var(--lcd-ink-soft); font-size: 0.72rem; font-weight: 600; }
+  .lcd-schedule-expand:hover { background: #e4dbc9; color: var(--lcd-ink); }
+  .lcd-schedule-expand.active { background: var(--lcd-gold-wash); border-color: var(--lcd-gold-500); color: var(--lcd-gold-600); }
+
+  .lcd-rail-section { background: var(--lcd-ivory-2); border: 1px solid var(--lcd-ivory-line); border-radius: var(--lcd-radius-md); box-shadow: var(--lcd-shadow-paper); padding: 7px 7px 9px; margin-bottom: var(--lcd-space-4); }
+  .lcd-rail-section-header { background: linear-gradient(180deg, #f3ecdd, var(--lcd-ivory-3)); border-left: 3px solid var(--lcd-gold-500); border-bottom: 1px solid var(--lcd-ivory-line); color: var(--lcd-ink); font-family: 'Cinzel', Georgia, serif; font-size: 0.82rem; letter-spacing: 0.05em; text-transform: none; padding: 10px 11px; }
+  .lcd-rail-add-btns { background: linear-gradient(90deg, rgba(236,229,215,0), var(--lcd-ivory-3) 20%, var(--lcd-ivory-3)); }
+  .lcd-rail-collapse { color: var(--lcd-ink-soft); }
+  .lcd-rail-collapse:hover { color: var(--lcd-gold-600); background: rgba(0,0,0,0.05); }
+  .lcd-rail-section-count { background: rgba(193,153,63,.14); border-color: rgba(193,153,63,.4); color: var(--lcd-gold-600); }
+  .lcd-rail-slide-row { padding: 10px 11px; }
+  .lcd-rail-slide-row:hover { background: #f2ebdc; }
+  .lcd-rail-slide-row.selected { background: var(--lcd-ivory-2); border-color: var(--lcd-gold-500); box-shadow: var(--lcd-shadow-paper); }
+  .lcd-rail-item-title { color: var(--lcd-ink); font-size: 15.5px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: none; }
+  .lcd-rail-slide-preview { color: var(--lcd-ink-soft); }
+  .lcd-rail-slide-num { color: #a99a7c; font-size: 11.5px; }
+  .lcd-rail-slide-row.selected .lcd-rail-slide-num { color: var(--lcd-gold-600); }
+  .lcd-rail-slide-del { color: #b9ad95; }
+  .lcd-rail-addslide-row { color: var(--lcd-gold-600); border-color: rgba(193,153,63,.45); background: rgba(193,153,63,.05); }
+  .lcd-rail-addslide-row:hover { background: rgba(193,153,63,.14); }
+  .lcd-rail-add-section { background: linear-gradient(180deg, #fffdf8, var(--lcd-ivory-3)); border: 1px solid var(--lcd-gold-500); color: var(--lcd-gold-600); box-shadow: var(--lcd-shadow-paper); height: 46px; font-size: 0.8rem; }
+  .lcd-rail-add-section:hover { background: var(--lcd-gold-wash); }
+  .lcd-rail-addbtn { border-color: rgba(0,0,0,0.10); }
+  .lcd-rail-drop-above { box-shadow: inset 0 4px 0 0 var(--lcd-gold-600); }
+  .lcd-rail-drop-below { box-shadow: inset 0 -4px 0 0 var(--lcd-gold-600); }
+  .lcd-lyric-flag.library { background: rgba(193,153,63,.16); color: var(--lcd-gold-600); border-color: rgba(193,153,63,.5); }
+  .lcd-lyric-flag.custom  { background: rgba(37,99,235,.12); color: #2563eb; border-color: rgba(37,99,235,.4); }
+  .lcd-lib-add { width: 40px; height: 40px; font-size: 0.85rem; border-radius: 9px; }
+  .lcd-lib-card { padding: 12px; }
+  .lcd-lib-card-title { font-size: 0.95rem; }
 
   /* ── Worship Sections — Badge-left / Slides-middle (590) ── */
   .wo-worship-section { margin-bottom: 10px; }
