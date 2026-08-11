@@ -6393,6 +6393,63 @@
               </div>
             </div>
 
+            <!-- Full-screen + Song Order leaves no visible route back: the
+                 Orders banner (which carries the two mode buttons) is hidden
+                 by the full-screen CSS, and the LCD top bar belongs to the
+                 preview panel, which Song Order hides. This floating bar is
+                 shown only in that exact combination. -->
+            <div class="lcd-fs-modebar" id="lcdFsModeBar">
+              <button class="lcd-fs-modebar-btn primary" onclick="WO.selectOrder('service')" title="Back to LCD Projection">
+                <i class="fa-solid fa-tv"></i> LCD Projection
+              </button>
+              <button class="lcd-fs-modebar-btn" onclick="WO.lcdToggleWorkspaceFullscreen(false)" title="Leave full screen (Esc)">
+                <i class="fa-solid fa-compress"></i> Exit Full Screen
+              </button>
+            </div>
+
+            <!-- Song preview: opened by double-clicking a Song Library card.
+                 Read, project or edit a song without adding it to the
+                 schedule. Reuses parseLyricsIntoSlides for the slide split and
+                 sendToProjectionWindow for projection, so nothing here is a
+                 second rendering path. -->
+            <div class="lcd-songprev-overlay" id="lcdSongPreviewModal" style="display:none;" onclick="WO.lcdSongPreviewBackdrop(event)">
+              <div class="lcd-songprev">
+                <div class="lcd-songprev-head">
+                  <div class="lcd-songprev-titles">
+                    <div class="lcd-songprev-title" id="lcdSongPrevTitle">Song</div>
+                    <div class="lcd-songprev-meta" id="lcdSongPrevMeta"></div>
+                  </div>
+                  <span class="lcd-songprev-flag" id="lcdSongPrevFlag" style="display:none;"></span>
+                  <button class="lcd-songprev-close" onclick="WO.lcdCloseSongPreview()" title="Close (Esc)"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="lcd-songprev-body">
+                  <div class="lcd-songprev-slides" id="lcdSongPrevSlides"></div>
+                  <div class="lcd-songprev-main">
+                    <div class="lcd-songprev-stage" id="lcdSongPrevStage"><div class="lcd-songprev-stage-inner" id="lcdSongPrevStageInner"></div></div>
+                    <textarea class="lcd-songprev-edit" id="lcdSongPrevEdit" spellcheck="false" style="display:none;"
+                              placeholder="A blank line starts a new slide. [Verse 1] marks a section."></textarea>
+                    <div class="lcd-songprev-nav">
+                      <button class="lcd-songprev-navbtn" onclick="WO.lcdSongPreviewNav(-1)" title="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>
+                      <span class="lcd-songprev-count" id="lcdSongPrevCount">—</span>
+                      <button class="lcd-songprev-navbtn" onclick="WO.lcdSongPreviewNav(1)" title="Next slide"><i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
+                  </div>
+                </div>
+                <div class="lcd-songprev-foot">
+                  <button class="lcd-songprev-btn" id="lcdSongPrevEditBtn" onclick="WO.lcdSongPreviewToggleEdit()"><i class="fa-solid fa-pen"></i> Edit Lyrics</button>
+                  <button class="lcd-songprev-btn" id="lcdSongPrevRevertBtn" style="display:none;" onclick="WO.lcdSongPreviewRevert()" title="Drop this order's wording and go back to the song library's version"><i class="fa-solid fa-rotate-left"></i> Use Library Version</button>
+                  <span class="lcd-songprev-editactions" id="lcdSongPrevEditActions" style="display:none;">
+                    <button class="lcd-songprev-btn gold" onclick="WO.lcdSongPreviewSave('order')" title="Use these words for this service only — the song library is left untouched"><i class="fa-solid fa-bookmark"></i> Save for This Order</button>
+                    <button class="lcd-songprev-btn danger-outline" onclick="WO.lcdSongPreviewSave('library')" title="Overwrite the master lyrics in the song library for everyone"><i class="fa-solid fa-database"></i> Save to Song Library</button>
+                    <button class="lcd-songprev-btn" onclick="WO.lcdSongPreviewCancelEdit()">Cancel</button>
+                  </span>
+                  <span class="lcd-songprev-spacer"></span>
+                  <button class="lcd-songprev-btn" id="lcdSongPrevAddBtn" onclick="WO.lcdSongPreviewAddToService()"><i class="fa-solid fa-plus"></i> Add to Service</button>
+                  <button class="lcd-songprev-btn primary" onclick="WO.lcdSongPreviewProject()" title="Send this slide to the projection output now"><i class="fa-solid fa-desktop"></i> Project This Slide</button>
+                </div>
+              </div>
+            </div>
+
             <!-- Mobile floating action button: toggle Projection Preview -->
             <button class="wo-preview-fab" id="woPreviewFab"
                     style="display:none;"
@@ -25457,6 +25514,11 @@ var WO = (function() {
     if (landing) { landing.style.display = 'flex'; }
     if (mainContent) { mainContent.style.display = 'none'; }
     _woSetLcdMode(false);
+    // The landing screen is hidden by the full-screen CSS, so staying in that
+    // mode here would leave a blank viewport with no way out but Esc.
+    if (document.body.classList.contains('lcd-workspace-fullscreen')) {
+      lcdToggleWorkspaceFullscreen(false);
+    }
   }
 
   // Marks the Orders view as "the projection workspace is on screen" so the
@@ -25466,6 +25528,10 @@ var WO = (function() {
   function _woSetLcdMode(on) {
     var section = document.getElementById('worshipOrderView');
     if (section) section.classList.toggle('lcd-mode', !!on);
+    // Song Order hides the LCD top bar and (in full screen) the Orders banner
+    // too, so the only route back to LCD Projection disappears. The floating
+    // bar below keys off this.
+    document.body.classList.toggle('wo-mode-song', !on);
   }
 
   function selectOrder(orderType) {
@@ -33210,18 +33276,25 @@ var WO = (function() {
     // Ensure attachments is an array
     var attachmentsArray = Array.isArray(song.attachments) ? song.attachments : [];
 
+    // A "Save for This Order" made from the song preview before the song was
+    // added is waiting here -- pick it up now so the words the operator chose
+    // are what actually lands in the service.
+    var _pendingLyrics = (typeof _lcdOrderOverrides === 'function')
+      ? _lcdOrderOverrides()[String(song.id)] : '';
+    var _entryLyrics = _pendingLyrics || song.lyrics || '';
+
     var songEntry = {
       id: 'wo-song-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
       songId: song.id,
       title: song.title,
       artist: song.artist,
-      lyrics: song.lyrics || '',
-      masterLyrics: song.lyrics || '',
-      customLyrics: '',  // Empty means use master
+      lyrics: _entryLyrics,
+      masterLyrics: _entryLyrics,
+      customLyrics: _pendingLyrics || '',  // Empty means use master
       transposeSteps: 0,
       annotations: [],
       serviceSections: selectedSections,
-      hasCustomLyrics: false,
+      hasCustomLyrics: !!_pendingLyrics,
       // Include media from original song (ensure arrays)
       youtube: youtubeArray,
       attachments: attachmentsArray,
@@ -46865,12 +46938,22 @@ var WO = (function() {
   // service section. Shared by the double-click/section-scoped add path and
   // the Library drag-to-position path so both produce identical entries.
   function _woBuildSongSectionEntry(song, sectionId) {
+    // A "Save for This Order" made from the song preview before the song was
+    // in the service is waiting here. This builder is shared by the
+    // section-scoped add and the drag-to-position drop, so honouring the
+    // override here covers both without a second lookup.
+    var pending = (typeof _lcdOrderOverrides === 'function')
+      ? _lcdOrderOverrides()[String(song.id)] : '';
+    var lyrics = pending || song.lyrics || '';
     return {
       id: 'wo-song-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
       songId: song.id,
       title: song.title,
       artist: song.artist,
-      lyrics: song.lyrics || '',
+      lyrics: lyrics,
+      masterLyrics: lyrics,
+      customLyrics: pending || '',
+      hasCustomLyrics: !!pending,
       youtube: Array.isArray(song.youtube) ? song.youtube : [],
       attachments: Array.isArray(song.attachments) ? song.attachments : [],
       sectionId: sectionId
@@ -46897,7 +46980,17 @@ var WO = (function() {
         // Refresh lyrics from the library and clear any in-session slide edits so the
         // song renders with its ORIGINAL slide count (not a previously trimmed version).
         existingInOrder.sectionId = targetSectionId;
-        existingInOrder.lyrics = song.lyrics || existingInOrder.lyrics;
+        // Refresh from the library, unless this order has deliberately saved
+        // its own wording for the song — that must not be silently discarded
+        // just because the song was re-added to another section.
+        var _reAddOverride = (typeof _lcdOrderOverrides === 'function')
+          ? _lcdOrderOverrides()[String(song.id)] : '';
+        existingInOrder.lyrics = _reAddOverride || song.lyrics || existingInOrder.lyrics;
+        if (_reAddOverride) {
+          existingInOrder.masterLyrics = _reAddOverride;
+          existingInOrder.customLyrics = _reAddOverride;
+          existingInOrder.hasCustomLyrics = true;
+        }
         existingInOrder.savedSlides = null; // force re-parse from original lyrics
         addSongToServiceSection(targetSectionId, existingInOrder);
       } else {
@@ -49023,7 +49116,8 @@ var WO = (function() {
     // no-drag path and is marked draggable="false" so grabbing it does not
     // start a card drag.
     return '<div class="lcd-lib-card" data-song-id="' + escapeHtml(String(song.id || '')).replace(/"/g, '&quot;') + '"' +
-      ' draggable="true" ondragstart="WO.lcdLibraryDragStart(event, \'' + sid + '\')" ondragend="WO.lcdLibraryDragEnd()">' +
+      ' draggable="true" ondragstart="WO.lcdLibraryDragStart(event, \'' + sid + '\')" ondragend="WO.lcdLibraryDragEnd()"' +
+      ' ondblclick="WO.lcdOpenSongPreview(\'' + sid + '\')" title="Double-click to preview, project or edit this song">' +
       '<div class="lcd-lib-card-body">' +
         '<div class="lcd-lib-card-title" title="' + titleAttr + '">' + escapeHtml(song.title || 'Untitled') + '</div>' +
         (meta.length ? '<div class="lcd-lib-card-meta">' + escapeHtml(meta.join(' · ')) + '</div>' : '') +
@@ -49353,6 +49447,386 @@ var WO = (function() {
     _lcdApplyLayoutFlags();
     _enterServiceOrderLayout();
   }
+
+  // ---- Song preview (double-click a Song Library card) --------------------
+  // Read, project or edit a song without putting it in the schedule. The
+  // slide split is parseLyricsIntoSlides() and projection goes through
+  // sendToProjectionWindow(), the same funnel the Program Output mirror and
+  // the real projector already share -- so this is a new window onto existing
+  // machinery, not a second rendering path.
+  var _lcdPrevSongId = null;
+  var _lcdPrevSlides = [];
+  var _lcdPrevIdx = 0;
+  var _lcdPrevEditing = false;
+
+  // Per-order lyric overrides ride on currentOrderData.template -- the same
+  // field sectionBackgrounds and sbFontSettings already persist through, so
+  // they survive a reload and travel with the order in Supabase without a
+  // schema change.
+  function _lcdOrderOverrides() {
+    return (currentOrderData && currentOrderData.template && currentOrderData.template.songLyricOverrides) || {};
+  }
+
+  function _lcdSetOrderOverride(songId, lyrics) {
+    if (!currentOrderData) return false;
+    if (!currentOrderData.template) currentOrderData.template = {};
+    var map = Object.assign({}, currentOrderData.template.songLyricOverrides || {});
+    if (lyrics && lyrics.trim()) map[String(songId)] = lyrics;
+    else delete map[String(songId)];
+    currentOrderData.template.songLyricOverrides = map;
+    return true;
+  }
+
+  // Every copy of a library song inside this order. A song lives in two
+  // stores -- songOrderSections (the Song Order list) and serviceSectionSongs
+  // (the per-section service copies) -- and both have to move together, or
+  // the two tabs start disagreeing about the words.
+  function _lcdOrderSongEntries(songId) {
+    var id = String(songId), out = [];
+    if (Array.isArray(songOrderSections)) {
+      songOrderSections.forEach(function(e) {
+        if (e && String(e.songId) === id) out.push({ entry: e, sectionId: null });
+      });
+    }
+    Object.keys(serviceSectionSongs || {}).forEach(function(sectionId) {
+      var arr = serviceSectionSongs[sectionId];
+      if (!Array.isArray(arr)) return;
+      arr.forEach(function(e) {
+        if (e && String(e.songId) === id) out.push({ entry: e, sectionId: sectionId });
+      });
+    });
+    return out;
+  }
+
+  // First entry in this order that came from the given library song.
+  function _lcdFindOrderSongEntry(songId) {
+    var all = _lcdOrderSongEntries(songId);
+    return all.length ? all[0].entry : null;
+  }
+
+  // The words this order should use for a song: the order's own entry first,
+  // then a saved per-order override, then the library master.
+  function _lcdLyricsForOrder(song) {
+    if (!song) return '';
+    var entry = _lcdFindOrderSongEntry(song.id);
+    if (entry && entry.hasCustomLyrics && entry.customLyrics) return entry.customLyrics;
+    var ov = _lcdOrderOverrides()[String(song.id)];
+    if (ov) return ov;
+    return song.lyrics || '';
+  }
+
+  function _lcdPrevSongObj() {
+    if (_lcdPrevSongId == null) return null;
+    var id = String(_lcdPrevSongId), hit = null;
+    _lcdAllSongs().forEach(function(s) {
+      if (!hit && (String(s.id) === id || s.title === _lcdPrevSongId)) hit = s;
+    });
+    return hit;
+  }
+
+  function lcdOpenSongPreview(songId) {
+    _lcdPrevSongId = songId;
+    var song = _lcdPrevSongObj();
+    if (!song) { showToast('Could not find that song', 'warning'); return; }
+    var modal = document.getElementById('lcdSongPreviewModal');
+    if (!modal) return;
+    _lcdPrevEditing = false;
+    _lcdPrevIdx = 0;
+    _lcdPrevLoadSlides(_lcdLyricsForOrder(song));
+    document.getElementById('lcdSongPrevTitle').textContent = song.title || 'Untitled';
+    var meta = [];
+    if (song.artist) meta.push(song.artist);
+    if (song.key) meta.push('Key ' + song.key);
+    if (song.tempo) meta.push(song.tempo);
+    if (song.category || song.style) meta.push(song.category || song.style);
+    document.getElementById('lcdSongPrevMeta').textContent = meta.join('  ·  ');
+    _lcdPrevRenderFlag(song);
+    _lcdPrevSetEditing(false);
+    modal.style.display = 'flex';
+    _lcdPrevRender();
+  }
+
+  // Says plainly whether what is on screen is the library's wording or this
+  // order's, so nobody edits the wrong copy by accident.
+  function _lcdPrevRenderFlag(song) {
+    var el = document.getElementById('lcdSongPrevFlag');
+    if (!el) return;
+    var entry = _lcdFindOrderSongEntry(song.id);
+    var hasOverride = !!_lcdOrderOverrides()[String(song.id)];
+    // The way back to the library wording only makes sense once there is
+    // something to go back from.
+    var revert = document.getElementById('lcdSongPrevRevertBtn');
+    if (revert) {
+      var diverged = hasOverride || !!(entry && entry.hasCustomLyrics && entry.customLyrics);
+      revert.style.display = diverged ? 'inline-flex' : 'none';
+    }
+    if (entry && entry.hasCustomLyrics && entry.customLyrics) {
+      el.className = 'lcd-songprev-flag order';
+      el.innerHTML = '<i class="fa-solid fa-bookmark"></i> This order’s wording (already in the service)';
+      el.style.display = 'inline-flex';
+    } else if (hasOverride) {
+      el.className = 'lcd-songprev-flag order';
+      el.innerHTML = '<i class="fa-solid fa-bookmark"></i> Saved for this order';
+      el.style.display = 'inline-flex';
+    } else {
+      el.className = 'lcd-songprev-flag library';
+      el.innerHTML = '<i class="fa-solid fa-database"></i> Song library wording';
+      el.style.display = 'inline-flex';
+    }
+  }
+
+  function _lcdPrevLoadSlides(lyrics) {
+    _lcdPrevSlides = (typeof parseLyricsIntoSlides === 'function')
+      ? (parseLyricsIntoSlides(lyrics || '') || [])
+      : [];
+    if (_lcdPrevIdx >= _lcdPrevSlides.length) _lcdPrevIdx = Math.max(0, _lcdPrevSlides.length - 1);
+  }
+
+  function _lcdPrevSlideText(i) {
+    var s = _lcdPrevSlides[i];
+    if (!s) return '';
+    return (s.lines || []).join('\n');
+  }
+
+  function _lcdPrevRender() {
+    var list = document.getElementById('lcdSongPrevSlides');
+    var stage = document.getElementById('lcdSongPrevStageInner');
+    var count = document.getElementById('lcdSongPrevCount');
+    if (!list || !stage) return;
+    if (!_lcdPrevSlides.length) {
+      list.innerHTML = '<div class="lcd-songprev-empty">This song has no lyrics yet.</div>';
+      stage.innerHTML = '';
+      if (count) count.textContent = '—';
+      return;
+    }
+    list.innerHTML = _lcdPrevSlides.map(function(s, i) {
+      var body = (s.lines || []).join(' / ');
+      return '<div class="lcd-songprev-chip' + (i === _lcdPrevIdx ? ' active' : '') + '" onclick="WO.lcdSongPreviewSelect(' + i + ')">' +
+        '<span class="lcd-songprev-chip-num">' + (i + 1) + '</span>' +
+        '<span class="lcd-songprev-chip-body">' +
+          (s.header ? '<span class="lcd-songprev-chip-head">' + escapeHtml(s.header) + '</span>' : '') +
+          '<span class="lcd-songprev-chip-text">' + escapeHtml(body.slice(0, 90)) + '</span>' +
+        '</span></div>';
+    }).join('');
+    var cur = _lcdPrevSlides[_lcdPrevIdx] || { lines: [] };
+    stage.innerHTML = (cur.header ? '<div class="lcd-songprev-stage-head">' + escapeHtml(cur.header) + '</div>' : '') +
+      '<div class="lcd-songprev-stage-text">' + escapeHtml((cur.lines || []).join('\n')).replace(/\n/g, '<br>') + '</div>';
+    if (count) count.textContent = 'Slide ' + (_lcdPrevIdx + 1) + ' of ' + _lcdPrevSlides.length;
+    var active = list.querySelector('.lcd-songprev-chip.active');
+    if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+  }
+
+  function lcdSongPreviewSelect(i) {
+    if (i < 0 || i >= _lcdPrevSlides.length) return;
+    _lcdPrevIdx = i;
+    _lcdPrevRender();
+  }
+
+  function lcdSongPreviewNav(dir) {
+    if (!_lcdPrevSlides.length) return;
+    var next = _lcdPrevIdx + dir;
+    if (next < 0 || next >= _lcdPrevSlides.length) return;
+    lcdSongPreviewSelect(next);
+  }
+
+  // Straight to the projection output -- no schedule entry needed. Same
+  // payload shape updateProjectionPreview() sends, so the real projector and
+  // the in-app Program Output both follow.
+  function lcdSongPreviewProject() {
+    if (_lcdPrevEditing) { showToast('Apply or cancel your edit first', 'info'); return; }
+    var text = _lcdPrevSlideText(_lcdPrevIdx);
+    if (!text.trim()) { showToast('Nothing on this slide to project', 'warning'); return; }
+    var html = (typeof _projectionHtml === 'function') ? _projectionHtml(text) : escapeHtml(text);
+    sendToProjectionWindow({
+      type: 'text', text: html,
+      align: _currentSlideAlign,
+      barrier: _barrierConfig && _barrierConfig.global
+    });
+    var song = _lcdPrevSongObj();
+    showToast('Projecting: ' + ((song && song.title) || 'slide') + ' — slide ' + (_lcdPrevIdx + 1), 'success');
+  }
+
+  // Locks the footer while a library write is in flight, so a slow network
+  // cannot turn into a double save.
+  function _lcdPrevSetSaving(on) {
+    var foot = document.querySelector('.lcd-songprev-foot');
+    if (!foot) return;
+    Array.from(foot.querySelectorAll('button')).forEach(function(b) { b.disabled = !!on; });
+    foot.style.opacity = on ? '0.6' : '';
+  }
+
+  function _lcdPrevSetEditing(on) {
+    _lcdPrevEditing = !!on;
+    var ta = document.getElementById('lcdSongPrevEdit');
+    var stage = document.getElementById('lcdSongPrevStage');
+    var nav = document.querySelector('.lcd-songprev-nav');
+    var editBtn = document.getElementById('lcdSongPrevEditBtn');
+    var actions = document.getElementById('lcdSongPrevEditActions');
+    if (ta) ta.style.display = on ? 'block' : 'none';
+    if (stage) stage.style.display = on ? 'none' : 'flex';
+    if (nav) nav.style.display = on ? 'none' : 'flex';
+    if (editBtn) editBtn.style.display = on ? 'none' : 'inline-flex';
+    if (actions) actions.style.display = on ? 'inline-flex' : 'none';
+  }
+
+  function lcdSongPreviewToggleEdit() {
+    var song = _lcdPrevSongObj();
+    if (!song) return;
+    var ta = document.getElementById('lcdSongPrevEdit');
+    if (ta) ta.value = _lcdLyricsForOrder(song);
+    _lcdPrevSetEditing(true);
+    if (ta) ta.focus();
+  }
+
+  function lcdSongPreviewCancelEdit() {
+    var song = _lcdPrevSongObj();
+    _lcdPrevSetEditing(false);
+    if (song) _lcdPrevLoadSlides(_lcdLyricsForOrder(song));
+    _lcdPrevRender();
+  }
+
+  // target: 'order' keeps the edit inside this service; 'library' overwrites
+  // the master lyrics for everyone and goes through the same
+  // SBQ_SONGS.updateLyrics() path the songbook uses -- including its
+  // broadcast, so other operators' LCD Projection is notified live.
+  function lcdSongPreviewSave(target) {
+    var song = _lcdPrevSongObj();
+    var ta = document.getElementById('lcdSongPrevEdit');
+    if (!song || !ta) return;
+    var next = ta.value || '';
+    if (!next.trim()) { showToast('Lyrics cannot be empty', 'warning'); return; }
+
+    if (target === 'library') {
+      if (typeof SBQ_SONGS === 'undefined' || !SBQ_SONGS.updateLyrics) {
+        showToast('Song library is not available right now', 'error');
+        return;
+      }
+      // No showLoader() here: it lives in a different script block and is not
+      // in this IIFE's scope, so calling it throws and strands the modal.
+      // Disabling the button is the local, always-available equivalent.
+      _lcdPrevSetSaving(true);
+      SBQ_SONGS.updateLyrics(song.id, next).then(function() {
+        song.lyrics = next;
+        // A library save supersedes any per-order override for this song --
+        // leaving it would silently keep showing the old words.
+        _lcdSetOrderOverride(song.id, null);
+        var n = _lcdApplyLyricsToOrderEntry(song, next, false);
+        if (n && typeof autoSaveOrder === 'function') autoSaveOrder();
+        _lcdPrevSetSaving(false);
+        showToast(n
+          ? 'Saved to the song library — and updated ' + n + ' copy' + (n === 1 ? '' : 'ies') + ' in this service'
+          : 'Saved to the song library', 'success');
+        _lcdFinishPreviewSave(song, next);
+      }).catch(function(err) {
+        _lcdPrevSetSaving(false);
+        showToast('Could not save to the library: ' + ((err && err.message) || 'unknown error'), 'error');
+      });
+      return;
+    }
+
+    if (!currentOrderData) { showToast('Open an order first', 'warning'); return; }
+    _lcdSetOrderOverride(song.id, next);
+    var updated = _lcdApplyLyricsToOrderEntry(song, next, true);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    showToast(updated
+      ? 'Saved for this order — updated ' + updated + ' copy' + (updated === 1 ? '' : 'ies') + ' in the service. The song library is unchanged.'
+      : 'Saved for this order only — it will apply when you add this song. The song library is unchanged.', 'success');
+    _lcdFinishPreviewSave(song, next);
+  }
+
+  // If the song is already in the service, its slides have to move too,
+  // otherwise the schedule keeps projecting the words that were just replaced.
+  // Returns how many copies were rewritten so the caller can say so.
+  function _lcdApplyLyricsToOrderEntry(song, lyrics, asCustom) {
+    var hits = _lcdOrderSongEntries(song.id);
+    if (!hits.length) return 0;
+    hits.forEach(function(h) {
+      var entry = h.entry;
+      if (asCustom) {
+        entry.customLyrics = lyrics;
+        entry.hasCustomLyrics = true;
+      } else {
+        entry.customLyrics = '';
+        entry.hasCustomLyrics = false;
+      }
+      // _doRestoreSongSlides() re-parses from masterLyrics, so that is the
+      // field that has to carry the new words either way.
+      entry.masterLyrics = lyrics;
+      entry.lyrics = lyrics;
+      entry.savedSlides = null;
+      entry.slides = null;
+      if (h.sectionId && typeof _doRestoreSongSlides === 'function') {
+        var container = document.getElementById(h.sectionId + '-boxes');
+        if (container) {
+          try { _doRestoreSongSlides(h.sectionId, entry.id, entry, container); } catch (e) {}
+        }
+      }
+    });
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    return hits.length;
+  }
+
+  function _lcdFinishPreviewSave(song, lyrics) {
+    _lcdPrevSetEditing(false);
+    _lcdPrevLoadSlides(lyrics);
+    _lcdPrevRenderFlag(song);
+    _lcdPrevRender();
+    if (typeof _lcdRenderLibraryPanel === 'function') _lcdRenderLibraryPanel();
+  }
+
+  // Drops this order's wording and goes back to the library's. Without it a
+  // "Save for This Order" would be one-way.
+  function lcdSongPreviewRevert() {
+    var song = _lcdPrevSongObj();
+    if (!song) return;
+    var master = song.lyrics || '';
+    if (!master.trim()) { showToast('The song library has no lyrics for this song', 'warning'); return; }
+    _lcdSetOrderOverride(song.id, null);
+    var n = _lcdApplyLyricsToOrderEntry(song, master, false);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    showToast(n
+      ? 'Back to the song library wording — updated ' + n + ' copy' + (n === 1 ? '' : 'ies') + ' in the service'
+      : 'Back to the song library wording', 'info');
+    _lcdFinishPreviewSave(song, master);
+  }
+
+  // Reuses the existing add path (section picker included), so nothing about
+  // how songs enter the service changes here.
+  function lcdSongPreviewAddToService() {
+    var song = _lcdPrevSongObj();
+    if (!song) return;
+    lcdCloseSongPreview();
+    if (typeof lcdLibraryAddSong === 'function') lcdLibraryAddSong(String(song.id));
+    else if (typeof addSongDirectly === 'function') addSongDirectly(String(song.id));
+  }
+
+  function lcdCloseSongPreview() {
+    var modal = document.getElementById('lcdSongPreviewModal');
+    if (modal) modal.style.display = 'none';
+    _lcdPrevEditing = false;
+    _lcdPrevSongId = null;
+  }
+
+  function lcdSongPreviewBackdrop(e) {
+    if (e && e.target && e.target.id === 'lcdSongPreviewModal') lcdCloseSongPreview();
+  }
+
+  // Esc closes; arrows walk the slides. Both stand down while the lyrics
+  // textarea has focus so they can never eat an edit.
+  document.addEventListener('keydown', function(e) {
+    var modal = document.getElementById('lcdSongPreviewModal');
+    if (!modal || modal.style.display !== 'flex') return;
+    var ae = document.activeElement;
+    var typing = ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' || ae.isContentEditable);
+    if (e.key === 'Escape') {
+      if (_lcdPrevEditing) { lcdSongPreviewCancelEdit(); } else { lcdCloseSongPreview(); }
+      e.stopPropagation();
+      return;
+    }
+    if (typing || _lcdPrevEditing) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { lcdSongPreviewNav(1); e.preventDefault(); e.stopPropagation(); }
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { lcdSongPreviewNav(-1); e.preventDefault(); e.stopPropagation(); }
+  }, true);
 
   // ---- Full-screen projection workspace ----------------------------------
   // Distinct from goFullscreen(), which projects the SLIDE to the audience.
@@ -55423,6 +55897,17 @@ var WO = (function() {
     lcdToggleScheduleExpand: lcdToggleScheduleExpand,
     lcdToggleLibrary: lcdToggleLibrary,
     lcdToggleWorkspaceFullscreen: lcdToggleWorkspaceFullscreen,
+    lcdOpenSongPreview: lcdOpenSongPreview,
+    lcdCloseSongPreview: lcdCloseSongPreview,
+    lcdSongPreviewBackdrop: lcdSongPreviewBackdrop,
+    lcdSongPreviewSelect: lcdSongPreviewSelect,
+    lcdSongPreviewNav: lcdSongPreviewNav,
+    lcdSongPreviewProject: lcdSongPreviewProject,
+    lcdSongPreviewToggleEdit: lcdSongPreviewToggleEdit,
+    lcdSongPreviewCancelEdit: lcdSongPreviewCancelEdit,
+    lcdSongPreviewSave: lcdSongPreviewSave,
+    lcdSongPreviewRevert: lcdSongPreviewRevert,
+    lcdSongPreviewAddToService: lcdSongPreviewAddToService,
     lcdRestoreSidebar: lcdRestoreSidebar,
     woPopupToggle: woPopupToggle,
     woPopupOpenDrop: woPopupOpenDrop,
@@ -63000,8 +63485,15 @@ function filterLiturgyItems() {
   .lcd-fullscreen-btn:hover { border-color: var(--lcd-gold-500); color: var(--lcd-ivory-100); }
   .lcd-fullscreen-btn.active { background: var(--lcd-gold-wash); border-color: var(--lcd-gold-500); color: var(--lcd-gold-400); }
 
+  /* z-index 500, not 9000. `position: fixed; inset: 0` already covers the page
+     geometrically, so this only has to beat the app chrome -- and at 9000 it
+     also beat every modal below it, which is why Barrier (2500), the Liturgy
+     library (2210) and the Songbook (2200) opened *behind* the workspace and
+     looked like they were not opening at all. 500 sits under the lowest
+     overlay in the app (the notification backdrop at 600) so every dialog
+     wins by default instead of needing to be listed here. */
   body.lcd-workspace-fullscreen #worshipOrderView {
-    position: fixed !important; inset: 0 !important; z-index: 9000;
+    position: fixed !important; inset: 0 !important; z-index: 500;
     width: 100vw !important; height: 100vh !important; max-height: 100vh !important;
     margin: 0 !important; padding: 0 !important; overflow: hidden !important;
     background: var(--lcd-navy-950, #0b1220);
@@ -64088,6 +64580,150 @@ function filterLiturgyItems() {
   .lcd-lib-card-meta { font-size: 11px; margin-top: 1px; }
   .lcd-lib-add { width: 30px; height: 30px; font-size: 0.72rem; border-radius: 7px; }
   .lcd-lib-list { gap: 5px; }
+
+  /* ---- H. Full-screen escape hatch for Song Order ------------------------- */
+  /* Only in full screen AND Song Order: the Orders banner is hidden there and
+     the LCD top bar belongs to the preview panel, so without this there is no
+     visible way back. z-index sits just above the workspace's 500. */
+  .lcd-fs-modebar {
+    display: none; position: fixed; top: 12px; right: 16px; z-index: 520;
+    gap: 8px; padding: 6px; border-radius: 12px;
+    background: rgba(11,18,32,0.92); border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    box-shadow: 0 10px 30px rgba(0,0,0,.38);
+  }
+  body.lcd-workspace-fullscreen.wo-mode-song .lcd-fs-modebar { display: flex; }
+  .lcd-fs-modebar-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 36px; padding: 0 14px; border-radius: 9px; cursor: pointer;
+    background: var(--lcd-navy-700, #1e2c4a); border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    color: var(--lcd-ivory-200, #e6dfc9);
+    font-family: 'Poppins', sans-serif; font-size: 0.74rem; font-weight: 600; white-space: nowrap;
+  }
+  .lcd-fs-modebar-btn:hover { border-color: var(--lcd-gold-500, #c1993f); color: var(--lcd-ivory-100, #f8f4ea); }
+  .lcd-fs-modebar-btn.primary {
+    background: var(--lcd-gold-wash, rgba(193,153,63,.14));
+    border-color: var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-400, #d9b46a);
+  }
+
+  /* ---- I. Song preview (double-click a Song Library card) ----------------- */
+  .lcd-songprev-overlay {
+    position: fixed; inset: 0; z-index: 16050;
+    background: rgba(6,11,22,0.78); backdrop-filter: blur(2px);
+    align-items: center; justify-content: center; padding: 3vh 3vw;
+  }
+  .lcd-songprev {
+    display: flex; flex-direction: column; width: min(1100px, 96vw); max-height: 94vh;
+    background: var(--lcd-ivory, #f7f3ea); border: 1px solid var(--lcd-ivory-line, #ddd3c0);
+    border-radius: 14px; box-shadow: 0 24px 70px rgba(0,0,0,.5); overflow: hidden;
+  }
+  .lcd-songprev-head {
+    display: flex; align-items: center; gap: 12px; padding: 13px 16px;
+    background: linear-gradient(180deg, #f3ecdd, var(--lcd-ivory-3, #ece5d7));
+    border-bottom: 1px solid var(--lcd-ivory-line, #ddd3c0);
+  }
+  .lcd-songprev-titles { min-width: 0; flex: 1; }
+  .lcd-songprev-title {
+    font-family: 'Cinzel', Georgia, serif; font-size: 1.05rem; font-weight: 700;
+    color: var(--lcd-ink, #2c2a25); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .lcd-songprev-meta { font-size: 0.72rem; color: var(--lcd-ink-soft, #6d6656); margin-top: 2px; }
+  .lcd-songprev-flag {
+    display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+    padding: 5px 11px; border-radius: 999px;
+    font-family: 'Poppins', sans-serif; font-size: 0.66rem; font-weight: 600;
+  }
+  .lcd-songprev-flag.library { background: rgba(0,0,0,.05); border: 1px solid var(--lcd-ivory-line, #ddd3c0); color: var(--lcd-ink-soft, #6d6656); }
+  .lcd-songprev-flag.order { background: rgba(193,153,63,.14); border: 1px solid var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-600, #a97f2e); }
+  .lcd-songprev-close {
+    flex-shrink: 0; width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+    background: transparent; border: 1px solid var(--lcd-ivory-line, #ddd3c0);
+    color: var(--lcd-ink-soft, #6d6656); font-size: 0.9rem;
+  }
+  .lcd-songprev-close:hover { background: rgba(0,0,0,.06); color: var(--lcd-ink, #2c2a25); }
+  .lcd-songprev-body { display: flex; gap: 0; flex: 1 1 auto; min-height: 0; }
+  .lcd-songprev-slides {
+    flex: 0 0 270px; min-width: 0; overflow-y: auto; padding: 12px;
+    border-right: 1px solid var(--lcd-ivory-line, #ddd3c0); background: #fbf8f1;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .lcd-songprev-chip {
+    display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; cursor: pointer;
+    background: var(--lcd-ivory-2, #fffdf8); border: 1px solid var(--lcd-ivory-line, #ddd3c0);
+    border-radius: 9px; transition: border-color 150ms, background 150ms;
+  }
+  .lcd-songprev-chip:hover { background: #f5eee0; }
+  .lcd-songprev-chip.active { border-color: var(--lcd-gold-500, #c1993f); box-shadow: 0 1px 2px rgba(60,50,30,.06), 0 6px 18px rgba(60,50,30,.10); }
+  .lcd-songprev-chip-num {
+    flex-shrink: 0; min-width: 20px; font-family: 'Poppins', sans-serif;
+    font-size: 0.66rem; font-weight: 700; color: #a99a7c; padding-top: 2px;
+  }
+  .lcd-songprev-chip.active .lcd-songprev-chip-num { color: var(--lcd-gold-600, #a97f2e); }
+  .lcd-songprev-chip-body { min-width: 0; }
+  .lcd-songprev-chip-head {
+    display: block; font-family: 'Poppins', sans-serif; font-size: 0.6rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.05em; color: var(--lcd-gold-600, #a97f2e); margin-bottom: 2px;
+  }
+  .lcd-songprev-chip-text {
+    display: block; font-size: 0.76rem; line-height: 1.35; color: var(--lcd-ink-soft, #6d6656);
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .lcd-songprev-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; padding: 14px; gap: 10px; }
+  .lcd-songprev-stage {
+    flex: 1 1 auto; min-height: 200px; aspect-ratio: 16/9; width: 100%;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    background: #0b1220; border: 1px solid rgba(193,153,63,.4); border-radius: 10px;
+    box-shadow: 0 14px 34px rgba(0,0,0,.28); padding: 5% 7%; overflow: hidden;
+  }
+  .lcd-songprev-stage-inner { max-width: 100%; }
+  .lcd-songprev-stage-head {
+    font-family: 'Poppins', sans-serif; font-size: 0.62rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--lcd-gold-400, #d9b46a); margin-bottom: 10px;
+  }
+  .lcd-songprev-stage-text {
+    font-family: 'Lato', Georgia, serif; font-size: clamp(1rem, 2.1vw, 1.7rem);
+    line-height: 1.45; color: #f8f4ea; text-shadow: 0 1px 3px rgba(0,0,0,.65);
+  }
+  .lcd-songprev-edit {
+    flex: 1 1 auto; min-height: 240px; width: 100%; box-sizing: border-box; resize: none;
+    padding: 14px 16px; border-radius: 10px;
+    background: var(--lcd-ivory-2, #fffdf8); border: 1px solid var(--lcd-gold-500, #c1993f);
+    color: var(--lcd-ink, #2c2a25);
+    font-family: 'Courier New', Courier, monospace; font-size: 0.88rem; line-height: 1.6;
+  }
+  .lcd-songprev-edit:focus { outline: none; box-shadow: 0 0 0 3px rgba(193,153,63,.2); }
+  .lcd-songprev-nav { display: flex; align-items: center; justify-content: center; gap: 14px; flex: 0 0 auto; }
+  .lcd-songprev-navbtn {
+    width: 36px; height: 36px; border-radius: 9px; cursor: pointer;
+    background: var(--lcd-ivory-2, #fffdf8); border: 1px solid var(--lcd-ivory-line, #ddd3c0);
+    color: var(--lcd-ink-soft, #6d6656);
+  }
+  .lcd-songprev-navbtn:hover { border-color: var(--lcd-gold-500, #c1993f); color: var(--lcd-ink, #2c2a25); }
+  .lcd-songprev-count { font-family: 'Poppins', sans-serif; font-size: 0.72rem; font-weight: 600; color: var(--lcd-ink-soft, #6d6656); }
+  .lcd-songprev-empty { padding: 24px 10px; text-align: center; font-size: 0.8rem; color: var(--lcd-ink-soft, #6d6656); font-style: italic; }
+  .lcd-songprev-foot {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 11px 14px;
+    background: var(--lcd-ivory-3, #ece5d7); border-top: 1px solid var(--lcd-ivory-line, #ddd3c0);
+  }
+  .lcd-songprev-spacer { flex: 1 1 auto; }
+  .lcd-songprev-editactions { display: none; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .lcd-songprev-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 38px; padding: 0 15px; border-radius: 9px; cursor: pointer; white-space: nowrap;
+    background: var(--lcd-ivory-2, #fffdf8); border: 1px solid var(--lcd-ivory-line, #ddd3c0);
+    color: var(--lcd-ink, #2c2a25);
+    font-family: 'Poppins', sans-serif; font-size: 0.75rem; font-weight: 600;
+  }
+  .lcd-songprev-btn:hover { background: #fff; border-color: var(--lcd-gold-500, #c1993f); }
+  .lcd-songprev-btn.primary { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+  .lcd-songprev-btn.primary:hover { background: #1e40af; border-color: #1e40af; }
+  .lcd-songprev-btn.gold { background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border-color: var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-600, #a97f2e); }
+  .lcd-songprev-btn.danger-outline { border-color: var(--lcd-danger, #c65a4e); color: var(--lcd-danger, #c65a4e); }
+  .lcd-songprev-btn.danger-outline:hover { background: rgba(198,90,78,.08); border-color: var(--lcd-danger, #c65a4e); }
+  @media (max-width: 900px) {
+    .lcd-songprev-body { flex-direction: column; }
+    .lcd-songprev-slides { flex: 0 0 auto; max-height: 26vh; border-right: none; border-bottom: 1px solid var(--lcd-ivory-line, #ddd3c0); }
+  }
 
   /* ---- G. Columns share the viewport instead of stretching the page ------- */
   /* The inline max-height comes from _lcdSizeWorkspaceColumns(); these are the

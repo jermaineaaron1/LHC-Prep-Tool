@@ -4,6 +4,50 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — Song preview window + two full-screen bugs (branch `feature/premium-mobile-roster`)
+
+Three items from live use of LCD Projection.
+
+### 1. Song preview — double-click a Song Library card
+
+`#lcdSongPreviewModal`. Read, project or edit a song **without adding it to the schedule**. The slide split is `parseLyricsIntoSlides()` and projection goes through `sendToProjectionWindow()` — the funnel the Program Output mirror and the real projector already share — so this is a new window onto existing machinery, not a second rendering path.
+
+- **Project This Slide** pushes the selected slide straight to the projection output. Verified: selecting slide 4 and projecting put that slide's text (and not its `Verse 4` header) into `#lcdProgramOutput`.
+- **Edit Lyrics** → two saves, deliberately named for what they touch:
+  - **Save for This Order** — stores the wording on `currentOrderData.template.songLyricOverrides`, the same field `sectionBackgrounds` and `sbFontSettings` already persist through, so it survives a reload and travels with the order in Supabase **with no schema change**.
+  - **Save to Song Library** — goes through `SBQ_SONGS.updateLyrics()`, the songbook's own path, so it also fires the existing broadcast and other operators' LCD Projection is notified live. A library save clears any per-order override for that song; leaving it would silently keep showing the old words.
+- **Use Library Version** appears only once the order's wording has diverged. Without it "Save for This Order" would have been one-way — a gap found while testing, not in the spec.
+- A flag in the header says which copy is on screen (library / this order's / already in the service), so nobody edits the wrong one by accident.
+- **Both insert paths honour a pending override.** `addSongDirectly()` has two builders: the section-scoped one goes through `_woBuildSongSectionEntry()` (also used by drag-to-position) and the no-section one builds its own `songEntry`. Only patching the second would have meant the override applied from the picker but not from a drag. The re-add branch was also clobbering `lyrics` with the library copy, which would have discarded an order override whenever a song was re-added to another section.
+- Esc closes (or cancels the edit); arrows walk the slides; both stand down while the textarea has focus.
+
+### 2. Barrier / BG "not opening" in full screen — a z-index problem, not a modal problem
+
+`body.lcd-workspace-fullscreen #worshipOrderView` was `z-index: 9000`. **Every overlay below 9000 opened behind it** — Barrier (2500), the Liturgy library (2210), the Songbook (2200), Media (3000), song links (2800). Measured before the fix: the Barrier modal was `display: flex` and full-size, but `elementFromPoint` at its centre returned `.lcd-topbar`.
+
+Fixed at the source rather than by raising modals one at a time: `position: fixed; inset: 0` already covers the page geometrically, so the workspace only has to beat the app chrome. Dropped to **500** — below the lowest overlay in the app (the notification backdrop at 600) — so every dialog now wins by default and nothing has to be listed. Verified after: Barrier, BG and Text all return themselves from `elementFromPoint`.
+
+### 3. No way back to LCD Projection from full-screen Song Order
+
+In full screen the Orders banner (which carries the two mode buttons) is hidden, and the LCD top bar belongs to the preview panel, which Song Order hides. The Song Order toolbar's buttons are Add Songs / Playlist / Songbook / Share — no Service Order button. So the operator was stuck until they left full screen.
+
+Added `#lcdFsModeBar`, shown only in that exact combination (`body.lcd-workspace-fullscreen.wo-mode-song`), with **LCD Projection** and **Exit Full Screen**. Verified: bar appears top-right, clickable, and returning to LCD Projection **keeps full screen on**. `showOrderModeLanding()` now also leaves full screen, since the landing screen is hidden by the full-screen CSS and would otherwise be a blank viewport.
+
+### Bug found and fixed during verification
+
+`showLoader()` lives in a different `<script>` block and is **not in the `WO` IIFE's scope** — calling it threw `ReferenceError` and stranded the modal mid-save (this is why a first test run hung). Replaced with `_lcdPrevSetSaving()`, which disables the footer locally. An audit of every identifier the new block calls against the WO scope found no others. Worth remembering: the codebase already guards this elsewhere with `typeof showLoader === 'function'`.
+
+### Verification
+
+- Order-only round trip: edit → save → flag flips → reopen shows the order's wording → revert → back to library wording. Library object untouched throughout.
+- Library save exercised with `SBQ_SONGS.updateLyrics` **stubbed**, so the wiring was proven without writing to Supabase; captured call carried the right id and edited text.
+- Pending-override-then-add: saved an order-only edit for a song **not** in the service, added it to a section, and the 5 slides that landed carried the order's wording, not the library's. Rail 98 → 103.
+- **Test data removed and confirmed against the database**: song removed from the section and from Song Order, rail back to 98, order saved. Supabase shows `template.songLyricOverrides: {}`, 14 order_items, 0 song items, no "Alas" anywhere, and the library song's lyrics byte-unchanged at 778 chars.
+- Density pass from the previous entry still intact: banner 103px, no page scroll, only the song list and schedule scroll. All LCD controls fire with no console errors.
+- `node --check` clean on all 12 blocks; `dist/index.html` byte-identical.
+
+---
+
 ## 2026-08-11 — LCD Projection density pass: the windowed workspace fits on one screen (branch `feature/premium-mobile-roster`)
 
 Feedback on the non-full-screen workspace: nearly every panel had its own scrollbar — the library's filter chips, the schedule, the Slide Editor body, the format toolbar sideways, the Media Tray — inside a page that also scrolled. Ask: smaller type (~5px off the display sizes) and make it fit without scrolling, "while maintaining readability".
