@@ -6153,6 +6153,21 @@
             </div>
 
             <div class="wo-main-content wo-song-order">
+              <!-- Song Library panel: LCD Projection mode only (hidden by CSS in
+                   Song Order mode). Reuses the same song data + add path as the
+                   existing #woSongPopup modal, which stays as the section-scoped
+                   quick-add and the full advanced-filter surface. -->
+              <div class="lcd-library-panel" id="lcdLibraryPanel">
+                <div class="lcd-lib-header">
+                  <span class="lcd-lib-title"><i class="fa-solid fa-music"></i> Song Library</span>
+                  <button class="lcd-lib-iconbtn" onclick="WO.openSongLibrary()" title="Advanced filters — season, tempo, key, themes, scripture"><i class="fa-solid fa-sliders"></i></button>
+                </div>
+                <input type="text" class="lcd-lib-search" id="lcdLibSearch" placeholder="Search songs..." oninput="WO.lcdLibraryFilter()" autocomplete="off">
+                <div class="lcd-lib-chips" id="lcdLibChips"></div>
+                <div class="lcd-lib-list" id="lcdLibList"></div>
+              </div>
+              <button class="lcd-lib-reopen" id="lcdLibReopen" onclick="WO.lcdToggleLibrary()" title="Show Song Library"><i class="fa-solid fa-music"></i></button>
+
               <div class="wo-worship-order" id="woWorshipOrder">
                 <div class="wo-song-order-compact">
                   <div class="wo-song-order-toolbar-compact">
@@ -25336,6 +25351,8 @@ var WO = (function() {
       _lcdSetupPreviewDropZone();
       _lcdRenderCompactRail();
       _lcdSetupCompactRailObserver();
+      _lcdRenderLibraryPanel();
+      _lcdApplyLayoutFlags();
       _lcdUpdateProgramBarrier();
       // Make preview panel follow while scrolling
       setTimeout(_enterServiceOrderLayout, 50);
@@ -32992,6 +33009,17 @@ var WO = (function() {
 
     songOrderSections.push(songEntry);
     renderSongOrderSection(songEntry);
+    // renderSongOrderSection() only populates the Song Order list. In LCD
+    // Projection (Service Order) mode the song also has to be rendered into
+    // the service sections themselves, otherwise it lands in the order data
+    // but the Service Schedule shows nothing until the next full
+    // initializeServiceOrder() -- which reads as "Add did nothing".
+    var _mcAdd = document.querySelector('.wo-main-content');
+    if (_mcAdd && !_mcAdd.classList.contains('wo-song-order')) {
+      selectedSections.forEach(function(secId) {
+        addSongToServiceSection(secId, songEntry, true);
+      });
+    }
     _refreshPlaylistIfOpen();
 
     closeSectionModal();
@@ -48345,7 +48373,10 @@ var WO = (function() {
       hdr.className = 'lcd-schedule-header';
       hdr.id = 'lcdScheduleHeader';
       hdr.innerHTML = '<span class="lcd-schedule-header-title"><i class="fa-solid fa-list-ol"></i> Service Schedule</span>' +
-        '<span class="lcd-schedule-count" id="lcdScheduleCount"></span>';
+        '<span class="lcd-schedule-header-right">' +
+          '<span class="lcd-schedule-count" id="lcdScheduleCount"></span>' +
+          '<button class="lcd-schedule-expand" id="lcdScheduleExpandBtn" onclick="WO.lcdToggleScheduleExpand()" title="Expand / collapse the schedule column"><i class="fa-solid fa-left-right"></i></button>' +
+        '</span>';
       root.insertBefore(hdr, root.firstChild);
     }
     var cnt = document.getElementById('lcdScheduleCount');
@@ -48356,6 +48387,173 @@ var WO = (function() {
       // keeps it from queueing pointless mutation records regardless.
       if (cnt.textContent !== label) cnt.textContent = label;
     }
+  }
+
+  // ---- Song Library panel (LCD Projection) ---------------------------
+  // Reads the same window.LHC_STATE.songs the #woSongPopup modal uses and
+  // routes adds through the existing addSongDirectly(), so there is one
+  // song source and one add path, not a parallel implementation.
+  var _lcdLibChip = 'all';
+  var _LCD_EXPAND_KEY = 'lhc_lcd_schedule_expanded';
+  var _LCD_LIB_HIDDEN_KEY = 'lhc_lcd_library_hidden';
+
+  function _lcdAllSongs() {
+    return (window.LHC_STATE && window.LHC_STATE.songs) || [];
+  }
+
+  // Category chips built from the real freeform style/category values --
+  // there is no fixed enum for these, so they are derived, never hardcoded.
+  function _lcdSongCategories(songs) {
+    var seen = {}, out = [];
+    songs.forEach(function(s) {
+      var v = ((s.style || s.category || '')).trim();
+      if (v && !seen[v]) { seen[v] = true; out.push(v); }
+    });
+    return out.sort(function(a, b) { return a.localeCompare(b); });
+  }
+
+  // True only when at least one song actually carries usage data. Every song
+  // in the live library currently has useCount:0 and lastUsed:"" -- the
+  // fields exist in the schema but nothing populates them -- so the Recent
+  // chip is omitted rather than shipped as a control that can only ever come
+  // back empty. It appears on its own if usage tracking ever starts.
+  function _lcdHasRecencyData() {
+    return _lcdAllSongs().some(function(s) { return s.lastUsed || s.useCount; });
+  }
+
+  function _lcdRenderLibraryChips() {
+    var wrap = document.getElementById('lcdLibChips');
+    if (!wrap) return;
+    var cats = _lcdSongCategories(_lcdAllSongs());
+    var chips = [{ id: 'all', label: 'All' }];
+    if (_lcdHasRecencyData()) chips.push({ id: '__recent', label: 'Recent' });
+    else if (_lcdLibChip === '__recent') _lcdLibChip = 'all';
+    cats.forEach(function(c) { chips.push({ id: c, label: c }); });
+    wrap.innerHTML = chips.map(function(c) {
+      var active = (_lcdLibChip === c.id) ? ' active' : '';
+      var esc = escapeHtml(c.id).replace(/'/g, '&#39;');
+      return '<button class="lcd-lib-chip' + active + '" onclick="WO.lcdLibrarySetChip(\'' + esc + '\')">' + escapeHtml(c.label) + '</button>';
+    }).join('');
+  }
+
+  // Shared song-card markup. Each card carries its own Add button, so the
+  // panel is fully usable without drag-and-drop (Phase 4 adds dragging on
+  // top of this, it never becomes the only way in).
+  function _lcdBuildSongCardHtml(song) {
+    var sid = String(song.id || song.title).replace(/'/g, "\\'");
+    var meta = [];
+    if (song.artist) meta.push(song.artist);
+    if (song.key) meta.push('Key ' + song.key);
+    if (song.tempo) meta.push(song.tempo);
+    var titleAttr = escapeHtml(song.title || 'Untitled').replace(/"/g, '&quot;');
+    return '<div class="lcd-lib-card" data-song-id="' + escapeHtml(String(song.id || '')).replace(/"/g, '&quot;') + '">' +
+      '<div class="lcd-lib-card-body">' +
+        '<div class="lcd-lib-card-title" title="' + titleAttr + '">' + escapeHtml(song.title || 'Untitled') + '</div>' +
+        (meta.length ? '<div class="lcd-lib-card-meta">' + escapeHtml(meta.join(' · ')) + '</div>' : '') +
+      '</div>' +
+      '<button class="lcd-lib-add" onclick="event.stopPropagation(); WO.lcdLibraryAddSong(\'' + sid + '\')" title="Add this song to the service"><i class="fa-solid fa-plus"></i></button>' +
+    '</div>';
+  }
+
+  function _lcdFilterLibrarySongs() {
+    var input = document.getElementById('lcdLibSearch');
+    var q = (input ? input.value : '').toLowerCase().trim();
+    var songs = _lcdAllSongs().slice();
+
+    if (_lcdLibChip === '__recent') {
+      // Mirrors renderSongStats()'s recency ordering; songs never used have
+      // no lastUsed and sort to the bottom rather than being dropped.
+      songs = songs.filter(function(s) { return s.lastUsed || s.useCount; })
+        .sort(function(a, b) {
+          var ta = a.lastUsed ? new Date(a.lastUsed).getTime() : 0;
+          var tb = b.lastUsed ? new Date(b.lastUsed).getTime() : 0;
+          if (tb !== ta) return tb - ta;
+          return (b.useCount || 0) - (a.useCount || 0);
+        }).slice(0, 25);
+    } else if (_lcdLibChip !== 'all') {
+      songs = songs.filter(function(s) {
+        return ((s.style || s.category || '').trim()) === _lcdLibChip;
+      });
+    }
+
+    if (q) {
+      songs = songs.filter(function(s) {
+        return [(s.title || ''), (s.artist || ''), (s.lyrics || ''), (s.scripture || '')]
+          .some(function(f) { return f.toLowerCase().indexOf(q) !== -1; });
+      });
+    }
+    return songs;
+  }
+
+  function _lcdRenderLibraryList() {
+    var list = document.getElementById('lcdLibList');
+    if (!list) return;
+    var songs = _lcdFilterLibrarySongs();
+    if (!songs.length) {
+      list.innerHTML = '<div class="lcd-lib-empty">' +
+        (_lcdAllSongs().length ? 'No songs match.' : 'No songs in the library yet.') + '</div>';
+      return;
+    }
+    list.innerHTML = songs.map(_lcdBuildSongCardHtml).join('');
+  }
+
+  function _lcdRenderLibraryPanel() {
+    _lcdRenderLibraryChips();
+    _lcdRenderLibraryList();
+  }
+
+  function lcdLibraryFilter() { _lcdRenderLibraryList(); }
+
+  function lcdLibrarySetChip(id) {
+    _lcdLibChip = id;
+    _lcdRenderLibraryChips();
+    _lcdRenderLibraryList();
+  }
+
+  // Adds from the panel with no section context, so addSongDirectly() falls
+  // through to its existing section-picker modal. The stale-attribute clear
+  // matters because #woSongPopup keeps data-section while open for a
+  // section-scoped add.
+  function lcdLibraryAddSong(songId) {
+    var popup = document.getElementById('woSongPopup');
+    if (popup && !popup.classList.contains('show')) popup.removeAttribute('data-section');
+    addSongDirectly(songId);
+  }
+
+  // Column-width toggles. Both persist like toggleSidebar() does, and both
+  // re-run _enterServiceOrderLayout() because the sticky preview panel's
+  // measured max-height depends on the layout it just changed.
+  function _lcdApplyLayoutFlags() {
+    var mc = document.querySelector('.wo-main-content');
+    if (!mc) return;
+    var expanded = localStorage.getItem(_LCD_EXPAND_KEY) === '1';
+    var libHidden = localStorage.getItem(_LCD_LIB_HIDDEN_KEY) === '1';
+    mc.classList.toggle('lcd-schedule-expanded', expanded);
+    mc.classList.toggle('lcd-library-hidden', libHidden);
+    var btn = document.getElementById('lcdScheduleExpandBtn');
+    if (btn) btn.classList.toggle('active', expanded);
+  }
+
+  function lcdToggleScheduleExpand() {
+    var on = localStorage.getItem(_LCD_EXPAND_KEY) === '1';
+    localStorage.setItem(_LCD_EXPAND_KEY, on ? '0' : '1');
+    _lcdApplyLayoutFlags();
+    _enterServiceOrderLayout();
+  }
+
+  function lcdToggleLibrary() {
+    var mc = document.querySelector('.wo-main-content');
+    var flaggedHidden = localStorage.getItem(_LCD_LIB_HIDDEN_KEY) === '1';
+    // Below 1600px an expanded schedule hides the library via media query,
+    // regardless of that flag. In that state the useful action is to
+    // un-expand -- toggling the flag would leave the tab looking dead.
+    if (!flaggedHidden && mc && mc.classList.contains('lcd-schedule-expanded')) {
+      lcdToggleScheduleExpand();
+      return;
+    }
+    localStorage.setItem(_LCD_LIB_HIDDEN_KEY, flaggedHidden ? '0' : '1');
+    _lcdApplyLayoutFlags();
+    _enterServiceOrderLayout();
   }
 
   // ---- Order-level undo / redo for the LCD Projection view -----------
@@ -54335,6 +54533,12 @@ var WO = (function() {
     filterSongs: filterSongs,
     woPopupApplyFilters: woPopupApplyFilters,
     woPopupPopulateFilters: woPopupPopulateFilters,
+    // LCD Projection Song Library panel + column-width toggles
+    lcdLibraryFilter: lcdLibraryFilter,
+    lcdLibrarySetChip: lcdLibrarySetChip,
+    lcdLibraryAddSong: lcdLibraryAddSong,
+    lcdToggleScheduleExpand: lcdToggleScheduleExpand,
+    lcdToggleLibrary: lcdToggleLibrary,
     woPopupToggle: woPopupToggle,
     woPopupOpenDrop: woPopupOpenDrop,
     openNewSongFromWO: openNewSongFromWO,
@@ -61578,6 +61782,144 @@ function filterLiturgyItems() {
   .wo-main-content:not(.wo-song-order) .wo-content-box[data-subsection-type="scripture"] {
     display: none;
   }
+  /* ===== LCD Projection 3-column workspace (Phase 2) =====
+     Song Library | Service Schedule | Workspace. Scoped to
+     :not(.wo-song-order) so Song Order mode keeps its display:block
+     full-width layout untouched. */
+  .wo-main-content:not(.wo-song-order) {
+    display: grid;
+    grid-template-columns: 280px 320px minmax(480px, 1fr);
+  }
+  /* Both of these carry sizing from the old flex layout. In grid the track
+     owns the width, and .wo-worship-order's max-width:302px would otherwise
+     clamp the schedule column narrower than its own track. */
+  .wo-main-content:not(.wo-song-order) .wo-worship-order { max-width: none; }
+  .wo-main-content:not(.wo-song-order) .wo-preview-panel { min-width: 0; }
+  /* The panel is static HTML (unlike the rail, which Song Order mode wipes),
+     so it needs an explicit guard for the other mode. */
+  .wo-main-content.wo-song-order #lcdLibraryPanel,
+  .wo-main-content.wo-song-order #lcdLibReopen { display: none; }
+
+  .lcd-library-panel {
+    display: flex; flex-direction: column; min-width: 0;
+    gap: var(--lcd-space-3, 12px);
+    padding: var(--lcd-space-4, 16px);
+    background: var(--lcd-navy-900, #111a2e);
+    border-right: 1px solid var(--lcd-navy-line, #2a3a5c);
+    border-bottom-left-radius: 12px;
+    align-self: start; position: sticky; top: 8px;
+    max-height: calc(100vh - 150px);
+  }
+  .lcd-lib-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .lcd-lib-title {
+    display: inline-flex; align-items: center; gap: 7px; min-width: 0;
+    font-family: 'Poppins', sans-serif; font-size: 0.82rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--lcd-ivory-100, #f8f4ea);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .lcd-lib-title i { color: var(--lcd-gold-400, #d9b46a); flex-shrink: 0; }
+  .lcd-lib-iconbtn {
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    width: var(--lcd-btn-h-icon, 38px); height: var(--lcd-btn-h-icon, 38px);
+    border-radius: var(--lcd-radius-sm, 8px);
+    background: var(--lcd-navy-700, #1e2c4a); border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    color: var(--lcd-ivory-muted, #9aa3bf); cursor: pointer; font-size: 0.8rem;
+    transition: color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-lib-iconbtn:hover { color: var(--lcd-gold-400, #d9b46a); background: var(--lcd-navy-800, #16213b); }
+  .lcd-lib-search {
+    width: 100%; box-sizing: border-box; height: var(--lcd-btn-h-secondary, 42px);
+    padding: 0 12px; border-radius: var(--lcd-radius-sm, 8px);
+    border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    background: var(--lcd-navy-800, #16213b); color: var(--lcd-ivory-100, #f8f4ea);
+    font-family: 'Poppins', sans-serif; font-size: 0.8rem;
+  }
+  .lcd-lib-search::placeholder { color: var(--lcd-ivory-muted, #9aa3bf); }
+  .lcd-lib-search:focus { outline: none; border-color: var(--lcd-gold-500, #c1993f); box-shadow: var(--lcd-shadow-gold-glow); }
+  .lcd-lib-chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 78px; overflow-y: auto; flex-shrink: 0; }
+  .lcd-lib-chip {
+    padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--lcd-navy-line, #2a3a5c); background: var(--lcd-navy-800, #16213b);
+    color: var(--lcd-ivory-muted, #9aa3bf);
+    font-family: 'Poppins', sans-serif; font-size: 0.68rem; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+    transition: color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms), border-color var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-lib-chip:hover { color: var(--lcd-ivory-100, #f8f4ea); border-color: var(--lcd-gold-600, #a97f2e); }
+  .lcd-lib-chip.active { background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border-color: var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-400, #d9b46a); }
+  .lcd-lib-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .lcd-lib-card {
+    display: flex; align-items: center; gap: 8px; padding: 9px 10px;
+    border-radius: var(--lcd-radius-sm, 8px);
+    background: var(--lcd-navy-800, #16213b); border: 1px solid transparent;
+    transition: background var(--lcd-motion-fast, 150ms), border-color var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-lib-card:hover { background: var(--lcd-navy-700, #1e2c4a); border-color: var(--lcd-gold-600, #a97f2e); }
+  .lcd-lib-card-body { min-width: 0; flex: 1; }
+  .lcd-lib-card-title { font-size: 0.92rem; font-weight: 600; color: var(--lcd-ivory-100, #f8f4ea); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lcd-lib-card-meta { font-size: var(--lcd-font-item-meta, 12.5px); color: var(--lcd-ivory-muted, #9aa3bf); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .lcd-lib-add {
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 6px;
+    border: 1px solid var(--lcd-gold-600, #a97f2e); background: var(--lcd-gold-wash, rgba(193,153,63,.14));
+    color: var(--lcd-gold-400, #d9b46a); cursor: pointer; font-size: 0.78rem;
+    transition: background var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-lib-add:hover { background: rgba(193,153,63,0.3); }
+  .lcd-lib-empty { padding: 18px 10px; text-align: center; color: var(--lcd-ivory-muted, #9aa3bf); font-size: 0.8rem; }
+
+  /* Slim tab that takes the library's grid cell when it is collapsed */
+  .lcd-lib-reopen {
+    display: none; align-items: center; justify-content: center;
+    align-self: start; position: sticky; top: 8px;
+    width: 100%; height: 44px; margin-top: var(--lcd-space-4, 16px);
+    background: var(--lcd-navy-800, #16213b); border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    border-radius: var(--lcd-radius-sm, 8px);
+    color: var(--lcd-gold-400, #d9b46a); cursor: pointer; font-size: 0.9rem;
+  }
+  .lcd-lib-reopen:hover { background: var(--lcd-navy-700, #1e2c4a); }
+  .wo-main-content:not(.wo-song-order).lcd-library-hidden #lcdLibraryPanel { display: none; }
+  .wo-main-content:not(.wo-song-order).lcd-library-hidden .lcd-lib-reopen { display: flex; }
+  .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 320px minmax(480px, 1fr); }
+
+  .lcd-schedule-header-right { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .lcd-schedule-expand {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 6px;
+    background: transparent; border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    color: var(--lcd-ivory-muted, #9aa3bf); cursor: pointer; font-size: 0.72rem;
+    transition: color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-schedule-expand:hover { color: var(--lcd-gold-400, #d9b46a); background: rgba(255,255,255,0.06); }
+  .lcd-schedule-expand.active { color: var(--lcd-gold-400, #d9b46a); background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border-color: var(--lcd-gold-500, #c1993f); }
+
+  /* Expanded schedule: give the rail the larger share of the workspace. */
+  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded { grid-template-columns: 280px minmax(480px, 1.6fr) minmax(460px, 1fr); }
+  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded.lcd-library-hidden { grid-template-columns: 44px minmax(480px, 1.6fr) minmax(460px, 1fr); }
+
+  @media (min-width: 1800px) {
+    .wo-main-content:not(.wo-song-order) { grid-template-columns: 320px 360px minmax(560px, 1fr); }
+    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 360px minmax(560px, 1fr); }
+  }
+  /* Below 1600px an expanded schedule cannot also fit the library and a
+     usable workspace, so the library yields -- its own hidden/shown flag is
+     left untouched, and the slim tab re-opens it by un-expanding. */
+  @media (max-width: 1599px) {
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded #lcdLibraryPanel { display: none; }
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-lib-reopen { display: flex; }
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded { grid-template-columns: 44px minmax(420px, 1.4fr) minmax(430px, 1fr); }
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-outputs-row { flex-direction: column; }
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-outputs-row .lcd-output-box { flex: 1 1 auto; }
+  }
+  @media (max-width: 1439px) {
+    .wo-main-content:not(.wo-song-order) { grid-template-columns: 250px 296px minmax(420px, 1fr); }
+    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 296px minmax(420px, 1fr); }
+    /* Workspace is too narrow for Editor and Output side by side */
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row { flex-direction: column; }
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-output-box { flex: 1 1 auto; }
+  }
+
   /* Service Schedule column: dark navy to match the LCD shell beside it.
      Scoped to LCD Projection mode only -- in Song Order mode this same
      column is the full-width light song list and must stay untouched. */
