@@ -46637,6 +46637,22 @@ var WO = (function() {
     container.innerHTML = html;
   }
 
+  // Shape of a song entry as it lives in songOrderSections when placed into a
+  // service section. Shared by the double-click/section-scoped add path and
+  // the Library drag-to-position path so both produce identical entries.
+  function _woBuildSongSectionEntry(song, sectionId) {
+    return {
+      id: 'wo-song-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+      songId: song.id,
+      title: song.title,
+      artist: song.artist,
+      lyrics: song.lyrics || '',
+      youtube: Array.isArray(song.youtube) ? song.youtube : [],
+      attachments: Array.isArray(song.attachments) ? song.attachments : [],
+      sectionId: sectionId
+    };
+  }
+
   // Add song directly on double-click
   function addSongDirectly(songId) {
     var songs = (window.LHC_STATE && window.LHC_STATE.songs) || [];
@@ -46662,16 +46678,7 @@ var WO = (function() {
         addSongToServiceSection(targetSectionId, existingInOrder);
       } else {
         // Create a song section object and add to BOTH songOrderSections and service section
-        var songSection = {
-          id: 'wo-song-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-          songId: song.id,
-          title: song.title,
-          artist: song.artist,
-          lyrics: song.lyrics || '',
-          youtube: Array.isArray(song.youtube) ? song.youtube : [],
-          attachments: Array.isArray(song.attachments) ? song.attachments : [],
-          sectionId: targetSectionId
-        };
+        var songSection = _woBuildSongSectionEntry(song, targetSectionId);
 
         // Add to songOrderSections so collectOrderItems() captures it
         songOrderSections.push(songSection);
@@ -48080,7 +48087,9 @@ var WO = (function() {
     }
 
     container.addEventListener('dragover', function(e) {
-      if (_lcdDragRowId || _lcdDragSectionId) return; // rail reorder in progress - don't hijack dropEffect
+      // A rail reorder or a Library song drag is in progress - don't hijack
+      // dropEffect or paint media-style drop highlights over their markers.
+      if (_lcdDragRowId || _lcdDragSectionId || _lcdDragSongId) return;
       var t = targets(e);
       if (!t.railRow && !t.slideBox && !t.railSection && !t.sectionEl) return;
       e.preventDefault();
@@ -48091,7 +48100,7 @@ var WO = (function() {
       else if (t.sectionEl) t.sectionEl.classList.add('lcd-drop-target');
     });
     container.addEventListener('dragleave', function(e) {
-      if (_lcdDragRowId || _lcdDragSectionId) return;
+      if (_lcdDragRowId || _lcdDragSectionId || _lcdDragSongId) return;
       var t = targets(e);
       if (t.railRow) t.railRow.classList.remove('lcd-drop-target');
       if (t.slideBox) t.slideBox.classList.remove('lcd-drop-target');
@@ -48360,6 +48369,7 @@ var WO = (function() {
     _lcdEnsureScheduleHeader(root, totalSlides);
     _lcdWireRailDrag(rail);
     _lcdWireSectionDrag(rail);
+    _lcdWireLibraryDrop(rail);
   }
 
   // Static "Service Schedule" header sitting above the compact rail.
@@ -48446,12 +48456,16 @@ var WO = (function() {
     if (song.key) meta.push('Key ' + song.key);
     if (song.tempo) meta.push(song.tempo);
     var titleAttr = escapeHtml(song.title || 'Untitled').replace(/"/g, '&quot;');
-    return '<div class="lcd-lib-card" data-song-id="' + escapeHtml(String(song.id || '')).replace(/"/g, '&quot;') + '">' +
+    // draggable for drop-to-position; the Add button is the equivalent
+    // no-drag path and is marked draggable="false" so grabbing it does not
+    // start a card drag.
+    return '<div class="lcd-lib-card" data-song-id="' + escapeHtml(String(song.id || '')).replace(/"/g, '&quot;') + '"' +
+      ' draggable="true" ondragstart="WO.lcdLibraryDragStart(event, \'' + sid + '\')" ondragend="WO.lcdLibraryDragEnd()">' +
       '<div class="lcd-lib-card-body">' +
         '<div class="lcd-lib-card-title" title="' + titleAttr + '">' + escapeHtml(song.title || 'Untitled') + '</div>' +
         (meta.length ? '<div class="lcd-lib-card-meta">' + escapeHtml(meta.join(' · ')) + '</div>' : '') +
       '</div>' +
-      '<button class="lcd-lib-add" onclick="event.stopPropagation(); WO.lcdLibraryAddSong(\'' + sid + '\')" title="Add this song to the service"><i class="fa-solid fa-plus"></i></button>' +
+      '<button class="lcd-lib-add" draggable="false" onclick="event.stopPropagation(); WO.lcdLibraryAddSong(\'' + sid + '\')" title="Add this song to the service"><i class="fa-solid fa-plus"></i></button>' +
     '</div>';
   }
 
@@ -48518,6 +48532,151 @@ var WO = (function() {
     var popup = document.getElementById('woSongPopup');
     if (popup && !popup.classList.contains('show')) popup.removeAttribute('data-section');
     addSongDirectly(songId);
+  }
+
+  // ---- Drag a Library song onto a schedule position ------------------
+  // Deliberately uses its own state var. The existing rail-row and section
+  // reorder handlers all bail unless _lcdDragRowId / _lcdDragSectionId is
+  // set, and the handlers below bail unless _lcdDragSongId is set, so the
+  // three drag systems share drop targets without ever contending.
+  var _lcdDragSongId = null;
+  var _lcdLibDropBelow = false;
+
+  function lcdLibraryDragStart(event, songId) {
+    _lcdDragSongId = songId;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'copy';
+      // Prefixed so the media drop zone's savedBackgrounds lookup can never
+      // mistake this payload for a background id.
+      try { event.dataTransfer.setData('text/plain', 'libsong:' + songId); } catch (x) {}
+    }
+  }
+
+  function lcdLibraryDragEnd() {
+    _lcdDragSongId = null;
+    _lcdClearDropMarkers();
+  }
+
+  // The contiguous run of nodes making up one song/liturgy group (banner +
+  // its slide boxes + trailing add-slide row). A dropped song is placed
+  // before or after a whole group, never spliced between another song's
+  // slides.
+  function _lcdGroupRunFor(box) {
+    var parent = box && box.parentNode;
+    if (!parent) return null;
+    var kids = Array.from(parent.children);
+    var i = kids.indexOf(box);
+    if (i < 0) return null;
+    var key = _lcdGroupKey(box);
+    var start = i, end = i;
+    function isPartOfGroup(el) {
+      if (!el) return false;
+      var isMember = el.classList.contains('wo-slide-box') ||
+                     el.classList.contains('wo-song-banner') ||
+                     el.classList.contains('wo-liturgy-banner-bar');
+      return isMember && _lcdGroupKey(el) === key;
+    }
+    while (start > 0 && isPartOfGroup(kids[start - 1])) start--;
+    while (end < kids.length - 1 && isPartOfGroup(kids[end + 1])) end++;
+    if (end < kids.length - 1 && kids[end + 1].classList.contains('wo-add-slide-row')) end++;
+    return { first: kids[start], last: kids[end] };
+  }
+
+  function _lcdInsertSongIntoSection(songId, sectionId, refBox, below) {
+    var song = _lcdAllSongs().find(function(s) { return s.id === songId || s.title === songId; });
+    if (!song) return false;
+    var container = document.getElementById(sectionId + '-boxes');
+    if (!container) return false;
+
+    _lcdPushUndo();
+
+    // Diff the container rather than assuming how many nodes the render
+    // produces -- addSongToServiceSection() emits a banner, N slide boxes
+    // and possibly an add-slide row.
+    var before = Array.from(container.children);
+    var entry = _woBuildSongSectionEntry(song, sectionId);
+    songOrderSections.push(entry);
+    addSongToServiceSection(sectionId, entry, true);
+    var added = Array.from(container.children).filter(function(n) { return before.indexOf(n) === -1; });
+    if (!added.length) return false;
+
+    if (refBox && refBox.isConnected && refBox.parentNode === container) {
+      var run = _lcdGroupRunFor(refBox);
+      var anchor = run ? (below ? run.last : run.first) : refBox;
+      if (below) {
+        var cursor = anchor;
+        added.forEach(function(n) { cursor.insertAdjacentElement('afterend', n); cursor = n; });
+      } else {
+        added.forEach(function(n) { anchor.insertAdjacentElement('beforebegin', n); });
+      }
+    }
+
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    showToast(song.title + ' added to the service', 'success');
+    return true;
+  }
+
+  function lcdLibRowDragOver(e, rowId) {
+    if (!_lcdDragSongId) return;
+    var box = _lcdRailRowMap[rowId];
+    if (!box || !box.nodeType) return; // ppt / esv placeholder rows are not real boxes
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    var row = document.getElementById(rowId);
+    if (!row) return;
+    var rect = row.getBoundingClientRect();
+    _lcdLibDropBelow = (e.clientY - rect.top) > (rect.height / 2);
+    _lcdClearDropMarkers();
+    row.classList.add(_lcdLibDropBelow ? 'lcd-rail-drop-below' : 'lcd-rail-drop-above');
+  }
+
+  function lcdLibRowDrop(e, rowId) {
+    if (!_lcdDragSongId) return;
+    if (e.preventDefault) e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
+    var songId = _lcdDragSongId;
+    var below = _lcdLibDropBelow;
+    var box = _lcdRailRowMap[rowId];
+    lcdLibraryDragEnd();
+    if (!box || !box.nodeType || !box.isConnected) return;
+    var sectionId = box.getAttribute('data-section') ||
+      (box.parentNode && box.parentNode.id ? box.parentNode.id.replace(/-boxes$/, '') : '');
+    if (!sectionId) return;
+    _lcdInsertSongIntoSection(songId, sectionId, box, below);
+  }
+
+  function lcdLibSectionDragOver(e, hdr) {
+    if (!_lcdDragSongId) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    _lcdClearDropMarkers();
+    hdr.classList.add('lcd-drop-target-section');
+  }
+
+  function lcdLibSectionDrop(e, sectionId) {
+    if (!_lcdDragSongId) return;
+    if (e.preventDefault) e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
+    var songId = _lcdDragSongId;
+    lcdLibraryDragEnd();
+    document.querySelectorAll('.lcd-drop-target-section').forEach(function(el) { el.classList.remove('lcd-drop-target-section'); });
+    if (!sectionId) return;
+    // No reference box -> appends at the end of that section.
+    _lcdInsertSongIntoSection(songId, sectionId, null, false);
+  }
+
+  // Re-wired on every rail render, because the rail replaces its innerHTML
+  // and takes every listener with it (same reason _lcdWireRailDrag runs there).
+  function _lcdWireLibraryDrop(rail) {
+    Array.from(rail.querySelectorAll('.lcd-rail-slide-row')).forEach(function(row) {
+      row.addEventListener('dragover', function(e) { lcdLibRowDragOver(e, row.id); });
+      row.addEventListener('drop', function(e) { lcdLibRowDrop(e, row.id); });
+    });
+    Array.from(rail.querySelectorAll('.lcd-rail-section-header[data-section-id]')).forEach(function(hdr) {
+      hdr.addEventListener('dragover', function(e) { lcdLibSectionDragOver(e, hdr); });
+      hdr.addEventListener('drop', function(e) { lcdLibSectionDrop(e, hdr.getAttribute('data-section-id')); });
+    });
   }
 
   // Column-width toggles. Both persist like toggleSidebar() does, and both
@@ -54537,6 +54696,8 @@ var WO = (function() {
     lcdLibraryFilter: lcdLibraryFilter,
     lcdLibrarySetChip: lcdLibrarySetChip,
     lcdLibraryAddSong: lcdLibraryAddSong,
+    lcdLibraryDragStart: lcdLibraryDragStart,
+    lcdLibraryDragEnd: lcdLibraryDragEnd,
     lcdToggleScheduleExpand: lcdToggleScheduleExpand,
     lcdToggleLibrary: lcdToggleLibrary,
     woPopupToggle: woPopupToggle,
@@ -61856,6 +62017,9 @@ function filterLiturgyItems() {
     transition: background var(--lcd-motion-fast, 150ms), border-color var(--lcd-motion-fast, 150ms);
   }
   .lcd-lib-card:hover { background: var(--lcd-navy-700, #1e2c4a); border-color: var(--lcd-gold-600, #a97f2e); }
+  .lcd-lib-card[draggable="true"] { cursor: grab; }
+  .lcd-lib-card[draggable="true"]:active { cursor: grabbing; }
+  .lcd-lib-add { cursor: pointer; }
   .lcd-lib-card-body { min-width: 0; flex: 1; }
   .lcd-lib-card-title { font-size: 0.92rem; font-weight: 600; color: var(--lcd-ivory-100, #f8f4ea); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lcd-lib-card-meta { font-size: var(--lcd-font-item-meta, 12.5px); color: var(--lcd-ivory-muted, #9aa3bf); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
