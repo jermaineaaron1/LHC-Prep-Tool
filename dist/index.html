@@ -61307,6 +61307,7 @@ function filterLiturgyItems() {
 
   /* Preview Panel - Projection Window for Congregation */
   .wo-preview-panel { flex: 1; min-width: 640px; background: #1a1a1a; padding: 15px; display: flex; flex-direction: column; position: sticky; top: 16px; align-self: flex-start; max-height: calc(100vh - 32px); overflow-y: auto; }
+  #woPreviewPanel.lcd-shell { background: var(--lcd-navy-950, #1a1a1a); }
   .wo-preview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
   .wo-preview-title { color: white; font-size: 1rem; font-weight: 600; }
   .wo-preview-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -61388,83 +61389,130 @@ function filterLiturgyItems() {
   .wo-preview-inner { display: block; white-space: pre-wrap; text-align: inherit; font-size: 1.3rem; line-height: 1.7; color: white; padding: 10px; }
   .wo-preview-slide-img { max-width: 100%; max-height: 100%; object-fit: contain; }
   .wo-preview-hint { color: #6b7280; font-size: 0.7rem; text-align: center; margin-top: 10px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px; }
+  /* ===== LCD Projection design tokens (Chunk 9 -- redesign) =====
+     Scoped to the LCD/Service-Order workspace only (both the schedule
+     rail's #woWorshipOrder and the dark shell #woPreviewPanel are
+     children of .wo-main-content) -- deliberately NOT added to :root,
+     since :root's tokens (--brand, --card-radius, etc.) belong to the
+     rest of the app's light theme and are shared across every other
+     page via the global sidebar/cards. */
+  .wo-main-content:not(.wo-song-order) {
+    --lcd-navy-950: #0b1220;
+    --lcd-navy-900: #111a2e;
+    --lcd-navy-800: #16213b;
+    --lcd-navy-700: #1e2c4a;
+    --lcd-navy-line: #2a3a5c;
+    --lcd-ivory-100: #f8f4ea;
+    --lcd-ivory-200: #e6dfc9;
+    --lcd-ivory-muted: #9aa3bf;
+    --lcd-gold-400: #d9b46a;
+    --lcd-gold-500: #c1993f;
+    --lcd-gold-600: #a97f2e;
+    --lcd-gold-wash: rgba(193,153,63,0.14);
+    --lcd-blue-500: #4a72a8;
+    --lcd-live: #2fae62;
+    --lcd-danger: #c65a4e;
+    --lcd-space-1: 4px;
+    --lcd-space-2: 8px;
+    --lcd-space-3: 12px;
+    --lcd-space-4: 16px;
+    --lcd-space-5: 24px;
+    --lcd-space-6: 32px;
+    --lcd-radius-sm: 8px;
+    --lcd-radius-md: 10px;
+    --lcd-radius-lg: 12px;
+    --lcd-btn-h-primary: 46px;
+    --lcd-btn-h-secondary: 42px;
+    --lcd-btn-h-icon: 38px;
+    --lcd-font-item-title: 16.5px;
+    --lcd-font-item-meta: 12.5px;
+    --lcd-font-numbering: 12px;
+    --lcd-shadow-sm: 0 1px 2px rgba(0,0,0,.24);
+    --lcd-shadow-md: 0 4px 14px rgba(0,0,0,.32);
+    --lcd-shadow-lg: 0 10px 30px rgba(0,0,0,.38);
+    --lcd-shadow-gold-glow: 0 0 0 1px rgba(193,153,63,.35), 0 2px 10px rgba(193,153,63,.18);
+    --lcd-motion-fast: 150ms;
+    --lcd-motion-base: 200ms;
+    --lcd-motion-slow: 250ms;
+  }
+
   /* ===== LCD Projection slide-first shell (Chunk 2) ===== */
-  .lcd-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
-  .lcd-topbar .wo-preview-title { margin-right: auto; }
-  .lcd-song-order-btn { background: rgba(99,102,241,0.18); border: 1px solid rgba(129,140,248,0.45); color: #e0e7ff; border-radius: 7px; padding: 6px 14px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; display: flex; align-items: center; gap: 6px; transition: background 0.15s; }
-  .lcd-song-order-btn:hover { background: rgba(99,102,241,0.32); }
-  .lcd-outputs-row { display: flex; gap: 12px; margin-bottom: 12px; flex: 1; min-height: 220px; }
+  .lcd-topbar { display: flex; align-items: center; gap: var(--lcd-space-3); margin-bottom: var(--lcd-space-3); flex-wrap: wrap; }
+  .lcd-topbar .wo-preview-title { margin-right: auto; color: var(--lcd-ivory-100); }
+  .lcd-song-order-btn { background: var(--lcd-navy-700); border: 1px solid var(--lcd-navy-line); color: var(--lcd-ivory-100); border-radius: var(--lcd-radius-md); padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 6px; transition: border-color var(--lcd-motion-fast) ease; }
+  .lcd-song-order-btn:hover { border-color: var(--lcd-gold-500); }
+  .lcd-outputs-row { display: flex; gap: var(--lcd-space-4); margin-bottom: var(--lcd-space-3); flex: 1; min-height: 220px; }
   .lcd-output-box { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  .lcd-output-label { color: #94a3b8; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
-  .lcd-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; transition: background 0.2s, box-shadow 0.2s; display: inline-block; }
-  .lcd-live-dot.live { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.8); }
-  .lcd-program-blanked { color: #475569; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: center; justify-content: center; height: 100%; }
+  .lcd-output-label { color: var(--lcd-ivory-muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: var(--lcd-space-2); display: flex; align-items: center; gap: 6px; }
+  .lcd-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lcd-navy-line); transition: background 0.2s, box-shadow 0.2s; display: inline-block; }
+  .lcd-live-dot.live { background: var(--lcd-live); box-shadow: 0 0 6px rgba(47,174,98,0.8); }
+  .lcd-program-blanked { color: var(--lcd-ivory-muted); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: center; justify-content: center; height: 100%; }
   .lcd-outputs-row .wo-preview-screen { flex: 1; margin: 0; }
-  .lcd-program-screen { border: 2px solid #22c55e33; }
-  .lcd-program-barrier { position: absolute; border: 1.5px dashed rgba(250,204,21,0.6); border-radius: 4px; pointer-events: none; z-index: 5; }
-  .lcd-program-barrier-tag { position: absolute; top: -8px; left: 6px; font-size: 0.5rem; font-weight: 700; letter-spacing: 0.08em; color: rgba(250,204,21,0.85); background: rgba(0,0,0,0.6); padding: 0 4px; border-radius: 3px; }
-  .lcd-controls-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; }
+  .lcd-program-screen { border: 2px solid var(--lcd-gold-wash); }
+  .lcd-program-barrier { position: absolute; border: 1.5px dashed rgba(217,180,106,0.6); border-radius: 4px; pointer-events: none; z-index: 5; }
+  .lcd-program-barrier-tag { position: absolute; top: -8px; left: 6px; font-size: 0.5rem; font-weight: 700; letter-spacing: 0.08em; color: var(--lcd-gold-400); background: rgba(0,0,0,0.6); padding: 0 4px; border-radius: 3px; }
+  .lcd-controls-row { display: flex; align-items: center; gap: var(--lcd-space-2); flex-wrap: wrap; background: var(--lcd-navy-800); border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-lg); padding: var(--lcd-space-2) var(--lcd-space-3); margin-bottom: var(--lcd-space-3); box-shadow: var(--lcd-shadow-sm); }
   .lcd-controls-spacer { flex: 1 1 auto; }
   /* Unify the mismatched gradient buttons into one cohesive glass set in the LCD toolbar */
-  .lcd-controls-row .wo-text-btn, .lcd-controls-row .wo-bg-btn { background: rgba(255,255,255,0.07); color: #dbe4f0; border: 1px solid rgba(255,255,255,0.14); padding: 6px 12px; border-radius: 7px; font-size: 0.75rem; font-weight: 600; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 5px; }
-  .lcd-controls-row .wo-text-btn:hover, .lcd-controls-row .wo-bg-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
-  .lcd-controls-row .wo-barrier-btn { padding: 6px 12px; border-radius: 7px; font-size: 0.75rem; }
-  .lcd-controls-row .wo-blank-btn { padding: 6px 13px; border-radius: 7px; font-size: 0.75rem; }
-  .lcd-controls-row .wo-live-present-btn { padding: 7px 16px; border-radius: 7px; font-weight: 700; font-size: 0.78rem; box-shadow: 0 2px 8px rgba(0,102,255,0.3); }
-  .lcd-controls-row .lcd-hist-btn { padding: 6px 10px; }
+  .lcd-controls-row .wo-text-btn, .lcd-controls-row .wo-bg-btn { background: var(--lcd-navy-700); color: var(--lcd-ivory-200); border: 1px solid var(--lcd-navy-line); padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); border-radius: var(--lcd-radius-md); font-size: 0.78rem; font-weight: 600; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 5px; transition: border-color var(--lcd-motion-fast) ease, color var(--lcd-motion-fast) ease; }
+  .lcd-controls-row .wo-text-btn:hover, .lcd-controls-row .wo-bg-btn:hover { border-color: var(--lcd-gold-500); color: var(--lcd-ivory-100); }
+  .lcd-controls-row .wo-barrier-btn { padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); border-radius: var(--lcd-radius-md); font-size: 0.78rem; }
+  .lcd-controls-row .wo-blank-btn { padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); border-radius: var(--lcd-radius-md); font-size: 0.78rem; }
+  .lcd-controls-row .wo-live-present-btn { padding: 0 var(--lcd-space-5); height: var(--lcd-btn-h-primary); border-radius: var(--lcd-radius-md); font-weight: 700; font-size: 0.85rem; box-shadow: var(--lcd-shadow-gold-glow); }
+  .lcd-controls-row .lcd-hist-btn { width: var(--lcd-btn-h-icon); height: var(--lcd-btn-h-icon); padding: 0; display: inline-flex; align-items: center; justify-content: center; }
   .lcd-media-item { position: relative; }
   .lcd-media-vid-badge { position: absolute; bottom: 4px; right: 4px; width: 17px; height: 17px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; pointer-events: none; }
-  .lcd-slide-num-badge { color: #94a3b8; font-size: 0.7rem; font-weight: 600; background: rgba(255,255,255,0.06); border-radius: 5px; padding: 1px 7px; margin-left: 2px; }
-  .lcd-lower-row { display: flex; gap: 12px; margin-top: 12px; min-height: 140px; }
+  .lcd-slide-num-badge { color: var(--lcd-ivory-muted); font-size: 0.7rem; font-weight: 600; background: var(--lcd-navy-700); border-radius: var(--lcd-radius-sm); padding: 1px 7px; margin-left: 2px; }
+  .lcd-lower-row { display: flex; gap: var(--lcd-space-4); margin-top: var(--lcd-space-3); min-height: 140px; }
   .lcd-lower-row .lcd-output-box { display: none; }
   .lcd-lower-row .wo-preview-screen { min-height: 130px; }
   .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 auto; min-width: 0; }
   .lcd-outputs-row .lcd-output-box { flex: 0 0 calc(50% - 9px); min-width: 0; }
-  .lcd-panel { flex: 1; min-width: 0; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
-  .lcd-panel-header { color: #e2e8f0; font-size: 0.8rem; font-weight: 600; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 7px; }
-  .lcd-panel-body { flex: 1; padding: 12px; overflow-y: auto; }
-  .lcd-panel-placeholder { color: #64748b; font-size: 0.78rem; font-style: italic; display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 20px; }
+  .lcd-panel { flex: 1; min-width: 0; background: var(--lcd-navy-800); border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-lg); display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--lcd-shadow-sm); }
+  .lcd-panel-header { color: var(--lcd-ivory-100); font-size: 0.8rem; font-weight: 600; padding: 9px var(--lcd-space-3); border-bottom: 1px solid var(--lcd-navy-line); display: flex; align-items: center; gap: 7px; }
+  .lcd-panel-body { flex: 1; padding: var(--lcd-space-3); overflow-y: auto; }
+  .lcd-panel-placeholder { color: var(--lcd-ivory-muted); font-size: 0.78rem; font-style: italic; display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 20px; }
   .lcd-lyrics-panel .lcd-panel-header { flex-wrap: wrap; gap: 8px 10px; }
-  .lcd-lyrics-song-title { color: #93c5fd; font-weight: 700; margin-left: 2px; }
+  .lcd-lyrics-song-title { color: var(--lcd-gold-400); font-weight: 700; margin-left: 2px; }
   .lcd-lyrics-actions { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
-  .lcd-mini-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.7rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 5px; transition: background 0.15s; }
-  .lcd-mini-btn:hover { background: rgba(255,255,255,0.14); }
-  .lcd-mini-btn.primary { background: rgba(34,197,94,0.22); border-color: rgba(74,222,128,0.5); color: #bbf7d0; }
-  .lcd-mini-btn.primary:hover { background: rgba(34,197,94,0.36); }
-  .lcd-mini-btn.danger { background: rgba(239,68,68,0.18); border-color: rgba(248,113,113,0.5); color: #fecaca; }
-  .lcd-mini-btn.danger:hover { background: rgba(239,68,68,0.34); }
-  .lcd-lyrics-body { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
-  .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
-  .lcd-lyrics-textarea:focus { outline: none; border-color: rgba(99,102,241,0.6); }
-  .lcd-lyrics-editor { flex: 1; min-height: 116px; overflow-y: auto; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; padding: 10px; }
-  .lcd-lyrics-editor:focus { outline: none; border-color: rgba(99,102,241,0.6); }
-  .lcd-lyrics-editor:empty:before { content: attr(data-placeholder); color: #64748b; font-style: italic; }
+  .lcd-mini-btn { background: var(--lcd-navy-700); border: 1px solid var(--lcd-navy-line); color: var(--lcd-ivory-200); border-radius: var(--lcd-radius-sm); min-width: var(--lcd-btn-h-icon); height: var(--lcd-btn-h-icon); padding: 0 10px; font-size: 0.72rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; justify-content: center; gap: 5px; transition: border-color var(--lcd-motion-fast) ease; }
+  .lcd-mini-btn:hover { border-color: var(--lcd-gold-500); }
+  .lcd-mini-btn.primary { background: rgba(47,174,98,0.22); border-color: rgba(47,174,98,0.5); color: #bbf7d0; }
+  .lcd-mini-btn.primary:hover { background: rgba(47,174,98,0.36); }
+  .lcd-mini-btn.danger { background: rgba(198,90,78,0.2); border-color: rgba(198,90,78,0.5); color: #fecaca; }
+  .lcd-mini-btn.danger:hover { background: rgba(198,90,78,0.36); }
+  .lcd-lyrics-body { display: flex; flex-direction: column; gap: 6px; padding: var(--lcd-space-3); }
+  .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: var(--lcd-navy-950); border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-sm); color: var(--lcd-ivory-100); font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
+  .lcd-lyrics-textarea:focus { outline: none; border-color: var(--lcd-gold-500); }
+  .lcd-lyrics-editor { flex: 1; min-height: 116px; overflow-y: auto; background: var(--lcd-navy-950); border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-sm); color: var(--lcd-ivory-100); font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; padding: 10px; }
+  .lcd-lyrics-editor:focus { outline: none; border-color: var(--lcd-gold-500); }
+  .lcd-lyrics-editor:empty:before { content: attr(data-placeholder); color: var(--lcd-ivory-muted); font-style: italic; }
   .lcd-fmt-toolbar { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 6px; }
-  .lcd-fmt-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; border-radius: 5px; cursor: pointer; font-size: 0.8rem; }
-  .lcd-fmt-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
-  .lcd-fmt-select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; border-radius: 5px; font-size: 0.7rem; padding: 3px 5px; font-family: 'Poppins', sans-serif; cursor: pointer; }
-  .lcd-fmt-color { width: 28px; height: 26px; padding: 1px; border: 1px solid rgba(255,255,255,0.14); border-radius: 5px; background: rgba(255,255,255,0.06); cursor: pointer; }
-  .lcd-fmt-sep { width: 1px; height: 18px; background: rgba(255,255,255,0.15); margin: 0 3px; }
-  .lcd-lyrics-summary { color: #64748b; font-size: 0.7rem; text-align: right; }
-  .lcd-media-hint { color: #64748b; font-size: 0.68rem; margin-bottom: 8px; line-height: 1.4; }
-  .lcd-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
-  .lcd-media-item { position: relative; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; cursor: grab; border: 1.5px solid rgba(255,255,255,0.1); transition: border-color 0.15s, transform 0.1s; }
+  .lcd-fmt-btn { width: var(--lcd-btn-h-icon); height: var(--lcd-btn-h-icon); display: inline-flex; align-items: center; justify-content: center; background: var(--lcd-navy-700); border: 1px solid var(--lcd-navy-line); color: var(--lcd-ivory-200); border-radius: var(--lcd-radius-sm); cursor: pointer; font-size: 0.8rem; }
+  .lcd-fmt-btn:hover { border-color: var(--lcd-gold-500); color: var(--lcd-ivory-100); }
+  .lcd-fmt-select { background: var(--lcd-navy-700); border: 1px solid var(--lcd-navy-line); color: var(--lcd-ivory-200); border-radius: var(--lcd-radius-sm); font-size: 0.7rem; padding: 3px 5px; height: var(--lcd-btn-h-icon); font-family: 'Poppins', sans-serif; cursor: pointer; }
+  .lcd-fmt-color { width: 30px; height: var(--lcd-btn-h-icon); padding: 1px; border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-sm); background: var(--lcd-navy-700); cursor: pointer; }
+  .lcd-fmt-sep { width: 1px; height: 18px; background: var(--lcd-navy-line); margin: 0 3px; }
+  .lcd-lyrics-summary { color: var(--lcd-ivory-muted); font-size: 0.7rem; text-align: right; }
+  .lcd-media-hint { color: var(--lcd-ivory-muted); font-size: 0.68rem; margin-bottom: 8px; line-height: 1.4; }
+  .lcd-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: var(--lcd-space-2); }
+  .lcd-media-item { position: relative; aspect-ratio: 16/9; border-radius: var(--lcd-radius-sm); overflow: hidden; cursor: grab; border: 1.5px solid var(--lcd-navy-line); transition: border-color var(--lcd-motion-fast), transform var(--lcd-motion-fast); }
   .lcd-media-del { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; line-height: 1; border: none; border-radius: 50%; background: rgba(15,23,42,0.78); color: #fff; font-size: 0.9rem; cursor: pointer; display: none; align-items: center; justify-content: center; padding: 0; z-index: 2; }
   .lcd-media-item:hover .lcd-media-del { display: inline-flex; }
-  .lcd-media-del:hover { background: #dc2626; }
-  .lcd-media-none { cursor: pointer; border-style: dashed; border-color: rgba(255,255,255,0.22); }
-  .lcd-media-none .lcd-media-thumb { color: #94a3b8; font-size: 1.1rem; }
-  .lcd-media-none:hover { border-color: #f87171; }
-  .lcd-media-none:hover .lcd-media-thumb { color: #f87171; }
-  .lcd-media-cap { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #cbd5e1; pointer-events: none; }
-  .lcd-media-item:hover { border-color: rgba(99,102,241,0.6); transform: scale(1.03); }
+  .lcd-media-del:hover { background: var(--lcd-danger); }
+  .lcd-media-none { cursor: pointer; border-style: dashed; border-color: var(--lcd-navy-line); }
+  .lcd-media-none .lcd-media-thumb { color: var(--lcd-ivory-muted); font-size: 1.1rem; }
+  .lcd-media-none:hover { border-color: var(--lcd-danger); }
+  .lcd-media-none:hover .lcd-media-thumb { color: var(--lcd-danger); }
+  .lcd-media-cap { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--lcd-ivory-200); pointer-events: none; }
+  .lcd-media-item:hover { border-color: var(--lcd-gold-500); transform: scale(1.03); }
   .lcd-media-item:active { cursor: grabbing; }
-  .lcd-media-thumb { width: 100%; height: 100%; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; color: #8b5cf6; }
-  .lcd-drop-target { outline: 3px dashed #eab308 !important; outline-offset: -3px; background: rgba(234,179,8,0.18) !important; }
-  .lcd-drop-target-section { outline: 3px solid #eab308 !important; outline-offset: -2px; background: rgba(234,179,8,0.32) !important; box-shadow: 0 0 0 3px rgba(234,179,8,0.35) !important; }
+  .lcd-media-thumb { width: 100%; height: 100%; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; color: var(--lcd-gold-400); }
+  .lcd-drop-target { outline: 3px dashed var(--lcd-gold-500) !important; outline-offset: -3px; background: var(--lcd-gold-wash) !important; }
+  .lcd-drop-target-section { outline: 3px solid var(--lcd-gold-500) !important; outline-offset: -2px; background: rgba(193,153,63,0.28) !important; box-shadow: 0 0 0 3px rgba(193,153,63,0.35) !important; }
   @keyframes lcdRowHighlightPulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
-    20%, 60% { box-shadow: 0 0 0 3px rgba(99,102,241,0.55); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(193,153,63,0); }
+    20%, 60% { box-shadow: 0 0 0 3px rgba(193,153,63,0.55); }
   }
   .lcd-row-highlight { animation: lcdRowHighlightPulse 1.6s ease; }
 
@@ -61803,10 +61851,10 @@ function filterLiturgyItems() {
   /* Background Button in Preview Panel */
   .wo-bg-btn { background: linear-gradient(135deg, #8b5cf6, #a78bfa); color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
   .wo-bg-btn:hover { background: linear-gradient(135deg, #7c3aed, #8b5cf6); transform: translateY(-1px); }
-  .wo-preview-zoom-group { display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.1); border-radius: 8px; padding: 3px 6px; }
-  .wo-preview-zoom-btn { background: rgba(255,255,255,0.18); color: white; border: none; padding: 6px 9px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
-  .wo-preview-zoom-btn:hover { background: rgba(255,255,255,0.3); }
-  .wo-preview-zoom-label { color: white; font-size: 0.72rem; font-weight: 600; font-family: 'Poppins', sans-serif; min-width: 34px; text-align: center; }
+  .wo-preview-zoom-group { display: flex; align-items: center; gap: 4px; background: var(--lcd-navy-700, rgba(255,255,255,0.1)); border-radius: var(--lcd-radius-sm, 8px); padding: 3px; }
+  .wo-preview-zoom-btn { display: inline-flex; align-items: center; justify-content: center; width: var(--lcd-btn-h-icon, 38px); height: var(--lcd-btn-h-icon, 38px); background: transparent; color: var(--lcd-ivory-muted, white); border: none; border-radius: calc(var(--lcd-radius-sm, 8px) - 2px); font-size: 0.8rem; cursor: pointer; transition: background var(--lcd-motion-fast, 0.2s), color var(--lcd-motion-fast, 0.2s); }
+  .wo-preview-zoom-btn:hover { background: rgba(255,255,255,0.1); color: var(--lcd-ivory-100, white); }
+  .wo-preview-zoom-label { color: var(--lcd-ivory-100, white); font-size: 0.72rem; font-weight: 600; font-family: 'Poppins', sans-serif; min-width: 34px; text-align: center; }
 
   /* Background Modal */
   .wo-bg-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 10004; padding: 20px; }
@@ -62654,28 +62702,28 @@ function filterLiturgyItems() {
   .wo-align-group {
     display: inline-flex;
     align-items: center;
-    gap: 1px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 6px;
-    padding: 2px;
+    gap: 2px;
+    background: var(--lcd-navy-700, #1e2c4a);
+    border-radius: var(--lcd-radius-sm, 8px);
+    padding: 3px;
     flex-shrink: 0;
   }
   .wo-align-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
+    width: var(--lcd-btn-h-icon, 38px);
+    height: var(--lcd-btn-h-icon, 38px);
     border: none;
-    border-radius: 4px;
+    border-radius: calc(var(--lcd-radius-sm, 8px) - 2px);
     background: transparent;
-    color: rgba(255,255,255,0.65);
+    color: var(--lcd-ivory-muted, rgba(255,255,255,0.65));
     cursor: pointer;
     font-size: 0.78rem;
-    transition: background 0.12s, color 0.12s;
+    transition: background var(--lcd-motion-fast, 0.12s), color var(--lcd-motion-fast, 0.12s);
   }
-  .wo-align-btn:hover { background: rgba(255,255,255,0.18); color: white; }
-  .wo-align-btn.active { background: #6366f1; color: white; }
+  .wo-align-btn:hover { background: rgba(255,255,255,0.1); color: var(--lcd-ivory-100, white); }
+  .wo-align-btn.active { background: var(--lcd-gold-500, #6366f1); color: var(--lcd-navy-950, white); }
 
   /* ── Barrier button (toolbar) ───────────────────────────────────────── */
   .wo-barrier-btn {
