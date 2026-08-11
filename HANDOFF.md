@@ -4,6 +4,20 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — Songbook edits now reach LCD Projection instantly (branch `feature/premium-mobile-roster`)
+
+Closes the limitation recorded in the two entries below: the lyric notice previously only appeared on the operator's next song-list refresh, because a songbook edit never reached their browser.
+
+**Mechanism: Supabase Realtime *broadcast*, not `postgres_changes`.** Deliberate choice — broadcast needs no table replication enabled in the Supabase dashboard, so it works on this project as-is, and it matches the channel pattern already used four times in this file (sermon remote, songbook presence). `postgres_changes` would additionally catch edits made outside the app, but silently does nothing unless replication is switched on server-side, which is exactly the kind of dead code this codebase has been avoiding. If replication is ever enabled, adding a `postgres_changes` subscription alongside this would be a small, purely additive change.
+
+1. **Publisher — `SBQ_SONGS._announceSongChange(id, lyrics)`**, called from both `updateLyrics()` and `update()` (including its no-scripture-column retry branch) after a *successful* write. Putting it in the data layer rather than at each UI save site means every lyric-changing path is covered, including the Edit Song form. Wrapped in try/catch and fire-and-forget: a notification failure must never surface as a save failure.
+2. **Subscriber — `_lcdStartSongLiveSync()` / `_lcdStopSongLiveSync()`**, started in `selectOrder('service')` and torn down in `selectOrder('song')` so the channel only lives while LCD Projection is on screen. On receipt it patches the incoming lyrics into `LHC_STATE.songs`, clears the status cache, re-renders the rail and the Library panel, and toasts. It ignores messages for unknown songs or lyrics it already has, so no redundant repaints.
+3. Because the rail render refreshes the banner for the currently-open slide with `acknowledge=false`, a change arriving while the operator is working on that very slide surfaces in place and still cannot mark itself as read.
+- **Verified across two real browser tabs.** Tab 1 in LCD Projection with the song in its schedule (0 badges). Tab 2 acting as the worship team, editing through the genuine `SBQ_SONGS.updateLyrics` path. Without any reload in tab 1: its in-memory lyrics updated, the badge appeared on **exactly slide 1.9**, and opening it showed the banner with the new wording and the refresh action. The song's lyrics were then restored **in the database** (this test wrote for real, unlike earlier in-memory ones) and confirmed byte-equal to the original.
+- Test order removed by id; **21 real orders, both "Service - May 3" intact, 0 test orders.**
+
+---
+
 ## 2026-08-11 — Fixed the liturgy edit-loss bug + two unexported Songbook handlers (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
 
 Fixes for the bugs the previous entry documented. **It also corrects an overstatement in that entry** — see the last bullet.
