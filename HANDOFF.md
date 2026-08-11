@@ -4,6 +4,21 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — Fourth audit: badge now reports lyric changes only, never chords (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+Per explicit instruction — the badge must inform on **lyric** changes only, not chord changes. That turned out to fix a false positive in the *other* direction too, which the previous round had not spotted: because comparison was on raw text, a **chord-only edit in the library** (a reharmonisation, or someone adding a chord line) would have raised "Library copy updated" even though not a single word had changed.
+
+1. **New `_lcdLyricsOnly()` reduces a song to its words before any comparison.** It drops whole lines that are chord charts and strips inline chord brackets (`[G]`, `[Am7]`, `[Bb/D]`), while deliberately preserving structural markers like `[Verse 1]`/`[Chorus]` — those are part of the words' shape and a change to them is worth reporting. It reuses the app's own tuned detectors `isChordToken` / `isChordLineGlobal` (both top-level, so in scope from the WO module) rather than a new parser; those already handle the "Am" vs the English word "am" trap that is everywhere in worship lyrics.
+2. **Both comparisons now run words-only**, which let the previous round's `transposeSteps === 0` guard be deleted entirely: if a transposition leaves the words untouched the two sides simply compare equal, so no special case is needed. **That also closes the blind spot flagged last round** — a song that is *both* transposed and reworded now flags correctly, because after chord-stripping the words genuinely differ.
+3. Labels reworded to say what is actually being reported: "Lyrics edited for this service" / "Library lyrics updated", each ending "(Chord and key changes are not reported.)".
+- **Safety property worth keeping in mind**: both sides of every comparison go through the identical normaliser, so a misjudged chord line can only ever *mask* a real difference — it can never invent one. The failure direction is false silence, never a false accusation.
+- **Verified with a 9-case table** driven through the real global chord detectors: chord line above lyrics, inline bracket transposition, full reharmonisation, genuine word change, transposed-and-reworded, section markers preserved, section marker renamed, verse added, and "Great I Am" not misread as a chord line — **all 9 pass**.
+- **Verified live end-to-end**: baseline 0 flags → chord-only library change **stays silent (0 flags)** → word change raises 5 flags with reason `library` → restore returns to 0.
+- Regression after the change: rail 103 rows, schedule header, 51 library cards, editor canvas, 3 toolbar groups, Blank/Project in the Program Output box, banner present, no overflow, no new console errors. Background re-pinning still correct through a delete (slide moved to index 1, background followed). `node --check` clean, byte-identical `dist/index.html`. Test order removed by id; **21 real orders, both "Service - May 3" intact, 0 test orders**; the library lyrics used for testing were restored (in-memory only, never written to the database).
+- **Remaining known limit**: a change consisting *only* of a renamed section marker inside an otherwise chord-heavy line could be missed, and lyrics deliberately written to look like a chord progression (a line of ≥50% chord-like tokens) are ignored on both sides. Both are the safe failure direction described above.
+
+---
+
 ## 2026-08-11 — Third audit: undo interaction, slide delete, transpose false-positive (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
 
 Third pass, targeting areas the first two did not reach: how the new code composes with undo/redo, the slide-delete path, and the correctness of the new lyric-divergence badge under transposition.

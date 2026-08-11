@@ -48299,35 +48299,57 @@ var WO = (function() {
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }
+
+  // Reduce a song to its WORDS only, so the badge reports lyric changes and
+  // stays silent about chords — a transposition or a reharmonisation is not a
+  // lyric change. Reuses the app's own tuned chord detectors (isChordToken /
+  // isChordLineGlobal, which already handle the "Am" vs the word "am" trap
+  // that is everywhere in worship lyrics).
+  // Both sides of every comparison run through this identically, so a
+  // misjudged line can only ever mask a real difference — it can never invent
+  // one. False silence beats a false accusation here.
+  function _lcdLyricsOnly(text) {
+    var src = String(text == null ? '' : text).replace(/\r\n?/g, '\n');
+    var kept = [];
+    src.split('\n').forEach(function(line) {
+      // Drop inline chord brackets like [G] [Am7] [Bb/D]; leave structural
+      // markers such as [Verse 1] or [Chorus] intact — those are part of the
+      // words' shape, and a change to them is worth reporting.
+      var stripped = line.replace(/\[([^\]\n]{1,12})\]/g, function(whole, inner) {
+        return (typeof isChordToken === 'function' && isChordToken(inner.trim())) ? '' : whole;
+      });
+      // Drop whole lines that are a chord chart rather than lyrics.
+      if (typeof isChordLineGlobal === 'function' && isChordLineGlobal(stripped)) return;
+      kept.push(stripped);
+    });
+    return _lcdNormalizeLyrics(kept.join('\n'));
+  }
   function _lcdSongLyricsStatus(entryId) {
     if (!entryId) return null;
     if (Object.prototype.hasOwnProperty.call(_lcdLyricStatusCache, entryId)) return _lcdLyricStatusCache[entryId];
     var res = null;
     var entry = songOrderSections.find(function(s) { return s.id === entryId; });
     if (entry) {
-      // collectOrderItems() writes the transposed text into customLyrics when
-      // transposeSteps !== 0, so "has customLyrics" alone does NOT mean the
-      // words were changed -- a simple key change would trip it. Only claim an
-      // edit when the song is untransposed; separating a transposition from a
-      // genuine edit would need chord parsing, and a false accusation here is
-      // worse than staying quiet.
-      var steps = entry.transposeSteps || 0;
-      var custom = entry.hasCustomLyrics && String(entry.customLyrics || '').trim();
-      // masterLyrics is the authoritative untransposed text; prefer it, because
-      // .lyrics can hold transposed content and would then look like a mismatch.
+      // Every comparison is words-only (see _lcdLyricsOnly), so transposing a
+      // song or reharmonising it in the library never raises the badge — only
+      // a real change to the words does. That also means customLyrics, which
+      // collectOrderItems() fills with transposed text whenever
+      // transposeSteps !== 0, no longer needs a special case: if the words are
+      // unchanged it simply compares equal.
+      // masterLyrics is the authoritative untransposed text; prefer it, since
+      // .lyrics can itself hold transposed content.
       var orderBase = (entry.masterLyrics != null && String(entry.masterLyrics).trim())
         ? entry.masterLyrics : entry.lyrics;
-      if (custom && steps === 0) {
-        res = { differs: true, reason: 'custom', label: 'Edited for this service',
-                detail: 'These lyrics were customised for this order and differ from the song stored in the library.' };
-      } else {
-        var lib = _lcdAllSongs().find(function(s) { return s.id === entry.songId; });
-        // No library match (song deleted/renamed id) is not a difference we can
-        // claim -- stay silent rather than cry wolf.
-        if (lib && _lcdNormalizeLyrics(lib.lyrics) !== _lcdNormalizeLyrics(orderBase)) {
-          res = { differs: true, reason: 'library', label: 'Library copy updated',
-                  detail: 'The worship team has changed this song in the library since it was added to this order. The words below are this order’s saved copy, not the current library version.' };
-        }
+      var custom = String(entry.customLyrics || '').trim();
+      var lib = _lcdAllSongs().find(function(s) { return s.id === entry.songId; });
+      if (custom && _lcdLyricsOnly(custom) !== _lcdLyricsOnly(orderBase)) {
+        res = { differs: true, reason: 'custom', label: 'Lyrics edited for this service',
+                detail: 'The words of this song were changed for this order and differ from the version stored in the library. (Chord and key changes are not reported.)' };
+      // No library match (song deleted/renamed id) is not a difference we can
+      // claim -- stay silent rather than cry wolf.
+      } else if (lib && _lcdLyricsOnly(lib.lyrics) !== _lcdLyricsOnly(orderBase)) {
+        res = { differs: true, reason: 'library', label: 'Library lyrics updated',
+                detail: 'The worship team has changed this song’s words in the library since it was added to this order. What projects below is this order’s saved copy, not the current library version. (Chord and key changes are not reported.)' };
       }
     }
     _lcdLyricStatusCache[entryId] = res;
