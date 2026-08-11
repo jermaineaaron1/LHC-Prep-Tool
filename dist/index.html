@@ -21620,6 +21620,26 @@ var SBQ = {
       .then(function(r) {
         if (r.error) sbqError(r.error, 'saveOrder/orders-upsert');
         var items = payload.items || [];
+        // The delete below is unconditional, so a payload that collected
+        // nothing -- a mid-render race, a failed collection -- would erase an
+        // order's stored content while the screen still looked correct, and
+        // the loss would only surface on another device. Never clear rows on
+        // an empty payload unless the caller has positively established that
+        // the order really is empty (allowEmptyItems). The order row itself
+        // still saves, so title/template/layout/backgrounds are not held back.
+        if (!items.length && !payload.allowEmptyItems) {
+          return sb.from('order_items').select('id', { count: 'exact', head: true }).eq('order_id', id)
+            .then(function(cr) {
+              var existing = (cr && cr.count) || 0;
+              if (existing > 0) {
+                console.warn('[SBQ.saveOrder] Refusing to clear ' + existing + ' stored item(s) for ' +
+                  id + ' — the payload carried none and allowEmptyItems was not set. ' +
+                  'Order row saved; items left untouched.');
+                return { __itemsPreserved: existing };
+              }
+              return sb.from('order_items').delete().eq('order_id', id).then(function() { return null; });
+            });
+        }
         return sb.from('order_items').delete().eq('order_id', id)
           .then(function(dr) {
             if (dr.error) sbqError(dr.error, 'saveOrder/order_items-delete');
@@ -21667,7 +21687,10 @@ var SBQ = {
             }, Promise.resolve());
           });
       })
-      .then(function() {
+      .then(function(res) {
+        if (res && res.__itemsPreserved) {
+          return { success: true, id: id, lastEdited: now, itemsSaved: 0, itemsPreserved: res.__itemsPreserved };
+        }
         return { success: true, id: id, lastEdited: now, itemsSaved: (payload.items || []).length };
       });
   },
@@ -24415,6 +24438,34 @@ var WO = (function() {
       }).concat(_songItems);
     }
 
+    // ── Empty-items wipe guard, part 2 ──────────────────────────────────────
+    // The song-count guard above only covers silent saves of orders that
+    // contain SONGS. A liturgy-only order collecting nothing sails past it,
+    // and so does any explicit save. This one is about evidence: if the page
+    // is showing content but collection came back with none, the collection
+    // failed -- writing that result would delete the stored copy. Save nothing
+    // and say so, rather than persisting a result we know is wrong.
+    var _domContentCount = _serviceSectionsVisible
+      ? document.querySelectorAll('.wo-worship-section .wo-slide-box, .wo-worship-section .wo-content-box').length
+      : 0;
+    var _snapshotItemCount = (currentOrderData && Array.isArray(currentOrderData.allItems))
+      ? currentOrderData.allItems.length : 0;
+    if (items.length === 0 && (_domContentCount > 0 || (!_serviceSectionsVisible && _snapshotItemCount > 0))) {
+      console.warn('[WipeGuard] Refusing to save 0 items for an order that has content ' +
+        '(visible content boxes: ' + _domContentCount + ', snapshot items: ' + _snapshotItemCount +
+        '). Nothing was written.');
+      if (!silent) {
+        showToast('Save skipped — this order’s contents could not be read just now. ' +
+          'Nothing was overwritten; please try again.', 'error');
+      }
+      return;
+    }
+    // An order the user has genuinely emptied is a different thing: the
+    // sections are on screen and really do hold nothing. Tell the backend so
+    // it clears the stored items rather than protecting a stale copy forever.
+    var _allowEmptyItems = (items.length === 0 && _serviceSectionsVisible && _domContentCount === 0);
+    // ────────────────────────────────────────────────────────────────────────
+
     if (!silent) {
       console.log('Items collected:', items.length);
       if (items.length > 0) {
@@ -24466,6 +24517,10 @@ var WO = (function() {
       title: currentOrderData.title || 'Untitled Order',
       type: currentOrderData.type || 'traditional',
       serviceDate: currentOrderData.serviceDate || '',
+      // Only true when the sections are on screen and genuinely hold nothing.
+      // Without it SBQ.saveOrder keeps the stored items rather than clearing
+      // them on an empty payload (see the guard there).
+      allowEmptyItems: _allowEmptyItems,
       // Embed clearedSections, sectionLayout, and sectionBackgrounds inside template
       // so they survive Supabase round-trips without needing new DB columns.
       // sectionLayout captures every section's id/title/serviceSectionId so renames,
