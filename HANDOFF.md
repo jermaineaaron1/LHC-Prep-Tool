@@ -4,6 +4,25 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — Second audit (data integrity) + "lyrics differ from library" awareness (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+A second audit pass aimed at cross-order contamination, media/PowerPoint integrity and content consistency, plus a new operator-awareness feature.
+
+**Audit: what was already safe.** Cross-order contamination is well guarded on the load path — `openOrderInEditor()` explicitly clears `sectionBackgrounds` and `currentSermonSlides` (uploaded PowerPoint/image slide data) with comments naming the exact risk, replaces `songOrderSections`/`serviceSectionSongs` wholesale from the loaded order, and re-reads backgrounds through an order-scoped `_slideBgKey()`. `createNewOrder`/`createOrderFromModal` reset the same state. Media in the tray (`savedBackgrounds`) is a shared library by design. No leakage found.
+
+**Audit finding (MEDIUM-HIGH, introduced by Phase 4): drag-inserting a song silently moved other slides' backgrounds to the wrong slides.** `sectionBackgrounds` is keyed `[sectionId][localIdx]` where `localIdx` is the slide's *position among that section's slide boxes*. Inserting a song mid-section renumbers every later slide, but the background map was left untouched. Proven: a background pinned to slide 3 stayed on index 3 while its slide moved to index 8 — so it ended up on a completely different slide. Fixed with `_lcdCaptureSectionBgs()` / `_lcdRestoreSectionBgs()`, which capture the element→background pairing before the mutation and rewrite the map from the boxes' new positions afterwards (node identity survives a move, so the pairing holds however far things shift). Re-ran the exact failing case: the background now follows its slide 3 → 8. The **pre-existing** slide-reorder path (`lcdRailDrop`) had the same flaw and got the same treatment.
+- **Still outstanding (pre-existing, not fixed):** deleting a slide mid-section renumbers the same way, so `_lcdDeleteRailRow` very likely misaligns backgrounds too. Not touched by this redesign, so left alone rather than widened scope — but it is the same root cause and worth a follow-up.
+
+**New feature — "these lyrics are not the library default".** An order stores its own copy of a song's lyrics, taken when the song was added. `_lcdSongLyricsStatus(entryId)` compares that copy against the current library song and reports one of two states, on normalised text so whitespace/line-ending noise never trips it:
+- `library` (amber) — the worship team edited the song in the library after it was added to this order. The order still projects its saved copy.
+- `custom` (blue) — the lyrics were deliberately customised for this service (`hasCustomLyrics` + `customLyrics`).
+Surfaced two ways: a small pen-nib flag on every affected rail row in the Service Schedule, and a full banner above the Slide Editor when such a slide is loaded, both carrying the explanation as tooltip/body text. A song with no library match (deleted or re-ided) is deliberately left unflagged rather than falsely reported. Status is cached per rail render and the cache is cleared on every render and on every editor load, so a library edit surfaces without reloading the order.
+- **Verified live end-to-end**: silent when the order copy matches the library (0 flags, banner hidden); after simulating a worship-team library edit, exactly the affected song was flagged on all 5 of its slides with reason `library`, and clicking a flagged row showed the banner "Library copy updated — The worship team has changed this song…"; a liturgy slide correctly showed no banner; restoring the library lyrics cleared all flags again. Only the edited song was ever flagged. `node --check` clean, byte-identical `dist/index.html`, no new console errors.
+- **Note on where lyrics live**, since this tripped me up: library edits write `STATE.songs[i].lyrics` (lines ~11442/18599), while an order entry keeps its own `lyrics` snapshot plus the `masterLyrics`/`customLyrics`/`hasCustomLyrics` trio used by the songbook/transpose system. The new check deliberately reads only `lyrics`/`customLyrics` and writes nothing, so it cannot disturb that model.
+- **Test data**: three disposable orders were created during this round; all removed from Supabase **by id** (per the previous entry's lesson), leaving 21 real orders with both "Service - May 3" entries intact. The library lyric edit used for testing was an in-memory mutation only and was restored; it never reached the database.
+
+---
+
 ## 2026-08-11 — LCD Projection redesign: post-implementation audit + 4 fixes (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
 
 A deliberate audit pass over all 8 phases looking for bugs, dead code and broken connections between features. Four real issues found, all fixed.

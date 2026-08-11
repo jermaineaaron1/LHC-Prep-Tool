@@ -6282,6 +6282,12 @@
                           <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
                         </span>
                       </div>
+                      <!-- Shown only when this song's lyrics no longer match the
+                           library default (see _lcdSongLyricsStatus). -->
+                      <div class="lcd-lyric-banner" id="lcdLyricBanner" style="display:none;">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span class="lcd-lyric-banner-text" id="lcdLyricBannerText"></span>
+                      </div>
                       <!-- Canvas: the editable text sits on the slide's real
                            background so it reads like the projected slide. -->
                       <div class="lcd-editor-canvas" id="lcdEditorCanvas">
@@ -47503,7 +47509,26 @@ var WO = (function() {
     if (ed) ed.innerHTML = _lcdReadSlideRich(box);
     if (openBtn) openBtn.style.display = songId ? '' : 'none';
     _lcdUpdateEditorCanvas(box);
+    _lcdUpdateLyricBanner(songId);
     _lcdUpdateSlideSummary();
+  }
+
+  // Banner above the editor telling the operator these words are not the
+  // library default. Status is recomputed live (cache is cleared each rail
+  // render), so a library edit surfaces without reloading the order.
+  function _lcdUpdateLyricBanner(entryId) {
+    var el = document.getElementById('lcdLyricBanner');
+    var txt = document.getElementById('lcdLyricBannerText');
+    if (!el || !txt) return;
+    _lcdResetLyricStatusCache();
+    var st = entryId ? _lcdSongLyricsStatus(entryId) : null;
+    if (st && st.differs) {
+      el.className = 'lcd-lyric-banner ' + st.reason;
+      txt.textContent = st.label + ' — ' + st.detail;
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
   }
 
   // Paint the slide's real background and alignment onto the editor canvas so
@@ -47622,6 +47647,7 @@ var WO = (function() {
     if (slideNumEl) slideNumEl.textContent = '';
     if (openBtn) openBtn.style.display = 'none';
     _lcdUpdateEditorCanvas(null);
+    _lcdUpdateLyricBanner(null);
     _lcdUpdateSlideSummary();
   }
 
@@ -48249,6 +48275,48 @@ var WO = (function() {
   var _lcdCollapsedSections = {};
   var _lcdRailRowSeq = 0;
 
+  // ---- "these lyrics aren't the library default" awareness ------------
+  // An order stores its own copy of a song's lyrics, taken when the song was
+  // added. Two things can make what projects differ from the database default:
+  // the worship team edits the song in the library afterwards, or someone
+  // customises the lyrics inside this order. Either way the operator running
+  // LCD Projection should know the words on screen are not the stored default.
+  // Compared on normalised text so whitespace/line-ending noise never trips it.
+  var _lcdLyricStatusCache = {};
+  function _lcdNormalizeLyrics(t) {
+    return String(t == null ? '' : t)
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/[ ]*\n[ ]*/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+  function _lcdSongLyricsStatus(entryId) {
+    if (!entryId) return null;
+    if (Object.prototype.hasOwnProperty.call(_lcdLyricStatusCache, entryId)) return _lcdLyricStatusCache[entryId];
+    var res = null;
+    var entry = songOrderSections.find(function(s) { return s.id === entryId; });
+    if (entry) {
+      var custom = entry.hasCustomLyrics && String(entry.customLyrics || '').trim();
+      if (custom) {
+        res = { differs: true, reason: 'custom', label: 'Edited for this service',
+                detail: 'These lyrics were customised for this order and differ from the song stored in the library.' };
+      } else {
+        var lib = _lcdAllSongs().find(function(s) { return s.id === entry.songId; });
+        // No library match (song deleted/renamed id) is not a difference we can
+        // claim -- stay silent rather than cry wolf.
+        if (lib && _lcdNormalizeLyrics(lib.lyrics) !== _lcdNormalizeLyrics(entry.lyrics)) {
+          res = { differs: true, reason: 'library', label: 'Library copy updated',
+                  detail: 'The worship team has changed this song in the library since it was added to this order. The words below are this order’s saved copy, not the current library version.' };
+        }
+      }
+    }
+    _lcdLyricStatusCache[entryId] = res;
+    return res;
+  }
+  // Recomputed per rail render so a library edit shows up on the next refresh.
+  function _lcdResetLyricStatusCache() { _lcdLyricStatusCache = {}; }
+
   function _lcdBuildRailRow(sIdx, slideNum, groupTitle, slideBoxEl, iconClass) {
     var lines = Array.from(slideBoxEl.querySelectorAll('.wo-slide-line')).map(function(l) { return l.textContent.trim(); }).filter(Boolean);
     var preview = lines.length ? lines[0] : '';
@@ -48260,10 +48328,15 @@ var WO = (function() {
     // intact (it serialises via textContent), hence the extra replace before
     // this goes into an attribute.
     var titleAttr = escapeHtml(groupTitle).replace(/"/g, '&quot;');
+    // Flag rows whose song no longer matches the library default.
+    var _st = _lcdSongLyricsStatus(slideBoxEl.getAttribute('data-song-id'));
+    var _flag = (_st && _st.differs)
+      ? '<span class="lcd-lyric-flag ' + _st.reason + '" title="' + escapeHtml(_st.detail).replace(/"/g, '&quot;') + '"><i class="fa-solid fa-pen-nib"></i></span>'
+      : '';
     return '<div class="lcd-rail-slide-row' + (isSelected ? ' selected' : '') + '" id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
       '<div class="lcd-rail-slide-num"><i class="fa-solid ' + iconClass + '"></i> ' + (sIdx + 1) + '.' + slideNum + '</div>' +
       '<div class="lcd-rail-slide-body">' +
-        '<div class="lcd-rail-item-title" title="' + titleAttr + '">' + escapeHtml(groupTitle) + '</div>' +
+        '<div class="lcd-rail-item-title" title="' + titleAttr + '">' + _flag + escapeHtml(groupTitle) + '</div>' +
         (preview ? '<div class="lcd-rail-slide-preview">' + escapeHtml(preview) + '</div>' : '') +
       '</div>' +
       '<button class="lcd-rail-slide-del" draggable="false" onclick="event.stopPropagation(); WO._lcdDeleteRailRow(\'' + rowId + '\')" title="Delete this slide"><i class="fa-solid fa-trash"></i></button>' +
@@ -48309,6 +48382,7 @@ var WO = (function() {
     if (!sections.length) return;
 
     _lcdRailRowMap = {};
+    _lcdResetLyricStatusCache();
     var railHtml = '';
     var totalSlides = 0;
 
@@ -48653,6 +48727,38 @@ var WO = (function() {
     return { first: kids[start], last: kids[end] };
   }
 
+  // Per-slide backgrounds are stored as sectionBackgrounds[sectionId][localIdx],
+  // where localIdx is the slide's POSITION among that section's slide boxes.
+  // Anything that inserts or reorders slides therefore renumbers every later
+  // slide and would leave backgrounds attached to the wrong ones. These two
+  // capture the element->background pairing first and rewrite the map from the
+  // boxes' new positions afterwards; node identity survives a move, so the
+  // pairing stays correct however far things shift.
+  function _lcdCaptureSectionBgs(sectionId) {
+    var container = document.getElementById(sectionId + '-boxes');
+    if (!container || typeof getBackgroundForSlideInSection !== 'function') return null;
+    return Array.from(container.querySelectorAll('.wo-slide-box')).map(function(b, i) {
+      return { box: b, bg: getBackgroundForSlideInSection(sectionId, i) };
+    }).filter(function(e) { return !!e.bg; });
+  }
+
+  function _lcdRestoreSectionBgs(sectionId, captured) {
+    if (!captured) return;
+    var container = document.getElementById(sectionId + '-boxes');
+    if (!container) return;
+    var boxes = Array.from(container.querySelectorAll('.wo-slide-box'));
+    var rebuilt = {};
+    captured.forEach(function(e) {
+      var ni = boxes.indexOf(e.box);
+      if (ni >= 0) rebuilt[ni] = e.bg;
+    });
+    if (Object.keys(rebuilt).length) sectionBackgrounds[sectionId] = rebuilt;
+    else delete sectionBackgrounds[sectionId];
+    // One write rather than one per slide -- setBackgroundForSlideInSection()
+    // would also fire autoSaveOrder() on every iteration.
+    if (typeof saveSlideBackgrounds === 'function') saveSlideBackgrounds();
+  }
+
   function _lcdInsertSongIntoSection(songId, sectionId, refBox, below) {
     var song = _lcdAllSongs().find(function(s) { return s.id === songId || s.title === songId; });
     if (!song) return false;
@@ -48660,6 +48766,9 @@ var WO = (function() {
     if (!container) return false;
 
     _lcdPushUndo();
+
+    // Snapshot before the insert renumbers this section's slides.
+    var bgSnapshot = _lcdCaptureSectionBgs(sectionId);
 
     // Diff the container rather than assuming how many nodes the render
     // produces -- addSongToServiceSection() emits a banner, N slide boxes
@@ -48681,6 +48790,9 @@ var WO = (function() {
         added.forEach(function(n) { anchor.insertAdjacentElement('beforebegin', n); });
       }
     }
+
+    // Re-pin the existing slides' backgrounds to their new positions.
+    _lcdRestoreSectionBgs(sectionId, bgSnapshot);
 
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
@@ -48911,8 +49023,15 @@ var WO = (function() {
     var kids = Array.from(parent.children);
     var di = kids.indexOf(dragged), ti = kids.indexOf(target);
     if (di < 0 || ti < 0) return;
+    // Reordering renumbers the section's slides, so the per-slide background
+    // map has to be re-pinned the same way an insert does (see
+    // _lcdCaptureSectionBgs) -- otherwise the moved slide swaps backgrounds
+    // with whichever slide takes its old position.
+    var _reorderSectionId = dragged.getAttribute('data-section') || '';
+    var _reorderBgs = _reorderSectionId ? _lcdCaptureSectionBgs(_reorderSectionId) : null;
     if (_lcdDropBelow) target.insertAdjacentElement('afterend', dragged);
     else target.insertAdjacentElement('beforebegin', dragged);
+    if (_reorderSectionId) _lcdRestoreSectionBgs(_reorderSectionId, _reorderBgs);
     var songId = dragged.getAttribute('data-song-id') || '';
     var liturgyId = dragged.getAttribute('data-liturgy-id') || '';
     var sectionId = dragged.getAttribute('data-section') || '';
@@ -61992,6 +62111,25 @@ function filterLiturgyItems() {
      editing surface reads like the projected slide. The bg layer is painted
      by _lcdUpdateEditorCanvas() via the same _applyBgToDivEl() the Program
      Output mirror uses. */
+  /* "Not the library default" awareness. Amber = the library copy moved on
+     under this order; blue = deliberately customised for this service. */
+  .lcd-lyric-flag {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 17px; height: 17px; margin-right: 6px; border-radius: 4px;
+    font-size: 0.58rem; vertical-align: 1px; flex-shrink: 0;
+  }
+  .lcd-lyric-flag.library { background: rgba(217,180,106,0.22); color: var(--lcd-gold-400, #d9b46a); border: 1px solid rgba(217,180,106,0.5); }
+  .lcd-lyric-flag.custom  { background: rgba(96,165,250,0.20); color: #60a5fa; border: 1px solid rgba(96,165,250,0.5); }
+  .lcd-lyric-banner {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 8px 11px; margin-bottom: var(--lcd-space-2, 8px);
+    border-radius: var(--lcd-radius-sm, 8px);
+    font-family: 'Poppins', sans-serif; font-size: 0.72rem; line-height: 1.45;
+  }
+  .lcd-lyric-banner i { margin-top: 1px; flex-shrink: 0; }
+  .lcd-lyric-banner.library { background: rgba(217,180,106,0.14); border: 1px solid rgba(217,180,106,0.45); color: var(--lcd-gold-400, #d9b46a); }
+  .lcd-lyric-banner.custom  { background: rgba(96,165,250,0.13); border: 1px solid rgba(96,165,250,0.45); color: #93c5fd; }
+
   .lcd-editor-canvas { position: relative; flex: 1; min-height: 150px; display: flex; border-radius: var(--lcd-radius-sm, 8px); border: 1px solid var(--lcd-navy-line, #2a3a5c); background: var(--lcd-navy-950, #0b1220); overflow: hidden; }
   .lcd-editor-canvas-bg { position: absolute; inset: 0; background-size: cover; background-position: center; pointer-events: none; }
   .lcd-editor-canvas-bg > * { width: 100%; height: 100%; object-fit: cover; }
