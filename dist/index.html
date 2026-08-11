@@ -22521,11 +22521,15 @@ var SBQ_SONGS = {
             delete row.scripture;
             return sb.from('songs').update(row).eq('id', id).then(function(r2) {
               if (r2.error) throw new Error(r2.error.message);
+              SBQ_SONGS._announceSongChange(id, row.lyrics);
               return { success: true };
             });
           }
           throw new Error(r.error.message);
         }
+        // A full song update can change the lyrics too (the Edit Song form),
+        // so it announces on the same channel as updateLyrics().
+        SBQ_SONGS._announceSongChange(id, row.lyrics);
         return { success: true };
       });
   },
@@ -22540,12 +22544,34 @@ var SBQ_SONGS = {
       });
   },
 
+  // Tell every other open client that a song's stored lyrics just changed, so
+  // an LCD Projection operator sees it immediately instead of on their next
+  // song-list refresh. Broadcast (not postgres_changes) deliberately: it needs
+  // no table replication enabled server-side, and it matches the channel
+  // pattern already used elsewhere in this file. Best-effort — a failure here
+  // must never break the save that just succeeded.
+  _announceSongChange: function(id, lyrics) {
+    try {
+      var sb = SBQ_SONGS._sb();
+      if (!sb || !id) return;
+      var ch = sb.channel('lhc-song-library', { config: { broadcast: { self: false } } });
+      ch.subscribe(function(status) {
+        if (status !== 'SUBSCRIBED') return;
+        ch.send({ type: 'broadcast', event: 'song-lyrics-changed',
+                  payload: { id: id, lyrics: lyrics == null ? null : String(lyrics), at: Date.now() } })
+          .then(function() { try { sb.removeChannel(ch); } catch (e) {} })
+          .catch(function() { try { sb.removeChannel(ch); } catch (e) {} });
+      });
+    } catch (e) { /* never let notification failure surface as a save failure */ }
+  },
+
   updateLyrics: function(id, lyrics) {
     var sb = SBQ_SONGS._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
     return sb.from('songs').update({ lyrics: lyrics }).eq('id', id)
       .then(function(r) {
         if (r.error) throw new Error(r.error.message);
+        SBQ_SONGS._announceSongChange(id, lyrics);
         return { success: true };
       });
   },
@@ -25369,6 +25395,7 @@ var WO = (function() {
       var _fab = document.getElementById('woPreviewFab');
       if (_fab) _fab.style.display = 'none';
       _exitServiceOrderLayout();
+      _lcdStopSongLiveSync();
       initializeSongOrder();
     } else {
       $('woServiceOrderBtn').classList.add('active');
@@ -25388,6 +25415,7 @@ var WO = (function() {
       _lcdSetupCompactRailObserver();
       _lcdRenderLibraryPanel();
       _lcdApplyLayoutFlags();
+      _lcdStartSongLiveSync();
       _lcdUpdateProgramBarrier();
       // Make preview panel follow while scrolling
       setTimeout(_enterServiceOrderLayout, 50);
@@ -48490,6 +48518,51 @@ var WO = (function() {
     _lcdLyricStatusCache[entryId] = res;
     return res;
   }
+  // ---- Live songbook -> LCD Projection notification --------------------
+  // Without this the operator only learns of a songbook edit on their next
+  // song-list refresh. SBQ_SONGS broadcasts on 'lhc-song-library' after any
+  // successful lyric write; here we patch the incoming song straight into
+  // LHC_STATE.songs and re-render, so the badge appears within a second.
+  // Only live while LCD Projection is on screen.
+  var _lcdSongLiveChannel = null;
+
+  function _lcdStartSongLiveSync() {
+    if (_lcdSongLiveChannel) return;
+    try {
+      var sb = (typeof SBQ_SONGS !== 'undefined' && SBQ_SONGS._sb) ? SBQ_SONGS._sb() : null;
+      if (!sb) return;
+      _lcdSongLiveChannel = sb.channel('lhc-song-library', { config: { broadcast: { self: false } } });
+      _lcdSongLiveChannel.on('broadcast', { event: 'song-lyrics-changed' }, function(msg) {
+        var p = msg && msg.payload;
+        if (!p || !p.id) return;
+        var songs = (window.LHC_STATE && window.LHC_STATE.songs) || [];
+        var s = songs.find(function(x) { return x.id === p.id; });
+        // Unknown song, or lyrics we already have -> nothing to tell anyone.
+        if (!s || p.lyrics == null || s.lyrics === p.lyrics) return;
+        s.lyrics = p.lyrics;
+        // Re-derive the badge and repaint. The rail render also refreshes the
+        // banner for whatever slide is open, passing acknowledge=false, so a
+        // change landing while the operator works on that slide surfaces
+        // without silently marking itself as read.
+        _lcdResetLyricStatusCache();
+        if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+        if (typeof _lcdRenderLibraryPanel === 'function') _lcdRenderLibraryPanel();
+        if (typeof showToast === 'function') {
+          showToast('"' + (s.title || 'A song') + '" was just updated in the library', 'info');
+        }
+      }).subscribe();
+    } catch (e) { _lcdSongLiveChannel = null; }
+  }
+
+  function _lcdStopSongLiveSync() {
+    if (!_lcdSongLiveChannel) return;
+    try {
+      var sb = (typeof SBQ_SONGS !== 'undefined' && SBQ_SONGS._sb) ? SBQ_SONGS._sb() : null;
+      if (sb) sb.removeChannel(_lcdSongLiveChannel);
+    } catch (e) {}
+    _lcdSongLiveChannel = null;
+  }
+
   // Recomputed per rail render so a library edit shows up on the next refresh.
   function _lcdResetLyricStatusCache() { _lcdLyricStatusCache = {}; _lcdChangedSlidesCache = {}; }
   // Per-render cache: _lcdChangedSlides() reparses both lyric sets, which is
