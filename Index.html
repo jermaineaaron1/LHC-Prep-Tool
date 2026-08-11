@@ -6355,20 +6355,21 @@
                       <div class="lcd-program-barrier" id="lcdProgramBarrier"><span class="lcd-program-barrier-tag">SAFE ZONE</span></div>
                       <div class="wo-preview-placeholder">Not projecting</div>
                     </div>
-                    <!-- Projection actions live with the output they affect.
-                         Same ids and handlers as when they sat in the toolbar. -->
-                    <div class="lcd-program-actions">
-                      <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
-                        <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
-                        <span class="wo-golive-label" id="woBlankLabel">Blank</span>
-                      </button>
-                      <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
-                    </div>
                   </div>
                 </div>
 
-                <div class="wo-preview-hint">
-                  <i class="fa-solid fa-keyboard"></i> Arrow keys navigate slides &nbsp;|&nbsp; <strong>Blank</strong> blacks out the projection screen
+                <!-- Stage bar: the two live controls get their own full-width
+                     row directly above the Media Tray rather than being tucked
+                     inside the Program Output box, where they were competing
+                     with the 16:9 preview for height. Same ids and handlers. -->
+                <div class="lcd-stage-bar">
+                  <span class="lcd-stage-hint"><i class="fa-solid fa-keyboard"></i> Arrow keys navigate slides</span>
+                  <span class="lcd-stage-spacer"></span>
+                  <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
+                    <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
+                    <span class="wo-golive-label" id="woBlankLabel">Blank</span>
+                  </button>
+                  <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
                 </div>
 
                 <!-- Lyrics Editor + Media Tray -->
@@ -6380,12 +6381,15 @@
                       <div class="wo-preview-placeholder">Click any content box to see preview</div>
                     </div>
                   </div>
-                  <div class="lcd-panel lcd-media-panel">
-                    <div class="lcd-panel-header"><i class="fa-solid fa-photo-film"></i> Media Tray
-                      <button class="lcd-mini-btn" style="margin-left:auto;" onclick="WO.openBackgroundModal()" title="Add or manage media in the full library"><i class="fa-solid fa-plus"></i> Add Media</button>
+                  <div class="lcd-panel lcd-media-panel" id="lcdMediaPanel">
+                    <div class="lcd-panel-header lcd-media-header" onclick="WO.lcdToggleMediaTray(event)" title="Click to collapse or expand the Media Tray">
+                      <button class="lcd-media-collapse" id="lcdMediaCollapseBtn" onclick="event.stopPropagation(); WO.lcdToggleMediaTray()" title="Collapse / expand the Media Tray"><i class="fa-solid fa-chevron-down" id="lcdMediaCollapseIcon"></i></button>
+                      <i class="fa-solid fa-photo-film"></i> Media Tray
+                      <span class="lcd-media-count" id="lcdMediaCount"></span>
+                      <button class="lcd-mini-btn" style="margin-left:auto;" onclick="event.stopPropagation(); WO.openBackgroundModal()" title="Add or manage media in the full library"><i class="fa-solid fa-plus"></i> Add Media</button>
                     </div>
                     <div class="lcd-panel-body" id="lcdMediaTrayBody">
-                      <div class="lcd-media-hint">Click or drag a thumbnail to set a slide's background — drop it on a section header for that whole section, or press <strong>ALL</strong> on a thumbnail for every slide in the service. You can also drag pictures, video or a presentation straight in from your desktop. <strong>None</strong> clears the current slide — or press <strong>ALL</strong> on None to clear every slide. The &times; removes media from the tray.</div>
+                      <div class="lcd-media-hint" title="Click a tile to set the current slide's background. Drag it onto a slide, or onto a section header for that whole section. ALL applies it to every slide in the service; ALL on None clears every slide. You can drag pictures, video or a presentation straight in from your desktop. The × removes media from the tray.">Click to apply · drag onto a slide or section · <strong>ALL</strong> for the whole service · <strong>None</strong> clears</div>
                       <div class="lcd-media-grid" id="lcdMediaTrayGrid"></div>
                     </div>
                   </div>
@@ -24450,7 +24454,14 @@ var WO = (function() {
       : 0;
     var _snapshotItemCount = (currentOrderData && Array.isArray(currentOrderData.allItems))
       ? currentOrderData.allItems.length : 0;
-    if (items.length === 0 && (_domContentCount > 0 || (!_serviceSectionsVisible && _snapshotItemCount > 0))) {
+    // The last known-good snapshot counts as evidence in its own right, at any
+    // visibility. An earlier version only consulted it when the sections were
+    // hidden, which left a hole: mid-re-render the section elements exist but
+    // their slide boxes are momentarily gone, so a debounced autosave landing
+    // in that window saw "sections on screen, zero content" -- identical to a
+    // genuinely emptied order -- and cleared the stored copy. Observed for
+    // real: rapid drops each queued an autosave and one of them wiped 14 rows.
+    if (items.length === 0 && (_domContentCount > 0 || _snapshotItemCount > 0)) {
       console.warn('[WipeGuard] Refusing to save 0 items for an order that has content ' +
         '(visible content boxes: ' + _domContentCount + ', snapshot items: ' + _snapshotItemCount +
         '). Nothing was written.');
@@ -24460,10 +24471,11 @@ var WO = (function() {
       }
       return;
     }
-    // An order the user has genuinely emptied is a different thing: the
-    // sections are on screen and really do hold nothing. Tell the backend so
-    // it clears the stored items rather than protecting a stale copy forever.
-    var _allowEmptyItems = (items.length === 0 && _serviceSectionsVisible && _domContentCount === 0);
+    // Genuinely empty means empty everywhere we can look: nothing collected,
+    // nothing on screen, and nothing in the last snapshot. A transient DOM
+    // state alone must never be enough to authorise clearing the stored items.
+    var _allowEmptyItems = (items.length === 0 && _serviceSectionsVisible &&
+                            _domContentCount === 0 && _snapshotItemCount === 0);
     // ────────────────────────────────────────────────────────────────────────
 
     if (!silent) {
@@ -30464,15 +30476,7 @@ var WO = (function() {
     // Rebuild grid completely - start with default colors
     var html = '';
 
-    // Default solid colors
-    var defaultColors = [
-      { bg: 'solid:#000000', color: '#000000', name: 'Black' },
-      { bg: 'solid:#1a1a2e', color: '#1a1a2e', name: 'Dark Blue' },
-      { bg: 'solid:#16213e', color: '#16213e', name: 'Navy' },
-      { bg: 'solid:#1a1a1a', color: '#1a1a1a', name: 'Charcoal' },
-      { bg: 'gradient:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', color: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', name: 'Blue Grad' },
-      { bg: 'gradient:linear-gradient(135deg, #2d1b4e 0%, #1a1a2e 100%)', color: 'linear-gradient(135deg, #2d1b4e 0%, #1a1a2e 100%)', name: 'Purple Grad' }
-    ];
+    var defaultColors = _woDefaultBackgrounds();
 
     defaultColors.forEach(function(c) {
       html += '<div class="wo-bg-item wo-bg-color" draggable="true" data-bg="' + c.bg + '" data-drag-bg="' + escapeHtml(c.bg) + '" ondragstart="WO.onBgDragStart(event)" onclick="WO.selectBackground(\'' + c.bg + '\')">' +
@@ -48495,6 +48499,53 @@ var WO = (function() {
   // LCD Projection redesign (Chunk 5): Media Tray + drag-and-drop.
   // Reuses savedBackgrounds / selectBackground / setBackgroundForSlideInSection
   // verbatim - see file-level notes above for why each hook point was chosen.
+  // The built-in colour/gradient backgrounds. Single source of truth so the
+  // Media Tray and the Add Background modal cannot drift apart -- they were
+  // previously two hand-written lists and the tray simply omitted these.
+  function _woDefaultBackgrounds() {
+    return [
+      { bg: 'solid:#000000', color: '#000000', name: 'Black' },
+      { bg: 'solid:#1a1a2e', color: '#1a1a2e', name: 'Dark Blue' },
+      { bg: 'solid:#16213e', color: '#16213e', name: 'Navy' },
+      { bg: 'solid:#1a1a1a', color: '#1a1a1a', name: 'Charcoal' },
+      { bg: 'gradient:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', color: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', name: 'Blue Grad' },
+      { bg: 'gradient:linear-gradient(135deg, #2d1b4e 0%, #1a1a2e 100%)', color: 'linear-gradient(135deg, #2d1b4e 0%, #1a1a2e 100%)', name: 'Purple Grad' }
+    ];
+  }
+
+  // How many tiles the tray shows before it hands over to the full library.
+  // The tray is a quick-access strip, not a browser -- past this it stops
+  // being scannable and the modal does the job better.
+  var _LCD_TRAY_LIMIT = 11;
+
+  // ---- Media Tray collapse ------------------------------------------------
+  var _LCD_TRAY_COLLAPSED_KEY = 'lhc_lcd_media_tray_collapsed';
+
+  function lcdToggleMediaTray(event) {
+    if (event && event.stopPropagation) event.stopPropagation();
+    var collapsed = localStorage.getItem(_LCD_TRAY_COLLAPSED_KEY) === '1';
+    localStorage.setItem(_LCD_TRAY_COLLAPSED_KEY, collapsed ? '0' : '1');
+    _lcdApplyMediaTrayCollapsed();
+    // The workspace column is height-managed; collapsing hands the reclaimed
+    // space to the Slide Editor, which has to be told to take it.
+    if (typeof _enterServiceOrderLayout === 'function') _enterServiceOrderLayout();
+  }
+
+  function _lcdApplyMediaTrayCollapsed() {
+    var collapsed = localStorage.getItem(_LCD_TRAY_COLLAPSED_KEY) === '1';
+    var row = document.querySelector('.lcd-lower-row');
+    var icon = document.getElementById('lcdMediaCollapseIcon');
+    var btn = document.getElementById('lcdMediaCollapseBtn');
+    if (row) row.classList.toggle('lcd-tray-collapsed', collapsed);
+    if (icon) icon.className = 'fa-solid fa-chevron-' + (collapsed ? 'up' : 'down');
+    if (btn) btn.title = collapsed ? 'Expand the Media Tray' : 'Collapse the Media Tray';
+    var count = document.getElementById('lcdMediaCount');
+    if (count) {
+      var n = (savedBackgrounds || []).length;
+      count.textContent = collapsed && n ? n + ' item' + (n === 1 ? '' : 's') : '';
+    }
+  }
+
   function _lcdRenderMediaTray() {
     var grid = document.getElementById('lcdMediaTrayGrid');
     if (!grid) return;
@@ -48502,13 +48553,27 @@ var WO = (function() {
       '<div class="lcd-media-thumb"><i class="fa-solid fa-ban"></i></div>' +
       '<button class="lcd-media-all" onclick="WO.lcdClearMediaFromAllSlides(event)" title="Clear the background from every slide in the whole service">ALL</button>' +
       '<span class="lcd-media-cap">None</span></div>';
-    if (!savedBackgrounds.length) {
-      grid.innerHTML = noneTile + '<div class="lcd-panel-placeholder" style="grid-column:1/-1;">No media yet \u2014 use \u201cAdd Media\u201d above.</div>';
-      return;
-    }
-    var html = noneTile;
+    // Same built-in colours the Add Background modal offers, from the one
+    // shared list, so the two surfaces show the same things.
+    var colourTiles = _woDefaultBackgrounds().map(function(c) {
+      var esc = escapeHtml(c.bg).replace(/'/g, '&#39;');
+      return '<div class="lcd-media-item lcd-media-colour" draggable="true"' +
+        ' ondragstart="WO.onBgDragStart(event)" data-drag-bg="' + escapeHtml(c.bg) + '"' +
+        ' onclick="WO.selectBackground(\'' + esc + '\', true)"' +
+        ' title="' + escapeHtml(c.name) + ' \u2014 click to apply to this slide">' +
+        '<div class="lcd-media-thumb" style="background:' + c.color + '"></div>' +
+        '<span class="lcd-media-cap">' + escapeHtml(c.name) + '</span></div>';
+    }).join('');
+
     var pending = [];
-    savedBackgrounds.forEach(function(bg) {
+    // Newest media first: the thing just added is the thing most likely wanted,
+    // and it is what survives the visible cap.
+    var media = savedBackgrounds.slice().reverse();
+    var shown = media.slice(0, _LCD_TRAY_LIMIT);
+    var overflow = media.length - shown.length;
+
+    var html = noneTile + colourTiles;
+    shown.forEach(function(bg) {
       var isImg = bg.type === 'image';
       var thumbUrl = isImg ? bg.data : (bg.thumb || '');
       var thumbStyle = thumbUrl ? 'background-image:url(' + thumbUrl + ')' : '';
@@ -48522,7 +48587,19 @@ var WO = (function() {
         '</div>';
       if (!isImg && !bg.thumb && !bg._thumbTried) pending.push(bg);
     });
+    // Past the cap the tray stops being scannable, so hand over to the full
+    // library rather than growing a wall of thumbnails.
+    if (overflow > 0) {
+      html += '<div class="lcd-media-item lcd-media-more" onclick="WO.openBackgroundModal()" ' +
+        'title="Open the full media library — ' + overflow + ' more item' + (overflow === 1 ? '' : 's') + '">' +
+        '<div class="lcd-media-thumb"><i class="fa-solid fa-ellipsis"></i></div>' +
+        '<span class="lcd-media-cap">+' + overflow + ' More</span></div>';
+    }
+    if (!media.length) {
+      html += '<div class="lcd-panel-placeholder" style="grid-column:1/-1;">No pictures or video yet — use “Add Media” above.</div>';
+    }
     grid.innerHTML = html;
+    _lcdApplyMediaTrayCollapsed();
     // Generate poster thumbnails for videos (async; re-renders when ready).
     pending.forEach(function(bg) { _lcdGenVideoThumb(bg); });
   }
@@ -56277,6 +56354,7 @@ var WO = (function() {
     lcdRunSectionAction: lcdRunSectionAction,
     lcdApplyMediaToAllSlides: lcdApplyMediaToAllSlides,
     lcdClearMediaFromAllSlides: lcdClearMediaFromAllSlides,
+    lcdToggleMediaTray: lcdToggleMediaTray,
     lcdOpenSongPreview: lcdOpenSongPreview,
     lcdCloseSongPreview: lcdCloseSongPreview,
     lcdSongPreviewBackdrop: lcdSongPreviewBackdrop,
@@ -64934,9 +65012,6 @@ function filterLiturgyItems() {
   .lcd-lyrics-body { padding: 0; }
   .lcd-lyric-banner { margin: 9px 9px 0; font-size: 0.68rem; padding: 7px 9px; }
   .lcd-program-box .lcd-output-label { font-size: 0.72rem; margin-bottom: 6px; }
-  .lcd-program-actions { margin-top: 10px; gap: 8px; }
-  .lcd-program-actions .wo-blank-btn { height: 38px; padding: 0 14px; font-size: 0.76rem; }
-  .lcd-program-actions .wo-live-present-btn { height: 40px; font-size: 0.8rem; }
   /* Full-screen has the room, so it keeps the larger reading size there. */
   body.lcd-workspace-fullscreen .lcd-lyrics-editor { font-size: 1.2rem; padding: 20px 24px; }
 
@@ -65017,10 +65092,74 @@ function filterLiturgyItems() {
     flex: 0 0 auto; width: 100% !important; height: auto !important;
     aspect-ratio: 16 / 9 !important; max-height: 100% !important; min-height: 0 !important;
   }
-  .lcd-program-box .lcd-program-actions { margin-top: auto; }
   @media (min-width: 1201px) and (max-width: 1699px) {
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-program-box { min-width: 0; }
   }
+
+  /* ---- M. Stage bar: Blank + Project on their own full-width row ---------- */
+  .lcd-stage-bar {
+    display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
+    margin-top: 10px; padding: 8px 12px;
+    background: var(--lcd-navy-800, #16213b); border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    border-radius: var(--lcd-radius-lg, 12px); box-shadow: var(--lcd-shadow-sm);
+  }
+  .lcd-stage-hint {
+    display: inline-flex; align-items: center; gap: 7px; min-width: 0;
+    color: var(--lcd-ivory-muted, #9aa3bf);
+    font-family: 'Poppins', sans-serif; font-size: 0.66rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .lcd-stage-spacer { flex: 1 1 auto; }
+  .lcd-stage-bar .wo-blank-btn {
+    flex: 0 0 auto; height: 40px; padding: 0 18px; border-radius: var(--lcd-radius-md, 10px);
+    font-size: 0.8rem; display: inline-flex; align-items: center; gap: 7px;
+  }
+  .lcd-stage-bar .wo-live-present-btn {
+    flex: 0 0 auto; min-width: 190px; justify-content: center;
+    height: 42px; padding: 0 26px; border-radius: var(--lcd-radius-md, 10px);
+    font-weight: 700; font-size: 0.85rem; box-shadow: var(--lcd-shadow-gold-glow);
+    display: inline-flex; align-items: center;
+  }
+  /* The pair still tracks each other -- editor 20px taller -- and both now
+     grow into whatever the Media Tray gives back when it collapses. Moving
+     Blank/Project out is what makes this safe: the box's contents are now
+     just the label and the 16:9 screen, and the screen is max-height capped,
+     so it can no longer spill past the box onto the row below. */
+  .lcd-outputs-row .lcd-program-box { height: calc(100% - 20px); }
+
+  /* ---- N. Collapsible Media Tray ----------------------------------------- */
+  .lcd-media-header { cursor: pointer; user-select: none; }
+  .lcd-media-collapse {
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; margin-right: 2px; border-radius: 6px; cursor: pointer;
+    background: transparent; border: none; padding: 0;
+    color: var(--lcd-ink-soft, #6d6656); font-size: 0.72rem;
+  }
+  .lcd-media-collapse:hover { background: rgba(0,0,0,0.06); color: var(--lcd-ink, #2c2a25); }
+  .lcd-media-count {
+    font-family: 'Poppins', sans-serif; font-size: 0.62rem; font-weight: 600;
+    color: var(--lcd-ink-soft, #6d6656); margin-left: 4px;
+  }
+  /* Expanded, the tray is a strip with its own scroll, not something that
+     grows until it starves the editor above it. */
+  .lcd-lower-row { max-height: 172px; }
+  .lcd-media-panel .lcd-panel-body { overflow-y: auto; }
+  /* Collapsed: only the header bar remains, and the row stops claiming height
+     so the Slide Editor above it gets the space back. */
+  .lcd-lower-row.lcd-tray-collapsed { min-height: 0; max-height: none; }
+  .lcd-lower-row.lcd-tray-collapsed #lcdMediaTrayBody { display: none; }
+  .lcd-lower-row.lcd-tray-collapsed .lcd-media-panel { max-height: none; }
+
+  /* ---- O. Tray tiles: built-in colours, and the overflow handover --------- */
+  .lcd-media-colour { cursor: pointer; }
+  .lcd-media-colour .lcd-media-thumb { border-radius: inherit; }
+  .lcd-media-more {
+    cursor: pointer; border-style: dashed;
+    background: var(--lcd-ivory-3, #ece5d7);
+  }
+  .lcd-media-more .lcd-media-thumb { color: var(--lcd-gold-600, #a97f2e); font-size: 1rem; }
+  .lcd-media-more .lcd-media-cap { color: var(--lcd-ink, #2c2a25); text-shadow: none; }
+  .lcd-media-more:hover { border-color: var(--lcd-gold-500, #c1993f); background: #f5eee0; }
 
   /* ---- H. Full-screen escape hatch for Song Order ------------------------- */
   /* Only in full screen AND Song Order: the Orders banner is hidden there and
