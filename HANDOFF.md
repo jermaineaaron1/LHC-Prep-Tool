@@ -4,6 +4,57 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — LCD Projection audit: two bugs found, one of them data loss (branch `feature/premium-mobile-roster`)
+
+Requested audit of slides / content / features / visuals / artwork / adding items / drag-and-drop / rearrangement.
+
+### Incident: an order's cloud content was wiped during testing, and repaired
+
+An undo call during testing popped a step past the baseline and removed a slide; the autosave that followed wrote "Service - Aug 9" to Supabase with **zero `order_items`**, deleting all 14 liturgy references. Comparable orders carry 14–15. The screen still looked correct because the content was still in the DOM — that is exactly what makes this failure mode dangerous.
+
+Repaired: re-added the slide and its background, saved (15 rows written back), then **deleted the local caches and reloaded** so the order had to come purely from Supabase. Verified whole: 95 slide boxes, 99 rail rows, 19 sections, both video backgrounds on the right slides. Confirmed twice, because a later bare-payload test call flattened `template` and the app's 2-second cloud poll pulled that back into memory, so the next save persisted an empty `sectionLayout` — rebuilt from the live page and re-saved.
+
+### FIX 1 — an empty item payload can no longer delete an order's content
+
+There was already a wipe guard (~line 24352) but it only fired for **silent** saves and only counted **songs**, so a liturgy-only order sailed past it and so did every explicit save.
+
+Two guards, at both layers:
+
+1. **`SBQ.saveOrder`** — the point of destruction. `sb.from('order_items').delete()` ran unconditionally and `if (!items.length) return null` came *after* it, so an empty payload erased everything and reinserted nothing. Now an empty payload only clears stored rows when the caller sets `allowEmptyItems`; otherwise it counts the existing rows, leaves them alone, and returns `itemsPreserved`. The order row still saves, so title/template/layout/backgrounds are not held back.
+2. **`saveCurrentOrder`** — before the payload is built. If collection returned no items but the page is showing content boxes (or, on the Song Order tab, the last snapshot held items), the collection failed: save nothing and toast, rather than persisting a result already known to be wrong. Covers all item types, silent and explicit.
+
+An order the user genuinely emptied is distinguished by evidence: sections on screen holding zero content boxes sets `allowEmptyItems`, so it still clears.
+
+Verified: the exact payload that caused the loss now returns `itemsSaved: 0, itemsPreserved: 15`; a normal save is unaffected (15 items, `allowEmptyItems: false`, normal toasts). Guard 2's blocking branch is verified by construction and the shared code path — a collection failure cannot be induced from outside the module — while Guard 1, the one that actually prevents loss, is verified end-to-end.
+
+### FIX 2 — invalid slide drags no longer eat an undo step
+
+`lcdRailDrop` called `_lcdPushUndo()` on its first line, before any validity check. Slides can only be reordered inside their own song/liturgy item, so every cross-item or abandoned drag pushed a no-op entry and bailed; the next Ctrl+Z appeared to do nothing. Moved the push to after the checks, matching `lcdSectionDrop` which already got this right. Reproduced before the fix: drop changed nothing, following undo also changed nothing.
+
+### Clean
+
+| Area | Result |
+|---|---|
+| Handler wiring | 437 `WO.*` references vs 591 exports — 2 unresolved (`promptNewOrder`, `addLiturgyItem`), both feature-detected, **zero** reachable from markup |
+| Duplicate element IDs | none |
+| Rail integrity | numbering monotonic, no gaps, no orphan rows (99 rows / 95 boxes; the 4 extra are ESV and PowerPoint rows) |
+| Backgrounds on add | append at index 5, existing stay on their own slides |
+| Backgrounds on delete | deleted index 1 → background on 4 correctly moved to 3, same content |
+| Backgrounds on reorder | slide 0 → position 2, background travelled with it |
+| Undo/redo | restored add, delete and reorder exactly |
+| Save → reload round-trip | reproduced state exactly through Supabase |
+| Section menu / collapse | all seven actions fire, chevron reachable, no console errors |
+
+### Known limitation, not a defect
+
+Slides reorder only **within** their own song or liturgy item. `lcdRailDrop` bails on `!_lcdSameGroup`, and `lcdRailDragOver` does not `preventDefault()` across items so the cursor shows "no drop" — at least it is discoverable, but moving a slide between two hymns is not possible today.
+
+### Lesson for future testing on live orders
+
+Do not call `WO.lcdUndo()` speculatively — the stack persists across test steps and popping past the baseline mutates real data, and the autosave that follows persists it. Snapshot first, and prefer restoring by explicit re-application over undo.
+
+---
+
 ## 2026-08-11 — Section menu, media-to-all, video autostart, matched editor/output, desktop file drop (branch `feature/premium-mobile-roster`)
 
 ### 1. Section header: seven overlaid buttons → one actions menu
