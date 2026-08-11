@@ -4,6 +4,47 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — LCD Projection density pass: the windowed workspace fits on one screen (branch `feature/premium-mobile-roster`)
+
+Feedback on the non-full-screen workspace: nearly every panel had its own scrollbar — the library's filter chips, the schedule, the Slide Editor body, the format toolbar sideways, the Media Tray — inside a page that also scrolled. Ask: smaller type (~5px off the display sizes) and make it fit without scrolling, "while maintaining readability".
+
+**Three causes, not one.**
+1. **The Orders banner was 337px** of mostly decoration sitting above the workspace — the single biggest space thief, and the reason Full Screen (which hides it) felt so much better.
+2. **Only the workspace column was capped to the viewport.** The Service Schedule stretched `#worshipOrderView` to the height of the whole service — **9,362px** for a 98-slide order — so everything below the fold needed page scrolling to reach.
+3. Type scale and control heights were tuned for full-screen.
+
+**What changed**
+- **`lcd-mode` marker** on `#worshipOrderView`, set in `selectOrder()` and cleared in `showOrderModeLanding()`. Scopes the banner slimming to LCD Projection: Song Order and the landing screen keep the full banner. Desktop only (`min-width: 1201px`).
+- **Slim banner, 337 → 103px.** Title and order pill share one row, the italic tagline hides, the order controls and the two mode buttons share a row. **Every control is still present and visible** (Menu, Save, Save As, Undo/Redo, Zoom, Liturgy, Songbook, both mode buttons) — verified by measuring each one.
+- **`_lcdSizeWorkspaceColumns()`** caps all three columns to the same band below the banner, measured from `.wo-main-content`'s real top so it adapts to whatever height the banner ends up. It also flips the workspace column from `align-self: flex-start` to `stretch`, which is what lets the editor canvas take the slack rather than leaving it empty below the panel.
+- **`applyLayout` now runs on a `setTimeout` as well as `requestAnimationFrame`**, on entry and on resize. rAF is throttled in background tabs, so without it the workspace stayed unsized until the tab was focused.
+- **Type/spacing pass** (last LCD block in the sheet, so it wins on source order): rail title 15.5→13.5px, section header 0.82→0.72rem, editor text 1.25→1.05rem, panel headers, library cards, media hint, control heights. **Full-screen keeps 1.2rem editor text** via its own later rule.
+- **Format toolbar no longer scrolls sideways.** It wraps by group, and groups wrap internally — that second part is what guarantees no horizontal scroll at any width, since the Text group alone is wider than a narrow editor column. `overflow-y` had to go back to `visible` too: with one axis hidden the other computes to `auto` and the scrollbar returns.
+- **Outputs 55/45 → 60/40.** At 55% the editor was too narrow for its own toolbar and header, which then wrapped to three and two rows and ate the canvas. The Program Output is still a full 16:9 preview.
+- **1201–1699px:** the fixed 280/320 tracks left the workspace under 500px and the editor at ~170px. Narrowed to 196/286; the three secondary banner labels (which already mark themselves `wo-btn-lbl-secondary`) hide, keeping the banner on one row. Stacking the output under the editor was tried and is worse — a full-width 16:9 preview is taller than the whole outputs row.
+- **`Apply Changes` → `Apply`** on the editor button (same handler, same tooltip) — worth ~29px of header height, which was the difference between one row and two.
+- **Media Tray** thumbnails 104 → 76px and a smaller hint; the lower row gets a 128px floor so the flex column can't squeeze the tray into its own scrollbar. Below 1201px the outputs row gets its 340px floor back, otherwise the full-width output squeezed the editor panel to **zero height**.
+
+**Measured, fresh load per width, order "Service - Aug 9" (98 slides):**
+
+| Viewport | Page scrolls | Remaining scrollers | Editor canvas |
+|---|---|---|---|
+| 1920x1080 | no | song list, schedule | 354px |
+| 1740x900 | no | song list, schedule | 196px |
+| 1600x900 | no | song list, schedule | 148px |
+| 1440x900 | no | song list, schedule | 119px |
+| 1366x768 | no | + editor body | 118px |
+| 1100x800 (tablet) | yes (pre-existing) | + editor body | 118px |
+| 375x812 (mobile) | yes (pre-existing) | no horizontal overflow | — |
+
+The two remaining scrollers are the inherently long lists (98 songs, 98 slides) — those will always scroll. At 1366x768 the editor body still scrolls a little; 768px of height genuinely cannot hold banner + toolbar + 16:9 output + editor + tray, and Full Screen is the answer there.
+
+**Regression checks, all passing:** Song Order mode unwinds completely (`lcd-mode` off, banner back to 337px, inline column caps cleared, rail full-width, `display: block`). Full Screen still works and keeps its larger canvas (407px) and 1.2rem text; toggling back restores the windowed sizing. Align / Bold / undo / redo / zoom / library filter / Expand Schedule / Collapse Library all fire with no console errors. `node --check` clean on all 12 blocks; `dist/index.html` byte-identical.
+
+**Pane caveat worth remembering:** `.wo-main-content` has `transition: grid-template-columns 200ms`, and this browser pane never advances transitions — after a resize the computed columns stay frozen at the old value, which looks exactly like a media query failing to match. Every width above was therefore measured on a **fresh page load**, not a resize.
+
+---
+
 ## 2026-08-11 — Songbook edits now reach LCD Projection instantly (branch `feature/premium-mobile-roster`)
 
 Closes the limitation recorded in the two entries below: the lyric notice previously only appeared on the operator's next song-list refresh, because a songbook edit never reached their browser.
