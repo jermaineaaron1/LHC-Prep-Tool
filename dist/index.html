@@ -27475,12 +27475,27 @@ var WO = (function() {
             var _allLit = LiturgyModule.getAllItems ? LiturgyModule.getAllItems() : [];
             var _litRecord = _allLit.find(function(li) { return li.id === item.sourceId; });
 
-            // Build content: prefer live module record → fall back to saved slides
+            // Build content: prefer THIS ORDER'S saved slides, falling back to
+            // the live module record only when the order has none.
+            //
+            // This used to prefer _litRecord.content unconditionally, which
+            // silently discarded any edit the operator had made to a liturgy
+            // slide -- the edit saved to Supabase correctly and was then
+            // overwritten by the library copy on the next load. The original
+            // comment already described the intended behaviour ("fall back to
+            // the saved slides ... if the item was edited") but nothing ever
+            // tested for it, so that branch was unreachable.
+            //
+            // An order now owns its copy of a liturgy item, exactly as it does
+            // for songs. Library changes no longer overwrite the order.
             var _litContent = '';
-            if (_litRecord && _litRecord.content) {
+            var _litSaved = (item.slides && item.slides.length > 0)
+              ? item.slides.map(function(s) { return s.content; }).join('\n═══════════════════════════════════\n')
+              : '';
+            if (_litSaved.trim()) {
+              _litContent = _litSaved;
+            } else if (_litRecord && _litRecord.content) {
               _litContent = _litRecord.content;
-            } else if (item.slides && item.slides.length > 0) {
-              _litContent = item.slides.map(function(s) { return s.content; }).join('\n═══════════════════════════════════\n');
             }
 
             var liturgyItem = {
@@ -55272,6 +55287,11 @@ var WO = (function() {
     restoreSongSlides: restoreSongSlides,
     sbRemoveSong: sbRemoveSong,
     sbGoToOrder: sbGoToOrder,
+    // Both of these are invoked from markup as WO.<name>(...) -- the
+    // fullscreen annotate FAB and the per-link zoom selects -- but were never
+    // exported, so every click threw "not a function".
+    sbOpenAnnotPaletteFromPage: sbOpenAnnotPaletteFromPage,
+    sbSetLinkZoom: sbSetLinkZoom,
     // Songbook redesign — new panel/sidebar/selection functions
     sbPanelTab: sbPanelTab,
     sbToggleMore: sbToggleMore,

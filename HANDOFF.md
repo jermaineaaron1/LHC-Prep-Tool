@@ -4,6 +4,17 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — Fixed the liturgy edit-loss bug + two unexported Songbook handlers (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+Fixes for the bugs the previous entry documented. **It also corrects an overstatement in that entry** — see the last bullet.
+
+1. **Liturgy slide edits no longer discarded on reload** (`Index.html` ~27478). The restore preferred `_litRecord.content` (the live library copy) unconditionally, so any edit the operator made to a liturgy slide was overwritten on the next load even though it had saved to Supabase correctly. Inverted the preference: **this order's saved slides win; the live module record is the fallback for when the order has none.** An order now owns its copy of a liturgy item exactly as it does for a song, which is also the assumption the new lyric-notice feature is built on. Verified with the same round trip that exposed the bug — edit a liturgy slide → save → delete the local caches → full page reload → reopen from the database: the edit is now present and rendered in the rail at 1.1. Before the fix it was provably absent from the DOM despite being in the cloud row.
+2. **Exported `sbOpenAnnotPaletteFromPage` and `sbSetLinkZoom`.** Both are defined but were never on the `WO` object, and both are invoked *unguarded* from markup (`onclick="WO.sbOpenAnnotPaletteFromPage()"` on the Songbook fullscreen annotate FAB, and `onchange="WO.sbSetLinkZoom(...)"` on the per-link zoom selects), so every click threw "not a function". One-line export each; no logic touched.
+3. **Correction to the previous entry.** It claimed four `WO.*` handlers "will throw when invoked". Only the two above actually do. `WO.addLiturgyItem` (~57307) and `WO.promptNewOrder` (~16611) are both **feature-detected before use** — `if (typeof WO !== 'undefined' && WO.addLiturgyItem)` and `if (window.WO && window.WO.promptNewOrder) … else showToast('Create a new order from the Orders page')`. They are optional integration points that degrade gracefully, not bugs. The earlier claim came from a static call-site scan that did not read the surrounding guard; reading the call sites corrected it. Left alone.
+- `node --check` clean on all 12 blocks, byte-identical `dist/index.html`. Test order removed from Supabase by id; **21 real orders, both "Service - May 3" intact, 0 test orders.**
+
+---
+
 ## 2026-08-11 — Final audit: Supabase round-trip verified; two pre-existing bugs found (NOT fixed) (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
 
 Whole-page audit of LCD Projection: syntax, broken references, and a genuine end-to-end Supabase save → wipe local cache → full page reload → reopen-from-cloud round trip.
