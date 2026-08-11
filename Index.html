@@ -15429,6 +15429,12 @@ window.loadEditSongData = function(song) {
     if (_leavingOrders && typeof WO !== 'undefined' && WO.saveImmediately) {
       WO.saveImmediately();
     }
+    // Put the sidebar back if LCD Projection auto-collapsed it. Done on
+    // leaving Orders rather than on the Song Order toggle, so flipping
+    // between the two modes doesn't animate the sidebar back and forth.
+    if (_leavingOrders && typeof WO !== 'undefined' && WO.lcdRestoreSidebar) {
+      WO.lcdRestoreSidebar();
+    }
 
     // Close sidebar on mobile when switching views
     closeSidebarOnMobile();
@@ -25487,6 +25493,7 @@ var WO = (function() {
       _lcdSetupCompactRailObserver();
       _lcdRenderLibraryPanel();
       _lcdApplyLayoutFlags();
+      _lcdAutoCollapseSidebar();
       _lcdStartSongLiveSync();
       _lcdUpdateProgramBarrier();
       // Make preview panel follow while scrolling
@@ -49222,6 +49229,45 @@ var WO = (function() {
   // Column-width toggles. Both persist like toggleSidebar() does, and both
   // re-run _enterServiceOrderLayout() because the sticky preview panel's
   // measured max-height depends on the layout it just changed.
+  // ---- Auto-collapse the app sidebar for LCD Projection ------------------
+  // The projection workspace wants every pixel, so entering it drops the
+  // sidebar to its icon rail automatically and leaving Orders puts it back.
+  // Two things this deliberately does NOT do: it never touches the sidebar if
+  // the operator already had it collapsed (that is their choice, and we must
+  // not "restore" something they never opened), and it never lets the
+  // automatic collapse overwrite their saved preference -- otherwise closing
+  // the tab from in here would silently change what they see next session.
+  var _lcdSidebarAutoCollapsed = false;
+
+  function _lcdPrefWrite(saved) {
+    if (saved === null) localStorage.removeItem('lhc_sidebar_collapsed');
+    else localStorage.setItem('lhc_sidebar_collapsed', saved);
+  }
+
+  function _lcdAutoCollapseSidebar() {
+    // Below 1025px the sidebar is an overlay that already manages itself.
+    if (!window.matchMedia('(min-width: 1025px)').matches) return;
+    var root = document.querySelector('.lhc-root');
+    if (!root || root.classList.contains('sidebar-collapsed')) return;
+    if (typeof toggleSidebar !== 'function') return;
+    var saved = localStorage.getItem('lhc_sidebar_collapsed');
+    toggleSidebar();
+    _lcdPrefWrite(saved);
+    _lcdSidebarAutoCollapsed = true;
+  }
+
+  function lcdRestoreSidebar() {
+    if (!_lcdSidebarAutoCollapsed) return;
+    _lcdSidebarAutoCollapsed = false;
+    var root = document.querySelector('.lhc-root');
+    // If they re-opened it by hand while in here, leave it exactly as they set it.
+    if (!root || !root.classList.contains('sidebar-collapsed')) return;
+    if (typeof toggleSidebar !== 'function') return;
+    var saved = localStorage.getItem('lhc_sidebar_collapsed');
+    toggleSidebar();
+    _lcdPrefWrite(saved);
+  }
+
   function _lcdApplyLayoutFlags() {
     var mc = document.querySelector('.wo-main-content');
     if (!mc) return;
@@ -55260,6 +55306,7 @@ var WO = (function() {
     lcdLibraryDragEnd: lcdLibraryDragEnd,
     lcdToggleScheduleExpand: lcdToggleScheduleExpand,
     lcdToggleLibrary: lcdToggleLibrary,
+    lcdRestoreSidebar: lcdRestoreSidebar,
     woPopupToggle: woPopupToggle,
     woPopupOpenDrop: woPopupOpenDrop,
     openNewSongFromWO: openNewSongFromWO,
