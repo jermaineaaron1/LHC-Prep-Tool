@@ -4,6 +4,21 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — Third audit: undo interaction, slide delete, transpose false-positive (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+Third pass, targeting areas the first two did not reach: how the new code composes with undo/redo, the slide-delete path, and the correctness of the new lyric-divergence badge under transposition.
+
+**Verified sound, no change needed — undo/redo composes correctly with the background remap.** `_lcdSnapshot()` already captures `sectionBackgrounds` (alongside the DOM, `songOrderSections` and `currentSermonSlides`), and `_lcdRestoreSnapshot()` restores it, persists via `saveSlideBackgrounds()`, and re-renders the rail — which also re-wires the Phase 4 library drop listeners that the `innerHTML` replace destroys. Because `_lcdPushUndo()` runs *before* the capture/remap, the snapshot holds pre-insert state. Proven live: background on slide 3 → drag-insert moves it to 8 → Ctrl+Z returns both the slides and the background to index 3.
+
+**Fixed (pre-existing, same root cause as last round): deleting a slide misaligned backgrounds.** `_lcdDeleteSlideBox()` pushed undo but never touched `sectionBackgrounds`, so removing a slide shifted every later slide's background by one — each following slide inherited its neighbour's. Applied the same `_lcdCaptureSectionBgs`/`_lcdRestoreSectionBgs` pair around the removal. Entries whose slide is gone drop out naturally, since restore only re-pins boxes still in the container. Verified: background on slide 3, delete slide 1, slide moves to index 2 and its background follows; Ctrl+Z restores both. **All three slide-mutation paths — insert, reorder, delete — now re-pin correctly.**
+
+**Fixed a flaw in the new badge: a transposed song was reported as having edited lyrics.** `collectOrderItems()` writes the transposed text into `customLyrics` whenever `transposeSteps !== 0`, so "has customLyrics" alone does not mean the words changed — merely changing key would have raised "Edited for this service". Two corrections: (a) only claim `custom` when `transposeSteps === 0`, since separating a transposition from a real edit would need chord parsing and a false accusation is worse than silence; (b) compare against `masterLyrics` (the authoritative untransposed text) in preference to `.lyrics`, which can itself hold transposed content and would otherwise false-positive as "Library copy updated". Validated with an 8-case table covering identical, whitespace-only noise, library-edited, genuinely-edited, transposed-only, transposed-plus-library-moved, transposed-`lyrics`-with-clean-master, and song-missing-from-library — **all 8 pass**, including the two the pre-fix rule got wrong.
+- Live re-verification of the badge after the change: silent when the copies match, 5 flags with reason `library` on exactly the edited song, cleared again on restore.
+- **Known limitation, stated plainly**: a song that is *both* transposed and has genuinely edited words will not raise the `custom` flag (it still raises `library` if the library copy differs). Detecting that case needs chord-aware comparison; the codebase has `isChordLine`/`isChordToken` heuristics that could support it, but wiring a fragile parser into a correctness signal was not worth it without a real need.
+- Full regression after all three changes: rail 98 rows, schedule header, 51 library cards, editor canvas, 3 toolbar groups, Blank/Project in the Program Output box, lyric banner present, no page overflow, no new console errors. `node --check` clean, byte-identical `dist/index.html`. Three disposable orders removed from Supabase by id; **21 real orders, both "Service - May 3" entries intact, 0 test orders**.
+
+---
+
 ## 2026-08-11 — Second audit (data integrity) + "lyrics differ from library" awareness (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
 
 A second audit pass aimed at cross-order contamination, media/PowerPoint integrity and content consistency, plus a new operator-awareness feature.

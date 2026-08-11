@@ -47716,6 +47716,11 @@ var WO = (function() {
         groupCount = grp ? grp.querySelectorAll('.wo-slide-box').length : 1;
       }
     }
+    // Removing a slide renumbers every later slide in the section, so the
+    // per-slide background map has to be re-pinned exactly as insert and
+    // reorder do (see _lcdCaptureSectionBgs) -- otherwise each following
+    // slide inherits its neighbour's background.
+    var _delBgs = sectionId ? _lcdCaptureSectionBgs(sectionId) : null;
     if (groupCount > 1) {
       box.remove();
       if (groupId) renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
@@ -47723,6 +47728,9 @@ var WO = (function() {
     } else {
       _lcdRemoveWholeGroup(box, sectionId, groupId, isLiturgy, source);
     }
+    // Entries whose slide is gone drop out naturally: _lcdRestoreSectionBgs
+    // only re-pins boxes still present in the container.
+    if (sectionId) _lcdRestoreSectionBgs(sectionId, _delBgs);
     if (neighbor && !neighbor.isConnected) neighbor = null;
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
@@ -48297,15 +48305,26 @@ var WO = (function() {
     var res = null;
     var entry = songOrderSections.find(function(s) { return s.id === entryId; });
     if (entry) {
+      // collectOrderItems() writes the transposed text into customLyrics when
+      // transposeSteps !== 0, so "has customLyrics" alone does NOT mean the
+      // words were changed -- a simple key change would trip it. Only claim an
+      // edit when the song is untransposed; separating a transposition from a
+      // genuine edit would need chord parsing, and a false accusation here is
+      // worse than staying quiet.
+      var steps = entry.transposeSteps || 0;
       var custom = entry.hasCustomLyrics && String(entry.customLyrics || '').trim();
-      if (custom) {
+      // masterLyrics is the authoritative untransposed text; prefer it, because
+      // .lyrics can hold transposed content and would then look like a mismatch.
+      var orderBase = (entry.masterLyrics != null && String(entry.masterLyrics).trim())
+        ? entry.masterLyrics : entry.lyrics;
+      if (custom && steps === 0) {
         res = { differs: true, reason: 'custom', label: 'Edited for this service',
                 detail: 'These lyrics were customised for this order and differ from the song stored in the library.' };
       } else {
         var lib = _lcdAllSongs().find(function(s) { return s.id === entry.songId; });
         // No library match (song deleted/renamed id) is not a difference we can
         // claim -- stay silent rather than cry wolf.
-        if (lib && _lcdNormalizeLyrics(lib.lyrics) !== _lcdNormalizeLyrics(entry.lyrics)) {
+        if (lib && _lcdNormalizeLyrics(lib.lyrics) !== _lcdNormalizeLyrics(orderBase)) {
           res = { differs: true, reason: 'library', label: 'Library copy updated',
                   detail: 'The worship team has changed this song in the library since it was added to this order. The words below are this order’s saved copy, not the current library version.' };
         }
