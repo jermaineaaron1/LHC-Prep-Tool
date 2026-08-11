@@ -6153,6 +6153,21 @@
             </div>
 
             <div class="wo-main-content wo-song-order">
+              <!-- Song Library panel: LCD Projection mode only (hidden by CSS in
+                   Song Order mode). Reuses the same song data + add path as the
+                   existing #woSongPopup modal, which stays as the section-scoped
+                   quick-add and the full advanced-filter surface. -->
+              <div class="lcd-library-panel" id="lcdLibraryPanel">
+                <div class="lcd-lib-header">
+                  <span class="lcd-lib-title"><i class="fa-solid fa-music"></i> Song Library</span>
+                  <button class="lcd-lib-iconbtn" onclick="WO.openSongLibrary()" title="Advanced filters — season, tempo, key, themes, scripture"><i class="fa-solid fa-sliders"></i></button>
+                </div>
+                <input type="text" class="lcd-lib-search" id="lcdLibSearch" placeholder="Search songs..." oninput="WO.lcdLibraryFilter()" autocomplete="off">
+                <div class="lcd-lib-chips" id="lcdLibChips"></div>
+                <div class="lcd-lib-list" id="lcdLibList"></div>
+              </div>
+              <button class="lcd-lib-reopen" id="lcdLibReopen" onclick="WO.lcdToggleLibrary()" title="Show Song Library"><i class="fa-solid fa-music"></i></button>
+
               <div class="wo-worship-order" id="woWorshipOrder">
                 <div class="wo-song-order-compact">
                   <div class="wo-song-order-toolbar-compact">
@@ -6192,16 +6207,10 @@
 
                 <!-- Quick controls toolbar (repositioned above outputs) -->
                 <div class="wo-preview-actions lcd-controls-row">
-                  <!-- Text alignment -->
-                  <div class="wo-align-group" title="Text alignment on projection">
-                    <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
-                    <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
-                    <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
-                  </div>
-                  <!-- Text barrier (safe zone) editor button -->
-                  <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
-                  <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
-                  <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
+                  <!-- Slide-level controls (align / Barrier / Text / BG) now
+                       live in the Slide Editor's own toolbar. What remains here
+                       is workspace-level: preview zoom, order-level undo/redo,
+                       and the projection actions. -->
                   <div class="wo-preview-zoom-group" title="Zoom projection preview">
                     <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
                     <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
@@ -6210,11 +6219,6 @@
                   <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
                   <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
                   <div class="lcd-controls-spacer"></div>
-                  <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
-                    <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
-                    <span class="wo-golive-label" id="woBlankLabel">Blank</span>
-                  </button>
-                  <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
                 </div>
 
                 <!-- Preview + Program outputs, side by side -->
@@ -6231,42 +6235,83 @@
                       </div>
                     </div>
                     <div class="lcd-panel-body lcd-lyrics-body">
+                      <!-- Toolbar grouped as Text / Layout / Background. The
+                           align, Barrier and BG controls moved here from the
+                           workspace bar so every slide-level control lives with
+                           the slide; their ids and onclick handlers are
+                           unchanged. -->
                       <div class="lcd-fmt-toolbar">
-                        <button class="lcd-fmt-btn" title="Bold selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('bold')"><b>B</b></button>
-                        <button class="lcd-fmt-btn" title="Italic selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('italic')"><em style="font-family:Georgia,serif;">I</em></button>
-                        <button class="lcd-fmt-btn" title="Underline selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('underline')"><u>U</u></button>
-                        <span class="lcd-fmt-sep"></span>
-                        <select class="lcd-fmt-select" title="Font of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtFont(this)">
-                          <option value="">Font</option>
-                          <option value="Georgia, serif">Georgia</option>
-                          <option value="'Times New Roman', serif">Times</option>
-                          <option value="Arial, sans-serif">Arial</option>
-                          <option value="'Poppins', sans-serif">Poppins</option>
-                          <option value="'Lato', sans-serif">Lato</option>
-                          <option value="'Cinzel', serif">Cinzel</option>
-                        </select>
-                        <select class="lcd-fmt-select" title="Size of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtSize(this)">
-                          <option value="">Size</option>
-                          <option value="14px">14</option>
-                          <option value="18px">18</option>
-                          <option value="24px">24</option>
-                          <option value="30px">30</option>
-                          <option value="36px">36</option>
-                          <option value="48px">48</option>
-                          <option value="60px">60</option>
-                        </select>
-                        <input type="color" class="lcd-fmt-color" title="Colour of selected text" value="#ffffff" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtColor(this)">
+                        <span class="lcd-fmt-group">
+                          <span class="lcd-fmt-group-label">Text</span>
+                          <button class="lcd-fmt-btn" title="Bold selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('bold')"><b>B</b></button>
+                          <button class="lcd-fmt-btn" title="Italic selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('italic')"><em style="font-family:Georgia,serif;">I</em></button>
+                          <button class="lcd-fmt-btn" title="Underline selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('underline')"><u>U</u></button>
+                          <select class="lcd-fmt-select" title="Font of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtFont(this)">
+                            <option value="">Font</option>
+                            <option value="Georgia, serif">Georgia</option>
+                            <option value="'Times New Roman', serif">Times</option>
+                            <option value="Arial, sans-serif">Arial</option>
+                            <option value="'Poppins', sans-serif">Poppins</option>
+                            <option value="'Lato', sans-serif">Lato</option>
+                            <option value="'Cinzel', serif">Cinzel</option>
+                          </select>
+                          <select class="lcd-fmt-select" title="Size of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtSize(this)">
+                            <option value="">Size</option>
+                            <option value="14px">14</option>
+                            <option value="18px">18</option>
+                            <option value="24px">24</option>
+                            <option value="30px">30</option>
+                            <option value="36px">36</option>
+                            <option value="48px">48</option>
+                            <option value="60px">60</option>
+                          </select>
+                          <input type="color" class="lcd-fmt-color" title="Colour of selected text" value="#ffffff" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtColor(this)">
+                          <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
+                          <span class="wo-align-group" title="Text alignment on projection">
+                            <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+                            <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+                            <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
+                          </span>
+                        </span>
+                        <span class="lcd-fmt-group">
+                          <span class="lcd-fmt-group-label">Layout</span>
+                          <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
+                        </span>
+                        <span class="lcd-fmt-group">
+                          <span class="lcd-fmt-group-label">Background</span>
+                          <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
+                        </span>
                       </div>
-                      <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)" onblur="WO.lcdFlushAutoApply()"></div>
+                      <!-- Shown only when this song's lyrics no longer match the
+                           library default (see _lcdSongLyricsStatus). -->
+                      <div class="lcd-lyric-banner" id="lcdLyricBanner" style="display:none;">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span class="lcd-lyric-banner-text" id="lcdLyricBannerText"></span>
+                      </div>
+                      <!-- Canvas: the editable text sits on the slide's real
+                           background so it reads like the projected slide. -->
+                      <div class="lcd-editor-canvas" id="lcdEditorCanvas">
+                        <div class="lcd-editor-canvas-bg" id="lcdEditorCanvasBg"></div>
+                        <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)" onblur="WO.lcdFlushAutoApply()"></div>
+                      </div>
                       <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
                     </div>
                   </div>
-                  <div class="lcd-output-box">
+                  <div class="lcd-output-box lcd-program-box">
                     <div class="lcd-output-label">Program Output <span class="lcd-live-dot" id="lcdProgramLiveDot" title="Live"></span></div>
                     <div class="wo-preview-screen lcd-program-screen" id="lcdProgramOutput">
                       <div class="wo-preview-bg" id="lcdProgramBg"></div>
                       <div class="lcd-program-barrier" id="lcdProgramBarrier"><span class="lcd-program-barrier-tag">SAFE ZONE</span></div>
                       <div class="wo-preview-placeholder">Not projecting</div>
+                    </div>
+                    <!-- Projection actions live with the output they affect.
+                         Same ids and handlers as when they sat in the toolbar. -->
+                    <div class="lcd-program-actions">
+                      <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
+                        <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
+                        <span class="wo-golive-label" id="woBlankLabel">Blank</span>
+                      </button>
+                      <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
                     </div>
                   </div>
                 </div>
@@ -18699,6 +18744,11 @@ window.loadEditSongData = function(song) {
       populateFilterDropdowns();
       renderSongs(false);
       renderSongStats();
+      // Songs arrive asynchronously, so the LCD Projection Song Library panel
+      // may already be on screen and rendered from an empty list. It also has
+      // to pick up songs added or edited later, since loadSongs() is the one
+      // place the library is refreshed.
+      if (typeof WO !== 'undefined' && WO.lcdRefreshLibrary) WO.lcdRefreshLibrary();
       $('backendStatus').textContent = 'Backend: Connected ✓';
       $('backendStatus').style.color = '#86efac';
       // Deep link: ?song=SONG_ID → open that song's preview (standalone, not paired with ?media=)
@@ -25336,6 +25386,8 @@ var WO = (function() {
       _lcdSetupPreviewDropZone();
       _lcdRenderCompactRail();
       _lcdSetupCompactRailObserver();
+      _lcdRenderLibraryPanel();
+      _lcdApplyLayoutFlags();
       _lcdUpdateProgramBarrier();
       // Make preview panel follow while scrolling
       setTimeout(_enterServiceOrderLayout, 50);
@@ -27423,12 +27475,27 @@ var WO = (function() {
             var _allLit = LiturgyModule.getAllItems ? LiturgyModule.getAllItems() : [];
             var _litRecord = _allLit.find(function(li) { return li.id === item.sourceId; });
 
-            // Build content: prefer live module record → fall back to saved slides
+            // Build content: prefer THIS ORDER'S saved slides, falling back to
+            // the live module record only when the order has none.
+            //
+            // This used to prefer _litRecord.content unconditionally, which
+            // silently discarded any edit the operator had made to a liturgy
+            // slide -- the edit saved to Supabase correctly and was then
+            // overwritten by the library copy on the next load. The original
+            // comment already described the intended behaviour ("fall back to
+            // the saved slides ... if the item was edited") but nothing ever
+            // tested for it, so that branch was unreachable.
+            //
+            // An order now owns its copy of a liturgy item, exactly as it does
+            // for songs. Library changes no longer overwrite the order.
             var _litContent = '';
-            if (_litRecord && _litRecord.content) {
+            var _litSaved = (item.slides && item.slides.length > 0)
+              ? item.slides.map(function(s) { return s.content; }).join('\n═══════════════════════════════════\n')
+              : '';
+            if (_litSaved.trim()) {
+              _litContent = _litSaved;
+            } else if (_litRecord && _litRecord.content) {
               _litContent = _litRecord.content;
-            } else if (item.slides && item.slides.length > 0) {
-              _litContent = item.slides.map(function(s) { return s.content; }).join('\n═══════════════════════════════════\n');
             }
 
             var liturgyItem = {
@@ -29773,6 +29840,11 @@ var WO = (function() {
         }
       }
     }
+
+    // Keep the Slide Editor canvas in step: it paints the slide's background
+    // behind the editable text, and every background write funnels through
+    // here, so this is the one place that catches select / clear / whole-section.
+    if (typeof _lcdRefreshEditorCanvas === 'function') _lcdRefreshEditorCanvas();
 
     // Trigger auto-save after background change
     autoSaveOrder();
@@ -32992,6 +33064,17 @@ var WO = (function() {
 
     songOrderSections.push(songEntry);
     renderSongOrderSection(songEntry);
+    // renderSongOrderSection() only populates the Song Order list. In LCD
+    // Projection (Service Order) mode the song also has to be rendered into
+    // the service sections themselves, otherwise it lands in the order data
+    // but the Service Schedule shows nothing until the next full
+    // initializeServiceOrder() -- which reads as "Add did nothing".
+    var _mcAdd = document.querySelector('.wo-main-content');
+    if (_mcAdd && !_mcAdd.classList.contains('wo-song-order')) {
+      selectedSections.forEach(function(secId) {
+        addSongToServiceSection(secId, songEntry, true);
+      });
+    }
     _refreshPlaylistIfOpen();
 
     closeSectionModal();
@@ -46609,6 +46692,22 @@ var WO = (function() {
     container.innerHTML = html;
   }
 
+  // Shape of a song entry as it lives in songOrderSections when placed into a
+  // service section. Shared by the double-click/section-scoped add path and
+  // the Library drag-to-position path so both produce identical entries.
+  function _woBuildSongSectionEntry(song, sectionId) {
+    return {
+      id: 'wo-song-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+      songId: song.id,
+      title: song.title,
+      artist: song.artist,
+      lyrics: song.lyrics || '',
+      youtube: Array.isArray(song.youtube) ? song.youtube : [],
+      attachments: Array.isArray(song.attachments) ? song.attachments : [],
+      sectionId: sectionId
+    };
+  }
+
   // Add song directly on double-click
   function addSongDirectly(songId) {
     var songs = (window.LHC_STATE && window.LHC_STATE.songs) || [];
@@ -46634,16 +46733,7 @@ var WO = (function() {
         addSongToServiceSection(targetSectionId, existingInOrder);
       } else {
         // Create a song section object and add to BOTH songOrderSections and service section
-        var songSection = {
-          id: 'wo-song-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-          songId: song.id,
-          title: song.title,
-          artist: song.artist,
-          lyrics: song.lyrics || '',
-          youtube: Array.isArray(song.youtube) ? song.youtube : [],
-          attachments: Array.isArray(song.attachments) ? song.attachments : [],
-          sectionId: targetSectionId
-        };
+        var songSection = _woBuildSongSectionEntry(song, targetSectionId);
 
         // Add to songOrderSections so collectOrderItems() captures it
         songOrderSections.push(songSection);
@@ -47433,7 +47523,131 @@ var WO = (function() {
     }
     if (ed) ed.innerHTML = _lcdReadSlideRich(box);
     if (openBtn) openBtn.style.display = songId ? '' : 'none';
+    _lcdUpdateEditorCanvas(box);
+    // Opening a slide counts as having seen it, so the badge clears.
+    _lcdUpdateLyricBanner(songId, box.getAttribute('data-slide-idx') || '0', true);
     _lcdUpdateSlideSummary();
+  }
+
+  // Banner above the editor telling the operator these words are not the
+  // library default. Status is recomputed live (cache is cleared each rail
+  // render), so a library edit surfaces without reloading the order.
+  // acknowledge=true only when the operator actively opened the slide. Passive
+  // refreshes (rail re-renders while they sit on a slide) must NOT acknowledge,
+  // otherwise an edit arriving mid-session would clear itself before being read.
+  function _lcdUpdateLyricBanner(entryId, slideIdx, acknowledge) {
+    var el = document.getElementById('lcdLyricBanner');
+    var txt = document.getElementById('lcdLyricBannerText');
+    if (!el || !txt) return;
+    _lcdResetLyricStatusCache();
+    var chg = entryId ? _lcdChangedSlidesCached(entryId) : null;
+    var si = parseInt(slideIdx == null ? -1 : slideIdx, 10);
+    var c = (chg && si >= 0) ? chg[si] : null;
+    if (!c) { el.style.display = 'none'; el.removeAttribute('data-entry'); return; }
+
+    var heading = (c.source === 'custom')
+      ? 'Lyrics edited for this service'
+      : (c.kind === 'added' ? 'New slide added in the library'
+        : c.kind === 'removed' ? 'This slide is no longer in the library'
+        : 'Library lyrics updated for this slide');
+    var libPreview = _lcdNormalizeLyrics(c.libText);
+    var body = (c.kind === 'removed')
+      ? 'The worship team removed this slide from the library version.'
+      : 'The library now reads:';
+
+    el.className = 'lcd-lyric-banner ' + c.source;
+    el.setAttribute('data-entry', entryId);
+    el.setAttribute('data-slide', String(si));
+    txt.innerHTML =
+      '<div class="lcd-lyric-banner-head">' + escapeHtml(heading) + '</div>' +
+      '<div class="lcd-lyric-banner-body">' + escapeHtml(body) + '</div>' +
+      (c.kind === 'removed' ? '' : '<div class="lcd-lyric-diff">' + escapeHtml(libPreview) + '</div>') +
+      '<div class="lcd-lyric-banner-actions">' +
+        (c.kind === 'removed' ? '' :
+          '<button class="lcd-lyric-refresh" onclick="WO.lcdRefreshSlideFromLibrary()"><i class="fa-solid fa-rotate"></i> Use the library version</button>') +
+        '<button class="lcd-lyric-dismiss" onclick="WO.lcdDismissLyricNotice()">Keep this order’s version</button>' +
+      '</div>' +
+      '<div class="lcd-lyric-banner-foot">Chord and key changes are not reported.</div>';
+    el.style.display = '';
+    if (acknowledge) _lcdAckSlide(entryId, si, c.libText);
+  }
+
+  // Pull the library's wording into this slide and project it.
+  function lcdRefreshSlideFromLibrary() {
+    var el = document.getElementById('lcdLyricBanner');
+    if (!el) return;
+    var entryId = el.getAttribute('data-entry');
+    var si = parseInt(el.getAttribute('data-slide') || '-1', 10);
+    var chg = entryId ? _lcdChangedSlides(entryId) : null;
+    var c = (chg && si >= 0) ? chg[si] : null;
+    if (!c) { showToast('That change is no longer available.', 'warning'); return; }
+    var box = _lcdRelocateActiveSlideBox();
+    if (!box) { showToast('Select the slide again, then retry.', 'warning'); return; }
+    _lcdPushUndo();
+    // Strip the leading [Header] line: the slide box stores body text only,
+    // the header lives in the slide's own header element.
+    var body = String(c.libText).replace(/^\[[^\]\n]*\]\n?/, '');
+    _lcdWriteSlideText(box, body);
+    _lcdLoadSlideIntoEditor(box);
+    _lcdCommitEditorToSlide();
+    _lcdAckSlide(entryId, si, c.libText);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    // Hide outright rather than recompute: the slide now carries the library
+    // wording, but the entry's stored lyrics/masterLyrics still hold the old
+    // text, so a recompute would keep reporting a difference the operator has
+    // already resolved. The per-version acknowledgement keeps the rail badge
+    // off too, and a genuinely NEW library edit still raises both again.
+    el.style.display = 'none';
+    showToast('Slide updated to the library version', 'success');
+  }
+
+  // Keep this order's wording; just stop flagging this version.
+  function lcdDismissLyricNotice() {
+    var el = document.getElementById('lcdLyricBanner');
+    if (!el) return;
+    var entryId = el.getAttribute('data-entry');
+    var si = parseInt(el.getAttribute('data-slide') || '-1', 10);
+    var chg = entryId ? _lcdChangedSlides(entryId) : null;
+    var c = (chg && si >= 0) ? chg[si] : null;
+    if (c) _lcdAckSlide(entryId, si, c.libText);
+    el.style.display = 'none';
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+  }
+
+  // Paint the slide's real background and alignment onto the editor canvas so
+  // the editing surface resembles what will actually project. Reuses
+  // getBackgroundForSlideInSection() + _applyBgToDivEl() -- the same pair the
+  // Program Output mirror uses -- rather than deriving backgrounds separately.
+  function _lcdUpdateEditorCanvas(box) {
+    var bgEl = document.getElementById('lcdEditorCanvasBg');
+    var ed = _lcdEditorEl();
+    if (!bgEl) return;
+    if (!box) {
+      bgEl.style.cssText = '';
+      bgEl.innerHTML = '';
+      if (ed) ed.style.textAlign = '';
+      return;
+    }
+    var sectionId = box.getAttribute('data-section') || '';
+    var localIdx = -1;
+    var wrap = box.closest('.wo-content-boxes');
+    if (wrap) localIdx = Array.from(wrap.querySelectorAll('.wo-slide-box')).indexOf(box);
+    var bg = (sectionId && localIdx >= 0 && typeof getBackgroundForSlideInSection === 'function')
+      ? getBackgroundForSlideInSection(sectionId, localIdx) : null;
+    bgEl.style.cssText = '';
+    bgEl.innerHTML = '';
+    if (bg && typeof _applyBgToDivEl === 'function') _applyBgToDivEl(bgEl, bg);
+    // Alignment is a single projection-wide setting (_currentSlideAlign), not
+    // a per-slide attribute -- mirror that same value.
+    if (ed) ed.style.textAlign = (typeof _currentSlideAlign !== 'undefined' && _currentSlideAlign) ? _currentSlideAlign : '';
+  }
+
+  // Repaint the canvas for whatever slide is currently loaded (used after an
+  // alignment or background change, which do not reload the editor).
+  function _lcdRefreshEditorCanvas() {
+    var box = _lcdRelocateActiveSlideBox();
+    if (box) _lcdUpdateEditorCanvas(box);
   }
 
   function _lcdRelocateActiveSlideBox() {
@@ -47516,6 +47730,8 @@ var WO = (function() {
     if (titleEl) titleEl.textContent = 'No slide selected';
     if (slideNumEl) slideNumEl.textContent = '';
     if (openBtn) openBtn.style.display = 'none';
+    _lcdUpdateEditorCanvas(null);
+    _lcdUpdateLyricBanner(null, -1, false);
     _lcdUpdateSlideSummary();
   }
 
@@ -47584,6 +47800,11 @@ var WO = (function() {
         groupCount = grp ? grp.querySelectorAll('.wo-slide-box').length : 1;
       }
     }
+    // Removing a slide renumbers every later slide in the section, so the
+    // per-slide background map has to be re-pinned exactly as insert and
+    // reorder do (see _lcdCaptureSectionBgs) -- otherwise each following
+    // slide inherits its neighbour's background.
+    var _delBgs = sectionId ? _lcdCaptureSectionBgs(sectionId) : null;
     if (groupCount > 1) {
       box.remove();
       if (groupId) renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
@@ -47591,6 +47812,9 @@ var WO = (function() {
     } else {
       _lcdRemoveWholeGroup(box, sectionId, groupId, isLiturgy, source);
     }
+    // Entries whose slide is gone drop out naturally: _lcdRestoreSectionBgs
+    // only re-pins boxes still present in the container.
+    if (sectionId) _lcdRestoreSectionBgs(sectionId, _delBgs);
     if (neighbor && !neighbor.isConnected) neighbor = null;
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
@@ -48052,7 +48276,9 @@ var WO = (function() {
     }
 
     container.addEventListener('dragover', function(e) {
-      if (_lcdDragRowId || _lcdDragSectionId) return; // rail reorder in progress - don't hijack dropEffect
+      // A rail reorder or a Library song drag is in progress - don't hijack
+      // dropEffect or paint media-style drop highlights over their markers.
+      if (_lcdDragRowId || _lcdDragSectionId || _lcdDragSongId) return;
       var t = targets(e);
       if (!t.railRow && !t.slideBox && !t.railSection && !t.sectionEl) return;
       e.preventDefault();
@@ -48063,7 +48289,7 @@ var WO = (function() {
       else if (t.sectionEl) t.sectionEl.classList.add('lcd-drop-target');
     });
     container.addEventListener('dragleave', function(e) {
-      if (_lcdDragRowId || _lcdDragSectionId) return;
+      if (_lcdDragRowId || _lcdDragSectionId || _lcdDragSongId) return;
       var t = targets(e);
       if (t.railRow) t.railRow.classList.remove('lcd-drop-target');
       if (t.slideBox) t.slideBox.classList.remove('lcd-drop-target');
@@ -48141,16 +48367,173 @@ var WO = (function() {
   var _lcdCollapsedSections = {};
   var _lcdRailRowSeq = 0;
 
+  // ---- "these lyrics aren't the library default" awareness ------------
+  // An order stores its own copy of a song's lyrics, taken when the song was
+  // added. Two things can make what projects differ from the database default:
+  // the worship team edits the song in the library afterwards, or someone
+  // customises the lyrics inside this order. Either way the operator running
+  // LCD Projection should know the words on screen are not the stored default.
+  // Compared on normalised text so whitespace/line-ending noise never trips it.
+  // Slides the operator has already looked at, keyed "entryId|slideIdx" and
+  // holding the library text they saw. If the worship team edits that same
+  // slide AGAIN the stored text no longer matches and the badge returns, so
+  // acknowledging is per-version, not permanent.
+  var _lcdAckedSlides = {};
+  var _lcdLyricStatusCache = {};
+  function _lcdNormalizeLyrics(t) {
+    return String(t == null ? '' : t)
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/[ ]*\n[ ]*/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  // Reduce a song to its WORDS only, so the badge reports lyric changes and
+  // stays silent about chords — a transposition or a reharmonisation is not a
+  // lyric change. Reuses the app's own tuned chord detectors (isChordToken /
+  // isChordLineGlobal, which already handle the "Am" vs the word "am" trap
+  // that is everywhere in worship lyrics).
+  // Both sides of every comparison run through this identically, so a
+  // misjudged line can only ever mask a real difference — it can never invent
+  // one. False silence beats a false accusation here.
+  function _lcdLyricsOnly(text) {
+    var src = String(text == null ? '' : text).replace(/\r\n?/g, '\n');
+    var kept = [];
+    src.split('\n').forEach(function(line) {
+      // Drop inline chord brackets like [G] [Am7] [Bb/D]; leave structural
+      // markers such as [Verse 1] or [Chorus] intact — those are part of the
+      // words' shape, and a change to them is worth reporting.
+      var stripped = line.replace(/\[([^\]\n]{1,12})\]/g, function(whole, inner) {
+        return (typeof isChordToken === 'function' && isChordToken(inner.trim())) ? '' : whole;
+      });
+      // Drop whole lines that are a chord chart rather than lyrics.
+      if (typeof isChordLineGlobal === 'function' && isChordLineGlobal(stripped)) return;
+      kept.push(stripped);
+    });
+    return _lcdNormalizeLyrics(kept.join('\n'));
+  }
+  // Split lyrics into the same slides the projector builds, so a comparison
+  // lines up with the slides the operator actually sees.
+  function _lcdSlideTexts(lyrics) {
+    if (typeof parseLyricsIntoSlides !== 'function') return [];
+    return (parseLyricsIntoSlides(lyrics) || []).map(function(s) {
+      return (s.header ? '[' + s.header + ']\n' : '') + ((s.lines || []).join('\n'));
+    });
+  }
+
+  // Per-slide comparison against the library, words only. Returns a map of
+  // slide index -> { libText, orderText, kind } for the slides that actually
+  // differ, so the badge lands on the slide carrying the changed lyric rather
+  // than on every slide of the song.
+  function _lcdChangedSlides(entryId) {
+    if (!entryId) return null;
+    var entry = songOrderSections.find(function(s) { return s.id === entryId; });
+    if (!entry) return null;
+    var lib = _lcdAllSongs().find(function(s) { return s.id === entry.songId; });
+    if (!lib) return null;
+    var custom = String(entry.customLyrics || '').trim();
+    var orderBase = custom || ((entry.masterLyrics != null && String(entry.masterLyrics).trim())
+      ? entry.masterLyrics : entry.lyrics);
+    var libSlides = _lcdSlideTexts(lib.lyrics);
+    var ordSlides = _lcdSlideTexts(orderBase);
+    var map = {};
+    var n = Math.max(libSlides.length, ordSlides.length);
+    for (var i = 0; i < n; i++) {
+      var l = libSlides[i], o = ordSlides[i];
+      var kind = (l === undefined) ? 'removed' : (o === undefined ? 'added' : null);
+      if (kind || _lcdLyricsOnly(l) !== _lcdLyricsOnly(o)) {
+        map[i] = { libText: l == null ? '' : l, orderText: o == null ? '' : o,
+                   kind: kind || 'changed',
+                   source: custom ? 'custom' : 'library' };
+      }
+    }
+    return Object.keys(map).length ? map : null;
+  }
+
+  // Has this exact version of this slide already been looked at?
+  function _lcdSlideAcked(entryId, slideIdx, libText) {
+    return _lcdAckedSlides[entryId + '|' + slideIdx] === _lcdNormalizeLyrics(libText);
+  }
+  function _lcdAckSlide(entryId, slideIdx, libText) {
+    _lcdAckedSlides[entryId + '|' + slideIdx] = _lcdNormalizeLyrics(libText);
+  }
+
+  function _lcdSongLyricsStatus(entryId) {
+    if (!entryId) return null;
+    if (Object.prototype.hasOwnProperty.call(_lcdLyricStatusCache, entryId)) return _lcdLyricStatusCache[entryId];
+    var res = null;
+    var entry = songOrderSections.find(function(s) { return s.id === entryId; });
+    if (entry) {
+      // Every comparison is words-only (see _lcdLyricsOnly), so transposing a
+      // song or reharmonising it in the library never raises the badge — only
+      // a real change to the words does. That also means customLyrics, which
+      // collectOrderItems() fills with transposed text whenever
+      // transposeSteps !== 0, no longer needs a special case: if the words are
+      // unchanged it simply compares equal.
+      // masterLyrics is the authoritative untransposed text; prefer it, since
+      // .lyrics can itself hold transposed content.
+      var orderBase = (entry.masterLyrics != null && String(entry.masterLyrics).trim())
+        ? entry.masterLyrics : entry.lyrics;
+      var custom = String(entry.customLyrics || '').trim();
+      var lib = _lcdAllSongs().find(function(s) { return s.id === entry.songId; });
+      if (custom && _lcdLyricsOnly(custom) !== _lcdLyricsOnly(orderBase)) {
+        res = { differs: true, reason: 'custom', label: 'Lyrics edited for this service',
+                detail: 'The words of this song were changed for this order and differ from the version stored in the library. (Chord and key changes are not reported.)' };
+      // No library match (song deleted/renamed id) is not a difference we can
+      // claim -- stay silent rather than cry wolf.
+      } else if (lib && _lcdLyricsOnly(lib.lyrics) !== _lcdLyricsOnly(orderBase)) {
+        res = { differs: true, reason: 'library', label: 'Library lyrics updated',
+                detail: 'The worship team has changed this song’s words in the library since it was added to this order. What projects below is this order’s saved copy, not the current library version. (Chord and key changes are not reported.)' };
+      }
+    }
+    _lcdLyricStatusCache[entryId] = res;
+    return res;
+  }
+  // Recomputed per rail render so a library edit shows up on the next refresh.
+  function _lcdResetLyricStatusCache() { _lcdLyricStatusCache = {}; _lcdChangedSlidesCache = {}; }
+  // Per-render cache: _lcdChangedSlides() reparses both lyric sets, which is
+  // wasteful once per slide row.
+  var _lcdChangedSlidesCache = {};
+  function _lcdChangedSlidesCached(entryId) {
+    if (!Object.prototype.hasOwnProperty.call(_lcdChangedSlidesCache, entryId)) {
+      _lcdChangedSlidesCache[entryId] = _lcdChangedSlides(entryId);
+    }
+    return _lcdChangedSlidesCache[entryId];
+  }
+
   function _lcdBuildRailRow(sIdx, slideNum, groupTitle, slideBoxEl, iconClass) {
     var lines = Array.from(slideBoxEl.querySelectorAll('.wo-slide-line')).map(function(l) { return l.textContent.trim(); }).filter(Boolean);
     var preview = lines.length ? lines[0] : '';
     var isSelected = slideBoxEl.classList.contains('selected');
     var rowId = 'lcdRailRow-' + (_lcdRailRowSeq++);
     _lcdRailRowMap[rowId] = slideBoxEl;
+    // Long liturgy/song names clamp to two lines in the narrow rail, so carry
+    // the full text as a tooltip. WO's escapeHtml() leaves double quotes
+    // intact (it serialises via textContent), hence the extra replace before
+    // this goes into an attribute.
+    var titleAttr = escapeHtml(groupTitle).replace(/"/g, '&quot;');
+    // Flag only the slide that actually carries the changed lyric, and only
+    // until the operator has opened it (acknowledgement is per-version, so a
+    // later edit to the same slide brings the badge back).
+    var _flag = '';
+    var _eid = slideBoxEl.getAttribute('data-song-id');
+    if (_eid) {
+      var _chg = _lcdChangedSlidesCached(_eid);
+      var _si = parseInt(slideBoxEl.getAttribute('data-slide-idx') || '0', 10);
+      var _c = _chg && _chg[_si];
+      if (_c && !_lcdSlideAcked(_eid, _si, _c.libText)) {
+        var _tip = (_c.source === 'custom'
+          ? 'The words on this slide were changed for this order.'
+          : 'The worship team changed the words on this slide in the library.')
+          + ' Click the slide to see what changed. (Chord and key changes are not reported.)';
+        _flag = '<span class="lcd-lyric-flag ' + _c.source + '" title="' + escapeHtml(_tip).replace(/"/g, '&quot;') + '"><i class="fa-solid fa-pen-nib"></i></span>';
+      }
+    }
     return '<div class="lcd-rail-slide-row' + (isSelected ? ' selected' : '') + '" id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
       '<div class="lcd-rail-slide-num"><i class="fa-solid ' + iconClass + '"></i> ' + (sIdx + 1) + '.' + slideNum + '</div>' +
       '<div class="lcd-rail-slide-body">' +
-        '<div class="lcd-rail-item-title">' + escapeHtml(groupTitle) + '</div>' +
+        '<div class="lcd-rail-item-title" title="' + titleAttr + '">' + _flag + escapeHtml(groupTitle) + '</div>' +
         (preview ? '<div class="lcd-rail-slide-preview">' + escapeHtml(preview) + '</div>' : '') +
       '</div>' +
       '<button class="lcd-rail-slide-del" draggable="false" onclick="event.stopPropagation(); WO._lcdDeleteRailRow(\'' + rowId + '\')" title="Delete this slide"><i class="fa-solid fa-trash"></i></button>' +
@@ -48196,7 +48579,9 @@ var WO = (function() {
     if (!sections.length) return;
 
     _lcdRailRowMap = {};
+    _lcdResetLyricStatusCache();
     var railHtml = '';
+    var totalSlides = 0;
 
     sections.forEach(function(sectionEl, sIdx) {
       var sectionId = sectionEl.id;
@@ -48280,6 +48665,8 @@ var WO = (function() {
         i++;
       }
 
+      totalSlides += slideCounter;
+
       if (rowsHtml || canPpt) {
         var songBtn = '<button class="lcd-rail-addbtn lcd-rail-add-song" onclick="WO.openSongLibraryForSection(\'' + sectionId + '\')" title="Add a song from the Song library"><i class="fa-solid fa-music"></i></button>';
         var liturgyBtn = '<button class="lcd-rail-addbtn lcd-rail-add-liturgy" onclick="WO.openLiturgyLibraryForSection(\'' + sectionId + '\')" title="Add liturgy from the Liturgy library"><i class="fa-solid fa-book-bible"></i></button>';
@@ -48296,8 +48683,14 @@ var WO = (function() {
         var _collapsed = !!_lcdCollapsedSections[sectionId];
         var _chev = '<button class="lcd-rail-collapse" onclick="event.stopPropagation(); WO.lcdToggleSectionCollapse(\'' + sectionId + '\')" title="Collapse / expand section"><i class="fa-solid fa-chevron-' + (_collapsed ? 'right' : 'down') + '"></i></button>';
         var _addSlideRow = '<div class="lcd-rail-addslide-row" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide to this section"><i class="fa-solid fa-plus"></i> Add Slide</div>';
+        // Item count per section. Only shown when the section actually has
+        // slides -- an absent badge already reads as "empty", and 19 zeroes
+        // down the rail would just be noise.
+        var _cnt = slideCounter > 0
+          ? '<span class="lcd-rail-section-count" title="' + slideCounter + ' slide' + (slideCounter === 1 ? '' : 's') + ' in this section">' + slideCounter + '</span>'
+          : '';
         railHtml += '<div class="lcd-rail-section' + (_collapsed ? ' collapsed' : '') + '">' +
-          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '">' + _chev + '<span class="lcd-rail-section-title" ondblclick="event.stopPropagation(); WO.lcdRenameSection(\'' + sectionId + '\')" title="Double-click to rename">' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + addBtns + '</div>' +
+          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '">' + _chev + '<span class="lcd-rail-section-title" ondblclick="event.stopPropagation(); WO.lcdRenameSection(\'' + sectionId + '\')" title="Double-click to rename">' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + _cnt + addBtns + '</div>' +
           (_collapsed ? '' : (rowsHtml + _addSlideRow)) +
         '</div>';
       }
@@ -48308,11 +48701,405 @@ var WO = (function() {
       rail = document.createElement('div');
       rail.className = 'lcd-compact-rail';
       rail.id = 'lcdCompactRail';
-      root.insertBefore(rail, root.firstChild);
+      // Keep the rail below the schedule header when the header already
+      // exists; both are wiped together whenever Song Order mode rebuilds
+      // #woWorshipOrder, so normally neither is present here.
+      var _existingHdr = document.getElementById('lcdScheduleHeader');
+      root.insertBefore(rail, _existingHdr ? _existingHdr.nextSibling : root.firstChild);
     }
     rail.innerHTML = '<button class="lcd-rail-add-section" onclick="WO.addNewSection()" title="Add a new section"><i class="fa-solid fa-plus"></i> Add New Section</button>' + railHtml;
+    _lcdEnsureScheduleHeader(root, totalSlides);
     _lcdWireRailDrag(rail);
     _lcdWireSectionDrag(rail);
+    _lcdWireLibraryDrop(rail);
+    // If a change lands on the slide the operator currently has open -- e.g.
+    // the worship team edits it in the songbook mid-service-prep -- surface it
+    // right there without waiting for them to reselect. Passive, so it does
+    // NOT acknowledge: they still have to read it.
+    if (_lcdActiveSlide && _lcdActiveSlide.songId) {
+      _lcdUpdateLyricBanner(_lcdActiveSlide.songId, _lcdActiveSlide.slideIdx, false);
+    }
+  }
+
+  // Static "Service Schedule" header sitting above the compact rail.
+  // Created once and thereafter only its count text is rewritten -- it is
+  // deliberately NOT part of the rail's innerHTML replace, which reruns on
+  // every debounced observer tick and would make the header flicker.
+  function _lcdEnsureScheduleHeader(root, totalSlides) {
+    var hdr = document.getElementById('lcdScheduleHeader');
+    if (!hdr) {
+      hdr = document.createElement('div');
+      hdr.className = 'lcd-schedule-header';
+      hdr.id = 'lcdScheduleHeader';
+      hdr.innerHTML = '<span class="lcd-schedule-header-title"><i class="fa-solid fa-list-ol"></i> Service Schedule</span>' +
+        '<span class="lcd-schedule-header-right">' +
+          '<span class="lcd-schedule-count" id="lcdScheduleCount"></span>' +
+          '<button class="lcd-schedule-expand" id="lcdScheduleExpandBtn" onclick="WO.lcdToggleScheduleExpand()" title="Expand / collapse the schedule column"><i class="fa-solid fa-left-right"></i></button>' +
+        '</span>';
+      root.insertBefore(hdr, root.firstChild);
+    }
+    var cnt = document.getElementById('lcdScheduleCount');
+    if (cnt) {
+      var label = totalSlides + (totalSlides === 1 ? ' slide' : ' slides');
+      // Only write when it actually changed. The rail observer ignores this
+      // header (see _lcdSetupCompactRailObserver), but skipping no-op writes
+      // keeps it from queueing pointless mutation records regardless.
+      if (cnt.textContent !== label) cnt.textContent = label;
+    }
+  }
+
+  // ---- Song Library panel (LCD Projection) ---------------------------
+  // Reads the same window.LHC_STATE.songs the #woSongPopup modal uses and
+  // routes adds through the existing addSongDirectly(), so there is one
+  // song source and one add path, not a parallel implementation.
+  var _lcdLibChip = 'all';
+  var _LCD_EXPAND_KEY = 'lhc_lcd_schedule_expanded';
+  var _LCD_LIB_HIDDEN_KEY = 'lhc_lcd_library_hidden';
+
+  function _lcdAllSongs() {
+    return (window.LHC_STATE && window.LHC_STATE.songs) || [];
+  }
+
+  // Category chips built from the real freeform style/category values --
+  // there is no fixed enum for these, so they are derived, never hardcoded.
+  function _lcdSongCategories(songs) {
+    var seen = {}, out = [];
+    songs.forEach(function(s) {
+      var v = ((s.style || s.category || '')).trim();
+      if (v && !seen[v]) { seen[v] = true; out.push(v); }
+    });
+    return out.sort(function(a, b) { return a.localeCompare(b); });
+  }
+
+  // True only when at least one song actually carries usage data. Every song
+  // in the live library currently has useCount:0 and lastUsed:"" -- the
+  // fields exist in the schema but nothing populates them -- so the Recent
+  // chip is omitted rather than shipped as a control that can only ever come
+  // back empty. It appears on its own if usage tracking ever starts.
+  function _lcdHasRecencyData() {
+    return _lcdAllSongs().some(function(s) { return s.lastUsed || s.useCount; });
+  }
+
+  function _lcdRenderLibraryChips() {
+    var wrap = document.getElementById('lcdLibChips');
+    if (!wrap) return;
+    var cats = _lcdSongCategories(_lcdAllSongs());
+    var chips = [{ id: 'all', label: 'All' }];
+    if (_lcdHasRecencyData()) chips.push({ id: '__recent', label: 'Recent' });
+    else if (_lcdLibChip === '__recent') _lcdLibChip = 'all';
+    cats.forEach(function(c) { chips.push({ id: c, label: c }); });
+    wrap.innerHTML = chips.map(function(c) {
+      var active = (_lcdLibChip === c.id) ? ' active' : '';
+      var esc = escapeHtml(c.id).replace(/'/g, '&#39;');
+      return '<button class="lcd-lib-chip' + active + '" onclick="WO.lcdLibrarySetChip(\'' + esc + '\')">' + escapeHtml(c.label) + '</button>';
+    }).join('');
+  }
+
+  // Shared song-card markup. Each card carries its own Add button, so the
+  // panel is fully usable without drag-and-drop (Phase 4 adds dragging on
+  // top of this, it never becomes the only way in).
+  function _lcdBuildSongCardHtml(song) {
+    var sid = String(song.id || song.title).replace(/'/g, "\\'");
+    var meta = [];
+    if (song.artist) meta.push(song.artist);
+    if (song.key) meta.push('Key ' + song.key);
+    if (song.tempo) meta.push(song.tempo);
+    var titleAttr = escapeHtml(song.title || 'Untitled').replace(/"/g, '&quot;');
+    // draggable for drop-to-position; the Add button is the equivalent
+    // no-drag path and is marked draggable="false" so grabbing it does not
+    // start a card drag.
+    return '<div class="lcd-lib-card" data-song-id="' + escapeHtml(String(song.id || '')).replace(/"/g, '&quot;') + '"' +
+      ' draggable="true" ondragstart="WO.lcdLibraryDragStart(event, \'' + sid + '\')" ondragend="WO.lcdLibraryDragEnd()">' +
+      '<div class="lcd-lib-card-body">' +
+        '<div class="lcd-lib-card-title" title="' + titleAttr + '">' + escapeHtml(song.title || 'Untitled') + '</div>' +
+        (meta.length ? '<div class="lcd-lib-card-meta">' + escapeHtml(meta.join(' · ')) + '</div>' : '') +
+      '</div>' +
+      '<button class="lcd-lib-add" draggable="false" onclick="event.stopPropagation(); WO.lcdLibraryAddSong(\'' + sid + '\')" title="Add this song to the service"><i class="fa-solid fa-plus"></i></button>' +
+    '</div>';
+  }
+
+  function _lcdFilterLibrarySongs() {
+    var input = document.getElementById('lcdLibSearch');
+    var q = (input ? input.value : '').toLowerCase().trim();
+    var songs = _lcdAllSongs().slice();
+
+    if (_lcdLibChip === '__recent') {
+      // Mirrors renderSongStats()'s recency ordering; songs never used have
+      // no lastUsed and sort to the bottom rather than being dropped.
+      songs = songs.filter(function(s) { return s.lastUsed || s.useCount; })
+        .sort(function(a, b) {
+          var ta = a.lastUsed ? new Date(a.lastUsed).getTime() : 0;
+          var tb = b.lastUsed ? new Date(b.lastUsed).getTime() : 0;
+          if (tb !== ta) return tb - ta;
+          return (b.useCount || 0) - (a.useCount || 0);
+        }).slice(0, 25);
+    } else if (_lcdLibChip !== 'all') {
+      songs = songs.filter(function(s) {
+        return ((s.style || s.category || '').trim()) === _lcdLibChip;
+      });
+    }
+
+    if (q) {
+      songs = songs.filter(function(s) {
+        return [(s.title || ''), (s.artist || ''), (s.lyrics || ''), (s.scripture || '')]
+          .some(function(f) { return f.toLowerCase().indexOf(q) !== -1; });
+      });
+    }
+    return songs;
+  }
+
+  function _lcdRenderLibraryList() {
+    var list = document.getElementById('lcdLibList');
+    if (!list) return;
+    var songs = _lcdFilterLibrarySongs();
+    if (!songs.length) {
+      list.innerHTML = '<div class="lcd-lib-empty">' +
+        (_lcdAllSongs().length ? 'No songs match.' : 'No songs in the library yet.') + '</div>';
+      return;
+    }
+    list.innerHTML = songs.map(_lcdBuildSongCardHtml).join('');
+  }
+
+  function _lcdRenderLibraryPanel() {
+    _lcdRenderLibraryChips();
+    _lcdRenderLibraryList();
+  }
+
+  function lcdLibraryFilter() { _lcdRenderLibraryList(); }
+
+  function lcdLibrarySetChip(id) {
+    _lcdLibChip = id;
+    _lcdRenderLibraryChips();
+    _lcdRenderLibraryList();
+  }
+
+  // Adds from the panel with no section context, so addSongDirectly() falls
+  // through to its existing section-picker modal. The stale-attribute clear
+  // matters because #woSongPopup keeps data-section while open for a
+  // section-scoped add.
+  function lcdLibraryAddSong(songId) {
+    var popup = document.getElementById('woSongPopup');
+    if (popup && !popup.classList.contains('show')) popup.removeAttribute('data-section');
+    addSongDirectly(songId);
+  }
+
+  // ---- Drag a Library song onto a schedule position ------------------
+  // Deliberately uses its own state var. The existing rail-row and section
+  // reorder handlers all bail unless _lcdDragRowId / _lcdDragSectionId is
+  // set, and the handlers below bail unless _lcdDragSongId is set, so the
+  // three drag systems share drop targets without ever contending.
+  var _lcdDragSongId = null;
+  var _lcdLibDropBelow = false;
+
+  function lcdLibraryDragStart(event, songId) {
+    _lcdDragSongId = songId;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'copy';
+      // Prefixed so the media drop zone's savedBackgrounds lookup can never
+      // mistake this payload for a background id.
+      try { event.dataTransfer.setData('text/plain', 'libsong:' + songId); } catch (x) {}
+    }
+  }
+
+  function lcdLibraryDragEnd() {
+    _lcdDragSongId = null;
+    _lcdClearDropMarkers();
+  }
+
+  // The contiguous run of nodes making up one song/liturgy group (banner +
+  // its slide boxes + trailing add-slide row). A dropped song is placed
+  // before or after a whole group, never spliced between another song's
+  // slides.
+  function _lcdGroupRunFor(box) {
+    var parent = box && box.parentNode;
+    if (!parent) return null;
+    var kids = Array.from(parent.children);
+    var i = kids.indexOf(box);
+    if (i < 0) return null;
+    var key = _lcdGroupKey(box);
+    var start = i, end = i;
+    function isPartOfGroup(el) {
+      if (!el) return false;
+      var isMember = el.classList.contains('wo-slide-box') ||
+                     el.classList.contains('wo-song-banner') ||
+                     el.classList.contains('wo-liturgy-banner-bar');
+      return isMember && _lcdGroupKey(el) === key;
+    }
+    while (start > 0 && isPartOfGroup(kids[start - 1])) start--;
+    while (end < kids.length - 1 && isPartOfGroup(kids[end + 1])) end++;
+    if (end < kids.length - 1 && kids[end + 1].classList.contains('wo-add-slide-row')) end++;
+    return { first: kids[start], last: kids[end] };
+  }
+
+  // Per-slide backgrounds are stored as sectionBackgrounds[sectionId][localIdx],
+  // where localIdx is the slide's POSITION among that section's slide boxes.
+  // Anything that inserts or reorders slides therefore renumbers every later
+  // slide and would leave backgrounds attached to the wrong ones. These two
+  // capture the element->background pairing first and rewrite the map from the
+  // boxes' new positions afterwards; node identity survives a move, so the
+  // pairing stays correct however far things shift.
+  function _lcdCaptureSectionBgs(sectionId) {
+    var container = document.getElementById(sectionId + '-boxes');
+    if (!container || typeof getBackgroundForSlideInSection !== 'function') return null;
+    return Array.from(container.querySelectorAll('.wo-slide-box')).map(function(b, i) {
+      return { box: b, bg: getBackgroundForSlideInSection(sectionId, i) };
+    }).filter(function(e) { return !!e.bg; });
+  }
+
+  function _lcdRestoreSectionBgs(sectionId, captured) {
+    if (!captured) return;
+    var container = document.getElementById(sectionId + '-boxes');
+    if (!container) return;
+    var boxes = Array.from(container.querySelectorAll('.wo-slide-box'));
+    var rebuilt = {};
+    captured.forEach(function(e) {
+      var ni = boxes.indexOf(e.box);
+      if (ni >= 0) rebuilt[ni] = e.bg;
+    });
+    if (Object.keys(rebuilt).length) sectionBackgrounds[sectionId] = rebuilt;
+    else delete sectionBackgrounds[sectionId];
+    // One write rather than one per slide -- setBackgroundForSlideInSection()
+    // would also fire autoSaveOrder() on every iteration.
+    if (typeof saveSlideBackgrounds === 'function') saveSlideBackgrounds();
+  }
+
+  function _lcdInsertSongIntoSection(songId, sectionId, refBox, below) {
+    var song = _lcdAllSongs().find(function(s) { return s.id === songId || s.title === songId; });
+    if (!song) return false;
+    var container = document.getElementById(sectionId + '-boxes');
+    if (!container) return false;
+
+    _lcdPushUndo();
+
+    // Snapshot before the insert renumbers this section's slides.
+    var bgSnapshot = _lcdCaptureSectionBgs(sectionId);
+
+    // Diff the container rather than assuming how many nodes the render
+    // produces -- addSongToServiceSection() emits a banner, N slide boxes
+    // and possibly an add-slide row.
+    var before = Array.from(container.children);
+    var entry = _woBuildSongSectionEntry(song, sectionId);
+    songOrderSections.push(entry);
+    addSongToServiceSection(sectionId, entry, true);
+    var added = Array.from(container.children).filter(function(n) { return before.indexOf(n) === -1; });
+    if (!added.length) return false;
+
+    if (refBox && refBox.isConnected && refBox.parentNode === container) {
+      var run = _lcdGroupRunFor(refBox);
+      var anchor = run ? (below ? run.last : run.first) : refBox;
+      if (below) {
+        var cursor = anchor;
+        added.forEach(function(n) { cursor.insertAdjacentElement('afterend', n); cursor = n; });
+      } else {
+        added.forEach(function(n) { anchor.insertAdjacentElement('beforebegin', n); });
+      }
+    }
+
+    // Re-pin the existing slides' backgrounds to their new positions.
+    _lcdRestoreSectionBgs(sectionId, bgSnapshot);
+
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    showToast(song.title + ' added to the service', 'success');
+    return true;
+  }
+
+  function lcdLibRowDragOver(e, rowId) {
+    if (!_lcdDragSongId) return;
+    var box = _lcdRailRowMap[rowId];
+    if (!box || !box.nodeType) return; // ppt / esv placeholder rows are not real boxes
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    var row = document.getElementById(rowId);
+    if (!row) return;
+    var rect = row.getBoundingClientRect();
+    _lcdLibDropBelow = (e.clientY - rect.top) > (rect.height / 2);
+    _lcdClearDropMarkers();
+    row.classList.add(_lcdLibDropBelow ? 'lcd-rail-drop-below' : 'lcd-rail-drop-above');
+  }
+
+  function lcdLibRowDrop(e, rowId) {
+    if (!_lcdDragSongId) return;
+    if (e.preventDefault) e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
+    var songId = _lcdDragSongId;
+    var below = _lcdLibDropBelow;
+    var box = _lcdRailRowMap[rowId];
+    lcdLibraryDragEnd();
+    if (!box || !box.nodeType || !box.isConnected) return;
+    var sectionId = box.getAttribute('data-section') ||
+      (box.parentNode && box.parentNode.id ? box.parentNode.id.replace(/-boxes$/, '') : '');
+    if (!sectionId) return;
+    _lcdInsertSongIntoSection(songId, sectionId, box, below);
+  }
+
+  function lcdLibSectionDragOver(e, hdr) {
+    if (!_lcdDragSongId) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    _lcdClearDropMarkers();
+    hdr.classList.add('lcd-drop-target-section');
+  }
+
+  function lcdLibSectionDrop(e, sectionId) {
+    if (!_lcdDragSongId) return;
+    if (e.preventDefault) e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
+    var songId = _lcdDragSongId;
+    lcdLibraryDragEnd();
+    document.querySelectorAll('.lcd-drop-target-section').forEach(function(el) { el.classList.remove('lcd-drop-target-section'); });
+    if (!sectionId) return;
+    // No reference box -> appends at the end of that section.
+    _lcdInsertSongIntoSection(songId, sectionId, null, false);
+  }
+
+  // Re-wired on every rail render, because the rail replaces its innerHTML
+  // and takes every listener with it (same reason _lcdWireRailDrag runs there).
+  function _lcdWireLibraryDrop(rail) {
+    Array.from(rail.querySelectorAll('.lcd-rail-slide-row')).forEach(function(row) {
+      row.addEventListener('dragover', function(e) { lcdLibRowDragOver(e, row.id); });
+      row.addEventListener('drop', function(e) { lcdLibRowDrop(e, row.id); });
+    });
+    Array.from(rail.querySelectorAll('.lcd-rail-section-header[data-section-id]')).forEach(function(hdr) {
+      hdr.addEventListener('dragover', function(e) { lcdLibSectionDragOver(e, hdr); });
+      hdr.addEventListener('drop', function(e) { lcdLibSectionDrop(e, hdr.getAttribute('data-section-id')); });
+    });
+  }
+
+  // Column-width toggles. Both persist like toggleSidebar() does, and both
+  // re-run _enterServiceOrderLayout() because the sticky preview panel's
+  // measured max-height depends on the layout it just changed.
+  function _lcdApplyLayoutFlags() {
+    var mc = document.querySelector('.wo-main-content');
+    if (!mc) return;
+    var expanded = localStorage.getItem(_LCD_EXPAND_KEY) === '1';
+    var libHidden = localStorage.getItem(_LCD_LIB_HIDDEN_KEY) === '1';
+    mc.classList.toggle('lcd-schedule-expanded', expanded);
+    mc.classList.toggle('lcd-library-hidden', libHidden);
+    var btn = document.getElementById('lcdScheduleExpandBtn');
+    if (btn) btn.classList.toggle('active', expanded);
+  }
+
+  function lcdToggleScheduleExpand() {
+    var on = localStorage.getItem(_LCD_EXPAND_KEY) === '1';
+    localStorage.setItem(_LCD_EXPAND_KEY, on ? '0' : '1');
+    _lcdApplyLayoutFlags();
+    _enterServiceOrderLayout();
+  }
+
+  function lcdToggleLibrary() {
+    var mc = document.querySelector('.wo-main-content');
+    var flaggedHidden = localStorage.getItem(_LCD_LIB_HIDDEN_KEY) === '1';
+    // Below 1600px an expanded schedule hides the library via media query,
+    // regardless of that flag. In that state the useful action is to
+    // un-expand -- toggling the flag would leave the tab looking dead.
+    if (!flaggedHidden && mc && mc.classList.contains('lcd-schedule-expanded')) {
+      lcdToggleScheduleExpand();
+      return;
+    }
+    localStorage.setItem(_LCD_LIB_HIDDEN_KEY, flaggedHidden ? '0' : '1');
+    _lcdApplyLayoutFlags();
+    _enterServiceOrderLayout();
   }
 
   // ---- Order-level undo / redo for the LCD Projection view -----------
@@ -48440,8 +49227,15 @@ var WO = (function() {
     var kids = Array.from(parent.children);
     var di = kids.indexOf(dragged), ti = kids.indexOf(target);
     if (di < 0 || ti < 0) return;
+    // Reordering renumbers the section's slides, so the per-slide background
+    // map has to be re-pinned the same way an insert does (see
+    // _lcdCaptureSectionBgs) -- otherwise the moved slide swaps backgrounds
+    // with whichever slide takes its old position.
+    var _reorderSectionId = dragged.getAttribute('data-section') || '';
+    var _reorderBgs = _reorderSectionId ? _lcdCaptureSectionBgs(_reorderSectionId) : null;
     if (_lcdDropBelow) target.insertAdjacentElement('afterend', dragged);
     else target.insertAdjacentElement('beforebegin', dragged);
+    if (_reorderSectionId) _lcdRestoreSectionBgs(_reorderSectionId, _reorderBgs);
     var songId = dragged.getAttribute('data-song-id') || '';
     var liturgyId = dragged.getAttribute('data-liturgy-id') || '';
     var sectionId = dragged.getAttribute('data-section') || '';
@@ -48581,10 +49375,12 @@ var WO = (function() {
     var target = document.getElementById('woWorshipOrder');
     if (!target || _lcdRailObserver) return;
     _lcdRailObserver = new MutationObserver(function(muts) {
-      // Ignore our own writes to #lcdCompactRail, else we loop forever.
+      // Ignore our own writes to #lcdCompactRail and to the schedule header
+      // above it, else we loop forever -- rendering the rail rewrites the
+      // header's count text, which would otherwise re-trigger this observer.
       var relevant = muts.some(function(m) {
         var t = m.target;
-        return !(t && t.closest && t.closest('#lcdCompactRail'));
+        return !(t && t.closest && (t.closest('#lcdCompactRail') || t.closest('#lcdScheduleHeader')));
       });
       if (!relevant) return;
       clearTimeout(_lcdRailRefreshTimer);
@@ -49548,6 +50344,10 @@ var WO = (function() {
     var fsOvl = $('woFullscreenOverlay');
     var fsContent = $('woFullscreenContent');
     if (fsOvl && fsOvl.classList.contains('show') && fsContent) _applyBarrierToFsContent(fsContent);
+    // Keep the Slide Editor canvas showing the same alignment, since its
+    // align buttons now live in that toolbar.
+    var _edEl = document.getElementById('lcdLyricsEditorTextarea');
+    if (_edEl) _edEl.style.textAlign = align || '';
     sendToProjectionWindow({ type: 'alignUpdate', align: align });
   }
 
@@ -54290,6 +55090,17 @@ var WO = (function() {
     filterSongs: filterSongs,
     woPopupApplyFilters: woPopupApplyFilters,
     woPopupPopulateFilters: woPopupPopulateFilters,
+    // LCD Projection Song Library panel + column-width toggles
+    lcdLibraryFilter: lcdLibraryFilter,
+    lcdRefreshLibrary: _lcdRenderLibraryPanel,
+    lcdRefreshSlideFromLibrary: lcdRefreshSlideFromLibrary,
+    lcdDismissLyricNotice: lcdDismissLyricNotice,
+    lcdLibrarySetChip: lcdLibrarySetChip,
+    lcdLibraryAddSong: lcdLibraryAddSong,
+    lcdLibraryDragStart: lcdLibraryDragStart,
+    lcdLibraryDragEnd: lcdLibraryDragEnd,
+    lcdToggleScheduleExpand: lcdToggleScheduleExpand,
+    lcdToggleLibrary: lcdToggleLibrary,
     woPopupToggle: woPopupToggle,
     woPopupOpenDrop: woPopupOpenDrop,
     openNewSongFromWO: openNewSongFromWO,
@@ -54476,6 +55287,11 @@ var WO = (function() {
     restoreSongSlides: restoreSongSlides,
     sbRemoveSong: sbRemoveSong,
     sbGoToOrder: sbGoToOrder,
+    // Both of these are invoked from markup as WO.<name>(...) -- the
+    // fullscreen annotate FAB and the per-link zoom selects -- but were never
+    // exported, so every click threw "not a function".
+    sbOpenAnnotPaletteFromPage: sbOpenAnnotPaletteFromPage,
+    sbSetLinkZoom: sbSetLinkZoom,
     // Songbook redesign — new panel/sidebar/selection functions
     sbPanelTab: sbPanelTab,
     sbToggleMore: sbToggleMore,
@@ -61307,6 +62123,7 @@ function filterLiturgyItems() {
 
   /* Preview Panel - Projection Window for Congregation */
   .wo-preview-panel { flex: 1; min-width: 640px; background: #1a1a1a; padding: 15px; display: flex; flex-direction: column; position: sticky; top: 16px; align-self: flex-start; max-height: calc(100vh - 32px); overflow-y: auto; }
+  #woPreviewPanel.lcd-shell { background: var(--lcd-navy-950, #1a1a1a); }
   .wo-preview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
   .wo-preview-title { color: white; font-size: 1rem; font-weight: 600; }
   .wo-preview-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -61388,83 +62205,213 @@ function filterLiturgyItems() {
   .wo-preview-inner { display: block; white-space: pre-wrap; text-align: inherit; font-size: 1.3rem; line-height: 1.7; color: white; padding: 10px; }
   .wo-preview-slide-img { max-width: 100%; max-height: 100%; object-fit: contain; }
   .wo-preview-hint { color: #6b7280; font-size: 0.7rem; text-align: center; margin-top: 10px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px; }
+  /* ===== LCD Projection design tokens (Chunk 9 -- redesign) =====
+     Scoped to the LCD/Service-Order workspace only (both the schedule
+     rail's #woWorshipOrder and the dark shell #woPreviewPanel are
+     children of .wo-main-content) -- deliberately NOT added to :root,
+     since :root's tokens (--brand, --card-radius, etc.) belong to the
+     rest of the app's light theme and are shared across every other
+     page via the global sidebar/cards. */
+  .wo-main-content:not(.wo-song-order) {
+    --lcd-navy-950: #0b1220;
+    --lcd-navy-900: #111a2e;
+    --lcd-navy-800: #16213b;
+    --lcd-navy-700: #1e2c4a;
+    --lcd-navy-line: #2a3a5c;
+    --lcd-ivory-100: #f8f4ea;
+    --lcd-ivory-200: #e6dfc9;
+    --lcd-ivory-muted: #9aa3bf;
+    --lcd-gold-400: #d9b46a;
+    --lcd-gold-500: #c1993f;
+    --lcd-gold-600: #a97f2e;
+    --lcd-gold-wash: rgba(193,153,63,0.14);
+    --lcd-blue-500: #4a72a8;
+    --lcd-live: #2fae62;
+    --lcd-danger: #c65a4e;
+    --lcd-space-1: 4px;
+    --lcd-space-2: 8px;
+    --lcd-space-3: 12px;
+    --lcd-space-4: 16px;
+    --lcd-space-5: 24px;
+    --lcd-space-6: 32px;
+    --lcd-radius-sm: 8px;
+    --lcd-radius-md: 10px;
+    --lcd-radius-lg: 12px;
+    --lcd-btn-h-primary: 46px;
+    --lcd-btn-h-secondary: 42px;
+    --lcd-btn-h-icon: 38px;
+    --lcd-font-item-title: 16.5px;
+    --lcd-font-item-meta: 12.5px;
+    --lcd-font-numbering: 12px;
+    --lcd-shadow-sm: 0 1px 2px rgba(0,0,0,.24);
+    --lcd-shadow-md: 0 4px 14px rgba(0,0,0,.32);
+    --lcd-shadow-lg: 0 10px 30px rgba(0,0,0,.38);
+    --lcd-shadow-gold-glow: 0 0 0 1px rgba(193,153,63,.35), 0 2px 10px rgba(193,153,63,.18);
+    --lcd-motion-fast: 150ms;
+    --lcd-motion-base: 200ms;
+    --lcd-motion-slow: 250ms;
+  }
+
   /* ===== LCD Projection slide-first shell (Chunk 2) ===== */
-  .lcd-topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
-  .lcd-topbar .wo-preview-title { margin-right: auto; }
-  .lcd-song-order-btn { background: rgba(99,102,241,0.18); border: 1px solid rgba(129,140,248,0.45); color: #e0e7ff; border-radius: 7px; padding: 6px 14px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; display: flex; align-items: center; gap: 6px; transition: background 0.15s; }
-  .lcd-song-order-btn:hover { background: rgba(99,102,241,0.32); }
-  .lcd-outputs-row { display: flex; gap: 12px; margin-bottom: 12px; flex: 1; min-height: 220px; }
+  .lcd-topbar { display: flex; align-items: center; gap: var(--lcd-space-3); margin-bottom: var(--lcd-space-3); flex-wrap: wrap; }
+  .lcd-topbar .wo-preview-title { margin-right: auto; color: var(--lcd-ivory-100); }
+  .lcd-song-order-btn { background: var(--lcd-navy-700); border: 1px solid var(--lcd-navy-line); color: var(--lcd-ivory-100); border-radius: var(--lcd-radius-md); padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 6px; transition: border-color var(--lcd-motion-fast) ease; }
+  .lcd-song-order-btn:hover { border-color: var(--lcd-gold-500); }
+  .lcd-outputs-row { display: flex; gap: var(--lcd-space-4); margin-bottom: var(--lcd-space-3); flex: 1; min-height: 220px; }
   .lcd-output-box { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  .lcd-output-label { color: #94a3b8; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
-  .lcd-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; transition: background 0.2s, box-shadow 0.2s; display: inline-block; }
-  .lcd-live-dot.live { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.8); }
-  .lcd-program-blanked { color: #475569; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: center; justify-content: center; height: 100%; }
+  /* Program Output: framed as the "what the congregation sees" panel, with
+     its projection actions attached directly beneath it. */
+  .lcd-program-box .lcd-output-label { display: flex; align-items: center; gap: 8px; font-family: 'Poppins', sans-serif; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--lcd-ivory-100, #f8f4ea); }
+  .lcd-program-box .lcd-program-screen { border: 1px solid var(--lcd-navy-line, #2a3a5c); border-radius: var(--lcd-radius-md, 10px); box-shadow: var(--lcd-shadow-md); }
+  .lcd-program-actions { display: flex; align-items: center; gap: var(--lcd-space-2, 8px); margin-top: var(--lcd-space-3, 12px); }
+  /* The Phase 0 sizing for these two was scoped to .lcd-controls-row, which
+     they no longer live in - restate it for their new home. */
+  .lcd-program-actions .wo-blank-btn {
+    flex: 0 0 auto; height: var(--lcd-btn-h-secondary, 42px); padding: 0 var(--lcd-space-4, 16px);
+    border-radius: var(--lcd-radius-md, 10px); font-size: 0.78rem;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .lcd-program-actions .wo-live-present-btn {
+    flex: 1 1 auto; justify-content: center; height: var(--lcd-btn-h-primary, 46px);
+    padding: 0 var(--lcd-space-5, 24px); border-radius: var(--lcd-radius-md, 10px);
+    font-weight: 700; font-size: 0.85rem; box-shadow: var(--lcd-shadow-gold-glow);
+    display: inline-flex; align-items: center;
+  }
+  .lcd-output-label { color: var(--lcd-ivory-muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: var(--lcd-space-2); display: flex; align-items: center; gap: 6px; }
+  .lcd-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lcd-navy-line); transition: background 0.2s, box-shadow 0.2s; display: inline-block; }
+  .lcd-live-dot.live { background: var(--lcd-live); box-shadow: 0 0 6px rgba(47,174,98,0.8); }
+  .lcd-program-blanked { color: var(--lcd-ivory-muted); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: center; justify-content: center; height: 100%; }
   .lcd-outputs-row .wo-preview-screen { flex: 1; margin: 0; }
-  .lcd-program-screen { border: 2px solid #22c55e33; }
-  .lcd-program-barrier { position: absolute; border: 1.5px dashed rgba(250,204,21,0.6); border-radius: 4px; pointer-events: none; z-index: 5; }
-  .lcd-program-barrier-tag { position: absolute; top: -8px; left: 6px; font-size: 0.5rem; font-weight: 700; letter-spacing: 0.08em; color: rgba(250,204,21,0.85); background: rgba(0,0,0,0.6); padding: 0 4px; border-radius: 3px; }
-  .lcd-controls-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; }
+  .lcd-program-screen { border: 2px solid var(--lcd-gold-wash); }
+  .lcd-program-barrier { position: absolute; border: 1.5px dashed rgba(217,180,106,0.6); border-radius: 4px; pointer-events: none; z-index: 5; }
+  .lcd-program-barrier-tag { position: absolute; top: -8px; left: 6px; font-size: 0.5rem; font-weight: 700; letter-spacing: 0.08em; color: var(--lcd-gold-400); background: rgba(0,0,0,0.6); padding: 0 4px; border-radius: 3px; }
+  .lcd-controls-row { display: flex; align-items: center; gap: var(--lcd-space-2); flex-wrap: wrap; background: var(--lcd-navy-800); border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-lg); padding: var(--lcd-space-2) var(--lcd-space-3); margin-bottom: var(--lcd-space-3); box-shadow: var(--lcd-shadow-sm); }
   .lcd-controls-spacer { flex: 1 1 auto; }
   /* Unify the mismatched gradient buttons into one cohesive glass set in the LCD toolbar */
-  .lcd-controls-row .wo-text-btn, .lcd-controls-row .wo-bg-btn { background: rgba(255,255,255,0.07); color: #dbe4f0; border: 1px solid rgba(255,255,255,0.14); padding: 6px 12px; border-radius: 7px; font-size: 0.75rem; font-weight: 600; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 5px; }
-  .lcd-controls-row .wo-text-btn:hover, .lcd-controls-row .wo-bg-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
-  .lcd-controls-row .wo-barrier-btn { padding: 6px 12px; border-radius: 7px; font-size: 0.75rem; }
-  .lcd-controls-row .wo-blank-btn { padding: 6px 13px; border-radius: 7px; font-size: 0.75rem; }
-  .lcd-controls-row .wo-live-present-btn { padding: 7px 16px; border-radius: 7px; font-weight: 700; font-size: 0.78rem; box-shadow: 0 2px 8px rgba(0,102,255,0.3); }
-  .lcd-controls-row .lcd-hist-btn { padding: 6px 10px; }
+  .lcd-controls-row .wo-text-btn, .lcd-controls-row .wo-bg-btn { background: var(--lcd-navy-700); color: var(--lcd-ivory-200); border: 1px solid var(--lcd-navy-line); padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); border-radius: var(--lcd-radius-md); font-size: 0.78rem; font-weight: 600; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 5px; transition: border-color var(--lcd-motion-fast) ease, color var(--lcd-motion-fast) ease; }
+  .lcd-controls-row .wo-text-btn:hover, .lcd-controls-row .wo-bg-btn:hover { border-color: var(--lcd-gold-500); color: var(--lcd-ivory-100); }
+  .lcd-controls-row .wo-barrier-btn { padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); border-radius: var(--lcd-radius-md); font-size: 0.78rem; }
+  .lcd-controls-row .wo-blank-btn { padding: 0 var(--lcd-space-4); height: var(--lcd-btn-h-secondary); border-radius: var(--lcd-radius-md); font-size: 0.78rem; }
+  .lcd-controls-row .wo-live-present-btn { padding: 0 var(--lcd-space-5); height: var(--lcd-btn-h-primary); border-radius: var(--lcd-radius-md); font-weight: 700; font-size: 0.85rem; box-shadow: var(--lcd-shadow-gold-glow); }
+  .lcd-controls-row .lcd-hist-btn { width: var(--lcd-btn-h-icon); height: var(--lcd-btn-h-icon); padding: 0; display: inline-flex; align-items: center; justify-content: center; }
   .lcd-media-item { position: relative; }
   .lcd-media-vid-badge { position: absolute; bottom: 4px; right: 4px; width: 17px; height: 17px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.5rem; pointer-events: none; }
-  .lcd-slide-num-badge { color: #94a3b8; font-size: 0.7rem; font-weight: 600; background: rgba(255,255,255,0.06); border-radius: 5px; padding: 1px 7px; margin-left: 2px; }
-  .lcd-lower-row { display: flex; gap: 12px; margin-top: 12px; min-height: 140px; }
+  .lcd-slide-num-badge { color: var(--lcd-ivory-muted); font-size: 0.7rem; font-weight: 600; background: var(--lcd-navy-700); border-radius: var(--lcd-radius-sm); padding: 1px 7px; margin-left: 2px; }
+  .lcd-lower-row { display: flex; gap: var(--lcd-space-4); margin-top: var(--lcd-space-3); min-height: 140px; }
   .lcd-lower-row .lcd-output-box { display: none; }
   .lcd-lower-row .wo-preview-screen { min-height: 130px; }
   .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 auto; min-width: 0; }
   .lcd-outputs-row .lcd-output-box { flex: 0 0 calc(50% - 9px); min-width: 0; }
-  .lcd-panel { flex: 1; min-width: 0; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
-  .lcd-panel-header { color: #e2e8f0; font-size: 0.8rem; font-weight: 600; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 7px; }
-  .lcd-panel-body { flex: 1; padding: 12px; overflow-y: auto; }
-  .lcd-panel-placeholder { color: #64748b; font-size: 0.78rem; font-style: italic; display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 20px; }
+  .lcd-panel { flex: 1; min-width: 0; background: var(--lcd-navy-800); border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-lg); display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--lcd-shadow-sm); }
+  .lcd-panel-header { color: var(--lcd-ivory-100); font-size: 0.8rem; font-weight: 600; padding: 9px var(--lcd-space-3); border-bottom: 1px solid var(--lcd-navy-line); display: flex; align-items: center; gap: 7px; }
+  .lcd-panel-body { flex: 1; padding: var(--lcd-space-3); overflow-y: auto; }
+  .lcd-panel-placeholder { color: var(--lcd-ivory-muted); font-size: 0.78rem; font-style: italic; display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 20px; }
   .lcd-lyrics-panel .lcd-panel-header { flex-wrap: wrap; gap: 8px 10px; }
-  .lcd-lyrics-song-title { color: #93c5fd; font-weight: 700; margin-left: 2px; }
+  .lcd-lyrics-song-title { color: var(--lcd-gold-400); font-weight: 700; margin-left: 2px; }
   .lcd-lyrics-actions { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
-  .lcd-mini-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.7rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; gap: 5px; transition: background 0.15s; }
-  .lcd-mini-btn:hover { background: rgba(255,255,255,0.14); }
-  .lcd-mini-btn.primary { background: rgba(34,197,94,0.22); border-color: rgba(74,222,128,0.5); color: #bbf7d0; }
-  .lcd-mini-btn.primary:hover { background: rgba(34,197,94,0.36); }
-  .lcd-mini-btn.danger { background: rgba(239,68,68,0.18); border-color: rgba(248,113,113,0.5); color: #fecaca; }
-  .lcd-mini-btn.danger:hover { background: rgba(239,68,68,0.34); }
-  .lcd-lyrics-body { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
-  .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
-  .lcd-lyrics-textarea:focus { outline: none; border-color: rgba(99,102,241,0.6); }
-  .lcd-lyrics-editor { flex: 1; min-height: 116px; overflow-y: auto; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e2e8f0; font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; padding: 10px; }
-  .lcd-lyrics-editor:focus { outline: none; border-color: rgba(99,102,241,0.6); }
-  .lcd-lyrics-editor:empty:before { content: attr(data-placeholder); color: #64748b; font-style: italic; }
+  .lcd-mini-btn { background: var(--lcd-navy-700); border: 1px solid var(--lcd-navy-line); color: var(--lcd-ivory-200); border-radius: var(--lcd-radius-sm); min-width: var(--lcd-btn-h-icon); height: var(--lcd-btn-h-icon); padding: 0 10px; font-size: 0.72rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; display: inline-flex; align-items: center; justify-content: center; gap: 5px; transition: border-color var(--lcd-motion-fast) ease; }
+  .lcd-mini-btn:hover { border-color: var(--lcd-gold-500); }
+  .lcd-mini-btn.primary { background: rgba(47,174,98,0.22); border-color: rgba(47,174,98,0.5); color: #bbf7d0; }
+  .lcd-mini-btn.primary:hover { background: rgba(47,174,98,0.36); }
+  .lcd-mini-btn.danger { background: rgba(198,90,78,0.2); border-color: rgba(198,90,78,0.5); color: #fecaca; }
+  .lcd-mini-btn.danger:hover { background: rgba(198,90,78,0.36); }
+  .lcd-lyrics-body { display: flex; flex-direction: column; gap: 6px; padding: var(--lcd-space-3); }
+  .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: var(--lcd-navy-950); border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-sm); color: var(--lcd-ivory-100); font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
+  .lcd-lyrics-textarea:focus { outline: none; border-color: var(--lcd-gold-500); }
+  /* Canvas: the editable text sits over the slide's real background so the
+     editing surface reads like the projected slide. The bg layer is painted
+     by _lcdUpdateEditorCanvas() via the same _applyBgToDivEl() the Program
+     Output mirror uses. */
+  /* "Not the library default" awareness. Amber = the library copy moved on
+     under this order; blue = deliberately customised for this service. */
+  .lcd-lyric-flag {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 17px; height: 17px; margin-right: 6px; border-radius: 4px;
+    font-size: 0.58rem; vertical-align: 1px; flex-shrink: 0;
+  }
+  .lcd-lyric-flag.library { background: rgba(217,180,106,0.22); color: var(--lcd-gold-400, #d9b46a); border: 1px solid rgba(217,180,106,0.5); }
+  .lcd-lyric-flag.custom  { background: rgba(96,165,250,0.20); color: #60a5fa; border: 1px solid rgba(96,165,250,0.5); }
+  .lcd-lyric-banner {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 8px 11px; margin-bottom: var(--lcd-space-2, 8px);
+    border-radius: var(--lcd-radius-sm, 8px);
+    font-family: 'Poppins', sans-serif; font-size: 0.72rem; line-height: 1.45;
+  }
+  .lcd-lyric-banner i { margin-top: 1px; flex-shrink: 0; }
+  .lcd-lyric-banner-text { min-width: 0; flex: 1; }
+  .lcd-lyric-banner-head { font-weight: 700; margin-bottom: 2px; }
+  .lcd-lyric-banner-body { opacity: 0.85; }
+  /* What the library now says for this slide */
+  .lcd-lyric-diff {
+    margin: 6px 0; padding: 7px 9px; max-height: 96px; overflow-y: auto;
+    background: rgba(0,0,0,0.28); border-radius: 6px;
+    color: var(--lcd-ivory-100, #f8f4ea);
+    font-family: 'Lato', Georgia, serif; font-size: 0.78rem; line-height: 1.4;
+    white-space: pre-wrap;
+  }
+  .lcd-lyric-banner-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .lcd-lyric-refresh, .lcd-lyric-dismiss {
+    height: 30px; padding: 0 11px; border-radius: 6px; cursor: pointer;
+    font-family: 'Poppins', sans-serif; font-size: 0.7rem; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  }
+  .lcd-lyric-refresh { background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border: 1px solid var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-400, #d9b46a); }
+  .lcd-lyric-refresh:hover { background: rgba(193,153,63,0.3); }
+  .lcd-lyric-dismiss { background: transparent; border: 1px solid var(--lcd-navy-line, #2a3a5c); color: var(--lcd-ivory-muted, #9aa3bf); }
+  .lcd-lyric-dismiss:hover { color: var(--lcd-ivory-100, #f8f4ea); border-color: var(--lcd-ivory-muted, #9aa3bf); }
+  .lcd-lyric-banner-foot { margin-top: 5px; font-size: 0.64rem; opacity: 0.65; }
+  .lcd-lyric-banner.library { background: rgba(217,180,106,0.14); border: 1px solid rgba(217,180,106,0.45); color: var(--lcd-gold-400, #d9b46a); }
+  .lcd-lyric-banner.custom  { background: rgba(96,165,250,0.13); border: 1px solid rgba(96,165,250,0.45); color: #93c5fd; }
+
+  .lcd-editor-canvas { position: relative; flex: 1; min-height: 150px; display: flex; border-radius: var(--lcd-radius-sm, 8px); border: 1px solid var(--lcd-navy-line, #2a3a5c); background: var(--lcd-navy-950, #0b1220); overflow: hidden; }
+  .lcd-editor-canvas-bg { position: absolute; inset: 0; background-size: cover; background-position: center; pointer-events: none; }
+  .lcd-editor-canvas-bg > * { width: 100%; height: 100%; object-fit: cover; }
+  .lcd-lyrics-editor { position: relative; z-index: 1; flex: 1; min-height: 116px; overflow-y: auto; background: transparent; border: none; border-radius: var(--lcd-radius-sm, 8px); color: var(--lcd-ivory-100, #f8f4ea); font-family: 'Lato', Georgia, serif; font-size: 1.05rem; line-height: 1.5; white-space: pre-wrap; padding: 16px 18px; text-shadow: 0 1px 3px rgba(0,0,0,0.65); }
+  .lcd-lyrics-editor:focus { outline: none; }
+  .lcd-editor-canvas:focus-within { border-color: var(--lcd-gold-500, #c1993f); box-shadow: var(--lcd-shadow-gold-glow); }
+
+  /* Toolbar grouped into Text / Layout / Background */
+  /* Groups wrap internally: the Text group holds 10 controls and the editor
+     column is only ~380px wide at 1366, so without this it overflows. */
+  .lcd-fmt-group { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; max-width: 100%; padding: 4px 8px 4px 6px; border-radius: var(--lcd-radius-sm, 8px); background: rgba(255,255,255,0.03); border: 1px solid var(--lcd-navy-line, #2a3a5c); }
+  .lcd-fmt-toolbar .lcd-fmt-select { max-width: 84px; }
+  .lcd-fmt-group-label { font-family: 'Poppins', sans-serif; font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--lcd-ivory-muted, #9aa3bf); margin-right: 2px; white-space: nowrap; }
+  .lcd-fmt-toolbar .wo-barrier-btn, .lcd-fmt-toolbar .wo-bg-btn, .lcd-fmt-toolbar .wo-text-btn {
+    height: var(--lcd-btn-h-icon, 38px); padding: 0 12px; border-radius: 6px;
+    background: var(--lcd-navy-700, #1e2c4a); border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    color: var(--lcd-ivory-200, #e6dfc9); font-family: 'Poppins', sans-serif; font-size: 0.72rem; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap;
+    transition: border-color var(--lcd-motion-fast, 150ms), color var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-fmt-toolbar .wo-barrier-btn:hover, .lcd-fmt-toolbar .wo-bg-btn:hover, .lcd-fmt-toolbar .wo-text-btn:hover { border-color: var(--lcd-gold-500, #c1993f); color: var(--lcd-ivory-100, #f8f4ea); }
+  .lcd-fmt-toolbar .wo-align-group { background: transparent; padding: 0; gap: 2px; }
+  .lcd-fmt-toolbar .wo-align-btn { width: 30px; height: 30px; }
+  .lcd-lyrics-editor:empty:before { content: attr(data-placeholder); color: var(--lcd-ivory-muted); font-style: italic; }
   .lcd-fmt-toolbar { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 6px; }
-  .lcd-fmt-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; border-radius: 5px; cursor: pointer; font-size: 0.8rem; }
-  .lcd-fmt-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
-  .lcd-fmt-select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; border-radius: 5px; font-size: 0.7rem; padding: 3px 5px; font-family: 'Poppins', sans-serif; cursor: pointer; }
-  .lcd-fmt-color { width: 28px; height: 26px; padding: 1px; border: 1px solid rgba(255,255,255,0.14); border-radius: 5px; background: rgba(255,255,255,0.06); cursor: pointer; }
-  .lcd-fmt-sep { width: 1px; height: 18px; background: rgba(255,255,255,0.15); margin: 0 3px; }
-  .lcd-lyrics-summary { color: #64748b; font-size: 0.7rem; text-align: right; }
-  .lcd-media-hint { color: #64748b; font-size: 0.68rem; margin-bottom: 8px; line-height: 1.4; }
-  .lcd-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
-  .lcd-media-item { position: relative; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; cursor: grab; border: 1.5px solid rgba(255,255,255,0.1); transition: border-color 0.15s, transform 0.1s; }
+  .lcd-fmt-btn { width: var(--lcd-btn-h-icon); height: var(--lcd-btn-h-icon); display: inline-flex; align-items: center; justify-content: center; background: var(--lcd-navy-700); border: 1px solid var(--lcd-navy-line); color: var(--lcd-ivory-200); border-radius: var(--lcd-radius-sm); cursor: pointer; font-size: 0.8rem; }
+  .lcd-fmt-btn:hover { border-color: var(--lcd-gold-500); color: var(--lcd-ivory-100); }
+  .lcd-fmt-select { background: var(--lcd-navy-700); border: 1px solid var(--lcd-navy-line); color: var(--lcd-ivory-200); border-radius: var(--lcd-radius-sm); font-size: 0.7rem; padding: 3px 5px; height: var(--lcd-btn-h-icon); font-family: 'Poppins', sans-serif; cursor: pointer; }
+  .lcd-fmt-color { width: 30px; height: var(--lcd-btn-h-icon); padding: 1px; border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-sm); background: var(--lcd-navy-700); cursor: pointer; }
+  .lcd-lyrics-summary { color: var(--lcd-ivory-muted); font-size: 0.7rem; text-align: right; }
+  .lcd-media-hint { color: var(--lcd-ivory-muted); font-size: 0.68rem; margin-bottom: 8px; line-height: 1.4; }
+  .lcd-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: var(--lcd-space-2); }
+  .lcd-media-item { position: relative; aspect-ratio: 16/9; border-radius: var(--lcd-radius-sm); overflow: hidden; cursor: grab; border: 1.5px solid var(--lcd-navy-line); transition: border-color var(--lcd-motion-fast), transform var(--lcd-motion-fast); }
   .lcd-media-del { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; line-height: 1; border: none; border-radius: 50%; background: rgba(15,23,42,0.78); color: #fff; font-size: 0.9rem; cursor: pointer; display: none; align-items: center; justify-content: center; padding: 0; z-index: 2; }
   .lcd-media-item:hover .lcd-media-del { display: inline-flex; }
-  .lcd-media-del:hover { background: #dc2626; }
-  .lcd-media-none { cursor: pointer; border-style: dashed; border-color: rgba(255,255,255,0.22); }
-  .lcd-media-none .lcd-media-thumb { color: #94a3b8; font-size: 1.1rem; }
-  .lcd-media-none:hover { border-color: #f87171; }
-  .lcd-media-none:hover .lcd-media-thumb { color: #f87171; }
-  .lcd-media-cap { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #cbd5e1; pointer-events: none; }
-  .lcd-media-item:hover { border-color: rgba(99,102,241,0.6); transform: scale(1.03); }
+  .lcd-media-del:hover { background: var(--lcd-danger); }
+  .lcd-media-none { cursor: pointer; border-style: dashed; border-color: var(--lcd-navy-line); }
+  .lcd-media-none .lcd-media-thumb { color: var(--lcd-ivory-muted); font-size: 1.1rem; }
+  .lcd-media-none:hover { border-color: var(--lcd-danger); }
+  .lcd-media-none:hover .lcd-media-thumb { color: var(--lcd-danger); }
+  .lcd-media-cap { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--lcd-ivory-200); pointer-events: none; }
+  .lcd-media-item:hover { border-color: var(--lcd-gold-500); transform: scale(1.03); }
   .lcd-media-item:active { cursor: grabbing; }
-  .lcd-media-thumb { width: 100%; height: 100%; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; color: #8b5cf6; }
-  .lcd-drop-target { outline: 3px dashed #eab308 !important; outline-offset: -3px; background: rgba(234,179,8,0.18) !important; }
-  .lcd-drop-target-section { outline: 3px solid #eab308 !important; outline-offset: -2px; background: rgba(234,179,8,0.32) !important; box-shadow: 0 0 0 3px rgba(234,179,8,0.35) !important; }
+  .lcd-media-thumb { width: 100%; height: 100%; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; color: var(--lcd-gold-400); }
+  .lcd-drop-target { outline: 3px dashed var(--lcd-gold-500) !important; outline-offset: -3px; background: var(--lcd-gold-wash) !important; }
+  .lcd-drop-target-section { outline: 3px solid var(--lcd-gold-500) !important; outline-offset: -2px; background: rgba(193,153,63,0.28) !important; box-shadow: 0 0 0 3px rgba(193,153,63,0.35) !important; }
   @keyframes lcdRowHighlightPulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
-    20%, 60% { box-shadow: 0 0 0 3px rgba(99,102,241,0.55); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(193,153,63,0); }
+    20%, 60% { box-shadow: 0 0 0 3px rgba(193,153,63,0.55); }
   }
   .lcd-row-highlight { animation: lcdRowHighlightPulse 1.6s ease; }
 
@@ -61485,56 +62432,276 @@ function filterLiturgyItems() {
   .wo-main-content:not(.wo-song-order) .wo-content-box[data-subsection-type="scripture"] {
     display: none;
   }
-  .lcd-rail-esv-row { border: 1px dashed rgba(59,130,246,0.5); }
-  .lcd-rail-esv-row .lcd-rail-slide-preview { color: #3b82f6; }
+  /* ===== LCD Projection 3-column workspace (Phase 2) =====
+     Song Library | Service Schedule | Workspace. Scoped to
+     :not(.wo-song-order) so Song Order mode keeps its display:block
+     full-width layout untouched. */
+  .wo-main-content:not(.wo-song-order) {
+    display: grid;
+    grid-template-columns: 280px 320px minmax(480px, 1fr);
+  }
+  /* Both of these carry sizing from the old flex layout. In grid the track
+     owns the width, and .wo-worship-order's max-width:302px would otherwise
+     clamp the schedule column narrower than its own track. */
+  .wo-main-content:not(.wo-song-order) .wo-worship-order { max-width: none; }
+  .wo-main-content:not(.wo-song-order) .wo-preview-panel { min-width: 0; }
+  /* The panel is static HTML (unlike the rail, which Song Order mode wipes),
+     so it needs an explicit guard for the other mode. */
+  .wo-main-content.wo-song-order #lcdLibraryPanel,
+  .wo-main-content.wo-song-order #lcdLibReopen { display: none; }
+
+  .lcd-library-panel {
+    display: flex; flex-direction: column; min-width: 0;
+    gap: var(--lcd-space-3, 12px);
+    padding: var(--lcd-space-4, 16px);
+    background: var(--lcd-navy-900, #111a2e);
+    border-right: 1px solid var(--lcd-navy-line, #2a3a5c);
+    border-bottom-left-radius: 12px;
+    align-self: start; position: sticky; top: 8px;
+    max-height: calc(100vh - 150px);
+  }
+  .lcd-lib-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .lcd-lib-title {
+    display: inline-flex; align-items: center; gap: 7px; min-width: 0;
+    font-family: 'Poppins', sans-serif; font-size: 0.82rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--lcd-ivory-100, #f8f4ea);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .lcd-lib-title i { color: var(--lcd-gold-400, #d9b46a); flex-shrink: 0; }
+  .lcd-lib-iconbtn {
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    width: var(--lcd-btn-h-icon, 38px); height: var(--lcd-btn-h-icon, 38px);
+    border-radius: var(--lcd-radius-sm, 8px);
+    background: var(--lcd-navy-700, #1e2c4a); border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    color: var(--lcd-ivory-muted, #9aa3bf); cursor: pointer; font-size: 0.8rem;
+    transition: color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-lib-iconbtn:hover { color: var(--lcd-gold-400, #d9b46a); background: var(--lcd-navy-800, #16213b); }
+  .lcd-lib-search {
+    width: 100%; box-sizing: border-box; height: var(--lcd-btn-h-secondary, 42px);
+    padding: 0 12px; border-radius: var(--lcd-radius-sm, 8px);
+    border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    background: var(--lcd-navy-800, #16213b); color: var(--lcd-ivory-100, #f8f4ea);
+    font-family: 'Poppins', sans-serif; font-size: 0.8rem;
+  }
+  .lcd-lib-search::placeholder { color: var(--lcd-ivory-muted, #9aa3bf); }
+  .lcd-lib-search:focus { outline: none; border-color: var(--lcd-gold-500, #c1993f); box-shadow: var(--lcd-shadow-gold-glow); }
+  .lcd-lib-chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 78px; overflow-y: auto; flex-shrink: 0; }
+  .lcd-lib-chip {
+    padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--lcd-navy-line, #2a3a5c); background: var(--lcd-navy-800, #16213b);
+    color: var(--lcd-ivory-muted, #9aa3bf);
+    font-family: 'Poppins', sans-serif; font-size: 0.68rem; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+    transition: color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms), border-color var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-lib-chip:hover { color: var(--lcd-ivory-100, #f8f4ea); border-color: var(--lcd-gold-600, #a97f2e); }
+  .lcd-lib-chip.active { background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border-color: var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-400, #d9b46a); }
+  .lcd-lib-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .lcd-lib-card {
+    display: flex; align-items: center; gap: 8px; padding: 9px 10px;
+    border-radius: var(--lcd-radius-sm, 8px);
+    background: var(--lcd-navy-800, #16213b); border: 1px solid transparent;
+    transition: background var(--lcd-motion-fast, 150ms), border-color var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-lib-card:hover { background: var(--lcd-navy-700, #1e2c4a); border-color: var(--lcd-gold-600, #a97f2e); }
+  .lcd-lib-card[draggable="true"] { cursor: grab; }
+  .lcd-lib-card[draggable="true"]:active { cursor: grabbing; }
+  .lcd-lib-add { cursor: pointer; }
+  .lcd-lib-card-body { min-width: 0; flex: 1; }
+  .lcd-lib-card-title { font-size: 0.92rem; font-weight: 600; color: var(--lcd-ivory-100, #f8f4ea); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lcd-lib-card-meta { font-size: var(--lcd-font-item-meta, 12.5px); color: var(--lcd-ivory-muted, #9aa3bf); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .lcd-lib-add {
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 6px;
+    border: 1px solid var(--lcd-gold-600, #a97f2e); background: var(--lcd-gold-wash, rgba(193,153,63,.14));
+    color: var(--lcd-gold-400, #d9b46a); cursor: pointer; font-size: 0.78rem;
+    transition: background var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-lib-add:hover { background: rgba(193,153,63,0.3); }
+  .lcd-lib-empty { padding: 18px 10px; text-align: center; color: var(--lcd-ivory-muted, #9aa3bf); font-size: 0.8rem; }
+
+  /* Slim tab that takes the library's grid cell when it is collapsed */
+  .lcd-lib-reopen {
+    display: none; align-items: center; justify-content: center;
+    align-self: start; position: sticky; top: 8px;
+    width: 100%; height: 44px; margin-top: var(--lcd-space-4, 16px);
+    background: var(--lcd-navy-800, #16213b); border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    border-radius: var(--lcd-radius-sm, 8px);
+    color: var(--lcd-gold-400, #d9b46a); cursor: pointer; font-size: 0.9rem;
+  }
+  .lcd-lib-reopen:hover { background: var(--lcd-navy-700, #1e2c4a); }
+  .wo-main-content:not(.wo-song-order).lcd-library-hidden #lcdLibraryPanel { display: none; }
+  .wo-main-content:not(.wo-song-order).lcd-library-hidden .lcd-lib-reopen { display: flex; }
+  .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 320px minmax(480px, 1fr); }
+
+  .lcd-schedule-header-right { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .lcd-schedule-expand {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 6px;
+    background: transparent; border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    color: var(--lcd-ivory-muted, #9aa3bf); cursor: pointer; font-size: 0.72rem;
+    transition: color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-schedule-expand:hover { color: var(--lcd-gold-400, #d9b46a); background: rgba(255,255,255,0.06); }
+  .lcd-schedule-expand.active { color: var(--lcd-gold-400, #d9b46a); background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border-color: var(--lcd-gold-500, #c1993f); }
+
+  /* Expanded schedule: give the rail the larger share of the workspace. */
+  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded { grid-template-columns: 280px minmax(480px, 1.6fr) minmax(460px, 1fr); }
+  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded.lcd-library-hidden { grid-template-columns: 44px minmax(480px, 1.6fr) minmax(460px, 1fr); }
+
+  @media (min-width: 1800px) {
+    .wo-main-content:not(.wo-song-order) { grid-template-columns: 320px 360px minmax(560px, 1fr); }
+    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 360px minmax(560px, 1fr); }
+  }
+  /* Below 1600px an expanded schedule cannot also fit the library and a
+     usable workspace, so the library yields -- its own hidden/shown flag is
+     left untouched, and the slim tab re-opens it by un-expanding. */
+  @media (max-width: 1599px) {
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded #lcdLibraryPanel { display: none; }
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-lib-reopen { display: flex; }
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded { grid-template-columns: 44px minmax(420px, 1.4fr) minmax(430px, 1fr); }
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-outputs-row { flex-direction: column; }
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-outputs-row .lcd-output-box { flex: 1 1 auto; }
+  }
+  @media (max-width: 1439px) {
+    .wo-main-content:not(.wo-song-order) { grid-template-columns: 250px 296px minmax(420px, 1fr); }
+    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 296px minmax(420px, 1fr); }
+    /* Workspace is too narrow for Editor and Output side by side */
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row { flex-direction: column; }
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-output-box { flex: 1 1 auto; }
+  }
+  /* The 3-column workspace is desktop-only. Below 1201px the app's existing
+     phone/tablet layouts take over (stacked column, slide-in preview panel),
+     and those are written as flex -- `flex-direction: column !important` is
+     inert against `display: grid`, so without this the grid's fixed tracks
+     force ~966px of content into a 355px phone viewport. The Library panel
+     and its re-open tab have no place in those flows either. */
+  @media (max-width: 1200px) {
+    .wo-main-content:not(.wo-song-order) { display: flex; }
+    .wo-main-content:not(.wo-song-order) .wo-worship-order { max-width: 302px; }
+    .wo-main-content:not(.wo-song-order) .wo-preview-panel { min-width: 640px; }
+    .wo-main-content:not(.wo-song-order) #lcdLibraryPanel,
+    .wo-main-content:not(.wo-song-order) #lcdLibReopen { display: none; }
+  }
+
+  /* Service Schedule column: dark navy to match the LCD shell beside it.
+     Scoped to LCD Projection mode only -- in Song Order mode this same
+     column is the full-width light song list and must stay untouched. */
+  .wo-main-content:not(.wo-song-order) .wo-worship-order {
+    background: var(--lcd-navy-900, #111a2e);
+    border-bottom-left-radius: 12px;
+  }
+
+  /* Static header above the rail. Built once by _lcdEnsureScheduleHeader()
+     and never re-created, so it does not flicker on observer re-renders. */
+  .lcd-schedule-header {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--lcd-space-2, 8px);
+    padding: 10px 12px; margin-bottom: var(--lcd-space-3, 12px);
+    background: var(--lcd-navy-800, #16213b);
+    border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    border-radius: var(--lcd-radius-md, 10px);
+    box-shadow: var(--lcd-shadow-sm, 0 1px 2px rgba(0,0,0,.24));
+    position: sticky; top: 0; z-index: 4;
+  }
+  .lcd-schedule-header-title {
+    display: inline-flex; align-items: center; gap: 7px; min-width: 0;
+    font-family: 'Poppins', sans-serif; font-size: 0.82rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--lcd-ivory-100, #f8f4ea);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .lcd-schedule-header-title i { color: var(--lcd-gold-400, #d9b46a); font-size: 0.78rem; flex-shrink: 0; }
+  .lcd-schedule-count {
+    flex-shrink: 0; padding: 3px 9px; border-radius: 999px;
+    background: var(--lcd-gold-wash, rgba(193,153,63,.14));
+    border: 1px solid rgba(193,153,63,0.35);
+    color: var(--lcd-gold-400, #d9b46a);
+    font-family: 'Poppins', sans-serif; font-size: var(--lcd-font-numbering, 12px);
+    font-weight: 700; white-space: nowrap;
+  }
+  .wo-main-content.wo-song-order #lcdScheduleHeader { display: none; }
+
+  .lcd-rail-esv-row { border: 1px dashed rgba(125,211,252,0.45) !important; }
+  .lcd-rail-esv-row .lcd-rail-slide-preview { color: #7dd3fc; }
   .lcd-compact-rail { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
-  .lcd-rail-section { margin-bottom: 6px; }
-  .lcd-rail-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #4338ca; background: linear-gradient(90deg, rgba(99,102,241,0.18), rgba(99,102,241,0.06)); border-left: 3px solid #6366f1; border-radius: 6px; padding: 6px 8px; margin-bottom: 4px; }
-  .lcd-rail-add-slides { display: inline-flex; align-items: center; gap: 4px; background: rgba(234,88,12,0.14); border: 1px solid rgba(234,88,12,0.4); color: #ea580c; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
-  .lcd-rail-add-slides:hover { background: rgba(234,88,12,0.26); }
-  .lcd-rail-add-btns { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
-  .lcd-rail-collapse { flex-shrink: 0; background: none; border: none; color: #94a3b8; cursor: pointer; padding: 0 2px; font-size: 0.7rem; }
-  .lcd-rail-collapse:hover { color: #6366f1; }
+  .lcd-rail-section { margin-bottom: var(--lcd-space-3, 12px); }
+  /* position:relative anchors the hover-revealed action buttons below */
+  .lcd-rail-section-header { position: relative; display: flex; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--lcd-ivory-100, #f8f4ea); background: linear-gradient(90deg, var(--lcd-gold-wash, rgba(193,153,63,.14)), rgba(22,33,59,0)), var(--lcd-navy-800, #16213b); border-left: 3px solid var(--lcd-gold-500, #c1993f); border-radius: var(--lcd-radius-sm, 8px); padding: 8px 10px; margin-bottom: 6px; }
+  .lcd-rail-add-slides { display: inline-flex; align-items: center; gap: 4px; background: rgba(251,146,60,0.16); border: 1px solid rgba(251,146,60,0.42); color: #fb923c; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
+  .lcd-rail-add-slides:hover { background: rgba(251,146,60,0.3); }
+  /* Overlaid on the right of the section header and revealed on hover /
+     keyboard focus, so at rest the section title gets the full column
+     width instead of being squeezed into ~76px by 7 icon buttons.
+     Absolute positioning keeps this from shifting layout on hover. */
+  .lcd-rail-add-btns {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+    padding-left: 24px; border-radius: var(--lcd-radius-sm, 8px);
+    background: linear-gradient(90deg, rgba(22,33,59,0) 0%, var(--lcd-navy-800, #16213b) 20%, var(--lcd-navy-800, #16213b) 100%);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--lcd-motion-fast, 150ms) ease;
+  }
+  .lcd-rail-section-header:hover .lcd-rail-add-btns,
+  .lcd-rail-section-header:focus-within .lcd-rail-add-btns { opacity: 1; pointer-events: auto; }
+  .lcd-rail-collapse { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: none; border: none; color: var(--lcd-ivory-muted, #9aa3bf); cursor: pointer; padding: 0; border-radius: 5px; font-size: 0.72rem; transition: color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms); }
+  .lcd-rail-collapse:hover { color: var(--lcd-gold-400, #d9b46a); background: rgba(255,255,255,0.06); }
   .lcd-rail-section-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lcd-rail-add-slide { display: inline-flex; align-items: center; gap: 4px; background: rgba(99,102,241,0.14); border: 1px solid rgba(99,102,241,0.4); color: #6366f1; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
-  .lcd-rail-add-slide:hover { background: rgba(99,102,241,0.26); }
-  .lcd-rail-add-readings { display: inline-flex; align-items: center; gap: 4px; background: rgba(59,130,246,0.14); border: 1px solid rgba(59,130,246,0.45); color: #3b82f6; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
-  .lcd-rail-add-readings:hover { background: rgba(59,130,246,0.26); }
-  .lcd-rail-addbtn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; border: 1px solid rgba(0,0,0,0.12); cursor: pointer; font-size: 0.62rem; padding: 0; }
-  .lcd-rail-add-song { background: rgba(37,99,235,0.12); border-color: rgba(37,99,235,0.4); color: #2563eb; }
-  .lcd-rail-add-song:hover { background: rgba(37,99,235,0.24); }
-  .lcd-rail-add-liturgy { background: rgba(124,58,237,0.12); border-color: rgba(124,58,237,0.4); color: #7c3aed; }
-  .lcd-rail-add-liturgy:hover { background: rgba(124,58,237,0.24); }
-  .lcd-rail-all-slides { background: rgba(13,148,136,0.12); border-color: rgba(13,148,136,0.4); color: #0d9488; }
-  .lcd-rail-all-slides:hover { background: rgba(13,148,136,0.24); }
-  .lcd-rail-del-section { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: #dc2626; }
-  .lcd-rail-del-section:hover { background: rgba(239,68,68,0.26); }
-  .lcd-rail-rename-section { background: rgba(148,163,184,0.14); border-color: rgba(148,163,184,0.4); color: #64748b; }
-  .lcd-rail-rename-section:hover { background: rgba(148,163,184,0.28); }
+  /* Per-section slide count. Letter-spacing/transform reset because the
+     section header sets uppercase + tracking on the whole row. */
+  .lcd-rail-section-count {
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    min-width: 21px; height: 19px; padding: 0 6px; margin-right: 2px;
+    background: var(--lcd-gold-wash, rgba(193,153,63,.14));
+    border: 1px solid rgba(193,153,63,0.35); border-radius: 999px;
+    color: var(--lcd-gold-400, #d9b46a);
+    font-size: var(--lcd-font-numbering, 12px); font-weight: 700;
+    letter-spacing: 0; text-transform: none; font-family: 'Poppins', sans-serif;
+  }
+  .lcd-rail-add-slide { display: inline-flex; align-items: center; gap: 4px; background: rgba(167,139,250,0.16); border: 1px solid rgba(167,139,250,0.42); color: #a78bfa; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
+  .lcd-rail-add-slide:hover { background: rgba(167,139,250,0.3); }
+  .lcd-rail-add-readings { display: inline-flex; align-items: center; gap: 4px; background: rgba(125,211,252,0.16); border: 1px solid rgba(125,211,252,0.45); color: #7dd3fc; border-radius: 6px; padding: 2px 8px; font-size: 0.62rem; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; font-family: 'Poppins', sans-serif; white-space: nowrap; }
+  .lcd-rail-add-readings:hover { background: rgba(125,211,252,0.3); }
+  .lcd-rail-addbtn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); cursor: pointer; font-size: 0.72rem; padding: 0; transition: background var(--lcd-motion-fast, 150ms); }
+  .lcd-rail-add-song { background: rgba(96,165,250,0.16); border-color: rgba(96,165,250,0.42); color: #60a5fa; }
+  .lcd-rail-add-song:hover { background: rgba(96,165,250,0.3); }
+  .lcd-rail-add-liturgy { background: rgba(167,139,250,0.16); border-color: rgba(167,139,250,0.42); color: #a78bfa; }
+  .lcd-rail-add-liturgy:hover { background: rgba(167,139,250,0.3); }
+  .lcd-rail-all-slides { background: rgba(45,212,191,0.16); border-color: rgba(45,212,191,0.42); color: #2dd4bf; }
+  .lcd-rail-all-slides:hover { background: rgba(45,212,191,0.3); }
+  .lcd-rail-del-section { background: rgba(248,113,113,0.16); border-color: rgba(248,113,113,0.42); color: #f87171; }
+  .lcd-rail-del-section:hover { background: rgba(248,113,113,0.3); }
+  .lcd-rail-rename-section { background: rgba(203,213,225,0.14); border-color: rgba(203,213,225,0.35); color: #cbd5e1; }
+  .lcd-rail-rename-section:hover { background: rgba(203,213,225,0.28); }
   .lcd-rail-section-title { cursor: text; }
-  .lcd-rail-addslide-row { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px; margin: 3px 2px 8px; border: 1px dashed rgba(99,102,241,0.45); border-radius: 6px; color: #6366f1; font-size: 0.68rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; }
-  .lcd-rail-addslide-row:hover { background: rgba(99,102,241,0.1); }
-  .lcd-rail-add-section { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; background: rgba(34,197,94,0.14); border: 1px solid rgba(34,197,94,0.4); color: #16a34a; border-radius: 7px; padding: 7px 10px; margin-bottom: 8px; font-size: 0.72rem; font-weight: 700; cursor: pointer; font-family: 'Poppins', sans-serif; }
-  .lcd-rail-add-section:hover { background: rgba(34,197,94,0.24); }
+  .lcd-rail-addslide-row { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px; margin: 4px 2px 4px; border: 1px dashed rgba(193,153,63,0.4); border-radius: 6px; color: var(--lcd-gold-400, #d9b46a); font-size: 0.7rem; font-weight: 600; cursor: pointer; font-family: 'Poppins', sans-serif; transition: background var(--lcd-motion-fast, 150ms); }
+  .lcd-rail-addslide-row:hover { background: var(--lcd-gold-wash, rgba(193,153,63,.14)); }
+  .lcd-rail-add-section { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: var(--lcd-btn-h-secondary, 42px); background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border: 1px solid var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-400, #d9b46a); border-radius: var(--lcd-radius-sm, 8px); padding: 0 10px; margin-bottom: var(--lcd-space-3, 12px); font-size: 0.75rem; font-weight: 700; cursor: pointer; font-family: 'Poppins', sans-serif; transition: background var(--lcd-motion-fast, 150ms); }
+  .lcd-rail-add-section:hover { background: rgba(193,153,63,0.26); }
   .lcd-rail-section-header[draggable="true"] { cursor: grab; }
   .lcd-rail-section-header[draggable="true"]:active { cursor: grabbing; }
   .lcd-rail-ppt-row { align-items: center; }
-  .lcd-rail-ppt-thumb { width: 42px; height: 24px; flex-shrink: 0; border-radius: 3px; background-color: #1e293b; background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; color: #ea580c; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.12); }
-  .lcd-rail-slide-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 6px; cursor: pointer; border: 1.5px solid transparent; transition: background 0.12s, border-color 0.12s; }
-  .lcd-rail-slide-row:hover { background: #f1f5f9; }
-  .lcd-rail-slide-row.selected { background: #eef2ff; border-color: #6366f1; }
+  .lcd-rail-ppt-thumb { width: 42px; height: 24px; flex-shrink: 0; border-radius: 3px; background-color: #1e293b; background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; color: #fb923c; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.12); }
+  .lcd-rail-slide-row { display: flex; gap: var(--lcd-space-2, 8px); align-items: flex-start; padding: 8px 10px; border-radius: var(--lcd-radius-sm, 8px); cursor: pointer; border: 1.5px solid transparent; transition: background var(--lcd-motion-fast, 150ms), border-color var(--lcd-motion-fast, 150ms); }
+  .lcd-rail-slide-row:hover { background: var(--lcd-navy-700, #1e2c4a); }
+  .lcd-rail-slide-row.selected { background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border-color: var(--lcd-gold-500, #c1993f); }
   .lcd-rail-slide-row[draggable="true"] { cursor: grab; }
   .lcd-rail-slide-row[draggable="true"]:active { cursor: grabbing; }
-  .lcd-rail-drop-above { box-shadow: inset 0 4px 0 0 #4f46e5; }
-  .lcd-rail-drop-below { box-shadow: inset 0 -4px 0 0 #4f46e5; }
-  .lcd-rail-slide-num { flex-shrink: 0; font-size: 0.66rem; font-weight: 700; color: #94a3b8; padding-top: 1px; min-width: 26px; }
-  .lcd-rail-slide-row.selected .lcd-rail-slide-num { color: #6366f1; }
+  .lcd-rail-drop-above { box-shadow: inset 0 4px 0 0 var(--lcd-gold-400, #d9b46a); }
+  .lcd-rail-drop-below { box-shadow: inset 0 -4px 0 0 var(--lcd-gold-400, #d9b46a); }
+  /* Numbering stays deliberately small and quiet -- it must never compete
+     with the item title, which is the thing you actually scan for. */
+  .lcd-rail-slide-num { flex-shrink: 0; font-size: var(--lcd-font-numbering, 12px); font-weight: 700; color: var(--lcd-ivory-muted, #9aa3bf); padding-top: 3px; min-width: 38px; }
+  .lcd-rail-slide-row.selected .lcd-rail-slide-num { color: var(--lcd-gold-400, #d9b46a); }
   .lcd-rail-slide-body { min-width: 0; flex: 1; }
-  .lcd-rail-item-title { font-size: 0.78rem; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .lcd-rail-slide-preview { font-size: 0.7rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .lcd-rail-slide-del { flex-shrink: 0; align-self: center; background: transparent; border: none; color: #cbd5e1; cursor: pointer; padding: 4px 7px; margin-left: 2px; border-radius: 5px; font-size: 0.72rem; opacity: 0.35; transition: opacity 0.12s, color 0.12s, background 0.12s; }
+  /* Two-line clamp rather than a single ellipsised line: in a 270px column
+     most song/liturgy titles would otherwise truncate mid-word. */
+  .lcd-rail-item-title { font-size: var(--lcd-font-item-title, 16.5px); font-weight: 600; color: var(--lcd-ivory-100, #f8f4ea); line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .lcd-rail-slide-preview { font-size: var(--lcd-font-item-meta, 12.5px); color: var(--lcd-ivory-muted, #9aa3bf); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .lcd-rail-slide-del { flex-shrink: 0; align-self: center; background: transparent; border: none; color: var(--lcd-ivory-muted, #9aa3bf); cursor: pointer; padding: 5px 8px; margin-left: 2px; border-radius: 5px; font-size: 0.72rem; opacity: 0.3; transition: opacity var(--lcd-motion-fast, 150ms), color var(--lcd-motion-fast, 150ms), background var(--lcd-motion-fast, 150ms); }
   .lcd-rail-slide-row:hover .lcd-rail-slide-del { opacity: 1; }
-  .lcd-rail-slide-del:hover { color: #dc2626; background: rgba(239,68,68,0.14); }
+  .lcd-rail-slide-del:hover { color: var(--lcd-danger, #c65a4e); background: rgba(198,90,78,0.18); }
 
   /* ── Worship Sections — Badge-left / Slides-middle (590) ── */
   .wo-worship-section { margin-bottom: 10px; }
@@ -61803,10 +62970,10 @@ function filterLiturgyItems() {
   /* Background Button in Preview Panel */
   .wo-bg-btn { background: linear-gradient(135deg, #8b5cf6, #a78bfa); color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
   .wo-bg-btn:hover { background: linear-gradient(135deg, #7c3aed, #8b5cf6); transform: translateY(-1px); }
-  .wo-preview-zoom-group { display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.1); border-radius: 8px; padding: 3px 6px; }
-  .wo-preview-zoom-btn { background: rgba(255,255,255,0.18); color: white; border: none; padding: 6px 9px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
-  .wo-preview-zoom-btn:hover { background: rgba(255,255,255,0.3); }
-  .wo-preview-zoom-label { color: white; font-size: 0.72rem; font-weight: 600; font-family: 'Poppins', sans-serif; min-width: 34px; text-align: center; }
+  .wo-preview-zoom-group { display: flex; align-items: center; gap: 4px; background: var(--lcd-navy-700, rgba(255,255,255,0.1)); border-radius: var(--lcd-radius-sm, 8px); padding: 3px; }
+  .wo-preview-zoom-btn { display: inline-flex; align-items: center; justify-content: center; width: var(--lcd-btn-h-icon, 38px); height: var(--lcd-btn-h-icon, 38px); background: transparent; color: var(--lcd-ivory-muted, white); border: none; border-radius: calc(var(--lcd-radius-sm, 8px) - 2px); font-size: 0.8rem; cursor: pointer; transition: background var(--lcd-motion-fast, 0.2s), color var(--lcd-motion-fast, 0.2s); }
+  .wo-preview-zoom-btn:hover { background: rgba(255,255,255,0.1); color: var(--lcd-ivory-100, white); }
+  .wo-preview-zoom-label { color: var(--lcd-ivory-100, white); font-size: 0.72rem; font-weight: 600; font-family: 'Poppins', sans-serif; min-width: 34px; text-align: center; }
 
   /* Background Modal */
   .wo-bg-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 10004; padding: 20px; }
@@ -62654,28 +63821,28 @@ function filterLiturgyItems() {
   .wo-align-group {
     display: inline-flex;
     align-items: center;
-    gap: 1px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 6px;
-    padding: 2px;
+    gap: 2px;
+    background: var(--lcd-navy-700, #1e2c4a);
+    border-radius: var(--lcd-radius-sm, 8px);
+    padding: 3px;
     flex-shrink: 0;
   }
   .wo-align-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
+    width: var(--lcd-btn-h-icon, 38px);
+    height: var(--lcd-btn-h-icon, 38px);
     border: none;
-    border-radius: 4px;
+    border-radius: calc(var(--lcd-radius-sm, 8px) - 2px);
     background: transparent;
-    color: rgba(255,255,255,0.65);
+    color: var(--lcd-ivory-muted, rgba(255,255,255,0.65));
     cursor: pointer;
     font-size: 0.78rem;
-    transition: background 0.12s, color 0.12s;
+    transition: background var(--lcd-motion-fast, 0.12s), color var(--lcd-motion-fast, 0.12s);
   }
-  .wo-align-btn:hover { background: rgba(255,255,255,0.18); color: white; }
-  .wo-align-btn.active { background: #6366f1; color: white; }
+  .wo-align-btn:hover { background: rgba(255,255,255,0.1); color: var(--lcd-ivory-100, white); }
+  .wo-align-btn.active { background: var(--lcd-gold-500, #6366f1); color: var(--lcd-navy-950, white); }
 
   /* ── Barrier button (toolbar) ───────────────────────────────────────── */
   .wo-barrier-btn {
