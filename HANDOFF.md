@@ -4,6 +4,21 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — Lyric notice becomes per-slide, acknowledge-on-view, with a refresh action (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+Reworked the awareness feature to the clarified spec: the badge belongs on the *slide carrying the changed lyric*, the operator must be able to see *what* changed, opening the slide clears the badge, and a change arriving while they are working on that slide must offer a way to pull it in.
+
+1. **Per-slide, not per-song.** `_lcdChangedSlides(entryId)` splits both the order's copy and the library copy through the app's own `parseLyricsIntoSlides()` — the same splitter the projector uses, so a difference lands on the slide the operator actually sees — then compares each slide words-only via `_lcdLyricsOnly()`. Returns a map of slide index → `{libText, orderText, kind}` where kind is `changed` / `added` / `removed`. Verified on a real 5-slide hymn: editing one word of Verse 5 flags **exactly one slide (1.5)**, not all five.
+2. **The banner shows the change.** It now renders the heading, the library's actual wording for that slide in a scrollable block, and two actions. Chord lines are excluded from that preview too, so the operator reads words, not a chord chart.
+3. **Acknowledge on view, per version.** `_lcdAckedSlides` is keyed `entryId|slideIdx` and stores the library text that was seen. Opening the slide acknowledges it and the badge clears; if the worship team edits **that same slide again** the stored text no longer matches and the badge returns. Verified: flag → open → clears → second edit → flag returns.
+4. **Live edit while the operator is on the slide.** `_lcdRenderCompactRail()` now refreshes the banner for the currently-open slide, passing `acknowledge=false` — passive refreshes must never self-acknowledge, or a change arriving mid-session would clear itself before being read. Verified by nudging the rail observer with the slide open: the banner appears in place, showing the new text, with the refresh offered.
+5. **Two actions**: "Use the library version" (`lcdRefreshSlideFromLibrary`) writes the library wording into the slide via the existing `_lcdWriteSlideText` + `_lcdCommitEditorToSlide`, pushes undo first, and acknowledges; "Keep this order's version" (`lcdDismissLyricNotice`) just acknowledges. Both verified.
+- **Subtlety worth recording**: after a refresh the banner is hidden outright rather than recomputed. The slide now carries the library wording, but the *entry's* stored `lyrics`/`masterLyrics` still hold the old text, so a recompute would keep reporting a difference the operator has already resolved. Per-version acknowledgement keeps the rail badge off as well, and a genuinely new library edit still raises both again.
+- **Important limitation, unchanged by this work**: a songbook edit does not push to the LCD operator's browser. `LHC_STATE.songs` only refreshes when `loadSongs()` runs, so the notice appears on the next song-list refresh (page load, or any path that reloads songs) — not the instant the worship team saves. Making it truly live would need polling or a realtime subscription. The in-session behaviour above is what works today.
+- Regression + cleanup: `node --check` clean, byte-identical `dist/index.html`, no new console errors. Test orders removed by id; **21 real orders, both "Service - May 3" intact, 0 test orders**; the library lyrics used for testing were restored (in-memory only, never written to the database).
+
+---
+
 ## 2026-08-11 — Fourth audit: badge now reports lyric changes only, never chords (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
 
 Per explicit instruction — the badge must inform on **lyric** changes only, not chord changes. That turned out to fix a false positive in the *other* direction too, which the previous round had not spotted: because comparison was on raw text, a **chord-only edit in the library** (a reharmonisation, or someone adding a chord line) would have raised "Library copy updated" even though not a single word had changed.

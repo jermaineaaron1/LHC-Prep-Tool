@@ -47509,26 +47509,95 @@ var WO = (function() {
     if (ed) ed.innerHTML = _lcdReadSlideRich(box);
     if (openBtn) openBtn.style.display = songId ? '' : 'none';
     _lcdUpdateEditorCanvas(box);
-    _lcdUpdateLyricBanner(songId);
+    // Opening a slide counts as having seen it, so the badge clears.
+    _lcdUpdateLyricBanner(songId, box.getAttribute('data-slide-idx') || '0', true);
     _lcdUpdateSlideSummary();
   }
 
   // Banner above the editor telling the operator these words are not the
   // library default. Status is recomputed live (cache is cleared each rail
   // render), so a library edit surfaces without reloading the order.
-  function _lcdUpdateLyricBanner(entryId) {
+  // acknowledge=true only when the operator actively opened the slide. Passive
+  // refreshes (rail re-renders while they sit on a slide) must NOT acknowledge,
+  // otherwise an edit arriving mid-session would clear itself before being read.
+  function _lcdUpdateLyricBanner(entryId, slideIdx, acknowledge) {
     var el = document.getElementById('lcdLyricBanner');
     var txt = document.getElementById('lcdLyricBannerText');
     if (!el || !txt) return;
     _lcdResetLyricStatusCache();
-    var st = entryId ? _lcdSongLyricsStatus(entryId) : null;
-    if (st && st.differs) {
-      el.className = 'lcd-lyric-banner ' + st.reason;
-      txt.textContent = st.label + ' — ' + st.detail;
-      el.style.display = '';
-    } else {
-      el.style.display = 'none';
-    }
+    var chg = entryId ? _lcdChangedSlidesCached(entryId) : null;
+    var si = parseInt(slideIdx == null ? -1 : slideIdx, 10);
+    var c = (chg && si >= 0) ? chg[si] : null;
+    if (!c) { el.style.display = 'none'; el.removeAttribute('data-entry'); return; }
+
+    var heading = (c.source === 'custom')
+      ? 'Lyrics edited for this service'
+      : (c.kind === 'added' ? 'New slide added in the library'
+        : c.kind === 'removed' ? 'This slide is no longer in the library'
+        : 'Library lyrics updated for this slide');
+    var libPreview = _lcdNormalizeLyrics(c.libText);
+    var body = (c.kind === 'removed')
+      ? 'The worship team removed this slide from the library version.'
+      : 'The library now reads:';
+
+    el.className = 'lcd-lyric-banner ' + c.source;
+    el.setAttribute('data-entry', entryId);
+    el.setAttribute('data-slide', String(si));
+    txt.innerHTML =
+      '<div class="lcd-lyric-banner-head">' + escapeHtml(heading) + '</div>' +
+      '<div class="lcd-lyric-banner-body">' + escapeHtml(body) + '</div>' +
+      (c.kind === 'removed' ? '' : '<div class="lcd-lyric-diff">' + escapeHtml(libPreview) + '</div>') +
+      '<div class="lcd-lyric-banner-actions">' +
+        (c.kind === 'removed' ? '' :
+          '<button class="lcd-lyric-refresh" onclick="WO.lcdRefreshSlideFromLibrary()"><i class="fa-solid fa-rotate"></i> Use the library version</button>') +
+        '<button class="lcd-lyric-dismiss" onclick="WO.lcdDismissLyricNotice()">Keep this order’s version</button>' +
+      '</div>' +
+      '<div class="lcd-lyric-banner-foot">Chord and key changes are not reported.</div>';
+    el.style.display = '';
+    if (acknowledge) _lcdAckSlide(entryId, si, c.libText);
+  }
+
+  // Pull the library's wording into this slide and project it.
+  function lcdRefreshSlideFromLibrary() {
+    var el = document.getElementById('lcdLyricBanner');
+    if (!el) return;
+    var entryId = el.getAttribute('data-entry');
+    var si = parseInt(el.getAttribute('data-slide') || '-1', 10);
+    var chg = entryId ? _lcdChangedSlides(entryId) : null;
+    var c = (chg && si >= 0) ? chg[si] : null;
+    if (!c) { showToast('That change is no longer available.', 'warning'); return; }
+    var box = _lcdRelocateActiveSlideBox();
+    if (!box) { showToast('Select the slide again, then retry.', 'warning'); return; }
+    _lcdPushUndo();
+    // Strip the leading [Header] line: the slide box stores body text only,
+    // the header lives in the slide's own header element.
+    var body = String(c.libText).replace(/^\[[^\]\n]*\]\n?/, '');
+    _lcdWriteSlideText(box, body);
+    _lcdLoadSlideIntoEditor(box);
+    _lcdCommitEditorToSlide();
+    _lcdAckSlide(entryId, si, c.libText);
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    // Hide outright rather than recompute: the slide now carries the library
+    // wording, but the entry's stored lyrics/masterLyrics still hold the old
+    // text, so a recompute would keep reporting a difference the operator has
+    // already resolved. The per-version acknowledgement keeps the rail badge
+    // off too, and a genuinely NEW library edit still raises both again.
+    el.style.display = 'none';
+    showToast('Slide updated to the library version', 'success');
+  }
+
+  // Keep this order's wording; just stop flagging this version.
+  function lcdDismissLyricNotice() {
+    var el = document.getElementById('lcdLyricBanner');
+    if (!el) return;
+    var entryId = el.getAttribute('data-entry');
+    var si = parseInt(el.getAttribute('data-slide') || '-1', 10);
+    var chg = entryId ? _lcdChangedSlides(entryId) : null;
+    var c = (chg && si >= 0) ? chg[si] : null;
+    if (c) _lcdAckSlide(entryId, si, c.libText);
+    el.style.display = 'none';
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
   }
 
   // Paint the slide's real background and alignment onto the editor canvas so
@@ -47647,7 +47716,7 @@ var WO = (function() {
     if (slideNumEl) slideNumEl.textContent = '';
     if (openBtn) openBtn.style.display = 'none';
     _lcdUpdateEditorCanvas(null);
-    _lcdUpdateLyricBanner(null);
+    _lcdUpdateLyricBanner(null, -1, false);
     _lcdUpdateSlideSummary();
   }
 
@@ -48290,6 +48359,11 @@ var WO = (function() {
   // customises the lyrics inside this order. Either way the operator running
   // LCD Projection should know the words on screen are not the stored default.
   // Compared on normalised text so whitespace/line-ending noise never trips it.
+  // Slides the operator has already looked at, keyed "entryId|slideIdx" and
+  // holding the library text they saw. If the worship team edits that same
+  // slide AGAIN the stored text no longer matches and the badge returns, so
+  // acknowledging is per-version, not permanent.
+  var _lcdAckedSlides = {};
   var _lcdLyricStatusCache = {};
   function _lcdNormalizeLyrics(t) {
     return String(t == null ? '' : t)
@@ -48324,6 +48398,52 @@ var WO = (function() {
     });
     return _lcdNormalizeLyrics(kept.join('\n'));
   }
+  // Split lyrics into the same slides the projector builds, so a comparison
+  // lines up with the slides the operator actually sees.
+  function _lcdSlideTexts(lyrics) {
+    if (typeof parseLyricsIntoSlides !== 'function') return [];
+    return (parseLyricsIntoSlides(lyrics) || []).map(function(s) {
+      return (s.header ? '[' + s.header + ']\n' : '') + ((s.lines || []).join('\n'));
+    });
+  }
+
+  // Per-slide comparison against the library, words only. Returns a map of
+  // slide index -> { libText, orderText, kind } for the slides that actually
+  // differ, so the badge lands on the slide carrying the changed lyric rather
+  // than on every slide of the song.
+  function _lcdChangedSlides(entryId) {
+    if (!entryId) return null;
+    var entry = songOrderSections.find(function(s) { return s.id === entryId; });
+    if (!entry) return null;
+    var lib = _lcdAllSongs().find(function(s) { return s.id === entry.songId; });
+    if (!lib) return null;
+    var custom = String(entry.customLyrics || '').trim();
+    var orderBase = custom || ((entry.masterLyrics != null && String(entry.masterLyrics).trim())
+      ? entry.masterLyrics : entry.lyrics);
+    var libSlides = _lcdSlideTexts(lib.lyrics);
+    var ordSlides = _lcdSlideTexts(orderBase);
+    var map = {};
+    var n = Math.max(libSlides.length, ordSlides.length);
+    for (var i = 0; i < n; i++) {
+      var l = libSlides[i], o = ordSlides[i];
+      var kind = (l === undefined) ? 'removed' : (o === undefined ? 'added' : null);
+      if (kind || _lcdLyricsOnly(l) !== _lcdLyricsOnly(o)) {
+        map[i] = { libText: l == null ? '' : l, orderText: o == null ? '' : o,
+                   kind: kind || 'changed',
+                   source: custom ? 'custom' : 'library' };
+      }
+    }
+    return Object.keys(map).length ? map : null;
+  }
+
+  // Has this exact version of this slide already been looked at?
+  function _lcdSlideAcked(entryId, slideIdx, libText) {
+    return _lcdAckedSlides[entryId + '|' + slideIdx] === _lcdNormalizeLyrics(libText);
+  }
+  function _lcdAckSlide(entryId, slideIdx, libText) {
+    _lcdAckedSlides[entryId + '|' + slideIdx] = _lcdNormalizeLyrics(libText);
+  }
+
   function _lcdSongLyricsStatus(entryId) {
     if (!entryId) return null;
     if (Object.prototype.hasOwnProperty.call(_lcdLyricStatusCache, entryId)) return _lcdLyricStatusCache[entryId];
@@ -48356,7 +48476,16 @@ var WO = (function() {
     return res;
   }
   // Recomputed per rail render so a library edit shows up on the next refresh.
-  function _lcdResetLyricStatusCache() { _lcdLyricStatusCache = {}; }
+  function _lcdResetLyricStatusCache() { _lcdLyricStatusCache = {}; _lcdChangedSlidesCache = {}; }
+  // Per-render cache: _lcdChangedSlides() reparses both lyric sets, which is
+  // wasteful once per slide row.
+  var _lcdChangedSlidesCache = {};
+  function _lcdChangedSlidesCached(entryId) {
+    if (!Object.prototype.hasOwnProperty.call(_lcdChangedSlidesCache, entryId)) {
+      _lcdChangedSlidesCache[entryId] = _lcdChangedSlides(entryId);
+    }
+    return _lcdChangedSlidesCache[entryId];
+  }
 
   function _lcdBuildRailRow(sIdx, slideNum, groupTitle, slideBoxEl, iconClass) {
     var lines = Array.from(slideBoxEl.querySelectorAll('.wo-slide-line')).map(function(l) { return l.textContent.trim(); }).filter(Boolean);
@@ -48369,11 +48498,23 @@ var WO = (function() {
     // intact (it serialises via textContent), hence the extra replace before
     // this goes into an attribute.
     var titleAttr = escapeHtml(groupTitle).replace(/"/g, '&quot;');
-    // Flag rows whose song no longer matches the library default.
-    var _st = _lcdSongLyricsStatus(slideBoxEl.getAttribute('data-song-id'));
-    var _flag = (_st && _st.differs)
-      ? '<span class="lcd-lyric-flag ' + _st.reason + '" title="' + escapeHtml(_st.detail).replace(/"/g, '&quot;') + '"><i class="fa-solid fa-pen-nib"></i></span>'
-      : '';
+    // Flag only the slide that actually carries the changed lyric, and only
+    // until the operator has opened it (acknowledgement is per-version, so a
+    // later edit to the same slide brings the badge back).
+    var _flag = '';
+    var _eid = slideBoxEl.getAttribute('data-song-id');
+    if (_eid) {
+      var _chg = _lcdChangedSlidesCached(_eid);
+      var _si = parseInt(slideBoxEl.getAttribute('data-slide-idx') || '0', 10);
+      var _c = _chg && _chg[_si];
+      if (_c && !_lcdSlideAcked(_eid, _si, _c.libText)) {
+        var _tip = (_c.source === 'custom'
+          ? 'The words on this slide were changed for this order.'
+          : 'The worship team changed the words on this slide in the library.')
+          + ' Click the slide to see what changed. (Chord and key changes are not reported.)';
+        _flag = '<span class="lcd-lyric-flag ' + _c.source + '" title="' + escapeHtml(_tip).replace(/"/g, '&quot;') + '"><i class="fa-solid fa-pen-nib"></i></span>';
+      }
+    }
     return '<div class="lcd-rail-slide-row' + (isSelected ? ' selected' : '') + '" id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
       '<div class="lcd-rail-slide-num"><i class="fa-solid ' + iconClass + '"></i> ' + (sIdx + 1) + '.' + slideNum + '</div>' +
       '<div class="lcd-rail-slide-body">' +
@@ -48556,6 +48697,13 @@ var WO = (function() {
     _lcdWireRailDrag(rail);
     _lcdWireSectionDrag(rail);
     _lcdWireLibraryDrop(rail);
+    // If a change lands on the slide the operator currently has open -- e.g.
+    // the worship team edits it in the songbook mid-service-prep -- surface it
+    // right there without waiting for them to reselect. Passive, so it does
+    // NOT acknowledge: they still have to read it.
+    if (_lcdActiveSlide && _lcdActiveSlide.songId) {
+      _lcdUpdateLyricBanner(_lcdActiveSlide.songId, _lcdActiveSlide.slideIdx, false);
+    }
   }
 
   // Static "Service Schedule" header sitting above the compact rail.
@@ -54930,6 +55078,8 @@ var WO = (function() {
     // LCD Projection Song Library panel + column-width toggles
     lcdLibraryFilter: lcdLibraryFilter,
     lcdRefreshLibrary: _lcdRenderLibraryPanel,
+    lcdRefreshSlideFromLibrary: lcdRefreshSlideFromLibrary,
+    lcdDismissLyricNotice: lcdDismissLyricNotice,
     lcdLibrarySetChip: lcdLibrarySetChip,
     lcdLibraryAddSong: lcdLibraryAddSong,
     lcdLibraryDragStart: lcdLibraryDragStart,
@@ -62168,6 +62318,28 @@ function filterLiturgyItems() {
     font-family: 'Poppins', sans-serif; font-size: 0.72rem; line-height: 1.45;
   }
   .lcd-lyric-banner i { margin-top: 1px; flex-shrink: 0; }
+  .lcd-lyric-banner-text { min-width: 0; flex: 1; }
+  .lcd-lyric-banner-head { font-weight: 700; margin-bottom: 2px; }
+  .lcd-lyric-banner-body { opacity: 0.85; }
+  /* What the library now says for this slide */
+  .lcd-lyric-diff {
+    margin: 6px 0; padding: 7px 9px; max-height: 96px; overflow-y: auto;
+    background: rgba(0,0,0,0.28); border-radius: 6px;
+    color: var(--lcd-ivory-100, #f8f4ea);
+    font-family: 'Lato', Georgia, serif; font-size: 0.78rem; line-height: 1.4;
+    white-space: pre-wrap;
+  }
+  .lcd-lyric-banner-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .lcd-lyric-refresh, .lcd-lyric-dismiss {
+    height: 30px; padding: 0 11px; border-radius: 6px; cursor: pointer;
+    font-family: 'Poppins', sans-serif; font-size: 0.7rem; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  }
+  .lcd-lyric-refresh { background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border: 1px solid var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-400, #d9b46a); }
+  .lcd-lyric-refresh:hover { background: rgba(193,153,63,0.3); }
+  .lcd-lyric-dismiss { background: transparent; border: 1px solid var(--lcd-navy-line, #2a3a5c); color: var(--lcd-ivory-muted, #9aa3bf); }
+  .lcd-lyric-dismiss:hover { color: var(--lcd-ivory-100, #f8f4ea); border-color: var(--lcd-ivory-muted, #9aa3bf); }
+  .lcd-lyric-banner-foot { margin-top: 5px; font-size: 0.64rem; opacity: 0.65; }
   .lcd-lyric-banner.library { background: rgba(217,180,106,0.14); border: 1px solid rgba(217,180,106,0.45); color: var(--lcd-gold-400, #d9b46a); }
   .lcd-lyric-banner.custom  { background: rgba(96,165,250,0.13); border: 1px solid rgba(96,165,250,0.45); color: #93c5fd; }
 
