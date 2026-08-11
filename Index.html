@@ -6280,7 +6280,7 @@
                       <span class="lcd-lyrics-song-title" id="lcdLyricsEditorTitle">No slide selected</span>
                       <span class="lcd-slide-num-badge" id="lcdLyricsEditorSlideNum"></span>
                       <div class="lcd-lyrics-actions">
-                        <button class="lcd-mini-btn primary" onclick="WO.lcdApplySlideEdit()" title="Apply your changes to this slide"><i class="fa-solid fa-check"></i> Apply Changes</button>
+                        <button class="lcd-mini-btn primary" onclick="WO.lcdApplySlideEdit()" title="Apply your changes to this slide"><i class="fa-solid fa-check"></i> Apply</button>
                         <button class="lcd-mini-btn danger" onclick="WO.lcdDeleteCurrentSlide()" title="Delete this slide"><i class="fa-solid fa-trash"></i> Delete</button>
                         <button class="lcd-mini-btn" id="lcdOpenInSongOrderBtn" style="display:none;" onclick="WO.lcdOpenInSongOrder()" title="Jump to this song in Song Order"><i class="fa-solid fa-list"></i> Open in Song Order</button>
                       </div>
@@ -25456,6 +25456,16 @@ var WO = (function() {
     var mainContent = document.querySelector('.wo-main-content');
     if (landing) { landing.style.display = 'flex'; }
     if (mainContent) { mainContent.style.display = 'none'; }
+    _woSetLcdMode(false);
+  }
+
+  // Marks the Orders view as "the projection workspace is on screen" so the
+  // Orders banner above it can slim down to a working header (see the LCD
+  // density pass in CSS). Song Order mode and the landing screen keep the
+  // full banner, so nothing changes for them.
+  function _woSetLcdMode(on) {
+    var section = document.getElementById('worshipOrderView');
+    if (section) section.classList.toggle('lcd-mode', !!on);
   }
 
   function selectOrder(orderType) {
@@ -25473,6 +25483,7 @@ var WO = (function() {
     if (orderType === 'song') {
       $('woSongOrderBtn').classList.add('active');
       document.querySelector('.wo-main-content').classList.add('wo-song-order');
+      _woSetLcdMode(false);
       $('woPreviewPanel').style.display = 'none';
       var _fab = document.getElementById('woPreviewFab');
       if (_fab) _fab.style.display = 'none';
@@ -25482,6 +25493,7 @@ var WO = (function() {
     } else {
       $('woServiceOrderBtn').classList.add('active');
       document.querySelector('.wo-main-content').classList.remove('wo-song-order');
+      _woSetLcdMode(true);
       $('woPreviewPanel').style.display = 'flex';
       initializeServiceOrder();
       // Start preview blank — auto-selections during init should not project content
@@ -25529,11 +25541,53 @@ var WO = (function() {
       pp.style.alignSelf = 'flex-start';
       pp.style.maxHeight = (availH - 16) + 'px';
       pp.style.overflowY = 'auto';
+      _lcdSizeWorkspaceColumns();
     }
-    requestAnimationFrame(applyLayout);
+    // applyLayout only writes styles, so running it twice is a no-op. The
+    // timeout is the safety net: rAF is throttled in background tabs, and
+    // without it the workspace stays unsized until the tab is focused.
+    function schedule() { requestAnimationFrame(applyLayout); setTimeout(applyLayout, 0); }
+    schedule();
     if (_serviceLayoutResizeHandler) window.removeEventListener('resize', _serviceLayoutResizeHandler);
-    _serviceLayoutResizeHandler = function() { requestAnimationFrame(applyLayout); };
+    _serviceLayoutResizeHandler = schedule;
     window.addEventListener('resize', _serviceLayoutResizeHandler);
+  }
+
+  // Windowed LCD Projection: cap the Song Library and Service Schedule columns
+  // to the same visible band the workspace column already gets from the sticky
+  // sizing above, so all three scroll independently. Without this the schedule
+  // stretches #worshipOrderView to whatever the whole service is tall (~9,000px
+  // for a 98-slide order), which is what pushed the editor and Media Tray below
+  // the fold and gave every panel its own nested scrollbar.
+  // Full-screen mode sizes these itself, and below 1201px the stacked
+  // phone/tablet layout takes over -- both are left alone.
+  function _lcdSizeWorkspaceColumns() {
+    var mc = document.querySelector('.wo-main-content');
+    if (!mc) return;
+    var cols = [document.getElementById('lcdLibraryPanel'), document.getElementById('woWorshipOrder')];
+    var windowed = !mc.classList.contains('wo-song-order')
+      && !document.body.classList.contains('lcd-workspace-fullscreen')
+      && window.matchMedia('(min-width: 1201px)').matches;
+    var h = '';
+    if (windowed) {
+      h = Math.max(420, Math.round(window.innerHeight - mc.getBoundingClientRect().top - 10)) + 'px';
+      // The workspace column joins them at the same height. Left on the taller
+      // value applyLayout() gives it (which is measured from the section, not
+      // from below the banner) it alone would set the grid row height and the
+      // page would still scroll by exactly the banner's height.
+      cols.push(document.getElementById('woPreviewPanel'));
+    }
+    cols.forEach(function(el) {
+      if (!el) return;
+      el.style.maxHeight = h;
+      el.style.overflowY = h ? 'auto' : '';
+    });
+    // applyLayout() top-aligns the workspace column so its sticky behaviour
+    // works while the page scrolls. Once the page no longer scrolls that just
+    // leaves the editor short of the height sitting unused below it, so let it
+    // fill the row and hand the slack to the canvas.
+    var pp = document.getElementById('woPreviewPanel');
+    if (pp) pp.style.alignSelf = windowed ? 'stretch' : 'flex-start';
   }
 
   function _exitServiceOrderLayout() {
@@ -25542,6 +25596,10 @@ var WO = (function() {
     if (_serviceLayoutResizeHandler) { window.removeEventListener('resize', _serviceLayoutResizeHandler); _serviceLayoutResizeHandler = null; }
     if (section) { section.style.height = ''; section.style.overflowY = ''; }
     if (pp) { pp.style.position = ''; pp.style.top = ''; pp.style.alignSelf = ''; pp.style.maxHeight = ''; pp.style.overflowY = ''; }
+    ['lcdLibraryPanel', 'woWorshipOrder'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) { el.style.maxHeight = ''; el.style.overflowY = ''; }
+    });
   }
 
   /* Reset the projection preview to the empty placeholder state (called after order loads) */
@@ -63858,6 +63916,194 @@ function filterLiturgyItems() {
     margin-top: 4px; font-style: italic;
   }
   .wo-no-lyrics { color: #9ca3af; font-style: italic; text-align: center; padding: 20px; }
+
+  /* ==========================================================================
+     LCD PROJECTION — DENSITY PASS (fit on one screen without full-screen)
+     Feedback on the windowed workspace: almost every panel needed scrolling --
+     the chip row, the schedule, the editor body, the format toolbar sideways,
+     and the Media Tray -- inside a page that also scrolled. Three causes:
+       1. the Orders banner above the workspace is 337px of mostly decoration,
+       2. the type scale and control heights were tuned for full-screen,
+       3. only the workspace column was capped to the viewport, so the schedule
+          stretched the page to the height of the whole service.
+     This layer is the last LCD block in the sheet, so it wins on source order
+     at equal specificity over the phase-0..7 rules and the correction pass.
+     Full-screen keeps its own generous sizing where the two disagree.
+     ========================================================================== */
+
+  /* ---- A. Slim Orders banner while the projection workspace is open ------- */
+  @media (min-width: 1201px) {
+    #worshipOrderView.lcd-mode .wo-header { padding: 10px 18px; }
+    #worshipOrderView.lcd-mode .wo-header-content {
+      display: flex; align-items: center; justify-content: center;
+      gap: 14px; flex-wrap: wrap;
+    }
+    #worshipOrderView.lcd-mode .wo-header h1 { font-size: 1.05rem; gap: 7px; }
+    #worshipOrderView.lcd-mode .wo-header p { display: none; }
+    #worshipOrderView.lcd-mode .wo-current-order-info { margin-top: 0; padding: 5px 13px; font-size: 0.72rem; }
+    /* Order controls and the two mode buttons share one row instead of
+       stacking -- every control is still there, just side by side. */
+    #worshipOrderView.lcd-mode .wo-order-selector {
+      display: flex; align-items: center; justify-content: center;
+      gap: 10px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px;
+    }
+    #worshipOrderView.lcd-mode .wo-order-controls { margin-bottom: 0; }
+    /* The order title is a heading for the two mode buttons beside it, which
+       are self-labelling -- and LCD Projection carries its own Song Order
+       button in the workspace top bar. */
+    #worshipOrderView.lcd-mode .wo-order-title { display: none; }
+    #worshipOrderView.lcd-mode .wo-order-buttons { gap: 10px; margin: 0; }
+    #worshipOrderView.lcd-mode .wo-order-btn {
+      flex-direction: row; align-items: center; gap: 8px;
+      padding: 7px 16px; min-width: 0;
+    }
+    #worshipOrderView.lcd-mode .wo-order-btn i { font-size: 0.85rem; margin: 0; }
+    #worshipOrderView.lcd-mode .wo-order-btn-label { font-size: 0.78rem; }
+    #worshipOrderView.lcd-mode .wo-order-btn-sub { display: none; }
+  }
+
+  /* ---- B. Type scale: ~4-5px off the display sizes, 1-2px off UI text ----- */
+  .lcd-topbar .wo-preview-title { font-size: 0.95rem; }
+  .lcd-topbar { padding-bottom: 10px; margin-bottom: 10px; }
+  .lcd-song-order-btn, .lcd-fullscreen-btn { height: 34px; padding: 0 12px; font-size: 0.72rem; }
+  .lcd-shell { padding: var(--lcd-space-4); }
+  /* Only three controls live here (zoom, undo, redo) -- it does not need the
+     height of a full toolbar. */
+  .lcd-controls-row { padding: 4px 12px; gap: var(--lcd-space-2); margin-bottom: 10px; }
+  .lcd-controls-row .lcd-hist-btn { width: 30px; height: 30px; }
+  .lcd-controls-row .wo-preview-zoom-btn { width: 28px; height: 28px; }
+  .lcd-controls-row .wo-preview-zoom-label { font-size: 0.68rem; }
+
+  .lcd-schedule-header { padding: 9px 12px; margin-bottom: 10px; }
+  .lcd-schedule-header-title { font-size: 0.74rem; }
+  .lcd-schedule-expand { height: 34px; padding: 0 11px; font-size: 0.68rem; }
+  .lcd-rail-section { padding: 6px 6px 7px; margin-bottom: 10px; }
+  .lcd-rail-section-header { font-size: 0.72rem; padding: 7px 9px; margin-bottom: 4px; }
+  .lcd-rail-slide-row { padding: 6px 9px; }
+  .lcd-rail-item-title { font-size: 13.5px; }
+  .lcd-rail-slide-preview { font-size: 11.5px; }
+  .lcd-rail-slide-num { font-size: 10.5px; min-width: 32px; }
+  .lcd-rail-add-section { height: 38px; font-size: 0.74rem; }
+  .lcd-rail-addslide-row { padding: 5px 8px; font-size: 0.7rem; }
+
+  .lcd-panel-header { font-size: 0.74rem; padding: 7px 11px; gap: 6px; }
+  .lcd-lyrics-panel .lcd-panel-header { padding: 8px 12px; }
+  .lcd-media-panel .lcd-panel-header { padding: 8px 12px; }
+  .lcd-mini-btn { height: 32px; padding: 0 11px; font-size: 0.7rem; }
+  .lcd-lyrics-actions { gap: 6px; }
+  /* Let the song title give way before the action buttons wrap to a new row */
+  .lcd-lyrics-song-title { min-width: 0; flex: 1 1 30px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lcd-slide-num-badge { font-size: 0.64rem; padding: 1px 6px; }
+  .lcd-lyrics-summary { font-size: 0.64rem; padding: 0 11px; }
+  .wo-preview-hint { font-size: 0.66rem; padding: 6px 10px; margin: 8px 0 0; }
+
+  /* ---- C. Format toolbar: wrap by group instead of scrolling sideways ----- */
+  /* nowrap + overflow-x traded a tall toolbar for a horizontal scrollbar. Now
+     the groups wrap, and each group may wrap internally too -- that second
+     part is what guarantees no sideways scroll at any column width, since the
+     Text group on its own is wider than a narrow editor column.
+     overflow-y must go back to visible as well: with one axis hidden, the
+     other computes to auto and the scrollbar comes straight back. */
+  .lcd-fmt-toolbar {
+    flex-wrap: wrap; overflow-x: visible; overflow-y: visible;
+    gap: 5px; padding: 5px 7px; margin-bottom: 0;
+  }
+  .lcd-fmt-group { padding: 4px 7px 4px 5px; gap: 4px; flex-wrap: wrap; }
+  .lcd-fmt-group-label { font-size: 0.54rem; letter-spacing: 0.05em; }
+  .lcd-fmt-btn, .lcd-fmt-select, .lcd-fmt-color { height: 30px; min-width: 30px; font-size: 0.74rem; }
+  .lcd-fmt-toolbar .lcd-fmt-btn { width: 30px; }
+  .lcd-fmt-toolbar .lcd-fmt-select { max-width: 56px; font-size: 0.66rem; padding: 0 3px; }
+  .lcd-fmt-toolbar .lcd-fmt-color { width: 30px; }
+  .lcd-fmt-toolbar .wo-barrier-btn,
+  .lcd-fmt-toolbar .wo-bg-btn,
+  .lcd-fmt-toolbar .wo-text-btn { height: 30px; padding: 0 11px; font-size: 0.7rem; }
+  .lcd-fmt-toolbar .wo-align-btn { width: 28px; height: 28px; }
+  .lcd-fmt-toolbar .wo-align-group { padding: 1px; }
+
+  /* ---- D. Editor canvas + outputs: sized for a 900-1080px viewport -------- */
+  .lcd-outputs-row { min-height: 0; gap: var(--lcd-space-3); margin-bottom: 0; }
+  /* 55/45 left the editor too narrow for its own toolbar and header, both of
+     which then wrapped to three and two rows and ate the canvas. 60/40 gets
+     both onto single rows; the Program Output is still a full 16:9 preview,
+     just no longer claiming width the editor needs more. */
+  .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 60%; min-height: 200px; }
+  .lcd-outputs-row .lcd-program-box { flex: 0 1 40%; min-width: 220px; }
+  /* Below 1201px the stacked phone/tablet layout takes over and the outputs
+     row is no longer height-managed, so it needs its floor back -- otherwise
+     the full-width 16:9 output above the editor squeezes the editor to zero. */
+  @media (max-width: 1200px) {
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row { min-height: 340px; }
+  }
+  /* Between 1201 and 1699 the fixed 280/320 tracks left the workspace under
+     500px, which squeezed the editor to about 170px -- narrower than its own
+     toolbar. Stacking the output underneath does not help either: a full-width
+     16:9 preview is taller than the whole outputs row. Narrowing the two
+     picker columns is what actually buys the editor a usable width, and both
+     stay wide enough to read titles. */
+  @media (min-width: 1201px) and (max-width: 1699px) {
+    .wo-main-content:not(.wo-song-order) { grid-template-columns: 196px 286px minmax(0, 1fr); }
+    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 286px minmax(0, 1fr); }
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row { flex-direction: row; }
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-program-box { min-width: 190px; }
+    .lcd-library-panel { padding: 10px; }
+    .lcd-lib-card { padding: 6px 8px; }
+    /* Keeps the banner's controls and mode buttons on one row at these widths
+       -- these three buttons already mark their own label as secondary, and
+       each keeps its icon and tooltip. */
+    #worshipOrderView.lcd-mode .wo-btn-lbl-secondary { display: none; }
+  }
+  /* The canvas is the flexible item in the editor column: it takes whatever
+     the toolbar and header leave and floors at a still-usable height, so the
+     body itself never has to scroll. Its own 9px margin does the spacing,
+     hence gap:0 on the body. */
+  .lcd-editor-canvas { min-height: 118px; margin: 8px; }
+  .lcd-lyrics-body { gap: 0; padding: 0 0 4px; }
+  .lcd-lyrics-editor { font-size: 1.05rem; line-height: 1.5; padding: 14px 18px; min-height: 0; }
+  .lcd-lyrics-body { padding: 0; }
+  .lcd-lyric-banner { margin: 9px 9px 0; font-size: 0.68rem; padding: 7px 9px; }
+  .lcd-program-box .lcd-output-label { font-size: 0.72rem; margin-bottom: 6px; }
+  .lcd-program-actions { margin-top: 10px; gap: 8px; }
+  .lcd-program-actions .wo-blank-btn { height: 38px; padding: 0 14px; font-size: 0.76rem; }
+  .lcd-program-actions .wo-live-present-btn { height: 40px; font-size: 0.8rem; }
+  /* Full-screen has the room, so it keeps the larger reading size there. */
+  body.lcd-workspace-fullscreen .lcd-lyrics-editor { font-size: 1.2rem; padding: 20px 24px; }
+
+  /* ---- E. Media Tray: one row of thumbnails, no nested scrollbar ---------- */
+  /* Enough for the header, the hint and one full row of thumbnails, so the
+     tray never gets squeezed into its own scrollbar by the flex column. */
+  .lcd-lower-row { flex: 0 0 auto; min-height: 128px; margin-top: 10px; }
+  .lcd-media-hint { font-size: 0.6rem; margin-bottom: 5px; line-height: 1.3; }
+  .lcd-media-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 7px; }
+  .lcd-media-panel .lcd-panel-body { padding: 8px 10px; }
+
+  /* ---- F. Song Library: smaller cards, chips wrap without their own scroll  */
+  .lcd-library-panel { padding: var(--lcd-space-3); gap: 9px; }
+  .lcd-lib-title { font-size: 0.74rem; }
+  .lcd-lib-iconbtn { width: 32px; height: 32px; font-size: 0.72rem; }
+  .lcd-lib-search { height: 36px; font-size: 0.74rem; }
+  .lcd-lib-chips { max-height: 96px; gap: 5px; }
+  .lcd-lib-chip { padding: 4px 9px; font-size: 0.64rem; }
+  .lcd-lib-card { padding: 7px 9px; gap: 8px; }
+  .lcd-lib-card-title { font-size: 0.82rem; }
+  .lcd-lib-card-meta { font-size: 11px; margin-top: 1px; }
+  .lcd-lib-add { width: 30px; height: 30px; font-size: 0.72rem; border-radius: 7px; }
+  .lcd-lib-list { gap: 5px; }
+
+  /* ---- G. Columns share the viewport instead of stretching the page ------- */
+  /* The inline max-height comes from _lcdSizeWorkspaceColumns(); these are the
+     matching scroll/containment rules plus a static fallback for the moment
+     before that first runs. */
+  @media (min-width: 1201px) {
+    body:not(.lcd-workspace-fullscreen) .wo-main-content:not(.wo-song-order) .wo-worship-order,
+    body:not(.lcd-workspace-fullscreen) .wo-main-content:not(.wo-song-order) .lcd-library-panel {
+      max-height: calc(100vh - 260px); overflow-y: auto; overscroll-behavior: contain;
+    }
+    body:not(.lcd-workspace-fullscreen) .wo-main-content:not(.wo-song-order) .lcd-library-panel {
+      position: static; align-self: stretch;
+    }
+    /* The schedule's own header should pin to the top of that scroll box. */
+    .wo-main-content:not(.wo-song-order) .lcd-schedule-header { top: -1px; }
+  }
 
   /* ==================== IMPROVED SAVED ORDERS LIST ==================== */
   .wo-saved-order-item {
