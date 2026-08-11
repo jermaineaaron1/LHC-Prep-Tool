@@ -6385,7 +6385,7 @@
                       <button class="lcd-mini-btn" style="margin-left:auto;" onclick="WO.openBackgroundModal()" title="Add or manage media in the full library"><i class="fa-solid fa-plus"></i> Add Media</button>
                     </div>
                     <div class="lcd-panel-body" id="lcdMediaTrayBody">
-                      <div class="lcd-media-hint">Click or drag a thumbnail to set a slide's background — drop it on a section header for that whole section, or press <strong>ALL</strong> on a thumbnail for every slide in the service. You can also drag pictures, video or a presentation straight in from your desktop. Use <strong>None</strong> to clear, or the &times; to remove media.</div>
+                      <div class="lcd-media-hint">Click or drag a thumbnail to set a slide's background — drop it on a section header for that whole section, or press <strong>ALL</strong> on a thumbnail for every slide in the service. You can also drag pictures, video or a presentation straight in from your desktop. <strong>None</strong> clears the current slide — or press <strong>ALL</strong> on None to clear every slide. The &times; removes media from the tray.</div>
                       <div class="lcd-media-grid" id="lcdMediaTrayGrid"></div>
                     </div>
                   </div>
@@ -39327,13 +39327,19 @@ var WO = (function() {
   // ── Custom confirm modal (replaces browser confirm()) ────────────────────
   var _sbConfirmCallback = null;
 
-  function _sbShowConfirm(title, msg, onOk) {
+  // okLabel is optional: the button is markup-default "Restore", which is only
+  // right for the caller this dialog was first built for. Any other caller
+  // should name its own action, and the label is reset each time so a custom
+  // one never leaks into the next dialog.
+  function _sbShowConfirm(title, msg, onOk, okLabel) {
     _sbConfirmCallback = onOk;
     var el = document.getElementById('sbConfirmModal');
     var t  = document.getElementById('sbConfirmTitle');
     var m  = document.getElementById('sbConfirmMsg');
+    var ok = document.getElementById('sbConfirmOkBtn');
     if (t) t.textContent = title;
     if (m) m.textContent = msg;
+    if (ok) ok.textContent = okLabel || 'Restore';
     if (el) el.style.display = 'flex';
   }
   function _sbConfirmOk() {
@@ -48476,6 +48482,7 @@ var WO = (function() {
     if (!grid) return;
     var noneTile = '<div class="lcd-media-item lcd-media-none" draggable="true" ondragstart="WO.lcdMediaDragStart(event,\'__none__\')" onclick="WO.lcdClearCurrentBg()" title="Click, or drag onto a slide or section header, to clear its background">' +
       '<div class="lcd-media-thumb"><i class="fa-solid fa-ban"></i></div>' +
+      '<button class="lcd-media-all" onclick="WO.lcdClearMediaFromAllSlides(event)" title="Clear the background from every slide in the whole service">ALL</button>' +
       '<span class="lcd-media-cap">None</span></div>';
     if (!savedBackgrounds.length) {
       grid.innerHTML = noneTile + '<div class="lcd-panel-placeholder" style="grid-column:1/-1;">No media yet \u2014 use \u201cAdd Media\u201d above.</div>';
@@ -48562,6 +48569,19 @@ var WO = (function() {
       .map(function(el) { return el.id.replace(/-boxes$/, ''); })
       .filter(function(id) { return !!id; });
     if (!sectionIds.length) { showToast('This service has no sections yet', 'warning'); return; }
+    var slideTotal = document.querySelectorAll('#woWorshipOrder .wo-slide-box').length;
+    // Whole-service change: worth a deliberate yes, and worth saying out loud
+    // that it replaces what is already there.
+    _sbShowConfirm(
+      'Use “' + (bg.name || 'this media') + '” on every slide?',
+      'This replaces the background on all ' + slideTotal + ' slides in this service, including slides that already have one. ' +
+      'You can undo it, or use ALL on the None tile to clear every slide.',
+      function() { _lcdDoApplyMediaToAllSlides(bg, sectionIds); },
+      'Apply to All'
+    );
+  }
+
+  function _lcdDoApplyMediaToAllSlides(bg, sectionIds) {
     if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
     clearActiveVideo();
     var norm = { type: bg.type, value: bg.id };
@@ -48581,6 +48601,49 @@ var WO = (function() {
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     showToast('Background applied to all ' + slides + ' slides in the service', 'success');
+  }
+
+  // The counterpart to ALL on a media thumbnail. Applying to every slide was
+  // shipped without a way back: the None tile only cleared the current slide,
+  // and dragging it onto a section header only cleared that section, so a
+  // whole-service background could not be undone once the page was reloaded.
+  function lcdClearMediaFromAllSlides(event) {
+    if (event) event.stopPropagation();
+    // Count slides that actually exist, not raw map keys -- sectionBackgrounds
+    // can retain entries for indexes a section no longer has, and quoting those
+    // back would overstate what is about to change.
+    var assigned = 0;
+    Array.from(document.querySelectorAll('#woWorshipOrder [id$="-boxes"]')).forEach(function(c) {
+      var sid = c.id.replace(/-boxes$/, '');
+      Array.from(c.querySelectorAll('.wo-slide-box')).forEach(function(b, i) {
+        if (getBackgroundForSlideInSection(sid, i)) assigned++;
+      });
+    });
+    if (!assigned) { showToast('No slide backgrounds to clear', 'info'); return; }
+    _sbShowConfirm(
+      'Clear backgrounds from every slide?',
+      'This removes the background from all ' + assigned + ' slide' + (assigned === 1 ? '' : 's') +
+      ' that ' + (assigned === 1 ? 'has' : 'have') + ' one, across the whole service. You can undo it.',
+      function() { _lcdDoClearAllSlideBackgrounds(); },
+      'Clear All'
+    );
+  }
+
+  function _lcdDoClearAllSlideBackgrounds() {
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
+    clearActiveVideo();
+    sectionBackgrounds = {};
+    if (typeof saveSlideBackgrounds === 'function') saveSlideBackgrounds();
+    updateSlideBgIndicators();
+    currentBackground = null;
+    updateBackgroundSelection();
+    updateCurrentBackgroundPreview();
+    applyEffectiveBackgroundToPreview(null);
+    sendBackgroundToProjection();
+    if (typeof _lcdRefreshEditorCanvas === 'function') _lcdRefreshEditorCanvas();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    showToast('Backgrounds cleared from every slide in the service', 'success');
   }
 
   // Remove the background from the current slide (reuses clearBackground).
@@ -56192,6 +56255,7 @@ var WO = (function() {
     lcdOpenSectionMenu: lcdOpenSectionMenu,
     lcdRunSectionAction: lcdRunSectionAction,
     lcdApplyMediaToAllSlides: lcdApplyMediaToAllSlides,
+    lcdClearMediaFromAllSlides: lcdClearMediaFromAllSlides,
     lcdOpenSongPreview: lcdOpenSongPreview,
     lcdCloseSongPreview: lcdCloseSongPreview,
     lcdSongPreviewBackdrop: lcdSongPreviewBackdrop,
