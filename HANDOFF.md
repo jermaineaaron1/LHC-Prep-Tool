@@ -4,6 +4,94 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — LCD Projection audit: two bugs found, one of them data loss (branch `feature/premium-mobile-roster`)
+
+Requested audit of slides / content / features / visuals / artwork / adding items / drag-and-drop / rearrangement.
+
+### Incident: an order's cloud content was wiped during testing, and repaired
+
+An undo call during testing popped a step past the baseline and removed a slide; the autosave that followed wrote "Service - Aug 9" to Supabase with **zero `order_items`**, deleting all 14 liturgy references. Comparable orders carry 14–15. The screen still looked correct because the content was still in the DOM — that is exactly what makes this failure mode dangerous.
+
+Repaired: re-added the slide and its background, saved (15 rows written back), then **deleted the local caches and reloaded** so the order had to come purely from Supabase. Verified whole: 95 slide boxes, 99 rail rows, 19 sections, both video backgrounds on the right slides. Confirmed twice, because a later bare-payload test call flattened `template` and the app's 2-second cloud poll pulled that back into memory, so the next save persisted an empty `sectionLayout` — rebuilt from the live page and re-saved.
+
+### FIX 1 — an empty item payload can no longer delete an order's content
+
+There was already a wipe guard (~line 24352) but it only fired for **silent** saves and only counted **songs**, so a liturgy-only order sailed past it and so did every explicit save.
+
+Two guards, at both layers:
+
+1. **`SBQ.saveOrder`** — the point of destruction. `sb.from('order_items').delete()` ran unconditionally and `if (!items.length) return null` came *after* it, so an empty payload erased everything and reinserted nothing. Now an empty payload only clears stored rows when the caller sets `allowEmptyItems`; otherwise it counts the existing rows, leaves them alone, and returns `itemsPreserved`. The order row still saves, so title/template/layout/backgrounds are not held back.
+2. **`saveCurrentOrder`** — before the payload is built. If collection returned no items but the page is showing content boxes (or, on the Song Order tab, the last snapshot held items), the collection failed: save nothing and toast, rather than persisting a result already known to be wrong. Covers all item types, silent and explicit.
+
+An order the user genuinely emptied is distinguished by evidence: sections on screen holding zero content boxes sets `allowEmptyItems`, so it still clears.
+
+Verified: the exact payload that caused the loss now returns `itemsSaved: 0, itemsPreserved: 15`; a normal save is unaffected (15 items, `allowEmptyItems: false`, normal toasts). Guard 2's blocking branch is verified by construction and the shared code path — a collection failure cannot be induced from outside the module — while Guard 1, the one that actually prevents loss, is verified end-to-end.
+
+### FIX 2 — invalid slide drags no longer eat an undo step
+
+`lcdRailDrop` called `_lcdPushUndo()` on its first line, before any validity check. Slides can only be reordered inside their own song/liturgy item, so every cross-item or abandoned drag pushed a no-op entry and bailed; the next Ctrl+Z appeared to do nothing. Moved the push to after the checks, matching `lcdSectionDrop` which already got this right. Reproduced before the fix: drop changed nothing, following undo also changed nothing.
+
+### Clean
+
+| Area | Result |
+|---|---|
+| Handler wiring | 437 `WO.*` references vs 591 exports — 2 unresolved (`promptNewOrder`, `addLiturgyItem`), both feature-detected, **zero** reachable from markup |
+| Duplicate element IDs | none |
+| Rail integrity | numbering monotonic, no gaps, no orphan rows (99 rows / 95 boxes; the 4 extra are ESV and PowerPoint rows) |
+| Backgrounds on add | append at index 5, existing stay on their own slides |
+| Backgrounds on delete | deleted index 1 → background on 4 correctly moved to 3, same content |
+| Backgrounds on reorder | slide 0 → position 2, background travelled with it |
+| Undo/redo | restored add, delete and reorder exactly |
+| Save → reload round-trip | reproduced state exactly through Supabase |
+| Section menu / collapse | all seven actions fire, chevron reachable, no console errors |
+
+### Known limitation, not a defect
+
+Slides reorder only **within** their own song or liturgy item. `lcdRailDrop` bails on `!_lcdSameGroup`, and `lcdRailDragOver` does not `preventDefault()` across items so the cursor shows "no drop" — at least it is discoverable, but moving a slide between two hymns is not possible today.
+
+### Lesson for future testing on live orders
+
+Do not call `WO.lcdUndo()` speculatively — the stack persists across test steps and popping past the baseline mutates real data, and the autosave that follows persists it. Snapshot first, and prefer restoring by explicit re-application over undo.
+
+---
+
+## 2026-08-11 — Section menu, media-to-all, video autostart, matched editor/output, desktop file drop (branch `feature/premium-mobile-roster`)
+
+### 1. Section header: seven overlaid buttons → one actions menu
+
+`.lcd-rail-add-btns` was `position: absolute` over the header and, at the schedule column's real width, its seven 28px buttons plus the 24px gradient came to ~244px in a ~250px header — **covering the title and the collapse chevron**, which is why the section could not be collapsed at all.
+
+Replaced with a single always-visible `.lcd-rail-menu-btn` (30px) plus `#lcdSectionMenu`, a popup parented to `<body>` so the schedule column's own scrolling cannot clip it. Seven 38px labelled rows (Add song / Add liturgy / Add presentation / All Slides editor / Add blank slide / Rename / Delete, plus the readings template on scripture sections). Same handlers, dispatched through `lcdRunSectionAction()`. Verified: title now 137px wide, chevron returns itself from `elementFromPoint`, collapse works (99 → 94 → 99 rows).
+
+### 2. Media: "apply to every slide", and video that actually starts
+
+- **ALL button** on each Media Tray thumbnail → `lcdApplyMediaToAllSlides()`, which walks every section through the same `_setBgAllSlidesInSection()` writer the section drop already uses, so the storage shape and the undo entry are identical. Verified 2 → 95 of 95 slides.
+- **Video autostart.** A freshly inserted `<video autoplay muted>` does not reliably start when its container was hidden or zero-sized at insert time — which is exactly the Slide Editor canvas and the Program Output mirror at the moment of a drop. `autoplay` is never retried once the element becomes visible, so the clip sat on frame 0 until the slide was re-selected. New `_kickVideo(el)` rewinds to 0 and calls `play()` explicitly, once immediately and once on `loadeddata`. Wired into both `_applyBgToDivEl()` branches; `applyBackgroundToPreview()` additionally resumes an element that was left paused rather than restarting it.
+
+### 3. Slide Editor and Program Output as a matched pair
+
+Equal widths (50/50) with the editor exactly 20px taller. Measured: editor 364x361, output 364x341, delta 20.
+
+The screen needed `flex: 0 0 auto` — with `1 1 auto` the flex column stretched it to fill and the resulting definite height silently beat `aspect-ratio`, giving 364x268 instead of a true 16:9. It now measures 364x205, ratio 1.778. `.lcd-program-actions { margin-top: auto }` keeps the projection buttons pinned to the bottom of the box.
+
+### 4. Drag files straight in from the desktop
+
+`_lcdSetupMediaDropZone`'s drop handler now checks `e.dataTransfer.files` first:
+- **pictures / video / audio** → `_lcdIngestDroppedFile()` makes a saved background (same record shape as `handleBackgroundUploadLocal`, written out because that function has no callback) and applies it to whatever was dropped on — one slide, or the whole section if the drop landed on a section header.
+- **.pptx / .ppt / .pdf / .docx / .key / .odp** → opens the existing Add Presentation modal for that section with the file already queued (`addPowerPointSlides()` then `handleSlidesFileSelect([file])`, in that order because the first resets the pending list).
+
+**Bug caught in my own new code during verification:** `wholeSection` was `!!(t.railSection || t.sectionEl)`, but `sectionEl` matches for *any* drop inside a section container — including one aimed at a single slide. Dropping a picture on one slide wallpapered all 23 slides in that section. Now uses the same precedence the tray-thumbnail path does: `!t.railRow && !t.slideBox && ...`. Verified after the fix: slide drop → 1 slide, header drop → 23 of 23.
+
+### Verification note worth remembering
+
+The first re-test after that fix still showed the bug. The page had been reloaded **before** `dist/index.html` was synced, so the running build predated the fix even though `fetch('/')` showed the new code. Always reload *after* the sync, not before.
+
+### Cleanup
+
+All test artefacts removed and confirmed against the database: `template.sectionBackgrounds` back to exactly the two original `video:bg_1783769031541` entries on section-0 slides 0 and 4, five test media items deleted, 2 media items remain, 99 rail rows. Density pass intact (banner 103px, no page scroll, only the song list and schedule scroll). `node --check` clean on all 12 blocks; `dist/index.html` byte-identical.
+
+---
+
 ## 2026-08-11 — Song preview window + two full-screen bugs (branch `feature/premium-mobile-roster`)
 
 Three items from live use of LCD Projection.

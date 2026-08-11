@@ -6385,7 +6385,7 @@
                       <button class="lcd-mini-btn" style="margin-left:auto;" onclick="WO.openBackgroundModal()" title="Add or manage media in the full library"><i class="fa-solid fa-plus"></i> Add Media</button>
                     </div>
                     <div class="lcd-panel-body" id="lcdMediaTrayBody">
-                      <div class="lcd-media-hint">Click or drag a thumbnail to set a slide's background (drag onto a section header for the whole section). Use <strong>None</strong> to clear it, or the &times; on a thumbnail to remove that media.</div>
+                      <div class="lcd-media-hint">Click or drag a thumbnail to set a slide's background — drop it on a section header for that whole section, or press <strong>ALL</strong> on a thumbnail for every slide in the service. You can also drag pictures, video or a presentation straight in from your desktop. Use <strong>None</strong> to clear, or the &times; to remove media.</div>
                       <div class="lcd-media-grid" id="lcdMediaTrayGrid"></div>
                     </div>
                   </div>
@@ -21620,6 +21620,26 @@ var SBQ = {
       .then(function(r) {
         if (r.error) sbqError(r.error, 'saveOrder/orders-upsert');
         var items = payload.items || [];
+        // The delete below is unconditional, so a payload that collected
+        // nothing -- a mid-render race, a failed collection -- would erase an
+        // order's stored content while the screen still looked correct, and
+        // the loss would only surface on another device. Never clear rows on
+        // an empty payload unless the caller has positively established that
+        // the order really is empty (allowEmptyItems). The order row itself
+        // still saves, so title/template/layout/backgrounds are not held back.
+        if (!items.length && !payload.allowEmptyItems) {
+          return sb.from('order_items').select('id', { count: 'exact', head: true }).eq('order_id', id)
+            .then(function(cr) {
+              var existing = (cr && cr.count) || 0;
+              if (existing > 0) {
+                console.warn('[SBQ.saveOrder] Refusing to clear ' + existing + ' stored item(s) for ' +
+                  id + ' — the payload carried none and allowEmptyItems was not set. ' +
+                  'Order row saved; items left untouched.');
+                return { __itemsPreserved: existing };
+              }
+              return sb.from('order_items').delete().eq('order_id', id).then(function() { return null; });
+            });
+        }
         return sb.from('order_items').delete().eq('order_id', id)
           .then(function(dr) {
             if (dr.error) sbqError(dr.error, 'saveOrder/order_items-delete');
@@ -21667,7 +21687,10 @@ var SBQ = {
             }, Promise.resolve());
           });
       })
-      .then(function() {
+      .then(function(res) {
+        if (res && res.__itemsPreserved) {
+          return { success: true, id: id, lastEdited: now, itemsSaved: 0, itemsPreserved: res.__itemsPreserved };
+        }
         return { success: true, id: id, lastEdited: now, itemsSaved: (payload.items || []).length };
       });
   },
@@ -24415,6 +24438,34 @@ var WO = (function() {
       }).concat(_songItems);
     }
 
+    // ── Empty-items wipe guard, part 2 ──────────────────────────────────────
+    // The song-count guard above only covers silent saves of orders that
+    // contain SONGS. A liturgy-only order collecting nothing sails past it,
+    // and so does any explicit save. This one is about evidence: if the page
+    // is showing content but collection came back with none, the collection
+    // failed -- writing that result would delete the stored copy. Save nothing
+    // and say so, rather than persisting a result we know is wrong.
+    var _domContentCount = _serviceSectionsVisible
+      ? document.querySelectorAll('.wo-worship-section .wo-slide-box, .wo-worship-section .wo-content-box').length
+      : 0;
+    var _snapshotItemCount = (currentOrderData && Array.isArray(currentOrderData.allItems))
+      ? currentOrderData.allItems.length : 0;
+    if (items.length === 0 && (_domContentCount > 0 || (!_serviceSectionsVisible && _snapshotItemCount > 0))) {
+      console.warn('[WipeGuard] Refusing to save 0 items for an order that has content ' +
+        '(visible content boxes: ' + _domContentCount + ', snapshot items: ' + _snapshotItemCount +
+        '). Nothing was written.');
+      if (!silent) {
+        showToast('Save skipped — this order’s contents could not be read just now. ' +
+          'Nothing was overwritten; please try again.', 'error');
+      }
+      return;
+    }
+    // An order the user has genuinely emptied is a different thing: the
+    // sections are on screen and really do hold nothing. Tell the backend so
+    // it clears the stored items rather than protecting a stale copy forever.
+    var _allowEmptyItems = (items.length === 0 && _serviceSectionsVisible && _domContentCount === 0);
+    // ────────────────────────────────────────────────────────────────────────
+
     if (!silent) {
       console.log('Items collected:', items.length);
       if (items.length > 0) {
@@ -24466,6 +24517,10 @@ var WO = (function() {
       title: currentOrderData.title || 'Untitled Order',
       type: currentOrderData.type || 'traditional',
       serviceDate: currentOrderData.serviceDate || '',
+      // Only true when the sections are on screen and genuinely hold nothing.
+      // Without it SBQ.saveOrder keeps the stored items rather than clearing
+      // them on an empty payload (see the guard there).
+      allowEmptyItems: _allowEmptyItems,
       // Embed clearedSections, sectionLayout, and sectionBackgrounds inside template
       // so they survive Supabase round-trips without needing new DB columns.
       // sectionLayout captures every section's id/title/serviceSectionId so renames,
@@ -30086,6 +30141,28 @@ var WO = (function() {
   }
 
   // Apply a background object to any plain div element (used for fullscreen overlay #wofsBg)
+  // A freshly inserted <video autoplay muted> does not reliably start when its
+  // container was hidden (or zero-sized) at insert time -- which is exactly the
+  // case for the Slide Editor canvas and the Program Output mirror the moment a
+  // media item is dropped. The `autoplay` attribute is not retried when the
+  // element later becomes visible, so the clip sat on frame 0 until the slide
+  // was re-selected. Rewind to the start and ask for playback explicitly, once
+  // now and once when the data is actually there.
+  function _kickVideo(el) {
+    var v = el && el.querySelector ? el.querySelector('video') : null;
+    if (!v) return;
+    function go() {
+      try {
+        v.muted = true;
+        if (v.currentTime > 0.05) v.currentTime = 0;
+        var p = v.play();
+        if (p && p.catch) p.catch(function() {});
+      } catch (e) {}
+    }
+    go();
+    v.addEventListener('loadeddata', go, { once: true });
+  }
+
   function _applyBgToDivEl(el, background) {
     if (!el) return;
     if (!background) {
@@ -30113,6 +30190,7 @@ var WO = (function() {
       if (vidSrc) {
         el.innerHTML = '<video src="' + vidSrc + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"></video>';
         el.style.background = '#000';
+        _kickVideo(el);
       }
     } else if (background.type === 'youtube') {
       el.innerHTML = '<iframe style="width:100%;height:100%;border:none;position:absolute;inset:0;pointer-events:none;opacity:0.85;" src="' + background.embedUrl + '" allow="autoplay"></iframe>';
@@ -30120,6 +30198,7 @@ var WO = (function() {
     } else if (background.type === 'localVideo') {
       el.innerHTML = '<video src="' + background.src + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"></video>';
       el.style.background = '#000';
+      _kickVideo(el);
     } else if (background.type === 'audio') {
       var bgAud = savedBackgrounds.find(function(b) { return b.id === background.value; });
       el.innerHTML = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a1a;"><i class="fa-solid fa-music" style="color:#f59e0b;font-size:1.4rem;"></i></div>' +
@@ -30205,6 +30284,12 @@ var WO = (function() {
           bgEl.innerHTML = '<video src="' + bgv.data + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;"></video>';
           activeVideoElement = bgEl.querySelector('video');
           activeVideoSrc = bgv.data;
+          _kickVideo(bgEl);
+        } else if (activeVideoElement && activeVideoElement.paused) {
+          // Same clip, but the element was left paused (e.g. it was inserted
+          // while hidden). Carry on from where it is rather than restarting.
+          var rp = activeVideoElement.play();
+          if (rp && rp.catch) rp.catch(function() {});
         }
         // Video continues playing - don't restart
         bgEl.style.background = '#000';
@@ -48404,9 +48489,10 @@ var WO = (function() {
       var thumbStyle = thumbUrl ? 'background-image:url(' + thumbUrl + ')' : '';
       var icon = thumbUrl ? '' : '<i class="fa-solid fa-video"></i>';
       var vidBadge = (!isImg && thumbUrl) ? '<span class="lcd-media-vid-badge"><i class="fa-solid fa-play"></i></span>' : '';
+      var allBtn = '<button class="lcd-media-all" onclick="WO.lcdApplyMediaToAllSlides(event,\'' + bg.id + '\')" title="Use this background on every slide in the whole service">ALL</button>';
       html += '<div class="lcd-media-item" draggable="true" ondragstart="WO.lcdMediaDragStart(event,\'' + bg.id + '\')" ' +
         'onclick="WO.lcdApplyMediaToCurrent(\'' + bg.id + '\')" title="' + escapeHtml(bg.name || '') + ' \u2014 click to apply, drag to a slide, \u00d7 to remove">' +
-        '<div class="lcd-media-thumb" style="' + thumbStyle + '">' + icon + '</div>' + vidBadge +
+        '<div class="lcd-media-thumb" style="' + thumbStyle + '">' + icon + '</div>' + vidBadge + allBtn +
         '<button class="lcd-media-del" onclick="WO.lcdDeleteMedia(event,\'' + bg.id + '\')" title="Remove this media from the library">\u00d7</button>' +
         '</div>';
       if (!isImg && !bg.thumb && !bg._thumbTried) pending.push(bg);
@@ -48461,6 +48547,40 @@ var WO = (function() {
     var bg = savedBackgrounds.find(function(b) { return b.id === bgId; });
     if (!bg) return;
     selectBackground(bg.type + ':' + bg.id, true);
+  }
+
+  // Apply one background to EVERY slide in the whole service. Dragging onto a
+  // section header already did a whole section; this is the same thing across
+  // all of them, which is what a single wallpaper for the service needs.
+  // Reuses _lcdApplySectionBackground's per-section writer so the storage
+  // shape and the undo entry are identical to the drag path.
+  function lcdApplyMediaToAllSlides(event, bgId) {
+    if (event) event.stopPropagation();
+    var bg = savedBackgrounds.find(function(b) { return b.id === bgId; });
+    if (!bg) return;
+    var sectionIds = Array.from(document.querySelectorAll('#woWorshipOrder [id$="-boxes"]'))
+      .map(function(el) { return el.id.replace(/-boxes$/, ''); })
+      .filter(function(id) { return !!id; });
+    if (!sectionIds.length) { showToast('This service has no sections yet', 'warning'); return; }
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
+    clearActiveVideo();
+    var norm = { type: bg.type, value: bg.id };
+    var slides = 0;
+    sectionIds.forEach(function(sid) {
+      var container = document.getElementById(sid + '-boxes');
+      slides += container ? container.querySelectorAll('.wo-slide-box').length : 0;
+      _setBgAllSlidesInSection(sid, norm);
+    });
+    updateSlideBgIndicators();
+    currentBackground = norm;
+    updateBackgroundSelection();
+    updateCurrentBackgroundPreview();
+    applyEffectiveBackgroundToPreview(norm);
+    sendBackgroundToProjection();
+    if (typeof _lcdRefreshEditorCanvas === 'function') _lcdRefreshEditorCanvas();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    showToast('Background applied to all ' + slides + ' slides in the service', 'success');
   }
 
   // Remove the background from the current slide (reuses clearBackground).
@@ -48523,6 +48643,94 @@ var WO = (function() {
   // element - survives innerHTML rebuilds from initializeServiceOrder()/
   // refreshSongSlidesInOrder(), so no changes were needed anywhere those
   // functions build slide-box HTML.
+  function _lcdClearDropHighlights(t) {
+    if (!t) return;
+    if (t.railRow) t.railRow.classList.remove('lcd-drop-target');
+    if (t.slideBox) t.slideBox.classList.remove('lcd-drop-target');
+    if (t.railSection) t.railSection.classList.remove('lcd-drop-target-section');
+    if (t.sectionEl) t.sectionEl.classList.remove('lcd-drop-target');
+  }
+
+  // Which section a drop landed in, whichever kind of target it hit.
+  function _lcdSectionIdForTarget(t) {
+    if (t.railSection) return t.railSection.getAttribute('data-section-id');
+    if (t.sectionEl && t.sectionEl.id) return t.sectionEl.id.replace(/-badge$|-boxes$/, '');
+    var box = t.slideBox || (t.railRow ? _lcdRailRowMap[t.railRow.id] : null);
+    if (box && box.closest) {
+      var holder = box.closest('[id$="-boxes"]');
+      if (holder) return holder.id.replace(/-boxes$/, '');
+    }
+    return null;
+  }
+
+  // Turn a dropped picture/video/audio file into a saved background, then hand
+  // it to `apply`. Mirrors handleBackgroundUploadLocal()'s record shape; it is
+  // written out here rather than reused because that function has no callback
+  // and the whole point is to apply the result to the drop target.
+  function _lcdIngestDroppedFile(file, apply) {
+    var t = file.type || '';
+    var mediaType = t.indexOf('image/') === 0 ? 'image'
+                  : t.indexOf('video/') === 0 ? 'video'
+                  : t.indexOf('audio/') === 0 ? 'audio' : null;
+    if (!mediaType) return false;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var bg = {
+        id: 'bg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        type: mediaType,
+        name: file.name.substring(0, 20),
+        data: ev.target.result
+      };
+      savedBackgrounds.push(bg);
+      saveBackgrounds();
+      if (typeof renderBackgroundLibrary === 'function') renderBackgroundLibrary();
+      _lcdRenderMediaTray();
+      apply(bg);
+    };
+    reader.onerror = function() { showToast('Could not read ' + file.name, 'error'); };
+    reader.readAsDataURL(file);
+    return true;
+  }
+
+  function _lcdHandleDroppedFiles(files, t) {
+    var file = files[0];
+    var sectionId = _lcdSectionIdForTarget(t);
+    var name = (file.name || '').toLowerCase();
+    var isDeck = /\.(pptx?|pdf|docx?|key|odp)$/.test(name);
+
+    if (isDeck) {
+      if (!sectionId) { showToast('Drop a presentation onto a section to add it there', 'warning'); return; }
+      if (typeof addPowerPointSlides !== 'function') { showToast('Presentation import is unavailable', 'error'); return; }
+      // addPowerPointSlides() resets the pending list, so queue after it.
+      addPowerPointSlides(sectionId);
+      if (typeof handleSlidesFileSelect === 'function') handleSlidesFileSelect([file]);
+      showToast('“' + file.name + '” is queued — choose how to add it', 'info');
+      return;
+    }
+
+    // Same precedence the tray-thumbnail drop uses. `sectionEl` matches for
+    // ANY drop inside a section's container, including one aimed at a single
+    // slide, so it must only count once no slide-level target was hit --
+    // otherwise dropping a picture on one slide wallpapers the whole section.
+    var wholeSection = !t.railRow && !t.slideBox && !!(t.railSection || t.sectionEl);
+    var started = _lcdIngestDroppedFile(file, function(bg) {
+      if (wholeSection && sectionId) {
+        _lcdApplySectionBackground(sectionId, bg);
+      } else {
+        var box = t.slideBox || (t.railRow ? _lcdRailRowMap[t.railRow.id] : null);
+        if (box && box.isConnected) {
+          selectSlideBox(box);
+          selectBackground(bg.type + ':' + bg.id, true);
+          showToast('“' + bg.name + '” added and set on this slide', 'success');
+        } else {
+          showToast('“' + bg.name + '” added to the Media Tray', 'success');
+        }
+      }
+      if (typeof _lcdRefreshEditorCanvas === 'function') _lcdRefreshEditorCanvas();
+    });
+    if (!started) showToast('Unsupported file type: ' + (file.name || ''), 'warning');
+  }
+
   function _lcdSetupMediaDropZone() {
     var container = document.getElementById('woWorshipOrder');
     if (!container || container._lcdDropWired) return;
@@ -48559,6 +48767,19 @@ var WO = (function() {
       if (t.sectionEl) t.sectionEl.classList.remove('lcd-drop-target');
     });
     container.addEventListener('drop', function(e) {
+      // Files dragged in from the desktop, not a tray thumbnail. Pictures,
+      // video and audio become media and land on whatever was dropped on;
+      // presentations and documents go to the existing Add Presentation
+      // modal for that section with the file already queued.
+      var files = e.dataTransfer && e.dataTransfer.files;
+      if (files && files.length) {
+        var ft = targets(e);
+        if (!ft.railRow && !ft.slideBox && !ft.railSection && !ft.sectionEl) return;
+        e.preventDefault();
+        _lcdClearDropHighlights(ft);
+        _lcdHandleDroppedFiles(files, ft);
+        return;
+      }
       var bgId = e.dataTransfer.getData('text/plain');
       if (!bgId) return;
       var isNone = (bgId === '__none__');
@@ -48975,18 +49196,13 @@ var WO = (function() {
       totalSlides += slideCounter;
 
       if (rowsHtml || canPpt) {
-        var songBtn = '<button class="lcd-rail-addbtn lcd-rail-add-song" onclick="WO.openSongLibraryForSection(\'' + sectionId + '\')" title="Add a song from the Song library"><i class="fa-solid fa-music"></i></button>';
-        var liturgyBtn = '<button class="lcd-rail-addbtn lcd-rail-add-liturgy" onclick="WO.openLiturgyLibraryForSection(\'' + sectionId + '\')" title="Add liturgy from the Liturgy library"><i class="fa-solid fa-book-bible"></i></button>';
-        var pptBtn = '<button class="lcd-rail-addbtn lcd-rail-add-slides" onclick="WO.addPowerPointSlides(\'' + sectionId + '\')" title="Add a PowerPoint / presentation"><i class="fa-solid fa-file-powerpoint"></i></button>';
+        // Seven icon buttons overlaid on the header covered the title AND the
+        // collapse chevron at this column width -- the section could not be
+        // collapsed at all. One always-visible menu button instead: the title
+        // keeps the full row, and the actions get real size and real labels
+        // inside the popup.
         var isScripture = (sectionEl.getAttribute('data-service-section-id') === 'scripture');
-        var readingsBtn = isScripture ? '<button class="lcd-rail-addbtn lcd-rail-add-readings" onclick="WO.addScriptureReadingsTemplate(\'' + sectionId + '\')" title="Insert the First / Psalm / Second / Gospel readings template"><i class="fa-solid fa-book-open"></i></button>' : '';
-        // Available on every section, same as "Add Slide" -- an empty
-        // section should still be able to open the big editor and start
-        // typing content, not just sections that already have slide rows.
-        var allSlidesBtn = '<button class="lcd-rail-addbtn lcd-rail-all-slides" onclick="WO.openSectionAllSlides(\'' + sectionId + '\')" title="All Slides — type or paste this section\'s content as one block of text, blank line = new slide"><i class="fa-solid fa-align-left"></i></button>';
-        var renameBtn = '<button class="lcd-rail-addbtn lcd-rail-rename-section" onclick="WO.lcdRenameSection(\'' + sectionId + '\')" title="Rename this section"><i class="fa-solid fa-pen"></i></button>';
-        var delBtn = '<button class="lcd-rail-addbtn lcd-rail-del-section" onclick="WO.lcdDeleteSection(\'' + sectionId + '\')" title="Delete this section and all its slides"><i class="fa-solid fa-trash"></i></button>';
-        var addBtns = '<span class="lcd-rail-add-btns">' + songBtn + liturgyBtn + readingsBtn + pptBtn + allSlidesBtn + renameBtn + delBtn + '</span>';
+        var addBtns = '<button class="lcd-rail-menu-btn" onclick="event.stopPropagation(); WO.lcdOpenSectionMenu(event, \'' + sectionId + '\', ' + (isScripture ? 'true' : 'false') + ')" title="Section actions"><i class="fa-solid fa-ellipsis"></i></button>';
         var _collapsed = !!_lcdCollapsedSections[sectionId];
         var _chev = '<button class="lcd-rail-collapse" onclick="event.stopPropagation(); WO.lcdToggleSectionCollapse(\'' + sectionId + '\')" title="Collapse / expand section"><i class="fa-solid fa-chevron-' + (_collapsed ? 'right' : 'down') + '"></i></button>';
         var _addSlideRow = '<div class="lcd-rail-addslide-row" onclick="WO.addBlankSlideToSection(\'' + sectionId + '\')" title="Add a blank slide to this section"><i class="fa-solid fa-plus"></i> Add Slide</div>';
@@ -49446,6 +49662,78 @@ var WO = (function() {
     localStorage.setItem(_LCD_EXPAND_KEY, on ? '0' : '1');
     _lcdApplyLayoutFlags();
     _enterServiceOrderLayout();
+  }
+
+  // ---- Section actions menu ----------------------------------------------
+  // Replaces the seven icon buttons that used to be overlaid on the section
+  // header. One popup, built on demand and parented to <body> so it is never
+  // clipped by the schedule column's own scrolling.
+  function lcdOpenSectionMenu(event, sectionId, isScripture) {
+    var menu = document.getElementById('lcdSectionMenu');
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.id = 'lcdSectionMenu';
+      menu.className = 'lcd-section-menu';
+      document.body.appendChild(menu);
+    }
+    var items = [
+      { icon: 'fa-music',            label: 'Add song',          fn: 'openSongLibraryForSection' },
+      { icon: 'fa-book-bible',       label: 'Add liturgy',       fn: 'openLiturgyLibraryForSection' },
+      { icon: 'fa-file-powerpoint',  label: 'Add presentation',  fn: 'addPowerPointSlides' },
+      { icon: 'fa-align-left',       label: 'All Slides editor', fn: 'openSectionAllSlides' },
+      { icon: 'fa-plus',             label: 'Add blank slide',   fn: 'addBlankSlideToSection' },
+      { icon: 'fa-pen',              label: 'Rename section',    fn: 'lcdRenameSection' },
+      { icon: 'fa-trash',            label: 'Delete section',    fn: 'lcdDeleteSection', danger: true }
+    ];
+    if (isScripture) {
+      items.splice(3, 0, { icon: 'fa-book-open', label: 'Insert readings template', fn: 'addScriptureReadingsTemplate' });
+    }
+    var esc = String(sectionId).replace(/'/g, "\\'");
+    menu.innerHTML = items.map(function(it) {
+      return '<button class="lcd-section-menu-item' + (it.danger ? ' danger' : '') + '"' +
+        ' onclick="WO.lcdRunSectionAction(\'' + it.fn + '\', \'' + esc + '\')">' +
+        '<i class="fa-solid ' + it.icon + '"></i> ' + it.label + '</button>';
+    }).join('');
+
+    // Anchor to the button, then pull back inside the viewport if it would
+    // hang off the bottom or the right.
+    menu.style.display = 'block';
+    menu.style.visibility = 'hidden';
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    var btn = event && event.currentTarget ? event.currentTarget : null;
+    var r = btn ? btn.getBoundingClientRect() : { left: 20, bottom: 20, right: 20 };
+    var mw = menu.offsetWidth, mh = menu.offsetHeight;
+    var left = Math.min(r.left, window.innerWidth - mw - 8);
+    var top = r.bottom + 4;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 4);
+    menu.style.left = Math.max(8, left) + 'px';
+    menu.style.top = top + 'px';
+    menu.style.visibility = '';
+
+    // One-shot dismissal. Registered on the next tick so the click that opened
+    // the menu does not immediately close it.
+    setTimeout(function() {
+      function close(e) {
+        if (e && e.type === 'mousedown' && menu.contains(e.target)) return;
+        menu.style.display = 'none';
+        document.removeEventListener('mousedown', close, true);
+        document.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('scroll', close, true);
+      }
+      function onKey(e) { if (e.key === 'Escape') close(); }
+      document.addEventListener('mousedown', close, true);
+      document.addEventListener('keydown', onKey, true);
+      window.addEventListener('scroll', close, true);
+    }, 0);
+  }
+
+  function lcdRunSectionAction(fnName, sectionId) {
+    var menu = document.getElementById('lcdSectionMenu');
+    if (menu) menu.style.display = 'none';
+    var fn = WO[fnName];
+    if (typeof fn === 'function') fn(sectionId);
+    else showToast('That action is unavailable', 'warning');
   }
 
   // ---- Song preview (double-click a Song Library card) --------------------
@@ -50010,7 +50298,6 @@ var WO = (function() {
     _lcdClearDropMarkers();
   }
   function lcdRailDrop(e, rowId) {
-    _lcdPushUndo();
     if (e.preventDefault) e.preventDefault();
     var dragged = _lcdDragRowId ? _lcdRailRowMap[_lcdDragRowId] : null;
     var target = _lcdRailRowMap[rowId];
@@ -50022,6 +50309,11 @@ var WO = (function() {
     var kids = Array.from(parent.children);
     var di = kids.indexOf(dragged), ti = kids.indexOf(target);
     if (di < 0 || ti < 0) return;
+    // Undo is pushed only once the drop is known to be valid -- matching
+    // lcdSectionDrop(). Pushing it first meant every abandoned or cross-item
+    // drag (slides can only be reordered inside their own song/liturgy item)
+    // silently ate an undo step, so the next Ctrl+Z appeared to do nothing.
+    _lcdPushUndo();
     // Reordering renumbers the section's slides, so the per-slide background
     // map has to be re-pinned the same way an insert does (see
     // _lcdCaptureSectionBgs) -- otherwise the moved slide swaps backgrounds
@@ -55897,6 +56189,9 @@ var WO = (function() {
     lcdToggleScheduleExpand: lcdToggleScheduleExpand,
     lcdToggleLibrary: lcdToggleLibrary,
     lcdToggleWorkspaceFullscreen: lcdToggleWorkspaceFullscreen,
+    lcdOpenSectionMenu: lcdOpenSectionMenu,
+    lcdRunSectionAction: lcdRunSectionAction,
+    lcdApplyMediaToAllSlides: lcdApplyMediaToAllSlides,
     lcdOpenSongPreview: lcdOpenSongPreview,
     lcdCloseSongPreview: lcdCloseSongPreview,
     lcdSongPreviewBackdrop: lcdSongPreviewBackdrop,
@@ -64580,6 +64875,67 @@ function filterLiturgyItems() {
   .lcd-lib-card-meta { font-size: 11px; margin-top: 1px; }
   .lcd-lib-add { width: 30px; height: 30px; font-size: 0.72rem; border-radius: 7px; }
   .lcd-lib-list { gap: 5px; }
+
+  /* ---- J. Section actions menu ------------------------------------------- */
+  /* One always-visible button instead of seven overlaid on the header, so the
+     title keeps the row and the collapse chevron is reachable again. */
+  .lcd-rail-menu-btn {
+    flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; margin-left: auto; border-radius: 7px; cursor: pointer;
+    background: var(--lcd-ivory-2, #fffdf8); border: 1px solid var(--lcd-ivory-line, #ddd3c0);
+    color: var(--lcd-ink-soft, #6d6656); font-size: 0.82rem; padding: 0;
+    letter-spacing: 0; text-transform: none;
+    transition: border-color 150ms, color 150ms, background 150ms;
+  }
+  .lcd-rail-menu-btn:hover { border-color: var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-600, #a97f2e); background: #fff; }
+  .lcd-section-menu {
+    position: fixed; z-index: 16100; min-width: 210px; padding: 6px;
+    background: var(--lcd-ivory-2, #fffdf8); border: 1px solid var(--lcd-ivory-line, #ddd3c0);
+    border-radius: 11px; box-shadow: 0 18px 48px rgba(40,32,16,.28);
+    display: none;
+  }
+  .lcd-section-menu-item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    height: 38px; padding: 0 11px; border-radius: 8px; cursor: pointer;
+    background: transparent; border: none; text-align: left;
+    color: var(--lcd-ink, #2c2a25);
+    font-family: 'Poppins', sans-serif; font-size: 0.78rem; font-weight: 500; white-space: nowrap;
+  }
+  .lcd-section-menu-item i { width: 16px; text-align: center; color: var(--lcd-gold-600, #a97f2e); font-size: 0.8rem; }
+  .lcd-section-menu-item:hover { background: rgba(193,153,63,.14); }
+  .lcd-section-menu-item.danger { color: var(--lcd-danger, #c65a4e); }
+  .lcd-section-menu-item.danger i { color: var(--lcd-danger, #c65a4e); }
+  .lcd-section-menu-item.danger:hover { background: rgba(198,90,78,.1); }
+
+  /* ---- K. "Apply to every slide" on a Media Tray thumbnail ---------------- */
+  .lcd-media-all {
+    position: absolute; top: 3px; left: 3px; z-index: 2; display: none;
+    height: 18px; padding: 0 6px; border: none; border-radius: 9px; cursor: pointer;
+    background: rgba(15,23,42,0.78); color: #fff;
+    font-family: 'Poppins', sans-serif; font-size: 0.52rem; font-weight: 700; letter-spacing: 0.06em;
+  }
+  .lcd-media-item:hover .lcd-media-all { display: inline-flex; align-items: center; }
+  .lcd-media-all:hover { background: var(--lcd-gold-600, #a97f2e); }
+
+  /* ---- L. Slide Editor and Program Output as a matched pair --------------- */
+  /* Equal widths; the editor stands 20px taller than the output. The screen
+     keeps its true 16:9 shape inside that box -- sized by max-height rather
+     than a fixed width, so it shrinks to fit instead of overflowing and still
+     shows the projector's real proportions. */
+  .lcd-outputs-row { align-items: flex-start; }
+  .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 50%; align-self: stretch; }
+  .lcd-outputs-row .lcd-program-box { flex: 1 1 50%; height: calc(100% - 20px); }
+  /* flex: 0 0 auto matters — with `1 1 auto` the column stretches the box to
+     fill and the definite height wins over aspect-ratio, which silently threw
+     away the 16:9 shape (measured 364x268 instead of 364x205). */
+  .lcd-program-box .lcd-program-screen {
+    flex: 0 0 auto; width: 100% !important; height: auto !important;
+    aspect-ratio: 16 / 9 !important; max-height: 100% !important; min-height: 0 !important;
+  }
+  .lcd-program-box .lcd-program-actions { margin-top: auto; }
+  @media (min-width: 1201px) and (max-width: 1699px) {
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-program-box { min-width: 0; }
+  }
 
   /* ---- H. Full-screen escape hatch for Song Order ------------------------- */
   /* Only in full screen AND Song Order: the Orders banner is hidden there and
