@@ -4,6 +4,20 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — LCD Projection redesign, Phases 6 + 7: Program Output prominence + full regression pass (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+Final two phases of the LCD Projection redesign. **All 8 phases (0-7) are now complete.**
+
+**Phase 6 — Program Output prominence (priority #9).** `#woBlankBtn` and `#woFullscreenBtn` moved out of the top toolbar into a `.lcd-program-actions` strip directly beneath the Program Output screen, so the projection actions sit with the output they affect. Ids and onclick handlers unchanged. The Program Output box got a framed treatment (bordered, shadowed screen; uppercase tracked label beside the existing live dot). `_setGoLiveDot`/`#lcdProgramLiveDot` and `openProjectionWindow()` were not touched.
+- **A gotcha worth noting for any future control relocation**: the Phase 0 button sizing for these two was written as `.lcd-controls-row .wo-blank-btn` / `.wo-live-present-btn`. Moving them out of that container silently dropped their height, radius and gold glow. Restated the sizing scoped to `.lcd-program-actions` (Blank 42px fixed-width, Project 46px and `flex:1` so it reads as the primary action). Verified 42/46px and the glow are back.
+- With this move the top bar is now genuinely workspace-level and nothing else: preview zoom + order-level undo/redo.
+
+**Phase 7 — Media Tray + full cross-phase regression pass.** The Media Tray needed no work: its CSS was already fully tokenised by Phase 0 (`.lcd-media-*` uses `var(--lcd-*)` throughout). The only hardcoded colours left are the `.lcd-media-vid-badge` and `.lcd-media-del` overlay chips, which are deliberately black/white overlays rather than theme colours. So this phase was the regression pass.
+- **Regression results, all passing**: three consecutive Song Order <-> Service round-trips leave the rail (98 rows), schedule header, and Library panel all correctly present; Media Tray renders its grid and items; keyboard handlers (Ctrl+Z, arrow nav) fire without throwing; Library search still filters (7 hits for "grace", 51 back on clear); editor canvas, its three toolbar groups and the relocated align buttons all intact; Blank/Project confirmed inside the Program Output box. No page overflow at 1366 or 1920, program-actions strip fits its column at both. No new console errors beyond the standing `supabaseUrl`/500 noise.
+- **Environment limitation identified and ruled out as a regression**: after the round-trips, `_enterServiceOrderLayout()`'s *inline* sticky sizing (`position`/`top`/`maxHeight` on the preview panel, `height`/`overflowY` on the section) reads as empty. Probed directly and confirmed **`requestAnimationFrame` never fires in this browser pane** while `setTimeout` does -- the pane does not composite frames. `_enterServiceOrderLayout` is rAF-driven and was never modified by this redesign, so its inline sizing simply cannot apply *here*; the CSS-level `position:sticky` still resolves. This is the same root cause as the Phase 1 finding that CSS transitions never advance, and as screenshots being unavailable. **Anything rAF-driven in this app cannot be verified in this pane and needs a real browser.**
+
+---
+
 ## 2026-08-11 — LCD Projection redesign, Phase 5: Slide Editor canvas + grouped toolbar (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
 
 User priority #7. Two changes: make the editing surface resemble the projected slide, and move every slide-level control into the editor's own toolbar, grouped.

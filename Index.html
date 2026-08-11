@@ -6219,11 +6219,6 @@
                   <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
                   <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
                   <div class="lcd-controls-spacer"></div>
-                  <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
-                    <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
-                    <span class="wo-golive-label" id="woBlankLabel">Blank</span>
-                  </button>
-                  <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
                 </div>
 
                 <!-- Preview + Program outputs, side by side -->
@@ -6296,12 +6291,21 @@
                       <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
                     </div>
                   </div>
-                  <div class="lcd-output-box">
+                  <div class="lcd-output-box lcd-program-box">
                     <div class="lcd-output-label">Program Output <span class="lcd-live-dot" id="lcdProgramLiveDot" title="Live"></span></div>
                     <div class="wo-preview-screen lcd-program-screen" id="lcdProgramOutput">
                       <div class="wo-preview-bg" id="lcdProgramBg"></div>
                       <div class="lcd-program-barrier" id="lcdProgramBarrier"><span class="lcd-program-barrier-tag">SAFE ZONE</span></div>
                       <div class="wo-preview-placeholder">Not projecting</div>
+                    </div>
+                    <!-- Projection actions live with the output they affect.
+                         Same ids and handlers as when they sat in the toolbar. -->
+                    <div class="lcd-program-actions">
+                      <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
+                        <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
+                        <span class="wo-golive-label" id="woBlankLabel">Blank</span>
+                      </button>
+                      <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
                     </div>
                   </div>
                 </div>
@@ -61914,6 +61918,24 @@ function filterLiturgyItems() {
   .lcd-song-order-btn:hover { border-color: var(--lcd-gold-500); }
   .lcd-outputs-row { display: flex; gap: var(--lcd-space-4); margin-bottom: var(--lcd-space-3); flex: 1; min-height: 220px; }
   .lcd-output-box { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  /* Program Output: framed as the "what the congregation sees" panel, with
+     its projection actions attached directly beneath it. */
+  .lcd-program-box .lcd-output-label { display: flex; align-items: center; gap: 8px; font-family: 'Poppins', sans-serif; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--lcd-ivory-100, #f8f4ea); }
+  .lcd-program-box .lcd-program-screen { border: 1px solid var(--lcd-navy-line, #2a3a5c); border-radius: var(--lcd-radius-md, 10px); box-shadow: var(--lcd-shadow-md); }
+  .lcd-program-actions { display: flex; align-items: center; gap: var(--lcd-space-2, 8px); margin-top: var(--lcd-space-3, 12px); }
+  /* The Phase 0 sizing for these two was scoped to .lcd-controls-row, which
+     they no longer live in - restate it for their new home. */
+  .lcd-program-actions .wo-blank-btn {
+    flex: 0 0 auto; height: var(--lcd-btn-h-secondary, 42px); padding: 0 var(--lcd-space-4, 16px);
+    border-radius: var(--lcd-radius-md, 10px); font-size: 0.78rem;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .lcd-program-actions .wo-live-present-btn {
+    flex: 1 1 auto; justify-content: center; height: var(--lcd-btn-h-primary, 46px);
+    padding: 0 var(--lcd-space-5, 24px); border-radius: var(--lcd-radius-md, 10px);
+    font-weight: 700; font-size: 0.85rem; box-shadow: var(--lcd-shadow-gold-glow);
+    display: inline-flex; align-items: center;
+  }
   .lcd-output-label { color: var(--lcd-ivory-muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: var(--lcd-space-2); display: flex; align-items: center; gap: 6px; }
   .lcd-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lcd-navy-line); transition: background 0.2s, box-shadow 0.2s; display: inline-block; }
   .lcd-live-dot.live { background: var(--lcd-live); box-shadow: 0 0 6px rgba(47,174,98,0.8); }
