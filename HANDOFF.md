@@ -4,6 +4,43 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — Section menu, media-to-all, video autostart, matched editor/output, desktop file drop (branch `feature/premium-mobile-roster`)
+
+### 1. Section header: seven overlaid buttons → one actions menu
+
+`.lcd-rail-add-btns` was `position: absolute` over the header and, at the schedule column's real width, its seven 28px buttons plus the 24px gradient came to ~244px in a ~250px header — **covering the title and the collapse chevron**, which is why the section could not be collapsed at all.
+
+Replaced with a single always-visible `.lcd-rail-menu-btn` (30px) plus `#lcdSectionMenu`, a popup parented to `<body>` so the schedule column's own scrolling cannot clip it. Seven 38px labelled rows (Add song / Add liturgy / Add presentation / All Slides editor / Add blank slide / Rename / Delete, plus the readings template on scripture sections). Same handlers, dispatched through `lcdRunSectionAction()`. Verified: title now 137px wide, chevron returns itself from `elementFromPoint`, collapse works (99 → 94 → 99 rows).
+
+### 2. Media: "apply to every slide", and video that actually starts
+
+- **ALL button** on each Media Tray thumbnail → `lcdApplyMediaToAllSlides()`, which walks every section through the same `_setBgAllSlidesInSection()` writer the section drop already uses, so the storage shape and the undo entry are identical. Verified 2 → 95 of 95 slides.
+- **Video autostart.** A freshly inserted `<video autoplay muted>` does not reliably start when its container was hidden or zero-sized at insert time — which is exactly the Slide Editor canvas and the Program Output mirror at the moment of a drop. `autoplay` is never retried once the element becomes visible, so the clip sat on frame 0 until the slide was re-selected. New `_kickVideo(el)` rewinds to 0 and calls `play()` explicitly, once immediately and once on `loadeddata`. Wired into both `_applyBgToDivEl()` branches; `applyBackgroundToPreview()` additionally resumes an element that was left paused rather than restarting it.
+
+### 3. Slide Editor and Program Output as a matched pair
+
+Equal widths (50/50) with the editor exactly 20px taller. Measured: editor 364x361, output 364x341, delta 20.
+
+The screen needed `flex: 0 0 auto` — with `1 1 auto` the flex column stretched it to fill and the resulting definite height silently beat `aspect-ratio`, giving 364x268 instead of a true 16:9. It now measures 364x205, ratio 1.778. `.lcd-program-actions { margin-top: auto }` keeps the projection buttons pinned to the bottom of the box.
+
+### 4. Drag files straight in from the desktop
+
+`_lcdSetupMediaDropZone`'s drop handler now checks `e.dataTransfer.files` first:
+- **pictures / video / audio** → `_lcdIngestDroppedFile()` makes a saved background (same record shape as `handleBackgroundUploadLocal`, written out because that function has no callback) and applies it to whatever was dropped on — one slide, or the whole section if the drop landed on a section header.
+- **.pptx / .ppt / .pdf / .docx / .key / .odp** → opens the existing Add Presentation modal for that section with the file already queued (`addPowerPointSlides()` then `handleSlidesFileSelect([file])`, in that order because the first resets the pending list).
+
+**Bug caught in my own new code during verification:** `wholeSection` was `!!(t.railSection || t.sectionEl)`, but `sectionEl` matches for *any* drop inside a section container — including one aimed at a single slide. Dropping a picture on one slide wallpapered all 23 slides in that section. Now uses the same precedence the tray-thumbnail path does: `!t.railRow && !t.slideBox && ...`. Verified after the fix: slide drop → 1 slide, header drop → 23 of 23.
+
+### Verification note worth remembering
+
+The first re-test after that fix still showed the bug. The page had been reloaded **before** `dist/index.html` was synced, so the running build predated the fix even though `fetch('/')` showed the new code. Always reload *after* the sync, not before.
+
+### Cleanup
+
+All test artefacts removed and confirmed against the database: `template.sectionBackgrounds` back to exactly the two original `video:bg_1783769031541` entries on section-0 slides 0 and 4, five test media items deleted, 2 media items remain, 99 rail rows. Density pass intact (banner 103px, no page scroll, only the song list and schedule scroll). `node --check` clean on all 12 blocks; `dist/index.html` byte-identical.
+
+---
+
 ## 2026-08-11 — Song preview window + two full-screen bugs (branch `feature/premium-mobile-roster`)
 
 Three items from live use of LCD Projection.
