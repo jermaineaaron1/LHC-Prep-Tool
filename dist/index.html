@@ -30043,7 +30043,23 @@ var WO = (function() {
     });
   }
 
+  // setBackgroundForSlideInSection() persists on every call, so a bulk change
+  // stringifies and rewrites the whole map once per slide -- 95 writes of a
+  // blob that grows as it goes. Bulk callers wrap their loop in
+  // _withBulkBackgroundWrites() so the map is written once at the end instead.
+  var _bgSaveSuspended = 0;
+  var _bgSaveDirty = false;
+  function _withBulkBackgroundWrites(fn) {
+    _bgSaveSuspended++;
+    try { fn(); }
+    finally {
+      _bgSaveSuspended--;
+      if (_bgSaveSuspended === 0 && _bgSaveDirty) { _bgSaveDirty = false; saveSlideBackgrounds(); }
+    }
+  }
+
   function saveSlideBackgrounds() {
+    if (_bgSaveSuspended > 0) { _bgSaveDirty = true; return; }
     // 1. Fast local write so the current session reads it back instantly.
     try { localStorage.setItem(_slideBgKey(), JSON.stringify(sectionBackgrounds)); } catch(e) {
       console.warn('Failed to save section backgrounds to localStorage:', e);
@@ -30081,10 +30097,12 @@ var WO = (function() {
     var count = container ? container.querySelectorAll('.wo-slide-box').length : 0;
     delete sectionBackgrounds[sectionId];
     var n = count > 0 ? count : 1;
-    for (var i = 0; i < n; i++) {
-      var copy = {}; for (var k in bg) { if (Object.prototype.hasOwnProperty.call(bg, k)) copy[k] = bg[k]; }
-      setBackgroundForSlideInSection(sectionId, i, copy);
-    }
+    _withBulkBackgroundWrites(function() {
+      for (var i = 0; i < n; i++) {
+        var copy = {}; for (var k in bg) { if (Object.prototype.hasOwnProperty.call(bg, k)) copy[k] = bg[k]; }
+        setBackgroundForSlideInSection(sectionId, i, copy);
+      }
+    });
   }
 
   // Check if a specific slide has an EXPLICIT (non-inherited) background
@@ -48586,10 +48604,13 @@ var WO = (function() {
     clearActiveVideo();
     var norm = { type: bg.type, value: bg.id };
     var slides = 0;
-    sectionIds.forEach(function(sid) {
-      var container = document.getElementById(sid + '-boxes');
-      slides += container ? container.querySelectorAll('.wo-slide-box').length : 0;
-      _setBgAllSlidesInSection(sid, norm);
+    // One persist for the whole service rather than one per slide.
+    _withBulkBackgroundWrites(function() {
+      sectionIds.forEach(function(sid) {
+        var container = document.getElementById(sid + '-boxes');
+        slides += container ? container.querySelectorAll('.wo-slide-box').length : 0;
+        _setBgAllSlidesInSection(sid, norm);
+      });
     });
     updateSlideBgIndicators();
     currentBackground = norm;
