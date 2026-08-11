@@ -6207,16 +6207,10 @@
 
                 <!-- Quick controls toolbar (repositioned above outputs) -->
                 <div class="wo-preview-actions lcd-controls-row">
-                  <!-- Text alignment -->
-                  <div class="wo-align-group" title="Text alignment on projection">
-                    <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
-                    <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
-                    <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
-                  </div>
-                  <!-- Text barrier (safe zone) editor button -->
-                  <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
-                  <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
-                  <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
+                  <!-- Slide-level controls (align / Barrier / Text / BG) now
+                       live in the Slide Editor's own toolbar. What remains here
+                       is workspace-level: preview zoom, order-level undo/redo,
+                       and the projection actions. -->
                   <div class="wo-preview-zoom-group" title="Zoom projection preview">
                     <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
                     <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
@@ -6246,33 +6240,59 @@
                       </div>
                     </div>
                     <div class="lcd-panel-body lcd-lyrics-body">
+                      <!-- Toolbar grouped as Text / Layout / Background. The
+                           align, Barrier and BG controls moved here from the
+                           workspace bar so every slide-level control lives with
+                           the slide; their ids and onclick handlers are
+                           unchanged. -->
                       <div class="lcd-fmt-toolbar">
-                        <button class="lcd-fmt-btn" title="Bold selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('bold')"><b>B</b></button>
-                        <button class="lcd-fmt-btn" title="Italic selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('italic')"><em style="font-family:Georgia,serif;">I</em></button>
-                        <button class="lcd-fmt-btn" title="Underline selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('underline')"><u>U</u></button>
-                        <span class="lcd-fmt-sep"></span>
-                        <select class="lcd-fmt-select" title="Font of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtFont(this)">
-                          <option value="">Font</option>
-                          <option value="Georgia, serif">Georgia</option>
-                          <option value="'Times New Roman', serif">Times</option>
-                          <option value="Arial, sans-serif">Arial</option>
-                          <option value="'Poppins', sans-serif">Poppins</option>
-                          <option value="'Lato', sans-serif">Lato</option>
-                          <option value="'Cinzel', serif">Cinzel</option>
-                        </select>
-                        <select class="lcd-fmt-select" title="Size of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtSize(this)">
-                          <option value="">Size</option>
-                          <option value="14px">14</option>
-                          <option value="18px">18</option>
-                          <option value="24px">24</option>
-                          <option value="30px">30</option>
-                          <option value="36px">36</option>
-                          <option value="48px">48</option>
-                          <option value="60px">60</option>
-                        </select>
-                        <input type="color" class="lcd-fmt-color" title="Colour of selected text" value="#ffffff" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtColor(this)">
+                        <span class="lcd-fmt-group">
+                          <span class="lcd-fmt-group-label">Text</span>
+                          <button class="lcd-fmt-btn" title="Bold selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('bold')"><b>B</b></button>
+                          <button class="lcd-fmt-btn" title="Italic selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('italic')"><em style="font-family:Georgia,serif;">I</em></button>
+                          <button class="lcd-fmt-btn" title="Underline selected text" onmousedown="event.preventDefault();WO.lcdFmtCmd('underline')"><u>U</u></button>
+                          <select class="lcd-fmt-select" title="Font of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtFont(this)">
+                            <option value="">Font</option>
+                            <option value="Georgia, serif">Georgia</option>
+                            <option value="'Times New Roman', serif">Times</option>
+                            <option value="Arial, sans-serif">Arial</option>
+                            <option value="'Poppins', sans-serif">Poppins</option>
+                            <option value="'Lato', sans-serif">Lato</option>
+                            <option value="'Cinzel', serif">Cinzel</option>
+                          </select>
+                          <select class="lcd-fmt-select" title="Size of selected text" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtSize(this)">
+                            <option value="">Size</option>
+                            <option value="14px">14</option>
+                            <option value="18px">18</option>
+                            <option value="24px">24</option>
+                            <option value="30px">30</option>
+                            <option value="36px">36</option>
+                            <option value="48px">48</option>
+                            <option value="60px">60</option>
+                          </select>
+                          <input type="color" class="lcd-fmt-color" title="Colour of selected text" value="#ffffff" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtColor(this)">
+                          <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
+                          <span class="wo-align-group" title="Text alignment on projection">
+                            <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+                            <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+                            <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
+                          </span>
+                        </span>
+                        <span class="lcd-fmt-group">
+                          <span class="lcd-fmt-group-label">Layout</span>
+                          <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
+                        </span>
+                        <span class="lcd-fmt-group">
+                          <span class="lcd-fmt-group-label">Background</span>
+                          <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
+                        </span>
                       </div>
-                      <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)" onblur="WO.lcdFlushAutoApply()"></div>
+                      <!-- Canvas: the editable text sits on the slide's real
+                           background so it reads like the projected slide. -->
+                      <div class="lcd-editor-canvas" id="lcdEditorCanvas">
+                        <div class="lcd-editor-canvas-bg" id="lcdEditorCanvasBg"></div>
+                        <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)" onblur="WO.lcdFlushAutoApply()"></div>
+                      </div>
                       <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
                     </div>
                   </div>
@@ -47468,7 +47488,43 @@ var WO = (function() {
     }
     if (ed) ed.innerHTML = _lcdReadSlideRich(box);
     if (openBtn) openBtn.style.display = songId ? '' : 'none';
+    _lcdUpdateEditorCanvas(box);
     _lcdUpdateSlideSummary();
+  }
+
+  // Paint the slide's real background and alignment onto the editor canvas so
+  // the editing surface resembles what will actually project. Reuses
+  // getBackgroundForSlideInSection() + _applyBgToDivEl() -- the same pair the
+  // Program Output mirror uses -- rather than deriving backgrounds separately.
+  function _lcdUpdateEditorCanvas(box) {
+    var bgEl = document.getElementById('lcdEditorCanvasBg');
+    var ed = _lcdEditorEl();
+    if (!bgEl) return;
+    if (!box) {
+      bgEl.style.cssText = '';
+      bgEl.innerHTML = '';
+      if (ed) ed.style.textAlign = '';
+      return;
+    }
+    var sectionId = box.getAttribute('data-section') || '';
+    var localIdx = -1;
+    var wrap = box.closest('.wo-content-boxes');
+    if (wrap) localIdx = Array.from(wrap.querySelectorAll('.wo-slide-box')).indexOf(box);
+    var bg = (sectionId && localIdx >= 0 && typeof getBackgroundForSlideInSection === 'function')
+      ? getBackgroundForSlideInSection(sectionId, localIdx) : null;
+    bgEl.style.cssText = '';
+    bgEl.innerHTML = '';
+    if (bg && typeof _applyBgToDivEl === 'function') _applyBgToDivEl(bgEl, bg);
+    // Alignment is a single projection-wide setting (_currentSlideAlign), not
+    // a per-slide attribute -- mirror that same value.
+    if (ed) ed.style.textAlign = (typeof _currentSlideAlign !== 'undefined' && _currentSlideAlign) ? _currentSlideAlign : '';
+  }
+
+  // Repaint the canvas for whatever slide is currently loaded (used after an
+  // alignment or background change, which do not reload the editor).
+  function _lcdRefreshEditorCanvas() {
+    var box = _lcdRelocateActiveSlideBox();
+    if (box) _lcdUpdateEditorCanvas(box);
   }
 
   function _lcdRelocateActiveSlideBox() {
@@ -47551,6 +47607,7 @@ var WO = (function() {
     if (titleEl) titleEl.textContent = 'No slide selected';
     if (slideNumEl) slideNumEl.textContent = '';
     if (openBtn) openBtn.style.display = 'none';
+    _lcdUpdateEditorCanvas(null);
     _lcdUpdateSlideSummary();
   }
 
@@ -49950,6 +50007,10 @@ var WO = (function() {
     var fsOvl = $('woFullscreenOverlay');
     var fsContent = $('woFullscreenContent');
     if (fsOvl && fsOvl.classList.contains('show') && fsContent) _applyBarrierToFsContent(fsContent);
+    // Keep the Slide Editor canvas showing the same alignment, since its
+    // align buttons now live in that toolbar.
+    var _edEl = document.getElementById('lcdLyricsEditorTextarea');
+    if (_edEl) _edEl.style.textAlign = align || '';
     sendToProjectionWindow({ type: 'alignUpdate', align: align });
   }
 
@@ -61894,8 +61955,33 @@ function filterLiturgyItems() {
   .lcd-lyrics-body { display: flex; flex-direction: column; gap: 6px; padding: var(--lcd-space-3); }
   .lcd-lyrics-textarea { flex: 1; min-height: 110px; resize: none; background: var(--lcd-navy-950); border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-sm); color: var(--lcd-ivory-100); font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; padding: 10px; }
   .lcd-lyrics-textarea:focus { outline: none; border-color: var(--lcd-gold-500); }
-  .lcd-lyrics-editor { flex: 1; min-height: 116px; overflow-y: auto; background: var(--lcd-navy-950); border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-sm); color: var(--lcd-ivory-100); font-family: "Courier New", Courier, monospace; font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; padding: 10px; }
-  .lcd-lyrics-editor:focus { outline: none; border-color: var(--lcd-gold-500); }
+  /* Canvas: the editable text sits over the slide's real background so the
+     editing surface reads like the projected slide. The bg layer is painted
+     by _lcdUpdateEditorCanvas() via the same _applyBgToDivEl() the Program
+     Output mirror uses. */
+  .lcd-editor-canvas { position: relative; flex: 1; min-height: 150px; display: flex; border-radius: var(--lcd-radius-sm, 8px); border: 1px solid var(--lcd-navy-line, #2a3a5c); background: var(--lcd-navy-950, #0b1220); overflow: hidden; }
+  .lcd-editor-canvas-bg { position: absolute; inset: 0; background-size: cover; background-position: center; pointer-events: none; }
+  .lcd-editor-canvas-bg > * { width: 100%; height: 100%; object-fit: cover; }
+  .lcd-lyrics-editor { position: relative; z-index: 1; flex: 1; min-height: 116px; overflow-y: auto; background: transparent; border: none; border-radius: var(--lcd-radius-sm, 8px); color: var(--lcd-ivory-100, #f8f4ea); font-family: 'Lato', Georgia, serif; font-size: 1.05rem; line-height: 1.5; white-space: pre-wrap; padding: 16px 18px; text-shadow: 0 1px 3px rgba(0,0,0,0.65); }
+  .lcd-lyrics-editor:focus { outline: none; }
+  .lcd-editor-canvas:focus-within { border-color: var(--lcd-gold-500, #c1993f); box-shadow: var(--lcd-shadow-gold-glow); }
+
+  /* Toolbar grouped into Text / Layout / Background */
+  /* Groups wrap internally: the Text group holds 10 controls and the editor
+     column is only ~380px wide at 1366, so without this it overflows. */
+  .lcd-fmt-group { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; max-width: 100%; padding: 4px 8px 4px 6px; border-radius: var(--lcd-radius-sm, 8px); background: rgba(255,255,255,0.03); border: 1px solid var(--lcd-navy-line, #2a3a5c); }
+  .lcd-fmt-toolbar .lcd-fmt-select { max-width: 84px; }
+  .lcd-fmt-group-label { font-family: 'Poppins', sans-serif; font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--lcd-ivory-muted, #9aa3bf); margin-right: 2px; white-space: nowrap; }
+  .lcd-fmt-toolbar .wo-barrier-btn, .lcd-fmt-toolbar .wo-bg-btn, .lcd-fmt-toolbar .wo-text-btn {
+    height: var(--lcd-btn-h-icon, 38px); padding: 0 12px; border-radius: 6px;
+    background: var(--lcd-navy-700, #1e2c4a); border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    color: var(--lcd-ivory-200, #e6dfc9); font-family: 'Poppins', sans-serif; font-size: 0.72rem; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap;
+    transition: border-color var(--lcd-motion-fast, 150ms), color var(--lcd-motion-fast, 150ms);
+  }
+  .lcd-fmt-toolbar .wo-barrier-btn:hover, .lcd-fmt-toolbar .wo-bg-btn:hover, .lcd-fmt-toolbar .wo-text-btn:hover { border-color: var(--lcd-gold-500, #c1993f); color: var(--lcd-ivory-100, #f8f4ea); }
+  .lcd-fmt-toolbar .wo-align-group { background: transparent; padding: 0; gap: 2px; }
+  .lcd-fmt-toolbar .wo-align-btn { width: 30px; height: 30px; }
   .lcd-lyrics-editor:empty:before { content: attr(data-placeholder); color: var(--lcd-ivory-muted); font-style: italic; }
   .lcd-fmt-toolbar { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 6px; }
   .lcd-fmt-btn { width: var(--lcd-btn-h-icon); height: var(--lcd-btn-h-icon); display: inline-flex; align-items: center; justify-content: center; background: var(--lcd-navy-700); border: 1px solid var(--lcd-navy-line); color: var(--lcd-ivory-200); border-radius: var(--lcd-radius-sm); cursor: pointer; font-size: 0.8rem; }
