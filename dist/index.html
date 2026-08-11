@@ -18738,6 +18738,11 @@ window.loadEditSongData = function(song) {
       populateFilterDropdowns();
       renderSongs(false);
       renderSongStats();
+      // Songs arrive asynchronously, so the LCD Projection Song Library panel
+      // may already be on screen and rendered from an empty list. It also has
+      // to pick up songs added or edited later, since loadSongs() is the one
+      // place the library is refreshed.
+      if (typeof WO !== 'undefined' && WO.lcdRefreshLibrary) WO.lcdRefreshLibrary();
       $('backendStatus').textContent = 'Backend: Connected ✓';
       $('backendStatus').style.color = '#86efac';
       // Deep link: ?song=SONG_ID → open that song's preview (standalone, not paired with ?media=)
@@ -29814,6 +29819,11 @@ var WO = (function() {
         }
       }
     }
+
+    // Keep the Slide Editor canvas in step: it paints the slide's background
+    // behind the editable text, and every background write funnels through
+    // here, so this is the one place that catches select / clear / whole-section.
+    if (typeof _lcdRefreshEditorCanvas === 'function') _lcdRefreshEditorCanvas();
 
     // Trigger auto-save after background change
     autoSaveOrder();
@@ -54759,6 +54769,7 @@ var WO = (function() {
     woPopupPopulateFilters: woPopupPopulateFilters,
     // LCD Projection Song Library panel + column-width toggles
     lcdLibraryFilter: lcdLibraryFilter,
+    lcdRefreshLibrary: _lcdRenderLibraryPanel,
     lcdLibrarySetChip: lcdLibrarySetChip,
     lcdLibraryAddSong: lcdLibraryAddSong,
     lcdLibraryDragStart: lcdLibraryDragStart,
@@ -62010,7 +62021,6 @@ function filterLiturgyItems() {
   .lcd-fmt-btn:hover { border-color: var(--lcd-gold-500); color: var(--lcd-ivory-100); }
   .lcd-fmt-select { background: var(--lcd-navy-700); border: 1px solid var(--lcd-navy-line); color: var(--lcd-ivory-200); border-radius: var(--lcd-radius-sm); font-size: 0.7rem; padding: 3px 5px; height: var(--lcd-btn-h-icon); font-family: 'Poppins', sans-serif; cursor: pointer; }
   .lcd-fmt-color { width: 30px; height: var(--lcd-btn-h-icon); padding: 1px; border: 1px solid var(--lcd-navy-line); border-radius: var(--lcd-radius-sm); background: var(--lcd-navy-700); cursor: pointer; }
-  .lcd-fmt-sep { width: 1px; height: 18px; background: var(--lcd-navy-line); margin: 0 3px; }
   .lcd-lyrics-summary { color: var(--lcd-ivory-muted); font-size: 0.7rem; text-align: right; }
   .lcd-media-hint { color: var(--lcd-ivory-muted); font-size: 0.68rem; margin-bottom: 8px; line-height: 1.4; }
   .lcd-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: var(--lcd-space-2); }
@@ -62190,6 +62200,19 @@ function filterLiturgyItems() {
     /* Workspace is too narrow for Editor and Output side by side */
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row { flex-direction: column; }
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-output-box { flex: 1 1 auto; }
+  }
+  /* The 3-column workspace is desktop-only. Below 1201px the app's existing
+     phone/tablet layouts take over (stacked column, slide-in preview panel),
+     and those are written as flex -- `flex-direction: column !important` is
+     inert against `display: grid`, so without this the grid's fixed tracks
+     force ~966px of content into a 355px phone viewport. The Library panel
+     and its re-open tab have no place in those flows either. */
+  @media (max-width: 1200px) {
+    .wo-main-content:not(.wo-song-order) { display: flex; }
+    .wo-main-content:not(.wo-song-order) .wo-worship-order { max-width: 302px; }
+    .wo-main-content:not(.wo-song-order) .wo-preview-panel { min-width: 640px; }
+    .wo-main-content:not(.wo-song-order) #lcdLibraryPanel,
+    .wo-main-content:not(.wo-song-order) #lcdLibReopen { display: none; }
   }
 
   /* Service Schedule column: dark navy to match the LCD shell beside it.

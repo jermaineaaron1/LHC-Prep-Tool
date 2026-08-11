@@ -4,6 +4,20 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — LCD Projection redesign: post-implementation audit + 4 fixes (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+A deliberate audit pass over all 8 phases looking for bugs, dead code and broken connections between features. Four real issues found, all fixed.
+
+1. **(HIGH — regression I introduced) The 3-column grid applied on phones and tablets.** Phase 2 converted `.wo-main-content:not(.wo-song-order)` to `display:grid` with no upper bound. The app's existing phone/tablet layouts are written as flex (`@media (max-width:768px)` and two tablet queries set `flex-direction: column !important`), and **`flex-direction` is inert against `display:grid`** — so the `!important` did nothing and the grid's fixed tracks forced ~966px of content into a 355px viewport. Measured **181px of horizontal page overflow at 375px**. Fixed by confining the grid to ≥1201px and restoring `display:flex` (plus the original `max-width`/`min-width` values, and hiding the Library panel and its tab, which have no place in the mobile flow) below that. Verified: 375px and 900px now flex with zero overflow; 1280px still grids correctly.
+2. **(MEDIUM) Changing a background did not update the Slide Editor canvas.** Phase 5 painted the canvas only on slide load, so after using the BG button the editor kept showing the old background until you reselected the slide. `_lcdRefreshEditorCanvas()` had been written for exactly this and was **never called — dead code**. Wired it into `setBackgroundForSlideInSection()`, which is the single funnel every background write goes through (select, clear, and whole-section alike). Verified the canvas now repaints live without reselecting: transparent → green → red.
+3. **(MEDIUM) The Song Library panel never refreshed after its first render.** `_lcdRenderLibraryPanel()` was only called from `selectOrder('service')`. Songs load asynchronously via `loadSongs()`, so opening LCD Projection before songs arrived left a permanently empty panel, and songs added or edited later never appeared. Exposed `WO.lcdRefreshLibrary` and called it from `loadSongs()` — the one place songs enter `STATE.songs`.
+4. **(LOW) Orphaned `.lcd-fmt-sep` CSS** left behind when Phase 5 replaced the toolbar separators with grouped containers. Removed.
+- Also checked and found clean: no duplicate ids across all relocated controls; no dangling function references (`_lcdBuildSongCardHtml` is passed by reference to `.map`, which a naive call-count grep flags as dead — it is not); Song Order mode still `display:block` with the Library hidden; expand/collapse, rail, schedule header, editor canvas, toolbar groups and the relocated Blank/Project all still correct after the fixes.
+
+**Test-data incident, resolved — worth reading before doing cleanup this way again.** During cleanup a title-vs-index mismatch made it look like a real "Service - May 3" order had been deleted. It had not. The root cause is that **the saved-orders list rendered in the UI is a stale localStorage cache, not the database**: local held 15 entries while Supabase held 21 (the cloud also has "LHC Jubilee", "Luke's Songbook" and others the local list never showed). Diffing against the local list is therefore meaningless for judging data loss. Queried Supabase directly and confirmed **21 real orders intact, both "Service - May 3" entries present, 0 test orders remaining**. The last disposable order was removed by querying its real id from the database and deleting by id after verifying the title matched — not by list position. **Lesson: verify destructive cleanup against the database, and delete by id, never by rendered-list index** (`WO.deleteOrder(idx)` indexes the in-memory array, which is ordered differently from the sorted DOM list).
+
+---
+
 ## 2026-08-11 — LCD Projection redesign, Phases 6 + 7: Program Output prominence + full regression pass (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
 
 Final two phases of the LCD Projection redesign. **All 8 phases (0-7) are now complete.**
