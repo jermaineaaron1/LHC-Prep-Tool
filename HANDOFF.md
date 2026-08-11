@@ -4,6 +4,22 @@ _Last updated: 2026-08-11 by Claude Code_
 
 ---
 
+## 2026-08-11 — Final audit: Supabase round-trip verified; two pre-existing bugs found (NOT fixed) (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
+
+Whole-page audit of LCD Projection: syntax, broken references, and a genuine end-to-end Supabase save → wipe local cache → full page reload → reopen-from-cloud round trip.
+
+**Static checks — clean.** All 12 inline script blocks pass `node --check`. No duplicate element ids in LCD Projection (the ids a naive scan flags are template-literal patterns like `'sbPage-' + sid` that generate unique ids at runtime, plus three cases where a JS re-render string replaces the original markup — `woSongOrderSections`, `spmOrdersList`, `litDeleteConfirmOverlay` — all mutually exclusive render paths, not collisions).
+
+**Supabase persistence — verified working.** A cloud save wrote the order plus 15 `order_items` rows. Then the local caches were deleted outright (`lhc_worship_orders` and the order-scoped `lhc_section_backgrounds_*` key), the page fully reloaded, and the order reopened from the database. Survived correctly: the drag-added song (all 5 slides, right section, `item_type: song`), the section's 9 slides, the rail's 103 rows, and the per-slide background. Worth knowing for future debugging: **per-slide backgrounds are not stored in the `order_items.backgrounds` column** — `saveSlideBackgrounds()` mirrors them into `currentOrderData.template`, so they persist on the **orders.template.sectionBackgrounds** field (confirmed in the cloud as `{"wo-section-0":{"2":{"type":"solid","value":"#7B241C"}}}`). Looking in the item column and finding it empty is a false alarm.
+
+**BUG 1 (pre-existing, real data loss) — edits to a LITURGY slide are discarded on reload.** `Index.html` ~27478: when restoring a liturgy item the code does `if (_litRecord && _litRecord.content) { _litContent = _litRecord.content; } else if (item.slides…)`. The live LiturgyModule record therefore **always** wins over the order's saved slides. Its own comment says to "fall back to the Supabase-saved slides if the module isn't loaded yet **or the item was edited**" — but nothing ever tests whether the item was edited, so that branch is unreachable for any loaded item. Proven end-to-end: an edit typed into a liturgy slide saved correctly to Supabase (found in that item's `slides`, `item_type: liturgy`) yet was **absent from the DOM after reload**. Song slide edits are unaffected — they restore correctly. Not fixed: the correct behaviour is a product decision (should a liturgy item keep the order's copy the way songs do — which is what the new lyric-notice feature assumes — or keep auto-adopting the library version?), and it sits outside the redesign's scope.
+
+**BUG 2 (pre-existing, outside LCD Projection) — four `WO.*` handlers referenced from markup/code that will throw when invoked.** `WO.addLiturgyItem` (called at ~57288) and `WO.promptNewOrder` (~16612) are **not defined anywhere** in the file. `WO.sbOpenAnnotPaletteFromPage` (Songbook fullscreen annotate FAB, ~9338) and `WO.sbSetLinkZoom` (Songbook link-zoom selects, ~35679/36076) **are defined but never exported** on the `WO` object, so those calls fail too. All four are in Liturgy/Songbook, none in LCD Projection, and none introduced by this redesign. The two unexported ones are a one-line fix each; the two undefined ones need someone to say what they were meant to do.
+
+- Test data cleaned up as before: disposable order deleted from Supabase by id. **21 real orders, both "Service - May 3" intact, 0 test orders.**
+
+---
+
 ## 2026-08-11 — Lyric notice becomes per-slide, acknowledge-on-view, with a refresh action (branch `feature/premium-mobile-roster`, committed locally, not yet pushed)
 
 Reworked the awareness feature to the clarified spec: the badge belongs on the *slide carrying the changed lyric*, the operator must be able to see *what* changed, opening the slide clears the badge, and a change arriving while they are working on that slide must offer a way to pull it in.
