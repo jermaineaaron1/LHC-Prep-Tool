@@ -30565,7 +30565,10 @@ var WO = (function() {
     // Add uploaded backgrounds (images, videos, audio) — draggable onto any slide
     savedBackgrounds.forEach(function(bg) {
       html += '<div class="wo-bg-item wo-bg-uploaded" draggable="true" data-bg-id="' + bg.id + '" data-drag-bg="' + bg.type + ':' + bg.id + '" ondragstart="WO.onBgDragStart(event)" onclick="WO.selectBackground(\'' + bg.type + ':' + bg.id + '\')">' +
-        '<button class="wo-bg-delete" onclick="event.stopPropagation(); WO.deleteBackground(\'' + bg.id + '\')"><i class="fa-solid fa-times"></i></button>';
+        // Routed through lcdDeleteMedia so this button gets the same "used on N
+        // slides across M orders" prompt as the Media Tray's x. It used to call
+        // deleteBackground directly, with no confirmation at all.
+        '<button class="wo-bg-delete" onclick="event.stopPropagation(); WO.lcdDeleteMedia(event, \'' + bg.id + '\')"><i class="fa-solid fa-times"></i></button>';
 
       if (bg.type === 'image') {
         html += '<div class="wo-bg-thumb" style="background-image:url(' + bg.data + ')"></div>';
@@ -30791,9 +30794,152 @@ var WO = (function() {
     });
   }
 
+  // ---- Deleting media: strip the slides that point at it ---------------------
+  //
+  // Deleting is global -- the row leaves the shared lhc_backgrounds table, so
+  // the media disappears for every order and every user. Leaving the pins
+  // behind stranded every other order on a reference that can no longer
+  // resolve. Those now project black rather than holding the previous slide
+  // (see _lcdBgOrNull), but a pin to media that does not exist is still
+  // garbage, so it is cleared in the same action.
+
+  function _lcdCountMediaInMap(map, bgId) {
+    var n = 0;
+    if (!map) return n;
+    Object.keys(map).forEach(function(sec) {
+      var slot = map[sec] || {};
+      Object.keys(slot).forEach(function(i) {
+        if (slot[i] && slot[i].value === bgId) n++;
+      });
+    });
+    return n;
+  }
+
+  // Strip every pin to bgId from a sectionBackgrounds-shaped object, dropping
+  // sections left empty. Returns how many pins went.
+  function _lcdStripMediaFromMap(map, bgId) {
+    var n = 0;
+    if (!map) return n;
+    Object.keys(map).forEach(function(sec) {
+      var slot = map[sec] || {};
+      Object.keys(slot).forEach(function(i) {
+        if (slot[i] && slot[i].value === bgId) { delete slot[i]; n++; }
+      });
+      if (!Object.keys(slot).length) delete map[sec];
+    });
+    return n;
+  }
+
+  // Which orders still pin this media, and on how many slides? The answer has
+  // to come from the cloud, not just the order that happens to be open.
+  function _lcdFindMediaUsage(bgId) {
+    var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sb || !bgId) return Promise.resolve({ orders: [], slides: 0 });
+    return sb.from('orders').select('id,title,template').then(function(res) {
+      var out = { orders: [], slides: 0 };
+      if (!res || res.error || !res.data) return out;
+      res.data.forEach(function(row) {
+        var n = _lcdCountMediaInMap(row.template && row.template.sectionBackgrounds, bgId);
+        if (n) {
+          out.orders.push({ id: row.id, title: row.title || row.id, slides: n });
+          out.slides += n;
+        }
+      });
+      return out;
+    }).catch(function() { return { orders: [], slides: 0 }; });
+  }
+
+  // The open order goes through setBackgroundForSlideInSection so the
+  // songOrderSections mirror, the editor canvas and the save path all stay in
+  // step -- mutating sectionBackgrounds directly would skip all three.
+  function _lcdPurgeMediaFromOpenOrder(bgId) {
+    var hits = [];
+    Object.keys(sectionBackgrounds).forEach(function(sec) {
+      var slot = sectionBackgrounds[sec] || {};
+      Object.keys(slot).forEach(function(i) {
+        if (slot[i] && slot[i].value === bgId) hits.push([sec, parseInt(i, 10)]);
+      });
+    });
+    if (!hits.length) return 0;
+    _withBulkBackgroundWrites(function() {
+      hits.forEach(function(h) { setBackgroundForSlideInSection(h[0], h[1], null); });
+    });
+    if (typeof updateSlideBgIndicators === 'function') updateSlideBgIndicators();
+    return hits.length;
+  }
+
+  // Per-order maps cached in this browser for orders that are not open.
+  function _lcdPurgeMediaFromCachedOrders(bgId) {
+    var openKey = _slideBgKey();
+    var n = 0;
+    try {
+      Object.keys(localStorage).forEach(function(k) {
+        if (k.indexOf('lhc_section_backgrounds_') !== 0 || k === openKey) return;
+        var map;
+        try { map = JSON.parse(localStorage.getItem(k) || '{}'); } catch (e) { return; }
+        var hit = _lcdStripMediaFromMap(map, bgId);
+        if (hit) { localStorage.setItem(k, JSON.stringify(map)); n += hit; }
+      });
+    } catch (e) { console.warn('[LHC] could not purge cached background maps:', e); }
+    return n;
+  }
+
+  function _lcdPurgeMediaFromCloudOrders(bgId) {
+    var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sb || !bgId) return Promise.resolve({ orders: 0, slides: 0 });
+    var openId = currentOrderData && currentOrderData.id;
+    return sb.from('orders').select('id,template').then(function(res) {
+      if (!res || res.error || !res.data) return { orders: 0, slides: 0 };
+      var writes = [], slides = 0, otherOrders = 0, otherSlides = 0;
+      res.data.forEach(function(row) {
+        var tpl = row.template || {};
+        var stripped;
+        if (row.id === openId) {
+          // The open order's in-memory map is newer than this row; it was
+          // already purged above, so persist that rather than the fetched copy.
+          stripped = _lcdCountMediaInMap(tpl.sectionBackgrounds, bgId);
+          if (!stripped) return;
+          tpl.sectionBackgrounds = Object.keys(sectionBackgrounds).length ? sectionBackgrounds : undefined;
+        } else {
+          stripped = _lcdStripMediaFromMap(tpl.sectionBackgrounds, bgId);
+          if (!stripped) return;
+          if (tpl.sectionBackgrounds && !Object.keys(tpl.sectionBackgrounds).length) {
+            tpl.sectionBackgrounds = undefined;
+          }
+        }
+        slides += stripped;
+        if (row.id !== openId) { otherOrders++; otherSlides += stripped; }
+        writes.push(sb.from('orders').update({ template: tpl }).eq('id', row.id));
+      });
+      if (!writes.length) return { orders: 0, slides: 0 };
+      return Promise.all(writes).then(function(rs) {
+        rs.forEach(function(r) {
+          if (r && r.error) console.warn('[LHC] could not purge media from an order:', r.error.message);
+        });
+        // The toast only reports the orders the operator cannot see, so the
+        // count never double-reports slides they just watched go black.
+        return { orders: otherOrders, slides: otherSlides, written: writes.length };
+      });
+    }).catch(function(e) {
+      console.warn('[LHC] cloud purge failed:', e);
+      return { orders: 0, slides: 0 };
+    });
+  }
+
   function deleteBackground(bgId) {
     savedBackgrounds = savedBackgrounds.filter(function(bg) { return bg.id !== bgId; });
     saveBackgrounds();
+
+    // Clear the slides pointing at it, locally first so the screen is right
+    // immediately, then across every other order in the cloud.
+    _lcdPurgeMediaFromOpenOrder(bgId);
+    _lcdPurgeMediaFromCachedOrders(bgId);
+    _lcdPurgeMediaFromCloudOrders(bgId).then(function(r) {
+      if (r.orders) {
+        showToast('Also cleared it from ' + r.slides + ' slide' + (r.slides === 1 ? '' : 's') +
+                  ' in ' + r.orders + ' other order' + (r.orders === 1 ? '' : 's'), 'info');
+      }
+    });
 
     // Also delete from IndexedDB
     deleteBackgroundFromIDB(bgId).catch(function(e) {
@@ -49072,8 +49218,24 @@ var WO = (function() {
     if (event) event.stopPropagation();
     var bg = savedBackgrounds.find(function(b) { return b.id === bgId; });
     var name = (bg && bg.name) ? bg.name : 'this media';
-    if (!window.confirm('Remove ' + name + ' from the media library? This cannot be undone.')) return;
-    deleteBackground(bgId);
+    // The library is shared, so the prompt has to say what this costs the
+    // orders the operator cannot see, not just the one that is open.
+    _lcdFindMediaUsage(bgId).then(function(use) {
+      var msg = 'Remove ' + name + ' from the media library?\n\n' +
+                'It is shared by every order, so this deletes it for everyone.';
+      if (use.slides) {
+        msg += '\n\nIt is currently used on ' + use.slides + ' slide' + (use.slides === 1 ? '' : 's') +
+               ' across ' + use.orders.length + ' order' + (use.orders.length === 1 ? '' : 's') + ':\n' +
+               use.orders.slice(0, 6).map(function(o) {
+                 return '  • ' + o.title + ' (' + o.slides + ')';
+               }).join('\n') +
+               (use.orders.length > 6 ? '\n  • and ' + (use.orders.length - 6) + ' more' : '') +
+               '\n\nThose slides will lose their background.';
+      }
+      msg += '\n\nThis cannot be undone.';
+      if (!window.confirm(msg)) return;
+      deleteBackground(bgId);
+    });
   }
 
   // Apply a background across a whole section - mirrors the existing
