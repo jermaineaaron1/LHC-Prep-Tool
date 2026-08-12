@@ -4,6 +4,39 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Songbook edits highlight the exact changed lyric line, with a two-look lifetime
+
+Requested: when lyrics change in the songbook, the affected slide should be flagged (every change, without limit), and opening it should show the specific changed lyric highlighted — visible for the first two looks, gone from the third.
+
+### What was built on
+
+The detection machinery already existed: `_lcdChangedSlides` (per-slide diff of order vs library), `_lcdAckedSlides` (per-version acknowledgement, so each new edit re-flags — "unlimited" was already true), the rail's `lcd-lyric-flag`, and the banner with Use-library / Keep-order.
+
+### What was added
+
+- **Line-level highlight in the Slide Editor** (`span.lcd-line-changed`, gold wash) and **in the banner's library preview** (`mark.lcd-diff-line`). The diff is computed between the two slide texts, which align positionally, and the changed lines are then found in the editor **by text, not by index** — the slide text carries the `[Verse 1]` header line and the editor does not, which is exactly the misalignment that made a first cut highlight every line.
+- **Two-look lifetime.** `_lcdChangeViews`, keyed `entryId|slideIdx|<normalised library text>`. Opening the slide counts as a look; re-selecting the slide already open does not; the glow shows for looks 1–2 and stops from look 3. The banner itself stays until the operator chooses Use-library or Keep-order. A new songbook edit changes the version key, so everything re-arms.
+- **Leak-proofing.** `_getEditorHtml` — the one choke point commit, projection, and the live editors all read through — unwraps the highlight spans from its clone. Verified path: type inside a highlighted line, apply, project: no markup escapes.
+
+### Two real bugs found while building it
+
+1. **Machine selections counted as looks and acked flags.** Order load auto-selects a slide through the same `selectSlideBox` path as a click; that machine selection cleared the rail flag and burned a look before the operator saw anything — a reload was enough to half-consume every pending notice. Gated by `_lcdServiceInitAt`, stamped at the **start of `initializeServiceOrder()`** (not only in `selectOrder` — `loadOrder` rebuilds through it before `selectOrder` ever runs) plus `_loadingOrder`; a look only counts 1200ms after the last rebuild.
+2. **Rail flags never appeared after a reload.** The lyric-status caches were filled at LCD init, before the song library had loaded — the lookup found nothing, "no change" was cached, and nothing invalidated it. The realtime receiver resets these caches itself, which is why live pings flagged correctly while reloads did not. Fixed in `WO.lcdRefreshLibrary` (called by `loadSongs()` whenever the library arrives): it now resets the caches and re-renders the rail, instead of only repainting the library panel.
+
+### Verified live (two clients, six successive edits to the same song)
+
+- Title-only edits stay silent; each lyrics edit re-flags — six for six.
+- The flag survives a full reload and sits on the correct slide.
+- Look 1: rail flag clears; the one changed line glows in the editor ("Steady words line two") and the one changed library line is marked in the banner ("SIXTH EDITION line two") — the two unchanged lines are untouched.
+- Look 2 (leave and return): still glowing. Re-selecting the already-open slide does not burn a look.
+- Look 3: glow and marks gone; the banner still offers Use-library / Keep-order.
+
+### Harness note
+
+Scripts in the hidden browser pane kept executing but timed out returning results (~30s limit) — three "zombie" runs completed their side effects with the output lost. Verify by writing to `window.__r` and reading it back in a second short call; and remember those zombie runs consume look-counts.
+
+---
+
 ## 2026-08-12 — Slide Editor bottom now lands exactly on the Program Output's; interrupted saves replay at boot
 
 ### 1. Editor/output alignment (reported: "the output height is jarring out")
