@@ -20463,6 +20463,18 @@ window.loadEditSongData = function(song) {
       }
     }, 1500);
 
+    // ── Replay a save that died with the page ──────────────────────────────
+    // saveCurrentOrder journals its payload to localStorage synchronously
+    // before the async Supabase write; a reload mid-flight leaves the journal
+    // behind. Push it to the cloud before anything reads the order, so the
+    // "song added just before a reload" case heals itself instead of losing
+    // the song. Runs before silentPreloadOrders on purpose.
+    setTimeout(function() {
+      if (window.WO && window.WO._replayPendingOrderSave) {
+        window.WO._replayPendingOrderSave();
+      }
+    }, 1200);
+
     // ── Silently pre-fetch worship orders so the Orders page loads instantly ──
     // Like WhatsApp loading chats in the background on startup.
     setTimeout(function() {
@@ -24211,6 +24223,50 @@ var WO = (function() {
     saveCurrentOrder(true);
   }
 
+  // Replay a save whose network write died with the page. saveCurrentOrder
+  // journals its payload to localStorage before calling SBQ.saveOrder and
+  // clears the journal on success; if the journal is still there at boot, the
+  // page went away mid-flight and Supabase never got that state. Push it now,
+  // BUT only if the cloud has not moved on since -- someone else (or another
+  // device) editing the order after the crash must win over our stale journal.
+  function _replayPendingOrderSave() {
+    var raw;
+    try { raw = localStorage.getItem('lhc_pending_order_save'); } catch (e) { return; }
+    if (!raw) return;
+    var pending;
+    try { pending = JSON.parse(raw); } catch (e) {
+      localStorage.removeItem('lhc_pending_order_save'); return;
+    }
+    var payload = pending && pending.payload;
+    // Never replay something that could wipe: no id, no items, or a journal so
+    // old its context is gone (7 days).
+    if (!payload || !payload.id || !Array.isArray(payload.items) || !payload.items.length ||
+        !pending.savedAt || (Date.now() - new Date(pending.savedAt).getTime()) > 7 * 86400000) {
+      localStorage.removeItem('lhc_pending_order_save'); return;
+    }
+    var sb = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sb) return; // leave the journal; try again next boot
+    sb.from('orders').select('last_edited').eq('id', payload.id).maybeSingle().then(function(res) {
+      if (res && res.error) return; // leave the journal for the next boot
+      var row = res && res.data;
+      if (!row) { localStorage.removeItem('lhc_pending_order_save'); return; } // order deleted
+      var cloudEdited = row.last_edited ? new Date(row.last_edited).getTime() : 0;
+      if (cloudEdited > new Date(pending.savedAt).getTime()) {
+        // The cloud moved on after our crash -- the journal is stale, drop it.
+        localStorage.removeItem('lhc_pending_order_save'); return;
+      }
+      SBQ.saveOrder(payload).then(function(r) {
+        if (r && r.success) {
+          localStorage.removeItem('lhc_pending_order_save');
+          if (typeof showToast === 'function') {
+            showToast('Recovered unsaved changes to “' + (payload.title || 'an order') + '”', 'success');
+          }
+          console.log('[LHC] replayed interrupted save for', payload.id);
+        }
+      }).catch(function(e) { console.warn('[LHC] pending-save replay failed:', e); });
+    }).catch(function() { /* leave the journal; try again next boot */ });
+  }
+
   // ── Mobile: toggle Projection Preview panel ───────────────────────────
   var _mobilePreviewOpen = false;
 
@@ -24578,9 +24634,35 @@ var WO = (function() {
     var _savedOrderId   = orderPayload.id;
     var _savedSongs     = songOrderSections.slice();
 
+    // Journal the payload to localStorage SYNCHRONOUSLY before the network
+    // write. The Supabase call below is async, and a reload -- F5, the app's
+    // own Refresh button, closing the tab -- kills it mid-flight. Until now
+    // nothing else persisted the state (the local orders list is only updated
+    // inside the success .then()), so a song added within the 2s autosave
+    // debounce, or while a save was in flight, simply ceased to exist: the
+    // next load correctly restored from Supabase, which never got it. That is
+    // the "added songs don't stick" report. _replayPendingOrderSave() pushes
+    // this journal to Supabase on the next boot if it never landed.
+    if (orderPayload.id && itemsForSave.length) {
+      try {
+        localStorage.setItem('lhc_pending_order_save', JSON.stringify({
+          savedAt: new Date().toISOString(),
+          payload: orderPayload
+        }));
+      } catch (e) { /* quota -- the journal is best-effort */ }
+    }
+
     // Save directly to Supabase (bypasses GAS proxy for ~100ms vs ~2-3s round-trip)
     // Return the promise so callers (e.g. backToMainMenu) can chain .then()
     return SBQ.saveOrder(orderPayload).then(function(result) {
+        // The write landed; the crash journal is no longer needed. Only this
+        // save's own journal is cleared -- a newer save may have re-written it.
+        try {
+          var _pj = JSON.parse(localStorage.getItem('lhc_pending_order_save') || 'null');
+          if (_pj && _pj.payload && _pj.payload.id === _savedOrderId) {
+            localStorage.removeItem('lhc_pending_order_save');
+          }
+        } catch (e) {}
         if (result && result.success) {
           if (currentOrderData !== _savedOrderRef) {
             console.warn('[SaveGuard] Stale .then() — order switched from',
@@ -25791,40 +25873,51 @@ var WO = (function() {
         // back at half size with its body clipped.
         if (lower) lower.style.maxHeight = '';
         var trayWant = lower ? lower.scrollHeight : 0;
-        var trayShare = Math.max(0, Math.min(trayWant, Math.round(avail * 0.42)));
+
+        // The row is sized to the Program Output's NATURAL content height --
+        // its controls, label and 16:9 screen -- so the Slide Editor's bottom
+        // edge lands exactly on the output's. The screen's height comes from
+        // the column width, not from the row, which is why the old band
+        // arithmetic never aligned the two: the box carried invisible slack
+        // below the screen at wide sizes and the screen jutted past the editor
+        // at narrow ones. The tray takes what is left and scrolls internally;
+        // the editor is what the user asked to grow, and it now always runs to
+        // the output's full visible depth.
+        var rowH = Math.round(avail - Math.max(0, Math.min(trayWant, Math.round(avail * 0.42))));
+        var progBox = outputs.querySelector('.lcd-program-box');
+        if (progBox && progBox.lastElementChild) {
+          var pcs = getComputedStyle(progBox);
+          var natural = Math.round(
+            progBox.lastElementChild.getBoundingClientRect().bottom
+            - progBox.getBoundingClientRect().top
+            + (parseFloat(pcs.paddingBottom) || 0));
+          if (natural > OUTPUTS_MIN) rowH = natural;
+        }
+        rowH = Math.max(OUTPUTS_MIN, rowH);
+
+        var trayShare = Math.max(0, Math.min(trayWant, avail - rowH));
         if (lower) lower.style.maxHeight = trayShare ? trayShare + 'px' : '';
-        // A definite height, not just a cap: the Program Output carries
-        // height: calc(100% - 20px), and a percentage cannot resolve against a
-        // max-height alone -- it fell back to content size and sat 125px
-        // shorter than the editor instead of the intended 20px.
+        // A definite height, not just a cap: percentages inside the row cannot
+        // resolve against a max-height alone.
         //
         // flex must be pinned alongside it. The row is `flex: 1 1 0%`, and on
         // the main axis flex-basis beats height, so setting height by itself
         // did nothing at all: the row stayed content-sized at 524px.
         outputs.style.flex = '0 0 auto';
-        outputs.style.height = Math.max(OUTPUTS_MIN, Math.round(avail - trayShare)) + 'px';
+        outputs.style.height = rowH + 'px';
         outputs.style.maxHeight = '';
 
         // Second pass. `avail` is derived from measured chrome, but the panel's
-        // own padding and the margins between its rows are not in that figure,
-        // and guessing them with a constant left 37px of the tray below the
-        // fold. Measure what actually still overflows and take it off the
-        // editor, down to its floor -- self-correcting, so it holds whatever
-        // those margins happen to be.
+        // own padding and the margins between its rows are not in that figure.
+        // Overflow comes off the TRAY, never the row: shrinking the row would
+        // break the editor/output alignment this function exists to hold, and
+        // the tray's grid scrolls inside itself. On a short screen the content
+        // genuinely exceeds the space -- this decides where that shows up, and
+        // a scrollbar inside the media grid is better than the whole workspace
+        // sliding under the fold.
         var sect = document.getElementById('worshipOrderView');
         if (sect) {
           var over = sect.scrollHeight - sect.clientHeight;
-          if (over > 0) {
-            var cur = parseFloat(outputs.style.height) || 0;
-            var take = Math.min(over, Math.max(0, cur - OUTPUTS_MIN));
-            outputs.style.height = Math.round(cur - take) + 'px';
-            over -= take;
-          }
-          // Whatever the editor's floor would not absorb comes off the tray,
-          // whose grid scrolls inside itself. On a short screen the content
-          // genuinely exceeds the space -- this decides where that shows up,
-          // and a scrollbar inside the media grid is better than the whole
-          // workspace sliding under the fold.
           if (over > 0 && lower) {
             var trayNow = lower.getBoundingClientRect().height;
             lower.style.maxHeight = Math.max(50, Math.round(trayNow - over)) + 'px';
@@ -57044,6 +57137,7 @@ var WO = (function() {
     saveCurrentOrder: saveCurrentOrder,
     autoSaveOrder: autoSaveOrder,
     saveImmediately: saveImmediately,
+    _replayPendingOrderSave: _replayPendingOrderSave,
     saveOrderAs: saveOrderAs,
     closeSaveAsModal: closeSaveAsModal,
     confirmSaveAs: confirmSaveAs,
@@ -65879,13 +65973,16 @@ function filterLiturgyItems() {
   .lcd-media-all:hover { background: var(--lcd-gold-600, #a97f2e); }
 
   /* ---- L. Slide Editor and Program Output as a matched pair --------------- */
-  /* Equal widths; the editor stands 20px taller than the output. The screen
-     keeps its true 16:9 shape inside that box -- sized by max-height rather
-     than a fixed width, so it shrinks to fit instead of overflowing and still
-     shows the projector's real proportions. */
+  /* Equal widths and equal FULL height. The old "editor 20px taller" pairing
+     never actually aligned anything the eye sees: the screen's 16:9 height
+     comes from the column width, not from the row, so the box carried invisible
+     slack below the screen at wide sizes and the screen jutted past the editor
+     at narrow ones. The row is now sized to the Program Output's natural
+     content height (see _lcdSizeWorkspaceColumns), so the editor's bottom edge
+     lands exactly on the output's. */
   .lcd-outputs-row { align-items: flex-start; }
   .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 50%; align-self: stretch; }
-  .lcd-outputs-row .lcd-program-box { flex: 1 1 50%; height: calc(100% - 20px); }
+  .lcd-outputs-row .lcd-program-box { flex: 1 1 50%; height: 100%; }
   /* flex: 0 0 auto matters — with `1 1 auto` the column stretches the box to
      fill and the definite height wins over aspect-ratio, which silently threw
      away the 16:9 shape (measured 364x268 instead of 364x205). */
@@ -65971,12 +66068,11 @@ function filterLiturgyItems() {
     font-weight: 700; font-size: 0.82rem; box-shadow: var(--lcd-shadow-gold-glow);
     display: inline-flex; align-items: center;
   }
-  /* The pair still tracks each other -- editor 20px taller -- and both now
-     grow into whatever the Media Tray gives back when it collapses. Moving
-     Blank/Project out is what makes this safe: the box's contents are now
-     just the label and the 16:9 screen, and the screen is max-height capped,
-     so it can no longer spill past the box onto the row below. */
-  .lcd-outputs-row .lcd-program-box { height: calc(100% - 20px); }
+  /* The pair are the same full height now -- the row itself is sized to the
+     output's natural content height, so both bottoms land on the same line
+     (see _lcdSizeWorkspaceColumns). The screen stays max-height capped, so it
+     cannot spill past the box onto the row below. */
+  .lcd-outputs-row .lcd-program-box { height: 100%; }
 
   /* ---- N. Collapsible Media Tray ----------------------------------------- */
   .lcd-media-header { cursor: pointer; user-select: none; }

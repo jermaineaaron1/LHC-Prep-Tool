@@ -4,6 +4,43 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Slide Editor bottom now lands exactly on the Program Output's; interrupted saves replay at boot
+
+### 1. Editor/output alignment (reported: "the output height is jarring out")
+
+The old "editor 20px taller" pairing never aligned anything the eye sees. The Program screen's 16:9 height comes from the **column width**, not the row, so the output box carried invisible slack below the screen at wide sizes and the screen jutted past the editor at narrow ones — the two bottom edges only coincided by luck.
+
+`_lcdSizeWorkspaceColumns()` now sizes the outputs row to the Program Output's **measured natural content height** (controls + label + 16:9 screen + padding), both boxes are `height: 100%`, and the overflow pass takes from the **tray only** — shrinking the row would break the very alignment this exists to hold. Measured: editorBottom == progBoxBottom == progContentBottom (577 == 577 == 577 at 1920; 562 == 562 at 1366), zero slack, zero section scroll, stable across tray collapse/expand cycles.
+
+Consequence to know: the editor's height is now **driven by the output's content height**, so it can be shorter than before at very wide viewports (the row no longer absorbs all remaining band; the surplus sits below the tray). That is the price of the requested alignment.
+
+### 2. Songs vanishing on reload — root cause found and fixed
+
+Reported: "added songs don't stick... vanish when the app or order is reloaded."
+
+**All the ordinary paths were fine.** Add via Song Order, add via LCD Projection, explicit save, debounced autosave — every one persisted and survived a cache-cleared reload in both modes. The loss lives in a race:
+
+- The local orders snapshot is updated **only inside the success `.then()`** of the Supabase write. Nothing persists anything synchronously.
+- `loadOrder` (correctly, for multi-device) always restores content from Supabase, never localStorage.
+- So: add a song → reload/F5/the app's own Refresh/close the tab within the 2s autosave debounce **or while the write is in flight** → `beforeunload` fires `saveImmediately`, whose network write dies with the page → the state existed nowhere → next load restores the pre-add cloud copy. On a slow connection that window is several seconds after every edit.
+
+**Fix — a crash journal.** `saveCurrentOrder` now writes its payload to `localStorage['lhc_pending_order_save']` **synchronously** before calling `SBQ.saveOrder`, and clears it in the success `.then()` (only if the journal still belongs to that order — a newer save may have rewritten it). At boot, `_replayPendingOrderSave()` (runs at +1.2s, before `silentPreloadOrders`) pushes a surviving journal to Supabase, guarded four ways:
+
+1. never replays an empty-items payload (wipe protection);
+2. drops journals older than 7 days;
+3. drops the journal if the order was deleted from the cloud;
+4. **drops the journal if cloud `last_edited` is newer than the journal's `savedAt`** — an edit made after the crash, by anyone, beats the stale journal.
+
+Verified live: simulated a mid-flight death (SBQ.saveOrder stubbed to reject once) → journal survived with the new song in it → stripped the song from the cloud and rewound `last_edited` → reload → replay restored the song to `order_items` and cleared the journal, with a "Recovered unsaved changes" toast. Conflict branch: a crafted stale journal with a poison payload was dropped without touching the cloud.
+
+Note: journals are cleared when the save lands, so during normal operation the key exists only for the milliseconds a write is in flight.
+
+### Test-data note
+
+"Service - Aug 9" now has **16** `order_items`, not the 15 recorded in earlier entries — the 16th is the **user's own** "Slide" item in the Absolution section, added from production during this session (visible in their screenshot). Do not "fix" the count back to 15.
+
+---
+
 ## 2026-08-12 — Audit round: stage bar removed, regression sweep of the recent layout work
 
 ### Change: the stage bar is gone, the Slide Editor took its height
