@@ -4,6 +4,60 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Deleting media now clears the slides that point at it (branch `feature/premium-mobile-roster`)
+
+Closes the root cause behind the entry below. That change made a dangling reference *safe* (it projects black instead of holding the previous slide); this one stops the dangling reference being created.
+
+### Why it was needed
+
+Deleting media is **global** — the row leaves the shared `lhc_backgrounds` table, so it disappears for every order and every user — but nothing swept `sectionBackgrounds`. Every other order stayed pinned to media that no longer existed.
+
+### What happens now
+
+`deleteBackground` runs a three-layer purge, local first so the screen is right immediately:
+
+1. `_lcdPurgeMediaFromOpenOrder` — goes through `setBackgroundForSlideInSection`, **not** a direct mutation of `sectionBackgrounds`, so the `songOrderSections` mirror, the editor canvas and the save path all stay in step. Batched inside `_withBulkBackgroundWrites`.
+2. `_lcdPurgeMediaFromCachedOrders` — every `lhc_section_backgrounds_*` key in this browser except the open order's, which layer 1 already handled.
+3. `_lcdPurgeMediaFromCloudOrders` — every order row in Supabase. For the open order it writes the **in-memory** map rather than the fetched one, since the fetched copy is older than the purge that just ran.
+
+`_lcdStripMediaFromMap` drops sections left empty, so no `{}` husks remain.
+
+### The prompt now states the cost
+
+`_lcdFindMediaUsage` scans all cloud orders before asking. Real output from the test:
+
+```
+Remove purge-test.png from the media library?
+
+It is shared by every order, so this deletes it for everyone.
+
+It is currently used on 6 slides across 2 orders:
+  • ZZ PURGE A (delete me) (3)
+  • ZZ PURGE B (delete me) (3)
+
+Those slides will lose their background.
+
+This cannot be undone.
+```
+
+The Add-BG modal's × was routed through `lcdDeleteMedia` too. It previously called `deleteBackground` directly with **no confirmation at all**, which mattered much more once deleting also strips slides.
+
+The follow-up toast counts only the orders the operator cannot see, so slides they just watched go black are not double-reported.
+
+### Verified
+
+On throwaway media and throwaway orders, all deleted afterwards.
+
+- **Other orders (cloud branch).** Two orders each pinning the test media on 3 slides plus one unrelated video. After deleting: media row gone, all 6 test pins gone, **both unrelated video pins survived**, and the section that held only the test media was dropped entirely. Selective, not wholesale.
+- **Open order (in-memory branch).** Slides 0 and 2 on the test media, slide 1 on an unrelated video. After deleting: in-memory map `0=-, 1=keep, 2=-`, the order's cloud row reduced to just the kept pin, media row gone, local library entry gone.
+- **Prompt** named the file correctly once the item was in `savedBackgrounds` (it falls back to "this media" when the library has not hydrated).
+
+Afterwards, all real data confirmed untouched: "Service - Aug 9" 6 pins / 15 items, "Service - 28 Jun 2026" 2 pins, "Service - Jun 21" 1 pin, media library back to its two real items, no stray test orders.
+
+`Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>` blocks pass `node --check`.
+
+---
+
 ## 2026-08-12 — Unresolvable background media now projects black (branch `feature/premium-mobile-roster`)
 
 Second audit round of the LCD Projection page. One serious finding, fixed here.
