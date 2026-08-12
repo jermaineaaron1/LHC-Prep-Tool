@@ -6371,11 +6371,13 @@
                   </div>
                 </div>
 
-                <!-- Keyboard hint only; the live controls now sit in the
-                     workspace bar at the top of the panel. -->
-                <div class="lcd-stage-bar">
-                  <span class="lcd-stage-hint"><i class="fa-solid fa-keyboard"></i> Arrow keys navigate slides</span>
-                </div>
+                <!-- The stage bar that used to sit here held nothing but a
+                     "Arrow keys navigate slides" hint once Blank and Project
+                     moved into the Program Output column. A full-width 34px row
+                     for one line of static text is height the Slide Editor uses
+                     better, so it was removed; _lcdSizeWorkspaceColumns() counts
+                     the panel's chrome by measurement, so that 34px passes to
+                     the outputs row on its own. -->
 
                 <!-- Lyrics Editor + Media Tray -->
                 <div class="lcd-lower-row">
@@ -65953,21 +65955,12 @@ function filterLiturgyItems() {
     font-size: 0.5rem; letter-spacing: 0; text-transform: none;
   }
 
-  /* ---- M. Stage bar: Blank + Project on their own full-width row ---------- */
-  .lcd-stage-bar {
-    display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
-    margin-top: 10px; padding: 8px 12px;
-    background: var(--lcd-navy-800, #16213b); border: 1px solid var(--lcd-navy-line, #2a3a5c);
-    border-radius: var(--lcd-radius-lg, 12px); box-shadow: var(--lcd-shadow-sm);
-  }
-  .lcd-stage-hint {
-    display: inline-flex; align-items: center; gap: 7px; min-width: 0;
-    color: var(--lcd-ivory-muted, #9aa3bf);
-    font-family: 'Poppins', sans-serif; font-size: 0.66rem;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .lcd-stage-spacer { flex: 1 1 auto; }
-  /* Live controls, now in the workspace bar at the top of the panel. */
+  /* ---- M. Live controls ---------------------------------------------------
+     The stage bar that lived here is gone: once Blank and Project moved into
+     the Program Output column it held only a keyboard hint, and a full-width
+     34px row for one line of static text is height the Slide Editor uses
+     better. Its .lcd-stage-bar / .lcd-stage-hint / .lcd-stage-spacer rules went
+     with it -- nothing else referenced them. */
   .lcd-controls-row .wo-blank-btn {
     flex: 0 0 auto; height: 36px; padding: 0 16px; border-radius: var(--lcd-radius-md, 10px);
     font-size: 0.78rem; display: inline-flex; align-items: center; gap: 7px;

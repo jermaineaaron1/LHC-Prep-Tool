@@ -4,6 +4,45 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Audit round: stage bar removed, regression sweep of the recent layout work
+
+### Change: the stage bar is gone, the Slide Editor took its height
+
+Once Blank and Project moved into the Program Output column, `.lcd-stage-bar` held **only** a "Arrow keys navigate slides" hint — a full-width 34px row (44px with its margin) for one line of static text. Removed, along with its `.lcd-stage-bar` / `.lcd-stage-hint` / `.lcd-stage-spacer` rules; nothing else referenced them.
+
+`_lcdSizeWorkspaceColumns()` measures the panel's chrome rather than assuming it, so the freed height passed to the outputs row with no JS change.
+
+| | 1920x1080 | 1366x768 |
+|---|---|---|
+| Slide Editor | 474 → **518** | 222 → **252** |
+| editor canvas | 236 → **280** | 118 |
+| tray row | 259 | 181 → **195** |
+| tray body scroll | 0 | 163 → **119** |
+
+Editor stays exactly 20px taller than the output; zero section scroll at both sizes. Panel children are now just topbar / outputs row / tray. Collapsing the tray at 1920 gives the editor 726px with a 488px canvas.
+
+### Regression sweep of the last two rounds — clean
+
+- **Workspace fullscreen round-trips correctly.** Entering clears the inline height/flex (outputs row 421, canvas 220, tray at its 210 cap, controls on one 40px line); leaving restores the windowed sizing. Ran **four** enter/exit cycles: settles at 226/183 and holds, section scroll 0. No feedback loop from measuring rendered heights.
+- **275 inline handlers all resolve** after the controls moved into the Program Output column. No duplicate ids, no orphaned elements (`woPreviewZoomLabel`, `woBlankLabel`, `lcdProgramLiveDot`, `lcdAllSlidesBtn` all intact).
+- **Mobile CSS still wins.** The `@media (max-width: 768px)` block sets `position: fixed !important` and friends, and `!important` beats the ID specificity of the new `#woPreviewPanel` rule — confirmed `position: fixed`, `max-height: 812px`, no inline overrides leaking.
+
+### Minor: stale inline sizing survives a switch to Song Order
+
+`outputs.style.height`, `flex` and the tray's `max-height` are **not** cleared when switching to Song Order — `_lcdSizeWorkspaceColumns()` only runs from the service branch, so its `else` never fires there. Inert today because the preview panel is `display: none` in Song Order and re-entering service recomputes. It would matter if the panel were ever shown in that mode.
+
+### Harness limitation — record this, it nearly produced a false bug report
+
+**This browser pane does not apply CSS transforms.** The mobile panel carries `wo-preview-collapsed` and a matching `transform: translateX(100%) !important` rule, yet computes to `matrix(1,0,0,1,0,0)` at `left: 0`. Disabling the transition did not change it, and **even an inline `transform: translateX(100%) !important` computed to identity** — which is impossible for a real render.
+
+So the mobile slide-in drawer cannot be verified in this pane, and a "the panel covers the whole screen on mobile" finding here means nothing. Test transforms in a real browser.
+
+### Environment noise, not app faults
+
+`supabaseUrl is required` plus 500s come from the Next.js route bundle with no local `.env.local`. Repeated Supabase realtime WebSocket failures also appear; realtime itself works — the two-client lyric-ping test passed earlier in the same session — so these are reconnect attempts accumulated across many reloads.
+
+---
+
 ## 2026-08-12 — Workspace controls moved into the Program Output column; Slide Editor taller; All Slides button (branch `feature/premium-mobile-roster`)
 
 ### Controls relocated, editor gains the height
