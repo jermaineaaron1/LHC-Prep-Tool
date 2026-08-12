@@ -25746,22 +25746,43 @@ var WO = (function() {
       pp.style.alignSelf = 'flex-start';
     }
 
-    // The column may now run past the viewport, but only the Media Tray should
-    // do so. Left uncapped the outputs row is `flex: 1` and simply absorbs the
-    // new slack -- the Slide Editor grew to 521px against a 116px Program
-    // Output, breaking their matched pair. So the editor and output keep the
-    // band they always had, measured as what is left of it once the topbar,
-    // controls and stage bar have taken their share, and the tray is what
-    // extends below the fold.
+    // The Slide Editor, Program Output and Media Tray share the band between
+    // them rather than the editor taking all of it.
+    //
+    // Left to itself the outputs row is `flex: 1` and absorbs everything, which
+    // pushed the tray off the bottom of the screen: on opening LCD Projection
+    // you had to scroll to find it, and expanding it grew further down, away
+    // from view. Now the tray's own height is reserved out of the band first,
+    // so its header is on screen the moment the view opens and expanding it
+    // grows into the empty space above rather than below the fold.
     var outputs = pp && pp.querySelector('.lcd-outputs-row');
+    var lower = pp && pp.querySelector('.lcd-lower-row');
     if (outputs) {
       if (windowed) {
         var band = Math.max(420, Math.round(window.innerHeight - mc.getBoundingClientRect().top - 10));
-        var above = 0;
+        var chrome = 0;
         Array.prototype.slice.call(pp.children).forEach(function(c) {
-          if (c === outputs || c.classList.contains('lcd-lower-row')) return;
-          above += c.getBoundingClientRect().height;
+          if (c === outputs || c === lower) return;
+          chrome += c.getBoundingClientRect().height;
         });
+        var avail = band - chrome - 24;
+        // The editor and output never drop below this, so a big media library
+        // cannot squeeze them out; past that point the tray body scrolls.
+        var OUTPUTS_MIN = 200;
+        // scrollHeight, not the rendered height: it is the tray's natural
+        // content height, which is what it wants when expanded and roughly the
+        // header alone when collapsed. Capped at a share of the band rather
+        // than "whatever is left over", so on a short screen the tray still
+        // gets a usable slice instead of being handed 20px.
+        //
+        // The previous pass's cap has to come off before measuring, or the
+        // reading is of the constrained box rather than the content: re-expanding
+        // after a collapse measured 128px instead of 354px and the tray came
+        // back at half size with its body clipped.
+        if (lower) lower.style.maxHeight = '';
+        var trayWant = lower ? lower.scrollHeight : 0;
+        var trayShare = Math.max(0, Math.min(trayWant, Math.round(avail * 0.42)));
+        if (lower) lower.style.maxHeight = trayShare ? trayShare + 'px' : '';
         // A definite height, not just a cap: the Program Output carries
         // height: calc(100% - 20px), and a percentage cannot resolve against a
         // max-height alone -- it fell back to content size and sat 125px
@@ -25771,12 +25792,28 @@ var WO = (function() {
         // the main axis flex-basis beats height, so setting height by itself
         // did nothing at all: the row stayed content-sized at 524px.
         outputs.style.flex = '0 0 auto';
-        outputs.style.height = Math.max(220, Math.round(band - above - 24)) + 'px';
+        outputs.style.height = Math.max(OUTPUTS_MIN, Math.round(avail - trayShare)) + 'px';
         outputs.style.maxHeight = '';
+
+        // Second pass. `avail` is derived from measured chrome, but the panel's
+        // own padding and the margins between its rows are not in that figure,
+        // and guessing them with a constant left 37px of the tray below the
+        // fold. Measure what actually still overflows and take it off the
+        // editor, down to its floor -- self-correcting, so it holds whatever
+        // those margins happen to be.
+        var sect = document.getElementById('worshipOrderView');
+        if (sect) {
+          var over = sect.scrollHeight - sect.clientHeight;
+          if (over > 0) {
+            var cur = parseFloat(outputs.style.height) || 0;
+            outputs.style.height = Math.max(OUTPUTS_MIN, Math.round(cur - over)) + 'px';
+          }
+        }
       } else {
         outputs.style.flex = '';
         outputs.style.height = '';
         outputs.style.maxHeight = '';
+        if (lower) lower.style.maxHeight = '';
       }
     }
   }
@@ -65939,15 +65976,21 @@ function filterLiturgyItems() {
      and tray all inside it that clipped 105px into the panel's own scrollbar,
      which is what made the tray look like it was fighting the editor above it.
      In windowed LCD Projection the column takes its content height instead.
-     position must drop to static: the panel is sticky inside #worshipOrderView,
-     and a sticky box taller than its scroll container pins at the top so its
-     bottom -- the tray -- can never be scrolled into view. Nothing is lost by
-     that here, because the Schedule and Library columns carry their own
-     internal scroll, so the section only scrolls to reach this column. */
+
+     It stays sticky, but anchored to its BOTTOM rather than its top. Top-
+     anchored sticky on a box taller than its scroll container pins the top
+     edge, so everything below the fold -- the Media Tray -- can never be
+     scrolled into view. Bottom-anchored sticky inverts that: the column
+     scrolls up with the page until its bottom edge reaches the container's
+     bottom, then pins there, so the tray is reachable and the column still
+     follows. `top: auto` is required, or the top anchor wins. */
   .wo-main-content:not(.wo-song-order) #woPreviewPanel {
     max-height: none;
     overflow-y: visible;
-    position: static;
+    position: sticky;
+    top: auto;
+    bottom: 8px;
+    align-self: flex-start;
   }
   .lcd-media-panel .lcd-panel-body { overflow-y: auto; }
   /* Collapsed: only the header bar remains, and the row stops claiming height

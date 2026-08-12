@@ -4,6 +4,41 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Media Tray is on screen when LCD Projection opens, and expands into the empty space (branch `feature/premium-mobile-roster`)
+
+Correction to the previous entry. Letting the workspace column grow to its content height did stop the tray being *clipped*, but it pushed the tray **below the fold**: on opening LCD Projection you had to scroll to find it, and expanding it grew further down, away from view. Meanwhile the Slide Editor was left holding a large empty region.
+
+### What changed
+
+`_lcdSizeWorkspaceColumns()` now splits the band between the outputs row and the tray instead of letting the editor take all of it:
+
+1. Measure the chrome actually on screen (topbar + controls + stage bar) — it is not a constant; the toolbars wrap at narrow widths, going from 45+48 at 1920 to 91+92 at 1280.
+2. Read the tray's **natural** height from `lower.scrollHeight`, having first cleared the previous pass's `maxHeight` — see the trap below.
+3. Give the tray up to **42% of the band**, the editor and output the rest, with a 200px floor so a big media library cannot squeeze them out.
+4. **Second pass:** measure what still overflows and take it off the editor, down to that floor. The panel's own padding and the margins between its rows are not in the measured chrome, and guessing them with a constant left 37px of the tray below the fold. Self-correcting, so it holds whatever those margins are.
+
+### The trap worth remembering
+
+`lower.scrollHeight` must be read **after** clearing `lower.style.maxHeight`, or the reading is of the constrained box rather than the content. Re-expanding after a collapse measured 128px instead of 354px, and the tray came back at half size with its body clipped — while collapse itself looked fine, so it only showed up on the second toggle.
+
+Also: the collapse toggle re-runs the sizing through `_enterServiceOrderLayout()`, which schedules on `requestAnimationFrame` + `setTimeout(0)`. **rAF never fires in the browser-pane harness**, so any measurement taken synchronously after a `.click()` reads the pre-resize layout. Wait ~400ms before asserting.
+
+### Verified
+
+At **1920x1080**, the size the request came from — everything fits with **zero scrolling** in every state, and repeated toggling returns to identical values with no drift:
+
+| state | tray row | tray clipped | editor / output | section scroll |
+|---|---|---|---|---|
+| expanded (as opened) | 258 | 0 | 420 / 400 | **0** |
+| collapsed | 50 | — | 629 / 609 | 0 |
+| re-expanded | 258 | 0 | 421 / 401 | 0 |
+
+The editor picks up the tray's space on collapse (420 → 629) and gives it back on expand.
+
+At **1366x768** the tray header is on screen when the view opens and the editor/output pair holds at its 200/180 floor, but there is genuinely not room for everything: the tray body scrolls by 167px and 42px of section scroll remains. The toolbars wrap at that width, so chrome alone costs 183px more than at 1920. Collapsing the tray clears it completely (0 scroll).
+
+---
+
 ## 2026-08-12 — Media Tray flows below the workspace instead of fighting it (branch `feature/premium-mobile-roster`)
 
 Requested: expand the LCD Projection frame's height so the Media Tray runs downward rather than clashing with the Slide Editor and Program Output above it.
@@ -20,8 +55,9 @@ Two nested clips, at 1280x720:
 ### The change
 
 - The two long lists (Library, Schedule) stay capped to the viewport band and scroll internally — that is what they are for.
-- The **workspace column is no longer capped**. `.wo-main-content:not(.wo-song-order) #woPreviewPanel` sets `max-height: none; overflow-y: visible; position: static`, and `_lcdSizeWorkspaceColumns()` clears the matching inline properties.
-  - `position` matters: the panel is `sticky` inside `#worshipOrderView`, and a sticky box taller than its scroll container pins at the top so its bottom — the tray — can never be scrolled into view. Nothing is lost by dropping it, because the other two columns scroll internally, so the section only ever scrolls to reach this column.
+- The **workspace column is no longer capped**. `.wo-main-content:not(.wo-song-order) #woPreviewPanel` sets `max-height: none; overflow-y: visible`, and `_lcdSizeWorkspaceColumns()` clears the matching inline properties (`applyLayout()` writes them, and inline beats the stylesheet).
+  - It stays `position: sticky`, but anchored to its **bottom**: `top: auto; bottom: 8px`. Top-anchored sticky on a box taller than its scroll container pins the top edge, so everything below the fold — the tray — can never be scrolled into view. Bottom-anchored inverts that. `top: auto` is required or the top anchor wins.
+  - **Honest note on what sticky buys here:** measured across the scroll range the panel tracks the scroll 1:1 (panelTop 206 → 59 → −87 as scrollTop goes 0 → 147 → 293) and only reaches its pin point at maximum scroll. That is because the section's scroll range is driven *solely* by this column's overflow — the Schedule and Library columns scroll internally, so nothing else lengthens the section. Sticky is correct and harmless, but in this layout it has no observable effect. It would only start mattering if the Schedule column stopped being internally capped.
 - `.lcd-lower-row` cap raised from `172px` to `60vh`, so the tray grows to its tiles with a ceiling for a very large library.
 - The editor and output keep the band they always had: `_lcdSizeWorkspaceColumns()` gives `.lcd-outputs-row` a definite height of *band − (topbar + controls + stage bar) − 24*. Only the tray extends past the fold.
 
