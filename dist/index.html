@@ -48046,9 +48046,15 @@ var WO = (function() {
     if (wrap) localIdx = Array.from(wrap.querySelectorAll('.wo-slide-box')).indexOf(box);
     var bg = (sectionId && localIdx >= 0 && typeof getBackgroundForSlideInSection === 'function')
       ? getBackgroundForSlideInSection(sectionId, localIdx) : null;
+    // The editor is a text surface, not a second preview: painting the slide's
+    // artwork behind the words made them hard to read while typing, and the
+    // Program Output beside it already shows exactly what is projected.
+    // `bg` is still resolved above because the alignment mirror below and
+    // future callers depend on this function running end to end.
+    void bg;
     bgEl.style.cssText = '';
     bgEl.innerHTML = '';
-    if (bg && typeof _applyBgToDivEl === 'function') _applyBgToDivEl(bgEl, bg);
+    bgEl._lcdBgSrc = null;
     // Alignment is a single projection-wide setting (_currentSlideAlign), not
     // a per-slide attribute -- mirror that same value.
     if (ed) ed.style.textAlign = (typeof _currentSlideAlign !== 'undefined' && _currentSlideAlign) ? _currentSlideAlign : '';
@@ -48903,11 +48909,12 @@ var WO = (function() {
 
     if (isDeck) {
       if (!sectionId) { showToast('Drop a presentation onto a section to add it there', 'warning'); return; }
-      if (typeof addPowerPointSlides !== 'function') { showToast('Presentation import is unavailable', 'error'); return; }
-      // addPowerPointSlides() resets the pending list, so queue after it.
-      addPowerPointSlides(sectionId);
-      if (typeof handleSlidesFileSelect === 'function') handleSlidesFileSelect([file]);
-      showToast('“' + file.name + '” is queued — choose how to add it', 'info');
+      if (typeof addSlidesFromFiles !== 'function') { showToast('Presentation import is unavailable', 'error'); return; }
+      // Straight into the existing import pipeline rather than opening the
+      // modal with the file queued: that pipeline already expands a deck into
+      // one slide per page, which is exactly what dropping it should produce.
+      addSlidesFromFiles(sectionId, Array.prototype.slice.call(files));
+      showToast('Adding “' + file.name + '” — one slide per page', 'info');
       return;
     }
 
@@ -50810,6 +50817,15 @@ var WO = (function() {
         text = activeTextarea.value;
       } else {
         var lines = Array.from(content.querySelectorAll('.wo-slide-line'));
+        // "Double-click to add content" is editor furniture, not slide content,
+        // and projecting it put that instruction on the congregation's screen.
+        // The class is checked first, but some slides carry the placeholder as
+        // ordinary line text with no hint class -- so the string is matched too.
+        // It is never legitimate slide content either way.
+        lines = lines.filter(function(line) {
+          return !line.classList.contains('wo-slide-empty-hint') &&
+                 line.textContent.trim() !== 'Double-click to add content';
+        });
         text = lines.map(function(line) { return line.textContent; }).join('\n');
 
         // For scripture slides: include title (first slide) or footnote (other slides)
@@ -52447,6 +52463,11 @@ var WO = (function() {
         placeholder.className = 'wo-preview-placeholder';
         placeholder.textContent = 'Click any content box to see preview';
         screen.appendChild(placeholder);
+        // Selecting an empty slide must actually clear the output. Without
+        // this the payload was simply never sent, so the projector and the
+        // Program Output kept showing the previous slide's words -- the
+        // congregation would still be reading the last verse.
+        sendToProjectionWindow({ type: 'text', text: '', align: _currentSlideAlign, barrier: _barrierConfig.global });
       }
     }
   }
