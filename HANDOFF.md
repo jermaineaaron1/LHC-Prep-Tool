@@ -4,6 +4,40 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — 1366x768 now fits with no scrolling (branch `feature/premium-mobile-roster`)
+
+Follow-on from the entry below, which left 1366 with 42px of section scroll and the tray body clipped by 167px. The cause was chrome, not the tray: the workspace column's own header rows wrapped, and every wrapped row is height the tray does not get.
+
+### Why the rows wrapped
+
+Measured at 1366, where the workspace column is 470px wide: the controls row's content came to 467px, so **Project fell to a second line for want of 3px** and the row went 48 → 92px. Fixing that alone took chrome from 170 → 120px.
+
+### The change
+
+A `@media (max-width: 1699px)` tier tightens both rows — smaller gaps and padding, and `min-width: 0` on the Project button, which was reserving 170px for ~99px of content. Nothing is removed; the buttons stop reserving space they were not using.
+
+Then, in `_lcdSizeWorkspaceColumns()`, the overflow pass got a third step: whatever the editor's 200px floor cannot absorb now comes off the **tray**, whose grid scrolls inside itself. On a short screen the content genuinely exceeds the space — this decides where that shows up, and a scrollbar inside the media grid beats the whole workspace sliding under the fold.
+
+### Verified
+
+**1366x768** — zero section scroll in every state, tray fully in view, and toggling returns to identical values:
+
+| state | chrome | editor / output | tray row | tray body scroll | section scroll |
+|---|---|---|---|---|---|
+| expanded (as opened) | 119 | 200 / 180 | 150 | 163 | **0** |
+| collapsed | 119 | 300 / 280 | 50 | — | 0 |
+| re-expanded | 119 | 200 / 180 | 150 | 163 | 0 |
+
+**1920x1080** — untouched by the media query, still 420/400 expanded, 629/609 collapsed, tray unclipped, zero scroll.
+
+### Still wrapping at 1280 and below
+
+At 1280 the workspace column is only **384px** wide and both rows still wrap: topbar 83px (title 177 + two 106-109px buttons = 408 against 384), controls 88px (line one comes to 366 of 368 available, so Project wraps by ~10px). Chrome is 204px there and the tray keeps 226px of body scroll plus 110px of section scroll.
+
+Closing that would need a tighter tier below 1366 — 4px gaps and an ellipsising panel title — or icon-only buttons. Not done: 1366 is the stated design floor and the request was for that size. The tier already exists as `@media (max-width: 1699px)`, so a nested narrower tier is the natural place to add it.
+
+---
+
 ## 2026-08-12 — Media Tray is on screen when LCD Projection opens, and expands into the empty space (branch `feature/premium-mobile-roster`)
 
 Correction to the previous entry. Letting the workspace column grow to its content height did stop the tray being *clipped*, but it pushed the tray **below the fold**: on opening LCD Projection you had to scroll to find it, and expanding it grew further down, away from view. Meanwhile the Slide Editor was left holding a large empty region.

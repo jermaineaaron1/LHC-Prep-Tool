@@ -25806,7 +25806,18 @@ var WO = (function() {
           var over = sect.scrollHeight - sect.clientHeight;
           if (over > 0) {
             var cur = parseFloat(outputs.style.height) || 0;
-            outputs.style.height = Math.max(OUTPUTS_MIN, Math.round(cur - over)) + 'px';
+            var take = Math.min(over, Math.max(0, cur - OUTPUTS_MIN));
+            outputs.style.height = Math.round(cur - take) + 'px';
+            over -= take;
+          }
+          // Whatever the editor's floor would not absorb comes off the tray,
+          // whose grid scrolls inside itself. On a short screen the content
+          // genuinely exceeds the space -- this decides where that shows up,
+          // and a scrollbar inside the media grid is better than the whole
+          // workspace sliding under the fold.
+          if (over > 0 && lower) {
+            var trayNow = lower.getBoundingClientRect().height;
+            lower.style.maxHeight = Math.max(50, Math.round(trayNow - over)) + 'px';
           }
         }
       } else {
@@ -65970,6 +65981,22 @@ function filterLiturgyItems() {
      scrolls instead. A ceiling still applies so a very large library cannot
      run away. */
   .lcd-lower-row { max-height: 60vh; }
+
+  /* Below 1700px the workspace column gets narrow enough that its own chrome
+     wraps, and every wrapped row is height the Media Tray does not get. At
+     1366 the controls row measured 470px wide against 467px of content, so
+     Project fell to a second line for want of 3px and the row went 48 -> 92px;
+     at 1280 the topbar wraps too, 45 -> 91px. Together that is ~90px of chrome.
+     Tighter padding and gaps keep both on one line -- nothing is removed, the
+     buttons just stop reserving space they were not using. */
+  @media (max-width: 1699px) {
+    .lcd-controls-row { gap: 6px; padding: 3px 8px; }
+    .lcd-controls-row .wo-live-present-btn { min-width: 0; padding: 0 16px; }
+    .lcd-controls-row .wo-golive-btn { padding: 0 12px; }
+    .lcd-topbar { gap: 8px; padding-bottom: 6px; }
+    .lcd-topbar .lcd-song-order-btn,
+    .lcd-topbar #lcdWorkspaceFsBtn { padding: 0 12px; }
+  }
 
   /* The workspace column's own height cap lives on .wo-preview-panel as
      max-height: calc(100vh - 32px) -- 688px at 720p. With the editor, output
