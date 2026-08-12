@@ -4,6 +4,64 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Unresolvable background media now projects black (branch `feature/premium-mobile-roster`)
+
+Second audit round of the LCD Projection page. One serious finding, fixed here.
+
+### The defect
+
+A slide can point at media that is no longer resolvable. Two routes, both realistic:
+
+- **The Media Tray's ×** deletes from the shared `lhc_backgrounds` table — for every order and every user — and **nothing sweeps `sectionBackgrounds`**. Every other order still pinned to that media is left with dangling references.
+- **The hydration window.** `savedBackgrounds` is empty until media loads from the cloud; a slide selected in that window resolves to nothing. (Reasoned from the code — the timing was not reproduced.)
+
+Every applier did `if (found) { …render… }` with **no else**, having already set the background element visible. So a miss left the **previous slide's** background on screen. Worse, `_sendBgToProjection` sent *no message at all* on a miss, so the external projector held its last frame.
+
+The `null` case had been fixed at some point — there is even a comment about it — but "found nothing" took a different path and was never covered. Reproduced live: slide 0 real video, slide 1 a missing id → slide 1 still showed slide 0's video; slide 2 with no background at all cleared correctly.
+
+This was not one missing `else`. There are 22 `savedBackgrounds.find()` sites, and the convention throughout was that "not found" means "change nothing".
+
+### The fix
+
+One rule instead of 22 patches. `_lcdBgUnresolvable(background)` + `_lcdBgOrNull(background)` (~30235) convert an unresolvable background to `null` at the **top** of the three appliers, so it flows down the existing, already-correct null path:
+
+- `_applyBgToDivEl` — drives the fullscreen overlay
+- `_sendBgToProjection` — now sends an explicit `background: null`
+- `applyEffectiveBackgroundToPreview` — the per-slide preview
+
+Only the id-resolved types (`image`, `video`, `audio`) are judged; anything else is passed through untouched so an unrecognised-but-working type can never be blanked by this check. A `console.warn` names the missing id — deliberately not a toast, which would be noise mid-service.
+
+`applyBackgroundToPreview` and `sendBackgroundToProjection` were checked and **already safe** — the first clears `innerHTML` before its type dispatch, the second defaults `bgData` to `null` and sends unconditionally. Left alone.
+
+### Verified
+
+On a throwaway order, deleted afterwards.
+
+| Slide | Background | Before | After |
+|---|---|---|---|
+| 0 | real video | video | video |
+| 1 | missing video id | **slide 0's video** | empty |
+| 0 | real video again | — | video (working case intact) |
+| 2 | missing image id | **stale** | empty |
+| 3 | none | empty | empty |
+
+`#lcdProgramBg`, the in-app mirror fed by the same message that reaches the external projector, cleared to black on a miss and showed the video on a hit. Console carried both warnings with the offending ids.
+
+**Video continuity regression-checked** (the "video restarts from the beginning" fix from an earlier round): same video on two slides, `currentTime` set to 3.5s on the first — moving to the second reused the same element with `currentTime` still 3.5. Not broken.
+
+### Also found, not fixed
+
+The schedule header reads **"98 slides" when 94 exist**. The four unfilled Scripture Readings slots (First / Psalm / Second / Gospel) are `.wo-content-box` placeholders that the rail lists as slide rows. Clicking one projects **blank**, which is correct, so nothing bad reaches the screen — it is only the count that is wrong, and the rows are arguably useful as reminders that the readings are unfilled.
+
+### Checked and sound
+
+- **Save/reload round-trip is exact.** Backgrounds set, saved, local caches cleared so the order had to come purely from Supabase: `0=550192, 1=-, 2=031541, 3=-`, 94 slides, 19 sections, all reproduced.
+- `escapeHtml` escapes both quote characters, so names with apostrophes cannot break generated `onclick`/`title` attributes.
+- The `visibilitychange` listener added by `startSyncPolling` looked like a leak, but `stopSyncPolling` is never called, so it cannot accumulate. Worth knowing if anyone wires up the stop.
+- The song live-sync realtime channel is singleton-guarded and has a teardown path.
+
+---
+
 ## 2026-08-12 — UNRESOLVED: uncommitted Slide Editor work parked in a stash on the main worktree
 
 Not a change. A record of work that would otherwise be lost, found while fast-forwarding local `master` from `a4b550c` (PR #41) to `56fb5cb` (PR #44).
