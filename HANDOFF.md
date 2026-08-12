@@ -4,6 +4,68 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Assigning sections from LCD Projection no longer destroys the Service Schedule (branch `feature/premium-mobile-roster`)
+
+Found by a Song Order ↔ LCD Projection interaction test. **Worse than it first looked** — the initial diagnosis was "the schedule does not repaint"; it actually wipes.
+
+### The defect
+
+`confirmSectionAssignment`'s existing-song branch — the green "assign sections" button, which is how a song gets moved between sections — called `initializeSongOrder()` unconditionally. That renderer writes the Song Order list into `#woWorshipOrder`, **the same container the Service Schedule lives in**. Called from LCD Projection it replaced all 19 service sections with a `.wo-song-order-compact` list.
+
+Measured on the broken build: sections 19 → 0, rail rows 98 → 0, `#woWorshipOrder` left holding a single `div.wo-song-order-compact`. The data was fine — `serviceSections` updated correctly — but the operator's schedule was gone until a mode toggle rebuilt it.
+
+The first repro read as a no-op only because the rail's 120ms MutationObserver debounce had not fired when the measurement was taken, so a stale count of 98 was captured.
+
+### The fix
+
+Pick the renderer that matches the mode actually on screen:
+
+```js
+var _mcAssign = document.querySelector('.wo-main-content');
+if (_mcAssign && !_mcAssign.classList.contains('wo-song-order')) {
+  initializeServiceOrder();
+} else {
+  initializeSongOrder();
+}
+```
+
+Plus `_lcdPushUndo()` at the top of the branch — moving a song between sections is a schedule mutation like any other.
+
+**A first attempt was wrong and was backed out.** It added a `_woSyncSongToServiceSections` helper that removed and re-added the song's DOM per section. That treated the symptom: `initializeSongOrder()` had already destroyed the container before the helper ran, so the rail still went to 0. The helper was deleted; the mode check is the whole fix.
+
+### Verified
+
+Throwaway song and orders, deleted afterwards. No mode toggle between the action and the measurement.
+
+| | before | after |
+|---|---|---|
+| service sections | 19 | **19** (was 0 on the broken build) |
+| song banners | 0 | 1 |
+| song slides | 0 | 2 |
+| rail rows | 98 | 100 |
+
+- **Re-assigning to a different section moves it**: section 0 → section 4 left exactly one banner, in section 4 only.
+- **Song Order branch untouched**: the same action performed from Song Order mode kept 1 row before and after and updated `serviceSections` correctly.
+
+---
+
+## 2026-08-12 — Song Order ↔ LCD Projection: lyric-change ping verified
+
+Not a change. A record of behaviour confirmed against the requirement that the LCD slide pings **only** when the songbook lyrics change.
+
+Tested with two real browser clients, since `broadcast: { self: false }` means one tab cannot prove this.
+
+| Edit in the other client | LCD Projection tab |
+|---|---|
+| Title only, lyrics untouched | silent — no toast, no flag |
+| Lyrics changed | toast *"…" was just updated in the library*, flag appears |
+
+The flag is `lcd-lyric-flag library` and it landed on rail row **1.1**, the slide whose words actually changed — not on 1.2, whose chorus was untouched. Clicking that slide opens a banner reading "Library lyrics updated for this slide / The library now reads: …" with **Use the library version** / **Keep this order's version**, and the flag clears once acknowledged. The scheduled slide text does not change until the operator chooses.
+
+**How "lyrics only" is achieved matters for future edits:** the *sender* (`SBQ_SONGS.update`) broadcasts on every song save, title-only edits included. The *receiver* suppresses it with `if (s.lyrics === p.lyrics) return`. So the behaviour depends on the receiving client's copy being current — if their local lyrics are already stale, a title-only edit will ping them. That is arguably correct (their copy *is* out of date); do not "fix" it by removing the receiver-side guard, which is what actually implements the requirement.
+
+---
+
 ## 2026-08-12 — Deleting media now clears the slides that point at it (branch `feature/premium-mobile-roster`)
 
 Closes the root cause behind the entry below. That change made a dangling reference *safe* (it projects black instead of holding the previous slide); this one stops the dangling reference being created.
