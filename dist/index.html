@@ -48375,12 +48375,18 @@ var WO = (function() {
       '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background for this slide"><i class="fa-solid fa-image"></i></button>' +
       '<div class="wo-slide-content">' + linesHtml + '</div>' +
     '</div>';
+    // Splitting inserts a slide mid-section, which shifts every later slide's
+    // index -- and sectionBackgrounds is keyed by that index, so re-pin around
+    // the insert (see _lcdCaptureSectionBgs). The undo step is pushed by the
+    // caller, _lcdSplitSlideAtCursor.
+    var _splitBgs = sectionId ? _lcdCaptureSectionBgs(sectionId) : null;
     currentBox.insertAdjacentHTML('afterend', boxHtml);
     var newBox = currentBox.nextElementSibling;
     var groupId = liturgyId || songId;
     if (groupId && typeof renumberSlideBoxes === 'function') {
       renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
     }
+    if (sectionId) _lcdRestoreSectionBgs(sectionId, _splitBgs);
     return newBox;
   }
 
@@ -48683,17 +48689,35 @@ var WO = (function() {
     });
   }
 
-  // Stores a file in the tray under a category. Pictures, video and audio keep
-  // their data URL so they can be applied directly; documents are uploaded and
-  // keep a URL, because expanding a deck needs a real address to convert from.
+  // Stores a file in the tray under a category. Pictures and video keep their
+  // data URL so they can be applied directly; documents are uploaded and keep
+  // a URL, because expanding a deck needs a real address to convert from.
   function _lcdIngestTrayFile(file, category) {
     var t = file.type || '';
     var isDoc = /\.(pptx?|pdf|docx?|key|odp)$/i.test(file.name || '');
     var mediaType = t.indexOf('image/') === 0 ? 'image'
                   : t.indexOf('video/') === 0 ? 'video'
-                  : t.indexOf('audio/') === 0 ? 'audio'
                   : (isDoc ? 'document' : null);
+    // Audio used to be accepted here, but nothing in the tray can play or
+    // project it and no tab lists it -- the file uploaded, said "added", then
+    // became invisible and undeletable. Refuse it at the door instead.
+    if (!mediaType && t.indexOf('audio/') === 0) {
+      showToast('Audio is not supported here — the Media Tray holds pictures, videos and documents.', 'warning');
+      return;
+    }
     if (!mediaType) { showToast('Unsupported file: ' + (file.name || ''), 'warning'); return; }
+    // Each drawer only lists certain types. Storing a file the active drawer
+    // cannot render would hide it in every tab, so send it where it belongs.
+    if (category === 'background' && mediaType === 'document') {
+      showToast('Backgrounds hold pictures and videos — add “' + (file.name || 'that file') +
+                '” from the Presentations or Announcements tab.', 'warning');
+      return;
+    }
+    if (category === 'presentation' && mediaType !== 'document') {
+      showToast('Presentations hold documents — add “' + (file.name || 'that file') +
+                '” from the Backgrounds or Announcements tab.', 'warning');
+      return;
+    }
 
     function store(rec) {
       savedBackgrounds.push(rec);
@@ -48786,7 +48810,12 @@ var WO = (function() {
     var items = all.filter(function(bg) {
       if (_lcdItemCategory(bg) !== tab) return false;
       if (tab !== 'background') return true;
-      return sub === 'video' ? (bg.type === 'video') : (bg.type === 'image');
+      if (sub === 'video') return bg.type === 'video';
+      // Pictures, plus anything filed as a background that is neither picture
+      // nor video. Those are orphans from older builds -- the sub-tabs used to
+      // match on type alone, so such an item appeared in no tab at all and its
+      // × was unreachable. Listing them here makes them removable again.
+      return bg.type !== 'video';
     }).reverse();
 
     var shown = items.slice(0, _LCD_TRAY_LIMIT);
@@ -48795,29 +48824,39 @@ var WO = (function() {
     shown.forEach(function(bg) {
       var isImg = bg.type === 'image';
       var isDoc = _lcdIsDocItem(bg);
+      var isVid = bg.type === 'video';
+      // Filed as a background but not usable as one: show it, but do not offer
+      // to apply it to anything.
+      var isOrphan = (tab === 'background') && !isImg && !isVid;
       var thumbUrl = isImg ? bg.data : (bg.thumb || '');
       var thumbStyle = thumbUrl ? 'background-image:url(' + thumbUrl + ')' : '';
-      var icon = thumbUrl ? '' : ('<i class="fa-solid ' + (isDoc ? 'fa-file-lines' : 'fa-video') + '"></i>');
+      var fallbackIcon = isDoc ? 'fa-file-lines' : (isOrphan ? 'fa-triangle-exclamation' : 'fa-video');
+      var icon = thumbUrl ? '' : ('<i class="fa-solid ' + fallbackIcon + '"></i>');
       var vidBadge = (!isImg && !isDoc && thumbUrl) ? '<span class="lcd-media-vid-badge"><i class="fa-solid fa-play"></i></span>' : '';
       // ALL only means something for a background; a deck cannot be every
       // slide's wallpaper.
-      var allBtn = (tab === 'background')
+      var allBtn = (tab === 'background' && !isOrphan)
         ? '<button class="lcd-media-all" onclick="WO.lcdApplyMediaToAllSlides(event,\'' + bg.id + '\')" title="Use this background on every slide in the whole service">ALL</button>'
         : '';
-      var clickAttr = (tab === 'background')
+      var clickAttr = (tab === 'background' && !isOrphan)
         ? ' onclick="WO.lcdApplyMediaToCurrent(\'' + bg.id + '\')"'
         : '';
-      var tip = (tab === 'background')
-        ? escapeHtml(bg.name || '') + ' — click to apply, drag to a slide, × to remove'
-        : (isDoc ? escapeHtml(bg.name || '') + ' — drag into a section to add one slide per page'
-                 : escapeHtml(bg.name || '') + ' — drag onto a slide to fill it, or between slides to insert one');
-      html += '<div class="lcd-media-item' + (isDoc ? ' lcd-media-doc' : '') + '" draggable="true" ondragstart="WO.lcdMediaDragStart(event,\'' + bg.id + '\')"' + clickAttr +
+      var tip = isOrphan
+        ? escapeHtml(bg.name || '') + ' — this file cannot be used as a background. Use × to remove it.'
+        : (tab === 'background')
+          ? escapeHtml(bg.name || '') + ' — click to apply, drag to a slide, × to remove'
+          : (isDoc ? escapeHtml(bg.name || '') + ' — drag into a section to add one slide per page'
+                   : escapeHtml(bg.name || '') + ' — drag onto a slide to fill it, or between slides to insert one');
+      html += '<div class="lcd-media-item' + (isDoc ? ' lcd-media-doc' : '') + (isOrphan ? ' lcd-media-orphan' : '') +
+        '" draggable="' + (isOrphan ? 'false' : 'true') + '" ondragstart="WO.lcdMediaDragStart(event,\'' + bg.id + '\')"' + clickAttr +
         ' title="' + tip + '">' +
         '<div class="lcd-media-thumb" style="' + thumbStyle + '">' + icon + '</div>' + vidBadge + allBtn +
         '<button class="lcd-media-del" onclick="WO.lcdDeleteMedia(event,\'' + bg.id + '\')" title="Remove this from the tray">×</button>' +
-        (isDoc ? '<span class="lcd-media-cap">' + escapeHtml((bg.name || '').slice(0, 14)) + '</span>' : '') +
+        ((isDoc || isOrphan) ? '<span class="lcd-media-cap">' + escapeHtml((bg.name || '').slice(0, 14)) + '</span>' : '') +
         '</div>';
-      if (!isImg && !isDoc && !bg.thumb && !bg._thumbTried) pending.push(bg);
+      // Poster-frame generation is for videos only; an orphan has no frame to
+      // grab and would retry on every render.
+      if (isVid && !bg.thumb && !bg._thumbTried) pending.push(bg);
     });
 
     if (overflow > 0) {
@@ -51551,6 +51590,9 @@ var WO = (function() {
         e.preventDefault();
         var sel = window.getSelection();
         if (sel && sel.rangeCount) {
+          // A split adds a slide to the section, so it is an order-level
+          // change and belongs on the LCD undo stack like every other one.
+          _lcdPushUndo();
           var range = sel.getRangeAt(0);
           range.deleteContents();
           var beforeRange = document.createRange();
@@ -52127,16 +52169,28 @@ var WO = (function() {
       '<div class="wo-slide-content">' + (linesHtml || '<div class="wo-slide-line"></div>') + '</div>' +
     '</div>';
 
+    // Inserting shifts every later slide in the section by one, and
+    // sectionBackgrounds is keyed by local slide index, so the map has to be
+    // re-pinned (see _lcdCaptureSectionBgs). Done here rather than in the
+    // callers because all three insert paths -- the Add Slide button, the
+    // editor's Shift+Enter split and editSlideBox's own split -- funnel
+    // through this function.
+    var _addBgs = sectionId ? _lcdCaptureSectionBgs(sectionId) : null;
+
     currentBox.insertAdjacentHTML('afterend', boxHtml);
+
+    // Renumber all slides in the group
+    renumberSlideBoxes(sectionId, liturgyId || songId, isLiturgy ? 'liturgy' : 'song');
+
+    // Re-pin before handing focus to the editor: the new slide has no entry of
+    // its own, and every pre-existing slide keeps the background it had.
+    if (sectionId) _lcdRestoreSectionBgs(sectionId, _addBgs);
 
     // Auto-edit the new box
     var newBox = currentBox.nextElementSibling;
     if (newBox) {
       editSlideBox(newBox, { stopPropagation: function() {} });
     }
-
-    // Renumber all slides in the group
-    renumberSlideBoxes(sectionId, liturgyId || songId, isLiturgy ? 'liturgy' : 'song');
   }
 
   // ================================================================
@@ -52627,31 +52681,64 @@ var WO = (function() {
       }
     }
 
+    // Pushed only after the "last slide" guard above, so a refused click does
+    // not leave a no-op step on the undo stack.
+    _lcdPushUndo();
+    // Removing a slide renumbers every later slide in the section, and
+    // sectionBackgrounds is keyed by local slide index, so the map has to be
+    // re-pinned exactly as _lcdDeleteSlideBox does (see _lcdCaptureSectionBgs)
+    // -- otherwise each following slide inherits its neighbour's background.
+    var _rmBgs = sectionId ? _lcdCaptureSectionBgs(sectionId) : null;
+
     // Remove the box
     box.remove();
 
     // Renumber remaining slides
     renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
 
+    // The removed slide's entry drops out on its own: _lcdRestoreSectionBgs
+    // only re-pins boxes still present in the container.
+    if (sectionId) _lcdRestoreSectionBgs(sectionId, _rmBgs);
+
     showToast('Slide removed', 'success');
     autoSaveOrder();
   }
 
-  // Add a new slide to a song or liturgy group
+  // Add a new slide to a song or liturgy group.
+  //
+  // Scripture groups call this as addSlideToGroup(buttonEl) -- their slides
+  // carry data-source="scripture" and no group id, so there is nothing to
+  // address by selector. Passing an element is therefore supported: the group
+  // is read off the DOM by walking back from the Add Slide row itself.
   function addSlideToGroup(type, groupId, sectionId) {
-    var container = $(sectionId + '-boxes');
-    if (!container) return;
+    var lastSlide = null;
 
-    var isLiturgy = type === 'liturgy';
-    var selector = isLiturgy
-      ? '.wo-slide-box[data-liturgy-id="' + groupId + '"]'
-      : '.wo-slide-box[data-song-id="' + groupId + '"]';
-    var groupSlides = container.querySelectorAll(selector);
-    var lastSlide = groupSlides.length > 0 ? groupSlides[groupSlides.length - 1] : null;
+    if (type && type.nodeType === 1) {
+      var row = type.closest('.wo-add-slide-row');
+      var prev = row ? row.previousElementSibling : null;
+      while (prev && !prev.classList.contains('wo-slide-box')) {
+        prev = prev.previousElementSibling;
+      }
+      lastSlide = prev;
+    } else {
+      var container = $(sectionId + '-boxes');
+      if (!container) return;
+
+      var isLiturgy = type === 'liturgy';
+      var selector = isLiturgy
+        ? '.wo-slide-box[data-liturgy-id="' + groupId + '"]'
+        : '.wo-slide-box[data-song-id="' + groupId + '"]';
+      var groupSlides = container.querySelectorAll(selector);
+      lastSlide = groupSlides.length > 0 ? groupSlides[groupSlides.length - 1] : null;
+    }
 
     if (lastSlide) {
+      // addSlideBoxAfter re-pins the section's backgrounds; the undo step
+      // belongs here so one click is one Ctrl+Z.
+      _lcdPushUndo();
       // Use addSlideBoxAfter to create new slide after the last one
       addSlideBoxAfter(lastSlide, '');
+      autoSaveOrder();
     }
   }
 
@@ -65332,13 +65419,30 @@ function filterLiturgyItems() {
   .lcd-fmt-toolbar .wo-align-group { padding: 1px; }
 
   /* ---- D. Editor canvas + outputs: sized for a 900-1080px viewport -------- */
-  .lcd-outputs-row { min-height: 0; gap: var(--lcd-space-3); margin-bottom: 0; }
+  /* The row's floor must not sit below the Slide Editor's own min-height
+     (200px, set just below). With min-height: 0 the row collapsed to whatever
+     vertical slack was left -- 118px at 1366x768 -- while the editor held its
+     200px floor, so it overflowed a row with `overflow: visible` and landed on
+     top of the stage bar (measured: 72px of overlap at 1366, correct at 1920).
+     Matching the two floors makes the row grow instead of being overrun. */
+  .lcd-outputs-row { min-height: 200px; gap: var(--lcd-space-3); margin-bottom: 0; }
+  /* Fullscreen manages this row's height itself and must stay free to shrink. */
+  body.lcd-workspace-fullscreen .lcd-outputs-row { min-height: 0; }
   /* 55/45 left the editor too narrow for its own toolbar and header, both of
      which then wrapped to three and two rows and ate the canvas. 60/40 gets
      both onto single rows; the Program Output is still a full 16:9 preview,
      just no longer claiming width the editor needs more. */
   .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 60%; min-height: 200px; }
   .lcd-outputs-row .lcd-program-box { flex: 0 1 40%; min-width: 220px; }
+  /* Short laptops (1366x768 being the common one): give back 50px of the floor
+     on both the row and the editor rather than pushing the page into a scroll.
+     150px still holds the editor's header, toolbar and ~4 lines of canvas.
+     Must come after the 200px rule above -- a media query adds no specificity,
+     so source order is what decides this. */
+  @media (max-height: 820px) {
+    .lcd-outputs-row { min-height: 150px; }
+    .lcd-outputs-row .lcd-lyrics-panel { min-height: 150px; }
+  }
   /* Below 1201px the stacked phone/tablet layout takes over and the outputs
      row is no longer height-managed, so it needs its floor back -- otherwise
      the full-width 16:9 output above the editor squeezes the editor to zero. */
@@ -65503,6 +65607,14 @@ function filterLiturgyItems() {
   .lcd-media-doc { background: var(--lcd-ivory-2, #fffdf8); }
   .lcd-media-doc .lcd-media-thumb { color: var(--lcd-gold-600, #a97f2e); font-size: 1.1rem; }
   .lcd-media-doc .lcd-media-cap {
+    color: var(--lcd-ink, #2c2a25); text-shadow: none; bottom: 1px;
+    font-size: 0.5rem; letter-spacing: 0; text-transform: none;
+  }
+  /* An item filed under Backgrounds that cannot be used as one. Shown purely so
+     it can be deleted -- muted, not draggable, no apply affordances. */
+  .lcd-media-orphan { opacity: 0.65; cursor: default; }
+  .lcd-media-orphan .lcd-media-thumb { color: var(--lcd-danger, #c65a4e); font-size: 1.1rem; }
+  .lcd-media-orphan .lcd-media-cap {
     color: var(--lcd-ink, #2c2a25); text-shadow: none; bottom: 1px;
     font-size: 0.5rem; letter-spacing: 0; text-transform: none;
   }
