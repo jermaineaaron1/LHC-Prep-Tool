@@ -4,6 +4,47 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Media Tray flows below the workspace instead of fighting it (branch `feature/premium-mobile-roster`)
+
+Requested: expand the LCD Projection frame's height so the Media Tray runs downward rather than clashing with the Slide Editor and Program Output above it.
+
+### What was actually squeezing it
+
+Two nested clips, at 1280x720:
+
+- `.wo-preview-panel { max-height: calc(100vh - 32px); overflow-y: auto; }` — 688px. The editor, output and tray all shared that one band, so **105px of the column was clipped into the panel's own scrollbar**.
+- `.lcd-lower-row { max-height: 172px; }` — inside that, the tray body showed **122px of 300px** of tiles.
+
+`applyLayout()` also writes an inline `maxHeight`/`overflowY` on the panel, and inline beats the stylesheet, so the CSS cap only becomes reachable once `_lcdSizeWorkspaceColumns()` hands those properties back.
+
+### The change
+
+- The two long lists (Library, Schedule) stay capped to the viewport band and scroll internally — that is what they are for.
+- The **workspace column is no longer capped**. `.wo-main-content:not(.wo-song-order) #woPreviewPanel` sets `max-height: none; overflow-y: visible; position: static`, and `_lcdSizeWorkspaceColumns()` clears the matching inline properties.
+  - `position` matters: the panel is `sticky` inside `#worshipOrderView`, and a sticky box taller than its scroll container pins at the top so its bottom — the tray — can never be scrolled into view. Nothing is lost by dropping it, because the other two columns scroll internally, so the section only ever scrolls to reach this column.
+- `.lcd-lower-row` cap raised from `172px` to `60vh`, so the tray grows to its tiles with a ceiling for a very large library.
+- The editor and output keep the band they always had: `_lcdSizeWorkspaceColumns()` gives `.lcd-outputs-row` a definite height of *band − (topbar + controls + stage bar) − 24*. Only the tray extends past the fold.
+
+### Two traps hit on the way
+
+1. **`max-height` was not enough on the outputs row.** The Program Output carries `height: calc(100% - 20px)`, and a percentage cannot resolve against a `max-height` — it fell back to content size and sat *125px* shorter than the editor instead of 20px. It needs a definite `height`.
+2. **`height` alone did nothing.** The row is `flex: 1 1 0%`, and on the main axis flex-basis beats height, so the row stayed content-sized at 524px. `flex` has to be pinned to `0 0 auto` alongside the height.
+
+### Verified
+
+| | 1280x720 | 1366x768 | 1920x1080 |
+|---|---|---|---|
+| panel clipped | **0** (was 105) | 0 | 0 |
+| tray body clipped | **0** (was 178) | 0 | 0 |
+| editor / output | 241 / 221 | 335 / 315 | 713 / 693 |
+| editor taller by | 20 | 20 | 20 |
+| gap editor → tray | 54px | — | — |
+| scroll to tray bottom | 397px | 352px | 297px |
+
+Program Output screen measured at ratio 1.778 — a true 16:9. Collapsing the tray still hands the space back (row 259 → 51, section scroll 297 → 89 at 1920) and re-expanding returns to identical values.
+
+---
+
 ## 2026-08-12 — Assigning sections from LCD Projection no longer destroys the Service Schedule (branch `feature/premium-mobile-roster`)
 
 Found by a Song Order ↔ LCD Projection interaction test. **Worse than it first looked** — the initial diagnosis was "the schedule does not repaint"; it actually wipes.

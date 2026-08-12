@@ -25715,23 +25715,70 @@ var WO = (function() {
     var h = '';
     if (windowed) {
       h = Math.max(420, Math.round(window.innerHeight - mc.getBoundingClientRect().top - 10)) + 'px';
-      // The workspace column joins them at the same height. Left on the taller
-      // value applyLayout() gives it (which is measured from the section, not
-      // from below the banner) it alone would set the grid row height and the
-      // page would still scroll by exactly the banner's height.
-      cols.push(document.getElementById('woPreviewPanel'));
     }
+    // Only the two long lists are capped. They are lists -- scrolling inside
+    // them is the point.
     cols.forEach(function(el) {
       if (!el) return;
       el.style.maxHeight = h;
       el.style.overflowY = h ? 'auto' : '';
     });
-    // applyLayout() top-aligns the workspace column so its sticky behaviour
-    // works while the page scrolls. Once the page no longer scrolls that just
-    // leaves the editor short of the height sitting unused below it, so let it
-    // fill the row and hand the slack to the canvas.
+    // The workspace column is deliberately NOT capped. It used to join the
+    // other two at the viewport height, which forced the Slide Editor, Program
+    // Output and Media Tray to share one fixed band: the panel clipped 126px
+    // into its own scrollbar and the tray showed 122px of 300px of tiles, so
+    // the tray read as clashing with the editor above it. Letting the column
+    // take its natural height lets the tray flow downward instead; the page
+    // scrolls by the difference, which is the better trade.
     var pp = document.getElementById('woPreviewPanel');
-    if (pp) pp.style.alignSelf = windowed ? 'stretch' : 'flex-start';
+    if (pp) {
+      // Cleared, not set: applyLayout() writes an inline cap here a moment
+      // earlier and inline beats the stylesheet, so the CSS rule that lets this
+      // column grow only takes effect once these are handed back to it. That
+      // includes position -- sticky on a column taller than its scroll
+      // container would pin the top and put the Media Tray out of reach.
+      pp.style.maxHeight = '';
+      pp.style.overflowY = '';
+      pp.style.position = '';
+      pp.style.top = '';
+      // flex-start, not stretch: the column grows to its content rather than
+      // being stretched to a row height it no longer shares.
+      pp.style.alignSelf = 'flex-start';
+    }
+
+    // The column may now run past the viewport, but only the Media Tray should
+    // do so. Left uncapped the outputs row is `flex: 1` and simply absorbs the
+    // new slack -- the Slide Editor grew to 521px against a 116px Program
+    // Output, breaking their matched pair. So the editor and output keep the
+    // band they always had, measured as what is left of it once the topbar,
+    // controls and stage bar have taken their share, and the tray is what
+    // extends below the fold.
+    var outputs = pp && pp.querySelector('.lcd-outputs-row');
+    if (outputs) {
+      if (windowed) {
+        var band = Math.max(420, Math.round(window.innerHeight - mc.getBoundingClientRect().top - 10));
+        var above = 0;
+        Array.prototype.slice.call(pp.children).forEach(function(c) {
+          if (c === outputs || c.classList.contains('lcd-lower-row')) return;
+          above += c.getBoundingClientRect().height;
+        });
+        // A definite height, not just a cap: the Program Output carries
+        // height: calc(100% - 20px), and a percentage cannot resolve against a
+        // max-height alone -- it fell back to content size and sat 125px
+        // shorter than the editor instead of the intended 20px.
+        //
+        // flex must be pinned alongside it. The row is `flex: 1 1 0%`, and on
+        // the main axis flex-basis beats height, so setting height by itself
+        // did nothing at all: the row stayed content-sized at 524px.
+        outputs.style.flex = '0 0 auto';
+        outputs.style.height = Math.max(220, Math.round(band - above - 24)) + 'px';
+        outputs.style.maxHeight = '';
+      } else {
+        outputs.style.flex = '';
+        outputs.style.height = '';
+        outputs.style.maxHeight = '';
+      }
+    }
   }
 
   function _exitServiceOrderLayout() {
@@ -65879,9 +65926,29 @@ function filterLiturgyItems() {
     font-family: 'Poppins', sans-serif; font-size: 0.62rem; font-weight: 600;
     color: var(--lcd-ink-soft, #6d6656); margin-left: 4px;
   }
-  /* Expanded, the tray is a strip with its own scroll, not something that
-     grows until it starves the editor above it. */
-  .lcd-lower-row { max-height: 172px; }
+  /* Expanded, the tray grows downward to fit its tiles rather than clipping
+     them into a 172px strip. It sits below the Slide Editor and Program
+     Output, so taking its own height costs them nothing -- the workspace
+     column is no longer capped to the viewport, it extends and the section
+     scrolls instead. A ceiling still applies so a very large library cannot
+     run away. */
+  .lcd-lower-row { max-height: 60vh; }
+
+  /* The workspace column's own height cap lives on .wo-preview-panel as
+     max-height: calc(100vh - 32px) -- 688px at 720p. With the editor, output
+     and tray all inside it that clipped 105px into the panel's own scrollbar,
+     which is what made the tray look like it was fighting the editor above it.
+     In windowed LCD Projection the column takes its content height instead.
+     position must drop to static: the panel is sticky inside #worshipOrderView,
+     and a sticky box taller than its scroll container pins at the top so its
+     bottom -- the tray -- can never be scrolled into view. Nothing is lost by
+     that here, because the Schedule and Library columns carry their own
+     internal scroll, so the section only scrolls to reach this column. */
+  .wo-main-content:not(.wo-song-order) #woPreviewPanel {
+    max-height: none;
+    overflow-y: visible;
+    position: static;
+  }
   .lcd-media-panel .lcd-panel-body { overflow-y: auto; }
   /* Collapsed: only the header bar remains, and the row stops claiming height
      so the Slide Editor above it gets the space back. */
