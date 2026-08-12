@@ -4,6 +4,38 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — UNRESOLVED: uncommitted Slide Editor work parked in a stash on the main worktree
+
+Not a change. A record of work that would otherwise be lost, found while fast-forwarding local `master` from `a4b550c` (PR #41) to `56fb5cb` (PR #44).
+
+The main worktree `C:\Users\Admin\LHC-Worship-Prep` had **uncommitted edits to `Index.html`** sitting on a base four PRs old, which blocked the fast-forward. They are now parked at:
+
+```
+git -C "C:/Users/Admin/LHC-Worship-Prep" stash list
+stash@{0}  main-worktree Index.html WIP: plain editor canvas + blank-slide projection (unmerged, base a4b550c)
+```
+
+26 insertions / 24 deletions, three changes:
+
+1. **`_lcdUpdateEditorCanvas` stops painting the real background** — the editor canvas becomes a plain dark surface. The reasoning in its replacement comment: text sat on a photograph while being typed, looping video pulled the eye off the cursor, and pale-on-pale was unreadable; Program Output beside it already shows the true projection. Alignment is still mirrored.
+2. **The empty-slide hint is excluded from projected text** — `.wo-slide-empty-hint` is filtered out of the `.wo-slide-line` collection, so "Double-click to add content" can no longer reach the wall.
+3. **An empty slide actively clears the screen** — sends `{type:'text', text:''}` instead of leaving the previous slide's words up, so a deliberate blank slide reads as blank.
+
+**Why it is worth a decision rather than a blind `stash pop`:**
+
+- It is genuinely unique. Those comment strings appear in **no commit in the repository** — not in `origin/master`, and not in `fe6de6f` ("plain Slide Editor canvas, blank slides project nothing"), whose message describes the same three behaviours. Upstream solved the same problems **independently and differently**, so this is divergent, not merely stale.
+- Its base is four PRs behind and `Index.html` has since gained 442 changed lines in exactly these regions, so it **will conflict badly**.
+
+Review it before deciding whether any of it is still wanted:
+
+```
+git -C "C:/Users/Admin/LHC-Worship-Prep" stash show -p stash@{0}
+```
+
+Belt-and-braces copies also exist outside git, in this session's scratchpad, as `mainwt-backup/Index.html.working` (the whole file) and `mainwt-backup/index-uncommitted.patch` (the diff) — though scratchpads are session-scoped and should not be relied on long-term. The stash is the durable copy.
+
+---
+
 ## 2026-08-12 — LCD Projection audit: four fixes (branch `feature/premium-mobile-roster`)
 
 A rough audit of the LCD Projection page turned up four defects, all fixed here. It also corrected an overclaim in the entry below: the background re-pin fix was **not** complete — three more paths renumbered slides without re-pinning.
@@ -55,7 +87,7 @@ Afterwards: temp order and its 14 `order_items` deleted, no stray rows; "Service
 
 ---
 
-## 2026-08-12 — Removing a whole song or liturgy item now re-pins backgrounds and is undoable (branch `claude/inspiring-goodall-bde986`, committed locally, not yet pushed)
+## 2026-08-12 — Removing a whole song or liturgy item now re-pins backgrounds and is undoable (branch `claude/inspiring-goodall-bde986`, merged to master via PR #44 `56fb5cb`)
 
 Fixes the background re-pin bug recorded at the bottom of the drag-layer entry below, and a second instance of it that had not been noticed.
 
