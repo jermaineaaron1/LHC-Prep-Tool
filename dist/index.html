@@ -65939,15 +65939,21 @@ function filterLiturgyItems() {
      and tray all inside it that clipped 105px into the panel's own scrollbar,
      which is what made the tray look like it was fighting the editor above it.
      In windowed LCD Projection the column takes its content height instead.
-     position must drop to static: the panel is sticky inside #worshipOrderView,
-     and a sticky box taller than its scroll container pins at the top so its
-     bottom -- the tray -- can never be scrolled into view. Nothing is lost by
-     that here, because the Schedule and Library columns carry their own
-     internal scroll, so the section only scrolls to reach this column. */
+
+     It stays sticky, but anchored to its BOTTOM rather than its top. Top-
+     anchored sticky on a box taller than its scroll container pins the top
+     edge, so everything below the fold -- the Media Tray -- can never be
+     scrolled into view. Bottom-anchored sticky inverts that: the column
+     scrolls up with the page until its bottom edge reaches the container's
+     bottom, then pins there, so the tray is reachable and the column still
+     follows. `top: auto` is required, or the top anchor wins. */
   .wo-main-content:not(.wo-song-order) #woPreviewPanel {
     max-height: none;
     overflow-y: visible;
-    position: static;
+    position: sticky;
+    top: auto;
+    bottom: 8px;
+    align-self: flex-start;
   }
   .lcd-media-panel .lcd-panel-body { overflow-y: auto; }
   /* Collapsed: only the header bar remains, and the row stops claiming height

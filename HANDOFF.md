@@ -20,8 +20,9 @@ Two nested clips, at 1280x720:
 ### The change
 
 - The two long lists (Library, Schedule) stay capped to the viewport band and scroll internally — that is what they are for.
-- The **workspace column is no longer capped**. `.wo-main-content:not(.wo-song-order) #woPreviewPanel` sets `max-height: none; overflow-y: visible; position: static`, and `_lcdSizeWorkspaceColumns()` clears the matching inline properties.
-  - `position` matters: the panel is `sticky` inside `#worshipOrderView`, and a sticky box taller than its scroll container pins at the top so its bottom — the tray — can never be scrolled into view. Nothing is lost by dropping it, because the other two columns scroll internally, so the section only ever scrolls to reach this column.
+- The **workspace column is no longer capped**. `.wo-main-content:not(.wo-song-order) #woPreviewPanel` sets `max-height: none; overflow-y: visible`, and `_lcdSizeWorkspaceColumns()` clears the matching inline properties (`applyLayout()` writes them, and inline beats the stylesheet).
+  - It stays `position: sticky`, but anchored to its **bottom**: `top: auto; bottom: 8px`. Top-anchored sticky on a box taller than its scroll container pins the top edge, so everything below the fold — the tray — can never be scrolled into view. Bottom-anchored inverts that. `top: auto` is required or the top anchor wins.
+  - **Honest note on what sticky buys here:** measured across the scroll range the panel tracks the scroll 1:1 (panelTop 206 → 59 → −87 as scrollTop goes 0 → 147 → 293) and only reaches its pin point at maximum scroll. That is because the section's scroll range is driven *solely* by this column's overflow — the Schedule and Library columns scroll internally, so nothing else lengthens the section. Sticky is correct and harmless, but in this layout it has no observable effect. It would only start mattering if the Schedule column stopped being internally capped.
 - `.lcd-lower-row` cap raised from `172px` to `60vh`, so the tray grows to its tiles with a ceiling for a very large library.
 - The editor and output keep the band they always had: `_lcdSizeWorkspaceColumns()` gives `.lcd-outputs-row` a definite height of *band − (topbar + controls + stage bar) − 24*. Only the tray extends past the fold.
 
