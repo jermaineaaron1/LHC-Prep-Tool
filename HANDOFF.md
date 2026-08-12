@@ -4,16 +4,13 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
-## 2026-08-12 — UNRESOLVED: uncommitted Slide Editor work parked in a stash on the main worktree
+## 2026-08-12 — CLOSED: uncommitted Slide Editor work found, recorded, then discarded
 
-Not a change. A record of work that would otherwise be lost, found while fast-forwarding local `master` from `a4b550c` (PR #41) to `56fb5cb` (PR #44).
+Not a change. A record of work that no longer exists, kept because it was never committed anywhere and this is the only trace of it.
 
-The main worktree `C:\Users\Admin\LHC-Worship-Prep` had **uncommitted edits to `Index.html`** sitting on a base four PRs old, which blocked the fast-forward. They are now parked at:
+Found while fast-forwarding local `master` from `a4b550c` (PR #41) to `56fb5cb` (PR #44): the main worktree `C:\Users\Admin\LHC-Worship-Prep` had **uncommitted edits to `Index.html`** sitting on a base four PRs old, which blocked the fast-forward. They were stashed to unblock it, and then **dropped on the user's explicit instruction** once recorded here.
 
-```
-git -C "C:/Users/Admin/LHC-Worship-Prep" stash list
-stash@{0}  main-worktree Index.html WIP: plain editor canvas + blank-slide projection (unmerged, base a4b550c)
-```
+**The code is gone.** What follows is a description, not a copy — this entry never contained the diff. The dropped stash commit was `eea6e13097750e511efaae240fbbde095d52a6af`; a dangling commit survives until `git gc` prunes it, so `git show eea6e13` may still work for a while and will stop working without warning. Do not plan around it.
 
 26 insertions / 24 deletions, three changes:
 
@@ -21,18 +18,12 @@ stash@{0}  main-worktree Index.html WIP: plain editor canvas + blank-slide proje
 2. **The empty-slide hint is excluded from projected text** — `.wo-slide-empty-hint` is filtered out of the `.wo-slide-line` collection, so "Double-click to add content" can no longer reach the wall.
 3. **An empty slide actively clears the screen** — sends `{type:'text', text:''}` instead of leaving the previous slide's words up, so a deliberate blank slide reads as blank.
 
-**Why it is worth a decision rather than a blind `stash pop`:**
+**Why it was checked carefully before being discarded:**
 
-- It is genuinely unique. Those comment strings appear in **no commit in the repository** — not in `origin/master`, and not in `fe6de6f` ("plain Slide Editor canvas, blank slides project nothing"), whose message describes the same three behaviours. Upstream solved the same problems **independently and differently**, so this is divergent, not merely stale.
-- Its base is four PRs behind and `Index.html` has since gained 442 changed lines in exactly these regions, so it **will conflict badly**.
+- It was genuinely unique. Those comment strings appeared in **no commit in the repository** — not in `origin/master`, and not in `fe6de6f` ("plain Slide Editor canvas, blank slides project nothing"), whose message describes the same three behaviours. Upstream solved the same problems **independently and differently**, so this was divergent work, not a stale duplicate.
+- Its base was four PRs behind and `Index.html` had since gained 442 changed lines in exactly these regions, so reapplying it would have conflicted badly.
 
-Review it before deciding whether any of it is still wanted:
-
-```
-git -C "C:/Users/Admin/LHC-Worship-Prep" stash show -p stash@{0}
-```
-
-Belt-and-braces copies also exist outside git, in this session's scratchpad, as `mainwt-backup/Index.html.working` (the whole file) and `mainwt-backup/index-uncommitted.patch` (the diff) — though scratchpads are session-scoped and should not be relied on long-term. The stash is the durable copy.
+**If any of the three behaviours above turn out to be missing from the app**, treat this entry as the specification and reimplement against current `Index.html` — that will be cleaner than recovering the original, which targeted code that no longer exists. Check the current behaviour first: PR #45 and `fe6de6f` covered overlapping ground, so some or all of it may already be live.
 
 ---
 
