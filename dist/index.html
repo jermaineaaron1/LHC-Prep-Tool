@@ -47624,6 +47624,14 @@ var WO = (function() {
     var banner = btn.closest('.wo-song-banner');
     var boxesContainer = $(sectionId + '-boxes');
 
+    _lcdPushUndo();
+    // Removing a whole song drops several slides at once, renumbering every
+    // later slide in the section, so the per-slide background map has to be
+    // re-pinned exactly as the single-slide delete does (see
+    // _lcdCaptureSectionBgs) -- otherwise each following slide inherits its
+    // neighbour's background.
+    var _rmBgs = sectionId ? _lcdCaptureSectionBgs(sectionId) : null;
+
     // Remove the banner
     if (banner) banner.remove();
 
@@ -47654,6 +47662,9 @@ var WO = (function() {
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
         '</div>';
     }
+    // Entries whose slide is gone drop out naturally: _lcdRestoreSectionBgs
+    // only re-pins boxes still present in the container.
+    if (sectionId) _lcdRestoreSectionBgs(sectionId, _rmBgs);
     showToast('Song removed from section', 'success');
     autoSaveOrder();
   }
@@ -47662,6 +47673,14 @@ var WO = (function() {
   function removeLiturgyFromSection(btn, sectionId, liturgyId) {
     var boxesContainer = $(sectionId + '-boxes');
     if (!boxesContainer) return;
+
+    _lcdPushUndo();
+    // Removing a whole liturgy item drops several slides at once, renumbering
+    // every later slide in the section, so the per-slide background map has to
+    // be re-pinned exactly as the single-slide delete does (see
+    // _lcdCaptureSectionBgs) -- otherwise each following slide inherits its
+    // neighbour's background.
+    var _rmBgs = sectionId ? _lcdCaptureSectionBgs(sectionId) : null;
 
     // Remove the banner
     var banner = boxesContainer.querySelector('.wo-liturgy-banner-bar[data-liturgy-id="' + liturgyId + '"]');
@@ -47681,6 +47700,9 @@ var WO = (function() {
         '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
         '</div>';
     }
+    // Entries whose slide is gone drop out naturally: _lcdRestoreSectionBgs
+    // only re-pins boxes still present in the container.
+    if (sectionId) _lcdRestoreSectionBgs(sectionId, _rmBgs);
     // Remember that this section had its liturgy explicitly cleared by the user,
     // so _seed() won't restore the default content on the next reload.
     if (currentOrderData) {
