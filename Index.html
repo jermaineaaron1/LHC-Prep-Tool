@@ -30613,6 +30613,13 @@ var WO = (function() {
       box.classList.remove('wo-bg-drop-target');
       var bgStr = e.dataTransfer.getData('text/plain');
       if (!bgStr) return;
+      // This listener predates the Media Tray and expects a "type:value"
+      // background string. A tray thumbnail carries a bare media id, which
+      // split(':') turns into { type: <the id>, value: '' } -- a corrupt
+      // background that overwrote the correct one, because this handler is
+      // registered on the same container and runs after the tray's own.
+      // Anything without a type prefix is not ours to handle.
+      if (bgStr.indexOf(':') < 0) return;
       dropBackgroundOnSlide(bgStr, box);
     });
   }
@@ -49103,6 +49110,97 @@ var WO = (function() {
     if (!started) showToast('Unsupported file type: ' + (file.name || ''), 'warning');
   }
 
+  // ---- Dragging Presentations / Announcements into the schedule -----------
+  // Behaviour follows the FILE, not the drawer: a picture becomes a slide of
+  // its own, a document becomes one slide per page. Backgrounds keep their own
+  // path (they wallpaper a slide rather than being one).
+
+  function _lcdBoxIsEmpty(box) {
+    var c = box && box.querySelector ? box.querySelector(".wo-slide-content") : null;
+    if (!c) return true;
+    var real = Array.prototype.slice.call(c.querySelectorAll(".wo-slide-line")).filter(function(l) {
+      var txt = (l.textContent || "").trim();
+      return !l.classList.contains("wo-slide-empty-hint") &&
+             txt !== "" && txt !== "Double-click to add content";
+    });
+    return real.length === 0;
+  }
+
+  // Rehydrates the stored file from its URL and hands it to the same import
+  // pipeline the desktop drop uses, so pptx / pdf / doc all expand the same way
+  // and there is only one conversion path to maintain.
+  function _lcdExpandDocIntoSection(sectionId, bg) {
+    if (!sectionId) { showToast("Drop it inside a section to add its pages", "warning"); return; }
+    if (!bg.url) { showToast("That file has no stored copy to expand", "error"); return; }
+    if (typeof addSlidesFromFiles !== "function") { showToast("Presentation import is unavailable", "error"); return; }
+    showToast("Adding “" + bg.name + "” — one slide per page…", "info");
+    fetch(bg.url)
+      .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
+      .then(function(blob) {
+        var file = new File([blob], bg.name || "document", { type: blob.type || "" });
+        addSlidesFromFiles(sectionId, [file]);
+      })
+      .catch(function(err) {
+        showToast("Could not load “" + bg.name + "”: " + (err && err.message ? err.message : "unknown error"), "error");
+      });
+  }
+
+  // A picture fills the slide it lands on when that slide is empty; anywhere
+  // else it gets a slide of its own at the drop position. Filling means the
+  // slide's own background with no words over it -- that is what "fills" looks
+  // like on the projector, and it persists and undoes like any other slide.
+  function _lcdDropImageAsSlide(bg, t, sectionId) {
+    if (!sectionId) { showToast("Drop the picture inside a section", "warning"); return; }
+    var container = document.getElementById(sectionId + "-boxes");
+    if (!container) { showToast("Could not find that section", "error"); return; }
+    var targetBox = t.slideBox || (t.railRow ? _lcdRailRowMap[t.railRow.id] : null);
+    if (targetBox && !targetBox.isConnected) targetBox = null;
+
+    if (typeof _lcdPushUndo === "function") _lcdPushUndo();
+
+    function boxes() { return Array.prototype.slice.call(container.querySelectorAll(".wo-slide-box")); }
+    function paint(box, verb) {
+      var idx = boxes().indexOf(box);
+      if (idx < 0) { showToast("Could not place the picture", "error"); return; }
+      setBackgroundForSlideInSection(sectionId, idx, { type: bg.type, value: bg.id });
+      selectSlideBox(box);
+      updateSlideBgIndicators();
+      if (typeof _lcdRenderCompactRail === "function") _lcdRenderCompactRail();
+      if (typeof autoSaveOrder === "function") autoSaveOrder();
+      showToast("“" + bg.name + "” " + verb, "success");
+    }
+
+    // Landing on an empty slide fills that slide rather than adding another.
+    if (targetBox && _lcdBoxIsEmpty(targetBox)) { paint(targetBox, "fills this slide"); return; }
+
+    // Otherwise a new slide, placed where it was dropped: after the slide it
+    // landed on, at the top when dropped on the section header, at the end
+    // when dropped on open space in the section.
+    var before = boxes();
+    addBlankSlideToSection(sectionId);
+    setTimeout(function() {
+      var after = boxes();
+      var fresh = after.filter(function(b) { return before.indexOf(b) < 0; })[0];
+      if (!fresh) { showToast("Could not add the slide", "error"); return; }
+      // Moving the new box renumbers the section, so the per-slide background
+      // map has to be re-pinned exactly as an insert or reorder does.
+      var captured = (typeof _lcdCaptureSectionBgs === "function") ? _lcdCaptureSectionBgs(sectionId) : null;
+      if (targetBox && targetBox.parentNode === fresh.parentNode) {
+        targetBox.insertAdjacentElement("afterend", fresh);
+      } else if (t.railSection && fresh.parentNode && fresh.parentNode.firstElementChild) {
+        fresh.parentNode.insertBefore(fresh, fresh.parentNode.firstElementChild);
+      }
+      if (captured && typeof _lcdRestoreSectionBgs === "function") _lcdRestoreSectionBgs(sectionId, captured);
+      paint(fresh, "added as a new slide");
+    }, 260);
+  }
+
+  function _lcdDropTrayItem(bg, t) {
+    var sectionId = _lcdSectionIdForTarget(t);
+    if (_lcdIsDocItem(bg)) _lcdExpandDocIntoSection(sectionId, bg);
+    else _lcdDropImageAsSlide(bg, t, sectionId);
+  }
+
   function _lcdSetupMediaDropZone() {
     var container = document.getElementById('woWorshipOrder');
     if (!container || container._lcdDropWired) return;
@@ -49158,6 +49256,18 @@ var WO = (function() {
       var bg = isNone ? null : savedBackgrounds.find(function(b) { return b.id === bgId; });
       if (!isNone && !bg) return;
       var t = targets(e);
+      // Presentations and Announcements build slides; only backgrounds fall
+      // through to the wallpaper logic below.
+      if (bg && _lcdItemCategory(bg) !== 'background') {
+        if (!t.railRow && !t.slideBox && !t.railSection && !t.sectionEl) return;
+        e.preventDefault();
+        // Other drop listeners share this container; none of them should also
+        // act on a Presentation or Announcement.
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        _lcdClearDropHighlights(t);
+        _lcdDropTrayItem(bg, t);
+        return;
+      }
       if (t.railRow) {
         e.preventDefault();
         t.railRow.classList.remove('lcd-drop-target');
