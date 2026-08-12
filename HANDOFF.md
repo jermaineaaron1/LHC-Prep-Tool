@@ -1,6 +1,43 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-08-11 by Claude Code_
+_Last updated: 2026-08-12 by Claude Code_
+
+---
+
+## 2026-08-12 — Drag layer for Presentations and Announcements (branch `feature/premium-mobile-roster`)
+
+The Media Tray's three drawers now behave differently on drop, because the user's model is that a picture *is* a slide and a document *is many* slides — neither is wallpaper.
+
+### Images (Presentations / Announcements drawers)
+
+Routed by `_lcdDropTrayItem(bg, t)` → `_lcdDropImageAsSlide(bg, t, sectionId)`:
+
+- Dropped on an **empty** slide (`_lcdBoxIsEmpty`, which ignores the `.wo-slide-empty-hint` placeholder), the image fills that slide in place — no new slide.
+- Dropped on a slide that **already has content**, or between two slides, or on a section header, it inserts a **new** slide at that position.
+
+Backgrounds are keyed by section id then **local slide index**, so any insert shifts every pin after it. Every path here brackets the mutation with `_lcdCaptureSectionBgs` / `_lcdRestoreSectionBgs`, the same pair the rail reorder uses.
+
+### Documents (PPTX / PDF / DOCX)
+
+`_lcdExpandDocIntoSection(sectionId, bg)` never fills a single slide. It rehydrates the stored file (`fetch(bg.url)` → `Blob` → `new File(...)`) and hands it to the existing `addSlidesFromFiles` path, which produces one slide per page. Dropped anywhere in a section, the whole deck lands in that section.
+
+### Two drop-routing bugs found while building this
+
+- **Whole-section test was too loose.** It checked `t.sectionEl`, which is truthy for *any* drop inside a section container — so dropping a picture on one slide wallpapered all 23 in that section. It now requires the drop to miss both a rail row and a slide box: `!t.railRow && !t.slideBox && !!(t.railSection || t.sectionEl)`.
+- **A second `drop` listener was overwriting the first.** `_woSetupBgDropZone` is a separate listener on the same `#woWorshipOrder` container that splits the raw `text/plain` payload on `:`. Given a bare tray id it produced `{type: <id>, value: ''}` and, because it runs *after* the tray handler, it overwrote the correct value. It now returns early when the payload has no `:`. The tray handler also calls `stopImmediatePropagation()`.
+
+There are now **six** native HTML5 drag systems sharing that one container (rail row reorder, section reorder, library song, media tray, OS file drop, legacy bg drop). Any new one must decide its precedence against all five others explicitly — ordering is not implicit.
+
+### Verified live
+
+- Announcement image on an empty slide → `"ZZANNOUNCE.png" fills this slide`, section stayed at 5 slides, background written as `{type:"image", value:"bg_..."}`.
+- Same image on a slide with content → `"ZZANNOUNCE.png" added as a new slide`, section 0 went 5 → 6 with the new slide at index 2, and all other backgrounds re-pinned to their original slides.
+
+### Test data cleaned up afterwards
+
+The test slide and both test background pins were removed from "Service - Aug 9" via the app's own `removeLiturgyFromSection`, and the test media deleted from the shared `lhc_projection_backgrounds` library (it is shared across **all** orders). Verified from Supabase: 15 `order_items`, zero rows containing either test id, `sectionBackgrounds` back to exactly the six original video pins, 95 slide boxes, 19 sections.
+
+**Bug found during cleanup, not yet fixed:** `removeLiturgyFromSection` does **not** re-pin `sectionBackgrounds` after removing an item. Delete a liturgy item from the middle of a section and every background below it stays on its old index, so it visually jumps to the wrong slide. The insert paths do this correctly via `_lcdCaptureSectionBgs`/`_lcdRestoreSectionBgs`; the remove path needs the same treatment.
 
 ---
 
