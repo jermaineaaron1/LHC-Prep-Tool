@@ -23511,9 +23511,14 @@ var WO = (function() {
     };
 
     // Clear the editor DOM so snapshotCurrentState() doesn't read the previous
-    // order's hidden sections and stamp them onto this new order.
+    // order's hidden sections and stamp them onto this new order. The
+    // ownership stamp goes with it, or saveCurrentOrder would refuse this new
+    // order's first save for carrying the previous order's stamp.
     var _woContainer = $('woWorshipOrder');
-    if (_woContainer) _woContainer.innerHTML = '';
+    if (_woContainer) {
+      _woContainer.innerHTML = '';
+      _woContainer.removeAttribute('data-order-id');
+    }
 
     $('woMainMenu').style.display = 'none';
     $('woEditor').style.display = 'block';
@@ -23821,6 +23826,21 @@ var WO = (function() {
     // currentSermonSlides holds uploaded PowerPoint/image slide data keyed by sectionId.
     // Same contamination risk: clear before loading the new order.
     currentSermonSlides = {};
+
+    // Clear the editor DOM too, exactly as createNewOrder does and for the
+    // same reason. This function landed on the mode-choice screen with the
+    // PREVIOUS order's sections still in #woWorshipOrder; songs are collected
+    // from songOrderSections (reset below), but liturgy and blank slides are
+    // serialized FROM THE DOM at save time, so any save landing in that
+    // window -- a visibility flush while the operator sat on the landing, an
+    // autosave queued moments earlier -- stamped order A's liturgy slides
+    // into order B. This is how a slide keyed into one service appeared in
+    // every order the operator opened afterwards.
+    var _woContainer = $('woWorshipOrder');
+    if (_woContainer) {
+      _woContainer.innerHTML = '';
+      _woContainer.removeAttribute('data-order-id');
+    }
     console.log('*** OPEN ORDER IN EDITOR ***');
     console.log('order.id:', order.id);
     console.log('order.title:', order.title);
@@ -24389,6 +24409,24 @@ var WO = (function() {
     if (!currentOrderData) return;
     if (silent && _loadingOrder) {
       console.warn('[SaveGuard] Silent save skipped — order load in progress');
+      return;
+    }
+
+    // Ownership check: liturgy and blank slides are serialized FROM THE DOM,
+    // and after switching orders the container can briefly still hold (or be
+    // stamped for) the previous order. Serializing it under the new order's id
+    // is exactly how a slide keyed into one service ended up saved into every
+    // order opened afterwards. Refuse outright -- silent or explicit -- when
+    // the DOM says it belongs to a different order. A missing stamp is fine:
+    // openOrderInEditor clears both the DOM and the stamp, and a cleared
+    // container serializes nothing.
+    var _domOwner = (function() {
+      var c = $('woWorshipOrder');
+      return c ? c.getAttribute('data-order-id') : null;
+    })();
+    if (_domOwner && currentOrderData.id && _domOwner !== currentOrderData.id) {
+      console.warn('[SaveGuard] Refusing save — editor DOM belongs to order',
+        _domOwner, 'but currentOrderData is', currentOrderData.id);
       return;
     }
 
@@ -25976,6 +26014,15 @@ var WO = (function() {
     var container = $('woWorshipOrder');
 
     _injectResourceStyles();
+
+    // Same ownership stamp as initializeServiceOrder: the container's content
+    // is about to belong to this order, and saveCurrentOrder refuses to
+    // serialize a container stamped for a different order.
+    if (currentOrderData && currentOrderData.id) {
+      container.setAttribute('data-order-id', currentOrderData.id);
+    } else {
+      container.removeAttribute('data-order-id');
+    }
 
     container.innerHTML =
       '<div class="wo-song-order-compact">' +
@@ -27774,6 +27821,14 @@ var WO = (function() {
     _lcdServiceInitAt = Date.now();
     var container = $('woWorshipOrder');
     container.innerHTML = '';
+    // Stamp whose order this DOM belongs to. saveCurrentOrder refuses to
+    // serialize a container whose stamp mismatches currentOrderData.id --
+    // the second line of defence against stale-DOM cross-order writes.
+    if (currentOrderData && currentOrderData.id) {
+      container.setAttribute('data-order-id', currentOrderData.id);
+    } else {
+      container.removeAttribute('data-order-id');
+    }
     var structure = orderStructures[currentOrderType] || orderStructures.traditional;
     // Declare serviceType up-front so it's available everywhere in this function,
     // including the allItems restore loop below (var hoisting caused it to be
