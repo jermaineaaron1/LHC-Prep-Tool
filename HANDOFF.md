@@ -4,6 +4,42 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — URGENT cross-order bleed: a slide keyed in one order saved into every order opened after it
+
+User report: a blank "Slide liturgy" with "2,4,6,8" keyed into **Service - 5 Jul 2026** appeared in **Service - Aug 9** and **Service - Jul 26**.
+
+### Root cause
+
+Confirmed from the data, not guessed: all three orders' `order_items` carried a row with the **same source slide id** (`slide_1786544038572_vaub`) — one slide, created once, replicated by saves. The liturgy library itself was clean (zero hits), ruling out the pre-seed path.
+
+The mechanism is an asymmetry in what a save reads from where:
+
+- **Songs** are collected from `songOrderSections`, which `openOrderInEditor` resets on every switch — which is why songs never bled.
+- **Liturgy items and blank slides are serialized FROM THE DOM** — and `openOrderInEditor` never cleared `#woWorshipOrder`. `createNewOrder` clears it, with a comment explaining exactly this hazard; the *load* path never got the same treatment. After opening order B, the operator sits on the mode-choice landing with **order A's sections still in the container**. Any save landing in that window — the `visibilitychange` flush, a queued autosave — serialized A's liturgy DOM under B's id. Every order opened after the edit picked the slide up in turn: "saved everywhere".
+
+The `_loadingOrder` guard did not help: it only covers the async fetch; the landing window is after it clears.
+
+### The fix — two independent layers
+
+1. **`openOrderInEditor` clears `#woWorshipOrder`** (and its ownership stamp), mirroring `createNewOrder`. An empty container serializes nothing.
+2. **Ownership stamp + refusal.** `initializeServiceOrder` and `initializeSongOrder` stamp the container `data-order-id = currentOrderData.id`; `saveCurrentOrder` — silent or explicit — **refuses** when the stamp exists and mismatches, with a `[SaveGuard] Refusing save` warn. `createNewOrder` clears the stamp along with the DOM so a new order's first save is not refused for someone else's stamp.
+
+### Verified live (throwaway orders A and B, deleted afterwards)
+
+- Reproduced the exact death sequence on the fixed build: marker slide `9,9,9,9` in A, on screen; open B; on B's landing the container is **0 children, no stamp, no marker**; forced `saveImmediately()` — **B's 28 cloud items contain no marker, A keeps its marker**.
+- Second layer independently: stamped the container for A while current order was B, forced a save → `guardFired: true`, B's `last_edited` unchanged.
+
+### User data cleaned
+
+The contaminated rows were deleted from **Service - Jul 26** and **Service - Aug 9**; the slide **remains in Service - 5 Jul 2026**, where it was keyed. Verified only Jul 5 still carries the text.
+
+### CAUTION for whoever reads this next
+
+- The user's **production tabs run the pre-fix build until they refresh** — an open contaminated order there can re-save its stale DOM and recreate the bleed. After deploying: hard-refresh every open LHC tab.
+- At 14:14:56 a **production-side full save rewrote Service - Aug 9 to 14 liturgy-only items** (previously 18 including 3 songs). That was not this session — its only Aug 9 write was deleting the single contaminated row. Likely the user's own cleanup in their live tab, but if songs are missing unexpectedly, that save is where they went.
+
+---
+
 ## 2026-08-12 — Audit round: banner actions fixed, All Slides re-pins, library isolation verified
 
 This round targeted flows no earlier audit had exercised: the lyric banner's two action buttons, the All Slides modal's save, and — on the user's direct request — whether any order edit can write back to the shared libraries.
