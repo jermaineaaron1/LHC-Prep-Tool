@@ -4,6 +4,57 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — LCD Projection audit: four fixes (branch `feature/premium-mobile-roster`)
+
+A rough audit of the LCD Projection page turned up four defects, all fixed here. It also corrected an overclaim in the entry below: the background re-pin fix was **not** complete — three more paths renumbered slides without re-pinning.
+
+### 1. The per-slide × was the unfixed twin of the rail's ×
+
+Deleting a slide has two implementations. The rail row's × goes through `_lcdDeleteRailRow` → `_lcdDeleteSlideBox`, which pushes undo and re-pins. The × on the slide's own header goes through `removeSlideBox`, which did neither — and it autosaves, so the damage persisted. It now brackets its mutation the same way, with `_lcdPushUndo()` placed **after** the "cannot remove the last slide" guard so a refused click leaves no no-op step on the stack.
+
+### 2. Inserting a slide had the same hole
+
+`addSlideBoxAfter` is the funnel for all three insert paths — the Add Slide button, the editor's Shift+Enter split, and `editSlideBox`'s own split — so the capture/restore lives there rather than in each caller. `_lcdAddSlideAfter` (used only by `_lcdSplitSlideAtCursor`) got the same treatment. Undo is pushed by the callers, one push per user action: `addSlideToGroup` and the `editSlideBox` split branch each push, `_lcdSplitSlideAtCursor` already did.
+
+**`WO.addSlideToGroup(this)` was also a dead button.** Scripture groups call it with a single element, but the signature is `(type, groupId, sectionId)`, so it resolved `$(undefined + '-boxes')` → null → silent return. Scripture slides carry `data-source="scripture"` and no group id, so they could not be addressed by the existing selector anyway. The function now accepts an element and walks back from the Add Slide row to find the group's last slide.
+
+### 3. Slide Editor overlapped the stage bar at 1366x768
+
+`.lcd-outputs-row` had `min-height: 0` while `.lcd-lyrics-panel` held `min-height: 200px`. At 1366 the row got only the 118px of vertical slack left over, the editor refused to shrink past 200px, and with `overflow: visible` it spilled 72px onto the stage bar. Correct at 1920, broken at the documented 1366 floor.
+
+The row's floor now matches the editor's. A `@media (max-height: 820px)` block drops both to 150px so short laptops do not pay for it in page scroll — placed **after** the 200px rule, since a media query adds no specificity and source order is what decides here.
+
+| Viewport | Before | After |
+|---|---|---|
+| 1920x1080 | editor 414x496, output 414x476, clears by 10px | unchanged |
+| 1366x768 | editor 283x200, output 190x98, **overlaps by 72px** | editor 272x150, output 186x130, clears by 10px |
+
+Page overflow stayed at 24px at both sizes.
+
+### 4. Media that was neither picture nor video became invisible and undeletable
+
+The Backgrounds tab filtered on `type === 'image'` / `type === 'video'`; the other tabs filter by category. Anything else filed as a background matched no tab at all — it uploaded, said "added", then vanished along with its × . `_lcdIngestTrayFile` accepted `audio/*`, which nothing in the tray can play or project, so that was the easiest way in.
+
+Both halves fixed. Ingest now refuses audio outright and refuses a file the active drawer cannot render, naming the drawer that can. And the Pictures sub-tab now also lists any orphan already in the library, muted and non-draggable with no apply affordances, purely so it can be deleted.
+
+### Verified
+
+On a **throwaway order** created for the purpose and deleted afterwards — no live order was mutated.
+
+- Backgrounds A B A B on four slides, delete slide 1 with the header × → `A A B`: each background followed its own slide, the deleted one dropped out. Ctrl+Z restored both the slide and the full A B A B map.
+- Mid-section insert in a 13-slide section with two groups, marks at 0/8/9/10 → after inserting at index 9, `0, 8, 10, 11`. The two slides below the insert carried their backgrounds; the new slide has none. Ctrl+Z returned it to 13 slides and the original map.
+- `WO.addSlideToGroup(buttonEl)` (the scripture form): 13 → 14 slides, undo back to 13.
+- Audio and a `.pptx` offered to the Backgrounds tab: both refused with the specific toast, nothing uploaded, library count unchanged.
+- A seeded orphan rendered with `lcd-media-orphan`, `draggable="false"`, no apply click, no ALL, a working × , and its × removed it.
+
+Afterwards: temp order and its 14 `order_items` deleted, no stray rows; "Service - Aug 9" still 15 items with its six original background pins; media library back to its two real items.
+
+`Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>` blocks pass `node --check`.
+
+**Note on `window.confirm`:** the browser-pane harness returns `false` for it, so any delete gated on a native confirm silently no-ops during automated testing. Stub it before asserting on those paths.
+
+---
+
 ## 2026-08-12 — Removing a whole song or liturgy item now re-pins backgrounds and is undoable (branch `claude/inspiring-goodall-bde986`, committed locally, not yet pushed)
 
 Fixes the background re-pin bug recorded at the bottom of the drag-layer entry below, and a second instance of it that had not been noticed.
