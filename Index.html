@@ -6257,25 +6257,11 @@
                 </div>
 
                 <!-- Quick controls toolbar (repositioned above outputs) -->
-                <div class="wo-preview-actions lcd-controls-row">
-                  <!-- Slide-level controls (align / Barrier / Text / BG) now
-                       live in the Slide Editor's own toolbar. What remains here
-                       is workspace-level: preview zoom, order-level undo/redo,
-                       and the projection actions. -->
-                  <div class="wo-preview-zoom-group" title="Zoom projection preview">
-                    <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
-                    <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
-                    <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
-                  </div>
-                  <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
-                  <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
-                  <div class="lcd-controls-spacer"></div>
-                  <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
-                    <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
-                    <span class="wo-golive-label" id="woBlankLabel">Blank</span>
-                  </button>
-                  <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
-                </div>
+                <!-- The workspace controls used to sit in a full-width strip
+                     here, above both columns. They now live inside the Program
+                     Output column (below), so the Slide Editor column starts at
+                     the top of the outputs row and gains that whole strip's
+                     height for its canvas. -->
 
                 <!-- Preview + Program outputs, side by side -->
                 <div class="lcd-outputs-row">
@@ -6286,6 +6272,7 @@
                       <span class="lcd-slide-num-badge" id="lcdLyricsEditorSlideNum"></span>
                       <div class="lcd-lyrics-actions">
                         <button class="lcd-mini-btn primary" onclick="WO.lcdApplySlideEdit()" title="Apply your changes to this slide"><i class="fa-solid fa-check"></i> Apply</button>
+                        <button class="lcd-mini-btn" id="lcdAllSlidesBtn" onclick="WO.lcdOpenSectionAllSlides()" title="Open every slide in this section as one editable text block"><i class="fa-solid fa-align-left"></i> All Slides</button>
                         <button class="lcd-mini-btn danger" onclick="WO.lcdDeleteCurrentSlide()" title="Delete this slide"><i class="fa-solid fa-trash"></i> Delete</button>
                         <button class="lcd-mini-btn" id="lcdOpenInSongOrderBtn" style="display:none;" onclick="WO.lcdOpenInSongOrder()" title="Jump to this song in Song Order"><i class="fa-solid fa-list"></i> Open in Song Order</button>
                       </div>
@@ -6354,6 +6341,27 @@
                     </div>
                   </div>
                   <div class="lcd-output-box lcd-program-box">
+                    <!-- Workspace-level controls: preview zoom, order-level
+                         undo/redo and the projection actions. Slide-level
+                         controls (align / Barrier / Text / BG) live in the Slide
+                         Editor's own toolbar. Moved here from the full-width
+                         strip above both columns so the editor gets that height;
+                         ids and handlers are unchanged. -->
+                    <div class="wo-preview-actions lcd-controls-row">
+                      <div class="wo-preview-zoom-group" title="Zoom projection preview">
+                        <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(-1)" title="Zoom out preview"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+                        <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
+                        <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+                      </div>
+                      <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+                      <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
+                      <div class="lcd-controls-spacer"></div>
+                      <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
+                        <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
+                        <span class="wo-golive-label" id="woBlankLabel">Blank</span>
+                      </button>
+                      <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
+                    </div>
                     <div class="lcd-output-label">Program Output <span class="lcd-live-dot" id="lcdProgramLiveDot" title="Live"></span></div>
                     <div class="wo-preview-screen lcd-program-screen" id="lcdProgramOutput">
                       <div class="wo-preview-bg" id="lcdProgramBg"></div>
@@ -25806,7 +25814,18 @@ var WO = (function() {
           var over = sect.scrollHeight - sect.clientHeight;
           if (over > 0) {
             var cur = parseFloat(outputs.style.height) || 0;
-            outputs.style.height = Math.max(OUTPUTS_MIN, Math.round(cur - over)) + 'px';
+            var take = Math.min(over, Math.max(0, cur - OUTPUTS_MIN));
+            outputs.style.height = Math.round(cur - take) + 'px';
+            over -= take;
+          }
+          // Whatever the editor's floor would not absorb comes off the tray,
+          // whose grid scrolls inside itself. On a short screen the content
+          // genuinely exceeds the space -- this decides where that shows up,
+          // and a scrollbar inside the media grid is better than the whole
+          // workspace sliding under the fold.
+          if (over > 0 && lower) {
+            var trayNow = lower.getBoundingClientRect().height;
+            lower.style.maxHeight = Math.max(50, Math.round(trayNow - over)) + 'px';
           }
         }
       } else {
@@ -52515,6 +52534,21 @@ var WO = (function() {
   // and reuses the exact same modal/split logic already proven per-item, so
   // a section with one cohesive item (the common case) gets one big text
   // editor for its whole content without introducing any new save/parse path.
+  // The Slide Editor header's "All Slides" button. Resolves which section the
+  // operator is working in from the selected slide, then hands off to
+  // openSectionAllSlides -- which existed with no call site until now.
+  function lcdOpenSectionAllSlides() {
+    var secId = currentSectionId
+      || (selectedSlideBox && selectedSlideBox.getAttribute('data-section'))
+      || (_lcdActiveSlide && _lcdActiveSlide.getAttribute && _lcdActiveSlide.getAttribute('data-section'))
+      || '';
+    if (!secId) {
+      showToast('Select a slide first — All Slides opens the section it belongs to.', 'warning');
+      return;
+    }
+    openSectionAllSlides(secId);
+  }
+
   function openSectionAllSlides(sectionId) {
     var container = $(sectionId + '-boxes');
     if (!container) return;
@@ -57242,6 +57276,7 @@ var WO = (function() {
     lb2BreakDragStart: lb2BreakDragStart,
     openContentAllSlides: openContentAllSlides,
     openSectionAllSlides: openSectionAllSlides,
+    lcdOpenSectionAllSlides: lcdOpenSectionAllSlides,
     lb2ItemBreakDragStart: lb2ItemBreakDragStart,
     lb2SaveSlideEdit: lb2SaveSlideEdit,
     lb2SaveSongSlideEdit: lb2SaveSongSlideEdit,
@@ -65970,6 +66005,39 @@ function filterLiturgyItems() {
      scrolls instead. A ceiling still applies so a very large library cannot
      run away. */
   .lcd-lower-row { max-height: 60vh; }
+
+  /* The workspace controls now live inside the Program Output column instead of
+     a full-width strip above both columns -- that strip's height is what the
+     Slide Editor gains. Inside a narrower column they right-align and wrap as a
+     block rather than stretching, and the flex spacer that pushed Blank/Project
+     apart has nothing to do here. */
+  .lcd-program-box .lcd-controls-row {
+    margin: 0 0 6px; padding: 0; gap: 6px; flex-wrap: wrap;
+    justify-content: flex-end; align-items: center; flex: 0 0 auto;
+  }
+  .lcd-program-box .lcd-controls-spacer { display: none; }
+  /* Compact at every width, not just under 1700px: this column is always
+     narrower than the full-width strip these buttons used to sit in, so
+     Project's 170px min-width for ~99px of content wrapped it to a second line
+     even at 1920 -- and that wrap is 44px the Slide Editor does not get. */
+  .lcd-program-box .wo-live-present-btn { min-width: 0; padding: 0 14px; }
+  .lcd-program-box .wo-golive-btn { padding: 0 12px; }
+
+  /* Below 1700px the workspace column gets narrow enough that its own chrome
+     wraps, and every wrapped row is height the Media Tray does not get. At
+     1366 the controls row measured 470px wide against 467px of content, so
+     Project fell to a second line for want of 3px and the row went 48 -> 92px;
+     at 1280 the topbar wraps too, 45 -> 91px. Together that is ~90px of chrome.
+     Tighter padding and gaps keep both on one line -- nothing is removed, the
+     buttons just stop reserving space they were not using. */
+  @media (max-width: 1699px) {
+    .lcd-controls-row { gap: 6px; padding: 3px 8px; }
+    .lcd-controls-row .wo-live-present-btn { min-width: 0; padding: 0 16px; }
+    .lcd-controls-row .wo-golive-btn { padding: 0 12px; }
+    .lcd-topbar { gap: 8px; padding-bottom: 6px; }
+    .lcd-topbar .lcd-song-order-btn,
+    .lcd-topbar #lcdWorkspaceFsBtn { padding: 0 12px; }
+  }
 
   /* The workspace column's own height cap lives on .wo-preview-panel as
      max-height: calc(100vh - 32px) -- 688px at 720p. With the editor, output
