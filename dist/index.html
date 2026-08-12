@@ -6383,11 +6383,25 @@
                       <button class="lcd-media-collapse" id="lcdMediaCollapseBtn" onclick="event.stopPropagation(); WO.lcdToggleMediaTray()" title="Collapse / expand the Media Tray"><i class="fa-solid fa-chevron-down" id="lcdMediaCollapseIcon"></i></button>
                       <i class="fa-solid fa-photo-film"></i> Media Tray
                       <span class="lcd-media-count" id="lcdMediaCount"></span>
-                      <button class="lcd-mini-btn" style="margin-left:auto;" onclick="event.stopPropagation(); WO.openBackgroundModal()" title="Add or manage media in the full library"><i class="fa-solid fa-plus"></i> Add Media</button>
+                      <button class="lcd-mini-btn" style="margin-left:auto;" onclick="event.stopPropagation(); WO.lcdTrayAddClick()" id="lcdTrayAddBtn" title="Add files to the drawer that is open"><i class="fa-solid fa-plus"></i> Add Media</button>
                     </div>
                     <div class="lcd-panel-body" id="lcdMediaTrayBody">
-                      <div class="lcd-media-hint" title="Click a tile to set the current slide's background. Drag it onto a slide, or onto a section header for that whole section. ALL applies it to every slide in the service; ALL on None clears every slide. You can drag pictures, video or a presentation straight in from your desktop. The × removes media from the tray.">Click to apply · drag onto a slide or section · <strong>ALL</strong> for the whole service · <strong>None</strong> clears</div>
+                      <!-- Three drawers. Backgrounds is what the operator reaches
+                           for most, so it opens by default; its images and videos
+                           are split again because they are chosen for different
+                           reasons. -->
+                      <div class="lcd-tray-tabs" id="lcdTrayTabs">
+                        <button class="lcd-tray-tab active" data-tab="background" onclick="WO.lcdTraySetTab('background')"><i class="fa-solid fa-image"></i> Backgrounds <span class="lcd-tray-tab-n" id="lcdTrayNBackground"></span></button>
+                        <button class="lcd-tray-tab" data-tab="presentation" onclick="WO.lcdTraySetTab('presentation')"><i class="fa-solid fa-file-powerpoint"></i> Presentations <span class="lcd-tray-tab-n" id="lcdTrayNPresentation"></span></button>
+                        <button class="lcd-tray-tab" data-tab="announcement" onclick="WO.lcdTraySetTab('announcement')"><i class="fa-solid fa-bullhorn"></i> Announcements <span class="lcd-tray-tab-n" id="lcdTrayNAnnouncement"></span></button>
+                      </div>
+                      <div class="lcd-tray-subtabs" id="lcdTraySubtabs">
+                        <button class="lcd-tray-subtab active" data-sub="image" onclick="WO.lcdTraySetSub('image')">Images</button>
+                        <button class="lcd-tray-subtab" data-sub="video" onclick="WO.lcdTraySetSub('video')">Videos</button>
+                      </div>
+                      <div class="lcd-media-hint" id="lcdMediaHint"></div>
                       <div class="lcd-media-grid" id="lcdMediaTrayGrid"></div>
+                      <input type="file" id="lcdTrayFileInput" style="display:none;" multiple onchange="WO.lcdTrayHandleUpload(this.files); this.value='';">
                     </div>
                   </div>
                 </div>
@@ -48588,61 +48602,209 @@ var WO = (function() {
     }
   }
 
+  // ---- Media Tray drawers -------------------------------------------------
+  // One store, not three: every item keeps a `category` and the drawers filter
+  // on it. Items saved before this existed have none, so they read as
+  // backgrounds -- which is what they were. Behaviour on drop is decided by the
+  // FILE TYPE, not by the drawer it came from: a picture becomes a slide, a
+  // document expands into one slide per page.
+  var _LCD_TRAY_TAB_KEY = 'lhc_lcd_tray_tab';
+  var _LCD_TRAY_SUB_KEY = 'lhc_lcd_tray_sub';
+
+  function _lcdTrayTab() {
+    var t = localStorage.getItem(_LCD_TRAY_TAB_KEY);
+    return (t === 'presentation' || t === 'announcement') ? t : 'background';
+  }
+  function _lcdTraySub() {
+    return localStorage.getItem(_LCD_TRAY_SUB_KEY) === 'video' ? 'video' : 'image';
+  }
+  function _lcdItemCategory(bg) {
+    var c = bg && bg.category;
+    return (c === 'presentation' || c === 'announcement') ? c : 'background';
+  }
+  function _lcdIsDocItem(bg) {
+    return !!(bg && (bg.type === 'document' || /\.(pptx?|pdf|docx?|key|odp)$/i.test(bg.name || '')));
+  }
+
+  function lcdTraySetTab(tab) {
+    localStorage.setItem(_LCD_TRAY_TAB_KEY, tab);
+    _lcdRenderMediaTray();
+  }
+  function lcdTraySetSub(sub) {
+    localStorage.setItem(_LCD_TRAY_SUB_KEY, sub);
+    _lcdRenderMediaTray();
+  }
+
+  // "Add Media" fills whichever drawer is open.
+  function lcdTrayAddClick() {
+    var input = document.getElementById('lcdTrayFileInput');
+    if (!input) return;
+    var tab = _lcdTrayTab();
+    input.accept = tab === 'background'
+      ? (_lcdTraySub() === 'video' ? 'video/*' : 'image/*')
+      : (tab === 'presentation' ? '.ppt,.pptx,.pdf,.key,.odp' : 'image/*,.pdf,.doc,.docx,.ppt,.pptx');
+    input.click();
+  }
+
+  function lcdTrayHandleUpload(files) {
+    if (!files || !files.length) return;
+    var tab = _lcdTrayTab();
+    Array.prototype.slice.call(files).forEach(function(file) {
+      _lcdIngestTrayFile(file, tab);
+    });
+  }
+
+  // Stores a file in the tray under a category. Pictures, video and audio keep
+  // their data URL so they can be applied directly; documents are uploaded and
+  // keep a URL, because expanding a deck needs a real address to convert from.
+  function _lcdIngestTrayFile(file, category) {
+    var t = file.type || '';
+    var isDoc = /\.(pptx?|pdf|docx?|key|odp)$/i.test(file.name || '');
+    var mediaType = t.indexOf('image/') === 0 ? 'image'
+                  : t.indexOf('video/') === 0 ? 'video'
+                  : t.indexOf('audio/') === 0 ? 'audio'
+                  : (isDoc ? 'document' : null);
+    if (!mediaType) { showToast('Unsupported file: ' + (file.name || ''), 'warning'); return; }
+
+    function store(rec) {
+      savedBackgrounds.push(rec);
+      saveBackgrounds();
+      if (typeof renderBackgroundLibrary === 'function') renderBackgroundLibrary();
+      _lcdRenderMediaTray();
+      showToast('“' + rec.name + '” added', 'success');
+    }
+
+    if (mediaType === 'document') {
+      if (typeof uploadToSupabase !== 'function') { showToast('Document upload is unavailable', 'error'); return; }
+      showToast('Uploading “' + file.name + '”…', 'info');
+      uploadToSupabase(file, category === 'presentation' ? 'orders/presentations' : 'orders/documents')
+        .then(function(result) {
+          if (!result || !result.url) { showToast('Could not upload ' + file.name, 'error'); return; }
+          store({ id: 'bg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+                  type: 'document', category: category, name: file.name.substring(0, 40),
+                  url: result.url, path: result.path, data: '' });
+        }).catch(function() { showToast('Could not upload ' + file.name, 'error'); });
+      return;
+    }
+
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      store({ id: 'bg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+              type: mediaType, category: category, name: file.name.substring(0, 40),
+              data: ev.target.result });
+    };
+    reader.onerror = function() { showToast('Could not read ' + file.name, 'error'); };
+    reader.readAsDataURL(file);
+  }
+
   function _lcdRenderMediaTray() {
     var grid = document.getElementById('lcdMediaTrayGrid');
     if (!grid) return;
-    var noneTile = '<div class="lcd-media-item lcd-media-none" draggable="true" ondragstart="WO.lcdMediaDragStart(event,\'__none__\')" onclick="WO.lcdClearCurrentBg()" title="Click, or drag onto a slide or section header, to clear its background">' +
-      '<div class="lcd-media-thumb"><i class="fa-solid fa-ban"></i></div>' +
-      '<button class="lcd-media-all" onclick="WO.lcdClearMediaFromAllSlides(event)" title="Clear the background from every slide in the whole service">ALL</button>' +
-      '<span class="lcd-media-cap">None</span></div>';
-    // Same built-in colours the Add Background modal offers, from the one
-    // shared list, so the two surfaces show the same things.
-    var colourTiles = _woDefaultBackgrounds().map(function(c) {
-      var esc = escapeHtml(c.bg).replace(/'/g, '&#39;');
-      return '<div class="lcd-media-item lcd-media-colour" draggable="true"' +
-        ' ondragstart="WO.onBgDragStart(event)" data-drag-bg="' + escapeHtml(c.bg) + '"' +
-        ' onclick="WO.selectBackground(\'' + esc + '\', true)"' +
-        ' title="' + escapeHtml(c.name) + ' \u2014 click to apply to this slide">' +
-        '<div class="lcd-media-thumb" style="background:' + c.color + '"></div>' +
-        '<span class="lcd-media-cap">' + escapeHtml(c.name) + '</span></div>';
-    }).join('');
+    var tab = _lcdTrayTab();
+    var sub = _lcdTraySub();
 
+    // Tab / sub-tab chrome
+    Array.from(document.querySelectorAll('#lcdTrayTabs .lcd-tray-tab')).forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-tab') === tab);
+    });
+    var subs = document.getElementById('lcdTraySubtabs');
+    if (subs) {
+      subs.style.display = (tab === 'background') ? 'flex' : 'none';
+      Array.from(subs.querySelectorAll('.lcd-tray-subtab')).forEach(function(b) {
+        b.classList.toggle('active', b.getAttribute('data-sub') === sub);
+      });
+    }
+
+    var all = savedBackgrounds || [];
+    var counts = { background: 0, presentation: 0, announcement: 0 };
+    all.forEach(function(bg) { counts[_lcdItemCategory(bg)]++; });
+    ['Background', 'Presentation', 'Announcement'].forEach(function(k) {
+      var el = document.getElementById('lcdTrayN' + k);
+      if (el) el.textContent = counts[k.toLowerCase()] || '';
+    });
+
+    var hint = document.getElementById('lcdMediaHint');
+    if (hint) {
+      hint.innerHTML = tab === 'background'
+        ? 'Click to apply · drag onto a slide or section · <strong>ALL</strong> for the whole service · <strong>None</strong> clears'
+        : (tab === 'presentation'
+            ? 'Drag a presentation anywhere in a section — it becomes one slide per page.'
+            : 'Drag a picture onto an empty slide to fill it, or between slides to insert one. Documents become one slide per page.');
+    }
+
+    // Backgrounds keep the None tile and the built-in colours; the other
+    // drawers are plain file lists.
+    var html = '';
     var pending = [];
-    // Newest media first: the thing just added is the thing most likely wanted,
-    // and it is what survives the visible cap.
-    var media = savedBackgrounds.slice().reverse();
-    var shown = media.slice(0, _LCD_TRAY_LIMIT);
-    var overflow = media.length - shown.length;
+    if (tab === 'background') {
+      html += '<div class="lcd-media-item lcd-media-none" draggable="true" ondragstart="WO.lcdMediaDragStart(event,\'__none__\')" onclick="WO.lcdClearCurrentBg()" title="Click, or drag onto a slide or section header, to clear its background">' +
+        '<div class="lcd-media-thumb"><i class="fa-solid fa-ban"></i></div>' +
+        '<button class="lcd-media-all" onclick="WO.lcdClearMediaFromAllSlides(event)" title="Clear the background from every slide in the whole service">ALL</button>' +
+        '<span class="lcd-media-cap">None</span></div>';
+      if (sub === 'image') {
+        html += _woDefaultBackgrounds().map(function(c) {
+          var esc = escapeHtml(c.bg).replace(/'/g, '&#39;');
+          return '<div class="lcd-media-item lcd-media-colour" draggable="true"' +
+            ' ondragstart="WO.onBgDragStart(event)" data-drag-bg="' + escapeHtml(c.bg) + '"' +
+            ' onclick="WO.selectBackground(\'' + esc + '\', true)"' +
+            ' title="' + escapeHtml(c.name) + ' — click to apply to this slide">' +
+            '<div class="lcd-media-thumb" style="background:' + c.color + '"></div>' +
+            '<span class="lcd-media-cap">' + escapeHtml(c.name) + '</span></div>';
+        }).join('');
+      }
+    }
 
-    var html = noneTile + colourTiles;
+    var items = all.filter(function(bg) {
+      if (_lcdItemCategory(bg) !== tab) return false;
+      if (tab !== 'background') return true;
+      return sub === 'video' ? (bg.type === 'video') : (bg.type === 'image');
+    }).reverse();
+
+    var shown = items.slice(0, _LCD_TRAY_LIMIT);
+    var overflow = items.length - shown.length;
+
     shown.forEach(function(bg) {
       var isImg = bg.type === 'image';
+      var isDoc = _lcdIsDocItem(bg);
       var thumbUrl = isImg ? bg.data : (bg.thumb || '');
       var thumbStyle = thumbUrl ? 'background-image:url(' + thumbUrl + ')' : '';
-      var icon = thumbUrl ? '' : '<i class="fa-solid fa-video"></i>';
-      var vidBadge = (!isImg && thumbUrl) ? '<span class="lcd-media-vid-badge"><i class="fa-solid fa-play"></i></span>' : '';
-      var allBtn = '<button class="lcd-media-all" onclick="WO.lcdApplyMediaToAllSlides(event,\'' + bg.id + '\')" title="Use this background on every slide in the whole service">ALL</button>';
-      html += '<div class="lcd-media-item" draggable="true" ondragstart="WO.lcdMediaDragStart(event,\'' + bg.id + '\')" ' +
-        'onclick="WO.lcdApplyMediaToCurrent(\'' + bg.id + '\')" title="' + escapeHtml(bg.name || '') + ' \u2014 click to apply, drag to a slide, \u00d7 to remove">' +
+      var icon = thumbUrl ? '' : ('<i class="fa-solid ' + (isDoc ? 'fa-file-lines' : 'fa-video') + '"></i>');
+      var vidBadge = (!isImg && !isDoc && thumbUrl) ? '<span class="lcd-media-vid-badge"><i class="fa-solid fa-play"></i></span>' : '';
+      // ALL only means something for a background; a deck cannot be every
+      // slide's wallpaper.
+      var allBtn = (tab === 'background')
+        ? '<button class="lcd-media-all" onclick="WO.lcdApplyMediaToAllSlides(event,\'' + bg.id + '\')" title="Use this background on every slide in the whole service">ALL</button>'
+        : '';
+      var clickAttr = (tab === 'background')
+        ? ' onclick="WO.lcdApplyMediaToCurrent(\'' + bg.id + '\')"'
+        : '';
+      var tip = (tab === 'background')
+        ? escapeHtml(bg.name || '') + ' — click to apply, drag to a slide, × to remove'
+        : (isDoc ? escapeHtml(bg.name || '') + ' — drag into a section to add one slide per page'
+                 : escapeHtml(bg.name || '') + ' — drag onto a slide to fill it, or between slides to insert one');
+      html += '<div class="lcd-media-item' + (isDoc ? ' lcd-media-doc' : '') + '" draggable="true" ondragstart="WO.lcdMediaDragStart(event,\'' + bg.id + '\')"' + clickAttr +
+        ' title="' + tip + '">' +
         '<div class="lcd-media-thumb" style="' + thumbStyle + '">' + icon + '</div>' + vidBadge + allBtn +
-        '<button class="lcd-media-del" onclick="WO.lcdDeleteMedia(event,\'' + bg.id + '\')" title="Remove this media from the library">\u00d7</button>' +
+        '<button class="lcd-media-del" onclick="WO.lcdDeleteMedia(event,\'' + bg.id + '\')" title="Remove this from the tray">×</button>' +
+        (isDoc ? '<span class="lcd-media-cap">' + escapeHtml((bg.name || '').slice(0, 14)) + '</span>' : '') +
         '</div>';
-      if (!isImg && !bg.thumb && !bg._thumbTried) pending.push(bg);
+      if (!isImg && !isDoc && !bg.thumb && !bg._thumbTried) pending.push(bg);
     });
-    // Past the cap the tray stops being scannable, so hand over to the full
-    // library rather than growing a wall of thumbnails.
+
     if (overflow > 0) {
       html += '<div class="lcd-media-item lcd-media-more" onclick="WO.openBackgroundModal()" ' +
         'title="Open the full media library — ' + overflow + ' more item' + (overflow === 1 ? '' : 's') + '">' +
         '<div class="lcd-media-thumb"><i class="fa-solid fa-ellipsis"></i></div>' +
         '<span class="lcd-media-cap">+' + overflow + ' More</span></div>';
     }
-    if (!media.length) {
-      html += '<div class="lcd-panel-placeholder" style="grid-column:1/-1;">No pictures or video yet — use “Add Media” above.</div>';
+    if (!items.length) {
+      var empty = tab === 'background'
+        ? (sub === 'video' ? 'No videos yet' : 'No pictures yet')
+        : (tab === 'presentation' ? 'No presentations yet' : 'No announcements yet');
+      html += '<div class="lcd-panel-placeholder" style="grid-column:1/-1;">' + empty + ' — use “Add Media” above.</div>';
     }
     grid.innerHTML = html;
     _lcdApplyMediaTrayCollapsed();
-    // Generate poster thumbnails for videos (async; re-renders when ready).
     pending.forEach(function(bg) { _lcdGenVideoThumb(bg); });
   }
 
@@ -56418,6 +56580,10 @@ var WO = (function() {
     lcdApplyMediaToAllSlides: lcdApplyMediaToAllSlides,
     lcdClearMediaFromAllSlides: lcdClearMediaFromAllSlides,
     lcdToggleMediaTray: lcdToggleMediaTray,
+    lcdTraySetTab: lcdTraySetTab,
+    lcdTraySetSub: lcdTraySetSub,
+    lcdTrayAddClick: lcdTrayAddClick,
+    lcdTrayHandleUpload: lcdTrayHandleUpload,
     lcdOpenSongPreview: lcdOpenSongPreview,
     lcdCloseSongPreview: lcdCloseSongPreview,
     lcdSongPreviewBackdrop: lcdSongPreviewBackdrop,
@@ -65166,6 +65332,47 @@ function filterLiturgyItems() {
     border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff;
     display: flex; align-items: center; justify-content: center;
     font-size: 0.52rem; pointer-events: none;
+  }
+
+  /* ---- P. Media Tray drawers ---------------------------------------------- */
+  .lcd-tray-tabs { display: flex; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
+  .lcd-tray-tab {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 28px; padding: 0 11px; border-radius: 7px 7px 0 0; cursor: pointer;
+    background: transparent; border: 1px solid transparent; border-bottom: none;
+    color: var(--lcd-ink-soft, #6d6656);
+    font-family: 'Poppins', sans-serif; font-size: 0.68rem; font-weight: 600; white-space: nowrap;
+  }
+  .lcd-tray-tab i { font-size: 0.7rem; }
+  .lcd-tray-tab:hover { background: rgba(0,0,0,0.04); color: var(--lcd-ink, #2c2a25); }
+  .lcd-tray-tab.active {
+    background: var(--lcd-ivory-2, #fffdf8); border-color: var(--lcd-ivory-line, #ddd3c0);
+    color: var(--lcd-ink, #2c2a25); box-shadow: 0 -2px 0 var(--lcd-gold-500, #c1993f) inset;
+  }
+  .lcd-tray-tab-n {
+    min-width: 16px; height: 15px; padding: 0 4px; border-radius: 999px;
+    background: rgba(193,153,63,.16); color: var(--lcd-gold-600, #a97f2e);
+    font-size: 0.56rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .lcd-tray-tab-n:empty { display: none; }
+  .lcd-tray-subtabs { display: flex; gap: 4px; margin-bottom: 6px; }
+  .lcd-tray-subtab {
+    height: 22px; padding: 0 10px; border-radius: 999px; cursor: pointer;
+    background: transparent; border: 1px solid var(--lcd-ivory-line, #ddd3c0);
+    color: var(--lcd-ink-soft, #6d6656);
+    font-family: 'Poppins', sans-serif; font-size: 0.62rem; font-weight: 600;
+  }
+  .lcd-tray-subtab:hover { background: rgba(0,0,0,0.04); }
+  .lcd-tray-subtab.active {
+    background: var(--lcd-gold-wash, rgba(193,153,63,.14));
+    border-color: var(--lcd-gold-500, #c1993f); color: var(--lcd-gold-600, #a97f2e);
+  }
+  /* Documents are files, not pictures: a labelled card rather than a thumbnail. */
+  .lcd-media-doc { background: var(--lcd-ivory-2, #fffdf8); }
+  .lcd-media-doc .lcd-media-thumb { color: var(--lcd-gold-600, #a97f2e); font-size: 1.1rem; }
+  .lcd-media-doc .lcd-media-cap {
+    color: var(--lcd-ink, #2c2a25); text-shadow: none; bottom: 1px;
+    font-size: 0.5rem; letter-spacing: 0; text-transform: none;
   }
 
   /* ---- M. Stage bar: Blank + Project on their own full-width row ---------- */
