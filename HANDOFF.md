@@ -97,7 +97,9 @@ Fixes the background re-pin bug recorded at the bottom of the drag-layer entry b
 
 **`removeSongFromSection` (~47622) had both omissions too** — the task asked me to check it, and it is the same code shape one function up. Same fix applied.
 
-Every other path already had this right; post-fix line numbers: single-slide delete (48267/48277), slide insert (49209/49215), the drag-layer insert (50011/50035) and the rail reorder (50826/50829). The helpers themselves are at 49977 and 49985.
+Four paths were already correct; post-fix line numbers: single-slide delete (48267/48277), slide insert (49209/49215), the drag-layer insert (50011/50035) and the rail reorder (50826/50829). The helpers themselves are at 49977 and 49985.
+
+**Correction (added later, see the audit entry above):** this entry originally claimed "every other path already had this right." That was an overclaim. Those four were the paths named in the task brief as known-good, and I confirmed them without auditing the rest of the file — so `removeSlideBox`, `addSlideBoxAfter` and `_lcdAddSlideAfter` went unchecked and turned out to have the same defect. Read the scope of this entry as the two remove paths it actually changed, not as a clean bill of health for slide renumbering generally.
 
 ### The fix
 
