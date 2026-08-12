@@ -30221,8 +30221,38 @@ var WO = (function() {
     return true;
   }
 
+  // A slide can point at media that is no longer resolvable: the tray's x
+  // deletes from the shared library for every order without sweeping
+  // sectionBackgrounds, and savedBackgrounds is empty until it hydrates from
+  // the cloud. Every applier used to do `if (found) { ...render... }` with no
+  // else, which left the PREVIOUS slide's background on screen -- and
+  // _sendBgToProjection sent no message at all, so the projector kept its last
+  // frame. Treat unresolvable as "no background" instead: black is the safe
+  // outcome for a live service.
+  //
+  // Only the id-resolved types are judged here. Anything else is left alone so
+  // an unrecognised-but-working type is never blanked by this check.
+  function _lcdBgUnresolvable(background) {
+    if (!background) return false; // genuinely no background; already handled
+    var t = background.type;
+    if (t !== 'image' && t !== 'video' && t !== 'audio') return false;
+    var hit = savedBackgrounds.find(function(b) { return b.id === background.value; });
+    if (hit && hit.data) return false;
+    // The projection payload carries a direct data/URL rather than a library id.
+    if (/^(data:|https?:|blob:|\/)/.test(background.value || '')) return false;
+    return true;
+  }
+
+  function _lcdBgOrNull(background) {
+    if (!_lcdBgUnresolvable(background)) return background;
+    console.warn('[LHC] background media not found, projecting black instead:',
+                 background && background.value);
+    return null;
+  }
+
   function _applyBgToDivEl(el, background) {
     if (!el) return;
+    background = _lcdBgOrNull(background);
     if (!background) {
       el.innerHTML = '';
       el._lcdBgSrc = null;
@@ -30279,6 +30309,9 @@ var WO = (function() {
   // Send effective (resolved) background to projection window
   function _sendBgToProjection(background) {
     // Mirror to the in-app Program Output even with no external window open.
+    // Unresolvable media must send an explicit null rather than nothing at all,
+    // or the projector holds the previous slide's frame.
+    background = _lcdBgOrNull(background);
     if (!background) {
       sendToProjectionWindow({ type: 'background', background: null });
       return;
@@ -30306,6 +30339,11 @@ var WO = (function() {
     var screen = $('woPreviewScreen');
     var bgEl = $('woPreviewBg');
     if (!screen || !bgEl) return;
+
+    // Media that cannot be resolved goes down the same path as no background at
+    // all, so the previous slide's picture or video is cleared rather than left
+    // showing on the projector.
+    background = _lcdBgOrNull(background);
 
     // Handle null/no background - always fully clear
     if (!background) {
