@@ -4,6 +4,43 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Audit round: banner actions fixed, All Slides re-pins, library isolation verified
+
+This round targeted flows no earlier audit had exercised: the lyric banner's two action buttons, the All Slides modal's save, and — on the user's direct request — whether any order edit can write back to the shared libraries.
+
+### Fixed: "Use the library version" resurrected its own banner
+
+The refresh button updated the slide DOM and hid the banner — but the change detector reads the ENTRY's stored lyrics, which stayed stale, so the rail's 120ms debounce recomputed "changed" and re-showed the banner for a difference the operator had just resolved. The code even had a comment acknowledging the recompute problem; the passive refresh path defeated the `display='none'`. Fix: substitute the library text into the entry's stored lyrics at that slide's position (skipped when `customLyrics` is active). Verified: banner stays hidden past the debounce and on re-open; a genuinely NEW edit still re-raises flag + banner (confirmed by simulating the realtime ping — see environment note).
+
+"Keep this order's version" verified correct as-is: banner hides, flag clears, slide keeps the order text.
+
+### Fixed: the All Slides modal was the last slide-count-changing path without undo or re-pinning
+
+`saveAllSlidesModal` rebuilds a group's slides — the operator can add/remove slide breaks, changing the count — with no `_lcdPushUndo` and no background re-pinning. Now bracketed like the other six paths, **plus** a group-position carry: the section-level capture restores by node identity, which protects other groups but drops the rebuilt group's own pins (its nodes are replaced), so the group's pins are recorded by group-local position first and re-applied to the rebuilt boxes. Positional, not content-based — after merging slides 1+2, a pin on old group-slide 3 lands on new group-slide 3, not on the slide carrying its old text. Verified live: split 6→8 slides with other pins intact; merge 8→7 with pins carried at positions 0 and 2; Ctrl+Z restored both count and map exactly. `tools/bg-repin-harness.js` still passes 18/18.
+
+### Verified: order edits cannot write to the shared libraries (user requirement)
+
+Swept every write to the songs table (`SBQ_SONGS.update/updateLyrics/create/delete`) and the liturgy library (`saveLiturgyToLibrary`, `LiturgyModule.saveItem/updateItem`) and classified each call site:
+
+- Song library writes: Edit Song form, library lyrics editors, standalone media attach, and the song preview's **explicit** "save to library" choice (`lcdSongPreviewSave(target==='library')`). The order-only branch uses `_lcdSetOrderOverride` and toasts "The song library is unchanged."
+- Liturgy library writes: only the explicit "Save changes to Library" banner button and the Liturgy module's own editor modal.
+- All five WO-context media `onSave` callbacks are order-side (`customYoutube`/`customDocs`/`mediaLinks`), no library writes.
+- Slide edits, All Slides saves, refresh-from-library, and autosave write **only** `order_items`/`orders.template` for the open order.
+
+Cross-order isolation: each order stores its own copies in `order_items`; the one deliberate cross-order surface is media deletion (announced in its confirm since PR #47).
+
+### Noted, not fixed
+
+- **The crash journal holds one order.** If order A's save is in flight when the operator switches to order B and B saves, the journal now holds B; if A's write then dies, A's changes are lost without a journal. Requires losing the race within a few hundred ms of a switch — accepted for now.
+- **Library slide ADDITIONS are unreported.** `_lcdChangedSlides` maps an added library slide to an index past the order's last slide; the rail iterates order slides only, so no row exists to flag, and the banner can never be opened at that index. A songbook edit that adds a slide to a song silently never reaches the operator. Worth a future "N new slides in the library" affordance on the group banner.
+
+### Environment notes
+
+- The dev pane's Supabase realtime socket drops often; a "flag did not re-raise" result here means the ping never arrived, not that detection failed — confirm by updating `LHC_STATE.songs` locally and calling `WO.lcdRefreshLibrary()`.
+- "Service - Aug 9" grew 16 → **18** items during this round: the user added two songs from production ("Blessed Be Your Name", "All Hail King Jesus") — live proof of the persistence fix, not contamination.
+
+---
+
 ## 2026-08-12 — Songbook edits highlight the exact changed lyric line, with a two-look lifetime
 
 Requested: when lyrics change in the songbook, the affected slide should be flagged (every change, without limit), and opening it should show the specific changed lyric highlighted — visible for the first two looks, gone from the third.

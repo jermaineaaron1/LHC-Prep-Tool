@@ -48551,13 +48551,28 @@ var WO = (function() {
     _lcdLoadSlideIntoEditor(box);
     _lcdCommitEditorToSlide();
     _lcdAckSlide(entryId, si, c.libText);
+    // The change detector reads the ENTRY's stored lyrics, not the slide DOM.
+    // Hiding the banner without updating them only lasted until the rail's
+    // 120ms debounce fired: its passive refresh recomputed "changed" from the
+    // stale masterLyrics and re-showed the banner for a difference the
+    // operator had just resolved. Substitute the library text into the stored
+    // lyrics at this slide's position so the recompute agrees the slide is
+    // current; a genuinely NEW library edit still differs and re-raises
+    // everything.
+    var _entry = songOrderSections.find(function(s) { return s.id === entryId; });
+    if (_entry && !String(_entry.customLyrics || '').trim()) {
+      var _base = (_entry.masterLyrics != null && String(_entry.masterLyrics).trim())
+        ? _entry.masterLyrics : _entry.lyrics;
+      var _chunks = _lcdSlideTexts(_base);
+      if (si >= 0 && si < _chunks.length) {
+        _chunks[si] = c.libText;
+        var _rebuilt = _chunks.join('\n\n');
+        _entry.masterLyrics = _rebuilt;
+        _entry.lyrics = _rebuilt;
+      }
+    }
     if (typeof autoSaveOrder === 'function') autoSaveOrder();
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
-    // Hide outright rather than recompute: the slide now carries the library
-    // wording, but the entry's stored lyrics/masterLyrics still hold the old
-    // text, so a recompute would keep reporting a difference the operator has
-    // already resolved. The per-version acknowledgement keeps the rail badge
-    // off too, and a genuinely NEW library edit still raises both again.
     el.style.display = 'none';
     showToast('Slide updated to the library version', 'success');
   }
@@ -53029,6 +53044,14 @@ var WO = (function() {
     var editor = $('woAllSlidesEditor');
     if (!editor) return;
 
+    // The All Slides editor can change the slide COUNT (the operator adds or
+    // removes slide breaks), which renumbers every later slide in the section
+    // -- and sectionBackgrounds is keyed by that index. Bracket the rebuild
+    // like every other add/remove path, and give the whole rewrite one undo
+    // step. This was the last slide-count-changing path without either.
+    _lcdPushUndo();
+    var _aslBgs = sectionId ? _lcdCaptureSectionBgs(sectionId) : null;
+
     // Parse contenteditable: split at <hr class="asl-slide-break"> elements
     // Each block between HRs = one slide; each <p>/<div> = one line
     var segments = [];
@@ -53102,6 +53125,7 @@ var WO = (function() {
           '</div>';
         container.insertAdjacentHTML('beforeend', boxHtml);
       });
+      if (sectionId) _lcdRestoreSectionBgs(sectionId, _aslBgs);
       closeAllSlidesModal();
       showToast('Content slides updated', 'success');
       autoSaveOrder();
@@ -53118,6 +53142,16 @@ var WO = (function() {
     var addRowSelector = isLiturgy
       ? '.wo-add-slide-row[data-liturgy-id="' + groupId + '"]'
       : '.wo-add-slide-row[data-song-id="' + groupId + '"]';
+
+    // The section-level capture (_aslBgs) restores by node identity, which
+    // protects every OTHER group's pins but drops this group's own -- its
+    // nodes are about to be replaced. Record this group's pins by group-local
+    // position first, so they can be re-applied to the rebuilt boxes: slide 2
+    // of the song keeps its background as long as a slide 2 still exists.
+    var _groupPins = Array.from(container.querySelectorAll(slideSelector)).map(function(b) {
+      var hit = (_aslBgs || []).filter(function(e) { return e.box === b; })[0];
+      return hit ? hit.bg : null;
+    });
 
     Array.from(container.querySelectorAll(slideSelector)).forEach(function(b) { b.remove(); });
     var oldAddRow = container.querySelector(addRowSelector);
@@ -53209,6 +53243,21 @@ var WO = (function() {
     }
 
     renumberSlideBoxes(sectionId, groupId, isLiturgy ? 'liturgy' : 'song');
+    // Other groups' boxes keep their backgrounds by node identity...
+    if (sectionId) _lcdRestoreSectionBgs(sectionId, _aslBgs);
+    // ...and this group's recorded pins go back on by group-local position.
+    // Slides past the new count simply lose theirs; new slides start bare.
+    if (sectionId && _groupPins.some(function(p2) { return !!p2; })) {
+      var _newGroupBoxes = Array.from(container.querySelectorAll(slideSelector));
+      var _allBoxes = Array.from(container.querySelectorAll('.wo-slide-box'));
+      _withBulkBackgroundWrites(function() {
+        _newGroupBoxes.forEach(function(nb, gi) {
+          if (!_groupPins[gi]) return;
+          var secIdx = _allBoxes.indexOf(nb);
+          if (secIdx >= 0) setBackgroundForSlideInSection(sectionId, secIdx, _groupPins[gi]);
+        });
+      });
+    }
     var firstBox = container.querySelector(slideSelector);
     if (firstBox) selectSlideBox(firstBox);
 
