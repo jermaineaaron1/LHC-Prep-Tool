@@ -6270,6 +6270,11 @@
                   <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
                   <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
                   <div class="lcd-controls-spacer"></div>
+                  <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
+                    <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
+                    <span class="wo-golive-label" id="woBlankLabel">Blank</span>
+                  </button>
+                  <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
                 </div>
 
                 <!-- Preview + Program outputs, side by side -->
@@ -6358,18 +6363,10 @@
                   </div>
                 </div>
 
-                <!-- Stage bar: the two live controls get their own full-width
-                     row directly above the Media Tray rather than being tucked
-                     inside the Program Output box, where they were competing
-                     with the 16:9 preview for height. Same ids and handlers. -->
+                <!-- Keyboard hint only; the live controls now sit in the
+                     workspace bar at the top of the panel. -->
                 <div class="lcd-stage-bar">
                   <span class="lcd-stage-hint"><i class="fa-solid fa-keyboard"></i> Arrow keys navigate slides</span>
-                  <span class="lcd-stage-spacer"></span>
-                  <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
-                    <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
-                    <span class="wo-golive-label" id="woBlankLabel">Blank</span>
-                  </button>
-                  <button class="wo-live-present-btn" id="woFullscreenBtn" onclick="WO.goFullscreen(this)" title="Project to screen"><i class="fa-solid fa-desktop" style="margin-right:5px;"></i>Project</button>
                 </div>
 
                 <!-- Lyrics Editor + Media Tray -->
@@ -30178,13 +30175,16 @@ var WO = (function() {
   // element later becomes visible, so the clip sat on frame 0 until the slide
   // was re-selected. Rewind to the start and ask for playback explicitly, once
   // now and once when the data is actually there.
+  // Only ever asks for playback -- it must NOT rewind. A section-wide video is
+  // one continuous clip across its slides; seeking to 0 on every slide change
+  // is exactly the restart the operator sees. A freshly built element is at 0
+  // anyway, so "play from the start" still holds when the clip is first set.
   function _kickVideo(el) {
     var v = el && el.querySelector ? el.querySelector('video') : null;
     if (!v) return;
     function go() {
       try {
         v.muted = true;
-        if (v.currentTime > 0.05) v.currentTime = 0;
         var p = v.play();
         if (p && p.catch) p.catch(function() {});
       } catch (e) {}
@@ -30193,10 +30193,25 @@ var WO = (function() {
     v.addEventListener('loadeddata', go, { once: true });
   }
 
+  // Rebuilding a <video> restarts it. A section-wide clip is meant to run
+  // continuously across that section's slides, so when the source has not
+  // changed the existing element is left running and only playback is nudged.
+  // The current source is remembered on the element itself, because these
+  // targets (editor canvas, Program Output mirror, fullscreen) each keep their
+  // own element and were previously all rebuilt on every slide change.
+  function _lcdReuseVideo(el, src) {
+    if (!el || el._lcdBgSrc !== src) return false;
+    var v = el.querySelector && el.querySelector('video');
+    if (!v) return false;
+    if (v.paused) { var p = v.play(); if (p && p.catch) p.catch(function() {}); }
+    return true;
+  }
+
   function _applyBgToDivEl(el, background) {
     if (!el) return;
     if (!background) {
       el.innerHTML = '';
+      el._lcdBgSrc = null;
       el.style.background = '#000';
       el.style.display = 'none';
       return;
@@ -30204,6 +30219,7 @@ var WO = (function() {
     el.style.display = 'block';
     if (background.type === 'solid' || background.type === 'gradient') {
       el.innerHTML = '';
+      el._lcdBgSrc = null;
       el.style.background = background.value;
     } else if (background.type === 'image') {
       // value may be a saved-background id OR (from the projection payload) a
@@ -30212,27 +30228,36 @@ var WO = (function() {
       var imgSrc = bgImg ? bgImg.data : (/^(data:|https?:|blob:|\/)/.test(background.value || '') ? background.value : null);
       if (imgSrc) {
         el.innerHTML = '<img src="' + imgSrc + '" alt="" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;">';
+        el._lcdBgSrc = null;
         el.style.background = '#000';
       }
     } else if (background.type === 'video') {
       var bgVid = savedBackgrounds.find(function(b) { return b.id === background.value; });
       var vidSrc = bgVid ? bgVid.data : (/^(data:|https?:|blob:|\/)/.test(background.value || '') ? background.value : null);
       if (vidSrc) {
-        el.innerHTML = '<video src="' + vidSrc + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"></video>';
         el.style.background = '#000';
-        _kickVideo(el);
+        if (!_lcdReuseVideo(el, vidSrc)) {
+          el.innerHTML = '<video src="' + vidSrc + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"></video>';
+          el._lcdBgSrc = vidSrc;
+          _kickVideo(el);
+        }
       }
     } else if (background.type === 'youtube') {
       el.innerHTML = '<iframe style="width:100%;height:100%;border:none;position:absolute;inset:0;pointer-events:none;opacity:0.85;" src="' + background.embedUrl + '" allow="autoplay"></iframe>';
+      el._lcdBgSrc = null;
       el.style.background = '#000';
     } else if (background.type === 'localVideo') {
-      el.innerHTML = '<video src="' + background.src + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"></video>';
       el.style.background = '#000';
-      _kickVideo(el);
+      if (!_lcdReuseVideo(el, background.src)) {
+        el.innerHTML = '<video src="' + background.src + '" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;"></video>';
+        el._lcdBgSrc = background.src;
+        _kickVideo(el);
+      }
     } else if (background.type === 'audio') {
       var bgAud = savedBackgrounds.find(function(b) { return b.id === background.value; });
       el.innerHTML = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a1a;"><i class="fa-solid fa-music" style="color:#f59e0b;font-size:1.4rem;"></i></div>' +
         (bgAud ? '<audio src="' + bgAud.data + '" autoplay loop style="display:none;"></audio>' : '');
+      el._lcdBgSrc = null;
       el.style.background = '#000';
     }
   }
@@ -30475,6 +30500,7 @@ var WO = (function() {
 
     // Rebuild grid completely - start with default colors
     var html = '';
+    var needThumbs = [];
 
     var defaultColors = _woDefaultBackgrounds();
 
@@ -30493,15 +30519,25 @@ var WO = (function() {
         html += '<div class="wo-bg-thumb" style="background-image:url(' + bg.data + ')"></div>';
       } else if (bg.type === 'audio') {
         html += '<div class="wo-bg-thumb" style="background:#1a1a1a;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-music" style="color:#f59e0b;font-size:1.5rem;"></i></div>';
+      } else if (bg.thumb) {
+        // Same poster frame the Media Tray captured, so a video reads as its
+        // own picture here too instead of an anonymous purple icon.
+        html += '<div class="wo-bg-thumb" style="background-image:url(' + bg.thumb + ')">' +
+          '<span class="wo-bg-vid-badge"><i class="fa-solid fa-play"></i></span></div>';
       } else {
         html += '<div class="wo-bg-thumb" style="background:#1a1a1a;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-video" style="color:#8b5cf6;font-size:1.5rem;"></i></div>';
+        needThumbs.push(bg);
       }
       html += '<span>' + escapeHtml(bg.name) + '</span></div>';
     });
 
-    console.log('Setting grid HTML, length:', html.length);
     grid.innerHTML = html;
-    console.log('Grid now has', grid.children.length, 'children');
+    // Capture any missing poster frames, then repaint once they land. The tray
+    // already does this; sharing it means whichever surface is opened first
+    // generates the thumbnails and the other gets them for free.
+    if (needThumbs.length && typeof _lcdGenVideoThumb === 'function') {
+      needThumbs.forEach(function(bg) { _lcdGenVideoThumb(bg); });
+    }
 
     // Update selected state
     updateBackgroundSelection();
@@ -48623,6 +48659,12 @@ var WO = (function() {
         c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
         bg.thumb = c.toDataURL('image/jpeg', 0.6);
         if (typeof _lcdRenderMediaTray === 'function') _lcdRenderMediaTray();
+        // The Add Background modal shows the same poster frames, so repaint
+        // it too if it happens to be open when one lands.
+        var _bgModal = document.getElementById('woBgModal');
+        if (_bgModal && _bgModal.classList.contains('show') && typeof renderBackgroundLibrary === 'function') {
+          renderBackgroundLibrary();
+        }
       } catch (e) {}
       cleanup();
     }
@@ -65096,6 +65138,15 @@ function filterLiturgyItems() {
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-program-box { min-width: 0; }
   }
 
+  /* Video poster frames in the Add Background modal, matching the tray. */
+  .wo-bg-item .wo-bg-thumb { background-size: cover; background-position: center; position: relative; }
+  .wo-bg-vid-badge {
+    position: absolute; bottom: 4px; right: 4px; width: 18px; height: 18px;
+    border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.52rem; pointer-events: none;
+  }
+
   /* ---- M. Stage bar: Blank + Project on their own full-width row ---------- */
   .lcd-stage-bar {
     display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
@@ -65110,14 +65161,15 @@ function filterLiturgyItems() {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .lcd-stage-spacer { flex: 1 1 auto; }
-  .lcd-stage-bar .wo-blank-btn {
-    flex: 0 0 auto; height: 40px; padding: 0 18px; border-radius: var(--lcd-radius-md, 10px);
-    font-size: 0.8rem; display: inline-flex; align-items: center; gap: 7px;
+  /* Live controls, now in the workspace bar at the top of the panel. */
+  .lcd-controls-row .wo-blank-btn {
+    flex: 0 0 auto; height: 36px; padding: 0 16px; border-radius: var(--lcd-radius-md, 10px);
+    font-size: 0.78rem; display: inline-flex; align-items: center; gap: 7px;
   }
-  .lcd-stage-bar .wo-live-present-btn {
-    flex: 0 0 auto; min-width: 190px; justify-content: center;
-    height: 42px; padding: 0 26px; border-radius: var(--lcd-radius-md, 10px);
-    font-weight: 700; font-size: 0.85rem; box-shadow: var(--lcd-shadow-gold-glow);
+  .lcd-controls-row .wo-live-present-btn {
+    flex: 0 0 auto; min-width: 170px; justify-content: center;
+    height: 38px; padding: 0 24px; border-radius: var(--lcd-radius-md, 10px);
+    font-weight: 700; font-size: 0.82rem; box-shadow: var(--lcd-shadow-gold-glow);
     display: inline-flex; align-items: center;
   }
   /* The pair still tracks each other -- editor 20px taller -- and both now
