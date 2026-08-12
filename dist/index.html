@@ -33585,6 +33585,10 @@ var WO = (function() {
     var existingSong = songOrderSections.find(function(s) { return s.id === song.id; });
 
     if (existingSong) {
+      // Moving a song between sections changes the schedule, so it belongs on
+      // the LCD undo stack like every other schedule mutation.
+      if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
+
       // Update existing song's sections (selectedSections now stores DOM section IDs)
       existingSong.serviceSections = selectedSections;
       // Set sectionId to the first selection so initializeServiceOrder can place it correctly
@@ -33596,8 +33600,19 @@ var WO = (function() {
         if (panel && panel.getAttribute('data-song-id') === existingSong.id) el.remove();
       });
 
-      // Re-render the entire song order list to apply duplicates properly
-      initializeSongOrder();
+      // Re-render, with the renderer that matches the mode actually on screen.
+      //
+      // initializeSongOrder() writes the Song Order list into #woWorshipOrder
+      // -- the same container the Service Schedule lives in. Called from LCD
+      // Projection it wiped all 19 service sections and left the song-order
+      // list in their place, so assigning sections to a song already in the
+      // order destroyed the schedule on screen. Rail rows went 98 -> 0.
+      var _mcAssign = document.querySelector('.wo-main-content');
+      if (_mcAssign && !_mcAssign.classList.contains('wo-song-order')) {
+        initializeServiceOrder();
+      } else {
+        initializeSongOrder();
+      }
 
       closeSectionModal();
       updateQuickList();
