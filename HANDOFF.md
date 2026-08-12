@@ -4,6 +4,52 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Removing a whole song or liturgy item now re-pins backgrounds and is undoable (branch `claude/inspiring-goodall-bde986`, committed locally, not yet pushed)
+
+Fixes the background re-pin bug recorded at the bottom of the drag-layer entry below, and a second instance of it that had not been noticed.
+
+### The defect
+
+`sectionBackgrounds` is keyed by section id then **local slide index**, so anything that removes slides renumbers every pin after it. `removeLiturgyFromSection` (now ~47673) pulled the banner, every `.wo-slide-box[data-liturgy-id=...]` and the add-slide row straight out of the DOM and went to `autoSaveOrder()`, never touching the map. Backgrounds below the removed item stayed on their old indices and showed up on the wrong slides. It also never called `_lcdPushUndo()`, so removing an item was the one rail mutation Ctrl+Z could not take back.
+
+**`removeSongFromSection` (~47622) had both omissions too** — the task asked me to check it, and it is the same code shape one function up. Same fix applied.
+
+Every other path already had this right; post-fix line numbers: single-slide delete (48267/48277), slide insert (49209/49215), the drag-layer insert (50011/50035) and the rail reorder (50826/50829). The helpers themselves are at 49977 and 49985.
+
+### The fix
+
+Both functions now bracket their DOM mutations exactly as `_lcdDeleteSlideBox` does:
+
+1. `_lcdPushUndo()` first, before anything is touched. It self-guards on `#woWorshipOrder` being present, so it is safe on either code path regardless of which view is active.
+2. `var _rmBgs = sectionId ? _lcdCaptureSectionBgs(sectionId) : null;` before the removals.
+3. `if (sectionId) _lcdRestoreSectionBgs(sectionId, _rmBgs);` after the removals *and* after the empty-section placeholder rewrite, so both branches are covered.
+
+The capture/restore pair works on **node identity**, not index, so pins follow their own slide however far it shifts. Entries whose slide is gone drop out on their own — `_lcdRestoreSectionBgs` only re-pins boxes still in the container — and when nothing is left it deletes the section key rather than leaving an empty object. It writes once via `saveSlideBackgrounds()` instead of per-slide, which is why it is used in place of `setBackgroundForSlideInSection` (that fires `autoSaveOrder()` on every iteration).
+
+### Verified
+
+No live order was touched — nothing was created in Supabase and no existing order was opened, so there was no opportunity to repeat the earlier data-loss incident. Instead the **real source text** of all four functions is sliced out of `Index.html` by brace balance and executed against a small DOM shim, so the code under test is the shipped code rather than a restatement of it.
+
+18 checks over 5 scenarios, all passing on both `Index.html` and `dist/index.html`:
+
+| Scenario | Result |
+|---|---|
+| The reported repro — 6 slides, pins on #2 and #5, remove the last item (owns #5) | 5 slides left, map re-pinned to `{2}`, stale #5 gone |
+| Remove a **middle** liturgy group | pin travels 5 → 3 with its slide; `{2, 3}` |
+| Remove a **middle song** group | pin travels 5 → 3; song also dropped from `serviceSectionSongs` |
+| Remove the only group | section empties, section key deleted outright, placeholder restored, `clearedSections` recorded |
+| Section with no backgrounds | no section key invented; undo still pushed |
+
+The same harness run against the pre-fix source (`git show`) fails 9 of those 18 — including reproducing the exact reported symptom, a map holding both #2 and #5 against only 5 remaining slides, and `_lcdPushUndo` never firing. That negative control is what makes the passes meaningful.
+
+All 12 inline `<script>` blocks pass `node --check`; `Index.html` and `dist/index.html` confirmed byte-identical with `cmp`.
+
+### Note for whoever picks this up
+
+This branch was cut from PR #42 but the bug and the line numbers in the report belong to PR #43, so it was fast-forwarded to `origin/master` (`293a408`) before the fix was applied — the drag-layer commit adds 110 lines above these functions, which is the whole of the line-number discrepancy. Nothing was pushed or merged.
+
+---
+
 ## 2026-08-12 — Drag layer for Presentations and Announcements (branch `feature/premium-mobile-roster`)
 
 The Media Tray's three drawers now behave differently on drop, because the user's model is that a picture *is* a slide and a document *is many* slides — neither is wallpaper.
@@ -37,7 +83,7 @@ There are now **six** native HTML5 drag systems sharing that one container (rail
 
 The test slide and both test background pins were removed from "Service - Aug 9" via the app's own `removeLiturgyFromSection`, and the test media deleted from the shared `lhc_projection_backgrounds` library (it is shared across **all** orders). Verified from Supabase: 15 `order_items`, zero rows containing either test id, `sectionBackgrounds` back to exactly the six original video pins, 95 slide boxes, 19 sections.
 
-**Bug found during cleanup, not yet fixed:** `removeLiturgyFromSection` does **not** re-pin `sectionBackgrounds` after removing an item. Delete a liturgy item from the middle of a section and every background below it stays on its old index, so it visually jumps to the wrong slide. The insert paths do this correctly via `_lcdCaptureSectionBgs`/`_lcdRestoreSectionBgs`; the remove path needs the same treatment.
+**Bug found during cleanup — fixed 2026-08-12, see the entry at the top of this file:** `removeLiturgyFromSection` did **not** re-pin `sectionBackgrounds` after removing an item. Delete a liturgy item from the middle of a section and every background below it stayed on its old index, so it visually jumped to the wrong slide. The insert paths do this correctly via `_lcdCaptureSectionBgs`/`_lcdRestoreSectionBgs`; the remove path now gets the same treatment (as does `removeSongFromSection`, which had the identical defect).
 
 ---
 
