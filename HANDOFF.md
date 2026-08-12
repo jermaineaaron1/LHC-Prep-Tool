@@ -4,6 +4,34 @@ _Last updated: 2026-08-12 by Claude Code_
 
 ---
 
+## 2026-08-12 — Workspace controls moved into the Program Output column; Slide Editor taller; All Slides button (branch `feature/premium-mobile-roster`)
+
+### Controls relocated, editor gains the height
+
+The workspace controls (preview zoom, order-level undo/redo, Blank, Project) sat in a **full-width strip above both columns**, so the Slide Editor started below it. They now live inside `.lcd-program-box`, above the Program Output label — the editor column starts at the top of the outputs row and takes that strip's height.
+
+Ids and `onclick` handlers are unchanged; this is a DOM move plus CSS, no rewiring. Verified all five still resolve: `zoomPreview`, `lcdUndo`, `lcdRedo`, `blankProjection`, `goFullscreen`.
+
+`.lcd-program-box .lcd-controls-row` right-aligns, drops the flex spacer (nothing to push apart in a column), and — **at every width, not just under 1700px** — compacts the Project button. Its 170px `min-width` for ~99px of content wrapped it to a second line even at 1920, and that wrap was 44px the editor did not get: the in-column row went 84px → 40px.
+
+| | before | after |
+|---|---|---|
+| 1920 editor panel | 420 | **474** |
+| 1366 editor panel | 200 | **222** |
+| 1366 tray row | 150 | **181** |
+
+Zero section scroll at both sizes; Program Output still measures a true 16:9 (ratio 1.778).
+
+At 1366 the column is 287px wide so the in-column controls wrap to two lines (82px). The Program Output box absorbs it — its screen is 161px of the 222px row — so nothing else is squeezed.
+
+### "All Slides" button in the Slide Editor header
+
+`openSectionAllSlides(sectionId)` had existed since the section-menu work **with no call site**. It now has one: a new `All Slides` button in `.lcd-lyrics-actions`, wired to a thin resolver `lcdOpenSectionAllSlides()` that works out which section the operator is in from `currentSectionId`, falling back to the selected slide's `data-section`, and warns rather than throwing when nothing is selected.
+
+Opens every slide in the **section** — not just the selected slide's own song or liturgy item — as one editable text block. Verified on section 1 (23 slides across two liturgy items): the modal opened with 919 characters of that section's content.
+
+---
+
 ## 2026-08-12 — 1366x768 now fits with no scrolling (branch `feature/premium-mobile-roster`)
 
 Follow-on from the entry below, which left 1366 with 42px of section scroll and the tray body clipped by 167px. The cause was chrome, not the tray: the workspace column's own header rows wrapped, and every wrapped row is height the tray does not get.
