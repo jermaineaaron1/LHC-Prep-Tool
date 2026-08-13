@@ -4,6 +4,31 @@ _Last updated: 2026-08-13 by Claude Code_
 
 ---
 
+## 2026-08-13 (rail follow + roster card) — Schedule scrolls with the selection; duty names read as one line
+
+### LCD Projection: the rail follows the selected slide
+
+Arrow-key stepping walked the selection off the bottom of the Service Schedule. `selectSlideBox` was calling `box.scrollIntoView()` on the **slide box**, which is hidden behind the rail in LCD Projection, so nothing moved.
+
+New `_lcdScrollRailToSelected(box)`: maps the box back to its rail row through `_lcdRailRowMap` (so it works in the instant before the debounced re-render moves the `selected` class), finds the nearest actually-scrolling ancestor, and scrolls the **minimum** distance to bring the row into view with a 14px margin — stepping one slide nudges the list rather than jumping it. Called from `selectSlideBox` (rail present → rail instead of box) and at the end of `_lcdRenderCompactRail()` (the rows are new nodes after every render).
+
+Verified at 1440×860 on a 98-row rail: stepping down held the row fully visible and grew `scrollTop` 174 → 213 → 262 only as the row reached the bottom edge; stepping back up kept it visible without moving. Song Order (no rail) keeps the original `scrollIntoView`.
+
+### Mobile roster Service Cards
+
+- **Multi-person duties are one comma-separated line.** The numbered boxes are gone: "Danny Wong, Margaret Loo, Ngai Kwai", "Anny Lim, KY Lim". Unfilled slots are simply not shown (Singers 3 and 4 vanish rather than showing empty boxes). `.rmp-shared-team` now matches the single-person cell exactly — 12px / 700 / same colour / 8px 10px padding — which is what makes the rows read as one kind of thing.
+- **PIC mode keeps a way in:** empty slots would otherwise be unreachable, so in PIC mode only they render a small dashed `+` tap target. Normal viewing shows none.
+- **Reader rows stack:** name on top, its reading underneath in **bold italic** (`small.rmp-passage`, dark green), via a `.rmp-person.stacked` modifier. Non-reader rows are untouched.
+- The per-card WhatsApp share image clones the live card, so it inherits all of this — its scaled CSS copy (`_rmpCardShareCSS`) was updated to match, and the now-unused `.rmp-person-slot` rules were removed from both copies.
+
+Verified at 375×812 against real roster data (read-only — zero unsaved edits after the pass).
+
+### Harness note
+
+Chained `setTimeout` callbacks inside one `javascript_exec` silently never ran during this session; the page's own timers were fine. Drive multi-step UI tests as one dispatch/read per call instead. Also: reading `.lcd-rail-slide-row.selected` immediately after a key dispatch returns the PREVIOUS row — the rail rewrites that class on a 120ms debounce.
+
+---
+
 ## 2026-08-13 (songbook changes) — Auto-applied, not asked; blue selected cell, red changed cell
 
 Behaviour change on the user's instruction: **the songbook is the source of wording.** A lyric edit made in the songbook is now applied to the open order's slides automatically; the operator is told what changed instead of being asked which version to keep. The "Use the library version / Keep this order's version" prompt is gone (both handlers and their exports deleted — the banner was their only caller).
