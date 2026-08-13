@@ -25827,6 +25827,9 @@ var WO = (function() {
       if (!savedBackgrounds.length) loadBackgrounds();
       _lcdSetupMediaDropZone();
       _lcdSetupPreviewDropZone();
+      // Catch up on songbook edits made while this order was closed, before
+      // the rail is drawn from the slide DOM.
+      _lcdAutoApplyLibraryChanges();
       _lcdRenderCompactRail();
       _lcdSetupCompactRailObserver();
       _lcdRenderLibraryPanel();
@@ -48569,7 +48572,14 @@ var WO = (function() {
     for (var i = 0; i < n; i++) {
       var o = _lcdLyricsOnly(ordLines[i] == null ? '' : ordLines[i]);
       var l = _lcdLyricsOnly(libLines[i] == null ? '' : libLines[i]);
-      if (o && o !== l) changed[o] = true;
+      // Both sides are marked because the editor may be showing either one:
+      // the NEW wording after a songbook update was auto-applied, or this
+      // order's own wording when it carries a custom edit. Whichever text is
+      // on screen, its changed lines light up.
+      if (o !== l) {
+        if (o) changed[o] = true;
+        if (l) changed[l] = true;
+      }
     }
     if (!Object.keys(changed).length) return;
     var parts = _getEditorHtml(ed).split(/<br\s*\/?>/gi);
@@ -48628,30 +48638,58 @@ var WO = (function() {
     }
     var _marksOn = (_lcdChangeViews[_vKey] || 0) <= 2;
 
-    var heading = (c.source === 'custom')
-      ? 'Lyrics edited for this service'
-      : (c.kind === 'added' ? 'New slide added in the library'
-        : c.kind === 'removed' ? 'This slide is no longer in the library'
-        : 'Library lyrics updated for this slide');
-    var libPreview = _lcdNormalizeLyrics(c.libText);
-    var body = (c.kind === 'removed')
-      ? 'The worship team removed this slide from the library version.'
-      : 'The library now reads:';
+    // The notice is informational and short-lived: it says what the wording
+    // used to be and what it is now, on the same two-look lifetime as the
+    // in-editor highlight. It asks nothing -- a songbook edit has already been
+    // applied by _lcdAutoApplyLibraryChanges by the time this runs.
+    if (!_marksOn) {
+      el.style.display = 'none';
+      if (_userLook) _lcdAckSlide(entryId, si, c.libText);
+      return;
+    }
 
-    // The banner's library preview marks the specific line(s) whose words
-    // differ from this order's slide, on the same two-look lifetime as the
-    // editor glow. Position-based compare, same normalisation as the detector.
-    var libDiffHtml;
+    var isLib = (c.source !== 'custom');
+    var heading = isLib
+      ? (c.kind === 'added' ? 'The songbook added a slide here'
+        : c.kind === 'removed' ? 'The songbook no longer has this slide'
+        : 'Songbook update applied to this slide')
+      : 'This service uses its own wording here';
+
+    // Which text the slide carries now, and which one it replaced. For an
+    // applied songbook update the order's old wording is the "before"; for a
+    // slide customised in this order, the songbook's wording is what it
+    // differs from.
+    var prevText  = isLib ? c.orderText : c.libText;
+    var nowText   = isLib ? c.libText   : c.orderText;
+    var prevLabel = isLib ? 'Previously' : 'Songbook version';
+    var nowLabel  = isLib ? 'Now on this slide' : 'Version used here';
+
+    // Mark the lines that actually differ, position-based, same normalisation
+    // as the detector.
+    function _col(text, otherText, label) {
+      var mine = _lcdNormalizeLyrics(text).split('\n');
+      var theirs = _lcdNormalizeLyrics(otherText).split('\n');
+      var lines = mine.map(function(l, i2) {
+        var isChanged = _lcdLyricsOnly(l) !== _lcdLyricsOnly(theirs[i2] == null ? '' : theirs[i2]);
+        return isChanged ? '<mark class="lcd-diff-line">' + escapeHtml(l) + '</mark>' : escapeHtml(l);
+      }).join('\n');
+      return '<div class="lcd-lyric-col">' +
+        '<div class="lcd-lyric-col-label">' + escapeHtml(label) + '</div>' +
+        '<div class="lcd-lyric-diff">' + lines + '</div>' +
+      '</div>';
+    }
+
+    var bodyHtml;
     if (c.kind === 'removed') {
-      libDiffHtml = '';
-    } else if (_marksOn) {
-      var _ordLines = _lcdNormalizeLyrics(c.orderText).split('\n');
-      libDiffHtml = '<div class="lcd-lyric-diff">' + libPreview.split('\n').map(function(l, i) {
-        var changed = _lcdLyricsOnly(l) !== _lcdLyricsOnly(_ordLines[i] == null ? '' : _ordLines[i]);
-        return changed ? '<mark class="lcd-diff-line">' + escapeHtml(l) + '</mark>' : escapeHtml(l);
-      }).join('\n') + '</div>';
+      bodyHtml = '<div class="lcd-lyric-banner-body">The worship team removed this slide from the songbook. It is still in this order.</div>';
+    } else if (c.kind === 'added') {
+      bodyHtml = '<div class="lcd-lyric-banner-body">The songbook has an extra slide here that this order does not carry.</div>' +
+        '<div class="lcd-lyric-diff">' + escapeHtml(_lcdNormalizeLyrics(c.libText)) + '</div>';
     } else {
-      libDiffHtml = '<div class="lcd-lyric-diff">' + escapeHtml(libPreview) + '</div>';
+      bodyHtml = '<div class="lcd-lyric-prevnow">' +
+        _col(prevText, nowText, prevLabel) +
+        _col(nowText, prevText, nowLabel) +
+      '</div>';
     }
 
     el.className = 'lcd-lyric-banner ' + c.source;
@@ -48659,76 +48697,12 @@ var WO = (function() {
     el.setAttribute('data-slide', String(si));
     txt.innerHTML =
       '<div class="lcd-lyric-banner-head">' + escapeHtml(heading) + '</div>' +
-      '<div class="lcd-lyric-banner-body">' + escapeHtml(body) + '</div>' +
-      libDiffHtml +
-      '<div class="lcd-lyric-banner-actions">' +
-        (c.kind === 'removed' ? '' :
-          '<button class="lcd-lyric-refresh" onclick="WO.lcdRefreshSlideFromLibrary()"><i class="fa-solid fa-rotate"></i> Use the library version</button>') +
-        '<button class="lcd-lyric-dismiss" onclick="WO.lcdDismissLyricNotice()">Keep this order’s version</button>' +
-      '</div>' +
+      bodyHtml +
       '<div class="lcd-lyric-banner-foot">Chord and key changes are not reported.</div>';
     el.style.display = '';
     // Gated the same way as the look counter: a machine selection during
     // order load must not clear the rail flag either.
     if (_userLook) _lcdAckSlide(entryId, si, c.libText);
-  }
-
-  // Pull the library's wording into this slide and project it.
-  function lcdRefreshSlideFromLibrary() {
-    var el = document.getElementById('lcdLyricBanner');
-    if (!el) return;
-    var entryId = el.getAttribute('data-entry');
-    var si = parseInt(el.getAttribute('data-slide') || '-1', 10);
-    var chg = entryId ? _lcdChangedSlides(entryId) : null;
-    var c = (chg && si >= 0) ? chg[si] : null;
-    if (!c) { showToast('That change is no longer available.', 'warning'); return; }
-    var box = _lcdRelocateActiveSlideBox();
-    if (!box) { showToast('Select the slide again, then retry.', 'warning'); return; }
-    _lcdPushUndo();
-    // Strip the leading [Header] line: the slide box stores body text only,
-    // the header lives in the slide's own header element.
-    var body = String(c.libText).replace(/^\[[^\]\n]*\]\n?/, '');
-    _lcdWriteSlideText(box, body);
-    _lcdLoadSlideIntoEditor(box);
-    _lcdCommitEditorToSlide();
-    _lcdAckSlide(entryId, si, c.libText);
-    // The change detector reads the ENTRY's stored lyrics, not the slide DOM.
-    // Hiding the banner without updating them only lasted until the rail's
-    // 120ms debounce fired: its passive refresh recomputed "changed" from the
-    // stale masterLyrics and re-showed the banner for a difference the
-    // operator had just resolved. Substitute the library text into the stored
-    // lyrics at this slide's position so the recompute agrees the slide is
-    // current; a genuinely NEW library edit still differs and re-raises
-    // everything.
-    var _entry = songOrderSections.find(function(s) { return s.id === entryId; });
-    if (_entry && !String(_entry.customLyrics || '').trim()) {
-      var _base = (_entry.masterLyrics != null && String(_entry.masterLyrics).trim())
-        ? _entry.masterLyrics : _entry.lyrics;
-      var _chunks = _lcdSlideTexts(_base);
-      if (si >= 0 && si < _chunks.length) {
-        _chunks[si] = c.libText;
-        var _rebuilt = _chunks.join('\n\n');
-        _entry.masterLyrics = _rebuilt;
-        _entry.lyrics = _rebuilt;
-      }
-    }
-    if (typeof autoSaveOrder === 'function') autoSaveOrder();
-    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
-    el.style.display = 'none';
-    showToast('Slide updated to the library version', 'success');
-  }
-
-  // Keep this order's wording; just stop flagging this version.
-  function lcdDismissLyricNotice() {
-    var el = document.getElementById('lcdLyricBanner');
-    if (!el) return;
-    var entryId = el.getAttribute('data-entry');
-    var si = parseInt(el.getAttribute('data-slide') || '-1', 10);
-    var chg = entryId ? _lcdChangedSlides(entryId) : null;
-    var c = (chg && si >= 0) ? chg[si] : null;
-    if (c) _lcdAckSlide(entryId, si, c.libText);
-    el.style.display = 'none';
-    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
   }
 
   // Paint the slide's real background and alignment onto the editor canvas so
@@ -50179,6 +50153,31 @@ var WO = (function() {
   // _lcdLastChangeViewKey); leaving and coming back does.
   var _lcdChangeViews = {};
   var _lcdLastChangeViewKey = null;
+  // Songbook edits are applied to this order's slides AUTOMATICALLY -- the
+  // operator is told what changed, never asked to choose. Once applied the
+  // order matches the library again, so the live detector can no longer see
+  // the change; this log is what remembers it, keyed "entryId|slideIdx" and
+  // holding { orderText (what the slide said before), libText (what it says
+  // now) }. It drives the red rail cell, the in-editor highlight and the
+  // before/after notice, and is cleared when the editor switches orders.
+  var _lcdLibChangeLog = {};
+  var _lcdLibChangeLogOrderId = null;
+  // The log belongs to one order. Rather than hooking every order-switch call
+  // site, it drops itself the moment the open order's id changes -- both
+  // readers call this first.
+  function _lcdSyncLibChangeLogOwner() {
+    var oid = (typeof currentOrderData !== 'undefined' && currentOrderData) ? (currentOrderData.id || null) : null;
+    // An unsaved order has no id yet, and gains one at its first save. Treating
+    // null -> id as an order switch wiped the log mid-session and the notice
+    // went silent on the second look, so only a change between two REAL ids
+    // counts as switching orders.
+    if (!oid) return;
+    if (!_lcdLibChangeLogOrderId) { _lcdLibChangeLogOrderId = oid; return; }
+    if (oid !== _lcdLibChangeLogOrderId) {
+      _lcdLibChangeLog = {};
+      _lcdLibChangeLogOrderId = oid;
+    }
+  }
   // Stamped when LCD Projection is entered. Order load auto-selects a slide
   // through the same selectSlideBox path as a real click; without this gate
   // that machine selection acknowledged the rail flag and burned one of the
@@ -50255,6 +50254,87 @@ var WO = (function() {
       }
     }
     return Object.keys(map).length ? map : null;
+  }
+
+  // Write one slide's new library wording into this order: the stored lyrics
+  // (what the change detector and the next save read) and the slide box in
+  // the DOM. Returns true when the slide was actually rewritten.
+  function _lcdWriteLibTextToSlide(entry, si, libText) {
+    var base = (entry.masterLyrics != null && String(entry.masterLyrics).trim())
+      ? entry.masterLyrics : entry.lyrics;
+    var chunks = _lcdSlideTexts(base);
+    if (si < 0 || si >= chunks.length) return false;
+    chunks[si] = libText;
+    var rebuilt = chunks.join('\n\n');
+    entry.masterLyrics = rebuilt;
+    entry.lyrics = rebuilt;
+    // The slide box only exists while Service Order is built; in Song Order
+    // the model update above is the whole job.
+    var box = document.querySelector('.wo-slide-box[data-song-id="' + entry.id + '"][data-slide-idx="' + si + '"]');
+    if (box) {
+      // Strip the leading [Header] line -- the box stores body text only,
+      // the header lives in the slide's own header element.
+      _lcdWriteSlideText(box, String(libText).replace(/^\[[^\]\n]*\]\n?/, ''));
+      // Reload the editor only if it is showing this slide and the operator
+      // is not typing in it.
+      var _ed = _lcdEditorEl();
+      if (box.classList.contains('selected') && document.activeElement !== _ed) {
+        _lcdLoadSlideIntoEditor(box);
+      }
+    }
+    return true;
+  }
+
+  // Apply every pending songbook lyric change to this order's slides. The
+  // operator is never asked to choose: the songbook is the source of wording,
+  // and the change is announced (toast now, before/after notice + red rail
+  // cell + highlighted lines when they open the slide) rather than gated
+  // behind a prompt.
+  //
+  // Two deliberate exclusions:
+  //  - An entry with customLyrics has been given its own wording FOR THIS
+  //    ORDER. That is a decision the operator made here; the songbook does
+  //    not overrule it. Such slides are still flagged and explained.
+  //  - Only kind 'changed' is applied. 'added'/'removed' mean the library's
+  //    slide COUNT differs, which is a structural edit this text-level write
+  //    cannot do safely; those are reported, not applied.
+  function _lcdAutoApplyLibraryChanges() {
+    _lcdSyncLibChangeLogOwner();
+    if (!Array.isArray(songOrderSections) || !songOrderSections.length) return 0;
+    var applied = 0;
+    songOrderSections.forEach(function(entry) {
+      if (!entry || !entry.id) return;
+      if (String(entry.customLyrics || '').trim()) return;
+      var chg = _lcdChangedSlides(entry.id);
+      if (!chg) return;
+      Object.keys(chg).forEach(function(k) {
+        var si = parseInt(k, 10);
+        var c = chg[k];
+        if (!c || c.kind !== 'changed' || c.source !== 'library') return;
+        var key = entry.id + '|' + si;
+        var prior = _lcdLibChangeLog[key];
+        // Same version already applied -- nothing new arrived.
+        if (prior && _lcdNormalizeLyrics(prior.libText) === _lcdNormalizeLyrics(c.libText)) return;
+        if (!_lcdWriteLibTextToSlide(entry, si, c.libText)) return;
+        _lcdLibChangeLog[key] = {
+          libText: c.libText,
+          // Chain from the ORIGINAL wording when a slide changes twice before
+          // the operator looks, so "previously" stays the text they last saw.
+          orderText: (prior && !_lcdSlideAcked(entry.id, si, prior.libText)) ? prior.orderText : c.orderText,
+          kind: 'changed', source: 'library', ts: Date.now()
+        };
+        applied++;
+      });
+    });
+    if (applied) {
+      _lcdResetLyricStatusCache();
+      if (typeof autoSaveOrder === 'function') autoSaveOrder();
+      if (typeof showToast === 'function') {
+        showToast('Songbook update applied to ' + applied + ' slide' + (applied === 1 ? '' : 's') +
+          ' — open the slide marked in red to see what changed.', 'info');
+      }
+    }
+    return applied;
   }
 
   // Has this exact version of this slide already been looked at?
@@ -50348,9 +50428,27 @@ var WO = (function() {
   var _lcdChangedSlidesCache = {};
   function _lcdChangedSlidesCached(entryId) {
     if (!Object.prototype.hasOwnProperty.call(_lcdChangedSlidesCache, entryId)) {
-      _lcdChangedSlidesCache[entryId] = _lcdChangedSlides(entryId);
+      _lcdChangedSlidesCache[entryId] = _lcdChangedSlidesMerged(entryId);
     }
     return _lcdChangedSlidesCache[entryId];
+  }
+
+  // What the rail and the notice actually read: the live diff (this order's
+  // own wording vs the library) PLUS the songbook updates already applied to
+  // this order, which the live diff can no longer see precisely because they
+  // were applied. A live difference wins -- it is the current state.
+  function _lcdChangedSlidesMerged(entryId) {
+    _lcdSyncLibChangeLogOwner();
+    var live = _lcdChangedSlides(entryId);
+    var map = {};
+    if (live) Object.keys(live).forEach(function(k) { map[k] = live[k]; });
+    Object.keys(_lcdLibChangeLog).forEach(function(key) {
+      var sep = key.lastIndexOf('|');
+      if (key.slice(0, sep) !== entryId) return;
+      var si = key.slice(sep + 1);
+      if (!map[si]) map[si] = _lcdLibChangeLog[key];
+    });
+    return Object.keys(map).length ? map : null;
   }
 
   function _lcdBuildRailRow(sIdx, slideNum, groupTitle, slideBoxEl, iconClass) {
@@ -50368,6 +50466,7 @@ var WO = (function() {
     // until the operator has opened it (acknowledgement is per-version, so a
     // later edit to the same slide brings the badge back).
     var _flag = '';
+    var _changedCls = '';
     var _eid = slideBoxEl.getAttribute('data-song-id');
     if (_eid) {
       var _chg = _lcdChangedSlidesCached(_eid);
@@ -50376,12 +50475,16 @@ var WO = (function() {
       if (_c && !_lcdSlideAcked(_eid, _si, _c.libText)) {
         var _tip = (_c.source === 'custom'
           ? 'The words on this slide were changed for this order.'
-          : 'The worship team changed the words on this slide in the library.')
-          + ' Click the slide to see what changed. (Chord and key changes are not reported.)';
+          : 'The songbook wording for this slide changed and has been applied.')
+          + ' Open the slide to see what changed. (Chord and key changes are not reported.)';
+        // The whole row goes red until the operator opens the slide -- the
+        // colour is the signal; the icon just survives greyscale/colourblind
+        // viewing.
+        _changedCls = ' lyric-changed';
         _flag = '<span class="lcd-lyric-flag ' + _c.source + '" title="' + escapeHtml(_tip).replace(/"/g, '&quot;') + '"><i class="fa-solid fa-pen-nib"></i></span>';
       }
     }
-    return '<div class="lcd-rail-slide-row' + (isSelected ? ' selected' : '') + '" id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
+    return '<div class="lcd-rail-slide-row' + _changedCls + (isSelected ? ' selected' : '') + '" id="' + rowId + '" onclick="WO._lcdRailRowClick(\'' + rowId + '\')">' +
       '<div class="lcd-rail-slide-num"><i class="fa-solid ' + iconClass + '"></i> ' + (sIdx + 1) + '.' + slideNum + '</div>' +
       '<div class="lcd-rail-slide-body">' +
         '<div class="lcd-rail-item-title" title="' + titleAttr + '">' + _flag + escapeHtml(groupTitle) + '</div>' +
@@ -57652,14 +57755,16 @@ var WO = (function() {
     // which is why live pings worked and reloads did not).
     lcdRefreshLibrary: function() {
       _lcdResetLyricStatusCache();
+      // A songbook edit just landed: apply it to this order's slides before
+      // anything renders, so the rail draws the red cell and the operator is
+      // told what changed rather than asked what to do.
+      if (document.getElementById('lcdCompactRail')) _lcdAutoApplyLibraryChanges();
       _lcdRenderLibraryPanel();
       if (typeof _lcdRenderCompactRail === 'function'
           && document.getElementById('lcdCompactRail')) {
         _lcdRenderCompactRail();
       }
     },
-    lcdRefreshSlideFromLibrary: lcdRefreshSlideFromLibrary,
-    lcdDismissLyricNotice: lcdDismissLyricNotice,
     lcdLibrarySetChip: lcdLibrarySetChip,
     lcdLibraryAddSong: lcdLibraryAddSong,
     lcdLibraryDragStart: lcdLibraryDragStart,
@@ -66354,6 +66459,44 @@ function filterLiturgyItems() {
        each keeps its icon and tooltip. */
     #worshipOrderView.lcd-mode .wo-btn-lbl-secondary { display: none; }
   }
+
+  /* ---- Rail cell states: selected (blue) and changed (red) --------------- */
+  /* Declared after the three earlier .lcd-rail-slide-row blocks (dark base +
+     two light-theme passes) so equal-specificity rules resolve here, in one
+     place, whichever skin is active. Text colour is set explicitly on every
+     child: the ivory/gold rail colours are unreadable on these fills. */
+  .lcd-rail-slide-row.lyric-changed {
+    background: #fde2e2;
+    border-color: #dc2626;
+    box-shadow: inset 3px 0 0 0 #dc2626;
+  }
+  .lcd-rail-slide-row.lyric-changed .lcd-rail-item-title,
+  .lcd-rail-slide-row.lyric-changed .lcd-rail-slide-preview,
+  .lcd-rail-slide-row.lyric-changed .lcd-rail-slide-num { color: #7f1d1d; }
+  .lcd-rail-slide-row.lyric-changed:hover { background: #fbd0d0; }
+  /* Selected wins over changed: opening the slide is what clears the red, and
+     during the moment both classes are on the row it should read as selected. */
+  .lcd-rail-slide-row.selected,
+  .lcd-rail-slide-row.lyric-changed.selected {
+    background: #cfe4fb;
+    border-color: #2563eb;
+    box-shadow: 0 1px 3px rgba(37,99,235,0.25);
+  }
+  .lcd-rail-slide-row.selected .lcd-rail-item-title,
+  .lcd-rail-slide-row.selected .lcd-rail-slide-preview,
+  .lcd-rail-slide-row.selected .lcd-rail-slide-num,
+  .lcd-rail-slide-row.selected .lcd-rail-slide-del { color: #111827; }
+  .lcd-rail-slide-row.selected:hover { background: #bfd9f7; }
+
+  /* ---- Before / after notice -------------------------------------------- */
+  /* Two columns on a wide editor, stacked when the column is narrow. */
+  .lcd-lyric-prevnow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .lcd-lyric-col { flex: 1 1 190px; min-width: 0; }
+  .lcd-lyric-col-label {
+    font-family: 'Poppins', sans-serif; font-size: 0.58rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.07em; opacity: 0.75; margin-bottom: 2px;
+  }
+  .lcd-lyric-prevnow .lcd-lyric-diff { margin-top: 0; }
 
   /* ---- Mobile-only All Slides button (base: hidden) ---------------------- */
   /* The phone layout below removes the Slide Editor panel, so this button --
