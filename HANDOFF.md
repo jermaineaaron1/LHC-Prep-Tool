@@ -1,6 +1,40 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-08-12 by Claude Code_
+_Last updated: 2026-08-13 by Claude Code_
+
+---
+
+## 2026-08-13 — Font-size fix, +10px editor/output depth, phone projection-first layout
+
+Three user requests in one round, all on the LCD Projection page.
+
+### Fixed: the Size dropdown died after two or three uses
+
+`lcdFmtSize` applies size by exec'ing `fontSize` then replacing the resulting `<font size="7">` nodes with styled spans. **`replaceChild()` destroyed the nodes the live selection referenced**; `_lcdSaveSel()` silently declines to save a selection outside the editor, so it kept the PREVIOUS saved range — which now pointed into removed nodes. The next pick restored that dead range and the command landed nowhere. Fix: after the span rewrite, re-select the replacement spans so the saved range always references live nodes; `_lcdRestoreSel` additionally drops any saved range whose endpoints are no longer connected (protects the Font dropdown too). Verified live: five consecutive size changes on one selection (24→36→18→48→60px) each applied.
+
+### Slide Editor + Program Output run 10px deeper
+
+`_lcdSizeWorkspaceColumns()` sizes the outputs row to the Program Output's natural content height; that figure now gets **+10px**. The 16:9 screen's height is width-driven, so the extra depth lands in the editor's scrollable body (more visible lyric lines in windowed mode) while both boxes still bottom out together; the Media Tray starts 10px lower. Verified at 1280: row = natural+10, editor bottom == output bottom, tray below.
+
+### Phones (≤768px): projection-first layout, All Slides is the editor
+
+Scoped `#worshipOrderView.lcd-mode` + `@media (max-width:768px)` — Song Order and the landing screen are untouched (`lcd-mode` is only on while the projection workspace is up):
+
+- The **Slide Editor panel, Song Library, Media Tray, drawer and FAB are hidden**; the Service Schedule (42%) and the preview panel sit **side by side in flow**.
+- The preview panel is **sticky** (top 8px) so the Program Output stays in view while the long schedule scrolls; the drawer rules' fixed/transform/edge-pins are all overridden at higher specificity.
+- `.lcd-program-box`'s base `min-width:220px` pushed the screen past the phone's right edge — overridden to 0 in this block.
+- New **mobile-only All Slides button** (`.lcd-mobile-allslides-btn`, gold, 44px, full width) above the Program Output label calls the existing `WO.lcdOpenSectionAllSlides()`; tap a schedule row, then the button → All Slides modal is the editing surface. Hidden at every width where the editor panel exists.
+- `initMobilePreview()` now takes a non-drawer branch in lcd-mode on mobile (no collapsed class, no FAB, no swipe wiring).
+
+Verified live at 375×812: side-by-side columns, sticky panel, output fits the viewport (182×102 screen), All Slides modal opens from the button. Desktop at 1280 unchanged (button hidden, editor/tray/library visible, bottoms aligned).
+
+### Environment note, not an app bug
+
+Resizing the dev pane desktop→mobile left the sidebar rail's inline `grid-template-columns … !important` on `.lhc-root` (main content collapsed to 68px). The existing `initSidebar` resize listener clears it — **the pane's programmatic viewport resize just doesn't fire a real `resize` event**. Real browsers fire it; dispatch `new Event('resize')` manually after resizing the pane before measuring anything.
+
+### Cleanup
+
+Three throwaway "Service Worship Order" rows created by test autosaves/unload flushes were deleted (verified zero orders created today remain); crash journal cleared. `Index.html` and `dist/index.html` byte-identical; all 12 inline script blocks pass `node --check`.
 
 ---
 
