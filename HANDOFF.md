@@ -4,6 +4,30 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 (songbook → LCD) — Songbook edits now flag the slide; schedule header unstuck
+
+### Songbook edits produced no red cell and no yellow lines
+
+**The Worship Songbook does not edit the song library — it edits THIS ORDER'S copy** (`sbOnLyricsChange`'s 600ms save sets `song.lyrics`, `song.customLyrics`, `hasCustomLyrics = true` on the `songOrderSections` entry). The detector only compared the order against the library, and `_lcdAutoApplyLibraryChanges` deliberately skips entries carrying `customLyrics`, so a songbook edit was invisible to it: nothing logged, nothing flagged.
+
+Fixed by recording the songbook edit as a change event where it happens:
+
+- **`_lcdRecordSongbookEdit(entryId, oldLyrics, newLyrics)`** writes the changed slides into `_lcdLibChangeLog` — the same log the red rail cell and the yellow highlight already read.
+- **`_lcdAlignSlideDiff(a, b)`** was factored out of `_lcdChangedSlides` so the library diff and the songbook recorder agree on *which* slide changed (content alignment, not position).
+- **The "before" text needed a baseline.** Capturing `song.lyrics` in the 600ms save read the NEW text — the **300ms typing broadcast overwrites `song.lyrics` first**, so the diff was always empty. `_lcdSbBaseline[songId]` is now seeded at the top of `sbOnLyricsChange` (the last point where the pre-edit wording still exists) and updated after each recorded change, which also collapses a burst of keystrokes into one change. Cleared with the log on order switch.
+
+**Verified live:** edited verse 2 in the Songbook → on closing it exactly one rail row is red, the verse 2 row; opening it shows the full slide with only "Thou burning sun with GOLDEN RAYS," highlighted yellow; leaving and returning is clean; the red clears on first view.
+
+### Schedule header no longer sticky
+
+`.lcd-schedule-header` (`111 slides` / `Expand Schedule`) had `position: sticky; top: 0`, so it sat on top of the first rail rows while scrolling. Now `static` — it scrolls away with the list. The Slide Editor's own header was checked and is not sticky; the workspace column's stickiness (a previous explicit request) is untouched.
+
+### Checks
+
+Test song and orders deleted (songs back to 51, zero created-today orders); `Index.html`/`dist/index.html` byte-identical; 12/12 inline blocks pass `node --check`.
+
+---
+
 ## 2026-08-14 (later) — Songbook changes: no banner, yellow on the slide, once per change, right slide
 
 The change notice was reporting a **state** ("this order's wording differs from the songbook") instead of an **event** ("the songbook just changed"). A standing difference never goes away, so the same slide was flagged on every load, for an edit made weeks ago — and the banner was reappearing for it.
