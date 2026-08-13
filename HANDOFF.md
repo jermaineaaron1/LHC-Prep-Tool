@@ -4,6 +4,27 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 (later) — Songbook changes: no banner, yellow on the slide, once per change, right slide
+
+The change notice was reporting a **state** ("this order's wording differs from the songbook") instead of an **event** ("the songbook just changed"). A standing difference never goes away, so the same slide was flagged on every load, for an edit made weeks ago — and the banner was reappearing for it.
+
+### What changed
+
+- **The banner is gone.** Markup (`#lcdLyricBanner`), all its CSS, and the before/after column rendering are removed. The change is shown on the slide itself: the editor holds the full slide text with the changed line(s) **highlighted yellow** (`rgba(250,204,21,.85)` on dark ink; `_getEditorHtml` still unwraps the span so it never reaches saved content or the projector).
+- **Event-driven only.** `_lcdChangedSlidesMerged` now returns **only** `_lcdLibChangeLog` — songbook edits that actually arrived and were applied. The live "order vs songbook" diff no longer feeds the rail or the highlight, so an order that legitimately carries its own wording is never flagged.
+- **Exactly one viewing per change.** `_lcdChangeViews`/`_lcdLastChangeViewKey` (the old two-look counter) are replaced by `_lcdShownHighlightKey`. Opening the slide paints the lines and clears the red rail cell; the *next* selection of that slide shows it clean. The key also stops the rail's debounced re-render from wiping the highlight mid-read. A NEW edit is a new version key, so it lights up again — **every** change, unlimited.
+- **Right slide.** `_lcdChangedSlides` aligned slides **positionally**, so an order carrying a slide the songbook doesn't have (a title slide) shifted everything by one: the flag — and the auto-apply write — landed on the wrong slide. It now aligns by **content** (two-pointer walk over normalised text, 4-slide lookahead): equal slides anchor, one-sided slides are skipped, and what's left facing each other is the real edit.
+
+### Verified live (throwaway ZZ song + order, both deleted)
+
+Songbook edit to **verse 2** → exactly one red row, on the verse 2 slide, with the new wording applied. Opening it: red clears, **one** line highlighted yellow ("Thou burning sun with GOLDEN RAYS,"), full slide otherwise plain; highlight survives the rail re-render. Leaving and returning: clean, no highlight, no red. A **second** songbook edit, this time to verse 1 → flagged and highlighted again on the verse 1 slide. No `#lcdLyricBanner` in the DOM.
+
+### Repair note
+
+A scripted splice went wrong mid-round (a `find('{', start+40)` overshot the opening brace) and left an orphaned copy of the old function body, and a second script over-matched `</div>` and deleted the editor-canvas wrapper. Both were repaired in place and checked by diffing element ids against `HEAD` — only `lcdLyricBanner`/`lcdLyricBannerText` are gone, nothing else. When splicing a function by brace matching, anchor on the signature's own `{`, not a fixed offset.
+
+---
+
 ## 2026-08-14 — Songbook editor: the "G becomes a chord" split and the growing blank lines
 
 Two user-reported songbook bugs, both reproduced live before touching code and re-verified after.
