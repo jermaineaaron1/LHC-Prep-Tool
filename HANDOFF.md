@@ -4,6 +4,73 @@ _Last updated: 2026-08-13 by Claude Code_
 
 ---
 
+## 2026-08-13 (songbook changes) — Auto-applied, not asked; blue selected cell, red changed cell
+
+Behaviour change on the user's instruction: **the songbook is the source of wording.** A lyric edit made in the songbook is now applied to the open order's slides automatically; the operator is told what changed instead of being asked which version to keep. The "Use the library version / Keep this order's version" prompt is gone (both handlers and their exports deleted — the banner was their only caller).
+
+### Rail cell colours
+
+- Selected row: light blue `#cfe4fb`, blue border, **black text** on title, preview and numbering (the ivory/gold rail colours were unreadable on a light fill).
+- Row with an unseen change: red `#fde2e2`, `#dc2626` border + left bar, dark-red text. Clears to default the moment the operator opens the slide (the existing per-version ack + the rail's MutationObserver already do this).
+- Selected wins when a row is both — opening it is what clears the red anyway.
+- Declared in one late block so they resolve over all three earlier `.lcd-rail-slide-row` passes (dark base + two light-theme skins).
+
+### Auto-apply
+
+`_lcdAutoApplyLibraryChanges()` runs from `WO.lcdRefreshLibrary()` (the songbook realtime ping) and from `selectOrder('service')` (catch-up for edits made while the order was closed). It writes the new wording into the entry's stored lyrics **and** the slide box, saves, and toasts once per batch.
+
+Two deliberate exclusions, both still *reported*:
+- An entry with `customLyrics` — wording deliberately set for this order — is not overruled by the songbook.
+- Only `kind: 'changed'` is applied; `added`/`removed` mean the library's slide **count** differs, which this text-level write cannot do safely.
+
+### The notice
+
+Once applied, the live detector can no longer see the change (order == library), so **`_lcdLibChangeLog`** remembers it: `entryId|slideIdx → { orderText (before), libText (now) }`. `_lcdChangedSlidesMerged()` unions it with the live diff for the rail and the notice. The banner is now purely informational — **Previously / Now on this slide**, with the differing lines marked in both columns, no buttons — on the same two-look lifetime as the in-editor highlight. Repeat edits before the operator looks chain the "previously" text back to what they last saw.
+
+`_lcdApplyEditorChangeHighlights` now marks **both** sides' changed lines, because the editor may be showing either the new wording (auto-applied) or this order's own (custom).
+
+### Verified live (throwaway ZZ song + order, both deleted)
+
+Songbook edit → ping → slide 1 rewrote itself to the new wording, exactly one rail row went red, slide 2 untouched. Opening it: red cleared, notice showed *Previously "ZZ line one original"* / *Now "ZZ line one CHANGED BY SONGBOOK"* with both lines marked, one highlighted line in the editor, zero buttons. Second look identical; third look silent (no banner, no marks, no red).
+
+### Fixed while testing
+
+The log is owned by one order and drops itself when the order id changes — but a new order's id arrives at its **first save**, and treating `null → id` as a switch wiped the log mid-session (the notice went silent on the second look). Only a change between two real ids counts now.
+
+**Harness note:** the rail re-renders on a 120ms observer, so row references captured before a click are detached; re-query rows before every click or the clicks silently do nothing.
+
+### Checks
+
+Test song and all throwaway orders deleted (songs back to 51, zero created-today orders); `Index.html`/`dist/index.html` byte-identical; 12/12 inline blocks pass `node --check`.
+
+---
+
+## 2026-08-13 (audit fixes) — Liturgy/scripture formatting round-trip, rich split/merge, rail numbering, stamp back-fill
+
+All four findings from this morning's audit round, fixed in order.
+
+### 1. Liturgy and scripture slides keep their formatting across save → reload
+
+The song serializer saved a per-slide `richHtml` field; the liturgy and scripture serializers read only `textContent`, so bold/size/font on those slides silently died at the next load. Both serializers now carry the same `hasRich` detection and `richHtml` field (the liturgy editing-mode branch included) — **and the load side needed the matching half**: `addLiturgyToSection`/`addScriptureToSection` rebuild boxes from plain text, so the restore loops (the same ones that re-apply backgrounds) now write `slide.richHtml` back over the rebuilt `.wo-slide-line`s. Verified live: 36px+bold on a liturgy slide → autosave (cloud row shows `richHtml`) → full page reload → order re-open → span intact in the slide box.
+
+### 2. Ctrl+Enter split and Backspace merge preserve formatting
+
+Both paths flattened to `innerText` and rebuilt via the plain-text `_lcdWriteSlideText` (which nulls `richHtml`). New helpers `_lcdHasRichHtml()` and `_lcdWriteSlideHtml()` (rich counterpart, mirrors songs into `songOrderSections` with plain + rich copies); `_lcdAddSlideAfter` takes an optional `richHtml` third arg. The split now reads both halves' HTML — `extractContents()` already preserved it, ranges clone a span split by the caret onto both sides — and the merge joins the two slides' line HTML. **Plain content takes the original escapeHtml path unchanged** (rich handling only engages when formatting is actually present). Verified live: split kept the span in the left half; merge rejoined with the span intact; a plain liturgy split produced clean plain boxes.
+
+### 3. Rail section numbering no longer doubles
+
+The service template seeds sections named "1. Invocation" etc., and the rail prepended its own ordinal → "1. 1. Invocation". The rail now strips a leading `\d+.\s*` from the stored title before numbering (display-only; the stored name is untouched, rename still edits the real title). The rail's position-based ordinal is the one that stays correct after reordering.
+
+### 4. New orders get their ownership stamp at first save
+
+`initializeService/SongOrder` stamp the container from `currentOrderData.id`, which a brand-new order doesn't have until its first save — so the save-refusal guard sat inert for the whole first session. Both id-assignment sites (`saveCurrentOrder`'s guarded `.then()` and the create-order path) now back-fill `data-order-id` when the container is non-empty and unstamped. Verified live: stamp appeared right after the first autosave.
+
+### Checks
+
+Throwaway order deleted (zero created-today rows, including one unload-flush resurrection); `Index.html`/`dist/index.html` byte-identical; 12/12 inline blocks pass `node --check`.
+
+---
+
 ## 2026-08-13 (later) — Mobile polish round + desktop ribbon/tray spacing
 
 Screenshot-driven round on the LCD Projection page, mobile and desktop.
