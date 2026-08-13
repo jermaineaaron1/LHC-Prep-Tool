@@ -42711,6 +42711,16 @@ var WO = (function() {
 
   function sbOnLyricsChange(songId, evt) {
     if (evt && evt.isComposing) return; // mid-IME-composition: wait for compositionend's input event
+    // Baseline for the LCD change flag, taken HERE because this is the last
+    // point at which song.lyrics still holds the pre-edit wording: the 300ms
+    // typing broadcast below overwrites it well before the 600ms save runs,
+    // so capturing it there saw the new text and found no change at all.
+    // Diffing from the last RECORDED state also collapses a burst of
+    // keystrokes into one change.
+    if (!Object.prototype.hasOwnProperty.call(_lcdSbBaseline, songId)) {
+      var _sbBase0 = songOrderSections.find(function(s) { return s.id === songId; });
+      _lcdSbBaseline[songId] = _sbBase0 ? (_sbBase0.lyrics || '') : '';
+    }
     sbReconcileLyrics(songId);
     (function() {
       var _sccRe = /^[A-G][#b♯♭]?$/;
@@ -42796,6 +42806,11 @@ var WO = (function() {
       if (song.itemType === 'blank') {
         song.richContent = el.innerHTML;
       } else {
+        // See sbOnLyricsChange: the baseline is the wording as of the last
+        // recorded change, since song.lyrics has already been overwritten by
+        // the 300ms typing broadcast by the time this runs.
+        var _sbPrevLyrics = Object.prototype.hasOwnProperty.call(_lcdSbBaseline, songId)
+          ? _lcdSbBaseline[songId] : song.lyrics;
         song.lyrics = sbExtractLyricsText(el);
         // Store the canonical chord-line/lyric-line markup. The responsive paired
         // markup is a Songbook-only view and must not leak into LCD projection.
@@ -42805,6 +42820,8 @@ var WO = (function() {
         song.hasCustomLyrics = true;
         // Reflect updated lyrics in Service Order slide boxes
         refreshSongSlidesInOrder(songId, song.lyrics);
+        _lcdRecordSongbookEdit(songId, _sbPrevLyrics, song.lyrics);
+        _lcdSbBaseline[songId] = song.lyrics;
       }
       sbAutoSave();
     }, 600);
@@ -50122,6 +50139,10 @@ var WO = (function() {
   // now) }. It drives the red rail cell and the yellow in-editor highlight,
   // and is cleared when the editor switches orders.
   var _lcdLibChangeLog = {};
+  // Per-song wording as of the last recorded songbook change, keyed by the
+  // order entry id. See sbOnLyricsChange for why the "before" text cannot be
+  // read at save time.
+  var _lcdSbBaseline = {};
   var _lcdLibChangeLogOrderId = null;
   // The log belongs to one order. Rather than hooking every order-switch call
   // site, it drops itself the moment the open order's id changes -- both
@@ -50136,6 +50157,7 @@ var WO = (function() {
     if (!_lcdLibChangeLogOrderId) { _lcdLibChangeLogOrderId = oid; return; }
     if (oid !== _lcdLibChangeLogOrderId) {
       _lcdLibChangeLog = {};
+      _lcdSbBaseline = {};
       _lcdLibChangeLogOrderId = oid;
     }
   }
@@ -50192,6 +50214,81 @@ var WO = (function() {
   // slide index -> { libText, orderText, kind } for the slides that actually
   // differ, so the badge lands on the slide carrying the changed lyric rather
   // than on every slide of the song.
+  // Align two slide-text lists by CONTENT and return only the real edits,
+  // keyed by index in list B. Shared by the library diff and the songbook-edit
+  // recorder so both agree on WHICH slide changed.
+  //
+  // Position-for-position comparison is only right when both lists have the
+  // same layout: one extra slide on either side (a title slide the songbook
+  // does not carry, say) shifted everything by one, and the change was then
+  // reported -- and written -- against the wrong slide. Two-pointer walk:
+  // equal slides are anchors, a slide present on only one side is skipped,
+  // and whatever is left facing each other is the real edit.
+  function _lcdAlignSlideDiff(aTexts, bTexts) {
+    var ak = aTexts.map(_lcdLyricsOnly);
+    var bk = bTexts.map(_lcdLyricsOnly);
+    function findAhead(arr, needle, from, span) {
+      var stop = Math.min(arr.length, from + span);
+      for (var x = from; x < stop; x++) if (arr[x] === needle) return x;
+      return -1;
+    }
+    var out = {};
+    var ai = 0, bi = 0, LOOKAHEAD = 4;
+    while (ai < aTexts.length) {
+      if (bi >= bTexts.length) {
+        out[bi] = { a: aTexts[ai], b: '', kind: 'added' };
+        ai++; bi++;
+        continue;
+      }
+      if (ak[ai] === bk[bi]) { ai++; bi++; continue; }
+      var hitB = findAhead(bk, ak[ai], bi + 1, LOOKAHEAD);
+      var hitA = findAhead(ak, bk[bi], ai + 1, LOOKAHEAD);
+      if (hitB >= 0 && (hitA < 0 || (hitB - bi) <= (hitA - ai))) { bi = hitB; continue; }
+      if (hitA >= 0) { out[bi] = { a: aTexts[ai], b: '', kind: 'added' }; ai = hitA; continue; }
+      out[bi] = { a: aTexts[ai], b: bTexts[bi], kind: 'changed' };
+      ai++; bi++;
+    }
+    return out;
+  }
+
+  // Record a Worship Songbook edit as a change event.
+  //
+  // The songbook edits THIS ORDER'S copy of the song (it sets customLyrics),
+  // not the shared library, so _lcdAutoApplyLibraryChanges -- which compares
+  // the order against the library and deliberately leaves customised entries
+  // alone -- never saw it, and the operator got no red cell and no yellow
+  // lines for the edit they had just made. The edit is captured here instead,
+  // at the moment it happens, with the wording from before and after it.
+  function _lcdRecordSongbookEdit(entryId, oldLyrics, newLyrics) {
+    if (!entryId) return 0;
+    if (_lcdNormalizeLyrics(oldLyrics) === _lcdNormalizeLyrics(newLyrics)) return 0;
+    _lcdSyncLibChangeLogOwner();
+    var d = _lcdAlignSlideDiff(_lcdSlideTexts(oldLyrics), _lcdSlideTexts(newLyrics));
+    var n = 0;
+    Object.keys(d).forEach(function(k) {
+      if (d[k].kind !== 'changed') return;
+      if (_lcdLyricsOnly(d[k].a) === _lcdLyricsOnly(d[k].b)) return;
+      var si = parseInt(k, 10);
+      var key = entryId + '|' + si;
+      var prior = _lcdLibChangeLog[key];
+      _lcdLibChangeLog[key] = {
+        libText: d[k].b,
+        // Keep the earliest wording the operator has NOT seen yet as the
+        // "before", so a burst of keystrokes reads as one change.
+        orderText: (prior && !_lcdSlideAcked(entryId, si, prior.libText)) ? prior.orderText : d[k].a,
+        kind: 'changed', source: 'library', ts: Date.now()
+      };
+      n++;
+    });
+    if (n) {
+      _lcdResetLyricStatusCache();
+      if (typeof _lcdRenderCompactRail === 'function' && document.getElementById('lcdCompactRail')) {
+        _lcdRenderCompactRail();
+      }
+    }
+    return n;
+  }
+
   function _lcdChangedSlides(entryId) {
     if (!entryId) return null;
     var entry = songOrderSections.find(function(s) { return s.id === entryId; });
@@ -50204,48 +50301,12 @@ var WO = (function() {
     var libSlides = _lcdSlideTexts(lib.lyrics);
     var ordSlides = _lcdSlideTexts(orderBase);
 
-    // Align by CONTENT, not by position. Comparing slide i to slide i is only
-    // right when both sides have identical slide layouts: an order that
-    // carries an extra slide the songbook does not have (a title slide, say)
-    // shifts every later slide by one, and the change was then reported --
-    // and auto-applied -- against the WRONG slide. Two-pointer walk over
-    // normalised text: equal slides are anchors, a slide present on only one
-    // side is skipped, and anything left facing each other is the real edit.
-    var lk = libSlides.map(_lcdLyricsOnly);
-    var ok = ordSlides.map(_lcdLyricsOnly);
-    function _findAhead(arr, needle, from, span) {
-      var stop = Math.min(arr.length, from + span);
-      for (var x = from; x < stop; x++) if (arr[x] === needle) return x;
-      return -1;
-    }
+    var d = _lcdAlignSlideDiff(libSlides, ordSlides);
     var map = {};
-    var li = 0, oi = 0, LOOKAHEAD = 4;
-    while (li < libSlides.length || oi < ordSlides.length) {
-      if (li >= libSlides.length) {
-        // Order has trailing slides the songbook does not: not a songbook
-        // edit, so nothing to report.
-        break;
-      }
-      if (oi >= ordSlides.length) {
-        map[oi] = { libText: libSlides[li], orderText: '', kind: 'added', source: custom ? 'custom' : 'library' };
-        li++; oi++;
-        continue;
-      }
-      if (lk[li] === ok[oi]) { li++; oi++; continue; }
-      var hitInOrder = _findAhead(ok, lk[li], oi + 1, LOOKAHEAD);
-      var hitInLib = _findAhead(lk, ok[oi], li + 1, LOOKAHEAD);
-      if (hitInOrder >= 0 && (hitInLib < 0 || (hitInOrder - oi) <= (hitInLib - li))) {
-        oi = hitInOrder; // order-only slides skipped
-        continue;
-      }
-      if (hitInLib >= 0) {
-        map[oi] = { libText: libSlides[li], orderText: '', kind: 'added', source: custom ? 'custom' : 'library' };
-        li = hitInLib;
-        continue;
-      }
-      map[oi] = { libText: libSlides[li], orderText: ordSlides[oi], kind: 'changed', source: custom ? 'custom' : 'library' };
-      li++; oi++;
-    }
+    Object.keys(d).forEach(function(k) {
+      map[k] = { libText: d[k].a, orderText: d[k].b, kind: d[k].kind,
+                 source: custom ? 'custom' : 'library' };
+    });
     return Object.keys(map).length ? map : null;
   }
 
@@ -65634,7 +65695,8 @@ function filterLiturgyItems() {
     border: 1px solid var(--lcd-navy-line, #2a3a5c);
     border-radius: var(--lcd-radius-md, 10px);
     box-shadow: var(--lcd-shadow-sm, 0 1px 2px rgba(0,0,0,.24));
-    position: sticky; top: 0; z-index: 4;
+    /* Deliberately NOT sticky: pinned to the top of the scrolling schedule it
+       sat on top of the first rows. It scrolls away with the list. */
   }
   .lcd-schedule-header-title {
     display: inline-flex; align-items: center; gap: 7px; min-width: 0;
