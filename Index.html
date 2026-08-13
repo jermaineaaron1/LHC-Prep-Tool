@@ -42363,13 +42363,29 @@ var WO = (function() {
   // Nesting-agnostic (walks every descendant via TreeWalker rather than
   // assuming direct children) - Android contenteditable merges are known to
   // sometimes nest elements differently than desktop engines.
+  // A <br> that nothing follows is the browser's own placeholder for an empty
+  // block, NOT a line break the operator typed. Counting it as a newline on
+  // top of the line div that contains it made every empty line read as two:
+  // one Enter grew the pad by two lines, deleting a line's text ADDED a line,
+  // the phantom newline got saved, and the page kept growing. A <br> with real
+  // content after it is a genuine break and still counts.
+  function _sbIsPlaceholderBr(br) {
+    var n = br.nextSibling;
+    while (n) {
+      if (n.nodeType === 1 && n.tagName === 'BR') return false;
+      if ((n.textContent || '').replace(/[\s\u00a0]/g, '') !== '') return false;
+      n = n.nextSibling;
+    }
+    return true;
+  }
+
   function _sbRawFlatText(lyricsEl) {
     var walker = document.createTreeWalker(lyricsEl, NodeFilter.SHOW_ALL, null, false);
     var out = '', first = true, node;
     while ((node = walker.nextNode())) {
       if (node.nodeType === 1) {
         if (_sbIsLineDiv(node)) { if (!first) out += '\n'; first = false; }
-        else if (node.tagName === 'BR') { out += '\n'; }
+        else if (node.tagName === 'BR') { if (!_sbIsPlaceholderBr(node)) out += '\n'; }
       } else if (node.nodeType === 3) {
         out += node.textContent.replace(/\u00a0/g, ' ');
       }
@@ -42386,15 +42402,22 @@ var WO = (function() {
     while ((node = walker.nextNode())) {
       if (node === targetNode) {
         if (node.nodeType === 1) {
+          // The caret sits ON a line div (the normal case for an empty line:
+          // the browser anchors the selection to the div, not to a text node).
+          // This returned before the loop below could add that div's own
+          // leading newline, so the caret mapped to the END OF THE PREVIOUS
+          // LINE -- press Enter, type, and the character appeared on the line
+          // above. Count the newline this div contributes first.
+          var lead = (_sbIsLineDiv(node) && !first) ? 1 : 0;
           var cnt = 0;
           for (var i = 0; i < targetOffset && i < node.childNodes.length; i++) cnt += (node.childNodes[i].textContent || '').length;
-          return out + cnt;
+          return out + lead + cnt;
         }
         return out + Math.min(targetOffset, node.textContent.length);
       }
       if (node.nodeType === 1) {
         if (_sbIsLineDiv(node)) { if (!first) out += 1; first = false; }
-        else if (node.tagName === 'BR') { out += 1; }
+        else if (node.tagName === 'BR') { if (!_sbIsPlaceholderBr(node)) out += 1; }
       } else if (node.nodeType === 3) {
         out += node.textContent.replace(/\u00a0/g, ' ').length;
       }
@@ -42409,7 +42432,7 @@ var WO = (function() {
   // original class, only appending text with no separator). Scoped to
   // divs still classed 'chord' - real lyric words are never classed that
   // way to begin with, so this can't misfire on words like "Gone"/"Grace".
-  function _sbHealChordFusion(el) {
+  function _sbHealChordFusion(el, oldText) {
     var healed = false;
     Array.from(el.children).forEach(function(div) {
       if (_sbLineClass(div) !== 'chord') return;
@@ -42447,43 +42470,48 @@ var WO = (function() {
       healed = true;
     });
 
-    // Mirror direction: a LYRIC-classified div absorbed a trailing chord's
-    // content (native fused the other way - keeping the LYRIC div's class
-    // this time). Walk back from the last token, skipping any that are
-    // already full chord tokens, then test suffixes of the first
-    // non-full-chord token for a valid chord match with a real-word
-    // remainder before it.
-    Array.from(el.children).forEach(function(div) {
-      if (_sbLineClass(div) !== 'lyric') return;
-      var text = div.textContent || '';
-      if (!text.trim()) return;
-      var toks = [];
-      var re2 = /\S+/g, mm;
-      while ((mm = re2.exec(text)) !== null) toks.push({ text: mm[0], index: mm.index });
-      if (!toks.length) return;
-      var i = toks.length - 1;
-      while (i >= 0 && isChordToken(toks[i].text)) i--;
-      if (i < 0) return; // whole line already reads as chord tokens - not this case
-      var boundary = toks[i];
-      for (var cut = 1; cut < boundary.text.length; cut++) {
-        var prefix = boundary.text.substring(0, boundary.text.length - cut);
-        var suffix = boundary.text.substring(boundary.text.length - cut);
-        if (isChordToken(suffix) && !isChordToken(prefix) && /[A-Za-z']$/.test(prefix)) {
-          var splitAt2 = boundary.index + (boundary.text.length - cut);
-          var lyricPart2 = text.substring(0, splitAt2).replace(/\s+$/, '');
-          var chordPart2 = text.substring(splitAt2).replace(/^\s+/, '');
-          if (!chordPart2) break;
-          div.textContent = lyricPart2;
-          var newChord2 = document.createElement('div');
-          newChord2.className = 'wo-lyrics-chord-line';
-          newChord2.setAttribute('spellcheck', 'false');
-          newChord2.textContent = chordPart2;
-          el.insertBefore(newChord2, div.nextSibling);
-          healed = true;
-          break;
-        }
+    // Mirror direction: a native backspace joined a chord line UP into the
+    // lyric line above it, so one DOM line now reads exactly
+    //   <lyric line> + <chord line>
+    // with the newline dropped.
+    //
+    // This used to guess from chord-token shapes: walk back to the last
+    // token and, if some suffix of it parsed as a chord, split there. But a
+    // fused "KIN"+"G" and the ordinary word "KING" are the same characters,
+    // so it truncated normal lyric lines and spat the final letter out as a
+    // chord -- typing the G of KING did exactly that, and any line ending in
+    // a bare A-G (LORD, GRACE, THING) was one keystroke from the same fate.
+    //
+    // Reconstruct the candidates from the last known-good text instead and
+    // split only on an exact match, at the exact boundary. No heuristics: if
+    // the pad never had a chord line there, nothing is split.
+    if (oldText) {
+      var _oldLines = String(oldText).split('\n');
+      var _fusions = {};
+      for (var _fi = 0; _fi + 1 < _oldLines.length; _fi++) {
+        var _lyr = _oldLines[_fi], _chd = _oldLines[_fi + 1];
+        if (!_lyr.trim() || !_chd.trim()) continue;
+        if (isChordLineGlobal(_lyr) || !isChordLineGlobal(_chd)) continue;
+        _fusions[_lyr + _chd] = _lyr.length;
+        _fusions[_lyr + ' ' + _chd] = _lyr.length;
       }
-    });
+      Array.from(el.children).forEach(function(div) {
+        if (_sbLineClass(div) !== 'lyric') return;
+        var text = (div.textContent || '').split(String.fromCharCode(160)).join(' ');
+        if (!Object.prototype.hasOwnProperty.call(_fusions, text)) return;
+        var cut = _fusions[text];
+        var lyricPart = text.substring(0, cut).replace(/\s+$/, '');
+        var chordPart = text.substring(cut).replace(/^\s+/, '');
+        if (!lyricPart || !chordPart) return;
+        div.textContent = lyricPart;
+        var newChord = document.createElement('div');
+        newChord.className = 'wo-lyrics-chord-line';
+        newChord.setAttribute('spellcheck', 'false');
+        newChord.textContent = chordPart;
+        el.insertBefore(newChord, div.nextSibling);
+        healed = true;
+      });
+    }
 
     return healed;
   }
@@ -42561,10 +42589,15 @@ var WO = (function() {
     // contaminated div's class gets reclassified below (based on its now-
     // mixed content), the evidence that it used to be a pure chord line
     // is gone.
-    var _sbHealed = _sbHealChordFusion(el);
+    // oldText is read BEFORE healing: the repair needs the last known-good
+    // text to tell a real chord/lyric fusion from a word that merely ends in
+    // a chord letter (see the guard in _sbHealChordFusion).
+    var _hadCanonical = _sbCanonicalText.hasOwnProperty(sid);
+    var oldText = _hadCanonical ? _sbCanonicalText[sid] : (song ? (song.lyrics || '') : null);
+    var _sbHealed = _sbHealChordFusion(el, oldText);
 
     var rawText = _sbRawFlatText(el);
-    var oldText = _sbCanonicalText.hasOwnProperty(sid) ? _sbCanonicalText[sid] : (song ? (song.lyrics || '') : rawText);
+    if (oldText === null) oldText = rawText;
     if (rawText === oldText) { _sbCanonicalText[sid] = rawText; return; }
 
     // Caret position within the RAW (post-edit) flattened text
@@ -42843,7 +42876,7 @@ var WO = (function() {
       } catch (e) {}
     }
     var walker = document.createTreeWalker(lyricsEl, NodeFilter.SHOW_ALL, null, false);
-    var cum = 0, first = true, node, lastText = null;
+    var cum = 0, first = true, node, lastText = null, lastLine = null;
     while ((node = walker.nextNode())) {
       if (node.nodeType === 3) {
         var len = node.textContent.length;
@@ -42856,6 +42889,7 @@ var WO = (function() {
             cum += 1;
           }
           first = false;
+          lastLine = node;
         } else if (node.tagName === 'BR') {
           if (off <= cum) {
             var idx = 0, sib = node;
@@ -42866,6 +42900,11 @@ var WO = (function() {
         }
       }
     }
+    // Offset lands in a trailing EMPTY line: that div has no text node for the
+    // loop to match and nothing follows it, so the walk ran out and the caret
+    // fell back to the end of the PREVIOUS line -- press Enter at the end of
+    // the pad and the next character appeared on the line above.
+    if (lastLine && off >= cum && !(lastLine.textContent || '').length) { place(lastLine, 0); return; }
     if (lastText) place(lastText, lastText.textContent.length);
     else if (lyricsEl.lastElementChild && typeof _sbCaretAtBlockEnd === 'function') _sbCaretAtBlockEnd(lyricsEl.lastElementChild);
   }
