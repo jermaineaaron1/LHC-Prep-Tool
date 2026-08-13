@@ -4,6 +4,32 @@ _Last updated: 2026-08-13 by Claude Code_
 
 ---
 
+## 2026-08-13 (audit fixes) — Liturgy/scripture formatting round-trip, rich split/merge, rail numbering, stamp back-fill
+
+All four findings from this morning's audit round, fixed in order.
+
+### 1. Liturgy and scripture slides keep their formatting across save → reload
+
+The song serializer saved a per-slide `richHtml` field; the liturgy and scripture serializers read only `textContent`, so bold/size/font on those slides silently died at the next load. Both serializers now carry the same `hasRich` detection and `richHtml` field (the liturgy editing-mode branch included) — **and the load side needed the matching half**: `addLiturgyToSection`/`addScriptureToSection` rebuild boxes from plain text, so the restore loops (the same ones that re-apply backgrounds) now write `slide.richHtml` back over the rebuilt `.wo-slide-line`s. Verified live: 36px+bold on a liturgy slide → autosave (cloud row shows `richHtml`) → full page reload → order re-open → span intact in the slide box.
+
+### 2. Ctrl+Enter split and Backspace merge preserve formatting
+
+Both paths flattened to `innerText` and rebuilt via the plain-text `_lcdWriteSlideText` (which nulls `richHtml`). New helpers `_lcdHasRichHtml()` and `_lcdWriteSlideHtml()` (rich counterpart, mirrors songs into `songOrderSections` with plain + rich copies); `_lcdAddSlideAfter` takes an optional `richHtml` third arg. The split now reads both halves' HTML — `extractContents()` already preserved it, ranges clone a span split by the caret onto both sides — and the merge joins the two slides' line HTML. **Plain content takes the original escapeHtml path unchanged** (rich handling only engages when formatting is actually present). Verified live: split kept the span in the left half; merge rejoined with the span intact; a plain liturgy split produced clean plain boxes.
+
+### 3. Rail section numbering no longer doubles
+
+The service template seeds sections named "1. Invocation" etc., and the rail prepended its own ordinal → "1. 1. Invocation". The rail now strips a leading `\d+.\s*` from the stored title before numbering (display-only; the stored name is untouched, rename still edits the real title). The rail's position-based ordinal is the one that stays correct after reordering.
+
+### 4. New orders get their ownership stamp at first save
+
+`initializeService/SongOrder` stamp the container from `currentOrderData.id`, which a brand-new order doesn't have until its first save — so the save-refusal guard sat inert for the whole first session. Both id-assignment sites (`saveCurrentOrder`'s guarded `.then()` and the create-order path) now back-fill `data-order-id` when the container is non-empty and unstamped. Verified live: stamp appeared right after the first autosave.
+
+### Checks
+
+Throwaway order deleted (zero created-today rows, including one unload-flush resurrection); `Index.html`/`dist/index.html` byte-identical; 12/12 inline blocks pass `node --check`.
+
+---
+
 ## 2026-08-13 (later) — Mobile polish round + desktop ribbon/tray spacing
 
 Screenshot-driven round on the LCD Projection page, mobile and desktop.

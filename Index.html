@@ -24185,6 +24185,13 @@ var WO = (function() {
           currentOrderData.id = result.id;
           currentOrderData.lastEdited = result.lastEdited;
 
+          // Back-fill the ownership stamp for the just-created order (see
+          // the matching block in saveCurrentOrder's .then()).
+          var _stampC2 = $('woWorshipOrder');
+          if (_stampC2 && _stampC2.childElementCount > 0 && !_stampC2.getAttribute('data-order-id')) {
+            _stampC2.setAttribute('data-order-id', result.id);
+          }
+
           // Add to savedOrders
           savedOrders.push({
             id: result.id,
@@ -24732,6 +24739,17 @@ var WO = (function() {
           currentOrderData.id = result.id;
           currentOrderData.lastEdited = result.lastEdited;
 
+          // Back-fill the ownership stamp: a brand-new order is initialized
+          // before it has an id, so the stamp written by initializeService/
+          // SongOrder was empty and the save-refusal guard sat inert for the
+          // whole first session. The container is only stamped when it is
+          // non-empty and unstamped -- an already-stamped container belongs
+          // to whoever stamped it, and the mismatch guard above handles that.
+          var _stampC = $('woWorshipOrder');
+          if (_stampC && _stampC.childElementCount > 0 && !_stampC.getAttribute('data-order-id')) {
+            _stampC.setAttribute('data-order-id', result.id);
+          }
+
           // Update currentOrderData so tab switching can restore state
           currentOrderData.allItems = items;
           currentOrderData.songs = _savedSongs;
@@ -25125,21 +25143,28 @@ var WO = (function() {
         var slideBoxes = boxesContainer.querySelectorAll('.wo-slide-box[data-liturgy-id="' + liturgyId + '"]');
         slideBoxes.forEach(function(box, idx) {
           var litLineEls = Array.from(box.querySelectorAll('.wo-slide-line'));
-          var lines;
+          var lines, lineHtmls;
           if (litLineEls.length === 0 && box.classList.contains('editing')) {
             var litEd = box.querySelector('.wo-slide-editor');
             if (litEd) {
               var litH = _getEditorHtml(litEd);
               var litPts = litH ? litH.split(/<br\s*\/?>/gi) : [];
               lines = litPts.map(function(p) { var t = document.createElement('div'); t.innerHTML = p; return t.textContent || ''; });
-            } else { lines = []; }
+              lineHtmls = litPts;
+            } else { lines = []; lineHtmls = []; }
           } else {
             lines = litLineEls.map(function(el) { return el.textContent; });
+            lineHtmls = litLineEls.map(function(el) { return el.innerHTML; });
           }
           var headerEl = box.querySelector('.wo-slide-section-header');
+          // Same rich-formatting detection the song serializer uses: without
+          // it, bold/size/font applied to a liturgy slide saved as plain text
+          // and silently vanished on the next load.
+          var litHasRich = lineHtmls.some(function(h) { return /<[bBiIuU]\b|<span[^>]*style|<font/i.test(h); });
           slides.push({
             index: idx,
             content: lines.join('\n'),
+            richHtml: litHasRich ? lineHtmls.join('<br>') : null,
             header: headerEl ? headerEl.textContent.trim() : '',
             background: box.getAttribute('data-background') || ''
           });
@@ -25178,12 +25203,14 @@ var WO = (function() {
         if (slidesGroup && slidesGroup.classList.contains('wo-scripture-slides-group')) {
           var slideBoxes = slidesGroup.querySelectorAll('.wo-slide-box');
           slideBoxes.forEach(function(box, idx) {
-            var lines = Array.from(box.querySelectorAll('.wo-slide-line')).map(function(el) {
-              return el.textContent;
-            });
+            var scrLineEls = Array.from(box.querySelectorAll('.wo-slide-line'));
+            var lines = scrLineEls.map(function(el) { return el.textContent; });
+            var scrHtmls = scrLineEls.map(function(el) { return el.innerHTML; });
+            var scrHasRich = scrHtmls.some(function(h) { return /<[bBiIuU]\b|<span[^>]*style|<font/i.test(h); });
             slides.push({
               index: idx,
               content: lines.join('\n'),
+              richHtml: scrHasRich ? scrHtmls.join('<br>') : null,
               background: box.getAttribute('data-background') || ''
             });
           });
@@ -28120,14 +28147,25 @@ var WO = (function() {
             };
             addLiturgyToSection(item.sectionId, liturgyItem);
 
-            // Re-apply any saved slide backgrounds
+            // Re-apply any saved slide backgrounds and rich formatting.
+            // addLiturgyToSection rebuilds the boxes from PLAIN text, so a
+            // slide's saved richHtml (bold/size/font spans) has to be written
+            // back over the rebuilt lines or the formatting only ever
+            // survives until the next load.
             if (item.slides) {
               item.slides.forEach(function(slide, idx) {
+                var slideBox = container.querySelector('.wo-slide-box[data-liturgy-id="' + item.sourceId + '"][data-slide-idx="' + idx + '"]');
+                if (!slideBox) return;
                 if (slide.background) {
-                  var slideBox = container.querySelector('.wo-slide-box[data-liturgy-id="' + item.sourceId + '"][data-slide-idx="' + idx + '"]');
-                  if (slideBox) {
-                    slideBox.setAttribute('data-background', slide.background);
-                    updateSlideBgIndicators();
+                  slideBox.setAttribute('data-background', slide.background);
+                  updateSlideBgIndicators();
+                }
+                if (slide.richHtml) {
+                  var _litContentEl = slideBox.querySelector('.wo-slide-content');
+                  if (_litContentEl) {
+                    _litContentEl.innerHTML = slide.richHtml.split(/<br\s*\/?>/gi).map(function(h) {
+                      return h.trim() ? '<div class="wo-slide-line">' + h + '</div>' : _BLANK_SLIDE_LINE;
+                    }).join('');
                   }
                 }
               });
@@ -28192,12 +28230,22 @@ var WO = (function() {
           var existingBanner = container.querySelector('.wo-song-banner.scripture-banner[data-scripture-title="' + (item.title || '').replace(/"/g, '\\"') + '"]');
           if (!existingBanner) {
             addScriptureToSection(item.sectionId, scriptureItem);
-            // Apply slide backgrounds if saved
+            // Apply slide backgrounds and rich formatting if saved (the
+            // rebuild above is plain-text, same hazard as liturgy slides).
             if (item.slides) {
               var scriptureSlides = container.querySelectorAll('.wo-slide-box[data-source="scripture"][data-scripture-title="' + (item.title || '').replace(/"/g, '\\"') + '"]');
               item.slides.forEach(function(slide, idx) {
-                if (slide.background && scriptureSlides[idx]) {
+                if (!scriptureSlides[idx]) return;
+                if (slide.background) {
                   scriptureSlides[idx].setAttribute('data-background', slide.background);
+                }
+                if (slide.richHtml) {
+                  var _scrContentEl = scriptureSlides[idx].querySelector('.wo-slide-content');
+                  if (_scrContentEl) {
+                    _scrContentEl.innerHTML = slide.richHtml.split(/<br\s*\/?>/gi).map(function(h) {
+                      return h.trim() ? '<div class="wo-slide-line">' + h + '</div>' : _BLANK_SLIDE_LINE;
+                    }).join('');
+                  }
                 }
               });
             }
@@ -48965,19 +49013,66 @@ var WO = (function() {
     }
   }
 
+  // True when the HTML carries formatting worth preserving (same test the
+  // save serializers use).
+  function _lcdHasRichHtml(h) {
+    return /<[bBiIuU]\b|<span[^>]*style|<font/i.test(String(h || ''));
+  }
+
+  // Rich counterpart of _lcdWriteSlideText: rebuilds the slide's lines from
+  // HTML split on <br>, so bold/size/font spans survive splits and merges
+  // instead of being flattened to text. Mirrors song slides into
+  // songOrderSections with both the plain and rich copies.
+  function _lcdWriteSlideHtml(box, html) {
+    var content = box.querySelector('.wo-slide-content');
+    if (!content) return;
+    var parts = String(html || '').split(/<br\s*\/?>/gi);
+    if (parts.length === 0 || (parts.length === 1 && !parts[0].trim())) {
+      content.innerHTML = '<div class="wo-slide-line"></div>';
+    } else {
+      content.innerHTML = parts.map(function(h) {
+        if (!h.trim()) return _BLANK_SLIDE_LINE;
+        return '<div class="wo-slide-line">' + h + '</div>';
+      }).join('');
+    }
+    var songId = box.getAttribute('data-song-id');
+    if (songId) {
+      var song = songOrderSections.find(function(s) { return s.id === songId; });
+      if (song) {
+        var idx = parseInt(box.getAttribute('data-slide-idx') || '0', 10) || 0;
+        if (!song.slides) song.slides = [];
+        if (!song.slides[idx]) song.slides[idx] = { index: idx, content: '', background: '' };
+        var _t = document.createElement('div');
+        song.slides[idx].content = parts.map(function(h) { _t.innerHTML = h; return _t.textContent || ''; }).join('\n');
+        song.slides[idx].richHtml = html;
+      }
+    }
+  }
+
   // Insert a new slide box right after currentBox, in the same group,
   // carrying the given text. Copies the group/source data-attrs and
   // renumbers song/liturgy groups. Returns the new box.
-  function _lcdAddSlideAfter(currentBox, text) {
+  function _lcdAddSlideAfter(currentBox, text, richHtml) {
     var sectionId = currentBox.getAttribute('data-section') || '';
     var liturgyId = currentBox.getAttribute('data-liturgy-id') || '';
     var songId = currentBox.getAttribute('data-song-id') || '';
     var source = currentBox.getAttribute('data-source') || '';
     var scriptureTitle = currentBox.getAttribute('data-scripture-title') || '';
     var isLiturgy = currentBox.classList.contains('wo-liturgy-slide');
-    var linesHtml = (text && text.trim())
-      ? text.split('\n').map(function(line) { if (!line.trim()) return _BLANK_SLIDE_LINE; return '<div class="wo-slide-line">' + escapeHtml(line) + '</div>'; }).join('')
-      : '<div class="wo-slide-line"></div>';
+    // richHtml (optional): pre-formatted line HTML split on <br>, used by the
+    // split path so formatting spans carry into the new slide. Plain text
+    // keeps the original escapeHtml treatment.
+    var linesHtml;
+    if (richHtml) {
+      linesHtml = String(richHtml).split(/<br\s*\/?>/gi).map(function(h) {
+        if (!h.trim()) return _BLANK_SLIDE_LINE;
+        return '<div class="wo-slide-line">' + h + '</div>';
+      }).join('') || '<div class="wo-slide-line"></div>';
+    } else {
+      linesHtml = (text && text.trim())
+        ? text.split('\n').map(function(line) { if (!line.trim()) return _BLANK_SLIDE_LINE; return '<div class="wo-slide-line">' + escapeHtml(line) + '</div>'; }).join('')
+        : '<div class="wo-slide-line"></div>';
+    }
     var extraClasses = isLiturgy ? ' wo-liturgy-slide' : '';
     var dataAttrs = ' data-section="' + sectionId + '"';
     if (liturgyId) dataAttrs += ' data-liturgy-id="' + liturgyId + '"';
@@ -49025,10 +49120,19 @@ var WO = (function() {
     tmp.appendChild(frag);
     var beforeText = ed.innerText || '';
     var afterText = tmp.innerText || '';
-    // Current slide keeps the before-text; a new slide gets the after-text.
-    _lcdWriteSlideText(box, beforeText);
+    // extractContents() preserved the HTML of both halves (ranges clone a
+    // formatting span split by the caret onto both sides) -- use it, so a
+    // split no longer flattens bold/size/font to plain text. Plain content
+    // takes the original text path unchanged.
+    var beforeHtml = _getEditorHtml(ed);
+    var afterHtml = _getEditorHtml(tmp);
+    if (_lcdHasRichHtml(beforeHtml)) {
+      _lcdWriteSlideHtml(box, beforeHtml);
+    } else {
+      _lcdWriteSlideText(box, beforeText);
+    }
     if (box.classList.contains('selected')) { updateProjectionPreview(beforeText); }
-    var newBox = _lcdAddSlideAfter(box, afterText);
+    var newBox = _lcdAddSlideAfter(box, afterText, _lcdHasRichHtml(afterHtml) ? afterHtml : null);
     // Keep the song model in sync when splitting inside a song group, so the
     // new slide survives a reload regardless of the slide's grouping.
     var _splitSongId = box.getAttribute('data-song-id') || '';
@@ -49064,7 +49168,17 @@ var WO = (function() {
     var prevText = _lcdReadSlidePlain(prev);
     var mergePoint = prevText.length;
     var merged = curText.trim() === '' ? prevText : (prevText + (prevText ? '\n' : '') + curText);
-    _lcdWriteSlideText(prev, merged);
+    // When either side carries formatting, merge the HTML instead of the
+    // flattened text so the join keeps both slides' spans. The caret offset
+    // stays text-based (mergePoint), which is unaffected by markup.
+    var curHtml = _getEditorHtml(ed);
+    var prevHtml = _lcdReadSlideRich(prev);
+    if (_lcdHasRichHtml(curHtml) || _lcdHasRichHtml(prevHtml)) {
+      var mergedHtml = curText.trim() === '' ? prevHtml : (prevHtml + (prevHtml ? '<br>' : '') + curHtml);
+      _lcdWriteSlideHtml(prev, mergedHtml);
+    } else {
+      _lcdWriteSlideText(prev, merged);
+    }
     var songId = box.getAttribute('data-song-id') || '';
     var liturgyId = box.getAttribute('data-liturgy-id') || '';
     var sectionId = box.getAttribute('data-section') || '';
@@ -50421,8 +50535,14 @@ var WO = (function() {
         var _cnt = slideCounter > 0
           ? '<span class="lcd-rail-section-count" title="' + slideCounter + ' slide' + (slideCounter === 1 ? '' : 's') + ' in this section">' + slideCounter + '</span>'
           : '';
+        // The service template seeds sections already named "1. Invocation",
+        // "2. Confession", ... -- prepending the rail's own ordinal on top of
+        // that read "1. 1. Invocation". Strip a leading ordinal from the
+        // stored title before numbering; the rail's position-based number is
+        // the one that stays correct after reordering.
+        var _railTitle = String(sectionTitle).replace(/^\s*\d+\.\s*/, '');
         railHtml += '<div class="lcd-rail-section' + (_collapsed ? ' collapsed' : '') + '">' +
-          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '">' + _chev + '<span class="lcd-rail-section-title" ondblclick="event.stopPropagation(); WO.lcdRenameSection(\'' + sectionId + '\')" title="Double-click to rename">' + (sIdx + 1) + '. ' + escapeHtml(sectionTitle) + '</span>' + _cnt + addBtns + '</div>' +
+          '<div class="lcd-rail-section-header" data-section-id="' + sectionId + '">' + _chev + '<span class="lcd-rail-section-title" ondblclick="event.stopPropagation(); WO.lcdRenameSection(\'' + sectionId + '\')" title="Double-click to rename">' + (sIdx + 1) + '. ' + escapeHtml(_railTitle) + '</span>' + _cnt + addBtns + '</div>' +
           (_collapsed ? '' : (rowsHtml + _addSlideRow)) +
         '</div>';
       }
