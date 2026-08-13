@@ -6310,18 +6310,19 @@
                           </select>
                           <input type="color" class="lcd-fmt-color" title="Colour of selected text" value="#ffffff" onmousedown="WO._lcdSaveSel()" onchange="WO.lcdFmtColor(this)">
                           <button class="wo-text-btn" onclick="WO.openTextSettingsModal()" title="Text settings"><i class="fa-solid fa-font mr-1"></i> Text</button>
+                        </span>
+                        <!-- Alignment, Barrier and BG share one atomic group so
+                             they always land on the same ribbon row (groups wrap
+                             as units). Barrier/BG's old labelled groups made a
+                             third toolbar row; the editor pad absorbed that
+                             height. Ids and handlers unchanged. -->
+                        <span class="lcd-fmt-group">
                           <span class="wo-align-group" title="Text alignment on projection">
                             <button class="wo-align-btn" id="woAlignLeft" onclick="WO.setSlideAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
                             <button class="wo-align-btn active" id="woAlignCenter" onclick="WO.setSlideAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
                             <button class="wo-align-btn" id="woAlignRight" onclick="WO.setSlideAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
                           </span>
-                        </span>
-                        <span class="lcd-fmt-group">
-                          <span class="lcd-fmt-group-label">Layout</span>
                           <button class="wo-barrier-btn" id="woBarrierBtn" onclick="WO.openBarrierEditor()" title="Set safe-zone margins so text avoids the livestream corner"><i class="fa-solid fa-border-all"></i> Barrier</button>
-                        </span>
-                        <span class="lcd-fmt-group">
-                          <span class="lcd-fmt-group-label">Background</span>
                           <button class="wo-bg-btn" onclick="WO.openBackgroundModal()" title="Change background"><i class="fa-solid fa-image mr-1"></i> BG</button>
                         </span>
                       </div>
@@ -25959,6 +25960,19 @@ var WO = (function() {
           if (natural > OUTPUTS_MIN) rowH = natural + 10;
         }
         rowH = Math.max(OUTPUTS_MIN, rowH);
+
+        // The editor column's own content (header, ribbon, canvas at its
+        // minimum, summary) can exceed the program-derived height by a
+        // little, which clipped the bottom of the notepad. Grow the row by
+        // the measured clip so the pad is fully visible, capped so the Media
+        // Tray keeps a band below. clientHeight here reflects the PREVIOUS
+        // pass's row height, so this converges on the second sizing pass --
+        // and schedule() already runs applyLayout twice per invocation.
+        var _lyrBody = outputs.querySelector('.lcd-lyrics-body');
+        if (_lyrBody) {
+          var _clip = _lyrBody.scrollHeight - _lyrBody.clientHeight;
+          if (_clip > 0) rowH = Math.min(rowH + _clip + 2, Math.max(rowH, avail - 60));
+        }
 
         var trayShare = Math.max(0, Math.min(trayWant, avail - rowH));
         if (lower) lower.style.maxHeight = trayShare ? trayShare + 'px' : '';
@@ -53103,6 +53117,22 @@ var WO = (function() {
 
     // Show first so dimensions are available, then position near the trigger
     modal.style.display = 'block';
+
+    // Phones get a full-screen sheet, not a floating popup: the popup math
+    // could leave the header above the visual viewport on small screens, and
+    // on a phone this modal IS the editing surface, so it should own the
+    // screen. The editor is the flex child, so it scrolls internally.
+    if (window.innerWidth <= 768) {
+      var mobEl = modal.querySelector('.wo-all-slides-modal');
+      mobEl.style.width = (window.innerWidth - 12) + 'px';
+      mobEl.style.height = (window.innerHeight - 12) + 'px';
+      mobEl.style.maxHeight = (window.innerHeight - 12) + 'px';
+      modal.style.left = '6px';
+      modal.style.top = '6px';
+      setTimeout(function() { $('woAllSlidesEditor').focus(); }, 80);
+      return;
+    }
+    modal.querySelector('.wo-all-slides-modal').style.height = '';
     var popupW = Math.min(700, window.innerWidth - 20);
     var popupH = Math.min(window.innerHeight * 0.88, 680);
     modal.querySelector('.wo-all-slides-modal').style.width = popupW + 'px';
@@ -66247,11 +66277,26 @@ function filterLiturgyItems() {
       gap: 8px !important;
     }
     #worshipOrderView.lcd-mode #lcdLibraryPanel { display: none !important; }
+    /* 34%, not 42%: the freed width goes to the preview panel, and since the
+       Program Output's 16:9 screen takes its height from its width, this is
+       what makes the output window taller on a phone. */
     #worshipOrderView.lcd-mode .wo-worship-order {
-      flex: 0 0 42% !important;
-      width: 42% !important; max-width: 42% !important; min-width: 0 !important;
-      padding: 8px !important;
+      flex: 0 0 34% !important;
+      width: 34% !important; max-width: 34% !important; min-width: 0 !important;
+      padding: 6px !important;
     }
+    /* The count pill and Expand Schedule button are desktop affordances --
+       there is no room to "expand" into on a phone. */
+    #worshipOrderView.lcd-mode .lcd-schedule-header-right { display: none !important; }
+    /* Smaller schedule type so rows actually show their text in a ~115px
+       column, per the user's readability request. */
+    #worshipOrderView.lcd-mode .lcd-rail-item-title { font-size: 11px; }
+    #worshipOrderView.lcd-mode .lcd-rail-slide-preview { font-size: 9px; }
+    #worshipOrderView.lcd-mode .lcd-rail-slide-num { font-size: 8.5px; min-width: 22px; }
+    #worshipOrderView.lcd-mode .lcd-rail-section-header { font-size: 0.6rem; padding: 5px 6px; }
+    #worshipOrderView.lcd-mode .lcd-rail-slide-row { padding: 5px 6px; }
+    #worshipOrderView.lcd-mode .lcd-rail-add-section { height: 32px; font-size: 0.62rem; }
+    #worshipOrderView.lcd-mode .lcd-rail-addslide-row { padding: 4px 6px; font-size: 0.6rem; }
     /* Sticky, not static: the schedule column runs thousands of pixels tall,
        and the output should stay in view while it scrolls. top/right/bottom
        are re-declared because the drawer rules pin all three edges. */
@@ -66294,7 +66339,9 @@ function filterLiturgyItems() {
   /* ---- E. Media Tray: one row of thumbnails, no nested scrollbar ---------- */
   /* Enough for the header, the hint and one full row of thumbnails, so the
      tray never gets squeezed into its own scrollbar by the flex column. */
-  .lcd-lower-row { flex: 0 0 auto; min-height: 128px; margin-top: 10px; }
+  /* 6px breathing room between the Program Output's bottom edge and the
+     Media Tray, per the user's spacing spec. */
+  .lcd-lower-row { flex: 0 0 auto; min-height: 128px; margin-top: 6px; }
   .lcd-media-hint { font-size: 0.6rem; margin-bottom: 5px; line-height: 1.3; }
   .lcd-media-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 7px; }
   .lcd-media-panel .lcd-panel-body { padding: 8px 10px; }

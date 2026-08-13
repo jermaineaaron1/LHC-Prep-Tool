@@ -4,6 +4,33 @@ _Last updated: 2026-08-13 by Claude Code_
 
 ---
 
+## 2026-08-13 (later) — Mobile polish round + desktop ribbon/tray spacing
+
+Screenshot-driven round on the LCD Projection page, mobile and desktop.
+
+### Mobile (≤768px, lcd-mode)
+
+- **All Slides is a full-screen sheet.** The floating-popup math could leave the header above the visual viewport on phones; `openAllSlidesModal` now takes a `window.innerWidth <= 768` branch that pins the modal at (6,6) sized to the viewport minus 12px. The desktop path clears the sheet's inline height so a phone→desktop resize doesn't stick. Verified at 375×812: sheet 363×800, header and Save/Cancel footer both on screen.
+- **Program Output is taller**: the schedule column dropped from 42% to 34%, and since the 16:9 screen's height is width-driven, the output grew from 182×102 to 210×118.
+- **Schedule fonts reduced** (title 11px, preview 9px, numbering 8.5px, tighter paddings) so rows show real text in the ~120px column.
+- **Count pill + Expand Schedule hidden** (`.lcd-schedule-header-right`) — desktop affordances with no meaning on a phone.
+
+### Desktop
+
+- **Barrier and BG moved into the alignment ribbon** as one atomic `.lcd-fmt-group` (groups wrap as units, so the three always share a row); their old labelled groups' row is gone and the editor pad absorbed the height. Ids/handlers unchanged.
+- **Media Tray gap = 6px** below the Program Output (`.lcd-lower-row` margin-top 10→6).
+- **Notepad clip absorbed**: `_lcdSizeWorkspaceColumns()` now measures the editor body's remaining scroll clip and grows the outputs row by exactly that much (capped at `avail - 60` so the tray keeps a band). clientHeight lags one pass, so it converges on the second sizing pass — `schedule()` already runs applyLayout twice. Verified at 1720: clip 0, bottoms still aligned, tray gap 6, tray header on screen.
+
+### Note
+
+At 1366 with the full 280px sidebar the editor column is ~186px and the ribbon wraps to several rows — pre-existing (the open "1280-and-below chrome wrap" item), not introduced here; at 1366 with the collapsed 68px rail and at ≥1600 the ribbon sits as designed.
+
+### Checks
+
+Test orders cleaned (zero created-today rows in `orders`); `Index.html`/`dist/index.html` byte-identical; 12/12 inline blocks pass `node --check`.
+
+---
+
 ## 2026-08-13 — Font-size fix, +10px editor/output depth, phone projection-first layout
 
 Three user requests in one round, all on the LCD Projection page.
