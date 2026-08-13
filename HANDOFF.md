@@ -1,6 +1,64 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-08-13 by Claude Code_
+_Last updated: 2026-08-14 by Claude Code_
+
+---
+
+## 2026-08-14 — Songbook editor: the "G becomes a chord" split and the growing blank lines
+
+Two user-reported songbook bugs, both reproduced live before touching code and re-verified after.
+
+### 1. Typing the G of KING split the line and made the G a chord
+
+Not the chord classifier misfiring — `_sbHealChordFusion`'s "mirror direction" block actively split the line. That block existed to undo a native fusion (a chord line backspaced up into the lyric line above), and detected it by testing whether some suffix of the last token parsed as a chord with a non-chord remainder before it. **A fused "KIN"+"G" and the ordinary word "KING" are the same characters**, so it truncated real lyric lines and emitted the final letter as its own chord line. Any line ending in a bare A–G with no trailing punctuation was one keystroke away (KING, LORD, GRACE, THING); lines ending in punctuation, like the verse's "King,", were accidentally safe. It also ran over the WHOLE pad on every keystroke, so it could damage a line the operator wasn't even editing.
+
+**Fix:** the heuristic is gone. `_sbHealChordFusion(el, oldText)` now reconstructs the fusion candidates from the last known-good canonical text — for each consecutive (lyric line, chord line) pair, the fused form is their concatenation — and splits **only on an exact match, at the exact boundary**. No chord-shape guessing: if the pad never had a chord line there, nothing is split. `sbReconcileLyrics` now reads `oldText` *before* healing so it can pass it in.
+
+### 2. Deleting pushed everything down and blank lines piled up
+
+`_sbRawFlatText` emitted a newline for each line div **and** for each `<br>` — but a browser's empty contenteditable block *is* a div containing a `<br>`. Every empty line therefore read as two newlines, and the phantom one was written into the canonical text and re-rendered as a real extra blank line. Captured pre-reconcile: the browser produced 10 divs, the flattener read 11 lines.
+
+Measured before the fix: one Enter took the pad 9 divs → **11**; deleting a line's contents took 11 → **12** (a line *added* where one should have emptied). Cumulative and saved, which is why the page kept growing.
+
+**Fix:** new `_sbIsPlaceholderBr()` — a `<br>` with nothing after it is the browser's placeholder, not a break. Applied in `_sbRawFlatText` **and** `_sbRawCaretOffset`, which must agree on line boundaries.
+
+### 2b. Two caret bugs found while verifying the above
+
+- `_sbRawCaretOffset` returned before counting a line div's own leading newline when the caret sat **on** the div (the normal case for an empty line), mapping the caret to the end of the previous line.
+- `_sbSetCaretAtDocOffset` had no node to match for a **trailing** empty line — the walk ran out and fell back to the last text node, so pressing Enter at the end of the pad put the next character on the line above. Now tracks the last line div and places into it when the offset lands there.
+
+### Verified live (throwaway ZZ song + order, both deleted)
+
+Typing the G of KING: line stays `ALL CREATURES OF OUR GOD AND KING`, 7 divs → 7. Enter: 7 → 8, caret lands on the new empty line, next keystroke types there. Delete a line's contents: 8 → 8. Mixed edit run (delete line, retype, three backspaces): **zero line drift**. **Regression:** a genuine fusion still repairs — a real chord line backspaced into the lyric above was split back out and re-classified `wo-lyrics-chord-line`, while KING stayed intact in the same pass.
+
+### Harness note
+
+The Bash heredoc collapses `\n`/escape sequences inside Python strings written this way — twice it turned `split('\n')` into a literal newline and broke the inline script. Patch escape sequences with `chr(92)` afterwards, or use the Edit tool. Also: two `execCommand`s in one synchronous script don't behave like two real keystrokes (the second sees a stale caret); drive one edit per call.
+
+---
+
+## 2026-08-13 (rail follow + roster card) — Schedule scrolls with the selection; duty names read as one line
+
+### LCD Projection: the rail follows the selected slide
+
+Arrow-key stepping walked the selection off the bottom of the Service Schedule. `selectSlideBox` was calling `box.scrollIntoView()` on the **slide box**, which is hidden behind the rail in LCD Projection, so nothing moved.
+
+New `_lcdScrollRailToSelected(box)`: maps the box back to its rail row through `_lcdRailRowMap` (so it works in the instant before the debounced re-render moves the `selected` class), finds the nearest actually-scrolling ancestor, and scrolls the **minimum** distance to bring the row into view with a 14px margin — stepping one slide nudges the list rather than jumping it. Called from `selectSlideBox` (rail present → rail instead of box) and at the end of `_lcdRenderCompactRail()` (the rows are new nodes after every render).
+
+Verified at 1440×860 on a 98-row rail: stepping down held the row fully visible and grew `scrollTop` 174 → 213 → 262 only as the row reached the bottom edge; stepping back up kept it visible without moving. Song Order (no rail) keeps the original `scrollIntoView`.
+
+### Mobile roster Service Cards
+
+- **Multi-person duties are one comma-separated line.** The numbered boxes are gone: "Danny Wong, Margaret Loo, Ngai Kwai", "Anny Lim, KY Lim". Unfilled slots are simply not shown (Singers 3 and 4 vanish rather than showing empty boxes). `.rmp-shared-team` now matches the single-person cell exactly — 12px / 700 / same colour / 8px 10px padding — which is what makes the rows read as one kind of thing.
+- **PIC mode keeps a way in:** empty slots would otherwise be unreachable, so in PIC mode only they render a small dashed `+` tap target. Normal viewing shows none.
+- **Reader rows stack:** name on top, its reading underneath in **bold italic** (`small.rmp-passage`, dark green), via a `.rmp-person.stacked` modifier. Non-reader rows are untouched.
+- The per-card WhatsApp share image clones the live card, so it inherits all of this — its scaled CSS copy (`_rmpCardShareCSS`) was updated to match, and the now-unused `.rmp-person-slot` rules were removed from both copies.
+
+Verified at 375×812 against real roster data (read-only — zero unsaved edits after the pass).
+
+### Harness note
+
+Chained `setTimeout` callbacks inside one `javascript_exec` silently never ran during this session; the page's own timers were fine. Drive multi-step UI tests as one dispatch/read per call instead. Also: reading `.lcd-rail-slide-row.selected` immediately after a key dispatch returns the PREVIOUS row — the rail rewrites that class on a 120ms debounce.
 
 ---
 
