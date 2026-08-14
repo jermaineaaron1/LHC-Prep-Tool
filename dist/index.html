@@ -9617,6 +9617,7 @@ I once was lost but now am found"
           </div>
         </div>
         <button class="sb-tool-btn" onclick="WO.sbOpenPlaylist()" title="Playlist" style="background:rgba(16,185,129,0.25);border:1.5px solid #6ee7b7;color:#a7f3d0;"><i class="fa-solid fa-headphones"></i><span>Playlist</span></button>
+        <button class="sb-tool-btn" id="sbProjectBtn" onclick="WO.sbProject()" title="Project the songbook — lyrics only, full screen" style="background:rgba(37,99,235,0.28);border:1.5px solid #93c5fd;color:#dbeafe;"><i class="fa-solid fa-display"></i><span>Project</span></button>
         <button class="sb-tool-btn" id="sbFullscreenBtn" onclick="WO.sbToggleLiveFullscreen()" title="Full Screen"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
         <!-- More dropdown -->
         <div style="position:relative;display:inline-block;">
@@ -9628,6 +9629,7 @@ I once was lost but now am found"
             <button onclick="WO.sbTogglePrintPreview();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-file-lines" style="color:#c4b5fd;width:16px;"></i> Print preview</button>
             <button onclick="WO.sbOpenFullscreen();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#fff3dc;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(160,110,55,0.2)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-book-open" style="color:#fbbf24;width:16px;"></i> Book Mode</button>
             <button onclick="WO.sbSavePDF();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-print" style="color:#93c5fd;width:16px;"></i> Print / Save PDF</button>
+            <button onclick="WO.sbExportPPT();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#e2e8f0;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-file-powerpoint" style="color:#fb923c;width:16px;"></i> Export PPT</button>
             <div style="height:1px;background:#334155;margin:2px 0;"></div>
             <button onclick="WO.sbClearActiveDraw();WO.sbToggleMore()" style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;color:#fca5a5;padding:10px 16px;cursor:pointer;font-size:0.82rem;font-family:'Poppins',sans-serif;" onmouseover="this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.background='none'"><i class="fa-solid fa-trash-can" style="color:#f87171;width:16px;"></i> Clear annotations</button>
           </div>
@@ -44196,6 +44198,361 @@ var WO = (function() {
   }
 
   // 343/344 — Print Setup Modal: choose lyrics vs. doc per song, then generate print window
+  // ══════════════════════════════════════════════════════════════════════
+  //  SONGBOOK → PROJECTION DECK  (shared by Project mode and Export PPT)
+  // ══════════════════════════════════════════════════════════════════════
+  // One deck, two consumers, so what the operator rehearses on screen and
+  // what lands in the PowerPoint are the same slides in the same order.
+  //
+  // Segmentation, per the user's spec:
+  //   - each song opens with a title slide;
+  //   - each SECTION ([Verse 1], [Chorus] ...) starts its own slide;
+  //   - a section longer than SB_MAX_LINES continues onto further slides;
+  //   - chord lines are dropped -- this is the projected lyric, not the chart.
+  var SB_MAX_LINES = 8;
+
+  function _sbDeckSections(lyrics) {
+    var out = [];
+    var cur = null;
+    String(lyrics == null ? '' : lyrics).replace(/\r\n?/g, '\n').split('\n').forEach(function(raw) {
+      var line = raw.replace(/ /g, ' ').replace(/\s+$/, '');
+      var t = line.trim();
+      var hdr = /^\[(.+)\]$/.exec(t);
+      if (hdr || /^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude|refrain|coda)\s*\d*$/i.test(t)) {
+        cur = { header: (hdr ? hdr[1] : t).toUpperCase(), lines: [] };
+        out.push(cur);
+        return;
+      }
+      // Chords are for the musicians' book, never for the screen.
+      if (t && typeof isChordLineGlobal === 'function' && isChordLineGlobal(line)) return;
+      if (!cur) { cur = { header: '', lines: [] }; out.push(cur); }
+      if (!t) {
+        // A blank line inside a section is a breath, not content; collapse runs.
+        if (cur.lines.length && cur.lines[cur.lines.length - 1] !== '') cur.lines.push('');
+        return;
+      }
+      cur.lines.push(t);
+    });
+    return out.map(function(s) {
+      while (s.lines.length && s.lines[s.lines.length - 1] === '') s.lines.pop();
+      while (s.lines.length && s.lines[0] === '') s.lines.shift();
+      return s;
+    }).filter(function(s) { return s.lines.length; });
+  }
+
+  function _sbBuildProjectionDeck() {
+    var deck = [];
+    (songOrderSections || []).forEach(function(song, songIdx) {
+      if (!song || song.itemType === 'blank') return;
+      var lyrics = (song.customLyrics && String(song.customLyrics).trim())
+        ? song.customLyrics
+        : (song.lyrics || '');
+      var sections = _sbDeckSections(lyrics);
+      if (!sections.length) return;
+      deck.push({
+        kind: 'title', songIdx: songIdx,
+        title: song.title || 'Untitled', artist: song.artist || ''
+      });
+      sections.forEach(function(sec) {
+        for (var i = 0; i < sec.lines.length; i += SB_MAX_LINES) {
+          var chunk = sec.lines.slice(i, i + SB_MAX_LINES);
+          if (!chunk.join('').trim()) continue;
+          deck.push({
+            kind: 'lyric', songIdx: songIdx,
+            title: song.title || 'Untitled',
+            section: sec.header + (i ? ' (cont.)' : ''),
+            lines: chunk
+          });
+        }
+      });
+    });
+    return deck;
+  }
+
+  // ── Project mode: the songbook's own full-screen projection ──────────────
+  var _sbProjDeck = null, _sbProjIdx = 0, _sbProjBg = '';
+
+  function sbProject() {
+    _sbProjDeck = _sbBuildProjectionDeck();
+    if (!_sbProjDeck.length) { showToast('Nothing to project — no song lyrics in this songbook.', 'warning'); return; }
+    _sbProjIdx = 0;
+    var ov = $('sbProjectOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'sbProjectOverlay';
+      ov.className = 'sb-proj-overlay';
+      ov.innerHTML =
+        '<div class="sb-proj-bg" id="sbProjBg"></div>' +
+        '<div class="sb-proj-stage" id="sbProjStage"></div>' +
+        '<div class="sb-proj-bar">' +
+          '<button onclick="WO.sbProjectNav(-1)" title="Previous (←)"><i class="fa-solid fa-chevron-left"></i></button>' +
+          '<span id="sbProjCounter"></span>' +
+          '<button onclick="WO.sbProjectNav(1)" title="Next (→)"><i class="fa-solid fa-chevron-right"></i></button>' +
+          '<button onclick="WO.sbProjectClose()" title="Exit (Esc)"><i class="fa-solid fa-xmark"></i></button>' +
+        '</div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', function(e) {
+        if (e.target === ov || e.target.id === 'sbProjStage' || e.target.id === 'sbProjBg') sbProjectNav(1);
+      });
+    }
+    ov.style.display = 'block';
+    document.addEventListener('keydown', _sbProjKey, true);
+    if (ov.requestFullscreen) { try { ov.requestFullscreen(); } catch (e) {} }
+    _sbProjRender();
+  }
+
+  function _sbProjKey(e) {
+    if (!$('sbProjectOverlay') || $('sbProjectOverlay').style.display === 'none') return;
+    if (e.key === 'Escape') { sbProjectClose(); e.preventDefault(); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') { sbProjectNav(1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') { sbProjectNav(-1); e.preventDefault(); }
+  }
+
+  function _sbProjRender() {
+    var stage = $('sbProjStage'), bg = $('sbProjBg'), cnt = $('sbProjCounter');
+    if (!stage) return;
+    var s = _sbProjDeck[_sbProjIdx];
+    if (!s) return;
+    if (bg) bg.style.backgroundImage = _sbProjBg ? ('url("' + _sbProjBg + '")') : '';
+    stage.innerHTML = (s.kind === 'title')
+      ? '<div class="sb-proj-title">' + escapeHtml(s.title) + '</div>' +
+        (s.artist ? '<div class="sb-proj-artist">' + escapeHtml(s.artist) + '</div>' : '')
+      : '<div class="sb-proj-lines">' + s.lines.map(function(l) {
+          return l ? '<div>' + escapeHtml(l) + '</div>' : '<div>&nbsp;</div>';
+        }).join('') + '</div>';
+    if (cnt) cnt.textContent = (_sbProjIdx + 1) + ' / ' + _sbProjDeck.length;
+  }
+
+  function sbProjectNav(dir) {
+    if (!_sbProjDeck) return;
+    _sbProjIdx = Math.max(0, Math.min(_sbProjDeck.length - 1, _sbProjIdx + dir));
+    _sbProjRender();
+  }
+
+  function sbProjectClose() {
+    var ov = $('sbProjectOverlay');
+    if (ov) ov.style.display = 'none';
+    document.removeEventListener('keydown', _sbProjKey, true);
+    if (document.fullscreenElement) { try { document.exitFullscreen(); } catch (e) {} }
+  }
+
+  // ── Export PowerPoint ───────────────────────────────────────────────────
+  // PptxGenJS is fetched on first use rather than shipped: it is ~1MB and only
+  // matters the moment somebody actually exports.
+  var _sbPptxLoading = null;
+  function _sbLoadPptx() {
+    if (window.PptxGenJS) return Promise.resolve(window.PptxGenJS);
+    if (_sbPptxLoading) return _sbPptxLoading;
+    _sbPptxLoading = new Promise(function(resolve, reject) {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';
+      s.onload = function() { window.PptxGenJS ? resolve(window.PptxGenJS) : reject(new Error('PptxGenJS did not register')); };
+      s.onerror = function() { _sbPptxLoading = null; reject(new Error('Could not load the PowerPoint library (offline?)')); };
+      document.head.appendChild(s);
+    });
+    return _sbPptxLoading;
+  }
+
+  // PowerPoint needs the picture's BYTES, not a link -- a deck full of remote
+  // URLs breaks the moment it is opened on a machine without access.
+  function _sbImageToDataUrl(url) {
+    if (!url) return Promise.resolve('');
+    if (/^data:/.test(url)) return Promise.resolve(url);
+    return fetch(url, { mode: 'cors' })
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+      .then(function(b) {
+        return new Promise(function(res, rej) {
+          var fr = new FileReader();
+          fr.onload = function() { res(fr.result); };
+          fr.onerror = rej;
+          fr.readAsDataURL(b);
+        });
+      })
+      .catch(function(e) { console.warn('[PPT] background image skipped:', e.message); return ''; });
+  }
+
+  var _sbPptBgDefault = '';   // data/URL applied to every slide
+  var _sbPptBgBySong = {};    // songIdx -> URL, overriding the default
+  var _sbBgFetchTried = false;
+
+  function sbExportPPT() {
+    var deck = _sbBuildProjectionDeck();
+    if (!deck.length) { showToast('Nothing to export — no song lyrics in this songbook.', 'warning'); return; }
+
+    var songs = [];
+    var seen = {};
+    deck.forEach(function(s) {
+      if (s.kind !== 'title' || seen[s.songIdx]) return;
+      seen[s.songIdx] = true;
+      songs.push({ idx: s.songIdx, title: s.title });
+    });
+
+    // The media library is normally loaded by LCD Projection; the songbook can
+    // be opened without ever going there, so fetch it once and reopen the
+    // dialog when the pictures arrive. Uploading always works regardless.
+    var lib = (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) ? savedBackgrounds : [];
+    if (!lib.length && typeof loadBackgrounds === 'function' && !_sbBgFetchTried) {
+      _sbBgFetchTried = true;
+      loadBackgrounds();
+      setTimeout(function() {
+        var m = $('sbPptModal');
+        if (m && m.style.display !== 'none' && Array.isArray(savedBackgrounds) && savedBackgrounds.length) sbExportPPT();
+      }, 700);
+    }
+    function bgOptions(selected) {
+      var h = '<option value="">None (black)</option>';
+      lib.forEach(function(b) {
+        var u = b.url || b.src || '';
+        if (!u || /^video/i.test(b.type || '')) return;
+        h += '<option value="' + escapeHtml(u).replace(/"/g, '&quot;') + '"' +
+             (u === selected ? ' selected' : '') + '>' + escapeHtml(b.name || 'Background') + '</option>';
+      });
+      return h;
+    }
+
+    var modal = $('sbPptModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'sbPptModal';
+      modal.className = 'sb-ppt-modal';
+      document.body.appendChild(modal);
+    }
+    modal.innerHTML =
+      '<div class="sb-ppt-card">' +
+        '<div class="sb-ppt-head">' +
+          '<div><b>Export PowerPoint</b><div class="sb-ppt-sub">' + deck.length + ' slides from ' + songs.length + ' song' + (songs.length === 1 ? '' : 's') +
+          ' — a title slide per song, then one slide per section (max ' + SB_MAX_LINES + ' lines).</div></div>' +
+          '<button class="sb-ppt-x" onclick="WO.sbPptClose()"><i class="fa-solid fa-xmark"></i></button>' +
+        '</div>' +
+        '<div class="sb-ppt-body">' +
+          '<label class="sb-ppt-label">Background for all slides</label>' +
+          '<div class="sb-ppt-row">' +
+            '<select id="sbPptBgAll" onchange="WO.sbPptSetAllBg(this.value)">' + bgOptions(_sbPptBgDefault) + '</select>' +
+            '<button class="sb-ppt-upload" onclick="document.getElementById(\'sbPptBgFile\').click()"><i class="fa-solid fa-image"></i> Upload picture</button>' +
+            '<input type="file" id="sbPptBgFile" accept="image/*" style="display:none" onchange="WO.sbPptUploadBg(this)">' +
+          '</div>' +
+          '<div class="sb-ppt-prev" id="sbPptBgPrev"></div>' +
+          '<label class="sb-ppt-label">Per-song background <span>(optional — overrides the one above)</span></label>' +
+          '<div class="sb-ppt-songs">' +
+            songs.map(function(s) {
+              return '<div class="sb-ppt-song">' +
+                '<span title="' + escapeHtml(s.title).replace(/"/g, '&quot;') + '">' + escapeHtml(s.title) + '</span>' +
+                '<select onchange="WO.sbPptSetSongBg(' + s.idx + ', this.value)">' +
+                  '<option value="">Use default</option>' + bgOptions(_sbPptBgBySong[s.idx] || '') +
+                '</select></div>';
+            }).join('') +
+          '</div>' +
+        '</div>' +
+        '<div class="sb-ppt-foot">' +
+          '<button class="sb-ppt-cancel" onclick="WO.sbPptClose()">Cancel</button>' +
+          '<button class="sb-ppt-go" id="sbPptGo" onclick="WO.sbPptGenerate()"><i class="fa-solid fa-file-powerpoint"></i> Generate PowerPoint</button>' +
+        '</div>' +
+      '</div>';
+    modal.style.display = 'flex';
+    _sbPptPreview();
+  }
+
+  function _sbPptPreview() {
+    var p = $('sbPptBgPrev');
+    if (!p) return;
+    p.style.backgroundImage = _sbPptBgDefault ? ('url("' + _sbPptBgDefault + '")') : '';
+    p.textContent = _sbPptBgDefault ? '' : 'Black background';
+  }
+
+  function sbPptSetAllBg(url) { _sbPptBgDefault = url || ''; _sbProjBg = _sbPptBgDefault; _sbPptPreview(); }
+  function sbPptSetSongBg(idx, url) { if (url) _sbPptBgBySong[idx] = url; else delete _sbPptBgBySong[idx]; }
+  function sbPptClose() { var m = $('sbPptModal'); if (m) m.style.display = 'none'; }
+
+  function sbPptUploadBg(input) {
+    var f = input && input.files && input.files[0];
+    if (!f) return;
+    var fr = new FileReader();
+    fr.onload = function() {
+      _sbPptBgDefault = fr.result;
+      _sbProjBg = fr.result;
+      var sel = $('sbPptBgAll'); if (sel) sel.value = '';
+      _sbPptPreview();
+    };
+    fr.readAsDataURL(f);
+  }
+
+  function sbPptGenerate() {
+    var btn = $('sbPptGo');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Building…'; }
+    var deck = _sbBuildProjectionDeck();
+
+    // Resolve every distinct background to bytes once, not per slide.
+    var urls = {};
+    if (_sbPptBgDefault) urls[_sbPptBgDefault] = 1;
+    Object.keys(_sbPptBgBySong).forEach(function(k) { urls[_sbPptBgBySong[k]] = 1; });
+    var list = Object.keys(urls);
+
+    _sbLoadPptx()
+      .then(function() { return Promise.all(list.map(_sbImageToDataUrl)); })
+      .then(function(datas) {
+        var resolved = {};
+        list.forEach(function(u, i) { resolved[u] = datas[i]; });
+
+        var pptx = new window.PptxGenJS();
+        pptx.layout = 'LAYOUT_16x9';           // 10 x 5.625 inches
+        pptx.title = (_sbCurrentBookTitle() || 'Worship Songbook');
+
+        deck.forEach(function(s) {
+          var slide = pptx.addSlide();
+          var bgUrl = _sbPptBgBySong[s.songIdx] || _sbPptBgDefault || '';
+          var bgData = bgUrl ? resolved[bgUrl] : '';
+          slide.background = bgData ? { data: bgData } : { color: '000000' };
+
+          if (s.kind === 'title') {
+            slide.addText(String(s.title), {
+              x: 0.5, y: 1.9, w: 9, h: 1.5, align: 'center', valign: 'middle',
+              fontSize: 44, bold: true, color: 'FFFFFF', fontFace: 'Georgia',
+              shadow: { type: 'outer', color: '000000', blur: 6, offset: 2, opacity: 0.8 }
+            });
+            if (s.artist) {
+              slide.addText(String(s.artist), {
+                x: 0.5, y: 3.35, w: 9, h: 0.6, align: 'center', valign: 'middle',
+                fontSize: 20, color: 'E6DFC9', fontFace: 'Georgia', italic: true,
+                shadow: { type: 'outer', color: '000000', blur: 5, offset: 2, opacity: 0.75 }
+              });
+            }
+            return;
+          }
+
+          // Lyrics fill the safe area; the size steps down as the block grows
+          // so eight lines still fit without spilling off the slide.
+          var n = s.lines.length;
+          var size = n <= 4 ? 34 : (n <= 6 ? 30 : 26);
+          slide.addText(s.lines.join('\n'), {
+            x: 0.6, y: 0.5, w: 8.8, h: 4.6, align: 'center', valign: 'middle',
+            fontSize: size, bold: true, color: 'FFFFFF', fontFace: 'Georgia',
+            lineSpacingMultiple: 1.25,
+            shadow: { type: 'outer', color: '000000', blur: 6, offset: 2, opacity: 0.85 }
+          });
+        });
+
+        var name = (_sbCurrentBookTitle() || 'Worship Songbook').replace(/[\\/:*?"<>|]+/g, '-');
+        return pptx.writeFile({ fileName: name + '.pptx' });
+      })
+      .then(function() {
+        showToast('PowerPoint exported — ' + deck.length + ' slides', 'success');
+        sbPptClose();
+      })
+      .catch(function(err) {
+        console.error('[PPT] export failed:', err);
+        showToast('PowerPoint export failed: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+      })
+      .finally(function() {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-powerpoint"></i> Generate PowerPoint'; }
+      });
+  }
+
+  function _sbCurrentBookTitle() {
+    var el = document.querySelector('#songbookLiveModal .sb-book-subtitle, #songbookLiveModal .sb-header-sub');
+    if (el && el.textContent.trim()) return el.textContent.trim();
+    return (currentOrderData && currentOrderData.title) || 'Worship Songbook';
+  }
+
   function sbSavePDF() {
     sbOpenPrintModal();
   }
@@ -58452,6 +58809,16 @@ var WO = (function() {
     sbBookGoToPage: sbBookGoToPage,
     sbFsToggleTwoCol: sbFsToggleTwoCol,
     sbSavePDF: sbSavePDF,
+    sbProject: sbProject,
+    sbProjectNav: sbProjectNav,
+    sbProjectClose: sbProjectClose,
+    sbExportPPT: sbExportPPT,
+    sbPptClose: sbPptClose,
+    sbPptGenerate: sbPptGenerate,
+    sbPptSetAllBg: sbPptSetAllBg,
+    sbPptSetSongBg: sbPptSetSongBg,
+    sbPptUploadBg: sbPptUploadBg,
+    _sbBuildProjectionDeck: _sbBuildProjectionDeck,
     sbOpenPrintModal: sbOpenPrintModal,
     sbClosePrintModal: sbClosePrintModal,
     sbGeneratePrint: sbGeneratePrint,
@@ -66617,6 +66984,56 @@ function filterLiturgyItems() {
   .lcd-rail-slide-row.selected .lcd-rail-slide-del { color: #111827; }
   .lcd-rail-slide-row.selected:hover { background: #bfd9f7; }
 
+
+  /* ---- Songbook: Project mode + Export PPT dialog ------------------------ */
+  .sb-proj-overlay {
+    display: none; position: fixed; inset: 0; z-index: 100050; background: #000;
+  }
+  .sb-proj-bg {
+    position: absolute; inset: 0; background-size: cover; background-position: center;
+  }
+  .sb-proj-stage {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    padding: 4vh 6vw; color: #fff; font-family: 'Lato', Georgia, serif;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.85); cursor: pointer;
+  }
+  .sb-proj-title { font-family: 'Cinzel', Georgia, serif; font-size: 5.2vw; font-weight: 700; line-height: 1.2; }
+  .sb-proj-artist { margin-top: 1.6vh; font-size: 2.2vw; font-style: italic; opacity: 0.85; }
+  .sb-proj-lines { font-size: 3.6vw; font-weight: 700; line-height: 1.45; }
+  .sb-proj-bar {
+    position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 999px; opacity: 0; transition: opacity 0.2s;
+  }
+  .sb-proj-overlay:hover .sb-proj-bar { opacity: 1; }
+  .sb-proj-bar button {
+    width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+    background: rgba(255,255,255,0.12); border: none; color: #fff; font-size: 0.85rem;
+  }
+  .sb-proj-bar button:hover { background: rgba(255,255,255,0.26); }
+  .sb-proj-bar span { color: #e2e8f0; font-family: 'Poppins', sans-serif; font-size: 0.76rem; min-width: 62px; text-align: center; }
+
+  .sb-ppt-modal { display: none; position: fixed; inset: 0; z-index: 100060; background: rgba(2,8,23,0.72); align-items: center; justify-content: center; padding: 20px; }
+  .sb-ppt-card { width: min(560px, 96vw); max-height: 88vh; display: flex; flex-direction: column; background: #101b2e; border: 1px solid #274063; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.55); color: #e2e8f0; font-family: 'Poppins', sans-serif; overflow: hidden; }
+  .sb-ppt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 18px; border-bottom: 1px solid #274063; }
+  .sb-ppt-sub { margin-top: 3px; font-size: 0.72rem; color: #94a3b8; line-height: 1.45; }
+  .sb-ppt-x { background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 1rem; }
+  .sb-ppt-body { padding: 14px 18px; overflow-y: auto; }
+  .sb-ppt-label { display: block; margin: 10px 0 6px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #93c5fd; }
+  .sb-ppt-label span { text-transform: none; letter-spacing: 0; font-weight: 400; color: #64748b; }
+  .sb-ppt-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .sb-ppt-row select, .sb-ppt-song select { flex: 1; min-width: 140px; padding: 7px 9px; border-radius: 8px; background: #0b1524; color: #e2e8f0; border: 1px solid #274063; font-size: 0.78rem; }
+  .sb-ppt-upload { padding: 7px 12px; border-radius: 8px; background: #1d4ed8; border: none; color: #fff; cursor: pointer; font-size: 0.76rem; font-weight: 600; white-space: nowrap; }
+  .sb-ppt-prev { height: 84px; margin-top: 9px; border-radius: 10px; border: 1px dashed #274063; background: #000 center/cover no-repeat; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 0.72rem; }
+  .sb-ppt-songs { max-height: 190px; overflow-y: auto; border: 1px solid #1e3355; border-radius: 10px; padding: 6px; }
+  .sb-ppt-song { display: flex; align-items: center; gap: 8px; padding: 5px 4px; }
+  .sb-ppt-song > span { flex: 1; min-width: 0; font-size: 0.78rem; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sb-ppt-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 13px 18px; border-top: 1px solid #274063; }
+  .sb-ppt-cancel { padding: 9px 16px; border-radius: 9px; background: transparent; border: 1px solid #334155; color: #cbd5e1; cursor: pointer; font-size: 0.8rem; }
+  .sb-ppt-go { padding: 9px 18px; border-radius: 9px; background: linear-gradient(135deg,#c2410c,#ea580c); border: none; color: #fff; cursor: pointer; font-weight: 700; font-size: 0.8rem; }
+  .sb-ppt-go[disabled] { opacity: 0.6; cursor: default; }
 
   /* ---- Mobile-only All Slides button (base: hidden) ---------------------- */
   /* The phone layout below removes the Slide Editor panel, so this button --

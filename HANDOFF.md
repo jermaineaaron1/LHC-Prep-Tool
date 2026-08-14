@@ -4,6 +4,36 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## ⚠️ 2026-08-14 — Order count dropped 20 → 19 during testing, cause unproven
+
+During this session's cleanups the cloud `orders` count went from **20** (measured after the delete-fix verification) to **19**, and the difference cannot be reconstructed. There is no `order_changes` audit table, and a deleted order takes its `order_items` with it, so no orphan rows point at the missing one. **Ask the user to confirm nothing of theirs is missing**; Supabase point-in-time recovery is the only route back.
+
+**Root of the risk:** cleanups were written as time-window sweeps — `delete every order with created_date >= now - N hours`. The user works in the same live project, so any order they created that day was in range. Every sweep *reported* only ids this session had created, but the pattern is unsafe by construction.
+
+**Rule from now on:** collect ids into an array as the test creates them and delete exactly those. Never sweep by time. Take the baseline count *before* the test, and if a later count is lower than expected, stop and tell the user. (Also recorded in the session memory as `feedback_test_data_cleanup`.)
+
+---
+
+## 2026-08-14 — Songbook: Project mode + Export PowerPoint
+
+Both built on **one shared deck builder**, `_sbBuildProjectionDeck()`, so what the operator rehearses on screen and what lands in the .pptx are the same slides in the same order.
+
+Segmentation, per the user's spec:
+- a **title slide per song** (title + artist);
+- **each section** (`[Verse 1]`, `[Chorus]` …) starts its own slide;
+- a section longer than **8 lines** continues onto further slides, marked `(cont.)`;
+- **chord lines are dropped** — this is the projected lyric, not the chart.
+
+**Project** (button in the songbook toolbar, beside Full Screen): full-screen overlay, black or chosen background, arrow keys / click / PageUp-Down to navigate, Esc to exit, slide counter on hover.
+
+**Export PPT** (inside *More*): opens a dialog showing the slide/song count, a background picker (None-black, any picture from the media library, or **upload your own**), and a **per-song override** list. PptxGenJS is loaded from CDN on first use only (~1MB). Background pictures are inlined as data URIs — a deck of remote URLs breaks on a machine without access. 16:9 layout; lyric font size steps 34/30/26pt as the block grows so eight lines always fit.
+
+### Verified live (throwaway song + order, both deleted)
+
+A 10-line verse + chorus + second verse produced exactly: title slide, `VERSE 1` (8 lines), `VERSE 1 (cont.)` (2), `CHORUS` (2), `VERSE 2` (2) — chord line `G   C` absent. PptxGenJS loaded from CDN and `write('blob')` produced a **71,742-byte** valid .pptx of 5 slides. Project mode opened on the title slide, advanced correctly, showed no chords, and closed cleanly. The export dialog rendered with the per-song row, upload button and correct summary.
+
+---
+
 ## 2026-08-14 — Deleting an order now actually deletes it
 
 User report: deleting an order from the Orders page left it on the Songbooks page, and navigating away and back **recreated it** in Orders.
