@@ -4,6 +4,24 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 — Backgrounds: fixed on reflowed songs, and assignable from All Slides
+
+Checking that pictures survive the Supabase round trip turned up three ways they did not.
+
+**1. A reflowed song ignored both the picture and the pen.** Once All Slides has been used on a song, that song's overrides live in `store.songs[i].slides[n]`, not in `store.slides`. `_sbProjOv` exists to resolve which — but only `sbProjToggleHide` used it. `sbProjSetBg` and `sbProjToggleEdit` wrote straight to `store.slides[key]`, where nothing reads them back: the picture and the word edit both appeared to take and were gone on the next render. Both now go through the resolver. The picker's target is a **deck index** rather than a content key, since a reflowed slide has no stable key.
+
+**2. "No picture" lost to the deck default on reflowed slides.** The custom branch of the deck builder tested `sl.bg != null && sl.bg !== ''`, so an explicit empty string — the operator's "black background on this one" — fell through to `store.all.bg`. Now `!= null`, matching the parsed branch. Relatedly, **Apply to all** cleared per-slide pins only in `store.slides`; it now clears them in `store.songs` too, or a reflowed song would ignore it.
+
+**3. Pictures were dropped by the first reflow.** `sbProjAllSave` carried pictures across by position from the *previous custom deck*, which does not exist the first time a song is reflowed — so every picture set before that Apply was lost. Position-carrying was the wrong model anyway: it hands a picture to whatever text happens to land in that slot.
+
+**Pictures are back in All Slides** (they existed on the old cards, and the text-editor rebuild dropped them). Each slide block carries a quiet picture button — *Default* / *None* / *Picture* — that opens a library-and-upload picker. The choice is parked on the slide element as `data-bg` rather than written to the store, so it survives the reflow happening in the same editing pass and lands with **its own slide** through any split, merge, or delete. Three states: no attribute means follow the deck default, `""` means deliberately no picture, a URL means that picture.
+
+### Verified live (throwaway song + order, deleted by id)
+
+Reproduced both silent failures on a reflowed song first, then confirmed the fixes: setting *None* blanked slide 4, and a word edit stuck. A picture pinned in All Slides then split in the same pass stayed on the half it belonged to while the new slide came out on *Default*. Supabase stored all three states distinctly (URL / absent / `""`), and after a hard reload the reopened order projected picture, picture, picture, none across its four slides. Uploads go to storage and only the URL enters `orders.template`. Orders 19, songs 51, unchanged; the uploaded test file was removed.
+
+---
+
 ## 2026-08-14 — Lyric lines ending in a lone capital are no longer dropped as chords
 
 `isChordLineGlobal` decides which songbook lines are chords and therefore never reach the projection or the PowerPoint. It scored a line as chords when at least half its tokens looked like chord names — so a two-word lyric whose last word happens to be chord-shaped (`Verse B`, `Line A`, `This is the day D`) cleared the bar on a single match and vanished from the projection silently.
