@@ -4,6 +4,35 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 — Lyric lines ending in a lone capital are no longer dropped as chords
+
+`isChordLineGlobal` decides which songbook lines are chords and therefore never reach the projection or the PowerPoint. It scored a line as chords when at least half its tokens looked like chord names — so a two-word lyric whose last word happens to be chord-shaped (`Verse B`, `Line A`, `This is the day D`) cleared the bar on a single match and vanished from the projection silently.
+
+The rule now also counts **wordish** tokens — three or more letters containing a lowercase run, which no chord name has (`Asus4` and friends are already counted as chords before this test). A real word alongside two or fewer chord hits settles the line as lyrics. The hit ceiling is what keeps genuine progressions safe: an annotated line like `G C D (repeat)` has three hits, so the veto never reaches it.
+
+**Why the ceiling matters:** the user's own chord lines include `,  G      C       G` — the stray comma is a non-chord token but not *wordish*, so it falls through to the ratio test (0.75) and still reads as chords.
+
+### Verified live (24 cases against the running app)
+
+Must stay chords, 10/10: `G  C  G`, `D  Dsus`, `,  G  C  G`, `G C D`, `Am F C G`, `G`, `A`, `G C D (repeat)`, `Bb F/A Gm7`, `E B/D# C#m`.
+Must read as lyrics, 14/14: `Verse B`, `Line A`, `This is the day D`, `Alpha one`, `Chorus one`, plus nine real hymn lines.
+
+---
+
+## 2026-08-14 — All Slides is a full text editor (commit 46dc405, documented late)
+
+The card grid below could show the parser's slide breaks but never change them, and at 37 slides the cards clipped their own text. All Slides is now the same kind of surface as LCD Projection's: every slide as plain editable text, separated by a dashed **New Slide** rule, so the operator decides what lands on which slide and how it is spaced.
+
+- **Enter on a blank line** ends the slide and starts the next, carrying the remaining lines down with it.
+- Song headings and the title-slide marker are `contenteditable=false` — they group the blocks, and the save walks them to rebuild per-song slide lists.
+- **Apply** writes one slide list per song; **Cancel** discards. Keydown is stopped inside the editor so typing never pages the projector.
+
+**Persistence model:** reflowing breaks cannot use the per-slide override keys, since those are derived from the parse and don't survive content moving between slides. `store.songs[songIdx] = { slides: [ { lines, bg, hidden } ] }` is a **full replacement deck** for that song, and while it exists the lyrics parse is not used for that song — re-parsing would undo the reflow the moment anything else changed. Existing pictures are carried across by position. Every slide carries a `ref` (parsed key vs custom index) and all controls write through one resolver. **Reset** on a reflowed song drops the whole song back to the songbook's own breaks; reverting one slide would orphan the rest.
+
+Fixed on the way: the no-order fallback in `_sbProjStore` returned an object without `songs`, which made the deck builder throw and produce nothing.
+
+---
+
 ## 2026-08-14 — All Slides in Project mode
 
 The projector shows one slide at a time, but shaping a service means seeing them all. New **All Slides** button on the Project bar (grid icon) opens the whole deck as cards over the projection — the songbook equivalent of LCD Projection's All Slides.
