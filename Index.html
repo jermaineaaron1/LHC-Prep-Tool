@@ -44329,7 +44329,10 @@ var WO = (function() {
             lines: (sl.lines || []).slice(),
             hidden: !!sl.hidden,
             edited: true,
-            bg: (sl.bg != null && sl.bg !== '') ? sl.bg : (store.all.bg || '')
+            // `!= null` on purpose, matching the parsed branch: an empty
+            // string is the operator's explicit "no picture on this one" and
+            // must beat the deck-wide default, not fall back to it.
+            bg: (sl.bg != null) ? sl.bg : (store.all.bg || '')
           });
         });
         return;
@@ -44467,8 +44470,12 @@ var WO = (function() {
 
     // Commit: read the visible text back, one line per block.
     _sbProjEditing = false;
-    var store = _sbProjStore();
-    var ov = store.slides[s.key] || (store.slides[s.key] = {});
+    // Through the resolver, never store.slides directly: once a song has been
+    // reflowed in All Slides its overrides live in store.songs[i].slides, and
+    // writing to store.slides would land somewhere nothing reads back -- the
+    // edit would appear to take and be gone on the next render.
+    var ov = _sbProjOv(s, true);
+    if (!ov) return;
     if (s.kind === 'title') {
       var tEl = stage.querySelector('[data-role="title"]');
       var aEl = stage.querySelector('[data-role="artist"]');
@@ -44542,15 +44549,18 @@ var WO = (function() {
     _sbProjRender();
   }
 
-  // When the picker is opened from an All Slides card it targets THAT slide;
-  // opened from the bar it targets whatever is on screen.
+  // The picker normally targets whatever is on screen; passing a deck index
+  // aims it at that slide instead. An index rather than a key, because a
+  // reflowed song's slides have no stable content key -- the index is what
+  // the resolver needs to find where the override actually lives.
   var _sbProjBgTarget = null;
 
-  function sbProjBgMenu(targetKey) {
+  function sbProjBgMenu(targetIdx) {
     var m = $('sbProjBgMenu');
     if (!m) return;
-    _sbProjBgTarget = targetKey || null;
-    if (m.style.display === 'block' && !targetKey) { m.style.display = 'none'; return; }
+    var aimed = (typeof targetIdx === 'number');
+    _sbProjBgTarget = aimed ? targetIdx : null;
+    if (m.style.display === 'block' && !aimed) { m.style.display = 'none'; return; }
     var lib = (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) ? savedBackgrounds : [];
     if (!lib.length && typeof loadBackgrounds === 'function') loadBackgrounds();
     var thumbs = lib.filter(function(b) { return (b.url || b.src) && !/^video/i.test(b.type || ''); })
@@ -44574,13 +44584,16 @@ var WO = (function() {
   }
 
   function sbProjSetBg(url) {
-    var s = _sbProjCur();
-    var key = _sbProjBgTarget || (s && s.key);
-    if (!key) return;
-    var store = _sbProjStore();
-    var ov = store.slides[key] || (store.slides[key] = {});
-    ov.bg = url || '';
+    var s = (_sbProjBgTarget != null) ? _sbProjDeck[_sbProjBgTarget] : _sbProjCur();
     _sbProjBgTarget = null;
+    if (!s) return;
+    // Same resolver as every other control: a reflowed song keeps its
+    // overrides in store.songs[i].slides, and a picture written to
+    // store.slides there would never be read back -- it showed for one render
+    // and vanished.
+    var ov = _sbProjOv(s, true);
+    if (!ov) return;
+    ov.bg = url || '';
     _sbProjSaveStore();
     _sbProjDeck = _sbBuildProjectionDeck(true);
     _sbProjRender();
@@ -44593,8 +44606,12 @@ var WO = (function() {
     if (!s) return;
     var store = _sbProjStore();
     store.all.bg = s.bg || '';
-    // Per-slide pins would mask the new default, so clear them.
+    // Per-slide pins would mask the new default, so clear them -- in both
+    // places overrides can live, or a reflowed song would ignore "all".
     Object.keys(store.slides).forEach(function(k) { delete store.slides[k].bg; });
+    Object.keys(store.songs).forEach(function(k) {
+      ((store.songs[k] && store.songs[k].slides) || []).forEach(function(sl) { delete sl.bg; });
+    });
     _sbProjSaveStore();
     _sbProjDeck = _sbBuildProjectionDeck(true);
     _sbProjRender();
@@ -44679,7 +44696,19 @@ var WO = (function() {
         return;
       }
       if (html && !/sb-asl-song">$|sb-asl-title[^>]*>[^<]*<\/div>$/.test(html)) html += '<hr class="sb-asl-break">';
-      html += '<div class="sb-asl-slide" data-song="' + s.songIdx + '"' + (s.hidden ? ' data-hidden="1"' : '') + '>' +
+      // The slide's OWN picture, not the one it merely inherits: only an
+      // explicit override becomes data-bg, so a slide left on the deck
+      // default keeps following that default after the save.
+      var own = _sbProjOv(s, false);
+      var pin = (own && own.bg != null) ? own.bg : null;
+      html += '<div class="sb-asl-slide" data-song="' + s.songIdx + '"' +
+              (s.hidden ? ' data-hidden="1"' : '') +
+              (pin === null ? '' : ' data-bg="' + escapeHtml(pin).replace(/"/g, '&quot;') + '"') + '>' +
+        '<div class="sb-asl-slide-tools" contenteditable="false">' +
+          '<button class="sb-asl-pic" onclick="WO.sbAslBgMenu(this)" title="Picture for this slide">' +
+            '<i class="fa-solid fa-image"></i> <span class="sb-asl-pic-label">' + _sbAslBgLabel(pin) + '</span>' +
+          '</button>' +
+        '</div>' +
         (s.lines.length ? s.lines.map(function(l) {
           return '<div>' + (l ? escapeHtml(l) : '<br>') + '</div>';
         }).join('') : '<div><br></div>') +
@@ -44720,26 +44749,44 @@ var WO = (function() {
     if (!slide) return;
     e.preventDefault();
 
-    // Everything from the blank line onwards becomes the next slide.
+    // Everything from the blank line onwards becomes the next slide. The
+    // tools row is furniture, not a line, so it never travels.
     var after = [];
     var n = line.nextSibling;
-    while (n) { var nx = n.nextSibling; after.push(n); n = nx; }
+    while (n) {
+      var nx = n.nextSibling;
+      if (!(n.nodeType === 1 && n.classList.contains('sb-asl-slide-tools'))) after.push(n);
+      n = nx;
+    }
     if (line.parentNode === slide) slide.removeChild(line);
 
     var next = document.createElement('div');
     next.className = 'sb-asl-slide';
     next.setAttribute('data-song', slide.getAttribute('data-song') || '');
+    // A new slide starts on the deck default, and needs its own picture
+    // button -- without one it could never be given a picture of its own.
+    next.innerHTML = '<div class="sb-asl-slide-tools" contenteditable="false">' +
+      '<button class="sb-asl-pic" onclick="WO.sbAslBgMenu(this)" title="Picture for this slide">' +
+        '<i class="fa-solid fa-image"></i> <span class="sb-asl-pic-label">' + _sbAslBgLabel(null) + '</span>' +
+      '</button></div>';
     if (after.length) after.forEach(function(x) { next.appendChild(x); });
-    else next.innerHTML = '<div><br></div>';
+    else next.appendChild(document.createElement('div')).appendChild(document.createElement('br'));
 
     var hr = document.createElement('hr');
     hr.className = 'sb-asl-break';
     slide.parentNode.insertBefore(hr, slide.nextSibling);
     slide.parentNode.insertBefore(next, hr.nextSibling);
-    if (!slide.textContent.trim()) slide.innerHTML = '<div><br></div>';
+    if (!slide.textContent.trim()) {
+      // Leave the tools row alone -- innerHTML here would take the picture
+      // button with it and strand the slide without one.
+      var blank = document.createElement('div');
+      blank.appendChild(document.createElement('br'));
+      slide.appendChild(blank);
+    }
 
     var r = document.createRange();
-    r.setStart(next.firstChild, 0);
+    var firstLine = next.querySelector(':scope > div:not(.sb-asl-slide-tools)') || next;
+    r.setStart(firstLine, 0);
     r.collapse(true);
     sel.removeAllRanges();
     sel.addRange(r);
@@ -44755,25 +44802,27 @@ var WO = (function() {
     Array.prototype.forEach.call(body.querySelectorAll('.sb-asl-slide'), function(el) {
       var songIdx = parseInt(el.getAttribute('data-song') || '-1', 10);
       if (isNaN(songIdx) || songIdx < 0) return;
-      var lines = Array.prototype.map.call(el.children, function(d) {
+      var lines = Array.prototype.filter.call(el.children, function(d) {
+        return !d.classList.contains('sb-asl-slide-tools');   // furniture, not a line
+      }).map(function(d) {
         return (d.textContent || '').split(String.fromCharCode(160)).join(' ').replace(/\s+$/, '');
       });
       while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
       while (lines.length && !lines[0].trim()) lines.shift();
       if (!lines.length) return;                       // an emptied slide is dropped
-      (bySong[songIdx] || (bySong[songIdx] = [])).push({
+      var entry = {
         lines: lines,
         hidden: el.getAttribute('data-hidden') === '1'
-      });
+      };
+      // The picture travels on the element, so it follows the slide through
+      // any reflow -- splitting, merging, reordering, deleting. Carrying it
+      // by position instead would hand a picture to whatever text happened to
+      // land in that slot. No attribute means "follow the deck default".
+      if (el.hasAttribute('data-bg')) entry.bg = el.getAttribute('data-bg');
+      (bySong[songIdx] || (bySong[songIdx] = [])).push(entry);
     });
 
-    // Carry each slide's existing picture across by position, so reflowing
-    // the words does not silently strip the backgrounds already chosen.
     Object.keys(bySong).forEach(function(k) {
-      var prev = (store.songs[k] && store.songs[k].slides) || [];
-      bySong[k].forEach(function(sl, i) {
-        if (prev[i] && prev[i].bg) sl.bg = prev[i].bg;
-      });
       store.songs[k] = { slides: bySong[k] };
     });
 
@@ -44784,6 +44833,101 @@ var WO = (function() {
     sbProjAllClose();
     var n = _sbBuildProjectionDeck(false).length;
     showToast('Projection updated - ' + n + ' slide' + (n === 1 ? '' : 's'), 'success');
+  }
+
+  // ── Pictures from inside All Slides ─────────────────────────────────────
+  // The choice is parked on the slide element (data-bg) rather than written
+  // straight to the store, so it survives the reflow happening in the same
+  // editing pass and lands with its own slide when Apply runs. Three states:
+  // no attribute = follow the deck default, "" = deliberately no picture,
+  // a URL = that picture.
+  var _sbAslBgEl = null;
+
+  function _sbAslBgLabel(pin) {
+    if (pin === null || pin === undefined) return 'Default';
+    if (pin === '') return 'None';
+    return 'Picture';
+  }
+
+  function sbAslBgMenu(btn) {
+    var panel = $('sbProjAllPanel');
+    var slide = btn && btn.closest ? btn.closest('.sb-asl-slide') : null;
+    if (!panel || !slide) return;
+    _sbAslBgEl = slide;
+
+    var m = $('sbAslBgMenu');
+    if (!m) {
+      m = document.createElement('div');
+      m.id = 'sbAslBgMenu';
+      m.className = 'sb-asl-bgmenu';
+      m.setAttribute('contenteditable', 'false');
+      panel.appendChild(m);
+      var inp = document.createElement('input');
+      inp.type = 'file'; inp.id = 'sbAslBgFile'; inp.accept = 'image/*';
+      inp.style.display = 'none';
+      inp.onchange = function() { sbAslBgUpload(this); };
+      panel.appendChild(inp);
+    }
+
+    var lib = (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) ? savedBackgrounds : [];
+    if (!lib.length && typeof loadBackgrounds === 'function') loadBackgrounds();
+    var thumbs = lib.filter(function(b) { return (b.url || b.src) && !/^video/i.test(b.type || ''); })
+      .map(function(b) {
+        var u = String(b.url || b.src);
+        return '<button class="sb-projbg-thumb" style="background-image:url(&quot;' + escapeHtml(u) + '&quot;)"' +
+               ' title="' + escapeHtml(b.name || 'Background') + '"' +
+               ' onclick="WO.sbAslSetBg(this.getAttribute(\'data-u\'))" data-u="' + escapeHtml(u).replace(/"/g, '&quot;') + '"></button>';
+      }).join('');
+
+    m.innerHTML =
+      '<div class="sb-projbg-head">Picture for this slide</div>' +
+      '<div class="sb-projbg-grid">' +
+        '<button class="sb-projbg-thumb none" onclick="WO.sbAslSetBg(null)" title="Follow the deck default">Default</button>' +
+        '<button class="sb-projbg-thumb none" onclick="WO.sbAslSetBg(\'\')" title="No picture (black)">None</button>' +
+        (thumbs || '<span class="sb-projbg-empty">No pictures in the media library yet — upload one below.</span>') +
+      '</div>' +
+      '<div class="sb-projbg-actions">' +
+        '<button onclick="document.getElementById(\'sbAslBgFile\').click()"><i class="fa-solid fa-upload"></i> Upload picture</button>' +
+      '</div>';
+
+    var r = btn.getBoundingClientRect();
+    m.style.display = 'block';
+    m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - m.offsetWidth - 12)) + 'px';
+    m.style.top = Math.min(r.bottom + 6, window.innerHeight - m.offsetHeight - 12) + 'px';
+  }
+
+  function sbAslSetBg(url) {
+    var el = _sbAslBgEl;
+    var m = $('sbAslBgMenu'); if (m) m.style.display = 'none';
+    _sbAslBgEl = null;
+    if (!el) return;
+    if (url === null) el.removeAttribute('data-bg');
+    else el.setAttribute('data-bg', url);
+    var lbl = el.querySelector('.sb-asl-pic-label');
+    if (lbl) lbl.textContent = _sbAslBgLabel(url === null ? null : url);
+    var pic = el.querySelector('.sb-asl-pic');
+    if (pic) pic.classList.toggle('has-pic', !!url);
+  }
+
+  function sbAslBgUpload(input) {
+    var f = input && input.files && input.files[0];
+    if (!f) return;
+    input.value = '';
+    var el = _sbAslBgEl;                      // the menu closes on the way out
+    showToast('Uploading background...', 'info');
+    uploadToSupabase(f, 'backgrounds').then(function(res) {
+      _sbAslBgEl = el;
+      if (res && res.url) { sbAslSetBg(res.url); showToast('Background added to this slide', 'success'); }
+      else {
+        var fr = new FileReader();
+        fr.onload = function() { _sbAslBgEl = el; sbAslSetBg(fr.result); showToast('Stored with this order (upload unavailable)', 'warning'); };
+        fr.readAsDataURL(f);
+      }
+    }).catch(function() {
+      var fr = new FileReader();
+      fr.onload = function() { _sbAslBgEl = el; sbAslSetBg(fr.result); };
+      fr.readAsDataURL(f);
+    });
   }
 
   // ── Export PowerPoint ───────────────────────────────────────────────────
@@ -59160,6 +59304,9 @@ var WO = (function() {
     sbProjAllSlides: sbProjAllSlides,
     sbProjAllClose: sbProjAllClose,
     sbProjAllSave: sbProjAllSave,
+    sbAslBgMenu: sbAslBgMenu,
+    sbAslSetBg: sbAslSetBg,
+    sbAslBgUpload: sbAslBgUpload,
     sbProjApplyBgAll: sbProjApplyBgAll,
     sbProjBgUpload: sbProjBgUpload,
     sbExportPPT: sbExportPPT,
@@ -67438,10 +67585,33 @@ function filterLiturgyItems() {
     color: #94a3b8; font-family: 'Poppins', sans-serif; font-size: 0.72rem;
     user-select: none;
   }
-  .sb-asl-slide { padding: 8px 12px; border-radius: 8px; }
+  .sb-asl-slide { position: relative; padding: 8px 12px; border-radius: 8px; }
   .sb-asl-slide:focus-within { background: rgba(96,165,250,0.07); }
   .sb-asl-slide[data-hidden="1"] { opacity: 0.45; text-decoration: line-through; }
   .sb-asl-slide > div { min-height: 1.5em; }
+  /* Picture control: quiet until the slide is worked on, so it never competes
+     with the words it sits beside. */
+  .sb-asl-slide-tools {
+    position: absolute; top: 4px; right: 8px; min-height: 0;
+    opacity: 0.28; transition: opacity 150ms; user-select: none;
+  }
+  .sb-asl-slide:hover .sb-asl-slide-tools,
+  .sb-asl-slide:focus-within .sb-asl-slide-tools { opacity: 1; }
+  .sb-asl-pic {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 999px; cursor: pointer;
+    background: rgba(15,23,42,0.85); border: 1px solid #334155; color: #94a3b8;
+    font-family: 'Poppins', sans-serif; font-size: 0.62rem; letter-spacing: 0.03em;
+  }
+  .sb-asl-pic:hover { border-color: #60a5fa; color: #dbeafe; }
+  .sb-asl-pic.has-pic { border-color: rgba(193,153,63,0.65); color: #e7c98a; }
+  .sb-asl-slide[data-bg] .sb-asl-pic { opacity: 1; }
+  .sb-asl-bgmenu {
+    display: none; position: fixed; z-index: 100060; width: 300px;
+    padding: 12px; border-radius: 12px;
+    background: #0f172a; border: 1px solid #334155;
+    box-shadow: 0 18px 44px rgba(0,0,0,0.55);
+  }
   /* The break line: this is where one slide ends and the next begins. */
   hr.sb-asl-break {
     border: none; border-top: 2px dashed #6366f1; margin: 12px 0; opacity: 0.75;
