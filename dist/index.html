@@ -36135,6 +36135,13 @@ var WO = (function() {
         };
       }).filter(Boolean);
       _sbStandaloneId = sbId;
+      // Outside any promise chain on purpose. SBQ.loadOrder REJECTS when the
+      // orders row does not exist, and a standalone songbook's row is created
+      // lazily -- so hydrating from inside its .then() skipped exactly the
+      // songbooks whose only projection state was saved versions, and they
+      // opened with none. The projection rows are keyed by songbook and do not
+      // need that row to exist.
+      setTimeout(function() { _sbProjHydrate('standalone_' + sbId); }, 0);
       currentOrderData = {
         id: 'standalone_' + sbId, title: sb.name || 'Songbook',
         type: 'traditional', serviceDate: '', occasion: '', template: {},
@@ -36171,7 +36178,6 @@ var WO = (function() {
           // Anything set in the second before this landed still wins.
           currentOrderData.template = Object.assign({}, result.order.template || {}, currentOrderData.template || {});
           _tplLoadedForOrder = currentOrderData.id;
-          _sbProjHydrate(currentOrderData.id);
         }
         if (result && result.items) {
           result.items.forEach(function(item) {
@@ -44472,7 +44478,11 @@ var WO = (function() {
     if (!_sbStandaloneId || typeof currentOrderData === 'undefined' || !currentOrderData) return;
     var id = 'standalone_' + _sbStandaloneId;
     var tpl = currentOrderData.template || {};
-    var worthKeeping = !_sbDeckIsEmpty(tpl.projectionDeck) || _tplLoadedForOrder === id;
+    // Saved versions count as worth keeping too: a songbook can have an empty
+    // working draft and still hold every projection it will ever use.
+    var worthKeeping = !_sbDeckIsEmpty(tpl.projectionDeck) ||
+                       (Array.isArray(tpl.projectionVersions) && tpl.projectionVersions.length > 0) ||
+                       _tplLoadedForOrder === id;
     if (!worthKeeping) return;
     var sbc = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
     if (!sbc) return;
