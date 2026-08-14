@@ -44588,6 +44588,9 @@ var WO = (function() {
     // lyrics parse is not used for that song: re-parsing would undo their
     // reflow the moment anything else changed.
     if (!d.songs) d.songs = {};
+    // songBg[songIdx] -- one picture for a whole song, between the songbook's
+    // default and a single slide's own choice.
+    if (!d.songBg) d.songBg = {};
     return d;
   }
 
@@ -44681,6 +44684,17 @@ var WO = (function() {
     _sbProjPushSettings();
   }
 
+  // slide -> song -> songbook. Each level only speaks when it was set there,
+  // so a slide left alone follows its song and a song left alone follows the
+  // songbook. An empty string at any level is a deliberate "no picture" and
+  // stops the walk.
+  function _sbResolveBg(store, songIdx, slideBg) {
+    if (slideBg != null) return slideBg;
+    var songBg = store.songBg ? store.songBg[songIdx] : undefined;
+    if (songBg != null) return songBg;
+    return store.all.bg || '';
+  }
+
   function _sbBuildProjectionDeck(includeHidden) {
     var store = _sbProjStore();
     var deck = [];
@@ -44701,7 +44715,9 @@ var WO = (function() {
         if (ov.lines) slide.lines = ov.lines.slice();
         if (ov.title != null) slide.title = ov.title;
         if (ov.artist != null) slide.artist = ov.artist;
-        slide.bg = (ov.bg != null) ? ov.bg : (store.all.bg || '');
+        if (ov.html) slide.html = ov.html.slice();
+        if (ov.align) slide.align = ov.align.slice();
+        slide.bg = _sbResolveBg(store, songIdx, ov.bg);
         deck.push(slide);
       }
 
@@ -44727,10 +44743,12 @@ var WO = (function() {
             lines: (sl.lines || []).slice(),
             hidden: !!sl.hidden,
             edited: true,
-            // `!= null` on purpose, matching the parsed branch: an empty
-            // string is the operator's explicit "no picture on this one" and
-            // must beat the deck-wide default, not fall back to it.
-            bg: (sl.bg != null) ? sl.bg : (store.all.bg || '')
+            html: (sl.html || null),
+            align: (sl.align || null),
+            // `!= null` on purpose: an empty string is the operator's explicit
+            // "no picture on this one" and must beat both the song's picture
+            // and the songbook default, not fall back to them.
+            bg: _sbResolveBg(store, songIdx, sl.bg)
           });
         });
         return;
@@ -44980,9 +44998,18 @@ var WO = (function() {
       stage.innerHTML = '<div class="sb-proj-title" data-role="title">' + escapeHtml(s.title) + '</div>' +
         '<div class="sb-proj-artist" data-role="artist">' + escapeHtml(s.artist || '') + '</div>';
     } else {
-      stage.innerHTML = '<div class="sb-proj-lines" data-role="lines">' + s.lines.map(function(l) {
-        return l ? '<div>' + escapeHtml(l) + '</div>' : '<div>&nbsp;</div>';
-      }).join('') + '</div>';
+      // The formatted markup is what the operator shaped in All Slides; the
+      // plain lines are the fallback for slides that carry no formatting.
+      var al = s.align || [];
+      function _row(i) { return al[i] ? '<div style="text-align:' + al[i] + '">' : '<div>'; }
+      var rows = (s.html && s.html.length)
+        ? s.html.map(function(h, i) {
+            return _row(i) + ((h && h.replace(/<[^>]*>/g, '').trim()) ? h : '&nbsp;') + '</div>';
+          })
+        : s.lines.map(function(l, i) {
+            return _row(i) + (l ? escapeHtml(l) : '&nbsp;') + '</div>';
+          });
+      stage.innerHTML = '<div class="sb-proj-lines" data-role="lines">' + rows.join('') + '</div>';
     }
     if (cnt) cnt.textContent = (_sbProjIdx + 1) + ' / ' + _sbProjDeck.length;
     // Which projection is on screen: without this the operator cannot tell a
@@ -45235,69 +45262,207 @@ var WO = (function() {
   function sbProjAllClose() {
     var m = $('sbProjAllPanel');
     if (m) m.style.display = 'none';
+    var bm = $('sbAslBgMenu'); if (bm) bm.style.display = 'none';
+    var nm = $('sbAslNameBox'); if (nm) nm.style.display = 'none';
+  }
+
+  // Backgrounds sit at three levels and the innermost one wins:
+  //   slide  -> data-bg on the slide block
+  //   song   -> data-bg on the song's banner
+  //   all    -> data-allbg on the panel, the whole songbook's default
+  // Each is only set when the operator chose it there, so a slide left alone
+  // keeps following its song, and a song left alone follows the songbook.
+  function _sbAslBgLabel(pin) {
+    if (pin === null || pin === undefined) return 'Default';
+    if (pin === '') return 'None';
+    return 'Picture';
+  }
+
+  function _sbAslPicBtn(level, pin) {
+    return '<button class="sb-asl-pic' + (pin ? ' has-pic' : '') + '" onclick="WO.sbAslBgMenu(this, \'' + level + '\')" ' +
+             'title="Background for this ' + level + '">' +
+             '<i class="fa-solid fa-image"></i> <span class="sb-asl-pic-label">' + _sbAslBgLabel(pin) + '</span>' +
+           '</button>';
+  }
+
+  function _sbAslAttr(name, pin) {
+    return (pin === null || pin === undefined) ? '' :
+      ' ' + name + '="' + escapeHtml(pin).replace(/"/g, '&quot;') + '"';
   }
 
   function _sbProjRenderAll() {
     var m = $('sbProjAllPanel');
     if (!m || m.style.display !== 'block') return;
     var deck = _sbProjDeck || [];
+    var store = _sbProjStore(false);
+    var allBg = (store.all && store.all.bg) ? store.all.bg : null;
 
     var html = '';
     var lastSong = -1;
+    // A break line only ever sits BETWEEN two slides of the same song; a song
+    // heading or a title slide already separates what follows.
+    var prevWasSlide = false;
     deck.forEach(function(s) {
       if (s.songIdx !== lastSong) {
         lastSong = s.songIdx;
-        html += '<div class="sb-asl-song" contenteditable="false" data-song="' + s.songIdx + '">' +
-                  '<i class="fa-solid fa-music"></i> ' + escapeHtml(s.title) +
+        prevWasSlide = false;
+        var songPin = (store.songBg && store.songBg[s.songIdx] != null) ? store.songBg[s.songIdx] : null;
+        html += '<div class="sb-asl-song" contenteditable="false" data-song="' + s.songIdx + '"' +
+                  _sbAslAttr('data-bg', songPin) + '>' +
+                  '<span><i class="fa-solid fa-music"></i> ' + escapeHtml(s.title) + '</span>' +
+                  _sbAslPicBtn('song', songPin) +
                 '</div>';
       }
       if (s.kind === 'title') {
-        // The title slide is generated from the song's name; it is shown for
-        // context but not edited here (use the pen on the slide itself).
-        html += '<div class="sb-asl-title" contenteditable="false">Title slide &middot; ' + escapeHtml(s.title) +
-                (s.artist ? ' &mdash; ' + escapeHtml(s.artist) : '') + '</div>';
+        // The title slide, editable in place: its wording is the song's name
+        // and author as they will be projected, which is not always how the
+        // songbook spells them.
+        html += '<div class="sb-asl-title" contenteditable="false" data-song="' + s.songIdx + '" ' +
+                  'data-key="' + escapeHtml(s.key).replace(/"/g, '&quot;') + '">' +
+                  '<span class="sb-asl-title-tag">Title slide</span>' +
+                  '<span class="sb-asl-ed" data-role="ttl" contenteditable="true">' + escapeHtml(s.title) + '</span>' +
+                  '<span class="sb-asl-dash">&mdash;</span>' +
+                  '<span class="sb-asl-ed" data-role="art" contenteditable="true" ' +
+                    'data-placeholder="author">' + escapeHtml(s.artist || '') + '</span>' +
+                '</div>';
+        prevWasSlide = false;
         return;
       }
-      if (html && !/sb-asl-song">$|sb-asl-title[^>]*>[^<]*<\/div>$/.test(html)) html += '<hr class="sb-asl-break">';
-      // The slide's OWN picture, not the one it merely inherits: only an
-      // explicit override becomes data-bg, so a slide left on the deck
-      // default keeps following that default after the save.
+      if (prevWasSlide) html += '<hr class="sb-asl-break">';
       var own = _sbProjOv(s, false);
       var pin = (own && own.bg != null) ? own.bg : null;
       html += '<div class="sb-asl-slide" data-song="' + s.songIdx + '"' +
-              (s.hidden ? ' data-hidden="1"' : '') +
-              (pin === null ? '' : ' data-bg="' + escapeHtml(pin).replace(/"/g, '&quot;') + '"') + '>' +
-        '<div class="sb-asl-slide-tools" contenteditable="false">' +
-          '<button class="sb-asl-pic" onclick="WO.sbAslBgMenu(this)" title="Picture for this slide">' +
-            '<i class="fa-solid fa-image"></i> <span class="sb-asl-pic-label">' + _sbAslBgLabel(pin) + '</span>' +
-          '</button>' +
-        '</div>' +
-        (s.lines.length ? s.lines.map(function(l) {
-          return '<div>' + (l ? escapeHtml(l) : '<br>') + '</div>';
-        }).join('') : '<div><br></div>') +
+              (s.hidden ? ' data-hidden="1"' : '') + _sbAslAttr('data-bg', pin) + '>' +
+        '<div class="sb-asl-slide-tools" contenteditable="false">' + _sbAslPicBtn('slide', pin) + '</div>' +
+        _sbAslLinesHtml(s) +
       '</div>';
+      prevWasSlide = true;
     });
 
     m.innerHTML =
       '<div class="sb-asl-head">' +
-        '<div><b>All Slides</b>' +
-          '<div class="sb-asl-sub">Press <b>Enter on an empty line</b> to start a new slide. Blank lines set the spacing. Chords are already stripped.</div>' +
+        '<div class="sb-asl-headtop">' +
+          '<div><b>All Slides</b>' +
+            '<div class="sb-asl-sub">Press <b>Enter on an empty line</b> to start a new slide. Blank lines set the spacing. Chords are already stripped.</div>' +
+          '</div>' +
+          '<div class="sb-asl-actions">' +
+            '<button class="sb-asl-cancel" onclick="WO.sbProjAllClose()">Cancel</button>' +
+            '<button class="sb-asl-save" onclick="WO.sbProjAllSave()"><i class="fa-solid fa-bookmark"></i> Save Projection</button>' +
+          '</div>' +
         '</div>' +
-        '<div class="sb-asl-actions">' +
-          '<button class="sb-asl-cancel" onclick="WO.sbProjAllClose()">Cancel</button>' +
-          '<button class="sb-asl-save" onclick="WO.sbProjAllSave()"><i class="fa-solid fa-check"></i> Apply to projection</button>' +
+        '<div class="sb-asl-toolbar">' +
+          '<select class="sb-asl-sel" title="Font" onchange="WO.sbAslCmd(\'fontName\', this.value)">' +
+            '<option value="">Font</option>' +
+            '<option value="Lato">Lato</option>' +
+            '<option value="Poppins">Poppins</option>' +
+            '<option value="Playfair Display">Playfair</option>' +
+            '<option value="Cinzel">Cinzel</option>' +
+            '<option value="Georgia">Georgia</option>' +
+            '<option value="Arial">Arial</option>' +
+          '</select>' +
+          '<select class="sb-asl-sel" title="Size" onchange="WO.sbAslCmd(\'fontSize\', this.value)">' +
+            '<option value="">Size</option>' +
+            '<option value="2">Small</option>' +
+            '<option value="3">Normal</option>' +
+            '<option value="4">Large</option>' +
+            '<option value="5">Larger</option>' +
+            '<option value="6">Huge</option>' +
+          '</select>' +
+          '<span class="sb-asl-tsep"></span>' +
+          '<button class="sb-asl-tbtn" title="Bold" onclick="WO.sbAslCmd(\'bold\')"><b>B</b></button>' +
+          '<button class="sb-asl-tbtn" title="Italic" onclick="WO.sbAslCmd(\'italic\')"><i>I</i></button>' +
+          '<button class="sb-asl-tbtn" title="Underline" onclick="WO.sbAslCmd(\'underline\')"><u>U</u></button>' +
+          '<span class="sb-asl-tsep"></span>' +
+          '<button class="sb-asl-tbtn" title="Align left" onclick="WO.sbAslCmd(\'justifyLeft\')"><i class="fa-solid fa-align-left"></i></button>' +
+          '<button class="sb-asl-tbtn" title="Centre" onclick="WO.sbAslCmd(\'justifyCenter\')"><i class="fa-solid fa-align-center"></i></button>' +
+          '<button class="sb-asl-tbtn" title="Align right" onclick="WO.sbAslCmd(\'justifyRight\')"><i class="fa-solid fa-align-right"></i></button>' +
+          '<span class="sb-asl-tsep"></span>' +
+          '<span class="sb-asl-tlabel">Whole songbook</span>' +
+          _sbAslPicBtn('all', allBg) +
         '</div>' +
       '</div>' +
       '<div class="sb-asl-body" id="sbAslBody" contenteditable="true" spellcheck="false">' +
         (html || '<div class="sb-asl-slide"><div><br></div></div>') +
       '</div>';
 
+    m.setAttribute('data-allbg', allBg === null ? '' : allBg);
+    if (allBg === null) m.removeAttribute('data-allbg');
+
     var body = $('sbAslBody');
-    if (body) body.addEventListener('keydown', _sbAslKeydown, false);
+    if (body) {
+      body.addEventListener('keydown', _sbAslKeydown, false);
+      body.addEventListener('paste', _sbAslPaste, false);
+    }
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
   }
 
-  // Enter on an empty line ends the slide and starts the next, exactly like
-  // the LCD editor's break behaviour.
+  function _sbAslLinesHtml(s) {
+    // Formatting is kept as HTML per line; the plain lines are the fallback
+    // for slides saved before formatting existed.
+    var al = s.align || [];
+    function open(i) { return al[i] ? '<div style="text-align:' + al[i] + '">' : '<div>'; }
+    if (s.html && s.html.length) {
+      return s.html.map(function(h, i) {
+        return open(i) + (h && h.replace(/<[^>]*>/g, '').trim() ? h : '<br>') + '</div>';
+      }).join('');
+    }
+    if (!s.lines.length) return '<div><br></div>';
+    return s.lines.map(function(l, i) {
+      return open(i) + (l ? escapeHtml(l) : '<br>') + '</div>';
+    }).join('');
+  }
+
+  // Formatting applies to the selection inside the editor.
+  function sbAslCmd(cmd, val) {
+    var body = $('sbAslBody');
+    if (!body) return;
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !body.contains(sel.getRangeAt(0).startContainer)) {
+      showToast('Select the words to change first', 'info');
+      return;
+    }
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
+    try { document.execCommand(cmd, false, val || null); } catch (e) {}
+    if (cmd === 'fontSize') _sbAslNormalizeFontTags(body);
+    body.focus();
+  }
+
+  // execCommand('fontSize') still emits <font size="n"> even with styleWithCSS,
+  // and a bare size attribute means nothing once the text is projected. Convert
+  // each one to a real CSS size so the slide renders the same everywhere.
+  var _SB_FONT_EM = { '1': '0.7em', '2': '0.85em', '3': '1em', '4': '1.25em', '5': '1.6em', '6': '2em', '7': '2.6em' };
+  function _sbAslNormalizeFontTags(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('font[size]'), function(f) {
+      var span = document.createElement('span');
+      span.style.fontSize = _SB_FONT_EM[f.getAttribute('size')] || '1em';
+      if (f.getAttribute('face')) span.style.fontFamily = f.getAttribute('face');
+      while (f.firstChild) span.appendChild(f.firstChild);
+      f.parentNode.replaceChild(span, f);
+    });
+  }
+
+  // Pasted text arrives carrying the source's margins, list indents and
+  // colours, which is why a pasted line sat slightly indented and behaved
+  // differently from its neighbours. Take the words only, one div per line,
+  // so pasted text is structurally identical to typed text.
+  function _sbAslPaste(e) {
+    var body = $('sbAslBody');
+    if (!body) return;
+    e.preventDefault();
+    var text = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
+    text = text.replace(/\r\n/g, String.fromCharCode(10)).replace(/\r/g, String.fromCharCode(10));
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var lines = text.split(String.fromCharCode(10));
+    // insertHTML keeps the caret and undo behaviour native; the markup is
+    // ours, so nothing foreign comes in with it.
+    var html = lines.map(function(l) {
+      return '<div>' + (l.trim() ? escapeHtml(l).split('  ').join('&nbsp; ') : '<br>') + '</div>';
+    }).join('');
+    try { document.execCommand('insertHTML', false, html); } catch (err) {}
+  }
+
+  // Enter on an empty line ends the slide and starts the next.
   function _sbAslKeydown(e) {
     if (e.key === 'Escape') { e.stopPropagation(); sbProjAllClose(); return; }
     e.stopPropagation();                       // never page the projector
@@ -45310,6 +45475,12 @@ var WO = (function() {
     if ((line.textContent || '').trim() !== '') return;   // only on a blank line
     var slide = line.closest('.sb-asl-slide');
     if (!slide) return;
+    // The caret can sit inside a nested element -- a pasted wrapper, a span
+    // left by formatting -- and the split works on whole lines. Walk up to the
+    // slide's own child, or the break lands around the wrong node and the rest
+    // of the slide is left behind.
+    while (line.parentNode && line.parentNode !== slide) line = line.parentNode;
+    if (line.parentNode !== slide) return;
     e.preventDefault();
 
     // Everything from the blank line onwards becomes the next slide. The
@@ -45318,20 +45489,17 @@ var WO = (function() {
     var n = line.nextSibling;
     while (n) {
       var nx = n.nextSibling;
-      if (!(n.nodeType === 1 && n.classList.contains('sb-asl-slide-tools'))) after.push(n);
+      if (!(n.nodeType === 1 && n.classList && n.classList.contains('sb-asl-slide-tools'))) after.push(n);
       n = nx;
     }
-    if (line.parentNode === slide) slide.removeChild(line);
+    slide.removeChild(line);
 
     var next = document.createElement('div');
     next.className = 'sb-asl-slide';
     next.setAttribute('data-song', slide.getAttribute('data-song') || '');
-    // A new slide starts on the deck default, and needs its own picture
+    // A new slide starts on its song's background, and needs its own picture
     // button -- without one it could never be given a picture of its own.
-    next.innerHTML = '<div class="sb-asl-slide-tools" contenteditable="false">' +
-      '<button class="sb-asl-pic" onclick="WO.sbAslBgMenu(this)" title="Picture for this slide">' +
-        '<i class="fa-solid fa-image"></i> <span class="sb-asl-pic-label">' + _sbAslBgLabel(null) + '</span>' +
-      '</button></div>';
+    next.innerHTML = '<div class="sb-asl-slide-tools" contenteditable="false">' + _sbAslPicBtn('slide', null) + '</div>';
     if (after.length) after.forEach(function(x) { next.appendChild(x); });
     else next.appendChild(document.createElement('div')).appendChild(document.createElement('br'));
 
@@ -45340,8 +45508,6 @@ var WO = (function() {
     slide.parentNode.insertBefore(hr, slide.nextSibling);
     slide.parentNode.insertBefore(next, hr.nextSibling);
     if (!slide.textContent.trim()) {
-      // Leave the tools row alone -- innerHTML here would take the picture
-      // button with it and strand the slide without one.
       var blank = document.createElement('div');
       blank.appendChild(document.createElement('br'));
       slide.appendChild(blank);
@@ -45355,32 +45521,66 @@ var WO = (function() {
     sel.addRange(r);
   }
 
-  // Read the editor back into one slide list per song.
+  // Read the editor back into the store, then ask what to call it.
   function sbProjAllSave() {
+    if (!_sbAslApplyToStore()) return;
+    _sbProjDeck = _sbBuildProjectionDeck(true);
+    if (_sbProjIdx >= _sbProjDeck.length) _sbProjIdx = Math.max(0, _sbProjDeck.length - 1);
+    _sbProjRender();
+    _sbAslNameBox();
+  }
+
+  function _sbAslApplyToStore() {
     var body = $('sbAslBody');
-    if (!body) return;
+    if (!body) return false;
+    var panel = $('sbProjAllPanel');
     var store = _sbProjStore(true);
     var bySong = {};
+
+    // Title slides: the wording as it will be projected.
+    Array.prototype.forEach.call(body.querySelectorAll('.sb-asl-title[data-key]'), function(el) {
+      var key = el.getAttribute('data-key');
+      var t = el.querySelector('[data-role="ttl"]'), a = el.querySelector('[data-role="art"]');
+      var ov = store.slides[key] || (store.slides[key] = {});
+      ov.title = ((t && t.textContent) || '').trim();
+      ov.artist = ((a && a.textContent) || '').trim();
+    });
+
+    // Song-level backgrounds.
+    if (!store.songBg) store.songBg = {};
+    Array.prototype.forEach.call(body.querySelectorAll('.sb-asl-song[data-song]'), function(el) {
+      var idx = el.getAttribute('data-song');
+      if (el.hasAttribute('data-bg')) store.songBg[idx] = el.getAttribute('data-bg');
+      else delete store.songBg[idx];
+    });
+
+    // The songbook-wide default.
+    if (panel && panel.hasAttribute('data-allbg')) store.all.bg = panel.getAttribute('data-allbg');
+    else if (panel) delete store.all.bg;
 
     Array.prototype.forEach.call(body.querySelectorAll('.sb-asl-slide'), function(el) {
       var songIdx = parseInt(el.getAttribute('data-song') || '-1', 10);
       if (isNaN(songIdx) || songIdx < 0) return;
-      var lines = Array.prototype.filter.call(el.children, function(d) {
+      var lineEls = Array.prototype.filter.call(el.children, function(d) {
         return !d.classList.contains('sb-asl-slide-tools');   // furniture, not a line
-      }).map(function(d) {
+      });
+      var lines = lineEls.map(function(d) {
         return (d.textContent || '').split(String.fromCharCode(160)).join(' ').replace(/\s+$/, '');
       });
-      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-      while (lines.length && !lines[0].trim()) lines.shift();
+      var htmls = lineEls.map(function(d) { return d.innerHTML; });
+      // Alignment is a property of the LINE, not of the words inside it, so it
+      // lives on the div and never appears in innerHTML -- captured separately
+      // or centring a line was lost the moment it was saved.
+      var aligns = lineEls.map(function(d) { return d.style.textAlign || ''; });
+      while (lines.length && !lines[lines.length - 1].trim()) { lines.pop(); htmls.pop(); aligns.pop(); }
+      while (lines.length && !lines[0].trim()) { lines.shift(); htmls.shift(); aligns.shift(); }
       if (!lines.length) return;                       // an emptied slide is dropped
-      var entry = {
-        lines: lines,
-        hidden: el.getAttribute('data-hidden') === '1'
-      };
+      var entry = { lines: lines, hidden: el.getAttribute('data-hidden') === '1' };
+      // Only keep the markup when it carries something the plain text cannot.
+      if (htmls.some(_sbAslHasFormatting)) entry.html = htmls;
+      if (aligns.some(function(a) { return !!a; })) entry.align = aligns;
       // The picture travels on the element, so it follows the slide through
-      // any reflow -- splitting, merging, reordering, deleting. Carrying it
-      // by position instead would hand a picture to whatever text happened to
-      // land in that slot. No attribute means "follow the deck default".
+      // any reflow -- splitting, merging, reordering, deleting.
       if (el.hasAttribute('data-bg')) entry.bg = el.getAttribute('data-bg');
       (bySong[songIdx] || (bySong[songIdx] = [])).push(entry);
     });
@@ -45388,35 +45588,85 @@ var WO = (function() {
     Object.keys(bySong).forEach(function(k) {
       store.songs[k] = { slides: bySong[k] };
     });
-
     _sbProjSaveStore();
-    _sbProjDeck = _sbBuildProjectionDeck(true);
-    if (_sbProjIdx >= _sbProjDeck.length) _sbProjIdx = Math.max(0, _sbProjDeck.length - 1);
-    _sbProjRender();
+    return true;
+  }
+
+  function _sbAslHasFormatting(h) {
+    return /<(b|i|u|em|strong|span|font)\b/i.test(h || '');
+  }
+
+  // Naming is the save. A projection worth keeping is worth calling something,
+  // and the name is what the Project menu and LCD both list it by.
+  function _sbAslNameBox() {
+    var panel = $('sbProjAllPanel');
+    if (!panel) return;
+    var box = $('sbAslNameBox');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'sbAslNameBox';
+      box.className = 'sb-asl-namebox';
+      panel.appendChild(box);
+    }
+    var src = _sbProjSource();
+    var target = (src !== 'asis' && src !== 'draft') ? _sbProjVersion(src) : _sbDraftBase();
+    var suggested = target ? target.name : _sbSuggestVersionName();
+    box.innerHTML =
+      '<div class="sb-asl-namebox-inner">' +
+        '<div class="sb-asl-namebox-head">Save this projection</div>' +
+        '<div class="sb-asl-namebox-sub">Give it a name and it joins the Project menu, here and in LCD Projection.</div>' +
+        '<input id="sbAslNameInput" class="sb-projver-input" type="text" spellcheck="false" ' +
+          'value="' + escapeHtml(suggested).replace(/"/g, '&quot;') + '" placeholder="Name this projection">' +
+        '<div class="sb-asl-namebox-actions">' +
+          '<button class="sb-asl-cancel" onclick="WO.sbAslNameDone(null)">Not now</button>' +
+          (target ? '<button class="sb-asl-cancel" onclick="WO.sbAslNameDone(false)">Update ' + escapeHtml(target.name) + '</button>' : '') +
+          '<button class="sb-asl-save" onclick="WO.sbAslNameDone(true)"><i class="fa-solid fa-check"></i> Save as new</button>' +
+        '</div>' +
+      '</div>';
+    box.style.display = 'block';
+    var inp = $('sbAslNameInput');
+    if (inp) { inp.focus(); inp.select(); }
+  }
+
+  // asNew null = keep the edits without naming them (they stay as unsaved
+  // adjustments, exactly as before this dialogue existed).
+  function sbAslNameDone(asNew) {
+    var box = $('sbAslNameBox');
+    var inp = $('sbAslNameInput');
+    var name = (inp && inp.value.trim()) || '';
+    if (box) box.style.display = 'none';
+    if (asNew === null) {
+      sbProjAllClose();
+      var n0 = _sbBuildProjectionDeck(false).length;
+      showToast('Projection updated - ' + n0 + ' slide' + (n0 === 1 ? '' : 's'), 'success');
+      return;
+    }
+    // sbProjSaveVersion reads the name from the version panel's own input, so
+    // hand it the value through a temporary stand-in rather than duplicating
+    // the save.
+    var proxy = document.createElement('input');
+    proxy.id = 'sbProjVerName';
+    proxy.value = name;
+    proxy.style.display = 'none';
+    document.body.appendChild(proxy);
+    try { sbProjSaveVersion(asNew); } finally { proxy.parentNode.removeChild(proxy); }
     sbProjAllClose();
-    var n = _sbBuildProjectionDeck(false).length;
-    showToast('Projection updated - ' + n + ' slide' + (n === 1 ? '' : 's'), 'success');
   }
 
   // ── Pictures from inside All Slides ─────────────────────────────────────
-  // The choice is parked on the slide element (data-bg) rather than written
-  // straight to the store, so it survives the reflow happening in the same
-  // editing pass and lands with its own slide when Apply runs. Three states:
-  // no attribute = follow the deck default, "" = deliberately no picture,
-  // a URL = that picture.
-  var _sbAslBgEl = null;
+  // The choice is parked on the element (data-bg) rather than written straight
+  // to the store, so it survives the reflow happening in the same editing pass
+  // and lands with its own slide, song or songbook when Save runs.
+  var _sbAslBgEl = null, _sbAslBgLevel = 'slide';
 
-  function _sbAslBgLabel(pin) {
-    if (pin === null || pin === undefined) return 'Default';
-    if (pin === '') return 'None';
-    return 'Picture';
-  }
-
-  function sbAslBgMenu(btn) {
+  function sbAslBgMenu(btn, level) {
     var panel = $('sbProjAllPanel');
-    var slide = btn && btn.closest ? btn.closest('.sb-asl-slide') : null;
-    if (!panel || !slide) return;
-    _sbAslBgEl = slide;
+    if (!panel) return;
+    _sbAslBgLevel = level || 'slide';
+    _sbAslBgEl = (_sbAslBgLevel === 'all') ? panel
+      : (_sbAslBgLevel === 'song') ? btn.closest('.sb-asl-song')
+      : btn.closest('.sb-asl-slide');
+    if (!_sbAslBgEl) return;
 
     var m = $('sbAslBgMenu');
     if (!m) {
@@ -45442,10 +45692,15 @@ var WO = (function() {
                ' onclick="WO.sbAslSetBg(this.getAttribute(\'data-u\'))" data-u="' + escapeHtml(u).replace(/"/g, '&quot;') + '"></button>';
       }).join('');
 
+    var scope = (_sbAslBgLevel === 'all') ? 'every slide in this songbook'
+              : (_sbAslBgLevel === 'song') ? 'every slide in this song'
+              : 'this slide';
+    var inherit = (_sbAslBgLevel === 'all') ? 'No picture' : (_sbAslBgLevel === 'song') ? 'Follow the songbook' : 'Follow the song';
+
     m.innerHTML =
-      '<div class="sb-projbg-head">Picture for this slide</div>' +
+      '<div class="sb-projbg-head">Background for ' + scope + '</div>' +
       '<div class="sb-projbg-grid">' +
-        '<button class="sb-projbg-thumb none" onclick="WO.sbAslSetBg(null)" title="Follow the deck default">Default</button>' +
+        (_sbAslBgLevel === 'all' ? '' : '<button class="sb-projbg-thumb none" onclick="WO.sbAslSetBg(null)" title="' + inherit + '">Default</button>') +
         '<button class="sb-projbg-thumb none" onclick="WO.sbAslSetBg(\'\')" title="No picture (black)">None</button>' +
         (thumbs || '<span class="sb-projbg-empty">No pictures in the media library yet — upload one below.</span>') +
       '</div>' +
@@ -45460,15 +45715,17 @@ var WO = (function() {
   }
 
   function sbAslSetBg(url) {
-    var el = _sbAslBgEl;
+    var el = _sbAslBgEl, level = _sbAslBgLevel;
     var m = $('sbAslBgMenu'); if (m) m.style.display = 'none';
     _sbAslBgEl = null;
     if (!el) return;
-    if (url === null) el.removeAttribute('data-bg');
-    else el.setAttribute('data-bg', url);
-    var lbl = el.querySelector('.sb-asl-pic-label');
+    var attr = (level === 'all') ? 'data-allbg' : 'data-bg';
+    if (url === null) el.removeAttribute(attr);
+    else el.setAttribute(attr, url);
+    var host = (level === 'all') ? $('sbProjAllPanel') : el;
+    var lbl = host && host.querySelector(level === 'all' ? '.sb-asl-toolbar .sb-asl-pic-label' : '.sb-asl-pic-label');
     if (lbl) lbl.textContent = _sbAslBgLabel(url === null ? null : url);
-    var pic = el.querySelector('.sb-asl-pic');
+    var pic = host && host.querySelector(level === 'all' ? '.sb-asl-toolbar .sb-asl-pic' : '.sb-asl-pic');
     if (pic) pic.classList.toggle('has-pic', !!url);
   }
 
@@ -45476,19 +45733,19 @@ var WO = (function() {
     var f = input && input.files && input.files[0];
     if (!f) return;
     input.value = '';
-    var el = _sbAslBgEl;                      // the menu closes on the way out
+    var el = _sbAslBgEl, level = _sbAslBgLevel;
     showToast('Uploading background...', 'info');
     uploadToSupabase(f, 'backgrounds').then(function(res) {
-      _sbAslBgEl = el;
-      if (res && res.url) { sbAslSetBg(res.url); showToast('Background added to this slide', 'success'); }
+      _sbAslBgEl = el; _sbAslBgLevel = level;
+      if (res && res.url) { sbAslSetBg(res.url); showToast('Background added', 'success'); }
       else {
         var fr = new FileReader();
-        fr.onload = function() { _sbAslBgEl = el; sbAslSetBg(fr.result); showToast('Stored with this order (upload unavailable)', 'warning'); };
+        fr.onload = function() { _sbAslBgEl = el; _sbAslBgLevel = level; sbAslSetBg(fr.result); showToast('Stored with this order (upload unavailable)', 'warning'); };
         fr.readAsDataURL(f);
       }
     }).catch(function() {
       var fr = new FileReader();
-      fr.onload = function() { _sbAslBgEl = el; sbAslSetBg(fr.result); };
+      fr.onload = function() { _sbAslBgEl = el; _sbAslBgLevel = level; sbAslSetBg(fr.result); };
       fr.readAsDataURL(f);
     });
   }
@@ -60023,6 +60280,8 @@ var WO = (function() {
     sbAslBgMenu: sbAslBgMenu,
     sbAslSetBg: sbAslSetBg,
     sbAslBgUpload: sbAslBgUpload,
+    sbAslCmd: sbAslCmd,
+    sbAslNameDone: sbAslNameDone,
     lcdProjectionMenu: lcdProjectionMenu,
     lcdApplyProjection: lcdApplyProjection,
     sbProjectMenu: sbProjectMenu,
@@ -68339,6 +68598,60 @@ function filterLiturgyItems() {
     background: #0f172a; border: 1px solid #334155;
     box-shadow: 0 18px 44px rgba(0,0,0,0.55);
   }
+  /* Formatting bar: font, size, weight and alignment for the selected words,
+     plus the songbook-wide background. */
+  .sb-asl-headtop { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+  .sb-asl-toolbar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin-top: 11px; padding-top: 10px; border-top: 1px solid #1e3355;
+  }
+  .sb-asl-sel {
+    height: 30px; padding: 0 8px; border-radius: 8px;
+    background: #0b1220; border: 1px solid #334155; color: #cbd5e1;
+    font-family: 'Poppins', sans-serif; font-size: 0.72rem; cursor: pointer;
+  }
+  .sb-asl-sel:focus { outline: none; border-color: #60a5fa; }
+  .sb-asl-tbtn {
+    min-width: 30px; height: 30px; padding: 0 8px; border-radius: 8px; cursor: pointer;
+    background: #0b1220; border: 1px solid #334155; color: #cbd5e1; font-size: 0.76rem;
+  }
+  .sb-asl-tbtn:hover { border-color: #60a5fa; color: #e2e8f0; }
+  .sb-asl-tsep { width: 1px; height: 20px; background: #1e3355; margin: 0 3px; }
+  .sb-asl-tlabel {
+    margin-left: auto; font-family: 'Poppins', sans-serif;
+    font-size: 0.66rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .sb-asl-song { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  /* The title slide's own wording, edited in place. */
+  .sb-asl-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .sb-asl-title-tag {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b;
+  }
+  .sb-asl-ed {
+    padding: 2px 8px; border-radius: 6px; min-width: 40px;
+    border: 1px dashed transparent; color: #e2e8f0; font-family: 'Lato', Georgia, serif;
+    font-size: 0.9rem; outline: none; cursor: text;
+  }
+  .sb-asl-ed:hover { border-color: #334155; }
+  .sb-asl-ed:focus { border-color: #60a5fa; border-style: solid; background: rgba(96,165,250,0.08); }
+  .sb-asl-ed:empty::before {
+    content: attr(data-placeholder); color: #475569; font-style: italic;
+  }
+  .sb-asl-dash { color: #475569; }
+  /* Naming the projection, over the editor it came from. */
+  .sb-asl-namebox {
+    display: none; position: absolute; inset: 0; z-index: 100065;
+    background: rgba(2,8,23,0.82); align-items: center; justify-content: center;
+  }
+  .sb-asl-namebox[style*="block"] { display: flex !important; }
+  .sb-asl-namebox-inner {
+    width: min(460px, 92vw); padding: 22px; border-radius: 14px;
+    background: #0f172a; border: 1px solid #334155;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+  }
+  .sb-asl-namebox-head { font-family: 'Poppins', sans-serif; font-size: 0.95rem; font-weight: 700; color: #f1f5f9; }
+  .sb-asl-namebox-sub { margin: 5px 0 14px; font-size: 0.74rem; color: #94a3b8; line-height: 1.5; }
+  .sb-asl-namebox-actions { display: flex; gap: 9px; justify-content: flex-end; flex-wrap: wrap; }
   /* Choosing what to project: the songbook itself, work in progress, or a
      saved version. */
   .sb-projsrc-menu {
