@@ -25,6 +25,18 @@ The LCD **rebuild** (applying a version to the service order's song slides) is s
 
 ---
 
+## 2026-08-14 — LCD rebuild verified, and the picture it was dropping
+
+The rebuild (applying a saved projection to the service order's song slides) had shipped unverified twice, because a throwaway song could not be placed into a service section through the harness. The missing piece was mundane: the order item's `section_id` has to be a real service section (`wo-section-3`), not a label like `songs`. With that, the song lands in the schedule with its banner and slide boxes and the whole path is exercisable.
+
+**It works** — and doing it properly found a bug. Every other slide box carries its picture as `data-background`, which is where `collectOrderItems` reads it back from; the rebuild set `background` in the slide data but never put the attribute on the element, so **the projection's backgrounds were dropped on the way into LCD**. The boxes came out bare and the picture never reached Supabase. Fixed, and the toast's grammar with it ("1 song now matches").
+
+### Verified live (throwaway song + order, deleted by id)
+
+A version named "LCD test version" — one song reflowed from 2 slides to 3 plus a title slide, with a song-level picture — applied to a service order holding that song in `wo-section-3`. The picker listed it and defaulted to *The songbook's choice*; the confirm dialogue named the version; applying took the schedule from 2 boxes to 4 with the exact wording of the version, each carrying `data-background`, and `order_items.slides` stored all four with their picture. **Undo** put the original 2 slides back, and **Restore** — which shares `_lcdRebuildSongSlides` — still returns the song to its songbook lyrics. Orders 19, songs 51, unchanged.
+
+---
+
 ## 2026-08-14 — Full screen: a bar the room never sees, and a movable text box
 
 **The bar belongs to the operator, not the room.** It used to appear on any hover anywhere in the overlay. It now shows on entry, fades after five seconds, and comes back only when the pointer is in the **bottom half** of the screen — so on a second display, where the pointer never goes, the audience sees nothing but the slide. It will not fade out from under someone mid-edit or with the picture menu open.
