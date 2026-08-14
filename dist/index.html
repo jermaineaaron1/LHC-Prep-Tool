@@ -14845,7 +14845,9 @@ function isChordToken(tok) {
 }
 
 // Returns true when ≥50 % of tokens on a line are chord tokens
-function isChordLineGlobal(line) {
+// nextLine is optional: pass the line that follows and an Am-only line is only
+// read as a chord when it genuinely sits above a lyric.
+function isChordLineGlobal(line, nextLine) {
   var trimmed = line.trim();
   if (!trimmed || trimmed.length > 100) return false;
   var tokens = trimmed.split(/\s+/);
@@ -14872,7 +14874,20 @@ function isChordLineGlobal(line) {
   // only chord on it is Am. "Am" alone above a lyric is how half the charts in
   // the library are written; refusing it there was the rule protecting against
   // "I am" and catching real chords instead.
-  if (hits === tokens.length) return true;
+  //
+  // Where the caller knows what comes next, that settles it properly: an
+  // Am-only line is a chord line when it sits directly above a lyric, and is
+  // just the word when it stands alone. Callers with no context fall back to
+  // treating it as a chord, which is safe -- a lyric line reading only "Am"
+  // does not occur, while "I am" and "Great I Am" carry other words and are
+  // already vetoed above.
+  if (hits === tokens.length) {
+    if (strongHits > 0 || nextLine === undefined) return true;
+    var nx = String(nextLine || '').trim();
+    if (!nx) return false;                              // nothing under it
+    if (/^\[.+\]$/.test(nx)) return false;              // a section header
+    return !isChordLineGlobal(nx);                      // must be a lyric line
+  }
   if (strongHits === 0) return false;
   // A two-token lyric line whose last word happens to be chord-shaped --
   // "Verse B", "Line A", "This is the day D" -- clears the >=50% bar on one
@@ -29229,8 +29244,9 @@ var WO = (function() {
       return 'other';
     }
 
-    lines.forEach(function(line) {
+    lines.forEach(function(line, _li) {
       var trimmed = line.trim();
+      var _next = lines[_li + 1];
 
       // Section header with brackets
       var headerMatch = trimmed.match(/^\[(.+)\]$/);
@@ -29244,7 +29260,7 @@ var WO = (function() {
         html += '<div class="wo-lyrics-section-header ' + sectionClass + '">' + escapeHtml(trimmed) + '</div>';
       }
       // Chord line - bold and dark blue
-      else if (isChordLine(line)) {
+      else if (isChordLine(line, _next)) {
         html += '<div class="wo-lyrics-chord-line" spellcheck="false">' + escapeHtml(line) + '</div>';
       }
       // Regular lyric line

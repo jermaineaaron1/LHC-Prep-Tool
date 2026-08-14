@@ -31,7 +31,7 @@ The LCD **rebuild** (applying a version to the service order's song slides) is s
 
 A line made of nothing but chord tokens is now a chord line whatever those tokens are. Mixed lines still need one non-Am chord, so the word is still safe wherever it appears among real words.
 
-**Existing songbooks:** this fixes the parse. A song whose pad content was already saved with `Am` classified as a lyric keeps that structure until it is re-parsed — editing that line, or Restore, re-reads it.
+**Refined to the operator's own rule:** `Am` is a chord *only when it is isolated above a lyric line*. `isChordLineGlobal(line, nextLine)` takes the following line as optional context, and an all-chord line whose only chord is `Am` is a chord line only when a lyric follows it — not a blank line, not a section header, not another chord line. The pad renderer passes that context. Callers with no context still read a bare `Am` as a chord, which is safe: a lyric line reading only "Am" does not occur, while "I am" and "Great I Am" carry other words and are vetoed by the wordish test.
 
 ### Verified live
 
@@ -39,7 +39,7 @@ A line made of nothing but chord tokens is now a chord line whatever those token
 
 ### Still open — the growing gap at the bottom of the page
 
-Not reproduced. Eight Enter/Backspace edits in a throwaway songbook grew the page exactly one line per inserted line and shrank it again on delete: no accumulation in `.sb-song-page` height, no inline style, no leftover `.sb-a4-marker` elements (they are absolute, height 0, and removed each pass), `.sb-page-canvas-wrap` reset to auto, and `sbPageMargins` is written only by the two break-drag handlers, never by editing. Whatever grows is not visible on a single short song, so the next step needs the real book: **does the gap survive a page reload** (persisted vs live DOM only), and is it below the last song or between songs?
+Not reproduced. Eight Enter/Backspace edits in a throwaway songbook grew the page exactly one line per inserted line and shrank it again on delete: no accumulation in `.sb-song-page` height, no inline style, no leftover `.sb-a4-marker` elements (they are absolute, height 0, and removed each pass), `.sb-page-canvas-wrap` reset to auto, and `sbPageMargins` is written only by the two break-drag handlers, never by editing. Answered since: the gap does **not** survive a reload, it sits at the end of the song, and it only happens on songs whose page breaks have been dragged by hand. That points at the auto-shrink path, which runs *only* for those songs: `_sbComputePageStarts` returns a `fitScale`, `sbPaginateAll` writes it to `sbSongFontOverrides[sid]` and re-paginates through a `setTimeout` loop. The measurement is taken in a detached div that the override CSS (`#sbLyrics-<sid>`) cannot reach, so it is not a straightforward compounding loop — the exact mechanism is not yet pinned down and no speculative fix has been made.
 
 ---
 
