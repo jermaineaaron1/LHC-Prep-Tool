@@ -25,6 +25,24 @@ The LCD **rebuild** (applying a version to the service order's song slides) is s
 
 ---
 
+## 2026-08-14 — "Am" on its own is a chord again
+
+`isChordLineGlobal` refuses to let **Am** count as chord evidence, because it is indistinguishable from the English word: "Great I Am", "Am I not yours" are lyrics, and on a short line that one token is enough to tip the ≥50% test. The rule was right about mixed lines and wrong about the commonest case in the library — **Am alone above a lyric** — which rendered as a lyric line, unstyled and un-transposable.
+
+A line made of nothing but chord tokens is now a chord line whatever those tokens are. Mixed lines still need one non-Am chord, so the word is still safe wherever it appears among real words.
+
+**Existing songbooks:** this fixes the parse. A song whose pad content was already saved with `Am` classified as a lyric keeps that structure until it is re-parsed — editing that line, or Restore, re-reads it.
+
+### Verified live
+
+25 cases: 13/13 chord lines detected, including `Am`, `Am Am`, `Am Em` and the comma-prefixed `,  G  C  G`; 12/12 lyric lines spared, including `Great I Am`, `Am I not yours`, `I am the Lord` and `This is the day D`. A fresh songbook render of a song with `Am` above a lyric now shows it as `chord-line`. Orders 19, songs 51, unchanged.
+
+### Still open — the growing gap at the bottom of the page
+
+Not reproduced. Eight Enter/Backspace edits in a throwaway songbook grew the page exactly one line per inserted line and shrank it again on delete: no accumulation in `.sb-song-page` height, no inline style, no leftover `.sb-a4-marker` elements (they are absolute, height 0, and removed each pass), `.sb-page-canvas-wrap` reset to auto, and `sbPageMargins` is written only by the two break-drag handlers, never by editing. Whatever grows is not visible on a single short song, so the next step needs the real book: **does the gap survive a page reload** (persisted vs live DOM only), and is it below the last song or between songs?
+
+---
+
 ## 2026-08-14 — The box is the words, sizes are numbers, scope applies on click
 
 Four corrections from using it on the real projector.

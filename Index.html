@@ -14868,6 +14868,11 @@ function isChordLineGlobal(line) {
       wordish++;
     }
   }
+  // ...but a line made of NOTHING but chords is a chord line, even when the
+  // only chord on it is Am. "Am" alone above a lyric is how half the charts in
+  // the library are written; refusing it there was the rule protecting against
+  // "I am" and catching real chords instead.
+  if (hits === tokens.length) return true;
   if (strongHits === 0) return false;
   // A two-token lyric line whose last word happens to be chord-shaped --
   // "Verse B", "Line A", "This is the day D" -- clears the >=50% bar on one
