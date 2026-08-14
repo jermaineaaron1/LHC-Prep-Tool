@@ -44332,6 +44332,7 @@ var WO = (function() {
           '<button id="sbProjEditBtn" onclick="WO.sbProjToggleEdit()" title="Edit the words on this slide"><i class="fa-solid fa-pen"></i></button>' +
           '<button onclick="WO.sbProjBgMenu()" title="Background for this slide"><i class="fa-solid fa-image"></i></button>' +
           '<button id="sbProjHideBtn" onclick="WO.sbProjToggleHide()" title="Skip this slide"><i class="fa-solid fa-eye-slash"></i></button>' +
+          '<button onclick="WO.sbProjAllSlides()" title="All Slides - see and adjust the whole deck"><i class="fa-solid fa-table-cells"></i></button>' +
           '<button onclick="WO.sbProjReset()" title="Undo adjustments on this slide"><i class="fa-solid fa-rotate-left"></i></button>' +
           '<span class="sb-proj-sep"></span>' +
           '<button onclick="WO.sbExportPPT()" title="Export this projection as PowerPoint"><i class="fa-solid fa-file-powerpoint"></i></button>' +
@@ -44474,10 +44475,15 @@ var WO = (function() {
     showToast('Slide restored to the songbook wording', 'info');
   }
 
-  function sbProjBgMenu() {
+  // When the picker is opened from an All Slides card it targets THAT slide;
+  // opened from the bar it targets whatever is on screen.
+  var _sbProjBgTarget = null;
+
+  function sbProjBgMenu(targetKey) {
     var m = $('sbProjBgMenu');
     if (!m) return;
-    if (m.style.display === 'block') { m.style.display = 'none'; return; }
+    _sbProjBgTarget = targetKey || null;
+    if (m.style.display === 'block' && !targetKey) { m.style.display = 'none'; return; }
     var lib = (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) ? savedBackgrounds : [];
     if (!lib.length && typeof loadBackgrounds === 'function') loadBackgrounds();
     var thumbs = lib.filter(function(b) { return (b.url || b.src) && !/^video/i.test(b.type || ''); })
@@ -44502,13 +44508,16 @@ var WO = (function() {
 
   function sbProjSetBg(url) {
     var s = _sbProjCur();
-    if (!s) return;
+    var key = _sbProjBgTarget || (s && s.key);
+    if (!key) return;
     var store = _sbProjStore();
-    var ov = store.slides[s.key] || (store.slides[s.key] = {});
+    var ov = store.slides[key] || (store.slides[key] = {});
     ov.bg = url || '';
+    _sbProjBgTarget = null;
     _sbProjSaveStore();
     _sbProjDeck = _sbBuildProjectionDeck(true);
     _sbProjRender();
+    _sbProjRenderAll();
     var m = $('sbProjBgMenu'); if (m) m.style.display = 'none';
   }
 
@@ -44552,6 +44561,88 @@ var WO = (function() {
       fr.onload = function() { sbProjSetBg(fr.result); };
       fr.readAsDataURL(f);
     });
+  }
+
+  // ── All Slides: the whole deck at a glance ──────────────────────────────
+  // The projector shows one slide; shaping a service means seeing them all.
+  // Every slide in the songbook appears as a card carrying its real
+  // background, so the operator can spot a missing picture or a stage cue
+  // that slipped through without paging the deck one slide at a time. Cards
+  // act in place -- set a picture, skip a slide, jump to it -- and everything
+  // written here is the same store the projection and the export read.
+  function sbProjAllSlides() {
+    var p = $('sbProjAllPanel');
+    if (!p) {
+      p = document.createElement('div');
+      p.id = 'sbProjAllPanel';
+      p.className = 'sb-projall';
+      document.body.appendChild(p);
+    }
+    if (p.style.display === 'block') { p.style.display = 'none'; return; }
+    p.style.display = 'block';
+    _sbProjRenderAll();
+  }
+
+  function _sbProjRenderAll() {
+    var p = $('sbProjAllPanel');
+    if (!p || p.style.display !== 'block') return;
+    var deck = _sbProjDeck || [];
+    var shown = deck.filter(function(s) { return !s.hidden; }).length;
+
+    var cards = deck.map(function(s, i) {
+      var body = (s.kind === 'title')
+        ? '<div class="sb-projall-t">' + escapeHtml(s.title) + '</div>' +
+          (s.artist ? '<div class="sb-projall-a">' + escapeHtml(s.artist) + '</div>' : '')
+        : '<div class="sb-projall-l">' + s.lines.map(function(l) {
+            return '<div>' + (l ? escapeHtml(l) : '&nbsp;') + '</div>';
+          }).join('') + '</div>';
+      return '<div class="sb-projall-card' + (s.hidden ? ' skipped' : '') + (i === _sbProjIdx ? ' current' : '') + '"' +
+               ' style="' + (s.bg ? 'background-image:url(&quot;' + escapeHtml(s.bg) + '&quot;)' : '') + '"' +
+               ' onclick="WO.sbProjGoto(' + i + ')">' +
+          '<div class="sb-projall-num">' + (i + 1) + (s.kind === 'title' ? ' · Title' : (s.section ? ' · ' + escapeHtml(s.section) : '')) + '</div>' +
+          '<div class="sb-projall-body">' + body + '</div>' +
+          (s.edited ? '<div class="sb-projall-tag">adjusted</div>' : '') +
+          (s.hidden ? '<div class="sb-projall-tag skip">skipped</div>' : '') +
+          '<div class="sb-projall-acts">' +
+            '<button title="Picture for this slide" onclick="event.stopPropagation(); WO.sbProjAllBg(' + i + ')"><i class="fa-solid fa-image"></i></button>' +
+            '<button title="' + (s.hidden ? 'Include this slide' : 'Skip this slide') + '" onclick="event.stopPropagation(); WO.sbProjAllSkip(' + i + ')"><i class="fa-solid fa-' + (s.hidden ? 'eye' : 'eye-slash') + '"></i></button>' +
+          '</div>' +
+        '</div>';
+    }).join('');
+
+    p.innerHTML =
+      '<div class="sb-projall-head">' +
+        '<b>All Slides</b>' +
+        '<span>' + shown + ' projecting' + (deck.length - shown ? ' · ' + (deck.length - shown) + ' skipped' : '') + '</span>' +
+        '<button class="sb-projall-x" onclick="WO.sbProjAllSlides()"><i class="fa-solid fa-xmark"></i></button>' +
+      '</div>' +
+      '<div class="sb-projall-grid">' + (cards || '<div class="sb-projall-empty">No slides yet.</div>') + '</div>';
+  }
+
+  function sbProjGoto(i) {
+    if (!_sbProjDeck || !_sbProjDeck[i]) return;
+    if (_sbProjEditing) sbProjToggleEdit();
+    _sbProjIdx = i;
+    _sbProjRender();
+    _sbProjRenderAll();
+  }
+
+  function sbProjAllSkip(i) {
+    var s = _sbProjDeck && _sbProjDeck[i];
+    if (!s) return;
+    var store = _sbProjStore();
+    var ov = store.slides[s.key] || (store.slides[s.key] = {});
+    ov.hidden = !ov.hidden;
+    _sbProjSaveStore();
+    _sbProjDeck = _sbBuildProjectionDeck(true);
+    _sbProjRender();
+    _sbProjRenderAll();
+  }
+
+  function sbProjAllBg(i) {
+    var s = _sbProjDeck && _sbProjDeck[i];
+    if (!s) return;
+    sbProjBgMenu(s.key);
   }
 
   // ── Export PowerPoint ───────────────────────────────────────────────────
@@ -58925,6 +59016,10 @@ var WO = (function() {
     sbProjReset: sbProjReset,
     sbProjBgMenu: sbProjBgMenu,
     sbProjSetBg: sbProjSetBg,
+    sbProjAllSlides: sbProjAllSlides,
+    sbProjGoto: sbProjGoto,
+    sbProjAllSkip: sbProjAllSkip,
+    sbProjAllBg: sbProjAllBg,
     sbProjApplyBgAll: sbProjApplyBgAll,
     sbProjBgUpload: sbProjBgUpload,
     sbExportPPT: sbExportPPT,
@@ -67158,6 +67253,59 @@ function filterLiturgyItems() {
     background: #1d4ed8; border: none; color: #fff; font-size: 0.74rem; font-weight: 600;
   }
   .sb-projbg-actions button:last-child { background: #334155; }
+
+  /* All Slides: the whole deck as cards, over the projection */
+  .sb-projall {
+    display: none; position: fixed; inset: 0; z-index: 100055;
+    background: rgba(2,8,23,0.94); color: #e2e8f0;
+    font-family: 'Poppins', sans-serif; overflow: hidden;
+  }
+  .sb-projall-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px; border-bottom: 1px solid #1e3355;
+  }
+  .sb-projall-head b { font-size: 0.95rem; }
+  .sb-projall-head span { font-size: 0.75rem; color: #94a3b8; }
+  .sb-projall-x { margin-left: auto; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 1.05rem; }
+  .sb-projall-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 14px; padding: 16px 18px 28px; height: calc(100% - 52px); overflow-y: auto;
+  }
+  .sb-projall-empty { color: #64748b; font-size: 0.82rem; padding: 20px; }
+  .sb-projall-card {
+    position: relative; aspect-ratio: 16 / 9; border-radius: 10px; cursor: pointer;
+    background: #000 center/cover no-repeat; border: 2px solid #24395c;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    padding: 26px 10px 10px; text-align: center;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .sb-projall-card:hover { border-color: #60a5fa; transform: translateY(-2px); }
+  .sb-projall-card.current { border-color: #fbbf24; }
+  .sb-projall-card.skipped { opacity: 0.42; }
+  .sb-projall-num {
+    position: absolute; top: 0; left: 0; right: 0; padding: 4px 8px;
+    background: rgba(0,0,0,0.55); color: #cbd5e1; font-size: 0.64rem;
+    text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sb-projall-body { color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.9); width: 100%; }
+  .sb-projall-t { font-family: 'Cinzel', Georgia, serif; font-size: 0.92rem; font-weight: 700; line-height: 1.25; }
+  .sb-projall-a { font-size: 0.68rem; font-style: italic; opacity: 0.85; margin-top: 3px; }
+  .sb-projall-l { font-family: 'Lato', Georgia, serif; font-size: 0.7rem; font-weight: 700; line-height: 1.4; }
+  .sb-projall-tag {
+    position: absolute; bottom: 6px; left: 6px; padding: 2px 7px; border-radius: 999px;
+    background: rgba(37,99,235,0.85); color: #fff; font-size: 0.58rem; font-weight: 700;
+  }
+  .sb-projall-tag.skip { background: rgba(220,38,38,0.85); left: auto; right: 6px; }
+  .sb-projall-acts { position: absolute; top: 24px; right: 6px; display: flex; flex-direction: column; gap: 5px; opacity: 0; transition: opacity 0.15s; }
+  .sb-projall-card:hover .sb-projall-acts { opacity: 1; }
+  .sb-projall-acts button {
+    width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
+    background: rgba(0,0,0,0.65); border: 1px solid rgba(255,255,255,0.25);
+    color: #fff; font-size: 0.68rem;
+  }
+  .sb-projall-acts button:hover { background: #2563eb; }
+  /* The picker must float above the card grid when opened from a card. */
+  .sb-proj-bgmenu { z-index: 100058; }
 
   .sb-ppt-modal { display: none; position: fixed; inset: 0; z-index: 100060; background: rgba(2,8,23,0.72); align-items: center; justify-content: center; padding: 20px; }
   .sb-ppt-card { width: min(560px, 96vw); max-height: 88vh; display: flex; flex-direction: column; background: #101b2e; border: 1px solid #274063; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.55); color: #e2e8f0; font-family: 'Poppins', sans-serif; overflow: hidden; }
