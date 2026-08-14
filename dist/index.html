@@ -45419,6 +45419,37 @@ var WO = (function() {
     sbProjBoxScope(_sbBoxScope);
   }
 
+  // Read the slide back out of the editor: the words, the markup that carries
+  // bold/italic/underline/font/size, and each line's alignment -- which lives
+  // on the line element and never appears in its innerHTML. The commit used to
+  // take the plain text only, so everything the toolbar did was discarded the
+  // moment editing ended.
+  function _sbProjCaptureSlide() {
+    var s = _sbProjCur();
+    var frame = $('sbProjFrame');
+    if (!s || !frame) return false;
+    var ov = _sbProjOv(s, true);
+    if (!ov) return false;
+    if (s.kind === 'title') {
+      var tEl = frame.querySelector('[data-role="title"]');
+      var aEl = frame.querySelector('[data-role="artist"]');
+      if (tEl) ov.title = tEl.textContent.trim();
+      if (aEl) ov.artist = aEl.textContent.trim();
+      return true;
+    }
+    var lEl = frame.querySelector('[data-role="lines"]');
+    if (!lEl) return false;
+    var kids  = Array.prototype.slice.call(lEl.children);
+    var lines = kids.map(function(d) { return (d.textContent || '').split(String.fromCharCode(160)).join(' ').trim(); });
+    var htmls = kids.map(function(d) { return d.innerHTML; });
+    var align = kids.map(function(d) { return d.style.textAlign || ''; });
+    while (lines.length && !lines[lines.length - 1]) { lines.pop(); htmls.pop(); align.pop(); }
+    ov.lines = lines;
+    if (htmls.some(_sbAslHasFormatting)) ov.html = htmls; else delete ov.html;
+    if (align.some(function(a) { return !!a; })) ov.align = align; else delete ov.align;
+    return true;
+  }
+
   // Typography inside the projected box, applied to the selection.
   function sbProjCmd(cmd, val) {
     var stage = $('sbProjFrame') || $('sbProjStage');
@@ -45434,6 +45465,9 @@ var WO = (function() {
       try { document.execCommand(cmd, false, val || null); } catch (e) {}
       if (cmd === 'fontSize') _sbAslNormalizeFontTags(stage);
     }
+    // Applied means kept: no separate save step, and leaving edit mode -- or
+    // moving to the next slide -- cannot lose what was just done.
+    if (_sbProjCaptureSlide()) _sbProjSaveStore();
   }
 
   function sbProjToggleEdit() {
@@ -45466,23 +45500,7 @@ var WO = (function() {
     // reflowed in All Slides its overrides live in store.songs[i].slides, and
     // writing to store.slides would land somewhere nothing reads back -- the
     // edit would appear to take and be gone on the next render.
-    var ov = _sbProjOv(s, true);
-    if (!ov) return;
-    if (s.kind === 'title') {
-      var tEl = frame.querySelector('[data-role="title"]');
-      var aEl = frame.querySelector('[data-role="artist"]');
-      if (tEl) ov.title = tEl.textContent.trim();
-      if (aEl) ov.artist = aEl.textContent.trim();
-    } else {
-      var lEl = frame.querySelector('[data-role="lines"]');
-      if (lEl) {
-        var lines = Array.prototype.map.call(lEl.children, function(d) {
-          return (d.textContent || '').split(String.fromCharCode(160)).join(' ').trim();
-        });
-        while (lines.length && !lines[lines.length - 1]) lines.pop();
-        ov.lines = lines;
-      }
-    }
+    _sbProjCaptureSlide();
     Array.prototype.forEach.call(frame.children, function(c) { c.contentEditable = 'false'; });
     _sbProjSaveStore();
     _sbProjDeck = _sbBuildProjectionDeck(true);
