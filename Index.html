@@ -46052,6 +46052,114 @@ var WO = (function() {
       .catch(function(e) { console.warn('[PPT] background skipped:', e.message); return ''; });
   }
 
+  // ── Formatting on the way into PowerPoint ───────────────────────────────
+  // PowerPoint has no notion of HTML: a paragraph is a list of runs, each with
+  // its own weight, slant, underline, face and size. So the markup All Slides
+  // produced is walked and turned into exactly that, rather than being flattened
+  // to plain text.
+  var _SB_KEYWORD_EM = {
+    'xx-small': 0.6, 'x-small': 0.75, 'small': 0.89, 'medium': 1,
+    'large': 1.2, 'x-large': 1.5, 'xx-large': 2, 'smaller': 0.85, 'larger': 1.2
+  };
+
+  function _sbEmFromFontSize(v) {
+    if (!v) return null;
+    v = String(v).trim().toLowerCase();
+    if (_SB_KEYWORD_EM[v]) return _SB_KEYWORD_EM[v];
+    var m = v.match(/^([\d.]+)em$/);  if (m) return parseFloat(m[1]);
+    m = v.match(/^([\d.]+)rem$/);     if (m) return parseFloat(m[1]);
+    m = v.match(/^([\d.]+)px$/);      if (m) return parseFloat(m[1]) / 16;
+    m = v.match(/^([\d.]+)%$/);       if (m) return parseFloat(m[1]) / 100;
+    return null;
+  }
+
+  // One line of markup -> its runs. Sizes are relative and multiply through
+  // nesting, so a large span inside a larger one behaves as it looks on screen.
+  function _sbRunsFromHtml(html, baseSize) {
+    var host = document.createElement('div');
+    host.innerHTML = html || '';
+    var runs = [];
+
+    function walk(node, st) {
+      for (var i = 0; i < node.childNodes.length; i++) {
+        var n = node.childNodes[i];
+        if (n.nodeType === 3) {
+          var t = String(n.nodeValue).split(String.fromCharCode(160)).join(' ');
+          if (!t) continue;
+          runs.push({ text: t, options: _sbRunOpts(st, baseSize) });
+          continue;
+        }
+        if (n.nodeType !== 1) continue;
+        var tag = n.tagName.toLowerCase();
+        if (tag === 'br') { runs.push({ text: ' ', options: _sbRunOpts(st, baseSize) }); continue; }
+        var s2 = { bold: st.bold, italic: st.italic, underline: st.underline, face: st.face, em: st.em };
+        if (tag === 'b' || tag === 'strong') s2.bold = true;
+        if (tag === 'i' || tag === 'em') s2.italic = true;
+        if (tag === 'u') s2.underline = true;
+        var stl = n.style || {};
+        if (stl.fontWeight) s2.bold = (stl.fontWeight === 'bold' || parseInt(stl.fontWeight, 10) >= 600);
+        if (stl.fontStyle) s2.italic = (stl.fontStyle === 'italic' || stl.fontStyle === 'oblique');
+        var dec = stl.textDecorationLine || stl.textDecoration || '';
+        if (dec) s2.underline = /underline/.test(dec);
+        if (stl.fontFamily) s2.face = stl.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
+        var em = _sbEmFromFontSize(stl.fontSize);
+        if (em) s2.em = st.em * em;
+        walk(n, s2);
+      }
+    }
+
+    walk(host, { bold: true, italic: false, underline: false, face: 'Georgia', em: 1 });
+    return runs;
+  }
+
+  function _sbRunOpts(st, baseSize) {
+    var o = {
+      bold: !!st.bold,
+      italic: !!st.italic,
+      fontFace: st.face || 'Georgia',
+      fontSize: Math.max(8, Math.round(baseSize * (st.em || 1)))
+    };
+    if (st.underline) o.underline = { style: 'sng' };
+    return o;
+  }
+
+  // A slide's lines -> one run list, with the line breaks and per-line
+  // alignment PowerPoint expects (align rides on the run that ends the line).
+  function _sbSlideRuns(s, baseSize) {
+    var al = s.align || [];
+    var out = [];
+    var count = (s.html && s.html.length) ? s.html.length : s.lines.length;
+    for (var i = 0; i < count; i++) {
+      var runs;
+      if (s.html && s.html[i] != null) {
+        runs = _sbRunsFromHtml(s.html[i], baseSize);
+      } else {
+        var txt = s.lines[i] || '';
+        runs = txt ? [{ text: txt, options: _sbRunOpts({ bold: true, face: 'Georgia', em: 1 }, baseSize) }] : [];
+      }
+      if (!runs.length) runs = [{ text: ' ', options: _sbRunOpts({ bold: true, face: 'Georgia', em: 1 }, baseSize) }];
+      var align = al[i] || 'center';
+      runs.forEach(function(r) { r.options.align = align; });
+      runs[runs.length - 1].options.breakLine = true;
+      out = out.concat(runs);
+    }
+    if (out.length) delete out[out.length - 1].options.breakLine;
+    return out;
+  }
+
+  // The text box, in inches on a 16:9 slide, so the export lands where the
+  // projection puts it rather than in a fixed frame.
+  var SB_PPT_W = 10, SB_PPT_H = 5.625;
+  function _sbPptFrame(box) {
+    var b = box || SB_BOX_DEFAULT;
+    return {
+      x: Math.max(0, (b.x / 100) * SB_PPT_W),
+      y: Math.max(0, (b.y / 100) * SB_PPT_H),
+      w: Math.min(SB_PPT_W, (b.w / 100) * SB_PPT_W),
+      h: Math.min(SB_PPT_H, (b.h / 100) * SB_PPT_H)
+    };
+  }
+
   function sbExportPPT() {
     var deck = _sbBuildProjectionDeck(false);   // skipped slides stay out
     if (!deck.length) { showToast('Nothing to export - no slides in the projection.', 'warning'); return; }
@@ -46076,26 +46184,32 @@ var WO = (function() {
           var data = s.bg ? resolved[s.bg] : '';
           slide.background = data ? { data: data } : { color: '000000' };
 
+          var scale = (s.box && s.box.scale) ? s.box.scale : 1;
+          var frame = _sbPptFrame(s.box);
+
           if (s.kind === 'title') {
             slide.addText(String(s.title), {
-              x: 0.5, y: 1.9, w: 9, h: 1.5, align: 'center', valign: 'middle',
-              fontSize: 44, bold: true, color: 'FFFFFF', fontFace: 'Georgia',
+              x: frame.x, y: frame.y + frame.h * 0.32, w: frame.w, h: frame.h * 0.28,
+              align: 'center', valign: 'middle',
+              fontSize: Math.max(10, Math.round(44 * scale)), bold: true, color: 'FFFFFF', fontFace: 'Georgia',
               shadow: { type: 'outer', color: '000000', blur: 6, offset: 2, opacity: 0.8 }
             });
             if (s.artist) {
               slide.addText(String(s.artist), {
-                x: 0.5, y: 3.35, w: 9, h: 0.6, align: 'center', valign: 'middle',
-                fontSize: 20, color: 'E6DFC9', fontFace: 'Georgia', italic: true,
+                x: frame.x, y: frame.y + frame.h * 0.62, w: frame.w, h: frame.h * 0.12,
+                align: 'center', valign: 'middle',
+                fontSize: Math.max(8, Math.round(20 * scale)), color: 'E6DFC9', fontFace: 'Georgia', italic: true,
                 shadow: { type: 'outer', color: '000000', blur: 5, offset: 2, opacity: 0.75 }
               });
             }
             return;
           }
-          var n = s.lines.length;
+          var n = (s.html && s.html.length) ? s.html.length : s.lines.length;
           var size = n <= 4 ? 34 : (n <= 6 ? 30 : 26);
-          slide.addText(s.lines.join(LF), {
-            x: 0.6, y: 0.5, w: 8.8, h: 4.6, align: 'center', valign: 'middle',
-            fontSize: size, bold: true, color: 'FFFFFF', fontFace: 'Georgia',
+          slide.addText(_sbSlideRuns(s, Math.round(size * scale)), {
+            x: frame.x, y: frame.y, w: frame.w, h: frame.h,
+            align: 'center', valign: 'middle',
+            color: 'FFFFFF', fontFace: 'Georgia',
             lineSpacingMultiple: 1.25,
             shadow: { type: 'outer', color: '000000', blur: 6, offset: 2, opacity: 0.85 }
           });

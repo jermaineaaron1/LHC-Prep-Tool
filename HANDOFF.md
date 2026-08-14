@@ -25,6 +25,20 @@ The LCD **rebuild** (applying a version to the service order's song slides) is s
 
 ---
 
+## 2026-08-14 — The PowerPoint export carries the formatting
+
+PowerPoint has no notion of HTML: a paragraph is a list of *runs*, each with its own weight, slant, underline, face and size. The export was flattening every slide to plain text, so a line shaped in All Slides arrived in the deck as undifferentiated Georgia.
+
+`_sbRunsFromHtml` walks the markup and emits exactly those runs. Sizes are relative and multiply through nesting, so a large span inside a larger one behaves as it looks on screen; `x-large`, `1.6em`, `24px` and `150%` all resolve to the same relative scale. Alignment rides on the run that ends each line, which is how PowerPoint carries a paragraph property.
+
+**The text box travels too.** The slide's box becomes the text frame's position and size in inches on the 16:9 layout, and its scale multiplies the base font size — so a projection shaped into a narrow band at the bottom of the screen exports as a narrow band at the bottom of the slide, not as a full-bleed frame.
+
+### Verified live (throwaway song + order, deleted by id)
+
+A line set bold + italic + underlined + Poppins + one size up + right-aligned, with a plain centred line beneath it. The runs handed to PptxGenJS carried `bold/italic/underline`, `fontFace: Poppins`, `fontSize: 51` (34 × 1.5) and `align: right` for the first, and Georgia/34/centre for the second, with the break between them. A real 57 KB `.pptx` was generated and opened as a zip: `ppt/slides/slide3.xml` contains `sz="5100" b="1" i="1" u="sng"` with `<a:latin typeface="Poppins"/>`, plus `algn="r"` and `algn="ctr"`. The text frame came from the box at x 0.6in, y 0.225in, w 8.8in, h 5.175in. Orders 19, songs 51, unchanged.
+
+---
+
 ## 2026-08-14 — LCD rebuild verified, and the picture it was dropping
 
 The rebuild (applying a saved projection to the service order's song slides) had shipped unverified twice, because a throwaway song could not be placed into a service section through the harness. The missing piece was mundane: the order item's `section_id` has to be a real service section (`wo-section-3`), not a label like `songs`. With that, the song lands in the schedule with its banner and slide boxes and the whole path is exercisable.
@@ -69,7 +83,7 @@ Bar: visible on entry, gone after 5s, unmoved by pointer movement in the top hal
 
 **Two editing bugs fixed.** Pasted text arrived carrying the source's margins, indents, nested blocks and fonts, which is why a pasted line sat slightly indented and behaved differently from its neighbours; paste now takes the words only, one div per line, structurally identical to typed text. And the split-on-blank-line worked on `line.closest('.sb-asl-slide')` but not on the line's own position, so with the caret inside a pasted wrapper the break landed around the wrong node — the separator appeared after the pasted line and the rest of the slide was left behind. The caret's node is now walked up to the slide's own child first.
 
-**Known limit:** the PowerPoint export carries the words, breaks and pictures, not the character formatting. Mapping HTML runs to PptxGenJS runs is a separate piece of work.
+~~**Known limit:** the PowerPoint export carries the words, breaks and pictures, not the character formatting.~~ **Resolved the same day** — see the PowerPoint entry above.
 
 ### Verified live (throwaway song + order, deleted by id)
 
