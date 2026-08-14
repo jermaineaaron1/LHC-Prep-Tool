@@ -45316,6 +45316,48 @@ var WO = (function() {
     _sbBoxDragStart(e, null);
   }
 
+  // Snap the box onto the words. A box saved wide, or saved from a slide with
+  // more lines than this one, leaves its handles out in the empty part of the
+  // screen; this puts them back on the text without changing what the text
+  // says or where it sits.
+  function sbProjFitBox() {
+    var frame = $('sbProjFrame');
+    if (!frame || !_sbProjEditing) return;
+    var before = frame.getBoundingClientRect();
+    var cx = before.left + before.width / 2, cy = before.top + before.height / 2;
+
+    // Measure the WORDS, not the frame around them: the frame centres its
+    // content, so with height:auto it reports the box it is given rather than
+    // the text inside it, and fitting to that left the last line hanging out.
+    var content = frame.querySelector('[data-role="lines"]') || frame.querySelector('[data-role="title"]');
+    if (!content) return;
+    var keep = { w: frame.style.width, h: frame.style.height, mw: frame.style.maxWidth };
+    frame.style.width = 'max-content';
+    frame.style.maxWidth = '88%';
+    frame.style.height = 'auto';
+    var cRect = content.getBoundingClientRect();
+    var titleEl = frame.querySelector('[data-role="artist"]');
+    var natH = cRect.height + (titleEl ? titleEl.getBoundingClientRect().height : 0) + 16;   // a little breathing room
+    var natW = cRect.width + 16;
+    var nat = { width: natW, height: natH };
+    var W = window.innerWidth, H = window.innerHeight;
+    var box = {
+      w: Math.max(10, Math.min(100, (nat.width / W) * 100)),
+      h: Math.max(8, Math.min(100, (nat.height / H) * 100)),
+      scale: parseFloat(frame.style.getPropertyValue('--sb-scale')) || 1
+    };
+    // Same centre, so the words do not jump when the box shrinks to them.
+    box.x = Math.max(-5, Math.min(95, ((cx - nat.width / 2) / W) * 100));
+    box.y = Math.max(-5, Math.min(95, ((cy - nat.height / 2) / H) * 100));
+    frame.style.width = keep.w; frame.style.height = keep.h; frame.style.maxWidth = keep.mw;
+
+    _sbApplyBox(frame, box);
+    _sbSaveBox(box);
+    var tag = $('sbBoxSizeTag');
+    if (tag) tag.textContent = Math.round(box.w) + '% x ' + Math.round(box.h) + '%  -  fitted to the words';
+    showToast('Box fitted to the words', 'success');
+  }
+
   function _sbBoxChrome(stage) {
     if (stage.querySelector('.sb-box-handle')) return;
     ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(function(h) {
@@ -45365,6 +45407,9 @@ var WO = (function() {
       '<button class="sb-asl-tbtn" title="Align left" onclick="WO.sbProjCmd(\'justifyLeft\')"><i class="fa-solid fa-align-left"></i></button>' +
       '<button class="sb-asl-tbtn" title="Centre" onclick="WO.sbProjCmd(\'justifyCenter\')"><i class="fa-solid fa-align-center"></i></button>' +
       '<button class="sb-asl-tbtn" title="Align right" onclick="WO.sbProjCmd(\'justifyRight\')"><i class="fa-solid fa-align-right"></i></button>' +
+      '<span class="sb-asl-tsep"></span>' +
+      '<button class="sb-asl-tbtn" title="Snap the box onto the words" onclick="WO.sbProjFitBox()">' +
+        '<i class="fa-solid fa-compress"></i> Fit to text</button>' +
       '<span class="sb-asl-tsep"></span>' +
       '<span class="sb-asl-tlabel" style="margin:0">Box applies to</span>' +
       '<button class="sb-asl-tbtn on" id="sbBoxScope_slide" onclick="WO.sbProjBoxScope(\'slide\')">This slide</button>' +
@@ -60802,6 +60847,7 @@ var WO = (function() {
     sbAslCmd: sbAslCmd,
     sbProjCmd: sbProjCmd,
     sbProjBoxScope: sbProjBoxScope,
+    sbProjFitBox: sbProjFitBox,
     sbAslNameDone: sbAslNameDone,
     lcdProjectionMenu: lcdProjectionMenu,
     lcdApplyProjection: lcdApplyProjection,
@@ -69030,7 +69076,7 @@ function filterLiturgyItems() {
   }
   .sb-proj-editbar {
     display: none; position: absolute; bottom: 74px; left: 50%; transform: translateX(-50%);
-    align-items: center; gap: 6px; flex-wrap: wrap; max-width: 92vw;
+    align-items: center; gap: 6px; flex-wrap: nowrap; overflow-x: auto; max-width: 96vw;
     padding: 8px 12px; border-radius: 12px;
     background: rgba(11,18,32,0.94); border: 1px solid #334155;
     box-shadow: 0 14px 40px rgba(0,0,0,0.55); z-index: 3;
