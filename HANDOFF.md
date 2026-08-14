@@ -4,6 +4,27 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 — Migration run; verified against the real tables (one bug found)
+
+The migration is applied. Everything below was re-checked against the real `projection_versions` / `projection_settings` rather than a stub.
+
+**The bug it exposed: a standalone songbook loaded none of its versions.** `SBQ.loadOrder` **rejects** when the orders row does not exist, and a standalone songbook's row is created lazily — so hydrating from inside its `.then()` skipped exactly the songbooks whose only projection state was saved versions. They opened with an empty Project menu while their rows sat in Supabase. Hydration now runs outside that promise chain: the projection rows are keyed by songbook and never needed the orders row. `_sbPersistStandaloneTemplate` also counts saved versions as worth keeping, so the template mirror is written for a songbook with versions and an empty draft.
+
+### Verified against the real tables
+
+- **Order-backed songbook:** saving a version wrote one `projection_versions` row (right owner, `sort_order` 0, deck and background intact) and one `projection_settings` row pointing at it. No console noise; `_tableExists` true.
+- **The payoff test:** `orders.template` was deliberately overwritten with `{_inbox, _inboxPresent}` — the exact shape that destroyed the original work — and after a reload the version came back **complete from the table**, with its background and the active selection restored from the settings row.
+- **Two versions:** `sort_order` 0 and 1; deleting the first removed its row and left the settings row pointing at the survivor.
+- **Standalone songbook:** version and settings rows written under `standalone_<sbId>`, and after the fix a reload restored the version, its background and the active selection — with no orders row in existence at all.
+
+Orders 19, songs 51, unchanged. One `projection_settings` row remains for the real `standalone_sb_1783318602918` songbook: empty draft, null source, seeded on open. That is its own row, not test data.
+
+### Still open
+
+The LCD **rebuild** (applying a version to the service order's song slides) is still unverified — placing a throwaway song into a service section failed again through both `addSongDirectly` and `lcdLibraryAddSong`, so no order ever exercised it. The picker, its labels and the no-songs guard are verified. It needs a check on a real order.
+
+---
+
 ## 2026-08-14 — Projections get their own tables (migration required)
 
 ⚠️ **Run `migrations/2026-08-14_add_projection_versions.sql` in the Supabase SQL Editor.** Until it runs the app behaves exactly as before — every call is wrapped and a missing table is treated as "not available" — so the deploy and the migration can happen in either order.
