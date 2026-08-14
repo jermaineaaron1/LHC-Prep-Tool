@@ -9617,7 +9617,7 @@ I once was lost but now am found"
           </div>
         </div>
         <button class="sb-tool-btn" onclick="WO.sbOpenPlaylist()" title="Playlist" style="background:rgba(16,185,129,0.25);border:1.5px solid #6ee7b7;color:#a7f3d0;"><i class="fa-solid fa-headphones"></i><span>Playlist</span></button>
-        <button class="sb-tool-btn" id="sbProjectBtn" onclick="WO.sbProject()" title="Project the songbook — lyrics only, full screen" style="background:rgba(37,99,235,0.28);border:1.5px solid #93c5fd;color:#dbeafe;"><i class="fa-solid fa-display"></i><span>Project</span></button>
+        <button class="sb-tool-btn" id="sbProjectBtn" onclick="WO.sbProjectMenu(this)" title="Project the songbook — lyrics only, full screen" style="background:rgba(37,99,235,0.28);border:1.5px solid #93c5fd;color:#dbeafe;"><i class="fa-solid fa-display"></i><span>Project</span><i class="fa-solid fa-caret-down" style="margin-left:5px;opacity:0.75;"></i></button>
         <button class="sb-tool-btn" id="sbFullscreenBtn" onclick="WO.sbToggleLiveFullscreen()" title="Full Screen"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
         <!-- More dropdown -->
         <div style="position:relative;display:inline-block;">
@@ -44344,22 +44344,113 @@ var WO = (function() {
   // adjustment survives a reload and follows the order to another device.
   // Keys are content-derived (song + section + part) so they stay attached to
   // the right slide when songs are added or reordered.
-  function _sbProjStore() {
-    // Shape must match the real store exactly -- a fallback missing `songs`
-    // made the deck builder throw and return nothing at all.
-    if (typeof currentOrderData === 'undefined' || !currentOrderData) return { slides: {}, all: {}, songs: {} };
-    if (!currentOrderData.template) currentOrderData.template = {};
-    var t = currentOrderData.template;
-    if (!t.projectionDeck) t.projectionDeck = { slides: {}, all: {}, songs: {} };
-    if (!t.projectionDeck.slides) t.projectionDeck.slides = {};
-    if (!t.projectionDeck.all) t.projectionDeck.all = {};
+  // ── Saved projection versions ───────────────────────────────────────────
+  // A version is a NAMED snapshot of the whole songbook's projection: every
+  // song's slides, their breaks, their wording and their pictures. The
+  // songbook itself never changes -- "Songbook as written" always projects the
+  // plain lyrics, and a version sits on top of it.
+  //
+  //   template.projectionVersions = [ { id, name, created, deck } ]
+  //   template.projectionDeck     = the unnamed working draft
+  //   template.projectionSource   = 'asis' | 'draft' | <version id>
+  //
+  // Whichever source is active is the one Project mode edits, the projection
+  // shows, and the PowerPoint exports -- one selection, no separate settings
+  // to keep in step.
+  function _sbNormalizeDeck(d) {
+    if (!d || typeof d !== 'object') d = {};
+    if (!d.slides) d.slides = {};
+    if (!d.all) d.all = {};
     // songs[songIdx] = { slides: [ { lines, bg, hidden } ] } -- a FULL
     // replacement deck for that song, written by the All Slides editor once
     // the operator has decided where the breaks go. While it exists the
     // lyrics parse is not used for that song: re-parsing would undo their
     // reflow the moment anything else changed.
-    if (!t.projectionDeck.songs) t.projectionDeck.songs = {};
-    return t.projectionDeck;
+    if (!d.songs) d.songs = {};
+    return d;
+  }
+
+  function _sbProjTpl() {
+    if (typeof currentOrderData === 'undefined' || !currentOrderData) return null;
+    if (!currentOrderData.template) currentOrderData.template = {};
+    return currentOrderData.template;
+  }
+
+  function _sbProjVersions() {
+    var t = _sbProjTpl();
+    if (!t) return [];
+    if (!Array.isArray(t.projectionVersions)) t.projectionVersions = [];
+    return t.projectionVersions;
+  }
+
+  function _sbProjVersion(id) {
+    var list = _sbProjVersions();
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return list[i];
+    return null;
+  }
+
+  // Default is 'draft': songbooks that predate versions keep projecting the
+  // adjustments they already have.
+  function _sbProjSource() {
+    var t = _sbProjTpl();
+    if (!t) return 'draft';
+    var src = t.projectionSource || 'draft';
+    if (src !== 'asis' && src !== 'draft' && !_sbProjVersion(src)) return 'draft';  // version deleted
+    return src;
+  }
+
+  function _sbSetProjSource(src) {
+    var t = _sbProjTpl();
+    if (t) t.projectionSource = src;
+  }
+
+  function _sbProjSourceLabel(src) {
+    src = src || _sbProjSource();
+    if (src === 'asis') return 'Songbook as written';
+    if (src === 'draft') {
+      var base = _sbDraftBase();
+      return base ? ('Unsaved changes to ' + base.name) : 'Unsaved adjustments';
+    }
+    var v = _sbProjVersion(src);
+    return v ? v.name : 'Unsaved adjustments';
+  }
+
+  // forWrite: an edit made while projecting "as written" has to land
+  // somewhere, so it starts the working draft rather than being swallowed.
+  function _sbProjStore(forWrite) {
+    var t = _sbProjTpl();
+    // Shape must match the real store exactly -- a fallback missing `songs`
+    // made the deck builder throw and return nothing at all.
+    if (!t) return { slides: {}, all: {}, songs: {} };
+    var src = _sbProjSource();
+    if (src === 'asis') {
+      if (!forWrite) return { slides: {}, all: {}, songs: {} };   // the plain songbook
+      _sbSetProjSource('draft');
+      src = 'draft';
+      if (typeof showToast === 'function') showToast('Started a new set of adjustments', 'info');
+    }
+    if (src !== 'draft') {
+      var v = _sbProjVersion(src);
+      if (v && !forWrite) return _sbNormalizeDeck(v.deck || (v.deck = {}));
+      if (v) {
+        // Copy on write. A saved version is what will be projected on the day,
+        // so tweaking it must not quietly rewrite it -- the edit goes into a
+        // working copy, and only Save puts it back.
+        t.projectionDeck = JSON.parse(JSON.stringify(_sbNormalizeDeck(v.deck || {})));
+        t.projectionDraftBase = v.id;
+        _sbSetProjSource('draft');
+        if (typeof showToast === 'function') showToast('Editing a copy of "' + v.name + '" — save to keep it', 'info');
+        return _sbNormalizeDeck(t.projectionDeck);
+      }
+    }
+    if (!t.projectionDeck) { t.projectionDeck = {}; t.projectionDraftBase = null; }
+    return _sbNormalizeDeck(t.projectionDeck);
+  }
+
+  // The version a working draft was copied from, if any.
+  function _sbDraftBase() {
+    var t = _sbProjTpl();
+    return (t && t.projectionDraftBase) ? _sbProjVersion(t.projectionDraftBase) : null;
   }
 
   function _sbProjSaveStore() {
@@ -44438,6 +44529,153 @@ var WO = (function() {
     return deck;
   }
 
+  // ── Choosing what to project ────────────────────────────────────────────
+  // The Project button asks first: the songbook exactly as written, the
+  // adjustments in progress, or a saved version. With nothing saved and no
+  // adjustments there is only one possible answer, so it just projects.
+  function sbProjectMenu(btn) {
+    var versions = _sbProjVersions();
+    var draftEmpty = _sbDeckIsEmpty((_sbProjTpl() || {}).projectionDeck);
+    if (!versions.length && draftEmpty) { _sbSetProjSource('asis'); sbProject(); return; }
+
+    var m = $('sbProjSrcMenu');
+    if (!m) {
+      m = document.createElement('div');
+      m.id = 'sbProjSrcMenu';
+      m.className = 'sb-projsrc-menu';
+      document.body.appendChild(m);
+      document.addEventListener('click', function(e) {
+        var open = $('sbProjSrcMenu');
+        if (!open || open.style.display !== 'block') return;
+        if (open.contains(e.target) || (btn && btn.contains(e.target))) return;
+        open.style.display = 'none';
+      }, true);
+    }
+    if (m.style.display === 'block') { m.style.display = 'none'; return; }
+
+    var cur = _sbProjSource();
+    function row(src, icon, title, sub, extra) {
+      return '<button class="sb-projsrc-row' + (src === cur ? ' on' : '') + '" onclick="WO.sbProjectAs(\'' + src + '\')">' +
+               '<i class="fa-solid ' + icon + '"></i>' +
+               '<span><b>' + escapeHtml(title) + '</b>' + (sub ? '<small>' + escapeHtml(sub) + '</small>' : '') + '</span>' +
+             '</button>' + (extra || '');
+    }
+
+    var html = '<div class="sb-projsrc-head">Project</div>' +
+      row('asis', 'fa-book-open', 'Songbook as written', 'Lyrics straight from the songbook, no adjustments');
+    if (!draftEmpty) {
+      var base = _sbDraftBase();
+      html += row('draft', 'fa-pen-ruler', 'Unsaved adjustments',
+        base ? ('Changes to "' + base.name + '" you have not saved') : 'Edits, breaks and pictures not yet saved as a version');
+    }
+    if (versions.length) {
+      html += '<div class="sb-projsrc-head">Saved versions</div>';
+      versions.forEach(function(v) {
+        html += '<div class="sb-projsrc-item">' +
+          row(v.id, 'fa-bookmark', v.name, _sbVersionSummary(v)) +
+          '<button class="sb-projsrc-del" title="Delete this version" ' +
+            'onclick="event.stopPropagation();WO.sbProjDeleteVersion(\'' + v.id + '\')"><i class="fa-solid fa-trash"></i></button>' +
+        '</div>';
+      });
+    }
+    m.innerHTML = html;
+    m.style.display = 'block';
+    var r = btn.getBoundingClientRect();
+    m.style.top = (r.bottom + 8) + 'px';
+    m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - m.offsetWidth - 12)) + 'px';
+  }
+
+  function _sbVersionSummary(v) {
+    var d = _sbNormalizeDeck(v && v.deck);
+    var songs = Object.keys(d.songs).length;
+    var pins = Object.keys(d.slides).length;
+    var bits = [];
+    if (songs) bits.push(songs + (songs === 1 ? ' song reflowed' : ' songs reflowed'));
+    if (d.all.bg) bits.push('background set');
+    else if (pins) bits.push(pins + ' slide' + (pins === 1 ? '' : 's') + ' adjusted');
+    return bits.join(' · ');
+  }
+
+  function sbProjectAs(src) {
+    var m = $('sbProjSrcMenu'); if (m) m.style.display = 'none';
+    _sbSetProjSource(src);
+    _sbProjSaveStore();
+    sbProject();
+  }
+
+  // ── Saving a version ────────────────────────────────────────────────────
+  function sbProjVersionMenu() {
+    var m = $('sbProjVerMenu');
+    if (!m) return;
+    if (m.style.display === 'block') { m.style.display = 'none'; return; }
+    var src = _sbProjSource();
+    // The version this would update: the one being shown, or the one the
+    // working draft was copied from.
+    var target = (src !== 'asis' && src !== 'draft') ? _sbProjVersion(src) : _sbDraftBase();
+    var suggested = target ? target.name : _sbSuggestVersionName();
+    m.innerHTML =
+      '<div class="sb-projbg-head">Save this projection</div>' +
+      '<div class="sb-projver-now">Now showing: <b>' + escapeHtml(_sbProjSourceLabel(src)) + '</b></div>' +
+      '<input id="sbProjVerName" class="sb-projver-input" type="text" spellcheck="false" ' +
+        'value="' + escapeHtml(suggested).replace(/"/g, '&quot;') + '" placeholder="Name this version">' +
+      '<div class="sb-projbg-actions">' +
+        (target ? '<button onclick="WO.sbProjSaveVersion(false)"><i class="fa-solid fa-check"></i> Update ' + escapeHtml(target.name) + '</button>' : '') +
+        '<button onclick="WO.sbProjSaveVersion(true)"><i class="fa-solid fa-bookmark"></i> Save as new version</button>' +
+      '</div>';
+    m.style.display = 'block';
+    var inp = $('sbProjVerName');
+    if (inp) { inp.focus(); inp.select(); }
+  }
+
+  function _sbSuggestVersionName() {
+    var n = _sbProjVersions().length + 1;
+    var t = (typeof currentOrderData !== 'undefined' && currentOrderData && currentOrderData.title) ? currentOrderData.title : 'Projection';
+    return _sbProjVersions().length ? ('Version ' + n) : (t + ' projection');
+  }
+
+  // A version stores a DEEP COPY of the deck. Sharing the object would make
+  // every later tweak silently rewrite the saved version too, which is the
+  // opposite of what saving one is for.
+  function sbProjSaveVersion(asNew) {
+    var inp = $('sbProjVerName');
+    var name = (inp && inp.value.trim()) || _sbSuggestVersionName();
+    // Read without forWrite: saving must not turn a shown version into a draft.
+    var deck = JSON.parse(JSON.stringify(_sbNormalizeDeck(_sbProjStore(false))));
+    var src = _sbProjSource();
+    var target = (src !== 'asis' && src !== 'draft') ? _sbProjVersion(src) : _sbDraftBase();
+    var t = _sbProjTpl();
+
+    if (!asNew && target) {
+      target.name = name;
+      target.deck = deck;
+      _sbSetProjSource(target.id);
+    } else {
+      var v = { id: 'pv_' + Date.now(), name: name, created: new Date().toISOString(), deck: deck };
+      _sbProjVersions().push(v);
+      _sbSetProjSource(v.id);
+    }
+    // The draft has been committed to a named version; leaving a copy behind
+    // would offer the same thing twice in the Project menu.
+    if (t) { t.projectionDeck = { slides: {}, all: {}, songs: {} }; t.projectionDraftBase = null; }
+    _sbProjSaveStore();
+    var mm = $('sbProjVerMenu'); if (mm) mm.style.display = 'none';
+    _sbProjRender();
+    showToast('Saved as "' + name + '"', 'success');
+  }
+
+  function sbProjDeleteVersion(id) {
+    var list = _sbProjVersions();
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) idx = i;
+    if (idx < 0) return;
+    var name = list[idx].name;
+    list.splice(idx, 1);
+    if (_sbProjSource() === id) _sbSetProjSource(list.length ? list[0].id : 'asis');
+    _sbProjSaveStore();
+    var m = $('sbProjSrcMenu'); if (m) m.style.display = 'none';
+    showToast('Deleted "' + name + '"', 'info');
+  }
+
   // ── Project mode ────────────────────────────────────────────────────────
   var _sbProjDeck = null, _sbProjIdx = 0, _sbProjEditing = false;
 
@@ -44465,9 +44703,12 @@ var WO = (function() {
           '<button onclick="WO.sbProjAllSlides()" title="All Slides - see and adjust the whole deck"><i class="fa-solid fa-table-cells"></i></button>' +
           '<button onclick="WO.sbProjReset()" title="Undo adjustments on this slide"><i class="fa-solid fa-rotate-left"></i></button>' +
           '<span class="sb-proj-sep"></span>' +
+          '<span class="sb-proj-source" id="sbProjSourceTag" onclick="WO.sbProjVersionMenu()" title="Which projection this is - click to save it as a version"></span>' +
+          '<button onclick="WO.sbProjVersionMenu()" title="Save this projection as a named version"><i class="fa-solid fa-bookmark"></i></button>' +
           '<button onclick="WO.sbExportPPT()" title="Export this projection as PowerPoint"><i class="fa-solid fa-file-powerpoint"></i></button>' +
           '<button onclick="WO.sbProjectClose()" title="Exit (Esc)"><i class="fa-solid fa-xmark"></i></button>' +
         '</div>' +
+        '<div class="sb-proj-bgmenu" id="sbProjVerMenu"></div>' +
         '<div class="sb-proj-bgmenu" id="sbProjBgMenu"></div>' +
         '<input type="file" id="sbProjBgFile" accept="image/*" style="display:none" onchange="WO.sbProjBgUpload(this)">';
       document.body.appendChild(ov);
@@ -44513,6 +44754,14 @@ var WO = (function() {
       }).join('') + '</div>';
     }
     if (cnt) cnt.textContent = (_sbProjIdx + 1) + ' / ' + _sbProjDeck.length;
+    // Which projection is on screen: without this the operator cannot tell a
+    // saved version from the songbook as written.
+    var tag = $('sbProjSourceTag');
+    if (tag) {
+      var src = _sbProjSource();
+      tag.textContent = _sbProjSourceLabel(src);
+      tag.classList.toggle('is-version', src !== 'asis' && src !== 'draft');
+    }
     var hb = $('sbProjHideBtn'); if (hb) hb.classList.toggle('on', !!s.hidden);
     var eb = $('sbProjEditBtn'); if (eb) eb.classList.toggle('on', !!_sbProjEditing);
     if (hint) {
@@ -44591,7 +44840,7 @@ var WO = (function() {
   // content) or inside store.songs[i].slides (a deck the operator reflowed in
   // All Slides). One resolver so every control writes to the right place.
   function _sbProjOv(slide, create) {
-    var store = _sbProjStore();
+    var store = _sbProjStore(!!create);
     var ref = slide && slide.ref;
     if (!ref) return null;
     if (ref.kind === 'custom') {
@@ -44616,7 +44865,7 @@ var WO = (function() {
   function sbProjReset() {
     var s = _sbProjCur();
     if (!s || !s.ref) return;
-    var store = _sbProjStore();
+    var store = _sbProjStore(true);
     if (s.ref.kind === 'custom') {
       // Reverting one slide of a reflowed song would leave the rest orphaned,
       // so this drops the whole song back to the songbook's own breaks.
@@ -44687,7 +44936,7 @@ var WO = (function() {
   function sbProjApplyBgAll() {
     var s = _sbProjCur();
     if (!s) return;
-    var store = _sbProjStore();
+    var store = _sbProjStore(true);
     store.all.bg = s.bg || '';
     // Per-slide pins would mask the new default, so clear them -- in both
     // places overrides can live, or a reflowed song would ignore "all".
@@ -44879,7 +45128,7 @@ var WO = (function() {
   function sbProjAllSave() {
     var body = $('sbAslBody');
     if (!body) return;
-    var store = _sbProjStore();
+    var store = _sbProjStore(true);
     var bySong = {};
 
     Array.prototype.forEach.call(body.querySelectorAll('.sb-asl-slide'), function(el) {
@@ -59390,6 +59639,15 @@ var WO = (function() {
     sbAslBgMenu: sbAslBgMenu,
     sbAslSetBg: sbAslSetBg,
     sbAslBgUpload: sbAslBgUpload,
+    sbProjectMenu: sbProjectMenu,
+    sbProjectAs: sbProjectAs,
+    sbProjVersionMenu: sbProjVersionMenu,
+    sbProjSaveVersion: sbProjSaveVersion,
+    sbProjDeleteVersion: sbProjDeleteVersion,
+    sbProjVersionList: function() {
+      return _sbProjVersions().map(function(v) { return { id: v.id, name: v.name }; });
+    },
+    sbProjActiveSource: _sbProjSource,
     sbProjApplyBgAll: sbProjApplyBgAll,
     sbProjBgUpload: sbProjBgUpload,
     sbExportPPT: sbExportPPT,
@@ -67695,6 +67953,56 @@ function filterLiturgyItems() {
     background: #0f172a; border: 1px solid #334155;
     box-shadow: 0 18px 44px rgba(0,0,0,0.55);
   }
+  /* Choosing what to project: the songbook itself, work in progress, or a
+     saved version. */
+  .sb-projsrc-menu {
+    display: none; position: fixed; z-index: 100070; width: 330px;
+    padding: 8px; border-radius: 14px;
+    background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+    font-family: 'Poppins', sans-serif;
+  }
+  .sb-projsrc-head {
+    padding: 8px 10px 5px; font-size: 0.62rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em; color: #64748b;
+  }
+  .sb-projsrc-item { display: flex; align-items: stretch; gap: 4px; }
+  .sb-projsrc-item .sb-projsrc-row { flex: 1; }
+  .sb-projsrc-row {
+    display: flex; align-items: center; gap: 11px; width: 100%;
+    padding: 10px 11px; border-radius: 10px; cursor: pointer; text-align: left;
+    background: transparent; border: 1px solid transparent; color: #e2e8f0;
+  }
+  .sb-projsrc-row:hover { background: rgba(96,165,250,0.12); border-color: rgba(96,165,250,0.35); }
+  .sb-projsrc-row.on { background: rgba(37,99,235,0.2); border-color: #3b82f6; }
+  .sb-projsrc-row i { width: 17px; text-align: center; color: #93c5fd; flex-shrink: 0; }
+  .sb-projsrc-row span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .sb-projsrc-row b { font-size: 0.83rem; font-weight: 600; }
+  .sb-projsrc-row small {
+    font-size: 0.68rem; color: #94a3b8; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .sb-projsrc-del {
+    padding: 0 11px; border-radius: 10px; cursor: pointer; flex-shrink: 0;
+    background: transparent; border: 1px solid transparent; color: #64748b; font-size: 0.75rem;
+  }
+  .sb-projsrc-del:hover { background: rgba(220,38,38,0.16); border-color: rgba(248,113,113,0.4); color: #fca5a5; }
+  /* Which projection is on screen, shown in the projection bar. */
+  .sb-proj-source {
+    max-width: 190px; padding: 0 4px; cursor: pointer;
+    font-size: 0.72rem; color: #94a3b8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sb-proj-source:hover { color: #e2e8f0; }
+  .sb-proj-source.is-version { color: #e7c98a; }
+  .sb-projver-now { padding: 0 2px 8px; font-size: 0.7rem; color: #94a3b8; }
+  .sb-projver-now b { color: #e2e8f0; }
+  .sb-projver-input {
+    width: 100%; margin-bottom: 10px; padding: 9px 11px;
+    border-radius: 9px; background: #0b1220; border: 1px solid #334155;
+    color: #f1f5f9; font-family: 'Poppins', sans-serif; font-size: 0.8rem;
+  }
+  .sb-projver-input:focus { outline: none; border-color: #60a5fa; }
   /* The break line: this is where one slide ends and the next begins. */
   hr.sb-asl-break {
     border: none; border-top: 2px dashed #6366f1; margin: 12px 0; opacity: 0.75;
