@@ -44198,24 +44198,30 @@ var WO = (function() {
   }
 
   // 343/344 — Print Setup Modal: choose lyrics vs. doc per song, then generate print window
+  var LF = String.fromCharCode(10);
+
   // ══════════════════════════════════════════════════════════════════════
-  //  SONGBOOK → PROJECTION DECK  (shared by Project mode and Export PPT)
+  //  SONGBOOK → PROJECTION DECK  (Project mode is the single source of truth)
   // ══════════════════════════════════════════════════════════════════════
-  // One deck, two consumers, so what the operator rehearses on screen and
-  // what lands in the PowerPoint are the same slides in the same order.
+  // The songbook page is the musicians' copy: it carries chords and stage cues
+  // like "(Aaron Solo):" that must never reach the screen. Project mode is
+  // where the operator shapes what the congregation actually sees -- edit the
+  // words, set a background, skip a slide -- and Export PPT simply writes out
+  // exactly that. There is deliberately NO export dialogue: everything is
+  // decided here, once, so the screen and the PowerPoint agree by construction.
   //
-  // Segmentation, per the user's spec:
-  //   - each song opens with a title slide;
+  // Base segmentation, before the operator's adjustments:
+  //   - a title slide per song;
   //   - each SECTION ([Verse 1], [Chorus] ...) starts its own slide;
   //   - a section longer than SB_MAX_LINES continues onto further slides;
-  //   - chord lines are dropped -- this is the projected lyric, not the chart.
+  //   - chord lines are dropped.
   var SB_MAX_LINES = 8;
 
   function _sbDeckSections(lyrics) {
     var out = [];
     var cur = null;
-    String(lyrics == null ? '' : lyrics).replace(/\r\n?/g, '\n').split('\n').forEach(function(raw) {
-      var line = raw.replace(/ /g, ' ').replace(/\s+$/, '');
+    String(lyrics == null ? '' : lyrics).replace(/\r\n?/g, LF).split(LF).forEach(function(raw) {
+      var line = raw.split(String.fromCharCode(160)).join(' ').replace(/\s+$/, '');
       var t = line.trim();
       var hdr = /^\[(.+)\]$/.exec(t);
       if (hdr || /^(verse|chorus|bridge|pre-?chorus|ending|outro|intro|tag|interlude|refrain|coda)\s*\d*$/i.test(t)) {
@@ -44223,11 +44229,9 @@ var WO = (function() {
         out.push(cur);
         return;
       }
-      // Chords are for the musicians' book, never for the screen.
       if (t && typeof isChordLineGlobal === 'function' && isChordLineGlobal(line)) return;
       if (!cur) { cur = { header: '', lines: [] }; out.push(cur); }
       if (!t) {
-        // A blank line inside a section is a breath, not content; collapse runs.
         if (cur.lines.length && cur.lines[cur.lines.length - 1] !== '') cur.lines.push('');
         return;
       }
@@ -44240,7 +44244,27 @@ var WO = (function() {
     }).filter(function(s) { return s.lines.length; });
   }
 
-  function _sbBuildProjectionDeck() {
+  // ── The operator's adjustments ──────────────────────────────────────────
+  // Kept on currentOrderData.template, which is written with the order, so an
+  // adjustment survives a reload and follows the order to another device.
+  // Keys are content-derived (song + section + part) so they stay attached to
+  // the right slide when songs are added or reordered.
+  function _sbProjStore() {
+    if (typeof currentOrderData === 'undefined' || !currentOrderData) return { slides: {}, all: {} };
+    if (!currentOrderData.template) currentOrderData.template = {};
+    var t = currentOrderData.template;
+    if (!t.projectionDeck) t.projectionDeck = { slides: {}, all: {} };
+    if (!t.projectionDeck.slides) t.projectionDeck.slides = {};
+    if (!t.projectionDeck.all) t.projectionDeck.all = {};
+    return t.projectionDeck;
+  }
+
+  function _sbProjSaveStore() {
+    if (typeof autoSaveOrder === 'function' && typeof currentOrderData !== 'undefined' && currentOrderData) autoSaveOrder();
+  }
+
+  function _sbBuildProjectionDeck(includeHidden) {
+    var store = _sbProjStore();
     var deck = [];
     (songOrderSections || []).forEach(function(song, songIdx) {
       if (!song || song.itemType === 'blank') return;
@@ -44249,16 +44273,31 @@ var WO = (function() {
         : (song.lyrics || '');
       var sections = _sbDeckSections(lyrics);
       if (!sections.length) return;
-      deck.push({
+
+      function push(slide) {
+        var ov = store.slides[slide.key] || {};
+        if (ov.hidden && !includeHidden) return;
+        slide.hidden = !!ov.hidden;
+        slide.edited = !!(ov.lines || ov.title != null || ov.artist != null);
+        if (ov.lines) slide.lines = ov.lines.slice();
+        if (ov.title != null) slide.title = ov.title;
+        if (ov.artist != null) slide.artist = ov.artist;
+        slide.bg = (ov.bg != null) ? ov.bg : (store.all.bg || '');
+        deck.push(slide);
+      }
+
+      push({
         kind: 'title', songIdx: songIdx,
+        key: songIdx + '|title|' + (song.title || ''),
         title: song.title || 'Untitled', artist: song.artist || ''
       });
-      sections.forEach(function(sec) {
+      sections.forEach(function(sec, si) {
         for (var i = 0; i < sec.lines.length; i += SB_MAX_LINES) {
           var chunk = sec.lines.slice(i, i + SB_MAX_LINES);
           if (!chunk.join('').trim()) continue;
-          deck.push({
+          push({
             kind: 'lyric', songIdx: songIdx,
+            key: songIdx + '|' + si + '|' + sec.header + '|' + (i / SB_MAX_LINES),
             title: song.title || 'Untitled',
             section: sec.header + (i ? ' (cont.)' : ''),
             lines: chunk
@@ -44269,12 +44308,12 @@ var WO = (function() {
     return deck;
   }
 
-  // ── Project mode: the songbook's own full-screen projection ──────────────
-  var _sbProjDeck = null, _sbProjIdx = 0, _sbProjBg = '';
+  // ── Project mode ────────────────────────────────────────────────────────
+  var _sbProjDeck = null, _sbProjIdx = 0, _sbProjEditing = false;
 
   function sbProject() {
-    _sbProjDeck = _sbBuildProjectionDeck();
-    if (!_sbProjDeck.length) { showToast('Nothing to project — no song lyrics in this songbook.', 'warning'); return; }
+    _sbProjDeck = _sbBuildProjectionDeck(true);
+    if (!_sbProjDeck.length) { showToast('Nothing to project - no song lyrics in this songbook.', 'warning'); return; }
     _sbProjIdx = 0;
     var ov = $('sbProjectOverlay');
     if (!ov) {
@@ -44284,14 +44323,25 @@ var WO = (function() {
       ov.innerHTML =
         '<div class="sb-proj-bg" id="sbProjBg"></div>' +
         '<div class="sb-proj-stage" id="sbProjStage"></div>' +
+        '<div class="sb-proj-hint" id="sbProjHint"></div>' +
         '<div class="sb-proj-bar">' +
-          '<button onclick="WO.sbProjectNav(-1)" title="Previous (←)"><i class="fa-solid fa-chevron-left"></i></button>' +
+          '<button onclick="WO.sbProjectNav(-1)" title="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>' +
           '<span id="sbProjCounter"></span>' +
-          '<button onclick="WO.sbProjectNav(1)" title="Next (→)"><i class="fa-solid fa-chevron-right"></i></button>' +
+          '<button onclick="WO.sbProjectNav(1)" title="Next slide"><i class="fa-solid fa-chevron-right"></i></button>' +
+          '<span class="sb-proj-sep"></span>' +
+          '<button id="sbProjEditBtn" onclick="WO.sbProjToggleEdit()" title="Edit the words on this slide"><i class="fa-solid fa-pen"></i></button>' +
+          '<button onclick="WO.sbProjBgMenu()" title="Background for this slide"><i class="fa-solid fa-image"></i></button>' +
+          '<button id="sbProjHideBtn" onclick="WO.sbProjToggleHide()" title="Skip this slide"><i class="fa-solid fa-eye-slash"></i></button>' +
+          '<button onclick="WO.sbProjReset()" title="Undo adjustments on this slide"><i class="fa-solid fa-rotate-left"></i></button>' +
+          '<span class="sb-proj-sep"></span>' +
+          '<button onclick="WO.sbExportPPT()" title="Export this projection as PowerPoint"><i class="fa-solid fa-file-powerpoint"></i></button>' +
           '<button onclick="WO.sbProjectClose()" title="Exit (Esc)"><i class="fa-solid fa-xmark"></i></button>' +
-        '</div>';
+        '</div>' +
+        '<div class="sb-proj-bgmenu" id="sbProjBgMenu"></div>' +
+        '<input type="file" id="sbProjBgFile" accept="image/*" style="display:none" onchange="WO.sbProjBgUpload(this)">';
       document.body.appendChild(ov);
       ov.addEventListener('click', function(e) {
+        if (_sbProjEditing) return;
         if (e.target === ov || e.target.id === 'sbProjStage' || e.target.id === 'sbProjBg') sbProjectNav(1);
       });
     }
@@ -44302,43 +44352,191 @@ var WO = (function() {
   }
 
   function _sbProjKey(e) {
-    if (!$('sbProjectOverlay') || $('sbProjectOverlay').style.display === 'none') return;
+    var ov = $('sbProjectOverlay');
+    if (!ov || ov.style.display === 'none') return;
+    if (_sbProjEditing) {
+      // Typing must not page the deck.
+      if (e.key === 'Escape') { sbProjToggleEdit(); e.preventDefault(); }
+      return;
+    }
     if (e.key === 'Escape') { sbProjectClose(); e.preventDefault(); }
     else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') { sbProjectNav(1); e.preventDefault(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') { sbProjectNav(-1); e.preventDefault(); }
   }
 
+  function _sbProjCur() { return _sbProjDeck ? _sbProjDeck[_sbProjIdx] : null; }
+
   function _sbProjRender() {
-    var stage = $('sbProjStage'), bg = $('sbProjBg'), cnt = $('sbProjCounter');
+    var stage = $('sbProjStage'), bg = $('sbProjBg'), cnt = $('sbProjCounter'), hint = $('sbProjHint');
     if (!stage) return;
-    var s = _sbProjDeck[_sbProjIdx];
+    var s = _sbProjCur();
     if (!s) return;
-    if (bg) bg.style.backgroundImage = _sbProjBg ? ('url("' + _sbProjBg + '")') : '';
-    stage.innerHTML = (s.kind === 'title')
-      ? '<div class="sb-proj-title">' + escapeHtml(s.title) + '</div>' +
-        (s.artist ? '<div class="sb-proj-artist">' + escapeHtml(s.artist) + '</div>' : '')
-      : '<div class="sb-proj-lines">' + s.lines.map(function(l) {
-          return l ? '<div>' + escapeHtml(l) + '</div>' : '<div>&nbsp;</div>';
-        }).join('') + '</div>';
+    if (bg) bg.style.backgroundImage = s.bg ? ('url("' + s.bg + '")') : '';
+    stage.classList.toggle('is-skipped', !!s.hidden);
+    if (s.kind === 'title') {
+      stage.innerHTML = '<div class="sb-proj-title" data-role="title">' + escapeHtml(s.title) + '</div>' +
+        '<div class="sb-proj-artist" data-role="artist">' + escapeHtml(s.artist || '') + '</div>';
+    } else {
+      stage.innerHTML = '<div class="sb-proj-lines" data-role="lines">' + s.lines.map(function(l) {
+        return l ? '<div>' + escapeHtml(l) + '</div>' : '<div>&nbsp;</div>';
+      }).join('') + '</div>';
+    }
     if (cnt) cnt.textContent = (_sbProjIdx + 1) + ' / ' + _sbProjDeck.length;
+    var hb = $('sbProjHideBtn'); if (hb) hb.classList.toggle('on', !!s.hidden);
+    var eb = $('sbProjEditBtn'); if (eb) eb.classList.toggle('on', !!_sbProjEditing);
+    if (hint) {
+      hint.textContent = _sbProjEditing ? 'Editing — click Done or press Esc to keep'
+        : (s.hidden ? 'Skipped — not projected, not exported'
+        : (s.edited ? 'Adjusted for projection' : ''));
+    }
   }
 
   function sbProjectNav(dir) {
     if (!_sbProjDeck) return;
+    if (_sbProjEditing) sbProjToggleEdit();
     _sbProjIdx = Math.max(0, Math.min(_sbProjDeck.length - 1, _sbProjIdx + dir));
     _sbProjRender();
   }
 
   function sbProjectClose() {
+    if (_sbProjEditing) sbProjToggleEdit();
     var ov = $('sbProjectOverlay');
     if (ov) ov.style.display = 'none';
     document.removeEventListener('keydown', _sbProjKey, true);
+    var m = $('sbProjBgMenu'); if (m) m.style.display = 'none';
     if (document.fullscreenElement) { try { document.exitFullscreen(); } catch (e) {} }
   }
 
+  function sbProjToggleEdit() {
+    var s = _sbProjCur();
+    var stage = $('sbProjStage');
+    if (!s || !stage || !stage.firstElementChild) return;
+
+    if (!_sbProjEditing) {
+      _sbProjEditing = true;
+      Array.prototype.forEach.call(stage.children, function(c) { c.contentEditable = 'true'; });
+      stage.firstElementChild.focus();
+      _sbProjRender_hintOnly();
+      return;
+    }
+
+    // Commit: read the visible text back, one line per block.
+    _sbProjEditing = false;
+    var store = _sbProjStore();
+    var ov = store.slides[s.key] || (store.slides[s.key] = {});
+    if (s.kind === 'title') {
+      var tEl = stage.querySelector('[data-role="title"]');
+      var aEl = stage.querySelector('[data-role="artist"]');
+      if (tEl) ov.title = tEl.textContent.trim();
+      if (aEl) ov.artist = aEl.textContent.trim();
+    } else {
+      var lEl = stage.querySelector('[data-role="lines"]');
+      if (lEl) {
+        var lines = Array.prototype.map.call(lEl.children, function(d) {
+          return (d.textContent || '').split(String.fromCharCode(160)).join(' ').trim();
+        });
+        while (lines.length && !lines[lines.length - 1]) lines.pop();
+        ov.lines = lines;
+      }
+    }
+    Array.prototype.forEach.call(stage.children, function(c) { c.contentEditable = 'false'; });
+    _sbProjSaveStore();
+    _sbProjDeck = _sbBuildProjectionDeck(true);
+    _sbProjRender();
+    showToast('Slide updated for projection', 'success');
+  }
+
+  function _sbProjRender_hintOnly() {
+    var hint = $('sbProjHint');
+    if (hint) hint.textContent = 'Editing — click the pen again or press Esc to keep';
+    var eb = $('sbProjEditBtn'); if (eb) eb.classList.add('on');
+  }
+
+  function sbProjToggleHide() {
+    var s = _sbProjCur();
+    if (!s) return;
+    var store = _sbProjStore();
+    var ov = store.slides[s.key] || (store.slides[s.key] = {});
+    ov.hidden = !ov.hidden;
+    _sbProjSaveStore();
+    _sbProjDeck = _sbBuildProjectionDeck(true);
+    _sbProjRender();
+  }
+
+  function sbProjReset() {
+    var s = _sbProjCur();
+    if (!s) return;
+    var store = _sbProjStore();
+    delete store.slides[s.key];
+    _sbProjSaveStore();
+    _sbProjDeck = _sbBuildProjectionDeck(true);
+    _sbProjRender();
+    showToast('Slide restored to the songbook wording', 'info');
+  }
+
+  function sbProjBgMenu() {
+    var m = $('sbProjBgMenu');
+    if (!m) return;
+    if (m.style.display === 'block') { m.style.display = 'none'; return; }
+    var lib = (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) ? savedBackgrounds : [];
+    if (!lib.length && typeof loadBackgrounds === 'function') loadBackgrounds();
+    var thumbs = lib.filter(function(b) { return (b.url || b.src) && !/^video/i.test(b.type || ''); })
+      .map(function(b) {
+        var u = String(b.url || b.src);
+        return '<button class="sb-projbg-thumb" style="background-image:url(&quot;' + escapeHtml(u) + '&quot;)"' +
+               ' title="' + escapeHtml(b.name || 'Background') + '"' +
+               ' onclick="WO.sbProjSetBg(this.getAttribute(\'data-u\'))" data-u="' + escapeHtml(u).replace(/"/g, '&quot;') + '"></button>';
+      }).join('');
+    m.innerHTML =
+      '<div class="sb-projbg-head">Background for this slide</div>' +
+      '<div class="sb-projbg-grid">' +
+        '<button class="sb-projbg-thumb none" onclick="WO.sbProjSetBg(\'\')" title="No picture (black)">None</button>' +
+        (thumbs || '<span class="sb-projbg-empty">No pictures in the media library yet — upload one below.</span>') +
+      '</div>' +
+      '<div class="sb-projbg-actions">' +
+        '<button onclick="document.getElementById(\'sbProjBgFile\').click()"><i class="fa-solid fa-upload"></i> Upload picture</button>' +
+        '<button onclick="WO.sbProjApplyBgAll()"><i class="fa-solid fa-layer-group"></i> Apply to all slides</button>' +
+      '</div>';
+    m.style.display = 'block';
+  }
+
+  function sbProjSetBg(url) {
+    var s = _sbProjCur();
+    if (!s) return;
+    var store = _sbProjStore();
+    var ov = store.slides[s.key] || (store.slides[s.key] = {});
+    ov.bg = url || '';
+    _sbProjSaveStore();
+    _sbProjDeck = _sbBuildProjectionDeck(true);
+    _sbProjRender();
+    var m = $('sbProjBgMenu'); if (m) m.style.display = 'none';
+  }
+
+  function sbProjApplyBgAll() {
+    var s = _sbProjCur();
+    if (!s) return;
+    var store = _sbProjStore();
+    store.all.bg = s.bg || '';
+    // Per-slide pins would mask the new default, so clear them.
+    Object.keys(store.slides).forEach(function(k) { delete store.slides[k].bg; });
+    _sbProjSaveStore();
+    _sbProjDeck = _sbBuildProjectionDeck(true);
+    _sbProjRender();
+    var m = $('sbProjBgMenu'); if (m) m.style.display = 'none';
+    showToast('Background applied to every slide', 'success');
+  }
+
+  function sbProjBgUpload(input) {
+    var f = input && input.files && input.files[0];
+    if (!f) return;
+    var fr = new FileReader();
+    fr.onload = function() { sbProjSetBg(fr.result); };
+    fr.readAsDataURL(f);
+    input.value = '';
+  }
+
   // ── Export PowerPoint ───────────────────────────────────────────────────
-  // PptxGenJS is fetched on first use rather than shipped: it is ~1MB and only
-  // matters the moment somebody actually exports.
+  // No dialogue by design: it writes out exactly what Project mode is set to.
   var _sbPptxLoading = null;
   function _sbLoadPptx() {
     if (window.PptxGenJS) return Promise.resolve(window.PptxGenJS);
@@ -44353,8 +44551,8 @@ var WO = (function() {
     return _sbPptxLoading;
   }
 
-  // PowerPoint needs the picture's BYTES, not a link -- a deck full of remote
-  // URLs breaks the moment it is opened on a machine without access.
+  // PowerPoint needs the picture's BYTES: a deck of remote URLs breaks the
+  // moment it is opened on a machine without access to them.
   function _sbImageToDataUrl(url) {
     if (!url) return Promise.resolve('');
     if (/^data:/.test(url)) return Promise.resolve(url);
@@ -44368,123 +44566,16 @@ var WO = (function() {
           fr.readAsDataURL(b);
         });
       })
-      .catch(function(e) { console.warn('[PPT] background image skipped:', e.message); return ''; });
+      .catch(function(e) { console.warn('[PPT] background skipped:', e.message); return ''; });
   }
-
-  var _sbPptBgDefault = '';   // data/URL applied to every slide
-  var _sbPptBgBySong = {};    // songIdx -> URL, overriding the default
-  var _sbBgFetchTried = false;
 
   function sbExportPPT() {
-    var deck = _sbBuildProjectionDeck();
-    if (!deck.length) { showToast('Nothing to export — no song lyrics in this songbook.', 'warning'); return; }
+    var deck = _sbBuildProjectionDeck(false);   // skipped slides stay out
+    if (!deck.length) { showToast('Nothing to export - no slides in the projection.', 'warning'); return; }
+    showToast('Building PowerPoint...', 'info');
 
-    var songs = [];
-    var seen = {};
-    deck.forEach(function(s) {
-      if (s.kind !== 'title' || seen[s.songIdx]) return;
-      seen[s.songIdx] = true;
-      songs.push({ idx: s.songIdx, title: s.title });
-    });
-
-    // The media library is normally loaded by LCD Projection; the songbook can
-    // be opened without ever going there, so fetch it once and reopen the
-    // dialog when the pictures arrive. Uploading always works regardless.
-    var lib = (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) ? savedBackgrounds : [];
-    if (!lib.length && typeof loadBackgrounds === 'function' && !_sbBgFetchTried) {
-      _sbBgFetchTried = true;
-      loadBackgrounds();
-      setTimeout(function() {
-        var m = $('sbPptModal');
-        if (m && m.style.display !== 'none' && Array.isArray(savedBackgrounds) && savedBackgrounds.length) sbExportPPT();
-      }, 700);
-    }
-    function bgOptions(selected) {
-      var h = '<option value="">None (black)</option>';
-      lib.forEach(function(b) {
-        var u = b.url || b.src || '';
-        if (!u || /^video/i.test(b.type || '')) return;
-        h += '<option value="' + escapeHtml(u).replace(/"/g, '&quot;') + '"' +
-             (u === selected ? ' selected' : '') + '>' + escapeHtml(b.name || 'Background') + '</option>';
-      });
-      return h;
-    }
-
-    var modal = $('sbPptModal');
-    if (!modal) {
-      modal = document.createElement('div');
-      modal.id = 'sbPptModal';
-      modal.className = 'sb-ppt-modal';
-      document.body.appendChild(modal);
-    }
-    modal.innerHTML =
-      '<div class="sb-ppt-card">' +
-        '<div class="sb-ppt-head">' +
-          '<div><b>Export PowerPoint</b><div class="sb-ppt-sub">' + deck.length + ' slides from ' + songs.length + ' song' + (songs.length === 1 ? '' : 's') +
-          ' — a title slide per song, then one slide per section (max ' + SB_MAX_LINES + ' lines).</div></div>' +
-          '<button class="sb-ppt-x" onclick="WO.sbPptClose()"><i class="fa-solid fa-xmark"></i></button>' +
-        '</div>' +
-        '<div class="sb-ppt-body">' +
-          '<label class="sb-ppt-label">Background for all slides</label>' +
-          '<div class="sb-ppt-row">' +
-            '<select id="sbPptBgAll" onchange="WO.sbPptSetAllBg(this.value)">' + bgOptions(_sbPptBgDefault) + '</select>' +
-            '<button class="sb-ppt-upload" onclick="document.getElementById(\'sbPptBgFile\').click()"><i class="fa-solid fa-image"></i> Upload picture</button>' +
-            '<input type="file" id="sbPptBgFile" accept="image/*" style="display:none" onchange="WO.sbPptUploadBg(this)">' +
-          '</div>' +
-          '<div class="sb-ppt-prev" id="sbPptBgPrev"></div>' +
-          '<label class="sb-ppt-label">Per-song background <span>(optional — overrides the one above)</span></label>' +
-          '<div class="sb-ppt-songs">' +
-            songs.map(function(s) {
-              return '<div class="sb-ppt-song">' +
-                '<span title="' + escapeHtml(s.title).replace(/"/g, '&quot;') + '">' + escapeHtml(s.title) + '</span>' +
-                '<select onchange="WO.sbPptSetSongBg(' + s.idx + ', this.value)">' +
-                  '<option value="">Use default</option>' + bgOptions(_sbPptBgBySong[s.idx] || '') +
-                '</select></div>';
-            }).join('') +
-          '</div>' +
-        '</div>' +
-        '<div class="sb-ppt-foot">' +
-          '<button class="sb-ppt-cancel" onclick="WO.sbPptClose()">Cancel</button>' +
-          '<button class="sb-ppt-go" id="sbPptGo" onclick="WO.sbPptGenerate()"><i class="fa-solid fa-file-powerpoint"></i> Generate PowerPoint</button>' +
-        '</div>' +
-      '</div>';
-    modal.style.display = 'flex';
-    _sbPptPreview();
-  }
-
-  function _sbPptPreview() {
-    var p = $('sbPptBgPrev');
-    if (!p) return;
-    p.style.backgroundImage = _sbPptBgDefault ? ('url("' + _sbPptBgDefault + '")') : '';
-    p.textContent = _sbPptBgDefault ? '' : 'Black background';
-  }
-
-  function sbPptSetAllBg(url) { _sbPptBgDefault = url || ''; _sbProjBg = _sbPptBgDefault; _sbPptPreview(); }
-  function sbPptSetSongBg(idx, url) { if (url) _sbPptBgBySong[idx] = url; else delete _sbPptBgBySong[idx]; }
-  function sbPptClose() { var m = $('sbPptModal'); if (m) m.style.display = 'none'; }
-
-  function sbPptUploadBg(input) {
-    var f = input && input.files && input.files[0];
-    if (!f) return;
-    var fr = new FileReader();
-    fr.onload = function() {
-      _sbPptBgDefault = fr.result;
-      _sbProjBg = fr.result;
-      var sel = $('sbPptBgAll'); if (sel) sel.value = '';
-      _sbPptPreview();
-    };
-    fr.readAsDataURL(f);
-  }
-
-  function sbPptGenerate() {
-    var btn = $('sbPptGo');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Building…'; }
-    var deck = _sbBuildProjectionDeck();
-
-    // Resolve every distinct background to bytes once, not per slide.
     var urls = {};
-    if (_sbPptBgDefault) urls[_sbPptBgDefault] = 1;
-    Object.keys(_sbPptBgBySong).forEach(function(k) { urls[_sbPptBgBySong[k]] = 1; });
+    deck.forEach(function(s) { if (s.bg) urls[s.bg] = 1; });
     var list = Object.keys(urls);
 
     _sbLoadPptx()
@@ -44494,14 +44585,13 @@ var WO = (function() {
         list.forEach(function(u, i) { resolved[u] = datas[i]; });
 
         var pptx = new window.PptxGenJS();
-        pptx.layout = 'LAYOUT_16x9';           // 10 x 5.625 inches
-        pptx.title = (_sbCurrentBookTitle() || 'Worship Songbook');
+        pptx.layout = 'LAYOUT_16x9';
+        pptx.title = _sbCurrentBookTitle() || 'Worship Songbook';
 
         deck.forEach(function(s) {
           var slide = pptx.addSlide();
-          var bgUrl = _sbPptBgBySong[s.songIdx] || _sbPptBgDefault || '';
-          var bgData = bgUrl ? resolved[bgUrl] : '';
-          slide.background = bgData ? { data: bgData } : { color: '000000' };
+          var data = s.bg ? resolved[s.bg] : '';
+          slide.background = data ? { data: data } : { color: '000000' };
 
           if (s.kind === 'title') {
             slide.addText(String(s.title), {
@@ -44518,12 +44608,9 @@ var WO = (function() {
             }
             return;
           }
-
-          // Lyrics fill the safe area; the size steps down as the block grows
-          // so eight lines still fit without spilling off the slide.
           var n = s.lines.length;
           var size = n <= 4 ? 34 : (n <= 6 ? 30 : 26);
-          slide.addText(s.lines.join('\n'), {
+          slide.addText(s.lines.join(LF), {
             x: 0.6, y: 0.5, w: 8.8, h: 4.6, align: 'center', valign: 'middle',
             fontSize: size, bold: true, color: 'FFFFFF', fontFace: 'Georgia',
             lineSpacingMultiple: 1.25,
@@ -44534,23 +44621,17 @@ var WO = (function() {
         var name = (_sbCurrentBookTitle() || 'Worship Songbook').replace(/[\\/:*?"<>|]+/g, '-');
         return pptx.writeFile({ fileName: name + '.pptx' });
       })
-      .then(function() {
-        showToast('PowerPoint exported — ' + deck.length + ' slides', 'success');
-        sbPptClose();
-      })
+      .then(function() { showToast('PowerPoint exported - ' + deck.length + ' slides', 'success'); })
       .catch(function(err) {
         console.error('[PPT] export failed:', err);
         showToast('PowerPoint export failed: ' + (err && err.message ? err.message : 'unknown error'), 'error');
-      })
-      .finally(function() {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-file-powerpoint"></i> Generate PowerPoint'; }
       });
   }
 
   function _sbCurrentBookTitle() {
     var el = document.querySelector('#songbookLiveModal .sb-book-subtitle, #songbookLiveModal .sb-header-sub');
     if (el && el.textContent.trim()) return el.textContent.trim();
-    return (currentOrderData && currentOrderData.title) || 'Worship Songbook';
+    return (typeof currentOrderData !== 'undefined' && currentOrderData && currentOrderData.title) || 'Worship Songbook';
   }
 
   function sbSavePDF() {
@@ -58812,12 +58893,14 @@ var WO = (function() {
     sbProject: sbProject,
     sbProjectNav: sbProjectNav,
     sbProjectClose: sbProjectClose,
+    sbProjToggleEdit: sbProjToggleEdit,
+    sbProjToggleHide: sbProjToggleHide,
+    sbProjReset: sbProjReset,
+    sbProjBgMenu: sbProjBgMenu,
+    sbProjSetBg: sbProjSetBg,
+    sbProjApplyBgAll: sbProjApplyBgAll,
+    sbProjBgUpload: sbProjBgUpload,
     sbExportPPT: sbExportPPT,
-    sbPptClose: sbPptClose,
-    sbPptGenerate: sbPptGenerate,
-    sbPptSetAllBg: sbPptSetAllBg,
-    sbPptSetSongBg: sbPptSetSongBg,
-    sbPptUploadBg: sbPptUploadBg,
     _sbBuildProjectionDeck: _sbBuildProjectionDeck,
     sbOpenPrintModal: sbOpenPrintModal,
     sbClosePrintModal: sbClosePrintModal,
@@ -67014,6 +67097,40 @@ function filterLiturgyItems() {
   }
   .sb-proj-bar button:hover { background: rgba(255,255,255,0.26); }
   .sb-proj-bar span { color: #e2e8f0; font-family: 'Poppins', sans-serif; font-size: 0.76rem; min-width: 62px; text-align: center; }
+
+  .sb-proj-stage[contenteditable], .sb-proj-stage > [contenteditable="true"] { outline: none; }
+  .sb-proj-stage > [contenteditable="true"] { box-shadow: inset 0 0 0 2px rgba(96,165,250,0.85); border-radius: 8px; }
+  .sb-proj-stage.is-skipped { opacity: 0.32; }
+  .sb-proj-hint {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    padding: 5px 12px; border-radius: 999px; background: rgba(0,0,0,0.55);
+    color: #cbd5e1; font-family: 'Poppins', sans-serif; font-size: 0.72rem;
+    pointer-events: none; white-space: nowrap;
+  }
+  .sb-proj-sep { width: 1px; height: 20px; background: rgba(255,255,255,0.22); }
+  .sb-proj-bar button.on { background: #2563eb; }
+  .sb-proj-bgmenu {
+    display: none; position: absolute; bottom: 68px; left: 50%; transform: translateX(-50%);
+    width: min(430px, 92vw); padding: 12px; border-radius: 12px;
+    background: #101b2e; border: 1px solid #274063; box-shadow: 0 14px 40px rgba(0,0,0,0.55);
+    color: #e2e8f0; font-family: 'Poppins', sans-serif;
+  }
+  .sb-projbg-head { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #93c5fd; margin-bottom: 8px; }
+  .sb-projbg-grid { display: flex; flex-wrap: wrap; gap: 7px; max-height: 168px; overflow-y: auto; }
+  .sb-projbg-thumb {
+    width: 74px; height: 44px; border-radius: 7px; cursor: pointer;
+    border: 1.5px solid #274063; background-size: cover; background-position: center;
+    color: #94a3b8; font-size: 0.66rem;
+  }
+  .sb-projbg-thumb:hover { border-color: #60a5fa; }
+  .sb-projbg-thumb.none { background: #000; }
+  .sb-projbg-empty { font-size: 0.74rem; color: #64748b; padding: 6px 2px; }
+  .sb-projbg-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .sb-projbg-actions button {
+    flex: 1; padding: 8px 10px; border-radius: 8px; cursor: pointer;
+    background: #1d4ed8; border: none; color: #fff; font-size: 0.74rem; font-weight: 600;
+  }
+  .sb-projbg-actions button:last-child { background: #334155; }
 
   .sb-ppt-modal { display: none; position: fixed; inset: 0; z-index: 100060; background: rgba(2,8,23,0.72); align-items: center; justify-content: center; padding: 20px; }
   .sb-ppt-card { width: min(560px, 96vw); max-height: 88vh; display: flex; flex-direction: column; background: #101b2e; border: 1px solid #274063; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.55); color: #e2e8f0; font-family: 'Poppins', sans-serif; overflow: hidden; }
