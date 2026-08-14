@@ -4,6 +4,28 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 — ⚠️ Projection work was being destroyed on save; two causes
+
+Reported: after reloading the app, every All Slides adjustment and every background was gone. It was not a display problem — the work was being overwritten in Supabase. Two independent mechanisms, either sufficient on its own.
+
+**1. `SBQ.patchInbox` replaced the entire template column.** `orders.template` is one JSON blob holding the projection deck, songbook fonts, section layout, cleared sections and section backgrounds. The "lightweight patch" wrote the whole column from `Object.assign({}, window.currentOrderData.template || {})` — and **nothing in the app ever assigns `window.currentOrderData`** (it is a closure variable inside `WO`). So the merge always started from `{}`, and every inbox change reduced the stored template to `{_inbox, _inboxPresent}`, taking the projection deck with it. It now reads the stored template and merges into that; one extra round-trip, no data loss.
+
+**2. A standalone songbook had nowhere to save the deck at all.** `saveCurrentOrder` short-circuits for standalone songbooks (`_sbStandaloneId`), writing the `songbooks` table and returning — and that table has no template column. So Project mode and All Slides were **in-memory only** for songbooks opened from the Songbooks page. Compounding it, `openSongbookStandalone` set `template: {}` outright, so even a deck that had reached Supabase by another route was neither loaded nor preserved.
+
+Both halves are fixed: the standalone path now loads the template from its `standalone_<sbId>` order row and `_sbPersistStandaloneTemplate()` writes it back there. That row is already filtered out of every order list by `SBQ.loadOrders`, so it stays invisible as an order, and it is only created once there is something worth keeping.
+
+**Structural guard.** `saveCurrentOrder` now refuses to write an *empty* projection deck unless it knows this order's template came from the backend (`_tplLoadedForOrder`). A load path that forgets the template can no longer flatten stored slides and pictures — while a deliberate clear, on an order whose template really was loaded, still persists.
+
+### Not recoverable
+
+The user's `standalone_sb_1783318602918` row was already flattened to `{"all":{},"songs":{},"slides":{}}`. There is no `order_changes` audit table for orders and no crash journal entry, so the previous deck could not be restored. **Orders still have no audit trail — this is the second time that has cost us a recovery.**
+
+### Verified live (throwaway song, songbook and order, deleted by id)
+
+Standalone songbook: projection work saved, survived a hard reload, and came back complete — reflowed slides, deck-default picture, per-slide picture, per-slide "none". Order-backed songbook re-checked as a regression: the deck now sits alongside `_inbox` in the template instead of being erased by it, and survives reload. Orders 19, songs 51, unchanged.
+
+---
+
 ## 2026-08-14 — Backgrounds: fixed on reflowed songs, and assignable from All Slides
 
 Checking that pictures survive the Supabase round trip turned up three ways they did not.

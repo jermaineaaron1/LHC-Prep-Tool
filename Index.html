@@ -21897,20 +21897,30 @@ function normalizeSongFromSupabase(row) {
 SBQ.patchInbox = function(orderId, items) {
   var sb = SBQ._sb();
   if (!sb || !orderId) return Promise.resolve();
-  // Merge _inbox into the current in-memory template
-  var tpl = Object.assign({}, (window.currentOrderData && window.currentOrderData.template) || {});
-  // Always set _inbox (even []) so that clearing all links is persisted as an
-  // explicit empty array rather than a missing key — prevents stale
-  // order_media_links table rows from restoring deleted items on next load.
-  tpl._inbox = Array.isArray(items) ? items : [];
-  tpl._inboxPresent = true;
-  return sb.from('orders')
-    .update({ template: tpl, last_edited: new Date().toISOString() })
-    .eq('id', orderId)
-    .then(function(res) {
-      if (res.error) console.warn('[LHC] patchInbox failed:', res.error.message);
-      else console.log('[LHC] inbox patched → orders.template._inbox', (items || []).length, 'items');
-    });
+  // `template` is one JSON column holding everything: the projection deck, the
+  // songbook fonts, the section layout, the cleared sections, the backgrounds.
+  // Writing it whole from an in-memory object meant this "lightweight patch"
+  // replaced ALL of that with {_inbox}. Worse, it merged from
+  // window.currentOrderData, which nothing ever assigns -- so the merge always
+  // started from {} and every inbox change silently destroyed the rest of the
+  // template in Supabase. Read the stored template and merge into it: one
+  // extra round-trip is a small price for not losing the operator's work.
+  return sb.from('orders').select('template').eq('id', orderId).single().then(function(cur) {
+    if (cur.error) { console.warn('[LHC] patchInbox skipped:', cur.error.message); return; }
+    var tpl = Object.assign({}, (cur.data && cur.data.template) || {});
+    // Always set _inbox (even []) so that clearing all links is persisted as an
+    // explicit empty array rather than a missing key — prevents stale
+    // order_media_links table rows from restoring deleted items on next load.
+    tpl._inbox = Array.isArray(items) ? items : [];
+    tpl._inboxPresent = true;
+    return sb.from('orders')
+      .update({ template: tpl, last_edited: new Date().toISOString() })
+      .eq('id', orderId)
+      .then(function(res) {
+        if (res.error) console.warn('[LHC] patchInbox failed:', res.error.message);
+        else console.log('[LHC] inbox patched → orders.template._inbox', (items || []).length, 'items');
+      });
+  });
 };
 
 SBQ.mediaLinks = {
@@ -23674,6 +23684,7 @@ var WO = (function() {
           console.log('=== LOAD ORDER DEBUG (Supabase) ===');
           console.log('getOrderFromSupabase result - items:', result && result.items ? result.items.length : 0);
           if (result && result.order) {
+            _tplLoadedForOrder = result.order.id;   // this template IS the stored one
             // Build complete order from Supabase data
             var completeOrder = {
               id: result.order.id,
@@ -24584,6 +24595,10 @@ var WO = (function() {
       }).catch(function() {
         sbSetSaveStatus('');
       });
+      // The songbooks table has no room for the template, so the projection
+      // deck goes to its own row -- without this the whole of Project mode and
+      // All Slides was in-memory only for a standalone songbook.
+      _sbPersistStandaloneTemplate();
       return;
     }
 
@@ -24750,11 +24765,23 @@ var WO = (function() {
       // added sections, deleted sections, and section order all restore correctly.
       // sectionBackgrounds holds per-slide background assignments keyed by sectionId —
       // embedding here ensures they survive on a different device or browser.
-      template: Object.assign({}, currentOrderData.template || {}, {
-        clearedSections: Array.isArray(currentOrderData.clearedSections) ? currentOrderData.clearedSections : [],
-        sectionLayout: Array.isArray(currentOrderData.sectionLayout) ? currentOrderData.sectionLayout : [],
-        sectionBackgrounds: (typeof sectionBackgrounds === 'object' && sectionBackgrounds !== null && Object.keys(sectionBackgrounds).length > 0) ? sectionBackgrounds : undefined
-      }),
+      template: (function() {
+        var tpl = Object.assign({}, currentOrderData.template || {}, {
+          clearedSections: Array.isArray(currentOrderData.clearedSections) ? currentOrderData.clearedSections : [],
+          sectionLayout: Array.isArray(currentOrderData.sectionLayout) ? currentOrderData.sectionLayout : [],
+          sectionBackgrounds: (typeof sectionBackgrounds === 'object' && sectionBackgrounds !== null && Object.keys(sectionBackgrounds).length > 0) ? sectionBackgrounds : undefined
+        });
+        // An empty projection deck is only written when we KNOW this order's
+        // template came from the backend -- i.e. the operator really did clear
+        // it. Otherwise the deck is left out of the payload entirely, so an
+        // order opened without its template can never overwrite the stored
+        // slides and backgrounds with nothing. That is exactly how a
+        // songbook's projection work was destroyed on reopen.
+        if (tpl.projectionDeck && _sbDeckIsEmpty(tpl.projectionDeck) && _tplLoadedForOrder !== currentOrderData.id) {
+          delete tpl.projectionDeck;
+        }
+        return tpl;
+      })(),
       createdDate: currentOrderData.createdDate || new Date().toISOString(),
       items: itemsForSave,
       // Persist inbox items inside the Supabase order record so they survive
@@ -35884,6 +35911,7 @@ var WO = (function() {
         });
       });
       _sbStandaloneId = null;
+      _tplLoadedForOrder = orderMeta.id;      // this template IS the stored one
       currentOrderData = {
         id: orderMeta.id, title: orderMeta.title || 'Songbook',
         type: orderMeta.type || 'traditional', serviceDate: orderMeta.serviceDate || '',
@@ -35983,6 +36011,16 @@ var WO = (function() {
       // merge). Fetch the authoritative customizations before the first
       // render so it's correct from the start; never block opening on it.
       SBQ.loadOrder(currentOrderData.id).then(function(result) {
+        // The template comes back with the row and MUST be adopted. It holds
+        // the projection deck, the fonts, the section layout -- everything
+        // Project mode and All Slides write. Opening on a hardcoded {} did not
+        // merely hide that work: the next autosave wrote the empty template
+        // straight over it in Supabase, so a reopen destroyed it for good.
+        if (result && result.order && currentOrderData && currentOrderData.id === 'standalone_' + sbId) {
+          // Anything set in the second before this landed still wins.
+          currentOrderData.template = Object.assign({}, result.order.template || {}, currentOrderData.template || {});
+          _tplLoadedForOrder = currentOrderData.id;
+        }
         if (result && result.items) {
           result.items.forEach(function(item) {
             var song = songOrderSections.find(function(s) { return s.id === item.id; });
@@ -44254,6 +44292,51 @@ var WO = (function() {
       while (s.lines.length && s.lines[0] === '') s.lines.shift();
       return s;
     }).filter(function(s) { return s.lines.length; });
+  }
+
+  // Which order's template we know arrived from the backend. An order opened
+  // WITHOUT its stored template must never write an empty projection deck
+  // back over the real one -- see the guard in saveCurrentOrder.
+  var _tplLoadedForOrder = null;
+
+  function _sbDeckIsEmpty(pd) {
+    if (!pd) return true;
+    if (pd.all && pd.all.bg) return false;
+    if (pd.slides && Object.keys(pd.slides).length) return false;
+    if (pd.songs && Object.keys(pd.songs).length) return false;
+    return true;
+  }
+
+  // A standalone songbook saves into the `songbooks` table, which has no
+  // column for any of this -- so saveCurrentOrder returns before the template
+  // is ever written, and the projection deck had nowhere to live at all. It
+  // goes into the orders row keyed `standalone_<sbId>`, which is the same row
+  // openSongbookStandalone reads back and which SBQ.loadOrders already filters
+  // out of every order list, so it stays invisible as an order.
+  //
+  // The row is only created once there is something worth keeping: a songbook
+  // that never uses Project mode writes nothing.
+  function _sbPersistStandaloneTemplate() {
+    if (!_sbStandaloneId || typeof currentOrderData === 'undefined' || !currentOrderData) return;
+    var id = 'standalone_' + _sbStandaloneId;
+    var tpl = currentOrderData.template || {};
+    var worthKeeping = !_sbDeckIsEmpty(tpl.projectionDeck) || _tplLoadedForOrder === id;
+    if (!worthKeeping) return;
+    var sbc = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sbc) return;
+    sbc.from('orders').upsert([{
+      id: id,
+      title: currentOrderData.title || 'Songbook',
+      type: currentOrderData.type || 'traditional',
+      template: tpl,
+      created_date: currentOrderData.createdDate || new Date().toISOString(),
+      last_edited: new Date().toISOString()
+    }]).then(function(r) {
+      if (r && r.error) { console.warn('[Songbook] projection settings not saved:', r.error.message); return; }
+      _tplLoadedForOrder = id;      // it is now the stored one
+    }).catch(function(e) {
+      console.warn('[Songbook] projection settings not saved:', e);
+    });
   }
 
   // ── The operator's adjustments ──────────────────────────────────────────
