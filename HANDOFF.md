@@ -4,6 +4,27 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 — Deleting an order now actually deletes it
+
+User report: deleting an order from the Orders page left it on the Songbooks page, and navigating away and back **recreated it** in Orders.
+
+Two independent causes, both fixed in `deleteOrder` / the new `_forgetDeletedOrder(orderId)`:
+
+1. **The Songbooks page reads `STATE.orders`**, and deletion only pruned `savedOrders` + localStorage. `STATE.orders` was written on order creation but never on deletion, so the SERVICE ORDERS column kept listing the dead order forever.
+2. **The order came back because a save re-created it.** `SBQ.saveOrder` upserts, and the deleted order could still be the one in the editor — `currentOrderData` intact, a queued `_autoSaveTimer`, or a journalled payload in `lhc_pending_order_save`. Any of those writing after the delete re-inserted the row, and the next `syncOrdersFromBackend` pulled it back into the list.
+
+`_forgetDeletedOrder` now: records the id in `_deletedOrderIds`, prunes `STATE.orders` **and** `savedOrders` + localStorage, drops a matching crash-journal entry, and — when the deleted order is the one open in the editor — cancels the pending autosave, clears `currentOrderData`/`songOrderSections`, wipes the editor DOM and its ownership stamp, and returns to the orders menu. `saveCurrentOrder` refuses outright for any id in `_deletedOrderIds`. Wired into both the single delete and the bulk "delete selected" path.
+
+### Verified live (throwaway order, deleted; real data untouched)
+
+Deleted the order, then *deliberately* forced the two resurrection paths — an explicit `saveCurrentOrder(true)` while it was still the open order, then a page reload with the background cloud sync. Result: gone from `STATE.orders`, gone from the Songbooks DOM, **0 rows in the cloud**, journal clear, absent from localStorage, and still gone after the reload. The user's 20 real orders were untouched throughout.
+
+### NOT done this round
+
+The second half of the request — **projecting from inside the Songbook (full screen, lyrics only, no chords) and a formatted PPT export of all songs** — has not been started. It needs a .pptx generator (PptxGenJS via CDN is the realistic option, ~1MB, and the app already loads external fonts/icons) plus a projection mode that reuses `_projectionHtmlRich`'s chord filtering. Treat it as its own piece of work.
+
+---
+
 ## 2026-08-14 (songbook → LCD) — Songbook edits now flag the slide; schedule header unstuck
 
 ### Songbook edits produced no red cell and no yellow lines

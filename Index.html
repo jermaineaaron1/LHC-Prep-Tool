@@ -23448,6 +23448,7 @@ var WO = (function() {
       });
 
       localStorage.setItem('lhc_worship_orders', JSON.stringify(savedOrders));
+      orderIdsToDelete.forEach(_forgetDeletedOrder);
       renderSavedOrders();
       showToast(count + ' order(s) deleted', 'success');
     });
@@ -23474,9 +23475,53 @@ var WO = (function() {
       // Delete from local
       savedOrders.splice(idx, 1);
       localStorage.setItem('lhc_worship_orders', JSON.stringify(savedOrders));
+      _forgetDeletedOrder(order.id);
       renderSavedOrders();
       showToast('"' + order.title + '" deleted', 'success');
     });
+  }
+
+  // Orders that have been deleted in this session. A save must never bring one
+  // back: the editor may still be holding the deleted order (currentOrderData,
+  // a queued autosave, the crash journal), and saveOrder upserts -- so the row
+  // reappeared in the cloud and the next background sync pulled it into the
+  // list again, which read as "deleting does nothing".
+  var _deletedOrderIds = {};
+
+  // Erase every trace of a deleted order from the running app: the dashboard/
+  // Songbooks list (STATE.orders -- pruning only savedOrders left the order
+  // showing on the Songbooks page), any pending save for it, the crash journal,
+  // and the editor itself if that is the order currently open.
+  function _forgetDeletedOrder(orderId) {
+    if (!orderId) return;
+    _deletedOrderIds[orderId] = true;
+
+    if (typeof STATE !== 'undefined' && Array.isArray(STATE.orders)) {
+      STATE.orders = STATE.orders.filter(function(o) { return o && o.id !== orderId; });
+    }
+    savedOrders = savedOrders.filter(function(o) { return !o || o.id !== orderId; });
+    try { localStorage.setItem('lhc_worship_orders', JSON.stringify(savedOrders)); } catch (e) {}
+
+    // A journalled save for this order would recreate it at the next boot.
+    try {
+      var pj = JSON.parse(localStorage.getItem('lhc_pending_order_save') || 'null');
+      if (pj && pj.payload && pj.payload.id === orderId) localStorage.removeItem('lhc_pending_order_save');
+    } catch (e) {}
+
+    // If the deleted order is the one in the editor, drop it -- otherwise the
+    // next autosave, or the flush on leaving the page, writes it straight back.
+    if (currentOrderData && currentOrderData.id === orderId) {
+      clearTimeout(_autoSaveTimer);
+      currentOrderData = null;
+      songOrderSections = [];
+      serviceSectionSongs = {};
+      var _c = $('woWorshipOrder');
+      if (_c) { _c.innerHTML = ''; _c.removeAttribute('data-order-id'); }
+      var _menu = $('woMainMenu'), _ed = $('woEditor');
+      if (_menu && _ed) { _ed.style.display = 'none'; _menu.style.display = 'block'; }
+    }
+
+    if (typeof renderSongbooksList === 'function') renderSongbooksList();
   }
 
   function editOrderTitle(idx) {
@@ -24439,6 +24484,13 @@ var WO = (function() {
     if (!currentOrderData) return;
     if (silent && _loadingOrder) {
       console.warn('[SaveGuard] Silent save skipped — order load in progress');
+      return;
+    }
+    // Deleted orders stay deleted. saveOrder upserts, so a queued autosave or
+    // the flush on leaving the page would otherwise put the row straight back
+    // and the next background sync would list it again.
+    if (currentOrderData.id && _deletedOrderIds[currentOrderData.id]) {
+      console.warn('[SaveGuard] Refusing save — order', currentOrderData.id, 'was deleted');
       return;
     }
 
