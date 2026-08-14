@@ -14855,14 +14855,26 @@ function isChordLineGlobal(line) {
   // threshold, misclassifying a normal lyric line as a chord line. Don't let
   // it count as a match on its own -- a real chord progression's other
   // tokens (G, D, C7...) still provide plenty of unambiguous signal.
-  var hits = 0, strongHits = 0;
+  var hits = 0, strongHits = 0, wordish = 0;
   for (var i = 0; i < tokens.length; i++) {
     if (isChordToken(tokens[i])) {
       hits++;
       if (tokens[i] !== 'Am') strongHits++;
+    } else if (/[a-z]{2,}/.test(tokens[i]) && tokens[i].replace(/[^A-Za-z]/g, '').length >= 3) {
+      // A real word: three or more letters with a lowercase run. Chords are
+      // short and rigidly shaped, so nothing in a genuine progression looks
+      // like this ("Asus4" and friends are already counted as chords above).
+      wordish++;
     }
   }
   if (strongHits === 0) return false;
+  // A two-token lyric line whose last word happens to be chord-shaped --
+  // "Verse B", "Line A", "This is the day D" -- clears the >=50% bar on one
+  // match and used to be hidden from the projection entirely, silently losing
+  // a line of lyrics. A real word alongside only weak chord evidence settles
+  // it as lyrics. The veto is limited to <=2 chord hits so an annotated
+  // progression ("G C D (repeat)") still reads as chords.
+  if (wordish && hits <= 2) return false;
   return (hits / tokens.length) >= 0.5;
 }
 
