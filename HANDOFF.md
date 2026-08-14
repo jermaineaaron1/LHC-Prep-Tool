@@ -4,6 +4,29 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 — Projections get their own tables (migration required)
+
+⚠️ **Run `migrations/2026-08-14_add_projection_versions.sql` in the Supabase SQL Editor.** Until it runs the app behaves exactly as before — every call is wrapped and a missing table is treated as "not available" — so the deploy and the migration can happen in either order.
+
+**Why.** Everything a songbook's projection knew lived in `orders.template`, one JSON column shared with the inbox, the fonts, the section layout and the cleared sections. Every writer of that column rewrites all of it, so any one of them getting it wrong takes the projection with it — which is exactly what happened twice today. Saved versions made it worse: each is a full deck, all of them rewritten on every autosave.
+
+**Now:** `projection_versions` holds one row per saved version (`id`, `owner_id`, `name`, `deck`, `sort_order`), and `projection_settings` one row per songbook (active source, LCD's pin, the unnamed draft and what it was copied from). `owner_id` is `orders.id`, including the `standalone_<sbId>` rows, so order-backed and standalone songbooks store identically.
+
+- **Rows win on load**; the template keeps a mirror, so a frontend rollback loses nothing.
+- **Versions save immediately** to their own row rather than waiting on the order's debounced autosave.
+- **Existing versions import themselves** the first time each songbook is opened after the migration.
+- **No foreign key on purpose** — a standalone songbook's orders row is created lazily, and an FK would refuse the version row until then. `_forgetDeletedOrder` clears the rows instead.
+
+Hydration copies what the loader returns rather than adopting the array; a shared reference would let later edits reach back into whatever built it.
+
+### Verified live
+
+Pre-migration: tables absent → `_tableExists` false, no console errors, versions saved to the template as before. Post-migration (table layer stubbed, since the DDL needs the SQL Editor): rows won over the template mirror and projected the row's background; the active source came from the settings row; saving wrote exactly one `saveVersion` with the right owner and sort index; deleting removed the row; and with empty tables plus a populated template, `saveAll` imported both versions while they stayed usable throughout. Orders 19, songs 51, unchanged.
+
+**Still to verify against the real tables once the SQL has been run** — the stub proves the wiring, not the schema.
+
+---
+
 ## 2026-08-14 — ⚠️ Projection work was being destroyed on save; two causes
 
 Reported: after reloading the app, every All Slides adjustment and every background was gone. It was not a display problem — the work was being overwritten in Supabase. Two independent mechanisms, either sufficient on its own.

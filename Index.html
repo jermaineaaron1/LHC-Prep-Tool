@@ -22638,6 +22638,147 @@ var WO_Inbox = (function() {
 })();
 
 // ================================================================
+// SBQ_PROJECTION — saved songbook projections, one row per version
+// ================================================================
+// These used to live inside orders.template, a single JSON column shared with
+// the inbox, the fonts and the section layout, where every writer rewrote the
+// whole column and any one of them getting it wrong took the projection work
+// with it. Each version now owns a row (migrations/2026-08-14_add_projection_
+// versions.sql) and is written on its own.
+//
+// The tables are optional. Until the migration is run every call reports "not
+// available" and the app carries on using orders.template exactly as before,
+// so the deploy and the migration can happen in either order.
+var SBQ_PROJECTION = {
+  _sb: function() { return getSupabaseClient(); },
+  _tableExists: null,   // null=unknown, true=ok, false=migration not run yet
+
+  _missing: function(msg) {
+    return !msg || msg.indexOf('does not exist') !== -1 || msg.indexOf('42P01') !== -1 ||
+           msg.indexOf('PGRST205') !== -1 || msg.indexOf('schema cache') !== -1;
+  },
+
+  _note: function(err) {
+    var msg = (err && err.message) || String(err || '');
+    if (SBQ_PROJECTION._missing(msg)) {
+      if (SBQ_PROJECTION._tableExists !== false) {
+        console.info('[LHC] projection tables not present yet — using orders.template until the migration is run');
+      }
+      SBQ_PROJECTION._tableExists = false;
+    } else {
+      console.warn('[LHC] projection storage:', msg);
+    }
+    return null;
+  },
+
+  // → { versions: [{id,name,deck}], settings: {source, lcdSource, draftDeck, draftBase} }
+  // or null when the tables are not available, which the caller reads as
+  // "keep whatever the template says".
+  load: function(ownerId) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._tableExists === false) return Promise.resolve(null);
+    return sb.from('projection_versions')
+      .select('id,name,deck,sort_order,created_at')
+      .eq('owner_id', ownerId)
+      .order('sort_order', { ascending: true })
+      .then(function(r) {
+        if (r.error) return SBQ_PROJECTION._note(r.error);
+        SBQ_PROJECTION._tableExists = true;
+        var versions = (r.data || []).map(function(row) {
+          return { id: row.id, name: row.name || 'Untitled', created: row.created_at || '', deck: row.deck || {} };
+        });
+        return sb.from('projection_settings').select('*').eq('owner_id', ownerId).maybeSingle()
+          .then(function(s) {
+            if (s.error) SBQ_PROJECTION._note(s.error);
+            var row = s.data || null;
+            return {
+              versions: versions,
+              settings: row ? {
+                source:    row.source     || null,
+                lcdSource: row.lcd_source || null,
+                draftDeck: row.draft_deck || null,
+                draftBase: row.draft_base || null
+              } : null
+            };
+          });
+      })
+      .catch(SBQ_PROJECTION._note);
+  },
+
+  // Upsert one version. Called the moment it is saved, so it lands without
+  // waiting for the order's own debounced autosave.
+  saveVersion: function(ownerId, version, sortOrder) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || !version || SBQ_PROJECTION._tableExists === false) return Promise.resolve(false);
+    return sb.from('projection_versions').upsert([{
+      id:         version.id,
+      owner_id:   ownerId,
+      name:       version.name || 'Untitled',
+      deck:       version.deck || {},
+      sort_order: sortOrder || 0,
+      updated_at: new Date().toISOString()
+    }]).then(function(r) {
+      if (r.error) { SBQ_PROJECTION._note(r.error); return false; }
+      SBQ_PROJECTION._tableExists = true;
+      return true;
+    }).catch(function(e) { SBQ_PROJECTION._note(e); return false; });
+  },
+
+  saveAll: function(ownerId, versions) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._tableExists === false) return Promise.resolve(false);
+    if (!versions || !versions.length) return Promise.resolve(true);
+    return sb.from('projection_versions').upsert(versions.map(function(v, i) {
+      return {
+        id: v.id, owner_id: ownerId, name: v.name || 'Untitled',
+        deck: v.deck || {}, sort_order: i, updated_at: new Date().toISOString()
+      };
+    })).then(function(r) {
+      if (r.error) { SBQ_PROJECTION._note(r.error); return false; }
+      SBQ_PROJECTION._tableExists = true;
+      return true;
+    }).catch(function(e) { SBQ_PROJECTION._note(e); return false; });
+  },
+
+  deleteVersion: function(id) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !id || SBQ_PROJECTION._tableExists === false) return Promise.resolve(false);
+    return sb.from('projection_versions').delete().eq('id', id).then(function(r) {
+      if (r.error) { SBQ_PROJECTION._note(r.error); return false; }
+      return true;
+    }).catch(function(e) { SBQ_PROJECTION._note(e); return false; });
+  },
+
+  saveSettings: function(ownerId, s) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._tableExists === false) return Promise.resolve(false);
+    return sb.from('projection_settings').upsert([{
+      owner_id:   ownerId,
+      source:     s.source || null,
+      lcd_source: s.lcdSource || null,
+      draft_deck: s.draftDeck || {},
+      draft_base: s.draftBase || null,
+      updated_at: new Date().toISOString()
+    }]).then(function(r) {
+      if (r.error) { SBQ_PROJECTION._note(r.error); return false; }
+      SBQ_PROJECTION._tableExists = true;
+      return true;
+    }).catch(function(e) { SBQ_PROJECTION._note(e); return false; });
+  },
+
+  // Called when an order is deleted: there is no foreign key to cascade, on
+  // purpose (a standalone songbook's orders row is created lazily).
+  removeOwner: function(ownerId) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._tableExists === false) return Promise.resolve();
+    return Promise.all([
+      sb.from('projection_versions').delete().eq('owner_id', ownerId),
+      sb.from('projection_settings').delete().eq('owner_id', ownerId)
+    ]).then(function() {}).catch(function() {});
+  }
+};
+
+// ================================================================
 // SBQ_SONGBOOKS — Supabase helpers for standalone Songbooks table
 // ================================================================
 var SBQ_SONGBOOKS = {
@@ -23521,6 +23662,10 @@ var WO = (function() {
     if (!orderId) return;
     _deletedOrderIds[orderId] = true;
 
+    // Projection rows have no foreign key to cascade from (see the migration),
+    // so they are cleared here or they outlive the order they belong to.
+    if (typeof SBQ_PROJECTION !== 'undefined') SBQ_PROJECTION.removeOwner(orderId);
+
     if (typeof STATE !== 'undefined' && Array.isArray(STATE.orders)) {
       STATE.orders = STATE.orders.filter(function(o) { return o && o.id !== orderId; });
     }
@@ -23686,6 +23831,7 @@ var WO = (function() {
           console.log('getOrderFromSupabase result - items:', result && result.items ? result.items.length : 0);
           if (result && result.order) {
             _tplLoadedForOrder = result.order.id;   // this template IS the stored one
+            setTimeout(function() { _sbProjHydrate(result.order.id); }, 0);
             // Build complete order from Supabase data
             var completeOrder = {
               id: result.order.id,
@@ -35916,6 +36062,7 @@ var WO = (function() {
       });
       _sbStandaloneId = null;
       _tplLoadedForOrder = orderMeta.id;      // this template IS the stored one
+      setTimeout(function() { _sbProjHydrate(orderMeta.id); }, 0);   // rows win over the template mirror
       currentOrderData = {
         id: orderMeta.id, title: orderMeta.title || 'Songbook',
         type: orderMeta.type || 'traditional', serviceDate: orderMeta.serviceDate || '',
@@ -36024,6 +36171,7 @@ var WO = (function() {
           // Anything set in the second before this landed still wins.
           currentOrderData.template = Object.assign({}, result.order.template || {}, currentOrderData.template || {});
           _tplLoadedForOrder = currentOrderData.id;
+          _sbProjHydrate(currentOrderData.id);
         }
         if (result && result.items) {
           result.items.forEach(function(item) {
@@ -44348,6 +44496,65 @@ var WO = (function() {
   // adjustment survives a reload and follows the order to another device.
   // Keys are content-derived (song + section + part) so they stay attached to
   // the right slide when songs are added or reordered.
+  // ── Cloud storage for projections ───────────────────────────────────────
+  // The versions live in their own rows (SBQ_PROJECTION); orders.template
+  // keeps a mirror so nothing is lost if the tables are unavailable or the
+  // frontend is rolled back. On load the rows win where they exist.
+  var _sbProjHydratedFor = null;
+
+  function _sbProjOwnerId() {
+    if (typeof currentOrderData === 'undefined' || !currentOrderData) return null;
+    return currentOrderData.id || null;
+  }
+
+  function _sbProjHydrate(ownerId) {
+    ownerId = ownerId || _sbProjOwnerId();
+    if (!ownerId || typeof SBQ_PROJECTION === 'undefined') return Promise.resolve(false);
+    return SBQ_PROJECTION.load(ownerId).then(function(res) {
+      var t = _sbProjTpl();
+      if (!t || _sbProjOwnerId() !== ownerId) return false;    // order changed under us
+      if (!res) { _sbProjHydratedFor = ownerId; return false; }  // tables not available
+      _sbProjHydratedFor = ownerId;
+
+      if (res.versions && res.versions.length) {
+        // Copy, never adopt: the loader's array must not become the live one,
+        // or later edits reach back into whatever it was built from.
+        t.projectionVersions = res.versions.map(function(v) {
+          return { id: v.id, name: v.name, created: v.created || '',
+                   deck: JSON.parse(JSON.stringify(v.deck || {})) };
+        });
+      } else if (Array.isArray(t.projectionVersions) && t.projectionVersions.length) {
+        // First open since the migration: move what the template already has
+        // into the tables. The template copy stays as a mirror.
+        SBQ_PROJECTION.saveAll(ownerId, t.projectionVersions);
+      }
+
+      var s = res.settings;
+      if (s) {
+        if (s.source) t.projectionSource = s.source;
+        t.lcdProjectionSource = s.lcdSource || undefined;
+        if (s.lcdSource == null) delete t.lcdProjectionSource;
+        if (s.draftDeck && !_sbDeckIsEmpty(s.draftDeck)) t.projectionDeck = s.draftDeck;
+        t.projectionDraftBase = s.draftBase || null;
+      } else {
+        _sbProjPushSettings(ownerId);      // seed the row from what we have
+      }
+      return true;
+    }).catch(function() { return false; });
+  }
+
+  function _sbProjPushSettings(ownerId) {
+    ownerId = ownerId || _sbProjOwnerId();
+    var t = _sbProjTpl();
+    if (!ownerId || !t || typeof SBQ_PROJECTION === 'undefined') return;
+    SBQ_PROJECTION.saveSettings(ownerId, {
+      source:    t.projectionSource || null,
+      lcdSource: t.lcdProjectionSource || null,
+      draftDeck: t.projectionDeck || {},
+      draftBase: t.projectionDraftBase || null
+    });
+  }
+
   // ── Saved projection versions ───────────────────────────────────────────
   // A version is a NAMED snapshot of the whole songbook's projection: every
   // song's slides, their breaks, their wording and their pictures. The
@@ -44459,6 +44666,9 @@ var WO = (function() {
 
   function _sbProjSaveStore() {
     if (typeof autoSaveOrder === 'function' && typeof currentOrderData !== 'undefined' && currentOrderData) autoSaveOrder();
+    // The active choice and the working draft go straight to their own row --
+    // they must not depend on the order's debounced save landing.
+    _sbProjPushSettings();
   }
 
   function _sbBuildProjectionDeck(includeHidden) {
@@ -44661,6 +44871,12 @@ var WO = (function() {
     // The draft has been committed to a named version; leaving a copy behind
     // would offer the same thing twice in the Project menu.
     if (t) { t.projectionDeck = { slides: {}, all: {}, songs: {} }; t.projectionDraftBase = null; }
+    // Its own row, now -- not when the order's autosave next fires.
+    if (typeof SBQ_PROJECTION !== 'undefined') {
+      var _list = _sbProjVersions(), _own = _sbProjOwnerId();
+      var _saved = _sbProjVersion(_sbProjSource());
+      if (_own && _saved) SBQ_PROJECTION.saveVersion(_own, _saved, _list.indexOf(_saved));
+    }
     _sbProjSaveStore();
     var mm = $('sbProjVerMenu'); if (mm) mm.style.display = 'none';
     _sbProjRender();
@@ -44675,6 +44891,7 @@ var WO = (function() {
     var name = list[idx].name;
     list.splice(idx, 1);
     if (_sbProjSource() === id) _sbSetProjSource(list.length ? list[0].id : 'asis');
+    if (typeof SBQ_PROJECTION !== 'undefined') SBQ_PROJECTION.deleteVersion(id);
     _sbProjSaveStore();
     var m = $('sbProjSrcMenu'); if (m) m.style.display = 'none';
     showToast('Deleted "' + name + '"', 'info');
