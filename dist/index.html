@@ -44250,12 +44250,20 @@ var WO = (function() {
   // Keys are content-derived (song + section + part) so they stay attached to
   // the right slide when songs are added or reordered.
   function _sbProjStore() {
-    if (typeof currentOrderData === 'undefined' || !currentOrderData) return { slides: {}, all: {} };
+    // Shape must match the real store exactly -- a fallback missing `songs`
+    // made the deck builder throw and return nothing at all.
+    if (typeof currentOrderData === 'undefined' || !currentOrderData) return { slides: {}, all: {}, songs: {} };
     if (!currentOrderData.template) currentOrderData.template = {};
     var t = currentOrderData.template;
-    if (!t.projectionDeck) t.projectionDeck = { slides: {}, all: {} };
+    if (!t.projectionDeck) t.projectionDeck = { slides: {}, all: {}, songs: {} };
     if (!t.projectionDeck.slides) t.projectionDeck.slides = {};
     if (!t.projectionDeck.all) t.projectionDeck.all = {};
+    // songs[songIdx] = { slides: [ { lines, bg, hidden } ] } -- a FULL
+    // replacement deck for that song, written by the All Slides editor once
+    // the operator has decided where the breaks go. While it exists the
+    // lyrics parse is not used for that song: re-parsing would undo their
+    // reflow the moment anything else changed.
+    if (!t.projectionDeck.songs) t.projectionDeck.songs = {};
     return t.projectionDeck;
   }
 
@@ -44277,6 +44285,7 @@ var WO = (function() {
       function push(slide) {
         var ov = store.slides[slide.key] || {};
         if (ov.hidden && !includeHidden) return;
+        slide.ref = { kind: 'parsed', key: slide.key };
         slide.hidden = !!ov.hidden;
         slide.edited = !!(ov.lines || ov.title != null || ov.artist != null);
         if (ov.lines) slide.lines = ov.lines.slice();
@@ -44291,6 +44300,29 @@ var WO = (function() {
         key: songIdx + '|title|' + (song.title || ''),
         title: song.title || 'Untitled', artist: song.artist || ''
       });
+
+      // Once All Slides has been used on this song, its own slide list is the
+      // truth -- breaks and spacing are the operator's decisions, not the
+      // parser's.
+      var custom = store.songs[songIdx];
+      if (custom && Array.isArray(custom.slides)) {
+        custom.slides.forEach(function(sl, i) {
+          if (sl.hidden && !includeHidden) return;
+          deck.push({
+            kind: 'lyric', songIdx: songIdx,
+            key: songIdx + '|custom|' + i,
+            ref: { kind: 'custom', songIdx: songIdx, i: i },
+            title: song.title || 'Untitled',
+            section: sl.section || '',
+            lines: (sl.lines || []).slice(),
+            hidden: !!sl.hidden,
+            edited: true,
+            bg: (sl.bg != null && sl.bg !== '') ? sl.bg : (store.all.bg || '')
+          });
+        });
+        return;
+      }
+
       sections.forEach(function(sec, si) {
         for (var i = 0; i < sec.lines.length; i += SB_MAX_LINES) {
           var chunk = sec.lines.slice(i, i + SB_MAX_LINES);
@@ -44453,11 +44485,26 @@ var WO = (function() {
     var eb = $('sbProjEditBtn'); if (eb) eb.classList.add('on');
   }
 
+  // A slide's overrides live either in store.slides (parsed decks, keyed by
+  // content) or inside store.songs[i].slides (a deck the operator reflowed in
+  // All Slides). One resolver so every control writes to the right place.
+  function _sbProjOv(slide, create) {
+    var store = _sbProjStore();
+    var ref = slide && slide.ref;
+    if (!ref) return null;
+    if (ref.kind === 'custom') {
+      var song = store.songs[ref.songIdx];
+      return (song && song.slides && song.slides[ref.i]) || null;
+    }
+    if (store.slides[ref.key]) return store.slides[ref.key];
+    return create ? (store.slides[ref.key] = {}) : null;
+  }
+
   function sbProjToggleHide() {
     var s = _sbProjCur();
     if (!s) return;
-    var store = _sbProjStore();
-    var ov = store.slides[s.key] || (store.slides[s.key] = {});
+    var ov = _sbProjOv(s, true);
+    if (!ov) return;
     ov.hidden = !ov.hidden;
     _sbProjSaveStore();
     _sbProjDeck = _sbBuildProjectionDeck(true);
@@ -44466,13 +44513,21 @@ var WO = (function() {
 
   function sbProjReset() {
     var s = _sbProjCur();
-    if (!s) return;
+    if (!s || !s.ref) return;
     var store = _sbProjStore();
-    delete store.slides[s.key];
+    if (s.ref.kind === 'custom') {
+      // Reverting one slide of a reflowed song would leave the rest orphaned,
+      // so this drops the whole song back to the songbook's own breaks.
+      delete store.songs[s.ref.songIdx];
+      showToast('Song restored to the songbook wording and breaks', 'info');
+    } else {
+      delete store.slides[s.ref.key];
+      showToast('Slide restored to the songbook wording', 'info');
+    }
     _sbProjSaveStore();
     _sbProjDeck = _sbBuildProjectionDeck(true);
+    if (_sbProjIdx >= _sbProjDeck.length) _sbProjIdx = Math.max(0, _sbProjDeck.length - 1);
     _sbProjRender();
-    showToast('Slide restored to the songbook wording', 'info');
   }
 
   // When the picker is opened from an All Slides card it targets THAT slide;
@@ -44563,86 +44618,160 @@ var WO = (function() {
     });
   }
 
-  // ── All Slides: the whole deck at a glance ──────────────────────────────
-  // The projector shows one slide; shaping a service means seeing them all.
-  // Every slide in the songbook appears as a card carrying its real
-  // background, so the operator can spot a missing picture or a stage cue
-  // that slipped through without paging the deck one slide at a time. Cards
-  // act in place -- set a picture, skip a slide, jump to it -- and everything
-  // written here is the same store the projection and the export read.
+  // ── All Slides: the whole deck as editable text ─────────────────────────
+  // Mirrors LCD Projection's All Slides. Every slide in the songbook appears
+  // as plain text, separated by a "New Slide" rule, so the operator decides
+  // what lands on which slide and how it is spaced -- the card grid could
+  // only show the parser's decisions, not change them.
+  //
+  // Song headings are contenteditable=false: they mark which song a block
+  // belongs to and must survive editing, since the save walks them to rebuild
+  // per-song slide lists.
   function sbProjAllSlides() {
-    var p = $('sbProjAllPanel');
-    if (!p) {
-      p = document.createElement('div');
-      p.id = 'sbProjAllPanel';
-      p.className = 'sb-projall';
-      document.body.appendChild(p);
+    var m = $('sbProjAllPanel');
+    if (!m) {
+      m = document.createElement('div');
+      m.id = 'sbProjAllPanel';
+      m.className = 'sb-projall';
+      document.body.appendChild(m);
     }
-    if (p.style.display === 'block') { p.style.display = 'none'; return; }
-    p.style.display = 'block';
+    if (m.style.display === 'block') { sbProjAllClose(); return; }
+    m.style.display = 'block';
     _sbProjRenderAll();
+  }
+
+  function sbProjAllClose() {
+    var m = $('sbProjAllPanel');
+    if (m) m.style.display = 'none';
   }
 
   function _sbProjRenderAll() {
-    var p = $('sbProjAllPanel');
-    if (!p || p.style.display !== 'block') return;
+    var m = $('sbProjAllPanel');
+    if (!m || m.style.display !== 'block') return;
     var deck = _sbProjDeck || [];
-    var shown = deck.filter(function(s) { return !s.hidden; }).length;
 
-    var cards = deck.map(function(s, i) {
-      var body = (s.kind === 'title')
-        ? '<div class="sb-projall-t">' + escapeHtml(s.title) + '</div>' +
-          (s.artist ? '<div class="sb-projall-a">' + escapeHtml(s.artist) + '</div>' : '')
-        : '<div class="sb-projall-l">' + s.lines.map(function(l) {
-            return '<div>' + (l ? escapeHtml(l) : '&nbsp;') + '</div>';
-          }).join('') + '</div>';
-      return '<div class="sb-projall-card' + (s.hidden ? ' skipped' : '') + (i === _sbProjIdx ? ' current' : '') + '"' +
-               ' style="' + (s.bg ? 'background-image:url(&quot;' + escapeHtml(s.bg) + '&quot;)' : '') + '"' +
-               ' onclick="WO.sbProjGoto(' + i + ')">' +
-          '<div class="sb-projall-num">' + (i + 1) + (s.kind === 'title' ? ' · Title' : (s.section ? ' · ' + escapeHtml(s.section) : '')) + '</div>' +
-          '<div class="sb-projall-body">' + body + '</div>' +
-          (s.edited ? '<div class="sb-projall-tag">adjusted</div>' : '') +
-          (s.hidden ? '<div class="sb-projall-tag skip">skipped</div>' : '') +
-          '<div class="sb-projall-acts">' +
-            '<button title="Picture for this slide" onclick="event.stopPropagation(); WO.sbProjAllBg(' + i + ')"><i class="fa-solid fa-image"></i></button>' +
-            '<button title="' + (s.hidden ? 'Include this slide' : 'Skip this slide') + '" onclick="event.stopPropagation(); WO.sbProjAllSkip(' + i + ')"><i class="fa-solid fa-' + (s.hidden ? 'eye' : 'eye-slash') + '"></i></button>' +
-          '</div>' +
-        '</div>';
-    }).join('');
+    var html = '';
+    var lastSong = -1;
+    deck.forEach(function(s) {
+      if (s.songIdx !== lastSong) {
+        lastSong = s.songIdx;
+        html += '<div class="sb-asl-song" contenteditable="false" data-song="' + s.songIdx + '">' +
+                  '<i class="fa-solid fa-music"></i> ' + escapeHtml(s.title) +
+                '</div>';
+      }
+      if (s.kind === 'title') {
+        // The title slide is generated from the song's name; it is shown for
+        // context but not edited here (use the pen on the slide itself).
+        html += '<div class="sb-asl-title" contenteditable="false">Title slide &middot; ' + escapeHtml(s.title) +
+                (s.artist ? ' &mdash; ' + escapeHtml(s.artist) : '') + '</div>';
+        return;
+      }
+      if (html && !/sb-asl-song">$|sb-asl-title[^>]*>[^<]*<\/div>$/.test(html)) html += '<hr class="sb-asl-break">';
+      html += '<div class="sb-asl-slide" data-song="' + s.songIdx + '"' + (s.hidden ? ' data-hidden="1"' : '') + '>' +
+        (s.lines.length ? s.lines.map(function(l) {
+          return '<div>' + (l ? escapeHtml(l) : '<br>') + '</div>';
+        }).join('') : '<div><br></div>') +
+      '</div>';
+    });
 
-    p.innerHTML =
-      '<div class="sb-projall-head">' +
-        '<b>All Slides</b>' +
-        '<span>' + shown + ' projecting' + (deck.length - shown ? ' · ' + (deck.length - shown) + ' skipped' : '') + '</span>' +
-        '<button class="sb-projall-x" onclick="WO.sbProjAllSlides()"><i class="fa-solid fa-xmark"></i></button>' +
+    m.innerHTML =
+      '<div class="sb-asl-head">' +
+        '<div><b>All Slides</b>' +
+          '<div class="sb-asl-sub">Press <b>Enter on an empty line</b> to start a new slide. Blank lines set the spacing. Chords are already stripped.</div>' +
+        '</div>' +
+        '<div class="sb-asl-actions">' +
+          '<button class="sb-asl-cancel" onclick="WO.sbProjAllClose()">Cancel</button>' +
+          '<button class="sb-asl-save" onclick="WO.sbProjAllSave()"><i class="fa-solid fa-check"></i> Apply to projection</button>' +
+        '</div>' +
       '</div>' +
-      '<div class="sb-projall-grid">' + (cards || '<div class="sb-projall-empty">No slides yet.</div>') + '</div>';
+      '<div class="sb-asl-body" id="sbAslBody" contenteditable="true" spellcheck="false">' +
+        (html || '<div class="sb-asl-slide"><div><br></div></div>') +
+      '</div>';
+
+    var body = $('sbAslBody');
+    if (body) body.addEventListener('keydown', _sbAslKeydown, false);
   }
 
-  function sbProjGoto(i) {
-    if (!_sbProjDeck || !_sbProjDeck[i]) return;
-    if (_sbProjEditing) sbProjToggleEdit();
-    _sbProjIdx = i;
-    _sbProjRender();
-    _sbProjRenderAll();
+  // Enter on an empty line ends the slide and starts the next, exactly like
+  // the LCD editor's break behaviour.
+  function _sbAslKeydown(e) {
+    if (e.key === 'Escape') { e.stopPropagation(); sbProjAllClose(); return; }
+    e.stopPropagation();                       // never page the projector
+    if (e.key !== 'Enter') return;
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var node = sel.getRangeAt(0).startContainer;
+    var line = node.nodeType === 3 ? node.parentElement : node;
+    if (!line || !line.closest) return;
+    if ((line.textContent || '').trim() !== '') return;   // only on a blank line
+    var slide = line.closest('.sb-asl-slide');
+    if (!slide) return;
+    e.preventDefault();
+
+    // Everything from the blank line onwards becomes the next slide.
+    var after = [];
+    var n = line.nextSibling;
+    while (n) { var nx = n.nextSibling; after.push(n); n = nx; }
+    if (line.parentNode === slide) slide.removeChild(line);
+
+    var next = document.createElement('div');
+    next.className = 'sb-asl-slide';
+    next.setAttribute('data-song', slide.getAttribute('data-song') || '');
+    if (after.length) after.forEach(function(x) { next.appendChild(x); });
+    else next.innerHTML = '<div><br></div>';
+
+    var hr = document.createElement('hr');
+    hr.className = 'sb-asl-break';
+    slide.parentNode.insertBefore(hr, slide.nextSibling);
+    slide.parentNode.insertBefore(next, hr.nextSibling);
+    if (!slide.textContent.trim()) slide.innerHTML = '<div><br></div>';
+
+    var r = document.createRange();
+    r.setStart(next.firstChild, 0);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
   }
 
-  function sbProjAllSkip(i) {
-    var s = _sbProjDeck && _sbProjDeck[i];
-    if (!s) return;
+  // Read the editor back into one slide list per song.
+  function sbProjAllSave() {
+    var body = $('sbAslBody');
+    if (!body) return;
     var store = _sbProjStore();
-    var ov = store.slides[s.key] || (store.slides[s.key] = {});
-    ov.hidden = !ov.hidden;
+    var bySong = {};
+
+    Array.prototype.forEach.call(body.querySelectorAll('.sb-asl-slide'), function(el) {
+      var songIdx = parseInt(el.getAttribute('data-song') || '-1', 10);
+      if (isNaN(songIdx) || songIdx < 0) return;
+      var lines = Array.prototype.map.call(el.children, function(d) {
+        return (d.textContent || '').split(String.fromCharCode(160)).join(' ').replace(/\s+$/, '');
+      });
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+      while (lines.length && !lines[0].trim()) lines.shift();
+      if (!lines.length) return;                       // an emptied slide is dropped
+      (bySong[songIdx] || (bySong[songIdx] = [])).push({
+        lines: lines,
+        hidden: el.getAttribute('data-hidden') === '1'
+      });
+    });
+
+    // Carry each slide's existing picture across by position, so reflowing
+    // the words does not silently strip the backgrounds already chosen.
+    Object.keys(bySong).forEach(function(k) {
+      var prev = (store.songs[k] && store.songs[k].slides) || [];
+      bySong[k].forEach(function(sl, i) {
+        if (prev[i] && prev[i].bg) sl.bg = prev[i].bg;
+      });
+      store.songs[k] = { slides: bySong[k] };
+    });
+
     _sbProjSaveStore();
     _sbProjDeck = _sbBuildProjectionDeck(true);
+    if (_sbProjIdx >= _sbProjDeck.length) _sbProjIdx = Math.max(0, _sbProjDeck.length - 1);
     _sbProjRender();
-    _sbProjRenderAll();
-  }
-
-  function sbProjAllBg(i) {
-    var s = _sbProjDeck && _sbProjDeck[i];
-    if (!s) return;
-    sbProjBgMenu(s.key);
+    sbProjAllClose();
+    var n = _sbBuildProjectionDeck(false).length;
+    showToast('Projection updated - ' + n + ' slide' + (n === 1 ? '' : 's'), 'success');
   }
 
   // ── Export PowerPoint ───────────────────────────────────────────────────
@@ -59017,9 +59146,8 @@ var WO = (function() {
     sbProjBgMenu: sbProjBgMenu,
     sbProjSetBg: sbProjSetBg,
     sbProjAllSlides: sbProjAllSlides,
-    sbProjGoto: sbProjGoto,
-    sbProjAllSkip: sbProjAllSkip,
-    sbProjAllBg: sbProjAllBg,
+    sbProjAllClose: sbProjAllClose,
+    sbProjAllSave: sbProjAllSave,
     sbProjApplyBgAll: sbProjApplyBgAll,
     sbProjBgUpload: sbProjBgUpload,
     sbExportPPT: sbExportPPT,
@@ -67254,58 +67382,64 @@ function filterLiturgyItems() {
   }
   .sb-projbg-actions button:last-child { background: #334155; }
 
-  /* All Slides: the whole deck as cards, over the projection */
+  /* All Slides: the whole deck as editable text, over the projection */
   .sb-projall {
     display: none; position: fixed; inset: 0; z-index: 100055;
-    background: rgba(2,8,23,0.94); color: #e2e8f0;
-    font-family: 'Poppins', sans-serif; overflow: hidden;
+    background: rgba(2,8,23,0.96); color: #e2e8f0;
+    font-family: 'Poppins', sans-serif;
+    display: none; flex-direction: column;
   }
-  .sb-projall-head {
-    display: flex; align-items: center; gap: 12px;
-    padding: 14px 18px; border-bottom: 1px solid #1e3355;
+  .sb-projall[style*="block"] { display: flex !important; }
+  .sb-asl-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
+    padding: 14px 20px; border-bottom: 1px solid #1e3355; flex-shrink: 0;
   }
-  .sb-projall-head b { font-size: 0.95rem; }
-  .sb-projall-head span { font-size: 0.75rem; color: #94a3b8; }
-  .sb-projall-x { margin-left: auto; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 1.05rem; }
-  .sb-projall-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-    gap: 14px; padding: 16px 18px 28px; height: calc(100% - 52px); overflow-y: auto;
+  .sb-asl-head b { font-size: 0.95rem; }
+  .sb-asl-sub { margin-top: 3px; font-size: 0.72rem; color: #94a3b8; line-height: 1.5; }
+  .sb-asl-sub b { color: #cbd5e1; }
+  .sb-asl-actions { display: flex; gap: 9px; flex-shrink: 0; }
+  .sb-asl-cancel {
+    padding: 9px 16px; border-radius: 9px; cursor: pointer; font-size: 0.8rem;
+    background: transparent; border: 1px solid #334155; color: #cbd5e1;
   }
-  .sb-projall-empty { color: #64748b; font-size: 0.82rem; padding: 20px; }
-  .sb-projall-card {
-    position: relative; aspect-ratio: 16 / 9; border-radius: 10px; cursor: pointer;
-    background: #000 center/cover no-repeat; border: 2px solid #24395c;
-    display: flex; align-items: center; justify-content: center; overflow: hidden;
-    padding: 26px 10px 10px; text-align: center;
-    transition: border-color 0.15s, transform 0.15s;
+  .sb-asl-save {
+    padding: 9px 18px; border-radius: 9px; cursor: pointer; font-size: 0.8rem; font-weight: 700;
+    background: linear-gradient(135deg,#1d4ed8,#2563eb); border: none; color: #fff;
   }
-  .sb-projall-card:hover { border-color: #60a5fa; transform: translateY(-2px); }
-  .sb-projall-card.current { border-color: #fbbf24; }
-  .sb-projall-card.skipped { opacity: 0.42; }
-  .sb-projall-num {
-    position: absolute; top: 0; left: 0; right: 0; padding: 4px 8px;
-    background: rgba(0,0,0,0.55); color: #cbd5e1; font-size: 0.64rem;
-    text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  .sb-asl-body {
+    flex: 1; overflow-y: auto; padding: 18px 22px 40px;
+    font-family: 'Lato', Georgia, serif; font-size: 1rem; line-height: 1.6;
+    outline: none; color: #f1f5f9;
   }
-  .sb-projall-body { color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.9); width: 100%; }
-  .sb-projall-t { font-family: 'Cinzel', Georgia, serif; font-size: 0.92rem; font-weight: 700; line-height: 1.25; }
-  .sb-projall-a { font-size: 0.68rem; font-style: italic; opacity: 0.85; margin-top: 3px; }
-  .sb-projall-l { font-family: 'Lato', Georgia, serif; font-size: 0.7rem; font-weight: 700; line-height: 1.4; }
-  .sb-projall-tag {
-    position: absolute; bottom: 6px; left: 6px; padding: 2px 7px; border-radius: 999px;
-    background: rgba(37,99,235,0.85); color: #fff; font-size: 0.58rem; font-weight: 700;
+  /* Song heading: a fixed marker the save walks to group slides. */
+  .sb-asl-song {
+    margin: 22px 0 10px; padding: 7px 12px; border-radius: 8px;
+    background: rgba(37,99,235,0.16); border: 1px solid rgba(96,165,250,0.35);
+    color: #bfdbfe; font-family: 'Poppins', sans-serif; font-size: 0.76rem;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    user-select: none;
   }
-  .sb-projall-tag.skip { background: rgba(220,38,38,0.85); left: auto; right: 6px; }
-  .sb-projall-acts { position: absolute; top: 24px; right: 6px; display: flex; flex-direction: column; gap: 5px; opacity: 0; transition: opacity 0.15s; }
-  .sb-projall-card:hover .sb-projall-acts { opacity: 1; }
-  .sb-projall-acts button {
-    width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
-    background: rgba(0,0,0,0.65); border: 1px solid rgba(255,255,255,0.25);
-    color: #fff; font-size: 0.68rem;
+  .sb-asl-song:first-child { margin-top: 0; }
+  .sb-asl-title {
+    margin: 0 0 10px; padding: 6px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.04); border: 1px dashed #334155;
+    color: #94a3b8; font-family: 'Poppins', sans-serif; font-size: 0.72rem;
+    user-select: none;
   }
-  .sb-projall-acts button:hover { background: #2563eb; }
-  /* The picker must float above the card grid when opened from a card. */
-  .sb-proj-bgmenu { z-index: 100058; }
+  .sb-asl-slide { padding: 8px 12px; border-radius: 8px; }
+  .sb-asl-slide:focus-within { background: rgba(96,165,250,0.07); }
+  .sb-asl-slide[data-hidden="1"] { opacity: 0.45; text-decoration: line-through; }
+  .sb-asl-slide > div { min-height: 1.5em; }
+  /* The break line: this is where one slide ends and the next begins. */
+  hr.sb-asl-break {
+    border: none; border-top: 2px dashed #6366f1; margin: 12px 0; opacity: 0.75;
+  }
+  hr.sb-asl-break::after {
+    content: 'New Slide'; display: block; width: 78px; margin: -0.72em auto 0;
+    text-align: center; background: #050c18; color: #818cf8;
+    font-family: 'Poppins', sans-serif; font-size: 0.62rem; font-weight: 700;
+    letter-spacing: 0.06em;
+  }
 
   .sb-ppt-modal { display: none; position: fixed; inset: 0; z-index: 100060; background: rgba(2,8,23,0.72); align-items: center; justify-content: center; padding: 20px; }
   .sb-ppt-card { width: min(560px, 96vw); max-height: 88vh; display: flex; flex-direction: column; background: #101b2e; border: 1px solid #274063; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.55); color: #e2e8f0; font-family: 'Poppins', sans-serif; overflow: hidden; }
