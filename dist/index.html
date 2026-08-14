@@ -44529,10 +44529,29 @@ var WO = (function() {
   function sbProjBgUpload(input) {
     var f = input && input.files && input.files[0];
     if (!f) return;
-    var fr = new FileReader();
-    fr.onload = function() { sbProjSetBg(fr.result); };
-    fr.readAsDataURL(f);
     input.value = '';
+    // Upload to storage and keep the URL. Inlining the picture as a base64
+    // data URI would bake megabytes into orders.template, which is rewritten
+    // on EVERY autosave -- a 2MB photo becomes ~2.7MB of JSON per save. The
+    // data URI is only a fallback for when the upload cannot happen.
+    showToast('Uploading background...', 'info');
+    uploadToSupabase(f, 'backgrounds').then(function(res) {
+      if (res && res.url) {
+        sbProjSetBg(res.url);
+        showToast('Background uploaded', 'success');
+      } else {
+        var fr = new FileReader();
+        fr.onload = function() {
+          sbProjSetBg(fr.result);
+          showToast('Stored with this order (upload unavailable)', 'warning');
+        };
+        fr.readAsDataURL(f);
+      }
+    }).catch(function() {
+      var fr = new FileReader();
+      fr.onload = function() { sbProjSetBg(fr.result); };
+      fr.readAsDataURL(f);
+    });
   }
 
   // ── Export PowerPoint ───────────────────────────────────────────────────
@@ -58026,7 +58045,12 @@ var WO = (function() {
             cachedDataMap[o.id] = {
               songs: o.songs || [],
               allItems: o.allItems || [],
-              serviceSectionSongs: o.serviceSectionSongs || {}
+              serviceSectionSongs: o.serviceSectionSongs || {},
+              // template carries the projection deck (edited slides, skips,
+              // backgrounds) and the section layout. Dropping it here meant a
+              // load that fell back to this cached entry opened the order with
+              // those settings missing.
+              template: o.template || null
             };
           }
         });
@@ -58045,6 +58069,9 @@ var WO = (function() {
             songs: cached.songs || [],
             allItems: cached.allItems || [],
             serviceSectionSongs: cached.serviceSectionSongs || {},
+            // Backend wins for the template (it is authoritative and includes
+            // the projection deck); the cached copy is the offline fallback.
+            template: backendOrder.template || cached.template || {},
             fromBackend: true
           };
         });
