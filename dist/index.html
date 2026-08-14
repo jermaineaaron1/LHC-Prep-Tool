@@ -50090,7 +50090,9 @@ var WO = (function() {
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
     _sbProjSaveStore();
     showToast(applied
-      ? (applied + (applied === 1 ? ' song' : ' songs') + ' now match "' + _sbProjSourceLabel(effective) + '"')
+      ? (applied === 1
+          ? ('1 song now matches "' + _sbProjSourceLabel(effective) + '"')
+          : (applied + ' songs now match "' + _sbProjSourceLabel(effective) + '"'))
       : 'That projection has no slides for these songs', applied ? 'success' : 'warning');
   }
 
@@ -50113,7 +50115,11 @@ var WO = (function() {
       var headerHtml = slide.header ? '<div class="wo-slide-section-header ' + headerClass + '">' + escapeHtml(slide.header) + '</div>' : '';
       var linesHtml = (slide.content || '').split(String.fromCharCode(10)).map(function(line) { return _slideLineHtml(line); }).join('');
 
-      var boxHtml = '<div class="wo-content-box wo-slide-box" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-song-id="' + songId + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
+      // data-background is how every other slide box carries its picture --
+      // collectOrderItems reads it back from there, so a rebuild that skipped
+      // it dropped the projection's backgrounds on the way into LCD.
+      var bgAttr = slide.background ? ' data-background="' + escapeHtml(slide.background).replace(/"/g, '&quot;') + '"' : '';
+      var boxHtml = '<div class="wo-content-box wo-slide-box" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-song-id="' + songId + '"' + bgAttr + ' onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
         _buildSlideBoxHeader(idx, slides.length, 'song', songId, sectionId) +
         '<button class="wo-slide-bg-btn" onclick="event.stopPropagation(); WO.selectSlideBox(this.parentElement); WO.openBackgroundModal();" title="Set background for this slide"><i class="fa-solid fa-image"></i></button>' +
         headerHtml +
