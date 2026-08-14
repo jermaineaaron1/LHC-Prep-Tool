@@ -38545,6 +38545,7 @@ var WO = (function() {
     return breaks;
   }
 
+  var _sbFitPasses = 0;
   function sbPaginateAll() {
     var body = document.getElementById('sbBody');
     if (!body) return;
@@ -38592,6 +38593,14 @@ var WO = (function() {
       var sid      = page.getAttribute('data-song-id');
       var lyricsEl = sid ? document.getElementById('sbLyrics-' + sid) : null;
       if (!lyricsEl || !lyricsEl.children.length) return;
+      // Start from natural content. sbPaginatePage pins an explicit pixel
+      // height on the canvas wrap when it splits a song across pages; left in
+      // place, that height survives the content shrinking under it and shows
+      // as blank paper at the end of the song, growing with every edit. The
+      // reset exists on other paths -- it was missing here, which is the one
+      // path songs with hand-dragged breaks always take.
+      var _wrap = page.querySelector('.sb-page-canvas-wrap');
+      if (_wrap) { _wrap.style.height = ''; _wrap.style.overflow = ''; }
 
       var titleEl  = page.querySelector('.sb-page-title');
       var artistEl = page.querySelector('.sb-page-artist');
@@ -38651,7 +38660,16 @@ var WO = (function() {
     });
 
     sbApplySongFontOverrides();
-    if (_sbScaleChanged) { setTimeout(function() { sbPaginateAll(); }, 50); return; }
+    // Re-measure once the new font size is live, but never more than twice per
+    // edit: fitScale is measured to a hundredth, and two scales that disagree
+    // by more than that would otherwise re-paginate each other on a timer for
+    // as long as the songbook is open.
+    if (_sbScaleChanged && _sbFitPasses < 2) {
+      _sbFitPasses++;
+      setTimeout(function() { sbPaginateAll(); }, 50);
+      return;
+    }
+    _sbFitPasses = 0;
     sbAttachTouchListeners(body);
     Object.keys(sbPaths).forEach(function(sid) { sbRedrawSong(sid); });
     // Keep print preview in sync after break recalculation
@@ -42923,6 +42941,17 @@ var WO = (function() {
     // scrambled on keyboards where the keydown/beforeinput merge didn't fire.
     var _sbRep = _sbCanonicalBackspaceRepair(oldText, p, insertedText, removedText);
     if (_sbRep) { newCanonical = _sbRep.text; newCaret = _sbRep.caret; }
+
+    // Blank lines at the very end are the pad's own droppings: each structural
+    // edit -- anywhere in the song, Enter or Backspace alike -- left one behind,
+    // and they piled up as blank paper at the foot of the page. They are only
+    // real when the caret is sitting in them, which is the one case the
+    // operator meant it: pressing Enter at the very end to add space.
+    var _trimmedTail = newCanonical.replace(new RegExp('[\n]+$'), '');
+    if (newCaret <= _trimmedTail.length) {
+      newCanonical = _trimmedTail;
+      newCaret = Math.min(newCaret, newCanonical.length);
+    }
 
     el.innerHTML = formatLyricsWithHighlights(newCanonical);
     if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);

@@ -39,7 +39,15 @@ A line made of nothing but chord tokens is now a chord line whatever those token
 
 ### Still open — the growing gap at the bottom of the page
 
-Not reproduced. Eight Enter/Backspace edits in a throwaway songbook grew the page exactly one line per inserted line and shrank it again on delete: no accumulation in `.sb-song-page` height, no inline style, no leftover `.sb-a4-marker` elements (they are absolute, height 0, and removed each pass), `.sb-page-canvas-wrap` reset to auto, and `sbPageMargins` is written only by the two break-drag handlers, never by editing. Answered since: the gap does **not** survive a reload, it sits at the end of the song, and it only happens on songs whose page breaks have been dragged by hand. That points at the auto-shrink path, which runs *only* for those songs: `_sbComputePageStarts` returns a `fitScale`, `sbPaginateAll` writes it to `sbSongFontOverrides[sid]` and re-paginates through a `setTimeout` loop. The measurement is taken in a detached div that the override CSS (`#sbLyrics-<sid>`) cannot reach, so it is not a straightforward compounding loop — the exact mechanism is not yet pinned down and no speculative fix has been made.
+Not reproduced. Eight Enter/Backspace edits in a throwaway songbook grew the page exactly one line per inserted line and shrank it again on delete: no accumulation in `.sb-song-page` height, no inline style, no leftover `.sb-a4-marker` elements (they are absolute, height 0, and removed each pass), `.sb-page-canvas-wrap` reset to auto, and `sbPageMargins` is written only by the two break-drag handlers, never by editing. **Found and fixed.** It was not the pagination at all: every *structural* edit -- Enter or Backspace, anywhere in the song -- left one blank line behind at the very end of the pad, and they piled up as blank paper at the foot of the page. Measured: four edits took a song from 0 to 7 trailing blank lines and the page from 3496px to 3892px, growing even on delete. They vanished on reload because trailing blanks are trimmed when the text is saved, which is exactly why the gap never survived one.
+
+`sbReconcileLyrics` rebuilds the pad from its canonical text after a structural edit; that text now has its trailing newlines trimmed **unless the caret is sitting in them** -- the one case the operator meant it, pressing Enter at the end to add space. That is the rule as asked for: nothing but a deliberate Enter at the final character adds a line at the end.
+
+Two supporting fixes made while tracking it down, both real on their own: `sbPaginateAll` now clears the explicit pixel height `sbPaginatePage` pins on a song's canvas wrap before re-measuring (the reset existed on other paths but not this one, so a pinned height could outlive the content shrinking under it), and the auto-shrink re-pagination is capped at two passes so two font scales disagreeing by more than a hundredth cannot re-trigger each other on a timer for as long as the songbook is open.
+
+### Verified live
+
+Before: 4 edits -> 7 trailing blanks, page 3496 -> 3892, growing on delete as well as Enter. After: 6 alternating Enter/Backspace edits -> trailing blanks steady at 1, page oscillating 3672 / 3628 with the edit instead of ratcheting. Orders 19, songs 51, unchanged.
 
 ---
 
