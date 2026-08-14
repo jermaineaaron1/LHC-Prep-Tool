@@ -25,6 +25,24 @@ The LCD **rebuild** (applying a version to the service order's song slides) is s
 
 ---
 
+## 2026-08-14 — The box is the words, sizes are numbers, scope applies on click
+
+Four corrections from using it on the real projector.
+
+**The box is the text, not the screen.** The handles sat on a frame the size of the display while the thing that looked like the text box — Chrome's own outline around the focused words — sat inside it. Content now renders into `.sb-proj-frame`, and that frame is what carries the handles, the outline and the drag. With nothing placed it uses `width: max-content` and centres itself, so it **hugs the words**: one rectangle, around the text, exactly where the operator was pointing. The first drag turns it into a real percentage box. Geometry is measured from `getBoundingClientRect` rather than read off the style, because a hugging box has no numeric width to read.
+
+**Sizes are numbers** — 14 to 88, with 32 marked *normal* — in both the All Slides toolbar and the projection's edit bar. 32 is the slide's normal size, so the number becomes a relative scale and the text stays the same proportion of a 1080p screen and a 4K one. `execCommand('fontSize')` has to run with **styleWithCSS off**: with it on the browser writes its own keyword (`xxx-large`) and there is nothing left to rewrite, which is how a chosen number turned into the browser's idea of huge. `xxx-large` is also mapped in the PowerPoint converter now, for anything already saved that way.
+
+**Choosing a scope applies it.** *This slide* / *This song* / *All songs* used to set a mode that the next drag obeyed; clicking one now writes the box on screen to that level immediately, with a toast saying which. Default remains *This slide*.
+
+**Cancel and Save Projection moved** to the end of the toolbar row, away from the naming dialogue that used to open on top of them, and that dialogue is now `position: fixed` above everything rather than an overlay inside the panel. The songbook-wide background is the gold **Whole songbook · …** picture button, always gold so it never reads as a single slide's own.
+
+### Verified live (throwaway song + order, deleted by id)
+
+The frame measured 478×134 against the words' own 478×134 — hugging exactly — with all eight handles on it and none on the stage; dragging the SE corner took it to 591×224 with the text at 167% and the readout agreeing. Size 56 computed to 135px and size 16 to 38.6px on the same line, both stored as `em`. Clicking *This song* wrote `songBox[0]` at once and cleared the slide-level box. All Slides shows Cancel and Save Projection at the right end of the toolbar, the size list running 14…14…88, and the songbook background reading "Whole songbook · Default" in gold. Orders 19, songs 51, unchanged.
+
+---
+
 ## 2026-08-14 — The PowerPoint export carries the formatting
 
 PowerPoint has no notion of HTML: a paragraph is a list of *runs*, each with its own weight, slant, underline, face and size. The export was flattening every slide to plain text, so a line shaped in All Slides arrived in the deck as undifferentiated Georgia.
