@@ -25,6 +25,64 @@ The LCD **rebuild** (applying a version to the service order's song slides) is s
 
 ---
 
+## 2026-08-14 — "Am" on its own is a chord again
+
+`isChordLineGlobal` refuses to let **Am** count as chord evidence, because it is indistinguishable from the English word: "Great I Am", "Am I not yours" are lyrics, and on a short line that one token is enough to tip the ≥50% test. The rule was right about mixed lines and wrong about the commonest case in the library — **Am alone above a lyric** — which rendered as a lyric line, unstyled and un-transposable.
+
+A line made of nothing but chord tokens is now a chord line whatever those tokens are. Mixed lines still need one non-Am chord, so the word is still safe wherever it appears among real words.
+
+**Refined to the operator's own rule:** `Am` is a chord *only when it is isolated above a lyric line*. `isChordLineGlobal(line, nextLine)` takes the following line as optional context, and an all-chord line whose only chord is `Am` is a chord line only when a lyric follows it — not a blank line, not a section header, not another chord line. The pad renderer passes that context. Callers with no context still read a bare `Am` as a chord, which is safe: a lyric line reading only "Am" does not occur, while "I am" and "Great I Am" carry other words and are vetoed by the wordish test.
+
+### Verified live
+
+25 cases: 13/13 chord lines detected, including `Am`, `Am Am`, `Am Em` and the comma-prefixed `,  G  C  G`; 12/12 lyric lines spared, including `Great I Am`, `Am I not yours`, `I am the Lord` and `This is the day D`. A fresh songbook render of a song with `Am` above a lyric now shows it as `chord-line`. Orders 19, songs 51, unchanged.
+
+### Still open — the growing gap at the bottom of the page
+
+Not reproduced. Eight Enter/Backspace edits in a throwaway songbook grew the page exactly one line per inserted line and shrank it again on delete: no accumulation in `.sb-song-page` height, no inline style, no leftover `.sb-a4-marker` elements (they are absolute, height 0, and removed each pass), `.sb-page-canvas-wrap` reset to auto, and `sbPageMargins` is written only by the two break-drag handlers, never by editing. **Found and fixed.** It was not the pagination at all: every *structural* edit -- Enter or Backspace, anywhere in the song -- left one blank line behind at the very end of the pad, and they piled up as blank paper at the foot of the page. Measured: four edits took a song from 0 to 7 trailing blank lines and the page from 3496px to 3892px, growing even on delete. They vanished on reload because trailing blanks are trimmed when the text is saved, which is exactly why the gap never survived one.
+
+`sbReconcileLyrics` rebuilds the pad from its canonical text after a structural edit; that text now has its trailing newlines trimmed **unless the caret is sitting in them** -- the one case the operator meant it, pressing Enter at the end to add space. That is the rule as asked for: nothing but a deliberate Enter at the final character adds a line at the end.
+
+Two supporting fixes made while tracking it down, both real on their own: `sbPaginateAll` now clears the explicit pixel height `sbPaginatePage` pins on a song's canvas wrap before re-measuring (the reset existed on other paths but not this one, so a pinned height could outlive the content shrinking under it), and the auto-shrink re-pagination is capped at two passes so two font scales disagreeing by more than a hundredth cannot re-trigger each other on a timer for as long as the songbook is open.
+
+### Verified live
+
+Before: 4 edits -> 7 trailing blanks, page 3496 -> 3892, growing on delete as well as Enter. After: 6 alternating Enter/Backspace edits -> trailing blanks steady at 1, page oscillating 3672 / 3628 with the edit instead of ratcheting. Orders 19, songs 51, unchanged.
+
+---
+
+## 2026-08-14 — The box is the words, sizes are numbers, scope applies on click
+
+Four corrections from using it on the real projector.
+
+**The box is the text, not the screen.** The handles sat on a frame the size of the display while the thing that looked like the text box — Chrome's own outline around the focused words — sat inside it. Content now renders into `.sb-proj-frame`, and that frame is what carries the handles, the outline and the drag. With nothing placed it uses `width: max-content` and centres itself, so it **hugs the words**: one rectangle, around the text, exactly where the operator was pointing. The first drag turns it into a real percentage box. Geometry is measured from `getBoundingClientRect` rather than read off the style, because a hugging box has no numeric width to read.
+
+**Sizes are numbers** — 14 to 88, with 32 marked *normal* — in both the All Slides toolbar and the projection's edit bar. 32 is the slide's normal size, so the number becomes a relative scale and the text stays the same proportion of a 1080p screen and a 4K one. `execCommand('fontSize')` has to run with **styleWithCSS off**: with it on the browser writes its own keyword (`xxx-large`) and there is nothing left to rewrite, which is how a chosen number turned into the browser's idea of huge. `xxx-large` is also mapped in the PowerPoint converter now, for anything already saved that way.
+
+**Choosing a scope applies it.** *This slide* / *This song* / *All songs* used to set a mode that the next drag obeyed; clicking one now writes the box on screen to that level immediately, with a toast saying which. Default remains *This slide*.
+
+**Cancel and Save Projection moved** to the end of the toolbar row, away from the naming dialogue that used to open on top of them, and that dialogue is now `position: fixed` above everything rather than an overlay inside the panel. The songbook-wide background is the gold **Whole songbook · …** picture button, always gold so it never reads as a single slide's own.
+
+### Verified live (throwaway song + order, deleted by id)
+
+The frame measured 478×134 against the words' own 478×134 — hugging exactly — with all eight handles on it and none on the stage; dragging the SE corner took it to 591×224 with the text at 167% and the readout agreeing. Size 56 computed to 135px and size 16 to 38.6px on the same line, both stored as `em`. Clicking *This song* wrote `songBox[0]` at once and cleared the slide-level box. All Slides shows Cancel and Save Projection at the right end of the toolbar, the size list running 14…14…88, and the songbook background reading "Whole songbook · Default" in gold. Orders 19, songs 51, unchanged.
+
+---
+
+## 2026-08-14 — The PowerPoint export carries the formatting
+
+PowerPoint has no notion of HTML: a paragraph is a list of *runs*, each with its own weight, slant, underline, face and size. The export was flattening every slide to plain text, so a line shaped in All Slides arrived in the deck as undifferentiated Georgia.
+
+`_sbRunsFromHtml` walks the markup and emits exactly those runs. Sizes are relative and multiply through nesting, so a large span inside a larger one behaves as it looks on screen; `x-large`, `1.6em`, `24px` and `150%` all resolve to the same relative scale. Alignment rides on the run that ends each line, which is how PowerPoint carries a paragraph property.
+
+**The text box travels too.** The slide's box becomes the text frame's position and size in inches on the 16:9 layout, and its scale multiplies the base font size — so a projection shaped into a narrow band at the bottom of the screen exports as a narrow band at the bottom of the slide, not as a full-bleed frame.
+
+### Verified live (throwaway song + order, deleted by id)
+
+A line set bold + italic + underlined + Poppins + one size up + right-aligned, with a plain centred line beneath it. The runs handed to PptxGenJS carried `bold/italic/underline`, `fontFace: Poppins`, `fontSize: 51` (34 × 1.5) and `align: right` for the first, and Georgia/34/centre for the second, with the break between them. A real 57 KB `.pptx` was generated and opened as a zip: `ppt/slides/slide3.xml` contains `sz="5100" b="1" i="1" u="sng"` with `<a:latin typeface="Poppins"/>`, plus `algn="r"` and `algn="ctr"`. The text frame came from the box at x 0.6in, y 0.225in, w 8.8in, h 5.175in. Orders 19, songs 51, unchanged.
+
+---
+
 ## 2026-08-14 — LCD rebuild verified, and the picture it was dropping
 
 The rebuild (applying a saved projection to the service order's song slides) had shipped unverified twice, because a throwaway song could not be placed into a service section through the harness. The missing piece was mundane: the order item's `section_id` has to be a real service section (`wo-section-3`), not a label like `songs`. With that, the song lands in the schedule with its banner and slide boxes and the whole path is exercisable.
@@ -69,7 +127,7 @@ Bar: visible on entry, gone after 5s, unmoved by pointer movement in the top hal
 
 **Two editing bugs fixed.** Pasted text arrived carrying the source's margins, indents, nested blocks and fonts, which is why a pasted line sat slightly indented and behaved differently from its neighbours; paste now takes the words only, one div per line, structurally identical to typed text. And the split-on-blank-line worked on `line.closest('.sb-asl-slide')` but not on the line's own position, so with the caret inside a pasted wrapper the break landed around the wrong node — the separator appeared after the pasted line and the rest of the slide was left behind. The caret's node is now walked up to the slide's own child first.
 
-**Known limit:** the PowerPoint export carries the words, breaks and pictures, not the character formatting. Mapping HTML runs to PptxGenJS runs is a separate piece of work.
+~~**Known limit:** the PowerPoint export carries the words, breaks and pictures, not the character formatting.~~ **Resolved the same day** — see the PowerPoint entry above.
 
 ### Verified live (throwaway song + order, deleted by id)
 

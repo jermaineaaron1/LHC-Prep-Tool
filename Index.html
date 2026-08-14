@@ -14845,7 +14845,9 @@ function isChordToken(tok) {
 }
 
 // Returns true when ≥50 % of tokens on a line are chord tokens
-function isChordLineGlobal(line) {
+// nextLine is optional: pass the line that follows and an Am-only line is only
+// read as a chord when it genuinely sits above a lyric.
+function isChordLineGlobal(line, nextLine) {
   var trimmed = line.trim();
   if (!trimmed || trimmed.length > 100) return false;
   var tokens = trimmed.split(/\s+/);
@@ -14867,6 +14869,24 @@ function isChordLineGlobal(line) {
       // like this ("Asus4" and friends are already counted as chords above).
       wordish++;
     }
+  }
+  // ...but a line made of NOTHING but chords is a chord line, even when the
+  // only chord on it is Am. "Am" alone above a lyric is how half the charts in
+  // the library are written; refusing it there was the rule protecting against
+  // "I am" and catching real chords instead.
+  //
+  // Where the caller knows what comes next, that settles it properly: an
+  // Am-only line is a chord line when it sits directly above a lyric, and is
+  // just the word when it stands alone. Callers with no context fall back to
+  // treating it as a chord, which is safe -- a lyric line reading only "Am"
+  // does not occur, while "I am" and "Great I Am" carry other words and are
+  // already vetoed above.
+  if (hits === tokens.length) {
+    if (strongHits > 0 || nextLine === undefined) return true;
+    var nx = String(nextLine || '').trim();
+    if (!nx) return false;                              // nothing under it
+    if (/^\[.+\]$/.test(nx)) return false;              // a section header
+    return !isChordLineGlobal(nx);                      // must be a lyric line
   }
   if (strongHits === 0) return false;
   // A two-token lyric line whose last word happens to be chord-shaped --
@@ -29224,8 +29244,9 @@ var WO = (function() {
       return 'other';
     }
 
-    lines.forEach(function(line) {
+    lines.forEach(function(line, _li) {
       var trimmed = line.trim();
+      var _next = lines[_li + 1];
 
       // Section header with brackets
       var headerMatch = trimmed.match(/^\[(.+)\]$/);
@@ -29239,7 +29260,7 @@ var WO = (function() {
         html += '<div class="wo-lyrics-section-header ' + sectionClass + '">' + escapeHtml(trimmed) + '</div>';
       }
       // Chord line - bold and dark blue
-      else if (isChordLine(line)) {
+      else if (isChordLine(line, _next)) {
         html += '<div class="wo-lyrics-chord-line" spellcheck="false">' + escapeHtml(line) + '</div>';
       }
       // Regular lyric line
@@ -38524,6 +38545,7 @@ var WO = (function() {
     return breaks;
   }
 
+  var _sbFitPasses = 0;
   function sbPaginateAll() {
     var body = document.getElementById('sbBody');
     if (!body) return;
@@ -38571,6 +38593,14 @@ var WO = (function() {
       var sid      = page.getAttribute('data-song-id');
       var lyricsEl = sid ? document.getElementById('sbLyrics-' + sid) : null;
       if (!lyricsEl || !lyricsEl.children.length) return;
+      // Start from natural content. sbPaginatePage pins an explicit pixel
+      // height on the canvas wrap when it splits a song across pages; left in
+      // place, that height survives the content shrinking under it and shows
+      // as blank paper at the end of the song, growing with every edit. The
+      // reset exists on other paths -- it was missing here, which is the one
+      // path songs with hand-dragged breaks always take.
+      var _wrap = page.querySelector('.sb-page-canvas-wrap');
+      if (_wrap) { _wrap.style.height = ''; _wrap.style.overflow = ''; }
 
       var titleEl  = page.querySelector('.sb-page-title');
       var artistEl = page.querySelector('.sb-page-artist');
@@ -38630,7 +38660,16 @@ var WO = (function() {
     });
 
     sbApplySongFontOverrides();
-    if (_sbScaleChanged) { setTimeout(function() { sbPaginateAll(); }, 50); return; }
+    // Re-measure once the new font size is live, but never more than twice per
+    // edit: fitScale is measured to a hundredth, and two scales that disagree
+    // by more than that would otherwise re-paginate each other on a timer for
+    // as long as the songbook is open.
+    if (_sbScaleChanged && _sbFitPasses < 2) {
+      _sbFitPasses++;
+      setTimeout(function() { sbPaginateAll(); }, 50);
+      return;
+    }
+    _sbFitPasses = 0;
     sbAttachTouchListeners(body);
     Object.keys(sbPaths).forEach(function(sid) { sbRedrawSong(sid); });
     // Keep print preview in sync after break recalculation
@@ -42903,6 +42942,17 @@ var WO = (function() {
     var _sbRep = _sbCanonicalBackspaceRepair(oldText, p, insertedText, removedText);
     if (_sbRep) { newCanonical = _sbRep.text; newCaret = _sbRep.caret; }
 
+    // Blank lines at the very end are the pad's own droppings: each structural
+    // edit -- anywhere in the song, Enter or Backspace alike -- left one behind,
+    // and they piled up as blank paper at the foot of the page. They are only
+    // real when the caret is sitting in them, which is the one case the
+    // operator meant it: pressing Enter at the very end to add space.
+    var _trimmedTail = newCanonical.replace(new RegExp('[\n]+$'), '');
+    if (newCaret <= _trimmedTail.length) {
+      newCanonical = _trimmedTail;
+      newCaret = Math.min(newCaret, newCanonical.length);
+    }
+
     el.innerHTML = formatLyricsWithHighlights(newCanonical);
     if (typeof sbApplySectionBadges === 'function') sbApplySectionBadges(el);
     (function() { var _sp = _sbSongForSid(sid); if (_sp && Array.isArray(_sp.sbFormatSpans) && _sp.sbFormatSpans.length) _sbApplyFormatSpans(el, _sp.sbFormatSpans); })();
@@ -45024,10 +45074,13 @@ var WO = (function() {
     var s = _sbProjCur();
     if (!s) return;
     if (bg) bg.style.backgroundImage = s.bg ? ('url("' + s.bg + '")') : '';
-    _sbApplyBox(stage, s.box);
     stage.classList.toggle('is-skipped', !!s.hidden);
+    // Everything lives in an inner frame. That frame IS the text box the
+    // operator drags: the stage stays the full screen behind it, so the
+    // handles sit on the words rather than on the edge of the display.
+    var inner = '';
     if (s.kind === 'title') {
-      stage.innerHTML = '<div class="sb-proj-title" data-role="title">' + escapeHtml(s.title) + '</div>' +
+      inner = '<div class="sb-proj-title" data-role="title">' + escapeHtml(s.title) + '</div>' +
         '<div class="sb-proj-artist" data-role="artist">' + escapeHtml(s.artist || '') + '</div>';
     } else {
       // The formatted markup is what the operator shaped in All Slides; the
@@ -45041,8 +45094,10 @@ var WO = (function() {
         : s.lines.map(function(l, i) {
             return _row(i) + (l ? escapeHtml(l) : '&nbsp;') + '</div>';
           });
-      stage.innerHTML = '<div class="sb-proj-lines" data-role="lines">' + rows.join('') + '</div>';
+      inner = '<div class="sb-proj-lines" data-role="lines">' + rows.join('') + '</div>';
     }
+    stage.innerHTML = '<div class="sb-proj-frame" id="sbProjFrame">' + inner + '</div>';
+    _sbApplyBox($('sbProjFrame'), s.box);
     if (cnt) cnt.textContent = (_sbProjIdx + 1) + ' / ' + _sbProjDeck.length;
     // Which projection is on screen: without this the operator cannot tell a
     // saved version from the songbook as written.
@@ -45095,25 +45150,38 @@ var WO = (function() {
     };
   }
 
+  // null means "no box has been placed" -- the words simply centre themselves.
   function _sbResolveBox(store, songIdx, slideBox) {
     var b = _sbNormBox(slideBox);
     if (b) return b;
     b = _sbNormBox(store.songBox ? store.songBox[songIdx] : null);
     if (b) return b;
-    b = _sbNormBox(store.all ? store.all.box : null);
-    return b || _sbNormBox(SB_BOX_DEFAULT);
+    return _sbNormBox(store.all ? store.all.box : null);
   }
 
   function _sbApplyBox(stage, box) {
     if (!stage) return;
-    var b = box || SB_BOX_DEFAULT;
-    stage.style.left = b.x + '%';
-    stage.style.top = b.y + '%';
-    stage.style.width = b.w + '%';
-    stage.style.height = b.h + '%';
     stage.style.right = 'auto';
     stage.style.bottom = 'auto';
-    stage.style.setProperty('--sb-scale', b.scale || 1);
+    if (!box) {
+      // Nothing stored: the box hugs the words, centred, so the handles sit on
+      // the text itself rather than around a rectangle the size of the screen.
+      stage.style.left = '50%';
+      stage.style.top = '50%';
+      stage.style.transform = 'translate(-50%, -50%)';
+      stage.style.width = 'max-content';
+      stage.style.maxWidth = '88%';
+      stage.style.height = 'auto';
+      stage.style.setProperty('--sb-scale', 1);
+      return;
+    }
+    stage.style.transform = 'none';
+    stage.style.maxWidth = 'none';
+    stage.style.left = box.x + '%';
+    stage.style.top = box.y + '%';
+    stage.style.width = box.w + '%';
+    stage.style.height = box.h + '%';
+    stage.style.setProperty('--sb-scale', box.scale || 1);
   }
 
   // Where a change should land. The operator picks this before dragging, so
@@ -45127,6 +45195,19 @@ var WO = (function() {
       var b = $('sbBoxScope_' + k);
       if (b) b.classList.toggle('on', k === scope);
     });
+    // Clicking a scope IS the instruction: the box on screen is written there
+    // at once, rather than waiting for another drag to mean it.
+    var frame = $('sbProjFrame');
+    if (!frame || !_sbProjEditing) return;
+    var fr = frame.getBoundingClientRect();
+    _sbSaveBox(_sbNormBox({
+      x: (fr.left / window.innerWidth) * 100, y: (fr.top / window.innerHeight) * 100,
+      w: (fr.width / window.innerWidth) * 100, h: (fr.height / window.innerHeight) * 100,
+      scale: parseFloat(frame.style.getPropertyValue('--sb-scale')) || 1
+    }));
+    showToast(scope === 'all' ? 'Box applied to every song'
+            : scope === 'song' ? 'Box applied to this song'
+            : 'Box applied to this slide', 'success');
   }
 
   function _sbSaveBox(box) {
@@ -45165,15 +45246,19 @@ var WO = (function() {
   // scales the text: a box made taller is meant to hold bigger words, which is
   // what "resize" means to anyone laying out a slide.
   function _sbBoxDragStart(e, handle) {
-    var stage = $('sbProjStage');
+    var stage = $('sbProjFrame');
     if (!stage || !_sbProjEditing) return;
     e.preventDefault();
     e.stopPropagation();
     var startX = e.clientX, startY = e.clientY;
     var W = window.innerWidth, H = window.innerHeight;
+    // Measured, not read off the style: a box that is still hugging its words
+    // has width:max-content, and the first drag has to start from where the
+    // operator can actually see it.
+    var r = stage.getBoundingClientRect();
     var box = _sbNormBox({
-      x: parseFloat(stage.style.left) || 0, y: parseFloat(stage.style.top) || 0,
-      w: parseFloat(stage.style.width) || 100, h: parseFloat(stage.style.height) || 100,
+      x: (r.left / W) * 100, y: (r.top / H) * 100,
+      w: (r.width / W) * 100, h: (r.height / H) * 100,
       scale: parseFloat(stage.style.getPropertyValue('--sb-scale')) || 1
     });
     var start = { x: box.x, y: box.y, w: box.w, h: box.h, scale: box.scale };
@@ -45199,6 +45284,8 @@ var WO = (function() {
       }
       b.x = Math.max(-5, Math.min(100, b.x));
       b.y = Math.max(-5, Math.min(100, b.y));
+      stage.style.transform = 'none';
+      stage.style.maxWidth = 'none';
       _sbApplyBox(stage, b);
       var tag = $('sbBoxSizeTag');
       if (tag) tag.textContent = Math.round(b.w) + '% × ' + Math.round(b.h) + '%  ·  text ' + Math.round(b.scale * 100) + '%';
@@ -45206,9 +45293,10 @@ var WO = (function() {
     function up() {
       document.removeEventListener('mousemove', move, true);
       document.removeEventListener('mouseup', up, true);
+      var rr = stage.getBoundingClientRect();
       _sbSaveBox(_sbNormBox({
-        x: parseFloat(stage.style.left), y: parseFloat(stage.style.top),
-        w: parseFloat(stage.style.width), h: parseFloat(stage.style.height),
+        x: (rr.left / window.innerWidth) * 100, y: (rr.top / window.innerHeight) * 100,
+        w: (rr.width / window.innerWidth) * 100, h: (rr.height / window.innerHeight) * 100,
         scale: parseFloat(stage.style.getPropertyValue('--sb-scale')) || 1
       }));
     }
@@ -45264,9 +45352,8 @@ var WO = (function() {
         '<option value="">Font</option><option value="Lato">Lato</option><option value="Poppins">Poppins</option>' +
         '<option value="Playfair Display">Playfair</option><option value="Cinzel">Cinzel</option>' +
         '<option value="Georgia">Georgia</option><option value="Arial">Arial</option></select>' +
-      '<select class="sb-asl-sel" title="Size" onchange="WO.sbProjCmd(\'fontSize\', this.value)">' +
-        '<option value="">Size</option><option value="2">Small</option><option value="3">Normal</option>' +
-        '<option value="4">Large</option><option value="5">Larger</option><option value="6">Huge</option></select>' +
+      '<select class="sb-asl-sel" title="Size" onchange="WO.sbProjCmd(\'size\', this.value)">' +
+        '<option value="">Size</option>' + _sbSizeOptions() + '</select>' +
       '<span class="sb-asl-tsep"></span>' +
       '<button class="sb-asl-tbtn" title="Bold" onclick="WO.sbProjCmd(\'bold\')"><b>B</b></button>' +
       '<button class="sb-asl-tbtn" title="Italic" onclick="WO.sbProjCmd(\'italic\')"><i>I</i></button>' +
@@ -45286,7 +45373,7 @@ var WO = (function() {
 
   // Typography inside the projected box, applied to the selection.
   function sbProjCmd(cmd, val) {
-    var stage = $('sbProjStage');
+    var stage = $('sbProjFrame') || $('sbProjStage');
     if (!stage || !_sbProjEditing) return;
     var sel = window.getSelection();
     if (!sel || !sel.rangeCount || !stage.contains(sel.getRangeAt(0).startContainer)) {
@@ -45294,8 +45381,11 @@ var WO = (function() {
       return;
     }
     try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
-    try { document.execCommand(cmd, false, val || null); } catch (e) {}
-    if (cmd === 'fontSize') _sbAslNormalizeFontTags(stage);
+    if (cmd === 'size') { if (val) _sbApplySize(stage, val); }
+    else {
+      try { document.execCommand(cmd, false, val || null); } catch (e) {}
+      if (cmd === 'fontSize') _sbAslNormalizeFontTags(stage);
+    }
   }
 
   function sbProjToggleEdit() {
@@ -45303,25 +45393,26 @@ var WO = (function() {
     var stage = $('sbProjStage');
     if (!s || !stage || !stage.firstElementChild) return;
 
+    var frame = $('sbProjFrame') || stage;
     if (!_sbProjEditing) {
       _sbProjEditing = true;
-      Array.prototype.forEach.call(stage.children, function(c) { c.contentEditable = 'true'; });
-      stage.firstElementChild.focus();
-      stage.classList.add('is-editing');
-      _sbBoxChrome(stage);
+      Array.prototype.forEach.call(frame.children, function(c) { c.contentEditable = 'true'; });
+      if (frame.firstElementChild) frame.firstElementChild.focus();
+      frame.classList.add('is-editing');
+      _sbBoxChrome(frame);
       _sbEditBar(true);
       _sbProjBar(true);
       // Dragging the box itself, anywhere that is not a handle or the words.
-      stage.addEventListener('mousedown', _sbStageDrag, false);
+      frame.addEventListener('mousedown', _sbStageDrag, false);
       _sbProjRender_hintOnly();
       return;
     }
 
     // Commit: read the visible text back, one line per block.
     _sbProjEditing = false;
-    stage.classList.remove('is-editing');
-    stage.removeEventListener('mousedown', _sbStageDrag, false);
-    _sbBoxChromeOff(stage);          // handles are furniture, never content
+    frame.classList.remove('is-editing');
+    frame.removeEventListener('mousedown', _sbStageDrag, false);
+    _sbBoxChromeOff(frame);          // handles are furniture, never content
     _sbEditBar(false);
     // Through the resolver, never store.slides directly: once a song has been
     // reflowed in All Slides its overrides live in store.songs[i].slides, and
@@ -45330,12 +45421,12 @@ var WO = (function() {
     var ov = _sbProjOv(s, true);
     if (!ov) return;
     if (s.kind === 'title') {
-      var tEl = stage.querySelector('[data-role="title"]');
-      var aEl = stage.querySelector('[data-role="artist"]');
+      var tEl = frame.querySelector('[data-role="title"]');
+      var aEl = frame.querySelector('[data-role="artist"]');
       if (tEl) ov.title = tEl.textContent.trim();
       if (aEl) ov.artist = aEl.textContent.trim();
     } else {
-      var lEl = stage.querySelector('[data-role="lines"]');
+      var lEl = frame.querySelector('[data-role="lines"]');
       if (lEl) {
         var lines = Array.prototype.map.call(lEl.children, function(d) {
           return (d.textContent || '').split(String.fromCharCode(160)).join(' ').trim();
@@ -45344,7 +45435,7 @@ var WO = (function() {
         ov.lines = lines;
       }
     }
-    Array.prototype.forEach.call(stage.children, function(c) { c.contentEditable = 'false'; });
+    Array.prototype.forEach.call(frame.children, function(c) { c.contentEditable = 'false'; });
     _sbProjSaveStore();
     _sbProjDeck = _sbBuildProjectionDeck(true);
     _sbProjRender();
@@ -45546,10 +45637,15 @@ var WO = (function() {
     return 'Picture';
   }
 
-  function _sbAslPicBtn(level, pin) {
-    return '<button class="sb-asl-pic' + (pin ? ' has-pic' : '') + '" onclick="WO.sbAslBgMenu(this, \'' + level + '\')" ' +
-             'title="Background for this ' + level + '">' +
-             '<i class="fa-solid fa-image"></i> <span class="sb-asl-pic-label">' + _sbAslBgLabel(pin) + '</span>' +
+  function _sbAslPicBtn(level, pin, label) {
+    // The songbook-level button is always gold: it is the one background that
+    // stands behind everything else, so it should not look like a slide's own.
+    var cls = 'sb-asl-pic' + ((pin || level === 'all') ? ' has-pic' : '');
+    var scope = (level === 'all') ? 'the whole songbook' : ('this ' + level);
+    return '<button class="' + cls + '" onclick="WO.sbAslBgMenu(this, \'' + level + '\')" ' +
+             'title="Background for ' + scope + '">' +
+             '<i class="fa-solid fa-image"></i> <span class="sb-asl-pic-label">' +
+             (label ? escapeHtml(label) + ' &middot; ' : '') + _sbAslBgLabel(pin) + '</span>' +
            '</button>';
   }
 
@@ -45613,10 +45709,6 @@ var WO = (function() {
           '<div><b>All Slides</b>' +
             '<div class="sb-asl-sub">Press <b>Enter on an empty line</b> to start a new slide. Blank lines set the spacing. Chords are already stripped.</div>' +
           '</div>' +
-          '<div class="sb-asl-actions">' +
-            '<button class="sb-asl-cancel" onclick="WO.sbProjAllClose()">Cancel</button>' +
-            '<button class="sb-asl-save" onclick="WO.sbProjAllSave()"><i class="fa-solid fa-bookmark"></i> Save Projection</button>' +
-          '</div>' +
         '</div>' +
         '<div class="sb-asl-toolbar">' +
           '<select class="sb-asl-sel" title="Font" onchange="WO.sbAslCmd(\'fontName\', this.value)">' +
@@ -45628,13 +45720,8 @@ var WO = (function() {
             '<option value="Georgia">Georgia</option>' +
             '<option value="Arial">Arial</option>' +
           '</select>' +
-          '<select class="sb-asl-sel" title="Size" onchange="WO.sbAslCmd(\'fontSize\', this.value)">' +
-            '<option value="">Size</option>' +
-            '<option value="2">Small</option>' +
-            '<option value="3">Normal</option>' +
-            '<option value="4">Large</option>' +
-            '<option value="5">Larger</option>' +
-            '<option value="6">Huge</option>' +
+          '<select class="sb-asl-sel" title="Size" onchange="WO.sbAslCmd(\'size\', this.value)">' +
+            '<option value="">Size</option>' + _sbSizeOptions() +
           '</select>' +
           '<span class="sb-asl-tsep"></span>' +
           '<button class="sb-asl-tbtn" title="Bold" onclick="WO.sbAslCmd(\'bold\')"><b>B</b></button>' +
@@ -45645,8 +45732,11 @@ var WO = (function() {
           '<button class="sb-asl-tbtn" title="Centre" onclick="WO.sbAslCmd(\'justifyCenter\')"><i class="fa-solid fa-align-center"></i></button>' +
           '<button class="sb-asl-tbtn" title="Align right" onclick="WO.sbAslCmd(\'justifyRight\')"><i class="fa-solid fa-align-right"></i></button>' +
           '<span class="sb-asl-tsep"></span>' +
-          '<span class="sb-asl-tlabel">Whole songbook</span>' +
-          _sbAslPicBtn('all', allBg) +
+          _sbAslPicBtn('all', allBg, 'Whole songbook') +
+          '<div class="sb-asl-actions">' +
+            '<button class="sb-asl-cancel" onclick="WO.sbProjAllClose()">Cancel</button>' +
+            '<button class="sb-asl-save" onclick="WO.sbProjAllSave()"><i class="fa-solid fa-bookmark"></i> Save Projection</button>' +
+          '</div>' +
         '</div>' +
       '</div>' +
       '<div class="sb-asl-body" id="sbAslBody" contenteditable="true" spellcheck="false">' +
@@ -45680,6 +45770,40 @@ var WO = (function() {
     }).join('');
   }
 
+  // Sizes are picked as numbers, the way a word processor does it. 32 is the
+  // slide's normal size, so the number becomes a relative scale -- which is
+  // what keeps the words the same proportion of a 1080p screen and a 4K one.
+  var SB_SIZE_BASE = 32;
+  var SB_SIZES = [14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64, 72, 88];
+
+  function _sbSizeOptions() {
+    return SB_SIZES.map(function(n) {
+      return '<option value="' + n + '">' + n + (n === SB_SIZE_BASE ? '  (normal)' : '') + '</option>';
+    }).join('');
+  }
+
+  function _sbApplySize(root, pts) {
+    var em = (parseFloat(pts) || SB_SIZE_BASE) / SB_SIZE_BASE;
+    var size = String(Math.round(em * 1000) / 1000) + 'em';
+    // execCommand is the only reliable way to wrap exactly the selection, and
+    // it must run with styleWithCSS OFF: with it on the browser writes its own
+    // keyword ("xxx-large") and there is nothing left to rewrite -- which is
+    // how a chosen number turned into the browser's idea of huge.
+    try { document.execCommand('styleWithCSS', false, false); } catch (e) {}
+    try { document.execCommand('fontSize', false, '7'); } catch (e) {}
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
+    Array.prototype.forEach.call(root.querySelectorAll('font[size="7"]'), function(f) {
+      var span = document.createElement('span');
+      span.style.fontSize = size;
+      while (f.firstChild) span.appendChild(f.firstChild);
+      f.parentNode.replaceChild(span, f);
+    });
+    // Belt and braces for any browser that still writes the keyword.
+    Array.prototype.forEach.call(root.querySelectorAll('span'), function(sp) {
+      if (/^xxx-large$/i.test(sp.style.fontSize || '')) sp.style.fontSize = size;
+    });
+  }
+
   // Formatting applies to the selection inside the editor.
   function sbAslCmd(cmd, val) {
     var body = $('sbAslBody');
@@ -45690,8 +45814,11 @@ var WO = (function() {
       return;
     }
     try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
-    try { document.execCommand(cmd, false, val || null); } catch (e) {}
-    if (cmd === 'fontSize') _sbAslNormalizeFontTags(body);
+    if (cmd === 'size') { if (val) _sbApplySize(body, val); }
+    else {
+      try { document.execCommand(cmd, false, val || null); } catch (e) {}
+      if (cmd === 'fontSize') _sbAslNormalizeFontTags(body);
+    }
     body.focus();
   }
 
@@ -46052,6 +46179,115 @@ var WO = (function() {
       .catch(function(e) { console.warn('[PPT] background skipped:', e.message); return ''; });
   }
 
+  // ── Formatting on the way into PowerPoint ───────────────────────────────
+  // PowerPoint has no notion of HTML: a paragraph is a list of runs, each with
+  // its own weight, slant, underline, face and size. So the markup All Slides
+  // produced is walked and turned into exactly that, rather than being flattened
+  // to plain text.
+  var _SB_KEYWORD_EM = {
+    'xx-small': 0.6, 'x-small': 0.75, 'small': 0.89, 'medium': 1,
+    'large': 1.2, 'x-large': 1.5, 'xx-large': 2, 'xxx-large': 3,
+    'smaller': 0.85, 'larger': 1.2
+  };
+
+  function _sbEmFromFontSize(v) {
+    if (!v) return null;
+    v = String(v).trim().toLowerCase();
+    if (_SB_KEYWORD_EM[v]) return _SB_KEYWORD_EM[v];
+    var m = v.match(/^([\d.]+)em$/);  if (m) return parseFloat(m[1]);
+    m = v.match(/^([\d.]+)rem$/);     if (m) return parseFloat(m[1]);
+    m = v.match(/^([\d.]+)px$/);      if (m) return parseFloat(m[1]) / 16;
+    m = v.match(/^([\d.]+)%$/);       if (m) return parseFloat(m[1]) / 100;
+    return null;
+  }
+
+  // One line of markup -> its runs. Sizes are relative and multiply through
+  // nesting, so a large span inside a larger one behaves as it looks on screen.
+  function _sbRunsFromHtml(html, baseSize) {
+    var host = document.createElement('div');
+    host.innerHTML = html || '';
+    var runs = [];
+
+    function walk(node, st) {
+      for (var i = 0; i < node.childNodes.length; i++) {
+        var n = node.childNodes[i];
+        if (n.nodeType === 3) {
+          var t = String(n.nodeValue).split(String.fromCharCode(160)).join(' ');
+          if (!t) continue;
+          runs.push({ text: t, options: _sbRunOpts(st, baseSize) });
+          continue;
+        }
+        if (n.nodeType !== 1) continue;
+        var tag = n.tagName.toLowerCase();
+        if (tag === 'br') { runs.push({ text: ' ', options: _sbRunOpts(st, baseSize) }); continue; }
+        var s2 = { bold: st.bold, italic: st.italic, underline: st.underline, face: st.face, em: st.em };
+        if (tag === 'b' || tag === 'strong') s2.bold = true;
+        if (tag === 'i' || tag === 'em') s2.italic = true;
+        if (tag === 'u') s2.underline = true;
+        var stl = n.style || {};
+        if (stl.fontWeight) s2.bold = (stl.fontWeight === 'bold' || parseInt(stl.fontWeight, 10) >= 600);
+        if (stl.fontStyle) s2.italic = (stl.fontStyle === 'italic' || stl.fontStyle === 'oblique');
+        var dec = stl.textDecorationLine || stl.textDecoration || '';
+        if (dec) s2.underline = /underline/.test(dec);
+        if (stl.fontFamily) s2.face = stl.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
+        var em = _sbEmFromFontSize(stl.fontSize);
+        if (em) s2.em = st.em * em;
+        walk(n, s2);
+      }
+    }
+
+    walk(host, { bold: true, italic: false, underline: false, face: 'Georgia', em: 1 });
+    return runs;
+  }
+
+  function _sbRunOpts(st, baseSize) {
+    var o = {
+      bold: !!st.bold,
+      italic: !!st.italic,
+      fontFace: st.face || 'Georgia',
+      fontSize: Math.max(8, Math.round(baseSize * (st.em || 1)))
+    };
+    if (st.underline) o.underline = { style: 'sng' };
+    return o;
+  }
+
+  // A slide's lines -> one run list, with the line breaks and per-line
+  // alignment PowerPoint expects (align rides on the run that ends the line).
+  function _sbSlideRuns(s, baseSize) {
+    var al = s.align || [];
+    var out = [];
+    var count = (s.html && s.html.length) ? s.html.length : s.lines.length;
+    for (var i = 0; i < count; i++) {
+      var runs;
+      if (s.html && s.html[i] != null) {
+        runs = _sbRunsFromHtml(s.html[i], baseSize);
+      } else {
+        var txt = s.lines[i] || '';
+        runs = txt ? [{ text: txt, options: _sbRunOpts({ bold: true, face: 'Georgia', em: 1 }, baseSize) }] : [];
+      }
+      if (!runs.length) runs = [{ text: ' ', options: _sbRunOpts({ bold: true, face: 'Georgia', em: 1 }, baseSize) }];
+      var align = al[i] || 'center';
+      runs.forEach(function(r) { r.options.align = align; });
+      runs[runs.length - 1].options.breakLine = true;
+      out = out.concat(runs);
+    }
+    if (out.length) delete out[out.length - 1].options.breakLine;
+    return out;
+  }
+
+  // The text box, in inches on a 16:9 slide, so the export lands where the
+  // projection puts it rather than in a fixed frame.
+  var SB_PPT_W = 10, SB_PPT_H = 5.625;
+  function _sbPptFrame(box) {
+    var b = box || SB_BOX_DEFAULT;      // no box placed -> the usual full frame
+    return {
+      x: Math.max(0, (b.x / 100) * SB_PPT_W),
+      y: Math.max(0, (b.y / 100) * SB_PPT_H),
+      w: Math.min(SB_PPT_W, (b.w / 100) * SB_PPT_W),
+      h: Math.min(SB_PPT_H, (b.h / 100) * SB_PPT_H)
+    };
+  }
+
   function sbExportPPT() {
     var deck = _sbBuildProjectionDeck(false);   // skipped slides stay out
     if (!deck.length) { showToast('Nothing to export - no slides in the projection.', 'warning'); return; }
@@ -46076,26 +46312,32 @@ var WO = (function() {
           var data = s.bg ? resolved[s.bg] : '';
           slide.background = data ? { data: data } : { color: '000000' };
 
+          var scale = (s.box && s.box.scale) ? s.box.scale : 1;
+          var frame = _sbPptFrame(s.box);
+
           if (s.kind === 'title') {
             slide.addText(String(s.title), {
-              x: 0.5, y: 1.9, w: 9, h: 1.5, align: 'center', valign: 'middle',
-              fontSize: 44, bold: true, color: 'FFFFFF', fontFace: 'Georgia',
+              x: frame.x, y: frame.y + frame.h * 0.32, w: frame.w, h: frame.h * 0.28,
+              align: 'center', valign: 'middle',
+              fontSize: Math.max(10, Math.round(44 * scale)), bold: true, color: 'FFFFFF', fontFace: 'Georgia',
               shadow: { type: 'outer', color: '000000', blur: 6, offset: 2, opacity: 0.8 }
             });
             if (s.artist) {
               slide.addText(String(s.artist), {
-                x: 0.5, y: 3.35, w: 9, h: 0.6, align: 'center', valign: 'middle',
-                fontSize: 20, color: 'E6DFC9', fontFace: 'Georgia', italic: true,
+                x: frame.x, y: frame.y + frame.h * 0.62, w: frame.w, h: frame.h * 0.12,
+                align: 'center', valign: 'middle',
+                fontSize: Math.max(8, Math.round(20 * scale)), color: 'E6DFC9', fontFace: 'Georgia', italic: true,
                 shadow: { type: 'outer', color: '000000', blur: 5, offset: 2, opacity: 0.75 }
               });
             }
             return;
           }
-          var n = s.lines.length;
+          var n = (s.html && s.html.length) ? s.html.length : s.lines.length;
           var size = n <= 4 ? 34 : (n <= 6 ? 30 : 26);
-          slide.addText(s.lines.join(LF), {
-            x: 0.6, y: 0.5, w: 8.8, h: 4.6, align: 'center', valign: 'middle',
-            fontSize: size, bold: true, color: 'FFFFFF', fontFace: 'Georgia',
+          slide.addText(_sbSlideRuns(s, Math.round(size * scale)), {
+            x: frame.x, y: frame.y, w: frame.w, h: frame.h,
+            align: 'center', valign: 'middle',
+            color: 'FFFFFF', fontFace: 'Georgia',
             lineSpacingMultiple: 1.25,
             shadow: { type: 'outer', color: '000000', blur: 6, offset: 2, opacity: 0.85 }
           });
@@ -68747,10 +68989,13 @@ function filterLiturgyItems() {
     position: absolute; inset: 0; background-size: cover; background-position: center;
   }
   .sb-proj-stage {
-    position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; text-align: center;
-    padding: 4vh 6vw; color: #fff; font-family: 'Lato', Georgia, serif;
+    position: absolute; inset: 0; color: #fff; font-family: 'Lato', Georgia, serif;
     text-shadow: 0 2px 10px rgba(0,0,0,0.85); cursor: pointer;
+  }
+  /* The text box itself: what the operator drags and resizes. */
+  .sb-proj-frame {
+    position: absolute; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
   }
   /* Text scales with the box: a taller box is meant to hold bigger words. */
   .sb-proj-title { font-family: 'Cinzel', Georgia, serif; font-size: calc(5.2vw * var(--sb-scale, 1)); font-weight: 700; line-height: 1.2; }
@@ -68758,7 +69003,7 @@ function filterLiturgyItems() {
   .sb-proj-lines { font-size: calc(3.6vw * var(--sb-scale, 1)); font-weight: 700; line-height: 1.45; }
   /* Editing the box: an outline, eight handles, and a readout. None of this
      is content -- it is stripped before the words are read back. */
-  .sb-proj-stage.is-editing {
+  .sb-proj-frame.is-editing {
     outline: 2px dashed rgba(147,197,253,0.9); outline-offset: 2px;
     cursor: move; background: rgba(96,165,250,0.06);
   }
@@ -68927,9 +69172,12 @@ function filterLiturgyItems() {
   .sb-asl-tbtn:hover { border-color: #60a5fa; color: #e2e8f0; }
   .sb-asl-tsep { width: 1px; height: 20px; background: #1e3355; margin: 0 3px; }
   .sb-asl-tlabel {
-    margin-left: auto; font-family: 'Poppins', sans-serif;
+    font-family: 'Poppins', sans-serif;
     font-size: 0.66rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;
   }
+  /* Cancel and Save live at the end of the toolbar, away from the naming
+     dialogue that used to open on top of them. */
+  .sb-asl-toolbar .sb-asl-actions { margin-left: auto; display: flex; gap: 9px; }
   .sb-asl-song { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   /* The title slide's own wording, edited in place. */
   .sb-asl-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -68949,7 +69197,7 @@ function filterLiturgyItems() {
   .sb-asl-dash { color: #475569; }
   /* Naming the projection, over the editor it came from. */
   .sb-asl-namebox {
-    display: none; position: absolute; inset: 0; z-index: 100065;
+    display: none; position: fixed; inset: 0; z-index: 100075;
     background: rgba(2,8,23,0.82); align-items: center; justify-content: center;
   }
   .sb-asl-namebox[style*="block"] { display: flex !important; }
