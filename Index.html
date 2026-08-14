@@ -45177,10 +45177,13 @@ var WO = (function() {
     }
     stage.style.transform = 'none';
     stage.style.maxWidth = 'none';
-    stage.style.left = box.x + '%';
-    stage.style.top = box.y + '%';
-    stage.style.width = box.w + '%';
-    stage.style.height = box.h + '%';
+    // Clamp: a stored box taller or wider than the screen (107% height was
+    // real) puts its own handles off the display, so the operator ends up
+    // dragging the only corner still reachable.
+    stage.style.left = Math.max(-5, Math.min(95, box.x)) + '%';
+    stage.style.top = Math.max(-5, Math.min(95, box.y)) + '%';
+    stage.style.width = Math.max(10, Math.min(100, box.w)) + '%';
+    stage.style.height = Math.max(8, Math.min(100, box.h)) + '%';
     stage.style.setProperty('--sb-scale', box.scale || 1);
   }
 
@@ -69003,6 +69006,7 @@ function filterLiturgyItems() {
   .sb-proj-lines { font-size: calc(3.6vw * var(--sb-scale, 1)); font-weight: 700; line-height: 1.45; }
   /* Editing the box: an outline, eight handles, and a readout. None of this
      is content -- it is stripped before the words are read back. */
+  .sb-proj-frame [contenteditable="true"] { outline: none; resize: none; }
   .sb-proj-frame.is-editing {
     outline: 2px dashed rgba(147,197,253,0.9); outline-offset: 2px;
     cursor: move; background: rgba(96,165,250,0.06);
@@ -69058,9 +69062,11 @@ function filterLiturgyItems() {
   }
   .sb-proj-sep { width: 1px; height: 20px; background: rgba(255,255,255,0.22); }
   .sb-proj-bar button.on { background: #2563eb; }
+  /* Above the editing toolbar, not behind it: the toolbar sits at z-index 3
+     and grew a second row, which left the save panel half-covered. */
   .sb-proj-bgmenu {
-    display: none; position: absolute; bottom: 68px; left: 50%; transform: translateX(-50%);
-    width: min(430px, 92vw); padding: 12px; border-radius: 12px;
+    display: none; position: absolute; bottom: 178px; left: 50%; transform: translateX(-50%);
+    width: min(430px, 92vw); padding: 12px; border-radius: 12px; z-index: 8;
     background: #101b2e; border: 1px solid #274063; box-shadow: 0 14px 40px rgba(0,0,0,0.55);
     color: #e2e8f0; font-family: 'Poppins', sans-serif;
   }
