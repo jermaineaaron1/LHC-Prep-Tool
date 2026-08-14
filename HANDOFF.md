@@ -25,6 +25,26 @@ The LCD **rebuild** (applying a version to the service order's song slides) is s
 
 ---
 
+## 2026-08-14 — Full screen: a bar the room never sees, and a movable text box
+
+**The bar belongs to the operator, not the room.** It used to appear on any hover anywhere in the overlay. It now shows on entry, fades after five seconds, and comes back only when the pointer is in the **bottom half** of the screen — so on a second display, where the pointer never goes, the audience sees nothing but the slide. It will not fade out from under someone mid-edit or with the picture menu open.
+
+**All Slides leaves full screen** before opening. Full screen is for the room; that panel is a working window, and it was being trapped behind the projection.
+
+**The text box is now placeable.** The pen turns the slide into a box with eight handles: drag anywhere inside to move it, drag a handle to resize, and a vertical drag scales the text with it — a taller box is meant to hold bigger words. A readout shows `88% × 64% · text 70%` while dragging. The same typography controls as All Slides (font, size, bold, italic, underline, align) apply to the selection inside the box.
+
+**Scope is chosen before dragging** — *This slide*, *This song*, *All songs* — so one adjustment can set the look of a slide, a song or the whole songbook. Boxes resolve slide → song → songbook, the same walk as backgrounds. Setting a wider scope clears the narrower boxes underneath it: a songbook-wide box sitting under per-song boxes would appear to do nothing.
+
+Stored as percentages of the screen (`{x, y, w, h, scale}`), so a box set on a laptop lands the same on the hall's projector.
+
+### Verified live (throwaway song + order, deleted by id)
+
+Bar: visible on entry, gone after 5s, unmoved by pointer movement in the top half, back on movement in the bottom half. Box: dragging moved it 6%/4% → 13.8%/15.1%; dragging the south handle up shortened it 92% → 64% and took the text from 46px to 32px (scale 0.70) with the readout agreeing. Scope: with *This slide* the box landed on that slide's override only; switching to *This song* wrote `songBox[0]` and cleared the per-slide box; *All songs* wrote `all.box` and cleared both levels below. After a hard reload the songbook-wide box came back on every slide at the right size and scale, and All Slides opened with the projection out of full screen. Handles and the readout are stripped before the words are read back, so none of it can reach the deck. Orders 19, songs 51, unchanged.
+
+**Note on the full-screen exit:** `requestFullscreen` needs a real user gesture, which the test harness cannot produce, so the exit is guarded by `if (document.fullscreenElement)` and verified by construction rather than by observing a live exit.
+
+---
+
 ## 2026-08-14 — All Slides: formatting, three background levels, Save Projection
 
 **Formatting.** A toolbar over the editor: font, size, bold, italic, underline and align left/centre/right, applied to the selected words. Two things it has to store separately — the markup per line (`html`), and the alignment, which is a property of the *line* and never appears in `innerHTML`, so centring a line was lost the moment it was saved until `align` was captured alongside. `execCommand('fontSize')` still emits `<font size="n">` even under `styleWithCSS`; those are rewritten to real CSS sizes, since a bare size attribute means nothing once projected. Plain `lines` are still written as the fallback for anything that carries no formatting.
