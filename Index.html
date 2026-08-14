@@ -6356,6 +6356,7 @@
                         <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
                         <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
                       </div>
+                      <button class="wo-bg-btn" id="lcdProjVerBtn" onclick="WO.lcdProjectionMenu(this)" title="Which songbook projection the song slides follow"><i class="fa-solid fa-bookmark"></i> <span id="lcdProjVerLabel">Songbook</span></button>
                       <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
                       <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
                       <div class="lcd-controls-spacer"></div>
@@ -25950,6 +25951,9 @@ var WO = (function() {
     var section = document.getElementById('worshipOrderView');
     var pp = document.getElementById('woPreviewPanel');
     if (!section || !pp) return;
+    // The projection picker's label belongs to this order, so refresh it
+    // whenever LCD Projection is entered.
+    if (typeof _lcdSyncProjVerLabel === 'function') _lcdSyncProjVerLabel();
     function applyLayout() {
       // Make the section itself the scroll container so the WO header can scroll away
       // while position:sticky on the preview panel works cleanly within it.
@@ -49198,16 +49202,149 @@ var WO = (function() {
     );
   }
 
-  function _doRestoreSongSlides(sectionId, songId, songSection, container) {
-    // Clear saved slides so fresh parse uses the original lyrics
-    songSection.savedSlides = null;
-    songSection.slides = null;
-    var songInOrder = songOrderSections.find(function(s) { return s.id === songId; });
-    if (songInOrder) { songInOrder.savedSlides = null; songInOrder.slides = null; }
+  // One rebuild for a song's slide boxes, shared by Restore (from the original
+  // lyrics) and by applying a songbook projection. `slides` is already in
+  // stored form: { index, content, header, background }.
+  // ── LCD Projection: which songbook projection the slides follow ─────────
+  // The songbook is where a projection is shaped, so LCD offers the same
+  // choices. It defaults to whatever the songbook is set to, and remembers its
+  // own pick (template.lcdProjectionSource) once the operator makes one --
+  // enough to run the room off one version while preparing another.
+  function _lcdProjSource() {
+    var t = _sbProjTpl();
+    if (!t) return null;
+    var src = t.lcdProjectionSource;
+    if (!src) return _sbProjSource();                       // follow the songbook
+    if (src !== 'asis' && src !== 'draft' && !_sbProjVersion(src)) return _sbProjSource();
+    return src;
+  }
 
-    // Source: use masterLyrics (untransposed, unedited) if available, else lyrics
-    var originalLyrics = songSection.masterLyrics || songSection.lyrics || '';
-    var slides = parseLyricsIntoSlides(originalLyrics);
+  function _lcdProjLabel() {
+    var t = _sbProjTpl();
+    if (!t || !t.lcdProjectionSource) return 'Songbook';    // following, not pinned
+    return _sbProjSourceLabel(_lcdProjSource());
+  }
+
+  function _lcdSyncProjVerLabel() {
+    var el = $('lcdProjVerLabel');
+    if (el) el.textContent = _lcdProjLabel();
+  }
+
+  function lcdProjectionMenu(btn) {
+    var m = $('lcdProjSrcMenu');
+    if (!m) {
+      m = document.createElement('div');
+      m.id = 'lcdProjSrcMenu';
+      m.className = 'sb-projsrc-menu';
+      document.body.appendChild(m);
+      document.addEventListener('click', function(e) {
+        var open = $('lcdProjSrcMenu');
+        if (!open || open.style.display !== 'block') return;
+        if (open.contains(e.target) || (btn && btn.contains(e.target))) return;
+        open.style.display = 'none';
+      }, true);
+    }
+    if (m.style.display === 'block') { m.style.display = 'none'; return; }
+
+    var t = _sbProjTpl() || {};
+    var pinned = t.lcdProjectionSource || null;
+    var cur = _lcdProjSource();
+    var versions = _sbProjVersions();
+
+    function row(src, icon, title, sub, on) {
+      return '<button class="sb-projsrc-row' + (on ? ' on' : '') + '" onclick="WO.lcdApplyProjection(' +
+             (src === null ? 'null' : ('\'' + src + '\'')) + ')">' +
+               '<i class="fa-solid ' + icon + '"></i>' +
+               '<span><b>' + escapeHtml(title) + '</b>' + (sub ? '<small>' + escapeHtml(sub) + '</small>' : '') + '</span>' +
+             '</button>';
+    }
+
+    var html = '<div class="sb-projsrc-head">Song slides follow</div>' +
+      row(null, 'fa-link', 'The songbook’s choice', 'Currently ' + _sbProjSourceLabel(_sbProjSource()), !pinned) +
+      '<div class="sb-projsrc-head">Or pin one here</div>' +
+      row('asis', 'fa-book-open', 'Songbook as written', 'Lyrics straight from the songbook', pinned === 'asis');
+    versions.forEach(function(v) {
+      html += row(v.id, 'fa-bookmark', v.name, _sbVersionSummary(v), pinned === v.id);
+    });
+    if (!versions.length) {
+      html += '<div class="sb-projsrc-head" style="color:#475569;text-transform:none;letter-spacing:0;">' +
+              'Save a version in the songbook’s Project mode and it appears here.</div>';
+    }
+    m.innerHTML = html;
+    m.style.display = 'block';
+    var r = btn.getBoundingClientRect();
+    m.style.top = (r.bottom + 8) + 'px';
+    m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - m.offsetWidth - 12)) + 'px';
+  }
+
+  // The slides a given source projects for one song, in projection order and
+  // with the skipped ones already dropped -- what the room would actually see.
+  function _lcdSlidesFromProjection(songIdx, src) {
+    var t = _sbProjTpl();
+    if (!t) return null;
+    var restore = t.projectionSource;
+    t.projectionSource = src;                    // read the deck through that source
+    var deck;
+    try { deck = _sbBuildProjectionDeck(false); }
+    finally { t.projectionSource = restore; }
+    var mine = deck.filter(function(s) { return s.songIdx === songIdx; });
+    if (!mine.length) return null;
+    return mine.map(function(s, i) {
+      var lines = (s.kind === 'title')
+        ? [s.title || ''].concat(s.artist ? [s.artist] : [])
+        : (s.lines || []);
+      return { index: i, content: lines.join(String.fromCharCode(10)),
+               header: s.section || '', background: s.bg || '' };
+    });
+  }
+
+  function lcdApplyProjection(src) {
+    var m = $('lcdProjSrcMenu'); if (m) m.style.display = 'none';
+    var t = _sbProjTpl();
+    if (!t) return;
+    if (src === null) { delete t.lcdProjectionSource; } else { t.lcdProjectionSource = src; }
+
+    var songs = (songOrderSections || []).filter(function(s, i) {
+      return s && s.itemType !== 'blank' && s.sectionId;
+    });
+    if (!songs.length) {
+      _lcdSyncProjVerLabel();
+      _sbProjSaveStore();
+      showToast('Nothing in the service order to apply it to yet', 'info');
+      return;
+    }
+    var label = _sbProjSourceLabel(_lcdProjSource());
+    _sbShowConfirm(
+      'Rebuild the song slides from "' + label + '"?',
+      'Every song in the service order is re-cut to match that projection — its breaks, wording and pictures. ' +
+      'Slide edits made here in LCD Projection are replaced. The songbook itself is not touched.',
+      function() { _lcdDoApplyProjection(src); }
+    );
+  }
+
+  function _lcdDoApplyProjection(src) {
+    var effective = _lcdProjSource();
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
+    var applied = 0;
+    (songOrderSections || []).forEach(function(song, idx) {
+      if (!song || song.itemType === 'blank' || !song.sectionId) return;
+      var slides = _lcdSlidesFromProjection(idx, effective);
+      if (!slides || !slides.length) return;
+      var container = $(song.sectionId + '-boxes');
+      if (!container) return;
+      if (_lcdRebuildSongSlides(song.sectionId, song.id, song, container, slides)) applied++;
+    });
+    _lcdSyncProjVerLabel();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    _sbProjSaveStore();
+    showToast(applied
+      ? (applied + (applied === 1 ? ' song' : ' songs') + ' now match "' + _sbProjSourceLabel(effective) + '"')
+      : 'That projection has no slides for these songs', applied ? 'success' : 'warning');
+  }
+
+  function _lcdRebuildSongSlides(sectionId, songId, songSection, container, slides) {
+    if (!container || !slides || !slides.length) return null;
+    var songInOrder = songOrderSections.find(function(s) { return s.id === songId; });
 
     // Remove existing slide elements for this song
     container.querySelectorAll('.wo-slide-box[data-song-id="' + songId + '"]').forEach(function(el) { el.remove(); });
@@ -49222,7 +49359,7 @@ var WO = (function() {
     slides.forEach(function(slide, idx) {
       var headerClass = getSectionTypeClass(slide.header);
       var headerHtml = slide.header ? '<div class="wo-slide-section-header ' + headerClass + '">' + escapeHtml(slide.header) + '</div>' : '';
-      var linesHtml = slide.lines.map(function(line) { return _slideLineHtml(line); }).join('');
+      var linesHtml = (slide.content || '').split(String.fromCharCode(10)).map(function(line) { return _slideLineHtml(line); }).join('');
 
       var boxHtml = '<div class="wo-content-box wo-slide-box" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-song-id="' + songId + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
         _buildSlideBoxHeader(idx, slides.length, 'song', songId, sectionId) +
@@ -49247,13 +49384,33 @@ var WO = (function() {
     // Renumber slide headers
     renumberSlideBoxes(container, 'song', songId);
 
-    // Update stored slides data
+    // Update stored slides data. The caller already handed them over in stored
+    // form, so index them and keep them -- re-deriving here is what let the
+    // background quietly drop out.
     var slidesData = slides.map(function(slide, idx) {
-      return { index: idx, content: slide.lines.join('\n'), header: slide.header || '', background: '' };
+      return { index: idx, content: slide.content || '', header: slide.header || '', background: slide.background || '' };
     });
     songSection.slides = slidesData;
     songSection.savedSlides = slidesData; // ensure fallback in collectOrderItems uses restored state
     if (songInOrder) { songInOrder.slides = slidesData; songInOrder.savedSlides = slidesData; }
+    return { slidesData: slidesData, firstSlideBox: firstSlideBox };
+  }
+
+  function _doRestoreSongSlides(sectionId, songId, songSection, container) {
+    // Clear saved slides so fresh parse uses the original lyrics
+    songSection.savedSlides = null;
+    songSection.slides = null;
+    var songInOrder = songOrderSections.find(function(s) { return s.id === songId; });
+    if (songInOrder) { songInOrder.savedSlides = null; songInOrder.slides = null; }
+
+    // Source: use masterLyrics (untransposed, unedited) if available, else lyrics
+    var originalLyrics = songSection.masterLyrics || songSection.lyrics || '';
+    var slides = parseLyricsIntoSlides(originalLyrics);
+    var _rebuilt = _lcdRebuildSongSlides(sectionId, songId, songSection, container, slides.map(function(sl, i) {
+      return { index: i, content: (sl.lines || []).join(String.fromCharCode(10)),
+               header: sl.header || '', background: '' };
+    })) || { slidesData: [], firstSlideBox: null };
+    var slidesData = _rebuilt.slidesData, firstSlideBox = _rebuilt.firstSlideBox;
 
     // Cancel any pending debounced saves so a stale timer can't overwrite the restore
     clearTimeout(_autoSaveTimer);
@@ -59639,6 +59796,8 @@ var WO = (function() {
     sbAslBgMenu: sbAslBgMenu,
     sbAslSetBg: sbAslSetBg,
     sbAslBgUpload: sbAslBgUpload,
+    lcdProjectionMenu: lcdProjectionMenu,
+    lcdApplyProjection: lcdApplyProjection,
     sbProjectMenu: sbProjectMenu,
     sbProjectAs: sbProjectAs,
     sbProjVersionMenu: sbProjVersionMenu,
