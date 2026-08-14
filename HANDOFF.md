@@ -4,6 +4,28 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 — All Slides in Project mode
+
+The projector shows one slide at a time, but shaping a service means seeing them all. New **All Slides** button on the Project bar (grid icon) opens the whole deck as cards over the projection — the songbook equivalent of LCD Projection's All Slides.
+
+Each card shows its **real background**, the slide number and section label (`2 · CHORUS`), the actual lines, and tags for *adjusted* / *skipped*; the slide currently on the projector is outlined gold, skipped ones are dimmed. Cards act in place:
+
+- **click** — jump the projector to that slide;
+- **🖼** — assign a picture to **that** slide;
+- **👁** — skip/include it.
+
+The header counts what will actually project (`3 projecting · 1 skipped`).
+
+**Targeted backgrounds:** `sbProjBgMenu(targetKey)` now records `_sbProjBgTarget`, and `sbProjSetBg` writes to that key rather than always the on-screen slide — so choosing a picture from a card lands on the card, not on whatever the projector happens to be showing. Verified explicitly: with the projector on slide 4, a picture chosen from card 2 landed on slide 2 only.
+
+Everything writes to the same `template.projectionDeck` store the projection and the export read, so a change made here shows on screen, in the PowerPoint, and after a reload.
+
+### Verified live (throwaway song + order, deleted by id)
+
+Grid rendered 4 cards with correct section labels; skipping from a card marked it, updated the header to "3 projecting · 1 skipped" and dropped the export deck to 3; jumping from a card moved the projector to 4/4 with the right text and re-marked the current card; a picture assigned from card 2 landed only on slide 2. Orders 19, songs 51, unchanged.
+
+---
+
 ## 2026-08-14 — Project mode is now the projection editor; Export PPT has no dialogue
 
 The songbook page is the musicians' copy: it carries chords and stage cues like `(Aaron Solo):` that must never reach the screen. **Project mode is now where the operator shapes what the congregation sees**, and **Export PPT writes out exactly that** — the export dialogue is gone entirely, so the two can't disagree.
