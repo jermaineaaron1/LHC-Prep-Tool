@@ -4,6 +4,32 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 — Project mode is now the projection editor; Export PPT has no dialogue
+
+The songbook page is the musicians' copy: it carries chords and stage cues like `(Aaron Solo):` that must never reach the screen. **Project mode is now where the operator shapes what the congregation sees**, and **Export PPT writes out exactly that** — the export dialogue is gone entirely, so the two can't disagree.
+
+### In Project mode
+
+- **✏ Edit** — the slide itself becomes editable (title/artist on a title slide, the lyric block otherwise). Commit with the pen again or Esc. Arrow keys are suppressed while editing so typing can't page the deck.
+- **🖼 Background** — popover with the media library, an **Upload picture** option, and **Apply to all slides** (which clears per-slide pins so the new default isn't masked).
+- **👁 Skip** — drops a slide from both the projection and the export.
+- **↺ Reset** — restores that slide to the songbook wording.
+- **Export PPT** is also on the bar, next to the exit button.
+
+### Where adjustments live
+
+`currentOrderData.template.projectionDeck` — `{ all: { bg }, slides: { "<key>": { lines, title, artist, bg, hidden } } }`. `template` is part of the save payload, so adjustments **persist to the cloud with the order** and follow it to another device. Keys are content-derived (`songIdx|sectionIdx|HEADER|part`), so they stay attached to the right slide when songs are added or reordered.
+
+`_sbBuildProjectionDeck(includeHidden)` applies the overrides; Project mode passes `true` (so skipped slides are still visible, dimmed, and can be un-skipped) and the exporter passes `false`.
+
+### Verified live (throwaway song + order, deleted by id afterwards)
+
+Baseline deck dropped the chord line but kept `(Aaron Solo):`. Editing that line out stuck and the slide was marked *Adjusted for projection*. Applying an uploaded picture to all slides, then skipping the last slide, gave a projector deck of 3 (one dimmed/skipped) and an **export deck of 2, both with the background**. `sbExportPPT()` ran with **no dialogue** and toasted "PowerPoint exported - 2 slides". After a save, the cloud row's `template.projectionDeck` contained the edited lines, the hidden flag and the all-slides background.
+
+**Cleanup note:** this round deleted only the two ids it created (no time-window sweep) — order count back to 19, songs 51. See the ⚠️ entry below.
+
+---
+
 ## ⚠️ 2026-08-14 — Order count dropped 20 → 19 during testing, cause unproven
 
 During this session's cleanups the cloud `orders` count went from **20** (measured after the delete-fix verification) to **19**, and the difference cannot be reconstructed. There is no `order_changes` audit table, and a deleted order takes its `order_items` with it, so no orphan rows point at the missing one. **Ask the user to confirm nothing of theirs is missing**; Supabase point-in-time recovery is the only route back.
