@@ -6356,6 +6356,7 @@
                         <span class="wo-preview-zoom-label" id="woPreviewZoomLabel">100%</span>
                         <button class="wo-preview-zoom-btn" onclick="WO.zoomPreview(1)" title="Zoom in preview"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
                       </div>
+                      <button class="wo-bg-btn" id="lcdProjVerBtn" onclick="WO.lcdProjectionMenu(this)" title="Which songbook projection the song slides follow"><i class="fa-solid fa-bookmark"></i> <span id="lcdProjVerLabel">Songbook</span></button>
                       <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
                       <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
                       <div class="lcd-controls-spacer"></div>
@@ -9617,7 +9618,7 @@ I once was lost but now am found"
           </div>
         </div>
         <button class="sb-tool-btn" onclick="WO.sbOpenPlaylist()" title="Playlist" style="background:rgba(16,185,129,0.25);border:1.5px solid #6ee7b7;color:#a7f3d0;"><i class="fa-solid fa-headphones"></i><span>Playlist</span></button>
-        <button class="sb-tool-btn" id="sbProjectBtn" onclick="WO.sbProject()" title="Project the songbook — lyrics only, full screen" style="background:rgba(37,99,235,0.28);border:1.5px solid #93c5fd;color:#dbeafe;"><i class="fa-solid fa-display"></i><span>Project</span></button>
+        <button class="sb-tool-btn" id="sbProjectBtn" onclick="WO.sbProjectMenu(this)" title="Project the songbook — lyrics only, full screen" style="background:rgba(37,99,235,0.28);border:1.5px solid #93c5fd;color:#dbeafe;"><i class="fa-solid fa-display"></i><span>Project</span><i class="fa-solid fa-caret-down" style="margin-left:5px;opacity:0.75;"></i></button>
         <button class="sb-tool-btn" id="sbFullscreenBtn" onclick="WO.sbToggleLiveFullscreen()" title="Full Screen"><i class="fa-solid fa-expand"></i><span>Full Screen</span></button>
         <!-- More dropdown -->
         <div style="position:relative;display:inline-block;">
@@ -21897,20 +21898,30 @@ function normalizeSongFromSupabase(row) {
 SBQ.patchInbox = function(orderId, items) {
   var sb = SBQ._sb();
   if (!sb || !orderId) return Promise.resolve();
-  // Merge _inbox into the current in-memory template
-  var tpl = Object.assign({}, (window.currentOrderData && window.currentOrderData.template) || {});
-  // Always set _inbox (even []) so that clearing all links is persisted as an
-  // explicit empty array rather than a missing key — prevents stale
-  // order_media_links table rows from restoring deleted items on next load.
-  tpl._inbox = Array.isArray(items) ? items : [];
-  tpl._inboxPresent = true;
-  return sb.from('orders')
-    .update({ template: tpl, last_edited: new Date().toISOString() })
-    .eq('id', orderId)
-    .then(function(res) {
-      if (res.error) console.warn('[LHC] patchInbox failed:', res.error.message);
-      else console.log('[LHC] inbox patched → orders.template._inbox', (items || []).length, 'items');
-    });
+  // `template` is one JSON column holding everything: the projection deck, the
+  // songbook fonts, the section layout, the cleared sections, the backgrounds.
+  // Writing it whole from an in-memory object meant this "lightweight patch"
+  // replaced ALL of that with {_inbox}. Worse, it merged from
+  // window.currentOrderData, which nothing ever assigns -- so the merge always
+  // started from {} and every inbox change silently destroyed the rest of the
+  // template in Supabase. Read the stored template and merge into it: one
+  // extra round-trip is a small price for not losing the operator's work.
+  return sb.from('orders').select('template').eq('id', orderId).single().then(function(cur) {
+    if (cur.error) { console.warn('[LHC] patchInbox skipped:', cur.error.message); return; }
+    var tpl = Object.assign({}, (cur.data && cur.data.template) || {});
+    // Always set _inbox (even []) so that clearing all links is persisted as an
+    // explicit empty array rather than a missing key — prevents stale
+    // order_media_links table rows from restoring deleted items on next load.
+    tpl._inbox = Array.isArray(items) ? items : [];
+    tpl._inboxPresent = true;
+    return sb.from('orders')
+      .update({ template: tpl, last_edited: new Date().toISOString() })
+      .eq('id', orderId)
+      .then(function(res) {
+        if (res.error) console.warn('[LHC] patchInbox failed:', res.error.message);
+        else console.log('[LHC] inbox patched → orders.template._inbox', (items || []).length, 'items');
+      });
+  });
 };
 
 SBQ.mediaLinks = {
@@ -22625,6 +22636,147 @@ var WO_Inbox = (function() {
 
   return { load: load, toggle: toggle, assign: assign, dismiss: dismiss };
 })();
+
+// ================================================================
+// SBQ_PROJECTION — saved songbook projections, one row per version
+// ================================================================
+// These used to live inside orders.template, a single JSON column shared with
+// the inbox, the fonts and the section layout, where every writer rewrote the
+// whole column and any one of them getting it wrong took the projection work
+// with it. Each version now owns a row (migrations/2026-08-14_add_projection_
+// versions.sql) and is written on its own.
+//
+// The tables are optional. Until the migration is run every call reports "not
+// available" and the app carries on using orders.template exactly as before,
+// so the deploy and the migration can happen in either order.
+var SBQ_PROJECTION = {
+  _sb: function() { return getSupabaseClient(); },
+  _tableExists: null,   // null=unknown, true=ok, false=migration not run yet
+
+  _missing: function(msg) {
+    return !msg || msg.indexOf('does not exist') !== -1 || msg.indexOf('42P01') !== -1 ||
+           msg.indexOf('PGRST205') !== -1 || msg.indexOf('schema cache') !== -1;
+  },
+
+  _note: function(err) {
+    var msg = (err && err.message) || String(err || '');
+    if (SBQ_PROJECTION._missing(msg)) {
+      if (SBQ_PROJECTION._tableExists !== false) {
+        console.info('[LHC] projection tables not present yet — using orders.template until the migration is run');
+      }
+      SBQ_PROJECTION._tableExists = false;
+    } else {
+      console.warn('[LHC] projection storage:', msg);
+    }
+    return null;
+  },
+
+  // → { versions: [{id,name,deck}], settings: {source, lcdSource, draftDeck, draftBase} }
+  // or null when the tables are not available, which the caller reads as
+  // "keep whatever the template says".
+  load: function(ownerId) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._tableExists === false) return Promise.resolve(null);
+    return sb.from('projection_versions')
+      .select('id,name,deck,sort_order,created_at')
+      .eq('owner_id', ownerId)
+      .order('sort_order', { ascending: true })
+      .then(function(r) {
+        if (r.error) return SBQ_PROJECTION._note(r.error);
+        SBQ_PROJECTION._tableExists = true;
+        var versions = (r.data || []).map(function(row) {
+          return { id: row.id, name: row.name || 'Untitled', created: row.created_at || '', deck: row.deck || {} };
+        });
+        return sb.from('projection_settings').select('*').eq('owner_id', ownerId).maybeSingle()
+          .then(function(s) {
+            if (s.error) SBQ_PROJECTION._note(s.error);
+            var row = s.data || null;
+            return {
+              versions: versions,
+              settings: row ? {
+                source:    row.source     || null,
+                lcdSource: row.lcd_source || null,
+                draftDeck: row.draft_deck || null,
+                draftBase: row.draft_base || null
+              } : null
+            };
+          });
+      })
+      .catch(SBQ_PROJECTION._note);
+  },
+
+  // Upsert one version. Called the moment it is saved, so it lands without
+  // waiting for the order's own debounced autosave.
+  saveVersion: function(ownerId, version, sortOrder) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || !version || SBQ_PROJECTION._tableExists === false) return Promise.resolve(false);
+    return sb.from('projection_versions').upsert([{
+      id:         version.id,
+      owner_id:   ownerId,
+      name:       version.name || 'Untitled',
+      deck:       version.deck || {},
+      sort_order: sortOrder || 0,
+      updated_at: new Date().toISOString()
+    }]).then(function(r) {
+      if (r.error) { SBQ_PROJECTION._note(r.error); return false; }
+      SBQ_PROJECTION._tableExists = true;
+      return true;
+    }).catch(function(e) { SBQ_PROJECTION._note(e); return false; });
+  },
+
+  saveAll: function(ownerId, versions) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._tableExists === false) return Promise.resolve(false);
+    if (!versions || !versions.length) return Promise.resolve(true);
+    return sb.from('projection_versions').upsert(versions.map(function(v, i) {
+      return {
+        id: v.id, owner_id: ownerId, name: v.name || 'Untitled',
+        deck: v.deck || {}, sort_order: i, updated_at: new Date().toISOString()
+      };
+    })).then(function(r) {
+      if (r.error) { SBQ_PROJECTION._note(r.error); return false; }
+      SBQ_PROJECTION._tableExists = true;
+      return true;
+    }).catch(function(e) { SBQ_PROJECTION._note(e); return false; });
+  },
+
+  deleteVersion: function(id) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !id || SBQ_PROJECTION._tableExists === false) return Promise.resolve(false);
+    return sb.from('projection_versions').delete().eq('id', id).then(function(r) {
+      if (r.error) { SBQ_PROJECTION._note(r.error); return false; }
+      return true;
+    }).catch(function(e) { SBQ_PROJECTION._note(e); return false; });
+  },
+
+  saveSettings: function(ownerId, s) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._tableExists === false) return Promise.resolve(false);
+    return sb.from('projection_settings').upsert([{
+      owner_id:   ownerId,
+      source:     s.source || null,
+      lcd_source: s.lcdSource || null,
+      draft_deck: s.draftDeck || {},
+      draft_base: s.draftBase || null,
+      updated_at: new Date().toISOString()
+    }]).then(function(r) {
+      if (r.error) { SBQ_PROJECTION._note(r.error); return false; }
+      SBQ_PROJECTION._tableExists = true;
+      return true;
+    }).catch(function(e) { SBQ_PROJECTION._note(e); return false; });
+  },
+
+  // Called when an order is deleted: there is no foreign key to cascade, on
+  // purpose (a standalone songbook's orders row is created lazily).
+  removeOwner: function(ownerId) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._tableExists === false) return Promise.resolve();
+    return Promise.all([
+      sb.from('projection_versions').delete().eq('owner_id', ownerId),
+      sb.from('projection_settings').delete().eq('owner_id', ownerId)
+    ]).then(function() {}).catch(function() {});
+  }
+};
 
 // ================================================================
 // SBQ_SONGBOOKS — Supabase helpers for standalone Songbooks table
@@ -23510,6 +23662,10 @@ var WO = (function() {
     if (!orderId) return;
     _deletedOrderIds[orderId] = true;
 
+    // Projection rows have no foreign key to cascade from (see the migration),
+    // so they are cleared here or they outlive the order they belong to.
+    if (typeof SBQ_PROJECTION !== 'undefined') SBQ_PROJECTION.removeOwner(orderId);
+
     if (typeof STATE !== 'undefined' && Array.isArray(STATE.orders)) {
       STATE.orders = STATE.orders.filter(function(o) { return o && o.id !== orderId; });
     }
@@ -23674,6 +23830,8 @@ var WO = (function() {
           console.log('=== LOAD ORDER DEBUG (Supabase) ===');
           console.log('getOrderFromSupabase result - items:', result && result.items ? result.items.length : 0);
           if (result && result.order) {
+            _tplLoadedForOrder = result.order.id;   // this template IS the stored one
+            setTimeout(function() { _sbProjHydrate(result.order.id); }, 0);
             // Build complete order from Supabase data
             var completeOrder = {
               id: result.order.id,
@@ -24584,6 +24742,10 @@ var WO = (function() {
       }).catch(function() {
         sbSetSaveStatus('');
       });
+      // The songbooks table has no room for the template, so the projection
+      // deck goes to its own row -- without this the whole of Project mode and
+      // All Slides was in-memory only for a standalone songbook.
+      _sbPersistStandaloneTemplate();
       return;
     }
 
@@ -24750,11 +24912,23 @@ var WO = (function() {
       // added sections, deleted sections, and section order all restore correctly.
       // sectionBackgrounds holds per-slide background assignments keyed by sectionId —
       // embedding here ensures they survive on a different device or browser.
-      template: Object.assign({}, currentOrderData.template || {}, {
-        clearedSections: Array.isArray(currentOrderData.clearedSections) ? currentOrderData.clearedSections : [],
-        sectionLayout: Array.isArray(currentOrderData.sectionLayout) ? currentOrderData.sectionLayout : [],
-        sectionBackgrounds: (typeof sectionBackgrounds === 'object' && sectionBackgrounds !== null && Object.keys(sectionBackgrounds).length > 0) ? sectionBackgrounds : undefined
-      }),
+      template: (function() {
+        var tpl = Object.assign({}, currentOrderData.template || {}, {
+          clearedSections: Array.isArray(currentOrderData.clearedSections) ? currentOrderData.clearedSections : [],
+          sectionLayout: Array.isArray(currentOrderData.sectionLayout) ? currentOrderData.sectionLayout : [],
+          sectionBackgrounds: (typeof sectionBackgrounds === 'object' && sectionBackgrounds !== null && Object.keys(sectionBackgrounds).length > 0) ? sectionBackgrounds : undefined
+        });
+        // An empty projection deck is only written when we KNOW this order's
+        // template came from the backend -- i.e. the operator really did clear
+        // it. Otherwise the deck is left out of the payload entirely, so an
+        // order opened without its template can never overwrite the stored
+        // slides and backgrounds with nothing. That is exactly how a
+        // songbook's projection work was destroyed on reopen.
+        if (tpl.projectionDeck && _sbDeckIsEmpty(tpl.projectionDeck) && _tplLoadedForOrder !== currentOrderData.id) {
+          delete tpl.projectionDeck;
+        }
+        return tpl;
+      })(),
       createdDate: currentOrderData.createdDate || new Date().toISOString(),
       items: itemsForSave,
       // Persist inbox items inside the Supabase order record so they survive
@@ -25923,6 +26097,9 @@ var WO = (function() {
     var section = document.getElementById('worshipOrderView');
     var pp = document.getElementById('woPreviewPanel');
     if (!section || !pp) return;
+    // The projection picker's label belongs to this order, so refresh it
+    // whenever LCD Projection is entered.
+    if (typeof _lcdSyncProjVerLabel === 'function') _lcdSyncProjVerLabel();
     function applyLayout() {
       // Make the section itself the scroll container so the WO header can scroll away
       // while position:sticky on the preview panel works cleanly within it.
@@ -35884,6 +36061,8 @@ var WO = (function() {
         });
       });
       _sbStandaloneId = null;
+      _tplLoadedForOrder = orderMeta.id;      // this template IS the stored one
+      setTimeout(function() { _sbProjHydrate(orderMeta.id); }, 0);   // rows win over the template mirror
       currentOrderData = {
         id: orderMeta.id, title: orderMeta.title || 'Songbook',
         type: orderMeta.type || 'traditional', serviceDate: orderMeta.serviceDate || '',
@@ -35983,6 +36162,17 @@ var WO = (function() {
       // merge). Fetch the authoritative customizations before the first
       // render so it's correct from the start; never block opening on it.
       SBQ.loadOrder(currentOrderData.id).then(function(result) {
+        // The template comes back with the row and MUST be adopted. It holds
+        // the projection deck, the fonts, the section layout -- everything
+        // Project mode and All Slides write. Opening on a hardcoded {} did not
+        // merely hide that work: the next autosave wrote the empty template
+        // straight over it in Supabase, so a reopen destroyed it for good.
+        if (result && result.order && currentOrderData && currentOrderData.id === 'standalone_' + sbId) {
+          // Anything set in the second before this landed still wins.
+          currentOrderData.template = Object.assign({}, result.order.template || {}, currentOrderData.template || {});
+          _tplLoadedForOrder = currentOrderData.id;
+          _sbProjHydrate(currentOrderData.id);
+        }
         if (result && result.items) {
           result.items.forEach(function(item) {
             var song = songOrderSections.find(function(s) { return s.id === item.id; });
@@ -44256,31 +44446,229 @@ var WO = (function() {
     }).filter(function(s) { return s.lines.length; });
   }
 
+  // Which order's template we know arrived from the backend. An order opened
+  // WITHOUT its stored template must never write an empty projection deck
+  // back over the real one -- see the guard in saveCurrentOrder.
+  var _tplLoadedForOrder = null;
+
+  function _sbDeckIsEmpty(pd) {
+    if (!pd) return true;
+    if (pd.all && pd.all.bg) return false;
+    if (pd.slides && Object.keys(pd.slides).length) return false;
+    if (pd.songs && Object.keys(pd.songs).length) return false;
+    return true;
+  }
+
+  // A standalone songbook saves into the `songbooks` table, which has no
+  // column for any of this -- so saveCurrentOrder returns before the template
+  // is ever written, and the projection deck had nowhere to live at all. It
+  // goes into the orders row keyed `standalone_<sbId>`, which is the same row
+  // openSongbookStandalone reads back and which SBQ.loadOrders already filters
+  // out of every order list, so it stays invisible as an order.
+  //
+  // The row is only created once there is something worth keeping: a songbook
+  // that never uses Project mode writes nothing.
+  function _sbPersistStandaloneTemplate() {
+    if (!_sbStandaloneId || typeof currentOrderData === 'undefined' || !currentOrderData) return;
+    var id = 'standalone_' + _sbStandaloneId;
+    var tpl = currentOrderData.template || {};
+    var worthKeeping = !_sbDeckIsEmpty(tpl.projectionDeck) || _tplLoadedForOrder === id;
+    if (!worthKeeping) return;
+    var sbc = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sbc) return;
+    sbc.from('orders').upsert([{
+      id: id,
+      title: currentOrderData.title || 'Songbook',
+      type: currentOrderData.type || 'traditional',
+      template: tpl,
+      created_date: currentOrderData.createdDate || new Date().toISOString(),
+      last_edited: new Date().toISOString()
+    }]).then(function(r) {
+      if (r && r.error) { console.warn('[Songbook] projection settings not saved:', r.error.message); return; }
+      _tplLoadedForOrder = id;      // it is now the stored one
+    }).catch(function(e) {
+      console.warn('[Songbook] projection settings not saved:', e);
+    });
+  }
+
   // ── The operator's adjustments ──────────────────────────────────────────
   // Kept on currentOrderData.template, which is written with the order, so an
   // adjustment survives a reload and follows the order to another device.
   // Keys are content-derived (song + section + part) so they stay attached to
   // the right slide when songs are added or reordered.
-  function _sbProjStore() {
-    // Shape must match the real store exactly -- a fallback missing `songs`
-    // made the deck builder throw and return nothing at all.
-    if (typeof currentOrderData === 'undefined' || !currentOrderData) return { slides: {}, all: {}, songs: {} };
-    if (!currentOrderData.template) currentOrderData.template = {};
-    var t = currentOrderData.template;
-    if (!t.projectionDeck) t.projectionDeck = { slides: {}, all: {}, songs: {} };
-    if (!t.projectionDeck.slides) t.projectionDeck.slides = {};
-    if (!t.projectionDeck.all) t.projectionDeck.all = {};
+  // ── Cloud storage for projections ───────────────────────────────────────
+  // The versions live in their own rows (SBQ_PROJECTION); orders.template
+  // keeps a mirror so nothing is lost if the tables are unavailable or the
+  // frontend is rolled back. On load the rows win where they exist.
+  var _sbProjHydratedFor = null;
+
+  function _sbProjOwnerId() {
+    if (typeof currentOrderData === 'undefined' || !currentOrderData) return null;
+    return currentOrderData.id || null;
+  }
+
+  function _sbProjHydrate(ownerId) {
+    ownerId = ownerId || _sbProjOwnerId();
+    if (!ownerId || typeof SBQ_PROJECTION === 'undefined') return Promise.resolve(false);
+    return SBQ_PROJECTION.load(ownerId).then(function(res) {
+      var t = _sbProjTpl();
+      if (!t || _sbProjOwnerId() !== ownerId) return false;    // order changed under us
+      if (!res) { _sbProjHydratedFor = ownerId; return false; }  // tables not available
+      _sbProjHydratedFor = ownerId;
+
+      if (res.versions && res.versions.length) {
+        // Copy, never adopt: the loader's array must not become the live one,
+        // or later edits reach back into whatever it was built from.
+        t.projectionVersions = res.versions.map(function(v) {
+          return { id: v.id, name: v.name, created: v.created || '',
+                   deck: JSON.parse(JSON.stringify(v.deck || {})) };
+        });
+      } else if (Array.isArray(t.projectionVersions) && t.projectionVersions.length) {
+        // First open since the migration: move what the template already has
+        // into the tables. The template copy stays as a mirror.
+        SBQ_PROJECTION.saveAll(ownerId, t.projectionVersions);
+      }
+
+      var s = res.settings;
+      if (s) {
+        if (s.source) t.projectionSource = s.source;
+        t.lcdProjectionSource = s.lcdSource || undefined;
+        if (s.lcdSource == null) delete t.lcdProjectionSource;
+        if (s.draftDeck && !_sbDeckIsEmpty(s.draftDeck)) t.projectionDeck = s.draftDeck;
+        t.projectionDraftBase = s.draftBase || null;
+      } else {
+        _sbProjPushSettings(ownerId);      // seed the row from what we have
+      }
+      return true;
+    }).catch(function() { return false; });
+  }
+
+  function _sbProjPushSettings(ownerId) {
+    ownerId = ownerId || _sbProjOwnerId();
+    var t = _sbProjTpl();
+    if (!ownerId || !t || typeof SBQ_PROJECTION === 'undefined') return;
+    SBQ_PROJECTION.saveSettings(ownerId, {
+      source:    t.projectionSource || null,
+      lcdSource: t.lcdProjectionSource || null,
+      draftDeck: t.projectionDeck || {},
+      draftBase: t.projectionDraftBase || null
+    });
+  }
+
+  // ── Saved projection versions ───────────────────────────────────────────
+  // A version is a NAMED snapshot of the whole songbook's projection: every
+  // song's slides, their breaks, their wording and their pictures. The
+  // songbook itself never changes -- "Songbook as written" always projects the
+  // plain lyrics, and a version sits on top of it.
+  //
+  //   template.projectionVersions = [ { id, name, created, deck } ]
+  //   template.projectionDeck     = the unnamed working draft
+  //   template.projectionSource   = 'asis' | 'draft' | <version id>
+  //
+  // Whichever source is active is the one Project mode edits, the projection
+  // shows, and the PowerPoint exports -- one selection, no separate settings
+  // to keep in step.
+  function _sbNormalizeDeck(d) {
+    if (!d || typeof d !== 'object') d = {};
+    if (!d.slides) d.slides = {};
+    if (!d.all) d.all = {};
     // songs[songIdx] = { slides: [ { lines, bg, hidden } ] } -- a FULL
     // replacement deck for that song, written by the All Slides editor once
     // the operator has decided where the breaks go. While it exists the
     // lyrics parse is not used for that song: re-parsing would undo their
     // reflow the moment anything else changed.
-    if (!t.projectionDeck.songs) t.projectionDeck.songs = {};
-    return t.projectionDeck;
+    if (!d.songs) d.songs = {};
+    return d;
+  }
+
+  function _sbProjTpl() {
+    if (typeof currentOrderData === 'undefined' || !currentOrderData) return null;
+    if (!currentOrderData.template) currentOrderData.template = {};
+    return currentOrderData.template;
+  }
+
+  function _sbProjVersions() {
+    var t = _sbProjTpl();
+    if (!t) return [];
+    if (!Array.isArray(t.projectionVersions)) t.projectionVersions = [];
+    return t.projectionVersions;
+  }
+
+  function _sbProjVersion(id) {
+    var list = _sbProjVersions();
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return list[i];
+    return null;
+  }
+
+  // Default is 'draft': songbooks that predate versions keep projecting the
+  // adjustments they already have.
+  function _sbProjSource() {
+    var t = _sbProjTpl();
+    if (!t) return 'draft';
+    var src = t.projectionSource || 'draft';
+    if (src !== 'asis' && src !== 'draft' && !_sbProjVersion(src)) return 'draft';  // version deleted
+    return src;
+  }
+
+  function _sbSetProjSource(src) {
+    var t = _sbProjTpl();
+    if (t) t.projectionSource = src;
+  }
+
+  function _sbProjSourceLabel(src) {
+    src = src || _sbProjSource();
+    if (src === 'asis') return 'Songbook as written';
+    if (src === 'draft') {
+      var base = _sbDraftBase();
+      return base ? ('Unsaved changes to ' + base.name) : 'Unsaved adjustments';
+    }
+    var v = _sbProjVersion(src);
+    return v ? v.name : 'Unsaved adjustments';
+  }
+
+  // forWrite: an edit made while projecting "as written" has to land
+  // somewhere, so it starts the working draft rather than being swallowed.
+  function _sbProjStore(forWrite) {
+    var t = _sbProjTpl();
+    // Shape must match the real store exactly -- a fallback missing `songs`
+    // made the deck builder throw and return nothing at all.
+    if (!t) return { slides: {}, all: {}, songs: {} };
+    var src = _sbProjSource();
+    if (src === 'asis') {
+      if (!forWrite) return { slides: {}, all: {}, songs: {} };   // the plain songbook
+      _sbSetProjSource('draft');
+      src = 'draft';
+      if (typeof showToast === 'function') showToast('Started a new set of adjustments', 'info');
+    }
+    if (src !== 'draft') {
+      var v = _sbProjVersion(src);
+      if (v && !forWrite) return _sbNormalizeDeck(v.deck || (v.deck = {}));
+      if (v) {
+        // Copy on write. A saved version is what will be projected on the day,
+        // so tweaking it must not quietly rewrite it -- the edit goes into a
+        // working copy, and only Save puts it back.
+        t.projectionDeck = JSON.parse(JSON.stringify(_sbNormalizeDeck(v.deck || {})));
+        t.projectionDraftBase = v.id;
+        _sbSetProjSource('draft');
+        if (typeof showToast === 'function') showToast('Editing a copy of "' + v.name + '" — save to keep it', 'info');
+        return _sbNormalizeDeck(t.projectionDeck);
+      }
+    }
+    if (!t.projectionDeck) { t.projectionDeck = {}; t.projectionDraftBase = null; }
+    return _sbNormalizeDeck(t.projectionDeck);
+  }
+
+  // The version a working draft was copied from, if any.
+  function _sbDraftBase() {
+    var t = _sbProjTpl();
+    return (t && t.projectionDraftBase) ? _sbProjVersion(t.projectionDraftBase) : null;
   }
 
   function _sbProjSaveStore() {
     if (typeof autoSaveOrder === 'function' && typeof currentOrderData !== 'undefined' && currentOrderData) autoSaveOrder();
+    // The active choice and the working draft go straight to their own row --
+    // they must not depend on the order's debounced save landing.
+    _sbProjPushSettings();
   }
 
   function _sbBuildProjectionDeck(includeHidden) {
@@ -44355,6 +44743,160 @@ var WO = (function() {
     return deck;
   }
 
+  // ── Choosing what to project ────────────────────────────────────────────
+  // The Project button asks first: the songbook exactly as written, the
+  // adjustments in progress, or a saved version. With nothing saved and no
+  // adjustments there is only one possible answer, so it just projects.
+  function sbProjectMenu(btn) {
+    var versions = _sbProjVersions();
+    var draftEmpty = _sbDeckIsEmpty((_sbProjTpl() || {}).projectionDeck);
+    if (!versions.length && draftEmpty) { _sbSetProjSource('asis'); sbProject(); return; }
+
+    var m = $('sbProjSrcMenu');
+    if (!m) {
+      m = document.createElement('div');
+      m.id = 'sbProjSrcMenu';
+      m.className = 'sb-projsrc-menu';
+      document.body.appendChild(m);
+      document.addEventListener('click', function(e) {
+        var open = $('sbProjSrcMenu');
+        if (!open || open.style.display !== 'block') return;
+        if (open.contains(e.target) || (btn && btn.contains(e.target))) return;
+        open.style.display = 'none';
+      }, true);
+    }
+    if (m.style.display === 'block') { m.style.display = 'none'; return; }
+
+    var cur = _sbProjSource();
+    function row(src, icon, title, sub, extra) {
+      return '<button class="sb-projsrc-row' + (src === cur ? ' on' : '') + '" onclick="WO.sbProjectAs(\'' + src + '\')">' +
+               '<i class="fa-solid ' + icon + '"></i>' +
+               '<span><b>' + escapeHtml(title) + '</b>' + (sub ? '<small>' + escapeHtml(sub) + '</small>' : '') + '</span>' +
+             '</button>' + (extra || '');
+    }
+
+    var html = '<div class="sb-projsrc-head">Project</div>' +
+      row('asis', 'fa-book-open', 'Songbook as written', 'Lyrics straight from the songbook, no adjustments');
+    if (!draftEmpty) {
+      var base = _sbDraftBase();
+      html += row('draft', 'fa-pen-ruler', 'Unsaved adjustments',
+        base ? ('Changes to "' + base.name + '" you have not saved') : 'Edits, breaks and pictures not yet saved as a version');
+    }
+    if (versions.length) {
+      html += '<div class="sb-projsrc-head">Saved versions</div>';
+      versions.forEach(function(v) {
+        html += '<div class="sb-projsrc-item">' +
+          row(v.id, 'fa-bookmark', v.name, _sbVersionSummary(v)) +
+          '<button class="sb-projsrc-del" title="Delete this version" ' +
+            'onclick="event.stopPropagation();WO.sbProjDeleteVersion(\'' + v.id + '\')"><i class="fa-solid fa-trash"></i></button>' +
+        '</div>';
+      });
+    }
+    m.innerHTML = html;
+    m.style.display = 'block';
+    var r = btn.getBoundingClientRect();
+    m.style.top = (r.bottom + 8) + 'px';
+    m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - m.offsetWidth - 12)) + 'px';
+  }
+
+  function _sbVersionSummary(v) {
+    var d = _sbNormalizeDeck(v && v.deck);
+    var songs = Object.keys(d.songs).length;
+    var pins = Object.keys(d.slides).length;
+    var bits = [];
+    if (songs) bits.push(songs + (songs === 1 ? ' song reflowed' : ' songs reflowed'));
+    if (d.all.bg) bits.push('background set');
+    else if (pins) bits.push(pins + ' slide' + (pins === 1 ? '' : 's') + ' adjusted');
+    return bits.join(' · ');
+  }
+
+  function sbProjectAs(src) {
+    var m = $('sbProjSrcMenu'); if (m) m.style.display = 'none';
+    _sbSetProjSource(src);
+    _sbProjSaveStore();
+    sbProject();
+  }
+
+  // ── Saving a version ────────────────────────────────────────────────────
+  function sbProjVersionMenu() {
+    var m = $('sbProjVerMenu');
+    if (!m) return;
+    if (m.style.display === 'block') { m.style.display = 'none'; return; }
+    var src = _sbProjSource();
+    // The version this would update: the one being shown, or the one the
+    // working draft was copied from.
+    var target = (src !== 'asis' && src !== 'draft') ? _sbProjVersion(src) : _sbDraftBase();
+    var suggested = target ? target.name : _sbSuggestVersionName();
+    m.innerHTML =
+      '<div class="sb-projbg-head">Save this projection</div>' +
+      '<div class="sb-projver-now">Now showing: <b>' + escapeHtml(_sbProjSourceLabel(src)) + '</b></div>' +
+      '<input id="sbProjVerName" class="sb-projver-input" type="text" spellcheck="false" ' +
+        'value="' + escapeHtml(suggested).replace(/"/g, '&quot;') + '" placeholder="Name this version">' +
+      '<div class="sb-projbg-actions">' +
+        (target ? '<button onclick="WO.sbProjSaveVersion(false)"><i class="fa-solid fa-check"></i> Update ' + escapeHtml(target.name) + '</button>' : '') +
+        '<button onclick="WO.sbProjSaveVersion(true)"><i class="fa-solid fa-bookmark"></i> Save as new version</button>' +
+      '</div>';
+    m.style.display = 'block';
+    var inp = $('sbProjVerName');
+    if (inp) { inp.focus(); inp.select(); }
+  }
+
+  function _sbSuggestVersionName() {
+    var n = _sbProjVersions().length + 1;
+    var t = (typeof currentOrderData !== 'undefined' && currentOrderData && currentOrderData.title) ? currentOrderData.title : 'Projection';
+    return _sbProjVersions().length ? ('Version ' + n) : (t + ' projection');
+  }
+
+  // A version stores a DEEP COPY of the deck. Sharing the object would make
+  // every later tweak silently rewrite the saved version too, which is the
+  // opposite of what saving one is for.
+  function sbProjSaveVersion(asNew) {
+    var inp = $('sbProjVerName');
+    var name = (inp && inp.value.trim()) || _sbSuggestVersionName();
+    // Read without forWrite: saving must not turn a shown version into a draft.
+    var deck = JSON.parse(JSON.stringify(_sbNormalizeDeck(_sbProjStore(false))));
+    var src = _sbProjSource();
+    var target = (src !== 'asis' && src !== 'draft') ? _sbProjVersion(src) : _sbDraftBase();
+    var t = _sbProjTpl();
+
+    if (!asNew && target) {
+      target.name = name;
+      target.deck = deck;
+      _sbSetProjSource(target.id);
+    } else {
+      var v = { id: 'pv_' + Date.now(), name: name, created: new Date().toISOString(), deck: deck };
+      _sbProjVersions().push(v);
+      _sbSetProjSource(v.id);
+    }
+    // The draft has been committed to a named version; leaving a copy behind
+    // would offer the same thing twice in the Project menu.
+    if (t) { t.projectionDeck = { slides: {}, all: {}, songs: {} }; t.projectionDraftBase = null; }
+    // Its own row, now -- not when the order's autosave next fires.
+    if (typeof SBQ_PROJECTION !== 'undefined') {
+      var _list = _sbProjVersions(), _own = _sbProjOwnerId();
+      var _saved = _sbProjVersion(_sbProjSource());
+      if (_own && _saved) SBQ_PROJECTION.saveVersion(_own, _saved, _list.indexOf(_saved));
+    }
+    _sbProjSaveStore();
+    var mm = $('sbProjVerMenu'); if (mm) mm.style.display = 'none';
+    _sbProjRender();
+    showToast('Saved as "' + name + '"', 'success');
+  }
+
+  function sbProjDeleteVersion(id) {
+    var list = _sbProjVersions();
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) idx = i;
+    if (idx < 0) return;
+    var name = list[idx].name;
+    list.splice(idx, 1);
+    if (_sbProjSource() === id) _sbSetProjSource(list.length ? list[0].id : 'asis');
+    if (typeof SBQ_PROJECTION !== 'undefined') SBQ_PROJECTION.deleteVersion(id);
+    _sbProjSaveStore();
+    var m = $('sbProjSrcMenu'); if (m) m.style.display = 'none';
+    showToast('Deleted "' + name + '"', 'info');
+  }
+
   // ── Project mode ────────────────────────────────────────────────────────
   var _sbProjDeck = null, _sbProjIdx = 0, _sbProjEditing = false;
 
@@ -44382,9 +44924,12 @@ var WO = (function() {
           '<button onclick="WO.sbProjAllSlides()" title="All Slides - see and adjust the whole deck"><i class="fa-solid fa-table-cells"></i></button>' +
           '<button onclick="WO.sbProjReset()" title="Undo adjustments on this slide"><i class="fa-solid fa-rotate-left"></i></button>' +
           '<span class="sb-proj-sep"></span>' +
+          '<span class="sb-proj-source" id="sbProjSourceTag" onclick="WO.sbProjVersionMenu()" title="Which projection this is - click to save it as a version"></span>' +
+          '<button onclick="WO.sbProjVersionMenu()" title="Save this projection as a named version"><i class="fa-solid fa-bookmark"></i></button>' +
           '<button onclick="WO.sbExportPPT()" title="Export this projection as PowerPoint"><i class="fa-solid fa-file-powerpoint"></i></button>' +
           '<button onclick="WO.sbProjectClose()" title="Exit (Esc)"><i class="fa-solid fa-xmark"></i></button>' +
         '</div>' +
+        '<div class="sb-proj-bgmenu" id="sbProjVerMenu"></div>' +
         '<div class="sb-proj-bgmenu" id="sbProjBgMenu"></div>' +
         '<input type="file" id="sbProjBgFile" accept="image/*" style="display:none" onchange="WO.sbProjBgUpload(this)">';
       document.body.appendChild(ov);
@@ -44430,6 +44975,14 @@ var WO = (function() {
       }).join('') + '</div>';
     }
     if (cnt) cnt.textContent = (_sbProjIdx + 1) + ' / ' + _sbProjDeck.length;
+    // Which projection is on screen: without this the operator cannot tell a
+    // saved version from the songbook as written.
+    var tag = $('sbProjSourceTag');
+    if (tag) {
+      var src = _sbProjSource();
+      tag.textContent = _sbProjSourceLabel(src);
+      tag.classList.toggle('is-version', src !== 'asis' && src !== 'draft');
+    }
     var hb = $('sbProjHideBtn'); if (hb) hb.classList.toggle('on', !!s.hidden);
     var eb = $('sbProjEditBtn'); if (eb) eb.classList.toggle('on', !!_sbProjEditing);
     if (hint) {
@@ -44508,7 +45061,7 @@ var WO = (function() {
   // content) or inside store.songs[i].slides (a deck the operator reflowed in
   // All Slides). One resolver so every control writes to the right place.
   function _sbProjOv(slide, create) {
-    var store = _sbProjStore();
+    var store = _sbProjStore(!!create);
     var ref = slide && slide.ref;
     if (!ref) return null;
     if (ref.kind === 'custom') {
@@ -44533,7 +45086,7 @@ var WO = (function() {
   function sbProjReset() {
     var s = _sbProjCur();
     if (!s || !s.ref) return;
-    var store = _sbProjStore();
+    var store = _sbProjStore(true);
     if (s.ref.kind === 'custom') {
       // Reverting one slide of a reflowed song would leave the rest orphaned,
       // so this drops the whole song back to the songbook's own breaks.
@@ -44604,7 +45157,7 @@ var WO = (function() {
   function sbProjApplyBgAll() {
     var s = _sbProjCur();
     if (!s) return;
-    var store = _sbProjStore();
+    var store = _sbProjStore(true);
     store.all.bg = s.bg || '';
     // Per-slide pins would mask the new default, so clear them -- in both
     // places overrides can live, or a reflowed song would ignore "all".
@@ -44796,7 +45349,7 @@ var WO = (function() {
   function sbProjAllSave() {
     var body = $('sbAslBody');
     if (!body) return;
-    var store = _sbProjStore();
+    var store = _sbProjStore(true);
     var bySong = {};
 
     Array.prototype.forEach.call(body.querySelectorAll('.sb-asl-slide'), function(el) {
@@ -48866,16 +49419,149 @@ var WO = (function() {
     );
   }
 
-  function _doRestoreSongSlides(sectionId, songId, songSection, container) {
-    // Clear saved slides so fresh parse uses the original lyrics
-    songSection.savedSlides = null;
-    songSection.slides = null;
-    var songInOrder = songOrderSections.find(function(s) { return s.id === songId; });
-    if (songInOrder) { songInOrder.savedSlides = null; songInOrder.slides = null; }
+  // One rebuild for a song's slide boxes, shared by Restore (from the original
+  // lyrics) and by applying a songbook projection. `slides` is already in
+  // stored form: { index, content, header, background }.
+  // ── LCD Projection: which songbook projection the slides follow ─────────
+  // The songbook is where a projection is shaped, so LCD offers the same
+  // choices. It defaults to whatever the songbook is set to, and remembers its
+  // own pick (template.lcdProjectionSource) once the operator makes one --
+  // enough to run the room off one version while preparing another.
+  function _lcdProjSource() {
+    var t = _sbProjTpl();
+    if (!t) return null;
+    var src = t.lcdProjectionSource;
+    if (!src) return _sbProjSource();                       // follow the songbook
+    if (src !== 'asis' && src !== 'draft' && !_sbProjVersion(src)) return _sbProjSource();
+    return src;
+  }
 
-    // Source: use masterLyrics (untransposed, unedited) if available, else lyrics
-    var originalLyrics = songSection.masterLyrics || songSection.lyrics || '';
-    var slides = parseLyricsIntoSlides(originalLyrics);
+  function _lcdProjLabel() {
+    var t = _sbProjTpl();
+    if (!t || !t.lcdProjectionSource) return 'Songbook';    // following, not pinned
+    return _sbProjSourceLabel(_lcdProjSource());
+  }
+
+  function _lcdSyncProjVerLabel() {
+    var el = $('lcdProjVerLabel');
+    if (el) el.textContent = _lcdProjLabel();
+  }
+
+  function lcdProjectionMenu(btn) {
+    var m = $('lcdProjSrcMenu');
+    if (!m) {
+      m = document.createElement('div');
+      m.id = 'lcdProjSrcMenu';
+      m.className = 'sb-projsrc-menu';
+      document.body.appendChild(m);
+      document.addEventListener('click', function(e) {
+        var open = $('lcdProjSrcMenu');
+        if (!open || open.style.display !== 'block') return;
+        if (open.contains(e.target) || (btn && btn.contains(e.target))) return;
+        open.style.display = 'none';
+      }, true);
+    }
+    if (m.style.display === 'block') { m.style.display = 'none'; return; }
+
+    var t = _sbProjTpl() || {};
+    var pinned = t.lcdProjectionSource || null;
+    var cur = _lcdProjSource();
+    var versions = _sbProjVersions();
+
+    function row(src, icon, title, sub, on) {
+      return '<button class="sb-projsrc-row' + (on ? ' on' : '') + '" onclick="WO.lcdApplyProjection(' +
+             (src === null ? 'null' : ('\'' + src + '\'')) + ')">' +
+               '<i class="fa-solid ' + icon + '"></i>' +
+               '<span><b>' + escapeHtml(title) + '</b>' + (sub ? '<small>' + escapeHtml(sub) + '</small>' : '') + '</span>' +
+             '</button>';
+    }
+
+    var html = '<div class="sb-projsrc-head">Song slides follow</div>' +
+      row(null, 'fa-link', 'The songbook’s choice', 'Currently ' + _sbProjSourceLabel(_sbProjSource()), !pinned) +
+      '<div class="sb-projsrc-head">Or pin one here</div>' +
+      row('asis', 'fa-book-open', 'Songbook as written', 'Lyrics straight from the songbook', pinned === 'asis');
+    versions.forEach(function(v) {
+      html += row(v.id, 'fa-bookmark', v.name, _sbVersionSummary(v), pinned === v.id);
+    });
+    if (!versions.length) {
+      html += '<div class="sb-projsrc-head" style="color:#475569;text-transform:none;letter-spacing:0;">' +
+              'Save a version in the songbook’s Project mode and it appears here.</div>';
+    }
+    m.innerHTML = html;
+    m.style.display = 'block';
+    var r = btn.getBoundingClientRect();
+    m.style.top = (r.bottom + 8) + 'px';
+    m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - m.offsetWidth - 12)) + 'px';
+  }
+
+  // The slides a given source projects for one song, in projection order and
+  // with the skipped ones already dropped -- what the room would actually see.
+  function _lcdSlidesFromProjection(songIdx, src) {
+    var t = _sbProjTpl();
+    if (!t) return null;
+    var restore = t.projectionSource;
+    t.projectionSource = src;                    // read the deck through that source
+    var deck;
+    try { deck = _sbBuildProjectionDeck(false); }
+    finally { t.projectionSource = restore; }
+    var mine = deck.filter(function(s) { return s.songIdx === songIdx; });
+    if (!mine.length) return null;
+    return mine.map(function(s, i) {
+      var lines = (s.kind === 'title')
+        ? [s.title || ''].concat(s.artist ? [s.artist] : [])
+        : (s.lines || []);
+      return { index: i, content: lines.join(String.fromCharCode(10)),
+               header: s.section || '', background: s.bg || '' };
+    });
+  }
+
+  function lcdApplyProjection(src) {
+    var m = $('lcdProjSrcMenu'); if (m) m.style.display = 'none';
+    var t = _sbProjTpl();
+    if (!t) return;
+    if (src === null) { delete t.lcdProjectionSource; } else { t.lcdProjectionSource = src; }
+
+    var songs = (songOrderSections || []).filter(function(s, i) {
+      return s && s.itemType !== 'blank' && s.sectionId;
+    });
+    if (!songs.length) {
+      _lcdSyncProjVerLabel();
+      _sbProjSaveStore();
+      showToast('Nothing in the service order to apply it to yet', 'info');
+      return;
+    }
+    var label = _sbProjSourceLabel(_lcdProjSource());
+    _sbShowConfirm(
+      'Rebuild the song slides from "' + label + '"?',
+      'Every song in the service order is re-cut to match that projection — its breaks, wording and pictures. ' +
+      'Slide edits made here in LCD Projection are replaced. The songbook itself is not touched.',
+      function() { _lcdDoApplyProjection(src); }
+    );
+  }
+
+  function _lcdDoApplyProjection(src) {
+    var effective = _lcdProjSource();
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
+    var applied = 0;
+    (songOrderSections || []).forEach(function(song, idx) {
+      if (!song || song.itemType === 'blank' || !song.sectionId) return;
+      var slides = _lcdSlidesFromProjection(idx, effective);
+      if (!slides || !slides.length) return;
+      var container = $(song.sectionId + '-boxes');
+      if (!container) return;
+      if (_lcdRebuildSongSlides(song.sectionId, song.id, song, container, slides)) applied++;
+    });
+    _lcdSyncProjVerLabel();
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    _sbProjSaveStore();
+    showToast(applied
+      ? (applied + (applied === 1 ? ' song' : ' songs') + ' now match "' + _sbProjSourceLabel(effective) + '"')
+      : 'That projection has no slides for these songs', applied ? 'success' : 'warning');
+  }
+
+  function _lcdRebuildSongSlides(sectionId, songId, songSection, container, slides) {
+    if (!container || !slides || !slides.length) return null;
+    var songInOrder = songOrderSections.find(function(s) { return s.id === songId; });
 
     // Remove existing slide elements for this song
     container.querySelectorAll('.wo-slide-box[data-song-id="' + songId + '"]').forEach(function(el) { el.remove(); });
@@ -48890,7 +49576,7 @@ var WO = (function() {
     slides.forEach(function(slide, idx) {
       var headerClass = getSectionTypeClass(slide.header);
       var headerHtml = slide.header ? '<div class="wo-slide-section-header ' + headerClass + '">' + escapeHtml(slide.header) + '</div>' : '';
-      var linesHtml = slide.lines.map(function(line) { return _slideLineHtml(line); }).join('');
+      var linesHtml = (slide.content || '').split(String.fromCharCode(10)).map(function(line) { return _slideLineHtml(line); }).join('');
 
       var boxHtml = '<div class="wo-content-box wo-slide-box" data-slide-idx="' + idx + '" data-section="' + sectionId + '" data-song-id="' + songId + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
         _buildSlideBoxHeader(idx, slides.length, 'song', songId, sectionId) +
@@ -48915,13 +49601,33 @@ var WO = (function() {
     // Renumber slide headers
     renumberSlideBoxes(container, 'song', songId);
 
-    // Update stored slides data
+    // Update stored slides data. The caller already handed them over in stored
+    // form, so index them and keep them -- re-deriving here is what let the
+    // background quietly drop out.
     var slidesData = slides.map(function(slide, idx) {
-      return { index: idx, content: slide.lines.join('\n'), header: slide.header || '', background: '' };
+      return { index: idx, content: slide.content || '', header: slide.header || '', background: slide.background || '' };
     });
     songSection.slides = slidesData;
     songSection.savedSlides = slidesData; // ensure fallback in collectOrderItems uses restored state
     if (songInOrder) { songInOrder.slides = slidesData; songInOrder.savedSlides = slidesData; }
+    return { slidesData: slidesData, firstSlideBox: firstSlideBox };
+  }
+
+  function _doRestoreSongSlides(sectionId, songId, songSection, container) {
+    // Clear saved slides so fresh parse uses the original lyrics
+    songSection.savedSlides = null;
+    songSection.slides = null;
+    var songInOrder = songOrderSections.find(function(s) { return s.id === songId; });
+    if (songInOrder) { songInOrder.savedSlides = null; songInOrder.slides = null; }
+
+    // Source: use masterLyrics (untransposed, unedited) if available, else lyrics
+    var originalLyrics = songSection.masterLyrics || songSection.lyrics || '';
+    var slides = parseLyricsIntoSlides(originalLyrics);
+    var _rebuilt = _lcdRebuildSongSlides(sectionId, songId, songSection, container, slides.map(function(sl, i) {
+      return { index: i, content: (sl.lines || []).join(String.fromCharCode(10)),
+               header: sl.header || '', background: '' };
+    })) || { slidesData: [], firstSlideBox: null };
+    var slidesData = _rebuilt.slidesData, firstSlideBox = _rebuilt.firstSlideBox;
 
     // Cancel any pending debounced saves so a stale timer can't overwrite the restore
     clearTimeout(_autoSaveTimer);
@@ -59307,6 +60013,17 @@ var WO = (function() {
     sbAslBgMenu: sbAslBgMenu,
     sbAslSetBg: sbAslSetBg,
     sbAslBgUpload: sbAslBgUpload,
+    lcdProjectionMenu: lcdProjectionMenu,
+    lcdApplyProjection: lcdApplyProjection,
+    sbProjectMenu: sbProjectMenu,
+    sbProjectAs: sbProjectAs,
+    sbProjVersionMenu: sbProjVersionMenu,
+    sbProjSaveVersion: sbProjSaveVersion,
+    sbProjDeleteVersion: sbProjDeleteVersion,
+    sbProjVersionList: function() {
+      return _sbProjVersions().map(function(v) { return { id: v.id, name: v.name }; });
+    },
+    sbProjActiveSource: _sbProjSource,
     sbProjApplyBgAll: sbProjApplyBgAll,
     sbProjBgUpload: sbProjBgUpload,
     sbExportPPT: sbExportPPT,
@@ -67612,6 +68329,56 @@ function filterLiturgyItems() {
     background: #0f172a; border: 1px solid #334155;
     box-shadow: 0 18px 44px rgba(0,0,0,0.55);
   }
+  /* Choosing what to project: the songbook itself, work in progress, or a
+     saved version. */
+  .sb-projsrc-menu {
+    display: none; position: fixed; z-index: 100070; width: 330px;
+    padding: 8px; border-radius: 14px;
+    background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+    font-family: 'Poppins', sans-serif;
+  }
+  .sb-projsrc-head {
+    padding: 8px 10px 5px; font-size: 0.62rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em; color: #64748b;
+  }
+  .sb-projsrc-item { display: flex; align-items: stretch; gap: 4px; }
+  .sb-projsrc-item .sb-projsrc-row { flex: 1; }
+  .sb-projsrc-row {
+    display: flex; align-items: center; gap: 11px; width: 100%;
+    padding: 10px 11px; border-radius: 10px; cursor: pointer; text-align: left;
+    background: transparent; border: 1px solid transparent; color: #e2e8f0;
+  }
+  .sb-projsrc-row:hover { background: rgba(96,165,250,0.12); border-color: rgba(96,165,250,0.35); }
+  .sb-projsrc-row.on { background: rgba(37,99,235,0.2); border-color: #3b82f6; }
+  .sb-projsrc-row i { width: 17px; text-align: center; color: #93c5fd; flex-shrink: 0; }
+  .sb-projsrc-row span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .sb-projsrc-row b { font-size: 0.83rem; font-weight: 600; }
+  .sb-projsrc-row small {
+    font-size: 0.68rem; color: #94a3b8; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .sb-projsrc-del {
+    padding: 0 11px; border-radius: 10px; cursor: pointer; flex-shrink: 0;
+    background: transparent; border: 1px solid transparent; color: #64748b; font-size: 0.75rem;
+  }
+  .sb-projsrc-del:hover { background: rgba(220,38,38,0.16); border-color: rgba(248,113,113,0.4); color: #fca5a5; }
+  /* Which projection is on screen, shown in the projection bar. */
+  .sb-proj-source {
+    max-width: 190px; padding: 0 4px; cursor: pointer;
+    font-size: 0.72rem; color: #94a3b8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sb-proj-source:hover { color: #e2e8f0; }
+  .sb-proj-source.is-version { color: #e7c98a; }
+  .sb-projver-now { padding: 0 2px 8px; font-size: 0.7rem; color: #94a3b8; }
+  .sb-projver-now b { color: #e2e8f0; }
+  .sb-projver-input {
+    width: 100%; margin-bottom: 10px; padding: 9px 11px;
+    border-radius: 9px; background: #0b1220; border: 1px solid #334155;
+    color: #f1f5f9; font-family: 'Poppins', sans-serif; font-size: 0.8rem;
+  }
+  .sb-projver-input:focus { outline: none; border-color: #60a5fa; }
   /* The break line: this is where one slide ends and the next begins. */
   hr.sb-asl-break {
     border: none; border-top: 2px dashed #6366f1; margin: 12px 0; opacity: 0.75;

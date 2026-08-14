@@ -4,6 +4,51 @@ _Last updated: 2026-08-14 by Claude Code_
 
 ---
 
+## 2026-08-14 — Projections get their own tables (migration required)
+
+⚠️ **Run `migrations/2026-08-14_add_projection_versions.sql` in the Supabase SQL Editor.** Until it runs the app behaves exactly as before — every call is wrapped and a missing table is treated as "not available" — so the deploy and the migration can happen in either order.
+
+**Why.** Everything a songbook's projection knew lived in `orders.template`, one JSON column shared with the inbox, the fonts, the section layout and the cleared sections. Every writer of that column rewrites all of it, so any one of them getting it wrong takes the projection with it — which is exactly what happened twice today. Saved versions made it worse: each is a full deck, all of them rewritten on every autosave.
+
+**Now:** `projection_versions` holds one row per saved version (`id`, `owner_id`, `name`, `deck`, `sort_order`), and `projection_settings` one row per songbook (active source, LCD's pin, the unnamed draft and what it was copied from). `owner_id` is `orders.id`, including the `standalone_<sbId>` rows, so order-backed and standalone songbooks store identically.
+
+- **Rows win on load**; the template keeps a mirror, so a frontend rollback loses nothing.
+- **Versions save immediately** to their own row rather than waiting on the order's debounced autosave.
+- **Existing versions import themselves** the first time each songbook is opened after the migration.
+- **No foreign key on purpose** — a standalone songbook's orders row is created lazily, and an FK would refuse the version row until then. `_forgetDeletedOrder` clears the rows instead.
+
+Hydration copies what the loader returns rather than adopting the array; a shared reference would let later edits reach back into whatever built it.
+
+### Verified live
+
+Pre-migration: tables absent → `_tableExists` false, no console errors, versions saved to the template as before. Post-migration (table layer stubbed, since the DDL needs the SQL Editor): rows won over the template mirror and projected the row's background; the active source came from the settings row; saving wrote exactly one `saveVersion` with the right owner and sort index; deleting removed the row; and with empty tables plus a populated template, `saveAll` imported both versions while they stayed usable throughout. Orders 19, songs 51, unchanged.
+
+**Still to verify against the real tables once the SQL has been run** — the stub proves the wiring, not the schema.
+
+---
+
+## 2026-08-14 — ⚠️ Projection work was being destroyed on save; two causes
+
+Reported: after reloading the app, every All Slides adjustment and every background was gone. It was not a display problem — the work was being overwritten in Supabase. Two independent mechanisms, either sufficient on its own.
+
+**1. `SBQ.patchInbox` replaced the entire template column.** `orders.template` is one JSON blob holding the projection deck, songbook fonts, section layout, cleared sections and section backgrounds. The "lightweight patch" wrote the whole column from `Object.assign({}, window.currentOrderData.template || {})` — and **nothing in the app ever assigns `window.currentOrderData`** (it is a closure variable inside `WO`). So the merge always started from `{}`, and every inbox change reduced the stored template to `{_inbox, _inboxPresent}`, taking the projection deck with it. It now reads the stored template and merges into that; one extra round-trip, no data loss.
+
+**2. A standalone songbook had nowhere to save the deck at all.** `saveCurrentOrder` short-circuits for standalone songbooks (`_sbStandaloneId`), writing the `songbooks` table and returning — and that table has no template column. So Project mode and All Slides were **in-memory only** for songbooks opened from the Songbooks page. Compounding it, `openSongbookStandalone` set `template: {}` outright, so even a deck that had reached Supabase by another route was neither loaded nor preserved.
+
+Both halves are fixed: the standalone path now loads the template from its `standalone_<sbId>` order row and `_sbPersistStandaloneTemplate()` writes it back there. That row is already filtered out of every order list by `SBQ.loadOrders`, so it stays invisible as an order, and it is only created once there is something worth keeping.
+
+**Structural guard.** `saveCurrentOrder` now refuses to write an *empty* projection deck unless it knows this order's template came from the backend (`_tplLoadedForOrder`). A load path that forgets the template can no longer flatten stored slides and pictures — while a deliberate clear, on an order whose template really was loaded, still persists.
+
+### Not recoverable
+
+The user's `standalone_sb_1783318602918` row was already flattened to `{"all":{},"songs":{},"slides":{}}`. There is no `order_changes` audit table for orders and no crash journal entry, so the previous deck could not be restored. **Orders still have no audit trail — this is the second time that has cost us a recovery.**
+
+### Verified live (throwaway song, songbook and order, deleted by id)
+
+Standalone songbook: projection work saved, survived a hard reload, and came back complete — reflowed slides, deck-default picture, per-slide picture, per-slide "none". Order-backed songbook re-checked as a regression: the deck now sits alongside `_inbox` in the template instead of being erased by it, and survives reload. Orders 19, songs 51, unchanged.
+
+---
+
 ## 2026-08-14 — Backgrounds: fixed on reflowed songs, and assignable from All Slides
 
 Checking that pictures survive the Supabase round trip turned up three ways they did not.
