@@ -32539,17 +32539,60 @@ var WO = (function() {
     showToast('“' + name + '” removed', 'success');
   }
 
+  function _pptSlideEmbedUrl(slidesData, slide) {
+    var gId = slidesData && slidesData.googleSlidesId;
+    if (!gId) return null;
+    return 'https://docs.google.com/presentation/d/' + gId + '/embed?rm=minimal&start=false&loop=false' +
+      (slide && slide.pageId ? '&slide=id.' + slide.pageId : '');
+  }
+
+  // The filmstrip widget owns its own main view, nav counter and active
+  // thumbnail, so every path that moves the current page has to move all three.
+  // projectPptPage() did it inline, which left local-slide navigation behind:
+  // that goes through updateLocalSlideDisplay(), which only knows the
+  // per-slide-box layout this widget replaced, so arrowing through a deck
+  // advanced the projection while the widget stayed frozen on page 1.
+  function _updatePptWidgetUI(sectionId, idx) {
+    var slidesData = currentSermonSlides[sectionId];
+    if (!slidesData) return null;
+    var widget = document.querySelector('.wo-ppt-widget[data-section="' + sectionId + '"]');
+    if (!widget) return null;
+
+    widget.querySelectorAll('.wo-ppt-thumb').forEach(function(t) {
+      t.classList.toggle('active', parseInt(t.getAttribute('data-idx'), 10) === idx);
+    });
+
+    var navCounter = widget.querySelector('.wo-ppt-nav-counter');
+    if (navCounter) navCounter.textContent = (idx + 1) + ' / ' + slidesData.slides.length;
+
+    var slide = slidesData.slides[idx];
+    var mainView = widget.querySelector('.wo-ppt-main-view');
+    if (mainView) {
+      var url = _pptSlideEmbedUrl(slidesData, slide);
+      if (url) {
+        mainView.innerHTML = '<iframe src="' + escapeHtml(url) + '" style="width:100%;height:100%;border:none;" allowfullscreen allow="autoplay; fullscreen"></iframe>';
+      } else if (slide && slide.data && !slide.data.startsWith('data:embed')) {
+        mainView.innerHTML = '<img src="' + escapeHtml(slide.data) + '" style="max-width:100%;max-height:100%;object-fit:contain;" alt="Slide ' + (idx + 1) + '">';
+      }
+    }
+
+    // Keep the active thumbnail in view by scrolling the strip itself -- an
+    // element scrollIntoView() would drag the whole page around on load.
+    var strip = widget.querySelector('.wo-ppt-filmstrip');
+    var activeThumb = widget.querySelector('.wo-ppt-thumb.active');
+    if (strip && activeThumb) {
+      var target = activeThumb.offsetLeft - (strip.clientWidth - activeThumb.offsetWidth) / 2;
+      if (strip.scrollTo) strip.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+      else strip.scrollLeft = Math.max(0, target);
+    }
+
+    return widget;
+  }
+
   // Called when user clicks a slide thumbnail in the filmstrip
   function projectPptPage(sectionId, idx, thumbEl) {
     var slidesData = currentSermonSlides[sectionId];
     if (!slidesData) return;
-
-    // Update selection highlight
-    var widget = document.querySelector('.wo-ppt-widget[data-section="' + sectionId + '"]');
-    if (widget) {
-      widget.querySelectorAll('.wo-ppt-thumb').forEach(function(t) { t.classList.remove('active'); });
-    }
-    if (thumbEl) thumbEl.classList.add('active');
 
     slidesData.currentIndex = idx;
     slidesData.pptIframeSlide = idx;
@@ -32558,29 +32601,11 @@ var WO = (function() {
     if (typeof _lcdSetEditorVisible === 'function') _lcdSetEditorVisible(false);
 
     var slide = slidesData.slides[idx];
-    var gId = slidesData.googleSlidesId;
+    var url = _pptSlideEmbedUrl(slidesData, slide);
 
-    // Build per-slide embed URL
-    var url = null;
-    if (gId && slide && slide.pageId) {
-      url = 'https://docs.google.com/presentation/d/' + gId + '/embed?rm=minimal&start=false&loop=false&slide=id.' + slide.pageId;
-    } else if (gId) {
-      url = 'https://docs.google.com/presentation/d/' + gId + '/embed?rm=minimal&start=false&loop=false';
-    }
-
-    // Update the in-widget main view (large slide viewer in the content area)
-    if (widget) {
-      var mainView = widget.querySelector('.wo-ppt-main-view');
-      if (mainView) {
-        if (url) {
-          mainView.innerHTML = '<iframe src="' + escapeHtml(url) + '" style="width:100%;height:100%;border:none;" allowfullscreen allow="autoplay; fullscreen"></iframe>';
-        } else if (slide && slide.data && !slide.data.startsWith('data:embed')) {
-          mainView.innerHTML = '<img src="' + escapeHtml(slide.data) + '" style="max-width:100%;max-height:100%;object-fit:contain;" alt="Slide ' + (idx + 1) + '">';
-        }
-      }
-      var navCounter = widget.querySelector('.wo-ppt-nav-counter');
-      if (navCounter) navCounter.textContent = (idx + 1) + ' / ' + slidesData.slides.length;
-    }
+    // Update the in-widget main view, nav counter and selection highlight
+    var widget = _updatePptWidgetUI(sectionId, idx);
+    if (thumbEl && !widget) thumbEl.classList.add('active');
 
     // Show in preview panel (right side Projection Preview)
     var screen = $('woPreviewScreen');
@@ -32909,6 +32934,10 @@ var WO = (function() {
     if (counter) {
       counter.textContent = (slidesData.currentIndex + 1) + ' / ' + slidesData.slides.length;
     }
+
+    // …and the same again for the filmstrip widget that replaced that layout.
+    slidesData.pptIframeSlide = slidesData.currentIndex;
+    _updatePptWidgetUI(sectionId, slidesData.currentIndex);
 
     // Update projection preview
     updateProjectionWithSlide(sectionId, slidesData.currentIndex);
