@@ -44852,6 +44852,10 @@ var WO = (function() {
     // songBox[songIdx] -- one text box for a whole song, between the
     // songbook's default and a single slide's own.
     if (!d.songBox) d.songBox = {};
+    // songStyle[songIdx] -- typography for a whole song, resolved the same way
+    // as its box and its background. Words shaped on one slide stay inline on
+    // that slide; this is the level below them.
+    if (!d.songStyle) d.songStyle = {};
     return d;
   }
 
@@ -45159,6 +45163,7 @@ var WO = (function() {
         if (ov.align) slide.align = ov.align.slice();
         slide.bg = _sbResolveBg(store, songIdx, ov.bg);
         slide.box = _sbResolveBox(store, songIdx, ov.box);
+        slide.style = _sbResolveStyle(store, songIdx, ov.style);
         deck.push(slide);
       }
 
@@ -45190,7 +45195,8 @@ var WO = (function() {
             // "no picture on this one" and must beat both the song's picture
             // and the songbook default, not fall back to them.
             bg: _sbResolveBg(store, songIdx, sl.bg),
-            box: _sbResolveBox(store, songIdx, sl.box)
+            box: _sbResolveBox(store, songIdx, sl.box),
+            style: _sbResolveStyle(store, songIdx, sl.style)
           });
         });
         return;
@@ -45531,6 +45537,7 @@ var WO = (function() {
     }
     stage.innerHTML = '<div class="sb-proj-frame" id="sbProjFrame">' + inner + '</div>';
     _sbApplyBox($('sbProjFrame'), s.box);
+    _sbApplyTextStyle($('sbProjFrame'), s.style);
     if (cnt) cnt.textContent = (_sbProjIdx + 1) + ' / ' + _sbProjDeck.length;
     // Which projection is on screen: without this the operator cannot tell a
     // saved version from the songbook as written.
@@ -45582,6 +45589,70 @@ var WO = (function() {
       h: (b.h != null) ? +b.h : SB_BOX_DEFAULT.h,
       scale: (b.scale != null) ? +b.scale : 1
     };
+  }
+
+  // ── Typography at the three levels ──────────────────────────────────────
+  // The scope buttons used to govern the box only, so choosing "This song" and
+  // then a size still changed nothing but the slide on screen. Size, face,
+  // weight, slant, underline and alignment now resolve slide -> song ->
+  // songbook exactly as the box and the background do, one property at a time
+  // so a song can set the face while a single slide sets its own size.
+  var SB_STYLE_KEYS = ['fontSize', 'fontFamily', 'fontWeight', 'fontStyle', 'textDecoration', 'textAlign'];
+
+  function _sbMergeStyle(into, from) {
+    if (!from) return into;
+    SB_STYLE_KEYS.forEach(function(k) { if (from[k]) into[k] = from[k]; });
+    return into;
+  }
+
+  function _sbResolveStyle(store, songIdx, slideStyle) {
+    var out = {};
+    _sbMergeStyle(out, store.all ? store.all.style : null);
+    _sbMergeStyle(out, store.songStyle ? store.songStyle[songIdx] : null);
+    _sbMergeStyle(out, slideStyle);
+    return Object.keys(out).length ? out : null;
+  }
+
+  // Applied to the frame, so anything the operator shaped inline on one slide
+  // still wins over it -- a narrower choice should always beat a broader one.
+  function _sbApplyTextStyle(frame, style) {
+    if (!frame) return;
+    SB_STYLE_KEYS.forEach(function(k) { frame.style[k] = ''; });
+    if (!style) return;
+    SB_STYLE_KEYS.forEach(function(k) { if (style[k]) frame.style[k] = style[k]; });
+  }
+
+  // Write one property at the level the scope buttons are set to. Widening the
+  // scope clears the narrower levels for that property, or the change would
+  // appear to do nothing under the slides that already carry their own.
+  function _sbSaveTextStyle(prop, value) {
+    var store = _sbProjStore(true);
+    var s = _sbProjCur();
+    if (!s) return false;
+    var idx = s.songIdx;
+    if (_sbBoxScope === 'all') {
+      if (!store.all.style) store.all.style = {};
+      store.all.style[prop] = value;
+      Object.keys(store.songStyle).forEach(function(k) { if (store.songStyle[k]) delete store.songStyle[k][prop]; });
+      Object.keys(store.slides).forEach(function(k) { if (store.slides[k].style) delete store.slides[k].style[prop]; });
+      Object.keys(store.songs).forEach(function(k) {
+        ((store.songs[k] && store.songs[k].slides) || []).forEach(function(sl) { if (sl.style) delete sl.style[prop]; });
+      });
+    } else if (_sbBoxScope === 'song') {
+      if (!store.songStyle[idx]) store.songStyle[idx] = {};
+      store.songStyle[idx][prop] = value;
+      var custom = store.songs[idx];
+      if (custom && custom.slides) custom.slides.forEach(function(sl) { if (sl.style) delete sl.style[prop]; });
+      Object.keys(store.slides).forEach(function(k) {
+        if (String(k).indexOf(idx + '|') === 0 && store.slides[k].style) delete store.slides[k].style[prop];
+      });
+    } else {
+      var ov = _sbProjOv(s, true);
+      if (!ov) return false;
+      if (!ov.style) ov.style = {};
+      ov.style[prop] = value;
+    }
+    return true;
   }
 
   // null means "no box has been placed" -- the words simply centre themselves.
@@ -46059,7 +46130,7 @@ var WO = (function() {
       '<button class="sb-asl-tbtn" title="Snap the box onto the words" onclick="WO.sbProjFitBox()">' +
         '<i class="fa-solid fa-compress"></i> Fit to text</button>' +
       '<span class="sb-asl-tsep"></span>' +
-      '<span class="sb-asl-tlabel" style="margin:0">Box applies to</span>' +
+      '<span class="sb-asl-tlabel" style="margin:0" title="Where the box AND the type controls above apply">Applies to</span>' +
       '<button class="sb-asl-tbtn on" id="sbBoxScope_slide" onclick="WO.sbProjBoxScope(\'slide\')">This slide</button>' +
       '<button class="sb-asl-tbtn" id="sbBoxScope_song" onclick="WO.sbProjBoxScope(\'song\')">This song</button>' +
       '<button class="sb-asl-tbtn" id="sbBoxScope_all" onclick="WO.sbProjBoxScope(\'all\')">All songs</button>';
@@ -46098,11 +46169,39 @@ var WO = (function() {
     return true;
   }
 
-  // Typography inside the projected box, applied to the selection.
+  // What one toolbar command writes when the scope is wider than this slide.
+  var _SB_SCOPE_PROP = {
+    size:          function(v) { return ['fontSize', (parseFloat(v) || SB_SIZE_BASE) / SB_SIZE_BASE + 'em']; },
+    fontName:      function(v) { return ['fontFamily', v]; },
+    bold:          function()  { return ['fontWeight', '700']; },
+    italic:        function()  { return ['fontStyle', 'italic']; },
+    underline:     function()  { return ['textDecoration', 'underline']; },
+    justifyLeft:   function()  { return ['textAlign', 'left']; },
+    justifyCenter: function()  { return ['textAlign', 'center']; },
+    justifyRight:  function()  { return ['textAlign', 'right']; }
+  };
+
+  // Typography inside the projected box. With the scope on "This slide" it
+  // applies to the words the operator selected; on "This song" or "All songs"
+  // it is a decision about the whole song or the whole songbook, so it is
+  // stored at that level rather than written into one slide's markup -- which
+  // is why choosing a wider scope used to change nothing but the slide in view.
   function sbProjCmd(cmd, val) {
     var stage = $('sbProjFrame') || $('sbProjStage');
     if (!stage || !_sbProjEditing) return;
     _sbHistPush();
+
+    if (_sbBoxScope !== 'slide' && _SB_SCOPE_PROP[cmd]) {
+      var pair = _SB_SCOPE_PROP[cmd](val);
+      if (!pair[1]) return;
+      if (!_sbSaveTextStyle(pair[0], pair[1])) return;
+      _sbProjSaveStore();
+      _sbProjDeck = _sbBuildProjectionDeck(true);
+      _sbProjRender();
+      showToast(_sbBoxScope === 'all' ? 'Applied to every song' : 'Applied to this song', 'success');
+      return;
+    }
+
     var sel = window.getSelection();
     if (!sel || !sel.rangeCount || !stage.contains(sel.getRangeAt(0).startContainer)) {
       showToast('Double-click the words first, then select what to change', 'info');
