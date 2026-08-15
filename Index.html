@@ -45615,11 +45615,47 @@ var WO = (function() {
 
   // Applied to the frame, so anything the operator shaped inline on one slide
   // still wins over it -- a narrower choice should always beat a broader one.
+  //
+  // Size is the exception and must go through --sb-type: the projected text
+  // sizes itself in vw from its own CSS rule, so a font-size on the frame is
+  // simply never consulted. Setting it there looked right in the stored data
+  // and changed nothing on the screen.
   function _sbApplyTextStyle(frame, style) {
     if (!frame) return;
-    SB_STYLE_KEYS.forEach(function(k) { frame.style[k] = ''; });
+    SB_STYLE_KEYS.forEach(function(k) { if (k !== 'fontSize') frame.style[k] = ''; });
+    frame.style.removeProperty('--sb-type');
     if (!style) return;
-    SB_STYLE_KEYS.forEach(function(k) { if (style[k]) frame.style[k] = style[k]; });
+    SB_STYLE_KEYS.forEach(function(k) {
+      if (!style[k]) return;
+      if (k === 'fontSize') frame.style.setProperty('--sb-type', parseFloat(style[k]) || 1);
+      else frame.style[k] = style[k];
+    });
+  }
+
+  // Widening the scope has to clear what the narrower levels wrote INTO the
+  // slides too, not just their style objects. A line already carrying its own
+  // size keeps it otherwise, so the song-wide choice works everywhere except
+  // there -- which is exactly the half-small, half-large slide operators kept
+  // ending up with after sizing part of a verse.
+  function _sbClearInlineStyle(slideObj, prop) {
+    if (!slideObj) return;
+    if (slideObj.style) delete slideObj.style[prop];
+    if (prop === 'textAlign') { delete slideObj.align; return; }
+    if (!Array.isArray(slideObj.html)) return;
+    var d = document.createElement('div');
+    slideObj.html = slideObj.html.map(function(h) {
+      if (!h || h.indexOf('style') < 0) return h;
+      d.innerHTML = h;
+      Array.prototype.forEach.call(d.querySelectorAll('[style]'), function(el) {
+        el.style[prop] = '';
+        if (el.tagName === 'SPAN' && !el.getAttribute('style') && !el.getAttribute('class')) {
+          while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
+          el.parentNode.removeChild(el);
+        }
+      });
+      return d.innerHTML;
+    });
+    if (!slideObj.html.some(_sbAslHasFormatting)) delete slideObj.html;
   }
 
   // Write one property at the level the scope buttons are set to. Widening the
@@ -45634,17 +45670,17 @@ var WO = (function() {
       if (!store.all.style) store.all.style = {};
       store.all.style[prop] = value;
       Object.keys(store.songStyle).forEach(function(k) { if (store.songStyle[k]) delete store.songStyle[k][prop]; });
-      Object.keys(store.slides).forEach(function(k) { if (store.slides[k].style) delete store.slides[k].style[prop]; });
+      Object.keys(store.slides).forEach(function(k) { _sbClearInlineStyle(store.slides[k], prop); });
       Object.keys(store.songs).forEach(function(k) {
-        ((store.songs[k] && store.songs[k].slides) || []).forEach(function(sl) { if (sl.style) delete sl.style[prop]; });
+        ((store.songs[k] && store.songs[k].slides) || []).forEach(function(sl) { _sbClearInlineStyle(sl, prop); });
       });
     } else if (_sbBoxScope === 'song') {
       if (!store.songStyle[idx]) store.songStyle[idx] = {};
       store.songStyle[idx][prop] = value;
       var custom = store.songs[idx];
-      if (custom && custom.slides) custom.slides.forEach(function(sl) { if (sl.style) delete sl.style[prop]; });
+      if (custom && custom.slides) custom.slides.forEach(function(sl) { _sbClearInlineStyle(sl, prop); });
       Object.keys(store.slides).forEach(function(k) {
-        if (String(k).indexOf(idx + '|') === 0 && store.slides[k].style) delete store.slides[k].style[prop];
+        if (String(k).indexOf(idx + '|') === 0) _sbClearInlineStyle(store.slides[k], prop);
       });
     } else {
       var ov = _sbProjOv(s, true);
@@ -70233,9 +70269,13 @@ function filterLiturgyItems() {
     align-items: center; justify-content: center; text-align: center;
   }
   /* Text scales with the box: a taller box is meant to hold bigger words. */
-  .sb-proj-title { font-family: 'Cinzel', Georgia, serif; font-size: calc(5.2vw * var(--sb-scale, 1)); font-weight: 700; line-height: 1.2; }
-  .sb-proj-artist { margin-top: 1.6vh; font-size: calc(2.2vw * var(--sb-scale, 1)); font-style: italic; opacity: 0.85; }
-  .sb-proj-lines { font-size: calc(3.6vw * var(--sb-scale, 1)); font-weight: 700; line-height: 1.45; }
+  /* --sb-type is the size the operator chose for a song or the whole songbook,
+     as a multiple of normal. It has to be part of THIS rule: these sizes are
+     set here in vw, so a font-size inherited from the frame never reached the
+     words -- which is why choosing a size for a song appeared to do nothing. */
+  .sb-proj-title { font-family: 'Cinzel', Georgia, serif; font-size: calc(5.2vw * var(--sb-scale, 1) * var(--sb-type, 1)); font-weight: 700; line-height: 1.2; }
+  .sb-proj-artist { margin-top: 1.6vh; font-size: calc(2.2vw * var(--sb-scale, 1) * var(--sb-type, 1)); font-style: italic; opacity: 0.85; }
+  .sb-proj-lines { font-size: calc(3.6vw * var(--sb-scale, 1) * var(--sb-type, 1)); font-weight: 700; line-height: 1.45; }
   /* Editing the box: an outline, eight handles, and a readout. None of this
      is content -- it is stripped before the words are read back. */
   .sb-proj-frame [contenteditable="true"] { outline: none; resize: none; }
