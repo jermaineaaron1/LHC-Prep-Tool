@@ -30362,6 +30362,8 @@ var WO = (function() {
   function projectVideo(sectionId) {
     var container = $(sectionId + '-boxes');
     if (!container) return;
+    // Video is not editable either.
+    if (typeof _lcdSetEditorVisible === 'function') _lcdSetEditorVisible(false);
 
     var videoContainer = container.querySelector('.wo-video-container');
     if (!videoContainer) return;
@@ -32495,6 +32497,8 @@ var WO = (function() {
     slidesData.currentIndex = idx;
     slidesData.pptIframeSlide = idx;
     _pptActiveSection = sectionId;
+    // A presentation page is not editable -- put the Slide Editor away.
+    if (typeof _lcdSetEditorVisible === 'function') _lcdSetEditorVisible(false);
 
     var slide = slidesData.slides[idx];
     var gId = slidesData.googleSlidesId;
@@ -55643,6 +55647,8 @@ var WO = (function() {
     _selectedPptContainer = null;
     box.classList.add('selected');
     selectedSlideBox = box;
+    // An in-system slide CAN be edited, so the editor comes back.
+    if (typeof _lcdSetEditorVisible === 'function') _lcdSetEditorVisible(true);
 
     // Scroll the selected slide into center view (skip when fullscreen overlay is active)
     if (!document.fullscreenElement && !document.webkitFullscreenElement) {
@@ -57573,6 +57579,13 @@ var WO = (function() {
   // regular slide list, and the next arrow key jumped off into another section.
   // The element reference can be lost; which presentation is live cannot.
   var _pptActiveSection = null;
+
+  // Show or hide the Slide Editor. Called wherever the selection moves between
+  // something the editor can work on and something it cannot.
+  function _lcdSetEditorVisible(on) {
+    var row = document.querySelector('.lcd-outputs-row');
+    if (row) row.classList.toggle('lcd-editor-hidden', !on);
+  }
 
   function _pptReacquire() {
     if (_selectedPptContainer && _selectedPptContainer.isConnected) return true;
@@ -70753,7 +70766,7 @@ function filterLiturgyItems() {
      tray never gets squeezed into its own scrollbar by the flex column. */
   /* 6px breathing room between the Program Output's bottom edge and the
      Media Tray, per the user's spacing spec. */
-  .lcd-lower-row { flex: 0 0 auto; min-height: 128px; margin-top: 6px; }
+  .lcd-lower-row { flex: 0 0 auto; min-height: 132px; margin-top: 6px; }
   .lcd-media-hint { font-size: 0.6rem; margin-bottom: 5px; line-height: 1.3; }
   .lcd-media-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 7px; }
   .lcd-media-panel .lcd-panel-body { padding: 8px 10px; }
@@ -71002,6 +71015,17 @@ function filterLiturgyItems() {
     align-self: flex-start;
   }
   .lcd-media-panel .lcd-panel-body { overflow-y: auto; }
+
+  /* A presentation page, a picture or a video cannot be edited, so the Slide
+     Editor beside it has nothing to act on -- it sat there looking available
+     over content it could not touch. It is hidden for those and the Program
+     Output takes the whole row; selecting an editable slide brings it back. */
+  .lcd-outputs-row.lcd-editor-hidden > .lcd-lyrics-panel { display: none; }
+  @media (min-width: 1201px) {
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row.lcd-editor-hidden > .lcd-program-box {
+      flex: 1 1 100%;
+    }
+  }
   /* Collapsed: only the header bar remains, and the row stops claiming height
      so the Slide Editor above it gets the space back. */
   .lcd-lower-row.lcd-tray-collapsed { min-height: 0; max-height: none; }
