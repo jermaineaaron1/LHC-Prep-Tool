@@ -1,8 +1,47 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-08-14 by Claude Code_
+_Last updated: 2026-08-15 by Claude Code_
 
 ---
+
+## 2026-08-15 — All Slides: the freeze, the merge gap, and the line the formatting missed
+
+Three reports from using the pad on the real projector, plus what an audit of it found alongside.
+
+### The freeze on Save Projection — it was the picture, copied once per save
+
+Reported as: Save Projection works, then after a couple of goes the whole app locks up and the work is lost. It is not the debounce. **A saved version is a deep copy of the entire deck, and a background that could not be uploaded is kept inline as a data: URL** — so every Save Projection wrote another complete copy of the picture into `orders.template`, into its own `projection_versions` row, and into the localStorage crash journal. Measured on an 8-song songbook with one 4 MB photo: each version's deck was **1203 KB** of which 1200 KB was the same picture, main-thread blocking went 236 ms → 976 ms across four saves, and the heap climbed 44 → 63 MB. The journal blew the storage quota and was silently thrown away every time.
+
+Decks now carry a **reference** (`#bg:<id>`) and the bytes live once, in `template._bgPool`:
+
+- `_sbBgIntern` / `_sbBgDeref` sit either side of the store. Interning happens at the moment the operator picks the picture, so an inline background never sits in the DOM as a multi-megabyte attribute either.
+- `_sbResolveBg` derefs, so every reader downstream — the projector, the PowerPoint export, the LCD rebuild — is unchanged.
+- `_sbBgPrune` drops a picture when its last reference goes (a deleted version, a replaced background); `_sbBgCompact` runs when the projection opens and folds an existing order's inline copies into one, so an order already suffering from this recovers on its own.
+- The crash journal no longer carries `projectionVersions` at all. They have their own rows, written the moment they change.
+- The upload fallback **scales the picture to 1920×1080 JPEG** before inlining it. A projector is 1920 across; a phone photo is four times that.
+
+**Verified live** (throwaway order, deleted by id): eleven saved versions, deck **3 KB each** instead of 1203 KB; save time flat at 38–78 ms over five consecutive saves with heap flat at 34–50 MB (it climbed before); the songbook-wide `data-allbg` attribute is 16 characters, not 4 MB. Opening a songbook whose eight versions each held their own copy took them from 1203 KB to **31 KB apiece** on the spot. A real 4032×3024 / 1402 KB photo driven through the upload-fallback path was stored at **293 KB** and still resolved onto the projector. Orders 19, songs 51, unchanged.
+
+### The gap left behind by a merge
+
+Backspacing a line away left a blank row where it had been. The handler moved the emptied line's children into the line above — **including the placeholder `<br>` Chrome leaves in a line whose last character has just been deleted**. That `<br>` at the end of the joined line is the gap. Placeholder breaks are now dropped on both sides of the join.
+
+Backspace at the **first line of a slide** was left to the browser, which ate the break rule and left its own mess. It now joins that line onto the last line of the slide above deliberately, and when the slide has nothing left, the empty slide and its break rule go with it.
+
+**Verified live:** an emptied line merged with no trailing `<br>` anywhere in the slide; backspacing at the head of a one-line slide put its words on the end of `O praise Him, O praise Him,` and took the pad from 25 slides / 22 breaks to 24 / 21.
+
+### Formatting that skipped a line
+
+"Sometimes it leaves out the bottom line or top line." It was not the edges — it was **any line that already carried a size of its own**. `execCommand('fontSize')` passes silently over those, and the fallback meant to catch them bailed on exactly the same test (`if (sized) return`), so it never fired.
+
+Size and font are no longer run through `execCommand` at all. The lines the highlight covers are worked out first, then each line's own covered portion is wrapped outright — which cannot skip anything — with any old size or face inside it cleared, since a nested size **multiplies** rather than replaces. Bold/italic/underline keep `execCommand` (it knows how to take a style off again) with the same check afterwards: any covered line the command passed by is set directly. The highlight is restored over what changed, so a size and then a face can be applied without re-selecting.
+
+**Verified live:** select-all over a 94-line pad containing lines pre-set to 1.5em and 0.625em → **94 of 94** at 1.75em, none missed, no compounding, bold preserved. A drag from mid-line to mid-line across three slides → **8 of 8** covered lines took the new font. Bold over a selection where two of four lines were already bold → all four bold; applying it again → all four clear.
+
+### Found in the audit alongside
+
+- **The songbook-wide background button lost its name.** `sbAslSetBg` overwrote the whole label, so `Whole songbook · Default` became plain `Picture` after any choice — reading exactly like a single slide's own button. It also dropped the `has-pic` class on "None", when that button is meant to be gold always.
+- **Emptying every slide of a song did nothing.** `_sbAslApplyToStore` wrote `store.songs[k]` only for songs that produced at least one slide, so a song cleared out kept its previous list and the deletion was silently discarded on save. Every song on screen is now rewritten, empty included — and `_sbProjRenderAll` gives a song with no slides one empty editable slide, so clearing one out is not a dead end.
 
 ## 2026-08-14 — Migration run; verified against the real tables (one bug found)
 
