@@ -25,6 +25,22 @@ The LCD **rebuild** (applying a version to the service order's song slides) is s
 
 ---
 
+## 2026-08-15 — Audit: three rounds over LCD Projection and the Songbook
+
+Three passes, each over different ground. Mechanical checks against the whole file plus live exercise of the paths an operator uses; **not** an exhaustive line-by-line read of either page.
+
+**Round 1 — projection state: versions, resolvers, export.** Traced every mutation of the projection store and confirmed each is followed by a save (no silent losses). Confirmed the PowerPoint export builds from `_sbBuildProjectionDeck(false)`, so it exports exactly what will project and skipped slides stay out, and that its run builder tolerates `html` and `lines` disagreeing in length. Deleting the version a working draft was copied from leaves `projectionDraftBase` dangling, but every reader resolves a missing version to null and falls back to "Unsaved adjustments" — degrades cleanly, left alone.
+
+**Round 2 — the songbook pad.** Scanned every `sb*`/`lcd*` helper called anywhere in the file against every definition: no call reaches a function that does not exist. Scanned every `WO.*` reference in markup against the module's exports: the only two unexported names (`promptNewOrder`, `addLiturgyItem`) sit behind `if (WO.x)` guards, so they are dead branches rather than errors — though `createNewOrderFromSongFinder` therefore always falls through to its "Create a new order from the Orders page" toast. Corrected a comment pointing at `sbSeedOrderItems()`, a function that does not exist.
+
+**Round 3 — the LCD Projection page.** Checked every element id in the live DOM for duplicates (**none**), and every inline `onclick`/`onchange`/`oninput` against what it resolves to. Then exercised eleven operator paths in sequence — service mode, zoom in/out, undo, redo, blank, unblank, the projection picker, expand and collapse schedule — all without error, with the Program Output, its live dot and the picker label intact afterwards.
+
+### Fixed
+
+**The Spotify preview's Close button did nothing.** `closeSpotifyPreview` is defined inside a module, but the button calls it as an inline `onclick`, which resolves against `window` — so the modal could only be dismissed by clicking its backdrop. Exposed on `window`, matching how `openModal`/`closeModal` are already shared with inline handlers.
+
+---
+
 ## 2026-08-14 — "Am" on its own is a chord again
 
 `isChordLineGlobal` refuses to let **Am** count as chord evidence, because it is indistinguishable from the English word: "Great I Am", "Am I not yours" are lyrics, and on a short line that one token is enough to tip the ≥50% test. The rule was right about mixed lines and wrong about the commonest case in the library — **Am alone above a lyric** — which rendered as a lyric line, unstyled and un-transposable.

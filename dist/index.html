@@ -18226,6 +18226,10 @@ window.loadEditSongData = function(song) {
     $('spotifyPreviewEmbed').innerHTML = '';
     closeModal('spotifyPreviewModal');
   }
+  // The preview's own Close button is an inline onclick, which resolves against
+  // window -- so without this the button did nothing and the modal could only
+  // be dismissed by its backdrop.
+  window.closeSpotifyPreview = closeSpotifyPreview;
 
   // ============================================================
   // 13D) DETECT MEDIA TYPE (Universal)
@@ -21807,7 +21811,7 @@ var SBQ = {
   // on other devices picks up the change.  Does NOT write identity columns
   // (item_type, source_id, sort_order, title) to avoid accidentally corrupting rows
   // that were already correctly saved by a full saveOrder(). Rows that do not yet
-  // exist are skipped — use sbSeedOrderItems() first if you need to ensure rows exist.
+  // exist are skipped — save the order once first if you need the rows to exist.
   syncItems: function(orderId, snapshots) {
     var sb = SBQ._sb();
     if (!sb || !orderId || !snapshots || !snapshots.length) return Promise.resolve();
