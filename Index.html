@@ -22796,15 +22796,81 @@ var SBQ_PROJECTION = {
     }).catch(function(e) { SBQ_PROJECTION._note(e); return false; });
   },
 
+  // ── Stored pictures ─────────────────────────────────────────────────────
+  // Backgrounds that could not be uploaded are kept inline, and a deck that
+  // carried the bytes made every saved version another full copy of them. The
+  // decks hold a reference now and the bytes live here, once per songbook.
+  // A missing table is reported separately from the version tables: this one
+  // arrived in a later migration, so one can be present without the other.
+  _mediaExists: null,
+
+  loadMedia: function(ownerId) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._mediaExists === false) return Promise.resolve(null);
+    return sb.from('projection_media').select('id,data').eq('owner_id', ownerId)
+      .then(function(r) {
+        if (r.error) {
+          if (SBQ_PROJECTION._missing(r.error.message || '')) {
+            if (SBQ_PROJECTION._mediaExists !== false) {
+              console.info('[LHC] projection_media not present yet — pictures stay in orders.template until the migration is run');
+            }
+            SBQ_PROJECTION._mediaExists = false;
+          } else {
+            console.warn('[LHC] projection media:', r.error.message);
+          }
+          return null;
+        }
+        SBQ_PROJECTION._mediaExists = true;
+        var out = {};
+        (r.data || []).forEach(function(row) { if (row && row.id) out[row.id] = row.data || ''; });
+        return out;
+      })
+      .catch(function() { return null; });
+  },
+
+  // One row per picture, written the moment it is added rather than with the
+  // order's autosave -- it is the only write that ever carries the bytes.
+  saveMedia: function(ownerId, entries) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._mediaExists === false) return Promise.resolve(false);
+    var rows = Object.keys(entries || {}).map(function(id) {
+      return { owner_id: ownerId, id: id, data: entries[id] || '' };
+    });
+    if (!rows.length) return Promise.resolve(true);
+    return sb.from('projection_media').upsert(rows, { onConflict: 'owner_id,id' })
+      .then(function(r) {
+        if (r.error) {
+          if (SBQ_PROJECTION._missing(r.error.message || '')) SBQ_PROJECTION._mediaExists = false;
+          else console.warn('[LHC] projection media:', r.error.message);
+          return false;
+        }
+        SBQ_PROJECTION._mediaExists = true;
+        return true;
+      }).catch(function() { return false; });
+  },
+
+  deleteMedia: function(ownerId, ids) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || !ids || !ids.length || SBQ_PROJECTION._mediaExists === false) return Promise.resolve(false);
+    return sb.from('projection_media').delete().eq('owner_id', ownerId).in('id', ids)
+      .then(function() { return true; }).catch(function() { return false; });
+  },
+
   // Called when an order is deleted: there is no foreign key to cascade, on
   // purpose (a standalone songbook's orders row is created lazily).
   removeOwner: function(ownerId) {
     var sb = SBQ_PROJECTION._sb();
-    if (!sb || !ownerId || SBQ_PROJECTION._tableExists === false) return Promise.resolve();
-    return Promise.all([
-      sb.from('projection_versions').delete().eq('owner_id', ownerId),
-      sb.from('projection_settings').delete().eq('owner_id', ownerId)
-    ]).then(function() {}).catch(function() {});
+    if (!sb || !ownerId) return Promise.resolve();
+    var jobs = [];
+    if (SBQ_PROJECTION._tableExists !== false) {
+      jobs.push(sb.from('projection_versions').delete().eq('owner_id', ownerId));
+      jobs.push(sb.from('projection_settings').delete().eq('owner_id', ownerId));
+    }
+    if (SBQ_PROJECTION._mediaExists !== false) {
+      jobs.push(sb.from('projection_media').delete().eq('owner_id', ownerId));
+    }
+    if (!jobs.length) return Promise.resolve();
+    return Promise.all(jobs).then(function() {}).catch(function() {});
   }
 };
 
@@ -44591,6 +44657,10 @@ var WO = (function() {
   function _sbProjHydrate(ownerId) {
     ownerId = ownerId || _sbProjOwnerId();
     if (!ownerId || typeof SBQ_PROJECTION === 'undefined') return Promise.resolve(false);
+    // The pictures load alongside, not after: a reference resolves synchronously
+    // when a slide is drawn, so they have to be in memory by the time the
+    // operator reaches Project mode.
+    _sbBgHydrate(ownerId);
     return SBQ_PROJECTION.load(ownerId).then(function(res) {
       var t = _sbProjTpl();
       if (!t || _sbProjOwnerId() !== ownerId) return false;    // order changed under us
@@ -44803,12 +44873,53 @@ var WO = (function() {
   // bytes live once, in the order's own pool.
   var SB_BG_REF = /^#bg:/;
 
+  // The pictures live in projection_media, one row each, keyed by the songbook.
+  // They must not sit in orders.template: that column is rewritten IN FULL on
+  // every autosave, so one photo in it means serialising its megabytes on the
+  // main thread every couple of seconds while the operator is working. Until
+  // the migration has been run the template is still used, exactly as before.
+  var _sbBgPoolOwner = null, _sbBgPoolMem = {}, _sbBgPoolLoadedFor = null;
+
+  function _sbBgPoolHasTable() {
+    return typeof SBQ_PROJECTION !== 'undefined' && SBQ_PROJECTION._mediaExists !== false;
+  }
+
   function _sbBgPool(create) {
+    if (_sbBgPoolHasTable()) {
+      var own = _sbProjOwnerId();
+      // Switching songbooks must not carry the last one's pictures across.
+      if (own && _sbBgPoolOwner !== own) { _sbBgPoolOwner = own; _sbBgPoolMem = {}; }
+      return _sbBgPoolMem;
+    }
     var t = _sbProjTpl();
     if (!t) return null;
     if (!t._bgPool && !create) return null;
     if (!t._bgPool) t._bgPool = {};
     return t._bgPool;
+  }
+
+  // Read the songbook's pictures into memory. Everything downstream -- the
+  // renderer, the export -- resolves references synchronously, so this has to
+  // have landed before a slide is drawn; it runs with the rest of the
+  // projection's hydration when the songbook opens.
+  function _sbBgHydrate(ownerId) {
+    ownerId = ownerId || _sbProjOwnerId();
+    if (!ownerId || typeof SBQ_PROJECTION === 'undefined' || !SBQ_PROJECTION.loadMedia) return Promise.resolve(false);
+    if (_sbBgPoolLoadedFor === ownerId) return Promise.resolve(true);
+    return SBQ_PROJECTION.loadMedia(ownerId).then(function(entries) {
+      if (_sbProjOwnerId() !== ownerId) return false;      // songbook changed under us
+      _sbBgPoolLoadedFor = ownerId;
+      if (!entries) return false;                          // table not there yet
+      _sbBgPoolOwner = ownerId;
+      Object.keys(entries).forEach(function(k) { _sbBgPoolMem[k] = entries[k]; });
+      return true;
+    }).catch(function() { return false; });
+  }
+
+  function _sbBgLookup(id) {
+    if (_sbBgPoolMem && _sbBgPoolMem[id]) return _sbBgPoolMem[id];
+    var t = _sbProjTpl();
+    return (t && t._bgPool && t._bgPool[id]) || '';
   }
 
   // Only inline pictures are interned. A URL is already a reference and costs
@@ -44818,8 +44929,16 @@ var WO = (function() {
     var pool = _sbBgPool(true);
     if (!pool) return url;
     for (var k in pool) if (pool[k] === url) return '#bg:' + k;
+    // The same picture may already be in the other home, mid-migration.
+    var t = _sbProjTpl();
+    if (t && t._bgPool) for (var k2 in t._bgPool) if (t._bgPool[k2] === url) return '#bg:' + k2;
     var id = 'p' + Date.now().toString(36) + Math.floor(Math.random() * 46656).toString(36);
     pool[id] = url;
+    var own = _sbProjOwnerId();
+    if (own && _sbBgPoolHasTable() && typeof SBQ_PROJECTION !== 'undefined') {
+      var one = {}; one[id] = url;
+      SBQ_PROJECTION.saveMedia(own, one);      // its own row, now: this is the only write carrying bytes
+    }
     return '#bg:' + id;
   }
 
@@ -44828,8 +44947,7 @@ var WO = (function() {
   // everywhere else here.
   function _sbBgDeref(url) {
     if (!url || typeof url !== 'string' || !SB_BG_REF.test(url)) return url;
-    var pool = _sbBgPool(false);
-    return (pool && pool[url.slice(4)]) || '';
+    return _sbBgLookup(url.slice(4));
   }
 
   function _sbBgEachPin(deck, fn) {
@@ -44851,16 +44969,27 @@ var WO = (function() {
   // replaced by another -- must not sit in the order for ever.
   function _sbBgPrune() {
     var t = _sbProjTpl();
-    var pool = t && t._bgPool;
-    if (!pool) return;
+    if (!t) return;
     var seen = {};
     function mark(v) { if (SB_BG_REF.test(v || '')) seen[String(v).slice(4)] = 1; return v; }
     _sbBgEachPin(t.projectionDeck, mark);
     (Array.isArray(t.projectionVersions) ? t.projectionVersions : []).forEach(function(v) {
       _sbBgEachPin(v && v.deck, mark);
     });
-    Object.keys(pool).forEach(function(k) { if (!seen[k]) delete pool[k]; });
-    if (!Object.keys(pool).length) delete t._bgPool;
+    // Only what this session knows about is dropped. Hydration may not have
+    // landed yet, and an empty pool must not be read as "nothing is in use".
+    var own = _sbProjOwnerId();
+    if (_sbBgPoolLoadedFor === own) {
+      var gone = Object.keys(_sbBgPoolMem).filter(function(k) { return !seen[k]; });
+      gone.forEach(function(k) { delete _sbBgPoolMem[k]; });
+      if (gone.length && own && typeof SBQ_PROJECTION !== 'undefined' && SBQ_PROJECTION.deleteMedia) {
+        SBQ_PROJECTION.deleteMedia(own, gone);
+      }
+    }
+    if (t._bgPool) {
+      Object.keys(t._bgPool).forEach(function(k) { if (!seen[k]) delete t._bgPool[k]; });
+      if (!Object.keys(t._bgPool).length) delete t._bgPool;
+    }
   }
 
   // Orders saved before the pool existed carry the picture inline in the draft
@@ -44870,6 +44999,31 @@ var WO = (function() {
   function _sbBgCompact() {
     var t = _sbProjTpl();
     if (!t) return;
+    var own = _sbProjOwnerId();
+    var moved = 0;
+    // Pictures pooled inside the template before they had a table of their own
+    // move across the first time the projection is opened. The template copy is
+    // only dropped once the write has actually landed -- if the migration has
+    // not been run, saveMedia says so and the template stays as it was.
+    if (t._bgPool && own && _sbBgPoolHasTable() && typeof SBQ_PROJECTION !== 'undefined') {
+      if (_sbBgPoolOwner !== own) { _sbBgPoolOwner = own; _sbBgPoolMem = {}; }
+      var carry = {};
+      Object.keys(t._bgPool).forEach(function(k) {
+        if (_sbBgPoolMem[k]) return;
+        _sbBgPoolMem[k] = t._bgPool[k];
+        carry[k] = t._bgPool[k];
+        moved++;
+      });
+      if (moved) {
+        SBQ_PROJECTION.saveMedia(own, carry).then(function(ok) {
+          if (!ok) return;
+          delete t._bgPool;
+          _sbProjSaveStore();          // and out of orders.template it goes
+        });
+      } else {
+        delete t._bgPool;              // already in the table
+      }
+    }
     var inlined = 0;
     function fold(v) {
       if (typeof v === 'string' && v.slice(0, 5) === 'data:') { inlined++; return _sbBgIntern(v); }

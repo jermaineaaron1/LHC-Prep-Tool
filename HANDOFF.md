@@ -22,6 +22,19 @@ Decks now carry a **reference** (`#bg:<id>`) and the bytes live once, in `templa
 
 **Verified live** (throwaway order, deleted by id): eleven saved versions, deck **3 KB each** instead of 1203 KB; save time flat at 38–78 ms over five consecutive saves with heap flat at 34–50 MB (it climbed before); the songbook-wide `data-allbg` attribute is 16 characters, not 4 MB. Opening a songbook whose eight versions each held their own copy took them from 1203 KB to **31 KB apiece** on the spot. A real 4032×3024 / 1402 KB photo driven through the upload-fallback path was stored at **293 KB** and still resolved onto the projector. Orders 19, songs 51, unchanged.
 
+### The pictures moved out of orders.template into their own table
+
+Referencing rather than copying killed the growth, but one copy still sat in `orders.template` — and that column is rewritten **in full on every autosave**, so a single photo in it meant serialising its megabytes on the main thread every couple of seconds while the operator worked. `migrations/2026-08-15_add_projection_media.sql` gives them a row each, keyed `(owner_id, id)` — pool ids are only unique within a songbook.
+
+`SBQ_PROJECTION` gained `loadMedia` / `saveMedia` / `deleteMedia`, tracked by their own `_mediaExists` flag: this table arrived a migration later than `projection_versions`, so one can be present without the other. The pool lives in memory (`_sbBgPoolMem`, keyed by owner so switching songbooks cannot carry pictures across), loaded by `_sbBgHydrate` alongside the rest of the projection's hydration — references resolve synchronously when a slide is drawn, so it has to be there before Project mode is reached. `_sbBgLookup` reads both homes, which is what makes the transition safe. `_sbBgCompact` moves a template pool across on first open and only drops the template copy **once the write has landed**.
+
+**Verified live, both paths** (throwaway order, deleted by id):
+
+- **Before the migration is run** — `projection_media` genuinely absent: `_mediaExists` goes false, the pool falls back to `template._bgPool`, the version deck still stores the reference (3 KB, not 200 KB), and the picture came back intact after a full page reload. Deploying the frontend ahead of the SQL is safe; it just keeps the pool in the template until the table exists.
+- **After** (exercised against a stand-in table so the real client code ran): opening the songbook moved the template's pool into a row and took `orders.template` from 199 KB to **4 KB**. Picking a fresh 3 MB picture wrote **one row, once** — and five consecutive Save Projections after it produced **zero** media writes. Six saved versions, decks 3 KB each, template 21 KB, save time 21–97 ms with three long tasks over 100 ms across the whole run. Deleting versions pruned each picture exactly when its **last** reference went, leaving no orphan rows.
+
+The SQL itself has not been run — it needs the Supabase SQL Editor, which the anon key cannot do.
+
 ### The gap left behind by a merge
 
 Backspacing a line away left a blank row where it had been. The handler moved the emptied line's children into the line above — **including the placeholder `<br>` Chrome leaves in a line whose last character has just been deleted**. That `<br>` at the end of the joined line is the gap. Placeholder breaks are now dropped on both sides of the join.
