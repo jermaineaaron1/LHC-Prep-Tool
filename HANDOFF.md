@@ -88,6 +88,31 @@ Orders 19, songs 51, unchanged. One `projection_settings` row remains for the re
 
 ---
 
+## 2026-08-15 — LCD Projection: opens on slide 1, presentations land between items and can be deleted
+
+### It opened on the wrong slide
+
+Every group selects its own first slide as it renders — each song, each liturgy item, each presentation — so the selection simply landed wherever rendering happened to finish, which is why the schedule opened on the last item rather than the first. It is put back at the top once the groups have settled, **once per order**, so it never fights the operator for the selection mid-service.
+
+### A dropped presentation split whatever it landed on
+
+Presentations were appended to the end of the section whatever they were dropped on, which is how one ended up in the middle of a liturgy group. A song or liturgy item is a banner **plus** its slide boxes **plus** its add-slide row — one thing in several elements — so `_lcdPptDropIndex` walks to the end of the group the drop landed in. The section header drops at the top, open space at the end. The chosen slot is parked in `_lcdPptDrop` and honoured by `_renderPptFilmstrip`, which otherwise always appends.
+
+### Presentations could not be deleted
+
+There was no working per-slide delete at all: `removePptSlideBox` targets `.wo-ppt-slide`, a layout this filmstrip replaced. `removePptPage` removes one page — and the presentation with it when it was the last one — and `removePptFile` removes the whole thing behind a confirm. The old header button only removed the element and left `currentSermonSlides` behind, so the next render put the presentation straight back; that is cleared now. Buttons sit on both the filmstrip thumbnails and the rail rows, on hover (always visible on touch). Re-rendering after a page delete re-pins the widget's position, which it would otherwise lose to the end of the section.
+
+### Verified live (throwaway order + tray item, both deleted by id)
+
+- **Opens at the top:** a 19-section / 130-slide order selects slide **1.1 of section 1**, rail row 0 — previously whichever group rendered last.
+- **Placement, all three cases** on a section holding two liturgy groups (children 0–13 and 14–26): dropped on child **3**, the middle of the first group → widget at **14**, directly after that group's add-slide row and before the next group's banner (not 4, not the end); dropped on the **section header** → index **0**; dropped on **open space** → last.
+- **Page delete:** widget parked at index 14, removed the middle page → 3 thumbnails to 2, and the widget **stayed at 14** between the two groups.
+- **File delete:** the confirm named the file and its slide count, the widget went, and it was **still gone after a full Song Order → Service Order re-render** — the case the old button got wrong.
+
+**Note on the harness.** The Browser pane runs hidden, so `requestAnimationFrame` never fires and pdf.js's `page.render()` never settles — every PDF import stalls at "Processing N PDF pages…" whatever the file. The drop path itself was exercised with a real document tray item (it reaches `_lcdExpandDocIntoSection` and sets the target slot synchronously); the widget was then filled through the importer's image branch, which needs no rAF. So the placement rule and both deletes are genuinely exercised; only the PDF-to-pages conversion inside them is not, and that is unchanged code.
+
+---
+
 ## 2026-08-15 — Audit: three rounds over LCD Projection and the Songbook
 
 Three passes, each over different ground. Mechanical checks against the whole file plus live exercise of the paths an operator uses; **not** an exhaustive line-by-line read of either page.
