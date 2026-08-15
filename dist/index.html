@@ -16817,8 +16817,14 @@ window.loadEditSongData = function(song) {
     // Navigate to Orders page and trigger new order creation
     setActiveView('worshipOrderView');
     setTimeout(function() {
-      if (window.WO && window.WO.promptNewOrder) {
-        window.WO.promptNewOrder();
+      // showNewOrderOptions is what the Orders page's own "Create New Order"
+      // button calls -- it opens the Traditional/Contemporary chooser. The old
+      // name here, promptNewOrder, never existed, so this always fell through
+      // to a toast telling the operator to go and do it themselves.
+      if (window.WO && window.WO.showNewOrderOptions) {
+        window.WO.showNewOrderOptions();
+        var opts = document.getElementById('woNewOrderOptions');
+        if (opts && opts.scrollIntoView) opts.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else {
         showToast('Create a new order from the Orders page', 'info');
       }
@@ -44607,8 +44613,43 @@ var WO = (function() {
     }).catch(function() { return false; });
   }
 
+  // Debounced. Every toolbar command, every scope click and every drag ends in
+  // _sbProjSaveStore, and this used to fire a Supabase upsert -- serialising
+  // the whole working draft -- on each one. A run of quick edits became a queue
+  // of network writes, which is what made the app crawl and then hang.
+  var _sbSettingsTimer = null, _sbSettingsLast = '';
   function _sbProjPushSettings(ownerId) {
     ownerId = ownerId || _sbProjOwnerId();
+    var t = _sbProjTpl();
+    if (!ownerId || !t || typeof SBQ_PROJECTION === 'undefined') return;
+    clearTimeout(_sbSettingsTimer);
+    _sbSettingsTimer = setTimeout(function() {
+      var payload = {
+        source:    t.projectionSource || null,
+        lcdSource: t.lcdProjectionSource || null,
+        draftDeck: t.projectionDeck || {},
+        draftBase: t.projectionDraftBase || null
+      };
+      // Nothing changed since the last write? Then there is nothing to send.
+      var sig;
+      try { sig = JSON.stringify(payload); } catch (e) { sig = String(Date.now()); }
+      if (sig === _sbSettingsLast) return;
+      _sbSettingsLast = sig;
+      SBQ_PROJECTION.saveSettings(ownerId, payload);
+    }, 1500);
+  }
+
+  // Leaving the projection must not strand a pending write.
+  function _sbProjFlushSettings() {
+    if (!_sbSettingsTimer) return;
+    clearTimeout(_sbSettingsTimer);
+    _sbSettingsTimer = null;
+    _sbSettingsLast = '';
+    _sbProjPushSettingsNow();
+  }
+
+  function _sbProjPushSettingsNow() {
+    var ownerId = _sbProjOwnerId();
     var t = _sbProjTpl();
     if (!ownerId || !t || typeof SBQ_PROJECTION === 'undefined') return;
     SBQ_PROJECTION.saveSettings(ownerId, {
@@ -45060,6 +45101,13 @@ var WO = (function() {
   function _sbProjKey(e) {
     var ov = $('sbProjectOverlay');
     if (!ov || ov.style.display === 'none') return;
+    // This listener is registered with capture, so it sees the key before the
+    // All Slides editor does and stopPropagation there cannot hold it back:
+    // arrow keys typed in the editor were paging the projector behind it.
+    var panel = $('sbProjAllPanel');
+    if (panel && panel.style.display === 'block') return;
+    var nameBox = $('sbAslNameBox');
+    if (nameBox && nameBox.style.display === 'block') return;
     if (_sbProjEditing) {
       // Typing must not page the deck.
       if (e.key === 'Escape') { sbProjToggleEdit(); e.preventDefault(); }
@@ -45128,6 +45176,7 @@ var WO = (function() {
   }
 
   function sbProjectClose() {
+    _sbProjFlushSettings();      // never leave a debounced write behind
     if (_sbProjEditing) sbProjToggleEdit();
     var ov = $('sbProjectOverlay');
     if (ov) ov.style.display = 'none';
