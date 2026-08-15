@@ -33034,6 +33034,16 @@ var WO = (function() {
     var appUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
     var projUrl = appUrl + '?mode=proj';
 
+    // Same reason as the monitor picker: an opener sitting in fullscreen keeps
+    // the projection window from taking a display of its own, and leaves the
+    // operator staring at a workspace that will not budge.
+    if (document.body.classList.contains('lcd-workspace-fullscreen')) {
+      document.body.classList.remove('lcd-workspace-fullscreen');
+      if (document.fullscreenElement && document.exitFullscreen) {
+        try { var _e = document.exitFullscreen(); if (_e && _e.catch) _e.catch(function() {}); } catch (e) {}
+      }
+    }
+
     // Already live — just sync content
     if (_projWindowLive) {
       syncProjectionWithPreview();
@@ -45187,17 +45197,31 @@ var WO = (function() {
       }
 
       sections.forEach(function(sec, si) {
-        for (var i = 0; i < sec.lines.length; i += SB_MAX_LINES) {
-          var chunk = sec.lines.slice(i, i + SB_MAX_LINES);
-          if (!chunk.join('').trim()) continue;
+        // A blank line is spacing, not a line of the song. Counting it against
+        // the slide's limit is what split a verse one line early and left the
+        // last line of its chorus stranded on a slide of its own -- the gap the
+        // operator sees, with a lone "Alleluia" under it.
+        var chunks = [];
+        var cur = [], used = 0;
+        sec.lines.forEach(function(l) {
+          var blank = !l.trim();
+          if (!blank && used >= SB_MAX_LINES) { chunks.push(cur); cur = []; used = 0; }
+          if (!cur.length && blank) return;              // never open a slide on blank space
+          cur.push(l);
+          if (!blank) used++;
+        });
+        if (cur.length) chunks.push(cur);
+        chunks.forEach(function(chunk, ci) {
+          while (chunk.length && !chunk[chunk.length - 1].trim()) chunk.pop();   // nor close on it
+          if (!chunk.length) return;
           push({
             kind: 'lyric', songIdx: songIdx,
-            key: songIdx + '|' + si + '|' + sec.header + '|' + (i / SB_MAX_LINES),
+            key: songIdx + '|' + si + '|' + sec.header + '|' + ci,
             title: song.title || 'Untitled',
-            section: sec.header + (i ? ' (cont.)' : ''),
+            section: sec.header + (ci ? ' (cont.)' : ''),
             lines: chunk
           });
-        }
+        });
       });
     });
     return deck;
@@ -55085,7 +55109,11 @@ var WO = (function() {
   // 337px-tall Orders header come off, leaving Library / Schedule / Editor /
   // Output / Media Tray on one screen. Implemented by fixing the view to the
   // viewport, which also sidesteps the app grid entirely.
-  function lcdToggleWorkspaceFullscreen(force) {
+  // keepBrowserFs: leave the browser's own fullscreen alone while dropping the
+  // workspace layout. The projection overlay is about to take fullscreen for
+  // itself, and releasing it first would flash the desktop in the middle of a
+  // service.
+  function lcdToggleWorkspaceFullscreen(force, keepBrowserFs) {
     var on = (typeof force === 'boolean')
       ? force
       : !document.body.classList.contains('lcd-workspace-fullscreen');
@@ -55098,7 +55126,7 @@ var WO = (function() {
       if (on && !document.fullscreenElement && document.documentElement.requestFullscreen) {
         var p = document.documentElement.requestFullscreen();
         if (p && p.catch) p.catch(function() {});
-      } else if (!on && document.fullscreenElement && document.exitFullscreen) {
+      } else if (!on && !keepBrowserFs && document.fullscreenElement && document.exitFullscreen) {
         var q = document.exitFullscreen();
         if (q && q.catch) q.catch(function() {});
       }
@@ -57800,6 +57828,16 @@ var WO = (function() {
   var _wofsIndicatorTimer = null;
 
   function goFullscreen(triggerEl) {
+    // Full screen is the OPERATOR's working view; projecting hands the room a
+    // display of its own. Holding both is why Project appeared to do nothing:
+    // the workspace stayed full screen over the top, and a projection window
+    // opened behind it could not take the second monitor properly -- it sat
+    // there as a window instead. The workspace steps aside first. The browser's
+    // own fullscreen is kept for now; whichever path runs below either replaces
+    // it (the overlay) or releases it (the projection window).
+    var _wasWorkspaceFs = document.body.classList.contains('lcd-workspace-fullscreen');
+    if (_wasWorkspaceFs) lcdToggleWorkspaceFullscreen(false, true);
+
     // If a PPT iframe container is active, fullscreen the PPT instead
     if (_selectedPptContainer) {
       var pptIframe = _selectedPptContainer.querySelector('iframe');
@@ -57832,7 +57870,20 @@ var WO = (function() {
         } else {
           _doFullscreenOverlay();
         }
-      }).catch(function() { _doFullscreenOverlay(); });
+      }).catch(function() {
+        // Refused or dismissed. Without this permission the monitor picker
+        // never appears, so Project can only cover the screen the app is on --
+        // which looks exactly like "full screen does not use the projector".
+        // Say so, rather than silently doing the lesser thing.
+        try {
+          if (window.screen && window.screen.isExtended) {
+            showToast('A second screen is connected, but this browser has not been allowed to use it. ' +
+                      'Click the lock icon in the address bar → Site settings → allow "Window management", ' +
+                      'then press Project again.', 'warning', { duration: 9000 });
+          }
+        } catch (e) {}
+        _doFullscreenOverlay();
+      });
       return;
     }
     _doFullscreenOverlay();
@@ -57964,9 +58015,20 @@ var WO = (function() {
           _doFullscreenOverlay();
         } else {
           // Open dedicated projection window directly on the chosen monitor,
-          // passing the ScreenDetailed object so requestFullscreen({ screen }) can target it
+          // passing the ScreenDetailed object so requestFullscreen({ screen }) can target it.
+          // Opened FIRST, while the click's activation is still live -- a popup
+          // asked for after an await is blocked.
           createProjectionWindow(screen.left, screen.top, screen.width, screen.height, screen);
           if (projectionWindow) {
+            // Now let go of the operator's own fullscreen. While the opener
+            // holds it, Chrome will not give the popup fullscreen on the other
+            // monitor -- which is how it ended up a plain window on the second
+            // screen. Released here, the popup's own "click to go fullscreen"
+            // prompt can also finish the job if the request above was refused.
+            document.body.classList.remove('lcd-workspace-fullscreen');
+            if (document.fullscreenElement && document.exitFullscreen) {
+              try { var _x = document.exitFullscreen(); if (_x && _x.catch) _x.catch(function() {}); } catch (e) {}
+            }
             _setupProjectionChannel();
             _setGoLiveDot(true);
             showToast('Projecting on ' + (screen.label || 'external screen'), 'success');
