@@ -46789,37 +46789,27 @@ var WO = (function() {
   // so afterwards every covered line is checked and set directly if the command
   // passed it by.
   var _SB_TOGGLE = {
-    bold:      { prop: 'fontWeight', on: '700',
-                 is: function(cs) { return (parseInt(cs.fontWeight, 10) || 400) >= 600; } },
-    italic:    { prop: 'fontStyle', on: 'italic',
-                 is: function(cs) { return cs.fontStyle === 'italic'; } },
-    underline: { prop: 'textDecoration', on: 'underline',
-                 is: function(cs) { return /underline/.test(cs.textDecorationLine || cs.textDecoration || ''); } }
+    bold:      { prop: 'fontWeight',     on: '700' },
+    italic:    { prop: 'fontStyle',      on: 'italic' },
+    underline: { prop: 'textDecoration', on: 'underline' }
   };
 
-  // Walk up from the text to the line: bold and italic inherit, and underline
-  // is drawn by an ancestor rather than reported on the child, so asking the
-  // node alone answers the wrong question.
-  function _sbAslHasStyle(node, line, test) {
-    var el = (node.nodeType === 3) ? node.parentElement : node;
-    while (el) {
-      try { if (test(window.getComputedStyle(el))) return true; } catch (e) {}
-      if (el === line) break;
-      el = el.parentElement;
+  // Whether a line carries the property, read straight off the markup. The
+  // obvious version of this asked getComputedStyle for every ancestor of every
+  // text node, twice over the whole selection -- and each call after a DOM
+  // change forces a style recalculation, so bolding a large pad went quadratic
+  // and locked the tab for seconds. Nothing here resolves style.
+  var _SB_TOGGLE_TAGS = { bold: /^(B|STRONG)$/, italic: /^(I|EM)$/, underline: /^U$/ };
+
+  function _sbAslLineHasProp(line, cmd) {
+    var prop = _SB_TOGGLE[cmd].prop, tags = _SB_TOGGLE_TAGS[cmd];
+    if (line.style && line.style[prop]) return true;
+    var els = line.getElementsByTagName('*');
+    for (var i = 0; i < els.length; i++) {
+      if (tags && tags.test(els[i].tagName)) return true;
+      if (els[i].style && els[i].style[prop]) return true;
     }
     return false;
-  }
-
-  function _sbAslRangeHasStyle(line, r, test) {
-    var w = document.createTreeWalker(line, NodeFilter.SHOW_TEXT, null);
-    var n, any = false;
-    while ((n = w.nextNode())) {
-      if (!(n.nodeValue || '').trim()) continue;
-      try { if (!r.intersectsNode(n)) continue; } catch (e) { continue; }
-      any = true;
-      if (!_sbAslHasStyle(n, line, test)) return false;
-    }
-    return any;
   }
 
   function _sbApplyToggle(root, cmd) {
@@ -46829,18 +46819,17 @@ var WO = (function() {
     var rng = sel.getRangeAt(0).cloneRange();
     var covered = _sbAslCoveredLines(root, rng);
     var ranges = covered.map(function(line) { return _sbAslLineRange(line, rng); });
-    // Was the whole highlight already carrying it? Then the command is turning
-    // it off and nothing needs forcing on afterwards.
-    var wasAllOn = covered.length > 0 && covered.every(function(line, i) {
-      return _sbAslRangeHasStyle(line, ranges[i], spec.is);
-    });
+    // The browser already knows whether the selection is entirely bold/italic/
+    // underlined -- one native call instead of a walk over every text node.
+    var wasAllOn = false;
+    try { wasAllOn = document.queryCommandState(cmd); } catch (e) {}
     try { document.execCommand(cmd, false, null); } catch (e) {}
     _sbAslNormalizeFontTags(root);
     if (wasAllOn || !covered.length) return;
     var made = [];
     covered.forEach(function(line, i) {
       if (!line.parentNode) return;                    // rewritten by the command
-      if (_sbAslRangeHasStyle(line, ranges[i], spec.is)) return;
+      if (_sbAslLineHasProp(line, cmd)) return;        // the command reached it
       var span = _sbAslWrapRange(ranges[i], function(sp) { sp.style[spec.prop] = spec.on; });
       if (!span) return;
       _sbAslClearProp(span, spec.prop);
