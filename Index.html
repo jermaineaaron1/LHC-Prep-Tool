@@ -22796,15 +22796,81 @@ var SBQ_PROJECTION = {
     }).catch(function(e) { SBQ_PROJECTION._note(e); return false; });
   },
 
+  // ── Stored pictures ─────────────────────────────────────────────────────
+  // Backgrounds that could not be uploaded are kept inline, and a deck that
+  // carried the bytes made every saved version another full copy of them. The
+  // decks hold a reference now and the bytes live here, once per songbook.
+  // A missing table is reported separately from the version tables: this one
+  // arrived in a later migration, so one can be present without the other.
+  _mediaExists: null,
+
+  loadMedia: function(ownerId) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._mediaExists === false) return Promise.resolve(null);
+    return sb.from('projection_media').select('id,data').eq('owner_id', ownerId)
+      .then(function(r) {
+        if (r.error) {
+          if (SBQ_PROJECTION._missing(r.error.message || '')) {
+            if (SBQ_PROJECTION._mediaExists !== false) {
+              console.info('[LHC] projection_media not present yet — pictures stay in orders.template until the migration is run');
+            }
+            SBQ_PROJECTION._mediaExists = false;
+          } else {
+            console.warn('[LHC] projection media:', r.error.message);
+          }
+          return null;
+        }
+        SBQ_PROJECTION._mediaExists = true;
+        var out = {};
+        (r.data || []).forEach(function(row) { if (row && row.id) out[row.id] = row.data || ''; });
+        return out;
+      })
+      .catch(function() { return null; });
+  },
+
+  // One row per picture, written the moment it is added rather than with the
+  // order's autosave -- it is the only write that ever carries the bytes.
+  saveMedia: function(ownerId, entries) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || SBQ_PROJECTION._mediaExists === false) return Promise.resolve(false);
+    var rows = Object.keys(entries || {}).map(function(id) {
+      return { owner_id: ownerId, id: id, data: entries[id] || '' };
+    });
+    if (!rows.length) return Promise.resolve(true);
+    return sb.from('projection_media').upsert(rows, { onConflict: 'owner_id,id' })
+      .then(function(r) {
+        if (r.error) {
+          if (SBQ_PROJECTION._missing(r.error.message || '')) SBQ_PROJECTION._mediaExists = false;
+          else console.warn('[LHC] projection media:', r.error.message);
+          return false;
+        }
+        SBQ_PROJECTION._mediaExists = true;
+        return true;
+      }).catch(function() { return false; });
+  },
+
+  deleteMedia: function(ownerId, ids) {
+    var sb = SBQ_PROJECTION._sb();
+    if (!sb || !ownerId || !ids || !ids.length || SBQ_PROJECTION._mediaExists === false) return Promise.resolve(false);
+    return sb.from('projection_media').delete().eq('owner_id', ownerId).in('id', ids)
+      .then(function() { return true; }).catch(function() { return false; });
+  },
+
   // Called when an order is deleted: there is no foreign key to cascade, on
   // purpose (a standalone songbook's orders row is created lazily).
   removeOwner: function(ownerId) {
     var sb = SBQ_PROJECTION._sb();
-    if (!sb || !ownerId || SBQ_PROJECTION._tableExists === false) return Promise.resolve();
-    return Promise.all([
-      sb.from('projection_versions').delete().eq('owner_id', ownerId),
-      sb.from('projection_settings').delete().eq('owner_id', ownerId)
-    ]).then(function() {}).catch(function() {});
+    if (!sb || !ownerId) return Promise.resolve();
+    var jobs = [];
+    if (SBQ_PROJECTION._tableExists !== false) {
+      jobs.push(sb.from('projection_versions').delete().eq('owner_id', ownerId));
+      jobs.push(sb.from('projection_settings').delete().eq('owner_id', ownerId));
+    }
+    if (SBQ_PROJECTION._mediaExists !== false) {
+      jobs.push(sb.from('projection_media').delete().eq('owner_id', ownerId));
+    }
+    if (!jobs.length) return Promise.resolve();
+    return Promise.all(jobs).then(function() {}).catch(function() {});
   }
 };
 
@@ -24983,9 +25049,20 @@ var WO = (function() {
     // this journal to Supabase on the next boot if it never landed.
     if (orderPayload.id && itemsForSave.length) {
       try {
+        // Saved projection versions are left out. They have their own rows,
+        // written the moment they change, and each one is a full copy of a
+        // deck -- so journalling them here serialised megabytes on the main
+        // thread at every save and then blew the storage quota, which threw
+        // the whole journal away. What the journal is for is the items.
+        var _jPayload = orderPayload;
+        if (orderPayload.template && orderPayload.template.projectionVersions) {
+          var _jTpl = Object.assign({}, orderPayload.template);
+          delete _jTpl.projectionVersions;
+          _jPayload = Object.assign({}, orderPayload, { template: _jTpl });
+        }
         localStorage.setItem('lhc_pending_order_save', JSON.stringify({
           savedAt: new Date().toISOString(),
-          payload: orderPayload
+          payload: _jPayload
         }));
       } catch (e) { /* quota -- the journal is best-effort */ }
     }
@@ -44580,6 +44657,10 @@ var WO = (function() {
   function _sbProjHydrate(ownerId) {
     ownerId = ownerId || _sbProjOwnerId();
     if (!ownerId || typeof SBQ_PROJECTION === 'undefined') return Promise.resolve(false);
+    // The pictures load alongside, not after: a reference resolves synchronously
+    // when a slide is drawn, so they have to be in memory by the time the
+    // operator reaches Project mode.
+    _sbBgHydrate(ownerId);
     return SBQ_PROJECTION.load(ownerId).then(function(res) {
       var t = _sbProjTpl();
       if (!t || _sbProjOwnerId() !== ownerId) return false;    // order changed under us
@@ -44782,15 +44863,194 @@ var WO = (function() {
     _sbProjPushSettings();
   }
 
+  // ── One copy of a picture, however many versions reference it ────────────
+  // A background that could not be uploaded is kept inline as a data: URL, and
+  // a saved version is a deep copy of the whole deck -- so every Save Projection
+  // added another entire copy of the picture to the order's template, to its
+  // version row and to the crash journal. Four saves of one phone photo is
+  // ~16 MB of JSON being serialised on the main thread, which is what froze the
+  // app after "a couple of times". Decks now carry a short reference and the
+  // bytes live once, in the order's own pool.
+  var SB_BG_REF = /^#bg:/;
+
+  // The pictures live in projection_media, one row each, keyed by the songbook.
+  // They must not sit in orders.template: that column is rewritten IN FULL on
+  // every autosave, so one photo in it means serialising its megabytes on the
+  // main thread every couple of seconds while the operator is working. Until
+  // the migration has been run the template is still used, exactly as before.
+  var _sbBgPoolOwner = null, _sbBgPoolMem = {}, _sbBgPoolLoadedFor = null;
+
+  function _sbBgPoolHasTable() {
+    return typeof SBQ_PROJECTION !== 'undefined' && SBQ_PROJECTION._mediaExists !== false;
+  }
+
+  function _sbBgPool(create) {
+    if (_sbBgPoolHasTable()) {
+      var own = _sbProjOwnerId();
+      // Switching songbooks must not carry the last one's pictures across.
+      if (own && _sbBgPoolOwner !== own) { _sbBgPoolOwner = own; _sbBgPoolMem = {}; }
+      return _sbBgPoolMem;
+    }
+    var t = _sbProjTpl();
+    if (!t) return null;
+    if (!t._bgPool && !create) return null;
+    if (!t._bgPool) t._bgPool = {};
+    return t._bgPool;
+  }
+
+  // Read the songbook's pictures into memory. Everything downstream -- the
+  // renderer, the export -- resolves references synchronously, so this has to
+  // have landed before a slide is drawn; it runs with the rest of the
+  // projection's hydration when the songbook opens.
+  function _sbBgHydrate(ownerId) {
+    ownerId = ownerId || _sbProjOwnerId();
+    if (!ownerId || typeof SBQ_PROJECTION === 'undefined' || !SBQ_PROJECTION.loadMedia) return Promise.resolve(false);
+    if (_sbBgPoolLoadedFor === ownerId) return Promise.resolve(true);
+    return SBQ_PROJECTION.loadMedia(ownerId).then(function(entries) {
+      if (_sbProjOwnerId() !== ownerId) return false;      // songbook changed under us
+      _sbBgPoolLoadedFor = ownerId;
+      if (!entries) return false;                          // table not there yet
+      _sbBgPoolOwner = ownerId;
+      Object.keys(entries).forEach(function(k) { _sbBgPoolMem[k] = entries[k]; });
+      return true;
+    }).catch(function() { return false; });
+  }
+
+  function _sbBgLookup(id) {
+    if (_sbBgPoolMem && _sbBgPoolMem[id]) return _sbBgPoolMem[id];
+    var t = _sbProjTpl();
+    return (t && t._bgPool && t._bgPool[id]) || '';
+  }
+
+  // Only inline pictures are interned. A URL is already a reference and costs
+  // nothing to copy.
+  function _sbBgIntern(url) {
+    if (!url || typeof url !== 'string' || url.slice(0, 5) !== 'data:') return url;
+    var pool = _sbBgPool(true);
+    if (!pool) return url;
+    for (var k in pool) if (pool[k] === url) return '#bg:' + k;
+    // The same picture may already be in the other home, mid-migration.
+    var t = _sbProjTpl();
+    if (t && t._bgPool) for (var k2 in t._bgPool) if (t._bgPool[k2] === url) return '#bg:' + k2;
+    var id = 'p' + Date.now().toString(36) + Math.floor(Math.random() * 46656).toString(36);
+    pool[id] = url;
+    var own = _sbProjOwnerId();
+    if (own && _sbBgPoolHasTable() && typeof SBQ_PROJECTION !== 'undefined') {
+      var one = {}; one[id] = url;
+      SBQ_PROJECTION.saveMedia(own, one);      // its own row, now: this is the only write carrying bytes
+    }
+    return '#bg:' + id;
+  }
+
+  // A reference whose picture has gone resolves to no picture rather than to a
+  // broken image: the slide goes black, which is what "no background" means
+  // everywhere else here.
+  function _sbBgDeref(url) {
+    if (!url || typeof url !== 'string' || !SB_BG_REF.test(url)) return url;
+    return _sbBgLookup(url.slice(4));
+  }
+
+  function _sbBgEachPin(deck, fn) {
+    if (!deck) return;
+    if (deck.all && deck.all.bg != null) deck.all.bg = fn(deck.all.bg);
+    Object.keys(deck.songBg || {}).forEach(function(k) { deck.songBg[k] = fn(deck.songBg[k]); });
+    Object.keys(deck.slides || {}).forEach(function(k) {
+      var s = deck.slides[k];
+      if (s && s.bg != null) s.bg = fn(s.bg);
+    });
+    Object.keys(deck.songs || {}).forEach(function(k) {
+      ((deck.songs[k] || {}).slides || []).forEach(function(sl) {
+        if (sl && sl.bg != null) sl.bg = fn(sl.bg);
+      });
+    });
+  }
+
+  // A picture whose last reference has gone -- a deleted version, a background
+  // replaced by another -- must not sit in the order for ever.
+  function _sbBgPrune() {
+    var t = _sbProjTpl();
+    if (!t) return;
+    var seen = {};
+    function mark(v) { if (SB_BG_REF.test(v || '')) seen[String(v).slice(4)] = 1; return v; }
+    _sbBgEachPin(t.projectionDeck, mark);
+    (Array.isArray(t.projectionVersions) ? t.projectionVersions : []).forEach(function(v) {
+      _sbBgEachPin(v && v.deck, mark);
+    });
+    // Only what this session knows about is dropped. Hydration may not have
+    // landed yet, and an empty pool must not be read as "nothing is in use".
+    var own = _sbProjOwnerId();
+    if (_sbBgPoolLoadedFor === own) {
+      var gone = Object.keys(_sbBgPoolMem).filter(function(k) { return !seen[k]; });
+      gone.forEach(function(k) { delete _sbBgPoolMem[k]; });
+      if (gone.length && own && typeof SBQ_PROJECTION !== 'undefined' && SBQ_PROJECTION.deleteMedia) {
+        SBQ_PROJECTION.deleteMedia(own, gone);
+      }
+    }
+    if (t._bgPool) {
+      Object.keys(t._bgPool).forEach(function(k) { if (!seen[k]) delete t._bgPool[k]; });
+      if (!Object.keys(t._bgPool).length) delete t._bgPool;
+    }
+  }
+
+  // Orders saved before the pool existed carry the picture inline in the draft
+  // and in every version. Fold those into one copy the first time the
+  // projection is opened, so an order already suffering from this recovers
+  // without the operator having to do anything.
+  function _sbBgCompact() {
+    var t = _sbProjTpl();
+    if (!t) return;
+    var own = _sbProjOwnerId();
+    var moved = 0;
+    // Pictures pooled inside the template before they had a table of their own
+    // move across the first time the projection is opened. The template copy is
+    // only dropped once the write has actually landed -- if the migration has
+    // not been run, saveMedia says so and the template stays as it was.
+    if (t._bgPool && own && _sbBgPoolHasTable() && typeof SBQ_PROJECTION !== 'undefined') {
+      if (_sbBgPoolOwner !== own) { _sbBgPoolOwner = own; _sbBgPoolMem = {}; }
+      var carry = {};
+      Object.keys(t._bgPool).forEach(function(k) {
+        if (_sbBgPoolMem[k]) return;
+        _sbBgPoolMem[k] = t._bgPool[k];
+        carry[k] = t._bgPool[k];
+        moved++;
+      });
+      if (moved) {
+        SBQ_PROJECTION.saveMedia(own, carry).then(function(ok) {
+          if (!ok) return;
+          delete t._bgPool;
+          _sbProjSaveStore();          // and out of orders.template it goes
+        });
+      } else {
+        delete t._bgPool;              // already in the table
+      }
+    }
+    var inlined = 0;
+    function fold(v) {
+      if (typeof v === 'string' && v.slice(0, 5) === 'data:') { inlined++; return _sbBgIntern(v); }
+      return v;
+    }
+    _sbBgEachPin(t.projectionDeck, fold);
+    var versions = Array.isArray(t.projectionVersions) ? t.projectionVersions : [];
+    versions.forEach(function(v) { _sbBgEachPin(v && v.deck, fold); });
+    if (!inlined) return;
+    _sbBgPrune();
+    // The version rows hold their own copies too, so they are rewritten once.
+    var own = _sbProjOwnerId();
+    if (own && versions.length && typeof SBQ_PROJECTION !== 'undefined' && SBQ_PROJECTION.saveAll) {
+      try { SBQ_PROJECTION.saveAll(own, versions); } catch (e) {}
+    }
+    _sbProjSaveStore();
+  }
+
   // slide -> song -> songbook. Each level only speaks when it was set there,
   // so a slide left alone follows its song and a song left alone follows the
   // songbook. An empty string at any level is a deliberate "no picture" and
   // stops the walk.
   function _sbResolveBg(store, songIdx, slideBg) {
-    if (slideBg != null) return slideBg;
+    if (slideBg != null) return _sbBgDeref(slideBg);
     var songBg = store.songBg ? store.songBg[songIdx] : undefined;
-    if (songBg != null) return songBg;
-    return store.all.bg || '';
+    if (songBg != null) return _sbBgDeref(songBg);
+    return _sbBgDeref(store.all.bg || '');
   }
 
   function _sbBuildProjectionDeck(includeHidden) {
@@ -45024,6 +45284,7 @@ var WO = (function() {
     list.splice(idx, 1);
     if (_sbProjSource() === id) _sbSetProjSource(list.length ? list[0].id : 'asis');
     if (typeof SBQ_PROJECTION !== 'undefined') SBQ_PROJECTION.deleteVersion(id);
+    _sbBgPrune();            // its pictures go with it, unless another holds them
     _sbProjSaveStore();
     var m = $('sbProjSrcMenu'); if (m) m.style.display = 'none';
     showToast('Deleted "' + name + '"', 'info');
@@ -45033,6 +45294,7 @@ var WO = (function() {
   var _sbProjDeck = null, _sbProjIdx = 0, _sbProjEditing = false;
 
   function sbProject() {
+    _sbBgCompact();          // one copy of each picture, however old the order
     _sbProjDeck = _sbBuildProjectionDeck(true);
     if (!_sbProjDeck.length) { showToast('Nothing to project - no song lyrics in this songbook.', 'warning'); return; }
     _sbProjIdx = 0;
@@ -45896,7 +46158,7 @@ var WO = (function() {
     // and vanished.
     var ov = _sbProjOv(s, true);
     if (!ov) return;
-    ov.bg = url || '';
+    ov.bg = _sbBgIntern(url || '');
     _sbProjSaveStore();
     _sbProjDeck = _sbBuildProjectionDeck(true);
     _sbProjRender();
@@ -45908,7 +46170,7 @@ var WO = (function() {
     var s = _sbProjCur();
     if (!s) return;
     var store = _sbProjStore(true);
-    store.all.bg = s.bg || '';
+    store.all.bg = _sbBgIntern(s.bg || '');
     // Per-slide pins would mask the new default, so clear them -- in both
     // places overrides can live, or a reflowed song would ignore "all".
     Object.keys(store.slides).forEach(function(k) { delete store.slides[k].bg; });
@@ -45922,6 +46184,43 @@ var WO = (function() {
     showToast('Background applied to every slide', 'success');
   }
 
+  // A picture that could not be uploaded is kept inside the order, so whatever
+  // size it arrives at is the order's size from then on. A projector is 1920
+  // across at most; a phone photo is four times that and several megabytes, and
+  // carrying one through every save is what made saving slow enough to look
+  // like a hang. Scale it to something a screen can actually use first.
+  var SB_BG_MAX_W = 1920, SB_BG_MAX_H = 1080;
+
+  function _sbInlinePicture(file) {
+    return new Promise(function(resolve) {
+      var fr = new FileReader();
+      fr.onerror = function() { resolve(''); };
+      fr.onload = function() {
+        var raw = String(fr.result || '');
+        // Video cannot be scaled here, and a small picture is not worth
+        // re-encoding: either way what was read is what is kept.
+        if (!/^image\//.test(file.type || '') || raw.length < 400000) { resolve(raw); return; }
+        var img = new Image();
+        img.onerror = function() { resolve(raw); };
+        img.onload = function() {
+          var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+          if (!w || !h) { resolve(raw); return; }
+          var k = Math.min(1, SB_BG_MAX_W / w, SB_BG_MAX_H / h);
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(w * k));
+          c.height = Math.max(1, Math.round(h * k));
+          try {
+            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            var out = c.toDataURL('image/jpeg', 0.82);
+            resolve(out.length < raw.length ? out : raw);
+          } catch (e) { resolve(raw); }
+        };
+        img.src = raw;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+
   function sbProjBgUpload(input) {
     var f = input && input.files && input.files[0];
     if (!f) return;
@@ -45931,24 +46230,22 @@ var WO = (function() {
     // on EVERY autosave -- a 2MB photo becomes ~2.7MB of JSON per save. The
     // data URI is only a fallback for when the upload cannot happen.
     showToast('Uploading background...', 'info');
+    function inline(msg) {
+      _sbInlinePicture(f).then(function(url) {
+        if (!url) return;
+        sbProjSetBg(url);
+        if (msg) showToast(msg, 'warning');
+      });
+    }
     uploadToSupabase(f, 'backgrounds').then(function(res) {
       if (res && res.url) {
         _sbAddToMediaTray(res.url, f, res.path);
         sbProjSetBg(res.url);
         showToast('Background uploaded and added to the media tray', 'success');
       } else {
-        var fr = new FileReader();
-        fr.onload = function() {
-          sbProjSetBg(fr.result);
-          showToast('Stored with this order (upload unavailable)', 'warning');
-        };
-        fr.readAsDataURL(f);
+        inline('Stored with this order (upload unavailable)');
       }
-    }).catch(function() {
-      var fr = new FileReader();
-      fr.onload = function() { sbProjSetBg(fr.result); };
-      fr.readAsDataURL(f);
-    });
+    }).catch(function() { inline(''); });
   }
 
   // ── All Slides: the whole deck as editable text ─────────────────────────
@@ -46026,10 +46323,22 @@ var WO = (function() {
     // A break line only ever sits BETWEEN two slides of the same song; a song
     // heading or a title slide already separates what follows.
     var prevWasSlide = false;
+    var songHadSlide = false;
+    // A song whose slides have all been emptied still needs one place to type,
+    // or clearing a song out would leave it with no way back into it.
+    function closeSong() {
+      if (lastSong === -1 || songHadSlide) return;
+      html += '<div class="sb-asl-slide" data-song="' + lastSong + '">' +
+                '<div class="sb-asl-slide-tools" contenteditable="false">' + _sbAslPicBtn('slide', null) + '</div>' +
+                '<div><br></div>' +
+              '</div>';
+    }
     deck.forEach(function(s) {
       if (s.songIdx !== lastSong) {
+        closeSong();
         lastSong = s.songIdx;
         prevWasSlide = false;
+        songHadSlide = false;
         var songPin = (store.songBg && store.songBg[s.songIdx] != null) ? store.songBg[s.songIdx] : null;
         html += '<div class="sb-asl-song" contenteditable="false" data-song="' + s.songIdx + '"' +
                   _sbAslAttr('data-bg', songPin) + '>' +
@@ -46061,7 +46370,9 @@ var WO = (function() {
         _sbAslLinesHtml(s) +
       '</div>';
       prevWasSlide = true;
+      songHadSlide = true;
     });
+    closeSong();
 
     m.innerHTML =
       '<div class="sb-asl-head">' +
@@ -46142,52 +46453,169 @@ var WO = (function() {
     }).join('');
   }
 
+  // Which whole lines the highlight touches, captured before anything changes.
+  // The browser's own commands are right about where a highlight starts and
+  // stops, but they pass silently over a line that already carries the property
+  // being set -- which is how a selection came back with its top or bottom line
+  // at the old size while everything between it changed.
+  function _sbAslCoveredLines(root, rng) {
+    var out = [];
+    if (!rng) return out;
+    Array.prototype.forEach.call(root.querySelectorAll('div'), function(d) {
+      if (d.classList && d.classList.contains('sb-asl-slide-tools')) return;
+      if (d.querySelector('div')) return;              // only leaf lines
+      if (!(d.textContent || '').trim()) return;
+      try { if (rng.intersectsNode(d)) out.push(d); } catch (e) {}
+    });
+    return out;
+  }
+
+  // The part of one line the highlight actually covers, so a half-highlighted
+  // first or last line is changed exactly as far as the highlight went and no
+  // further.
+  function _sbAslLineRange(line, rng) {
+    var r = document.createRange();
+    r.selectNodeContents(line);
+    try {
+      if (rng.compareBoundaryPoints(Range.START_TO_START, r) > 0) r.setStart(rng.startContainer, rng.startOffset);
+      if (rng.compareBoundaryPoints(Range.END_TO_END, r) < 0) r.setEnd(rng.endContainer, rng.endOffset);
+    } catch (e) {}
+    return r;
+  }
+
+  // Wrap whatever a range covers in a span the caller has styled. A range that
+  // starts or ends mid-element cannot be surrounded, so those are lifted out
+  // and put back inside the span instead.
+  function _sbAslWrapRange(r, style) {
+    if (!r || r.collapsed) return null;
+    var span = document.createElement('span');
+    style(span);
+    try { r.surroundContents(span); return span; }
+    catch (e) {
+      try { span.appendChild(r.extractContents()); r.insertNode(span); return span; }
+      catch (e2) { return null; }
+    }
+  }
+
+  // A nested size or face multiplies through -- that is what makes the numbers
+  // relative -- so an old value left inside a new one compounds instead of
+  // being replaced by it.
+  function _sbAslClearProp(root, prop) {
+    Array.prototype.forEach.call(root.querySelectorAll('*'), function(el) {
+      if (!el.style || !el.style[prop]) return;
+      el.style[prop] = '';
+      if (el.tagName === 'SPAN' && !el.getAttribute('style') && !el.getAttribute('class')) {
+        while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
+        el.parentNode.removeChild(el);
+      }
+    });
+  }
+
+  // Put the highlight back over what was just changed, so the operator can set
+  // a size and then a face without re-selecting between the two.
+  function _sbAslReselect(sel, made) {
+    if (!made.length) return;
+    try {
+      var r = document.createRange();
+      r.setStartBefore(made[0]);
+      r.setEndAfter(made[made.length - 1]);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } catch (e) {}
+  }
+
+  // Setting a value -- a size or a face -- is done line by line rather than
+  // through execCommand. The command was the shortcut that skipped any line
+  // already carrying one of its own; wrapping each covered line's own portion
+  // outright cannot skip anything.
+  function _sbAslSetProp(root, prop, value) {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var rng = sel.getRangeAt(0).cloneRange();
+    var covered = _sbAslCoveredLines(root, rng);
+    if (!covered.length) return;
+    // Every line's range is worked out first: wrapping one line rewrites its
+    // own nodes, and a range computed afterwards could be pointing at nodes
+    // that no longer exist.
+    var ranges = covered.map(function(line) { return _sbAslLineRange(line, rng); });
+    var made = [];
+    ranges.forEach(function(r) {
+      var span = _sbAslWrapRange(r, function(sp) { sp.style[prop] = value; });
+      if (!span) return;
+      _sbAslClearProp(span, prop);
+      made.push(span);
+    });
+    _sbAslReselect(sel, made);
+  }
+
   function _sbApplySize(root, pts) {
     var em = (parseFloat(pts) || SB_SIZE_BASE) / SB_SIZE_BASE;
-    var size = String(Math.round(em * 1000) / 1000) + 'em';
-    // Which lines the selection actually covers, captured BEFORE the command:
-    // execCommand wraps the fully-covered ones but leaves the last,
-    // partially-covered line alone, so its size silently never changed.
-    var _covered = [];
-    (function() {
-      var sel = window.getSelection();
-      if (!sel || !sel.rangeCount) return;
-      var rng = sel.getRangeAt(0);
-      Array.prototype.forEach.call(root.querySelectorAll('div'), function(d) {
-        if (d.classList && d.classList.contains('sb-asl-slide-tools')) return;
-        if (d.querySelector('div')) return;              // only leaf lines
-        if (!(d.textContent || '').trim()) return;
-        try { if (rng.intersectsNode(d)) _covered.push(d); } catch (e) {}
-      });
-    })();
-    // execCommand is the only reliable way to wrap exactly the selection, and
-    // it must run with styleWithCSS OFF: with it on the browser writes its own
-    // keyword ("xxx-large") and there is nothing left to rewrite -- which is
-    // how a chosen number turned into the browser's idea of huge.
-    try { document.execCommand('styleWithCSS', false, false); } catch (e) {}
-    try { document.execCommand('fontSize', false, '7'); } catch (e) {}
-    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
-    Array.prototype.forEach.call(root.querySelectorAll('font[size="7"]'), function(f) {
-      var span = document.createElement('span');
-      span.style.fontSize = size;
-      while (f.firstChild) span.appendChild(f.firstChild);
-      f.parentNode.replaceChild(span, f);
+    _sbAslSetProp(root, 'fontSize', String(Math.round(em * 1000) / 1000) + 'em');
+  }
+
+  // Bold, italic and underline stay with execCommand, which knows how to take a
+  // style off again as well as put it on. But it can skip a line the same way,
+  // so afterwards every covered line is checked and set directly if the command
+  // passed it by.
+  var _SB_TOGGLE = {
+    bold:      { prop: 'fontWeight', on: '700',
+                 is: function(cs) { return (parseInt(cs.fontWeight, 10) || 400) >= 600; } },
+    italic:    { prop: 'fontStyle', on: 'italic',
+                 is: function(cs) { return cs.fontStyle === 'italic'; } },
+    underline: { prop: 'textDecoration', on: 'underline',
+                 is: function(cs) { return /underline/.test(cs.textDecorationLine || cs.textDecoration || ''); } }
+  };
+
+  // Walk up from the text to the line: bold and italic inherit, and underline
+  // is drawn by an ancestor rather than reported on the child, so asking the
+  // node alone answers the wrong question.
+  function _sbAslHasStyle(node, line, test) {
+    var el = (node.nodeType === 3) ? node.parentElement : node;
+    while (el) {
+      try { if (test(window.getComputedStyle(el))) return true; } catch (e) {}
+      if (el === line) break;
+      el = el.parentElement;
+    }
+    return false;
+  }
+
+  function _sbAslRangeHasStyle(line, r, test) {
+    var w = document.createTreeWalker(line, NodeFilter.SHOW_TEXT, null);
+    var n, any = false;
+    while ((n = w.nextNode())) {
+      if (!(n.nodeValue || '').trim()) continue;
+      try { if (!r.intersectsNode(n)) continue; } catch (e) { continue; }
+      any = true;
+      if (!_sbAslHasStyle(n, line, test)) return false;
+    }
+    return any;
+  }
+
+  function _sbApplyToggle(root, cmd) {
+    var spec = _SB_TOGGLE[cmd];
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var rng = sel.getRangeAt(0).cloneRange();
+    var covered = _sbAslCoveredLines(root, rng);
+    var ranges = covered.map(function(line) { return _sbAslLineRange(line, rng); });
+    // Was the whole highlight already carrying it? Then the command is turning
+    // it off and nothing needs forcing on afterwards.
+    var wasAllOn = covered.length > 0 && covered.every(function(line, i) {
+      return _sbAslRangeHasStyle(line, ranges[i], spec.is);
     });
-    // Belt and braces for any browser that still writes the keyword.
-    Array.prototype.forEach.call(root.querySelectorAll('span'), function(sp) {
-      if (/^xxx-large$/i.test(sp.style.fontSize || '')) sp.style.fontSize = size;
+    try { document.execCommand(cmd, false, null); } catch (e) {}
+    _sbAslNormalizeFontTags(root);
+    if (wasAllOn || !covered.length) return;
+    var made = [];
+    covered.forEach(function(line, i) {
+      if (!line.parentNode) return;                    // rewritten by the command
+      if (_sbAslRangeHasStyle(line, ranges[i], spec.is)) return;
+      var span = _sbAslWrapRange(ranges[i], function(sp) { sp.style[spec.prop] = spec.on; });
+      if (!span) return;
+      _sbAslClearProp(span, spec.prop);
+      made.push(span);
     });
-    // Any covered line the command skipped gets the size applied directly,
-    // so the whole selection ends up at the size that was asked for.
-    _covered.forEach(function(d) {
-      var sized = d.querySelector('[style*="font-size"]');
-      if (sized && (sized.textContent || '').trim() === (d.textContent || '').trim()) return;
-      if (sized) return;
-      var span = document.createElement('span');
-      span.style.fontSize = size;
-      while (d.firstChild) span.appendChild(d.firstChild);
-      d.appendChild(span);
-    });
+    _sbAslReselect(sel, made);
   }
 
   // Formatting applies to the selection inside the editor.
@@ -46201,6 +46629,8 @@ var WO = (function() {
     }
     try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
     if (cmd === 'size') { if (val) _sbApplySize(body, val); }
+    else if (cmd === 'fontName') { if (val) _sbAslSetProp(body, 'fontFamily', val); }
+    else if (_SB_TOGGLE[cmd]) { _sbApplyToggle(body, cmd); }
     else {
       try { document.execCommand(cmd, false, val || null); } catch (e) {}
       if (cmd === 'fontSize') _sbAslNormalizeFontTags(body);
@@ -46271,14 +46701,55 @@ var WO = (function() {
       if ((probe.toString() || '').length !== 0) return;
       var prev = bline.previousElementSibling;
       while (prev && prev.classList && prev.classList.contains('sb-asl-slide-tools')) prev = prev.previousElementSibling;
-      if (!prev) return;                       // first line of a slide: leave the split alone
+      var target = prev;
+      if (!target) {
+        // First line of a slide. Backspace here plainly means "join this to the
+        // slide above", and left to the browser it ate the break rule and left
+        // a blank row where the line had been. Find the last line of the slide
+        // above and join into that.
+        var pslide = bslide.previousElementSibling;
+        while (pslide && !(pslide.classList && pslide.classList.contains('sb-asl-slide'))) {
+          // A song heading or a title slide is the top of a song: there is
+          // nothing above this slide to join it to.
+          if (pslide.classList &&
+              (pslide.classList.contains('sb-asl-song') || pslide.classList.contains('sb-asl-title'))) return;
+          pslide = pslide.previousElementSibling;
+        }
+        if (!pslide) return;
+        var plines = Array.prototype.filter.call(pslide.children, function(c) {
+          return !(c.classList && c.classList.contains('sb-asl-slide-tools'));
+        });
+        target = plines[plines.length - 1];
+        if (!target) return;
+      }
       e.preventDefault();
-      var joinAt = prev.childNodes.length;
-      if (prev.querySelector('br') && !(prev.textContent || '').trim()) prev.innerHTML = '';
-      while (bline.firstChild) prev.appendChild(bline.firstChild);
+      // The line above ends in a placeholder <br> whenever it was emptied and
+      // refilled; leaving it there pushes the joined words onto a line of their
+      // own, which is the gap that appeared under every merge.
+      while (target.lastChild && target.lastChild.nodeType === 1 && target.lastChild.tagName === 'BR') {
+        target.removeChild(target.lastChild);
+      }
+      if (!(target.textContent || '').trim()) target.innerHTML = '';
+      var joinAt = target.childNodes.length;
+      // A line backspaced empty holds nothing but its own placeholder <br>.
+      // Carrying that across re-created the same gap one line lower.
+      Array.prototype.slice.call(bline.childNodes).forEach(function(n) {
+        if (n.nodeType === 1 && n.tagName === 'BR') { bline.removeChild(n); return; }
+        target.appendChild(n);
+      });
       bslide.removeChild(bline);
+      // That may have been the slide's last line. An empty slide and the break
+      // rule above it are both furniture with nothing left to separate.
+      var kept = Array.prototype.filter.call(bslide.children, function(c) {
+        return !(c.classList && c.classList.contains('sb-asl-slide-tools'));
+      });
+      if (!kept.length && bslide !== target.parentNode) {
+        var brk = bslide.previousElementSibling;
+        bslide.parentNode.removeChild(bslide);
+        if (brk && brk.classList && brk.classList.contains('sb-asl-break')) brk.parentNode.removeChild(brk);
+      }
       var jr = document.createRange();
-      jr.setStart(prev, Math.min(joinAt, prev.childNodes.length));
+      jr.setStart(target, Math.min(joinAt, target.childNodes.length));
       jr.collapse(true);
       bsel.removeAllRanges();
       bsel.addRange(jr);
@@ -46365,16 +46836,19 @@ var WO = (function() {
       ov.artist = ((a && a.textContent) || '').trim();
     });
 
-    // Song-level backgrounds.
+    // Song-level backgrounds. Which songs are on screen is also what says whose
+    // slide lists this pass is entitled to rewrite.
     if (!store.songBg) store.songBg = {};
+    var songsShown = {};
     Array.prototype.forEach.call(body.querySelectorAll('.sb-asl-song[data-song]'), function(el) {
       var idx = el.getAttribute('data-song');
-      if (el.hasAttribute('data-bg')) store.songBg[idx] = el.getAttribute('data-bg');
+      songsShown[idx] = true;
+      if (el.hasAttribute('data-bg')) store.songBg[idx] = _sbBgIntern(el.getAttribute('data-bg'));
       else delete store.songBg[idx];
     });
 
     // The songbook-wide default.
-    if (panel && panel.hasAttribute('data-allbg')) store.all.bg = panel.getAttribute('data-allbg');
+    if (panel && panel.hasAttribute('data-allbg')) store.all.bg = _sbBgIntern(panel.getAttribute('data-allbg'));
     else if (panel) delete store.all.bg;
 
     Array.prototype.forEach.call(body.querySelectorAll('.sb-asl-slide'), function(el) {
@@ -46400,13 +46874,17 @@ var WO = (function() {
       if (aligns.some(function(a) { return !!a; })) entry.align = aligns;
       // The picture travels on the element, so it follows the slide through
       // any reflow -- splitting, merging, reordering, deleting.
-      if (el.hasAttribute('data-bg')) entry.bg = el.getAttribute('data-bg');
+      if (el.hasAttribute('data-bg')) entry.bg = _sbBgIntern(el.getAttribute('data-bg'));
       (bySong[songIdx] || (bySong[songIdx] = [])).push(entry);
     });
 
-    Object.keys(bySong).forEach(function(k) {
-      store.songs[k] = { slides: bySong[k] };
+    // Every song on screen is rewritten, including one whose slides were all
+    // emptied. Writing only the songs that produced slides left the previous
+    // list in place, so clearing a song out and saving quietly put it all back.
+    Object.keys(songsShown).forEach(function(k) {
+      store.songs[k] = { slides: bySong[k] || [] };
     });
+    _sbBgPrune();
     _sbProjSaveStore();
     _sbProjFlushSettings();     // Save Projection waits for nothing
     return true;
@@ -46534,13 +47012,21 @@ var WO = (function() {
     _sbAslBgEl = null;
     if (!el) return;
     var attr = (level === 'all') ? 'data-allbg' : 'data-bg';
+    // Intern here rather than at save time, so an inline picture never sits in
+    // the DOM as a multi-megabyte attribute the editor has to re-read on every
+    // render and every keystroke.
     if (url === null) el.removeAttribute(attr);
-    else el.setAttribute(attr, url);
-    var host = (level === 'all') ? $('sbProjAllPanel') : el;
-    var lbl = host && host.querySelector(level === 'all' ? '.sb-asl-toolbar .sb-asl-pic-label' : '.sb-asl-pic-label');
-    if (lbl) lbl.textContent = _sbAslBgLabel(url === null ? null : url);
-    var pic = host && host.querySelector(level === 'all' ? '.sb-asl-toolbar .sb-asl-pic' : '.sb-asl-pic');
-    if (pic) pic.classList.toggle('has-pic', !!url);
+    else el.setAttribute(attr, _sbBgIntern(url));
+    var isAll = (level === 'all');
+    var host = isAll ? $('sbProjAllPanel') : el;
+    var lbl = host && host.querySelector(isAll ? '.sb-asl-toolbar .sb-asl-pic-label' : '.sb-asl-pic-label');
+    // The songbook button says whose background it is. Overwriting the whole
+    // label dropped that, leaving it reading "Picture" like any single slide's.
+    if (lbl) lbl.textContent = (isAll ? 'Whole songbook · ' : '') + _sbAslBgLabel(url === null ? null : url);
+    var pic = host && host.querySelector(isAll ? '.sb-asl-toolbar .sb-asl-pic' : '.sb-asl-pic');
+    // The songbook button stays gold whatever is on it: it is the background
+    // standing behind everything else and should never read as a slide's own.
+    if (pic) pic.classList.toggle('has-pic', isAll || !!url);
   }
 
   function sbAslBgUpload(input) {
@@ -46549,6 +47035,14 @@ var WO = (function() {
     input.value = '';
     var el = _sbAslBgEl, level = _sbAslBgLevel;
     showToast('Uploading background...', 'info');
+    function inline(msg) {
+      _sbInlinePicture(f).then(function(url) {
+        if (!url) return;
+        _sbAslBgEl = el; _sbAslBgLevel = level;
+        sbAslSetBg(url);
+        if (msg) showToast(msg, 'warning');
+      });
+    }
     uploadToSupabase(f, 'backgrounds').then(function(res) {
       _sbAslBgEl = el; _sbAslBgLevel = level;
       if (res && res.url) {
@@ -46556,16 +47050,8 @@ var WO = (function() {
         sbAslSetBg(res.url);
         showToast('Background added to this slide and the media tray', 'success');
       }
-      else {
-        var fr = new FileReader();
-        fr.onload = function() { _sbAslBgEl = el; _sbAslBgLevel = level; sbAslSetBg(fr.result); showToast('Stored with this order (upload unavailable)', 'warning'); };
-        fr.readAsDataURL(f);
-      }
-    }).catch(function() {
-      var fr = new FileReader();
-      fr.onload = function() { _sbAslBgEl = el; _sbAslBgLevel = level; sbAslSetBg(fr.result); };
-      fr.readAsDataURL(f);
-    });
+      else { inline('Stored with this order (upload unavailable)'); }
+    }).catch(function() { inline(''); });
   }
 
   // ── Export PowerPoint ───────────────────────────────────────────────────
