@@ -4,6 +4,33 @@ _Last updated: 2026-08-15 by Claude Code_
 
 ---
 
+## 2026-08-16 — OPEN: a presentation dragged from the Media Tray is never saved
+
+**Diagnosed, not fixed. This is the next job.** Confirmed against the operator's real order `order_1786779303719` ("Service - 16 Aug 2026"): it holds **14 items, every one `itemType: 'liturgy'`** — no presentation, no sermon item, nothing referencing a PPT — while the operator's screen showed the Sermon section with 32 presentation slides. Loading that order fresh gives 19 sections, **zero** `.wo-ppt-widget`, **zero** rail PPT rows.
+
+### The cause
+
+`collectOrderItems()` gathers presentations with `boxesContainer.querySelectorAll('.wo-slides-container')` (~line 25607). Dragging from the Media Tray produces a **`.wo-ppt-widget`** instead — the filmstrip built by `_renderPptFilmstrip()`. The collector walks straight past it, so `SBQ.saveOrder` stores nothing and the deck exists only in the importing tab's `currentSermonSlides`.
+
+### Why it produced the two reported symptoms
+
+Both downstream paths key off `currentSermonSlides[sectionId]`, which no other tab or reload ever has:
+
+- `projectPptPage()` opens with `if (!slidesData) return;` and bails silently, so the **Program Output keeps showing the last thing that genuinely projected** — the operator read this as "it jumps to the last selected slide".
+- `navigateSlideGlobal()`'s `ppt-local` branch needs the same store; without it, it falls through to `navigateRegularSlides()`, so **the arrow keys walk the regular slides** and land on the last selected one.
+
+### The fix
+
+1. `collectOrderItems()` must gather `.wo-ppt-widget` as well as `.wo-slides-container` — its `data-section`, the file reference (`currentSermonSlides[sectionId].supabaseFiles` / `fileName`) and the per-page data.
+2. The load path (~line 28548, where `currentSermonSlides[item.sectionId]` is rebuilt) must restore that store **and** re-render the filmstrip, so the deck survives a reload and reaches other devices.
+3. Separately: line ~32126 does `currentSermonSlides[sectionId] = { slides: [], ... }` on every import, which **discards a section's existing deck** when a second presentation is dropped into it. Fix while in there.
+
+### Operational warning until it is fixed
+
+A presentation dragged from the Media Tray **disappears on reload** and never existed for anyone else opening the order. It cannot be relied on in a service from a second device or after a refresh.
+
+---
+
 ## 2026-08-15 — LCD Projection: the working columns, the arrow keys, and the editor that had nothing to edit
 
 ### The Slide Editor stayed open over content it could not touch
