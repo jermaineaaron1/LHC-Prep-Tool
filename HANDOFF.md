@@ -4,6 +4,37 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
+## 2026-08-16 — CLOSED: the presentation widget now follows the arrow keys
+
+The first of the "two notes for whoever is next" left by the entry below. The arrows genuinely moved the presentation and the Projection Preview followed, but the filmstrip widget stayed frozen: the nav counter read `1 / N` however far into the deck the operator had gone, and no thumbnail ever lit up. Nothing on the widget told them which page was on screen.
+
+`navigateSlideGlobal()` entered its `ppt-local` branch correctly and advanced `currentSermonSlides[sectionId].currentIndex`. The dead end was one step further on: that branch goes through `nextLocalSlide` / `prevLocalSlide` → `updateLocalSlideDisplay()`, which knew only the per-slide-box layout `_renderPptFilmstrip()` replaced — `$(sectionId + '-img')`, `$(sectionId + '-counter')`, then `_updateFilmstrip()` on `$(sectionId + '-filmstrip')` / `.wo-filmstrip-thumb`. Every lookup returned null, so it returned having touched nothing visible. `projectPptPage()` — the thumbnail-click path — updated all three pieces correctly, inline.
+
+### The fix (commit `d0c8d09`)
+
+The widget's three visible pieces move together in one place, `_updatePptWidgetUI(sectionId, idx)`: the `.wo-ppt-nav-counter`, the `.active` thumbnail (matched by `data-idx`, so no element needs passing in) and the `.wo-ppt-main-view`. `projectPptPage()` calls it instead of duplicating the work, and `updateLocalSlideDisplay()` calls it too — so every caller is fixed at once: the arrow keys, `goToLocalSlide()`, and the phone remote's `nextLocalSlide` / `prevLocalSlide` over BroadcastChannel and Supabase realtime.
+
+Two details worth keeping:
+
+- The active thumb is kept in view by setting the filmstrip's own `scrollLeft`, **not** `scrollIntoView()` on the element — that would drag the whole page around on the initial render, where `renderLocalSlides()` selects page 1.
+- `updateLocalSlideDisplay()` also syncs `pptIframeSlide` to `currentIndex`, so the `ppt-local` and `ppt-iframe` branches cannot disagree about which page is live.
+
+The legacy `-img` / `-counter` / `_updateFilmstrip()` lines are left alone: still no-ops for this layout, still correct for the paths that render the old one. `_pptSlideEmbedUrl()` was pulled out of `projectPptPage()` so the URL is built one way.
+
+### Verified
+
+Three-page deck imported through the real path (`openSlidesModalTab` → `handleSlidesFileSelect` → `confirmAddSlides`), respecting the 300 ms throttle in `navigateSlideGlobal()`: two presses forward then two back gave `1 / 3 → 2 / 3 → 3 / 3 → 2 / 3 → 1 / 3`, active thumb tracking 0‑1‑2‑1‑0, and the widget's main view matching the Projection Preview at every step. `nextLocalSlide` / `goToLocalSlide(2)` / `prevLocalSlide` — the remote and thumbnail paths — all move the widget too.
+
+Re-run against **production** after the merge: the served HTML is byte-identical to the committed `dist/index.html` (4,300,562 bytes, CRLF normalised to LF), and the same sequence passes there.
+
+`Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>` blocks pass `node --check`.
+
+### Harness warning — a local server is not a sandbox
+
+The first verification ran against `dist/index.html` on `localhost:8791` and **wrote to the live Supabase**: one real order plus six objects in `Liturgy Files/orders/documents`. `LHC_SUPABASE_URL` / `LHC_SUPABASE_ANON_KEY` are hardcoded in the HTML, so the client works from any origin. The browser network panel showed only `data:` URLs, which made the run look clean — `supabase-js` binds `fetch` at construction, so a later wrapper around `window.fetch` never sees its traffic, and `SBQ` caches its own client in `SBQ._sb`, so nulling `getSupabaseClient()` does not stop saves either. Blank `SBQ._sb` as well, name test files distinctively (`zz-throwaway-`), and check **both** `SBQ.loadOrders()` and `storage.list('orders/documents')` when clearing up — deleting an order leaves its uploads behind. All of it was deleted afterwards by exact id and path; the operator's own order still reads 14 `liturgy` items, though an autosave did bump its `lastEdited` while it sat open in the editor.
+
+---
+
 ## 2026-08-16 — CLOSED: a presentation dragged from the Media Tray is now saved, and comes back
 
 The bug diagnosed in the entry this replaces. A presentation dragged in from the Media Tray lived only in the importing tab's `currentSermonSlides`: it vanished on reload and never existed for anyone else opening the order. Two reported symptoms came from the same hole — `projectPptPage()` bailed on `if (!slidesData) return;` so the Program Output kept showing the last thing that genuinely projected, and `navigateSlideGlobal()`'s `ppt-local` branch fell through to `navigateRegularSlides()` so the arrow keys walked the regular slides.
@@ -57,7 +88,7 @@ Afterwards: the temp order and all 7 storage objects it created (5 page images, 
 
 ### Two notes for whoever is next
 
-**The widget's own counter does not follow the arrow keys.** Separate, pre-existing, and *not* the navigation bug fixed above — the arrows genuinely move the presentation and the Projection Preview follows, but `updateLocalSlideDisplay()` writes to `$(sectionId + '-img')` / `$(sectionId + '-counter')` and `_updateFilmstrip()` looks for `$(sectionId + '-filmstrip')` and `.wo-filmstrip-thumb`, all of which belong to the layout `.wo-ppt-widget` replaced. So the nav counter stays at `1 / N` and the active thumbnail never moves while the operator arrows through the deck. `projectPptPage()` updates all of it correctly; only the `nextLocalSlide` / `prevLocalSlide` path does not.
+**~~The widget's own counter does not follow the arrow keys.~~ Fixed — see the entry above.** Left here because the diagnosis in it was right and led straight to the fix: `updateLocalSlideDisplay()` wrote to `$(sectionId + '-img')` / `$(sectionId + '-counter')` and `_updateFilmstrip()` looked for `$(sectionId + '-filmstrip')` and `.wo-filmstrip-thumb`, all of which belong to the layout `.wo-ppt-widget` replaced.
 
 **A Google-Slides-converted deck still gets stripped.** Those pages are `{ type: 'embed', pageId }` with no `data`, so the stripper's `hasSupabaseUrls` test is false for the whole array and it is replaced by a count and names, losing the `pageId`s. That path needs a GAS runtime, which the Vercel deployment does not have, so it is currently unreachable rather than broken in practice. Worth keeping the `pageId`s if it is ever revived.
 
