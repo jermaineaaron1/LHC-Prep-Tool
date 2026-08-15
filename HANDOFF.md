@@ -33,7 +33,18 @@ Referencing rather than copying killed the growth, but one copy still sat in `or
 - **Before the migration is run** — `projection_media` genuinely absent: `_mediaExists` goes false, the pool falls back to `template._bgPool`, the version deck still stores the reference (3 KB, not 200 KB), and the picture came back intact after a full page reload. Deploying the frontend ahead of the SQL is safe; it just keeps the pool in the template until the table exists.
 - **After** (exercised against a stand-in table so the real client code ran): opening the songbook moved the template's pool into a row and took `orders.template` from 199 KB to **4 KB**. Picking a fresh 3 MB picture wrote **one row, once** — and five consecutive Save Projections after it produced **zero** media writes. Six saved versions, decks 3 KB each, template 21 KB, save time 21–97 ms with three long tasks over 100 ms across the whole run. Deleting versions pruned each picture exactly when its **last** reference went, leaving no orphan rows.
 
-The SQL itself has not been run — it needs the Supabase SQL Editor, which the anon key cannot do.
+### Re-verified against the real table (migration run 2026-08-15)
+
+The migration has been applied. Everything above was re-checked against a real `projection_media` rather than a stand-in.
+
+- **A picture lands as one row.** A 3 MB inline background wrote `projection_media` id `pmstvfpvhng3`, 2930 KB, the moment it was chosen; the DOM held the 16-character reference.
+- **Saving never moves the bytes again.** Five consecutive Save Projections: **still one row**, all five version decks 3 KB, `orders.template` 17 KB with **no** `_bgPool` in it. Save time 21–99 ms, heap flat at 29–34 MB, and **one** long task over 100 ms in the entire run — against ~970 ms per save, climbing, before any of this.
+- **It survives a reload.** Full page reload, reopen: the songbook came back on version "Real 5" with the 2930 KB picture restored from the table.
+- **Pruning is exact.** Deleting four of five versions left the row alone; deleting the fifth removed it. No orphans.
+- **The upload fallback.** A real 4032×3024 / 1642 KB photo forced down the inline path was stored at **1440×1080 / 283 KB** (the 1080 height cap binds first on a 4:3 photo).
+- **The path an existing order will take.** An order built in the old shape — the picture inline in all three saved versions, `orders.template` **4.29 MB**, version decks **1465 KB each** — was repaired by nothing more than opening it: template **1 KB**, all three decks under 0.5 KB pointing at the same reference, one 1465 KB media row, picture still projecting. About 8.7 MB down to 1.5 MB.
+
+Orders 19, songs 51, unchanged. The one remaining `projection_versions` row and the two `projection_settings` rows belong to real songbooks, not test data.
 
 ### The gap left behind by a merge
 
