@@ -45059,7 +45059,7 @@ var WO = (function() {
         '</div>' +
         '<div class="sb-proj-bgmenu" id="sbProjVerMenu"></div>' +
         '<div class="sb-proj-bgmenu" id="sbProjBgMenu"></div>' +
-        '<input type="file" id="sbProjBgFile" accept="image/*" style="display:none" onchange="WO.sbProjBgUpload(this)">';
+        '<input type="file" id="sbProjBgFile" accept="image/*,video/*" style="display:none" onchange="WO.sbProjBgUpload(this)">';
       document.body.appendChild(ov);
       ov.addEventListener('click', function(e) {
         if (_sbProjEditing) return;
@@ -45072,6 +45072,7 @@ var WO = (function() {
     if (ov.requestFullscreen) { try { ov.requestFullscreen(); } catch (e) {} }
     _sbProjRender();
     _sbProjBar(true);
+    _sbHistReset();
   }
 
   // The bar belongs to the operator, never to the room. It shows on entry,
@@ -45106,6 +45107,11 @@ var WO = (function() {
     // arrow keys typed in the editor were paging the projector behind it.
     var panel = $('sbProjAllPanel');
     if (panel && panel.style.display === 'block') return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      var k = (e.key || '').toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); sbProjUndo(); return; }
+      if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); e.stopPropagation(); sbProjRedo(); return; }
+    }
     var nameBox = $('sbAslNameBox');
     if (nameBox && nameBox.style.display === 'block') return;
     if (_sbProjEditing) {
@@ -45125,7 +45131,20 @@ var WO = (function() {
     if (!stage) return;
     var s = _sbProjCur();
     if (!s) return;
-    if (bg) bg.style.backgroundImage = s.bg ? ('url("' + s.bg + '")') : '';
+    if (bg) {
+      // A video needs an element, not a background-image.
+      if (s.bg && _sbIsVideoUrl(s.bg)) {
+        bg.style.backgroundImage = '';
+        if (bg.getAttribute('data-vid') !== s.bg) {
+          bg.setAttribute('data-vid', s.bg);
+          bg.innerHTML = '<video src="' + escapeHtml(s.bg) + '" autoplay loop muted playsinline ' +
+            'style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"></video>';
+        }
+      } else {
+        if (bg.getAttribute('data-vid')) { bg.removeAttribute('data-vid'); bg.innerHTML = ''; }
+        bg.style.backgroundImage = s.bg ? ('url("' + s.bg + '")') : '';
+      }
+    }
     stage.classList.toggle('is-skipped', !!s.hidden);
     // Everything lives in an inner frame. That frame IS the text box the
     // operator drags: the stage stays the full screen behind it, so the
@@ -45304,6 +45323,7 @@ var WO = (function() {
   function _sbBoxDragStart(e, handle) {
     var stage = $('sbProjFrame');
     if (!stage || !_sbProjEditing) return;
+    _sbHistPush();
     e.preventDefault();
     e.stopPropagation();
     var startX = e.clientX, startY = e.clientY;
@@ -45409,6 +45429,136 @@ var WO = (function() {
     if (frame && !frame.contains(e.target)) _sbSetTextMode(false);
   }
 
+  // -- Media tray as the background source ---------------------------------
+  // The pickers used to drop every video on the floor, and uploads never
+  // reached the library, so a picture chosen once could not be chosen again.
+  function _sbIsVideoUrl(u, type) {
+    if (/^video/i.test(type || '')) return true;
+    return /[.](mp4|webm|ogv|mov|m4v)([?#]|$)/i.test(String(u || ''));
+  }
+
+  // One tile per library entry. Video has no still to show, so it gets a
+  // labelled tile rather than a broken thumbnail.
+  function _sbBgTiles(onclickFn) {
+    var lib = (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) ? savedBackgrounds : [];
+    if (!lib.length && typeof loadBackgrounds === 'function') loadBackgrounds();
+    return lib.map(function(b) {
+      var u = String(b.cloudUrl || b.url || b.data || b.src || '');
+      if (!u) return '';
+      var nm = escapeHtml(b.name || 'Background');
+      var attr = ' onclick="' + onclickFn + '(this.getAttribute(\'data-u\'))" data-u="' +
+                 escapeHtml(u).replace(/"/g, '&quot;') + '"';
+      if (_sbIsVideoUrl(u, b.type)) {
+        return '<button class="sb-projbg-thumb sb-projbg-video" title="' + nm + '"' + attr + '>' +
+                 '<i class="fa-solid fa-film"></i><span>' + nm.slice(0, 14) + '</span></button>';
+      }
+      return '<button class="sb-projbg-thumb" style="background-image:url(&quot;' + escapeHtml(u) +
+             '&quot;)" title="' + nm + '"' + attr + '></button>';
+    }).join('');
+  }
+
+  // An upload joins the tray, so it is there for every future service.
+  function _sbAddToMediaTray(url, file, storagePath) {
+    try {
+      var isVid = (file && /^video/i.test(file.type || '')) || _sbIsVideoUrl(url);
+      var bg = {
+        id: 'bg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        name: (file && file.name) ? file.name.replace(/[.][^.]+$/, '') : 'Background',
+        type: isVid ? 'video' : 'image',
+        cloudUrl: url,
+        data: url,
+        storagePath: storagePath || '',
+        createdAt: new Date().toISOString()
+      };
+      if (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) savedBackgrounds.push(bg);
+      if (typeof saveBackgroundToIDB === 'function') saveBackgroundToIDB(bg);
+      if (typeof _sbSaveBackgroundToSupabase === 'function') _sbSaveBackgroundToSupabase(bg);
+      if (typeof renderBackgroundsList === 'function') renderBackgroundsList();
+    } catch (e) { console.warn('[LHC] could not add the upload to the media tray:', e); }
+  }
+
+  // ── Undo / redo for the projection editor ───────────────────────────────
+  // One mechanism for everything the editor changes -- words, formatting,
+  // alignment, backgrounds, the box -- because all of it lives in the active
+  // deck. Each entry is that deck serialised, plus which source it belonged to,
+  // so undo can restore a version's deck and the draft's alike.
+  var _sbHist = [], _sbHistIdx = -1, _sbHistBusy = false;
+  var SB_HIST_MAX = 60;
+
+  function _sbHistSnap() {
+    var t = _sbProjTpl();
+    if (!t) return null;
+    try { return { src: _sbProjSource(), json: JSON.stringify(_sbProjStore(false)) }; }
+    catch (e) { return null; }
+  }
+
+  // Call BEFORE mutating. The first push also records the state as it was, so
+  // the very first undo has something to go back to.
+  function _sbHistPush() {
+    if (_sbHistBusy) return;
+    var snap = _sbHistSnap();
+    if (!snap) return;
+    if (_sbHistIdx >= 0 && _sbHist[_sbHistIdx] && _sbHist[_sbHistIdx].json === snap.json) return;
+    _sbHist = _sbHist.slice(0, _sbHistIdx + 1);   // a new action clears the redo tail
+    _sbHist.push(snap);
+    if (_sbHist.length > SB_HIST_MAX) _sbHist.shift();
+    _sbHistIdx = _sbHist.length - 1;
+    _sbHistSyncButtons();
+  }
+
+  function _sbHistApply(entry) {
+    var t = _sbProjTpl();
+    if (!t || !entry) return false;
+    var data;
+    try { data = JSON.parse(entry.json); } catch (e) { return false; }
+    _sbHistBusy = true;
+    _sbSetProjSource(entry.src);
+    var store = _sbProjStore(false);
+    // Restore in place: the deck object is referenced from the template, and
+    // replacing it wholesale would leave the template pointing at the old one.
+    Object.keys(store).forEach(function(k) { delete store[k]; });
+    Object.keys(data).forEach(function(k) { store[k] = data[k]; });
+    _sbProjSaveStore();
+    _sbProjDeck = _sbBuildProjectionDeck(true);
+    if (_sbProjIdx >= _sbProjDeck.length) _sbProjIdx = Math.max(0, _sbProjDeck.length - 1);
+    _sbProjRender();
+    if (_sbProjEditing) { _sbBoxChrome($('sbProjFrame')); _sbSetTextMode(false); }
+    _sbProjRenderAll();
+    _sbHistBusy = false;
+    _sbHistSyncButtons();
+    return true;
+  }
+
+  function sbProjUndo() {
+    // The live state sits one past the last snapshot, so the first undo has to
+    // record it before stepping back or the redo would have nowhere to return.
+    if (_sbHistIdx === _sbHist.length - 1) {
+      var live = _sbHistSnap();
+      if (live && (!_sbHist.length || _sbHist[_sbHistIdx].json !== live.json)) {
+        _sbHist.push(live);
+      }
+    }
+    if (_sbHistIdx < 0) { showToast('Nothing to undo', 'info'); return; }
+    if (!_sbHistApply(_sbHist[_sbHistIdx])) return;
+    _sbHistIdx--;
+    showToast('Undone', 'info');
+  }
+
+  function sbProjRedo() {
+    if (_sbHistIdx + 2 > _sbHist.length - 1) { showToast('Nothing to redo', 'info'); return; }
+    _sbHistIdx++;
+    _sbHistApply(_sbHist[_sbHistIdx + 1]);
+    showToast('Redone', 'info');
+  }
+
+  function _sbHistSyncButtons() {
+    var u = $('sbProjUndoBtn'), r = $('sbProjRedoBtn');
+    if (u) u.disabled = (_sbHistIdx < 0);
+    if (r) r.disabled = (_sbHistIdx + 2 > _sbHist.length - 1);
+  }
+
+  function _sbHistReset() { _sbHist = []; _sbHistIdx = -1; _sbHistSyncButtons(); }
+
   // Snap the box onto the words. A box saved wide, or saved from a slide with
   // more lines than this one, leaves its handles out in the empty part of the
   // screen; this puts them back on the text without changing what the text
@@ -45416,6 +45566,7 @@ var WO = (function() {
   function sbProjFitBox() {
     var frame = $('sbProjFrame');
     if (!frame || !_sbProjEditing) return;
+    _sbHistPush();
     var before = frame.getBoundingClientRect();
     var cx = before.left + before.width / 2, cy = before.top + before.height / 2;
 
@@ -45501,6 +45652,9 @@ var WO = (function() {
       '<button class="sb-asl-tbtn" title="Centre" onclick="WO.sbProjCmd(\'justifyCenter\')"><i class="fa-solid fa-align-center"></i></button>' +
       '<button class="sb-asl-tbtn" title="Align right" onclick="WO.sbProjCmd(\'justifyRight\')"><i class="fa-solid fa-align-right"></i></button>' +
       '<span class="sb-asl-tsep"></span>' +
+      '<button class="sb-asl-tbtn" id="sbProjUndoBtn" title="Undo (Ctrl+Z)" onclick="WO.sbProjUndo()"><i class="fa-solid fa-rotate-left"></i></button>' +
+      '<button class="sb-asl-tbtn" id="sbProjRedoBtn" title="Redo (Ctrl+Y)" onclick="WO.sbProjRedo()"><i class="fa-solid fa-rotate-right"></i></button>' +
+      '<span class="sb-asl-tsep"></span>' +
       '<button class="sb-asl-tbtn" title="Snap the box onto the words" onclick="WO.sbProjFitBox()">' +
         '<i class="fa-solid fa-compress"></i> Fit to text</button>' +
       '<span class="sb-asl-tsep"></span>' +
@@ -45547,6 +45701,7 @@ var WO = (function() {
   function sbProjCmd(cmd, val) {
     var stage = $('sbProjFrame') || $('sbProjStage');
     if (!stage || !_sbProjEditing) return;
+    _sbHistPush();
     var sel = window.getSelection();
     if (!sel || !sel.rangeCount || !stage.contains(sel.getRangeAt(0).startContainer)) {
       showToast('Double-click the words first, then select what to change', 'info');
@@ -45631,6 +45786,7 @@ var WO = (function() {
   function sbProjToggleHide() {
     var s = _sbProjCur();
     if (!s) return;
+    _sbHistPush();
     var ov = _sbProjOv(s, true);
     if (!ov) return;
     ov.hidden = !ov.hidden;
@@ -45642,6 +45798,7 @@ var WO = (function() {
   function sbProjReset() {
     var s = _sbProjCur();
     if (!s || !s.ref) return;
+    _sbHistPush();
     var store = _sbProjStore(true);
     if (s.ref.kind === 'custom') {
       // Reverting one slide of a reflowed song would leave the rest orphaned,
@@ -45670,15 +45827,7 @@ var WO = (function() {
     var aimed = (typeof targetIdx === 'number');
     _sbProjBgTarget = aimed ? targetIdx : null;
     if (m.style.display === 'block' && !aimed) { m.style.display = 'none'; return; }
-    var lib = (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) ? savedBackgrounds : [];
-    if (!lib.length && typeof loadBackgrounds === 'function') loadBackgrounds();
-    var thumbs = lib.filter(function(b) { return (b.url || b.src) && !/^video/i.test(b.type || ''); })
-      .map(function(b) {
-        var u = String(b.url || b.src);
-        return '<button class="sb-projbg-thumb" style="background-image:url(&quot;' + escapeHtml(u) + '&quot;)"' +
-               ' title="' + escapeHtml(b.name || 'Background') + '"' +
-               ' onclick="WO.sbProjSetBg(this.getAttribute(\'data-u\'))" data-u="' + escapeHtml(u).replace(/"/g, '&quot;') + '"></button>';
-      }).join('');
+    var thumbs = _sbBgTiles('WO.sbProjSetBg');
     m.innerHTML =
       '<div class="sb-projbg-head">Background for this slide</div>' +
       '<div class="sb-projbg-grid">' +
@@ -45693,6 +45842,7 @@ var WO = (function() {
   }
 
   function sbProjSetBg(url) {
+    _sbHistPush();
     var s = (_sbProjBgTarget != null) ? _sbProjDeck[_sbProjBgTarget] : _sbProjCur();
     _sbProjBgTarget = null;
     if (!s) return;
@@ -45739,8 +45889,9 @@ var WO = (function() {
     showToast('Uploading background...', 'info');
     uploadToSupabase(f, 'backgrounds').then(function(res) {
       if (res && res.url) {
+        _sbAddToMediaTray(res.url, f, res.path);
         sbProjSetBg(res.url);
-        showToast('Background uploaded', 'success');
+        showToast('Background uploaded and added to the media tray', 'success');
       } else {
         var fr = new FileReader();
         fr.onload = function() {
@@ -46236,21 +46387,13 @@ var WO = (function() {
       m.setAttribute('contenteditable', 'false');
       panel.appendChild(m);
       var inp = document.createElement('input');
-      inp.type = 'file'; inp.id = 'sbAslBgFile'; inp.accept = 'image/*';
+      inp.type = 'file'; inp.id = 'sbAslBgFile'; inp.accept = 'image/*,video/*';
       inp.style.display = 'none';
       inp.onchange = function() { sbAslBgUpload(this); };
       panel.appendChild(inp);
     }
 
-    var lib = (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) ? savedBackgrounds : [];
-    if (!lib.length && typeof loadBackgrounds === 'function') loadBackgrounds();
-    var thumbs = lib.filter(function(b) { return (b.url || b.src) && !/^video/i.test(b.type || ''); })
-      .map(function(b) {
-        var u = String(b.url || b.src);
-        return '<button class="sb-projbg-thumb" style="background-image:url(&quot;' + escapeHtml(u) + '&quot;)"' +
-               ' title="' + escapeHtml(b.name || 'Background') + '"' +
-               ' onclick="WO.sbAslSetBg(this.getAttribute(\'data-u\'))" data-u="' + escapeHtml(u).replace(/"/g, '&quot;') + '"></button>';
-      }).join('');
+    var thumbs = _sbBgTiles('WO.sbAslSetBg');
 
     var scope = (_sbAslBgLevel === 'all') ? 'every slide in this songbook'
               : (_sbAslBgLevel === 'song') ? 'every slide in this song'
@@ -46297,7 +46440,11 @@ var WO = (function() {
     showToast('Uploading background...', 'info');
     uploadToSupabase(f, 'backgrounds').then(function(res) {
       _sbAslBgEl = el; _sbAslBgLevel = level;
-      if (res && res.url) { sbAslSetBg(res.url); showToast('Background added', 'success'); }
+      if (res && res.url) {
+        _sbAddToMediaTray(res.url, f, res.path);
+        sbAslSetBg(res.url);
+        showToast('Background added to this slide and the media tray', 'success');
+      }
       else {
         var fr = new FileReader();
         fr.onload = function() { _sbAslBgEl = el; _sbAslBgLevel = level; sbAslSetBg(fr.result); showToast('Stored with this order (upload unavailable)', 'warning'); };
@@ -60965,6 +61112,8 @@ var WO = (function() {
     sbProjCmd: sbProjCmd,
     sbProjBoxScope: sbProjBoxScope,
     sbProjFitBox: sbProjFitBox,
+    sbProjUndo: sbProjUndo,
+    sbProjRedo: sbProjRedo,
     sbAslNameDone: sbAslNameDone,
     lcdProjectionMenu: lcdProjectionMenu,
     lcdApplyProjection: lcdApplyProjection,
@@ -69318,6 +69467,12 @@ function filterLiturgyItems() {
   .sb-asl-pic:hover { border-color: #60a5fa; color: #dbeafe; }
   .sb-asl-pic.has-pic { border-color: rgba(193,153,63,0.65); color: #e7c98a; }
   .sb-asl-slide[data-bg] .sb-asl-pic { opacity: 1; }
+  .sb-projbg-video {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    background: #0b1220; border: 1px solid #334155; color: #93c5fd; font-size: 0.58rem; padding: 4px;
+  }
+  .sb-projbg-video i { font-size: 0.95rem; }
+  .sb-projbg-video span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sb-asl-bgmenu {
     display: none; position: fixed; z-index: 100060; width: 300px;
     padding: 12px; border-radius: 12px;
