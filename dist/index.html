@@ -389,6 +389,23 @@
         var qs = 'reference=' + encodeURIComponent(reference || '') + '&translation=' + encodeURIComponent(translation || 'web');
         var res = await fetch('/api/bible-passage?' + qs);
         return await res.json();
+      },
+
+      // Proxies to /api/slide-page-ids. This bridge replaces google.script.run
+      // wholesale, so a GAS function it does not list is simply missing —
+      // calling getSlidePageIds threw "not a function" and left the "Reading
+      // slide structure…" spinner up for good, which is what pasting a Google
+      // Slides link did here. Resolves with the same {success, pageIds, count}
+      // / {error} shape server.gs returns, and resolves rather than rejects on
+      // a refusal, so the caller's existing "no pageIds → one iframe" fallback
+      // handles it.
+      getSlidePageIds: async function(presentationId) {
+        var res = await fetch('/api/slide-page-ids?id=' + encodeURIComponent(presentationId || ''));
+        try {
+          return await res.json();
+        } catch (e) {
+          return { error: 'HTTP ' + res.status };
+        }
       }
     };
 
