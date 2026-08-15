@@ -26189,6 +26189,9 @@ var WO = (function() {
       // operator looking at a slide -- see _lcdServiceInitAt.
       _lcdServiceInitAt = Date.now();
       _lcdUpdateProgramBarrier();
+      // Put the selection at the top of the schedule once the groups have all
+      // rendered -- each one grabs it for its own first slide on the way in.
+      setTimeout(_lcdSelectFirstSlideOnce, 250);
       // Make preview panel follow while scrolling
       setTimeout(_enterServiceOrderLayout, 50);
     }
@@ -32372,6 +32375,9 @@ var WO = (function() {
           thumbInner +
           '<div class="wo-ppt-thumb-overlay"></div>' +
           '<div class="wo-ppt-thumb-num">' + (i+1) + '</div>' +
+          '<button class="wo-ppt-thumb-del" title="Remove this slide" ' +
+            'onclick="event.stopPropagation();WO.removePptPage(\'' + sectionId + '\',' + i + ')">' +
+            '<i class="fa-solid fa-times"></i></button>' +
         '</div>';
     });
 
@@ -32383,7 +32389,7 @@ var WO = (function() {
           '<span class="wo-ppt-widget-name">' + escapeHtml(displayName) + '</span>' +
           '<span class="wo-ppt-widget-count">' + count + ' slides</span>' +
           '<button class="wo-ppt-banner-btn" onclick="event.stopPropagation();WO.openSermonRemote(\'' + sectionId + '\')" title="Remote"><i class="fa-solid fa-mobile-screen-button"></i></button>' +
-          '<button class="wo-ppt-banner-btn wo-ppt-banner-remove" onclick="event.stopPropagation();WO.removeSlideContainer(\'' + wId + '\')" title="Remove this presentation"><i class="fa-solid fa-times"></i></button>' +
+          '<button class="wo-ppt-banner-btn wo-ppt-banner-remove" onclick="event.stopPropagation();WO.removePptFile(\'' + sectionId + '\',\'' + wId + '\')" title="Remove the whole presentation"><i class="fa-solid fa-trash"></i></button>' +
         '</div>' +
         '<div class="wo-ppt-main-view" id="' + wId + '-main">' +
           '<div class="wo-ppt-main-placeholder"><i class="fa-solid fa-file-powerpoint"></i></div>' +
@@ -32403,9 +32409,75 @@ var WO = (function() {
 
     container.insertAdjacentHTML('beforeend', widgetHtml);
 
+    // A presentation dropped onto the schedule belongs where it was dropped --
+    // between two items, or at the very top or bottom of the section. Appending
+    // it blindly is what dropped it into the middle of whatever happened to be
+    // last, splitting a song or liturgy group in half.
+    var _w = document.getElementById(wId);
+    if (_w && _lcdPptDrop && _lcdPptDrop.sectionId === sectionId) {
+      var _others = Array.prototype.filter.call(container.children, function(c) { return c !== _w; });
+      var _ref = _others[_lcdPptDrop.index];
+      if (_ref) container.insertBefore(_w, _ref);
+      _lcdPptDrop = null;
+    }
+
     // Select first slide immediately
     var firstThumb = container.querySelector('.wo-ppt-thumb[data-idx="0"]');
     if (firstThumb) projectPptPage(sectionId, 0, firstThumb);
+  }
+
+  // ── Removing presentation slides ────────────────────────────────────────
+  // Two separate things the operator needs: drop one page that should not be
+  // projected, and drop the whole file. Neither existed for this filmstrip --
+  // removePptSlideBox() targets `.wo-ppt-slide`, a layout this widget replaced.
+  function removePptPage(sectionId, idx) {
+    var data = currentSermonSlides[sectionId];
+    if (!data || !Array.isArray(data.slides)) return;
+    idx = parseInt(idx, 10);
+    if (isNaN(idx) || idx < 0 || idx >= data.slides.length) return;
+    if (typeof _lcdPushUndo === 'function') _lcdPushUndo();
+    data.slides.splice(idx, 1);
+    if (!data.slides.length) {
+      // The last page has gone, so the presentation itself has gone with it.
+      var widget = document.querySelector('.wo-ppt-widget[data-section="' + sectionId + '"]');
+      removePptFile(sectionId, widget ? widget.id : null, true);
+      return;
+    }
+    if (data.currentIndex >= data.slides.length) data.currentIndex = data.slides.length - 1;
+    // Re-rendering the filmstrip drops the old widget and appends a new one, so
+    // without this a presentation sitting in the middle of a section would jump
+    // to the end every time a page was removed from it.
+    var _c = document.getElementById(sectionId + '-boxes');
+    var _w = _c ? _c.querySelector('.wo-ppt-widget') : null;
+    if (_c && _w) {
+      var _kids = Array.prototype.filter.call(_c.children, function(k) { return k !== _w; });
+      var _next = _w.nextElementSibling;
+      _lcdPptDrop = { sectionId: sectionId, index: _next ? _kids.indexOf(_next) : _kids.length };
+    }
+    renderLocalSlides(sectionId);
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    showToast('Slide removed — ' + data.slides.length + ' left', 'success');
+  }
+
+  function removePptFile(sectionId, containerId, silent) {
+    var data = currentSermonSlides[sectionId];
+    var n = (data && data.slides) ? data.slides.length : 0;
+    var name = (data && data.fileName) ? data.fileName : 'this presentation';
+    if (!silent && n > 1 &&
+        !confirm('Remove “' + name + '” and all ' + n + ' of its slides from this section?')) return;
+    if (typeof _lcdPushUndo === 'function' && !silent) _lcdPushUndo();
+    // The stored slides go too. Removing only the element left the data behind,
+    // so the next render put the whole presentation straight back.
+    delete currentSermonSlides[sectionId];
+    if (containerId) removeSlideContainer(containerId);
+    else {
+      var w = document.querySelector('.wo-ppt-widget[data-section="' + sectionId + '"]');
+      if (w) removeSlideContainer(w.id);
+    }
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+    showToast('“' + name + '” removed', 'success');
   }
 
   // Called when user clicks a slide thumbnail in the filmstrip
@@ -53194,9 +53266,46 @@ var WO = (function() {
   // Rehydrates the stored file from its URL and hands it to the same import
   // pipeline the desktop drop uses, so pptx / pdf / doc all expand the same way
   // and there is only one conversion path to maintain.
-  function _lcdExpandDocIntoSection(sectionId, bg) {
+  // Where a dropped presentation belongs among a section's items. A song or a
+  // liturgy item is a BANNER plus its slide boxes plus its add-slide row -- one
+  // thing, in several elements -- so dropping on any slide of one puts the
+  // presentation after the whole group rather than inside it, which is what
+  // used to cut a group in half.
+  var _lcdPptDrop = null;
+
+  function _lcdPptDropIndex(sectionId, t) {
+    var container = document.getElementById(sectionId + "-boxes");
+    if (!container) return null;
+    var kids = Array.prototype.slice.call(container.children);
+    if (t && t.railSection) return 0;                      // dropped on the section header: the top
+    var box = t && t.slideBox;
+    if (!box && t && t.railRow) {
+      var mapped = _lcdRailRowMap[t.railRow.id];
+      box = (mapped && mapped.nodeType === 1) ? mapped : (mapped && mapped.box) || null;
+    }
+    if (!box || !container.contains(box)) return kids.length;   // open space: the end
+    var node = box;
+    while (node.parentNode && node.parentNode !== container) node = node.parentNode;
+    if (node.parentNode !== container) return kids.length;
+    var songId = node.getAttribute ? node.getAttribute("data-song-id") : null;
+    var litId  = node.getAttribute ? node.getAttribute("data-liturgy-id") : null;
+    var n = node.nextElementSibling;
+    while (n) {
+      var sameGroup =
+        (songId && n.getAttribute("data-song-id") === songId) ||
+        (litId && n.getAttribute("data-liturgy-id") === litId) ||
+        n.classList.contains("wo-add-slide-row");
+      if (!sameGroup) break;
+      n = n.nextElementSibling;
+    }
+    return n ? kids.indexOf(n) : kids.length;
+  }
+
+  function _lcdExpandDocIntoSection(sectionId, bg, t) {
     if (!sectionId) { showToast("Drop it inside a section to add its pages", "warning"); return; }
     if (!bg.url) { showToast("That file has no stored copy to expand", "error"); return; }
+    var idx = _lcdPptDropIndex(sectionId, t);
+    _lcdPptDrop = (idx === null) ? null : { sectionId: sectionId, index: idx };
     if (typeof addSlidesFromFiles !== "function") { showToast("Presentation import is unavailable", "error"); return; }
     showToast("Adding “" + bg.name + "” — one slide per page…", "info");
     fetch(bg.url)
@@ -53262,7 +53371,7 @@ var WO = (function() {
 
   function _lcdDropTrayItem(bg, t) {
     var sectionId = _lcdSectionIdForTarget(t);
-    if (_lcdIsDocItem(bg)) _lcdExpandDocIntoSection(sectionId, bg);
+    if (_lcdIsDocItem(bg)) _lcdExpandDocIntoSection(sectionId, bg, t);
     else _lcdDropImageAsSlide(bg, t, sectionId);
   }
 
@@ -53904,7 +54013,45 @@ var WO = (function() {
       '<div class="lcd-rail-slide-num"><i class="fa-solid fa-file-powerpoint"></i> ' + (sIdx + 1) + '.' + slideNum + '</div>' +
       thumbHtml +
       '<div class="lcd-rail-slide-body"><div class="lcd-rail-item-title">Slide ' + (parseInt(idx, 10) + 1) + '</div></div>' +
+      '<button class="lcd-rail-ppt-del" title="Remove this slide" ' +
+        'onclick="event.stopPropagation();WO.removePptPage(\'' + sectionId + '\',' + parseInt(idx, 10) + ')">' +
+        '<i class="fa-solid fa-times"></i></button>' +
     '</div>';
+  }
+
+  // Every group selects its own first slide as it renders -- each song, each
+  // liturgy item, each presentation -- so whichever one rendered LAST was the
+  // one left showing when the page settled. A service starts at the top, so
+  // that is where the selection belongs: the first slide of the first section.
+  var _lcdFirstSlideFor = null;
+
+  function _lcdSelectFirstSlide() {
+    var root = document.getElementById('woWorshipOrder');
+    if (!root) return false;
+    var sections = root.querySelectorAll('.wo-worship-section');
+    for (var i = 0; i < sections.length; i++) {
+      var holder = document.getElementById(sections[i].id + '-boxes');
+      if (!holder) continue;
+      // Whichever comes first in the section, a slide or a presentation page.
+      var first = holder.querySelector('.wo-slide-box, .wo-ppt-thumb');
+      if (!first) continue;
+      if (first.classList.contains('wo-ppt-thumb')) {
+        projectPptPage(sections[i].id, parseInt(first.getAttribute('data-idx') || '0', 10), first);
+      } else {
+        selectSlideBox(first);
+      }
+      if (typeof _lcdScrollRailToSelected === 'function') _lcdScrollRailToSelected();
+      return true;
+    }
+    return false;
+  }
+
+  // Once per order. Reselecting on every rail render would fight the operator
+  // for the selection all the way through a service.
+  function _lcdSelectFirstSlideOnce() {
+    var id = (typeof currentOrderData !== 'undefined' && currentOrderData) ? currentOrderData.id : null;
+    if (!id || _lcdFirstSlideFor === id) return;
+    if (_lcdSelectFirstSlide()) _lcdFirstSlideFor = id;
   }
 
   function _lcdRenderCompactRail() {
@@ -61434,6 +61581,8 @@ var WO = (function() {
     projectLocalSlide: projectLocalSlide,
     goToLocalSlide: goToLocalSlide,
     removePptSlideBox: removePptSlideBox,
+    removePptPage: removePptPage,
+    removePptFile: removePptFile,
     projectPptPage: projectPptPage,
     openSermonRemote: openSermonRemote,
     openProjectionWindow: openProjectionWindow,
@@ -69102,6 +69251,12 @@ function filterLiturgyItems() {
   .lcd-rail-section-header[draggable="true"] { cursor: grab; }
   .lcd-rail-section-header[draggable="true"]:active { cursor: grabbing; }
   .lcd-rail-ppt-row { align-items: center; }
+  /* Removing one page from the schedule side, where the operator actually
+     works. Revealed on hover so a long presentation is not a column of Xs. */
+  .lcd-rail-ppt-del { margin-left: auto; flex-shrink: 0; display: none; width: 22px; height: 22px; padding: 0; line-height: 1; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.18); border-radius: 5px; background: transparent; color: var(--lcd-ink-300, #9fb0cc); font-size: 0.7rem; cursor: pointer; }
+  .lcd-rail-ppt-row:hover .lcd-rail-ppt-del { display: flex; }
+  .lcd-rail-ppt-del:hover { background: #dc2626; border-color: #dc2626; color: #fff; }
+  @media (hover: none) { .lcd-rail-ppt-del { display: flex; } }
   .lcd-rail-ppt-thumb { width: 42px; height: 24px; flex-shrink: 0; border-radius: 3px; background-color: #1e293b; background-size: cover; background-position: center; background-repeat: no-repeat; display: flex; align-items: center; justify-content: center; color: #fb923c; font-size: 0.7rem; border: 1px solid rgba(255,255,255,0.12); }
   .lcd-rail-slide-row { display: flex; gap: var(--lcd-space-2, 8px); align-items: flex-start; padding: 8px 10px; border-radius: var(--lcd-radius-sm, 8px); cursor: pointer; border: 1.5px solid transparent; transition: background var(--lcd-motion-fast, 150ms), border-color var(--lcd-motion-fast, 150ms); }
   .lcd-rail-slide-row:hover { background: var(--lcd-navy-700, #1e2c4a); }
@@ -69299,6 +69454,13 @@ function filterLiturgyItems() {
   .wo-ppt-thumb-placeholder span { font-size: 0.7rem; color: #7c3aed; font-weight: 700; }
   .wo-ppt-thumb-overlay { position: absolute; inset: 0; z-index: 2; background: transparent; cursor: pointer; }
   .wo-ppt-thumb-num { position: absolute; bottom: 3px; right: 5px; z-index: 3; font-size: 0.6rem; color: #fff; background: rgba(0,0,0,0.55); border-radius: 3px; padding: 1px 4px; pointer-events: none; }
+  /* Remove one page. Hidden until the thumbnail is hovered so a filmstrip of
+     forty slides is not forty delete buttons; always visible on touch, where
+     there is no hover to reveal it. */
+  .wo-ppt-thumb-del { position: absolute; top: 3px; right: 3px; z-index: 4; display: none; width: 20px; height: 20px; padding: 0; line-height: 1; align-items: center; justify-content: center; border: none; border-radius: 4px; background: rgba(15,10,30,0.72); color: #fff; font-size: 0.66rem; cursor: pointer; }
+  .wo-ppt-thumb:hover .wo-ppt-thumb-del { display: flex; }
+  .wo-ppt-thumb-del:hover { background: #dc2626; }
+  @media (hover: none) { .wo-ppt-thumb-del { display: flex; } }
   .wo-ppt-main-view { background: #0f0a1e; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; overflow: hidden; border-top: 1px solid #e9d5ff; border-bottom: 1px solid #e9d5ff; }
   .wo-ppt-main-view img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
   .wo-ppt-main-view iframe { width: 100%; height: 100%; border: none; display: block; }
