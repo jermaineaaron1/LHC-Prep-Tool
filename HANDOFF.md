@@ -21,7 +21,7 @@ Orders 19, songs 51, unchanged. One `projection_settings` row remains for the re
 
 ### Still open
 
-The LCD **rebuild** (applying a version to the service order's song slides) is still unverified — placing a throwaway song into a service section failed again through both `addSongDirectly` and `lcdLibraryAddSong`, so no order ever exercised it. The picker, its labels and the no-songs guard are verified. It needs a check on a real order.
+~~The LCD **rebuild** is still unverified.~~ **Superseded — it was verified later the same day**, and doing so found a real bug: rebuilt slide boxes were not carrying `data-background`, so the projection's pictures were dropped on the way into LCD. See the LCD-rebuild entry below. The blocker recorded here was mundane: a throwaway song needs a real service-section id (`wo-section-3`), not a label like `songs`, or it never lands in the schedule to be rebuilt.
 
 ---
 
@@ -53,9 +53,9 @@ A line made of nothing but chord tokens is now a chord line whatever those token
 
 25 cases: 13/13 chord lines detected, including `Am`, `Am Am`, `Am Em` and the comma-prefixed `,  G  C  G`; 12/12 lyric lines spared, including `Great I Am`, `Am I not yours`, `I am the Lord` and `This is the day D`. A fresh songbook render of a song with `Am` above a lyric now shows it as `chord-line`. Orders 19, songs 51, unchanged.
 
-### Still open — the growing gap at the bottom of the page
+### The growing gap at the bottom of the page — found and fixed
 
-Not reproduced. Eight Enter/Backspace edits in a throwaway songbook grew the page exactly one line per inserted line and shrank it again on delete: no accumulation in `.sb-song-page` height, no inline style, no leftover `.sb-a4-marker` elements (they are absolute, height 0, and removed each pass), `.sb-page-canvas-wrap` reset to auto, and `sbPageMargins` is written only by the two break-drag handlers, never by editing. **Found and fixed.** It was not the pagination at all: every *structural* edit -- Enter or Backspace, anywhere in the song -- left one blank line behind at the very end of the pad, and they piled up as blank paper at the foot of the page. Measured: four edits took a song from 0 to 7 trailing blank lines and the page from 3496px to 3892px, growing even on delete. They vanished on reload because trailing blanks are trimmed when the text is saved, which is exactly why the gap never survived one.
+What was ruled out first, none of it the cause: eight Enter/Backspace edits in a throwaway songbook grew the page exactly one line per inserted line and shrank it again on delete: no accumulation in `.sb-song-page` height, no inline style, no leftover `.sb-a4-marker` elements (they are absolute, height 0, and removed each pass), `.sb-page-canvas-wrap` reset to auto, and `sbPageMargins` is written only by the two break-drag handlers, never by editing. **Found and fixed.** It was not the pagination at all: every *structural* edit -- Enter or Backspace, anywhere in the song -- left one blank line behind at the very end of the pad, and they piled up as blank paper at the foot of the page. Measured: four edits took a song from 0 to 7 trailing blank lines and the page from 3496px to 3892px, growing even on delete. They vanished on reload because trailing blanks are trimmed when the text is saved, which is exactly why the gap never survived one.
 
 `sbReconcileLyrics` rebuilds the pad from its canonical text after a structural edit; that text now has its trailing newlines trimmed **unless the caret is sitting in them** -- the one case the operator meant it, pressing Enter at the end to add space. That is the rule as asked for: nothing but a deliberate Enter at the final character adds a line at the end.
 
