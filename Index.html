@@ -45362,11 +45362,51 @@ var WO = (function() {
 
   // A drag that starts on the words themselves is a text selection; anywhere
   // else inside the box moves it.
+  // Two modes inside edit mode. By default the box moves: press anywhere in it
+  // -- the words included -- and drag. Double-click puts the caret in the text
+  // and typing takes over until the box is deselected.
+  var _sbTextMode = false;
+
+  function _sbSetTextMode(on) {
+    var frame = $('sbProjFrame');
+    if (!frame) return;
+    _sbTextMode = !!on;
+    Array.prototype.forEach.call(frame.children, function(c) {
+      if (c.classList && (c.classList.contains('sb-box-handle') || c.classList.contains('sb-box-tag'))) return;
+      c.contentEditable = _sbTextMode ? 'true' : 'false';
+    });
+    frame.classList.toggle('is-text', _sbTextMode);
+    var hint = $('sbProjHint');
+    if (hint) hint.textContent = _sbTextMode
+      ? 'Editing the words — click outside the box to move it again'
+      : 'Drag anywhere in the box to move it — double-click to edit the words';
+    if (_sbTextMode && frame.firstElementChild && frame.firstElementChild.focus) frame.firstElementChild.focus();
+  }
+
   function _sbStageDrag(e) {
     if (!_sbProjEditing) return;
     if (e.target.closest('.sb-box-handle')) return;
-    if (e.target.closest('[data-role="lines"], [data-role="title"], [data-role="artist"]')) return;
+    // While the words are being edited the pointer belongs to the text, so a
+    // selection can be dragged out normally.
+    if (_sbTextMode) return;
     _sbBoxDragStart(e, null);
+  }
+
+  function _sbStageDblClick(e) {
+    if (!_sbProjEditing) return;
+    if (e.target.closest('.sb-box-handle')) return;
+    e.preventDefault();
+    _sbSetTextMode(true);
+    // Put the caret where the double-click landed rather than at the start.
+    var r = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+    if (r) { var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  }
+
+  // A press outside the box hands the pointer back to the box.
+  function _sbStageOutside(e) {
+    if (!_sbProjEditing || !_sbTextMode) return;
+    var frame = $('sbProjFrame');
+    if (frame && !frame.contains(e.target)) _sbSetTextMode(false);
   }
 
   // Snap the box onto the words. A box saved wide, or saved from a slide with
@@ -45509,7 +45549,7 @@ var WO = (function() {
     if (!stage || !_sbProjEditing) return;
     var sel = window.getSelection();
     if (!sel || !sel.rangeCount || !stage.contains(sel.getRangeAt(0).startContainer)) {
-      showToast('Select the words to change first', 'info');
+      showToast('Double-click the words first, then select what to change', 'info');
       return;
     }
     try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
@@ -45531,22 +45571,28 @@ var WO = (function() {
     var frame = $('sbProjFrame') || stage;
     if (!_sbProjEditing) {
       _sbProjEditing = true;
-      Array.prototype.forEach.call(frame.children, function(c) { c.contentEditable = 'true'; });
-      if (frame.firstElementChild) frame.firstElementChild.focus();
       frame.classList.add('is-editing');
       _sbBoxChrome(frame);
       _sbEditBar(true);
       _sbProjBar(true);
-      // Dragging the box itself, anywhere that is not a handle or the words.
+      // Starts in move mode: press anywhere in the box and drag it. The words
+      // stay uneditable until a double-click, so a drag across them moves the
+      // box instead of selecting text.
+      _sbSetTextMode(false);
       frame.addEventListener('mousedown', _sbStageDrag, false);
-      _sbProjRender_hintOnly();
+      frame.addEventListener('dblclick', _sbStageDblClick, false);
+      document.addEventListener('mousedown', _sbStageOutside, true);
       return;
     }
 
     // Commit: read the visible text back, one line per block.
     _sbProjEditing = false;
     frame.classList.remove('is-editing');
+    frame.classList.remove('is-text');
+    _sbTextMode = false;
     frame.removeEventListener('mousedown', _sbStageDrag, false);
+    frame.removeEventListener('dblclick', _sbStageDblClick, false);
+    document.removeEventListener('mousedown', _sbStageOutside, true);
     _sbBoxChromeOff(frame);          // handles are furniture, never content
     _sbEditBar(false);
     // Through the resolver, never store.slides directly: once a song has been
@@ -69124,6 +69170,9 @@ function filterLiturgyItems() {
   /* Editing the box: an outline, eight handles, and a readout. None of this
      is content -- it is stripped before the words are read back. */
   .sb-proj-frame [contenteditable="true"] { outline: none; resize: none; }
+  .sb-proj-frame.is-editing:not(.is-text) { cursor: move; }
+  .sb-proj-frame.is-editing:not(.is-text) [data-role] { cursor: move; user-select: none; }
+  .sb-proj-frame.is-text [data-role] { cursor: text; user-select: text; }
   .sb-proj-frame.is-editing {
     outline: 2px dashed rgba(147,197,253,0.9); outline-offset: 2px;
     cursor: move; background: rgba(96,165,250,0.06);
