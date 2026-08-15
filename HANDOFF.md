@@ -1,50 +1,69 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-08-15 by Claude Code_
+_Last updated: 2026-08-16 by Claude Code_
 
 ---
 
-## 2026-08-16 — OPEN: a presentation dragged from the Media Tray is never saved
+## 2026-08-16 — CLOSED: a presentation dragged from the Media Tray is now saved, and comes back
 
-**Diagnosed, not fixed. This is the next job.** Confirmed against the operator's real order `order_1786779303719` ("Service - 16 Aug 2026"): it holds **14 items, every one `itemType: 'liturgy'`** — no presentation, no sermon item, nothing referencing a PPT — while the operator's screen showed the Sermon section with 32 presentation slides. Loading that order fresh gives 19 sections, **zero** `.wo-ppt-widget`, **zero** rail PPT rows.
+The bug diagnosed in the entry this replaces. A presentation dragged in from the Media Tray lived only in the importing tab's `currentSermonSlides`: it vanished on reload and never existed for anyone else opening the order. Two reported symptoms came from the same hole — `projectPptPage()` bailed on `if (!slidesData) return;` so the Program Output kept showing the last thing that genuinely projected, and `navigateSlideGlobal()`'s `ppt-local` branch fell through to `navigateRegularSlides()` so the arrow keys walked the regular slides.
 
-### The cause
+### Step 1 (commit `75bfc07`, already in) — collect it
 
-`collectOrderItems()` gathers presentations with `boxesContainer.querySelectorAll('.wo-slides-container')` (~line 25607). Dragging from the Media Tray produces a **`.wo-ppt-widget`** instead — the filmstrip built by `_renderPptFilmstrip()`. The collector walks straight past it, so `SBQ.saveOrder` stores nothing and the deck exists only in the importing tab's `currentSermonSlides`.
+`collectOrderItems()` gathered presentations with `.wo-slides-container` only; the tray drag produces a `.wo-ppt-widget` filmstrip, so it was walked straight past. It now also gathers `.wo-ppt-widget` and emits an `itemType: 'slides'` item in the `type: 'local'` shape the existing restore path reads. The restore guard was widened so a filmstrip counts as already-present.
 
-### Why it produced the two reported symptoms
+That wrote a `slides` row where nothing had been written before, but the row came back as `localSlidesCount` / `localSlidesNames` with **no `localSlides`** — `saveCurrentOrder()`'s stripper (~24966) keeps slide entries whose `data` is a URL and drops base64 ones, and every imported page is base64 (`FileReader` in `addSlidesFromFiles`' image branch, `canvas.toDataURL()` in `extractPdfPages`).
 
-Both downstream paths key off `currentSermonSlides[sectionId]`, which no other tab or reload ever has:
+### Step 2 (this commit) — make the pages URL-backed
 
-- `projectPptPage()` opens with `if (!slidesData) return;` and bails silently, so the **Program Output keeps showing the last thing that genuinely projected** — the operator read this as "it jumps to the last selected slide".
-- `navigateSlideGlobal()`'s `ppt-local` branch needs the same store; without it, it falls through to `navigateRegularSlides()`, so **the arrow keys walk the regular slides** and land on the last selected one.
+The stripper is correct and is untouched: a 32-page base64 deck is megabytes in one `order_items` row, the same bloat that had to be removed from backgrounds. The pages now reach it as URLs, so it keeps them by its own existing rule and the restore path works unchanged.
 
-### Done so far (2026-08-16)
+**Where the URLs come from — and a correction to the task brief.** The brief said each page's `data` should become the URL of the upload `addSlidesFromFiles()` already performs. That only holds for a single image file, where one upload backs one page. For the dominant case it does not: one PDF upload backs *N* pages, and an `<img>` cannot render a `.pdf`. So each **page** is uploaded as its own image instead.
 
-**Step 1 is in.** `collectOrderItems()` now also gathers `.wo-ppt-widget`, emitting an `itemType: 'slides'` item in the same `type: 'local'` shape the existing restore path already reads, carrying `fileName`, `googleSlidesId`, `supabaseFiles` and the per-page data. The load path's guard was widened so a filmstrip counts as already-present and a restore cannot render a second copy over it. **Verified:** a `slides` row is now written where previously nothing was (16 items instead of 15, one of them `slides`).
+That is what the already-present but **never-called** `uploadSlidesToSupabase()` was written to do. It is now wired up and repaired:
 
-### The remaining blocker — sharper than the note above
+- Its DOM re-point targeted `.wo-ppt-slide` / `.wo-ppt-slide-img` — the per-slide-box layout the filmstrip widget replaced — so the rendered thumbnail would have kept its base64 `src` while the stored data said otherwise. It now re-points `.wo-ppt-thumb[data-idx] .wo-ppt-thumb-img` and the `.wo-ppt-main-view img` when the swapped page is the one on screen, with the old selectors kept for the paths still rendering that layout.
+- Its skip guard was `slide.data && slide.storagePath`. `storagePath` does not survive every save, so a restored deck failed the test and the whole thing was re-uploaded on every load. It now skips anything whose `data` is not `data:`. `storagePath` is also carried through the collector now, so the uploaded copies stay addressable for cleanup.
+- The unreachable "signed/CDN URL → fetch and re-upload" branch went with that change. It existed for Google Slides `contentUrl`s, which no current path produces.
+- `_pptUploadsInFlight` keeps a re-render mid-upload from starting a second round of uploads for the same pages.
 
-The row is saved but comes back with **`localSlidesCount` / `localSlidesNames` and no `localSlides`**, so there is nothing to restore from.
+`_pptPersistPages(sectionId)` hangs off `renderLocalSlides()` — the one funnel every import path ends at, rather than repeating the call in each — and fires `autoSaveOrder()` only when something was actually swapped. A deck restored from a saved order is already URL-backed, so on load it is a no-op that writes nothing.
 
-`saveCurrentOrder()` has a deliberate stripper at **~line 24966**:
+**Async ordering**, the trap flagged in the brief: the filmstrip renders from `FileReader` / `canvas` output before any upload resolves, so the swap happens in the upload callback and updates `currentSermonSlides[sectionId].slides[i].data` *and* the rendered `<img>`.
 
-- slide entries whose `data` is a **URL** are kept;
-- entries whose `data` is base64 (`data:`) are stripped, and when *none* of them have URLs the whole array is replaced by a count and the names.
+### Also fixed — a second presentation wiped the first
 
-Imported pages are base64 — `addSlidesFromFiles()`'s image branch uses `FileReader`, and `extractPdfPages()` uses `canvas.toDataURL()` — so every page is dropped. The stripper is right to do this; a 32-page deck of base64 JPEGs is megabytes in one row, the same bloat that had to be fixed for backgrounds.
+`addSlidesFromFiles()` assigned `currentSermonSlides[sectionId] = { slides: [], … }` on every import, so dropping a second presentation into a section discarded the deck already there — including via the widget's own "Add another presentation" button. It now appends when the section already holds slides.
 
-**So the fix is to make the pages URL-backed, not to weaken the stripper.** `addSlidesFromFiles()` already uploads to storage and fills `supabaseFiles` with real URLs (`orders/documents/…`). Each page's `data` should be set to its uploaded URL once that upload resolves, instead of the base64 the renderer used. The stripper then keeps them by its existing rule and the restore path works unchanged.
+### Verified — the real round trip, not an assumption
 
-Watch the async ordering: the filmstrip renders from `FileReader` output before the uploads finish, so the swap has to happen in the upload callback and update both `currentSermonSlides[sectionId].slides[i].data` and the rendered `<img>`.
+On a **throwaway order** (`order_1786812330271`), created for this and deleted afterwards.
 
-### Also still open
+| Step | Result |
+|---|---|
+| Import a real 3-page PDF through the file pipeline | filmstrip renders 3 pages, `src` still base64 |
+| Uploads resolve | `[PPT] 3 of 3 page(s) now URL-backed`; all 3 thumbs and the main view swap to `…/orders/documents/…jpeg` |
+| Read the saved row back | `localSlides` present, 3 entries, every `data` an `https` URL, each with its `storagePath` |
+| **Reload the page**, load the order in a tab that never did the import | one `.wo-ppt-widget`, name `pptfix-verify-deck.pdf`, "3 slides", `1 / 3`, 3 thumbs, all URL-backed |
+| The images actually resolve | all three load at 1080×1440 — public URLs, not just plausible strings |
+| `projectPptPage()` in that reloaded tab | moves to page 2 — it used to bail before doing anything |
+| Arrow forward ×4 from page 1 | preview follows page 1 → 2 → 3, and only the **fourth** press exits to the regular slides. Previously the *first* press fell through |
+| Drop a second 2-page PDF into the same section | 5 pages, the first 3 keep their original storage paths (not re-uploaded), all URL-backed |
+| Save, reload, load again | "5 slides", `1 / 5`, 5 thumbs, all URL-backed, exactly one widget |
 
-Line ~32126 does `currentSermonSlides[sectionId] = { slides: [], ... }` on every import, which **discards a section's existing deck** when a second presentation is dropped into it.
+Afterwards: the temp order and all 7 storage objects it created (5 page images, 2 original PDFs) deleted; `SBQ.loadOrders()` lists only "Service - 16 Aug 2026", which still reads 14 `liturgy` items — untouched throughout, never opened.
 
-### Operational warning until it is fixed
+`Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>` blocks pass `node --check`.
 
-A presentation dragged from the Media Tray **disappears on reload** and never existed for anyone else opening the order. It cannot be relied on in a service from a second device or after a refresh.
+### Two notes for whoever is next
+
+**The widget's own counter does not follow the arrow keys.** Separate, pre-existing, and *not* the navigation bug fixed above — the arrows genuinely move the presentation and the Projection Preview follows, but `updateLocalSlideDisplay()` writes to `$(sectionId + '-img')` / `$(sectionId + '-counter')` and `_updateFilmstrip()` looks for `$(sectionId + '-filmstrip')` and `.wo-filmstrip-thumb`, all of which belong to the layout `.wo-ppt-widget` replaced. So the nav counter stays at `1 / N` and the active thumbnail never moves while the operator arrows through the deck. `projectPptPage()` updates all of it correctly; only the `nextLocalSlide` / `prevLocalSlide` path does not.
+
+**A Google-Slides-converted deck still gets stripped.** Those pages are `{ type: 'embed', pageId }` with no `data`, so the stripper's `hasSupabaseUrls` test is false for the whole array and it is replaced by a count and names, losing the `pageId`s. That path needs a GAS runtime, which the Vercel deployment does not have, so it is currently unreachable rather than broken in practice. Worth keeping the `pageId`s if it is ever revived.
+
+### Harness note
+
+`pdf.js`'s `page.render()` never settles while the browser pane is hidden — the document loads and reports its page count, then the render task hangs. Confirmed directly. Patching `window.requestAnimationFrame` to a `setTimeout` shim in the page unblocks it and lets the real `extractPdfPages()` run; that is a test-harness workaround for the hidden pane, nothing in the app depends on it.
 
 ---
 

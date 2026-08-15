@@ -25660,7 +25660,10 @@ var WO = (function() {
               googleSlidesId: _pd.googleSlidesId || '',
               supabaseFiles: _pd.supabaseFiles || [],
               localSlides: _pd.slides.map(function(s) {
-                return { type: s.type, data: s.data, name: s.name, pageId: s.pageId || null };
+                // storagePath travels with the page so the uploaded copy can be
+                // cleaned up later, and so a reload does not mistake a restored
+                // page for one that still needs uploading.
+                return { type: s.type, data: s.data, name: s.name, pageId: s.pageId || null, storagePath: s.storagePath || null };
               })
             },
             customizations: {},
@@ -32161,7 +32164,19 @@ var WO = (function() {
 
     // Initialize slides storage for this section - store file name for Liturgy Book
     var firstFileName = files[0] ? files[0].name : 'Slides';
-    currentSermonSlides[sectionId] = { slides: [], currentIndex: 0, fileName: firstFileName, supabaseFiles: [] };
+    // A second presentation dropped into a section must be ADDED to it. This
+    // used to assign a fresh { slides: [] } unconditionally, which threw away
+    // the deck already there -- the pages of the first file simply vanished the
+    // moment a second one was dropped, and the "Add another presentation"
+    // button led straight into it.
+    var _existingDeck = currentSermonSlides[sectionId];
+    if (_existingDeck && Array.isArray(_existingDeck.slides) && _existingDeck.slides.length) {
+      if (!_existingDeck.fileName) _existingDeck.fileName = firstFileName;
+      if (!Array.isArray(_existingDeck.supabaseFiles)) _existingDeck.supabaseFiles = [];
+      if (typeof _existingDeck.currentIndex !== 'number') _existingDeck.currentIndex = 0;
+    } else {
+      currentSermonSlides[sectionId] = { slides: [], currentIndex: 0, fileName: firstFileName, supabaseFiles: [] };
+    }
 
     // Upload original files to Supabase for persistence
     var sb = getSupabaseClient();
@@ -32384,6 +32399,10 @@ var WO = (function() {
     if (!slidesData || slidesData.slides.length === 0) return;
     _renderPptFilmstrip(sectionId, container, slidesData);
     _initSermonRemoteChannel();
+    // The single funnel for "this deck is now on screen" -- every import path
+    // ends here, so the base64→URL swap is hung off it rather than repeated in
+    // each of them.
+    _pptPersistPages(sectionId);
   }
 
   function _renderPptFilmstrip(sectionId, container, slidesData) {
@@ -32735,66 +32754,123 @@ var WO = (function() {
     }
   }
 
-  function uploadSlidesToSupabase(sectionId) {
+  // ── Making an imported deck survive a save ───────────────────────────────
+  // saveCurrentOrder() strips base64 slide data before writing: a 32-page deck
+  // of base64 JPEGs is megabytes in one order_items row. It is right to do so,
+  // so the pages have to reach it URL-backed or they are dropped and the deck
+  // comes back as a count and a list of names with nothing to render.
+  //
+  // The originals uploaded by addSlidesFromFiles() cannot serve as those URLs:
+  // one PDF upload backs N pages, and an <img> cannot render a .pdf. Each PAGE
+  // therefore gets uploaded as its own image, which is what makes the existing
+  // restore path (localSlides[].data straight into an <img src>) work unchanged.
+  //
+  // Sections with an upload in flight, so a re-render mid-upload cannot start a
+  // second round of uploads for the same pages.
+  var _pptUploadsInFlight = {};
+
+  function uploadSlidesToSupabase(sectionId, onDone) {
     var sb = getSupabaseClient();
     var slidesData = currentSermonSlides[sectionId];
-    if (!sb || !slidesData || !slidesData.slides || slidesData.slides.length === 0) return;
+    if (!sb || !slidesData || !slidesData.slides || slidesData.slides.length === 0) {
+      if (onDone) onDone(0);
+      return;
+    }
+    if (_pptUploadsInFlight[sectionId]) return;
 
     var uploaded = 0;
+    var swapped = 0;
     var total = slidesData.slides.length;
+
+    function _settle() {
+      uploaded++;
+      if (uploaded < total) return;
+      delete _pptUploadsInFlight[sectionId];
+      if (swapped) console.log('[PPT] ' + swapped + ' of ' + total + ' page(s) now URL-backed for ' + sectionId);
+      if (onDone) onDone(swapped);
+    }
+
+    // Point everything showing this page at the uploaded copy. The filmstrip is
+    // rendered from the FileReader/canvas output long before these uploads
+    // resolve, so without this the tab keeps the base64 <img> it started with
+    // while the stored data says otherwise.
+    function _repointPage(idx, url) {
+      var widget = document.querySelector('.wo-ppt-widget[data-section="' + sectionId + '"]');
+      if (widget) {
+        var thumbImg = widget.querySelector('.wo-ppt-thumb[data-idx="' + idx + '"] .wo-ppt-thumb-img');
+        if (thumbImg) thumbImg.src = url;
+        if (slidesData.currentIndex === idx) {
+          var mainImg = widget.querySelector('.wo-ppt-main-view img');
+          if (mainImg) mainImg.src = url;
+        }
+      }
+      // The older per-slide-box layout, still rendered by some paths.
+      var boxesContainer = $(sectionId + '-boxes');
+      var slideBox = boxesContainer && boxesContainer.querySelector('.wo-ppt-slide[data-ppt-idx="' + idx + '"]');
+      var boxImg = slideBox && slideBox.querySelector('.wo-ppt-slide-img');
+      if (boxImg) boxImg.src = url;
+      if (slideBox && selectedSlideBox === slideBox) {
+        var previewImg = $('woPreviewScreen') && $('woPreviewScreen').querySelector('.wo-preview-slide-img');
+        if (previewImg) previewImg.src = url;
+      }
+    }
+
+    _pptUploadsInFlight[sectionId] = true;
+
     slidesData.slides.forEach(function(slide, idx) {
-      // Skip if already a permanent Supabase URL
-      if (slide.data && slide.storagePath) {
-        uploaded++;
+      // Anything already URL-backed is left alone. storagePath is not carried
+      // back through every save, so the URL itself is what decides -- keying on
+      // storagePath re-uploaded the whole deck on every load.
+      if (!slide.data || !slide.data.startsWith('data:') || slide.data.startsWith('data:embed')) {
+        _settle();
         return;
       }
 
-      function _doUpload(blob) {
-        var ext = blob.type.split('/')[1] || 'png';
-        blob.name = (slide.name || ('slide_' + (idx + 1))) + '.' + ext;
-        uploadToSupabase(blob, 'orders/documents').then(function(result) {
-          uploaded++;
-          if (result && result.url) {
-            slide.data = result.url;
-            slide.storagePath = result.path;
-            var boxesContainer = $(sectionId + '-boxes');
-            if (boxesContainer) {
-              var slideBox = boxesContainer.querySelector('.wo-ppt-slide[data-ppt-idx="' + idx + '"]');
-              var boxImg = slideBox && slideBox.querySelector('.wo-ppt-slide-img');
-              if (boxImg) boxImg.src = result.url;
-              if (slideBox && selectedSlideBox === slideBox) {
-                var previewImg = $('woPreviewScreen') && $('woPreviewScreen').querySelector('.wo-preview-slide-img');
-                if (previewImg) previewImg.src = result.url;
-              }
-            }
-          }
-          if (uploaded === total) {
-            console.log('All ' + total + ' slides uploaded to Supabase for ' + sectionId);
-          }
-        });
-      }
-
-      if (slide.data && slide.data.startsWith('data:')) {
-        // Base64 data URL → convert to Blob directly
-        try {
-          var parts = slide.data.split(',');
-          var mime = parts[0].match(/:(.*?);/)[1];
-          var binary = atob(parts[1]);
-          var arr = new Uint8Array(binary.length);
-          for (var i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
-          _doUpload(new Blob([arr], { type: mime }));
-        } catch (e) { uploaded++; }
-      } else if (slide.data && slide.data.startsWith('http')) {
-        // Signed/CDN URL (e.g. Google Slides contentUrl) — fetch then re-upload
-        fetch(slide.data).then(function(r) { return r.blob(); }).then(function(blob) {
-          _doUpload(blob);
-        }).catch(function() { uploaded++; });
-        return;
-      } else {
-        uploaded++;
+      var blob;
+      try {
+        var parts = slide.data.split(',');
+        var mime = parts[0].match(/:(.*?);/)[1];
+        var binary = atob(parts[1]);
+        var arr = new Uint8Array(binary.length);
+        for (var i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+        blob = new Blob([arr], { type: mime });
+      } catch (e) {
+        console.warn('[PPT] Could not decode page ' + (idx + 1) + ' for upload', e);
+        _settle();
         return;
       }
 
+      var ext = (blob.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '');
+      // Every page of every deck goes through one folder, and uploadToSupabase
+      // only prefixes Date.now() -- 32 pages fired together share a millisecond,
+      // so the section and the index have to do the disambiguating.
+      blob.name = sectionId + '_' + (idx + 1) + '_' + (slide.name || 'slide') + '.' + ext;
+
+      uploadToSupabase(blob, 'orders/documents').then(function(result) {
+        if (result && result.url) {
+          slide.data = result.url;
+          slide.storagePath = result.path;
+          swapped++;
+          _repointPage(idx, result.url);
+        } else {
+          console.warn('[PPT] Page ' + (idx + 1) + ' upload failed: ' + (result && result.error));
+        }
+        _settle();
+      }).catch(function(err) {
+        console.warn('[PPT] Page ' + (idx + 1) + ' upload threw', err);
+        _settle();
+      });
+    });
+  }
+
+  // Called after every filmstrip render. A deck restored from a saved order is
+  // already URL-backed, so this is a no-op there and fires no save; only a
+  // freshly imported deck has base64 pages to convert, and only that case is
+  // worth writing back.
+  function _pptPersistPages(sectionId) {
+    uploadSlidesToSupabase(sectionId, function(swapped) {
+      if (!swapped) return;
+      if (typeof autoSaveOrder === 'function') autoSaveOrder();
     });
   }
 
