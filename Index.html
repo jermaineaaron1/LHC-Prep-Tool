@@ -16817,8 +16817,14 @@ window.loadEditSongData = function(song) {
     // Navigate to Orders page and trigger new order creation
     setActiveView('worshipOrderView');
     setTimeout(function() {
-      if (window.WO && window.WO.promptNewOrder) {
-        window.WO.promptNewOrder();
+      // showNewOrderOptions is what the Orders page's own "Create New Order"
+      // button calls -- it opens the Traditional/Contemporary chooser. The old
+      // name here, promptNewOrder, never existed, so this always fell through
+      // to a toast telling the operator to go and do it themselves.
+      if (window.WO && window.WO.showNewOrderOptions) {
+        window.WO.showNewOrderOptions();
+        var opts = document.getElementById('woNewOrderOptions');
+        if (opts && opts.scrollIntoView) opts.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else {
         showToast('Create a new order from the Orders page', 'info');
       }
