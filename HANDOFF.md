@@ -4,6 +4,35 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
+## 2026-08-16 — CLOSED: a converted Google Slides deck keeps its pageIds through a save
+
+The second of the two notes, and the last of them. `saveCurrentOrder()`'s stripper decided **per deck** whether the pages were worth keeping: if no page held a storage URL, it dropped the whole `localSlides` array and stored a count and a list of names instead. A deck converted to Google Slides has pages of `{ type: 'embed', pageId }` with no `data` at all, so that test read false for every one of them, and the `pageId`s went with the array — which is the whole of such a page. Every per-slide embed URL is built from one.
+
+### The fix (commit `404e592`)
+
+The decision is **per page** now, and asks what survives to render the page later rather than whether a URL happens to be present: a storage URL, or a `pageId`. Only a base64 payload is stripped, and even a stripped page keeps its `pageId` and name — it costs nothing and it is the part that matters. `data:embed` is exempted as the small marker it is, which is the rule `uploadSlidesToSupabase()` already applies to decide what needs uploading.
+
+The bloat guard this stripper exists for is untouched: a deck whose pages are all base64 and not yet uploaded still collapses to a count and names. A deck of blank pages would be worse than none — it cannot be told apart from a real one — and a 32-page base64 deck still never reaches an `order_items` row.
+
+Nothing else needed changing, which is worth knowing if this is ever revisited: the collector already carries `pageId` and `googleSlidesId` (`75bfc07`), the restore path already rebuilds `currentSermonSlides` from them and re-renders the filmstrip, and `uploadSlidesToSupabase()` already skips a page with no `data`.
+
+### Verified — the transform directly, not through the UI
+
+The import path that produces such a deck (`addSlidesFromUrl` on a Google Slides URL, and `_convertAndRenderPptx`) calls `google.script.run.getSlidePageIds`, which needs a GAS runtime the Vercel deployment does not have. It is unreachable in production, so it cannot be exercised through the app. Instead the **shipped stripper text was sliced out of `dist/index.html` and run under `node`** — the real code, not a retyped copy, so the test fails if the source changes meaning.
+
+| Input deck | Result |
+|---|---|
+| Converted Google Slides, 3 embed pages | 3 `pageId`s kept, 180 bytes — previously the array was dropped entirely |
+| URL-backed pages (the PDF/image path) | unchanged: URLs and `storagePath`s kept |
+| All base64, nothing uploaded yet | unchanged: falls back to `localSlidesCount` / `localSlidesNames` |
+| Mixed URL + base64 + embed | URL kept, base64 blanked, embed `pageId` kept |
+| Legacy `data:embed` marker | survives |
+| A liturgy item | passes through untouched |
+
+`Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>` blocks pass `node --check`.
+
+---
+
 ## 2026-08-16 — CLOSED: the presentation widget now follows the arrow keys
 
 The first of the "two notes for whoever is next" left by the entry below. The arrows genuinely moved the presentation and the Projection Preview followed, but the filmstrip widget stayed frozen: the nav counter read `1 / N` however far into the deck the operator had gone, and no thumbnail ever lit up. Nothing on the widget told them which page was on screen.
@@ -86,11 +115,11 @@ Afterwards: the temp order and all 7 storage objects it created (5 page images, 
 
 `Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>` blocks pass `node --check`.
 
-### Two notes for whoever is next
+### Two notes for whoever is next — both now closed
 
 **~~The widget's own counter does not follow the arrow keys.~~ Fixed — see the entry above.** Left here because the diagnosis in it was right and led straight to the fix: `updateLocalSlideDisplay()` wrote to `$(sectionId + '-img')` / `$(sectionId + '-counter')` and `_updateFilmstrip()` looked for `$(sectionId + '-filmstrip')` and `.wo-filmstrip-thumb`, all of which belong to the layout `.wo-ppt-widget` replaced.
 
-**A Google-Slides-converted deck still gets stripped.** Those pages are `{ type: 'embed', pageId }` with no `data`, so the stripper's `hasSupabaseUrls` test is false for the whole array and it is replaced by a count and names, losing the `pageId`s. That path needs a GAS runtime, which the Vercel deployment does not have, so it is currently unreachable rather than broken in practice. Worth keeping the `pageId`s if it is ever revived.
+**~~A Google-Slides-converted deck still gets stripped.~~ Fixed — see the entry above.** The diagnosis was right: those pages are `{ type: 'embed', pageId }` with no `data`, so the stripper's `hasSupabaseUrls` test read false for the whole array and replaced it with a count and names, losing the `pageId`s.
 
 ### Harness note
 

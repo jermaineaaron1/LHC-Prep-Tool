@@ -24958,23 +24958,42 @@ var WO = (function() {
     // Strip large binary data (base64 images) from items before saving to backend
     // Google Sheets has a 50000 char per cell limit - local slide images would exceed this
     // But keep Supabase URLs (they're small strings and needed for restore)
+    // Only a base64 payload is too big to store. `data:embed` is a small marker,
+    // not an image — the same exemption uploadSlidesToSupabase() makes.
+    function _slideIsBlob(s) {
+      return !!(s.data && s.data.indexOf('data:') === 0 && s.data.indexOf('data:embed') !== 0);
+    }
+    // A page is worth storing when something survives to render it later: a
+    // storage URL, or — for a deck converted to Google Slides — the pageId its
+    // per-slide embed URL is built from. Those pages carry no `data` at all,
+    // which is why the old "does any page hold a URL?" test read false for a
+    // whole converted deck and threw the pageIds away with it.
+    function _slideIsRestorable(s) {
+      return !_slideIsBlob(s) && !!(s.data || s.pageId);
+    }
     var itemsForSave = items.map(function(item) {
       if (item.itemType === 'slides' && item.content && item.content.localSlides) {
         var stripped = JSON.parse(JSON.stringify(item));
-        // Check if slides have been uploaded to Supabase (URL instead of base64)
-        var hasSupabaseUrls = stripped.content.localSlides.some(function(s) {
-          return s.data && !s.data.startsWith('data:');
-        });
-        if (hasSupabaseUrls) {
-          // Keep slides that have URLs, strip any remaining base64 data
+        var anyRestorable = stripped.content.localSlides.some(_slideIsRestorable);
+        if (anyRestorable) {
+          // Keep what can be restored, strip only the base64 payloads
           stripped.content.localSlides = stripped.content.localSlides.map(function(s) {
-            if (s.data && s.data.startsWith('data:')) {
-              return { type: s.type, name: s.name, data: '' }; // strip base64
+            var page = { type: s.type, name: s.name };
+            // The pageId is the whole of a converted page and costs nothing to
+            // keep, so it travels even on a page whose image was stripped.
+            if (s.pageId) page.pageId = s.pageId;
+            if (_slideIsBlob(s)) {
+              page.data = ''; // strip base64
+              return page;
             }
-            return { type: s.type, name: s.name, data: s.data, storagePath: s.storagePath }; // keep URL
+            if (s.data) page.data = s.data;
+            if (s.storagePath) page.storagePath = s.storagePath;
+            return page;
           });
         } else {
-          // No Supabase URLs - strip all image data, keep metadata only
+          // Nothing restorable — every page is a base64 image that has not been
+          // uploaded yet. Keep metadata only; a deck of blank pages would be
+          // worse than none, since it cannot be told from a real one.
           stripped.content.localSlidesCount = stripped.content.localSlides.length;
           stripped.content.localSlidesNames = stripped.content.localSlides.map(function(s) { return s.name; });
           delete stripped.content.localSlides;
