@@ -45441,11 +45441,49 @@ var WO = (function() {
     return /[.](mp4|webm|ogv|mov|m4v)([?#]|$)/i.test(String(u || ''));
   }
 
+  // The media tray's own array is empty in the songbook context, which is why
+  // the picker said "No pictures in the media library yet" while
+  // lhc_backgrounds held media. Pull the shared index in on demand.
+  var _sbBgLibLoading = false, _sbBgLib = [];
+  function _sbEnsureBgLibrary(done) {
+    // savedBackgrounds belongs to another module and is not in scope here,
+    // which is why the earlier attempt bailed before it ever queried: the
+    // picker keeps its own cache and fills it from whichever source has media.
+    var lib = _sbBgLib;
+    if (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds) && savedBackgrounds.length) {
+      savedBackgrounds.forEach(function(b2) {
+        if (b2 && !lib.some(function(x) { return x.id === b2.id; })) lib.push(b2);
+      });
+    }
+    if (lib.length || _sbBgLibLoading) { if (done) done(false); return; }
+    var sbc = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+    if (!sbc) { if (done) done(false); return; }
+    _sbBgLibLoading = true;
+    sbc.from('lhc_backgrounds').select('id,name,type,url,storage_path').then(function(r) {
+      _sbBgLibLoading = false;
+      var added = 0;
+      if (!r.error && r.data) {
+        r.data.forEach(function(row) {
+          if (!row || !row.url) return;
+          if (lib.some(function(b) { return b.id === row.id; })) return;
+          _sbBgLib.push({ id: row.id, name: row.name || 'Background', type: row.type || 'image',
+                     cloudUrl: row.url, data: row.url, storagePath: row.storage_path || '' });
+          added++;
+        });
+      }
+      if (done) done(added > 0);
+    }).catch(function() { _sbBgLibLoading = false; if (done) done(false); });
+  }
+
   // One tile per library entry. Video has no still to show, so it gets a
   // labelled tile rather than a broken thumbnail.
   function _sbBgTiles(onclickFn) {
-    var lib = (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) ? savedBackgrounds : [];
-    if (!lib.length && typeof loadBackgrounds === 'function') loadBackgrounds();
+    var lib = _sbBgLib.slice();
+    if (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) {
+      savedBackgrounds.forEach(function(b2) {
+        if (b2 && !lib.some(function(x) { return x.id === b2.id; })) lib.push(b2);
+      });
+    }
     return lib.map(function(b) {
       var u = String(b.cloudUrl || b.url || b.data || b.src || '');
       if (!u) return '';
@@ -45474,6 +45512,7 @@ var WO = (function() {
         storagePath: storagePath || '',
         createdAt: new Date().toISOString()
       };
+      _sbBgLib.push(bg);
       if (typeof savedBackgrounds !== 'undefined' && Array.isArray(savedBackgrounds)) savedBackgrounds.push(bg);
       if (typeof saveBackgroundToIDB === 'function') saveBackgroundToIDB(bg);
       if (typeof _sbSaveBackgroundToSupabase === 'function') _sbSaveBackgroundToSupabase(bg);
@@ -45832,6 +45871,7 @@ var WO = (function() {
     _sbProjBgTarget = aimed ? targetIdx : null;
     if (m.style.display === 'block' && !aimed) { m.style.display = 'none'; return; }
     var thumbs = _sbBgTiles('WO.sbProjSetBg');
+    _sbEnsureBgLibrary(function(added) { if (added) { m.style.display = 'none'; sbProjBgMenu(targetIdx); } });
     m.innerHTML =
       '<div class="sb-projbg-head">Background for this slide</div>' +
       '<div class="sb-projbg-grid">' +
@@ -46105,6 +46145,21 @@ var WO = (function() {
   function _sbApplySize(root, pts) {
     var em = (parseFloat(pts) || SB_SIZE_BASE) / SB_SIZE_BASE;
     var size = String(Math.round(em * 1000) / 1000) + 'em';
+    // Which lines the selection actually covers, captured BEFORE the command:
+    // execCommand wraps the fully-covered ones but leaves the last,
+    // partially-covered line alone, so its size silently never changed.
+    var _covered = [];
+    (function() {
+      var sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      var rng = sel.getRangeAt(0);
+      Array.prototype.forEach.call(root.querySelectorAll('div'), function(d) {
+        if (d.classList && d.classList.contains('sb-asl-slide-tools')) return;
+        if (d.querySelector('div')) return;              // only leaf lines
+        if (!(d.textContent || '').trim()) return;
+        try { if (rng.intersectsNode(d)) _covered.push(d); } catch (e) {}
+      });
+    })();
     // execCommand is the only reliable way to wrap exactly the selection, and
     // it must run with styleWithCSS OFF: with it on the browser writes its own
     // keyword ("xxx-large") and there is nothing left to rewrite -- which is
@@ -46121,6 +46176,17 @@ var WO = (function() {
     // Belt and braces for any browser that still writes the keyword.
     Array.prototype.forEach.call(root.querySelectorAll('span'), function(sp) {
       if (/^xxx-large$/i.test(sp.style.fontSize || '')) sp.style.fontSize = size;
+    });
+    // Any covered line the command skipped gets the size applied directly,
+    // so the whole selection ends up at the size that was asked for.
+    _covered.forEach(function(d) {
+      var sized = d.querySelector('[style*="font-size"]');
+      if (sized && (sized.textContent || '').trim() === (d.textContent || '').trim()) return;
+      if (sized) return;
+      var span = document.createElement('span');
+      span.style.fontSize = size;
+      while (d.firstChild) span.appendChild(d.firstChild);
+      d.appendChild(span);
     });
   }
 
@@ -46181,6 +46247,44 @@ var WO = (function() {
   function _sbAslKeydown(e) {
     if (e.key === 'Escape') { e.stopPropagation(); sbProjAllClose(); return; }
     e.stopPropagation();                       // never page the projector
+
+    // Backspace at the very start of a line merges it into the one above.
+    // Left to the browser this leaves the emptied line behind as a blank
+    // row -- the gap that appeared after every merge. Do the join here and
+    // remove the line outright.
+    if (e.key === 'Backspace') {
+      var bsel = window.getSelection();
+      if (!bsel || !bsel.rangeCount || !bsel.isCollapsed) return;
+      var br = bsel.getRangeAt(0);
+      if (br.startOffset !== 0) return;
+      var bn = br.startContainer;
+      var bline = (bn.nodeType === 3) ? bn.parentElement : bn;
+      if (!bline || !bline.closest) return;
+      var bslide = bline.closest('.sb-asl-slide');
+      if (!bslide) return;
+      while (bline.parentNode && bline.parentNode !== bslide) bline = bline.parentNode;
+      if (bline.parentNode !== bslide) return;
+      // Only when the caret is genuinely at the head of the line.
+      var probe = document.createRange();
+      probe.selectNodeContents(bline);
+      probe.setEnd(br.startContainer, br.startOffset);
+      if ((probe.toString() || '').length !== 0) return;
+      var prev = bline.previousElementSibling;
+      while (prev && prev.classList && prev.classList.contains('sb-asl-slide-tools')) prev = prev.previousElementSibling;
+      if (!prev) return;                       // first line of a slide: leave the split alone
+      e.preventDefault();
+      var joinAt = prev.childNodes.length;
+      if (prev.querySelector('br') && !(prev.textContent || '').trim()) prev.innerHTML = '';
+      while (bline.firstChild) prev.appendChild(bline.firstChild);
+      bslide.removeChild(bline);
+      var jr = document.createRange();
+      jr.setStart(prev, Math.min(joinAt, prev.childNodes.length));
+      jr.collapse(true);
+      bsel.removeAllRanges();
+      bsel.addRange(jr);
+      return;
+    }
+
     if (e.key !== 'Enter') return;
     var sel = window.getSelection();
     if (!sel || !sel.rangeCount) return;
@@ -46400,6 +46504,7 @@ var WO = (function() {
     }
 
     var thumbs = _sbBgTiles('WO.sbAslSetBg');
+    _sbEnsureBgLibrary(function(added) { if (added) { m.style.display = 'none'; sbAslBgMenu(btn, level); } });
 
     var scope = (_sbAslBgLevel === 'all') ? 'every slide in this songbook'
               : (_sbAslBgLevel === 'song') ? 'every slide in this song'
