@@ -44999,6 +44999,10 @@ var WO = (function() {
     // The draft has been committed to a named version; leaving a copy behind
     // would offer the same thing twice in the Project menu.
     if (t) { t.projectionDeck = { slides: {}, all: {}, songs: {} }; t.projectionDraftBase = null; }
+    // Saving is an instruction, not a hint: flush any pending settings write so
+    // pressing Save Projection puts everything on the wire immediately. The
+    // debounce exists only to stop incidental edits queueing network writes.
+    _sbProjFlushSettings();
     // Its own row, now -- not when the order's autosave next fires.
     if (typeof SBQ_PROJECTION !== 'undefined') {
       var _list = _sbProjVersions(), _own = _sbProjOwnerId();
@@ -46300,6 +46304,7 @@ var WO = (function() {
       store.songs[k] = { slides: bySong[k] };
     });
     _sbProjSaveStore();
+    _sbProjFlushSettings();     // Save Projection waits for nothing
     return true;
   }
 
@@ -46347,6 +46352,7 @@ var WO = (function() {
     var name = (inp && inp.value.trim()) || '';
     if (box) box.style.display = 'none';
     if (asNew === null) {
+      _sbProjFlushSettings();
       sbProjAllClose();
       var n0 = _sbBuildProjectionDeck(false).length;
       showToast('Projection updated - ' + n0 + ' slide' + (n0 === 1 ? '' : 's'), 'success');
