@@ -4,6 +4,70 @@ _Last updated: 2026-08-15 by Claude Code_
 
 ---
 
+## 2026-08-15 — LCD Projection: the working columns, the arrow keys, and the editor that had nothing to edit
+
+### The Slide Editor stayed open over content it could not touch
+
+A presentation page, a picture or a video has nothing for the editor to act on, but it sat there beside them looking available. It is hidden while one of those is selected — the Program Output takes the whole row — and comes back the moment a slide built in the system is selected. Hooked where the selection changes **kind** rather than polled: `projectPptPage()` and `projectVideo()` put it away, `selectSlideBox()` restores it. A picture dropped into a section becomes an ordinary slide box with a background and *is* editable, so the editor still shows for those.
+
+**Verified:** editor 186 / output 186 normally; editor hidden and output 384 on a presentation page; both back to 186 on an editable slide. Media Tray row 128px → 132px.
+
+### Arrow keys jumped out of a presentation
+
+The live presentation was tracked by a reference to its **element**. `selectSlideBox()` nulls that reference and is called by every routine that re-renders a song — so a re-render in the background while a presentation was on screen silently dropped the operator back into the regular slide list, and the next arrow key jumped into another section, **nowhere near a boundary**. It is remembered by **section** now (`_pptActiveSection`), with the element re-acquired through `_pptReacquire()`. Only running past the first or last slide forgets it; crossing into the next or previous section *at the boundaries* is unchanged, which is the wanted behaviour.
+
+### Column widths
+
+The Service Schedule stays the widest, as asked. The Slide Editor and the Program Output are equal halves of the workspace column beside it (286 / 186 / 186). Those two had been fighting over three rules — 60/40, 55/45 and `auto` — and one scoped rule decides now, only for the side-by-side layout so the stacked phone and tablet views keep their own sizing.
+
+### Two more
+
+**Full screen and the media picker.** Opening a file picker forces the browser out of its own fullscreen; that is the browser's doing and cannot be prevented. What made it worse was our handler tearing the workspace layout down at the same time and never restoring it. `_lcdKeepFullscreenAround()` holds the layout while the picker is open and re-enters fullscreen when focus returns.
+
+**Empty sections had no drop target at all** — which is why a presentation could only be dragged onto a section that already had a slide. Empty containers now show a real drop area that names itself and highlights on hover. The section menu's *Add presentation* always worked.
+
+**Not exercised here:** the arrow keys, the picker and the empty-section drop. The harness runs its browser pane hidden, so it cannot hold fullscreen, cannot open a file dialog, and pdf.js never settles. Only the column widths are measured.
+
+---
+
+## 2026-08-15 — Project mode: the freeze, and a size that never reached the words
+
+### The hang was mine, from earlier the same day
+
+`_sbApplyToggle` decided "is this already bold?" by walking **every ancestor of every text node** and calling `getComputedStyle` on each — once across the whole selection to choose the direction, then again per line. Every such call after a DOM change forces a style recalculation, so the cost went **quadratic** with the size of the pad: seconds of frozen tab per press on a real songbook, which is what "hangs after a few uses and changes and editing" was.
+
+The direction now comes from `document.queryCommandState` (one native call), and the per-line check reads the markup — an inline property, or a `b`/`strong`/`i`/`em`/`u` tag — and never resolves style.
+
+**Measured**, 10 songs / 57 slides / 275 lines: 8 rounds of select-all size + select-all bold went from **timing out past 30s** to **1.9s**; bold per round from ~3.7s to 112ms then 3ms. Span count, markup size and heap all flat.
+
+**Ruled out while hunting it:** the undo history (capped at 60, pushed per action not per drag frame), listener accumulation on the projection frame and on `document`, the picture pool, and six rounds of heavy editing that stayed flat at 26–34 MB.
+
+### The scope buttons now govern type, and the size actually renders
+
+"This slide / This song / All songs" only ever applied to the text **box**, so choosing a wider scope and then a size changed nothing but the slide on screen. Size, face, weight, slant, underline and alignment now resolve **slide → song → songbook** like the box and the background, one property at a time.
+
+Then a correction: the first attempt set `font-size` on the frame, and **the projected text sizes itself from its own rule** (`.sb-proj-lines { font-size: calc(3.6vw * …) }`), so the frame was never consulted. The stored data looked right and the screen did not change — and the check that passed it had read back the value just written to the frame rather than the rendered text. The size travels as `--sb-type` inside that same `calc` now. Face, weight, slant and alignment always did inherit.
+
+Second half of the same report: widening the scope cleared the narrower **style objects** but not what earlier slide-level edits had written **inline**, so a line already carrying its own size kept it — the half-small, half-large slide. Widening now strips that property from the affected slides' markup too.
+
+**Verified on the rendered text:** a slide mixing 43.2px and 69.12px came out uniform at 57.6px after "All songs", and the whole 11-slide deck read one size across all 58 lyric lines after a reload.
+
+**Remedy for a songbook already carrying mixed sizes:** Project mode → scope **All songs** → pick a size.
+
+### A blank line no longer costs a slide its last line
+
+The deck chunks a section every `SB_MAX_LINES`, counting the blank spacing lines between a verse and its chorus against that budget. A nine-line section — six lyrics, two blanks, one more lyric — filled at eight and pushed the chorus's last line onto a slide of its own: `O praise Him, O praise Him,` then a break, then a lone `Alleluia`, at every verse. Blank lines are spacing, not lines of the song, so they no longer count, and a chunk never opens or closes on one.
+
+**Verified:** *All Creatures of Our God and King* went from **9 slides to 5**. Note this only affects songs still using the parser — a song already reflowed and saved in All Slides has its slide list stored and bypasses it, so an existing split stays until those two slides are merged by hand (Backspace at the head of the stranded line).
+
+### Project stands down the operator's full screen
+
+Two reports, one cause: the workspace stayed full screen while projecting, so **Project** appeared to do nothing and a projection window could not take the second monitor properly — Chrome will not give a popup fullscreen on another display while the opener holds it, so it fell back to a plain window there. `goFullscreen()` drops the workspace layout first, keeping the browser's own fullscreen for the moment so the screen does not flash mid-service; the overlay path replaces it and the projection-window path releases it right after the popup opens (opened first, while the click's activation is still live). When `getScreenDetails()` is refused and `screen.isExtended` reports a second display, it now says plainly that **Window management** has to be allowed instead of silently covering only the primary screen.
+
+**Never verified, and the biggest open risk:** the multi-monitor behaviour itself. The test machine reports a single screen and the pane cannot hold real browser fullscreen.
+
+---
+
 ## 2026-08-15 — All Slides: the freeze, the merge gap, and the line the formatting missed
 
 Three reports from using the pad on the real projector, plus what an audit of it found alongside.
