@@ -4,6 +4,45 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
+## 2026-08-16 — getSlidePageIds ported to a Vercel route (one scope still to add)
+
+`server.gs`'s `getSlidePageIds()` now has a server-side twin at `app/api/slide-page-ids/route.ts`, so a pasted Google Slides link can be projected one slide at a time here and not only under Apps Script.
+
+### It was not "unreachable" — it was throwing
+
+The note this follows called the Google Slides path unreachable on Vercel. It was worse than that. The Supabase bridge at the top of the file **replaces `window.google` wholesale**, and `_GASRunner`'s prototype carries only the functions `_B` lists. `getSlidePageIds` was not one of them, so `google.script.run.…getSlidePageIds(id)` threw *"not a function"* — **after** the "Reading slide structure…" spinner went up and before anything removed it. Pasting a Google Slides link left that spinner turning for good and added no slides at all.
+
+Worth remembering when reading any `if (typeof google !== 'undefined' && google.script && google.script.run)` guard in this file: **that test is true in both deployments**. It does not tell Apps Script from Vercel, and it says nothing about whether the function being called exists.
+
+### The shape of the fix
+
+One entry in `_B`, following `fetchBiblePassage` — the existing precedent for "GAS function that only the Apps Script backend had". **No call site changed**: with the bridge method present, the original `google.script.run` chain works as written in both deployments.
+
+The route is a straight port — `presentations.get` with `fields=slides.objectId`, answering in the GAS function's exact `{success, pageIds, count}` / `{error}` shape, with a refusal resolved rather than rejected so the caller's existing "no pageIds → one iframe" fallback handles it.
+
+### The one thing left to do, and it is not code
+
+**OAuth only.** Probed against the live API: an API key is refused with *"API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal."* So the route reuses the `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN` trio calendar sync already uses.
+
+That refresh token was minted for Calendar scopes. Until it is re-consented with `https://www.googleapis.com/auth/presentations.readonly` added (`drive.readonly` also works), Google answers `ACCESS_TOKEN_SCOPE_INSUFFICIENT`; the route reports that as its own case naming the scope to add, and a pasted deck falls back to the single embed. Nothing else breaks, and no further code change is needed once the scope is there. Recorded in `.env.local.example` beside the credentials.
+
+### Verified
+
+Against a `next dev` server, with the bridge blanked first so nothing could reach the live database (`SBQ._sb = null`, confirmed by a canary `saveOrder` that throws before any network call).
+
+| Step | Result |
+|---|---|
+| `/api/slide-page-ids` with no id, empty id, `bad*id` | 400 `id is required` / `id is required` / `Not a valid presentation id` |
+| …well-formed id, no credentials configured | 500, "The server is not configured to read Google Slides" |
+| Paste a Google Slides URL in the app | `GET /api/slide-page-ids?id=…` goes out — previously a `TypeError` |
+| …with the route unconfigured | spinner **clears** and the deck falls back to one embed, instead of hanging for good |
+| Feed the success shape through the bridge | filmstrip renders: "3 slides", `1 / 3`, 3 thumbs, per-slide URLs `slide=id.p_1/p_2/p_3` |
+| Arrow through that deck | `1 / 3 → 2 / 3 → 3 / 3 → 2 / 3`, active thumb following |
+
+`tsc --noEmit` clean; `Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>` blocks pass `node --check`.
+
+---
+
 ## 2026-08-16 — CLOSED: a converted Google Slides deck keeps its pageIds through a save
 
 The second of the two notes, and the last of them. `saveCurrentOrder()`'s stripper decided **per deck** whether the pages were worth keeping: if no page held a storage URL, it dropped the whole `localSlides` array and stored a count and a list of names instead. A deck converted to Google Slides has pages of `{ type: 'embed', pageId }` with no `data` at all, so that test read false for every one of them, and the `pageId`s went with the array — which is the whole of such a page. Every per-slide embed URL is built from one.
