@@ -25637,6 +25637,38 @@ var WO = (function() {
         items.push(slideItem);
       });
 
+      // A presentation dragged in from the Media Tray renders as a
+      // .wo-ppt-widget filmstrip, NOT a .wo-slides-container -- so the loop
+      // above walked straight past it and nothing about it was ever saved. The
+      // deck lived only in the importing tab's currentSermonSlides and vanished
+      // on reload, which is also why projectPptPage() and the arrow keys went
+      // dead on it: both bail when that store has no entry for the section.
+      // Emitted in the same shape the 'local' restore path already reads.
+      if (boxesContainer.querySelector('.wo-ppt-widget')) {
+        var _pd = currentSermonSlides[sectionId];
+        if (_pd && _pd.slides && _pd.slides.length) {
+          items.push({
+            id: _oidPfx + 'slides_' + sectionId + '_' + sortOrder,
+            itemType: 'slides',
+            sectionId: sectionId,
+            sortOrder: sortOrder++,
+            sourceId: '',
+            title: _pd.fileName || 'Presentation',
+            content: {
+              type: 'local',
+              filename: _pd.fileName || 'Presentation',
+              googleSlidesId: _pd.googleSlidesId || '',
+              supabaseFiles: _pd.supabaseFiles || [],
+              localSlides: _pd.slides.map(function(s) {
+                return { type: s.type, data: s.data, name: s.name, pageId: s.pageId || null };
+              })
+            },
+            customizations: {},
+            slides: []
+          });
+        }
+      }
+
       // Collect video containers
       var videoContainers = boxesContainer.querySelectorAll('.wo-video-container');
       videoContainers.forEach(function(vc) {
@@ -28540,7 +28572,9 @@ var WO = (function() {
           container.insertAdjacentHTML('beforeend', boxHtml);
         } else if (item.itemType === 'slides' && item.content) {
           // Restore presentation slides container
-          if (!container.querySelector('.wo-slides-container')) {
+          // The filmstrip counts as already-present too, or a restore would
+          // render a second copy on top of it.
+          if (!container.querySelector('.wo-slides-container') && !container.querySelector('.wo-ppt-widget')) {
             if (item.content.type === 'iframe' && item.content.url) {
               addSlidesFromUrl(item.sectionId, item.content.url, true);
             } else if (item.content.type === 'local' && item.content.localSlides && item.content.localSlides.length > 0) {
@@ -28548,7 +28582,11 @@ var WO = (function() {
               currentSermonSlides[item.sectionId] = {
                 slides: item.content.localSlides,
                 currentIndex: 0,
-                fileName: item.content.filename || 'Slides'
+                fileName: item.content.filename || 'Slides',
+                // Carried so a converted deck keeps its per-page embed URLs, and
+                // so a later save does not lose the uploaded original.
+                googleSlidesId: item.content.googleSlidesId || undefined,
+                supabaseFiles: item.content.supabaseFiles || []
               };
               renderLocalSlides(item.sectionId);
             }

@@ -19,11 +19,28 @@ Both downstream paths key off `currentSermonSlides[sectionId]`, which no other t
 - `projectPptPage()` opens with `if (!slidesData) return;` and bails silently, so the **Program Output keeps showing the last thing that genuinely projected** — the operator read this as "it jumps to the last selected slide".
 - `navigateSlideGlobal()`'s `ppt-local` branch needs the same store; without it, it falls through to `navigateRegularSlides()`, so **the arrow keys walk the regular slides** and land on the last selected one.
 
-### The fix
+### Done so far (2026-08-16)
 
-1. `collectOrderItems()` must gather `.wo-ppt-widget` as well as `.wo-slides-container` — its `data-section`, the file reference (`currentSermonSlides[sectionId].supabaseFiles` / `fileName`) and the per-page data.
-2. The load path (~line 28548, where `currentSermonSlides[item.sectionId]` is rebuilt) must restore that store **and** re-render the filmstrip, so the deck survives a reload and reaches other devices.
-3. Separately: line ~32126 does `currentSermonSlides[sectionId] = { slides: [], ... }` on every import, which **discards a section's existing deck** when a second presentation is dropped into it. Fix while in there.
+**Step 1 is in.** `collectOrderItems()` now also gathers `.wo-ppt-widget`, emitting an `itemType: 'slides'` item in the same `type: 'local'` shape the existing restore path already reads, carrying `fileName`, `googleSlidesId`, `supabaseFiles` and the per-page data. The load path's guard was widened so a filmstrip counts as already-present and a restore cannot render a second copy over it. **Verified:** a `slides` row is now written where previously nothing was (16 items instead of 15, one of them `slides`).
+
+### The remaining blocker — sharper than the note above
+
+The row is saved but comes back with **`localSlidesCount` / `localSlidesNames` and no `localSlides`**, so there is nothing to restore from.
+
+`saveCurrentOrder()` has a deliberate stripper at **~line 24966**:
+
+- slide entries whose `data` is a **URL** are kept;
+- entries whose `data` is base64 (`data:`) are stripped, and when *none* of them have URLs the whole array is replaced by a count and the names.
+
+Imported pages are base64 — `addSlidesFromFiles()`'s image branch uses `FileReader`, and `extractPdfPages()` uses `canvas.toDataURL()` — so every page is dropped. The stripper is right to do this; a 32-page deck of base64 JPEGs is megabytes in one row, the same bloat that had to be fixed for backgrounds.
+
+**So the fix is to make the pages URL-backed, not to weaken the stripper.** `addSlidesFromFiles()` already uploads to storage and fills `supabaseFiles` with real URLs (`orders/documents/…`). Each page's `data` should be set to its uploaded URL once that upload resolves, instead of the base64 the renderer used. The stripper then keeps them by its existing rule and the restore path works unchanged.
+
+Watch the async ordering: the filmstrip renders from `FileReader` output before the uploads finish, so the swap has to happen in the upload callback and update both `currentSermonSlides[sectionId].slides[i].data` and the rendered `<img>`.
+
+### Also still open
+
+Line ~32126 does `currentSermonSlides[sectionId] = { slides: [], ... }` on every import, which **discards a section's existing deck** when a second presentation is dropped into it.
 
 ### Operational warning until it is fixed
 
