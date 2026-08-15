@@ -32494,6 +32494,7 @@ var WO = (function() {
 
     slidesData.currentIndex = idx;
     slidesData.pptIframeSlide = idx;
+    _pptActiveSection = sectionId;
 
     var slide = slidesData.slides[idx];
     var gId = slidesData.googleSlidesId;
@@ -52879,6 +52880,34 @@ var WO = (function() {
   }
 
   // "Add Media" fills whichever drawer is open.
+  // Opening a file picker makes the browser drop out of its own fullscreen --
+  // that is the browser's doing, not ours, and cannot be prevented. What we can
+  // stop is the workspace tearing its layout down with it and then not going
+  // back: the flag tells the fullscreenchange handler to hold the layout, and
+  // the picker's own dismissal is a user gesture we can re-enter fullscreen on.
+  var _lcdFsPicker = false;
+
+  function _lcdKeepFullscreenAround(open) {
+    var wasFs = document.body.classList.contains('lcd-workspace-fullscreen');
+    if (!wasFs) { open(); return; }
+    _lcdFsPicker = true;
+    function restore() {
+      window.removeEventListener('focus', restore);
+      // Give the picker a moment to finish closing before asking again.
+      setTimeout(function() {
+        _lcdFsPicker = false;
+        if (!document.body.classList.contains('lcd-workspace-fullscreen')) return;
+        if (document.fullscreenElement || !document.documentElement.requestFullscreen) return;
+        try {
+          var p = document.documentElement.requestFullscreen();
+          if (p && p.catch) p.catch(function() {});
+        } catch (e) {}
+      }, 250);
+    }
+    window.addEventListener('focus', restore);
+    open();
+  }
+
   function lcdTrayAddClick() {
     var input = document.getElementById('lcdTrayFileInput');
     if (!input) return;
@@ -52886,7 +52915,7 @@ var WO = (function() {
     input.accept = tab === 'background'
       ? (_lcdTraySub() === 'video' ? 'video/*' : 'image/*')
       : (tab === 'presentation' ? '.ppt,.pptx,.pdf,.key,.odp' : 'image/*,.pdf,.doc,.docx,.ppt,.pptx');
-    input.click();
+    _lcdKeepFullscreenAround(function() { input.click(); });
   }
 
   function lcdTrayHandleUpload(files) {
@@ -55280,6 +55309,10 @@ var WO = (function() {
   // Leaving the browser's own fullscreen (F11 / Esc) must not strand the page
   // in workspace mode with no obvious way back.
   document.addEventListener('fullscreenchange', function() {
+    // A file picker forces the browser out of fullscreen. That is not the
+    // operator leaving the workspace, so the layout stays and _lcdKeepFullscreenAround
+    // puts fullscreen back once the picker is gone.
+    if (_lcdFsPicker) return;
     if (!document.fullscreenElement && document.body.classList.contains('lcd-workspace-fullscreen')) {
       lcdToggleWorkspaceFullscreen(false);
     }
@@ -57532,6 +57565,24 @@ var WO = (function() {
   // Navigate slides globally with arrow keys
   // Track which content type is currently active for navigation
   var activeNavigationMode = 'slides'; // 'slides' or 'sermon'
+
+  // Which presentation is live, remembered by SECTION rather than by element.
+  // selectSlideBox() nulls _selectedPptContainer, and it is called by every
+  // routine that re-renders a song -- so a re-render in the background while a
+  // presentation was on screen silently dropped the operator back into the
+  // regular slide list, and the next arrow key jumped off into another section.
+  // The element reference can be lost; which presentation is live cannot.
+  var _pptActiveSection = null;
+
+  function _pptReacquire() {
+    if (_selectedPptContainer && _selectedPptContainer.isConnected) return true;
+    if (!_pptActiveSection) return false;
+    var w = document.querySelector('.wo-ppt-widget[data-section="' + _pptActiveSection + '"]') ||
+            document.querySelector('.wo-slides-container[data-section="' + _pptActiveSection + '"]');
+    if (!w) return false;
+    _selectedPptContainer = w;
+    return true;
+  }
   var _navLastTime = 0; // throttle timestamp for navigateSlideGlobal
 
   function setNavigationMode(mode) {
@@ -57546,7 +57597,7 @@ var WO = (function() {
     // Iframe PPT mode: navigate slide-by-slide using an internal counter.
     // At first slide going back → exit to previous section.
     // At last slide going forward → show black slide.
-    if (activeNavigationMode === 'ppt-iframe' && _selectedPptContainer) {
+    if (activeNavigationMode === 'ppt-iframe' && _pptReacquire()) {
       var sectionId = _selectedPptContainer.getAttribute('data-section');
       var iData = currentSermonSlides[sectionId] || {};
       var cur = typeof iData.pptIframeSlide === 'number' ? iData.pptIframeSlide : 0;
@@ -57557,12 +57608,14 @@ var WO = (function() {
       if (direction < 0 && atStart) {
         // Exit backward → go to previous section
         activeNavigationMode = 'slides';
+        _pptActiveSection = null;
         _selectedPptContainer.classList.remove('ppt-active');
         _selectedPptContainer = null;
         navigateRegularSlides(direction);
       } else if (direction > 0 && atEnd) {
         // Exit forward → black slide then continue
         activeNavigationMode = 'slides';
+        _pptActiveSection = null;
         _selectedPptContainer.classList.remove('ppt-active');
         _selectedPptContainer = null;
         var screen = $('woPreviewScreen');
@@ -57584,7 +57637,7 @@ var WO = (function() {
 
     // If currently inside a PPT section (local slides), navigate slide-by-slide
     // and only exit when hitting the boundary
-    if (activeNavigationMode === 'ppt-local' && _selectedPptContainer) {
+    if (activeNavigationMode === 'ppt-local' && _pptReacquire()) {
       var sectionId = _selectedPptContainer.getAttribute('data-section');
       var slidesData = sectionId && currentSermonSlides[sectionId];
       if (slidesData && slidesData.slides.length > 0) {
@@ -57593,10 +57646,12 @@ var WO = (function() {
         if (direction > 0 && atEnd) {
           // Exit PPT forward → continue to next section
           activeNavigationMode = 'slides';
+          _pptActiveSection = null;
           navigateRegularSlides(direction);
         } else if (direction < 0 && atStart) {
           // Exit PPT backward → continue to previous section
           activeNavigationMode = 'slides';
+          _pptActiveSection = null;
           navigateRegularSlides(direction);
         } else {
           if (direction > 0) nextLocalSlide(sectionId);
@@ -68882,7 +68937,11 @@ function filterLiturgyItems() {
     --lcd-shadow-lift:  0 2px 4px rgba(60,50,30,.08), 0 12px 28px rgba(60,50,30,.16);
   }
 
-  /* ---- 1. Column widths (targets: library 17 / schedule 29 / workspace 54) -- */
+  /* ---- 1. Column widths ---------------------------------------------------
+     The Service Schedule stays the widest of the three working columns; the
+     Slide Editor and the Program Output share the workspace column and are
+     equal halves of it (see .lcd-outputs-row below), which puts each of them a
+     little narrower than the schedule. */
   .wo-main-content:not(.wo-song-order) {
     grid-template-columns: minmax(190px, 17fr) minmax(310px, 29fr) minmax(470px, 54fr);
   }
@@ -68892,12 +68951,33 @@ function filterLiturgyItems() {
   @media (max-width: 1439px) {
     .wo-main-content:not(.wo-song-order) { grid-template-columns: minmax(170px, 16fr) minmax(280px, 30fr) minmax(420px, 54fr); }
   }
-  .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px minmax(310px, 30fr) minmax(470px, 56fr); }
+  .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px minmax(300px, 1fr) minmax(470px, 2fr); }
   /* Expanded: schedule takes the lion's share, library yields */
   .wo-main-content:not(.wo-song-order).lcd-schedule-expanded { grid-template-columns: 44px minmax(420px, 46fr) minmax(430px, 54fr); }
   .wo-main-content:not(.wo-song-order).lcd-schedule-expanded #lcdLibraryPanel { display: none; }
   .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-lib-reopen { display: flex; }
   .wo-main-content:not(.wo-song-order) { transition: grid-template-columns 200ms ease; }
+
+  /* An empty section still needs something to aim at. With no slide in it the
+     boxes container collapsed to nothing, so a presentation dragged from the
+     Media Tray had no target and could only be added to a section that already
+     had content. This gives it a real drop area, and says so. */
+  .wo-main-content:not(.wo-song-order) .wo-content-boxes:empty {
+    min-height: 84px;
+    border: 1.5px dashed var(--lcd-ivory-line, #ddd3c0);
+    border-radius: 10px;
+    box-sizing: border-box;
+  }
+  .wo-main-content:not(.wo-song-order) .wo-content-boxes:empty::after {
+    content: 'Drop a presentation or a picture here';
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; min-height: 81px; padding: 0 12px; text-align: center;
+    font-size: 0.78rem; color: var(--lcd-ink-soft, #6d6656); opacity: 0.7;
+  }
+  .wo-main-content:not(.wo-song-order) .wo-content-boxes:empty.lcd-drop-target {
+    border-color: var(--lcd-gold-500, #c1993f);
+    background: var(--lcd-gold-wash, rgba(193,153,63,.14));
+  }
 
   /* ---- 2. Service Schedule as a warm manuscript surface ------------------- */
   .wo-main-content:not(.wo-song-order) .wo-worship-order {
@@ -69045,8 +69125,10 @@ function filterLiturgyItems() {
 
   /* ---- 4. Program Output: landscape 16:9, the hero of the workspace ------- */
   .lcd-outputs-row { gap: var(--lcd-space-4); align-items: stretch; }
-  .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 55%; min-width: 0; }
-  .lcd-outputs-row .lcd-program-box { flex: 0 1 45%; min-width: 300px; }
+  /* Even halves, so the Slide Editor and the Program Output each end up the
+     same width as the Service Schedule beside them. */
+  .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 50%; min-width: 0; }
+  .lcd-outputs-row .lcd-program-box { flex: 1 1 50%; min-width: 280px; }
   .lcd-program-box .lcd-output-label {
     font-family: 'Cinzel', Georgia, serif; font-size: 0.8rem; letter-spacing: 0.1em;
     color: var(--lcd-ivory-100); margin-bottom: 9px;
@@ -70831,6 +70913,18 @@ function filterLiturgyItems() {
      (see _lcdSizeWorkspaceColumns). The screen stays max-height capped, so it
      cannot spill past the box onto the row below. */
   .lcd-outputs-row .lcd-program-box { height: 100%; }
+
+  /* Equal working columns. Several earlier rules give these two different
+     shares (60/40, 55/45, auto); this is the one that decides, and it is
+     scoped to the side-by-side layout so the stacked phone/tablet views keep
+     their own sizing. */
+  @media (min-width: 1201px) {
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-lyrics-panel,
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-program-box {
+      flex: 1 1 50%;
+      min-width: 0;
+    }
+  }
 
   /* ---- N. Collapsible Media Tray ----------------------------------------- */
   .lcd-media-header { cursor: pointer; user-select: none; }
