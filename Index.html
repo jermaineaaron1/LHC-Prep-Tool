@@ -45187,17 +45187,31 @@ var WO = (function() {
       }
 
       sections.forEach(function(sec, si) {
-        for (var i = 0; i < sec.lines.length; i += SB_MAX_LINES) {
-          var chunk = sec.lines.slice(i, i + SB_MAX_LINES);
-          if (!chunk.join('').trim()) continue;
+        // A blank line is spacing, not a line of the song. Counting it against
+        // the slide's limit is what split a verse one line early and left the
+        // last line of its chorus stranded on a slide of its own -- the gap the
+        // operator sees, with a lone "Alleluia" under it.
+        var chunks = [];
+        var cur = [], used = 0;
+        sec.lines.forEach(function(l) {
+          var blank = !l.trim();
+          if (!blank && used >= SB_MAX_LINES) { chunks.push(cur); cur = []; used = 0; }
+          if (!cur.length && blank) return;              // never open a slide on blank space
+          cur.push(l);
+          if (!blank) used++;
+        });
+        if (cur.length) chunks.push(cur);
+        chunks.forEach(function(chunk, ci) {
+          while (chunk.length && !chunk[chunk.length - 1].trim()) chunk.pop();   // nor close on it
+          if (!chunk.length) return;
           push({
             kind: 'lyric', songIdx: songIdx,
-            key: songIdx + '|' + si + '|' + sec.header + '|' + (i / SB_MAX_LINES),
+            key: songIdx + '|' + si + '|' + sec.header + '|' + ci,
             title: song.title || 'Untitled',
-            section: sec.header + (i ? ' (cont.)' : ''),
+            section: sec.header + (ci ? ' (cont.)' : ''),
             lines: chunk
           });
-        }
+        });
       });
     });
     return deck;
