@@ -351,6 +351,8 @@ export default function VocalHeroHostPage() {
         : <CountdownStage song={song} players={players} phase={timeline.phase} />
     : session?.status === 'ended' && song && soloReview && soloPart !== null
       ? <SoloReviewStage song={song} part={soloPart} score={soloScore} review={soloReview} warmUp={warmUp} onDone={returnToLibrary} />
+    : session?.status === 'ended' && song
+      ? <HostRoundEndStage song={song} players={players} sections={sections} onAgain={() => void start()} onDone={returnToLibrary} />
     : session && song
       ? <Lobby song={song} session={session} players={players} phoneUrl={phoneUrl} onStart={start} onStartSolo={startSolo} soloStarting={soloStarting} difficulty={difficulty} setDifficulty={setDifficulty} latencySec={latencySec} applyLatency={applyLatency} transpose={transpose} setTranspose={setTranspose} warmUp={warmUp} setWarmUp={setWarmUp} />
       : <SongPicker songs={songs} onChoose={chooseSong} onEdit={setEditingSong} onCreate={() => setShowCreateSong(true)} />;
@@ -474,6 +476,69 @@ function LiveStage({ song, notes, players, sections, elapsed }: { song: Song; no
     </div>
   </section>;
 }
+/** Where a finished multiplayer round lands. Until rounds could end this was
+ * unreachable; once they could, the host dropped straight back to the lobby
+ * and the results vanished before anyone had read them. The choir has just
+ * sung — the least the host screen can do is say how it went. */
+function HostRoundEndStage({ song, players, sections, onAgain, onDone }: {
+  song: Song; players: SessionPlayer[]; sections: SectionScore[]; onAgain: () => void; onDone: () => void;
+}) {
+  const singers = players.filter(player => !player.is_spectator);
+  const ranked = [...sections].sort((a, b) => b.accuracy - a.accuracy);
+  const winner = ranked.length && ranked[0].accuracy > 0 ? ranked[0] : null;
+  const topSingers = [...singers].sort((a, b) => b.score - a.score);
+  return <section className="mx-auto max-w-[1100px] px-5 py-8">
+    <div className="vh-panel p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <SongDetails song={song} />
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-[.18em] text-slate-500">Round complete</p>
+          <p className="text-2xl font-black text-cyan-200">{singers.length} singer{singers.length === 1 ? '' : 's'}</p>
+        </div>
+      </div>
+
+      {winner && <div className="mt-6 rounded-2xl border p-4 text-center" style={{ borderColor: `${COLOURS[winner.part_index]}66`, background: `${COLOURS[winner.part_index]}12` }}>
+        <p className="text-[10px] font-black uppercase tracking-[.24em] text-slate-400">Section of the round</p>
+        <p className="mt-1 text-3xl font-black" style={{ color: COLOURS[winner.part_index] }}>{VOICES[winner.part_index]} · {Math.round(winner.accuracy)}%</p>
+      </div>}
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
+          <p className="text-[10px] font-black uppercase tracking-[.2em] text-slate-500">Section standings</p>
+          <div className="mt-3 space-y-2">
+            {ranked.length ? ranked.map((section, rank) => <div key={section.part_index} className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <div className="flex items-center justify-between">
+                <b style={{ color: COLOURS[section.part_index] }}>#{rank + 1} {VOICES[section.part_index]}</b>
+                <span className="text-sm text-slate-300">{Math.round(section.accuracy)}% · {section.active_players} singer{section.active_players === 1 ? '' : 's'}</span>
+              </div>
+              <div className="mt-2 h-1.5 rounded-full bg-white/10"><span className="block h-full rounded-full" style={{ width: `${Math.min(100, section.accuracy)}%`, background: COLOURS[section.part_index] }} /></div>
+            </div>) : <p className="py-6 text-center text-sm text-slate-500">No section scores were recorded this round.</p>}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
+          <p className="text-[10px] font-black uppercase tracking-[.2em] text-slate-500">Singers</p>
+          <div className="mt-3 space-y-2">
+            {topSingers.slice(0, 8).map((player, index) => <div key={player.id} className="flex items-center gap-2 text-sm">
+              <span className="w-5 text-slate-500">{index + 1}</span>
+              <Avatar name={player.player_name} colour={COLOURS[player.part_index] ?? '#94a3b8'} />
+              <span className="min-w-0 flex-1 truncate">{player.player_name}</span>
+              <span className="text-[10px] uppercase tracking-wider" style={{ color: COLOURS[player.part_index] ?? '#94a3b8' }}>{VOICES[player.part_index] ?? ''}</span>
+              <b className="w-16 text-right font-mono">{player.score.toLocaleString()}</b>
+            </div>)}
+            {!topSingers.length && <p className="py-6 text-center text-sm text-slate-500">Nobody joined this round.</p>}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
+        <button onClick={onDone} className="vh-outline-button">Back to the library</button>
+        <button onClick={onAgain} className="vh-primary-button min-w-44">Sing it again</button>
+      </div>
+      <p className="mt-2 text-right text-[10px] text-slate-500">Singing again starts a fresh round in the same room — everyone's phone follows by itself, and the scoreboard starts from zero.</p>
+    </div>
+  </section>;
+}
+
 function Leaderboard({ players }: { players: SessionPlayer[] }) { return <div className="vh-panel p-4"><div className="flex items-center justify-between"><p className="text-xs tracking-[.2em] text-slate-400">INDIVIDUAL LEADERBOARD</p><span className="text-xs text-fuchsia-300">Host only</span></div><div className="mt-3 space-y-2">{[...players].sort((a, b) => b.score - a.score).slice(0, 5).map((player, index) => <div key={player.id} className="flex items-center gap-2 text-sm"><span className="w-4 text-slate-500">{index + 1}</span><Avatar name={player.player_name} colour={COLOURS[player.part_index]} /><span className="flex-1 truncate">{player.player_name}</span><b className="font-mono">{player.score.toLocaleString()}</b></div>)}</div></div>; }
 
 function timelineFor(session: GameSession | null, now: number) { if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 }; const delta = now - new Date(session.playback_starts_at).getTime(); const countdown = session.countdown_seconds ?? 5, lead = session.lead_in_seconds ?? 2; if (delta < 0) return { phase: `Starts in ${Math.ceil(-delta / 1000)}`, songElapsed: 0 }; const seconds = delta / 1000; if (seconds < countdown) return { phase: `Count-in ${countdown - Math.floor(seconds)}`, songElapsed: 0 }; if (seconds < countdown + lead) return { phase: 'Lead-in · listen', songElapsed: 0 }; return { phase: 'Live', songElapsed: seconds - countdown - lead }; }
