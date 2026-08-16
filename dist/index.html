@@ -54780,6 +54780,28 @@ var WO = (function() {
         if (el.classList.contains('wo-song-banner') && el.classList.contains('scripture-banner')) {
           var scriptTitle = el.getAttribute('data-scripture-title') || 'Scripture';
           i++;
+          // insertScriptureIntoBox() emits the banner and then wraps every
+          // slide inside a .wo-scripture-slides-group, so the slides are NOT
+          // siblings of the banner. The sibling walk below matched zero of
+          // them, and an inserted reading was invisible in the rail while
+          // sitting perfectly well in the DOM and in the saved order -- which
+          // read, to the operator, as the reading having been deleted by the
+          // insert. collectOrderItems() has always read this wrapper; only the
+          // rail never learned about it.
+          if (i < children.length && children[i].classList.contains('wo-scripture-slides-group')) {
+            Array.prototype.forEach.call(
+              children[i].querySelectorAll('.wo-slide-box'),
+              function(sb) {
+                slideCounter++;
+                rowsHtml += _lcdBuildRailRow(sIdx, slideCounter, scriptTitle, sb, 'fa-book-bible');
+              }
+            );
+            i++;
+            if (i < children.length && children[i].classList.contains('wo-add-slide-row')) i++;
+            continue;
+          }
+          // Flat layout: slides as direct siblings of the banner. Kept for any
+          // path that still produces that shape.
           while (i < children.length && children[i].classList.contains('wo-slide-box') && children[i].getAttribute('data-source') === 'scripture') {
             slideCounter++;
             rowsHtml += _lcdBuildRailRow(sIdx, slideCounter, scriptTitle, children[i], 'fa-book-bible');
