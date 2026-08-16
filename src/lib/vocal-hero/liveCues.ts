@@ -56,9 +56,7 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
   // the chosen voice never borrows a phrase or lyric from another part.
   const events = lyricEvents(notes.filter(note => hasAuthoredSatb ? note.part === partIndex : note.part === partIndex || note.part === -1));
   if (!events.length) return { text: 'Instrumental — listen for your entrance', progress: 0, currentLyric: '', nextText: '', waiting: true };
-  // Each stable lyric phrase is one musical measure. A 4/4 measure therefore
-  // presents all note lyrics beginning within its four beats at the same time.
-  const phrases = measurePhraseEvents(events, song);
+  const phrases = phraseGroups(events, song);
   let phraseIndex = phrases.findIndex(phrase => elapsed >= phrase[0].start - .35 && elapsed <= phrase[phrase.length - 1].end + .8);
   if (phraseIndex < 0) phraseIndex = phrases.findIndex(phrase => phrase[0].start > elapsed);
   if (phraseIndex < 0) phraseIndex = phrases.length - 1;
@@ -84,37 +82,65 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
   };
 }
 
-function measurePhraseEvents(events: LyricEvent[], song: Song) {
-  const end = Math.max(song.duration || 0, ...events.map(event => event.end), 1);
-  const measures = musicalMeasures(song, end + 1);
-  const grouped = new Map<number, LyricEvent[]>();
-  for (const event of events) {
-    const found = measures.findIndex(measure => event.start >= measure.start - .0001 && event.start < measure.end - .0001);
-    const index = found < 0 ? measures.length - 1 : found;
-    const group = grouped.get(index) ?? [];
-    group.push(event);
-    grouped.set(index, group);
+/**
+ * Group note lyrics into the line the singer should be reading.
+ *
+ * This used to be one musical measure's worth of words, so at a slow tempo the
+ * screen showed a word or two at a time and the singer had no idea what was
+ * coming. The arranger's own phrasing existed all along — the editor's
+ * timedLyricsFromNotes() writes song.timed_lyrics and the Gameplay Lyrics
+ * dialog sets how long a phrase runs — and gameplay simply never read any of
+ * it.
+ *
+ * Authored phrases win when they exist, so what the arranger sees in the
+ * dialog is what the singer gets. Otherwise the same rule the editor applies
+ * is applied here, which keeps songs that predate the dialog working.
+ */
+function phraseGroups(events: LyricEvent[], song: Song): LyricEvent[][] {
+  const authored = [...(song.timed_lyrics ?? [])]
+    .filter(section => section.primary?.trim())
+    .sort((a, b) => a.start - b.start);
+
+  if (authored.length) {
+    const groups: LyricEvent[][] = authored.map(() => []);
+    const orphans: LyricEvent[] = [];
+    for (const event of events) {
+      // A small tolerance: a phrase's stored bounds come from the notes it was
+      // built from, and a note edited since may sit a fraction outside them.
+      const index = authored.findIndex(section => event.start >= section.start - .25 && event.start < section.end + .25);
+      if (index >= 0) groups[index].push(event); else orphans.push(event);
+    }
+    const filled = groups.filter(group => group.length);
+    // Notes added after the phrases were written would otherwise vanish from
+    // the display entirely, which is worse than showing them on their own.
+    if (filled.length && orphans.length < events.length / 2) {
+      return [...filled, ...splitIntoPhrases(orphans, song)].sort((a, b) => a[0].start - b[0].start);
+    }
   }
-  return [...grouped.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([, group]) => group.sort((a, b) => a.start - b.start || a.end - b.end));
+  return splitIntoPhrases(events, song);
 }
 
-function musicalMeasures(song: Song, end: number) {
-  const timeline = song.backing_track_settings?.musical_timeline;
-  const tempos = [...(timeline?.tempo_changes ?? [{ at: 0, bpm: song.bpm || 120 }])].sort((a, b) => a.at - b.at);
-  const meters = [...(timeline?.meter_changes ?? [{ at: 0, numerator: song.time_sig || 4, denominator: 4 }])].sort((a, b) => a.at - b.at);
-  const changes = [...new Set([0, end, ...tempos.map(item => item.at), ...meters.map(item => item.at)].filter(value => value >= 0 && value <= end))].sort((a, b) => a - b);
-  const result: Array<{ start: number; end: number }> = [];
-  for (let segment = 0; segment < changes.length - 1; segment += 1) {
-    const segmentStart = changes[segment];
-    const segmentEnd = changes[segment + 1];
-    const tempo = tempos.filter(item => item.at <= segmentStart + .0001).at(-1)?.bpm ?? 120;
-    const meter = meters.filter(item => item.at <= segmentStart + .0001).at(-1) ?? { numerator: 4, denominator: 4 };
-    const measureSeconds = (60 / Math.max(20, tempo)) * (4 / Math.max(1, meter.denominator)) * Math.max(1, meter.numerator);
-    for (let start = segmentStart; start < segmentEnd - .0001; start += measureSeconds) result.push({ start, end: Math.min(segmentEnd, start + measureSeconds) });
+/** The editor's rule, kept identical on purpose: break on a real gap, on the
+ * punctuation that ends a line, or once a phrase has run long enough to be
+ * unreadable in one glance. */
+function splitIntoPhrases(events: LyricEvent[], song: Song): LyricEvent[][] {
+  if (!events.length) return [];
+  const maxTargets = Math.max(2, song.backing_track_settings?.karaoke_lyrics?.targets_per_phrase ?? 10);
+  const phrases: LyricEvent[][] = [];
+  let phrase: LyricEvent[] = [];
+  for (const event of events) {
+    const previous = phrase[phrase.length - 1];
+    // A trailing hyphen means the word is not finished, so the line cannot end
+    // there however long it has run.
+    const runLong = previous && phrase.length >= maxTargets && !/[-–—]$/.test(previous.lyric);
+    if (previous && (event.start - previous.end > 1.15 || /[.!?;:]$/.test(previous.lyric) || runLong)) {
+      phrases.push(phrase);
+      phrase = [];
+    }
+    phrase.push(event);
   }
-  return result.length ? result : [{ start: 0, end }];
+  if (phrase.length) phrases.push(phrase);
+  return phrases;
 }
 
 function lyricEvents(notes: SongNote[]): LyricEvent[] {
