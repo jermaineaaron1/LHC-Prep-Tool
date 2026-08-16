@@ -406,6 +406,29 @@
         } catch (e) {
           return { error: 'HTTP ' + res.status };
         }
+      },
+
+      // The other half of the Google Slides path, and the reason every pptx
+      // went through CloudConvert instead: this function existed only in
+      // server.gs, so on Vercel the call threw "not a function", the spinner
+      // was replaced by _fallback(), and nobody saw a failure because the
+      // fallback works. Resolved as a REFUSAL rather than a rejection, so the
+      // caller's existing _fallback() handles it exactly as it always did.
+      convertPptxToGoogleSlides: async function(supabaseUrl, fileName) {
+        try {
+          var res = await fetch('/api/convert-pptx-to-slides', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: supabaseUrl || '', fileName: fileName || '' })
+          });
+          try {
+            return await res.json();
+          } catch (e) {
+            return { error: 'HTTP ' + res.status };
+          }
+        } catch (e) {
+          return { error: (e && e.message) || 'convert-failed' };
+        }
       }
     };
 
