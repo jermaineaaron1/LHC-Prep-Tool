@@ -20,6 +20,13 @@ import { getServiceClient } from '@/lib/vocal-hero/supabaseClient';
  * sits well clear of honest play while still refusing an absurd number. */
 const MAX_DELTA = 20000;
 
+/** Both ids are uuid columns. Postgres rejects anything else with a type error
+ * of its own, which arrived as a 500 carrying the database's message — an
+ * internal detail the caller has no business seeing, and worse, a status the
+ * client treats as worth retrying, so a corrupt id would be resent for ever.
+ * A malformed id is simply not a player. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(req: NextRequest) {
   try {
     const { playerId, sessionId, delta } = await req.json();
@@ -34,6 +41,9 @@ export async function POST(req: NextRequest) {
     if (delta > MAX_DELTA) {
       return NextResponse.json({ error: 'delta is larger than any real round' }, { status: 400 });
     }
+    if (!UUID.test(playerId) || !UUID.test(sessionId)) {
+      return NextResponse.json({ error: 'No such player in that session' }, { status: 403 });
+    }
 
     const sb = getServiceClient();
 
@@ -46,7 +56,11 @@ export async function POST(req: NextRequest) {
       .eq('id', playerId)
       .maybeSingle();
 
-    if (lookupError) return NextResponse.json({ error: lookupError.message }, { status: 500 });
+    if (lookupError) {
+      // The caller gets no detail about the database; the log keeps it.
+      console.error('score lookup:', lookupError.message);
+      return NextResponse.json({ error: 'Could not verify that player' }, { status: 500 });
+    }
     if (!player || player.session_id !== sessionId) {
       return NextResponse.json({ error: 'No such player in that session' }, { status: 403 });
     }
