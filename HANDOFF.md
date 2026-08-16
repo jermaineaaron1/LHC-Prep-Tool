@@ -31,31 +31,65 @@ To close it, on the desk with the projector connected:
 Until someone does this, treat multi-monitor as unproven. Nothing about it is
 known to be broken; it is simply untested.
 
-### 2. Google Slides conversion — BLOCKED on an OAuth re-consent (not on code)
+### 2. Google Slides conversion — CODE IS DONE AND LIVE; one scope is missing
 
-PPTX files still route through CloudConvert → PDF → pdf.js. The Google Slides
-path exists (`convertPptxToGoogleSlides`, `server.gs:6814`, which hands the file
-to Drive with `mimeType: application/vnd.google-apps.presentation`) but **only
-under Apps Script**: it is absent from the Supabase bridge's `_B` list, so on
-Vercel the `google.script.run` call throws "not a function" and silently falls
-back.
+**The code shipped in `ad5cd5f` (PR #131).** `app/api/convert-pptx-to-slides`
+mirrors `server.gs`'s `convertPptxToGoogleSlides`, and `convertPptxToGoogleSlides`
+is now in the Supabase bridge's `_B` map, so the existing `google.script.run`
+call site resolves on Vercel. No call site changed.
 
-**Read this before touching it:** `if (typeof google !== 'undefined' &&
+**Read this before touching any of it:** `if (typeof google !== 'undefined' &&
 google.script && google.script.run)` is **true in both deployments**. It does
 not distinguish Apps Script from Vercel and says nothing about whether the
-function being called exists. That guard is what hid this for months.
+function being called exists. That guard is why every pptx quietly took the
+CloudConvert path for months while looking fine.
 
-What it needs, in order:
+#### The exact scope position, probed against production 2026-08-16
 
-1. **A human step.** `GOOGLE_REFRESH_TOKEN` in Vercel was minted for Calendar
-   scopes. Re-consent it with `https://www.googleapis.com/auth/drive.file` and
-   `https://www.googleapis.com/auth/presentations.readonly`, then update the
-   Vercel env var. Until then Google answers `ACCESS_TOKEN_SCOPE_INSUFFICIENT`.
-   **The same token also revives `/api/slide-page-ids`, which has never worked
-   in production since it shipped** — that route is written and correct.
-2. Then the code: an `app/api/convert-pptx-to-slides` route mirroring the GAS
-   function, plus one `convertPptxToGoogleSlides` entry in `_B`. No call site
-   changes — exactly the precedent `getSlidePageIds` set.
+Do not re-derive this by reading code — it was established by probing the live
+deployment, and the earlier note in this file (that the whole thing was blocked
+on a Calendar-only token) was **wrong**:
+
+| | Status |
+|---|---|
+| Google OAuth credentials configured on Vercel | **working** |
+| `presentations.readonly` — read a deck's pages | **present** |
+| Drive **write** scope — create a deck | **MISSING** |
+
+Evidence, and how to re-check it:
+
+- `GET /api/slide-page-ids?id=<well-formed but fake id>` returns
+  `404 {"error":"No presentation found with that link."}` — **not** a scope
+  error, which is what proves the read scope is there and the credentials work.
+  `/api/slide-page-ids` therefore is NOT dead, contrary to what this file said.
+- `POST /api/convert-pptx-to-slides` with a **real, existing** Supabase URL
+  returns `403` naming `drive.file`. That is the route's own scope case.
+
+**A probe with a non-existent URL is not good enough** and will mislead you: it
+returns `502 "Could not download the presentation."` because the route fails at
+the download step, before Drive is ever called. That only proves a token was
+minted. To reach Drive you must upload a real file first — even a deliberately
+invalid one named `.pptx` works, since Drive rejecting the *content* still
+proves the request was authorised.
+
+#### The one human step left
+
+Re-consent the Google credential with
+`https://www.googleapis.com/auth/drive.file` added, and set the result as
+**`GOOGLE_SLIDES_REFRESH_TOKEN`** in Vercel.
+
+**Use the dedicated variable, not the shared `GOOGLE_REFRESH_TOKEN`.**
+`getSlidesAccessToken()` prefers `GOOGLE_SLIDES_REFRESH_TOKEN` and falls back to
+the calendar one precisely because re-consenting the shared token once took
+roster calendar sync down with it — re-consent replaces whichever token it is
+minted into. See the note in `app/api/_lib/rosterCalendar.ts`.
+
+Then re-run the probe above. A real `.pptx` should convert, and PPTX import
+takes the Google Slides path instead of CloudConvert.
+
+**Nothing is broken while this is outstanding.** The fallback is untouched, so a
+pptx imports exactly as it does today — CloudConvert → PDF → pdf.js — and since
+`ad5cd5f` those pages render as ordinary slide boxes.
 
 ### 3. Media Tray tabs — three, where the brief asks for four
 
