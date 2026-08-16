@@ -13,7 +13,7 @@ import { ArrangementEditor } from './ArrangementEditor';
 import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
 import { ScoreEngine } from '@/lib/vocal-hero/scoreEngine';
 import type { NoteScoreResult } from '@/lib/vocal-hero/scoreEngine';
-import { gameplayNotes, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
+import { livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { ChoirKaraokeLyrics, KaraokeLyrics } from './KaraokeLyrics';
 import { DifficultyPicker, rememberDifficulty, storedDifficulty } from './DifficultyPicker';
 import type { Difficulty } from '@/lib/vocal-hero/scoreEngine';
@@ -244,7 +244,7 @@ export default function VocalHeroHostPage() {
     setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
   }
 
-  const notes = useMemo(() => song ? gameplayNotes(song, playableNotes(song)) : [], [song]);
+  const notes = useMemo(() => song ? playableNotes(song) : [], [song]);
   const phoneUrl = session ? `${window.location.origin}/vocal-hero/phone?room=${session.room_code}` : '';
   const stage = session?.status === 'playing' && song
       ? timeline.phase === 'Live' || timeline.phase === 'Paused'
@@ -271,7 +271,17 @@ export default function VocalHeroHostPage() {
 function Brand() { return <div className="text-2xl font-black tracking-tight">VOCAL<span className="bg-gradient-to-r from-cyan-300 via-fuchsia-400 to-pink-400 bg-clip-text text-transparent">Hero</span></div>; }
 function RoomCode({ code }: { code: string }) { return <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-400">Room code <b className="ml-2 font-mono tracking-wider text-[#ffd15c]">{code}</b></div>; }
 function SongArt() { return <div className="grid h-24 w-24 shrink-0 place-items-center rounded-2xl border border-cyan-300/30 bg-[radial-gradient(circle_at_70%_25%,#38bdf866,transparent_35%),linear-gradient(145deg,#172554,#0b1022_55%,#581c8733)] text-4xl shadow-[0_0_30px_#5b21b633]">♫</div>; }
-function SongDetails({ song }: { song: Song }) { return <div className="flex min-w-0 items-center gap-4"><SongArt /><div><h1 className="truncate text-2xl font-bold">{song.title}</h1><p className="mt-1 text-sm text-slate-400">{song.artist ? `Arr. by ${song.artist}` : 'Vocal Hero arrangement'}</p><div className="mt-3 flex flex-wrap gap-2"><Badge label={`${Math.round(song.duration / 60) || 3}:${String(Math.round(song.duration % 60) || 0).padStart(2, '0')}`} /><Badge label={`${song.time_sig ?? '4/4'}`} /></div></div></div>; }
+function SongDetails({ song }: { song: Song }) { return <div className="flex min-w-0 items-center gap-4"><SongArt /><div><h1 className="truncate text-2xl font-bold">{song.title}</h1><p className="mt-1 text-sm text-slate-400">{song.artist ? `Arr. by ${song.artist}` : 'Vocal Hero arrangement'}</p><div className="mt-3 flex flex-wrap gap-2"><Badge label={formatDuration(song.duration)} /><Badge label={`${song.time_sig ?? '4/4'}`} /></div></div></div>; }
+// The minutes were rounded rather than floored, so a 3:30 song was labelled
+// 4:30, and the `|| 3` fallback meant any song under 30 seconds claimed to be
+// three minutes long. Rounding the total first also keeps 3:59.7 from
+// rendering as "3:60".
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—';
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 function Badge({ label }: { label: string }) { return <span className="rounded-lg border border-cyan-300/20 bg-cyan-300/[.05] px-2 py-1 text-xs text-cyan-200">{label}</span>; }
 
 function SongPicker({ songs, onChoose, onEdit, onCreate }: { songs: Song[]; onChoose: (song: Song) => void; onEdit: (song: Song) => void; onCreate: () => void }) {
