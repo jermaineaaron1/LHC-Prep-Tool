@@ -102,18 +102,20 @@ export function buildEventFields(roleId: string, dateStr: string, year: number):
 // events.patch, events.delete).
 // ============================================================
 
-let cachedToken: { token: string; expiresAt: number } | null = null;
+// One cache entry per refresh token in play. Calendar and Slides can run on
+// separate tokens (see getSlidesAccessToken), and serving one feature's access
+// token to the other would fail as an opaque scope error rather than an obvious
+// mix-up, so the caches are never shared.
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
-export async function getGoogleAccessToken(): Promise<string> {
+async function accessTokenFor(cacheKey: string, refreshToken: string | undefined, missing: string): Promise<string> {
   const now = Date.now();
-  if (cachedToken && cachedToken.expiresAt > now + 5000) return cachedToken.token;
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > now + 5000) return cached.token;
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error('Google Calendar credentials are not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN)');
-  }
+  if (!clientId || !clientSecret || !refreshToken) throw new Error(missing);
 
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -127,10 +129,45 @@ export async function getGoogleAccessToken(): Promise<string> {
   });
   const json: any = await res.json().catch(() => ({}));
   if (!res.ok || !json.access_token) {
+    // 'invalid_client' (description "Unauthorized") means the id/secret pair;
+    // 'invalid_grant' means the refresh token. Worth knowing apart -- they have
+    // completely different fixes.
     throw new Error('Google token refresh failed: ' + (json.error_description || json.error || res.status));
   }
-  cachedToken = { token: json.access_token, expiresAt: now + (json.expires_in || 3600) * 1000 };
+  tokenCache.set(cacheKey, { token: json.access_token, expiresAt: now + (json.expires_in || 3600) * 1000 });
   return json.access_token;
+}
+
+export async function getGoogleAccessToken(): Promise<string> {
+  return accessTokenFor(
+    'calendar',
+    process.env.GOOGLE_REFRESH_TOKEN,
+    'Google Calendar credentials are not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN)'
+  );
+}
+
+/**
+ * The token for reading Google Slides.
+ *
+ * Slides and Calendar shared one refresh token, which made them share a fate:
+ * re-consenting to add the Slides scope MINTS A NEW TOKEN THAT REPLACES THE OLD
+ * ONE, so a grant that omitted the calendar scope -- or simply a fumbled swap of
+ * the env var -- took roster sync down with it. That happened.
+ *
+ * So Slides prefers its own GOOGLE_SLIDES_REFRESH_TOKEN when one is set, and
+ * falls back to the shared token otherwise. Leaving the variable unset keeps
+ * today's behaviour exactly; setting it means Slides can be re-consented freely
+ * without calendar sync ever noticing. Both still authenticate as the same OAuth
+ * client, which is what lets one client id/secret pair serve both.
+ */
+export async function getSlidesAccessToken(): Promise<string> {
+  const dedicated = process.env.GOOGLE_SLIDES_REFRESH_TOKEN;
+  if (!dedicated) return getGoogleAccessToken();
+  return accessTokenFor(
+    'slides',
+    dedicated,
+    'Google Slides credentials are not configured (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_SLIDES_REFRESH_TOKEN)'
+  );
 }
 
 export class GoogleApiError extends Error {
