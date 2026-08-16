@@ -4,6 +4,518 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
+## 2026-08-16 — LCD Projection chunks 4–6 (`eb1cbab`, `519fe20`, `3802106`)
+
+Branch `feature/lcd-projection-console-redesign`, **not merged**, awaiting the
+operator's approval. Header entry below; chunks 1–3 below that.
+
+### Chunk 4 — Preview/Edit and Program/Live (`eb1cbab`)
+
+**The collector was never at risk here, and that was worth proving first.**
+`#woPreviewPanel` and `#woWorshipOrder` are disjoint subtrees, and **zero**
+`collectOrderItems()` selectors live inside the panels this chunk rebuilds —
+all 19 sections, 94 slide boxes, 105 content boxes and 14 liturgy banners are
+in `#woWorshipOrder`. The real constraint is the editor's *write-back* path
+into `.wo-slide-box`, which is untouched. Proved end to end: saved and read the
+order back, **14 items totalling 95 slides against 95 slide boxes in the DOM**,
+including one just created by the new Add Slide.
+
+- **`#woPreviewScreen` was dead.** It sat in a `.lcd-lower-row` box the CSS set
+  to `display: none`, measuring 0×0, while `syncProjectionWithPreview()` and
+  every other writer kept rendering previews into it that nobody could see. It
+  is **moved** into the Slide Editor as that panel's Preview mode — same ids,
+  same writers, now visible at 248×139 (ratio 1.778). It is deliberately **not**
+  given `.lcd-output-box`: inside `.lcd-outputs-row` that class is a 50% track.
+- Previous / Next call `navigateSlideGlobal()`, the arrow keys' own function.
+  Add Slide calls `addSlideToGroup()` with the selected slide's own
+  `data-song-id` / `data-liturgy-id` / `data-section` — the identical call the
+  rail's "+ Add Slide" makes, so there is one insertion path, not two.
+- The Media Tray now has the whole lower row.
+
+**ON AIR is honest about both live surfaces.** This app projects two ways: a
+separate `projectionWindow`, and `#woFullscreenOverlay.show` when Project
+covers this screen instead. Keyed on `projectionWindow` alone the pill read
+OFFLINE while the congregation was looking at a slide. Sampled once a second
+because neither fires an event when it goes away; blank is reported only for
+the window path, since `blankProjection()` refuses without one. Verified:
+Project → `ON AIR` + "Projecting full screen on this display", close →
+`OFFLINE`, both caught by the sampler alone.
+
+### Chunk 5 — honest PowerPoint import feedback (`519fe20`)
+
+One import status card, in the section receiving the file, reusing the id the
+PPTX path already creates and removes (`sectionId + '-pptx-loading'`).
+
+**The two stages differ, so the feedback does.** pdf.js reports `numPages`
+before anything renders and each page reports itself as it finishes — measured,
+so it gets `Converting slides 8 of 24`, a determinate bar and matching
+`aria-valuenow`/`aria-valuemax`. Google Slides and CloudConvert answer only
+when finished — nothing to measure, so indeterminate with no number attached.
+Captured with a MutationObserver: **24 distinct states**, `0 of 24` [0%] →
+`12 of 24` [50%] → `23 of 24` [96%], then the card removed.
+
+**A bug found by testing Cancel, in that commit's own code.** `extractPdfPages`
+cleared the cancelled flag inside `getDocument().then()`, which resolves well
+after the button press — so a Cancel made while the file was still uploading or
+parsing was wiped and the import carried on (observed reaching "10 of 40"). The
+flag is cleared where an import *begins* (`addSlidesFromFiles`) and never after.
+
+### Chunk 6 — responsiveness, accessibility, contrast (`3802106`)
+
+**Two contrast failures in chunk 4's own work.** The Slide Editor panel is the
+**ivory** surface, not a dark one:
+
+| | before | after |
+|---|---|---|
+| segmented control, inactive tab | 1.35:1 | **6.11:1** |
+| slide nav / Add Slide row | **1.00:1** | **10.31:1** |
+
+1.00:1 is ivory on ivory — the Previous / Next / Add Slide row was *invisible*,
+and never appeared in a screenshot because it sits below the canvas, off the
+bottom of the frame.
+
+**Method note that matters more than the fix:** reading `backgroundColor` off
+the nearest ancestor is not enough in this file. These pills are translucent
+over translucent, and only compositing the alpha stack down to an opaque layer
+gives the real number. Done naively, six passing elements *appear to fail* and
+the two genuine failures hide among them.
+
+**The page no longer scrolls.** The last thing making the document taller than
+the viewport was the app shell's own 24px bottom padding — exactly the stray
+24px left after the header came down. At 1158×695 the document is now 695px.
+Scoped with a new `body.lcd-console-open` flag, **not** `:not(.wo-mode-song)`,
+which is absent in LCD mode *and* on every other page and would have stripped
+the padding from Home and Songs.
+
+**Focus ring `#0284c7`.** The console mixes a dark Program column with an ivory
+editor, rail and tray; the token cyan is invisible on ivory. Measured 3.70:1
+against all three ivory surfaces and 4.57:1 against the dark one.
+
+Verified: 1920/1536/1366/1158 and 1024/820/768 — zero horizontal overflow
+everywhere, program output exactly 1.778, schedule scrolls independently, and
+real key events (arrows moved slide 0→1→0; Tab advanced focus with
+`:focus-visible` true and the ring applied).
+
+### The six unverified tests were run — five passed, one was broken (`6471ff9`)
+
+Run on a throwaway order with real drag/keyboard events, not by calling
+handlers.
+
+| # | Test | Result |
+|---|---|---|
+| 5 | Add scripture content | pass |
+| 9 | Formatting to all slides in a section | pass |
+| 11 | Reorder sections | pass |
+| 13 | Drag a background onto one slide | pass |
+| 14 | Apply a background to a section | **was broken — fixed** |
+| 29 | Songbook lyric updates reach LCD | pass |
+
+- **5** — the banner's next sibling *is* `.wo-scripture-slides-group`, so the
+  collector's adjacency dependency holds. Survived save + reload.
+- **9** — All Slides editor, select-all + font: **41 of 41** paragraphs, and
+  **14 of 14** slide boxes after Save Changes.
+- **11** — real HTML5 drag moved a section; 19 before and after, and the new
+  order survived save + reload. Cosmetic: the numeric prefixes are part of the
+  stored titles, so the rail reads 1, 3, 4, 5, 2, 6 afterwards.
+- **13** — real drag; survived reload.
+- **29** — edited the song in the Songbook, saved, returned to LCD: slide 1
+  carried the new text.
+
+**Test 14 was genuinely broken, and pre-existing** — this branch's diff touches
+none of that handler. The six built-in swatches are generated by the tray, so
+they have no `savedBackgrounds` entry, and the drop handler resolved its payload
+with `savedBackgrounds.find(...)` and **returned above** the `railSection` /
+`sectionEl` branches — making them unreachable for a colour. It looked
+half-working only because a colour dropped on a *slide* is handled by a
+different, older listener on the same container (`_woSetupBgDropZone`), which
+matches `.wo-slide-box` and never a section.
+
+`_lcdBuiltInBg()` reshapes the `"type:value"` payload the writers already
+expect. Slide-level drops are deliberately still left to the older listener:
+handling them in both would apply the background twice and push two undo
+entries for one drop.
+
+**Probe warning that cost time here:** backgrounds are **not** on
+`data-background`. They live in `sectionBackgrounds`, keyed section → *local
+slide index*, and are persisted inside the order payload. Reading the attribute
+makes a working background look like a failure — it did exactly that during
+this run. Probe by selecting the slide and reading the Program Output's
+computed background instead.
+
+### Acceptance tests — status
+
+Passing from this session's exercise: 1–4, 6–8, 10, 12, 18–24, 27–28, 30
+(padding and layout confirmed unchanged on Song Order, Home and Songs).
+15–17 and 19 exercised with real generated PDFs: pages arrive in order,
+uncropped (letterboxed inside 16:9), and survive save and reload.
+
+**25 and 26 are recorded as "no such integration exists"**, not as passes.
+Searched again: there is no OBS client, no websocket, no port 4455, and every
+`youtube` match is a song reference link or the roster duty "Live Streaming".
+
+Not verified here: 5, 9, 11, 13, 14, 29 — scripture insertion, apply-to-section
+formatting, section reordering, background drag onto slide/section, and the
+Songbook→LCD lyric propagation. All are pre-existing paths this branch does not
+touch, but they are the ones to exercise before merging.
+
+### Deliberate deviations from the brief
+
+- **Section-slide thumbnails below the canvas** — not built. The Service Slides
+  rail two columns left already is that surface; a second strip would duplicate
+  it and eat the canvas height chunks 1–3 worked to win back.
+- **Safe-zone guides in the editor canvas** — the guides exist on the Program
+  output, and the `Barrier` button that sets them is in the editor toolbar.
+- **Full Screen stayed in the top bar** rather than moving into Program/Live.
+  Its label and icon are updated by id; a second copy needs a duplicate id or a
+  second update path.
+- **Media Tray tabs left at three** (Backgrounds / Presentations / Announcements
+  with Videos as a sub-tab) rather than the brief's four. Promoting Videos means
+  changing `_lcdItemCategory`'s categorisation, which is the media *storage*
+  mapping chunk 5 is told not to change; videos are already one click away.
+- **Segmented-control tabs are 32px**, not the brief's 36–40px, to match the
+  `.lcd-mini-btn`s beside them in the same panel header.
+
+### Harness facts, all of which cost time
+
+- **A hidden tab freezes every CSS transition** — see the header entry below.
+  The single most expensive trap of the session.
+- **`setInterval` is throttled to once a minute in a hidden tab.** Progress
+  during an import cannot be sampled with a timer; use a `MutationObserver`,
+  which is not timer-driven.
+- **pdf.js never settles while the tab is hidden** (no `rAF`). Shim
+  `requestAnimationFrame` with `setTimeout` to exercise the real import path.
+- **Script `.focus()` does not set `:focus-visible`.** Testing focus rings needs
+  real `Tab` key events, or the result is a false negative.
+- **The Bash working directory can silently revert to the main repo.** A
+  `cp Index.html dist/index.html` ran there instead of the worktree; harmless
+  only because the two were already identical. It left the worktree's `dist/`
+  unsynced, which looks exactly like a stale dev-server cache. Use absolute
+  `cd` on every command.
+
+### NEVER OPEN A REAL ORDER TO TEST — this has now bitten twice
+
+`WO.loadOrder()` starts the autosave timer. Merely **opening** the operator's
+order in the editor rewrites its row a couple of seconds later: no content
+changes, but `lastEdited` moves, and the order silently looks freshly edited to
+whoever opens the app next. It happened once during the presentation-widget work
+(recorded further down) and again during this session's post-rebase smoke test,
+which bumped *Service - 16 Aug 2026* from `07:54:06` to `11:25:32`. The content
+was verified intact both times, but the timestamp cannot be put back.
+
+**Read an order's content through the data layer instead — it starts no timers:**
+
+```js
+const o = await SBQ.loadOrder('order_1786779303719');
+const items = o.items || o.orderItems || [];
+// itemType counts, slides per item, storagePaths -- everything a check needs
+```
+
+That answers nearly every question a smoke test asks (item counts, slide counts,
+types, storage paths) without the editor ever mounting. When the **UI** genuinely
+has to be exercised, create a throwaway order and delete it afterwards; never use
+one of the five real ones.
+
+Two more guards worth knowing, both learned the same way:
+
+- **Opening the app at all can create an order.** An empty
+  `order_1786879433905` appeared during the same smoke test and had to be
+  deleted. Snapshot `SBQ.loadOrders()` **before** any test run and diff the ids
+  afterwards — anything new is yours to remove, and that diff is the only
+  reliable way to tell.
+- **`SBQ._sb = null` stops a tab writing anything further**, and is the right
+  first move the moment a test tab has touched real data. Nulling
+  `getSupabaseClient()` alone does **not** work — `SBQ` caches its own client.
+
+---
+
+## 2026-08-16 — LCD Projection: the workspace banner is one bar (commit `d1759c3`)
+
+The structural change the entry below said was needed. **Not merged.**
+
+### What it does
+
+`.wo-header` is the flex row itself now — title block left, control cluster
+right — instead of a title deck stacked on a control deck. The room comes from
+moving the three secondary actions into an overflow menu:
+
+| Stays on the bar | Behind `⋯` |
+|---|---|
+| Menu, Save, autosave status, undo/redo, zoom, LCD Projection / Song Order | Save As, Liturgy Book, Songbook |
+
+Nothing is removed. Each button keeps its class, icon, `title` and `onclick`, so
+every handler is the one it always was — and in the menu they finally show their
+labels, where the bar makes them icon-only below 1700px.
+
+### The part worth copying: Song Order is untouched by construction
+
+Outside the console `.wo-overflow-wrap` and `.wo-overflow-menu` are
+**`display: contents`** — they generate no box, so those three buttons stay
+direct flex items of `.wo-order-controls` exactly as before the wrapper existed,
+and the `⋯` toggle is `display: none`. `display: contents` would still group them
+together in DOM order, so explicit CSS `order` (1…9) restores the original
+left-to-right sequence. Verified in Song Order: Menu, Save, Save As, undo/redo,
+zoom, Liturgy Book, Songbook — one row, 37px each, no toggle rendered. Same
+below 1120px (checked 420 / 768 / 900 / 1000).
+
+### Two things that made the single row hold
+
+- **Nothing in the control cluster may shrink.** `flex-wrap: nowrap` is not
+  enough: a squeezed button wraps *its own label* onto a second line, which put
+  the second deck straight back at 1120–1150. Everything is `flex: 0 0 auto`
+  and the gold order chip is the single flexible element.
+- **The chip drops out on the BAR's width, not the window's** — a
+  `@container lcdheader (max-width: 875px)` query. The app sidebar is 68px
+  collapsed and **280px expanded**, so one viewport width gives the header
+  either ~988px or ~776px and a media query cannot tell those apart. Below
+  875px the chip could only be a 26px stub of ellipsis, so it goes.
+
+### Measured
+
+| Width | header | ctrl / mode btn | chip | h1 | h-overflow |
+|---|---|---|---|---|---|
+| 1920 / 1536 / 1440 | 51px | 37 / 36 | 230px | shown | 0 |
+| 1366 / 1280 / 1200 | 51px | 37 / 36 | 190px | hidden | 0 |
+| **1158 (the operator's own)** | **51px** | 37 / 36 | 184px | hidden | 0 |
+| 1120 | 51px | 37 / 36 | 156px | hidden | 0 |
+
+At 1158: header **103 → 51px**, workspace top **222 → 170px**, workspace height
+**~530 → 578px**. The 36–40px button minimum the CSS-only attempt broke is met
+everywhere.
+
+Overflow menu exercised in the browser: opens; closes on Escape, on an outside
+click and on the button again; each item fires its real handler (Songbook →
+`songbookLiveModal`, Liturgy Book → `liturgyBookModal`, Save As →
+`woSaveAsModal` pre-filled "… (Copy)") and closes after. No console errors.
+
+`Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>`
+blocks pass `node --check`.
+
+### The app sidebar already collapses itself — do not rebuild it
+
+Decided with the operator: LCD Projection should auto-collapse the global
+sidebar and restore it on exit. **That already exists** and does exactly that:
+`_lcdAutoCollapseSidebar()` (~54956) is called from `selectOrder('service')`,
+`lcdRestoreSidebar()` (~54968) from `setActiveView()` when leaving Orders, and
+`_lcdPrefWrite()` puts `lhc_sidebar_collapsed` back so the borrowed collapse
+never overwrites the operator's saved preference. Verified live: entering with
+the sidebar open gave `grid-template-columns: 68px 1003.2px`, sidebar 68px,
+container 776 → **988**, and the preference still read `"0"` afterwards.
+
+### HARNESS TRAP — a hidden tab freezes every CSS transition
+
+Cost most of a session and produced a confident, wrong bug report. **The
+Claude in Chrome tab reports `visibilityState: "hidden"` between tool calls.**
+When it does, `requestAnimationFrame` never fires and **`document.timeline.currentTime`
+stays pinned at 0**, so every CSS transition on the page sits at
+`playState: "running", currentTime: 0` forever — 49 of them here — and a running
+transition **outranks even an inline `!important` declaration**.
+
+The visible symptom: `.lhc-root` has `transition: grid-template-columns 0.3s`,
+so after the sidebar auto-collapsed, the class was `sidebar-collapsed`, the
+sidebar element was 68px, the inline style read
+`68px minmax(0px, 1fr)` **with `important` priority** — and `getComputedStyle`
+still returned `280px`, leaving a 212px dead gutter. It looked exactly like a
+real cascade bug and reproduced at full window size.
+
+**How to tell, and how to avoid it:**
+
+- Check `document.timeline.currentTime > 0` and
+  `document.getAnimations().filter(a => a.currentTime === 0 && a.playState === 'running').length === 0`
+  before trusting any measurement of a transitioned property.
+- Taking a `computer {action:"screenshot"}` foregrounds the tab and lets the
+  timeline advance; measure **immediately after** a screenshot.
+- Plain layout (widths, heights, wrapping) is computed even while hidden, so the
+  width sweeps above are unaffected. Only transitioned properties lie.
+
+### Test harness used
+
+The extension cannot resize the browser window, so measuring an exact viewport
+was done by replacing a same-origin page (`/__lcd_harness`, any 404 path works —
+no `X-Frame-Options` or CSP is set) with a fixed-size `<iframe>` of the app.
+Media queries and container queries track the iframe box exactly, so
+`1158 × 695` is the operator's screen reproducibly, and the parent stays
+screenshot-able. Nothing is written to disk.
+
+### Still to do
+
+Chunks 4–6 as briefed. `collectOrderItems()`'s full selector set is listed in
+the chunk 1 map below; chunk 4 is the first work that touches that markup.
+Note one structural dependency that is not a class name: scripture is collected
+via the banner's **next element sibling** carrying `wo-scripture-slides-group`,
+so that adjacency must survive any reshuffle.
+
+---
+
+## 2026-08-16 — LCD Projection console redesign: chunks 1–3 (branch `feature/lcd-projection-console-redesign`)
+
+Cut from `master` at `3670a48`. Six commits. **Not merged — awaiting the operator's approval of the finished feature.**
+
+### The layering trap, and the consolidation that ended it
+
+The single most useful thing learned on this branch. The LCD workspace's column widths were set by **17 `grid-template-columns` rules spread over ~1400 lines in three separate eras**, and only the last matching one ever won:
+
+1. the `/* ---- 1. Column widths ---- */` block,
+2. the "Phase 2" block ~330 lines later,
+3. a hardcoded `@media (min-width: 1201px) and (max-width: 1699px)` band ~1000 lines after that — **the rule that actually decided most desktop widths.**
+
+This cost three attempts. Two edits were silently dead on arrival because they were written into a superseded era and changed nothing at all. A third *appeared* to work and then crushed the workspace to 308px, because lowering a breakpoint dragged era 3's hardcoded `196px 286px` tracks over a width they were never meant to cover; that one was reverted rather than committed.
+
+`b4e61f4` consolidates all of it into **THE COLUMN BLOCK** — 9 rules, one contiguous range, in width order, with a header saying so. **If you are changing how wide any LCD column is, change it there and nowhere else.** Era 3's fixed tracks went with it, so 1201–1699 now scales like every other range; at 1366 the Service Slides column went from 1.46× the Content Library to 1.67×, the direction the mockup asks for.
+
+**Method note:** enumerate these rules with a media-aware parse of the source in document order. Plain grep misled me twice, and the live CSSOM walk under the Chrome extension silently returned 84 rules out of ~4400 — do not trust it.
+
+### The operator's screen was below every breakpoint
+
+Measured directly in the operator's browser: the LCD desk is a **1536×864 panel at 125% Windows scaling**, i.e. a **1158px CSS viewport**. Every LCD breakpoint sat above that. Below 1201px the workspace dropped from `grid` to `flex` and `#lcdLibraryPanel` was `display: none`, so **the multi-column console never appeared on the one machine it is driven from.**
+
+`62235d9` lowers the floor to 1120px across all nine sites that keyed off it — eight media queries plus the `matchMedia` inside `_lcdSizeWorkspaceColumns()`. The portrait-tablet query (~4422) and a modal `max-width` (~72439) are not LCD sites and are deliberately untouched.
+
+A `1120–1279` band in THE COLUMN BLOCK docks the Content Library to its 44px reopen tab and floats it over the schedule when open, since three full columns do not fit. It reuses the existing `lcd-library-hidden` semantics, so the tab works with no JS change and the operator's preference still persists.
+
+`9f18b51` then makes it start **docked** at those widths, and fixes a bug found while doing it: `_lcdApplyLayoutFlags` and `lcdToggleLibrary` read the preference flag independently, which would have made the tab's first click a no-op at exactly these widths. Both go through `_lcdLibHiddenNow()` now.
+
+### Verified
+
+| Width | Result |
+|---|---|
+| 1920 | library 215 / slides 431 / preview 501 / program 363; slides exactly 2× library; 16:9 at 1.779; no overflow |
+| 1366 | `display: grid`; 180 / 300 / 276 / 200; 16:9 at 1.786; no overflow |
+| **1158 (the operator's own)** | `display: grid` (was `flex`); tracks 44 / 258 / 473; reopen tab 44×44; 16:9 at 1.782; no overflow |
+| 1158, preference cleared | docked on load → click opens overlay → click docks again; Service Slides stays 258px throughout |
+
+`Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>` blocks pass `node --check` after every commit. No markup moved, so `collectOrderItems()`'s selectors and the save pipeline are untouched.
+
+### Decisions taken with the operator
+
+- **OBS and YouTube status: omitted.** Neither integration exists anywhere in the repo (see the chunk 1 safety map). Only the projector has real state. Acceptance tests 25 and 26 will be recorded as "no such integration exists", not as passes.
+- **~1158px is a first-class target**, alongside the 1920/1536/1366 in the brief.
+
+### Still to do
+
+**Chunk 3 is not finished.** The Content Library is Songs-only. Section C also asks for tabs for **Liturgy, Scripture and Media**, small thumbnails, and a collapsible media shelf. That is a real feature addition, not a restyle: it must wire to `LiturgyModule` (75 pre-loaded items), the Bible browser and the media tray's existing store **without duplicating any of them**.
+
+Then chunks 4–6 as briefed: Preview/Edit and Program/Live (the first work that touches markup `collectOrderItems()` reads — check every change against it), the media tray and honest PowerPoint import feedback, and responsiveness/accessibility.
+
+Two things not yet started that are worth doing early:
+
+- **The workspace header — CSS alone will not do it. Tried and reverted; do not retry that way.**
+  The banner costs the console 268px of a 695px viewport before the workspace begins, so it
+  starts below the fold and the whole page scrolls instead of the panes scrolling inside a
+  fixed-height console. The height is **not** padding: it is the control row **wrapping onto a
+  second line**. The mode buttons are already 36px, and the sub-labels, gaps and paddings were
+  tightened as far as they go — that reclaimed **16px** (268 → 252) while dropping every control
+  button to **30px**, under the brief's 36–40px minimum, and the selector still wrapped at 88px.
+  At 1158px there is simply not room for Menu, Save, Save As, undo, redo, the zoom cluster,
+  Liturgy Book, Songbook *and* the two mode buttons on one row.
+
+  So it needs the structural change the brief describes: replace the hero with the mockup's
+  single restrained bar and move the secondary controls — zoom, Liturgy Book, Songbook, Save As —
+  into an overflow menu, "preserving access and behavior". That is markup plus JS, which puts it
+  in the same risk class as chunk 4: check every change against `collectOrderItems()` first.
+
+  **Operator's decision on what the bar keeps:** the **zoom control stays visible** on the bar.
+  **Liturgy Book, Songbook and Save As go into the overflow menu.** Menu, Save, undo/redo and the
+  two mode buttons stay. Nothing is removed — the overflow items keep their handlers and their
+  behaviour, they are just one click further away.
+
+- **The palette.** Still the old blue/gold hero and light cards outside the workspace shell. The dark tokens already exist at ~68927; a second, conflicting `--lcd-ivory*` set at ~69122 belongs to the parchment Songbook surface and must not be merged with them.
+
+### Testing note
+
+Visual verification works through the Claude in Chrome extension against `http://localhost:3021`. The in-app browser pane cannot be used: it does not composite (no screenshots) and its media queries do not track the emulated viewport, which produced wrong numbers at 1366 early on.
+
+---
+
+## 2026-08-16 — LCD Projection console redesign, CHUNK 1: audit and safety map
+
+Branch `feature/lcd-projection-console-redesign`, cut from `master` at `3670a48`. No behaviour changed in this commit — this is the map the rest of the work is done against.
+
+### Where the LCD Projection workspace lives
+
+Everything is inside `#worshipOrderView` (`Index.html` ~6080), which hosts **three** modes that share one DOM subtree and one state set:
+
+| Mode | Entry | Container |
+|---|---|---|
+| Orders list | `showSavedOrders()` | `#woMainMenu` |
+| Song Order | `selectOrder('song')` | `.wo-main-content.wo-song-order`, `#woSongOrderSections` |
+| **LCD Projection** | `selectOrder('service')` | `#lcdLibraryPanel` + `#woWorshipOrder` + `#woPreviewPanel.lcd-shell` |
+
+`selectOrder()` (~26213) is the switch. `#worshipOrderView` also carries a `lcd-mode` class, toggled at ~26206 — that is the existing scoping hook and the redesign should hang off it rather than inventing another.
+
+### The columns as they exist now
+
+Three siblings inside `.wo-main-content`:
+
+1. `#lcdLibraryPanel` — Song Library only (search, chips, list). Collapsible via `lcdToggleLibrary()`, with `#lcdLibReopen` as the reopen tab.
+2. `#woWorshipOrder` — the Service Schedule / compact rail.
+3. `#woPreviewPanel.lcd-shell` — the workspace column, holding `.lcd-topbar`, `.lcd-outputs-row` (Slide Editor + Program Output), `.lcd-lower-row` (Preview Output + Media Tray).
+
+Sizing is **JS-driven, not pure CSS**: `_lcdSizeWorkspaceColumns()` (~26318) caps the two list columns to the viewport band and deliberately leaves the workspace column uncapped; `applyLayout()` writes inline styles just before it. Any grid rewrite has to account for those inline writes, because inline beats the stylesheet.
+
+### State objects — shared, do not fork
+
+| Variable | Line | Shared with |
+|---|---|---|
+| `currentOrderData` | 23089 | Orders, Song Order, LCD |
+| `songOrderSections` | 23096 | Song Order, LCD |
+| `serviceSectionSongs` | 23100 | Song Order, LCD |
+| `window.serviceSectionItems` | 23844+ | LCD (liturgy/scripture/content items) |
+| `sectionBackgrounds` | — | LCD only, keyed section → **local slide index** |
+| `currentSermonSlides` | 30150 | LCD only, keyed by section |
+| `selectedSlideBox`, `activeNavigationMode`, `_selectedPptContainer`, `_pptActiveSection` | — | LCD navigation |
+
+`sectionBackgrounds` being keyed by positional index is the long-standing trap: anything that inserts, deletes or reorders slides must re-pin it via `_lcdCaptureSectionBgs()` / `_lcdRestoreSectionBgs()` (~54796/54804). A markup reshuffle that changes slide order counts.
+
+### Persistence — one pipeline, must not be detached
+
+`collectOrderItems()` (25256) reads the **DOM** → `saveCurrentOrder()` (24768) strips heavy data and calls `SBQ.saveOrder` → `autoSaveOrder()` (24572) debounces 2s → `saveImmediately()` (24583) on navigate-away. `snapshotCurrentState()` (25946) feeds the wipe guard.
+
+**This is the single biggest risk in the whole redesign.** `collectOrderItems()` finds content by CSS selector — `.wo-slide-box`, `.wo-content-box`, `.wo-slides-container`, `.wo-ppt-widget`, `.wo-video-container`, and `data-song-id` / `data-liturgy-id` / `data-slide-idx` / `data-section` attributes. **Rename or restructure any of those and the order silently saves empty.** The wipe guard at 24933 will refuse a 0-item save when the DOM has content, but it cannot catch a partial loss. Every markup change must be checked against this function.
+
+### Render / rebind entry points
+
+`_lcdRenderCompactRail()` (54417), `_lcdRenderLibraryPanel()` (54710), `_lcdRenderMediaTray()` (53173), `_lcdApplyLayoutFlags()` (54966), `_lcdSetupMediaDropZone()` (53738), `_lcdSetupCompactRailObserver()` (55792), `_lcdWireRailDrag()` (55585), `_lcdWireSectionDrag()` (55688), `_lcdWireLibraryDrop()` (54913).
+
+147 `_lcd*` functions in total. Handlers are largely inline `onclick="WO.…"` in markup, so **moving markup moves the bindings with it** — the risk is dropped attributes, not lost listeners.
+
+### PowerPoint pipeline — traced end to end
+
+1. Entry: file modal (`openSlidesModalTab` → `handleSlidesFileSelect` → `confirmAddSlides`), desktop drop (`_lcdHandleDroppedFiles`, 53570), tray drag (`_lcdExpandDocIntoSection`, 53664), section menu.
+2. `addSlidesFromFiles()` (32193) — uploads originals to Supabase `orders/documents|presentations`, fills `supabaseFiles`.
+3. PDF → `extractPdfPages()` (32357), pdf.js at 2× scale → `canvas.toDataURL('image/jpeg', .92)`.
+4. PPTX → `_convertAndRenderPptx()` (32696) → `POST /api/convert-pptx` (CloudConvert, needs `CLOUDCONVERT_API_KEY`) → PDF → same pdf.js path. Google Slides route via `getSlidePageIds` → `/api/slide-page-ids` is the legacy alternative.
+5. Render: `renderLocalSlides()` (32431) → `_renderPptFilmstrip()` (32444) builds `.wo-ppt-widget` with `.wo-ppt-thumb[data-idx]`.
+6. Persist: `_pptPersistPages()` (32931) → `uploadSlidesToSupabase()` (32833) swaps base64 → storage URL, then autosaves.
+7. Restore: `collectOrderItems` emits `itemType:'slides'`; load path rebuilds `currentSermonSlides` and calls `renderLocalSlides`.
+8. Project: `projectPptPage()`; navigate: `navigateSlideGlobal()` `ppt-local` / `ppt-iframe` branches.
+
+**No reliable per-page progress exists.** pdf.js knows `pdf.numPages` and counts pages as they render, so "8 of 24" *is* honest for the PDF stage; CloudConvert conversion exposes nothing, so that stage must be indeterminate. Do not fabricate a percentage across the whole import.
+
+### CSS scoping
+
+- `.lcd-*` — 499 rules, LCD-only. Safe to restyle.
+- `.wo-*` — **1311 rules, shared with Song Order and the Orders list.** Restyling these leaks. Scope new work under `#worshipOrderView.lcd-mode` or new `.lcd-*` classes.
+- A full LCD token set **already exists** at ~68927 (`--lcd-navy-*`, `--lcd-ivory-*`, `--lcd-gold-*`, spacing, radius, button heights, type sizes, shadows, motion). Chunk 2 should extend this, not add a second set. Note a **second, conflicting** `--lcd-ivory*` block at ~69122 for the parchment Songbook surface — different feature, same prefix; do not merge them.
+- `body.lcd-workspace-fullscreen` (69405) drives workspace full screen.
+
+### Projection output
+
+`openProjectionWindow()` (33217), `sendToProjectionWindow()` (33424), `projectionWindow` (30147), `_lcdMirrorToProgramOutput()` (33440), `_lcdUpdateProgramBarrier()` (33483), `fullscreenSlides()` (33884), `_lcdKeepFullscreenAround()` (53073). The barrier/safe-zone is `#lcdProgramBarrier` + `openBarrierEditor()`.
+
+### Finding that changes the brief: there is no OBS and no YouTube integration
+
+Searched the whole repo. **Neither exists.**
+
+- No `new WebSocket`, no obs-websocket client, no port 4455, no OBS code of any kind. Every `obs` match is `MutationObserver`.
+- Every `youtube` match is either a **song reference link** (`song.youtube[]`, `server.gs` columns) or the roster duty **"Live Streaming"**. There is no stream state, no YouTube API call, no `app/api/` route for either.
+- The only livestream-aware feature is the **safe-zone barrier**, a margin guide so projected text avoids the camera's lower-right corner.
+
+The projector status *is* real and can be shown honestly (`projectionWindow` open/closed). OBS and YouTube have no state to read.
+
+This collides with the brief, which asks for OBS/YouTube status in the header and Program panel, says "do not show a connected status unless it comes from real application state", and lists acceptance tests 25 and 26 as "confirm OBS/YouTube functionality remains connected". There is nothing to remain connected. **Raised with the operator before building the header — see the decision recorded in the next entry.**
+
+---
+
 ## 2026-08-16 — getSlidePageIds ported to a Vercel route (one scope still to add)
 
 `server.gs`'s `getSlidePageIds()` now has a server-side twin at `app/api/slide-page-ids/route.ts`, so a pasted Google Slides link can be projected one slide at a time here and not only under Apps Script.
