@@ -54668,10 +54668,30 @@ var WO = (function() {
     '</div>';
   }
 
+  // Header row for a presentation in the rail: names the file, says how many
+  // pages it has, and offers the one bulk action -- remove the whole deck.
+  // removePptFile() already confirms, names the file and its page count, and
+  // clears currentSermonSlides as well as the markup, so this is an access
+  // point rather than a second delete path.
+  function _lcdBuildPptGroupRow(sectionId, name, count) {
+    return '<div class="lcd-rail-ppt-group" title="' + escapeHtml(name) + '">' +
+      '<i class="fa-solid fa-file-powerpoint"></i>' +
+      '<span class="lcd-rail-ppt-group-name">' + escapeHtml(name) + '</span>' +
+      '<span class="lcd-rail-ppt-group-count">' + count + '</span>' +
+      '<button class="lcd-rail-ppt-group-del" title="Remove this presentation and all ' + count + ' of its slides" ' +
+        'onclick="event.stopPropagation();WO.removePptFile(\'' + escapeHtml(sectionId) + '\')">' +
+        '<i class="fa-solid fa-trash"></i></button>' +
+    '</div>';
+  }
+
   function _lcdBuildPptRow(sIdx, slideNum, sectionId, idx, thumbSrc, thumbEl) {
     var rowId = 'lcdRailRow-' + (_lcdRailRowSeq++);
     _lcdRailRowMap[rowId] = { ppt: true, sectionId: sectionId, idx: idx };
-    var isSelected = thumbEl && thumbEl.classList.contains('active');
+    // `.active` was the filmstrip thumbnail's marker; the slide-box layout
+    // marks the selected page with `.selected`, like every other slide box.
+    // Testing only for `.active` meant a presentation row never took the blue
+    // selected styling and sat there looking merely hovered.
+    var isSelected = !!thumbEl && (thumbEl.classList.contains('active') || thumbEl.classList.contains('selected'));
     var thumbHtml = thumbSrc
       ? '<div class="lcd-rail-ppt-thumb" style="background-image:url(' + thumbSrc + ')"></div>'
       : '<div class="lcd-rail-ppt-thumb"><i class="fa-solid fa-file-powerpoint"></i></div>';
@@ -54821,8 +54841,19 @@ var WO = (function() {
           i++;
           continue;
         }
-        // The banner is a label for the run that follows; it has no slide.
-        if (el.classList.contains('wo-ppt-banner-bar') || el.classList.contains('wo-ppt-add-row')) { i++; continue; }
+        // The presentation's banner becomes a rail header row: it names the
+        // file, counts its pages, and carries the only way to remove the whole
+        // deck at once. Without it the rail offered per-page deletes only, so
+        // clearing a 32-page sermon deck meant 32 clicks.
+        if (el.classList.contains('wo-ppt-banner-bar')) {
+          var _pSec = el.getAttribute('data-ppt-section') || sectionId;
+          var _pName = (el.querySelector('.wo-ppt-banner-title') || {}).textContent || 'Presentation';
+          var _pCount = root.querySelectorAll('.wo-ppt-page[data-ppt-section="' + _pSec + '"]').length;
+          rowsHtml += _lcdBuildPptGroupRow(_pSec, _pName, _pCount);
+          i++;
+          continue;
+        }
+        if (el.classList.contains('wo-ppt-add-row')) { i++; continue; }
 
         // PowerPoint / presentation filmstrip: one rail row per page.
         if (el.classList.contains('wo-ppt-widget')) {
@@ -71126,6 +71157,34 @@ function filterLiturgyItems() {
       scroll-behavior: auto !important;
     }
   }
+
+  /* ---- Rail header row for a presentation --------------------------------
+     Names the deck and carries the bulk delete. Deliberately NOT a
+     .lcd-rail-slide-row: it selects nothing and must not take the blue
+     selected styling. */
+  .lcd-rail-ppt-group {
+    display: flex; align-items: center; gap: 7px;
+    margin: 8px 0 3px; padding: 6px 9px;
+    border-radius: 8px 8px 4px 4px;
+    background: linear-gradient(135deg, rgba(124,58,237,0.16), rgba(168,85,247,0.16));
+    border: 1px solid rgba(124,58,237,0.34);
+    font-family: 'Poppins', sans-serif; font-size: 0.68rem; font-weight: 700;
+    color: #4c1d95;
+  }
+  .lcd-rail-ppt-group > i { font-size: 0.7rem; color: #7c3aed; flex: 0 0 auto; }
+  .lcd-rail-ppt-group-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lcd-rail-ppt-group-count {
+    flex: 0 0 auto; padding: 1px 7px; border-radius: 999px;
+    background: rgba(124,58,237,0.20); font-size: 0.62rem;
+  }
+  .lcd-rail-ppt-group-del {
+    flex: 0 0 auto; width: 24px; height: 24px; border-radius: 6px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid transparent;
+    color: #7c3aed; font-size: 0.68rem;
+  }
+  .lcd-rail-ppt-group-del:hover { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
+  .lcd-rail-ppt-group-del:focus-visible { outline: 2px solid #0284c7; outline-offset: 1px; }
 
   /* ---- Presentation pages as ordinary slide boxes ------------------------
      The filmstrip widget is gone: a deck is a banner plus one .wo-slide-box per
