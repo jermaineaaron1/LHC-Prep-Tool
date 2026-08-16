@@ -69466,7 +69466,19 @@ function filterLiturgyItems() {
      full-width layout untouched. */
   .wo-main-content:not(.wo-song-order) {
     display: grid;
-    grid-template-columns: 280px 320px minmax(480px, 1fr);
+    /* CONSOLE REDESIGN, chunk 2 -- proportional, not fixed px.
+       Content Library ~11.5% | Service Slides ~28.5% | workspace ~60%, the
+       workspace splitting 58:42 internally into Preview/Edit (~34%) and
+       Program/Live (~25%). The fr units carry the proportions; the minmax()
+       floors stop any column collapsing and are what take over below ~1500px.
+
+       This is the LAST of several generations of column rules in this file and
+       therefore the one that decides -- earlier blocks around lines 69137 and
+       69346 are superseded and left alone deliberately. Edit here. */
+    grid-template-columns:
+      minmax(196px, 11.5fr)
+      minmax(330px, 28.5fr)
+      minmax(600px, 60fr);
   }
   /* Both of these carry sizing from the old flex layout. In grid the track
      owns the width, and .wo-worship-order's max-width:302px would otherwise
@@ -69580,8 +69592,10 @@ function filterLiturgyItems() {
   .wo-main-content:not(.wo-song-order).lcd-schedule-expanded.lcd-library-hidden { grid-template-columns: 44px minmax(480px, 1.6fr) minmax(460px, 1fr); }
 
   @media (min-width: 1800px) {
-    .wo-main-content:not(.wo-song-order) { grid-template-columns: 320px 360px minmax(560px, 1fr); }
-    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 360px minmax(560px, 1fr); }
+    .wo-main-content:not(.wo-song-order) {
+      grid-template-columns: minmax(215px, 11.5fr) minmax(370px, 28.5fr) minmax(700px, 60fr);
+    }
+    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px minmax(370px, 30fr) minmax(700px, 70fr); }
   }
   /* Below 1600px an expanded schedule cannot also fit the library and a
      usable workspace, so the library yields -- its own hidden/shown flag is
@@ -69594,8 +69608,13 @@ function filterLiturgyItems() {
     .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-outputs-row .lcd-output-box { flex: 1 1 auto; }
   }
   @media (max-width: 1439px) {
-    .wo-main-content:not(.wo-song-order) { grid-template-columns: 250px 296px minmax(420px, 1fr); }
-    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 296px minmax(420px, 1fr); }
+    /* 1366 has ~1000px of usable width once the app sidebar and padding are
+       taken, so the floors decide here rather than the proportions. Service
+       Slides is still given comfortably more than the library. */
+    .wo-main-content:not(.wo-song-order) {
+      grid-template-columns: minmax(168px, 11fr) minmax(290px, 29fr) minmax(470px, 60fr);
+    }
+    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px minmax(290px, 30fr) minmax(470px, 70fr); }
     /* Workspace is too narrow for Editor and Output side by side */
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row { flex-direction: column; }
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-output-box { flex: 1 1 auto; }
@@ -71013,6 +71032,9 @@ function filterLiturgyItems() {
      content height (see _lcdSizeWorkspaceColumns), so the editor's bottom edge
      lands exactly on the output's. */
   .lcd-outputs-row { align-items: flex-start; }
+  /* These two are overridden by the scoped min-width:1201px block further down
+     ("the one that decides"). Left at parity so the stacked layouts below
+     1201px, which this block does still reach, keep an even split. */
   .lcd-outputs-row .lcd-lyrics-panel { flex: 1 1 50%; align-self: stretch; }
   .lcd-outputs-row .lcd-program-box { flex: 1 1 50%; height: 100%; }
   /* flex: 0 0 auto matters — with `1 1 auto` the column stretches the box to
@@ -71110,10 +71132,20 @@ function filterLiturgyItems() {
      shares (60/40, 55/45, auto); this is the one that decides, and it is
      scoped to the side-by-side layout so the stacked phone/tablet views keep
      their own sizing. */
+  /* CONSOLE REDESIGN, chunk 2: 58:42, not the even halves this carried before.
+     Against the usable width that puts Preview/Edit at ~34% and Program/Live
+     at ~25% -- the proportions of the approved console mockup. The even split
+     was a deliberate choice under the previous design (2026-08-15 handoff
+     entry) and is superseded here, not overlooked.
+     THIS is the rule that decides the split: it is both later and more
+     specific than the .lcd-outputs-row pair in section L above. */
   @media (min-width: 1201px) {
-    .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-lyrics-panel,
+    .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-lyrics-panel {
+      flex: 1 1 58%;
+      min-width: 0;
+    }
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-program-box {
-      flex: 1 1 50%;
+      flex: 1 1 42%;
       min-width: 0;
     }
   }
