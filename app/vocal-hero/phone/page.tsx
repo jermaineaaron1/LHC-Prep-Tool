@@ -83,6 +83,23 @@ function PhoneGame() {
   const runningTimeline = timelineFor(session, now + clockOffset); const timeline = session?.paused ? { phase: 'Paused', songElapsed: pausedElapsed } : runningTimeline; const notes = useMemo(() => transposeNotes(song ? playableNotes(song) : [], transpose), [song, transpose]); const part = song ? playablePart(song, partIndex) : null;
   useEffect(() => { if (session?.paused) setPausedElapsed(runningTimeline.songElapsed); }, [session?.paused]);
   useEffect(() => { elapsedRef.current = timeline.songElapsed; phaseRef.current = timeline.phase; }, [timeline.phase, timeline.songElapsed]);
+  /* A restarted round arrives as a new playback_starts_at on the same session.
+     Everything per-round has to reset with it: the old scorer belongs to the
+     round that created it, the collected results would stack into the next
+     review, and the cue guard would silence the second entrance tone. The
+     first key seen after joining is recorded without clearing anything --
+     that state is already fresh. */
+  const roundKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const key = session?.playback_starts_at ?? null;
+    if (!key || roundKeyRef.current === key) return;
+    const firstRound = roundKeyRef.current === null;
+    roundKeyRef.current = key;
+    if (firstRound) return;
+    void scoreRef.current?.stop(); scoreRef.current = null; startedRef.current = false;
+    resultsRef.current = []; setReview(null); clearTrail(trailRef.current);
+    setScore(0); setHits({}); cuePlayedRef.current = false;
+  }, [session?.playback_starts_at]);
 
   async function startPitchTracking() { if (pitchRef.current?.isRunning) return true; const range = PITCH_RANGES[partIndex] ?? PITCH_RANGES[0]; const shift = transposeRef.current; const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, minHz: PitchEngine.midiToHz(range.low - 3 + shift), maxHz: PitchEngine.midiToHz(range.high + 3 + shift), onPitch: sample => { if (performance.now() - lastPitchPaintRef.current > 33) { setPitch(sample.frequency); lastPitchPaintRef.current = performance.now(); } // This sample is the sound of a moment already past: the beat took time to
       // reach the singer's ears, and their answer took time to reach the analyser.
@@ -92,7 +109,7 @@ function PhoneGame() {
   useEffect(() => { if (!session || !song || !player || !part || session.status !== 'playing' || startedRef.current) return; startedRef.current = true; const scorer = new ScoreEngine({ part, partIndex, notes, songDuration: song.duration, playerId: player.id, sessionId: session.id, difficulty, practice: warmUp, onScoreUpdate: (_, total) => setScore(total), onNoteResult: result => { resultsRef.current.push(result); setHits(current => ({ ...current, [result.noteId]: result.points > 0 })); } }); scoreRef.current = scorer; scorer.start(); void startPitchTracking(); }, [difficulty, notes, part, partIndex, player, session, song]);
   useEffect(() => { if (session?.status !== 'playing' || !player) return; const interval = setInterval(() => { const stats = scoreRef.current?.stats; if (stats && !warmUpRef.current) void savePlayerRoundStats({ session_id: session.id, player_id: player.id, score: scoreRef.current?.currentTotal ?? 0, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit }); }, 3000); return () => clearInterval(interval); }, [player, session?.id, session?.status]);
   useEffect(() => { if (session?.status !== 'ended' || !player || !scoreRef.current) return; pitchRef.current?.stop(); setReview(summariseRound(resultsRef.current, notes)); const scorer = scoreRef.current; /* stop() resolves the note still in progress, so both the total and the counts change during it: reading either beforehand loses the last note of every round. The phone was also saving the score STATE, which lags the engine by a render, while the host saved the engine's own total — so the two disagreed. */ void scorer.stop().then(() => { if (warmUpRef.current) return; const stats = scorer.stats; void savePlayerRoundStats({ session_id: session.id, player_id: player.id, score: scorer.currentTotal, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit }); }); }, [player, session?.status]);
-  async function join(event: React.FormEvent) { event.preventDefault(); if (!room || !name.trim()) { setError('Enter your room code and name.'); return; } try { const next = await fetchSessionByCode(room); if (!next || next.status === 'ended') throw new Error('That room is unavailable.'); const nextSong = await fetchSong(next.song_id); if (!nextSong) throw new Error('Song not found.'); const nextPlayer = await joinSession(next.id, name.trim(), partIndex); setClockOffset(await measureServerClockOffset().catch(() => 0)); unsubRef.current = subscribeToSession(next.id, setSession); clearTrail(trailRef.current); resultsRef.current = []; setReview(null); setSession(next); setSong(nextSong); setPlayer(nextPlayer); setPlayers(await fetchPlayers(next.id)); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to join.'); } }
+  async function join(event: React.FormEvent) { event.preventDefault(); if (!room || !name.trim()) { setError('Enter your room code and name.'); return; } try { const next = await fetchSessionByCode(room); if (!next || next.status === 'ended') throw new Error('That room is unavailable.'); const nextSong = await fetchSong(next.song_id); if (!nextSong) throw new Error('Song not found.'); const nextPlayer = await joinSession(next.id, name.trim(), partIndex); setClockOffset(await measureServerClockOffset().catch(() => 0)); unsubRef.current?.(); roundKeyRef.current = null; unsubRef.current = subscribeToSession(next.id, setSession); clearTrail(trailRef.current); resultsRef.current = []; setReview(null); setSession(next); setSong(nextSong); setPlayer(nextPlayer); setPlayers(await fetchPlayers(next.id)); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to join.'); } }
   async function testMic() { if (!player) return; setMic('checking'); await startPitchTracking(); await updatePlayerLobbyState(player.id, { ready_at: player.ready_at ?? null, mic_status: pitchRef.current?.isRunning ? 'ready' : 'blocked' }); }
   // Tapping ready is the last user gesture before the song starts, and the
   // only one that reliably happens. The microphone is claimed HERE rather than
