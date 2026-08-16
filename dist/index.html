@@ -26321,7 +26321,7 @@ var WO = (function() {
     var cols = [document.getElementById('lcdLibraryPanel'), document.getElementById('woWorshipOrder')];
     var windowed = !mc.classList.contains('wo-song-order')
       && !document.body.classList.contains('lcd-workspace-fullscreen')
-      && window.matchMedia('(min-width: 1201px)').matches;
+      && window.matchMedia('(min-width: 1120px)').matches;
     var h = '';
     if (windowed) {
       h = Math.max(420, Math.round(window.innerHeight - mc.getBoundingClientRect().top - 10)) + 'px';
@@ -69661,13 +69661,48 @@ function filterLiturgyItems() {
     }
   }
 
+  /* 1120-1279 — THE OPERATOR'S OWN SCREEN.
+     The LCD desk runs a 1536x864 panel at 125% Windows scaling, which is a
+     1158px CSS viewport. That used to fall below the console's 1201px floor,
+     so the grid was abandoned for flex and the Content Library was removed
+     outright: the multi-column console never appeared on the one machine it
+     is actually driven from. The floor is 1120px now.
+
+     There is not room for three full columns at this width, so the library
+     docks to its 44px reopen tab and opens as an overlay above the schedule
+     rather than taking a track from it. Nothing is lost — the tab reopens it,
+     and the schedule and workspace keep their widths either way.
+
+     This band carries the library's display rules as well as its column,
+     against the rule that only columns live in this block: the two are one
+     decision here, and splitting them is what would get one of them missed. */
+  @media (min-width: 1120px) and (max-width: 1279px) {
+    .wo-main-content:not(.wo-song-order) {
+      position: relative;
+      grid-template-columns: 44px minmax(258px, 30fr) minmax(424px, 70fr);
+    }
+    /* Existing semantics, reused rather than reinvented: lcdToggleLibrary()
+       persists a flag and _lcdApplyLayoutFlags() puts .lcd-library-hidden on
+       the container. The reopen tab therefore works here with no JS change.
+       The only difference at this width is that an open library overlays the
+       schedule instead of taking a track from it. */
+    .wo-main-content:not(.wo-song-order) #lcdLibReopen { display: flex; }
+    .wo-main-content:not(.wo-song-order).lcd-library-hidden #lcdLibraryPanel { display: none; }
+    .wo-main-content:not(.wo-song-order):not(.lcd-library-hidden) #lcdLibraryPanel {
+      display: flex;
+      position: absolute; left: 44px; top: 0; z-index: 30;
+      width: 250px; height: 100%;
+      box-shadow: var(--lcd-shadow-lg, 0 10px 30px rgba(0,0,0,.38));
+    }
+  }
+
   /* The 3-column workspace is desktop-only. Below 1201px the app's existing
      phone/tablet layouts take over (stacked column, slide-in preview panel),
      and those are written as flex -- `flex-direction: column !important` is
      inert against `display: grid`, so without this the grid's fixed tracks
      force ~966px of content into a 355px phone viewport. The Library panel
      and its re-open tab have no place in those flows either. */
-  @media (max-width: 1200px) {
+  @media (max-width: 1119px) {
     .wo-main-content:not(.wo-song-order) { display: flex; }
     .wo-main-content:not(.wo-song-order) .wo-worship-order { max-width: 302px; }
     .wo-main-content:not(.wo-song-order) .wo-preview-panel { min-width: 640px; }
@@ -70409,7 +70444,7 @@ function filterLiturgyItems() {
      ========================================================================== */
 
   /* ---- A. Slim Orders banner while the projection workspace is open ------- */
-  @media (min-width: 1201px) {
+  @media (min-width: 1120px) {
     #worshipOrderView.lcd-mode .wo-header { padding: 10px 18px; }
     #worshipOrderView.lcd-mode .wo-header-content {
       display: flex; align-items: center; justify-content: center;
@@ -70525,7 +70560,7 @@ function filterLiturgyItems() {
   /* Below 1201px the stacked phone/tablet layout takes over and the outputs
      row is no longer height-managed, so it needs its floor back -- otherwise
      the full-width 16:9 output above the editor squeezes the editor to zero. */
-  @media (max-width: 1200px) {
+  @media (max-width: 1119px) {
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row { min-height: 340px; }
   }
   /* Between 1201 and 1699 the fixed 280/320 tracks left the workspace under
@@ -70534,7 +70569,7 @@ function filterLiturgyItems() {
      16:9 preview is taller than the whole outputs row. Narrowing the two
      picker columns is what actually buys the editor a usable width, and both
      stay wide enough to read titles. */
-  @media (min-width: 1201px) and (max-width: 1699px) {
+  @media (min-width: 1120px) and (max-width: 1699px) {
     /* The two grid-template-columns rules that used to live here have moved to
        THE COLUMN BLOCK. They were the last matching column rules in the file
        and therefore the ones that actually decided these widths, which made
@@ -71088,7 +71123,7 @@ function filterLiturgyItems() {
     flex: 0 0 auto; width: 100% !important; height: auto !important;
     aspect-ratio: 16 / 9 !important; max-height: 100% !important; min-height: 0 !important;
   }
-  @media (min-width: 1201px) and (max-width: 1699px) {
+  @media (min-width: 1120px) and (max-width: 1699px) {
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-program-box { min-width: 0; }
   }
 
@@ -71183,7 +71218,7 @@ function filterLiturgyItems() {
      entry) and is superseded here, not overlooked.
      THIS is the rule that decides the split: it is both later and more
      specific than the .lcd-outputs-row pair in section L above. */
-  @media (min-width: 1201px) {
+  @media (min-width: 1120px) {
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row > .lcd-lyrics-panel {
       flex: 1 1 58%;
       min-width: 0;
@@ -71276,7 +71311,7 @@ function filterLiturgyItems() {
      over content it could not touch. It is hidden for those and the Program
      Output takes the whole row; selecting an editable slide brings it back. */
   .lcd-outputs-row.lcd-editor-hidden > .lcd-lyrics-panel { display: none; }
-  @media (min-width: 1201px) {
+  @media (min-width: 1120px) {
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row.lcd-editor-hidden > .lcd-program-box {
       flex: 1 1 100%;
     }
@@ -71446,7 +71481,7 @@ function filterLiturgyItems() {
   /* The inline max-height comes from _lcdSizeWorkspaceColumns(); these are the
      matching scroll/containment rules plus a static fallback for the moment
      before that first runs. */
-  @media (min-width: 1201px) {
+  @media (min-width: 1120px) {
     body:not(.lcd-workspace-fullscreen) .wo-main-content:not(.wo-song-order) .wo-worship-order,
     body:not(.lcd-workspace-fullscreen) .wo-main-content:not(.wo-song-order) .lcd-library-panel {
       max-height: calc(100vh - 260px); overflow-y: auto; overscroll-behavior: contain;
