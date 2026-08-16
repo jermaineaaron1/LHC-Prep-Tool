@@ -146,6 +146,40 @@ touch, but they are the ones to exercise before merging.
   unsynced, which looks exactly like a stale dev-server cache. Use absolute
   `cd` on every command.
 
+### NEVER OPEN A REAL ORDER TO TEST — this has now bitten twice
+
+`WO.loadOrder()` starts the autosave timer. Merely **opening** the operator's
+order in the editor rewrites its row a couple of seconds later: no content
+changes, but `lastEdited` moves, and the order silently looks freshly edited to
+whoever opens the app next. It happened once during the presentation-widget work
+(recorded further down) and again during this session's post-rebase smoke test,
+which bumped *Service - 16 Aug 2026* from `07:54:06` to `11:25:32`. The content
+was verified intact both times, but the timestamp cannot be put back.
+
+**Read an order's content through the data layer instead — it starts no timers:**
+
+```js
+const o = await SBQ.loadOrder('order_1786779303719');
+const items = o.items || o.orderItems || [];
+// itemType counts, slides per item, storagePaths -- everything a check needs
+```
+
+That answers nearly every question a smoke test asks (item counts, slide counts,
+types, storage paths) without the editor ever mounting. When the **UI** genuinely
+has to be exercised, create a throwaway order and delete it afterwards; never use
+one of the five real ones.
+
+Two more guards worth knowing, both learned the same way:
+
+- **Opening the app at all can create an order.** An empty
+  `order_1786879433905` appeared during the same smoke test and had to be
+  deleted. Snapshot `SBQ.loadOrders()` **before** any test run and diff the ids
+  afterwards — anything new is yours to remove, and that diff is the only
+  reliable way to tell.
+- **`SBQ._sb = null` stops a tab writing anything further**, and is the right
+  first move the moment a test tab has touched real data. Nulling
+  `getSupabaseClient()` alone does **not** work — `SBQ` caches its own client.
+
 ---
 
 ## 2026-08-16 — LCD Projection: the workspace banner is one bar (commit `d1759c3`)
