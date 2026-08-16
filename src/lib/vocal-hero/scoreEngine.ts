@@ -94,6 +94,11 @@ export class ScoreEngine {
   private lastSampleSec = 0;
   private attempted = 0;
   private hit = 0;
+  // A song with no written notes is scored against a continuous pitch curve,
+  // sample by sample, so there is nothing to count as a note. Time is what
+  // there is: seconds sung, and seconds sung in tune.
+  private legacyVoicedSec = 0;
+  private legacyInTuneSec = 0;
 
   constructor(options: ScoreEngineOptions) {
     this.opts = {
@@ -122,7 +127,19 @@ export class ScoreEngine {
   }
 
   get currentTotal() { return this.total; }
-  get stats() { return { attempted: this.attempted, hit: this.hit, accuracy: this.attempted ? Math.round(this.hit / this.attempted * 100) : 0 }; }
+  get stats() {
+    // Legacy songs never resolve a note, so the note counters stay at zero and
+    // every such round reported 0% however well it was sung. Their accuracy is
+    // the share of sung time that was in tune, and the counters are given in
+    // whole seconds so that anything computing hit/attempted downstream still
+    // arrives at the same figure.
+    if (!this.noteList.length && this.legacyVoicedSec > 0) {
+      const attempted = Math.max(1, Math.round(this.legacyVoicedSec));
+      const hit = Math.min(attempted, Math.round(this.legacyInTuneSec));
+      return { attempted, hit, accuracy: Math.round(this.legacyInTuneSec / this.legacyVoicedSec * 100) };
+    }
+    return { attempted: this.attempted, hit: this.hit, accuracy: this.attempted ? Math.round(this.hit / this.attempted * 100) : 0 };
+  }
 
   scorePitch(playerHz: number, elapsedSec: number): number {
     if (!this.noteList.length) return this.scoreLegacyCurve(playerHz, elapsedSec);
@@ -231,10 +248,17 @@ export class ScoreEngine {
   }
 
   private scoreLegacyCurve(playerHz: number, elapsedSec: number): number {
+    // This path returns before scorePitch computes its own dt, so it keeps the
+    // clock itself. Capped for the same reason: a paused or re-seeked round
+    // must not book a large jump as time spent singing.
+    const dt = Math.min(Math.max(elapsedSec - this.lastSampleSec, 0), 0.25);
+    this.lastSampleSec = elapsedSec;
     if (playerHz <= 0) return 0;
     const target = this.targetNormAt(elapsedSec);
     const hz = PitchEngine.denormalise(target, this.opts.part.rangeMin, this.opts.part.rangeMax);
     const cents = Math.abs(PitchEngine.centsDiff(playerHz, hz));
+    this.legacyVoicedSec += dt;
+    if (cents < CENT_TOLERANCE[this.opts.difficulty]) this.legacyInTuneSec += dt;
     const points = cents >= CENT_TOLERANCE[this.opts.difficulty] ? 0 : Math.round(10 * (1 - cents / CENT_TOLERANCE[this.opts.difficulty]));
     if (points) { this.total += points; this.pending.push(points); this.opts.onScoreUpdate(points, this.total); }
     return points;
