@@ -587,4 +587,40 @@ function Leaderboard({ players }: { players: SessionPlayer[] }) { return <div cl
 //
 // Nothing scores early as a result: both the host and the phone gate the
 // microphone on the PHASE being live, never on the clock.
-function timelineFor(session: GameSession | null, now: number) { if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 }; const delta = now - new Date(session.playback_starts_at).getTime(); const countdown = session.countdown_seconds ?? 5, lead = session.lead_in_seconds ?? 2; const preRoll = countdown + lead; if (delta < 0) return { phase: `Starts in ${Math.ceil(-delta / 1000)}`, songElapsed: -preRoll }; const seconds = delta / 1000; if (seconds < countdown) return { phase: `Count-in ${countdown - Math.floor(seconds)}`, songElapsed: seconds - preRoll }; if (seconds < preRoll) return { phase: 'Lead-in · listen', songElapsed: seconds - preRoll }; return { phase: 'Live', songElapsed: seconds - preRoll }; }
+/**
+ * How far out the notes begin the count-in, as a multiple of the pre-roll.
+ *
+ * Raise it and they start further right and sweep in faster; 1 is a plain
+ * constant-speed approach. The trip from the right edge to the strike line is a
+ * fixed distance -- one lane look-ahead -- so the only way to shorten it is to
+ * run song time quicker than the clock and hand back at the downbeat.
+ */
+const PRE_ROLL_APPROACH = 2;
+
+function timelineFor(session: GameSession | null, now: number) {
+  if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 };
+  const delta = now - new Date(session.playback_starts_at).getTime();
+  const countdown = session.countdown_seconds ?? 5, lead = session.lead_in_seconds ?? 2;
+  const preRoll = countdown + lead;
+  // Song time through the pre-roll: negative, easing from PRE_ROLL_APPROACH x
+  // further out up to exactly 0 on the downbeat.
+  //
+  // The lane places notes at (note.start - elapsed) / lookAhead, so a negative
+  // elapsed parks the opening notes off to the right and walks them in. The
+  // quadratic term makes that walk a sweep -- quick while they are far out,
+  // decelerating to exactly gameplay speed as they reach the strike line, so
+  // the handover to real time is invisible instead of a lurch.
+  //
+  // Nothing scores early as a result: host and phone both gate the microphone
+  // on the PHASE being live, never on the clock.
+  const glide = (secondsIn: number) => {
+    if (preRoll <= 0) return 0;
+    const left = Math.max(0, preRoll - secondsIn);
+    return -(left + ((PRE_ROLL_APPROACH - 1) / preRoll) * left * left);
+  };
+  if (delta < 0) return { phase: `Starts in ${Math.ceil(-delta / 1000)}`, songElapsed: glide(0) };
+  const seconds = delta / 1000;
+  if (seconds < countdown) return { phase: `Count-in ${countdown - Math.floor(seconds)}`, songElapsed: glide(seconds) };
+  if (seconds < preRoll) return { phase: 'Lead-in · listen', songElapsed: glide(seconds) };
+  return { phase: 'Live', songElapsed: seconds - preRoll };
+}
