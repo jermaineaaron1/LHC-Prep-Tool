@@ -65,7 +65,10 @@ export interface MusicalTimelineSettings {
   meter_changes: Array<{ at: number; numerator: number; denominator: number }>;
   key_changes: Array<{ at: number; tonic: string; mode: string }>;
   /** Fine placement grid. Triplet denominators (6/12/24/48) and 64/96 PPQN-style resolutions are supported. */
-  snap_division?: 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 | 24 | 32 | 48 | 64 | 96 | 128 | 192 | 256;
+  /** 0 means free placement: notes land exactly where they are put. Live
+   * instrument recordings drift, so a bar line is not always where the music
+   * actually is, and snapping to one moves a correct note to a wrong place. */
+  snap_division?: 0 | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 | 24 | 32 | 48 | 64 | 96 | 128 | 192 | 256;
   /** Default duration for newly drawn notes. Kept separate from the placement grid so mixed rhythms remain possible. */
   snap_value?: RhythmicNoteValue;
 }
