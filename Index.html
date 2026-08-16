@@ -6309,6 +6309,14 @@
                       <i class="fa-solid fa-pen-to-square"></i> Slide Editor
                       <span class="lcd-lyrics-song-title" id="lcdLyricsEditorTitle">No slide selected</span>
                       <span class="lcd-slide-num-badge" id="lcdLyricsEditorSlideNum"></span>
+                      <!-- Preview / Edit. Preview shows #woPreviewScreen, the
+                           app's existing preview surface -- it is moved into
+                           this panel below rather than duplicated, so every
+                           routine that already writes to it keeps working. -->
+                      <div class="lcd-seg" role="group" aria-label="Slide Editor mode">
+                        <button class="lcd-seg-btn active" id="lcdSegEditBtn" onclick="WO.lcdSetEditorMode('edit')" aria-pressed="true" title="Edit this slide's text"><i class="fa-solid fa-pen"></i> Edit</button>
+                        <button class="lcd-seg-btn" id="lcdSegPreviewBtn" onclick="WO.lcdSetEditorMode('preview')" aria-pressed="false" title="See this slide as it will project"><i class="fa-solid fa-eye"></i> Preview</button>
+                      </div>
                       <div class="lcd-lyrics-actions">
                         <button class="lcd-mini-btn primary" onclick="WO.lcdApplySlideEdit()" title="Apply your changes to this slide"><i class="fa-solid fa-check"></i> Apply</button>
                         <button class="lcd-mini-btn" id="lcdAllSlidesBtn" onclick="WO.lcdOpenSectionAllSlides()" title="Open every slide in this section as one editable text block"><i class="fa-solid fa-align-left"></i> All Slides</button>
@@ -6371,6 +6379,30 @@
                         <div class="lcd-editor-canvas-bg" id="lcdEditorCanvasBg"></div>
                         <div class="lcd-lyrics-editor" id="lcdLyricsEditorTextarea" contenteditable="true" spellcheck="false" data-placeholder="Click a slide in the rail or list to load its text here. Ctrl+Enter splits the slide at the cursor." oninput="WO.lcdOnLyricsTextareaInput()" onkeydown="WO.lcdEditorKeydown(event)" onblur="WO.lcdFlushAutoApply()"></div>
                       </div>
+                      <!-- Preview surface. #woPreviewScreen and #woPreviewBg were
+                           moved here from the lower row, where their container was
+                           `display: none` -- the app kept writing previews into an
+                           element 0px wide that nobody could see. Same ids, so
+                           syncProjectionWithPreview() and every other writer are
+                           untouched; they now render somewhere visible. Deliberately
+                           NOT given .lcd-output-box: inside .lcd-outputs-row that
+                           class is a 50% column track. -->
+                      <div class="lcd-preview-surface" id="lcdPreviewSurface">
+                        <div class="wo-preview-screen" id="woPreviewScreen">
+                          <div class="wo-preview-bg" id="woPreviewBg"></div>
+                          <div class="wo-preview-placeholder">Click any content box to see preview</div>
+                        </div>
+                      </div>
+                      <!-- Previous / next reuse navigateSlideGlobal(), the same
+                           function the arrow keys and the presentation filmstrip
+                           call. Add slide calls addSlideToGroup() with the selected
+                           slide's own group -- the identical call the rail's
+                           "+ Add Slide" button makes, not a second insertion path. -->
+                      <div class="lcd-slide-nav">
+                        <button class="lcd-slide-nav-btn" onclick="WO.navigateSlideGlobal(-1)" title="Previous slide" aria-label="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>
+                        <button class="lcd-slide-nav-btn" onclick="WO.navigateSlideGlobal(1)" title="Next slide" aria-label="Next slide"><i class="fa-solid fa-chevron-right"></i></button>
+                        <button class="lcd-slide-nav-btn wide" onclick="WO.lcdAddSlideAfterCurrent()" title="Add a slide to this song or liturgy item"><i class="fa-solid fa-plus"></i> Add Slide</button>
+                      </div>
                       <div class="lcd-lyrics-summary" id="lcdLyricsEditorSummary"></div>
                     </div>
                   </div>
@@ -6391,6 +6423,8 @@
                       <button class="wo-bg-btn lcd-hist-btn" id="lcdUndoBtn" onclick="WO.lcdUndo()" title="Undo last change (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
                       <button class="wo-bg-btn lcd-hist-btn" id="lcdRedoBtn" onclick="WO.lcdRedo()" title="Redo (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
                       <div class="lcd-controls-spacer"></div>
+                      <button class="wo-bg-btn lcd-hist-btn" onclick="WO.navigateSlideGlobal(-1)" title="Previous slide" aria-label="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>
+                      <button class="wo-bg-btn lcd-hist-btn" onclick="WO.navigateSlideGlobal(1)" title="Next slide" aria-label="Next slide"><i class="fa-solid fa-chevron-right"></i></button>
                       <button class="wo-golive-btn wo-blank-btn" id="woBlankBtn" onclick="WO.blankProjection()" title="Blank / unblank the projection screen">
                         <i class="fa-solid fa-eye-slash" id="woBlankIcon"></i>
                         <span class="wo-golive-label" id="woBlankLabel">Blank</span>
@@ -6404,12 +6438,28 @@
                     <button class="lcd-mobile-allslides-btn" onclick="WO.lcdOpenSectionAllSlides()" title="Open the selected section's slides as editable text blocks">
                       <i class="fa-solid fa-align-left"></i> All Slides &mdash; Edit Content
                     </button>
-                    <div class="lcd-output-label">Program Output <span class="lcd-live-dot" id="lcdProgramLiveDot" title="Live"></span></div>
+                    <!-- Every state shown here is read from the real projection
+                         window (see _lcdUpdateProjectorStatus): ON AIR means
+                         `projectionWindow` is open, BLANKED means the operator
+                         blanked it, OFFLINE means there is nothing to project to.
+                         AUTO LIVE is a statement of the app's actual behaviour --
+                         selecting a slide sends it immediately -- not a toggle.
+                         Deliberately absent: OBS and YouTube. Neither integration
+                         exists anywhere in this repo, so there is no state to
+                         report and a chip would be decoration pretending to be
+                         status. -->
+                    <div class="lcd-output-label lcd-program-label">
+                      <span class="lcd-live-dot" id="lcdProgramLiveDot" title="Live"></span>
+                      Program / Live
+                      <span class="lcd-onair" id="lcdOnAirPill">OFFLINE</span>
+                      <span class="lcd-autolive" title="Selecting a slide sends it to the projector immediately">AUTO LIVE</span>
+                    </div>
                     <div class="wo-preview-screen lcd-program-screen" id="lcdProgramOutput">
                       <div class="wo-preview-bg" id="lcdProgramBg"></div>
                       <div class="lcd-program-barrier" id="lcdProgramBarrier"><span class="lcd-program-barrier-tag">SAFE ZONE</span></div>
                       <div class="wo-preview-placeholder">Not projecting</div>
                     </div>
+                    <div class="lcd-program-status" id="lcdProjectorStatus"><i class="fa-solid fa-display"></i> <span id="lcdProjectorStatusText">No projector window</span></div>
                   </div>
                 </div>
 
@@ -6423,13 +6473,11 @@
 
                 <!-- Lyrics Editor + Media Tray -->
                 <div class="lcd-lower-row">
-                  <div class="lcd-output-box">
-                    <div class="lcd-output-label">Preview Output</div>
-                    <div class="wo-preview-screen" id="woPreviewScreen">
-                      <div class="wo-preview-bg" id="woPreviewBg"></div>
-                      <div class="wo-preview-placeholder">Click any content box to see preview</div>
-                    </div>
-                  </div>
+                  <!-- The "Preview Output" box that used to sit here held
+                       #woPreviewScreen behind `display: none`. It has moved into
+                       the Slide Editor panel as that panel's Preview mode, so the
+                       tray now has the whole lower row -- the shallow docked tray
+                       beneath Preview and Program the brief asks for. -->
                   <div class="lcd-panel lcd-media-panel" id="lcdMediaPanel">
                     <div class="lcd-panel-header lcd-media-header" onclick="WO.lcdToggleMediaTray(event)" title="Click to collapse or expand the Media Tray">
                       <button class="lcd-media-collapse" id="lcdMediaCollapseBtn" onclick="event.stopPropagation(); WO.lcdToggleMediaTray()" title="Collapse / expand the Media Tray"><i class="fa-solid fa-chevron-down" id="lcdMediaCollapseIcon"></i></button>
@@ -26222,6 +26270,8 @@ var WO = (function() {
     // too, so the only route back to LCD Projection disappears. The floating
     // bar below keys off this.
     document.body.classList.toggle('wo-mode-song', !on);
+    // The Program panel's ON AIR state is only sampled while it is on screen.
+    _lcdStartStatusPolling(!!on);
   }
 
   function selectOrder(orderType) {
@@ -33348,6 +33398,8 @@ var WO = (function() {
       if (lbl)  lbl.textContent = 'Blank';
       syncProjectionWithPreview();
     }
+    // Don't wait up to a second for the sampler to catch up with a deliberate act.
+    if (typeof _lcdUpdateProjectorStatus === 'function') _lcdUpdateProjectorStatus();
   }
 
   // Update the Go Live button dot: green = live, grey = offline
@@ -55596,6 +55648,93 @@ var WO = (function() {
     }, 0);
   }
 
+  // ---- Preview / Edit segmented control ------------------------------
+  // Swaps which surface the Slide Editor panel shows. Nothing is created or
+  // destroyed and no state moves: Edit is the existing contenteditable canvas,
+  // Preview is #woPreviewScreen, which already receives every preview the app
+  // renders -- it was simply living in a container the CSS hid.
+  function lcdSetEditorMode(mode) {
+    var preview = (mode === 'preview');
+    var panel = document.querySelector('.lcd-lyrics-panel');
+    if (panel) panel.classList.toggle('lcd-mode-preview', preview);
+    var eb = document.getElementById('lcdSegEditBtn');
+    var pb = document.getElementById('lcdSegPreviewBtn');
+    if (eb) { eb.classList.toggle('active', !preview); eb.setAttribute('aria-pressed', preview ? 'false' : 'true'); }
+    if (pb) { pb.classList.toggle('active', preview); pb.setAttribute('aria-pressed', preview ? 'true' : 'false'); }
+    // Leaving Edit with unsaved keystrokes would silently drop them: the pad
+    // auto-applies on blur, and switching panes is not a blur.
+    if (preview && typeof lcdFlushAutoApply === 'function') lcdFlushAutoApply();
+  }
+
+  // ---- Add a slide from the editor -----------------------------------
+  // Delegates to addSlideToGroup() with the selected slide's own group ids --
+  // byte for byte the call the rail's "+ Add Slide" button makes, so there is
+  // one insertion path, not two.
+  function lcdAddSlideAfterCurrent() {
+    var box = document.querySelector('#woWorshipOrder .wo-slide-box.selected');
+    if (!box) { showToast('Select a slide first', 'warning'); return; }
+    var sectionId = box.getAttribute('data-section');
+    var songId = box.getAttribute('data-song-id');
+    var litId = box.getAttribute('data-liturgy-id');
+    if (songId) addSlideToGroup('song', songId, sectionId);
+    else if (litId) addSlideToGroup('liturgy', litId, sectionId);
+    else showToast('This slide is not part of a song or liturgy group', 'warning');
+  }
+
+  // ---- Projector status, read from the projection window itself -------
+  // The existing dot was only ever switched ON (when a window opened, or the
+  // extension announced itself) and never off, so it could claim to be live
+  // over a projector the operator had closed. This asks the window.
+  // There are TWO real ways this app puts a slide in front of the room, and an
+  // indicator that knows only one of them lies about the other. Project opens a
+  // separate projection window when a second screen is available, and otherwise
+  // covers this screen with the #woFullscreenOverlay -- which is exactly as live
+  // as the window is. Keyed on projectionWindow alone, the pill read OFFLINE
+  // while the congregation was looking at a slide.
+  function _lcdProjectorTarget() {
+    if (projectionWindow && !projectionWindow.closed) return 'window';
+    var ov = document.getElementById('woFullscreenOverlay');
+    if (ov && ov.classList.contains('show')) return 'fullscreen';
+    return null;
+  }
+
+  function _lcdUpdateProjectorStatus() {
+    var target = _lcdProjectorTarget();
+    var live = !!target;
+    // Blank only exists for the window path -- blankProjection() refuses
+    // without one -- so it must not colour the fullscreen case.
+    var blanked = (target === 'window') && _projBlanked;
+    var dot = document.getElementById('lcdProgramLiveDot');
+    if (dot) dot.classList.toggle('live', live);
+    var pill = document.getElementById('lcdOnAirPill');
+    if (pill) {
+      pill.textContent = live ? (blanked ? 'BLANKED' : 'ON AIR') : 'OFFLINE';
+      pill.className = 'lcd-onair' + (live ? (blanked ? ' blanked' : ' live') : '');
+    }
+    var txt = document.getElementById('lcdProjectorStatusText');
+    if (txt) {
+      txt.textContent = target === 'window'
+        ? (blanked ? 'Projector window — output blanked' : 'Projector window open')
+        : target === 'fullscreen'
+          ? 'Projecting full screen on this display'
+          : 'Not projecting';
+    }
+  }
+
+  // Closing the projection window fires no event we can listen for, so the
+  // state is sampled. Only while the console is on screen, and only a couple
+  // of attribute reads per tick.
+  var _lcdStatusTimer = null;
+  function _lcdStartStatusPolling(on) {
+    if (on) {
+      _lcdUpdateProjectorStatus();
+      if (!_lcdStatusTimer) _lcdStatusTimer = setInterval(_lcdUpdateProjectorStatus, 1000);
+    } else if (_lcdStatusTimer) {
+      clearInterval(_lcdStatusTimer);
+      _lcdStatusTimer = null;
+    }
+  }
+
   // ---- Order-level undo / redo for the LCD Projection view -----------
   // Snapshots the #woWorshipOrder DOM + song/PPT models before each
   // structural change so Ctrl+Z / Ctrl+Y can restore. Native typing undo
@@ -61832,6 +61971,8 @@ var WO = (function() {
     lcdToggleScheduleExpand: lcdToggleScheduleExpand,
     lcdToggleLibrary: lcdToggleLibrary,
     woToggleOverflow: woToggleOverflow,
+    lcdSetEditorMode: lcdSetEditorMode,
+    lcdAddSlideAfterCurrent: lcdAddSlideAfterCurrent,
     lcdToggleWorkspaceFullscreen: lcdToggleWorkspaceFullscreen,
     lcdOpenSectionMenu: lcdOpenSectionMenu,
     lcdRunSectionAction: lcdRunSectionAction,
@@ -70640,6 +70781,95 @@ function filterLiturgyItems() {
   @media (min-width: 1120px) and (max-width: 1439px) {
     #worshipOrderView.lcd-mode .wo-header h1 { display: none; }
     #worshipOrderView.lcd-mode .wo-current-order-info { max-width: 190px; }
+  }
+
+  /* ==========================================================================
+     CHUNK 4 — PREVIEW / EDIT and PROGRAM / LIVE
+     ========================================================================== */
+
+  /* ---- Preview / Edit segmented control ---------------------------------- */
+  .lcd-seg {
+    display: inline-flex; align-items: center; gap: 2px; margin-left: 8px;
+    padding: 2px; border-radius: 8px;
+    background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.14);
+  }
+  .lcd-seg-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    min-height: 26px; padding: 4px 10px; border: 0; border-radius: 6px;
+    background: transparent; color: var(--lcd-ivory-300, #cbd5e1);
+    font-family: 'Poppins', sans-serif; font-size: 0.68rem; font-weight: 600;
+    cursor: pointer; white-space: nowrap; transition: background 0.15s, color 0.15s;
+  }
+  .lcd-seg-btn i { font-size: 0.64rem; }
+  .lcd-seg-btn:hover { color: var(--lcd-ivory-100, #f8f4ea); background: rgba(255,255,255,0.08); }
+  .lcd-seg-btn.active {
+    background: var(--lcd-gold-500, #c9a227); color: #1a1a1a;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.28);
+  }
+  .lcd-seg-btn:focus-visible { outline: 2px solid var(--lcd-cyan-400, #38bdf8); outline-offset: 1px; }
+
+  /* Edit is the default; Preview swaps the canvas for the projection surface.
+     The formatting toolbar goes with the canvas -- it has nothing to act on
+     while a read-only render is showing. */
+  .lcd-preview-surface { display: none; flex: 1; min-height: 0; }
+  .lcd-lyrics-panel.lcd-mode-preview .lcd-fmt-toolbar,
+  .lcd-lyrics-panel.lcd-mode-preview .lcd-editor-canvas { display: none; }
+  .lcd-lyrics-panel.lcd-mode-preview .lcd-preview-surface {
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* A true 16:9 render, capped so it never pushes the nav row out of the panel. */
+  .lcd-preview-surface #woPreviewScreen {
+    display: flex; width: 100%; max-width: 100%;
+    aspect-ratio: 16 / 9; height: auto; min-height: 0; max-height: 100%;
+    margin: 0; border-radius: var(--lcd-radius-md, 10px);
+    border: 1px solid var(--lcd-navy-line, #2a3a5c);
+    box-shadow: var(--lcd-shadow-md);
+  }
+
+  /* ---- Slide nav under the canvas ---------------------------------------- */
+  .lcd-slide-nav {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 8px; flex: 0 0 auto; flex-wrap: wrap;
+  }
+  .lcd-slide-nav-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-width: 36px; min-height: 36px; padding: 0 10px;
+    border-radius: 8px; cursor: pointer;
+    background: rgba(255,255,255,0.10); color: var(--lcd-ivory-100, #f8f4ea);
+    border: 1px solid rgba(255,255,255,0.16);
+    font-family: 'Poppins', sans-serif; font-size: 0.7rem; font-weight: 600;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .lcd-slide-nav-btn.wide { margin-left: auto; }
+  .lcd-slide-nav-btn:hover { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.28); }
+  .lcd-slide-nav-btn:focus-visible { outline: 2px solid var(--lcd-cyan-400, #38bdf8); outline-offset: 1px; }
+
+  /* ---- Program / Live header and status ---------------------------------- */
+  .lcd-program-label { flex-wrap: wrap; gap: 7px; }
+  .lcd-onair, .lcd-autolive {
+    display: inline-flex; align-items: center;
+    padding: 2px 7px; border-radius: 999px;
+    font-family: 'Poppins', sans-serif; font-size: 0.58rem; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+  }
+  /* Offline is the resting state and reads as such -- grey, not alarming. */
+  .lcd-onair { background: rgba(148,163,184,0.22); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.35); }
+  .lcd-onair.live { background: #b91c1c; color: #fff; border-color: #ef4444; }
+  .lcd-onair.blanked { background: #78350f; color: #fde68a; border-color: #b45309; }
+  .lcd-autolive { background: rgba(201,162,39,0.18); color: var(--lcd-gold-300, #e3c766); border: 1px solid rgba(201,162,39,0.42); }
+  .lcd-program-status {
+    display: flex; align-items: center; gap: 6px; margin-top: 6px; flex: 0 0 auto;
+    font-family: 'Poppins', sans-serif; font-size: 0.64rem;
+    color: var(--lcd-ivory-300, #94a3b8);
+  }
+  .lcd-program-status i { font-size: 0.62rem; opacity: 0.8; }
+
+  /* The tray now owns the whole lower row (its Preview Output neighbour moved
+     into the Slide Editor), so the old 50% track would leave half the row bare. */
+  .lcd-lower-row .lcd-media-panel { flex: 1 1 auto; min-width: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lcd-seg-btn, .lcd-slide-nav-btn { transition: none; }
   }
 
   /* The bar's own width, not the window's. The app sidebar is 68px collapsed
