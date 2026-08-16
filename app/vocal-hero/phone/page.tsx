@@ -14,6 +14,7 @@ import { SatbLane, clearTrail, pushTrail } from '../SatbLane';
 import type { TrailSample } from '../SatbLane';
 import { RoundReviewPanel } from '../RoundReview';
 import { HighScoreBoard } from '../HighScoreBoard';
+import { CountInOverlay } from '../CountInOverlay';
 import { rememberPlayerName, storedPlayerName } from '../playerName';
 import { summariseRound } from '@/lib/vocal-hero/review';
 import type { RoundReview } from '@/lib/vocal-hero/review';
@@ -159,8 +160,9 @@ function PhoneGame() {
   if (session.status === 'lobby') return <PhoneLobby song={song!} code={session.room_code} part={partIndex} players={players} player={player} mic={mic} testMic={testMic} ready={readyUp} error={error} difficulty={difficulty} setDifficulty={setDifficulty} latencySec={latencySec} applyLatency={applyLatency} transpose={transpose} setTranspose={setTranspose} hasBackingTrack={!!(song?.audio_url || song?.backing_media_url)} warmUp={warmUp} setWarmUp={setWarmUp} />;
   if (session.status === 'ended') return <PhoneEnd song={song!} playerName={name} score={score} sections={sections} part={partIndex} review={review} warmUp={warmUp} />;
   if (timeline.phase === 'Paused') return <PhonePaused song={song!} part={partIndex} />;
-  if (timeline.phase !== 'live') return <PhoneCountdown song={song!} part={partIndex} phase={timeline.phase} mic={mic} />;
-  return <PhoneLive song={song!} notes={notes} transpose={transpose} warmUp={warmUp} guide={isGuideMelody(notes)} part={partIndex} elapsed={timeline.songElapsed} pitch={pitch} score={score} hits={hits} sections={sections} mic={mic} fullBoard={fullBoard} setFullBoard={setFullBoard} trail={trailRef.current} />;
+  const preRoll = timeline.phase.startsWith('Count-in') || timeline.phase.startsWith('Lead-in');
+  if (timeline.phase !== 'live' && !preRoll) return <PhoneCountdown song={song!} part={partIndex} phase={timeline.phase} mic={mic} />;
+  return <><PhoneLive song={song!} notes={notes} transpose={transpose} warmUp={warmUp} guide={isGuideMelody(notes)} part={partIndex} elapsed={timeline.songElapsed} pitch={pitch} score={score} hits={hits} sections={sections} mic={mic} fullBoard={fullBoard} setFullBoard={setFullBoard} trail={trailRef.current} />{preRoll && <CountInOverlay phase={timeline.phase} />}</>;
 }
 
 function PhoneBrand() { return <b className="text-xl">VOCAL<span className="text-fuchsia-400">Hero</span></b>; }

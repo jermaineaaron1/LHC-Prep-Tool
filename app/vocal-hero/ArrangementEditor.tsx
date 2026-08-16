@@ -381,6 +381,10 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [recordingTimelineOffset, setRecordingTimelineOffset] = useState(0);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [editorNotice, setEditorNotice] = useState<string | null>(null);
+  // Unsaved work exists from the first edit until a save SUCCEEDS. The two
+  // silent ways to lose an arrangement were a failed save whose error
+  // rendered behind this overlay, and a close that never asked.
+  const dirtyRef = useRef(false);
   const [midiPreview, setMidiPreview] = useState<MidiPreview | null>(null);
   const [midiError, setMidiError] = useState<string | null>(null);
   const [midiRanges, setMidiRanges] = useState<SatbMidiRanges>(DEFAULT_SATB_MIDI_RANGES);
@@ -484,6 +488,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       await document.exitFullscreen();
       return;
     }
+    if (dirtyRef.current && !window.confirm('You have unsaved changes. Close the editor without saving them?')) return;
     onClose();
   }
 
@@ -601,7 +606,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   }
 
   function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), timedLyrics: timedLyrics.map(section => ({ ...section })), karaokeLyrics: trackSettings.karaoke_lyrics ? { ...trackSettings.karaoke_lyrics } : undefined, musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: musicalTimeline.snap_division, snap_value: musicalTimeline.snap_value }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
-  function pushHistory() { const snapshot = makeSnapshot(); setHistory(current => ({ past: [...current.past, snapshot].slice(-100), future: [] })); }
+  function pushHistory() { dirtyRef.current = true; const snapshot = makeSnapshot(); setHistory(current => ({ past: [...current.past, snapshot].slice(-100), future: [] })); }
   function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setTimedLyrics(snapshot.timedLyrics.map(section => ({ ...section }))); setTrackSettings(current => ({ ...current, karaoke_lyrics: snapshot.karaokeLyrics ? { ...snapshot.karaokeLyrics } : undefined })); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, snap_value: snapshot.musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
   function undo() { const previous = history.past.at(-1); if (!previous) return; const current = makeSnapshot(); restoreSnapshot(previous); setHistory({ past: history.past.slice(0, -1), future: [current, ...history.future] }); }
   function redo() { const next = history.future[0]; if (!next) return; const current = makeSnapshot(); restoreSnapshot(next); setHistory({ past: [...history.past, current].slice(-100), future: history.future.slice(1) }); }
@@ -1018,7 +1023,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       setTranscribingTake(false);
     }
   }
-  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .001, roundPrecise(note.end)) })), timed_lyrics: timedLyrics.map(section => ({ ...section, primary: section.primary.trim(), translation: section.translation.trim(), start: Math.max(0, roundPrecise(section.start)), end: Math.max(roundPrecise(section.start) + .01, roundPrecise(section.end)) })).filter(section => section.primary), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, karaoke_lyrics: { targets_per_phrase: trackSettings.karaoke_lyrics?.targets_per_phrase ?? DEFAULT_TARGETS_PER_PHRASE, max_lines: trackSettings.karaoke_lyrics?.max_lines ?? 2, source: trackSettings.karaoke_lyrics?.source ?? 'notes' }, musical_timeline: musicalTimeline } }); } finally { setSaving(false); } }
+  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .001, roundPrecise(note.end)) })), timed_lyrics: timedLyrics.map(section => ({ ...section, primary: section.primary.trim(), translation: section.translation.trim(), start: Math.max(0, roundPrecise(section.start)), end: Math.max(roundPrecise(section.start) + .01, roundPrecise(section.end)) })).filter(section => section.primary), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, karaoke_lyrics: { targets_per_phrase: trackSettings.karaoke_lyrics?.targets_per_phrase ?? DEFAULT_TARGETS_PER_PHRASE, max_lines: trackSettings.karaoke_lyrics?.max_lines ?? 2, source: trackSettings.karaoke_lyrics?.source ?? 'notes' }, musical_timeline: musicalTimeline } }); dirtyRef.current = false; } catch (cause) { setEditorNotice(`Save FAILED — nothing was stored: ${cause instanceof Error ? cause.message : 'unknown error'}. Check the connection and press Save again.`); } finally { setSaving(false); } }
   async function uploadBackingTrack(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';

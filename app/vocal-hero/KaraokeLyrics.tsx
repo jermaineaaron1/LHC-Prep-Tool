@@ -58,7 +58,7 @@ export function KaraokeLyrics({ song, notes, partIndex, elapsed, compact = false
       <LyricLine
         segments={cue.segments}
         fallback={cue.text}
-        className={`${size} max-w-full font-black leading-tight ${maxLines === 1 ? 'whitespace-nowrap' : ''}`}
+        className={`${size} max-w-full font-black leading-tight ${maxLines === 1 ? 'whitespace-nowrap' : 'line-clamp-2'}`}
       />
     </div>
     <div className="mx-auto mt-3 h-1.5 max-w-4xl overflow-hidden rounded-full bg-white/10"><span className="block h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-[width] duration-75" style={{ width: `${cue.progress * 100}%` }} /></div>
@@ -86,7 +86,7 @@ export function ChoirKaraokeLyrics({ song, notes, elapsed }: { song: Song; notes
           <LyricLine
             segments={cue.segments}
             fallback={cue.text}
-            className="min-h-7 text-sm font-bold leading-snug"
+            className="min-h-7 text-sm font-bold leading-snug line-clamp-2"
             sung={COLOURS[partIndex]}
             unsung="#e2e8f0"
           />
