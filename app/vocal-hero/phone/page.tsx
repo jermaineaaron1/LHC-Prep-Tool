@@ -184,4 +184,27 @@ function PhoneEnd({ song, playerName, score, sections, part, review, warmUp }: {
 // frozen on the strike line. Must stay in step with the host's copy in
 // app/vocal-hero/page.tsx -- the two describe the same round, and the only
 // intended difference is that the host says 'Live' where the phone says 'live'.
-function timelineFor(session: GameSession | null, now: number) { if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 }; const delta = now - new Date(session.playback_starts_at).getTime(); const countdown = session.countdown_seconds ?? 5, lead = session.lead_in_seconds ?? 2; const preRoll = countdown + lead; if (delta < 0) return { phase: `Starts in ${Math.ceil(-delta / 1000)}`, songElapsed: -preRoll }; const seconds = delta / 1000; if (seconds < countdown) return { phase: `Count-in ${countdown - Math.floor(seconds)}`, songElapsed: seconds - preRoll }; if (seconds < preRoll) return { phase: 'Lead-in · listen', songElapsed: seconds - preRoll }; return { phase: 'live', songElapsed: seconds - preRoll }; }
+/** Must match the host's constant in app/vocal-hero/page.tsx — see the note there. */
+const PRE_ROLL_APPROACH = 2;
+
+function timelineFor(session: GameSession | null, now: number) {
+  if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 };
+  const delta = now - new Date(session.playback_starts_at).getTime();
+  const countdown = session.countdown_seconds ?? 5, lead = session.lead_in_seconds ?? 2;
+  const preRoll = countdown + lead;
+  // Song time runs negative through the pre-roll so the opening notes sweep in
+  // from the right, decelerating onto the strike line at the downbeat. Must stay
+  // in step with the host's copy in app/vocal-hero/page.tsx — the two describe
+  // the same round, and the only intended difference is that the host says
+  // 'Live' where the phone says 'live'.
+  const glide = (secondsIn: number) => {
+    if (preRoll <= 0) return 0;
+    const left = Math.max(0, preRoll - secondsIn);
+    return -(left + ((PRE_ROLL_APPROACH - 1) / preRoll) * left * left);
+  };
+  if (delta < 0) return { phase: `Starts in ${Math.ceil(-delta / 1000)}`, songElapsed: glide(0) };
+  const seconds = delta / 1000;
+  if (seconds < countdown) return { phase: `Count-in ${countdown - Math.floor(seconds)}`, songElapsed: glide(seconds) };
+  if (seconds < preRoll) return { phase: 'Lead-in · listen', songElapsed: glide(seconds) };
+  return { phase: 'live', songElapsed: seconds - preRoll };
+}
