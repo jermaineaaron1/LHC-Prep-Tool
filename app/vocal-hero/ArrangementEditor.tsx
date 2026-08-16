@@ -9,6 +9,7 @@ import { detectVocalNotes, type AudioNoteDetectionDiagnostics } from '@/lib/voca
 import { supabase } from '@/lib/vocal-hero/supabaseClient';
 import { BackingTrackPanel } from './BackingTrackPanel';
 import { BackingTrackLane } from './BackingTrackLane';
+import { DEFAULT_TARGETS_PER_PHRASE } from '@/lib/vocal-hero/liveCues';
 import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, splitIntoSyllables, spreadLyricsAcrossNotes } from '@/lib/vocal-hero/arrange';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
@@ -617,7 +618,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     pushHistory();
     setNotes(current => current.map(note => note.id === id ? candidate : note));
     if (values.lyric !== undefined) {
-      setTrackSettings(current => ({ ...current, karaoke_lyrics: { targets_per_phrase: current.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: current.karaoke_lyrics?.max_lines ?? 2, source: 'notes' } }));
+      setTrackSettings(current => ({ ...current, karaoke_lyrics: { targets_per_phrase: current.karaoke_lyrics?.targets_per_phrase ?? DEFAULT_TARGETS_PER_PHRASE, max_lines: current.karaoke_lyrics?.max_lines ?? 2, source: 'notes' } }));
       setEditorNotice('Note lyric updated. Gameplay always reads the chosen voice directly from note lyrics and groups them one musical measure at a time. Save to publish the change.');
       return;
     }
@@ -1017,7 +1018,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       setTranscribingTake(false);
     }
   }
-  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .001, roundPrecise(note.end)) })), timed_lyrics: timedLyrics.map(section => ({ ...section, primary: section.primary.trim(), translation: section.translation.trim(), start: Math.max(0, roundPrecise(section.start)), end: Math.max(roundPrecise(section.start) + .01, roundPrecise(section.end)) })).filter(section => section.primary), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, karaoke_lyrics: { targets_per_phrase: trackSettings.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: trackSettings.karaoke_lyrics?.max_lines ?? 2, source: 'notes' }, musical_timeline: musicalTimeline } }); } finally { setSaving(false); } }
+  async function save() { setSaving(true); try { await onSave({ id: song.id, title: title.trim() || song.title, notes: [...notes].sort((a, b) => a.start - b.start).map(note => ({ ...note, start: Math.max(0, roundPrecise(note.start)), end: Math.max(roundPrecise(note.start) + .001, roundPrecise(note.end)) })), timed_lyrics: timedLyrics.map(section => ({ ...section, primary: section.primary.trim(), translation: section.translation.trim(), start: Math.max(0, roundPrecise(section.start)), end: Math.max(roundPrecise(section.start) + .01, roundPrecise(section.end)) })).filter(section => section.primary), backing_media_url: mediaUrl || undefined, backing_media_kind: mediaUrl ? mediaKind : undefined, backing_track_settings: { ...trackSettings, karaoke_lyrics: { targets_per_phrase: trackSettings.karaoke_lyrics?.targets_per_phrase ?? DEFAULT_TARGETS_PER_PHRASE, max_lines: trackSettings.karaoke_lyrics?.max_lines ?? 2, source: trackSettings.karaoke_lyrics?.source ?? 'notes' }, musical_timeline: musicalTimeline } }); } finally { setSaving(false); } }
   async function uploadBackingTrack(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -1159,7 +1160,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
 }
 
 function GameplayLyricsDialog({ notes, phrases, settings, onPhrasesChange, onSettingsChange, onHistory, onClose }: { notes: SongNote[]; phrases: TimedLyricSection[]; settings: BackingTrackSettings; onPhrasesChange: (value: TimedLyricSection[]) => void; onSettingsChange: (value: NonNullable<BackingTrackSettings['karaoke_lyrics']>) => void; onHistory: () => void; onClose: () => void }) {
-  const lyricSettings = { targets_per_phrase: settings.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: settings.karaoke_lyrics?.max_lines ?? 2 as 1 | 2, source: settings.karaoke_lyrics?.source ?? (phrases.length ? 'phrases' : 'notes') as 'phrases' | 'notes' };
+  const lyricSettings = { targets_per_phrase: settings.karaoke_lyrics?.targets_per_phrase ?? DEFAULT_TARGETS_PER_PHRASE, max_lines: settings.karaoke_lyrics?.max_lines ?? 2 as 1 | 2, source: settings.karaoke_lyrics?.source ?? (phrases.length ? 'phrases' : 'notes') as 'phrases' | 'notes' };
   const notePhrases = useMemo(() => timedLyricsFromNotes(notes, lyricSettings.targets_per_phrase), [notes, lyricSettings.targets_per_phrase]);
   const activePhrases = lyricSettings.source === 'notes' ? notePhrases : phrases;
   const setSource = (source: 'phrases' | 'notes') => { onHistory(); onSettingsChange({ ...lyricSettings, source }); };
@@ -1280,7 +1281,7 @@ function HarmonyDialog({ noteCounts, selectedPart, selectionCount, onApply, onCl
 }
 
 function KaraokePhraseControls({ settings, onChange }: { settings: BackingTrackSettings; onChange: (value: NonNullable<BackingTrackSettings['karaoke_lyrics']>) => void }) {
-  const value = { targets_per_phrase: settings.karaoke_lyrics?.targets_per_phrase ?? 10, max_lines: settings.karaoke_lyrics?.max_lines ?? 2 as 1 | 2, source: settings.karaoke_lyrics?.source ?? 'phrases' as 'phrases' | 'notes' };
+  const value = { targets_per_phrase: settings.karaoke_lyrics?.targets_per_phrase ?? DEFAULT_TARGETS_PER_PHRASE, max_lines: settings.karaoke_lyrics?.max_lines ?? 2 as 1 | 2, source: settings.karaoke_lyrics?.source ?? 'phrases' as 'phrases' | 'notes' };
   return <section className="rounded-xl border border-cyan-300/20 bg-[linear-gradient(135deg,#071729,#120d29)] p-3">
     <div className="flex flex-wrap items-start gap-4"><span className="mr-auto"><b className="block text-sm text-white">Gameplay lyric phrases</b><small className="text-slate-400">Choose how many timed lyric targets appear together. The same phrase sequence is retained after refresh.</small></span>
       <label className="text-[10px] font-bold uppercase tracking-[.12em] text-cyan-300">Targets per phrase<input type="number" min={4} max={20} value={value.targets_per_phrase} onChange={event => onChange({ ...value, targets_per_phrase: Math.max(4, Math.min(20, Math.round(Number(event.target.value) || 10))) })} className="mt-1 block w-24 rounded-lg border border-white/15 bg-[#070b1d] px-3 py-2 text-sm text-white" /></label>

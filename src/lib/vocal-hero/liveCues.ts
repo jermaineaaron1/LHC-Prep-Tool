@@ -1,5 +1,16 @@
 import type { Song, SongNote } from './types';
 
+/**
+ * How many notes a derived phrase may run to before it is broken.
+ *
+ * Counted in NOTES, and a note carries a syllable rather than a word, so ten
+ * was around four words — short enough that a sentence still arrived in
+ * pieces, which is the very thing the phrasing work set out to fix. Sixteen is
+ * roughly a full line of a hymn. Gaps and punctuation still do most of the
+ * breaking; this is only the cap that stops a run-on line.
+ */
+export const DEFAULT_TARGETS_PER_PHRASE = 16;
+
 const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 
 /** One fragment of the line, as it sits on a single note. */
@@ -121,7 +132,13 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
  * is applied here, which keeps songs that predate the dialog working.
  */
 function phraseGroups(events: LyricEvent[], song: Song): LyricEvent[][] {
-  const authored = [...(song.timed_lyrics ?? [])]
+  // The editor offers a choice between the phrases written in its Gameplay
+  // Lyrics dialog and phrases derived from the note lyrics. Gameplay ignored
+  // that choice entirely, so an arranger who picked one got the other. It is
+  // set to 'notes' automatically whenever a note lyric is edited, since the
+  // written phrases are stale from that moment on.
+  const source = song.backing_track_settings?.karaoke_lyrics?.source;
+  const authored = source === 'notes' ? [] : [...(song.timed_lyrics ?? [])]
     .filter(section => section.primary?.trim())
     .sort((a, b) => a.start - b.start);
 
@@ -149,7 +166,7 @@ function phraseGroups(events: LyricEvent[], song: Song): LyricEvent[][] {
  * unreadable in one glance. */
 function splitIntoPhrases(events: LyricEvent[], song: Song): LyricEvent[][] {
   if (!events.length) return [];
-  const maxTargets = Math.max(2, song.backing_track_settings?.karaoke_lyrics?.targets_per_phrase ?? 10);
+  const maxTargets = Math.max(2, song.backing_track_settings?.karaoke_lyrics?.targets_per_phrase ?? DEFAULT_TARGETS_PER_PHRASE);
   const phrases: LyricEvent[][] = [];
   let phrase: LyricEvent[] = [];
   for (const event of events) {
