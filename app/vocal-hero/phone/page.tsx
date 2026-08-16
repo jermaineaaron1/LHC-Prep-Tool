@@ -16,6 +16,7 @@ import { RoundReviewPanel } from '../RoundReview';
 import { HighScoreBoard } from '../HighScoreBoard';
 import { CountInOverlay } from '../CountInOverlay';
 import { rememberPlayerName, storedPlayerName } from '../playerName';
+import { playEntranceCue } from '@/lib/vocal-hero/cueTones';
 import { summariseRound } from '@/lib/vocal-hero/review';
 import type { RoundReview } from '@/lib/vocal-hero/review';
 import { TransposeBadge, TransposePicker, rememberTranspose, storedTranspose, transposeNotes } from '../TransposePicker';
@@ -82,7 +83,7 @@ function PhoneGame() {
   const warmUpRef = useRef(false);
   useEffect(() => { warmUpRef.current = warmUp; }, [warmUp]);
   function setDifficulty(next: Difficulty) { setDifficultyState(next); rememberDifficulty(next); }
-  const pitchRef = useRef<PitchEngine | null>(null); const scoreRef = useRef<ScoreEngine | null>(null); const unsubRef = useRef<(() => void) | null>(null); const startedRef = useRef(false); const elapsedRef = useRef(0); const phaseRef = useRef('Waiting'); const lastPitchPaintRef = useRef(0); const cuePlayedRef = useRef(false);
+  const pitchRef = useRef<PitchEngine | null>(null); const scoreRef = useRef<ScoreEngine | null>(null); const unsubRef = useRef<(() => void) | null>(null); const startedRef = useRef(false); const elapsedRef = useRef(0); const phaseRef = useRef('Waiting'); const lastPitchPaintRef = useRef(0); const cuedRef = useRef({ outer: false, inner: false });
   useEffect(() => () => { pitchRef.current?.stop(); void scoreRef.current?.stop(); unsubRef.current?.(); void cueContextRef.current?.close().catch(() => undefined); }, []);
   useEffect(() => { if (!session) return; const interval = window.setInterval(() => { setNow(Date.now()); void fetchPlayers(session.id).then(setPlayers); void fetchSectionScores(session.id).then(setSections).catch(() => setSections([])); }, 900); return () => clearInterval(interval); }, [session]);
   useEffect(() => { if (session?.status !== 'playing') return; let frame = 0, last = 0; const tick = (time: number) => { if (time - last > 33) { setNow(Date.now()); last = time; } frame = requestAnimationFrame(tick); }; frame = requestAnimationFrame(tick); return () => cancelAnimationFrame(frame); }, [session?.status]);
@@ -118,14 +119,31 @@ function PhoneGame() {
     endedSeenRef.current = false;
     void scoreRef.current?.stop(); scoreRef.current = null; startedRef.current = false;
     resultsRef.current = []; setReview(null); clearTrail(trailRef.current);
-    setScore(0); setHits({}); cuePlayedRef.current = false;
+    setScore(0); setHits({}); cuedRef.current = { outer: false, inner: false };
   }, [clockOffset, session?.playback_starts_at, session?.status]);
 
   async function startPitchTracking() { if (pitchRef.current?.isRunning) return true; const range = PITCH_RANGES[partIndex] ?? PITCH_RANGES[0]; const shift = transposeRef.current; const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, minHz: PitchEngine.midiToHz(range.low - 3 + shift), maxHz: PitchEngine.midiToHz(range.high + 3 + shift), onPitch: sample => { if (performance.now() - lastPitchPaintRef.current > 33) { setPitch(sample.frequency); lastPitchPaintRef.current = performance.now(); } // This sample is the sound of a moment already past: the beat took time to
       // reach the singer's ears, and their answer took time to reach the analyser.
       // Scoring it against the clock as it stands now would mark every note late.
       if (phaseRef.current === 'live' && sample.confidence > .78) { const songTime = Math.max(0, elapsedRef.current - latencyRef.current); scoreRef.current?.scorePitch(sample.frequency, songTime); pushTrail(trailRef.current, songTime, sample.frequency); } } }); pitchRef.current = engine; try { await engine.start(); setMic('ready'); return true; } catch { pitchRef.current = null; setMic('blocked'); return false; } }
-  useEffect(() => { if (timeline.phase !== 'Lead-in · listen' || cuePlayedRef.current || !song) return; cuePlayedRef.current = true; const first = notes.filter(note => note.part === partIndex || note.part === -1).sort((a, b) => a.start - b.start).slice(0, 2); if (!first.length) return; const context = cueContextRef.current ?? new AudioContext({ latencyHint: 'interactive' }); if (context.state === 'suspended') void context.resume(); first.forEach((note, index) => { const oscillator = context.createOscillator(), gain = context.createGain(), at = context.currentTime + .08 + index * .65; oscillator.frequency.value = PitchEngine.midiToHz(note.midi); gain.gain.setValueAtTime(.0001, at); gain.gain.exponentialRampToValueAtTime(.16, at + .03); gain.gain.exponentialRampToValueAtTime(.0001, at + .55); oscillator.connect(gain).connect(context.destination); oscillator.start(at); oscillator.stop(at + .58); }); if (context !== cueContextRef.current) window.setTimeout(() => void context.close(), 1800); }, [notes, partIndex, song, timeline.phase]);
+  // The starting notes, sounded once in each countdown: once while the round is
+  // being scheduled, and again once the in-game count begins. Two hearings
+  // spaced apart beat one, because the first tells the singer what is coming and
+  // the second refreshes it right before they have to produce it.
+  //
+  // The phase strings tick every second ('Starts in 5', 'Starts in 4'), so the
+  // effect re-runs throughout; the per-round flags are what keep each countdown
+  // to a single playing.
+  useEffect(() => {
+    if (!song) return;
+    const outer = timeline.phase.startsWith('Starts in'), inner = timeline.phase.startsWith('Count-in');
+    if (!outer && !inner) return;
+    if (outer ? cuedRef.current.outer : cuedRef.current.inner) return;
+    if (outer) cuedRef.current.outer = true; else cuedRef.current.inner = true;
+    const context = cueContextRef.current ?? new AudioContext({ latencyHint: 'interactive' });
+    playEntranceCue(context, notes, partIndex);
+    if (context !== cueContextRef.current) window.setTimeout(() => void context.close(), 1800);
+  }, [notes, partIndex, song, timeline.phase]);
   useEffect(() => { if (!session || !song || !player || !part || session.status !== 'playing' || startedRef.current) return; startedRef.current = true; const scorer = new ScoreEngine({ part, partIndex, notes, songDuration: song.duration, playerId: player.id, sessionId: session.id, difficulty, practice: warmUp, onScoreUpdate: (_, total) => setScore(total), onNoteResult: result => { resultsRef.current.push(result); setHits(current => ({ ...current, [result.noteId]: result.points > 0 })); } }); scoreRef.current = scorer; scorer.start(); void startPitchTracking(); }, [difficulty, notes, part, partIndex, player, session, song]);
   useEffect(() => { if (session?.status !== 'playing' || !player) return; const interval = setInterval(() => { const stats = scoreRef.current?.stats; if (stats && !warmUpRef.current) void savePlayerRoundStats({ session_id: session.id, player_id: player.id, score: scoreRef.current?.currentTotal ?? 0, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit }); }, 3000); return () => clearInterval(interval); }, [player, session?.id, session?.status]);
   useEffect(() => { if (session?.status !== 'ended' || !player || !scoreRef.current) return; pitchRef.current?.stop(); setReview(summariseRound(resultsRef.current, notes)); const scorer = scoreRef.current; /* stop() resolves the note still in progress, so both the total and the counts change during it: reading either beforehand loses the last note of every round. The phone was also saving the score STATE, which lags the engine by a render, while the host saved the engine's own total — so the two disagreed. */ void scorer.stop().then(() => { if (warmUpRef.current) return; const stats = scorer.stats; void savePlayerRoundStats({ session_id: session.id, player_id: player.id, score: scorer.currentTotal, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit }); }); }, [player, session?.status]);
@@ -185,7 +203,7 @@ function PhoneEnd({ song, playerName, score, sections, part, review, warmUp }: {
 // app/vocal-hero/page.tsx -- the two describe the same round, and the only
 // intended difference is that the host says 'Live' where the phone says 'live'.
 /** Must match the host's constant in app/vocal-hero/page.tsx — see the note there. */
-const PRE_ROLL_APPROACH = 2;
+const PRE_ROLL_APPROACH = 3;
 
 function timelineFor(session: GameSession | null, now: number) {
   if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 };

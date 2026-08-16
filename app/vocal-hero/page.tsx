@@ -18,6 +18,7 @@ import { RoundReviewPanel } from './RoundReview';
 import { HighScoreBoard } from './HighScoreBoard';
 import { CountInOverlay } from './CountInOverlay';
 import { rememberPlayerName, storedPlayerName } from './playerName';
+import { playEntranceCue } from '@/lib/vocal-hero/cueTones';
 import { summariseRound } from '@/lib/vocal-hero/review';
 import type { RoundReview } from '@/lib/vocal-hero/review';
 import { TransposeBadge, TransposePicker, rememberTranspose, storedTranspose, transposeNotes } from './TransposePicker';
@@ -108,6 +109,8 @@ export default function VocalHeroHostPage() {
   const soloElapsedRef = useRef(0);
   const soloPhaseRef = useRef('Waiting');
   const soloLastPitchPaintRef = useRef(0);
+  const cueContextRef = useRef<AudioContext | null>(null);
+  const cuedRef = useRef({ outer: false, inner: false });
   const pauseStartedRef = useRef(0);
   const endedRef = useRef(false);
   // When the round is over: past the written duration and the last note alike,
@@ -136,7 +139,7 @@ export default function VocalHeroHostPage() {
       setSong(currentSong); setSession(existing); setPlayers(await fetchPlayers(existing.id));
     })();
   }, []);
-  useEffect(() => () => { listeners.current.forEach(close => close()); soloPitchRef.current?.stop(); void soloScoreRef.current?.stop(); }, []);
+  useEffect(() => () => { listeners.current.forEach(close => close()); soloPitchRef.current?.stop(); void soloScoreRef.current?.stop(); void cueContextRef.current?.close().catch(() => undefined); }, []);
   useEffect(() => {
     if (!session) return;
     const interval = window.setInterval(() => {
@@ -219,6 +222,7 @@ export default function VocalHeroHostPage() {
       soloPitchRef.current?.stop(); void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
       setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current); resultsRef.current = []; setSoloReview(null); endedRef.current = false;
       setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
+      cuedRef.current = { outer: false, inner: false };
       const created = await createSession(next.id, 'worship-host');
       listeners.current.forEach(close => close());
       listeners.current = [subscribeToPlayers(created.id, setPlayers), subscribeToSession(created.id, setSession)];
@@ -288,6 +292,12 @@ export default function VocalHeroHostPage() {
   async function start() {
     if (!session) return;
     try {
+      // Built here, inside the click, because an AudioContext created later
+      // starts suspended under browser autoplay rules and the reference notes
+      // would never sound. Both countdowns are armed again for the new round.
+      cueContextRef.current ??= new AudioContext({ latencyHint: 'interactive' });
+      if (cueContextRef.current.state === 'suspended') void cueContextRef.current.resume();
+      cuedRef.current = { outer: false, inner: false };
       if (backingTrackUrl && audioRef.current) {
         audioRef.current.muted = true; await audioRef.current.play(); audioRef.current.pause(); audioRef.current.currentTime = 0; audioRef.current.muted = false;
       }
@@ -352,6 +362,28 @@ export default function VocalHeroHostPage() {
 
   const notes = useMemo(() => song ? playableNotes(song) : [], [song]);
   const soloNotes = useMemo(() => transposeNotes(notes, transpose), [notes, transpose]);
+  // The starting notes, sounded once in each countdown: once while the round is
+  // being scheduled, and again once the in-game count begins. Two hearings
+  // spaced apart beat one -- the first says what is coming, the second refreshes
+  // it right before the singer has to produce it.
+  //
+  // Solo only. In a multiplayer room every phone plays its own singer's part,
+  // and the host speaker sounding one voice's notes would be the wrong pitch for
+  // three quarters of the room.
+  //
+  // The phase string ticks every second ('Count-in 5', 'Count-in 4'), so this
+  // re-runs throughout; the per-round flags keep each countdown to one playing.
+  useEffect(() => {
+    if (soloPart === null || !song || session?.status !== 'playing') return;
+    const outer = timeline.phase.startsWith('Starts in'), inner = timeline.phase.startsWith('Count-in');
+    if (!outer && !inner) return;
+    if (outer ? cuedRef.current.outer : cuedRef.current.inner) return;
+    if (outer) cuedRef.current.outer = true; else cuedRef.current.inner = true;
+    const context = cueContextRef.current ?? new AudioContext({ latencyHint: 'interactive' });
+    playEntranceCue(context, soloNotes, soloPart);
+    if (context !== cueContextRef.current) window.setTimeout(() => void context.close(), 1800);
+  }, [session?.status, soloNotes, soloPart, song, timeline.phase]);
+
   const phoneUrl = session ? `${window.location.origin}/vocal-hero/phone?room=${session.room_code}` : '';
   // The musical count-in and lead-in happen INSIDE the game: lanes visible,
   // bar frozen at zero, the count carried by an overlay. Only the scheduled
@@ -595,7 +627,7 @@ function Leaderboard({ players }: { players: SessionPlayer[] }) { return <div cl
  * fixed distance -- one lane look-ahead -- so the only way to shorten it is to
  * run song time quicker than the clock and hand back at the downbeat.
  */
-const PRE_ROLL_APPROACH = 2;
+const PRE_ROLL_APPROACH = 3;
 
 function timelineFor(session: GameSession | null, now: number) {
   if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 };
