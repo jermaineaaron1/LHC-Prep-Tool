@@ -54,7 +54,7 @@ export function KaraokeLyrics({ song, notes, partIndex, elapsed, compact = false
   const size = compact ? 'text-2xl' : maxLines === 1 ? 'text-2xl sm:text-4xl' : 'text-3xl sm:text-5xl';
   return <section className={`rounded-2xl border border-cyan-300/20 bg-[linear-gradient(135deg,#081326,#120d29)] text-center shadow-[0_16px_50px_#02061788] ${compact ? 'p-4' : 'p-5 sm:p-6'}`} aria-label="Karaoke lyrics">
     <p className="text-[10px] font-black uppercase tracking-[.22em] text-cyan-300">{cue.waiting ? 'Coming up' : 'Sing now'}</p>
-    <div className={`mx-auto mt-2 flex max-w-5xl items-center justify-center ${compact ? 'min-h-16' : maxLines === 1 ? 'min-h-20' : 'min-h-24'}`}>
+    <div className={`mx-auto mt-2 flex max-w-5xl items-center justify-center overflow-hidden ${compact ? 'min-h-16' : maxLines === 1 ? 'min-h-20' : 'min-h-24'}`}>
       <LyricLine
         segments={cue.segments}
         fallback={cue.text}

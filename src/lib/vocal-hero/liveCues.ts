@@ -166,7 +166,11 @@ function phraseGroups(events: LyricEvent[], song: Song): LyricEvent[][] {
  * unreadable in one glance. */
 function splitIntoPhrases(events: LyricEvent[], song: Song): LyricEvent[][] {
   if (!events.length) return [];
-  const maxTargets = Math.max(2, song.backing_track_settings?.karaoke_lyrics?.targets_per_phrase ?? DEFAULT_TARGETS_PER_PHRASE);
+  // One-line mode promises a single row that never wraps, so its default
+  // phrase must FIT one row -- sixteen syllables at display size cannot, and
+  // bled past the panel edge. An explicit per-song setting still wins.
+  const oneLine = song.backing_track_settings?.karaoke_lyrics?.max_lines === 1;
+  const maxTargets = Math.max(2, song.backing_track_settings?.karaoke_lyrics?.targets_per_phrase ?? (oneLine ? 8 : DEFAULT_TARGETS_PER_PHRASE));
   const phrases: LyricEvent[][] = [];
   let phrase: LyricEvent[] = [];
   for (const event of events) {

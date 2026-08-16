@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     // finished, gets nothing.
     const { data: player, error: lookupError } = await sb
       .from('vh_session_players')
-      .select('id, session_id, vh_game_sessions(status)')
+      .select('id, session_id, vh_game_sessions(status, ended_at)')
       .eq('id', playerId)
       .maybeSingle();
 
@@ -65,10 +65,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No such player in that session' }, { status: 403 });
     }
 
-    const joined = player.vh_game_sessions as unknown as { status?: string } | { status?: string }[] | null;
-    const status = Array.isArray(joined) ? joined[0]?.status : joined?.status;
+    const joined = player.vh_game_sessions as unknown as
+      { status?: string; ended_at?: string | null } | { status?: string; ended_at?: string | null }[] | null;
+    const row = Array.isArray(joined) ? joined[0] : joined;
+    const status = row?.status;
     if (status && status !== 'playing') {
-      return NextResponse.json({ error: 'That round is not in progress' }, { status: 409 });
+      // The final flush arrives AFTER the host has flipped the session to
+      // 'ended' -- the phones only learn the round is over from that flip.
+      // Refusing it outright dropped any chunk still pending at the end (a
+      // retried failure, most often), so a short grace window after ended_at
+      // accepts the round's own tail while a long-dead session still refuses.
+      const endedAt = status === 'ended' && row?.ended_at ? Date.parse(row.ended_at) : NaN;
+      const withinGrace = Number.isFinite(endedAt) && Date.now() - endedAt < 30000;
+      if (!withinGrace) {
+        return NextResponse.json({ error: 'That round is not in progress' }, { status: 409 });
+      }
     }
 
     // Increment score
