@@ -595,7 +595,7 @@ function Leaderboard({ players }: { players: SessionPlayer[] }) { return <div cl
  * fixed distance -- one lane look-ahead -- so the only way to shorten it is to
  * run song time quicker than the clock and hand back at the downbeat.
  */
-const PRE_ROLL_APPROACH = 2;
+const PRE_ROLL_APPROACH = 3;
 
 function timelineFor(session: GameSession | null, now: number) {
   if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 };

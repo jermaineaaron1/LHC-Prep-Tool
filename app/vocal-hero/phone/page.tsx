@@ -185,7 +185,7 @@ function PhoneEnd({ song, playerName, score, sections, part, review, warmUp }: {
 // app/vocal-hero/page.tsx -- the two describe the same round, and the only
 // intended difference is that the host says 'Live' where the phone says 'live'.
 /** Must match the host's constant in app/vocal-hero/page.tsx — see the note there. */
-const PRE_ROLL_APPROACH = 2;
+const PRE_ROLL_APPROACH = 3;
 
 function timelineFor(session: GameSession | null, now: number) {
   if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 };
