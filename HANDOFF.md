@@ -4,40 +4,64 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
-## 2026-08-16 — LCD Projection redesign, CHUNK 3 IN PROGRESS: the operator's screen is below every breakpoint
+## 2026-08-16 — LCD Projection console redesign: chunks 1–3 (branch `feature/lcd-projection-console-redesign`)
 
-**Not committed as code — the attempt was reverted. This entry is the finding, which is the part worth keeping.**
+Cut from `master` at `3670a48`. Six commits. **Not merged — awaiting the operator's approval of the finished feature.**
 
-### The finding
+### The layering trap, and the consolidation that ended it
 
-The machine the LCD desk is actually driven from is **1536x864 physical at 125% Windows scaling**, i.e. `devicePixelRatio: 1.25`, which gives Chrome a **1158px CSS viewport** when maximised. Measured directly in the operator's browser, not inferred.
+The single most useful thing learned on this branch. The LCD workspace's column widths were set by **17 `grid-template-columns` rules spread over ~1400 lines in three separate eras**, and only the last matching one ever won:
 
-Every LCD breakpoint sat above that. Below 1201px CSS the workspace did two things:
+1. the `/* ---- 1. Column widths ---- */` block,
+2. the "Phase 2" block ~330 lines later,
+3. a hardcoded `@media (min-width: 1201px) and (max-width: 1699px)` band ~1000 lines after that — **the rule that actually decided most desktop widths.**
 
-- `.wo-main-content` dropped from `grid` to `flex`;
-- `#lcdLibraryPanel` and `#lcdLibReopen` went to `display: none`.
+This cost three attempts. Two edits were silently dead on arrival because they were written into a superseded era and changed nothing at all. A third *appeared* to work and then crushed the workspace to 308px, because lowering a breakpoint dragged era 3's hardcoded `196px 286px` tracks over a width they were never meant to cover; that one was reverted rather than committed.
 
-So **the multi-column console never appeared on the screen it is operated from** — the operator got a two-column flex layout with no Content Library, and the proportional grid committed in chunk 2 had no effect there at all.
+`b4e61f4` consolidates all of it into **THE COLUMN BLOCK** — 9 rules, one contiguous range, in width order, with a header saying so. **If you are changing how wide any LCD column is, change it there and nowhere else.** Era 3's fixed tracks went with it, so 1201–1699 now scales like every other range; at 1366 the Service Slides column went from 1.46× the Content Library to 1.67×, the direction the mockup asks for.
 
-The brief asks for 1920 first, then 1536 and 1366. Those are CSS sizes; the operator's 1536x864 panel is a 1158px CSS viewport, narrower than the 1366 case and below the floor the whole design keys off. **Operator's decision: support ~1158px as a first-class case**, keeping all three columns at that width with the Content Library docked to its reopen tab rather than deleted.
+**Method note:** enumerate these rules with a media-aware parse of the source in document order. Plain grep misled me twice, and the live CSSOM walk under the Chrome extension silently returned 84 rules out of ~4400 — do not trust it.
 
-### What was tried, and why it was reverted
+### The operator's screen was below every breakpoint
 
-Nine sites key off the old floor — eight `@media` blocks plus the `matchMedia('(min-width: 1201px)')` inside `_lcdSizeWorkspaceColumns()` (~26324). Lowering all nine to 1120/1119 **does work**: `display` becomes `grid` at 1158, so the console layout reaches the operator's screen. That much was verified.
+Measured directly in the operator's browser: the LCD desk is a **1536×864 panel at 125% Windows scaling**, i.e. a **1158px CSS viewport**. Every LCD breakpoint sat above that. Below 1201px the workspace dropped from `grid` to `flex` and `#lcdLibraryPanel` was `display: none`, so **the multi-column console never appeared on the one machine it is driven from.**
 
-The column proportions did not follow. A new `@media (min-width: 1120px) and (max-width: 1279px)` band setting `44px minmax(258px,30fr) minmax(424px,70fr)` was overridden even after being moved below the `max-width: 1439px` block: measured `196px 286px 308.4px`, with the workspace crushed to 308px and the reopen tab at 196px instead of 44px. **There is at least one further column rule later in the file that decides at this width and has not been located yet.** That is the same layering trap chunk 2 hit twice — see that entry.
+`62235d9` lowers the floor to 1120px across all nine sites that keyed off it — eight media queries plus the `matchMedia` inside `_lcdSizeWorkspaceColumns()`. The portrait-tablet query (~4422) and a modal `max-width` (~72439) are not LCD sites and are deliberately untouched.
 
-Reverted rather than committed, because the half-done state left the operator's own width worse than before: preview 153px and program 111px, against a working two-column flex layout previously.
+A `1120–1279` band in THE COLUMN BLOCK docks the Content Library to its 44px reopen tab and floats it over the schedule when open, since three full columns do not fit. It reuses the existing `lcd-library-hidden` semantics, so the tab works with no JS change and the operator's preference still persists.
 
-### For the next session
+`9f18b51` then makes it start **docked** at those widths, and fixes a bug found while doing it: `_lcdApplyLayoutFlags` and `lcdToggleLibrary` read the preference flag independently, which would have made the tab's first click a no-op at exactly these widths. Both go through `_lcdLibHiddenNow()` now.
 
-1. Enumerate **every** `grid-template-columns` rule matching `.wo-main-content:not(.wo-song-order)` in source order and find the last one that matches at 1158px. Do this before writing any new rule. The reliable method is to read them out of the live CSSOM in document order rather than grepping, since grep order has already been misleading twice.
-2. Consider consolidating those generations into one block. The file currently carries three or four eras of column rules and each new edit has to guess which one is live. That consolidation is arguably its own chunk and would de-risk everything after it.
-3. Only then re-apply the 1120 threshold change and the drawer band.
+### Verified
 
-### Also confirmed while here
+| Width | Result |
+|---|---|
+| 1920 | library 215 / slides 431 / preview 501 / program 363; slides exactly 2× library; 16:9 at 1.779; no overflow |
+| 1366 | `display: grid`; 180 / 300 / 276 / 200; 16:9 at 1.786; no overflow |
+| **1158 (the operator's own)** | `display: grid` (was `flex`); tracks 44 / 258 / 473; reopen tab 44×44; 16:9 at 1.782; no overflow |
+| 1158, preference cleared | docked on load → click opens overlay → click docks again; Service Slides stays 258px throughout |
 
-The Content Library was **never broken** — an earlier note in this session's reporting claimed it was. It is hidden deliberately by the `max-width: 1200px` rule, and correctly so under the old design. Nothing is defective there.
+`Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>` blocks pass `node --check` after every commit. No markup moved, so `collectOrderItems()`'s selectors and the save pipeline are untouched.
+
+### Decisions taken with the operator
+
+- **OBS and YouTube status: omitted.** Neither integration exists anywhere in the repo (see the chunk 1 safety map). Only the projector has real state. Acceptance tests 25 and 26 will be recorded as "no such integration exists", not as passes.
+- **~1158px is a first-class target**, alongside the 1920/1536/1366 in the brief.
+
+### Still to do
+
+**Chunk 3 is not finished.** The Content Library is Songs-only. Section C also asks for tabs for **Liturgy, Scripture and Media**, small thumbnails, and a collapsible media shelf. That is a real feature addition, not a restyle: it must wire to `LiturgyModule` (75 pre-loaded items), the Bible browser and the media tray's existing store **without duplicating any of them**.
+
+Then chunks 4–6 as briefed: Preview/Edit and Program/Live (the first work that touches markup `collectOrderItems()` reads — check every change against it), the media tray and honest PowerPoint import feedback, and responsiveness/accessibility.
+
+Two things not yet started that are worth doing early:
+
+- **The workspace header.** ~400px of vertical space still goes to the old hero banner — title, subtitle, order pill, a Menu/Save/Save As/undo/zoom/Liturgy Book/Songbook row, and the mode chooser. The mockup replaces it with one restrained bar. Until that happens the console starts below the fold and the page scrolls as a whole instead of being a fixed-height console. Highest visual return, and low risk since it is chrome rather than slide markup.
+- **The palette.** Still the old blue/gold hero and light cards outside the workspace shell. The dark tokens already exist at ~68927; a second, conflicting `--lcd-ivory*` set at ~69122 belongs to the parchment Songbook surface and must not be merged with them.
+
+### Testing note
+
+Visual verification works through the Claude in Chrome extension against `http://localhost:3021`. The in-app browser pane cannot be used: it does not composite (no screenshots) and its media queries do not track the emulated viewport, which produced wrong numbers at 1366 early on.
 
 ---
 
