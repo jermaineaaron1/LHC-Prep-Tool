@@ -11,9 +11,20 @@ export const CENT_TOLERANCE: Record<Difficulty, number> = {
   hard: 25,
 };
 
-const ONSET_WINDOW_SEC = 0.35;
+// An entrance within ONSET_PERFECT_SEC is simply on time; timing credit then
+// slides to nothing at ONSET_WINDOW_SEC. The old single 0.35s window was a
+// pass/fail gate on the WHOLE note, so a singer 0.36s late scored zero while
+// holding perfect pitch for two-thirds of it. Late is worth less than
+// early-and-accurate; it is not worth nothing.
+const ONSET_PERFECT_SEC = 0.15;
+const ONSET_WINDOW_SEC = 0.7;
+// Within this the singer is on the note; credit then tapers to zero at the
+// difficulty's tolerance. Previously anything inside the tolerance scored
+// identically, so 45 cents flat — audibly flat, exactly what practice is for —
+// looked the same as dead centre, and 51 cents looked the same as silence.
+const PITCH_PERFECT_CENTS = 20;
 const NOTE_MAX_POINTS = 30;
-const WEIGHTS = { onset: 0.25, hold: 0.35, pitch: 0.4 };
+const WEIGHTS = { onset: 0.2, hold: 0.3, pitch: 0.5 };
 
 export interface NoteScoreResult {
   noteId: string;
@@ -21,6 +32,11 @@ export interface NoteScoreResult {
   hold: number;
   pitch: number;
   points: number;
+  /** Whole octaves the singer sat away from the written note, signed: -1 is an
+   * octave below. The note still scores — the octave is reported so a singer
+   * can be TOLD, rather than silently marked perfect for singing a different
+   * line to the one in front of them. */
+  octaveShift: number;
 }
 
 export interface ScoreEngineOptions {
@@ -42,6 +58,13 @@ interface ActiveNote {
   onsetDelaySec: number | null;
   voicedSec: number;
   inTuneSec: number;
+  /** Seconds weighted by how close to the centre of the note they were, so a
+   * held-but-flat note and a held-and-centred one no longer look alike. */
+  accurateSec: number;
+  /** Seconds spent an octave out, and which way, counted only while otherwise
+   * on the note. */
+  octaveOutSec: number;
+  octaveOutShift: number;
 }
 
 /**
@@ -103,12 +126,22 @@ export class ScoreEngine {
     if (!candidate || elapsedSec < candidate.start - ONSET_WINDOW_SEC) return awarded;
 
     if (!this.current || this.current.note.id !== candidate.id) {
-      this.current = { note: candidate, onsetCaptured: false, onsetDelaySec: null, voicedSec: 0, inTuneSec: 0 };
+      this.current = {
+        note: candidate, onsetCaptured: false, onsetDelaySec: null,
+        voicedSec: 0, inTuneSec: 0, accurateSec: 0, octaveOutSec: 0, octaveOutShift: 0,
+      };
     }
     const targetHz = PitchEngine.midiToHz(candidate.midi);
     const voiced = playerHz > 0;
     const alignedPlayerHz = voiced ? PitchEngine.alignOctaveToTarget(playerHz, candidate.midi) : 0;
-    const inTune = voiced && Math.abs(PitchEngine.centsDiff(alignedPlayerHz, targetHz)) <= CENT_TOLERANCE[this.opts.difficulty];
+    const cents = voiced ? Math.abs(PitchEngine.centsDiff(alignedPlayerHz, targetHz)) : Infinity;
+    const tolerance = CENT_TOLERANCE[this.opts.difficulty];
+    const inTune = cents <= tolerance;
+    // How well, not just whether. Full credit while inside PITCH_PERFECT_CENTS,
+    // sliding to zero at the tolerance edge.
+    const accuracy = inTune
+      ? clamp01((tolerance - Math.max(cents, PITCH_PERFECT_CENTS)) / Math.max(1, tolerance - PITCH_PERFECT_CENTS))
+      : 0;
     // Room noise or a loud backing track must not count as the singer's
     // entrance. Capture onset only once the expected pitch is present.
     if (!this.current.onsetCaptured && inTune) {
@@ -117,7 +150,12 @@ export class ScoreEngine {
     }
     if (elapsedSec >= candidate.start && elapsedSec < candidate.end && voiced) {
       this.current.voicedSec += dt;
-      if (inTune) this.current.inTuneSec += dt;
+      if (inTune) {
+        this.current.inTuneSec += dt;
+        this.current.accurateSec += dt * accuracy;
+        const shift = PitchEngine.octaveShift(playerHz, candidate.midi);
+        if (shift !== 0) { this.current.octaveOutSec += dt; this.current.octaveOutShift = shift; }
+      }
     }
     return awarded;
   }
@@ -137,26 +175,36 @@ export class ScoreEngine {
     this.current = null;
     this.attempted += 1;
     if (!tracking) {
-      this.opts.onNoteResult({ noteId: note.id, onset: 0, hold: 0, pitch: 0, points: 0 });
+      this.opts.onNoteResult({ noteId: note.id, onset: 0, hold: 0, pitch: 0, points: 0, octaveShift: 0 });
       return 0;
     }
     const duration = Math.max(note.end - note.start, 0.0001);
     const onset = tracking.onsetCaptured && tracking.onsetDelaySec !== null
-      ? clamp01(1 - Math.abs(tracking.onsetDelaySec) / ONSET_WINDOW_SEC) : 0;
-    const hold = clamp01(tracking.voicedSec / duration);
-    const pitch = tracking.voicedSec ? clamp01(tracking.inTuneSec / tracking.voicedSec) : 0;
-    // Vocal Hero awards a target only when both the entrance and pitch are
-    // valid; simply making sound for the duration is not enough.
-    const points = onset > 0 && pitch >= .5
-      ? Math.round((WEIGHTS.onset * onset + WEIGHTS.hold * hold + WEIGHTS.pitch * pitch) * NOTE_MAX_POINTS)
+      ? clamp01((ONSET_WINDOW_SEC - Math.max(0, Math.abs(tracking.onsetDelaySec) - ONSET_PERFECT_SEC))
+                / (ONSET_WINDOW_SEC - ONSET_PERFECT_SEC))
       : 0;
+    // Hold counts time spent ON the note, not time spent making a sound. That
+    // is what keeps "hum through the whole bar" from earning anything, which
+    // is the job the old pass/fail gate was doing — without the gate's habit
+    // of throwing away an otherwise good note for a late entrance.
+    const hold = clamp01(tracking.inTuneSec / duration);
+    const pitch = tracking.inTuneSec ? clamp01(tracking.accurateSec / tracking.inTuneSec) : 0;
+    const points = Math.round(
+      (WEIGHTS.onset * onset + WEIGHTS.hold * hold + WEIGHTS.pitch * pitch) * NOTE_MAX_POINTS
+    );
+    // A note counts as hit once the singer actually found it, rather than only
+    // when the entrance was also punctual.
+    const found = hold > 0 && pitch > 0;
     if (points > 0) {
       this.total += points;
       this.pending.push(points);
-      this.hit += 1;
       this.opts.onScoreUpdate(points, this.total);
     }
-    this.opts.onNoteResult({ noteId: note.id, onset, hold, pitch, points });
+    if (found) this.hit += 1;
+    // Report the octave only when the singer spent most of the note there, so
+    // one stray frame of harmonic confusion is not announced as a mistake.
+    const octaveShift = tracking.octaveOutSec > tracking.inTuneSec / 2 ? tracking.octaveOutShift : 0;
+    this.opts.onNoteResult({ noteId: note.id, onset, hold, pitch, points, octaveShift });
     return points;
   }
 
