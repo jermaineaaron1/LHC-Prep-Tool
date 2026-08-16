@@ -54963,11 +54963,27 @@ var WO = (function() {
     _lcdPrefWrite(saved);
   }
 
+  // Whether the Content Library is currently docked to its tab. One source of
+  // truth for both the renderer and the toggle -- reading the raw flag in two
+  // places is what would make the tab's first click do nothing at the widths
+  // where the default is "docked" but no preference has been stored yet.
+  //
+  // Between 1120 and 1279 the library has no track of its own: it floats over
+  // the Service Schedule (see THE COLUMN BLOCK), and opening on top of the
+  // schedule uninvited is the wrong first impression. Only the DEFAULT changes
+  // there -- once the operator has expressed a preference it is honoured, at
+  // that width as at any other.
+  function _lcdLibHiddenNow() {
+    var pref = localStorage.getItem(_LCD_LIB_HIDDEN_KEY);
+    if (pref !== null) return pref === '1';
+    return window.matchMedia('(min-width: 1120px) and (max-width: 1279px)').matches;
+  }
+
   function _lcdApplyLayoutFlags() {
     var mc = document.querySelector('.wo-main-content');
     if (!mc) return;
     var expanded = localStorage.getItem(_LCD_EXPAND_KEY) === '1';
-    var libHidden = localStorage.getItem(_LCD_LIB_HIDDEN_KEY) === '1';
+    var libHidden = _lcdLibHiddenNow();
     mc.classList.toggle('lcd-schedule-expanded', expanded);
     mc.classList.toggle('lcd-library-hidden', libHidden);
     var btn = document.getElementById('lcdScheduleExpandBtn');
@@ -55503,7 +55519,7 @@ var WO = (function() {
 
   function lcdToggleLibrary() {
     var mc = document.querySelector('.wo-main-content');
-    var flaggedHidden = localStorage.getItem(_LCD_LIB_HIDDEN_KEY) === '1';
+    var flaggedHidden = _lcdLibHiddenNow();
     // Below 1600px an expanded schedule hides the library via media query,
     // regardless of that flag. In that state the useful action is to
     // un-expand -- toggling the flag would leave the tab looking dead.
