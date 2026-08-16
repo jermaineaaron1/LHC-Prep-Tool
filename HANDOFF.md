@@ -4,6 +4,150 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
+## 2026-08-16 — LCD Projection chunks 4–6 (`eb1cbab`, `519fe20`, `3802106`)
+
+Branch `feature/lcd-projection-console-redesign`, **not merged**, awaiting the
+operator's approval. Header entry below; chunks 1–3 below that.
+
+### Chunk 4 — Preview/Edit and Program/Live (`eb1cbab`)
+
+**The collector was never at risk here, and that was worth proving first.**
+`#woPreviewPanel` and `#woWorshipOrder` are disjoint subtrees, and **zero**
+`collectOrderItems()` selectors live inside the panels this chunk rebuilds —
+all 19 sections, 94 slide boxes, 105 content boxes and 14 liturgy banners are
+in `#woWorshipOrder`. The real constraint is the editor's *write-back* path
+into `.wo-slide-box`, which is untouched. Proved end to end: saved and read the
+order back, **14 items totalling 95 slides against 95 slide boxes in the DOM**,
+including one just created by the new Add Slide.
+
+- **`#woPreviewScreen` was dead.** It sat in a `.lcd-lower-row` box the CSS set
+  to `display: none`, measuring 0×0, while `syncProjectionWithPreview()` and
+  every other writer kept rendering previews into it that nobody could see. It
+  is **moved** into the Slide Editor as that panel's Preview mode — same ids,
+  same writers, now visible at 248×139 (ratio 1.778). It is deliberately **not**
+  given `.lcd-output-box`: inside `.lcd-outputs-row` that class is a 50% track.
+- Previous / Next call `navigateSlideGlobal()`, the arrow keys' own function.
+  Add Slide calls `addSlideToGroup()` with the selected slide's own
+  `data-song-id` / `data-liturgy-id` / `data-section` — the identical call the
+  rail's "+ Add Slide" makes, so there is one insertion path, not two.
+- The Media Tray now has the whole lower row.
+
+**ON AIR is honest about both live surfaces.** This app projects two ways: a
+separate `projectionWindow`, and `#woFullscreenOverlay.show` when Project
+covers this screen instead. Keyed on `projectionWindow` alone the pill read
+OFFLINE while the congregation was looking at a slide. Sampled once a second
+because neither fires an event when it goes away; blank is reported only for
+the window path, since `blankProjection()` refuses without one. Verified:
+Project → `ON AIR` + "Projecting full screen on this display", close →
+`OFFLINE`, both caught by the sampler alone.
+
+### Chunk 5 — honest PowerPoint import feedback (`519fe20`)
+
+One import status card, in the section receiving the file, reusing the id the
+PPTX path already creates and removes (`sectionId + '-pptx-loading'`).
+
+**The two stages differ, so the feedback does.** pdf.js reports `numPages`
+before anything renders and each page reports itself as it finishes — measured,
+so it gets `Converting slides 8 of 24`, a determinate bar and matching
+`aria-valuenow`/`aria-valuemax`. Google Slides and CloudConvert answer only
+when finished — nothing to measure, so indeterminate with no number attached.
+Captured with a MutationObserver: **24 distinct states**, `0 of 24` [0%] →
+`12 of 24` [50%] → `23 of 24` [96%], then the card removed.
+
+**A bug found by testing Cancel, in that commit's own code.** `extractPdfPages`
+cleared the cancelled flag inside `getDocument().then()`, which resolves well
+after the button press — so a Cancel made while the file was still uploading or
+parsing was wiped and the import carried on (observed reaching "10 of 40"). The
+flag is cleared where an import *begins* (`addSlidesFromFiles`) and never after.
+
+### Chunk 6 — responsiveness, accessibility, contrast (`3802106`)
+
+**Two contrast failures in chunk 4's own work.** The Slide Editor panel is the
+**ivory** surface, not a dark one:
+
+| | before | after |
+|---|---|---|
+| segmented control, inactive tab | 1.35:1 | **6.11:1** |
+| slide nav / Add Slide row | **1.00:1** | **10.31:1** |
+
+1.00:1 is ivory on ivory — the Previous / Next / Add Slide row was *invisible*,
+and never appeared in a screenshot because it sits below the canvas, off the
+bottom of the frame.
+
+**Method note that matters more than the fix:** reading `backgroundColor` off
+the nearest ancestor is not enough in this file. These pills are translucent
+over translucent, and only compositing the alpha stack down to an opaque layer
+gives the real number. Done naively, six passing elements *appear to fail* and
+the two genuine failures hide among them.
+
+**The page no longer scrolls.** The last thing making the document taller than
+the viewport was the app shell's own 24px bottom padding — exactly the stray
+24px left after the header came down. At 1158×695 the document is now 695px.
+Scoped with a new `body.lcd-console-open` flag, **not** `:not(.wo-mode-song)`,
+which is absent in LCD mode *and* on every other page and would have stripped
+the padding from Home and Songs.
+
+**Focus ring `#0284c7`.** The console mixes a dark Program column with an ivory
+editor, rail and tray; the token cyan is invisible on ivory. Measured 3.70:1
+against all three ivory surfaces and 4.57:1 against the dark one.
+
+Verified: 1920/1536/1366/1158 and 1024/820/768 — zero horizontal overflow
+everywhere, program output exactly 1.778, schedule scrolls independently, and
+real key events (arrows moved slide 0→1→0; Tab advanced focus with
+`:focus-visible` true and the ring applied).
+
+### Acceptance tests — status
+
+Passing from this session's exercise: 1–4, 6–8, 10, 12, 18–24, 27–28, 30
+(padding and layout confirmed unchanged on Song Order, Home and Songs).
+15–17 and 19 exercised with real generated PDFs: pages arrive in order,
+uncropped (letterboxed inside 16:9), and survive save and reload.
+
+**25 and 26 are recorded as "no such integration exists"**, not as passes.
+Searched again: there is no OBS client, no websocket, no port 4455, and every
+`youtube` match is a song reference link or the roster duty "Live Streaming".
+
+Not verified here: 5, 9, 11, 13, 14, 29 — scripture insertion, apply-to-section
+formatting, section reordering, background drag onto slide/section, and the
+Songbook→LCD lyric propagation. All are pre-existing paths this branch does not
+touch, but they are the ones to exercise before merging.
+
+### Deliberate deviations from the brief
+
+- **Section-slide thumbnails below the canvas** — not built. The Service Slides
+  rail two columns left already is that surface; a second strip would duplicate
+  it and eat the canvas height chunks 1–3 worked to win back.
+- **Safe-zone guides in the editor canvas** — the guides exist on the Program
+  output, and the `Barrier` button that sets them is in the editor toolbar.
+- **Full Screen stayed in the top bar** rather than moving into Program/Live.
+  Its label and icon are updated by id; a second copy needs a duplicate id or a
+  second update path.
+- **Media Tray tabs left at three** (Backgrounds / Presentations / Announcements
+  with Videos as a sub-tab) rather than the brief's four. Promoting Videos means
+  changing `_lcdItemCategory`'s categorisation, which is the media *storage*
+  mapping chunk 5 is told not to change; videos are already one click away.
+- **Segmented-control tabs are 32px**, not the brief's 36–40px, to match the
+  `.lcd-mini-btn`s beside them in the same panel header.
+
+### Harness facts, all of which cost time
+
+- **A hidden tab freezes every CSS transition** — see the header entry below.
+  The single most expensive trap of the session.
+- **`setInterval` is throttled to once a minute in a hidden tab.** Progress
+  during an import cannot be sampled with a timer; use a `MutationObserver`,
+  which is not timer-driven.
+- **pdf.js never settles while the tab is hidden** (no `rAF`). Shim
+  `requestAnimationFrame` with `setTimeout` to exercise the real import path.
+- **Script `.focus()` does not set `:focus-visible`.** Testing focus rings needs
+  real `Tab` key events, or the result is a false negative.
+- **The Bash working directory can silently revert to the main repo.** A
+  `cp Index.html dist/index.html` ran there instead of the worktree; harmless
+  only because the two were already identical. It left the worktree's `dist/`
+  unsynced, which looks exactly like a stale dev-server cache. Use absolute
+  `cd` on every command.
+
+---
+
 ## 2026-08-16 — LCD Projection: the workspace banner is one bar (commit `d1759c3`)
 
 The structural change the entry below said was needed. **Not merged.**
