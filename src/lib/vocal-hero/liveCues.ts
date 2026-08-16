@@ -2,12 +2,26 @@ import type { Song, SongNote } from './types';
 
 const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 
+/** One fragment of the line, as it sits on a single note. */
+export interface KaraokeSegment {
+  text: string;
+  /** 0 not yet sung, 1 fully sung; the fragment being sung is in between. */
+  fill: number;
+  current: boolean;
+  /** Hyphenated fragments join the previous one with no space between. */
+  joinsPrevious: boolean;
+}
+
 export interface KaraokeCue {
   text: string;
   progress: number;
   currentLyric: string;
   nextText: string;
   waiting: boolean;
+  /** The line broken up so each fragment can be lit on its own. A single
+   * clip across the whole block only works while the line fits on one row;
+   * once it wraps, a horizontal clip lights the same fraction of every row. */
+  segments: KaraokeSegment[];
 }
 
 interface LyricEvent {
@@ -19,6 +33,7 @@ interface LyricEvent {
 interface DisplayEvent extends LyricEvent {
   charStart: number;
   charEnd: number;
+  joinsPrevious: boolean;
 }
 
 export function midiNoteName(midi: number) {
@@ -55,7 +70,7 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
   // Note lyrics are the sole gameplay source. For authored SATB arrangements
   // the chosen voice never borrows a phrase or lyric from another part.
   const events = lyricEvents(notes.filter(note => hasAuthoredSatb ? note.part === partIndex : note.part === partIndex || note.part === -1));
-  if (!events.length) return { text: 'Instrumental — listen for your entrance', progress: 0, currentLyric: '', nextText: '', waiting: true };
+  if (!events.length) return { text: 'Instrumental — listen for your entrance', progress: 0, currentLyric: '', nextText: '', waiting: true, segments: [] };
   const phrases = phraseGroups(events, song);
   let phraseIndex = phrases.findIndex(phrase => elapsed >= phrase[0].start - .35 && elapsed <= phrase[phrase.length - 1].end + .8);
   if (phraseIndex < 0) phraseIndex = phrases.findIndex(phrase => phrase[0].start > elapsed);
@@ -73,12 +88,21 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
       break;
     } else break;
   }
+  const segments: KaraokeSegment[] = display.events.map(event => ({
+    text: event.lyric,
+    fill: elapsed >= event.end ? 1
+      : elapsed >= event.start ? clamp((elapsed - event.start) / Math.max(.04, event.end - event.start))
+      : 0,
+    current: elapsed >= event.start && elapsed < event.end,
+    joinsPrevious: event.joinsPrevious,
+  }));
   return {
     text: display.text,
     progress: display.text.length ? clamp(highlightedChars / display.text.length) : 0,
     currentLyric,
     nextText: phrases[phraseIndex + 1] ? displayPhrase(phrases[phraseIndex + 1]).text : '',
     waiting: elapsed < phrase[0].start,
+    segments,
   };
 }
 
@@ -167,7 +191,7 @@ function displayPhrase(events: LyricEvent[]) {
     const charStart = text.length;
     const lyric = rawLyric.replace(/^[-\u2013\u2014]+|[-\u2013\u2014]+$/g, '');
     text += lyric;
-    displayEvents.push({ ...event, lyric, charStart, charEnd: text.length });
+    displayEvents.push({ ...event, lyric, charStart, charEnd: text.length, joinsPrevious });
     joinNext = /[-\u2013\u2014]$/.test(rawLyric);
   }
   return { text, events: displayEvents };
