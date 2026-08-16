@@ -19,7 +19,11 @@ export function CountInOverlay({ phase }: { phase: string }) {
       {leadIn
         ? <>
           <p className="text-3xl text-cyan-200">♪</p>
-          <p className="mt-1 text-xs font-black uppercase tracking-[.26em] text-cyan-200">Listen — your starting note</p>
+          {/* The reference notes now sound during the counts rather than here,
+              so by the lead-in the singer has heard them twice and this is the
+              moment to breathe. Still promising a note here would leave them
+              waiting for a sound that no longer comes. */}
+          <p className="mt-1 text-xs font-black uppercase tracking-[.26em] text-cyan-200">Breathe — you sing at zero</p>
         </>
         : <>
           <p className="bg-gradient-to-br from-fuchsia-400 via-violet-400 to-cyan-300 bg-clip-text text-7xl font-black leading-none text-transparent">{number ?? '•'}</p>
