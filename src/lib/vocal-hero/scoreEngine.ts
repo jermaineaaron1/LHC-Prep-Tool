@@ -139,8 +139,12 @@ export class ScoreEngine {
     const inTune = cents <= tolerance;
     // How well, not just whether. Full credit while inside PITCH_PERFECT_CENTS,
     // sliding to zero at the tolerance edge.
+    // The perfect band cannot be most of the tolerance, or the taper has no
+    // room to work: on hard, a fixed 20 cents left only 5 cents of slope and
+    // the scoring went back to being effectively pass/fail.
+    const perfect = Math.min(PITCH_PERFECT_CENTS, tolerance * 0.4);
     const accuracy = inTune
-      ? clamp01((tolerance - Math.max(cents, PITCH_PERFECT_CENTS)) / Math.max(1, tolerance - PITCH_PERFECT_CENTS))
+      ? clamp01((tolerance - Math.max(cents, perfect)) / Math.max(1, tolerance - perfect))
       : 0;
     // Room noise or a loud backing track must not count as the singer's
     // entrance. Capture onset only once the expected pitch is present.
