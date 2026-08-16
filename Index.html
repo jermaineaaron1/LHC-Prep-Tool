@@ -25693,7 +25693,12 @@ var WO = (function() {
           sortOrder: sortOrder++,
           sourceId: '',
           title: scriptureTitle,
-          content: { reference: scriptureTitle },
+          // Which reading this is -- First Reading / Psalm / Second Reading /
+          // Gospel. insertScriptureIntoBox() has always stamped it on the
+          // banner "for slot restoration", but it was never saved, so on
+          // reload the reading lost its slot and the restore appended it to
+          // the end of the section instead of parking it under its heading.
+          content: { reference: scriptureTitle, subLabel: banner.getAttribute('data-sub-label') || '' },
           customizations: {},
           slides: slides
         });
@@ -25912,7 +25917,12 @@ var WO = (function() {
               sortOrder: sortOrder++,
               sourceId: '',
               title: item.title || 'Scripture',
-              content: { reference: item.title },
+              // subLabel must survive THIS path too. collectOrderItems has two
+              // scripture emitters -- the DOM walk above and this
+              // serviceSectionItems fallback -- and only the first carried the
+              // reading's slot. Whichever ran last won, so the label saved
+              // correctly sometimes and came back empty other times.
+              content: { reference: item.title, subLabel: item.subLabel || (item.content && item.content.subLabel) || '' },
               customizations: {},
               slides: scrSlides
             });
@@ -26131,6 +26141,9 @@ var WO = (function() {
           type: 'scripture',
           title: item.title,
           sectionId: item.sectionId,
+          // Carried so a later save through the serviceSectionItems path does
+          // not drop which reading slot this is.
+          subLabel: (item.content && item.content.subLabel) || '',
           slides: item.slides || [],
           content: item.slides ? item.slides.map(function(s) { return s.content; }).join('\n') : ''
         });
@@ -28754,12 +28767,32 @@ var WO = (function() {
           // Restore scripture readings (per screenshot 269)
           var scriptureItem = {
             title: item.title,
+            // Carried so the reading can be parked back under its own heading.
+            subLabel: (item.content && item.content.subLabel) || '',
             content: item.slides ? item.slides.map(function(s) { return s.content; }).join('\n') : (item.content && item.content.text) || ''
           };
           // Avoid duplicate: check if this scripture is already in the section
           var existingBanner = container.querySelector('.wo-song-banner.scripture-banner[data-scripture-title="' + (item.title || '').replace(/"/g, '\\"') + '"]');
           if (!existingBanner) {
-            addScriptureToSection(item.sectionId, scriptureItem);
+            // Park the reading back under its own heading. addScriptureToSection()
+            // appends to the END of the section, so a First Reading came back
+            // sitting below Psalm, Second Reading and Gospel. When the saved
+            // item knows its slot and that slot's placeholder is still there,
+            // insertScriptureIntoBox() puts it exactly where it belongs -- the
+            // same call the operator's own insert makes.
+            // initializeServiceOrder() can receive `content` still JSON-encoded
+            // (the loader used elsewhere parses it, this path does not), so
+            // reading .subLabel off it silently produced undefined and the
+            // reading fell through to being appended at the end of the section.
+            var _rawC = item.content;
+            if (typeof _rawC === 'string') { try { _rawC = JSON.parse(_rawC); } catch (e) { _rawC = null; } }
+            var _subLabel = (_rawC && _rawC.subLabel) || '';
+            scriptureItem.subLabel = _subLabel;
+            var _slotBox = _subLabel
+              ? container.querySelector('.wo-content-box[data-subsection-type="scripture"][data-sub-label="' + _subLabel.replace(/"/g, '\\"') + '"]')
+              : null;
+            if (_slotBox) insertScriptureIntoBox(_slotBox, scriptureItem);
+            else addScriptureToSection(item.sectionId, scriptureItem);
             // Apply slide backgrounds and rich formatting if saved (the
             // rebuild above is plain-text, same hazard as liturgy slides).
             if (item.slides) {
@@ -62105,9 +62138,32 @@ var WO = (function() {
     var container = document.getElementById(sectionId + '-boxes');
     if (!container) return;
 
-    // Remove placeholder if present
-    var placeholder = container.querySelector('.wo-content-placeholder');
-    if (placeholder) placeholder.parentElement.remove();
+    // A reading belongs under its own heading. If it knows which slot it is --
+    // First Reading, Psalm, Second Reading, Gospel -- fill THAT slot, which is
+    // what parks a restored reading beneath its heading instead of dumping it
+    // at the end of the section. insertScriptureIntoBox() replaces the
+    // placeholder in place and stamps the banner with the slot, so the next
+    // save/reload round-trips correctly too.
+    // Done here rather than at one call site because several restore paths
+    // funnel through this function.
+    var _sub = (scriptureItem && (scriptureItem.subLabel ||
+                (scriptureItem.content && scriptureItem.content.subLabel))) || '';
+    if (_sub) {
+      var _slot = container.querySelector(
+        '.wo-content-box[data-subsection-type="scripture"][data-sub-label="' +
+        String(_sub).replace(/"/g, '\\"') + '"]');
+      if (_slot) { insertScriptureIntoBox(_slot, scriptureItem); return; }
+    }
+
+    // Remove placeholder if present -- but NEVER cannibalise a named reading
+    // slot for a reading that does not claim it. Taking "the first placeholder
+    // in the section" is what made First Reading vanish when a restored Second
+    // Reading landed: it ate the wrong slot and appended itself at the end.
+    var placeholder = container.querySelector('.wo-content-box:not([data-sub-label]) .wo-content-placeholder')
+                   || container.querySelector('.wo-content-placeholder:not([data-sub-label])');
+    if (placeholder && !placeholder.closest('.wo-content-box[data-sub-label]')) {
+      placeholder.parentElement.remove();
+    }
 
     var title = scriptureItem.title || 'Scripture';
     var content = scriptureItem.content || '';
@@ -62139,7 +62195,7 @@ var WO = (function() {
       '<button class="wo-add-slide-btn" onclick="WO.addSlideToGroup(this)" title="Add slide">+ Add Slide</button>' +
       '</div>';
 
-    var bannerHtml = '<div class="wo-song-banner scripture-banner" data-scripture-title="' + escapeHtml(title) + '" data-section="' + escapeHtml(sectionId) + '" data-sub-label="" style="background:linear-gradient(135deg,#1e40af,#3b82f6);color:white;padding:8px 14px;border-radius:8px 8px 0 0;display:flex;align-items:center;justify-content:space-between;font-size:0.85rem;font-weight:600;cursor:pointer;" onclick="WO.selectSlideBox(this.nextElementSibling)">' +
+    var bannerHtml = '<div class="wo-song-banner scripture-banner" data-scripture-title="' + escapeHtml(title) + '" data-section="' + escapeHtml(sectionId) + '" data-sub-label="' + escapeHtml(_sub || '') + '" style="background:linear-gradient(135deg,#1e40af,#3b82f6);color:white;padding:8px 14px;border-radius:8px 8px 0 0;display:flex;align-items:center;justify-content:space-between;font-size:0.85rem;font-weight:600;cursor:pointer;" onclick="WO.selectSlideBox(this.nextElementSibling)">' +
       '<span><i class="fa-solid fa-book-bible mr-2"></i>' + escapeHtml(title) + '</span>' +
       '<button onclick="event.stopPropagation(); WO.removeScriptureKeepSlot(this);" style="background:rgba(255,255,255,0.2);border:none;color:white;width:24px;height:24px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Remove reading (keep slot)"><i class="fa-solid fa-times"></i></button>' +
     '</div>';
