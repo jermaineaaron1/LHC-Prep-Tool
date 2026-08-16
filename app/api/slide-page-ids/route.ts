@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGoogleAccessToken } from '../_lib/rosterCalendar';
+import { getSlidesAccessToken } from '../_lib/rosterCalendar';
 
 export const runtime = 'nodejs';
 
@@ -15,17 +15,19 @@ export const runtime = 'nodejs';
 // AUTH — OAuth only, and this is not a preference. Probed against the live API:
 // a request with an API key is refused with "API keys are not supported by this
 // API. Expected OAuth2 access token or other authentication credentials that
-// assert a principal." So this reuses the GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
-// / GOOGLE_REFRESH_TOKEN trio that calendar sync already uses.
-//
-// That refresh token was minted for Calendar scopes. Until it is re-consented
-// with a Slides-capable scope added —
+// assert a principal." So this authenticates as the same OAuth client calendar
+// sync uses (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET), and needs the scope
 //   https://www.googleapis.com/auth/presentations.readonly
 //   (or drive.readonly, which the Slides API also accepts)
-// — Google answers PERMISSION_DENIED / ACCESS_TOKEN_SCOPE_INSUFFICIENT, and that
-// is reported as its own case rather than as a generic failure, so whoever hits
-// it is told what to change. The route is correct and inert until then; the
-// client falls back to the single iframe exactly as it does today.
+// which the live token has carried since Aug 2026.
+//
+// The refresh token comes from getSlidesAccessToken, which prefers a dedicated
+// GOOGLE_SLIDES_REFRESH_TOKEN and falls back to the shared calendar one —
+// because re-consenting Slides replaces whichever token it is minted into, and
+// doing that to the shared token once took roster calendar sync down with it.
+//
+// A token that somehow lacks the scope is still reported as its own case below
+// rather than as a generic failure, so whoever hits it is told what to change.
 
 const SLIDES_API = 'https://slides.googleapis.com/v1/presentations/';
 
@@ -47,7 +49,7 @@ export async function GET(req: NextRequest) {
 
   let accessToken: string;
   try {
-    accessToken = await getGoogleAccessToken();
+    accessToken = await getSlidesAccessToken();
   } catch {
     // Deliberately not echoing the underlying error: it names env vars, and
     // nothing in it helps the operator standing at the projector.
