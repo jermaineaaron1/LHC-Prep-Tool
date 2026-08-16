@@ -16,6 +16,7 @@ import { ScoreEngine } from '@/lib/vocal-hero/scoreEngine';
 import type { NoteScoreResult } from '@/lib/vocal-hero/scoreEngine';
 import { RoundReviewPanel } from './RoundReview';
 import { HighScoreBoard } from './HighScoreBoard';
+import { CountInOverlay } from './CountInOverlay';
 import { rememberPlayerName, storedPlayerName } from './playerName';
 import { summariseRound } from '@/lib/vocal-hero/review';
 import type { RoundReview } from '@/lib/vocal-hero/review';
@@ -350,8 +351,13 @@ export default function VocalHeroHostPage() {
   const notes = useMemo(() => song ? playableNotes(song) : [], [song]);
   const soloNotes = useMemo(() => transposeNotes(notes, transpose), [notes, transpose]);
   const phoneUrl = session ? `${window.location.origin}/vocal-hero/phone?room=${session.room_code}` : '';
+  // The musical count-in and lead-in happen INSIDE the game: lanes visible,
+  // bar frozen at zero, the count carried by an overlay. Only the scheduled
+  // start ('Starts in N') keeps the full-screen countdown, so a round counts
+  // down once instead of twice back to back.
+  const preRoll = session?.status === 'playing' && (timeline.phase.startsWith('Count-in') || timeline.phase.startsWith('Lead-in'));
   const stage = session?.status === 'playing' && song
-      ? timeline.phase === 'Live' || timeline.phase === 'Paused'
+      ? timeline.phase === 'Live' || timeline.phase === 'Paused' || preRoll
       ? soloPlayer && soloPart !== null
         ? <SoloLiveStage song={song} notes={soloNotes} transpose={transpose} warmUp={warmUp} part={soloPart} elapsed={timeline.songElapsed} pitch={soloPitch} score={soloScore} hits={soloHits} lastResult={soloLastResult} sections={sections} mic={soloMic} fullBoard={soloFullBoard} setFullBoard={setSoloFullBoard} trail={trailRef.current} />
         : <LiveStage song={song} notes={notes} players={players} sections={sections} elapsed={timeline.songElapsed} />
@@ -371,6 +377,7 @@ export default function VocalHeroHostPage() {
     <header className="vh-topbar"><Brand /><span className="vh-divider" /><span className="text-xs tracking-[.2em] text-slate-400">{session ? 'LIVE SESSION' : 'SONG LIBRARY'}</span><span className="vh-live-dot">Live</span><div className="ml-auto flex flex-wrap items-center justify-end gap-2">{session?.status === 'playing' && <button onClick={gamePaused ? resumeGame : pauseGame} className="vh-outline-button border-cyan-300/35 text-cyan-100">{gamePaused ? '▶ Resume' : 'Ⅱ Pause'}</button>}{session && <button onClick={returnToLibrary} className="vh-outline-button">← Back to menu</button>}{session && <RoomCode code={session.room_code} />}<button onClick={() => window.open(session ? `/vocal-hero?fullscreen=1&room=${session.room_code}` : '/vocal-hero?fullscreen=1', '_blank', 'noopener')} className="vh-outline-button">Open full screen</button></div></header>
     {error && <p className="border-y border-rose-400/30 bg-rose-950/50 px-5 py-3 text-sm text-rose-200">{error}</p>}
     {stage}
+    {preRoll && <CountInOverlay phase={timeline.phase} />}
     {editingSong && <ArrangementEditor song={editingSong} onClose={() => setEditingSong(null)} onSave={saveArrangement} />}
     {showCreateSong && <CreateSongDialog creating={creatingSong} onCancel={() => setShowCreateSong(false)} onCreate={createNewSong} />}
     {scoresFor && <HighScoresDialog song={scoresFor} onClose={() => setScoresFor(null)} />}
