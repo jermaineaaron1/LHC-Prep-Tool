@@ -11,7 +11,7 @@ import type { GameSession, SectionScore, SessionPlayer, Song, SongNote } from '@
 import { SatbLane } from '../SatbLane';
 import { isGuideMelody, playableNotes, playablePart } from '@/lib/vocal-hero/songData';
 import { measureServerClockOffset } from '@/lib/vocal-hero/clock';
-import { gameplayNotes, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
+import { livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { KaraokeLyrics } from '../KaraokeLyrics';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
@@ -38,7 +38,7 @@ function PhoneGame() {
   useEffect(() => () => { pitchRef.current?.stop(); void scoreRef.current?.stop(); unsubRef.current?.(); }, []);
   useEffect(() => { if (!session) return; const interval = window.setInterval(() => { setNow(Date.now()); void fetchPlayers(session.id).then(setPlayers); void fetchSectionScores(session.id).then(setSections).catch(() => setSections([])); }, 900); return () => clearInterval(interval); }, [session]);
   useEffect(() => { if (session?.status !== 'playing') return; let frame = 0, last = 0; const tick = (time: number) => { if (time - last > 33) { setNow(Date.now()); last = time; } frame = requestAnimationFrame(tick); }; frame = requestAnimationFrame(tick); return () => cancelAnimationFrame(frame); }, [session?.status]);
-  const runningTimeline = timelineFor(session, now + clockOffset); const timeline = session?.paused ? { phase: 'Paused', songElapsed: pausedElapsed } : runningTimeline; const notes = useMemo(() => song ? gameplayNotes(song, playableNotes(song)) : [], [song]); const part = song ? playablePart(song, partIndex) : null;
+  const runningTimeline = timelineFor(session, now + clockOffset); const timeline = session?.paused ? { phase: 'Paused', songElapsed: pausedElapsed } : runningTimeline; const notes = useMemo(() => song ? playableNotes(song) : [], [song]); const part = song ? playablePart(song, partIndex) : null;
   useEffect(() => { if (session?.paused) setPausedElapsed(runningTimeline.songElapsed); }, [session?.paused]);
   useEffect(() => { elapsedRef.current = timeline.songElapsed; phaseRef.current = timeline.phase; }, [timeline.phase, timeline.songElapsed]);
 

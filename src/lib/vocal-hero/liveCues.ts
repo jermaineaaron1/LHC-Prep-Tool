@@ -21,8 +21,6 @@ interface DisplayEvent extends LyricEvent {
   charEnd: number;
 }
 
-type PhraseTimelineRow = { primary: string; start: number; end: number };
-
 export function midiNoteName(midi: number) {
   const rounded = Math.round(midi);
   return `${NOTE_NAMES[((rounded % 12) + 12) % 12]}${Math.floor(rounded / 12) - 1}`;
@@ -86,86 +84,6 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
   };
 }
 
-/** The cleaned phrase timeline shared by the karaoke display and note lane. */
-export function gameplayPhraseTimeline(song: Song): PhraseTimelineRow[] {
-  const timed = [...(song.timed_lyrics ?? [])]
-    .filter(section => section.primary?.trim())
-    .sort((a, b) => a.start - b.start);
-  const rows = phraseLikeTimedLyrics(timed) ? timed : legacyPhrases(song);
-  const result: PhraseTimelineRow[] = [];
-  for (const row of rows) {
-    const primary = row.primary.trim().replace(/\s+/g, ' ');
-    const next = { primary, start: Math.max(0, row.start), end: Math.max(row.start + .01, row.end) };
-    const previous = result[result.length - 1];
-    const duplicate = previous
-      && previous.primary.localeCompare(next.primary, undefined, { sensitivity: 'base' }) === 0
-      && next.start <= previous.end + 1.5;
-    if (duplicate) previous.end = Math.max(previous.end, next.end);
-    else result.push(next);
-  }
-  return result;
-}
-
-/**
- * Distribute phrase words across notes in the same time range for display.
- * Saved note lyrics remain untouched; both gameplay surfaces use one source.
- */
-export function gameplayLaneNotes(song: Song, notes: SongNote[], partIndex: number): SongNote[] {
-  void song;
-  void partIndex;
-  return notes;
-}
-
-/** Prepare every authored voice (and a shared guide, if present) for gameplay. */
-export function gameplayNotes(song: Song, notes: SongNote[]): SongNote[] {
-  void song;
-  return notes;
-}
-
-/** Global phrases are safe only when every SATB part has the same authored words. */
-export function allSatbVoicesShareLyrics(notes: SongNote[]): boolean {
-  return Boolean(sharedSatbLyricSignature(notes));
-}
-
-function sharedSatbLyricSignature(notes: SongNote[]): string | null {
-  const signatures = [0, 1, 2, 3].map(partIndex => {
-    const events = lyricEvents(notes.filter(note => note.part === partIndex));
-    return normaliseLyric(displayPhrase(events).text);
-  });
-  return signatures.every(Boolean) && new Set(signatures).size === 1 ? signatures[0] : null;
-}
-
-function phraseTimelineMatchesSatb(notes: SongNote[], phrases: PhraseTimelineRow[]) {
-  const shared = sharedSatbLyricSignature(notes);
-  if (!shared || !phrases.length) return false;
-  return normaliseLyric(phrases.map(phrase => phrase.primary).join(' ')) === shared;
-}
-
-function normaliseLyric(value: string) {
-  return value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-}
-
-function phraseLikeTimedLyrics(sections: Array<{ primary: string }>) {
-  if (!sections.length) return false;
-  const phraseCount = sections.filter(section => section.primary.trim().split(/\s+/).length >= 3).length;
-  return phraseCount >= Math.max(1, Math.ceil(sections.length * .6));
-}
-
-function timedPhraseCue(timed: Array<{ primary: string; start: number; end: number }>, elapsed: number): KaraokeCue {
-  let index = timed.findIndex(section => elapsed >= section.start && elapsed < section.end);
-  if (index < 0) index = timed.findIndex(section => section.start > elapsed);
-  if (index < 0) index = timed.length - 1;
-  const active = timed[Math.max(0, index)];
-  const duration = Math.max(.01, active.end - active.start);
-  return {
-    text: active.primary.trim(),
-    progress: clamp((elapsed - active.start) / duration),
-    currentLyric: active.primary.trim(),
-    nextText: timed[index + 1]?.primary?.trim() ?? '',
-    waiting: elapsed < active.start,
-  };
-}
-
 function measurePhraseEvents(events: LyricEvent[], song: Song) {
   const end = Math.max(song.duration || 0, ...events.map(event => event.end), 1);
   const measures = musicalMeasures(song, end + 1);
@@ -212,45 +130,6 @@ function lyricEvents(notes: SongNote[]): LyricEvent[] {
   return result;
 }
 
-function mergeEvents(events: LyricEvent[]) {
-  const result: LyricEvent[] = [];
-  for (const event of [...events].sort((a, b) => a.start - b.start)) {
-    const existing = result.find(candidate => Math.abs(candidate.start - event.start) <= .07);
-    if (existing) {
-      existing.end = Math.max(existing.end, event.end);
-      if (event.lyric.length > existing.lyric.length) existing.lyric = event.lyric;
-    } else result.push({ ...event });
-  }
-  return result;
-}
-
-function legacyPhrases(song: Song) {
-  const phrases: Array<{ primary: string; translation: string; start: number; end: number }> = [];
-  for (const note of [...(song.game_notes ?? [])].filter(note => note.phrase?.trim()).sort((a, b) => a.start - b.start)) {
-    const text = note.phrase!.trim();
-    const previous = phrases[phrases.length - 1];
-    if (previous && previous.primary === text && note.start <= previous.end + 1.5) previous.end = Math.max(previous.end, note.start + note.dur);
-    else phrases.push({ primary: text, translation: '', start: note.start, end: note.start + note.dur });
-  }
-  return phrases;
-}
-
-function phraseEvents(events: LyricEvent[], maxTargets: number) {
-  const phrases: LyricEvent[][] = [];
-  let phrase: LyricEvent[] = [];
-  for (const event of events) {
-    const previous = phrase[phrase.length - 1];
-    const reachedTargetLimit = previous && phrase.length >= maxTargets && !/[-\u2013\u2014]$/.test(previous.lyric);
-    if (previous && (event.start - previous.end > 1.15 || /[.!?;:]$/.test(previous.lyric) || reachedTargetLimit)) {
-      phrases.push(phrase);
-      phrase = [];
-    }
-    phrase.push(event);
-  }
-  if (phrase.length) phrases.push(phrase);
-  return phrases;
-}
-
 function displayPhrase(events: LyricEvent[]) {
   let text = '';
   let joinNext = false;
@@ -269,6 +148,3 @@ function displayPhrase(events: LyricEvent[]) {
 }
 
 function clamp(value: number) { return Math.max(0, Math.min(1, value)); }
-function clampInteger(value: number | undefined, min: number, max: number, fallback: number) {
-  return Math.max(min, Math.min(max, Math.round(Number.isFinite(value) ? value! : fallback)));
-}
