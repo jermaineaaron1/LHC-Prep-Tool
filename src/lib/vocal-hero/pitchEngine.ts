@@ -29,6 +29,16 @@ export class PitchEngine {
   private smoothedHz = 0;
   private startTime  = 0;
 
+  // Scratch space for the analysis, allocated once. The detector runs on every
+  // animation frame; allocating these per frame handed the garbage collector a
+  // steady drip of work on the one thread that has to stay smooth.
+  private coarse:      Float32Array | null = null;  // decimated signal
+  private coarseSq:    Float64Array | null = null;  // prefix sums of squares
+  private fullSq:      Float64Array | null = null;
+  private coarseCorr:  Float32Array | null = null;
+  private fineCorr:    Float32Array | null = null;  // full-rate refinement window
+  private decimation = 1;
+
   private readonly opts: Required<PitchEngineOptions>;
 
   constructor(options: PitchEngineOptions) {
@@ -68,8 +78,28 @@ export class PitchEngine {
 
     this.buffer    = new Float32Array(this.opts.bufferSize) as Float32Array<ArrayBuffer>;
     this.startTime = this.context.currentTime;
+    this.allocate(this.context.sampleRate);
 
     this.loop();
+  }
+
+  /** Size the analysis scratch space for this device's sample rate. */
+  private allocate(sampleRate: number): void {
+    const size = this.opts.bufferSize;
+    // Decimate for the coarse pass only as far as the highest note in the lane
+    // still leaves a well-shaped period to find a peak in. Twelve samples per
+    // cycle: at eight, a 370 Hz note on a 22 kHz device came out an octave low,
+    // because box-averaging that hard smears the waveform until the peak at
+    // double the period looks like the better match. A lane's own range decides
+    // this, so a bass lane — which costs the most, its long periods meaning the
+    // most lags to search — still decimates hardest.
+    this.decimation = Math.max(1, Math.min(8, Math.floor(sampleRate / (12 * this.opts.maxHz))));
+    const coarseSize = Math.floor(size / this.decimation);
+    this.coarse     = new Float32Array(coarseSize);
+    this.coarseSq   = new Float64Array(coarseSize + 1);
+    this.fullSq     = new Float64Array(size + 1);
+    this.coarseCorr = new Float32Array(coarseSize + 2);
+    this.fineCorr   = new Float32Array(2 * this.decimation + 4);
   }
 
   stop(): void {
@@ -136,82 +166,139 @@ export class PitchEngine {
 
     const SIZE = buf.length;
     const { minHz, maxHz } = this.opts;
+    if (!this.coarse || !this.coarseSq || !this.fullSq || !this.coarseCorr) this.allocate(sampleRate);
+    const coarse = this.coarse!, coarseSq = this.coarseSq!, fullSq = this.fullSq!, corr = this.coarseCorr!;
 
     // Lag bounds that correspond to our Hz range
-    const minLag = Math.floor(sampleRate / maxHz);
-    const maxLag = Math.ceil(sampleRate / minHz);
+    const minLag = Math.max(1, Math.floor(sampleRate / maxHz));
+    const maxLag = Math.min(Math.ceil(sampleRate / minHz), SIZE - 1);
+    if (minLag >= maxLag) return { hz: 0, confidence: 0 };
 
-    // RMS gate — reject silence
-    let rms = 0;
-    for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
-    rms = Math.sqrt(rms / SIZE);
+    // RMS gate — reject silence. The prefix sums of squares are built in the
+    // same pass, since they are the same numbers added up.
+    fullSq[0] = 0;
+    for (let i = 0; i < SIZE; i++) fullSq[i + 1] = fullSq[i] + buf[i] * buf[i];
+    const rms = Math.sqrt(fullSq[SIZE] / SIZE);
     if (rms < 0.01) return { hz: 0, confidence: 0 };
 
-    // Compute normalized autocorrelation for each lag
-    // r[lag] = Σ buf[i] * buf[i+lag]  /  sqrt( Σ buf[i]² · Σ buf[i+lag]² )
+    // The normalised autocorrelation is
+    //   r[lag] = Σ buf[i]·buf[i+lag] / sqrt( Σ buf[i]² · Σ buf[i+lag]² )
+    // and the two sums in the denominator are just windows of the prefix sums
+    // above — O(1) each instead of a second and third pass over the buffer.
+    // Only the dot product genuinely needs the inner loop.
+    //
+    // Even so, searching every lag at the full sample rate is what made this
+    // cost 2–3 ms a frame, i.e. more than a phone can spare 60 times a second.
+    // So the search runs twice: a coarse pass over a decimated copy to find
+    // WHICH period we are on, then a handful of full-rate lags around it to
+    // find it exactly. Coarse costs work/decimation², and the refinement keeps
+    // full pitch resolution, so the accuracy the singer sees is unchanged.
 
-    let bestLag = -1;
-    let bestCorr = -1;
-    const correlations = new Float32Array(Math.min(maxLag + 2, SIZE));
-
-    for (let lag = minLag; lag <= maxLag && lag < SIZE; lag++) {
-      let num = 0, d1 = 0, d2 = 0;
-      const n = SIZE - lag;
-      for (let i = 0; i < n; i++) {
-        num += buf[i] * buf[i + lag];
-        d1  += buf[i] * buf[i];
-        d2  += buf[i + lag] * buf[i + lag];
+    const decim = this.decimation;
+    const coarseSize = Math.floor(SIZE / decim);
+    if (decim > 1) {
+      // Box-average rather than picking every nth sample: cheap, and it keeps
+      // energy above the new Nyquist from folding back as a false low pitch.
+      for (let i = 0; i < coarseSize; i++) {
+        let sum = 0;
+        const base = i * decim;
+        for (let k = 0; k < decim; k++) sum += buf[base + k];
+        coarse[i] = sum / decim;
       }
+    } else {
+      coarse.set(buf.subarray(0, coarseSize));
+    }
+    coarseSq[0] = 0;
+    for (let i = 0; i < coarseSize; i++) coarseSq[i + 1] = coarseSq[i] + coarse[i] * coarse[i];
+
+    const minLagC = Math.max(1, Math.floor(minLag / decim));
+    const maxLagC = Math.min(Math.ceil(maxLag / decim), coarseSize - 2);
+    if (minLagC >= maxLagC) return { hz: 0, confidence: 0 };
+
+    let bestLagC = -1;
+    let bestCorrC = -1;
+    for (let lag = minLagC; lag <= maxLagC; lag++) {
+      const n = coarseSize - lag;
+      let num = 0;
+      for (let i = 0; i < n; i++) num += coarse[i] * coarse[i + lag];
+      const d1 = coarseSq[n];
+      const d2 = coarseSq[n + lag] - coarseSq[lag];
       const denom = Math.sqrt(d1 * d2);
-      const corr  = denom > 0 ? num / denom : 0;
-      correlations[lag] = corr;
-      if (corr > bestCorr) {
-        bestCorr = corr;
-        bestLag  = lag;
-      }
+      const value = denom > 0 ? num / denom : 0;
+      corr[lag] = value;
+      if (value > bestCorrC) { bestCorrC = value; bestLagC = lag; }
     }
 
-    if (bestLag < 1 || bestCorr < 0) return { hz: 0, confidence: 0 };
+    if (bestLagC < 1 || bestCorrC < 0) return { hz: 0, confidence: 0 };
 
     // The largest correlation is often a second/third multiple of the true
     // period. Prefer the first strong local peak so a singer is not reported
     // one or two octaves too low. The relative threshold still tolerates
     // breathy voices whose fundamental is weaker than an overtone.
-    const strongPeak = Math.max(0.72, bestCorr * 0.9);
-    for (let lag = minLag + 1; lag < Math.min(maxLag, correlations.length - 1); lag++) {
-      if (correlations[lag] >= strongPeak && correlations[lag] >= correlations[lag - 1] && correlations[lag] > correlations[lag + 1]) {
-        bestLag = lag;
-        bestCorr = correlations[lag];
+    // The scan starts AT the shortest lag, not one past it. The highest note a
+    // lane accepts has its true period sitting on that very first lag, and
+    // skipping it meant the scan could only find the peak at double the
+    // period — reporting the top of a soprano's range an octave low. The old
+    // full-rate grid was fine enough that the true peak landed past its own
+    // first lag, so it escaped this by resolution rather than by design.
+    const strongPeak = Math.max(0.72, bestCorrC * 0.9);
+    for (let lag = minLagC; lag < maxLagC; lag++) {
+      const left = lag > minLagC ? corr[lag - 1] : -1;
+      if (corr[lag] >= strongPeak && corr[lag] >= left && corr[lag] > corr[lag + 1]) {
+        bestLagC = lag;
+        bestCorrC = corr[lag];
         break;
       }
     }
 
-    // Sub-sample refinement via parabolic interpolation around best lag
-    const refined = parabolicPeak(
-      bestLag > 0              ? correlations[bestLag - 1] : bestCorr,
-      bestCorr,
-      bestLag < correlations.length - 1 ? correlations[bestLag + 1] : bestCorr,
-      bestLag,
-    );
+    // Refine at the full sample rate. The window is one coarse step either
+    // side, which is exactly the uncertainty the decimation introduced, plus
+    // one lag of margin so the parabolic fit below has real neighbours rather
+    // than the edge of the search.
+    const centre = bestLagC * decim;
+    const lo = Math.max(minLag, centre - decim - 1);
+    const hi = Math.min(maxLag, centre + decim + 1);
 
+    const fine = this.fineCorr!;
+    let bestLag = -1;
+    let bestCorr = -1;
+    for (let lag = lo; lag <= hi; lag++) {
+      const n = SIZE - lag;
+      let num = 0;
+      for (let i = 0; i < n; i++) num += buf[i] * buf[i + lag];
+      const d1 = fullSq[n];
+      const d2 = fullSq[n + lag] - fullSq[lag];
+      const denom = Math.sqrt(d1 * d2);
+      const value = denom > 0 ? num / denom : 0;
+      fine[lag - lo] = value;
+      if (value > bestCorr) { bestCorr = value; bestLag = lag; }
+    }
+
+    // A voiced frame correlates with itself strongly — every genuine case
+    // measured, including breathy and noisy ones, sits above 0.99. A weak best
+    // match means there is no period here to find, typically a voice singing
+    // outside the lane whose harmonics scatter a low peak across the range.
+    // Reporting that as a pitch is worse than reporting nothing. The floor sits
+    // well below the thresholds callers apply, so it cannot suppress a reading
+    // they would have used.
+    if (bestLag < 1 || bestCorr < 0.5) return { hz: 0, confidence: 0 };
+
+    // Sub-sample refinement. Both neighbours have to be real measurements: at
+    // the edge of the window the old code passed the peak value itself, which
+    // quietly biased the interpolation toward the edge.
+    const index = bestLag - lo;
+    const refined = (bestLag > lo && bestLag < hi)
+      ? parabolicPeak(fine[index - 1], bestCorr, fine[index + 1], bestLag)
+      : bestLag;
+
+    // Half a semitone of slack at each end. The bound is a search limit, not a
+    // musical judgement: a note sitting exactly on the lane's top edge lands a
+    // hair outside it once interpolated, and rejecting that made the highest
+    // note a lane accepts disappear rather than register.
     const hz = sampleRate / refined;
-    if (hz < minHz || hz > maxHz) return { hz: 0, confidence: 0 };
+    if (hz < minHz / 1.03 || hz > maxHz * 1.03) return { hz: 0, confidence: 0 };
 
     return { hz, confidence: Math.max(0, Math.min(1, bestCorr)) };
-  }
-
-  // Compute autocorrelation at a single lag (used for interpolation)
-  private corrAt(buf: Float32Array<ArrayBuffer>, lag: number): number {
-    const n = buf.length - lag;
-    if (n <= 0) return 0;
-    let num = 0, d1 = 0, d2 = 0;
-    for (let i = 0; i < n; i++) {
-      num += buf[i] * buf[i + lag];
-      d1  += buf[i] * buf[i];
-      d2  += buf[i + lag] * buf[i + lag];
-    }
-    const denom = Math.sqrt(d1 * d2);
-    return denom > 0 ? num / denom : 0;
   }
 
   // ── Static helpers ────────────────────────────────────────────────────────
