@@ -263,18 +263,43 @@ export class PitchEngine {
 
   /** Correct the common octave-harmonic error without changing the detected
    * pitch class. This is target-aware and therefore only used while a target
-   * note is active, never for the raw microphone readout at rest. */
-  static alignOctaveToTarget(hz: number, targetMidi: number): number {
+   * note is active, never for the raw microphone readout at rest.
+   *
+   * The search is deliberately one octave wide. It exists to forgive the
+   * DETECTOR, which mistakes a harmonic for the fundamental by exactly one
+   * octave — not to forgive the singer. At the ±3 it used to search, someone
+   * singing two octaves away from the written line scored a flawless note.
+   * What the remaining ±1 absorbs is reported through octaveShift(), so a
+   * caller can say "right note, wrong octave" instead of silently calling it
+   * perfect. */
+  static alignOctaveToTarget(hz: number, targetMidi: number, maxOctaves = 1): number {
     if (hz <= 0) return 0;
     const rawMidi = 12 * Math.log2(hz / 440) + 69;
     let alignedMidi = rawMidi;
     let distance = Math.abs(rawMidi - targetMidi);
-    for (let octaves = -3; octaves <= 3; octaves++) {
+    for (let octaves = -maxOctaves; octaves <= maxOctaves; octaves++) {
       const candidate = rawMidi + octaves * 12;
       const candidateDistance = Math.abs(candidate - targetMidi);
       if (candidateDistance < distance) { alignedMidi = candidate; distance = candidateDistance; }
     }
     return PitchEngine.midiToHz(alignedMidi);
+  }
+
+  /** Whole octaves the alignment above had to move, signed: -1 means the
+   * singer sounded an octave BELOW the written note. 0 means they sang in the
+   * written octave. */
+  static octaveShift(hz: number, targetMidi: number, maxOctaves = 1): number {
+    if (hz <= 0) return 0;
+    const rawMidi = 12 * Math.log2(hz / 440) + 69;
+    let shift = 0;
+    let distance = Math.abs(rawMidi - targetMidi);
+    for (let octaves = -maxOctaves; octaves <= maxOctaves; octaves++) {
+      const candidateDistance = Math.abs(rawMidi + octaves * 12 - targetMidi);
+      if (candidateDistance < distance) { shift = octaves; distance = candidateDistance; }
+    }
+    // The alignment moved the singer UP to reach the target, so the singer was
+    // that many octaves DOWN. Report it from the singer's side.
+    return -shift;
   }
 }
 
