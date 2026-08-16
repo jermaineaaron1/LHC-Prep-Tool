@@ -75,6 +75,7 @@ interface ActiveNote {
 export class ScoreEngine {
   private total = 0;
   private pending: number[] = [];
+  private flushing = false;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private readonly opts: Required<ScoreEngineOptions>;
   private readonly noteList: SongNote[];
@@ -106,7 +107,7 @@ export class ScoreEngine {
     if (this.flushTimer) clearInterval(this.flushTimer);
     this.flushTimer = null;
     if (this.current) this.resolve(this.current.note);
-    await this.flush();
+    await this.flush(true);
   }
 
   get currentTotal() { return this.total; }
@@ -222,17 +223,53 @@ export class ScoreEngine {
     return points;
   }
 
-  private async flush() {
-    if (!this.pending.length) return;
+  /**
+   * Send the points banked since the last send. Anything not accepted is put
+   * back for the next tick — the singer earned it, and losing it quietly is
+   * worse than sending it a second late.
+   *
+   * @param final the last send of the round. Nothing runs after it, so the
+   *   usual "retry on the next tick" is not available and it retries here.
+   */
+  private async flush(final = false): Promise<void> {
+    // setInterval does not wait for the previous call to finish. Two flushes
+    // overlapping would each take a share of the pending points and re-queue
+    // them independently on failure.
+    if (this.flushing || !this.pending.length) return;
+    this.flushing = true;
     const delta = this.pending.reduce((total, value) => total + value, 0);
     this.pending = [];
     try {
-      await fetch('/api/score', {
+      const response = await fetch('/api/score', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playerId: this.opts.playerId, sessionId: this.opts.sessionId, delta }),
       });
-    } catch {
+      // A non-2xx answer used to count as success, so a server error threw the
+      // singer's points away without a word. 5xx and 429 are worth another go;
+      // a 4xx means this request will never be accepted however often it is
+      // repeated, so it is reported once rather than retried forever.
+      if (!response.ok) {
+        if (response.status >= 500 || response.status === 429) throw new Error('HTTP ' + response.status);
+        console.warn('[VocalHero] /api/score rejected ' + delta + ' point(s): HTTP ' + response.status);
+      }
+    } catch (cause) {
       this.pending.unshift(delta);
+      if (final) {
+        // One more attempt, since there is no next tick to catch it.
+        try {
+          const retry = await fetch('/api/score', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ playerId: this.opts.playerId, sessionId: this.opts.sessionId, delta }),
+          });
+          if (!retry.ok) throw new Error('HTTP ' + retry.status);
+          this.pending = [];
+        } catch {
+          console.warn('[VocalHero] ' + delta + ' point(s) could not be sent at the end of the round: ' +
+            (cause instanceof Error ? cause.message : String(cause)));
+        }
+      }
+    } finally {
+      this.flushing = false;
     }
   }
 }
