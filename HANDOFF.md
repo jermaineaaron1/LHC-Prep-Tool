@@ -4,6 +4,97 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
+## OPEN — what is left to do (as of 2026-08-16, all LCD work merged and live)
+
+Everything below this section is history. This is the only part that is still
+outstanding. Ordered by what carries the most risk, not by effort.
+
+### 1. The multi-monitor projection path has NEVER been verified — by anyone
+
+**The single biggest open risk in this feature, and it can only be closed on
+real hardware.** Every machine this has been developed and tested on reports a
+single screen, so `Project` has only ever been exercised down its
+`_doFullscreenOverlay()` branch — the in-app overlay that covers the operator's
+own display. The other branch, which opens a real projection window on a second
+screen via `getScreenDetails()` and `_showMonitorPicker()`, has never run.
+
+To close it, on the desk with the projector connected:
+
+- Press **Project**. If the browser has not been granted **Window management**
+  for the site, the app now says so in a toast rather than silently covering
+  only the primary screen — that permission is what lets the popup take the
+  second display.
+- Confirm the projection window lands on the projector, not the operator's
+  screen, and that `ON AIR` lights while it is up.
+- `Blank` / unblank, and arrow through a song and a presentation.
+
+Until someone does this, treat multi-monitor as unproven. Nothing about it is
+known to be broken; it is simply untested.
+
+### 2. Google Slides conversion — BLOCKED on an OAuth re-consent (not on code)
+
+PPTX files still route through CloudConvert → PDF → pdf.js. The Google Slides
+path exists (`convertPptxToGoogleSlides`, `server.gs:6814`, which hands the file
+to Drive with `mimeType: application/vnd.google-apps.presentation`) but **only
+under Apps Script**: it is absent from the Supabase bridge's `_B` list, so on
+Vercel the `google.script.run` call throws "not a function" and silently falls
+back.
+
+**Read this before touching it:** `if (typeof google !== 'undefined' &&
+google.script && google.script.run)` is **true in both deployments**. It does
+not distinguish Apps Script from Vercel and says nothing about whether the
+function being called exists. That guard is what hid this for months.
+
+What it needs, in order:
+
+1. **A human step.** `GOOGLE_REFRESH_TOKEN` in Vercel was minted for Calendar
+   scopes. Re-consent it with `https://www.googleapis.com/auth/drive.file` and
+   `https://www.googleapis.com/auth/presentations.readonly`, then update the
+   Vercel env var. Until then Google answers `ACCESS_TOKEN_SCOPE_INSUFFICIENT`.
+   **The same token also revives `/api/slide-page-ids`, which has never worked
+   in production since it shipped** — that route is written and correct.
+2. Then the code: an `app/api/convert-pptx-to-slides` route mirroring the GAS
+   function, plus one `convertPptxToGoogleSlides` entry in `_B`. No call site
+   changes — exactly the precedent `getSlidePageIds` set.
+
+### 3. Media Tray tabs — three, where the brief asks for four
+
+The brief wants Backgrounds / Presentations / **Videos** / Announcements as
+top-level tabs. It currently has three, with Videos as a sub-tab under
+Backgrounds. Left alone deliberately: promoting Videos means changing
+`_lcdItemCategory`'s categorisation, which is the media **storage** mapping the
+chunk-5 brief says not to change, and videos are already one click away.
+
+### 4. Acceptance-test items deliberately not built
+
+All four are recorded with reasons in the chunks 4–6 entry below: no
+section-slide thumbnail strip (the Service Slides rail already is one), no
+safe-zone guides inside the editor canvas (they exist on the Program output and
+the `Barrier` button that sets them is in the editor toolbar), Full Screen kept
+in the top bar rather than moved into Program/Live, and 32px segmented tabs to
+match the mini buttons beside them.
+
+### 5. Not an integration, and never will be without one being built
+
+**OBS and YouTube status are omitted, not missing.** Searched the whole repo
+more than once: no OBS client, no websocket, no port 4455; every `youtube` match
+is a song reference link or the roster duty "Live Streaming". Acceptance tests
+25 and 26 are recorded as "no such integration exists", **not** as passes. A
+status chip there would be decoration pretending to be state.
+
+### Housekeeping notes
+
+- **Branches were tidied on 2026-08-16**: 45 local and 37 remote deleted, all
+  either identical to master or superseded. Names and SHAs are recorded in
+  `.claude/deleted-branches-2026-08-16.json` (untracked, local only) — recover
+  any with `git branch <name> <sha>`. Note commit `5bd0c23` is the only place
+  `mockups/songbook-design-tour-6s.gif` (10 MB) ever existed.
+- Surviving branches are `master` and `feature/premium-mobile-roster`, plus
+  `claude/cool-feistel-be36a8` locally; the latter two are held by other
+  worktrees.
+
+---
+
 ## 2026-08-16 — LCD Projection chunks 4–6 (`eb1cbab`, `519fe20`, `3802106`)
 
 Branch `feature/lcd-projection-console-redesign`, **not merged**, awaiting the
