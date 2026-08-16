@@ -33097,6 +33097,14 @@ var WO = (function() {
           if (mainImg) mainImg.src = url;
         }
       }
+      // Current layout: one .wo-ppt-page slide box per page. Without this the
+      // tab keeps the multi-megabyte base64 <img> it rendered from until
+      // something re-renders the deck, while the stored data already points at
+      // the uploaded copy -- the screen and the store quietly disagreeing.
+      var pageBox = document.querySelector('.wo-ppt-page[data-ppt-section="' + sectionId + '"][data-ppt-idx="' + idx + '"]');
+      var pageImg = pageBox && pageBox.querySelector('.wo-ppt-page-img');
+      if (pageImg) pageImg.src = url;
+
       // The older per-slide-box layout, still rendered by some paths.
       var boxesContainer = $(sectionId + '-boxes');
       var slideBox = boxesContainer && boxesContainer.querySelector('.wo-ppt-slide[data-ppt-idx="' + idx + '"]');
