@@ -71,6 +71,11 @@ Two things not yet started that are worth doing early:
   into an overflow menu, "preserving access and behavior". That is markup plus JS, which puts it
   in the same risk class as chunk 4: check every change against `collectOrderItems()` first.
 
+  **Operator's decision on what the bar keeps:** the **zoom control stays visible** on the bar.
+  **Liturgy Book, Songbook and Save As go into the overflow menu.** Menu, Save, undo/redo and the
+  two mode buttons stay. Nothing is removed — the overflow items keep their handlers and their
+  behaviour, they are just one click further away.
+
 - **The palette.** Still the old blue/gold hero and light cards outside the workspace shell. The dark tokens already exist at ~68927; a second, conflicting `--lcd-ivory*` set at ~69122 belongs to the parchment Songbook surface and must not be merged with them.
 
 ### Testing note
