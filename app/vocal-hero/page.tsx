@@ -331,7 +331,9 @@ export default function VocalHeroHostPage() {
       const updated = await setSessionPaused(session.id, false, pauseDuration);
       setSession(updated); pauseStartedRef.current = 0; setGamePaused(false);
       if (backingTrackUrl && audioRef.current) {
-        audioRef.current.currentTime = Math.min(pausedElapsed, Number.isFinite(audioRef.current.duration) ? audioRef.current.duration : pausedElapsed);
+        // Pausing during the count-in captures a negative song time, and a
+        // negative currentTime is not a valid seek.
+        audioRef.current.currentTime = Math.max(0, Math.min(pausedElapsed, Number.isFinite(audioRef.current.duration) ? audioRef.current.duration : pausedElapsed));
         void audioRef.current.play().catch(() => setError('Press Resume again to allow backing-track playback.'));
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to resume the session.'); }
@@ -573,4 +575,16 @@ function HostRoundEndStage({ song, players, sections, onAgain, onDone }: {
 
 function Leaderboard({ players }: { players: SessionPlayer[] }) { return <div className="vh-panel p-4"><div className="flex items-center justify-between"><p className="text-xs tracking-[.2em] text-slate-400">INDIVIDUAL LEADERBOARD</p><span className="text-xs text-fuchsia-300">Host only</span></div><div className="mt-3 space-y-2">{[...players].sort((a, b) => b.score - a.score).slice(0, 5).map((player, index) => <div key={player.id} className="flex items-center gap-2 text-sm"><span className="w-4 text-slate-500">{index + 1}</span><Avatar name={player.player_name} colour={COLOURS[player.part_index]} /><span className="flex-1 truncate">{player.player_name}</span><b className="font-mono">{player.score.toLocaleString()}</b></div>)}</div></div>; }
 
-function timelineFor(session: GameSession | null, now: number) { if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 }; const delta = now - new Date(session.playback_starts_at).getTime(); const countdown = session.countdown_seconds ?? 5, lead = session.lead_in_seconds ?? 2; if (delta < 0) return { phase: `Starts in ${Math.ceil(-delta / 1000)}`, songElapsed: 0 }; const seconds = delta / 1000; if (seconds < countdown) return { phase: `Count-in ${countdown - Math.floor(seconds)}`, songElapsed: 0 }; if (seconds < countdown + lead) return { phase: 'Lead-in · listen', songElapsed: 0 }; return { phase: 'Live', songElapsed: seconds - countdown - lead }; }
+// Song time runs NEGATIVE through the count-in and lead-in, reaching exactly 0
+// on the downbeat.
+//
+// The lane places every note at (note.start - elapsed) / lookAhead, so a
+// negative elapsed parks the opening notes off to the right and walks them in,
+// arriving at the strike line on the beat -- the singer watches the first note
+// approach and knows when to come in. Pinned at 0 for the whole pre-roll, those
+// notes instead sat motionless ON the strike line, which reads as "the game is
+// already running and I have missed the start".
+//
+// Nothing scores early as a result: both the host and the phone gate the
+// microphone on the PHASE being live, never on the clock.
+function timelineFor(session: GameSession | null, now: number) { if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 }; const delta = now - new Date(session.playback_starts_at).getTime(); const countdown = session.countdown_seconds ?? 5, lead = session.lead_in_seconds ?? 2; const preRoll = countdown + lead; if (delta < 0) return { phase: `Starts in ${Math.ceil(-delta / 1000)}`, songElapsed: -preRoll }; const seconds = delta / 1000; if (seconds < countdown) return { phase: `Count-in ${countdown - Math.floor(seconds)}`, songElapsed: seconds - preRoll }; if (seconds < preRoll) return { phase: 'Lead-in · listen', songElapsed: seconds - preRoll }; return { phase: 'Live', songElapsed: seconds - preRoll }; }
