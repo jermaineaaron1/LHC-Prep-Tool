@@ -32760,10 +32760,22 @@ var WO = (function() {
     // without this a presentation sitting in the middle of a section would jump
     // to the end every time a page was removed from it.
     var _c = document.getElementById(sectionId + '-boxes');
-    var _w = _c ? _c.querySelector('.wo-ppt-widget') : null;
+    // In the slide-box layout a deck is a RUN of siblings (banner + pages +
+    // add row), not one widget element, so the anchor is the first element of
+    // that run and everything belonging to the deck is excluded from the index.
+    // Looking only for .wo-ppt-widget found nothing here, and the deck jumped
+    // to the end of the section on every page delete.
+    var _run = _c ? Array.prototype.filter.call(_c.children, function(k) {
+      return k.classList.contains('wo-ppt-banner-bar') ||
+             k.classList.contains('wo-ppt-page') ||
+             k.classList.contains('wo-ppt-add-row');
+    }) : [];
+    var _w = _run.length ? _run[0] : (_c ? _c.querySelector('.wo-ppt-widget') : null);
     if (_c && _w) {
-      var _kids = Array.prototype.filter.call(_c.children, function(k) { return k !== _w; });
-      var _next = _w.nextElementSibling;
+      var _own = _run.length ? _run : [_w];
+      var _kids = Array.prototype.filter.call(_c.children, function(k) { return _own.indexOf(k) < 0; });
+      var _last = _own[_own.length - 1];
+      var _next = _last.nextElementSibling;
       _lcdPptDrop = { sectionId: sectionId, index: _next ? _kids.indexOf(_next) : _kids.length };
     }
     renderLocalSlides(sectionId);
@@ -34072,7 +34084,7 @@ var WO = (function() {
     if (!sectionId) return;
     var container = $(sectionId + '-boxes');
     if (!container) return;
-    var hasContainers = container.querySelector('.wo-slides-container, .wo-ppt-widget, .wo-local-slides');
+    var hasContainers = container.querySelector('.wo-slides-container, .wo-ppt-widget, .wo-local-slides, .wo-ppt-page');
     if (hasContainers) return; // still have presentations — nothing to restore
     // Show the ppt-attach-row (sermon / announcements sections)
     var attachRow = document.getElementById(sectionId + '-ppt-attach');
@@ -34095,7 +34107,7 @@ var WO = (function() {
     var container = $(sectionId + '-boxes');
     if (!container) return;
 
-    container.querySelectorAll('.wo-ppt-widget, .wo-ppt-slide, .wo-ppt-banner, .wo-slides-container, .wo-local-slides').forEach(function(el) { el.remove(); });
+    container.querySelectorAll('.wo-ppt-widget, .wo-ppt-slide, .wo-ppt-banner, .wo-slides-container, .wo-local-slides, .wo-ppt-banner-bar, .wo-ppt-page, .wo-ppt-add-row').forEach(function(el) { el.remove(); });
 
     if (currentSermonSlides[sectionId]) delete currentSermonSlides[sectionId];
     if (_selectedPptContainer && _selectedPptContainer.getAttribute('data-section') === sectionId) {
@@ -54721,7 +54733,13 @@ var WO = (function() {
       // Whichever comes first in the section, a slide or a presentation page.
       var first = holder.querySelector('.wo-slide-box, .wo-ppt-thumb');
       if (!first) continue;
-      if (first.classList.contains('wo-ppt-thumb')) {
+      // A .wo-ppt-page IS a .wo-slide-box, so it matches first -- and handing it
+      // to selectSlideBox() would open the Slide Editor over a presentation
+      // page, which has nothing for the editor to act on.
+      if (first.classList.contains('wo-ppt-page')) {
+        projectPptPage(first.getAttribute('data-ppt-section') || sections[i].id,
+                       parseInt(first.getAttribute('data-ppt-idx') || '0', 10), first);
+      } else if (first.classList.contains('wo-ppt-thumb')) {
         projectPptPage(sections[i].id, parseInt(first.getAttribute('data-idx') || '0', 10), first);
       } else {
         selectSlideBox(first);
