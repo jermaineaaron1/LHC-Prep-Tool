@@ -4,6 +4,124 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
+## 2026-08-16 — LCD Projection: the workspace banner is one bar (commit `d1759c3`)
+
+The structural change the entry below said was needed. **Not merged.**
+
+### What it does
+
+`.wo-header` is the flex row itself now — title block left, control cluster
+right — instead of a title deck stacked on a control deck. The room comes from
+moving the three secondary actions into an overflow menu:
+
+| Stays on the bar | Behind `⋯` |
+|---|---|
+| Menu, Save, autosave status, undo/redo, zoom, LCD Projection / Song Order | Save As, Liturgy Book, Songbook |
+
+Nothing is removed. Each button keeps its class, icon, `title` and `onclick`, so
+every handler is the one it always was — and in the menu they finally show their
+labels, where the bar makes them icon-only below 1700px.
+
+### The part worth copying: Song Order is untouched by construction
+
+Outside the console `.wo-overflow-wrap` and `.wo-overflow-menu` are
+**`display: contents`** — they generate no box, so those three buttons stay
+direct flex items of `.wo-order-controls` exactly as before the wrapper existed,
+and the `⋯` toggle is `display: none`. `display: contents` would still group them
+together in DOM order, so explicit CSS `order` (1…9) restores the original
+left-to-right sequence. Verified in Song Order: Menu, Save, Save As, undo/redo,
+zoom, Liturgy Book, Songbook — one row, 37px each, no toggle rendered. Same
+below 1120px (checked 420 / 768 / 900 / 1000).
+
+### Two things that made the single row hold
+
+- **Nothing in the control cluster may shrink.** `flex-wrap: nowrap` is not
+  enough: a squeezed button wraps *its own label* onto a second line, which put
+  the second deck straight back at 1120–1150. Everything is `flex: 0 0 auto`
+  and the gold order chip is the single flexible element.
+- **The chip drops out on the BAR's width, not the window's** — a
+  `@container lcdheader (max-width: 875px)` query. The app sidebar is 68px
+  collapsed and **280px expanded**, so one viewport width gives the header
+  either ~988px or ~776px and a media query cannot tell those apart. Below
+  875px the chip could only be a 26px stub of ellipsis, so it goes.
+
+### Measured
+
+| Width | header | ctrl / mode btn | chip | h1 | h-overflow |
+|---|---|---|---|---|---|
+| 1920 / 1536 / 1440 | 51px | 37 / 36 | 230px | shown | 0 |
+| 1366 / 1280 / 1200 | 51px | 37 / 36 | 190px | hidden | 0 |
+| **1158 (the operator's own)** | **51px** | 37 / 36 | 184px | hidden | 0 |
+| 1120 | 51px | 37 / 36 | 156px | hidden | 0 |
+
+At 1158: header **103 → 51px**, workspace top **222 → 170px**, workspace height
+**~530 → 578px**. The 36–40px button minimum the CSS-only attempt broke is met
+everywhere.
+
+Overflow menu exercised in the browser: opens; closes on Escape, on an outside
+click and on the button again; each item fires its real handler (Songbook →
+`songbookLiveModal`, Liturgy Book → `liturgyBookModal`, Save As →
+`woSaveAsModal` pre-filled "… (Copy)") and closes after. No console errors.
+
+`Index.html` and `dist/index.html` byte-identical; all 12 inline `<script>`
+blocks pass `node --check`.
+
+### The app sidebar already collapses itself — do not rebuild it
+
+Decided with the operator: LCD Projection should auto-collapse the global
+sidebar and restore it on exit. **That already exists** and does exactly that:
+`_lcdAutoCollapseSidebar()` (~54956) is called from `selectOrder('service')`,
+`lcdRestoreSidebar()` (~54968) from `setActiveView()` when leaving Orders, and
+`_lcdPrefWrite()` puts `lhc_sidebar_collapsed` back so the borrowed collapse
+never overwrites the operator's saved preference. Verified live: entering with
+the sidebar open gave `grid-template-columns: 68px 1003.2px`, sidebar 68px,
+container 776 → **988**, and the preference still read `"0"` afterwards.
+
+### HARNESS TRAP — a hidden tab freezes every CSS transition
+
+Cost most of a session and produced a confident, wrong bug report. **The
+Claude in Chrome tab reports `visibilityState: "hidden"` between tool calls.**
+When it does, `requestAnimationFrame` never fires and **`document.timeline.currentTime`
+stays pinned at 0**, so every CSS transition on the page sits at
+`playState: "running", currentTime: 0` forever — 49 of them here — and a running
+transition **outranks even an inline `!important` declaration**.
+
+The visible symptom: `.lhc-root` has `transition: grid-template-columns 0.3s`,
+so after the sidebar auto-collapsed, the class was `sidebar-collapsed`, the
+sidebar element was 68px, the inline style read
+`68px minmax(0px, 1fr)` **with `important` priority** — and `getComputedStyle`
+still returned `280px`, leaving a 212px dead gutter. It looked exactly like a
+real cascade bug and reproduced at full window size.
+
+**How to tell, and how to avoid it:**
+
+- Check `document.timeline.currentTime > 0` and
+  `document.getAnimations().filter(a => a.currentTime === 0 && a.playState === 'running').length === 0`
+  before trusting any measurement of a transitioned property.
+- Taking a `computer {action:"screenshot"}` foregrounds the tab and lets the
+  timeline advance; measure **immediately after** a screenshot.
+- Plain layout (widths, heights, wrapping) is computed even while hidden, so the
+  width sweeps above are unaffected. Only transitioned properties lie.
+
+### Test harness used
+
+The extension cannot resize the browser window, so measuring an exact viewport
+was done by replacing a same-origin page (`/__lcd_harness`, any 404 path works —
+no `X-Frame-Options` or CSP is set) with a fixed-size `<iframe>` of the app.
+Media queries and container queries track the iframe box exactly, so
+`1158 × 695` is the operator's screen reproducibly, and the parent stays
+screenshot-able. Nothing is written to disk.
+
+### Still to do
+
+Chunks 4–6 as briefed. `collectOrderItems()`'s full selector set is listed in
+the chunk 1 map below; chunk 4 is the first work that touches that markup.
+Note one structural dependency that is not a class name: scripture is collected
+via the banner's **next element sibling** carrying `wo-scripture-slides-group`,
+so that adjacency must survive any reshuffle.
+
+---
+
 ## 2026-08-16 — LCD Projection console redesign: chunks 1–3 (branch `feature/lcd-projection-console-redesign`)
 
 Cut from `master` at `3670a48`. Six commits. **Not merged — awaiting the operator's approval of the finished feature.**
