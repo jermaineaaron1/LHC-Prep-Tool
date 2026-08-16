@@ -167,8 +167,13 @@ export default function VocalHeroHostPage() {
     if (song) setSoloReview(summariseRound(resultsRef.current, transposeNotes(playableNotes(song), transposeRef.current)));
     const scorer = soloScoreRef.current;
     if (!scorer) return;
-    const stats = scorer.stats;
-    void scorer.stop().then(() => warmUpRef.current ? undefined : savePlayerRoundStats({ session_id: session.id, player_id: soloPlayer.id, score: scorer.currentTotal, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit }));
+    // stop() resolves the note still in progress, so the counts change during
+    // it. Read beforehand, they omitted the last note of every round.
+    void scorer.stop().then(() => {
+      if (warmUpRef.current) return;
+      const stats = scorer.stats;
+      void savePlayerRoundStats({ session_id: session.id, player_id: soloPlayer.id, score: scorer.currentTotal, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit });
+    });
   }, [session?.id, session?.status, soloPlayer]);
 
   async function chooseSong(next: Song) {
