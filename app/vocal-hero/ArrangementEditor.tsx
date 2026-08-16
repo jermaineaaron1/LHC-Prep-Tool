@@ -266,9 +266,19 @@ function remapNoteExpression(note: SongNote, start: number, end: number) {
   };
 }
 function notesOverlap(a: SongNote, b: SongNote) { return a.part === b.part && a.start < b.end - .0005 && a.end > b.start + .0005; }
+/**
+ * Would placing these notes here overlap something else in the same voice?
+ *
+ * Only pairs involving a candidate count. This used to sort the whole voice
+ * and look for any adjacent overlap at all, so a single pre-existing overlap —
+ * a chord imported into one line, which the importer now keeps rather than
+ * silently discarding — reported a collision for every move, duplicate and
+ * paste in that voice from then on, however far away from it.
+ */
 function collisionInVoice(candidates: SongNote[], fixed: SongNote[]) {
-  const all = [...fixed, ...candidates].sort((a, b) => a.part - b.part || a.start - b.start || a.end - b.end);
-  return all.some((note, index) => index > 0 && notesOverlap(all[index - 1], note));
+  return candidates.some((candidate, index) =>
+    fixed.some(note => note.id !== candidate.id && notesOverlap(note, candidate))
+    || candidates.some((other, otherIndex) => otherIndex !== index && notesOverlap(other, candidate)));
 }
 function quantizeAndResolveNotes(input: SongNote[], bars: MusicalBar[], division: NoteDivision) {
   const quantized = input.map(note => quantizeNote(note, bars, division));
