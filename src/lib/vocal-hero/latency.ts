@@ -199,11 +199,36 @@ function listenForOnsets(
     let baseline = 0;
     let lastOnset = -1;
     let frame = 0;
+    let settled = false;
+    let safety = 0;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cancelAnimationFrame(frame);
+      window.clearTimeout(safety);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      resolve(onsets);
+    };
+
+    // Switching away mid-measurement invalidates it anyway: a clap that was not
+    // heard cannot be timed. Ending immediately reports too few claps, which is
+    // the truthful answer, rather than leaving the dialog listening.
+    function onVisibilityChange() { if (document.hidden) finish(); }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    // requestAnimationFrame is paused outright while a tab is hidden, so the
+    // loop below -- including its own "we are done" test -- simply stops
+    // running, and the promise would never settle: the dialog sat on
+    // "Listening..." for good with the microphone still open. A wall-clock
+    // timer is throttled in the background but still fires, so it is the one
+    // that guarantees an end.
+    safety = window.setTimeout(finish, Math.max(1000, (untilTime - context.currentTime) * 1000 + 1500));
 
     const step = () => {
-      if (signal?.aborted) { cancelAnimationFrame(frame); resolve(onsets); return; }
+      if (signal?.aborted) { finish(); return; }
       const now = context.currentTime;
-      if (now >= untilTime) { cancelAnimationFrame(frame); resolve(onsets); return; }
+      if (now >= untilTime) { finish(); return; }
 
       analyser.getFloatTimeDomainData(buffer as Float32Array<ArrayBuffer>);
       let sum = 0;
@@ -221,7 +246,7 @@ function listenForOnsets(
       // not raise the bar for the next.
       baseline = level > baseline ? level * 0.5 + baseline * 0.5 : baseline * 0.92 + level * 0.08;
 
-      frame = requestAnimationFrame(step);
+      if (!settled) frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
   });
