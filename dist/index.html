@@ -32262,6 +32262,12 @@ var WO = (function() {
     var placeholder = container.querySelector('.wo-content-placeholder');
     if (placeholder) placeholder.parentElement.remove();
 
+    // An import starts here, so this is where a previous Cancel stops applying.
+    // It must not be cleared any later in the pipeline: the stages after this
+    // resolve asynchronously, and clearing it there discarded a Cancel made
+    // while the file was still uploading or being parsed.
+    _lcdImportCancelled[sectionId] = false;
+
     // Initialize slides storage for this section - store file name for Liturgy Book
     var firstFileName = files[0] ? files[0].name : 'Slides';
     // A second presentation dropped into a section must be ADDED to it. This
@@ -32418,6 +32424,82 @@ var WO = (function() {
   }
 
   // Extract PDF pages as images using PDF.js
+  // ---- Import status card ---------------------------------------------
+  // One surface for every stage of a presentation import, in the section
+  // receiving it. It reuses the id the PPTX path already creates and removes
+  // (sectionId + '-pptx-loading'), so every existing cleanup call still finds
+  // and clears it.
+  //
+  // The honesty rule from the brief, applied literally: pdf.js reports
+  // pdf.numPages up front and we count pages as they finish, so "8 of 24" is
+  // a real measurement and gets a real bar. CloudConvert exposes no progress
+  // at all, so that stage is indeterminate -- there is no percentage to show
+  // and inventing one would be a lie about how far along the operator is.
+  var _lcdImportCancelled = {};
+  var _lcdImportRetry = {};
+
+  function _lcdImportEl(sectionId) {
+    var id = sectionId + '-pptx-loading';
+    var el = document.getElementById(id);
+    if (!el) {
+      var container = $(sectionId + '-boxes');
+      if (!container) return null;
+      el = document.createElement('div');
+      el.id = id;
+      container.appendChild(el);
+    }
+    return el;
+  }
+
+  function _lcdImportSet(sectionId, o) {
+    var el = _lcdImportEl(sectionId);
+    if (!el) return;
+    o = o || {};
+    el.className = 'wo-pptx-loading lcd-import-card';
+    var known = (typeof o.total === 'number' && o.total > 0 && typeof o.done === 'number');
+    var pct = known ? Math.round((o.done / o.total) * 100) : 100;
+    el.innerHTML =
+      '<div class="lcd-import-file"><i class="fa-solid fa-file-powerpoint"></i> ' + escapeHtml(o.file || 'Presentation') + '</div>' +
+      '<div class="lcd-import-stage">' + escapeHtml(o.stage || 'Working…') + '</div>' +
+      '<div class="lcd-import-bar' + (known ? '' : ' indeterminate') + '" role="progressbar" aria-label="Import progress"' +
+        (known ? ' aria-valuenow="' + o.done + '" aria-valuemin="0" aria-valuemax="' + o.total + '"' : '') + '>' +
+        '<span style="width:' + pct + '%"></span></div>' +
+      (o.cancellable ? '<div class="lcd-import-actions"><button type="button" class="lcd-import-btn" onclick="WO.lcdCancelImport(\'' + sectionId + '\')">Cancel</button></div>' : '');
+  }
+
+  function _lcdImportError(sectionId, file, msg, canRetry) {
+    var el = _lcdImportEl(sectionId);
+    if (!el) { showToast(msg, 'error'); return; }
+    el.className = 'wo-pptx-loading lcd-import-card error';
+    el.innerHTML =
+      '<div class="lcd-import-file"><i class="fa-solid fa-triangle-exclamation"></i> ' + escapeHtml(file || 'Presentation') + '</div>' +
+      '<div class="lcd-import-stage">' + escapeHtml(msg) + '</div>' +
+      '<div class="lcd-import-actions">' +
+        (canRetry ? '<button type="button" class="lcd-import-btn" onclick="WO.lcdRetryImport(\'' + sectionId + '\')">Retry</button>' : '') +
+        '<button type="button" class="lcd-import-btn ghost" onclick="WO.lcdDismissImport(\'' + sectionId + '\')">Dismiss</button>' +
+      '</div>';
+  }
+
+  function _lcdImportClear(sectionId) {
+    var el = document.getElementById(sectionId + '-pptx-loading');
+    if (el) el.remove();
+  }
+
+  function lcdCancelImport(sectionId) {
+    _lcdImportCancelled[sectionId] = true;
+    _lcdImportClear(sectionId);
+    showToast('Import cancelled', 'info');
+  }
+
+  function lcdDismissImport(sectionId) { _lcdImportClear(sectionId); }
+
+  function lcdRetryImport(sectionId) {
+    var fn = _lcdImportRetry[sectionId];
+    if (typeof fn !== 'function') { _lcdImportClear(sectionId); return; }
+    _lcdImportCancelled[sectionId] = false;
+    fn();
+  }
+
   function extractPdfPages(file, sectionId, callback) {
     var reader = new FileReader();
     reader.onload = function(e) {
@@ -32435,12 +32517,29 @@ var WO = (function() {
         var pagesProcessed = 0;
         var pageImages = [];
 
-        showToast('Processing ' + totalPages + ' PDF pages...', 'info');
+        // pdf.numPages is known before a single page renders, and each page
+        // reports itself as it finishes -- so this count is measured, not
+        // estimated, and earns a determinate bar.
+        var _impName = (file && file.name) ? file.name
+          : ((currentSermonSlides[sectionId] && currentSermonSlides[sectionId].fileName) || 'Presentation');
+        // NOT reset here. getDocument() resolves some time after the operator
+        // pressed the button, so clearing the flag at this point threw away a
+        // Cancel made while the file was still uploading or loading -- the
+        // import carried on regardless. The flag is cleared where an import
+        // actually begins, in addSlidesFromFiles().
+        if (_lcdImportCancelled[sectionId]) { _lcdImportClear(sectionId); return; }
+        _lcdImportSet(sectionId, {
+          file: _impName, stage: 'Converting slides 0 of ' + totalPages,
+          done: 0, total: totalPages, cancellable: true
+        });
 
         // Process each page
         for (var pageNum = 1; pageNum <= totalPages; pageNum++) {
           (function(pn) {
             pdf.getPage(pn).then(function(page) {
+              // Cancelled: stop before doing the expensive part. Pages already
+              // in flight finish harmlessly -- nothing is added to the deck.
+              if (_lcdImportCancelled[sectionId]) return;
               // Render at 2x scale for better quality
               var scale = 2;
               var viewport = page.getViewport({ scale: scale });
@@ -32467,13 +32566,24 @@ var WO = (function() {
                 };
 
                 pagesProcessed++;
+                // Cancelled mid-import: stop reporting and keep the partly
+                // rendered pages out of the deck entirely, so the operator
+                // never ends up with half a presentation they did not ask for.
+                if (_lcdImportCancelled[sectionId]) return;
+                _lcdImportSet(sectionId, {
+                  file: _impName, stage: 'Converting slides ' + pagesProcessed + ' of ' + totalPages,
+                  done: pagesProcessed, total: totalPages, cancellable: true
+                });
                 if (pagesProcessed === totalPages) {
-                  // All pages processed, add to slides
+                  // All pages processed, add to slides. pageImages is indexed
+                  // by page number, so the original order survives the fact
+                  // that the render promises settle out of order.
                   pageImages.forEach(function(img) {
                     if (img) {
                       currentSermonSlides[sectionId].slides.push(img);
                     }
                   });
+                  _lcdImportClear(sectionId);
                   if (callback) callback();
                 }
               });
@@ -32482,6 +32592,9 @@ var WO = (function() {
         }
       }).catch(function(err) {
         console.error('Error loading PDF:', err);
+        _lcdImportError(sectionId,
+          (file && file.name) ? file.name : 'Presentation',
+          'Could not read this PDF. It may be corrupted or password-protected.', false);
         showToast('Could not load PDF. The file may be corrupted or password-protected.', 'error');
         if (callback) callback();
       });
@@ -32759,11 +32872,17 @@ var WO = (function() {
   // Per-slide URLs let us navigate without any click inside the iframe.
   function _convertAndRenderPptx(sectionId, supabaseUrl, fileName) {
     var loadEl = document.getElementById(sectionId + '-pptx-loading');
-    if (loadEl) loadEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:8px;"></i>Converting <strong>' + escapeHtml(fileName) + '</strong> to Google Slides\u2026';
+    // Neither this stage nor the CloudConvert fallback can report progress --
+    // both answer only when they have finished -- so both are shown as
+    // indeterminate rather than given an invented percentage. A real page
+    // count appears later, once pdf.js has the document and can count.
+    _lcdImportRetry[sectionId] = function() { _convertAndRenderPptx(sectionId, supabaseUrl, fileName); };
+    _lcdImportSet(sectionId, { file: fileName, stage: 'Converting to Google Slides\u2026' });
+    if (loadEl) loadEl.setAttribute('data-legacy', '1');
 
     function _fallback(msg) {
       var loadEl = document.getElementById(sectionId + '-pptx-loading');
-      if (loadEl) loadEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="margin-right:8px;"></i>Converting <strong>' + escapeHtml(fileName) + '</strong> to PDF…';
+      _lcdImportSet(sectionId, { file: fileName, stage: 'Converting to PDF…' });
       if (msg) console.log(msg);
 
       // Server-side PPTX→PDF conversion (Google Drive API). Once we have a real
@@ -32792,6 +32911,8 @@ var WO = (function() {
         console.error('PPTX→PDF conversion failed:', err);
         var el3 = document.getElementById(sectionId + '-pptx-loading');
         if (el3) el3.remove();
+        _lcdImportError(sectionId, fileName,
+          'Could not convert this presentation. Showing the live viewer instead — its slides will not follow the projection preview.', true);
         showToast('Could not auto-convert to PDF — showing live viewer (slide navigation won\'t sync to preview).', 'warning');
         // Last resort: Office Online viewer (manual navigation only, no sync)
         var viewerUrl = 'https://view.officeapps.live.com/op/embed.aspx?src=' + encodeURIComponent(supabaseUrl);
@@ -61973,6 +62094,9 @@ var WO = (function() {
     woToggleOverflow: woToggleOverflow,
     lcdSetEditorMode: lcdSetEditorMode,
     lcdAddSlideAfterCurrent: lcdAddSlideAfterCurrent,
+    lcdCancelImport: lcdCancelImport,
+    lcdDismissImport: lcdDismissImport,
+    lcdRetryImport: lcdRetryImport,
     lcdToggleWorkspaceFullscreen: lcdToggleWorkspaceFullscreen,
     lcdOpenSectionMenu: lcdOpenSectionMenu,
     lcdRunSectionAction: lcdRunSectionAction,
@@ -70786,6 +70910,54 @@ function filterLiturgyItems() {
   /* ==========================================================================
      CHUNK 4 — PREVIEW / EDIT and PROGRAM / LIVE
      ========================================================================== */
+
+  /* ---- Import status card (chunk 5) -------------------------------------- */
+  .lcd-import-card {
+    display: flex; flex-direction: column; gap: 7px;
+    padding: 12px 14px; text-align: left;
+    background: #f5f3ff; border: 1.5px dashed #c4b5fd; border-radius: 10px;
+    font-family: 'Poppins', sans-serif;
+  }
+  .lcd-import-card.error { background: #fef2f2; border-color: #fca5a5; border-style: solid; }
+  .lcd-import-file {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.78rem; font-weight: 700; color: #1f2933;
+    word-break: break-word;
+  }
+  .lcd-import-card.error .lcd-import-file { color: #991b1b; }
+  .lcd-import-stage { font-size: 0.72rem; color: #6b7280; }
+  .lcd-import-card.error .lcd-import-stage { color: #b91c1c; }
+  .lcd-import-bar {
+    position: relative; overflow: hidden;
+    height: 6px; border-radius: 999px; background: rgba(99,102,241,0.16);
+  }
+  .lcd-import-bar > span {
+    display: block; height: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6);
+    transition: width 0.2s ease;
+  }
+  /* Indeterminate: a travelling sliver, never a percentage. CloudConvert
+     reports nothing until it is done, so there is no number to show. */
+  .lcd-import-bar.indeterminate > span {
+    width: 38% !important; animation: lcdImportSlide 1.1s ease-in-out infinite;
+  }
+  @keyframes lcdImportSlide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(305%); }
+  }
+  .lcd-import-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .lcd-import-btn {
+    min-height: 30px; padding: 0 12px; border-radius: 7px; cursor: pointer;
+    background: #6366f1; color: #fff; border: 1px solid #6366f1;
+    font-family: 'Poppins', sans-serif; font-size: 0.7rem; font-weight: 600;
+  }
+  .lcd-import-btn.ghost { background: transparent; color: #6b7280; border-color: #d1d5db; }
+  .lcd-import-btn:hover { filter: brightness(1.08); }
+  .lcd-import-btn:focus-visible { outline: 2px solid #38bdf8; outline-offset: 1px; }
+  @media (prefers-reduced-motion: reduce) {
+    .lcd-import-bar.indeterminate > span { animation: none; width: 100% !important; opacity: 0.5; }
+    .lcd-import-bar > span { transition: none; }
+  }
 
   /* ---- Preview / Edit segmented control ---------------------------------- */
   .lcd-seg {
