@@ -26270,6 +26270,10 @@ var WO = (function() {
     // too, so the only route back to LCD Projection disappears. The floating
     // bar below keys off this.
     document.body.classList.toggle('wo-mode-song', !on);
+    // An explicit body flag for "the projection console is on screen". Needed
+    // because `wo-mode-song` is absent both in LCD mode AND on every other
+    // page, so :not(.wo-mode-song) would style Home and Songs too.
+    document.body.classList.toggle('lcd-console-open', !!on);
     // The Program panel's ON AIR state is only sampled while it is on screen.
     _lcdStartStatusPolling(!!on);
   }
@@ -70911,6 +70915,67 @@ function filterLiturgyItems() {
      CHUNK 4 — PREVIEW / EDIT and PROGRAM / LIVE
      ========================================================================== */
 
+  /* ==========================================================================
+     CHUNK 6 — RESPONSIVENESS AND ACCESSIBILITY
+     ========================================================================== */
+
+  /* The console is a fixed-height desk: the panes scroll inside it and the page
+     itself does not move. After the header came down to one row, the last thing
+     still making the document taller than the viewport was the app shell's own
+     24px bottom padding -- exactly the 24px of stray page scroll that remained.
+     Scoped to the console being open, so every other page keeps its padding. */
+  @media (min-width: 1120px) {
+    body.lcd-console-open .lhc-root { padding-bottom: 0; }
+  }
+
+  /* ---- Focus visibility --------------------------------------------------
+     Keyboard focus has to be obvious on a dark console in a dark room. These
+     are the LCD controls that had no focus style of their own; :focus-visible
+     so it never shows for a mouse click. */
+  #worshipOrderView.lcd-mode .lcd-mini-btn:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-hist-btn:focus-visible,
+  #worshipOrderView.lcd-mode .wo-bg-btn:focus-visible,
+  #worshipOrderView.lcd-mode .wo-golive-btn:focus-visible,
+  #worshipOrderView.lcd-mode .wo-live-present-btn:focus-visible,
+  #worshipOrderView.lcd-mode .wo-align-btn:focus-visible,
+  #worshipOrderView.lcd-mode .wo-barrier-btn:focus-visible,
+  #worshipOrderView.lcd-mode .wo-text-btn:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-fmt-btn:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-fmt-select:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-lib-iconbtn:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-lib-search:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-tray-tab:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-tray-subtab:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-song-order-btn:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-fullscreen-btn:focus-visible,
+  #worshipOrderView.lcd-mode .wo-control-btn:focus-visible,
+  #worshipOrderView.lcd-mode .wo-order-btn:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-media-item:focus-visible,
+  #worshipOrderView.lcd-mode .lcd-rail-slide-row:focus-visible {
+    /* #0284c7 rather than the token cyan: the console mixes a dark Program
+       column with an ivory Slide Editor and a light tray, and this is the one
+       hue that clears 3:1 against both grounds. A ring only visible on half
+       the console is worse than no convention at all. */
+    outline: 2px solid #0284c7;
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  /* ---- Reduced motion ----------------------------------------------------
+     A projection desk is driven under time pressure; a operator who has asked
+     the OS for less motion should not get slide-in panels mid-service. Scoped
+     to the console so no other page's motion design is touched. */
+  @media (prefers-reduced-motion: reduce) {
+    #worshipOrderView.lcd-mode *,
+    #worshipOrderView.lcd-mode *::before,
+    #worshipOrderView.lcd-mode *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
   /* ---- Import status card (chunk 5) -------------------------------------- */
   .lcd-import-card {
     display: flex; flex-direction: column; gap: 7px;
@@ -70953,32 +71018,36 @@ function filterLiturgyItems() {
   }
   .lcd-import-btn.ghost { background: transparent; color: #6b7280; border-color: #d1d5db; }
   .lcd-import-btn:hover { filter: brightness(1.08); }
-  .lcd-import-btn:focus-visible { outline: 2px solid #38bdf8; outline-offset: 1px; }
+  .lcd-import-btn:focus-visible { outline: 2px solid #0284c7; outline-offset: 1px; }
   @media (prefers-reduced-motion: reduce) {
     .lcd-import-bar.indeterminate > span { animation: none; width: 100% !important; opacity: 0.5; }
     .lcd-import-bar > span { transition: none; }
   }
 
   /* ---- Preview / Edit segmented control ---------------------------------- */
+  /* The Slide Editor panel is the IVORY surface, not a dark one. Styled for a
+     dark panel these read at 1.35:1 -- and the nav buttons below at 1.0:1,
+     i.e. invisible. Both are coloured for the light surface they actually sit
+     on, measured rather than assumed. */
   .lcd-seg {
     display: inline-flex; align-items: center; gap: 2px; margin-left: 8px;
     padding: 2px; border-radius: 8px;
-    background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(31,41,51,0.06); border: 1px solid rgba(31,41,51,0.14);
   }
   .lcd-seg-btn {
     display: inline-flex; align-items: center; gap: 5px;
-    min-height: 26px; padding: 4px 10px; border: 0; border-radius: 6px;
-    background: transparent; color: var(--lcd-ivory-300, #cbd5e1);
+    min-height: 32px; padding: 4px 11px; border: 0; border-radius: 6px;
+    background: transparent; color: #4b5563;
     font-family: 'Poppins', sans-serif; font-size: 0.68rem; font-weight: 600;
     cursor: pointer; white-space: nowrap; transition: background 0.15s, color 0.15s;
   }
   .lcd-seg-btn i { font-size: 0.64rem; }
-  .lcd-seg-btn:hover { color: var(--lcd-ivory-100, #f8f4ea); background: rgba(255,255,255,0.08); }
+  .lcd-seg-btn:hover { color: #1f2933; background: rgba(31,41,51,0.09); }
   .lcd-seg-btn.active {
     background: var(--lcd-gold-500, #c9a227); color: #1a1a1a;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.28);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.22);
   }
-  .lcd-seg-btn:focus-visible { outline: 2px solid var(--lcd-cyan-400, #38bdf8); outline-offset: 1px; }
+  .lcd-seg-btn:focus-visible { outline: 2px solid #0284c7; outline-offset: 1px; }
 
   /* Edit is the default; Preview swaps the canvas for the projection surface.
      The formatting toolbar goes with the canvas -- it has nothing to act on
@@ -71007,14 +71076,14 @@ function filterLiturgyItems() {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     min-width: 36px; min-height: 36px; padding: 0 10px;
     border-radius: 8px; cursor: pointer;
-    background: rgba(255,255,255,0.10); color: var(--lcd-ivory-100, #f8f4ea);
-    border: 1px solid rgba(255,255,255,0.16);
+    background: #ffffff; color: #374151;
+    border: 1px solid #d8d2c4;
     font-family: 'Poppins', sans-serif; font-size: 0.7rem; font-weight: 600;
     transition: background 0.15s, border-color 0.15s;
   }
   .lcd-slide-nav-btn.wide { margin-left: auto; }
-  .lcd-slide-nav-btn:hover { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.28); }
-  .lcd-slide-nav-btn:focus-visible { outline: 2px solid var(--lcd-cyan-400, #38bdf8); outline-offset: 1px; }
+  .lcd-slide-nav-btn:hover { background: #f3f4f6; border-color: #b9b1a0; }
+  .lcd-slide-nav-btn:focus-visible { outline: 2px solid #0284c7; outline-offset: 1px; }
 
   /* ---- Program / Live header and status ---------------------------------- */
   .lcd-program-label { flex-wrap: wrap; gap: 7px; }
