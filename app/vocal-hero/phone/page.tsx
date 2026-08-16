@@ -52,6 +52,12 @@ function PhoneGame() {
   // re-renders from the clock every frame anyway, and routing each microphone
   // sample through state would re-render the page 60 times a second.
   const trailRef = useRef<TrailSample[]>([]);
+  /* The reference tone before the entrance used to build its own AudioContext
+     inside an effect, with no user gesture anywhere near it. Mobile Safari
+     starts such a context suspended and it makes no sound at all, so the one
+     moment a singer is handed their starting pitch was silent on iPhones.
+     This one is created and resumed on the ready tap and kept for the round. */
+  const cueContextRef = useRef<AudioContext | null>(null);
   // Every note's result, kept so the end of the round can say something
   // more useful than one number. Collected in a ref for the same reason as
   // the trail: nothing renders from it until the song is over.
@@ -71,7 +77,7 @@ function PhoneGame() {
   useEffect(() => { warmUpRef.current = warmUp; }, [warmUp]);
   function setDifficulty(next: Difficulty) { setDifficultyState(next); rememberDifficulty(next); }
   const pitchRef = useRef<PitchEngine | null>(null); const scoreRef = useRef<ScoreEngine | null>(null); const unsubRef = useRef<(() => void) | null>(null); const startedRef = useRef(false); const elapsedRef = useRef(0); const phaseRef = useRef('Waiting'); const lastPitchPaintRef = useRef(0); const cuePlayedRef = useRef(false);
-  useEffect(() => () => { pitchRef.current?.stop(); void scoreRef.current?.stop(); unsubRef.current?.(); }, []);
+  useEffect(() => () => { pitchRef.current?.stop(); void scoreRef.current?.stop(); unsubRef.current?.(); void cueContextRef.current?.close().catch(() => undefined); }, []);
   useEffect(() => { if (!session) return; const interval = window.setInterval(() => { setNow(Date.now()); void fetchPlayers(session.id).then(setPlayers); void fetchSectionScores(session.id).then(setSections).catch(() => setSections([])); }, 900); return () => clearInterval(interval); }, [session]);
   useEffect(() => { if (session?.status !== 'playing') return; let frame = 0, last = 0; const tick = (time: number) => { if (time - last > 33) { setNow(Date.now()); last = time; } frame = requestAnimationFrame(tick); }; frame = requestAnimationFrame(tick); return () => cancelAnimationFrame(frame); }, [session?.status]);
   const runningTimeline = timelineFor(session, now + clockOffset); const timeline = session?.paused ? { phase: 'Paused', songElapsed: pausedElapsed } : runningTimeline; const notes = useMemo(() => transposeNotes(song ? playableNotes(song) : [], transpose), [song, transpose]); const part = song ? playablePart(song, partIndex) : null;
@@ -82,7 +88,7 @@ function PhoneGame() {
       // reach the singer's ears, and their answer took time to reach the analyser.
       // Scoring it against the clock as it stands now would mark every note late.
       if (phaseRef.current === 'live' && sample.confidence > .78) { const songTime = Math.max(0, elapsedRef.current - latencyRef.current); scoreRef.current?.scorePitch(sample.frequency, songTime); pushTrail(trailRef.current, songTime, sample.frequency); } } }); pitchRef.current = engine; try { await engine.start(); setMic('ready'); return true; } catch { pitchRef.current = null; setMic('blocked'); return false; } }
-  useEffect(() => { if (timeline.phase !== 'Lead-in · listen' || cuePlayedRef.current || !song) return; cuePlayedRef.current = true; const first = notes.filter(note => note.part === partIndex || note.part === -1).sort((a, b) => a.start - b.start).slice(0, 2); if (!first.length) return; const context = new AudioContext({ latencyHint: 'interactive' }); first.forEach((note, index) => { const oscillator = context.createOscillator(), gain = context.createGain(), at = context.currentTime + .08 + index * .65; oscillator.frequency.value = PitchEngine.midiToHz(note.midi); gain.gain.setValueAtTime(.0001, at); gain.gain.exponentialRampToValueAtTime(.16, at + .03); gain.gain.exponentialRampToValueAtTime(.0001, at + .55); oscillator.connect(gain).connect(context.destination); oscillator.start(at); oscillator.stop(at + .58); }); window.setTimeout(() => void context.close(), 1800); }, [notes, partIndex, song, timeline.phase]);
+  useEffect(() => { if (timeline.phase !== 'Lead-in · listen' || cuePlayedRef.current || !song) return; cuePlayedRef.current = true; const first = notes.filter(note => note.part === partIndex || note.part === -1).sort((a, b) => a.start - b.start).slice(0, 2); if (!first.length) return; const context = cueContextRef.current ?? new AudioContext({ latencyHint: 'interactive' }); if (context.state === 'suspended') void context.resume(); first.forEach((note, index) => { const oscillator = context.createOscillator(), gain = context.createGain(), at = context.currentTime + .08 + index * .65; oscillator.frequency.value = PitchEngine.midiToHz(note.midi); gain.gain.setValueAtTime(.0001, at); gain.gain.exponentialRampToValueAtTime(.16, at + .03); gain.gain.exponentialRampToValueAtTime(.0001, at + .55); oscillator.connect(gain).connect(context.destination); oscillator.start(at); oscillator.stop(at + .58); }); if (context !== cueContextRef.current) window.setTimeout(() => void context.close(), 1800); }, [notes, partIndex, song, timeline.phase]);
   useEffect(() => { if (!session || !song || !player || !part || session.status !== 'playing' || startedRef.current) return; startedRef.current = true; const scorer = new ScoreEngine({ part, partIndex, notes, songDuration: song.duration, playerId: player.id, sessionId: session.id, difficulty, practice: warmUp, onScoreUpdate: (_, total) => setScore(total), onNoteResult: result => { resultsRef.current.push(result); setHits(current => ({ ...current, [result.noteId]: result.points > 0 })); } }); scoreRef.current = scorer; scorer.start(); void startPitchTracking(); }, [difficulty, notes, part, partIndex, player, session, song]);
   useEffect(() => { if (session?.status !== 'playing' || !player) return; const interval = setInterval(() => { const stats = scoreRef.current?.stats; if (stats && !warmUpRef.current) void savePlayerRoundStats({ session_id: session.id, player_id: player.id, score: scoreRef.current?.currentTotal ?? 0, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit }); }, 3000); return () => clearInterval(interval); }, [player, session?.id, session?.status]);
   useEffect(() => { if (session?.status !== 'ended' || !player || !scoreRef.current) return; pitchRef.current?.stop(); setReview(summariseRound(resultsRef.current, notes)); const scorer = scoreRef.current; /* stop() resolves the note still in progress, so both the total and the counts change during it: reading either beforehand loses the last note of every round. The phone was also saving the score STATE, which lags the engine by a render, while the host saved the engine's own total — so the two disagreed. */ void scorer.stop().then(() => { if (warmUpRef.current) return; const stats = scorer.stats; void savePlayerRoundStats({ session_id: session.id, player_id: player.id, score: scorer.currentTotal, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit }); }); }, [player, session?.status]);
@@ -101,6 +107,10 @@ function PhoneGame() {
     if (goingReady && !pitchRef.current?.isRunning) {
       setMic('checking');
       micState = await startPitchTracking() ? 'ready' : 'blocked';
+      try {
+        cueContextRef.current ??= new AudioContext({ latencyHint: 'interactive' });
+        if (cueContextRef.current.state === 'suspended') await cueContextRef.current.resume();
+      } catch { /* no audio output available; the cue simply will not sound */ }
       setError(micState === 'blocked'
         ? 'Microphone blocked — allow it in your browser settings and tap ready again. You can still follow the words and notes without scoring.'
         : '');

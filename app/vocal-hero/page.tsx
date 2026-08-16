@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  createSession, fetchAllSongs, fetchPlayers, fetchSectionScores, fetchSessionByCode, fetchSong, joinSession, savePlayerRoundStats,
+  createSession, endSession, fetchAllSongs, fetchPlayers, fetchSectionScores, fetchSessionByCode, fetchSong, joinSession, savePlayerRoundStats,
   scheduleSessionStart, setSessionPaused, subscribeToPlayers, subscribeToSession, updatePlayerLobbyState, updateSong,
 } from '@/lib/vocal-hero/supabaseClient';
 import type { GameSession, SectionScore, SessionPlayer, Song, SongNote } from '@/lib/vocal-hero/types';
@@ -29,6 +29,9 @@ import type { Difficulty } from '@/lib/vocal-hero/scoreEngine';
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
 const PITCH_RANGES = [{ low: 60, high: 81 }, { low: 53, high: 74 }, { low: 48, high: 67 }, { low: 40, high: 64 }];
+/** Time allowed after the last note before the round is called finished, so
+ * that note's own scoring window closes first. */
+const END_TAIL_SEC = 2.5;
 
 export default function VocalHeroHostPage() {
   const [songs, setSongs] = useState<Song[]>([]);
@@ -98,6 +101,14 @@ export default function VocalHeroHostPage() {
   const soloPhaseRef = useRef('Waiting');
   const soloLastPitchPaintRef = useRef(0);
   const pauseStartedRef = useRef(0);
+  const endedRef = useRef(false);
+  // When the round is over: past the written duration and the last note alike,
+  // plus a tail so the final note's own scoring window can close.
+  const finishesAt = useMemo(() => {
+    if (!song) return Number.POSITIVE_INFINITY;
+    const lastNote = playableNotes(song).reduce((latest, note) => Math.max(latest, note.end), 0);
+    return Math.max(song.duration || 0, lastNote) + END_TAIL_SEC;
+  }, [song]);
   const runningTimeline = timelineFor(session, now + clockOffset);
   const timeline = gamePaused ? { phase: 'Paused', songElapsed: pausedElapsed } : runningTimeline;
   const backingTrackUrl = song?.audio_url || song?.backing_media_url || '';
@@ -135,6 +146,25 @@ export default function VocalHeroHostPage() {
     return () => cancelAnimationFrame(frame);
   }, [session?.status]);
   useEffect(() => { soloElapsedRef.current = timeline.songElapsed; soloPhaseRef.current = timeline.phase; }, [timeline.phase, timeline.songElapsed]);
+  // Finish the round when the song runs out.
+  //
+  // Nothing did this. endSession() existed and was called from nowhere, and the
+  // timeline had no end: past the lead-in it returned Live for ever with the
+  // elapsed time climbing. So a session never reached 'ended', and everything
+  // waiting on that never happened -- the review, the phones' closing screen,
+  // the final save, the last flush -- while the microphone stayed open long
+  // after the singing stopped.
+  //
+  // The host owns the clock that started the round, so the host ends it, and
+  // the phones learn through the subscription they already have.
+  useEffect(() => {
+    if (session?.status !== 'playing' || !song || endedRef.current) return;
+    if (timeline.phase !== 'Live') return;
+    if (timeline.songElapsed < finishesAt) return;
+    endedRef.current = true;
+    audioRef.current?.pause();
+    void endSession(session.id).catch(() => { endedRef.current = false; });
+  }, [finishesAt, session?.id, session?.status, song, timeline.phase, timeline.songElapsed]);
   useEffect(() => {
     if (session?.paused && !gamePaused) {
       setPausedElapsed(runningTimeline.songElapsed); setGamePaused(true); pauseStartedRef.current = Date.now(); audioRef.current?.pause();
@@ -179,7 +209,7 @@ export default function VocalHeroHostPage() {
   async function chooseSong(next: Song) {
     try {
       soloPitchRef.current?.stop(); void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
-      setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current); resultsRef.current = []; setSoloReview(null);
+      setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current); resultsRef.current = []; setSoloReview(null); endedRef.current = false;
       setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
       const created = await createSession(next.id, 'worship-host');
       listeners.current.forEach(close => close());
@@ -291,7 +321,7 @@ export default function VocalHeroHostPage() {
     void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
     listeners.current.forEach(close => close()); listeners.current = [];
     setSession(null); setSong(null); setPlayers([]); setSections([]);
-    setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current); resultsRef.current = []; setSoloReview(null);
+    setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current); resultsRef.current = []; setSoloReview(null); endedRef.current = false;
     setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
   }
 
