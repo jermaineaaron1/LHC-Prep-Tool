@@ -4,6 +4,96 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
+## 2026-08-16 — LCD Projection console redesign, CHUNK 1: audit and safety map
+
+Branch `feature/lcd-projection-console-redesign`, cut from `master` at `3670a48`. No behaviour changed in this commit — this is the map the rest of the work is done against.
+
+### Where the LCD Projection workspace lives
+
+Everything is inside `#worshipOrderView` (`Index.html` ~6080), which hosts **three** modes that share one DOM subtree and one state set:
+
+| Mode | Entry | Container |
+|---|---|---|
+| Orders list | `showSavedOrders()` | `#woMainMenu` |
+| Song Order | `selectOrder('song')` | `.wo-main-content.wo-song-order`, `#woSongOrderSections` |
+| **LCD Projection** | `selectOrder('service')` | `#lcdLibraryPanel` + `#woWorshipOrder` + `#woPreviewPanel.lcd-shell` |
+
+`selectOrder()` (~26213) is the switch. `#worshipOrderView` also carries a `lcd-mode` class, toggled at ~26206 — that is the existing scoping hook and the redesign should hang off it rather than inventing another.
+
+### The columns as they exist now
+
+Three siblings inside `.wo-main-content`:
+
+1. `#lcdLibraryPanel` — Song Library only (search, chips, list). Collapsible via `lcdToggleLibrary()`, with `#lcdLibReopen` as the reopen tab.
+2. `#woWorshipOrder` — the Service Schedule / compact rail.
+3. `#woPreviewPanel.lcd-shell` — the workspace column, holding `.lcd-topbar`, `.lcd-outputs-row` (Slide Editor + Program Output), `.lcd-lower-row` (Preview Output + Media Tray).
+
+Sizing is **JS-driven, not pure CSS**: `_lcdSizeWorkspaceColumns()` (~26318) caps the two list columns to the viewport band and deliberately leaves the workspace column uncapped; `applyLayout()` writes inline styles just before it. Any grid rewrite has to account for those inline writes, because inline beats the stylesheet.
+
+### State objects — shared, do not fork
+
+| Variable | Line | Shared with |
+|---|---|---|
+| `currentOrderData` | 23089 | Orders, Song Order, LCD |
+| `songOrderSections` | 23096 | Song Order, LCD |
+| `serviceSectionSongs` | 23100 | Song Order, LCD |
+| `window.serviceSectionItems` | 23844+ | LCD (liturgy/scripture/content items) |
+| `sectionBackgrounds` | — | LCD only, keyed section → **local slide index** |
+| `currentSermonSlides` | 30150 | LCD only, keyed by section |
+| `selectedSlideBox`, `activeNavigationMode`, `_selectedPptContainer`, `_pptActiveSection` | — | LCD navigation |
+
+`sectionBackgrounds` being keyed by positional index is the long-standing trap: anything that inserts, deletes or reorders slides must re-pin it via `_lcdCaptureSectionBgs()` / `_lcdRestoreSectionBgs()` (~54796/54804). A markup reshuffle that changes slide order counts.
+
+### Persistence — one pipeline, must not be detached
+
+`collectOrderItems()` (25256) reads the **DOM** → `saveCurrentOrder()` (24768) strips heavy data and calls `SBQ.saveOrder` → `autoSaveOrder()` (24572) debounces 2s → `saveImmediately()` (24583) on navigate-away. `snapshotCurrentState()` (25946) feeds the wipe guard.
+
+**This is the single biggest risk in the whole redesign.** `collectOrderItems()` finds content by CSS selector — `.wo-slide-box`, `.wo-content-box`, `.wo-slides-container`, `.wo-ppt-widget`, `.wo-video-container`, and `data-song-id` / `data-liturgy-id` / `data-slide-idx` / `data-section` attributes. **Rename or restructure any of those and the order silently saves empty.** The wipe guard at 24933 will refuse a 0-item save when the DOM has content, but it cannot catch a partial loss. Every markup change must be checked against this function.
+
+### Render / rebind entry points
+
+`_lcdRenderCompactRail()` (54417), `_lcdRenderLibraryPanel()` (54710), `_lcdRenderMediaTray()` (53173), `_lcdApplyLayoutFlags()` (54966), `_lcdSetupMediaDropZone()` (53738), `_lcdSetupCompactRailObserver()` (55792), `_lcdWireRailDrag()` (55585), `_lcdWireSectionDrag()` (55688), `_lcdWireLibraryDrop()` (54913).
+
+147 `_lcd*` functions in total. Handlers are largely inline `onclick="WO.…"` in markup, so **moving markup moves the bindings with it** — the risk is dropped attributes, not lost listeners.
+
+### PowerPoint pipeline — traced end to end
+
+1. Entry: file modal (`openSlidesModalTab` → `handleSlidesFileSelect` → `confirmAddSlides`), desktop drop (`_lcdHandleDroppedFiles`, 53570), tray drag (`_lcdExpandDocIntoSection`, 53664), section menu.
+2. `addSlidesFromFiles()` (32193) — uploads originals to Supabase `orders/documents|presentations`, fills `supabaseFiles`.
+3. PDF → `extractPdfPages()` (32357), pdf.js at 2× scale → `canvas.toDataURL('image/jpeg', .92)`.
+4. PPTX → `_convertAndRenderPptx()` (32696) → `POST /api/convert-pptx` (CloudConvert, needs `CLOUDCONVERT_API_KEY`) → PDF → same pdf.js path. Google Slides route via `getSlidePageIds` → `/api/slide-page-ids` is the legacy alternative.
+5. Render: `renderLocalSlides()` (32431) → `_renderPptFilmstrip()` (32444) builds `.wo-ppt-widget` with `.wo-ppt-thumb[data-idx]`.
+6. Persist: `_pptPersistPages()` (32931) → `uploadSlidesToSupabase()` (32833) swaps base64 → storage URL, then autosaves.
+7. Restore: `collectOrderItems` emits `itemType:'slides'`; load path rebuilds `currentSermonSlides` and calls `renderLocalSlides`.
+8. Project: `projectPptPage()`; navigate: `navigateSlideGlobal()` `ppt-local` / `ppt-iframe` branches.
+
+**No reliable per-page progress exists.** pdf.js knows `pdf.numPages` and counts pages as they render, so "8 of 24" *is* honest for the PDF stage; CloudConvert conversion exposes nothing, so that stage must be indeterminate. Do not fabricate a percentage across the whole import.
+
+### CSS scoping
+
+- `.lcd-*` — 499 rules, LCD-only. Safe to restyle.
+- `.wo-*` — **1311 rules, shared with Song Order and the Orders list.** Restyling these leaks. Scope new work under `#worshipOrderView.lcd-mode` or new `.lcd-*` classes.
+- A full LCD token set **already exists** at ~68927 (`--lcd-navy-*`, `--lcd-ivory-*`, `--lcd-gold-*`, spacing, radius, button heights, type sizes, shadows, motion). Chunk 2 should extend this, not add a second set. Note a **second, conflicting** `--lcd-ivory*` block at ~69122 for the parchment Songbook surface — different feature, same prefix; do not merge them.
+- `body.lcd-workspace-fullscreen` (69405) drives workspace full screen.
+
+### Projection output
+
+`openProjectionWindow()` (33217), `sendToProjectionWindow()` (33424), `projectionWindow` (30147), `_lcdMirrorToProgramOutput()` (33440), `_lcdUpdateProgramBarrier()` (33483), `fullscreenSlides()` (33884), `_lcdKeepFullscreenAround()` (53073). The barrier/safe-zone is `#lcdProgramBarrier` + `openBarrierEditor()`.
+
+### Finding that changes the brief: there is no OBS and no YouTube integration
+
+Searched the whole repo. **Neither exists.**
+
+- No `new WebSocket`, no obs-websocket client, no port 4455, no OBS code of any kind. Every `obs` match is `MutationObserver`.
+- Every `youtube` match is either a **song reference link** (`song.youtube[]`, `server.gs` columns) or the roster duty **"Live Streaming"**. There is no stream state, no YouTube API call, no `app/api/` route for either.
+- The only livestream-aware feature is the **safe-zone barrier**, a margin guide so projected text avoids the camera's lower-right corner.
+
+The projector status *is* real and can be shown honestly (`projectionWindow` open/closed). OBS and YouTube have no state to read.
+
+This collides with the brief, which asks for OBS/YouTube status in the header and Program panel, says "do not show a connected status unless it comes from real application state", and lists acceptance tests 25 and 26 as "confirm OBS/YouTube functionality remains connected". There is nothing to remain connected. **Raised with the operator before building the header — see the decision recorded in the next entry.**
+
+---
+
 ## 2026-08-16 — getSlidePageIds ported to a Vercel route (one scope still to add)
 
 `server.gs`'s `getSlidePageIds()` now has a server-side twin at `app/api/slide-page-ids/route.ts`, so a pasted Google Slides link can be projected one slide at a time here and not only under Apps Script.
