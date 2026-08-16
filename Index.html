@@ -54713,6 +54713,42 @@ var WO = (function() {
     '</div>';
   }
 
+  // Header row for a filled scripture reading. Once a slot is filled its
+  // placeholder is consumed, so "First Reading" vanished from the rail and the
+  // operator saw only bare passage rows with no idea which reading they were.
+  // The heading stays, with the passage beside it.
+  function _lcdBuildScriptureGroupRow(sectionId, subLabel, title, count) {
+    var heading = subLabel || title || 'Scripture';
+    return '<div class="lcd-rail-scr-group" title="' + escapeHtml(heading + ' — ' + title) + '">' +
+      '<i class="fa-solid fa-book-bible"></i>' +
+      '<span class="lcd-rail-scr-group-name">' + escapeHtml(heading) + '</span>' +
+      (subLabel ? '<span class="lcd-rail-scr-group-ref">' + escapeHtml(title) + '</span>' : '') +
+      '<span class="lcd-rail-scr-group-count">' + count + '</span>' +
+      '<button class="lcd-rail-scr-group-del" title="Remove this reading and keep the ' + escapeHtml(heading) + ' slot" ' +
+        'onclick="event.stopPropagation();WO.lcdRemoveScriptureSlot(\'' + escapeHtml(sectionId) + '\',\'' + escapeHtml(subLabel) + '\',\'' + escapeHtml(title) + '\')">' +
+        '<i class="fa-solid fa-trash"></i></button>' +
+    '</div>';
+  }
+
+  // Delegates to the banner's own remove button, so the reading is cleared and
+  // its slot restored by exactly the path the schedule already uses -- no
+  // second removal logic to drift out of step.
+  function lcdRemoveScriptureSlot(sectionId, subLabel, title) {
+    var root = document.getElementById(sectionId + '-boxes') || document;
+    var banner = null;
+    var all = root.querySelectorAll('.wo-song-banner.scripture-banner');
+    for (var i = 0; i < all.length; i++) {
+      var b = all[i];
+      if ((subLabel && b.getAttribute('data-sub-label') === subLabel) ||
+          (!subLabel && b.getAttribute('data-scripture-title') === title)) { banner = b; break; }
+    }
+    if (!banner) return;
+    var btn = banner.querySelector('button');
+    if (btn) removeScriptureKeepSlot(btn);
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (typeof autoSaveOrder === 'function') autoSaveOrder();
+  }
+
   // Header row for a presentation in the rail: names the file, says how many
   // pages it has, and offers the one bulk action -- remove the whole deck.
   // removePptFile() already confirms, names the file and its page count, and
@@ -54860,8 +54896,11 @@ var WO = (function() {
           // insert. collectOrderItems() has always read this wrapper; only the
           // rail never learned about it.
           if (i < children.length && children[i].classList.contains('wo-scripture-slides-group')) {
+            var _scrSub = el.getAttribute('data-sub-label') || '';
+            var _scrBoxes = children[i].querySelectorAll('.wo-slide-box');
+            rowsHtml += _lcdBuildScriptureGroupRow(sectionId, _scrSub, scriptTitle, _scrBoxes.length);
             Array.prototype.forEach.call(
-              children[i].querySelectorAll('.wo-slide-box'),
+              _scrBoxes,
               function(sb) {
                 slideCounter++;
                 rowsHtml += _lcdBuildRailRow(sIdx, slideCounter, scriptTitle, sb, 'fa-book-bible');
@@ -62354,6 +62393,7 @@ var WO = (function() {
     woToggleOverflow: woToggleOverflow,
     lcdSetEditorMode: lcdSetEditorMode,
     lcdAddSlideAfterCurrent: lcdAddSlideAfterCurrent,
+    lcdRemoveScriptureSlot: lcdRemoveScriptureSlot,
     lcdCancelImport: lcdCancelImport,
     lcdDismissImport: lcdDismissImport,
     lcdRetryImport: lcdRetryImport,
@@ -71231,6 +71271,37 @@ function filterLiturgyItems() {
       scroll-behavior: auto !important;
     }
   }
+
+  /* ---- Rail header row for a filled scripture reading --------------------
+     A filled slot loses its placeholder, so without this the rail showed bare
+     passage rows and the operator could not tell First Reading from Gospel. */
+  .lcd-rail-scr-group {
+    display: flex; align-items: center; gap: 7px;
+    margin: 8px 0 3px; padding: 6px 9px;
+    border-radius: 8px 8px 4px 4px;
+    background: linear-gradient(135deg, rgba(30,64,175,0.16), rgba(59,130,246,0.16));
+    border: 1px solid rgba(30,64,175,0.34);
+    font-family: 'Poppins', sans-serif; font-size: 0.68rem; font-weight: 700;
+    color: #1e3a8a;
+  }
+  .lcd-rail-scr-group > i { font-size: 0.7rem; color: #1e40af; flex: 0 0 auto; }
+  .lcd-rail-scr-group-name { flex: 0 0 auto; white-space: nowrap; }
+  .lcd-rail-scr-group-ref {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-weight: 600; opacity: 0.78;
+  }
+  .lcd-rail-scr-group-count {
+    flex: 0 0 auto; padding: 1px 7px; border-radius: 999px;
+    background: rgba(30,64,175,0.18); font-size: 0.62rem;
+  }
+  .lcd-rail-scr-group-del {
+    flex: 0 0 auto; width: 24px; height: 24px; border-radius: 6px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid transparent;
+    color: #1e40af; font-size: 0.68rem;
+  }
+  .lcd-rail-scr-group-del:hover { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
+  .lcd-rail-scr-group-del:focus-visible { outline: 2px solid #0284c7; outline-offset: 1px; }
 
   /* ---- Rail header row for a presentation --------------------------------
      Names the deck and carries the bulk delete. Deliberately NOT a
