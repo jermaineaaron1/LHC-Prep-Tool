@@ -3,6 +3,66 @@
 import type { SongNote } from '@/lib/vocal-hero/types';
 import { hzToMidi, livePitchFeedback, midiNoteName } from '@/lib/vocal-hero/liveCues';
 
+/** A run of consecutive voiced samples that all stood in the same relation to
+ * the written note. `idle` is singing where nothing is written — between
+ * phrases, or holding past the end of a note. That is not a wrong pitch, and
+ * coloured as one it would flick amber at the end of every note. */
+type TrailState = 'on' | 'off' | 'idle';
+interface TrailSegment { points: string; state: TrailState }
+
+/** How far from the written note still counts as "on it", for colouring only.
+ * Scoring has its own tolerance; this is what the eye reads as correct. */
+const TRAIL_IN_TUNE_CENTS = 50;
+/** A gap longer than this is a breath or a rest, not a line to draw through. */
+const TRAIL_GAP_SEC = 0.12;
+
+function buildTrail(
+  trail: TrailSample[] | undefined,
+  elapsed: number,
+  trailSeconds: number,
+  lookAheadSeconds: number,
+  cursor: number,
+  trackWidth: number,
+  partNotes: SongNote[],
+  clampY: (midi: number) => number,
+): TrailSegment[] {
+  if (!trail?.length) return [];
+  const segments: TrailSegment[] = [];
+  let points: string[] = [];
+  let segmentState: TrailState = 'idle';
+  let previousT = -Infinity;
+
+  const flush = () => {
+    // A lone point draws nothing as a polyline, and two identical points draw
+    // nothing either; both are noise rather than a line worth showing.
+    if (points.length >= 2) segments.push({ points: points.join(' '), state: segmentState });
+    points = [];
+  };
+
+  for (const sample of trail) {
+    if (sample.hz <= 0 || sample.t < elapsed - trailSeconds || sample.t > elapsed) { flush(); previousT = -Infinity; continue; }
+    const midi = hzToMidi(sample.hz);
+    const note = partNotes.find(candidate => sample.t >= candidate.start && sample.t < candidate.end);
+    const state: TrailState = !note ? 'idle'
+      : Math.abs((midi - note.midi) * 100) <= TRAIL_IN_TUNE_CENTS ? 'on' : 'off';
+    // Break the line where the voice stopped, and where it crossed between
+    // being on the note and off it, so each stretch carries its own colour.
+    if (sample.t - previousT > TRAIL_GAP_SEC || (points.length && state !== segmentState)) {
+      const carry = points.length ? points[points.length - 1] : null;
+      flush();
+      // Carry the last point into the new segment so the line stays unbroken
+      // across a colour change.
+      if (carry && sample.t - previousT <= TRAIL_GAP_SEC) points.push(carry);
+    }
+    segmentState = state;
+    const x = cursor + ((sample.t - elapsed) / lookAheadSeconds) * trackWidth;
+    if (x >= 0) points.push(`${x.toFixed(2)},${clampY(midi).toFixed(1)}`);
+    previousT = sample.t;
+  }
+  flush();
+  return segments;
+}
+
 const VOICE_RANGES = [
   { low: 60, high: 81 }, // Soprano C4-A5
   { low: 53, high: 74 }, // Alto F3-D5
@@ -10,10 +70,35 @@ const VOICE_RANGES = [
   { low: 40, high: 64 }, // Bass E2-E4
 ];
 
+/** One sample of what the singer actually sang, in song time. */
+export interface TrailSample { t: number; hz: number }
+
+/** Longest stretch of singing the lane will ever draw. */
+const TRAIL_MEMORY_SEC = 4;
+
+/**
+ * Record a sample, and forget anything older than the lane can show. Mutates
+ * the array it is given: this runs on every microphone sample, and a fresh
+ * array each time would be a steady drip of work for the collector on the one
+ * thread that has to stay smooth.
+ */
+export function pushTrail(trail: TrailSample[], songTime: number, hz: number): void {
+  trail.push({ t: songTime, hz });
+  const cutoff = songTime - TRAIL_MEMORY_SEC;
+  let drop = 0;
+  while (drop < trail.length && trail[drop].t < cutoff) drop++;
+  if (drop) trail.splice(0, drop);
+}
+
+/** Starting a new round must not leave the previous round's line on screen. */
+export function clearTrail(trail: TrailSample[]): void {
+  trail.length = 0;
+}
+
 /** DOM pitch highway with one mathematically exact row per MIDI semitone. */
 export function SatbLane({
   partIndex, partName, colour, elapsed, notes, pitchHz, playerCount, hitNotes = {}, compact = false,
-  lookAheadSeconds = compact ? 5 : 10, showLyrics = !compact,
+  lookAheadSeconds = compact ? 5 : 10, showLyrics = !compact, trail, trailSeconds = 2.5,
 }: {
   partIndex: number;
   partName: string;
@@ -26,6 +111,8 @@ export function SatbLane({
   compact?: boolean;
   lookAheadSeconds?: number;
   showLyrics?: boolean;
+  trail?: TrailSample[];
+  trailSeconds?: number;
 }) {
   const partNotes = notes.filter(note => note.part === partIndex || note.part === -1).sort((a, b) => a.start - b.start);
   const pitches = partNotes.map(note => note.midi);
@@ -49,6 +136,14 @@ export function SatbLane({
   const pitchY = displayPitchHz && displayPitchHz > 0
     ? Math.max(headerHeight + gridPadding, Math.min(laneHeight - gridPadding, yFor(hzToMidi(displayPitchHz))))
     : null;
+  // The trail: the last couple of seconds of the singer's own pitch, drawn on
+  // the same grid as the notes. A dot at the strike line says whether they are
+  // right at this instant; it cannot show a scoop up into a note, a slow slide
+  // flat across a long hold, or a wobble. Those are the things a singer has to
+  // see before they can correct them.
+  const clampY = (midi: number) => Math.max(headerHeight + gridPadding, Math.min(laneHeight - gridPadding, yFor(midi)));
+  const trailSegments = buildTrail(trail, elapsed, trailSeconds, lookAheadSeconds, cursor, trackWidth, partNotes, clampY);
+
   const feedback = livePitchFeedback(target?.midi ?? null, pitchHz ?? 0);
   const timingLabel = target ? 'ON TIME' : next && next.start - elapsed <= .8 ? `GET READY · ${(next.start - elapsed).toFixed(1)}s` : 'WAIT';
   const feedbackColour = feedback.state === 'correct' ? '#6ee7b7' : feedback.state === 'high' || feedback.state === 'low' ? '#fbbf24' : '#94a3b8';
@@ -66,6 +161,26 @@ export function SatbLane({
           <span className={`absolute left-0 z-10 flex h-full w-12 items-center justify-end border-r pr-1 font-mono font-black ${sharp ? 'border-slate-500/30 bg-[#050916] text-[8px] text-slate-400' : 'border-slate-200/20 bg-[#dbe8f4] text-[9px] text-[#122033]'}`}>{midiNoteName(midi)}</span>
         </div>;
       })}
+      {trailSegments.length > 0 && <svg
+        className="pointer-events-none absolute inset-0 z-[15] h-full w-full"
+        viewBox={`0 0 100 ${laneHeight}`}
+        preserveAspectRatio="none"
+        aria-hidden
+      >
+        {trailSegments.map((segment, index) => <polyline
+          key={index}
+          points={segment.points}
+          fill="none"
+          // Without this the stroke is stretched by the same non-uniform scale
+          // as the coordinates, and a 2px line becomes a smear.
+          vectorEffect="non-scaling-stroke"
+          stroke={segment.state === 'on' ? '#6ee7b7' : segment.state === 'off' ? '#fbbf24' : '#64748b'}
+          strokeWidth={compact ? 1.5 : 2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={segment.state === 'idle' ? .5 : segment.state === 'on' ? .95 : .8}
+        />)}
+      </svg>}
       <div className="absolute inset-y-0 z-20 w-[3px] bg-[#f6c65b] shadow-[0_0_14px_#f6c65b]" style={{ left: `${cursor}%` }} aria-label="Strike line" />
       <div className="absolute inset-y-0 border-l border-dashed border-white/10" style={{ left: '50%' }} />
       {!compact && <div className="absolute inset-x-0 top-0 z-30 grid h-10 grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-white/10 bg-[#07101f]/95 px-3 pl-[14%] text-[10px] font-black uppercase tracking-[.13em]"><span style={{ color: feedbackColour }}>{feedback.label}<small className="ml-2 hidden font-medium normal-case tracking-normal text-slate-400 lg:inline">{feedback.instruction}</small></span><span className="hidden rounded-full border border-cyan-300/20 bg-cyan-300/[.06] px-3 py-1 text-[11px] tracking-normal text-white sm:inline-flex"><small className="mr-1 text-[8px] text-slate-500">YOU</small><b className="text-cyan-200">{feedback.detected}</b><span className="mx-2 text-slate-600">→</span><small className="mr-1 text-[8px] text-slate-500">TARGET</small><b>{feedback.target}</b></span><span className={`text-right ${target ? 'text-emerald-300' : 'text-amber-300'}`}>{timingLabel}</span></div>}
