@@ -52,6 +52,9 @@ export interface ScoreEngineOptions {
   sessionId: string;
   difficulty?: Difficulty;
   flushIntervalMs?: number;
+  /** Warm-up: score locally so the singer still gets every cue, but send
+   * nothing. Points earned here reach no leaderboard and no stored round. */
+  practice?: boolean;
   onScoreUpdate: (delta: number, total: number) => void;
   onNoteResult?: (result: NoteScoreResult) => void;
 }
@@ -96,6 +99,7 @@ export class ScoreEngine {
     this.opts = {
       difficulty: 'medium',
       flushIntervalMs: 1000,
+      practice: false,
       notes: [],
       onNoteResult: () => {},
       ...options,
@@ -248,6 +252,10 @@ export class ScoreEngine {
     // setInterval does not wait for the previous call to finish. Two flushes
     // overlapping would each take a share of the pending points and re-queue
     // them independently on failure.
+    // Warm-up keeps every local cue — the lane, the trail, the coach panel and
+    // the review all read from state this class holds — and simply never
+    // reports. Cleared rather than left to grow, since nothing will ever send it.
+    if (this.opts.practice) { this.pending = []; return; }
     if (this.flushing || !this.pending.length) return;
     this.flushing = true;
     const delta = this.pending.reduce((total, value) => total + value, 0);
