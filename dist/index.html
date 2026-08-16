@@ -69130,22 +69130,16 @@ function filterLiturgyItems() {
   }
 
   /* ---- 1. Column widths ---------------------------------------------------
-     The Service Schedule stays the widest of the three working columns; the
-     Slide Editor and the Program Output share the workspace column and are
-     equal halves of it (see .lcd-outputs-row below), which puts each of them a
-     little narrower than the schedule. */
-  .wo-main-content:not(.wo-song-order) {
-    grid-template-columns: minmax(190px, 17fr) minmax(310px, 29fr) minmax(470px, 54fr);
-  }
-  @media (min-width: 1800px) {
-    .wo-main-content:not(.wo-song-order) { grid-template-columns: minmax(210px, 16fr) minmax(360px, 30fr) minmax(560px, 54fr); }
-  }
-  @media (max-width: 1439px) {
-    .wo-main-content:not(.wo-song-order) { grid-template-columns: minmax(170px, 16fr) minmax(280px, 30fr) minmax(420px, 54fr); }
-  }
-  .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px minmax(300px, 1fr) minmax(470px, 2fr); }
-  /* Expanded: schedule takes the lion's share, library yields */
-  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded { grid-template-columns: 44px minmax(420px, 46fr) minmax(430px, 54fr); }
+     CONSOLIDATED. Every grid-template-columns rule for this grid now lives in
+     ONE place -- "THE COLUMN BLOCK", further down, just before the sub-1120px
+     stacked layouts. Nothing here sets column widths any more.
+
+     Why: three separate eras of column rules had accumulated (here, in the
+     Phase 2 block below, and in a 1201-1699 band ~1000 lines further on) and
+     only the last matching one ever won. Two changes in this redesign were
+     silently dead on arrival because they were written into the wrong era, and
+     a third crushed the workspace because lowering a breakpoint pulled the
+     hardcoded 1201-1699 band over a width it was never meant to cover. */
   .wo-main-content:not(.wo-song-order).lcd-schedule-expanded #lcdLibraryPanel { display: none; }
   .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-lib-reopen { display: flex; }
   .wo-main-content:not(.wo-song-order) { transition: grid-template-columns 200ms ease; }
@@ -69475,10 +69469,6 @@ function filterLiturgyItems() {
        This is the LAST of several generations of column rules in this file and
        therefore the one that decides -- earlier blocks around lines 69137 and
        69346 are superseded and left alone deliberately. Edit here. */
-    grid-template-columns:
-      minmax(196px, 11.5fr)
-      minmax(330px, 28.5fr)
-      minmax(600px, 60fr);
   }
   /* Both of these carry sizing from the old flex layout. In grid the track
      owns the width, and .wo-worship-order's max-width:302px would otherwise
@@ -69574,7 +69564,6 @@ function filterLiturgyItems() {
   .lcd-lib-reopen:hover { background: var(--lcd-navy-700, #1e2c4a); }
   .wo-main-content:not(.wo-song-order).lcd-library-hidden #lcdLibraryPanel { display: none; }
   .wo-main-content:not(.wo-song-order).lcd-library-hidden .lcd-lib-reopen { display: flex; }
-  .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 320px minmax(480px, 1fr); }
 
   .lcd-schedule-header-right { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
   .lcd-schedule-expand {
@@ -69588,14 +69577,8 @@ function filterLiturgyItems() {
   .lcd-schedule-expand.active { color: var(--lcd-gold-400, #d9b46a); background: var(--lcd-gold-wash, rgba(193,153,63,.14)); border-color: var(--lcd-gold-500, #c1993f); }
 
   /* Expanded schedule: give the rail the larger share of the workspace. */
-  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded { grid-template-columns: 280px minmax(480px, 1.6fr) minmax(460px, 1fr); }
-  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded.lcd-library-hidden { grid-template-columns: 44px minmax(480px, 1.6fr) minmax(460px, 1fr); }
 
   @media (min-width: 1800px) {
-    .wo-main-content:not(.wo-song-order) {
-      grid-template-columns: minmax(215px, 11.5fr) minmax(370px, 28.5fr) minmax(700px, 60fr);
-    }
-    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px minmax(370px, 30fr) minmax(700px, 70fr); }
   }
   /* Below 1600px an expanded schedule cannot also fit the library and a
      usable workspace, so the library yields -- its own hidden/shown flag is
@@ -69603,7 +69586,6 @@ function filterLiturgyItems() {
   @media (max-width: 1599px) {
     .wo-main-content:not(.wo-song-order).lcd-schedule-expanded #lcdLibraryPanel { display: none; }
     .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-lib-reopen { display: flex; }
-    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded { grid-template-columns: 44px minmax(420px, 1.4fr) minmax(430px, 1fr); }
     .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-outputs-row { flex-direction: column; }
     .wo-main-content:not(.wo-song-order).lcd-schedule-expanded .lcd-outputs-row .lcd-output-box { flex: 1 1 auto; }
   }
@@ -69611,14 +69593,74 @@ function filterLiturgyItems() {
     /* 1366 has ~1000px of usable width once the app sidebar and padding are
        taken, so the floors decide here rather than the proportions. Service
        Slides is still given comfortably more than the library. */
-    .wo-main-content:not(.wo-song-order) {
-      grid-template-columns: minmax(168px, 11fr) minmax(290px, 29fr) minmax(470px, 60fr);
-    }
-    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px minmax(290px, 30fr) minmax(470px, 70fr); }
     /* Workspace is too narrow for Editor and Output side by side */
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row { flex-direction: column; }
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-output-box { flex: 1 1 auto; }
   }
+  /* ======================================================================
+     THE COLUMN BLOCK — the ONLY place the LCD workspace's grid columns are
+     set. If you are changing how wide the Content Library, Service Slides,
+     Preview/Edit or Program/Live are, change it here and nowhere else.
+
+     Consolidated from three eras of rules that had accumulated across ~1400
+     lines of this stylesheet. Only the last matching rule ever won, so edits
+     written into the earlier eras were silently dead, and a hardcoded
+     1201-1699 band at the very end quietly decided the widths most desktops
+     actually get. All of that is now in this one block, in width order.
+
+     Proportions follow the approved console mockup, against the usable width
+     left after the global app sidebar:
+        Content Library ~12%   Service Slides ~28%
+        Preview / Edit  ~34%   Program / Live ~25%
+     Preview/Edit and Program/Live share the third track and split it 58:42
+     inside .lcd-outputs-row; see the min-width:1201px block further down.
+
+     fr units carry the proportions, minmax() floors stop any column
+     collapsing, and the floors are what take over below ~1500px.
+     ====================================================================== */
+
+  /* Base: 1440-1799. */
+  .wo-main-content:not(.wo-song-order) {
+    grid-template-columns: minmax(196px, 11.5fr) minmax(330px, 28.5fr) minmax(600px, 60fr);
+  }
+  .wo-main-content:not(.wo-song-order).lcd-library-hidden {
+    grid-template-columns: 44px minmax(330px, 30fr) minmax(600px, 70fr);
+  }
+  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded {
+    grid-template-columns: 44px minmax(420px, 46fr) minmax(430px, 54fr);
+  }
+  .wo-main-content:not(.wo-song-order).lcd-schedule-expanded.lcd-library-hidden {
+    grid-template-columns: 44px minmax(420px, 46fr) minmax(430px, 54fr);
+  }
+
+  /* Wide desktops. */
+  @media (min-width: 1800px) {
+    .wo-main-content:not(.wo-song-order) {
+      grid-template-columns: minmax(215px, 11.5fr) minmax(370px, 28.5fr) minmax(700px, 60fr);
+    }
+    .wo-main-content:not(.wo-song-order).lcd-library-hidden {
+      grid-template-columns: 44px minmax(370px, 30fr) minmax(700px, 70fr);
+    }
+  }
+
+  /* 1280-1439. The floors decide here rather than the proportions; Service
+     Slides still gets comfortably more than the library. */
+  @media (max-width: 1439px) {
+    .wo-main-content:not(.wo-song-order) {
+      grid-template-columns: minmax(180px, 11fr) minmax(300px, 29fr) minmax(470px, 60fr);
+    }
+    .wo-main-content:not(.wo-song-order).lcd-library-hidden {
+      grid-template-columns: 44px minmax(300px, 30fr) minmax(470px, 70fr);
+    }
+  }
+
+  /* Below 1280 an expanded schedule cannot also fit the library. */
+  @media (max-width: 1599px) {
+    .wo-main-content:not(.wo-song-order).lcd-schedule-expanded {
+      grid-template-columns: 44px minmax(420px, 1.4fr) minmax(430px, 1fr);
+    }
+  }
+
   /* The 3-column workspace is desktop-only. Below 1201px the app's existing
      phone/tablet layouts take over (stacked column, slide-in preview panel),
      and those are written as flex -- `flex-direction: column !important` is
@@ -70493,8 +70535,10 @@ function filterLiturgyItems() {
      picker columns is what actually buys the editor a usable width, and both
      stay wide enough to read titles. */
   @media (min-width: 1201px) and (max-width: 1699px) {
-    .wo-main-content:not(.wo-song-order) { grid-template-columns: 196px 286px minmax(0, 1fr); }
-    .wo-main-content:not(.wo-song-order).lcd-library-hidden { grid-template-columns: 44px 286px minmax(0, 1fr); }
+    /* The two grid-template-columns rules that used to live here have moved to
+       THE COLUMN BLOCK. They were the last matching column rules in the file
+       and therefore the ones that actually decided these widths, which made
+       them very easy to miss. The reasoning above is preserved there. */
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row { flex-direction: row; }
     .wo-main-content:not(.wo-song-order) .lcd-outputs-row .lcd-program-box { min-width: 190px; }
     .lcd-library-panel { padding: 10px; }
