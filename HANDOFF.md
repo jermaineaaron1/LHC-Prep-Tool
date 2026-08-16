@@ -4,6 +4,86 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
+## 2026-08-16 (evening) — six fixes from two reports (`05c8531`, `4f54d41`, `6636dba`, `f198442`)
+
+Two things reported from the desk turned into six fixes, four of them for
+faults nobody had hit yet. All merged and live.
+
+### An inserted scripture reading was invisible (`05c8531`)
+
+Reported as "the 1st reading disappeared when I clicked Insert into Service
+Order". **Nothing was ever lost** — it inserted, saved and sat in the DOM
+correctly. It was invisible in the compact rail, which is all the operator sees
+in LCD mode, so it read as a deletion.
+
+`insertScriptureIntoBox()` wraps its slides in a `.wo-scripture-slides-group`;
+the rail walked the banner's **direct siblings** looking for `.wo-slide-box`,
+hit the wrapper and matched none. `collectOrderItems()` had always read that
+wrapper, which is exactly why the data was fine while the screen showed nothing.
+
+### A reading is parked under its own heading (`f198442`) — and the trap in it
+
+Reported as: insert into Second Reading, reload, and it sits at the bottom of
+the section. **`collectOrderItems` has TWO scripture emitters** — a DOM walk and
+a `serviceSectionItems` fallback — and only the first carried the reading's slot
+(`subLabel`). Whichever ran last won, so it saved correctly *sometimes*. That
+intermittency is what made this look like three different bugs.
+
+It was also **self-erasing**: a restore built an unlabelled banner, and the next
+autosave wrote that empty label back over the good one. One reload and the slot
+identity was gone permanently.
+
+**A reading saved before this fix cannot recover on its own** — remove it and
+re-insert it into the intended slot once, and it will stay.
+
+Also fixed here, and independent of the ordering complaint:
+`addScriptureToSection` removed *"the first placeholder in the section"*, so
+restoring a Second Reading **deleted the First Reading slot**. Real data loss.
+
+**Method note, because it cost four attempts.** Three theories in a row were
+wrong, each costing a build-and-reload cycle. What ended it was instrumenting:
+patching `insertAdjacentHTML` to capture a **stack trace** when the banner was
+built (which named the caller), then logging the item at that point — showing
+`content` arriving as `{ reference }` with no `subLabel`, while the same row
+read through `SBQ.loadOrder` plainly had it. That contradiction is what revealed
+a second emitter. **Reach for the stack trace after the first wrong guess, not
+the fourth** — especially when a bug is intermittent, because an intermittent
+bug will happily "disprove" a correct theory.
+
+### Presentation rows: blue selection and bulk delete (`4f54d41`)
+
+The blue selected styling already existed and was correct; presentation rows
+never got the class, because `_lcdBuildPptRow` tested for `.active` — the
+filmstrip thumbnail's marker — while the slide-box layout marks selection with
+`.selected`. And the rail offered a per-page delete only, so clearing a 32-page
+sermon deck meant 32 clicks; each deck now has a rail header row carrying the
+file name, page count and a delete for the whole deck.
+
+### The legacy-selector sweep (`6636dba`) — do this after ANY page-markup change
+
+Moving presentation pages from a filmstrip widget to ordinary slide boxes left
+sibling code hunting for markers that no longer existed. It surfaced three times
+as separate reports before anyone swept for the rest.
+
+**16 JS sites reference that markup. 10 handled both layouts; 6 were
+legacy-only.** Four could misbehave and were fixed: `_restoreAttachRowIfEmpty`
+(a section still holding a deck could get the "attach a presentation" row back
+underneath it), `removeSlides` (cleared only widget-era markup),
+`_lcdSelectFirstSlide` (a `.wo-ppt-page` **is** a `.wo-slide-box`, so opening an
+order onto a presentation handed it to `selectSlideBox()` and opened the editor
+over an unedittable page), and `removePptPage` (its re-pin looked for one
+`.wo-ppt-widget`; a deck is now a **run** of siblings, so decks jumped to the end
+of the section on every page delete).
+
+Two were left as dead-but-harmless, deliberately: `_lcdRailRowClick` looks up a
+thumbnail that no longer exists then calls `projectPptPage()` with `null`, which
+is what that function expects; and `navigateSlideGlobal`'s `ppt-local` branch
+with `_pptReacquire` is now **unreachable** — arrow navigation goes through the
+regular slide path instead, which is correct now that pages are ordinary slide
+boxes. Removing that dead branch is a tidy-up with its own testing, not a fix.
+
+---
+
 ## OPEN — what is left to do (as of 2026-08-16, all LCD work merged and live)
 
 Everything below this section is history. This is the only part that is still
@@ -120,6 +200,13 @@ this OAuth client is **shared with roster calendar sync**, so regenerating it
 invalidates the calendar refresh token too and takes the roster feed down until
 `GOOGLE_CLIENT_SECRET` is updated and calendar is re-consented. If you do it, do
 calendar and slides in one sitting.
+
+### 2b. One-off: re-insert the Exodus reading in *Service - 23 Aug 2026*
+
+That order's reading lost its slot identity to the self-erasing bug described in
+the evening entry below, before the fix existed. It cannot recover on its own.
+Delete the reading and re-insert it into **First Reading** once; it will then
+hold its place across saves and reloads. Nothing else in that order is affected.
 
 ### 3. Media Tray tabs — three, where the brief asks for four
 
