@@ -15,6 +15,7 @@ import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
 import { ScoreEngine } from '@/lib/vocal-hero/scoreEngine';
 import type { NoteScoreResult } from '@/lib/vocal-hero/scoreEngine';
 import { RoundReviewPanel } from './RoundReview';
+import { HighScoreBoard } from './HighScoreBoard';
 import { summariseRound } from '@/lib/vocal-hero/review';
 import type { RoundReview } from '@/lib/vocal-hero/review';
 import { TransposeBadge, TransposePicker, rememberTranspose, storedTranspose, transposeNotes } from './TransposePicker';
@@ -44,6 +45,7 @@ export default function VocalHeroHostPage() {
   const [error, setError] = useState('');
   const [editingSong, setEditingSong] = useState<Song | null>(null);
   const [showCreateSong, setShowCreateSong] = useState(false);
+  const [scoresFor, setScoresFor] = useState<Song | null>(null);
   const [creatingSong, setCreatingSong] = useState(false);
   const [soloPart, setSoloPart] = useState<number | null>(null);
   const [soloPlayer, setSoloPlayer] = useState<SessionPlayer | null>(null);
@@ -355,7 +357,7 @@ export default function VocalHeroHostPage() {
       ? <HostRoundEndStage song={song} players={players} sections={sections} onAgain={() => void start()} onDone={returnToLibrary} />
     : session && song
       ? <Lobby song={song} session={session} players={players} phoneUrl={phoneUrl} onStart={start} onStartSolo={startSolo} soloStarting={soloStarting} difficulty={difficulty} setDifficulty={setDifficulty} latencySec={latencySec} applyLatency={applyLatency} transpose={transpose} setTranspose={setTranspose} warmUp={warmUp} setWarmUp={setWarmUp} />
-      : <SongPicker songs={songs} onChoose={chooseSong} onEdit={setEditingSong} onCreate={() => setShowCreateSong(true)} />;
+      : <SongPicker songs={songs} onChoose={chooseSong} onEdit={setEditingSong} onCreate={() => setShowCreateSong(true)} onScores={setScoresFor} />;
 
   return <main className="vh-app min-h-screen text-slate-100">
     {backingTrackUrl && <audio ref={audioRef} preload="auto" src={backingTrackUrl} className="hidden" />}
@@ -364,6 +366,7 @@ export default function VocalHeroHostPage() {
     {stage}
     {editingSong && <ArrangementEditor song={editingSong} onClose={() => setEditingSong(null)} onSave={saveArrangement} />}
     {showCreateSong && <CreateSongDialog creating={creatingSong} onCancel={() => setShowCreateSong(false)} onCreate={createNewSong} />}
+    {scoresFor && <HighScoresDialog song={scoresFor} onClose={() => setScoresFor(null)} />}
   </main>;
 }
 
@@ -383,8 +386,20 @@ function formatDuration(seconds: number): string {
 
 function Badge({ label }: { label: string }) { return <span className="rounded-lg border border-cyan-300/20 bg-cyan-300/[.05] px-2 py-1 text-xs text-cyan-200">{label}</span>; }
 
-function SongPicker({ songs, onChoose, onEdit, onCreate }: { songs: Song[]; onChoose: (song: Song) => void; onEdit: (song: Song) => void; onCreate: () => void }) {
-  return <section className="mx-auto max-w-6xl px-5 py-14"><div className="flex flex-wrap items-end justify-between gap-6"><div><p className="text-xs font-bold tracking-[.26em] text-fuchsia-300">VOCAL HERO LIBRARY</p><h1 className="mt-3 max-w-3xl text-5xl font-black tracking-tight sm:text-7xl">Build a room.<br /><span className="text-cyan-300">Raise every voice.</span></h1></div><button onClick={onCreate} className="vh-primary-button min-w-52 text-base">＋ Create new song</button></div><div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{songs.map(song => <article key={song.id} className="vh-panel p-5"><div className="mb-3 flex justify-end">{song.status === 'draft' && <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[.16em] text-amber-200">Draft</span>}</div><SongDetails song={song} /><div className="mt-5 flex gap-2"><button onClick={() => onEdit(song)} className="vh-outline-button flex-1">{song.status === 'draft' ? 'Continue editing' : 'Edit arrangement'}</button><button onClick={() => onChoose(song)} disabled={song.status !== 'ready'} title={song.status === 'ready' ? 'Open a multiplayer lobby' : 'Add at least one note and save before opening a lobby'} className="vh-primary-button flex-1 disabled:cursor-not-allowed disabled:opacity-35">{song.status === 'ready' ? 'Open lobby' : 'Finish setup'}</button></div></article>)}</div>{!songs.length && <div className="vh-panel mt-10 grid place-items-center px-6 py-16 text-center"><p className="text-xl font-semibold">Your Vocal Hero library is empty.</p><p className="mt-2 text-sm text-slate-400">Create a song, then draw notes or import MIDI in the arrangement editor.</p><button onClick={onCreate} className="vh-primary-button mt-6">＋ Create your first song</button></div>}</section>;
+function SongPicker({ songs, onChoose, onEdit, onCreate, onScores }: { songs: Song[]; onChoose: (song: Song) => void; onEdit: (song: Song) => void; onCreate: () => void; onScores: (song: Song) => void }) {
+  return <section className="mx-auto max-w-6xl px-5 py-14"><div className="flex flex-wrap items-end justify-between gap-6"><div><p className="text-xs font-bold tracking-[.26em] text-fuchsia-300">VOCAL HERO LIBRARY</p><h1 className="mt-3 max-w-3xl text-5xl font-black tracking-tight sm:text-7xl">Build a room.<br /><span className="text-cyan-300">Raise every voice.</span></h1></div><button onClick={onCreate} className="vh-primary-button min-w-52 text-base">＋ Create new song</button></div><div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{songs.map(song => <article key={song.id} className="vh-panel p-5"><div className="mb-3 flex justify-end">{song.status === 'draft' && <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[.16em] text-amber-200">Draft</span>}</div><SongDetails song={song} /><div className="mt-5 flex gap-2"><button onClick={() => onScores(song)} title="Best scores ever set on this song" className="vh-outline-button px-3">🏆</button><button onClick={() => onEdit(song)} className="vh-outline-button flex-1">{song.status === 'draft' ? 'Continue editing' : 'Edit arrangement'}</button><button onClick={() => onChoose(song)} disabled={song.status !== 'ready'} title={song.status === 'ready' ? 'Open a multiplayer lobby' : 'Add at least one note and save before opening a lobby'} className="vh-primary-button flex-1 disabled:cursor-not-allowed disabled:opacity-35">{song.status === 'ready' ? 'Open lobby' : 'Finish setup'}</button></div></article>)}</div>{!songs.length && <div className="vh-panel mt-10 grid place-items-center px-6 py-16 text-center"><p className="text-xl font-semibold">Your Vocal Hero library is empty.</p><p className="mt-2 text-sm text-slate-400">Create a song, then draw notes or import MIDI in the arrangement editor.</p><button onClick={onCreate} className="vh-primary-button mt-6">＋ Create your first song</button></div>}</section>;
+}
+
+function HighScoresDialog({ song, onClose }: { song: Song; onClose: () => void }) {
+  return <div className="fixed inset-0 z-[70] grid place-items-center bg-[#020510]/85 p-4 backdrop-blur-md" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <section role="dialog" aria-modal="true" aria-label="High scores" className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-amber-300/30 bg-[#090d22] shadow-[0_0_80px_#f59e0b22]">
+      <header className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+        <div><p className="text-[10px] font-bold tracking-[.24em] text-amber-300">HIGH SCORES</p><h2 className="mt-1 text-2xl font-black">{song.title}</h2></div>
+        <button onClick={onClose} className="rounded-lg border border-white/15 px-4 py-2 text-xs">Close</button>
+      </header>
+      <div className="p-5"><HighScoreBoard songId={song.id} perVoice={10} /></div>
+    </section>
+  </div>;
 }
 
 function CreateSongDialog({ creating, onCancel, onCreate }: { creating: boolean; onCancel: () => void; onCreate: (title: string, artist: string) => Promise<void> }) {
@@ -446,6 +461,7 @@ function SoloReviewStage({ song, part, score, review, warmUp, onDone }: {
         </div>
       </div>
       <div className="mt-6"><RoundReviewPanel review={review} colour={COLOURS[part]} /></div>
+      {!warmUp && <div className="mt-4"><HighScoreBoard songId={song.id} highlight={['Solo Singer']} /></div>}
       <div className="mt-6 flex justify-end"><button onClick={onDone} className="vh-primary-button min-w-40">Back to the library</button></div>
     </div>
   </section>;
@@ -529,6 +545,8 @@ function HostRoundEndStage({ song, players, sections, onAgain, onDone }: {
           </div>
         </div>
       </div>
+
+      <div className="mt-5"><HighScoreBoard songId={song.id} highlight={singers.map(player => player.player_name)} /></div>
 
       <div className="mt-6 flex flex-wrap justify-end gap-3">
         <button onClick={onDone} className="vh-outline-button">Back to the library</button>
