@@ -13,6 +13,7 @@ import type { GameSession, SectionScore, SessionPlayer, Song, SongNote } from '@
 import { SatbLane, clearTrail, pushTrail } from '../SatbLane';
 import type { TrailSample } from '../SatbLane';
 import { RoundReviewPanel } from '../RoundReview';
+import { HighScoreBoard } from '../HighScoreBoard';
 import { summariseRound } from '@/lib/vocal-hero/review';
 import type { RoundReview } from '@/lib/vocal-hero/review';
 import { TransposeBadge, TransposePicker, rememberTranspose, storedTranspose, transposeNotes } from '../TransposePicker';
@@ -90,16 +91,30 @@ function PhoneGame() {
      first key seen after joining is recorded without clearing anything --
      that state is already fresh. */
   const roundKeyRef = useRef<string | null>(null);
+  const endedSeenRef = useRef(false);
+  useEffect(() => { if (session?.status === 'ended') endedSeenRef.current = true; }, [session?.status]);
   useEffect(() => {
     const key = session?.playback_starts_at ?? null;
     if (!key || roundKeyRef.current === key) return;
     const firstRound = roundKeyRef.current === null;
     roundKeyRef.current = key;
     if (firstRound) return;
+    /* A RESUME also moves playback_starts_at -- forward by the length of the
+       pause, which leaves it still in the PAST while the song plays on. A
+       freshly scheduled round lies in the FUTURE. Wiping on any change meant
+       one pause erased the first half of the round: the fresh scorer resolved
+       every pre-pause note as a miss and a perfect singer was told to drill
+       their entrances. Only a genuinely new round may wipe. The ended flag
+       covers a restart whose update reached a backgrounded phone late enough
+       that its start already lay in the past -- a resume never passes through
+       'ended', a restart always does. */
+    const startsAhead = new Date(key).getTime() > Date.now() + clockOffset;
+    if (!startsAhead && !endedSeenRef.current) return;
+    endedSeenRef.current = false;
     void scoreRef.current?.stop(); scoreRef.current = null; startedRef.current = false;
     resultsRef.current = []; setReview(null); clearTrail(trailRef.current);
     setScore(0); setHits({}); cuePlayedRef.current = false;
-  }, [session?.playback_starts_at]);
+  }, [clockOffset, session?.playback_starts_at, session?.status]);
 
   async function startPitchTracking() { if (pitchRef.current?.isRunning) return true; const range = PITCH_RANGES[partIndex] ?? PITCH_RANGES[0]; const shift = transposeRef.current; const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, minHz: PitchEngine.midiToHz(range.low - 3 + shift), maxHz: PitchEngine.midiToHz(range.high + 3 + shift), onPitch: sample => { if (performance.now() - lastPitchPaintRef.current > 33) { setPitch(sample.frequency); lastPitchPaintRef.current = performance.now(); } // This sample is the sound of a moment already past: the beat took time to
       // reach the singer's ears, and their answer took time to reach the analyser.
@@ -138,7 +153,7 @@ function PhoneGame() {
   }
   if (!session) return <Join room={room} setRoom={setRoom} name={name} setName={setName} part={partIndex} setPart={setPartIndex} error={error} join={join} />;
   if (session.status === 'lobby') return <PhoneLobby song={song!} code={session.room_code} part={partIndex} players={players} player={player} mic={mic} testMic={testMic} ready={readyUp} error={error} difficulty={difficulty} setDifficulty={setDifficulty} latencySec={latencySec} applyLatency={applyLatency} transpose={transpose} setTranspose={setTranspose} hasBackingTrack={!!(song?.audio_url || song?.backing_media_url)} warmUp={warmUp} setWarmUp={setWarmUp} />;
-  if (session.status === 'ended') return <PhoneEnd score={score} sections={sections} part={partIndex} review={review} warmUp={warmUp} />;
+  if (session.status === 'ended') return <PhoneEnd song={song!} playerName={name} score={score} sections={sections} part={partIndex} review={review} warmUp={warmUp} />;
   if (timeline.phase === 'Paused') return <PhonePaused song={song!} part={partIndex} />;
   if (timeline.phase !== 'live') return <PhoneCountdown song={song!} part={partIndex} phase={timeline.phase} mic={mic} />;
   return <PhoneLive song={song!} notes={notes} transpose={transpose} warmUp={warmUp} guide={isGuideMelody(notes)} part={partIndex} elapsed={timeline.songElapsed} pitch={pitch} score={score} hits={hits} sections={sections} mic={mic} fullBoard={fullBoard} setFullBoard={setFullBoard} trail={trailRef.current} />;
@@ -157,5 +172,5 @@ function PhoneLive({ song, notes, transpose, warmUp, guide, part, elapsed, pitch
   const team = sections.find(section => section.part_index === part);
   return <PhoneShell><div className="mt-5 flex items-center justify-between"><div><p className="text-xs text-slate-400">{song.title}</p><b style={{ color: COLOURS[part] }}>{VOICES[part].toUpperCase()} TEAM</b><div className="mt-1 flex flex-wrap gap-1"><WarmUpBadge active={warmUp} /><TransposeBadge semitones={transpose} colour={COLOURS[part]} /></div></div><div className="text-right"><p className="text-3xl font-black text-fuchsia-300">{score.toLocaleString()}</p><p className="text-[10px] tracking-[.16em] text-slate-500">PERSONAL SCORE</p></div></div><div className="mt-5"><KaraokeLyrics song={song} notes={notes} partIndex={lanePart} elapsed={elapsed} compact /></div><div className="mt-4"><SatbLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={guide ? '#ff60bc' : COLOURS[part]} elapsed={elapsed} notes={notes} pitchHz={pitch} hitNotes={hits} lookAheadSeconds={4} showLyrics={false} trail={trail} /></div><section className="vh-panel mt-4 p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] uppercase tracking-wider text-slate-500">You sang</p><b className="text-3xl text-cyan-200">{feedback.detected}</b></div><div className="px-2 text-center"><p className={`text-sm font-black ${feedback.state === 'correct' ? 'text-emerald-300' : feedback.state === 'high' || feedback.state === 'low' ? 'text-amber-300' : 'text-slate-400'}`}>{feedback.label}</p><small className="block text-[10px] text-slate-500">{feedback.difference}</small></div><div className="text-right"><p className="text-[10px] uppercase tracking-wider text-slate-500">Target</p><b className="text-3xl text-white">{feedback.target}</b></div></div></section><div className="mt-4 grid grid-cols-2 gap-3"><div className="vh-panel p-3"><p className="text-xs text-slate-400">TEAM ACCURACY</p><b className="text-xl">{Math.round(team?.accuracy ?? 0)}%</b></div><div className="vh-panel p-3"><p className="text-xs text-slate-400">MIC</p><b className="text-xl text-emerald-300">{mic === 'ready' ? 'READY' : 'CHECK'}</b></div></div>{!guide && <button onClick={() => setFullBoard(!fullBoard)} className="vh-outline-button mt-4 w-full">{fullBoard ? 'Return to my part' : 'Show full choir board'}</button>}{fullBoard && <div className="mt-3 space-y-2">{VOICES.map((voice, index) => <SatbLane key={voice} compact partIndex={index} partName={voice} colour={COLOURS[index]} elapsed={elapsed} notes={notes} pitchHz={index === part ? pitch : undefined} hitNotes={hits} lookAheadSeconds={4} />)}</div>}</PhoneShell>;
 }
-function PhoneEnd({ score, sections, part, review, warmUp }: { score: number; sections: SectionScore[]; part: number; review: RoundReview | null; warmUp: boolean }) { return <PhoneShell><div className="mt-28 text-center"><p className="text-xs tracking-[.25em] text-fuchsia-300">SESSION COMPLETE</p><h1 className="mt-3 text-4xl font-black">Every voice counted.</h1><p className="mt-8 text-7xl font-black text-cyan-300">{score}</p><p className="mt-1 text-slate-400">{warmUp ? 'Warm-up · nothing recorded' : 'Your personal score'}</p><p className="mt-7">{VOICES[part]} accuracy <b className="ml-2" style={{ color: COLOURS[part] }}>{Math.round(sections.find(section => section.part_index === part)?.accuracy ?? 0)}%</b></p>{review && <div className="mt-7"><RoundReviewPanel review={review} colour={COLOURS[part]} compact /></div>}</div></PhoneShell>; }
+function PhoneEnd({ song, playerName, score, sections, part, review, warmUp }: { song: Song; playerName: string; score: number; sections: SectionScore[]; part: number; review: RoundReview | null; warmUp: boolean }) { return <PhoneShell><div className="mt-28 text-center"><p className="text-xs tracking-[.25em] text-fuchsia-300">SESSION COMPLETE</p><h1 className="mt-3 text-4xl font-black">Every voice counted.</h1><p className="mt-8 text-7xl font-black text-cyan-300">{score}</p><p className="mt-1 text-slate-400">{warmUp ? 'Warm-up · nothing recorded' : 'Your personal score'}</p><p className="mt-7">{VOICES[part]} accuracy <b className="ml-2" style={{ color: COLOURS[part] }}>{Math.round(sections.find(section => section.part_index === part)?.accuracy ?? 0)}%</b></p>{review && <div className="mt-7"><RoundReviewPanel review={review} colour={COLOURS[part]} compact /></div>}{!warmUp && <div className="mt-7 text-left"><HighScoreBoard songId={song.id} highlight={[playerName]} perVoice={3} /></div>}</div></PhoneShell>; }
 function timelineFor(session: GameSession | null, now: number) { if (!session?.playback_starts_at) return { phase: 'Waiting', songElapsed: 0 }; const delta = now - new Date(session.playback_starts_at).getTime(); const countdown = session.countdown_seconds ?? 5, lead = session.lead_in_seconds ?? 2; if (delta < 0) return { phase: `Starts in ${Math.ceil(-delta / 1000)}`, songElapsed: 0 }; const seconds = delta / 1000; if (seconds < countdown) return { phase: `Count-in ${countdown - Math.floor(seconds)}`, songElapsed: 0 }; if (seconds < countdown + lead) return { phase: 'Lead-in · listen', songElapsed: 0 }; return { phase: 'live', songElapsed: seconds - countdown - lead }; }
