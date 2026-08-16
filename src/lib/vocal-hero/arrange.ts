@@ -129,3 +129,65 @@ export function harmoniseInto(
     replaced,
   };
 }
+
+// ── Imported notes that overlap in one voice ───────────────────────────────
+
+export interface OverlapResult {
+  notes: SongNote[];
+  /** Notes shortened so the one after them could start on time. */
+  trimmed: number;
+  /** Notes sharing a start with another in the same voice — a chord written
+   * into a single line, which no single voice can sing. */
+  stacked: number;
+}
+
+/**
+ * Make a voice monophonic without moving anything.
+ *
+ * The previous rule pushed an overlapping note forward to the next grid line.
+ * MIDI is nearly always slightly legato — a note-off arriving just after the
+ * next note-on — so in a fast passage every note collided, every note was
+ * shunted to the next grid step, and the delay compounded down the run. A
+ * glissando, a fill or a semiquaver run came in stretched to several times its
+ * length and out of time with everything around it.
+ *
+ * Overlap is resolved by shortening the note that is ending, which is what a
+ * singer does anyway: the previous note stops when the next one starts. Every
+ * start time survives exactly as played, so runs, fills and glissandi keep
+ * their rhythm.
+ *
+ * Notes that genuinely share a start are a chord written into one line. They
+ * are kept rather than silently dropped — losing a note is worse than showing
+ * one that needs a decision — and counted so the importer can say so.
+ */
+export function resolveOverlapsPreservingRhythm(input: SongNote[], minimumSec = 0.03): OverlapResult {
+  const adjusted = new Map<string, SongNote>();
+  let trimmed = 0;
+  let stacked = 0;
+
+  for (const part of Array.from(new Set(input.map(note => note.part)))) {
+    const voice = input
+      .filter(note => note.part === part)
+      // Highest first where starts coincide, so the top line of a chord is the
+      // one that keeps its full length.
+      .sort((a, b) => a.start - b.start || b.midi - a.midi);
+
+    voice.forEach((note, index) => {
+      const next = voice[index + 1];
+      if (!next) { adjusted.set(note.id, note); return; }
+      if (next.start <= note.start + .0005) {
+        stacked += 1;
+        adjusted.set(note.id, note);
+        return;
+      }
+      if (note.end > next.start + .0005) {
+        trimmed += 1;
+        adjusted.set(note.id, { ...note, end: Math.max(note.start + minimumSec, next.start) });
+        return;
+      }
+      adjusted.set(note.id, note);
+    });
+  }
+
+  return { notes: input.map(note => adjusted.get(note.id) ?? note), trimmed, stacked };
+}
