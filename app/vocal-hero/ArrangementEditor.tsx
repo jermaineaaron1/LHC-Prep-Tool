@@ -33,9 +33,32 @@ const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A'
 
 function midiNoteName(midi: number) { const safe = Math.max(0, Math.min(127, Math.round(midi))); return `${NOTE_NAMES[safe % 12]}${Math.floor(safe / 12) - 1}`; }
 function formatClock(seconds: number) { const safe = Math.max(0, seconds); return `${Math.floor(safe / 60)}:${String(Math.floor(safe) % 60).padStart(2, '0')}.${Math.floor((safe % 1) * 10)}`; }
-function pitchRangeForPart(part: number) {
-  const natural = VOICE_MIDI_RANGES[part] ?? VOICE_MIDI_RANGES[0];
-  return { min: natural.min, max: natural.max };
+// A voice's comfortable compass used to be a wall: the lane drew only those
+// rows, so a pitch outside them could not be clicked, dragged to, or even
+// seen. Parts share notes constantly — a unison between Alto and Tenor, a
+// soprano line doubled an octave down — and none of that could be written.
+//
+// The compass is now advice rather than a fence. Each lane extends a fifth
+// past it in both directions, which is enough for any pair of neighbouring
+// voices to meet, and the rows beyond it are shaded so an arranger can still
+// see at a glance where a voice is being asked to stretch.
+const RANGE_MARGIN = 7;
+
+function naturalRangeForPart(part: number) {
+  return VOICE_MIDI_RANGES[part] ?? VOICE_MIDI_RANGES[0];
+}
+
+function pitchRangeForPart(part: number, notes: SongNote[] = []) {
+  const natural = naturalRangeForPart(part);
+  let min = natural.min - RANGE_MARGIN;
+  let max = natural.max + RANGE_MARGIN;
+  // Never hide a note that already exists, however far out it was put.
+  for (const note of notes) {
+    if (note.part !== part) continue;
+    min = Math.min(min, Math.floor(note.midi) - 1);
+    max = Math.max(max, Math.ceil(note.midi) + 1);
+  }
+  return { min: Math.max(0, min), max: Math.min(127, max), natural };
 }
 type EditableSong = Pick<Song, 'id' | 'title' | 'notes' | 'timed_lyrics' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>;
 type EditorTool = 'select' | 'draw' | 'erase';
@@ -592,7 +615,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); setEditorNotice(null);
     auditionNote(candidate);
   }
-  function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const pointerTime = Math.max(0, (event.clientX - bounds.left) / zoom); const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION; const range = pitchRangeForPart(part); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, snapTimeToGrid(musicalBars, pointerTime, division), range.max - row); }
+  function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const pointerTime = Math.max(0, (event.clientX - bounds.left) / zoom); const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION; const range = pitchRangeForPart(part, notes); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, snapTimeToGrid(musicalBars, pointerTime, division), range.max - row); }
   function duplicateSelected() {
     if (!selected) return;
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
@@ -642,8 +665,8 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
     const active = noteMoveRef.current;
     if (!active?.ids.length) return false;
     const targets = notes.filter(note => active.ids.includes(note.id));
-    const minimumMidiDelta = Math.max(...targets.map(note => { const part = note.part < 0 ? selectedPart : note.part; return pitchRangeForPart(part).min - active.initial[note.id].midi; }));
-    const maximumMidiDelta = Math.min(...targets.map(note => { const part = note.part < 0 ? selectedPart : note.part; return pitchRangeForPart(part).max - active.initial[note.id].midi; }));
+    const minimumMidiDelta = Math.max(...targets.map(note => { const part = note.part < 0 ? selectedPart : note.part; return pitchRangeForPart(part, notes).min - active.initial[note.id].midi; }));
+    const maximumMidiDelta = Math.min(...targets.map(note => { const part = note.part < 0 ? selectedPart : note.part; return pitchRangeForPart(part, notes).max - active.initial[note.id].midi; }));
     const requestedMidiDelta = Math.round((active.originY - clientY) / PITCH_ROW_HEIGHT);
     const deltaMidi = minimumMidiDelta <= maximumMidiDelta ? Math.max(minimumMidiDelta, Math.min(maximumMidiDelta, requestedMidiDelta)) : 0;
     const earliestStart = Math.min(...Object.values(active.initial).map(value => value.start));
@@ -922,7 +945,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       const context = new AudioContext();
       const decoded = await context.decodeAudioData(await recordingTake.arrayBuffer());
       await context.close();
-      const range = pitchRangeForPart(recordingPart);
+      const range = pitchRangeForPart(recordingPart, notes);
       const result = await detectVocalNotes(decoded, { part: recordingPart, timelineOffset: recordingTimelineOffset, minMidi: range.min, maxMidi: range.max });
       const detected = result.notes;
       setTranscriptionDiagnostics(result.diagnostics);
@@ -1304,7 +1327,7 @@ function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead
   const resizing = useRef<{ id: string; start: number; initialEnd: number; noteStart: number } | null>(null);
   const notePointerActive = useRef(false);
   const suppressNoteClick = useRef(false);
-  const range = pitchRangeForPart(part);
+  const range = pitchRangeForPart(part, notes);
   const pitches = Array.from({ length: range.max - range.min + 1 }, (_, index) => range.max - index);
   const laneHeight = PITCH_HEADER_HEIGHT + pitches.length * PITCH_ROW_HEIGHT;
   function beginResize(event: React.PointerEvent<HTMLSpanElement>, note: SongNote) { event.stopPropagation(); onResizeStart(); resizing.current = { id: note.id, start: event.clientX, initialEnd: note.end, noteStart: note.start }; event.currentTarget.setPointerCapture(event.pointerId); }
@@ -1323,11 +1346,11 @@ function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead
   return <div id={`vh-voice-${part}`} className="flex scroll-mt-3 overflow-hidden border-b border-cyan-100/10" data-voice-part={part} style={{ height: laneHeight }}>
     <div className="sticky left-0 z-30 w-[124px] shrink-0 border-r border-cyan-100/15 bg-[#090d20] shadow-[7px_0_18px_#0008]">
       <div className="absolute inset-x-0 top-0 flex h-[34px] items-center gap-1 border-b border-cyan-100/15 bg-[#111631] px-2"><b className="text-[23px] leading-none" style={{ color: COLOURS[part] }}>{name[0]}</b><b className="truncate text-[17px]" style={{ color: COLOURS[part] }}>{name}</b><button onPointerDown={event => event.stopPropagation()} onClick={onToggleCollapse} title={`Collapse ${name} piano roll`} className="ml-auto rounded px-1 text-sm text-slate-400 hover:bg-white/10 hover:text-white">▾</button></div>
-      {pitches.map((pitch, index) => { const sharp = [1, 3, 6, 8, 10].includes(pitch % 12); return <span key={pitch} className={`absolute right-1 flex items-center justify-end border font-mono text-[12px] font-bold shadow-sm ${sharp ? 'w-[86px] rounded-l-md border-slate-600 bg-[linear-gradient(90deg,#05070d,#222a3d)] pr-2 text-cyan-100' : 'left-1 rounded-l-md border-slate-300/30 bg-[linear-gradient(90deg,#edf4ff,#aebbd2)] pr-3 text-[#111827]'}`} style={{ top: PITCH_HEADER_HEIGHT + index * PITCH_ROW_HEIGHT + 1, height: PITCH_ROW_HEIGHT - 2 }}><span className="mr-auto ml-2 text-[8px] opacity-55">{sharp ? '♯' : '▏'}</span>{midiNoteName(pitch)}</span>; })}
+      {pitches.map((pitch, index) => { const sharp = [1, 3, 6, 8, 10].includes(pitch % 12); const outside = pitch < range.natural.min || pitch > range.natural.max; return <span key={pitch} className={`absolute right-1 flex items-center justify-end border font-mono text-[12px] font-bold shadow-sm ${sharp ? 'w-[86px] rounded-l-md border-slate-600 bg-[linear-gradient(90deg,#05070d,#222a3d)] pr-2 text-cyan-100' : 'left-1 rounded-l-md border-slate-300/30 bg-[linear-gradient(90deg,#edf4ff,#aebbd2)] pr-3 text-[#111827]'}`} style={{ top: PITCH_HEADER_HEIGHT + index * PITCH_ROW_HEIGHT + 1, height: PITCH_ROW_HEIGHT - 2, opacity: outside ? .45 : 1 }}><span className="mr-auto ml-2 text-[8px] opacity-55">{sharp ? '♯' : '▏'}</span>{midiNoteName(pitch)}</span>; })}
     </div>
     <div onClick={event => onAdd(part, event)} className={`relative bg-[#060919] ${tool === 'draw' ? 'cursor-crosshair' : tool === 'erase' ? 'cursor-not-allowed' : 'cursor-default'}`} style={{ width, height: laneHeight }}><MusicalGridOverlay bars={bars} zoom={zoom} labels />
       <span className="pointer-events-none absolute inset-x-0 top-0 h-[34px] border-b border-cyan-200/15 bg-[linear-gradient(90deg,rgba(255,255,255,.035),transparent)]" />
-      {pitches.map((pitch, index) => <span key={pitch} className={`pointer-events-none absolute inset-x-0 border-b ${[1, 3, 6, 8, 10].includes(pitch % 12) ? 'border-white/[.035] bg-black/25' : pitch % 12 === 0 ? 'border-cyan-100/20 bg-cyan-200/[.025]' : 'border-white/[.075]'}`} style={{ top: PITCH_HEADER_HEIGHT + index * PITCH_ROW_HEIGHT, height: PITCH_ROW_HEIGHT }} />)}
+      {pitches.map((pitch, index) => { const outside = pitch < range.natural.min || pitch > range.natural.max; return <span key={pitch} title={outside ? `${midiNoteName(pitch)} is outside the comfortable ${name} range — usable, but a stretch` : undefined} className={`pointer-events-none absolute inset-x-0 border-b ${[1, 3, 6, 8, 10].includes(pitch % 12) ? 'border-white/[.035] bg-black/25' : pitch % 12 === 0 ? 'border-cyan-100/20 bg-cyan-200/[.025]' : 'border-white/[.075]'}`} style={{ top: PITCH_HEADER_HEIGHT + index * PITCH_ROW_HEIGHT, height: PITCH_ROW_HEIGHT, boxShadow: outside ? 'inset 0 0 0 999px rgba(2,6,23,.55)' : undefined }} />; })}
       {selectedRange && <span className="pointer-events-none absolute inset-y-0 z-[1] bg-fuchsia-300/15 ring-1 ring-inset ring-fuchsia-200/60" style={{ left: selectedRange.start * zoom, width: Math.max(2, (selectedRange.end - selectedRange.start) * zoom) }} />}
       {playhead !== null && <span className="pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-white shadow-[0_0_12px_#f4a5ff]" style={{ left: playhead * zoom }} />}
       {notes.filter(note => note.part === part || note.part === -1).map(note => { const active = playhead !== null && playhead >= note.start && playhead < note.end; const inRange = selectedRange && note.end >= selectedRange.start && note.start <= selectedRange.end; const isSelected = selectedIds.includes(note.id); const position = beatPositionAt(bars, note.start); const beatLabel = compactBeatLabel(position); const offsetLabel = position ? beatOffsetLabel(position.fraction) : 'No beat'; return <button key={note.id} data-note-id={note.id} aria-pressed={isSelected} title={`${midiNoteName(note.midi)} · Bar/beat ${beatLabel} · ${offsetLabel} · ${note.start.toFixed(3)}s–${note.end.toFixed(3)}s · drag in any direction`} onPointerDown={event => beginMove(event, note)} onPointerMove={move} onPointerUp={finishMove} onPointerCancel={finishMove} onDoubleClick={event => { event.stopPropagation(); const additive = event.ctrlKey || event.metaKey || event.shiftKey; if (!isSelected || additive) onSelect(note.id, additive); }} onClick={event => { event.stopPropagation(); if (suppressNoteClick.current) { suppressNoteClick.current = false; return; } if (tool === 'erase') onRemove(note.id); else onSelect(note.id, event.ctrlKey || event.metaKey || event.shiftKey); }} className={`absolute z-10 touch-none overflow-visible rounded-md border text-left text-[9px] font-black text-[#07111d] transition-[filter,box-shadow] ${tool === 'select' || tool === 'draw' ? 'cursor-move active:cursor-grabbing' : ''}`} style={{ left: note.start * zoom, top: PITCH_HEADER_HEIGHT + (range.max - note.midi) * PITCH_ROW_HEIGHT + 2, width: Math.max(24, (note.end - note.start) * zoom - 2), height: PITCH_ROW_HEIGHT - 4, background: `linear-gradient(180deg,#ffffffaa 0,#ffffff20 42%,#00000018 100%),${COLOURS[part]}`, borderColor: isSelected ? '#fff' : `${COLOURS[part]}dd`, boxShadow: active ? `0 0 28px 6px ${COLOURS[part]}` : isSelected ? `0 0 0 2px #fff,0 0 22px ${COLOURS[part]}` : `0 4px 8px #000b,0 0 8px ${COLOURS[part]}55`, outline: active ? '2px solid white' : inRange ? '2px solid #f5d0fe' : 'none' }}><span className="flex h-full min-w-0 items-center gap-1 overflow-hidden px-1"><b className="shrink-0 rounded bg-black/65 px-1 py-px text-[8px] text-white">{midiNoteName(note.midi)}</b><em className="truncate not-italic">{note.lyric || 'Note'}</em>{isSelected && <small className="ml-auto shrink-0 rounded bg-white/80 px-1 font-mono text-[8px] text-[#11152a]">{beatLabel}</small>}</span>{tool !== 'erase' && <span aria-label="Drag to resize note" onPointerDown={event => beginResize(event, note)} onPointerMove={resize} onPointerUp={finishResize} onPointerCancel={finishResize} className="absolute -right-1 top-0 h-full w-2 cursor-ew-resize rounded-r bg-white/85 opacity-0 transition-opacity hover:opacity-100 focus:opacity-100" />}</button>; })}
