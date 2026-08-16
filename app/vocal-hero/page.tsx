@@ -6,7 +6,8 @@ import {
   scheduleSessionStart, setSessionPaused, subscribeToPlayers, subscribeToSession, updatePlayerLobbyState, updateSong,
 } from '@/lib/vocal-hero/supabaseClient';
 import type { GameSession, SectionScore, SessionPlayer, Song, SongNote } from '@/lib/vocal-hero/types';
-import { SatbLane } from './SatbLane';
+import { SatbLane, clearTrail, pushTrail } from './SatbLane';
+import type { TrailSample } from './SatbLane';
 import { isGuideMelody, playableNotes, playablePart } from '@/lib/vocal-hero/songData';
 import { measureServerClockOffset } from '@/lib/vocal-hero/clock';
 import { ArrangementEditor } from './ArrangementEditor';
@@ -60,6 +61,11 @@ export default function VocalHeroHostPage() {
   const latencyRef = useRef(0);
   useEffect(() => { const stored = storedLatencySec(); setLatencySec(stored); latencyRef.current = stored; }, []);
   function applyLatency(seconds: number) { setLatencySec(seconds); latencyRef.current = seconds; }
+  // What the singer actually sang, in song time, for the lane to draw behind
+  // the strike line. Held in a ref and mutated in place: the lane re-renders
+  // every frame from the clock anyway, and pushing this through state would
+  // re-render the whole page for each microphone sample.
+  const trailRef = useRef<TrailSample[]>([]);
   const listeners = useRef<Array<() => void>>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const openedRoomRef = useRef(false);
@@ -145,7 +151,7 @@ export default function VocalHeroHostPage() {
   async function chooseSong(next: Song) {
     try {
       soloPitchRef.current?.stop(); void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
-      setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false);
+      setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current);
       setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
       const created = await createSession(next.id, 'worship-host');
       listeners.current.forEach(close => close());
@@ -162,7 +168,11 @@ export default function VocalHeroHostPage() {
       // This sample is the sound of a moment already past: the beat took time to
       // reach the singer's ears, and their answer took time to reach the analyser.
       // Scoring it against the clock as it stands now would mark every note late.
-      if (soloPhaseRef.current === 'Live' && sample.confidence > .78) soloScoreRef.current?.scorePitch(sample.frequency, Math.max(0, soloElapsedRef.current - latencyRef.current));
+      if (soloPhaseRef.current === 'Live' && sample.confidence > .78) {
+        const songTime = Math.max(0, soloElapsedRef.current - latencyRef.current);
+        soloScoreRef.current?.scorePitch(sample.frequency, songTime);
+        pushTrail(trailRef.current, songTime, sample.frequency);
+      }
     } });
     soloPitchRef.current = engine;
     try { await engine.start(); setSoloMic('ready'); return true; }
@@ -252,7 +262,7 @@ export default function VocalHeroHostPage() {
     void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
     listeners.current.forEach(close => close()); listeners.current = [];
     setSession(null); setSong(null); setPlayers([]); setSections([]);
-    setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false);
+    setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current);
     setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
   }
 
@@ -261,7 +271,7 @@ export default function VocalHeroHostPage() {
   const stage = session?.status === 'playing' && song
       ? timeline.phase === 'Live' || timeline.phase === 'Paused'
       ? soloPlayer && soloPart !== null
-        ? <SoloLiveStage song={song} notes={notes} part={soloPart} elapsed={timeline.songElapsed} pitch={soloPitch} score={soloScore} hits={soloHits} lastResult={soloLastResult} sections={sections} mic={soloMic} fullBoard={soloFullBoard} setFullBoard={setSoloFullBoard} />
+        ? <SoloLiveStage song={song} notes={notes} part={soloPart} elapsed={timeline.songElapsed} pitch={soloPitch} score={soloScore} hits={soloHits} lastResult={soloLastResult} sections={sections} mic={soloMic} fullBoard={soloFullBoard} setFullBoard={setSoloFullBoard} trail={trailRef.current} />
         : <LiveStage song={song} notes={notes} players={players} sections={sections} elapsed={timeline.songElapsed} />
       : soloPlayer && soloPart !== null
         ? <SoloCountdownStage song={song} part={soloPart} phase={timeline.phase} mic={soloMic} />
@@ -325,7 +335,7 @@ function SoloCountdownStage({ song, part, phase, mic }: { song: Song; part: numb
   return <section className="mx-auto max-w-[1100px] px-5 py-7"><div className="vh-panel overflow-hidden p-6"><div className="flex flex-wrap items-center justify-between gap-4"><SongDetails song={song} /><div className="rounded-xl border px-4 py-3 text-right" style={{ borderColor: `${COLOURS[part]}55`, background: `${COLOURS[part]}0d` }}><p className="text-[10px] uppercase tracking-[.18em] text-slate-500">Solo voice</p><b className="text-xl" style={{ color: COLOURS[part] }}>{VOICES[part]}</b></div></div><div className="mx-auto mt-7 grid min-h-[430px] max-w-xl place-items-center text-center"><div className="vh-count-ring"><div><p className="text-xs tracking-[.35em]" style={{ color: COLOURS[part] }}>SOLO PRACTICE</p><p className="mt-3 text-[10rem] font-black leading-none text-transparent [text-shadow:0_0_40px_#ec4899] bg-gradient-to-br from-fuchsia-400 via-violet-400 to-cyan-300 bg-clip-text">{number || '•'}</p><p className="text-lg font-semibold text-fuchsia-200">{phase.includes('Lead') ? 'Listen · breathe · prepare' : 'SONG BEGINS IN'}</p></div></div></div><footer className="flex flex-wrap items-center justify-center gap-4 text-sm"><span className="rounded-full border border-emerald-300/25 bg-emerald-300/[.08] px-3 py-1.5 text-emerald-200">● {mic === 'ready' ? 'Microphone ready' : 'Checking microphone'}</span><span className="text-slate-400">Eyes on your {VOICES[part]} line</span></footer></div></section>;
 }
 
-function SoloLiveStage({ song, notes, part, elapsed, pitch, score, hits, lastResult, sections, mic, fullBoard, setFullBoard }: { song: Song; notes: SongNote[]; part: number; elapsed: number; pitch: number; score: number; hits: Record<string, boolean>; lastResult: NoteScoreResult | null; sections: SectionScore[]; mic: string; fullBoard: boolean; setFullBoard: (value: boolean) => void }) {
+function SoloLiveStage({ song, notes, part, elapsed, pitch, score, hits, lastResult, sections, mic, fullBoard, setFullBoard, trail }: { song: Song; notes: SongNote[]; part: number; elapsed: number; pitch: number; score: number; hits: Record<string, boolean>; lastResult: NoteScoreResult | null; sections: SectionScore[]; mic: string; fullBoard: boolean; setFullBoard: (value: boolean) => void; trail: TrailSample[] }) {
   const guide = isGuideMelody(notes);
   const lanePart = guide ? -1 : part;
   const laneNotes = notes.filter(note => note.part === lanePart || note.part === -1).sort((a, b) => a.start - b.start);
@@ -339,7 +349,7 @@ function SoloLiveStage({ song, notes, part, elapsed, pitch, score, hits, lastRes
   const octaveNotice = octaves
     ? `Right note, ${octaves === 1 ? 'an octave' : `${octaves} octaves`} ${(lastResult!.octaveShift) < 0 ? 'below' : 'above'} the written line`
     : '';
-  return <section className="mx-auto max-w-[1350px] px-5 py-6"><div className="grid gap-4 xl:grid-cols-[1fr_300px]"><div><div className="vh-panel flex flex-wrap items-center gap-5 p-4"><SongDetails song={song} /><div className="ml-auto flex items-center gap-5"><div className="text-right"><p className="text-[10px] uppercase tracking-[.18em] text-slate-500">Your voice</p><b className="text-lg" style={{ color: COLOURS[part] }}>{VOICES[part]}</b></div><div className="text-right"><p className="text-3xl font-black text-fuchsia-300">{score.toLocaleString()}</p><p className="text-[9px] uppercase tracking-[.15em] text-slate-500">Personal score</p></div></div></div><div className="mt-4"><KaraokeLyrics song={song} notes={notes} partIndex={lanePart} elapsed={elapsed} /></div><div className="mt-4"><SatbLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={guide ? '#ff60bc' : COLOURS[part]} elapsed={elapsed} notes={notes} pitchHz={pitch} hitNotes={hits} lookAheadSeconds={7} showLyrics /></div>{!guide && <button onClick={() => setFullBoard(!fullBoard)} className="vh-outline-button mt-4">{fullBoard ? 'Hide full choir board' : 'Show full choir board'}</button>}{fullBoard && <div className="mt-3 space-y-2">{VOICES.map((voice, index) => <SatbLane key={voice} compact partIndex={index} partName={voice} colour={COLOURS[index]} elapsed={elapsed} notes={notes} pitchHz={index === part ? pitch : undefined} hitNotes={hits} lookAheadSeconds={5} />)}</div>}</div><aside className="vh-panel h-fit p-5"><p className="text-[10px] uppercase tracking-[.2em] text-slate-500">Live singing coach</p><div className="mt-4 space-y-3"><div className="rounded-xl border border-cyan-300/20 bg-cyan-300/[.04] p-4"><p className="text-xs text-slate-400">You sang / target</p><div className="mt-2 flex items-end justify-between"><b className="text-3xl text-cyan-200">{feedback.detected}</b><span className="text-slate-500">→</span><b className="text-3xl text-white">{feedback.target}</b></div><p className={`mt-3 text-sm font-black ${feedback.state === 'correct' ? 'text-emerald-300' : feedback.state === 'high' || feedback.state === 'low' ? 'text-amber-300' : 'text-slate-400'}`}>{feedback.label}</p><small className="text-slate-500">{feedback.difference} · {feedback.instruction}{feedback.cents !== null ? ` · target offset ${Math.abs(feedback.cents)} cents` : ''}</small></div><div className="rounded-xl border border-white/10 bg-white/[.035] p-4"><div className="flex items-center justify-between"><p className="text-xs text-slate-400">Last completed note</p><b className={lastResult?.points ? 'text-emerald-300' : 'text-slate-400'}>{resultLabel}</b></div><div className="mt-3 grid grid-cols-3 gap-2 text-center"><Metric label="Timing" value={lastResult ? lastResult.onset : 0} /><Metric label="Pitch" value={lastResult ? lastResult.pitch : 0} /><Metric label="Hold" value={lastResult ? lastResult.hold : 0} /></div>{octaveNotice && <p className="mt-3 rounded-lg border border-amber-300/30 bg-amber-300/[.08] px-3 py-2 text-xs font-semibold text-amber-200">⚠ {octaveNotice}</p>}</div><div className="grid grid-cols-2 gap-3"><div className="rounded-xl border border-white/10 bg-white/[.035] p-3"><p className="text-xs text-slate-400">Session accuracy</p><b className="mt-1 block text-2xl" style={{ color: COLOURS[part] }}>{Math.round(section?.accuracy ?? 0)}%</b></div><div className="rounded-xl border border-emerald-300/20 bg-emerald-300/[.05] p-3"><p className="text-xs text-slate-400">Microphone</p><b className="mt-1 block text-sm text-emerald-300">{mic === 'ready' ? '● READY' : 'CHECK MIC'}</b></div></div></div></aside></div></section>;
+  return <section className="mx-auto max-w-[1350px] px-5 py-6"><div className="grid gap-4 xl:grid-cols-[1fr_300px]"><div><div className="vh-panel flex flex-wrap items-center gap-5 p-4"><SongDetails song={song} /><div className="ml-auto flex items-center gap-5"><div className="text-right"><p className="text-[10px] uppercase tracking-[.18em] text-slate-500">Your voice</p><b className="text-lg" style={{ color: COLOURS[part] }}>{VOICES[part]}</b></div><div className="text-right"><p className="text-3xl font-black text-fuchsia-300">{score.toLocaleString()}</p><p className="text-[9px] uppercase tracking-[.15em] text-slate-500">Personal score</p></div></div></div><div className="mt-4"><KaraokeLyrics song={song} notes={notes} partIndex={lanePart} elapsed={elapsed} /></div><div className="mt-4"><SatbLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={guide ? '#ff60bc' : COLOURS[part]} elapsed={elapsed} notes={notes} pitchHz={pitch} hitNotes={hits} lookAheadSeconds={7} showLyrics trail={trail} /></div>{!guide && <button onClick={() => setFullBoard(!fullBoard)} className="vh-outline-button mt-4">{fullBoard ? 'Hide full choir board' : 'Show full choir board'}</button>}{fullBoard && <div className="mt-3 space-y-2">{VOICES.map((voice, index) => <SatbLane key={voice} compact partIndex={index} partName={voice} colour={COLOURS[index]} elapsed={elapsed} notes={notes} pitchHz={index === part ? pitch : undefined} hitNotes={hits} lookAheadSeconds={5} />)}</div>}</div><aside className="vh-panel h-fit p-5"><p className="text-[10px] uppercase tracking-[.2em] text-slate-500">Live singing coach</p><div className="mt-4 space-y-3"><div className="rounded-xl border border-cyan-300/20 bg-cyan-300/[.04] p-4"><p className="text-xs text-slate-400">You sang / target</p><div className="mt-2 flex items-end justify-between"><b className="text-3xl text-cyan-200">{feedback.detected}</b><span className="text-slate-500">→</span><b className="text-3xl text-white">{feedback.target}</b></div><p className={`mt-3 text-sm font-black ${feedback.state === 'correct' ? 'text-emerald-300' : feedback.state === 'high' || feedback.state === 'low' ? 'text-amber-300' : 'text-slate-400'}`}>{feedback.label}</p><small className="text-slate-500">{feedback.difference} · {feedback.instruction}{feedback.cents !== null ? ` · target offset ${Math.abs(feedback.cents)} cents` : ''}</small></div><div className="rounded-xl border border-white/10 bg-white/[.035] p-4"><div className="flex items-center justify-between"><p className="text-xs text-slate-400">Last completed note</p><b className={lastResult?.points ? 'text-emerald-300' : 'text-slate-400'}>{resultLabel}</b></div><div className="mt-3 grid grid-cols-3 gap-2 text-center"><Metric label="Timing" value={lastResult ? lastResult.onset : 0} /><Metric label="Pitch" value={lastResult ? lastResult.pitch : 0} /><Metric label="Hold" value={lastResult ? lastResult.hold : 0} /></div>{octaveNotice && <p className="mt-3 rounded-lg border border-amber-300/30 bg-amber-300/[.08] px-3 py-2 text-xs font-semibold text-amber-200">⚠ {octaveNotice}</p>}</div><div className="grid grid-cols-2 gap-3"><div className="rounded-xl border border-white/10 bg-white/[.035] p-3"><p className="text-xs text-slate-400">Session accuracy</p><b className="mt-1 block text-2xl" style={{ color: COLOURS[part] }}>{Math.round(section?.accuracy ?? 0)}%</b></div><div className="rounded-xl border border-emerald-300/20 bg-emerald-300/[.05] p-3"><p className="text-xs text-slate-400">Microphone</p><b className="mt-1 block text-sm text-emerald-300">{mic === 'ready' ? '● READY' : 'CHECK MIC'}</b></div></div></div></aside></div></section>;
 }
 
 function Metric({ label, value }: { label: string; value: number }) { return <div className="rounded-lg bg-black/20 p-2"><b className={value >= .65 ? 'text-emerald-300' : value > 0 ? 'text-amber-300' : 'text-slate-500'}>{Math.round(value * 100)}%</b><small className="mt-1 block text-[9px] uppercase tracking-wider text-slate-500">{label}</small></div>; }
