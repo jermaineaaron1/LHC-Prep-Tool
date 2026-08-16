@@ -2,10 +2,14 @@
 
 import { useRef, useState } from 'react';
 import type { BackingTrackClip, BackingTrackSettings } from '@/lib/vocal-hero/types';
+import { WaveformStrip } from './WaveformStrip';
 
 type DragMode = 'move' | 'trim-left' | 'trim-right';
 type DragState = { mode: DragMode; x: number; clip: BackingTrackClip; moved: boolean };
 type MenuState = { x: number; y: number; time: number; clipId: string | null };
+// The lane is h-32 (128px) and the clip box is inset-y-3, taking 12px off the
+// top and bottom. A canvas is sized in pixels, so it has to be told.
+const CLIP_HEIGHT = 128 - 24;
 
 export function BackingTrackLane({ url, fileName, width, zoom, playhead, settings, onClipsChange, onOpenSettings, onSeek }: { url: string; fileName: string; width: number; zoom: number; playhead: number | null; settings: BackingTrackSettings; onClipsChange: (clips: BackingTrackClip[]) => void; onOpenSettings: () => void; onSeek: (time: number) => void }) {
   const dragRef = useRef<DragState | null>(null);
@@ -94,6 +98,7 @@ export function BackingTrackLane({ url, fileName, width, zoom, playhead, setting
     <div onContextMenu={openMenu} onDoubleClick={handleDoubleClick} onClick={event => { if (suppressSeekRef.current) { suppressSeekRef.current = false; return; } onSeek(timeAt(event.clientX, event.currentTarget)); }} onPointerDown={() => { setMenu(null); setSelectedId(null); }} className="relative cursor-pointer overflow-hidden" style={{ width }}>
       {url ? <>
         {ordered.map((clip, index) => <div key={clip.id} onPointerDown={event => beginDrag(event, clip, 'move')} onPointerMove={drag} onPointerUp={finishDrag} onPointerCancel={finishDrag} className={`absolute inset-y-3 cursor-grab touch-none rounded-md border bg-cyan-300/10 active:cursor-grabbing ${selectedId === clip.id ? 'z-[4] border-white shadow-[0_0_16px_#67e8f966]' : 'z-[2] border-cyan-300/40'}`} style={{ left: clip.timeline_start * zoom, width: Math.max(12, (clip.source_end - clip.source_start) * zoom), backgroundImage: 'repeating-linear-gradient(90deg,transparent 0,transparent 5px,rgba(103,232,249,.38) 6px,rgba(103,232,249,.38) 8px,transparent 9px,transparent 13px)' }}>
+          <WaveformStrip url={url} sourceStart={clip.source_start} sourceEnd={clip.source_end} width={Math.max(12, (clip.source_end - clip.source_start) * zoom)} height={CLIP_HEIGHT} colour="rgba(165,243,252,.55)" />
           <button aria-label="Trim clip start" title="Drag right to skip the beginning" onPointerDown={event => beginDrag(event, clip, 'trim-left')} onPointerMove={drag} onPointerUp={finishDrag} onPointerCancel={finishDrag} className="absolute inset-y-0 left-0 z-10 w-3 cursor-ew-resize rounded-l bg-cyan-100/80 opacity-70 hover:opacity-100" />
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-[#07101d]/90 px-2 py-1 font-mono text-[16px] text-cyan-100">{index + 1} · {formatTime(activeClip?.id === clip.id ? currentSourceTime : clip.source_start)} / {formatTime(totalDuration)}</span>
           <button aria-label="Trim clip end" title="Drag left to trim the ending" onPointerDown={event => beginDrag(event, clip, 'trim-right')} onPointerMove={drag} onPointerUp={finishDrag} onPointerCancel={finishDrag} className="absolute inset-y-0 right-0 z-10 w-3 cursor-ew-resize rounded-r bg-cyan-100/80 opacity-70 hover:opacity-100" />
