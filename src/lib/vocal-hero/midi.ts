@@ -156,7 +156,10 @@ export function parseMidiNotes(buffer: ArrayBuffer): ImportedMidiNote[] {
     const start = starts?.shift();
     if (!start) continue;
     const startSeconds = secondsAtTick(start.tick);
-    const endSeconds = Math.max(startSeconds + 0.05, secondsAtTick(event.tick));
+    // A floor only to keep a zero-length note from existing. It used to be
+    // 50ms, which inflated grace notes and the fastest notes of a run into
+    // something longer than they were played.
+    const endSeconds = Math.max(startSeconds + 0.02, secondsAtTick(event.tick));
     notes.push({ midi: start.midi, start: Number(startSeconds.toFixed(3)), end: Number(endSeconds.toFixed(3)), velocity: start.velocity, sourceTrack: start.track, channel: start.channel });
   }
   return notes.sort((a, b) => a.start - b.start || a.midi - b.midi);
