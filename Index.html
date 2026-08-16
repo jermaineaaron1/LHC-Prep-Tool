@@ -6167,9 +6167,6 @@
                     <i class="fa-solid fa-floppy-disk"></i><span class="wo-btn-lbl"> Save</span>
                   </button>
                   <span id="woAutoSaveStatus" class="wo-autosave-status" style="font-size:0.72rem;color:#94a3b8;font-family:'Poppins',sans-serif;align-self:center;margin-left:2px;transition:color .3s;"></span>
-                  <button class="wo-control-btn wo-save-as-btn" onclick="WO.saveOrderAs()" title="Save As">
-                    <i class="fa-solid fa-copy"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Save As</span>
-                  </button>
                   <div class="wo-undo-redo-group" title="Undo / Redo">
                     <button class="wo-control-btn wo-undoredo-btn" id="woUndoBtn" onclick="WO.undo()" title="Undo last change" disabled>
                       <i class="fa-solid fa-rotate-left"></i>
@@ -6183,12 +6180,29 @@
                     <span class="wo-zoom-label" id="woEditorZoomLabel">100%</span>
                     <button class="wo-control-btn wo-zoom-btn" onclick="WO.zoomEditor(1)" title="Zoom in editor"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
                   </div>
-                  <button class="wo-control-btn wo-print-btn wo-liturgy-btn" onclick="WO.openLiturgyBook()" title="Liturgy Book">
-                    <i class="fa-solid fa-book-bible"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Liturgy Book</span>
-                  </button>
-                  <button class="wo-control-btn wo-print-btn" onclick="WO.openSongbook()" title="Songbook">
-                    <i class="fa-solid fa-book-open"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Songbook</span>
-                  </button>
+                  <!-- Secondary actions. Outside the LCD console this wrapper and
+                       its menu are `display: contents`, so Save As / Liturgy Book /
+                       Songbook stay direct flex items of .wo-order-controls and
+                       Song Order's toolbar is unchanged (CSS `order` keeps their
+                       original left-to-right sequence). Inside the console the
+                       wrapper becomes a real box and the menu a dropdown, so the
+                       bar fits on one row. Same buttons, same handlers either way. -->
+                  <div class="wo-overflow-wrap" id="woOverflowWrap">
+                    <button class="wo-control-btn wo-overflow-btn" id="woOverflowBtn" onclick="WO.woToggleOverflow(this)" title="More actions" aria-label="More actions" aria-haspopup="true" aria-expanded="false" aria-controls="woOverflowMenu">
+                      <i class="fa-solid fa-ellipsis"></i>
+                    </button>
+                    <div class="wo-overflow-menu" id="woOverflowMenu">
+                      <button class="wo-control-btn wo-save-as-btn" onclick="WO.saveOrderAs()" title="Save As">
+                        <i class="fa-solid fa-copy"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Save As</span>
+                      </button>
+                      <button class="wo-control-btn wo-print-btn wo-liturgy-btn" onclick="WO.openLiturgyBook()" title="Liturgy Book">
+                        <i class="fa-solid fa-book-bible"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Liturgy Book</span>
+                      </button>
+                      <button class="wo-control-btn wo-print-btn" onclick="WO.openSongbook()" title="Songbook">
+                        <i class="fa-solid fa-book-open"></i><span class="wo-btn-lbl wo-btn-lbl-secondary"> Songbook</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <div class="wo-order-title">Current Worship Order:</div>
                 <div class="wo-order-buttons">
@@ -55532,6 +55546,56 @@ var WO = (function() {
     _enterServiceOrderLayout();
   }
 
+  // ---- Header overflow menu (Save As / Liturgy Book / Songbook) -------
+  // The buttons themselves are untouched -- same classes, same onclick.
+  // This only opens and closes the box they sit in. Outside the LCD
+  // console that box is `display: contents`, so none of this runs: the
+  // toggle button is not rendered there.
+  function _woCloseOverflow() {
+    var wraps = document.querySelectorAll('.wo-overflow-wrap.open');
+    for (var i = 0; i < wraps.length; i++) {
+      wraps[i].classList.remove('open');
+      var b = wraps[i].querySelector('.wo-overflow-btn');
+      if (b) b.setAttribute('aria-expanded', 'false');
+    }
+    document.removeEventListener('mousedown', _woOverflowAway, true);
+    document.removeEventListener('keydown', _woOverflowKey, true);
+  }
+
+  function _woOverflowAway(e) {
+    if (!e.target || !e.target.closest || !e.target.closest('.wo-overflow-wrap')) _woCloseOverflow();
+  }
+
+  function _woOverflowKey(e) {
+    if (e.key !== 'Escape' && e.keyCode !== 27) return;
+    var btn = document.querySelector('.wo-overflow-wrap.open .wo-overflow-btn');
+    _woCloseOverflow();
+    if (btn) btn.focus();
+  }
+
+  function woToggleOverflow(btn) {
+    var wrap = btn && btn.closest ? btn.closest('.wo-overflow-wrap') : null;
+    if (!wrap) return;
+    if (wrap.classList.contains('open')) { _woCloseOverflow(); return; }
+    _woCloseOverflow();
+    wrap.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+    var menu = wrap.querySelector('.wo-overflow-menu');
+    // Choosing an item closes the menu. Bound on the menu, so it runs after
+    // the item's own inline onclick has already fired.
+    if (menu && !menu._woBound) {
+      menu._woBound = true;
+      menu.addEventListener('click', function(ev) {
+        if (ev.target && ev.target.closest && ev.target.closest('button')) _woCloseOverflow();
+      });
+    }
+    // Deferred so the click that opened it does not immediately close it.
+    setTimeout(function() {
+      document.addEventListener('mousedown', _woOverflowAway, true);
+      document.addEventListener('keydown', _woOverflowKey, true);
+    }, 0);
+  }
+
   // ---- Order-level undo / redo for the LCD Projection view -----------
   // Snapshots the #woWorshipOrder DOM + song/PPT models before each
   // structural change so Ctrl+Z / Ctrl+Y can restore. Native typing undo
@@ -61767,6 +61831,7 @@ var WO = (function() {
     lcdLibraryDragEnd: lcdLibraryDragEnd,
     lcdToggleScheduleExpand: lcdToggleScheduleExpand,
     lcdToggleLibrary: lcdToggleLibrary,
+    woToggleOverflow: woToggleOverflow,
     lcdToggleWorkspaceFullscreen: lcdToggleWorkspaceFullscreen,
     lcdOpenSectionMenu: lcdOpenSectionMenu,
     lcdRunSectionAction: lcdRunSectionAction,
@@ -68791,6 +68856,27 @@ function filterLiturgyItems() {
   .wo-save-as-btn:hover { box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
   .wo-print-btn { background: linear-gradient(135deg, #f59e0b, #d97706); padding: 8px 12px; }
   .wo-print-btn:hover { box-shadow: 0 4px 12px rgba(245,158,11,0.4); }
+  /* ---- Header overflow wrapper (default: no wrapper at all) --------------
+     Save As, Liturgy Book and Songbook are wrapped in .wo-overflow-wrap so
+     the LCD console can fold them behind one button. Everywhere else the
+     wrapper and its menu are `display: contents`, which makes them generate
+     no box: the three buttons stay direct flex items of .wo-order-controls,
+     exactly as before the wrapper existed. `display: contents` would still
+     group them together in DOM order, so the `order` values below restore
+     the original left-to-right sequence Song Order and the phone toolbar
+     have always had. The LCD rules that turn this into a real dropdown are
+     in the density pass at the end of the sheet. */
+  .wo-overflow-wrap, .wo-overflow-menu { display: contents; }
+  .wo-overflow-btn { display: none; }
+  .wo-order-controls > .wo-back-to-menu-btn { order: 1; }
+  .wo-order-controls > .wo-save-order-btn { order: 2; }
+  .wo-order-controls > .wo-autosave-status { order: 3; }
+  .wo-save-as-btn { order: 4; }
+  .wo-order-controls > .wo-undo-redo-group { order: 5; }
+  .wo-order-controls > .wo-zoom-group { order: 6; }
+  .wo-print-btn { order: 8; }
+  .wo-liturgy-btn { order: 7; }
+  .wo-overflow-wrap { order: 9; }
   .wo-back-to-menu-btn { background: linear-gradient(135deg, #6c757d, #495057); }
   .wo-order-title { color: #f7fafc; font-size: 0.7rem; font-weight: 600; margin-bottom: 8px; }
   .wo-order-buttons { display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
@@ -70459,35 +70545,111 @@ function filterLiturgyItems() {
      Full-screen keeps its own generous sizing where the two disagree.
      ========================================================================== */
 
-  /* ---- A. Slim Orders banner while the projection workspace is open ------- */
+  /* ---- A. One restrained bar while the projection workspace is open -------
+     This used to be a two-deck banner: a centred title row, then a second row
+     carrying the controls and the mode buttons. Trimming type and padding was
+     tried and reverted -- it bought 16px and pushed every control under the
+     36px minimum, because the height is the extra ROW, not the padding.
+     So the two decks become one: .wo-header is the flex row, the title block
+     sits at its left and the whole control cluster at its right. Together
+     with the three secondary actions moving into the overflow menu, the
+     console starts ~50px higher and the page itself stops scrolling -- which
+     was the point: the panes are meant to scroll inside a fixed-height
+     console, not drag the document down with them. */
   @media (min-width: 1120px) {
-    #worshipOrderView.lcd-mode .wo-header { padding: 10px 18px; }
+    #worshipOrderView.lcd-mode .wo-header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; padding: 7px 14px; text-align: left;
+      container: lcdheader / inline-size;
+    }
     #worshipOrderView.lcd-mode .wo-header-content {
-      display: flex; align-items: center; justify-content: center;
-      gap: 14px; flex-wrap: wrap;
+      display: flex; align-items: center; gap: 10px;
+      flex: 1 1 auto; min-width: 0;
     }
-    #worshipOrderView.lcd-mode .wo-header h1 { font-size: 1.05rem; gap: 7px; }
+    #worshipOrderView.lcd-mode .wo-header h1 { font-size: 0.95rem; gap: 6px; white-space: nowrap; flex: 0 0 auto; }
     #worshipOrderView.lcd-mode .wo-header p { display: none; }
-    #worshipOrderView.lcd-mode .wo-current-order-info { margin-top: 0; padding: 5px 13px; font-size: 0.72rem; }
-    /* Order controls and the two mode buttons share one row instead of
-       stacking -- every control is still there, just side by side. */
-    #worshipOrderView.lcd-mode .wo-order-selector {
-      display: flex; align-items: center; justify-content: center;
-      gap: 10px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px;
+    /* The one thing on this bar allowed to give. Everything else is a control
+       with a minimum size, so the chip absorbs the width pressure and
+       ellipsises -- which is why no per-width chip sizes are needed. */
+    #worshipOrderView.lcd-mode .wo-current-order-info {
+      margin-top: 0; padding: 5px 12px; font-size: 0.72rem;
+      max-width: 300px; min-width: 0; flex: 0 1 auto;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    #worshipOrderView.lcd-mode .wo-order-controls { margin-bottom: 0; }
+    /* Controls and the two mode buttons on one line, pinned right, and never
+       shrinking: a squeezed button wraps its own label onto a second line,
+       and that -- not padding -- is what made this a two-deck banner. */
+    #worshipOrderView.lcd-mode .wo-order-selector {
+      display: flex; align-items: center; justify-content: flex-end;
+      gap: 10px; flex-wrap: nowrap; margin-top: 0; padding-top: 0;
+      border-top: 0; flex: 0 0 auto;
+    }
+    #worshipOrderView.lcd-mode .wo-order-controls {
+      margin-bottom: 0; flex-wrap: nowrap; justify-content: flex-end; flex: 0 0 auto;
+    }
+    #worshipOrderView.lcd-mode .wo-order-controls > *,
+    #worshipOrderView.lcd-mode .wo-order-buttons > * { flex: 0 0 auto; }
+    #worshipOrderView.lcd-mode .wo-control-btn,
+    #worshipOrderView.lcd-mode .wo-order-btn { white-space: nowrap; }
     /* The order title is a heading for the two mode buttons beside it, which
        are self-labelling -- and LCD Projection carries its own Song Order
        button in the workspace top bar. */
     #worshipOrderView.lcd-mode .wo-order-title { display: none; }
-    #worshipOrderView.lcd-mode .wo-order-buttons { gap: 10px; margin: 0; }
+    #worshipOrderView.lcd-mode .wo-order-buttons { gap: 10px; margin: 0; flex-wrap: nowrap; }
     #worshipOrderView.lcd-mode .wo-order-btn {
       flex-direction: row; align-items: center; gap: 8px;
-      padding: 7px 16px; min-width: 0;
+      padding: 7px 16px; min-width: 0; white-space: nowrap;
     }
     #worshipOrderView.lcd-mode .wo-order-btn i { font-size: 0.85rem; margin: 0; }
     #worshipOrderView.lcd-mode .wo-order-btn-label { font-size: 0.78rem; }
     #worshipOrderView.lcd-mode .wo-order-btn-sub { display: none; }
+
+    /* ---- A2. The overflow menu ------------------------------------------
+       Save As, Liturgy Book and Songbook. Nothing is removed -- each keeps
+       its own class, icon, title and onclick, so every handler is the one
+       it always was; they are one click further away and, unlike on the
+       bar at these widths, they get to show their labels. */
+    #worshipOrderView.lcd-mode .wo-overflow-wrap { display: inline-flex; position: relative; }
+    #worshipOrderView.lcd-mode .wo-overflow-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 38px; padding: 8px 12px;
+      background: linear-gradient(135deg, #64748b, #475569);
+    }
+    #worshipOrderView.lcd-mode .wo-overflow-menu {
+      display: none; position: absolute; top: calc(100% + 7px); right: 0;
+      z-index: 1200; flex-direction: column; gap: 6px; padding: 8px;
+      min-width: 178px; text-align: left;
+      background: #16233f; border: 1px solid rgba(255,255,255,0.16);
+      border-radius: 10px; box-shadow: 0 14px 32px rgba(0,0,0,0.42);
+    }
+    #worshipOrderView.lcd-mode .wo-overflow-wrap.open .wo-overflow-menu { display: flex; }
+    #worshipOrderView.lcd-mode .wo-overflow-menu .wo-control-btn {
+      display: flex; align-items: center; gap: 9px;
+      width: 100%; min-height: 36px; justify-content: flex-start;
+    }
+    #worshipOrderView.lcd-mode .wo-overflow-menu .wo-control-btn:hover { transform: none; filter: brightness(1.12); }
+    /* Higher specificity than the 1120-1699 rule that makes these three
+       icon-only on the bar -- inside the menu the label is the whole point. */
+    #worshipOrderView.lcd-mode .wo-overflow-menu .wo-btn-lbl-secondary { display: inline; }
+  }
+
+  /* Below ~1440 the decorative "Worship Order" title is what stops the single
+     row fitting. It is dropped rather than shrunk: the workspace's own
+     "LCD Projection" heading sits directly beneath it, and the gold chip
+     beside it still names the order. */
+  @media (min-width: 1120px) and (max-width: 1439px) {
+    #worshipOrderView.lcd-mode .wo-header h1 { display: none; }
+    #worshipOrderView.lcd-mode .wo-current-order-info { max-width: 190px; }
+  }
+
+  /* The bar's own width, not the window's. The app sidebar is 68px collapsed
+     and 280px expanded, so at one viewport width the header can have either
+     ~988px or ~776px to work with -- a media query cannot tell those apart.
+     Below the point where the chip could still say anything useful it is
+     dropped outright rather than left as a 26px stub of ellipsis. The
+     controls never shrink, so the row stays 51px either way. */
+  @container lcdheader (max-width: 875px) {
+    #worshipOrderView.lcd-mode .wo-current-order-info { display: none; }
   }
 
   /* ---- B. Type scale: ~4-5px off the display sizes, 1-2px off UI text ----- */
