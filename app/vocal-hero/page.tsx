@@ -283,6 +283,19 @@ export default function VocalHeroHostPage() {
       }
       const scheduled = await scheduleSessionStart(session.id);
       setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
+      // Starting a round clears the record of the one before it. Rounds can
+      // end now, and the lobby's start button can be pressed again -- without
+      // this, a restarted round inherited endedRef from the last one and could
+      // never finish, and a repeated solo round would stack its results onto
+      // the previous review.
+      endedRef.current = false;
+      resultsRef.current = [];
+      setSoloReview(null);
+      clearTrail(trailRef.current);
+      setSoloScore(0); setSoloHits({}); setSoloLastResult(null);
+      // The solo scorer belongs to the round that created it; the effect that
+      // builds one runs again once the new round is playing.
+      void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
       setSession(scheduled);
       if (backingTrackUrl && audioRef.current && scheduled.playback_starts_at) {
         const startAt = new Date(scheduled.playback_starts_at).getTime() + ((scheduled.countdown_seconds ?? 5) + (scheduled.lead_in_seconds ?? 2)) * 1000;
