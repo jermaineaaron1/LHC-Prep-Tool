@@ -215,7 +215,7 @@ types, storage paths) without the editor ever mounting. When the **UI** genuinel
 has to be exercised, create a throwaway order and delete it afterwards; never use
 one of the five real ones.
 
-Two more guards worth knowing, both learned the same way:
+Three more guards worth knowing, all learned the same way:
 
 - **Opening the app at all can create an order.** An empty
   `order_1786879433905` appeared during the same smoke test and had to be
@@ -225,6 +225,41 @@ Two more guards worth knowing, both learned the same way:
 - **`SBQ._sb = null` stops a tab writing anything further**, and is the right
   first move the moment a test tab has touched real data. Nulling
   `getSupabaseClient()` alone does **not** work — `SBQ` caches its own client.
+- **Deleting an order the app still has open does not stick.** `deleteOrder()`
+  removes the row, and then the autosave timer belonging to the still-open
+  editor writes the whole order **back** a few seconds later, with a fresh
+  `lastEdited`. It looks exactly like a successful cleanup until you re-list:
+  during the production PowerPoint test `order_1786882580019` was deleted, then
+  reappeared at `12:23:22`. The same race is why cleanup can silently fail
+  while the *storage* half succeeds — the objects were gone the whole time.
+
+  **Delete from a tab that does not have the order open** (a fresh load that
+  never enters Orders is enough), blank `SBQ._sb` straight after, and then
+  **re-list from a second fresh load to confirm**. A single post-delete check in
+  the same tab proves nothing: it can run before the autosave fires.
+
+### The production PowerPoint import has been exercised end to end
+
+Against `https://lhc-prep-tool.vercel.app`, on a throwaway order, deleted after.
+Worth knowing it has been done, and how, because it is the workflow the brief
+calls the highest risk.
+
+- The served HTML was first confirmed **byte-identical** to the committed
+  `dist/index.html` (same SHA-256) — the check that distinguishes "deployed"
+  from "looks deployed".
+- A 12-page PDF through the real path gave **12 honest progress states**,
+  `0 of 12` → `11 of 12`, never indeterminate; all 12 pages arrived, named
+  `Page 1`…`Page 12` in order, all **URL-backed** after the upload swap.
+- Page 1's natural size was **1190×1683 (ratio 0.707)** — exact A4 portrait, so
+  nothing is cropped or stretched; both the top text and the bottom-edge marker
+  render inside the 16:9 Program frame.
+- After a full reload in a tab that never did the import: one widget, 12
+  thumbs, `1 / 12`, and navigation walked `1→2→3→2` with the Program image
+  following `Page_1 → Page_2 → Page_3 → Page_2`.
+
+To repeat it, the harness must be **same-origin with production** — put the
+fixed-size iframe on a production 404 path (`/__lcd_harness`) rather than on
+localhost, or the iframe cannot be inspected.
 
 ---
 
