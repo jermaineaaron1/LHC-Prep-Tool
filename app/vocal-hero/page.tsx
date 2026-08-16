@@ -14,6 +14,9 @@ import { ArrangementEditor } from './ArrangementEditor';
 import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
 import { ScoreEngine } from '@/lib/vocal-hero/scoreEngine';
 import type { NoteScoreResult } from '@/lib/vocal-hero/scoreEngine';
+import { RoundReviewPanel } from './RoundReview';
+import { summariseRound } from '@/lib/vocal-hero/review';
+import type { RoundReview } from '@/lib/vocal-hero/review';
 import { livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { ChoirKaraokeLyrics, KaraokeLyrics } from './KaraokeLyrics';
 import { DifficultyPicker, rememberDifficulty, storedDifficulty } from './DifficultyPicker';
@@ -66,6 +69,11 @@ export default function VocalHeroHostPage() {
   // every frame from the clock anyway, and pushing this through state would
   // re-render the whole page for each microphone sample.
   const trailRef = useRef<TrailSample[]>([]);
+  // Every note's result, kept so the end of a round can say something more
+  // useful than one number. Collected in a ref: nothing renders from it
+  // until the song is over.
+  const resultsRef = useRef<NoteScoreResult[]>([]);
+  const [soloReview, setSoloReview] = useState<RoundReview | null>(null);
   const listeners = useRef<Array<() => void>>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const openedRoomRef = useRef(false);
@@ -125,7 +133,7 @@ export default function VocalHeroHostPage() {
       part: playablePart(song, soloPart), partIndex: soloPart, notes: playableNotes(song), songDuration: song.duration,
       playerId: soloPlayer.id, sessionId: session.id, difficulty,
       onScoreUpdate: (_, total) => setSoloScore(total),
-      onNoteResult: result => { setSoloHits(current => ({ ...current, [result.noteId]: result.points > 0 })); setSoloLastResult(result); },
+      onNoteResult: result => { resultsRef.current.push(result); setSoloHits(current => ({ ...current, [result.noteId]: result.points > 0 })); setSoloLastResult(result); },
     });
     soloScoreRef.current = scorer;
     scorer.start();
@@ -142,6 +150,7 @@ export default function VocalHeroHostPage() {
   useEffect(() => {
     if (session?.status !== 'ended' || !soloPlayer) return;
     soloPitchRef.current?.stop();
+    if (song) setSoloReview(summariseRound(resultsRef.current, playableNotes(song)));
     const scorer = soloScoreRef.current;
     if (!scorer) return;
     const stats = scorer.stats;
@@ -151,7 +160,7 @@ export default function VocalHeroHostPage() {
   async function chooseSong(next: Song) {
     try {
       soloPitchRef.current?.stop(); void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
-      setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current);
+      setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current); resultsRef.current = []; setSoloReview(null);
       setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
       const created = await createSession(next.id, 'worship-host');
       listeners.current.forEach(close => close());
@@ -262,7 +271,7 @@ export default function VocalHeroHostPage() {
     void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
     listeners.current.forEach(close => close()); listeners.current = [];
     setSession(null); setSong(null); setPlayers([]); setSections([]);
-    setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current);
+    setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current); resultsRef.current = []; setSoloReview(null);
     setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
   }
 
@@ -276,6 +285,8 @@ export default function VocalHeroHostPage() {
       : soloPlayer && soloPart !== null
         ? <SoloCountdownStage song={song} part={soloPart} phase={timeline.phase} mic={soloMic} />
         : <CountdownStage song={song} players={players} phase={timeline.phase} />
+    : session?.status === 'ended' && song && soloReview && soloPart !== null
+      ? <SoloReviewStage song={song} part={soloPart} score={soloScore} review={soloReview} onDone={returnToLibrary} />
     : session && song
       ? <Lobby song={song} session={session} players={players} phoneUrl={phoneUrl} onStart={start} onStartSolo={startSolo} soloStarting={soloStarting} difficulty={difficulty} setDifficulty={setDifficulty} latencySec={latencySec} applyLatency={applyLatency} />
       : <SongPicker songs={songs} onChoose={chooseSong} onEdit={setEditingSong} onCreate={() => setShowCreateSong(true)} />;
@@ -350,6 +361,27 @@ function SoloLiveStage({ song, notes, part, elapsed, pitch, score, hits, lastRes
     ? `Right note, ${octaves === 1 ? 'an octave' : `${octaves} octaves`} ${(lastResult!.octaveShift) < 0 ? 'below' : 'above'} the written line`
     : '';
   return <section className="mx-auto max-w-[1350px] px-5 py-6"><div className="grid gap-4 xl:grid-cols-[1fr_300px]"><div><div className="vh-panel flex flex-wrap items-center gap-5 p-4"><SongDetails song={song} /><div className="ml-auto flex items-center gap-5"><div className="text-right"><p className="text-[10px] uppercase tracking-[.18em] text-slate-500">Your voice</p><b className="text-lg" style={{ color: COLOURS[part] }}>{VOICES[part]}</b></div><div className="text-right"><p className="text-3xl font-black text-fuchsia-300">{score.toLocaleString()}</p><p className="text-[9px] uppercase tracking-[.15em] text-slate-500">Personal score</p></div></div></div><div className="mt-4"><KaraokeLyrics song={song} notes={notes} partIndex={lanePart} elapsed={elapsed} /></div><div className="mt-4"><SatbLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={guide ? '#ff60bc' : COLOURS[part]} elapsed={elapsed} notes={notes} pitchHz={pitch} hitNotes={hits} lookAheadSeconds={7} showLyrics trail={trail} /></div>{!guide && <button onClick={() => setFullBoard(!fullBoard)} className="vh-outline-button mt-4">{fullBoard ? 'Hide full choir board' : 'Show full choir board'}</button>}{fullBoard && <div className="mt-3 space-y-2">{VOICES.map((voice, index) => <SatbLane key={voice} compact partIndex={index} partName={voice} colour={COLOURS[index]} elapsed={elapsed} notes={notes} pitchHz={index === part ? pitch : undefined} hitNotes={hits} lookAheadSeconds={5} />)}</div>}</div><aside className="vh-panel h-fit p-5"><p className="text-[10px] uppercase tracking-[.2em] text-slate-500">Live singing coach</p><div className="mt-4 space-y-3"><div className="rounded-xl border border-cyan-300/20 bg-cyan-300/[.04] p-4"><p className="text-xs text-slate-400">You sang / target</p><div className="mt-2 flex items-end justify-between"><b className="text-3xl text-cyan-200">{feedback.detected}</b><span className="text-slate-500">→</span><b className="text-3xl text-white">{feedback.target}</b></div><p className={`mt-3 text-sm font-black ${feedback.state === 'correct' ? 'text-emerald-300' : feedback.state === 'high' || feedback.state === 'low' ? 'text-amber-300' : 'text-slate-400'}`}>{feedback.label}</p><small className="text-slate-500">{feedback.difference} · {feedback.instruction}{feedback.cents !== null ? ` · target offset ${Math.abs(feedback.cents)} cents` : ''}</small></div><div className="rounded-xl border border-white/10 bg-white/[.035] p-4"><div className="flex items-center justify-between"><p className="text-xs text-slate-400">Last completed note</p><b className={lastResult?.points ? 'text-emerald-300' : 'text-slate-400'}>{resultLabel}</b></div><div className="mt-3 grid grid-cols-3 gap-2 text-center"><Metric label="Timing" value={lastResult ? lastResult.onset : 0} /><Metric label="Pitch" value={lastResult ? lastResult.pitch : 0} /><Metric label="Hold" value={lastResult ? lastResult.hold : 0} /></div>{octaveNotice && <p className="mt-3 rounded-lg border border-amber-300/30 bg-amber-300/[.08] px-3 py-2 text-xs font-semibold text-amber-200">⚠ {octaveNotice}</p>}</div><div className="grid grid-cols-2 gap-3"><div className="rounded-xl border border-white/10 bg-white/[.035] p-3"><p className="text-xs text-slate-400">Session accuracy</p><b className="mt-1 block text-2xl" style={{ color: COLOURS[part] }}>{Math.round(section?.accuracy ?? 0)}%</b></div><div className="rounded-xl border border-emerald-300/20 bg-emerald-300/[.05] p-3"><p className="text-xs text-slate-400">Microphone</p><b className="mt-1 block text-sm text-emerald-300">{mic === 'ready' ? '● READY' : 'CHECK MIC'}</b></div></div></div></aside></div></section>;
+}
+
+/** Where a finished solo round lands. It used to drop straight back to the
+ * lobby, so everything the round had just measured was gone before the singer
+ * could read any of it. */
+function SoloReviewStage({ song, part, score, review, onDone }: {
+  song: Song; part: number; score: number; review: RoundReview; onDone: () => void;
+}) {
+  return <section className="mx-auto max-w-[900px] px-5 py-10">
+    <div className="vh-panel p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <SongDetails song={song} />
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-[.18em] text-slate-500">{VOICES[part]} · round complete</p>
+          <p className="text-5xl font-black text-fuchsia-300">{score.toLocaleString()}</p>
+        </div>
+      </div>
+      <div className="mt-6"><RoundReviewPanel review={review} colour={COLOURS[part]} /></div>
+      <div className="mt-6 flex justify-end"><button onClick={onDone} className="vh-primary-button min-w-40">Back to the library</button></div>
+    </div>
+  </section>;
 }
 
 function Metric({ label, value }: { label: string; value: number }) { return <div className="rounded-lg bg-black/20 p-2"><b className={value >= .65 ? 'text-emerald-300' : value > 0 ? 'text-amber-300' : 'text-slate-500'}>{Math.round(value * 100)}%</b><small className="mt-1 block text-[9px] uppercase tracking-wider text-slate-500">{label}</small></div>; }

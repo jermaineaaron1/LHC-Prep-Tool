@@ -37,6 +37,10 @@ export interface NoteScoreResult {
    * can be TOLD, rather than silently marked perfect for singing a different
    * line to the one in front of them. */
   octaveShift: number;
+  /** Average signed cents while on the note: negative is flat, positive sharp.
+   * One note's value is noise; across a round it is the difference between
+   * "you missed some notes" and "you sing consistently flat". */
+  centsBias: number;
 }
 
 export interface ScoreEngineOptions {
@@ -61,6 +65,9 @@ interface ActiveNote {
   /** Seconds weighted by how close to the centre of the note they were, so a
    * held-but-flat note and a held-and-centred one no longer look alike. */
   accurateSec: number;
+  /** Signed cents integrated over time on the note, for the direction of the
+   * error rather than only its size. */
+  signedCentsSec: number;
   /** Seconds spent an octave out, and which way, counted only while otherwise
    * on the note. */
   octaveOutSec: number;
@@ -129,13 +136,17 @@ export class ScoreEngine {
     if (!this.current || this.current.note.id !== candidate.id) {
       this.current = {
         note: candidate, onsetCaptured: false, onsetDelaySec: null,
-        voicedSec: 0, inTuneSec: 0, accurateSec: 0, octaveOutSec: 0, octaveOutShift: 0,
+        voicedSec: 0, inTuneSec: 0, accurateSec: 0, signedCentsSec: 0, octaveOutSec: 0, octaveOutShift: 0,
       };
     }
     const targetHz = PitchEngine.midiToHz(candidate.midi);
     const voiced = playerHz > 0;
     const alignedPlayerHz = voiced ? PitchEngine.alignOctaveToTarget(playerHz, candidate.midi) : 0;
-    const cents = voiced ? Math.abs(PitchEngine.centsDiff(alignedPlayerHz, targetHz)) : Infinity;
+    // Keep the direction, not just the distance: a singer who is always a
+    // little flat has one habit to correct, and cannot be told about it from
+    // an absolute value that looks identical to being always a little sharp.
+    const signedCents = voiced ? PitchEngine.centsDiff(alignedPlayerHz, targetHz) : 0;
+    const cents = voiced ? Math.abs(signedCents) : Infinity;
     const tolerance = CENT_TOLERANCE[this.opts.difficulty];
     const inTune = cents <= tolerance;
     // How well, not just whether. Full credit while inside PITCH_PERFECT_CENTS,
@@ -158,6 +169,7 @@ export class ScoreEngine {
       if (inTune) {
         this.current.inTuneSec += dt;
         this.current.accurateSec += dt * accuracy;
+        this.current.signedCentsSec += dt * signedCents;
         const shift = PitchEngine.octaveShift(playerHz, candidate.midi);
         if (shift !== 0) { this.current.octaveOutSec += dt; this.current.octaveOutShift = shift; }
       }
@@ -180,7 +192,7 @@ export class ScoreEngine {
     this.current = null;
     this.attempted += 1;
     if (!tracking) {
-      this.opts.onNoteResult({ noteId: note.id, onset: 0, hold: 0, pitch: 0, points: 0, octaveShift: 0 });
+      this.opts.onNoteResult({ noteId: note.id, onset: 0, hold: 0, pitch: 0, points: 0, octaveShift: 0, centsBias: 0 });
       return 0;
     }
     const duration = Math.max(note.end - note.start, 0.0001);
@@ -209,7 +221,8 @@ export class ScoreEngine {
     // Report the octave only when the singer spent most of the note there, so
     // one stray frame of harmonic confusion is not announced as a mistake.
     const octaveShift = tracking.octaveOutSec > tracking.inTuneSec / 2 ? tracking.octaveOutShift : 0;
-    this.opts.onNoteResult({ noteId: note.id, onset, hold, pitch, points, octaveShift });
+    const centsBias = tracking.inTuneSec ? tracking.signedCentsSec / tracking.inTuneSec : 0;
+    this.opts.onNoteResult({ noteId: note.id, onset, hold, pitch, points, octaveShift, centsBias });
     return points;
   }
 
