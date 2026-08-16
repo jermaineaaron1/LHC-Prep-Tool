@@ -4,6 +4,43 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
+## 2026-08-16 — LCD Projection redesign, CHUNK 3 IN PROGRESS: the operator's screen is below every breakpoint
+
+**Not committed as code — the attempt was reverted. This entry is the finding, which is the part worth keeping.**
+
+### The finding
+
+The machine the LCD desk is actually driven from is **1536x864 physical at 125% Windows scaling**, i.e. `devicePixelRatio: 1.25`, which gives Chrome a **1158px CSS viewport** when maximised. Measured directly in the operator's browser, not inferred.
+
+Every LCD breakpoint sat above that. Below 1201px CSS the workspace did two things:
+
+- `.wo-main-content` dropped from `grid` to `flex`;
+- `#lcdLibraryPanel` and `#lcdLibReopen` went to `display: none`.
+
+So **the multi-column console never appeared on the screen it is operated from** — the operator got a two-column flex layout with no Content Library, and the proportional grid committed in chunk 2 had no effect there at all.
+
+The brief asks for 1920 first, then 1536 and 1366. Those are CSS sizes; the operator's 1536x864 panel is a 1158px CSS viewport, narrower than the 1366 case and below the floor the whole design keys off. **Operator's decision: support ~1158px as a first-class case**, keeping all three columns at that width with the Content Library docked to its reopen tab rather than deleted.
+
+### What was tried, and why it was reverted
+
+Nine sites key off the old floor — eight `@media` blocks plus the `matchMedia('(min-width: 1201px)')` inside `_lcdSizeWorkspaceColumns()` (~26324). Lowering all nine to 1120/1119 **does work**: `display` becomes `grid` at 1158, so the console layout reaches the operator's screen. That much was verified.
+
+The column proportions did not follow. A new `@media (min-width: 1120px) and (max-width: 1279px)` band setting `44px minmax(258px,30fr) minmax(424px,70fr)` was overridden even after being moved below the `max-width: 1439px` block: measured `196px 286px 308.4px`, with the workspace crushed to 308px and the reopen tab at 196px instead of 44px. **There is at least one further column rule later in the file that decides at this width and has not been located yet.** That is the same layering trap chunk 2 hit twice — see that entry.
+
+Reverted rather than committed, because the half-done state left the operator's own width worse than before: preview 153px and program 111px, against a working two-column flex layout previously.
+
+### For the next session
+
+1. Enumerate **every** `grid-template-columns` rule matching `.wo-main-content:not(.wo-song-order)` in source order and find the last one that matches at 1158px. Do this before writing any new rule. The reliable method is to read them out of the live CSSOM in document order rather than grepping, since grep order has already been misleading twice.
+2. Consider consolidating those generations into one block. The file currently carries three or four eras of column rules and each new edit has to guess which one is live. That consolidation is arguably its own chunk and would de-risk everything after it.
+3. Only then re-apply the 1120 threshold change and the drawer band.
+
+### Also confirmed while here
+
+The Content Library was **never broken** — an earlier note in this session's reporting claimed it was. It is hidden deliberately by the `max-width: 1200px` rule, and correctly so under the old design. Nothing is defective there.
+
+---
+
 ## 2026-08-16 — LCD Projection console redesign, CHUNK 1: audit and safety map
 
 Branch `feature/lcd-projection-console-redesign`, cut from `master` at `3670a48`. No behaviour changed in this commit — this is the map the rest of the work is done against.
