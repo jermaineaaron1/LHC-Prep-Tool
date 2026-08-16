@@ -56,7 +56,21 @@ Then chunks 4–6 as briefed: Preview/Edit and Program/Live (the first work that
 
 Two things not yet started that are worth doing early:
 
-- **The workspace header.** ~400px of vertical space still goes to the old hero banner — title, subtitle, order pill, a Menu/Save/Save As/undo/zoom/Liturgy Book/Songbook row, and the mode chooser. The mockup replaces it with one restrained bar. Until that happens the console starts below the fold and the page scrolls as a whole instead of being a fixed-height console. Highest visual return, and low risk since it is chrome rather than slide markup.
+- **The workspace header — CSS alone will not do it. Tried and reverted; do not retry that way.**
+  The banner costs the console 268px of a 695px viewport before the workspace begins, so it
+  starts below the fold and the whole page scrolls instead of the panes scrolling inside a
+  fixed-height console. The height is **not** padding: it is the control row **wrapping onto a
+  second line**. The mode buttons are already 36px, and the sub-labels, gaps and paddings were
+  tightened as far as they go — that reclaimed **16px** (268 → 252) while dropping every control
+  button to **30px**, under the brief's 36–40px minimum, and the selector still wrapped at 88px.
+  At 1158px there is simply not room for Menu, Save, Save As, undo, redo, the zoom cluster,
+  Liturgy Book, Songbook *and* the two mode buttons on one row.
+
+  So it needs the structural change the brief describes: replace the hero with the mockup's
+  single restrained bar and move the secondary controls — zoom, Liturgy Book, Songbook, Save As —
+  into an overflow menu, "preserving access and behavior". That is markup plus JS, which puts it
+  in the same risk class as chunk 4: check every change against `collectOrderItems()` first.
+
 - **The palette.** Still the old blue/gold hero and light cards outside the workspace shell. The dark tokens already exist at ~68927; a second, conflicting `--lcd-ivory*` set at ~69122 belongs to the parchment Songbook surface and must not be merged with them.
 
 ### Testing note
