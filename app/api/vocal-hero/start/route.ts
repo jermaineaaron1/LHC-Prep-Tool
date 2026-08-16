@@ -23,6 +23,19 @@ export async function POST(request: Request) {
       .select()
       .single();
     if (error) throw error;
+
+    // A new round starts from a clean board. The phones reset their local
+    // score to zero when the new playback_starts_at arrives; without this the
+    // server-side totals kept accumulating across rounds, so the host's
+    // leaderboard showed round one plus round two while every phone showed
+    // round two alone. Failure here is logged, not fatal — a stale scoreboard
+    // is not worth refusing to start the round over.
+    const { error: resetError } = await getServiceClient()
+      .from('vh_session_players')
+      .update({ score: 0 })
+      .eq('session_id', body.sessionId);
+    if (resetError) console.error('score reset on new round:', resetError.message);
+
     return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to schedule the session.';
