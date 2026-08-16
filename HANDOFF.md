@@ -72,11 +72,24 @@ minted. To reach Drive you must upload a real file first — even a deliberately
 invalid one named `.pptx` works, since Drive rejecting the *content* still
 proves the request was authorised.
 
-#### The one human step left
+#### The one human step left — partly done already
 
-Re-consent the Google credential with
-`https://www.googleapis.com/auth/drive.file` added, and set the result as
-**`GOOGLE_SLIDES_REFRESH_TOKEN`** in Vercel.
+**Done on 2026-08-16:** the OAuth consent screen for the `LHC Worship Duite`
+project was **published** (Google Auth Platform → *Audience* → Publish app, in
+the newer console UI — it is not on the Overview page). That matters because an
+app in *Testing* status gets refresh tokens that die after exactly 7 days;
+Google signals this by returning `refresh_token_expires_in: 604799` in the token
+response. **That field being absent is the proof the publish took effect** —
+check for it rather than trusting the console.
+
+Verification was not required: `drive.file` is a non-sensitive scope, and while
+`presentations.readonly` is sensitive, an unverified app in Production still
+works for a handful of users (an "unverified app" interstitial at consent, cap
+of 100 users). Ignore the Verification Center prompt.
+
+**Still to do:** re-mint the token through the OAuth Playground with both scopes
+and set the result as **`GOOGLE_SLIDES_REFRESH_TOKEN`** in Vercel (Production
+scope), then redeploy — env vars only apply to new deployments.
 
 **Use the dedicated variable, not the shared `GOOGLE_REFRESH_TOKEN`.**
 `getSlidesAccessToken()` prefers `GOOGLE_SLIDES_REFRESH_TOKEN` and falls back to
@@ -89,7 +102,24 @@ takes the Google Slides path instead of CloudConvert.
 
 **Nothing is broken while this is outstanding.** The fallback is untouched, so a
 pptx imports exactly as it does today — CloudConvert → PDF → pdf.js — and since
-`ad5cd5f` those pages render as ordinary slide boxes.
+`ad5cd5f` those pages render as ordinary slide boxes. This is a fidelity
+upgrade, not a fix for something failing.
+
+#### Loose end: one refresh token was exposed and should be revoked
+
+A refresh token minted during this work (along with the client secret) appeared
+in a screenshot shared in a chat session on 2026-08-16. It was issued under
+*Testing* status, so it dies on its own around **2026-08-23** — but it should be
+revoked deliberately rather than left to lapse:
+[myaccount.google.com](https://myaccount.google.com) → Security → *Your
+connections to third-party apps* → remove this app. Doing that also guarantees
+the next consent issues a fresh token rather than returning the old grant.
+
+Rotating the **client secret** is a separate judgement call with a real cost:
+this OAuth client is **shared with roster calendar sync**, so regenerating it
+invalidates the calendar refresh token too and takes the roster feed down until
+`GOOGLE_CLIENT_SECRET` is updated and calendar is re-consented. If you do it, do
+calendar and slides in one sitting.
 
 ### 3. Media Tray tabs — three, where the brief asks for four
 
