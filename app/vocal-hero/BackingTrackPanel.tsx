@@ -5,7 +5,7 @@ import type { BackingTrackSettings } from '@/lib/vocal-hero/types';
 
 export function BackingTrackPanel({ url, kind, fileName, settings, setSettings, uploading, transportTime, transportPlaying, onUpload }: { url: string; kind: 'audio' | 'video'; fileName: string; settings: BackingTrackSettings; setSettings: React.Dispatch<React.SetStateAction<BackingTrackSettings>>; uploading: boolean; transportTime: number | null; transportPlaying: boolean; onUpload: () => void }) {
   const mediaRef = useRef<HTMLMediaElement | null>(null);
-  const graphRef = useRef<{ context: AudioContext; source: MediaElementAudioSourceNode; filter: BiquadFilterNode; gain: GainNode } | null>(null);
+  const graphRef = useRef<{ context: AudioContext; source: MediaElementAudioSourceNode; filter: BiquadFilterNode; gain: GainNode; media: HTMLMediaElement } | null>(null);
   const transportOwnedRef = useRef(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -15,7 +15,15 @@ export function BackingTrackPanel({ url, kind, fileName, settings, setSettings, 
   const update = (values: Partial<BackingTrackSettings>) => setSettings(current => ({ ...current, ...values }));
   const field = (label: string, value: number, setter: (value: number) => void) => <label className="text-[10px] text-slate-400">{label}<input type="number" min="0" step="0.1" value={Number.isFinite(value) ? value : 0} onChange={event => setter(Number(event.target.value))} className="mt-1 w-full rounded-md border border-white/10 bg-[#050816] px-2 py-1.5 text-xs text-white" /></label>;
 
-  useEffect(() => () => { const graph = graphRef.current; if (graph) { graph.source.disconnect(); void graph.context.close(); graphRef.current = null; } }, [url]);
+  /* The graph is tied to the media ELEMENT, not the url. createMediaElementSource
+     may be called ONCE per element, ever -- and React reuses the same element
+     when only src changes. Tearing the graph down on every url change meant
+     that after replacing a track, the next Preview tried to create a second
+     source on the same element and threw InvalidStateError: the button was
+     dead until the editor was reopened. A source keeps working across src
+     changes, so the graph is kept for the element's lifetime and rebuilt only
+     when the element itself changes (audio <-> video) or the panel unmounts. */
+  useEffect(() => () => { const graph = graphRef.current; if (graph) { graph.source.disconnect(); void graph.context.close(); graphRef.current = null; } }, []);
   useEffect(() => {
     const graph = graphRef.current;
     if (graph) {
@@ -40,13 +48,20 @@ export function BackingTrackPanel({ url, kind, fileName, settings, setSettings, 
   function configureGraph() {
     const media = mediaRef.current;
     if (!media) return;
+    // Switching between audio and video replaces the element; the old graph's
+    // source is bound to the removed node, so it is rebuilt for the new one.
+    if (graphRef.current && graphRef.current.media !== media) {
+      graphRef.current.source.disconnect();
+      void graphRef.current.context.close();
+      graphRef.current = null;
+    }
     if (!graphRef.current) {
       const context = new AudioContext();
       const source = context.createMediaElementSource(media);
       const filter = context.createBiquadFilter();
       const gain = context.createGain();
       source.connect(filter).connect(gain).connect(context.destination);
-      graphRef.current = { context, source, filter, gain };
+      graphRef.current = { context, source, filter, gain, media };
     }
     const graph = graphRef.current;
     graph.gain.gain.value = settings.volume;
