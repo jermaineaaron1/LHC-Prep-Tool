@@ -5832,6 +5832,7 @@
             </div>
             <p id="lyricsPreviewArtist" class="text-sm text-slate-500 mt-1"></p>
             <div id="lpMetaLine" class="lp-meta-line"></div>
+            <div id="lpUsageLine" class="lp-usage-line" hidden></div>
             <div id="lpBadges" class="lp-badges"></div>
           </div>
           <div class="flex items-center gap-2">
@@ -5853,6 +5854,9 @@
             </button>
             <button id="lyricsPreviewResourcesBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('resources')">
               <i class="fa-solid fa-folder-open mr-1"></i> Resources
+            </button>
+            <button id="lyricsPreviewHistoryBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('history')">
+              <i class="fa-solid fa-clock-rotate-left mr-1"></i> History
             </button>
             <button id="lyricsPreviewTwoColBtn" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewTwoCol()" title="Toggle 2-column layout" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
               <i class="fa-solid fa-table-columns mr-1"></i> 2 Col
@@ -5995,6 +5999,10 @@
                 <i class="fa-solid fa-book-open" aria-hidden="true"></i> Add to songbook
               </button>
             </div>
+          </section>
+          <section class="lp-rail-card" id="lpUsageCard">
+            <h4><i class="fa-regular fa-clock" aria-hidden="true"></i> Where this song is used</h4>
+            <div id="lpUsageList"></div>
           </section>
           <section class="lp-rail-card">
             <h4><i class="fa-regular fa-folder-open" aria-hidden="true"></i> Resources</h4>
@@ -12233,6 +12241,8 @@ function switchLyricsPreviewMode(mode) {
   document.getElementById('lyricsPreviewChordsBtn').classList.toggle('lhc-pill-button-active', mode === 'chords');
   var _resBtn = document.getElementById('lyricsPreviewResourcesBtn');
   if (_resBtn) _resBtn.classList.toggle('lhc-pill-button-active', mode === 'resources');
+  var _histBtn = document.getElementById('lyricsPreviewHistoryBtn');
+  if (_histBtn) _histBtn.classList.toggle('lhc-pill-button-active', mode === 'history');
   
   // Show/hide transpose dropdown
   var transposeContainer = document.getElementById('transposeContainer');
@@ -12271,6 +12281,12 @@ function renderLyricsPreviewContent() {
     var _appBar = document.getElementById('lyricsPreviewAppearanceBar'); if (_appBar) _appBar.style.display = 'none';
     container.innerHTML = _sfRenderResourcesPanel(currentLyricsPreviewSong);
     _sfBindResourceActions(container, currentLyricsPreviewSong);
+    return;
+  }
+
+  if (currentLyricsPreviewMode === 'history') {
+    var _hb = document.getElementById('lyricsPreviewAppearanceBar'); if (_hb) _hb.style.display = 'none';
+    _sfRenderHistoryPanel(currentLyricsPreviewSong, container);
     return;
   }
   
@@ -12523,6 +12539,121 @@ function _sfResourceMetaHtml(kindLabel, url) {
   return '<div class="sf-res-kind">' + escapeHtml(kindLabel) +
     (src ? '<span class="sf-res-source">&middot;</span>' + escapeHtml(src) : '') + '</div>';
 }
+
+// ── Activity / History ──────────────────────────────────────────────────────
+// Built from records that already exist: the song's own created/edited stamps,
+// the orders it appears in, and the songbooks holding it. This is an ACTIVITY
+// timeline, not a field-level change log -- there is no per-field history
+// anywhere, and the panel says so rather than implying diffs it cannot show.
+function _sfFormatWhen(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d)) return String(iso);
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) +
+    ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function _sfRenderHistoryPanel(song, container) {
+  if (!song || !container) return;
+  container.innerHTML = '<div class="sf-hist-wrap"><p class="sf-hist-loading">' +
+    '<i class="fa-solid fa-spinner fa-spin"></i> Gathering this song\'s activity…</p></div>';
+
+  var events = [];
+  if (song.dateAdded) events.push({ at: song.dateAdded, icon: 'fa-plus', kind: 'Added to the library', detail: song.title || '' });
+  if (song.lastEdited && song.lastEdited !== song.dateAdded) {
+    events.push({ at: song.lastEdited, icon: 'fa-pen', kind: 'Song details last edited', detail: '' });
+  }
+
+  var usagePromise = (window.SBQ && SBQ.getSongUsage)
+    ? SBQ.getSongUsage(song.id)
+    : Promise.resolve({ orders: [], songbooks: [] });
+
+  usagePromise.then(function(u) {
+    (u.orders || []).forEach(function(o) {
+      events.push({
+        at: o.at, icon: 'fa-calendar-days', kind: 'Added to order',
+        detail: o.title + (o.serviceDate ? ' · ' + o.serviceDate : '')
+      });
+    });
+    (u.songbooks || []).forEach(function(b) {
+      // Songbook membership carries no timestamp, so it is listed without one
+      // rather than being given a made-up date.
+      events.push({ at: '', icon: 'fa-book-open', kind: 'In songbook', detail: b.name });
+    });
+
+    events.sort(function(a, b) {
+      if (!a.at && !b.at) return 0;
+      if (!a.at) return 1;
+      if (!b.at) return -1;
+      return String(b.at).localeCompare(String(a.at));
+    });
+
+    if (!events.length) {
+      container.innerHTML = '<div class="sf-hist-wrap">' + _sfState({
+        icon: 'fa-clock-rotate-left', title: 'No activity recorded yet',
+        body: 'This song has not been added to an order or songbook, and carries no edit history.'
+      }) + '</div>';
+      return;
+    }
+
+    var html = '<div class="sf-hist-wrap"><ol class="sf-hist-list">';
+    events.forEach(function(e) {
+      html += '<li class="sf-hist-item">' +
+        '<span class="sf-hist-icon"><i class="fa-solid ' + e.icon + '" aria-hidden="true"></i></span>' +
+        '<span class="sf-hist-body"><b>' + escapeHtml(e.kind) + '</b>' +
+        (e.detail ? '<span>' + escapeHtml(e.detail) + '</span>' : '') +
+        '<time>' + (e.at ? escapeHtml(_sfFormatWhen(e.at)) : 'No date recorded') + '</time></span></li>';
+    });
+    html += '</ol><p class="sf-hist-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> ' +
+      'This is an activity timeline drawn from orders, songbooks and the song\'s own edit stamps. ' +
+      'Field-by-field change history is not recorded.</p></div>';
+    container.innerHTML = html;
+  }).catch(function() {
+    container.innerHTML = '<div class="sf-hist-wrap">' + _sfState({
+      tone: 'error', icon: 'fa-triangle-exclamation', title: 'Could not load activity',
+      body: 'The backend did not respond.'
+    }) + '</div>';
+  });
+}
+window._sfRenderHistoryPanel = _sfRenderHistoryPanel;
+
+// Fills the header usage line and the rail card. Both are hidden until the
+// numbers arrive, so neither ever shows a placeholder zero.
+function _lpLoadUsage(song) {
+  var line = document.getElementById('lpUsageLine');
+  var list = document.getElementById('lpUsageList');
+  if (list) list.innerHTML = '<p class="lp-rail-empty">Checking…</p>';
+  if (!window.SBQ || !SBQ.getSongUsage || !song) return;
+
+  SBQ.getSongUsage(song.id).then(function(u) {
+    if (!currentLyricsPreviewSong || currentLyricsPreviewSong.id !== song.id) return; // song changed
+    if (line) {
+      var bits = [];
+      bits.push(u.orderCount === 1 ? 'Used in 1 order' : 'Used in ' + u.orderCount + ' orders');
+      bits.push(u.songbookCount === 1 ? 'in 1 songbook' : 'in ' + u.songbookCount + ' songbooks');
+      line.textContent = bits.join(' · ');
+      line.hidden = false;
+    }
+    if (list) {
+      var rows = [];
+      (u.orders || []).slice(0, 4).forEach(function(o) {
+        rows.push('<div class="lp-usage-row"><i class="fa-solid fa-calendar-days"></i>' +
+          '<span><b>' + escapeHtml(o.title) + '</b>' +
+          (o.serviceDate ? '<small>' + escapeHtml(o.serviceDate) + '</small>' : '') + '</span>' +
+          '<em>In Order</em></div>');
+      });
+      (u.songbooks || []).slice(0, 4).forEach(function(b) {
+        rows.push('<div class="lp-usage-row"><i class="fa-solid fa-book-open"></i>' +
+          '<span><b>' + escapeHtml(b.name) + '</b></span><em>In Songbook</em></div>');
+      });
+      list.innerHTML = rows.length ? rows.join('')
+        : '<p class="lp-rail-empty">Not in any order or songbook yet.</p>';
+    }
+  }).catch(function() {
+    if (list) list.innerHTML = '<p class="lp-rail-empty">Usage unavailable right now.</p>';
+  });
+}
+window._lpLoadUsage = _lpLoadUsage;
 
 function _sfRenderResourcesPanel(song) {
   var atts = _sfExpandAttachments(song);
@@ -19976,6 +20107,7 @@ window.loadEditSongData = function(song) {
     _lpSyncModalParent(true);
     _lpRenderSongHeader(song);
     if (typeof window._lpRenderRail === 'function') window._lpRenderRail(song);
+    if (typeof window._lpLoadUsage === 'function') window._lpLoadUsage(song);
 
     // Use the global function from Part 4
     if (typeof window.setLyricsPreviewSong === 'function') {
@@ -24108,6 +24240,62 @@ SBQ.getSongUsageStats = function() {
       });
       return { counts: counts, lastUsed: lastUsed };
     });
+};
+
+// ================================================================
+// SBQ.getSongUsage — where ONE song is actually used.
+//
+// The `orders` table holds two kinds of row: real worship orders (`order_*`)
+// and songbook-backed pseudo-orders (`standalone_sb_*`). getSongUsageStats
+// above counts both, so its "usage" number reads high -- a song sitting only
+// in a songbook is reported as order usage. This separates them, and takes
+// songbook membership from `songbooks.song_ids`, which is the canonical list
+// (some `standalone_sb_*` rows outlive the songbook they were created for).
+//
+// No new table: everything here is derived from rows that already exist.
+// ================================================================
+SBQ.getSongUsage = function(songId) {
+  var sb = getSupabaseClient();
+  var empty = { orders: [], songbooks: [], orderCount: 0, songbookCount: 0 };
+  if (!sb || !songId) return Promise.resolve(empty);
+
+  return Promise.all([
+    sb.from('order_items').select('order_id,last_edited').eq('item_type', 'song').eq('source_id', songId),
+    sb.from('orders').select('id,title,service_date,last_edited'),
+    sb.from('songbooks').select('id,name,song_ids')
+  ]).then(function(res) {
+    var items = (res[0] && res[0].data) || [];
+    var orders = (res[1] && res[1].data) || [];
+    var books  = (res[2] && res[2].data) || [];
+
+    var orderById = {};
+    orders.forEach(function(o) { orderById[o.id] = o; });
+
+    var seen = {}, usedInOrders = [];
+    items.forEach(function(it) {
+      var o = orderById[it.order_id];
+      // Only real orders, and only ones that still exist.
+      if (!o || /^standalone_/.test(it.order_id) || seen[it.order_id]) return;
+      seen[it.order_id] = true;
+      usedInOrders.push({
+        id: o.id,
+        title: o.title || 'Untitled order',
+        serviceDate: o.service_date || '',
+        at: it.last_edited || o.last_edited || ''
+      });
+    });
+    usedInOrders.sort(function(a, b) { return String(b.at).localeCompare(String(a.at)); });
+
+    var inBooks = books.filter(function(b) { return (b.song_ids || []).indexOf(songId) !== -1; })
+      .map(function(b) { return { id: b.id, name: b.name || 'Untitled songbook' }; });
+
+    return {
+      orders: usedInOrders,
+      songbooks: inBooks,
+      orderCount: usedInOrders.length,
+      songbookCount: inBooks.length
+    };
+  }).catch(function() { return empty; });
 };
 
 // ================================================================
@@ -86249,6 +86437,47 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── Usage line, usage rail card and the History panel ─────────────────── */
+  .lp-usage-line { margin-top:5px; color:var(--sf-muted,#5f6b91); font-size:.73rem; font-weight:650; }
+  .lp-usage-line[hidden] { display:none; }
+  .lp-usage-row {
+    display:flex; align-items:center; gap:8px; padding:6px 0;
+    border-bottom:1px solid var(--sf-line,#e3e8f4);
+  }
+  .lp-usage-row:last-child { border-bottom:0; }
+  .lp-usage-row > i { flex:none; color:var(--sf-blue-deep,#3b5bdb); font-size:.8rem; }
+  .lp-usage-row > span { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+  .lp-usage-row b {
+    color:var(--sf-navy,#0f1c3f); font-size:.73rem; font-weight:700;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .lp-usage-row small { color:var(--sf-muted,#5f6b91); font-size:.65rem; }
+  .lp-usage-row em {
+    flex:none; font-style:normal; font-size:.62rem; font-weight:750;
+    color:var(--sf-blue-deep,#3b5bdb); background:var(--sf-tint,#eef2ff);
+    border:1px solid #c3cdf3; border-radius:6px; padding:2px 6px; white-space:nowrap;
+  }
+
+  .sf-hist-wrap { padding:4px 2px; }
+  .sf-hist-loading { margin:0; padding:22px; text-align:center; color:var(--sf-muted,#5f6b91); font-size:.8rem; }
+  .sf-hist-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; }
+  .sf-hist-item { display:flex; align-items:flex-start; gap:11px; padding:11px 2px; position:relative; }
+  .sf-hist-item + .sf-hist-item { border-top:1px solid var(--sf-line,#e3e8f4); }
+  .sf-hist-icon {
+    flex:none; width:30px; height:30px; border-radius:9px; display:grid; place-items:center;
+    background:var(--sf-tint,#eef2ff); color:var(--sf-blue-deep,#3b5bdb); font-size:.75rem;
+  }
+  .sf-hist-body { display:flex; flex-direction:column; gap:1px; min-width:0; }
+  .sf-hist-body b { color:var(--sf-navy,#0f1c3f); font-size:.82rem; font-weight:700; }
+  .sf-hist-body span { color:var(--sf-ink,#1a2547); font-size:.76rem; }
+  .sf-hist-body time { color:var(--sf-muted,#5f6b91); font-size:.68rem; }
+  .sf-hist-note {
+    display:flex; align-items:flex-start; gap:8px; margin:14px 0 0; padding:10px 12px;
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:10px; background:var(--sf-surface,#f7f9fd);
+    color:var(--sf-muted,#5f6b91); font-size:.72rem; line-height:1.5;
+  }
+  .sf-hist-note i { margin-top:2px; color:var(--sf-blue-deep,#3b5bdb); }
 
   /* ── Theme colour + description (song_themes, migration-backed) ────────── */
   #filterThemeDropdown .sf-theme-meta { display:flex; gap:7px; align-items:center; margin-top:7px; }
