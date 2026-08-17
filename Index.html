@@ -55995,6 +55995,13 @@ var WO = (function() {
     _enterServiceOrderLayout();
   }
 
+  // The Bible Browser lives in LiturgyModule and cannot see currentOrderData,
+  // but it needs the service type to decide whether the Alleluia is ticked by
+  // default. One accessor rather than exporting the whole order.
+  function getOrderType() {
+    return (currentOrderData && currentOrderData.type) || 'traditional';
+  }
+
   // ---- Header overflow menu (Save As / Liturgy Book / Songbook) -------
   // The buttons themselves are untouched -- same classes, same onclick.
   // This only opens and closes the box they sit in. Outside the LCD
@@ -62112,16 +62119,41 @@ var WO = (function() {
     // Get the section ID and boxes container
     var sectionId = box.dataset.section || '';
 
+    // The Alleluia, sung before the Gospel. Two slides ahead of the reading:
+    // the Alleluia verse, then the announcement and the congregation's
+    // response. Traditional services sing it by default; Contemporary and
+    // Special omit it unless the operator ticks the box in the Bible Browser.
+    // They are ordinary slides in the same group, so they save, restore, park
+    // under the Gospel heading and project exactly like the passage does.
+    var _preSlides = 0;
+    if (/gospel/i.test(subLabel) && scriptureItem.singAlleluia) {
+      slides = [
+        'Alleluia Lord to whom shall we go\nYou have the words of Eternal Life\nAlleluia',
+        'P: The Gospel is according to ' + title + '\nC: Glory to You, O Lord'
+      ].concat(slides);
+      _preSlides = 2;
+    }
+
     // Build slide boxes HTML — first slide gets prominent title, others get footnote
     var slidesHtml = slides.map(function(slideText, idx) {
-      var refHtml = idx === 0
+      // The Alleluia slides are not the passage, so they carry no reference:
+      // a big "Matthew 14:16-19" over the Alleluia verse would be wrong, and
+      // the announcement slide already names the reading in its own words.
+      if (idx < _preSlides) {
+        var _preLines = slideText.split('\n').map(function(line) { return _slideLineHtml(line); }).join('');
+        return '<div class="wo-slide-box" data-source="scripture" data-scripture-title="' + escapeHtml(title) + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
+          _buildSlideBoxHeader(idx, slides.length + 1, 'scripture', null, null) +
+          '<div class="wo-slide-content">' + _preLines + '</div>' +
+        '</div>';
+      }
+      var refHtml = idx === _preSlides
         ? '<div class="wo-slide-scripture-title">' + escapeHtml(title) + '</div>'
         : '<div class="wo-slide-scripture-footnote">' + escapeHtml(title) + '</div>';
       var linesHtml = slideText.split('\n').map(function(line) { return _slideLineHtml(line); }).join('');
       var totalSlides = slides.length + ((/gospel/i.test(subLabel) || /reading/i.test(subLabel)) ? 1 : 0);
       return '<div class="wo-slide-box" data-source="scripture" data-scripture-title="' + escapeHtml(title) + '" onclick="WO.selectSlideBox(this)" ondblclick="WO.editSlideBox(this, event)">' +
         _buildSlideBoxHeader(idx, totalSlides, 'scripture', null, null) +
-        '<div class="wo-slide-content">' + (idx === 0 ? refHtml : '') + linesHtml + (idx > 0 ? refHtml : '') + '</div>' +
+        '<div class="wo-slide-content">' + (idx === _preSlides ? refHtml : '') + linesHtml + (idx > _preSlides ? refHtml : '') + '</div>' +
       '</div>';
     }).join('');
 
@@ -62393,6 +62425,7 @@ var WO = (function() {
     woToggleOverflow: woToggleOverflow,
     lcdSetEditorMode: lcdSetEditorMode,
     lcdAddSlideAfterCurrent: lcdAddSlideAfterCurrent,
+    getOrderType: getOrderType,
     lcdRemoveScriptureSlot: lcdRemoveScriptureSlot,
     lcdCancelImport: lcdCancelImport,
     lcdDismissImport: lcdDismissImport,
@@ -66292,6 +66325,15 @@ var LiturgyModule = (function() {
               '<label>Title:</label>' +
               '<input type="text" id="bbPassageTitle" placeholder="e.g., John 3:16-17" class="liturgy-form-input" style="padding:8px 12px;font-size:0.85rem;">' +
             '</div>' +
+            // Gospel slot only. Hidden for every other reading, and its default
+            // follows the service type -- see openBibleBrowser().
+            '<div class="bible-browser-alleluia-row" id="bbAlleluiaRow" style="display:none;">' +
+              '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.85rem;">' +
+                '<input type="checkbox" id="bbSingAlleluia" style="width:16px;height:16px;cursor:pointer;">' +
+                '<span>Sing the Alleluia before the reading</span>' +
+              '</label>' +
+              '<div class="bible-browser-alleluia-hint">Adds the Alleluia verse and the “Glory to You, O Lord” response ahead of the Gospel.</div>' +
+            '</div>' +
             '<div class="bible-browser-actions">' +
               '<button class="modal-btn modal-btn-secondary" onclick="LiturgyModule.closeBibleBrowser()">Cancel</button>' +
               '<button class="modal-btn modal-btn-primary" id="bbPrimaryBtn" onclick="LiturgyModule.bbPrimaryAction()" disabled>' +
@@ -66314,6 +66356,20 @@ var LiturgyModule = (function() {
     buildBibleBrowserModal();
     var modal = document.getElementById('bibleBrowserModal');
     if (!modal) return;
+
+    // The Alleluia belongs to the Gospel and nowhere else, so the option only
+    // appears on that slot. Traditional services sing it, so it is ticked by
+    // default there; Contemporary and Special omit it unless asked for.
+    var _isGospelSlot = !!(contentBox && contentBox.dataset &&
+      /gospel/i.test(contentBox.dataset.subLabel || ''));
+    var _alleluiaRow = document.getElementById('bbAlleluiaRow');
+    var _alleluiaBox = document.getElementById('bbSingAlleluia');
+    if (_alleluiaRow) _alleluiaRow.style.display = _isGospelSlot ? '' : 'none';
+    if (_alleluiaBox) {
+      var _type = 'traditional';
+      try { if (typeof WO !== 'undefined' && WO.getOrderType) _type = WO.getOrderType() || 'traditional'; } catch (e) {}
+      _alleluiaBox.checked = _isGospelSlot && _type === 'traditional';
+    }
 
     var btnText = document.getElementById('bbPrimaryBtnText');
     if (btnText) {
@@ -66491,11 +66547,16 @@ var LiturgyModule = (function() {
     var title = (titleInput ? titleInput.value : '') || bbState.passage.reference || 'Scripture';
     var content = (bbState.passage.text || '').trim();
 
+    var _alleluiaBox = document.getElementById('bbSingAlleluia');
+    var _alleluiaRow = document.getElementById('bbAlleluiaRow');
     var scriptureItem = {
       id: 'bible-' + Date.now(),
       title: title,
       type: 'scripture',
       content: content,
+      // Only meaningful for the Gospel slot; the row is hidden elsewhere.
+      singAlleluia: !!(_alleluiaBox && _alleluiaBox.checked &&
+                       _alleluiaRow && _alleluiaRow.style.display !== 'none'),
       tags: ['bible']
     };
 
@@ -71270,6 +71331,18 @@ function filterLiturgyItems() {
       transition-duration: 0.001ms !important;
       scroll-behavior: auto !important;
     }
+  }
+
+  /* ---- "Sing the Alleluia" option in the Bible Browser ------------------- */
+  .bible-browser-alleluia-row {
+    margin-top: 10px; padding: 10px 12px;
+    background: rgba(30,64,175,0.06);
+    border: 1px solid rgba(30,64,175,0.18); border-radius: 8px;
+    font-family: 'Poppins', sans-serif; color: #1e3a8a;
+  }
+  .bible-browser-alleluia-hint {
+    margin-top: 4px; margin-left: 24px;
+    font-size: 0.72rem; color: #64748b;
   }
 
   /* ---- Rail header row for a filled scripture reading --------------------
