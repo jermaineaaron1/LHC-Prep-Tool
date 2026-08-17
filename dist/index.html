@@ -5804,10 +5804,26 @@
   <div id="lyricsPreviewModal" class="modal-overlay">
     <div id="lyricsPreviewModalContent" class="modal-content" style="width: min(750px, 95%); max-height: 90vh; display: flex; flex-direction: column; padding: 0;">
       <div id="lyricsPreviewHeaderPanel" class="p-4 border-b border-slate-200">
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <h3 id="lyricsPreviewTitle" class="font-cinzel text-xl font-bold text-slate-800"></h3>
+        <!-- Chunk 2: breadcrumb. "Back to library" is the same close call as
+             the X, so it restores the catalogue scroll position too. -->
+        <nav id="lpBreadcrumb" aria-label="Breadcrumb">
+          <button type="button" class="lp-crumb-link" onclick="closeLyricsPreviewModal()">Songs</button>
+          <span class="lp-crumb-sep" aria-hidden="true">/</span>
+          <span class="lp-crumb-current" id="lpCrumbTitle"></span>
+          <button type="button" id="lpBackBtn" onclick="closeLyricsPreviewModal()">
+            <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to library
+          </button>
+        </nav>
+        <div class="flex items-center justify-between gap-4" id="lpSongHeader">
+          <div class="lp-song-art" id="lpSongArt" aria-hidden="true"></div>
+          <div class="lp-song-ident">
+            <div class="lp-title-row">
+              <h3 id="lyricsPreviewTitle" class="font-cinzel text-xl font-bold text-slate-800"></h3>
+              <span id="lpStyleBadge" class="lp-style-badge" hidden></span>
+            </div>
             <p id="lyricsPreviewArtist" class="text-sm text-slate-500 mt-1"></p>
+            <div id="lpMetaLine" class="lp-meta-line"></div>
+            <div id="lpBadges" class="lp-badges"></div>
           </div>
           <div class="flex items-center gap-2">
             <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button lp-header-icon-btn" title="Fullscreen" onclick="toggleLyricsPreviewFullscreen()">
@@ -12540,6 +12556,22 @@ function closeLyricsPreviewModal() {
   _lpHideScrollCue();
   // Exit fullscreen if active
   if (document.fullscreenElement) document.exitFullscreen().catch(function(){});
+
+  // Chunk 2: put the catalogue back where it was. Closing drops the
+  // master-detail split, which relayouts the list, so the restore is deferred
+  // to the next frame -- setting it synchronously lands on the pre-relayout
+  // height and gets clamped to the wrong offset.
+  var restore = STATE._sfScrollRestore;
+  if (restore) {
+    STATE._sfScrollRestore = null;
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        var lc = document.getElementById('songListContainer');
+        if (lc && restore.list) lc.scrollTop = restore.list;
+        if (restore.page) window.scrollTo(0, restore.page);
+      });
+    });
+  }
 }
 
 // On mobile (<1080px), #lyricsPreviewModal must render as a true
@@ -18399,7 +18431,67 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 13) LYRICS PREVIEW MODAL (from song card)
   // ============================================================
+  // Chunk 2: fills the detail workspace header from the song record only.
+  // Anything the schema cannot supply (time signature, BPM, usage counts) is
+  // simply not rendered rather than shown empty or invented -- see
+  // SONG-FINDER-AUDIT.md B1/B6.
+  function _lpRenderSongHeader(song) {
+    if (!song) return;
+    var crumb = document.getElementById('lpCrumbTitle');
+    if (crumb) crumb.textContent = song.title || 'Song';
+
+    var art = document.getElementById('lpSongArt');
+    if (art) art.textContent = (song.title || '?').charAt(0).toUpperCase();
+
+    var styleBadge = document.getElementById('lpStyleBadge');
+    if (styleBadge) {
+      var style = (song.style || song.category || '').trim();
+      styleBadge.textContent = style;
+      styleBadge.hidden = !style;
+    }
+
+    // Only Key exists as a real column; 4/4 and Tempo in the reference have no
+    // storage, so the line collapses to whatever is genuinely known.
+    var meta = document.getElementById('lpMetaLine');
+    if (meta) {
+      // Key only. The reference's "4/4 · Tempo 82" are time signature and BPM,
+      // which have no columns; our `tempo` field is the Feel value and already
+      // shows as a Feel chip below, so repeating it here reads as two facts.
+      var bits = [];
+      if (song.key) bits.push('Key ' + song.key);
+      meta.innerHTML = bits.map(function(b) {
+        return '<span>' + escapeHtml(b) + '</span>';
+      }).join('<span class="lp-meta-dot" aria-hidden="true">&middot;</span>');
+      meta.hidden = !bits.length;
+    }
+
+    var badges = document.getElementById('lpBadges');
+    if (badges) {
+      var chips = [];
+      function push(label, value, cls) {
+        String(value || '').split(/[,;]+/).forEach(function(v) {
+          v = v.trim();
+          if (v) chips.push('<span class="lp-chip ' + cls + '"><b>' + label + '</b>' + escapeHtml(v) + '</span>');
+        });
+      }
+      push('Theme: ', song.theme, 'lp-chip-theme');
+      push('Season: ', song.season, 'lp-chip-season');
+      push('Feel: ', song.tempo, 'lp-chip-feel');
+      badges.innerHTML = chips.join('');
+      badges.hidden = !chips.length;
+    }
+  }
+  window._lpRenderSongHeader = _lpRenderSongHeader;
+
   function openLyricsPreviewModal(song) {
+    // Remember where the catalogue was so Back/Close can put it back. The
+    // scroller is the page on desktop-browse and #songListContainer once the
+    // master-detail split takes over, so both are captured.
+    var _lc = document.getElementById('songListContainer');
+    STATE._sfScrollRestore = {
+      page: window.scrollY || document.documentElement.scrollTop || 0,
+      list: _lc ? _lc.scrollTop : 0
+    };
     STATE.lyricsCurrentSong = song;
     currentDisplayStyle = (song && song.display_style) ? Object.assign({}, song.display_style) : {};
     STATE.lyricsPreviewEditMode = false;
@@ -18415,6 +18507,7 @@ window.loadEditSongData = function(song) {
       if (b) { b.disabled = false; b.style.opacity = ''; b.style.pointerEvents = ''; }
     });
     _lpSyncModalParent(true);
+    _lpRenderSongHeader(song);
 
     // Use the global function from Part 4
     if (typeof window.setLyricsPreviewSong === 'function') {
@@ -84397,6 +84490,77 @@ window.LHC_Install = (function() {
     #songFinderView .sf-catalog-head { display:none; }
     #songFinderView #sfFilterBar { padding:8px 12px 9px; }
     #songFinderView #sfResultsGrid { gap:10px; }
+  }
+
+  /* ==========================================================================
+     CHUNK 2 — Song Details workspace header.
+
+     Breadcrumb, song identity block and metadata chips, per reference image 2.
+     The usage line and History tab it also shows are deliberately absent: no
+     per-order usage history or per-song change log exists, and inventing them
+     would be decoration pretending to be data (audit B1/B2).
+     ========================================================================== */
+  #lpBreadcrumb {
+    display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+    margin-bottom:10px; font-size:.74rem; color:var(--sf-muted,#5f6b91);
+  }
+  #lpBreadcrumb .lp-crumb-link {
+    background:none; border:0; padding:0; cursor:pointer;
+    color:var(--sf-blue-deep,#3b5bdb); font-size:.74rem; font-weight:700;
+  }
+  #lpBreadcrumb .lp-crumb-link:hover { text-decoration:underline; }
+  #lpBreadcrumb .lp-crumb-sep { color:#b6c0da; }
+  #lpBreadcrumb .lp-crumb-current {
+    color:var(--sf-navy,#0f1c3f); font-weight:650;
+    max-width:min(46ch,52%); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  #lpBackBtn {
+    margin-left:auto; display:inline-flex; align-items:center; gap:6px;
+    min-height:30px; padding:0 11px; border:1px solid var(--sf-line-2,#d0d8ec);
+    border-radius:8px; background:#fff; color:var(--sf-ink,#1a2547);
+    font-size:.72rem; font-weight:700; cursor:pointer;
+  }
+  #lpBackBtn:hover { background:var(--sf-tint,#eef2ff); border-color:#b9c5ea; color:var(--sf-blue-deep,#3b5bdb); }
+  #lpBackBtn:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+
+  #lpSongHeader { align-items:flex-start; gap:14px; }
+  #lpSongHeader .lp-song-art {
+    flex:none; width:60px; height:64px; border-radius:12px; display:grid; place-items:center;
+    background:linear-gradient(155deg,var(--sf-blue-deep,#3b5bdb),var(--sf-violet,#7048e8));
+    color:#fff; font-family:'Cinzel',serif; font-size:1.5rem; font-weight:700;
+    box-shadow:inset 0 1px rgba(255,255,255,.22);
+  }
+  #lpSongHeader .lp-song-ident { flex:1 1 auto; min-width:0; }
+  #lpSongHeader .lp-title-row { display:flex; align-items:center; gap:9px; flex-wrap:wrap; min-width:0; }
+  #lpSongHeader .lp-style-badge {
+    flex:none; padding:2px 9px; border:1px solid #c3cdf3; border-radius:999px;
+    background:var(--sf-tint,#eef2ff); color:var(--sf-blue-deep,#3b5bdb);
+    font-size:.64rem; font-weight:800; letter-spacing:.02em;
+  }
+  #lpSongHeader .lp-style-badge[hidden] { display:none; }
+  .lp-meta-line { display:flex; align-items:center; gap:7px; margin-top:5px; color:var(--sf-ink,#1a2547); font-size:.76rem; font-weight:650; }
+  .lp-meta-line[hidden] { display:none; }
+  .lp-meta-line .lp-meta-dot { color:#b6c0da; }
+  .lp-badges { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; }
+  .lp-badges[hidden] { display:none; }
+  .lp-chip {
+    padding:2px 8px; border-radius:6px; font-size:.63rem; font-weight:650;
+    border:1px solid transparent; max-width:220px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap;
+  }
+  .lp-chip b { font-weight:800; opacity:.72; }
+  /* Distinct hues, but each chip also names its category in text, so the
+     grouping is never carried by colour alone. */
+  .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
+  .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
+  .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  @media (max-width:640px) {
+    #lpBreadcrumb { margin-bottom:7px; font-size:.7rem; }
+    #lpBreadcrumb .lp-crumb-current { max-width:100%; }
+    #lpBackBtn { margin-left:0; }
+    #lpSongHeader .lp-song-art { width:46px; height:50px; font-size:1.15rem; border-radius:10px; }
+    #lpSongHeader { gap:10px; }
   }
 
   @media (prefers-reduced-motion:reduce) {
