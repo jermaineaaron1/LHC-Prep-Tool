@@ -5947,10 +5947,48 @@
         </div>
         <div style="font-size:11px;color:#a21caf;max-width:220px;line-height:1.4;">Applies while you're viewing this song. Saving it permanently needs one small pending update.</div>
       </div>
-      <div id="lyricsPreviewContent" class="flex-1 overflow-y-auto p-5" style="min-height: 300px;">
-        <!-- Lyrics content rendered here -->
+      <!-- Chunk 2b: chord sheet and contextual rail sit side by side on wide
+           desktop; below 1080px the rail stacks under the sheet. -->
+      <div id="lpBody">
+        <div id="lyricsPreviewContent" class="flex-1 overflow-y-auto p-5" style="min-height: 300px;">
+          <!-- Lyrics content rendered here -->
+        </div>
+        <aside id="lpRail" aria-label="Plan with this song">
+          <section class="lp-rail-card">
+            <h4><i class="fa-regular fa-calendar" aria-hidden="true"></i> Plan with this song</h4>
+            <label class="lp-rail-label" for="lpRailOrder">Service / Order</label>
+            <select id="lpRailOrder" class="lp-rail-select"></select>
+            <label class="lp-rail-label" for="lpRailSongbook">Songbook</label>
+            <select id="lpRailSongbook" class="lp-rail-select"></select>
+            <div class="lp-rail-2col">
+              <div>
+                <span class="lp-rail-label">Key</span>
+                <div id="lpRailKey" class="lp-rail-static"></div>
+              </div>
+              <div>
+                <label class="lp-rail-label" for="lpRailTranspose">Transpose</label>
+                <select id="lpRailTranspose" class="lp-rail-select"></select>
+              </div>
+            </div>
+            <div class="lp-rail-actions">
+              <button type="button" class="lp-rail-btn primary" onclick="lpRailAddToOrder()">
+                <i class="fa-solid fa-plus" aria-hidden="true"></i> Add to order
+              </button>
+              <button type="button" class="lp-rail-btn" onclick="lpRailAddToSongbook()">
+                <i class="fa-solid fa-book-open" aria-hidden="true"></i> Add to songbook
+              </button>
+            </div>
+          </section>
+          <section class="lp-rail-card">
+            <h4><i class="fa-regular fa-folder-open" aria-hidden="true"></i> Resources</h4>
+            <div id="lpRailResources"></div>
+            <button type="button" class="lp-rail-link" onclick="switchLyricsPreviewMode('resources')">
+              View all resources <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+            </button>
+          </section>
+        </aside>
       </div>
-      <div class="p-3 border-t border-slate-200 text-right">
+      <div class="p-3 border-t border-slate-200 text-right" id="lpStatusBar">
         <span id="lyricsPreviewLastEdited" class="text-xs text-slate-400"></span>
       </div>
     </div>
@@ -17200,6 +17238,121 @@ window.loadEditSongData = function(song) {
   }
   window.addSongToStandaloneSongbook = addSongToStandaloneSongbook;
 
+  // ── Chunk 2b: "Plan with this song" rail ──────────────────────────────────
+  // Defined in this scope on purpose: the two add functions read the
+  // module-private _sbPickerSongId, so the rail sets it the same way the picker
+  // does instead of forking a second, untested add path.
+  var _lpRailSongbooks = [];
+
+  function _lpRenderRail(song) {
+    var rail = document.getElementById('lpRail');
+    if (!rail || !song) return;
+
+    var orderSel = document.getElementById('lpRailOrder');
+    if (orderSel) {
+      var orders = STATE.orders || [];
+      orderSel.innerHTML = orders.length
+        ? orders.map(function(o) {
+            return '<option value="' + escapeHtml(o.id) + '">' +
+              escapeHtml(o.title || o.serviceDate || 'Service Order') + '</option>';
+          }).join('')
+        : '<option value="">No orders yet</option>';
+      orderSel.disabled = !orders.length;
+    }
+
+    var keyEl = document.getElementById('lpRailKey');
+    if (keyEl) keyEl.textContent = song.key ? song.key + ' (Original)' : 'Not set';
+
+    var tr = document.getElementById('lpRailTranspose');
+    if (tr && !tr.options.length) {
+      var opts = ['0 (No transposition)'];
+      for (var i = 1; i <= 6; i++) opts.push('+' + i);
+      for (var j = -1; j >= -5; j--) opts.push(String(j));
+      tr.innerHTML = opts.map(function(label, idx) {
+        var val = idx === 0 ? 0 : (idx <= 6 ? idx : -(idx - 6));
+        return '<option value="' + val + '">' + label + '</option>';
+      }).join('');
+    }
+
+    _lpRenderRailResources(song);
+
+    // Songbooks load asynchronously; show honest progress rather than an empty
+    // control that looks like "no songbooks exist".
+    var sbSel = document.getElementById('lpRailSongbook');
+    if (sbSel) {
+      sbSel.innerHTML = '<option value="">Loading songbooks…</option>';
+      sbSel.disabled = true;
+      SBQ_SONGBOOKS.loadAll().then(function(list) {
+        _lpRailSongbooks = list || [];
+        if (document.getElementById('lpRailSongbook') !== sbSel) return;
+        sbSel.innerHTML = _lpRailSongbooks.length
+          ? _lpRailSongbooks.map(function(sb) {
+              return '<option value="' + escapeHtml(sb.id) + '">' + escapeHtml(sb.name || 'Untitled Songbook') + '</option>';
+            }).join('')
+          : '<option value="">No songbooks yet</option>';
+        sbSel.disabled = !_lpRailSongbooks.length;
+      }).catch(function() {
+        sbSel.innerHTML = '<option value="">Songbooks unavailable</option>';
+        sbSel.disabled = true;
+      });
+    }
+  }
+
+  function _lpRenderRailResources(song) {
+    var box = document.getElementById('lpRailResources');
+    if (!box) return;
+    var docs = (typeof _sfExpandAttachments === 'function' ? _sfExpandAttachments(song) : []);
+    var media = (typeof _sfExpandMedia === 'function' ? _sfExpandMedia(song) : []);
+    var rows = [];
+    docs.slice(0, 3).forEach(function(a) {
+      var cls = _sfClassifyResource(a.url);
+      rows.push({ icon: cls.icon, color: cls.color, label: a.name || cls.label, kind: cls.label, url: a.url, action: 'doc' });
+    });
+    media.slice(0, 2).forEach(function(u, i) {
+      var isYt = u.indexOf('youtu') !== -1;
+      rows.push({ icon: isYt ? 'fa-brands fa-youtube' : 'fa-solid fa-link', color: isYt ? '#dc2626' : '#64748b',
+                  label: (isYt ? 'YouTube' : 'Link') + ' ' + (i + 1), kind: isYt ? 'YouTube' : 'Link', url: u, action: isYt ? 'yt' : 'ext' });
+    });
+    if (!rows.length) {
+      box.innerHTML = '<p class="lp-rail-empty">No resources attached yet.</p>';
+      return;
+    }
+    box.innerHTML = rows.map(function(r) {
+      return '<div class="lp-rail-res">' +
+        '<i class="' + r.icon + '" style="color:' + r.color + '"></i>' +
+        '<span class="lp-rail-res-label" title="' + escapeHtml(r.label) + '">' + escapeHtml(r.label) + '</span>' +
+        '<button type="button" class="lp-rail-res-btn" data-action="' + r.action + '" data-url="' + escapeHtml(r.url) + '">' +
+        (r.action === 'doc' ? 'Preview' : 'Open') + '</button></div>';
+    }).join('');
+    box.querySelectorAll('.lp-rail-res-btn').forEach(function(btn) {
+      btn.onclick = function() {
+        var url = btn.getAttribute('data-url'), act = btn.getAttribute('data-action');
+        if (act === 'doc') openDocPreviewModal(url, song.title);
+        else if (act === 'yt') openYoutubePreviewModal(url, song.title);
+        else window.open(url, '_blank', 'noopener,noreferrer');
+      };
+    });
+  }
+
+  function lpRailAddToOrder() {
+    var song = STATE.lyricsCurrentSong;
+    var sel = document.getElementById('lpRailOrder');
+    if (!song || !sel || !sel.value) { showToast('Choose a service or order first', 'warning'); return; }
+    _sbPickerSongId = song.id;
+    addSongToOrderFromFinder(sel.value);
+  }
+  window.lpRailAddToOrder = lpRailAddToOrder;
+
+  function lpRailAddToSongbook() {
+    var song = STATE.lyricsCurrentSong;
+    var sel = document.getElementById('lpRailSongbook');
+    if (!song || !sel || !sel.value) { showToast('Choose a songbook first', 'warning'); return; }
+    _sbPickerSongId = song.id;
+    addSongToStandaloneSongbook(sel.value);
+  }
+  window.lpRailAddToSongbook = lpRailAddToSongbook;
+  window._lpRenderRail = _lpRenderRail;
+
   // ── Add Songs to Songbook/Order modal ──────────────────────────────────────
   var _addSongsTarget = null;
   var _addedSongIds = {};
@@ -18508,6 +18661,7 @@ window.loadEditSongData = function(song) {
     });
     _lpSyncModalParent(true);
     _lpRenderSongHeader(song);
+    if (typeof window._lpRenderRail === 'function') window._lpRenderRail(song);
 
     // Use the global function from Part 4
     if (typeof window.setLyricsPreviewSong === 'function') {
@@ -84276,7 +84430,13 @@ window.LHC_Install = (function() {
     #songFinderView #sfResultsGrid.sf-song-active .sf-song-actions { grid-column:1/-1;max-width:none;justify-content:flex-start;padding-left:56px;margin-top:0; }
     #songFinderView #sfWorkspacePanel { align-items:stretch;justify-content:flex-start; }
     #sfWorkspacePanel #lyricsPreviewModal.show { width:100%;min-width:0;align-self:stretch; }
-    #sfWorkspacePanel #lyricsPreviewModalContent { width:100%;min-width:0;border:0;border-radius:0;background:#fff;box-shadow:none; }
+    /* !important because the element carries an inline width:min(750px,95%)
+       for its modal presentation, which a plain rule cannot beat -- that is why
+       the workspace never actually filled the column. */
+    #sfWorkspacePanel #lyricsPreviewModalContent {
+      width:100% !important; max-width:100% !important; min-width:0;
+      border:0;border-radius:0;background:#fff;box-shadow:none;
+    }
     #sfWorkspacePanel #lyricsPreviewHeaderPanel { padding:12px 14px;background:linear-gradient(160deg,#fdfdff,#f2f5fc);border:0;border-bottom:1px solid var(--sf-line);color:var(--sf-ink); }
     #sfWorkspacePanel #lyricsPreviewTitle { color:var(--sf-navy);font-size:1.45rem; }
     #sfWorkspacePanel #lyricsPreviewArtist { color:var(--sf-muted); }
@@ -84555,7 +84715,104 @@ window.LHC_Install = (function() {
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
 
+  /* ── Chunk 2b: the song workspace is a page, not a split pane ──────────────
+     Reference image 2 shows a breadcrumb and "Back to library", which only
+     makes sense if the song REPLACES the catalogue. Kept as a split, the chord
+     sheet measured 404px wide at 1536 once the rail was added -- too narrow to
+     read a chart in. Hiding the list gives the sheet the width the reference
+     shows, and the scroll position captured on open puts the catalogue back
+     exactly where it was on close. */
+  @media (min-width:1080px) {
+    #songFinderView #sfResultsGrid.sf-song-active #sfSongListCard { display:none; }
+    #songFinderView #sfResultsGrid.sf-song-active #sfWorkspacePanel {
+      flex:1 1 100%; max-width:100%;
+    }
+  }
+
+  /* ── Chunk 2b: contextual rail ─────────────────────────────────────────── */
+  #lpBody { display:flex; flex:1 1 auto; min-height:0; align-items:stretch; }
+  #lpBody > #lyricsPreviewContent { flex:1 1 auto; min-width:0; }
+  #lpRail {
+    flex:0 0 292px; max-width:292px; min-width:0; padding:14px;
+    border-left:1px solid var(--sf-line,#e3e8f4); background:var(--sf-surface,#f7f9fd);
+    overflow-y:auto; display:flex; flex-direction:column; gap:10px;
+  }
+  .lp-rail-card {
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:12px; background:#fff; padding:11px 12px;
+    box-shadow:0 1px 2px rgba(15,28,63,.04);
+  }
+  .lp-rail-card h4 {
+    display:flex; align-items:center; gap:7px; margin:0 0 9px;
+    color:var(--sf-navy,#0f1c3f); font-size:.82rem; font-weight:750;
+  }
+  .lp-rail-card h4 i { color:var(--sf-blue-deep,#3b5bdb); }
+  .lp-rail-label {
+    display:block; margin:0 0 4px; color:var(--sf-muted,#5f6b91);
+    font-size:.63rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+  }
+  .lp-rail-select {
+    width:100%; min-height:36px; margin-bottom:9px; padding:0 8px;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:9px; background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.78rem; font-family:inherit;
+  }
+  .lp-rail-select:focus-visible { outline:3px solid rgba(76,110,245,.35); outline-offset:1px; }
+  .lp-rail-select:disabled { background:var(--sf-surface-2,#eff2fa); color:var(--sf-muted,#5f6b91); }
+  .lp-rail-2col { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .lp-rail-static {
+    min-height:36px; display:flex; align-items:center; padding:0 8px; margin-bottom:9px;
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:9px;
+    background:var(--sf-surface-2,#eff2fa); color:var(--sf-ink,#1a2547);
+    font-size:.78rem; font-weight:650;
+  }
+  .lp-rail-actions { display:flex; flex-direction:column; gap:6px; margin-top:2px; }
+  .lp-rail-btn {
+    display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    min-height:38px; padding:0 12px; border-radius:9px; cursor:pointer;
+    border:1px solid var(--sf-line-2,#d0d8ec); background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.76rem; font-weight:750; font-family:inherit;
+  }
+  .lp-rail-btn:hover { background:var(--sf-tint,#eef2ff); border-color:#b9c5ea; color:var(--sf-blue-deep,#3b5bdb); }
+  .lp-rail-btn.primary {
+    border-color:transparent; color:#fff;
+    background:linear-gradient(135deg,var(--sf-blue,#4c6ef5),var(--sf-violet,#7048e8));
+    box-shadow:0 6px 16px rgba(76,110,245,.24);
+  }
+  .lp-rail-btn.primary:hover { color:#fff; filter:brightness(1.05); }
+  .lp-rail-btn:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  .lp-rail-res { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--sf-line,#e3e8f4); }
+  .lp-rail-res:last-of-type { border-bottom:0; }
+  .lp-rail-res-label {
+    flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    color:var(--sf-ink,#1a2547); font-size:.73rem; font-weight:600;
+  }
+  .lp-rail-res-btn {
+    flex:none; min-height:28px; padding:0 9px; border:1px solid #c3cdf3; border-radius:7px;
+    background:var(--sf-tint,#eef2ff); color:var(--sf-blue-deep,#3b5bdb);
+    font-size:.68rem; font-weight:750; cursor:pointer; font-family:inherit;
+  }
+  .lp-rail-res-btn:hover { background:#e0e7ff; }
+  .lp-rail-empty { margin:0; color:var(--sf-muted,#5f6b91); font-size:.73rem; }
+  .lp-rail-link {
+    margin-top:9px; padding:0; border:0; background:none; cursor:pointer;
+    color:var(--sf-blue-deep,#3b5bdb); font-size:.73rem; font-weight:750; font-family:inherit;
+  }
+  .lp-rail-link:hover { text-decoration:underline; }
+
+  /* Below the split breakpoint the workspace is a single column, so the rail
+     stacks under the chord sheet rather than squeezing it. */
+  @media (max-width:1079px) {
+    #lpBody { flex-direction:column; }
+    #lpRail {
+      flex:none; max-width:none; width:100%;
+      border-left:0; border-top:1px solid var(--sf-line,#e3e8f4);
+      flex-direction:row; flex-wrap:wrap; overflow:visible;
+    }
+    #lpRail .lp-rail-card { flex:1 1 260px; min-width:0; }
+  }
+
   @media (max-width:640px) {
+    #lpRail { flex-direction:column; padding:10px; }
+    #lpRail .lp-rail-card { flex:1 1 auto; }
     #lpBreadcrumb { margin-bottom:7px; font-size:.7rem; }
     #lpBreadcrumb .lp-crumb-current { max-width:100%; }
     #lpBackBtn { margin-left:0; }
