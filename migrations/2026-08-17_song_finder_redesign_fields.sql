@@ -1,5 +1,5 @@
 -- =====================================================================
--- PROPOSAL — NOT RUN. Requires review and approval before execution.
+-- APPLIED 2026-08-17. Run in the Supabase SQL Editor and verified.
 -- 2026-08-17 — Fields the Song Finder redesign references have nowhere to store
 -- =====================================================================
 --
@@ -11,9 +11,9 @@
 -- editor Settings panel. This is the single migration that would make all four
 -- real. Nothing here is required for anything already shipped to keep working.
 --
--- Filename is deliberately prefixed PROPOSED_ so it cannot be mistaken for an
--- applied migration. Rename it to 2026-08-17_song_finder_redesign_fields.sql
--- when (and only when) it has been run.
+-- Applied on 2026-08-17 and renamed from PROPOSED_ at that point. Verified
+-- after the run: all seven new songs columns present, both new tables reachable
+-- with RLS enabled, songs count unchanged at 51.
 --
 -- SCOPE AND SAFETY
 -- ----------------

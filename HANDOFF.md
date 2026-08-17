@@ -4,6 +4,63 @@ _Last updated: 2026-08-17 by Claude Code_
 
 ---
 
+## 2026-08-17 — The migration is RUN, and the four blocked features are built (branch `feature/song-finder-new-schema-fields`, NOT merged)
+
+`2026-08-17_song_finder_redesign_fields.sql` was **run in the Supabase SQL
+Editor**. Verified afterwards: all seven new `songs` columns present, both new
+tables reachable with RLS, songs still 51. The four features that were
+deliberately omitted for want of storage are now real.
+
+| Was omitted | Now |
+|---|---|
+| **B6** alt title, copyright/CCLI, time signature, BPM, service suitability | five fields in Add and Edit, round-tripping |
+| **display_style** editor settings | appearance saves, survives reload, pre-fills on reopen |
+| **B3** theme colour + description | `song_themes`; colour dot in the picker, tints the workspace chip |
+| **B4** songbook layout | `songbook_entries`; layout, key and transpose per songbook |
+
+### Two findings worth keeping
+
+**`normalizeSongFromSupabase` has never called `normalizeSong`.** It guards with
+`typeof normalizeSong === 'function'`, but `normalizeSong` is module-scoped and
+that function is global — the guard has always been false, and the *bridged*
+object is what actually ships. The new fields are therefore normalised in the
+bridge itself. The pre-existing fields were left exactly as they were: they have
+worked this way for a long time and changing them is a separate risk.
+
+**Two channels, two meanings.** `updateDisplayStyle` writes only that column and
+deliberately does **not** broadcast on `lhc-song-library`. That channel means
+"the words changed"; appearance is presentation, and announcing it would make
+every open Order and LCD Projection re-render slides for nothing.
+
+### Design choices behind the storage
+
+- `songs.theme` remains the source of truth for *which* themes a song has;
+  `song_themes` only **describes** a theme. Nothing about filtering changed.
+- `songbooks.song_ids` remains the membership list; `songbook_entries` only
+  carries presentation. That separation is the whole reason B4 was blocked —
+  putting layout in `song_ids` would have meant turning an array of ids into
+  objects and silently breaking every reader that does `.indexOf()`.
+- Both new tables degrade quietly: a missing table reads as empty rather than an
+  error, and theme creation still writes localStorage first, so a theme stays
+  usable if the server is unreachable — reported as "added on this device only"
+  rather than a claimed save.
+
+### Still omitted, and still correctly so
+
+Usage history (B1), the History tab (B2), the "Autosaved" label and Share's
+"Access" dropdown. The migration added no storage for the first two, and the
+last two describe mechanisms that do not exist — an autosave that does not run,
+and a permissions model that was never built.
+
+### Verified
+
+Each feature was exercised end to end against Supabase and **all test data
+removed**: songs back to **51**, songbooks to **1**, `song_themes` and
+`songbook_entries` to **0 rows**. Catalogue regression re-run afterwards —
+filters, reset, and the packed-attachment expansion all still correct.
+
+---
+
 ## 2026-08-17 — Song Finder complete redesign (merged to `master`)
 
 **Merged on the operator's instruction.** A 12-chunk brief covering every Song
