@@ -4,11 +4,16 @@ _Last updated: 2026-08-17 by Claude Code_
 
 ---
 
-## 2026-08-17 — Song Finder complete redesign (branch `feature/song-finder-complete-redesign`, ALL 12 CHUNKS DONE, NOT MERGED)
+## 2026-08-17 — Song Finder complete redesign (merged to `master`)
 
-**Awaiting review.** A 12-chunk brief covering every Song Finder surface. All
-twelve are implemented and verified; what follows is what changed, what was
-deliberately not built, and the two things that could not be tested here.
+**Merged on the operator's instruction.** A 12-chunk brief covering every Song
+Finder surface. All twelve are implemented and verified; what follows is what
+changed, what was deliberately not built, and the two things that could not be
+tested here.
+
+**Merged WITHOUT real-device testing.** The mobile keyboard behaviour and the
+Share clipboard copy were never exercised — see "Two things NOT verified" below.
+If a phone problem surfaces this week, those are the first places to look.
 
 ### The chunks
 
