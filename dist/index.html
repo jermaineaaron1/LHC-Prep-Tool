@@ -23269,7 +23269,19 @@ var WO = (function() {
       { title: '16. Announcements',        type: 'single',                                                                                                  serviceSectionId: 'announcements'                                      },
       { title: '17. Dismissal Song',       type: 'single', special: 'songs',                                                                               serviceSectionId: 'dismissal',        liturgySectionId: 'sending'      }
     ],
-    special: []
+    // A Special service is otherwise operator-built -- it deliberately starts
+    // without a liturgy so the order can be shaped for the occasion. The
+    // readings are the exception: they are given so scripture can be inserted
+    // the same way as in the other two orders, with the same four slots and
+    // therefore the same Alleluia option on the Gospel.
+    //
+    // No liturgySectionId on purpose: that field auto-populates liturgy items
+    // from LiturgyModule, which would put content into an order whose whole
+    // point is that the operator chooses it. serviceSectionId 'scripture' IS
+    // needed -- the rail and the scripture behaviours key off it.
+    special: [
+      { title: '1. Scripture Readings',   type: 'group',  subsections: ['First Reading', 'Psalm Reading', 'Second Reading', 'Gospel Reading'],              serviceSectionId: 'scripture'                                          }
+    ]
   };
 
   function $(id) { return document.getElementById(id); }
