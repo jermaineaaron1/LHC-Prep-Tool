@@ -1,8 +1,24 @@
 @import "tailwindcss";
 
+@layer base {
+  /* A swipe down at the top of the page is Chrome's pull-to-refresh. Mid-verse
+     that reloads the app, drops the singer out of the room and loses the round
+     -- the most destructive gesture available on this screen, and one that a
+     phone held up while singing positively invites. `contain` keeps normal
+     scrolling and takes the reload away. */
+  html, body { overscroll-behavior-y: contain; }
+  /* Kills the double-tap-to-zoom delay on taps without disabling pinch zoom, so
+     "I'm ready" responds at once but the words can still be enlarged. */
+  body { touch-action: manipulation; }
+}
+
 @layer components {
   .vh-app {
+    /* 100vh on a phone is the viewport WITHOUT the browser's own bars, so a
+       full-height layout sits partly behind them and the bottom of the lane is
+       cut off until the bar retracts. dvh tracks the space actually visible. */
     min-height: 100vh;
+    min-height: 100dvh;
     background:
       radial-gradient(circle at 18% 74%, rgba(0, 186, 255, .16), transparent 25%),
       radial-gradient(circle at 78% 9%, rgba(199, 57, 246, .17), transparent 27%),
