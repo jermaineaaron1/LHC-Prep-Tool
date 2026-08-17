@@ -64,10 +64,22 @@ could not load) and the badge under-reported 5 documents as 2.
 Fixed **on read** by `_sfExpandAttachments()` / `_sfExpandMedia()`, which also
 collapse duplicate URLs.
 
-**⏳ The stored rows are now repaired by a migration that has NOT been run yet:**
-`migrations/2026-08-17_unpack_song_attachment_urls.sql`. Paste it into the
-Supabase SQL Editor; expect **3 rows updated**, then the verification block at
-the bottom of the file should return zero packed entries and read 5/2 and 2/2.
+**✅ The stored rows were repaired on 2026-08-17 by
+`migrations/2026-08-17_unpack_song_attachment_urls.sql`, run in the Supabase SQL
+Editor. Verified afterwards against the live table — do not run it again** (it is
+guarded and would be a no-op, but there is nothing left to do).
+
+Post-run verification, re-probed across all 51 rows: **zero** packed attachment
+entries, **zero** packed youtube entries, **zero** duplicate urls, **zero** odd
+record shapes. Both repaired rows now carry the healthy `{ext, icon, name, url}`
+shape. In the app: "Away in Manger" reads 5 documents / 2 videos and "Hark the
+Herald Angel Sing" 2 / 2 on the card badge, the Resources panel and the chooser
+alike; Preview now loads a real document instead of a comma-joined blob
+(`drive.google.com/file/d/…/preview` for Drive files, the inline text branch for
+Google Docs), and open-in-new-tab carries a single real url.
+
+The `songs_attachment_repair_backup` table still holds the pre-repair snapshot.
+Drop it once you are satisfied: `DROP TABLE songs_attachment_repair_backup;`
 
 Scope confirmed against all 51 rows — those two songs are the only ones
 affected. Three array values in total: "Away in Manger" attachments (1 entry
