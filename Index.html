@@ -9061,11 +9061,25 @@
           <p id="atbNewError" class="atb-error" hidden></p>
         </div>
 
-        <p class="atb-note">
-          <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-          A songbook stores which songs it contains. Per-songbook layout, key and
-          transposition are not stored yet — see the proposed migration.
-        </p>
+        <!-- Backed by songbook_entries. -->
+        <div class="atb-presentation">
+          <span class="ato-label">Layout in this songbook</span>
+          <div class="atb-layouts" role="radiogroup" aria-label="Layout">
+            <label class="atb-layout"><input type="radio" name="atbLayout" value="lyrics-only"><span><i class="fa-solid fa-align-left" aria-hidden="true"></i> Lyrics only</span></label>
+            <label class="atb-layout"><input type="radio" name="atbLayout" value="lyrics-chords" checked><span><i class="fa-solid fa-guitar" aria-hidden="true"></i> Lyrics + chords</span></label>
+            <label class="atb-layout"><input type="radio" name="atbLayout" value="two-column"><span><i class="fa-solid fa-table-columns" aria-hidden="true"></i> Two column</span></label>
+          </div>
+          <div class="ato-grid" style="margin-top:10px;">
+            <div>
+              <span class="ato-label">Key</span>
+              <div id="atbKeyStatic" class="ato-static"></div>
+            </div>
+            <div>
+              <label class="ato-label" for="atbTranspose">Transpose</label>
+              <select id="atbTranspose" class="ato-select"></select>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="ato-footer">
         <button type="button" class="lhc-pill-button" onclick="closeAddToSongbookModal()">Cancel</button>
@@ -18217,6 +18231,22 @@ window.loadEditSongData = function(song) {
     document.getElementById('atbNewError').hidden = true;
     atbSwitchTab('existing');
 
+    // Presentation controls (songbook_entries).
+    document.getElementById('atbKeyStatic').textContent = song.key ? song.key + ' (Original)' : 'Not set';
+    var tr = document.getElementById('atbTranspose');
+    if (tr && !tr.options.length) {
+      var opts = ['0 (No transposition)'];
+      for (var i = 1; i <= 6; i++) opts.push('+' + i);
+      for (var j = -1; j >= -5; j--) opts.push(String(j));
+      tr.innerHTML = opts.map(function(label, idx) {
+        var val = idx === 0 ? 0 : (idx <= 6 ? idx : -(idx - 6));
+        return '<option value="' + val + '">' + label + '</option>';
+      }).join('');
+    }
+    if (tr) tr.value = '0';
+    var def = document.querySelector('input[name="atbLayout"][value="lyrics-chords"]');
+    if (def) def.checked = true;
+
     var list = document.getElementById('atbList');
     list.innerHTML = '<p class="atb-empty">Loading songbooks…</p>';
     openModal('addToSongbookModal');
@@ -18292,9 +18322,13 @@ window.loadEditSongData = function(song) {
                     createdDate: new Date().toISOString() };
       // Success is only reported after the save resolves.
       SBQ_SONGBOOKS.save(entry).then(function() {
-        showToast('"' + _atbSong.title + '" added to new songbook "' + entry.name + '"', 'success');
-        if (typeof renderSongbooksList === 'function') renderSongbooksList();
-        closeAddToSongbookModal();
+        // Presentation is saved after membership, and its failure must not
+        // claim the song was not added -- it was.
+        return _atbSavePresentation(entry.id, _atbSong.id).then(function() {
+          showToast('"' + _atbSong.title + '" added to new songbook "' + entry.name + '"', 'success');
+          if (typeof renderSongbooksList === 'function') renderSongbooksList();
+          closeAddToSongbookModal();
+        });
       }).catch(function(err) {
         showToast('Could not create songbook: ' + ((err && err.message) || 'unknown error'), 'error');
       }).finally(function() {
@@ -18306,7 +18340,24 @@ window.loadEditSongData = function(song) {
     if (!_atbSelectedId) { showToast('Choose a songbook first', 'warning'); return; }
     _sbPickerSongId = _atbSong.id;
     addSongToStandaloneSongbook(_atbSelectedId);
+    _atbSavePresentation(_atbSelectedId, _atbSong.id);
     closeAddToSongbookModal();
+  }
+
+  // Writes the chosen layout/key/transpose into songbook_entries. Membership
+  // has already been handled by SBQ_SONGBOOKS, so a failure here is reported
+  // as "added, but the layout did not save" rather than as a failed add.
+  function _atbSavePresentation(songbookId, songId) {
+    if (!window.SBQ_SB_ENTRIES) return Promise.resolve();
+    var layoutEl = document.querySelector('input[name="atbLayout"]:checked');
+    var trEl = document.getElementById('atbTranspose');
+    return SBQ_SB_ENTRIES.save(songbookId, songId, {
+      layout: layoutEl ? layoutEl.value : 'lyrics-chords',
+      keyOverride: (_atbSong && _atbSong.key) || '',
+      transposeSteps: trEl ? parseInt(trEl.value, 10) || 0 : 0
+    }).catch(function() {
+      showToast('Song added, but its layout could not be saved', 'warning');
+    });
   }
   window.confirmAddToSongbook = confirmAddToSongbook;
 
@@ -24981,6 +25032,65 @@ var SBQ_THEMES = {
   }
 };
 window.SBQ_THEMES = SBQ_THEMES;
+
+// ================================================================
+// SBQ_SB_ENTRIES — songbook_entries table (migration 2026-08-17)
+// Per-songbook presentation for a song. songbooks.song_ids REMAINS the
+// membership list; this only carries layout/key/transpose, so every existing
+// reader that does song_ids.indexOf() is untouched.
+// ================================================================
+var SBQ_SB_ENTRIES = {
+  _sb: function() { return (typeof SBQ_SONGS !== 'undefined' && SBQ_SONGS._sb) ? SBQ_SONGS._sb() : null; },
+  _tableExists: null,
+
+  forSongbook: function(songbookId) {
+    var sb = SBQ_SB_ENTRIES._sb();
+    if (!sb || !songbookId) return Promise.resolve({});
+    return sb.from('songbook_entries').select('*').eq('songbook_id', songbookId)
+      .then(function(r) {
+        if (r.error) { SBQ_SB_ENTRIES._tableExists = false; return {}; }
+        SBQ_SB_ENTRIES._tableExists = true;
+        var byId = {};
+        (r.data || []).forEach(function(row) {
+          byId[row.song_id] = {
+            layout: row.layout || 'lyrics-chords',
+            keyOverride: row.key_override || '',
+            transposeSteps: row.transpose_steps || 0,
+            sortOrder: row.sort_order || 0
+          };
+        });
+        return byId;
+      })
+      .catch(function() { SBQ_SB_ENTRIES._tableExists = false; return {}; });
+  },
+
+  save: function(songbookId, songId, entry) {
+    var sb = SBQ_SB_ENTRIES._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('songbook_entries').upsert([{
+      songbook_id: songbookId,
+      song_id: songId,
+      layout: (entry && entry.layout) || 'lyrics-chords',
+      key_override: (entry && entry.keyOverride) || '',
+      transpose_steps: (entry && parseInt(entry.transposeSteps, 10)) || 0,
+      sort_order: (entry && parseInt(entry.sortOrder, 10)) || 0
+    }]).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return { success: true };
+    });
+  },
+
+  remove: function(songbookId, songId) {
+    var sb = SBQ_SB_ENTRIES._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('songbook_entries').delete().eq('songbook_id', songbookId).eq('song_id', songId)
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return { success: true };
+      });
+  }
+};
+window.SBQ_SB_ENTRIES = SBQ_SB_ENTRIES;
 
 var SBQ_SONGBOOKS = {
   _sb: function() { return getSupabaseClient(); },
@@ -86355,6 +86465,25 @@ window.LHC_Install = (function() {
                border:1px dashed var(--sf-line-2,#d0d8ec); border-radius:11px; background:var(--sf-surface,#f7f9fd); }
   .atb-error { margin:7px 0 0; color:#9a5b16; font-size:.74rem; font-weight:650; }
   .atb-error[hidden] { display:none; }
+  .atb-presentation { margin-top:13px; padding-top:12px; border-top:1px solid var(--sf-line,#e3e8f4); }
+  .atb-layouts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+  .atb-layout { position:relative; cursor:pointer; }
+  .atb-layout input { position:absolute; opacity:0; width:0; height:0; }
+  .atb-layout span {
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px;
+    min-height:58px; padding:8px 5px; text-align:center;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:10px; background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.7rem; font-weight:700;
+  }
+  .atb-layout span i { font-size:.95rem; color:var(--sf-muted,#5f6b91); }
+  .atb-layout input:checked + span {
+    border-color:var(--sf-blue,#4c6ef5); background:var(--sf-tint,#eef2ff);
+    color:var(--sf-blue-deep,#3b5bdb); box-shadow:0 0 0 3px rgba(76,110,245,.14);
+  }
+  .atb-layout input:checked + span i { color:var(--sf-blue-deep,#3b5bdb); }
+  .atb-layout input:focus-visible + span { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  @media (max-width:560px) { .atb-layouts { grid-template-columns:1fr; } }
+
   .atb-note {
     display:flex; align-items:flex-start; gap:8px; margin:13px 0 0; padding:9px 11px;
     border:1px solid var(--sf-line,#e3e8f4); border-radius:10px; background:var(--sf-surface,#f7f9fd);
