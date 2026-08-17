@@ -10757,29 +10757,112 @@ function populateThemeFilterDropdown(themes) {
   themes = _getFilterThemeOptions(themes);
   var selected = (window.LHC_STATE && window.LHC_STATE.filters.themes) || [];
   var html = '<div class="sf-filter-theme-menu-head"><strong>Choose themes</strong><span>' + themes.length + ' available</span></div>' +
-    '<div class="sf-filter-theme-options">' +
+    // Chunk 9: search. The list runs to 30+ themes, which is past the point
+    // where scanning it is reasonable.
+    '<div class="sf-filter-theme-search">' +
+    '<i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>' +
+    '<input id="filterThemeSearch" type="search" autocomplete="off" placeholder="Search themes…" ' +
+    'aria-label="Search themes" oninput="filterThemeSearch(this.value)" ' +
+    'onkeydown="_themeSearchKeydown(event)">' +
+    '</div>' +
+    '<div class="sf-filter-theme-options" id="filterThemeOptions" role="listbox" aria-multiselectable="true">' +
     '<div class="sf-filter-theme-option sf-filter-theme-all"><label>' +
     '<input type="checkbox" id="filterThemeAll" onchange="updateFilterTheme(this)" ' + (selected.length === 0 ? 'checked' : '') + '> All Themes</label></div>';
   themes.forEach(function(t) {
     var isChecked = selected.indexOf(t) >= 0;
-    html += '<div class="sf-filter-theme-option">' +
+    html += '<div class="sf-filter-theme-option" data-theme="' + escapeHtml(t.toLowerCase()) + '">' +
       '<label>' +
       '<input type="checkbox" class="filter-theme-cb" value="' + escapeHtml(t) + '" onchange="updateFilterTheme(this)" ' + (isChecked ? 'checked' : '') + '> ' + escapeHtml(t) + '</label></div>';
   });
-  html += '</div><div class="sf-filter-theme-add">' +
+  html += '<p class="sf-filter-theme-noresult" id="filterThemeNoResult" hidden>No theme matches that search.</p>' +
+    '</div><div class="sf-filter-theme-add">' +
     '<div><strong>Add a theme</strong><small>Make it available in filters and song editing.</small></div>' +
     '<div class="sf-filter-theme-add-controls"><input id="filterThemeNewInput" type="text" maxlength="60" placeholder="e.g. Family, Mission" ' +
+    'aria-label="New theme name" ' +
+    'oninput="_themeClearError()" ' +
     'onkeydown="if(event.key===\'Enter\'){event.preventDefault();addFilterCustomTheme();}">' +
-    '<button type="button" onclick="addFilterCustomTheme()"><i class="fa-solid fa-plus"></i> Add</button></div></div>';
+    '<button type="button" onclick="addFilterCustomTheme()"><i class="fa-solid fa-plus"></i> Add</button></div>' +
+    '<p class="sf-filter-theme-error" id="filterThemeError" role="alert" hidden></p></div>';
   dd.innerHTML = html;
 }
 
+// ── Chunk 9: theme search + keyboard navigation ─────────────────────────────
+function filterThemeSearch(q) {
+  var dd = document.getElementById('filterThemeDropdown');
+  if (!dd) return;
+  var needle = String(q || '').trim().toLowerCase();
+  var shown = 0;
+  dd.querySelectorAll('.sf-filter-theme-option[data-theme]').forEach(function(row) {
+    var hit = !needle || row.getAttribute('data-theme').indexOf(needle) !== -1;
+    row.hidden = !hit;
+    if (hit) shown++;
+  });
+  // "All Themes" is a control, not a theme, so it hides while searching.
+  var all = dd.querySelector('.sf-filter-theme-all');
+  if (all) all.hidden = !!needle;
+  var none = document.getElementById('filterThemeNoResult');
+  if (none) none.hidden = shown !== 0;
+}
+window.filterThemeSearch = filterThemeSearch;
+
+// Down/Up walk the visible options, Enter toggles the focused one.
+function _themeSearchKeydown(e) {
+  var dd = document.getElementById('filterThemeDropdown');
+  if (!dd) return;
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+  var boxes = Array.prototype.filter.call(
+    dd.querySelectorAll('.sf-filter-theme-option[data-theme] input.filter-theme-cb'),
+    function(cb) { var row = cb.closest('.sf-filter-theme-option'); return row && !row.hidden; }
+  );
+  if (!boxes.length) return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    // Enter with exactly one match is the fast path people expect.
+    if (boxes.length === 1) { boxes[0].checked = !boxes[0].checked; updateFilterTheme(boxes[0]); }
+    return;
+  }
+  e.preventDefault();
+  var active = document.activeElement;
+  var idx = boxes.indexOf(active);
+  var next = e.key === 'ArrowDown' ? idx + 1 : idx - 1;
+  if (next < 0) next = boxes.length - 1;
+  if (next >= boxes.length) next = 0;
+  boxes[next].focus();
+}
+window._themeSearchKeydown = _themeSearchKeydown;
+
+function _themeShowError(msg) {
+  var el = document.getElementById('filterThemeError');
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = false;
+}
+function _themeClearError() {
+  var el = document.getElementById('filterThemeError');
+  if (el) el.hidden = true;
+}
+window._themeClearError = _themeClearError;
+
 function addFilterCustomTheme() {
   var input = document.getElementById('filterThemeNewInput');
-  var newTheme = input ? input.value.trim() : '';
-  if (!newTheme) return;
+  // Chunk 9: normalise whitespace so "  Grace   Alone " and "Grace Alone"
+  // cannot both exist.
+  var newTheme = input ? String(input.value || '').trim().replace(/\s+/g, ' ') : '';
+  if (!newTheme) {
+    _themeShowError('Give the theme a name.');
+    if (input) input.focus();
+    return;
+  }
   var currentOptions = _getFilterThemeOptions((window.STATE && STATE.songMeta && STATE.songMeta.themes) || []);
   var match = currentOptions.find(function(theme) { return theme.toLowerCase() === newTheme.toLowerCase(); });
+  if (match) {
+    // Say so rather than silently selecting the existing one, which looked
+    // like the new theme had been created.
+    _themeShowError('A theme named “' + match + '” already exists.');
+    if (input) input.select();
+    return;
+  }
+  _themeClearError();
   if (!match) {
     var customs = typeof _getCustomThemes === 'function' ? _getCustomThemes() : [];
     customs.push(newTheme);
@@ -85582,6 +85665,42 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── CHUNK 9: theme search, keyboard focus and validation ──────────────── */
+  #filterThemeDropdown .sf-filter-theme-search {
+    position:relative; padding:8px 10px; border-bottom:1px solid var(--sf-line,#e3e8f4);
+    background:var(--sf-surface,#f7f9fd);
+  }
+  #filterThemeDropdown .sf-filter-theme-search i {
+    position:absolute; left:20px; top:50%; transform:translateY(-50%);
+    color:var(--sf-muted,#5f6b91); font-size:.72rem; pointer-events:none;
+  }
+  #filterThemeDropdown #filterThemeSearch {
+    width:100%; min-height:34px; padding:0 9px 0 28px; border-radius:8px;
+    border:1px solid var(--sf-line-2,#d0d8ec); background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.78rem; font-family:inherit;
+  }
+  #filterThemeDropdown #filterThemeSearch:focus-visible,
+  #filterThemeDropdown #filterThemeSearch:focus {
+    outline:none; border-color:var(--sf-blue,#4c6ef5); box-shadow:0 0 0 3px rgba(76,110,245,.16);
+  }
+  #filterThemeDropdown .sf-filter-theme-option[hidden] { display:none; }
+  /* Keyboard focus must be obvious -- the checkbox is small and the rows look
+     alike. */
+  #filterThemeDropdown .filter-theme-cb:focus-visible {
+    outline:3px solid rgba(76,110,245,.45); outline-offset:2px;
+  }
+  #filterThemeDropdown .sf-filter-theme-option:focus-within {
+    background:var(--sf-tint,#eef2ff); border-radius:7px;
+  }
+  #filterThemeDropdown .sf-filter-theme-noresult {
+    margin:0; padding:12px 14px; color:var(--sf-muted,#5f6b91); font-size:.75rem; text-align:center;
+  }
+  #filterThemeDropdown .sf-filter-theme-noresult[hidden] { display:none; }
+  #filterThemeDropdown .sf-filter-theme-error {
+    margin:7px 0 0; color:#9a5b16; font-size:.72rem; font-weight:650;
+  }
+  #filterThemeDropdown .sf-filter-theme-error[hidden] { display:none; }
 
   /* ── CHUNK 8: Share dialog ─────────────────────────────────────────────── */
   .share-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
