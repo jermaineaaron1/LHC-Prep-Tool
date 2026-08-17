@@ -62,9 +62,33 @@ that string as one URL, so Preview handed a comma-joined blob to an iframe (it
 could not load) and the badge under-reported 5 documents as 2.
 
 Fixed **on read** by `_sfExpandAttachments()` / `_sfExpandMedia()`, which also
-collapse duplicate URLs. **No data was rewritten** — the rows are exactly as they
-were. If you would rather clean the rows themselves that is a separate,
-reviewable migration; the display fix means nothing is broken while it waits.
+collapse duplicate URLs.
+
+**⏳ The stored rows are now repaired by a migration that has NOT been run yet:**
+`migrations/2026-08-17_unpack_song_attachment_urls.sql`. Paste it into the
+Supabase SQL Editor; expect **3 rows updated**, then the verification block at
+the bottom of the file should return zero packed entries and read 5/2 and 2/2.
+
+Scope confirmed against all 51 rows — those two songs are the only ones
+affected. Three array values in total: "Away in Manger" attachments (1 entry
+packing 5 URLs → 5 entries) and youtube (a duplicate → 2), plus "Hark the Herald
+Angel Sing" attachments (1 → 2) and youtube (1 → 2).
+
+It writes **literal** replacement values rather than splitting in SQL, because
+only two rows are involved and their correct contents are known exactly. Every
+URL in the file was checked byte-for-byte against the live rows — nothing lost,
+nothing invented. The per-entry `name`/`ext`/`icon` came from the app's own
+`parseFileUrl()`, so the repaired records match the shape of the other 14 healthy
+attachment records, which also drops a stale `type: "GDOC"` field that claimed a
+Drive *file* was a Google *Doc*.
+
+It backs both rows up to `songs_attachment_repair_backup` first, guards every
+write so a second run is a no-op, and carries its own rollback. No schema, RLS or
+policy change.
+
+**Nothing is broken while it waits** — the reader-side fix already displays both
+songs correctly. The migration is what makes every *other* consumer (orders,
+songbooks, exports) see them correctly too.
 
 **Every view was 230px wide at 1024 landscape.** Not a Songs bug — the app
 shell. The `(max-width:1024px)` rule stacks `.lhc-root` into one column and
