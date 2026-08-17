@@ -6,9 +6,9 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ## 2026-08-16 (evening) — six merges from two reports, plus one new feature
 
-`05c8531`, `4f54d41`, `6636dba`, `f198442`, `51452a2`, `a67cf48`. Two things
-reported from the desk turned into a run of fixes, four of them for faults
-nobody had hit yet, and one requested feature. All merged and live.
+`05c8531`, `4f54d41`, `6636dba`, `f198442`, `51452a2`, `a67cf48`, `35d0be1`.
+Two things reported from the desk turned into a run of fixes, four of them for
+faults nobody had hit yet, plus two requested features. All merged and live.
 
 **A data-loss incident happened during this work — see the warning at the end of
 this entry before running any cleanup script against the database.**
@@ -102,10 +102,37 @@ Three things worth knowing before changing it:
   already names the reading in its own words. `_preSlides` is what keeps that
   rule pointing at the first *passage* slide instead of the first slide.
 
-**Finding, not yet acted on: a Special service has no Gospel slot at all** — no
-scripture sub-slots in that template. So "omitted for Special" happens by
-construction, and there is nothing to switch off. If Special services are meant
-to have readings, that is a separate gap.
+**Finding while building this: a Special service had no Gospel slot at all** —
+so "omitted for Special" happened by construction rather than by the type
+default. **Now fixed — see the entry below.**
+
+### A Special service gets the four reading slots (`35d0be1`)
+
+The finding above turned out to be broader than a missing Gospel slot:
+`special: []`. The template was **entirely empty**, so a Special order started
+with no sections at all, not merely without readings. It now carries one
+section, *Scripture Readings*, with the same four slots as the other two orders.
+
+**Two omissions that are deliberate, and will look like oversights to anyone
+reading the template later:**
+
+- **No `liturgySectionId`.** That field auto-populates liturgy items from
+  `LiturgyModule`. Setting it would push content into an order whose whole point
+  is that the operator chooses it. A Special service stays operator-built; the
+  readings are the one fixed part.
+- **Nothing else from the traditional or contemporary structures.** The request
+  was the reading slots. Adding a fuller skeleton would quietly make Special a
+  third liturgy.
+
+`serviceSectionId: 'scripture'` **is** set and is required — the rail and the
+scripture behaviours key off it, and without it the slots render but do not
+behave like readings.
+
+**Open question, deliberately left:** whether one lone Scripture Readings
+section is the right starting point, or whether Special should open with a small
+skeleton (Invocation / Readings / Sermon / Benediction) to build on. Kept minimal
+for the reasoning above. If the same handful of sections gets added by hand every
+time, that is the signal to grow the template — a two-line change.
 
 ### The legacy-selector sweep (`6636dba`) — do this after ANY page-markup change
 
