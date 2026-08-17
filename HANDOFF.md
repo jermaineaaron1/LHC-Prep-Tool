@@ -4,10 +4,14 @@ _Last updated: 2026-08-16 by Claude Code_
 
 ---
 
-## 2026-08-16 (evening) — six fixes from two reports (`05c8531`, `4f54d41`, `6636dba`, `f198442`)
+## 2026-08-16 (evening) — six merges from two reports, plus one new feature
 
-Two things reported from the desk turned into six fixes, four of them for
-faults nobody had hit yet. All merged and live.
+`05c8531`, `4f54d41`, `6636dba`, `f198442`, `51452a2`, `a67cf48`. Two things
+reported from the desk turned into a run of fixes, four of them for faults
+nobody had hit yet, and one requested feature. All merged and live.
+
+**A data-loss incident happened during this work — see the warning at the end of
+this entry before running any cleanup script against the database.**
 
 ### An inserted scripture reading was invisible (`05c8531`)
 
@@ -59,6 +63,50 @@ filmstrip thumbnail's marker — while the slide-box layout marks selection with
 sermon deck meant 32 clicks; each deck now has a rail header row carrying the
 file name, page count and a delete for the whole deck.
 
+### A filled reading keeps its heading in the rail (`51452a2`)
+
+Filling a slot consumes its placeholder — correct, the banner replaces it — but
+the rail then showed bare passage rows with nothing saying **which** reading they
+were, so First Reading, Psalm, Second Reading and Gospel became
+indistinguishable once filled. Each filled reading now gets a rail header row:
+slot name, passage, slide count, and a remove.
+
+That remove closes a real gap rather than duplicating one: in LCD mode the
+banner lives in the hidden DOM, so there was previously **no way to clear a
+whole reading from the rail at all** — only its slides one at a time. It
+delegates to the banner's own button via `removeScriptureKeepSlot()`, so the
+slot is restored by the path the schedule already uses.
+
+Mirrors the presentation header row from `4f54d41` deliberately: a group of
+slides in the rail should announce what it is the same way whatever produced it.
+
+### The Alleluia before the Gospel (`a67cf48`)
+
+A "Sing the Alleluia before the reading" checkbox in the Bible Browser, shown
+**only** on the Gospel slot. Ticked by default for **Traditional**; unticked for
+**Contemporary**. Ticking it puts two slides ahead of the passage — the Alleluia
+verse, then `P: The Gospel is according to <reading>` / `C: Glory to You, O Lord`,
+with the reference taken from the reading itself.
+
+Three things worth knowing before changing it:
+
+- **The default comes from `currentOrderData.type`** via a small
+  `WO.getOrderType()` accessor. The Bible Browser lives in `LiturgyModule` and
+  cannot see the order; exporting one accessor beat exporting the order.
+- **The two slides are ordinary slides in the Gospel's own group**, so they
+  save, restore, park under the Gospel heading and project like the passage.
+  No new persistence and no special case downstream.
+- **They carry no reference line on purpose.** The existing rule puts the
+  passage title on a group's first slide, which would have stamped a large
+  "Matthew 14:16-19" over the Alleluia verse — and the announcement slide
+  already names the reading in its own words. `_preSlides` is what keeps that
+  rule pointing at the first *passage* slide instead of the first slide.
+
+**Finding, not yet acted on: a Special service has no Gospel slot at all** — no
+scripture sub-slots in that template. So "omitted for Special" happens by
+construction, and there is nothing to switch off. If Special services are meant
+to have readings, that is a separate gap.
+
 ### The legacy-selector sweep (`6636dba`) — do this after ANY page-markup change
 
 Moving presentation pages from a filmstrip widget to ordinary slide boxes left
@@ -81,6 +129,25 @@ is what that function expects; and `navigateSlideGlobal`'s `ppt-local` branch
 with `_pptReacquire` is now **unreachable** — arrow navigation goes through the
 regular slide path instead, which is correct now that pages are ordinary slide
 boxes. Removing that dead branch is a tidy-up with its own testing, not a fix.
+
+### ⚠ TWO REAL ORDERS WERE DELETED DURING THIS SESSION — read before cleaning up
+
+`Service - 16 Aug 2026` and the original `Service - 23 Aug 2026` were destroyed
+by a test-cleanup routine. Not an app bug: **the cleanup deleted by exclusion.**
+It snapshotted `SBQ.loadOrders()` before a test and afterwards deleted every id
+not in that snapshot. That is only safe if the snapshot is complete — and when
+`loadOrders()` returned a partial list, real orders were classified as test data
+and removed. Nothing recoverable survived: no order rows, no `order_items`, and
+`localStorage` on both origins had already refreshed past it.
+
+**Delete only ids captured at the moment you created them.** Never
+delete-by-exclusion, however carefully the snapshot is taken. The existing note
+above ("snapshot before, diff after") is not sufficient on its own and was
+followed to the letter here.
+
+A warning sign was visible and missed: the order count dropped from 5 to 4
+mid-session and was noticed but not investigated. Treat an unexplained change in
+that count as a stop-and-check, not a curiosity.
 
 ---
 
