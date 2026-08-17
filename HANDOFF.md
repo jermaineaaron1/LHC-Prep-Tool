@@ -4,7 +4,7 @@ _Last updated: 2026-08-17 by Claude Code_
 
 ---
 
-## 2026-08-17 — Usage and History built WITHOUT a migration (branch `feature/song-usage-and-history`, NOT merged)
+## 2026-08-17 — Usage and History built WITHOUT a migration (merged to `master`)
 
 B1 and B2 were both recorded as blocked on new tables. **Usage was not** —
 `order_items` already holds every song placement, so it is derivable. Neither
