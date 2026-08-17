@@ -9367,6 +9367,9 @@ I once was lost but now am found"
             <span id="docPreviewZoomLevel" style="font-size:0.75rem;color:#64748b;min-width:36px;text-align:center;">100%</span>
             <button onclick="docPreviewZoom(1)" title="Zoom In" style="width:30px;height:30px;border:none;background:none;cursor:pointer;border-radius:6px;font-size:14px;color:#475569;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='none'"><i class="fa-solid fa-plus"></i></button>
           </div>
+          <button id="docPreviewDownloadBtn" class="lhc-pill-button text-sm" title="Download this document" style="background:#f0fdf4;border-color:#86efac;color:#0f7a41;">
+            <i class="fa-solid fa-download mr-1"></i> Download
+          </button>
           <button id="docPreviewOpenBtn" class="lhc-pill-button text-sm" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;">
             <i class="fa-solid fa-external-link mr-1"></i> Open in New Tab
           </button>
@@ -12015,6 +12018,13 @@ function _sfClassifyResource(url) {
   if (u.indexOf('drive.google.com/file/d/') !== -1) return { kind: 'drive', icon: 'fa-solid fa-file-pdf', color: '#dc2626', bg: '#fee2e2', label: 'Drive File' };
   if (/\.docx?(\?|#|$)/.test(u)) return { kind: 'word', icon: 'fa-solid fa-file-word', color: '#2b579a', bg: '#e8eef9', label: 'Word Document' };
   if (/\.pdf(\?|#|$)/.test(u)) return { kind: 'pdf', icon: 'fa-solid fa-file-pdf', color: '#dc2626', bg: '#fee2e2', label: 'PDF' };
+  // Chunk 5: the brief lists images and audio as first-class resource types.
+  // Without these they fell through to a generic "Document" and were offered a
+  // doc preview, which is the wrong viewer for both.
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/.test(u)) return { kind: 'image', icon: 'fa-solid fa-image', color: '#7048e8', bg: '#f3f0ff', label: 'Image' };
+  if (/\.(mp3|wav|m4a|aac|ogg|flac)(\?|#|$)/.test(u)) return { kind: 'audio', icon: 'fa-solid fa-music', color: '#0f7a41', bg: '#effcf4', label: 'Audio' };
+  if (u.indexOf('spotify.com') !== -1) return { kind: 'audio', icon: 'fa-brands fa-spotify', color: '#16a34a', bg: '#effcf4', label: 'Spotify' };
+  if (/^https?:\/\//.test(u) && !/\.[a-z0-9]{2,5}(\?|#|$)/.test(u)) return { kind: 'web', icon: 'fa-solid fa-globe', color: '#3b5bdb', bg: '#eef2ff', label: 'Web Link' };
   return { kind: 'other', icon: 'fa-solid fa-file-lines', color: '#64748b', bg: '#f1f5f9', label: 'Document' };
 }
 
@@ -12125,8 +12135,15 @@ function _sfRenderResourcesPanel(song) {
       var url = a.url || a;
       var cls = _sfClassifyResource(url);
       var label = _sfResourceLabel(url, cls.label, idx, a.name);
-      var actionLabel = cls.kind === 'word' ? '<i class="fa-solid fa-up-right-from-square"></i> Open in Word' : '<i class="fa-solid fa-eye"></i> Preview';
-      var action = cls.kind === 'word' ? 'word-open' : 'doc-preview';
+      // Only offer Preview for things this app can actually render inline.
+      // A raw .docx, an audio file or a plain web page cannot be, so each gets
+      // an honest Open instead of a preview that would fail.
+      var externalKinds = { word: 1, audio: 1, web: 1 };
+      var isExternal = !!externalKinds[cls.kind];
+      var actionLabel = isExternal
+        ? '<i class="fa-solid fa-up-right-from-square"></i> Open'
+        : '<i class="fa-solid fa-eye"></i> Preview';
+      var action = isExternal ? 'word-open' : 'doc-preview';
       html += '<div class="sf-res-card">' +
         '<div class="sf-res-icon" style="background:' + cls.bg + ';color:' + cls.color + ';"><i class="' + cls.icon + '"></i></div>' +
         '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div>' +
@@ -13270,17 +13287,31 @@ function previewYoutube(url) {
   modal.classList.add('show');
 }
 
+// NOTE: these are the GLOBAL copies, and they are the ones the previews' inline
+// onclick="closeDocPreview()" actually resolves to -- the richer versions later
+// in the song module are shadowed for that call path. Keeping two independent
+// teardowns is how the scroll lock leaked: the module copy released it, this one
+// did not, so every open/close cycle left the page one lock deeper until it
+// could not scroll at all. They now release the lock and reset the zoom exactly
+// as the module copies do.
 function closeYoutubePreview() {
   var modal = document.getElementById('youtubePreviewModal');
   var frame = document.getElementById('youtubePreviewFrame');
-  frame.src = '';
-  modal.classList.remove('show');
+  if (typeof window._sfUnlockBackgroundScroll === 'function') window._sfUnlockBackgroundScroll();
+  if (frame) frame.src = '';
+  if (modal) modal.classList.remove('show');
 }
 
 function closeDocPreview() {
   var modal = document.getElementById('docPreviewModal');
   var frame = document.getElementById('docPreviewFrame');
-  if (frame) frame.src = '';
+  if (typeof window._sfUnlockBackgroundScroll === 'function') window._sfUnlockBackgroundScroll();
+  if (frame) { frame.src = ''; frame.style.transform = ''; frame.style.display = 'block'; }
+  var content = document.getElementById('docPreviewContent');
+  if (content) { content.style.display = 'none'; content.innerHTML = ''; content.style.zoom = '1'; }
+  window.__docPreviewZoom = 100;
+  var zoomLabel = document.getElementById('docPreviewZoomLevel');
+  if (zoomLabel) zoomLabel.textContent = '100%';
   if (modal) modal.classList.remove('show');
 }
 
@@ -18979,8 +19010,30 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 13B) DOC PREVIEW MODAL
   // ============================================================
+  // Chunk 5: background scroll lock. Reference-counted, because a chooser can
+  // hand straight over to a viewer -- a plain set/clear pair would unlock the
+  // page while a viewer was still open.
+  var _sfScrollLockCount = 0;
+  var _sfScrollLockY = 0;
+  function _sfLockBackgroundScroll() {
+    if (_sfScrollLockCount++ === 0) {
+      _sfScrollLockY = window.scrollY || 0;
+      document.body.style.overflow = 'hidden';
+    }
+  }
+  function _sfUnlockBackgroundScroll() {
+    if (_sfScrollLockCount === 0) return;
+    if (--_sfScrollLockCount === 0) {
+      document.body.style.overflow = '';
+      window.scrollTo(0, _sfScrollLockY);
+    }
+  }
+  window._sfLockBackgroundScroll = _sfLockBackgroundScroll;
+  window._sfUnlockBackgroundScroll = _sfUnlockBackgroundScroll;
+
   function promoteSongResourceModal(modal) {
     if (!modal) return;
+    _sfLockBackgroundScroll();
     // The mobile lyrics workspace is portalled to <body> when opened. Move
     // each child resource viewer after it as well, so equal/ancestor stacking
     // contexts can never place a document or video behind the workspace.
@@ -19052,13 +19105,28 @@ window.loadEditSongData = function(song) {
 
     // Store original URL for "Open in New Tab" button
     $('docPreviewOpenBtn').onclick = function() {
-      window.open(url, '_blank');
+      window.open(url, '_blank', 'noopener,noreferrer');
     };
+
+    // Chunk 5: Download. Google's viewer URLs are not files, so for Drive and
+    // Docs this points at their real export endpoint rather than handing the
+    // browser a page to "download". Anything else downloads directly.
+    var dl = $('docPreviewDownloadBtn');
+    if (dl) {
+      var dlUrl = url, fileId = (url.match(/\/d\/([a-zA-Z0-9_-]+)/) || [])[1];
+      if (fileId && url.indexOf('drive.google.com') !== -1) {
+        dlUrl = 'https://drive.google.com/uc?export=download&id=' + fileId;
+      } else if (fileId && url.indexOf('docs.google.com/document') !== -1) {
+        dlUrl = 'https://docs.google.com/document/d/' + fileId + '/export?format=pdf';
+      }
+      dl.onclick = function() { window.open(dlUrl, '_blank', 'noopener,noreferrer'); };
+    }
 
     openModal('docPreviewModal');
   }
   
   function closeDocPreview() {
+    _sfUnlockBackgroundScroll();
     $('docPreviewFrame').src = '';
     $('docPreviewFrame').style.transform = '';
     var previewContent = $('docPreviewContent');
@@ -19123,6 +19191,7 @@ window.loadEditSongData = function(song) {
   }
   
   function closeYoutubePreview() {
+    _sfUnlockBackgroundScroll();
     $('youtubePreviewFrame').src = '';
     closeModal('youtubePreviewModal');
   }
@@ -84939,6 +85008,26 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ==========================================================================
+     CHUNK 5 — resource preview: the header never scrolls away.
+
+     The header already sat outside the scrolling region, so Close could not be
+     scrolled off. Making it explicitly sticky means that stays true even if the
+     viewer's internals change later, and it is what the brief asks for.
+     ========================================================================== */
+  #docPreviewModal #docPreviewHeader,
+  #youtubePreviewModal #youtubePreviewHeader {
+    position:sticky; top:0; z-index:3; flex:none;
+    background:#fff; border-bottom:1px solid var(--sf-line,#e3e8f4);
+  }
+  #docPreviewModal .modal-content,
+  #youtubePreviewModal .modal-content { display:flex; flex-direction:column; }
+  #docPreviewCloseBtn, #youtubePreviewCloseBtn { flex:none; }
+  @media (max-width:640px) {
+    /* Download is a nicety; on a phone the row must keep Close reachable. */
+    #docPreviewDownloadBtn { display:none !important; }
+  }
 
   /* ==========================================================================
      CHUNK 4 — Lyrics & Chords editor: section outline and honest save state.
