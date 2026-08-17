@@ -8912,6 +8912,55 @@
     </div>
   </div>
 
+  <!-- ==================== CHUNK 6: ADD TO WORSHIP ORDER ==================== -->
+  <div id="addToOrderModal" class="modal-overlay" style="z-index:10006;">
+    <div class="modal-content ato-content">
+      <div class="ato-header">
+        <h3>Add to Worship Order</h3>
+        <button type="button" class="lhc-pill-button" title="Close" aria-label="Close" onclick="closeAddToOrderModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="ato-body">
+        <div class="ato-song">
+          <div class="ato-song-art" id="atoArt" aria-hidden="true"></div>
+          <div class="ato-song-ident">
+            <b id="atoTitle"></b>
+            <span id="atoArtist"></span>
+            <small id="atoKey"></small>
+          </div>
+        </div>
+        <div class="ato-grid">
+          <div>
+            <label class="ato-label" for="atoOrder">Service / Order</label>
+            <select id="atoOrder" class="ato-select" onchange="_atoOnOrderChange()"></select>
+          </div>
+          <div>
+            <label class="ato-label" for="atoKeySel">Key</label>
+            <div id="atoKeySel" class="ato-static"></div>
+          </div>
+          <div>
+            <label class="ato-label" for="atoSection">Section</label>
+            <select id="atoSection" class="ato-select" onchange="_atoRefreshPositions()"></select>
+          </div>
+          <div>
+            <label class="ato-label" for="atoTranspose">Transpose</label>
+            <select id="atoTranspose" class="ato-select"></select>
+          </div>
+          <div class="ato-span2">
+            <label class="ato-label" for="atoPosition">Position in section</label>
+            <select id="atoPosition" class="ato-select"></select>
+          </div>
+        </div>
+        <div id="atoDuplicate" class="ato-warn" hidden></div>
+      </div>
+      <div class="ato-footer">
+        <button type="button" class="lhc-pill-button" onclick="closeAddToOrderModal()">Cancel</button>
+        <button type="button" id="atoConfirmBtn" class="roster-action-btn primary" onclick="confirmAddToOrder()">
+          <i class="fa-solid fa-check mr-1"></i> Add to Order
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== MOBILE SONG ACTION SHEET ==================== -->
   <div id="mobileSongActionSheet" style="display:none;position:fixed;inset:0;z-index:9100;">
     <div id="msasBackdrop" onclick="closeMobileSongActionSheet()" style="position:absolute;inset:0;background:rgba(0,0,0,0.45);"></div>
@@ -17293,9 +17342,11 @@ window.loadEditSongData = function(song) {
     if (picker) picker.remove();
   }
 
-  function addSongToOrderFromFinder(orderId) {
+  // opts (all optional): { sectionId, position, transposeSteps }. Omitted, the
+  // song appends unsectioned exactly as before.
+  function addSongToOrderFromFinder(orderId, opts) {
     closeAddToSongbookPicker();
-    var songId = _sbPickerSongId;
+    var songId = (opts && opts.songId) || _sbPickerSongId;
     if (!songId) return;
     var song = STATE.songs && STATE.songs.find(function(s) { return s.id === songId; });
     if (!song) { showToast('Song not found', 'error'); return; }
@@ -17324,12 +17375,34 @@ window.loadEditSongData = function(song) {
 
       var youtubeArray = Array.isArray(song.youtube) ? song.youtube :
         (typeof song.youtube === 'string' && song.youtube.trim() ? song.youtube.split(/[,\n]+/).map(function(u){ return u.trim(); }).filter(Boolean) : []);
-      var newSortOrder = existingItems.length ? (Math.max.apply(null, existingItems.map(function(i){ return i.sortOrder || 0; })) + 1) : 0;
+
+      // Chunk 6: honour a chosen section and position when the dialog supplies
+      // them. Without opts this behaves exactly as before -- unsectioned and
+      // appended -- so the older call sites are unaffected.
+      var wantSection = (opts && opts.sectionId) || '';
+      var newSortOrder;
+      if (opts && opts.position != null) {
+        // Insert AT a position within the chosen section: everything at or
+        // after it shifts down, so the saved order matches what was picked.
+        var inSection = existingItems.filter(function(i) { return (i.sectionId || '') === wantSection; });
+        inSection.sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+        var atIdx = Math.max(0, Math.min(opts.position, inSection.length));
+        newSortOrder = atIdx < inSection.length
+          ? (inSection[atIdx].sortOrder || 0)
+          : (existingItems.length ? Math.max.apply(null, existingItems.map(function(i) { return i.sortOrder || 0; })) + 1 : 0);
+        if (atIdx < inSection.length) {
+          existingItems.forEach(function(i) {
+            if ((i.sectionId || '') === wantSection && (i.sortOrder || 0) >= newSortOrder) i.sortOrder = (i.sortOrder || 0) + 1;
+          });
+        }
+      } else {
+        newSortOrder = existingItems.length ? (Math.max.apply(null, existingItems.map(function(i){ return i.sortOrder || 0; })) + 1) : 0;
+      }
 
       var newItem = {
         id: 'wo-song-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
         itemType: 'song',
-        sectionId: '',
+        sectionId: wantSection,
         sortOrder: newSortOrder,
         sourceId: song.id,
         title: song.title,
@@ -17342,7 +17415,7 @@ window.loadEditSongData = function(song) {
           youtube: youtubeArray,
           attachments: Array.isArray(song.attachments) ? song.attachments : []
         },
-        customizations: { transposeSteps: 0 },
+        customizations: { transposeSteps: (opts && parseInt(opts.transposeSteps, 10)) || 0 },
         slides: [],
         backgrounds: {}
       };
@@ -17494,6 +17567,129 @@ window.loadEditSongData = function(song) {
   window._asmInitStepNav = _asmInitStepNav;
   window._asmUpdateValidity = _asmUpdateValidity;
 
+  // ── Chunk 6: Add to Worship Order dialog ──────────────────────────────────
+  // In this scope so it can reuse addSongToOrderFromFinder and its duplicate
+  // rules rather than reimplementing the write.
+  var _atoSong = null;
+  var _atoOrderItems = [];
+
+  function openAddToOrderModal(songId) {
+    var song = STATE.songs && STATE.songs.find(function(s) { return s.id === songId; });
+    if (!song) { showToast('Song not found', 'error'); return; }
+    _atoSong = song;
+
+    document.getElementById('atoArt').textContent = (song.title || '?').charAt(0).toUpperCase();
+    document.getElementById('atoTitle').textContent = song.title || '';
+    document.getElementById('atoArtist').textContent = song.artist || 'Unknown artist';
+    document.getElementById('atoKey').textContent = song.key ? 'Key: ' + song.key + ' (Original)' : 'No key set';
+    document.getElementById('atoKeySel').textContent = song.key ? song.key + ' (Original)' : 'Not set';
+
+    var orderSel = document.getElementById('atoOrder');
+    var orders = STATE.orders || [];
+    orderSel.innerHTML = orders.length
+      ? orders.map(function(o) {
+          return '<option value="' + escapeHtml(o.id) + '">' + escapeHtml(o.title || o.serviceDate || 'Service Order') + '</option>';
+        }).join('')
+      : '<option value="">No orders yet</option>';
+    orderSel.disabled = !orders.length;
+
+    var secSel = document.getElementById('atoSection');
+    var sections = window.SERVICE_SECTIONS || [];
+    secSel.innerHTML = '<option value="">No section (end of order)</option>' +
+      sections.map(function(s) { return '<option value="' + escapeHtml(s.id) + '">' + escapeHtml(s.label) + '</option>'; }).join('');
+
+    var tr = document.getElementById('atoTranspose');
+    var opts = ['0 (No transposition)'];
+    for (var i = 1; i <= 6; i++) opts.push('+' + i);
+    for (var j = -1; j >= -5; j--) opts.push(String(j));
+    tr.innerHTML = opts.map(function(label, idx) {
+      var val = idx === 0 ? 0 : (idx <= 6 ? idx : -(idx - 6));
+      return '<option value="' + val + '">' + label + '</option>';
+    }).join('');
+
+    document.getElementById('atoDuplicate').hidden = true;
+    document.getElementById('atoPosition').innerHTML = '<option value="">Loading…</option>';
+    openModal('addToOrderModal');
+    _atoOnOrderChange();
+  }
+  window.openAddToOrderModal = openAddToOrderModal;
+
+  function closeAddToOrderModal() { closeModal('addToOrderModal'); }
+  window.closeAddToOrderModal = closeAddToOrderModal;
+
+  // Loads the chosen order so section positions and the duplicate check are
+  // based on what is actually stored, not on the cached list.
+  function _atoOnOrderChange() {
+    var orderId = (document.getElementById('atoOrder') || {}).value;
+    var posSel = document.getElementById('atoPosition');
+    var dup = document.getElementById('atoDuplicate');
+    _atoOrderItems = [];
+    if (!orderId || !window.SBQ || !SBQ.loadOrder) { if (posSel) posSel.innerHTML = '<option value="0">First</option>'; return; }
+    posSel.innerHTML = '<option value="">Loading…</option>';
+    SBQ.loadOrder(orderId).then(function(res) {
+      _atoOrderItems = (res && res.items) || [];
+      _atoRefreshPositions();
+      var already = _atoOrderItems.find(function(i) {
+        return i.itemType === 'song' && _atoSong && (i.sourceId === _atoSong.id || (i.content && i.content.songId === _atoSong.id));
+      });
+      if (already) {
+        var secLabel = _atoSectionLabel(already.sectionId || '');
+        dup.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i><span><b>This song is already in this order.</b>' +
+          '<small>It appears in ' + escapeHtml(secLabel) + '. Adding it again will be refused.</small></span>';
+        dup.hidden = false;
+      } else {
+        dup.hidden = true;
+      }
+    }).catch(function() {
+      posSel.innerHTML = '<option value="0">First</option>';
+      dup.hidden = true;
+    });
+  }
+  window._atoOnOrderChange = _atoOnOrderChange;
+
+  function _atoSectionLabel(id) {
+    if (!id) return 'the unsectioned part of the order';
+    var s = (window.SERVICE_SECTIONS || []).find(function(x) { return x.id === id; });
+    return s ? s.label : id;
+  }
+
+  function _atoRefreshPositions() {
+    var posSel = document.getElementById('atoPosition');
+    var secId = (document.getElementById('atoSection') || {}).value || '';
+    if (!posSel) return;
+    var inSection = _atoOrderItems.filter(function(i) { return (i.sectionId || '') === secId; });
+    inSection.sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+    var html = '<option value="0">1 &mdash; First in section</option>';
+    inSection.forEach(function(item, idx) {
+      var label = (item.title || (item.content && item.content.title) || 'item');
+      html += '<option value="' + (idx + 1) + '">' + (idx + 2) + ' &mdash; After "' + escapeHtml(label) + '"</option>';
+    });
+    posSel.innerHTML = html;
+    posSel.value = String(inSection.length);
+  }
+  window._atoRefreshPositions = _atoRefreshPositions;
+
+  function confirmAddToOrder() {
+    if (!_atoSong) return;
+    var orderId = (document.getElementById('atoOrder') || {}).value;
+    if (!orderId) { showToast('Choose a service or order first', 'warning'); return; }
+    var btn = document.getElementById('atoConfirmBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Adding…'; }
+    // Reuses the tested writer, so the duplicate guard and the
+    // success-only-after-save rule both still apply.
+    addSongToOrderFromFinder(orderId, {
+      songId: _atoSong.id,
+      sectionId: (document.getElementById('atoSection') || {}).value || '',
+      position: parseInt((document.getElementById('atoPosition') || {}).value, 10),
+      transposeSteps: (document.getElementById('atoTranspose') || {}).value
+    });
+    setTimeout(function() {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Add to Order'; }
+      closeAddToOrderModal();
+    }, 900);
+  }
+  window.confirmAddToOrder = confirmAddToOrder;
+
   // ── Chunk 2b: "Plan with this song" rail ──────────────────────────────────
   // Defined in this scope on purpose: the two add functions read the
   // module-private _sbPickerSongId, so the rail sets it the same way the picker
@@ -17590,12 +17786,16 @@ window.loadEditSongData = function(song) {
     });
   }
 
+  // Chunk 6: the rail opens the full dialog, pre-set to the order chosen there,
+  // so section and position are always a deliberate choice rather than a
+  // silent append.
   function lpRailAddToOrder() {
     var song = STATE.lyricsCurrentSong;
+    if (!song) return;
+    openAddToOrderModal(song.id);
     var sel = document.getElementById('lpRailOrder');
-    if (!song || !sel || !sel.value) { showToast('Choose a service or order first', 'warning'); return; }
-    _sbPickerSongId = song.id;
-    addSongToOrderFromFinder(sel.value);
+    var target = document.getElementById('atoOrder');
+    if (sel && sel.value && target) { target.value = sel.value; _atoOnOrderChange(); }
   }
   window.lpRailAddToOrder = lpRailAddToOrder;
 
@@ -24115,6 +24315,10 @@ var WO = (function() {
     { id: 'dismissal', label: 'Closing / Dismissal' },
     { id: 'other', label: 'Other' }
   ];
+  // Chunk 6: the Add-to-Order dialog needs the same section list the service
+  // order itself uses. Exposed rather than copied, so a section added here can
+  // never go missing from that dialog.
+  window.SERVICE_SECTIONS = SERVICE_SECTIONS;
 
   // Order structures - serviceSectionId maps to SERVICE_SECTIONS for song auto-population
   // liturgySectionId maps to LiturgyModule section IDs for liturgy auto-population
@@ -85008,6 +85212,57 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── CHUNK 6: Add to Worship Order dialog ──────────────────────────────── */
+  #addToOrderModal .ato-content { width:min(560px,95vw); max-height:92vh; display:flex; flex-direction:column; padding:0; }
+  .ato-header {
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:14px 18px; border-bottom:1px solid var(--sf-line,#e3e8f4);
+  }
+  .ato-header h3 { margin:0; color:var(--sf-navy,#0f1c3f); font-family:'Cinzel',serif; font-size:1.06rem; font-weight:750; }
+  .ato-body { padding:14px 18px; overflow-y:auto; }
+  .ato-song {
+    display:flex; align-items:center; gap:11px; padding:10px; margin-bottom:13px;
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:11px; background:var(--sf-surface,#f7f9fd);
+  }
+  .ato-song-art {
+    flex:none; width:44px; height:48px; border-radius:9px; display:grid; place-items:center;
+    background:linear-gradient(155deg,var(--sf-blue-deep,#3b5bdb),var(--sf-violet,#7048e8));
+    color:#fff; font-family:'Cinzel',serif; font-size:1.15rem; font-weight:700;
+  }
+  .ato-song-ident { min-width:0; display:flex; flex-direction:column; gap:1px; }
+  .ato-song-ident b { color:var(--sf-navy,#0f1c3f); font-size:.9rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ato-song-ident span { color:var(--sf-muted,#5f6b91); font-size:.76rem; }
+  .ato-song-ident small { color:var(--sf-blue-deep,#3b5bdb); font-size:.7rem; font-weight:700; }
+  .ato-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
+  .ato-span2 { grid-column:1/-1; }
+  .ato-label {
+    display:block; margin:0 0 4px; color:var(--sf-muted,#5f6b91);
+    font-size:.64rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+  }
+  .ato-select, .ato-static {
+    width:100%; min-height:38px; padding:0 9px; border-radius:9px;
+    border:1px solid var(--sf-line-2,#d0d8ec); background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.8rem; font-family:inherit;
+  }
+  .ato-static { display:flex; align-items:center; background:var(--sf-surface-2,#eff2fa); font-weight:650; }
+  .ato-select:focus-visible { outline:3px solid rgba(76,110,245,.35); outline-offset:1px; }
+  .ato-warn {
+    display:flex; align-items:flex-start; gap:9px; margin-top:13px; padding:10px 12px;
+    border:1px solid #fed7aa; border-radius:10px; background:#fff7ed; color:#9a5b16;
+  }
+  .ato-warn[hidden] { display:none; }
+  .ato-warn i { margin-top:1px; }
+  .ato-warn b { display:block; font-size:.78rem; }
+  .ato-warn small { display:block; font-size:.72rem; opacity:.9; margin-top:1px; }
+  .ato-footer {
+    display:flex; align-items:center; justify-content:flex-end; gap:9px;
+    padding:12px 18px; border-top:1px solid var(--sf-line,#e3e8f4); background:#fff;
+  }
+  @media (max-width:560px) {
+    .ato-grid { grid-template-columns:1fr; }
+    #addToOrderModal .ato-content { width:100vw; max-height:100dvh; border-radius:16px 16px 0 0; }
+  }
 
   /* ==========================================================================
      CHUNK 5 — resource preview: the header never scrolls away.
