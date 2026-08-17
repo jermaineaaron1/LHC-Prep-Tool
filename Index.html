@@ -4459,6 +4459,14 @@
         gap: 1rem;
         padding: 1rem;
       }
+      /* The (max-width:1024px) rule above stacks the shell into ONE column and
+         swaps the order so main sits above the sidebar. This block re-creates
+         TWO columns but inherited that swap, so main landed in the 230px
+         sidebar track and the sidebar took the 1fr content track -- every view
+         was squeezed to ~230px at 1024 landscape. Restoring source order puts
+         each back in its intended track. */
+      #playlistSidebar { order: 1; }
+      #main-content-container { order: 2; }
       .lhc-topnav-btn span { display: none; }
       .lhc-topnav-btn { padding: 7px 11px; }
       .lhc-topnav-links { gap: 1px; }
@@ -10378,6 +10386,10 @@ function _positionFilterThemeDropdown() {
   var preferredHeight = Math.min(430, Math.max(260, viewportHeight * 0.62));
   var top = rect.bottom + 7;
   if (below < 260 && rect.top > below) top = Math.max(12, rect.top - preferredHeight - 7);
+  // Final clamp. Both branches above are anchor-relative, so an anchor that
+  // has been scrolled out of view -- or sits near the bottom on a short
+  // viewport -- would otherwise place the menu partly or wholly off-screen.
+  top = Math.max(12, Math.min(top, viewportHeight - Math.min(preferredHeight, 200) - 12));
   dd.style.position = 'fixed';
   dd.style.left = left + 'px';
   dd.style.right = 'auto';
