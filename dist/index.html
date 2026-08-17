@@ -5668,21 +5668,21 @@
             <div class="sf-primary-filter">
               <label class="form-label"><i class="fa-solid fa-tags" aria-hidden="true"></i> Theme</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterThemeDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-label="Choose theme filter" onclick="toggleFilterThemeDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterThemeDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
+                <div id="filterThemeDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose theme filter" onclick="toggleFilterThemeDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterThemeDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
                 <div id="filterThemeDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
             <div class="sf-more-filter">
               <label class="form-label">Key</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterKeyDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterKeyDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Keys</div>
+                <div id="filterKeyDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose key filter" onclick="toggleFilterKeyDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterKeyDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Keys</div>
                 <div id="filterKeyDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:160px;"></div>
               </div>
             </div>
             <div class="sf-more-filter">
               <label class="form-label">Style</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterStyleDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Styles</div>
+                <div id="filterStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose style filter" onclick="toggleFilterStyleDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterStyleDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Styles</div>
                 <div id="filterStyleDropdown" class="theme-dropdown hidden" style="z-index:300;min-width:240px;padding:8px 0;">
                   <!-- populated by populateStyleFilterDropdown() -->
                 </div>
@@ -5697,7 +5697,7 @@
             <div class="sf-more-filter">
               <label class="form-label">Season</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterSeasonDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterSeasonDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Seasons</div>
+                <div id="filterSeasonDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose season filter" onclick="toggleFilterSeasonDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterSeasonDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Seasons</div>
                 <div id="filterSeasonDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
@@ -10334,6 +10334,7 @@ function closeFilterThemeDropdown() {
     dd.style[prop] = '';
   });
   if (host && dd.parentElement !== host) host.appendChild(dd);
+  _sfSyncFilterAria();
 }
 
 function _positionFilterThemeDropdown() {
@@ -10359,6 +10360,85 @@ function _positionFilterThemeDropdown() {
   dd.style.zIndex = '100050';
 }
 
+// ============================================================
+// Songs page — dropdown ARIA state + layered Escape handling
+// ============================================================
+// Every Songs filter control is a custom <div role="button"> rather than a
+// native <select>, so the open/closed state is invisible to assistive tech
+// unless we say so explicitly. One helper keeps aria-expanded honest for all
+// of them instead of scattering setAttribute calls through each toggler.
+var SF_FILTER_MENUS = [
+  { display: 'filterThemeDisplay',     dropdown: 'filterThemeDropdown',     close: function() { closeFilterThemeDropdown(); } },
+  { display: 'filterKeyDisplay',       dropdown: 'filterKeyDropdown' },
+  { display: 'filterStyleDisplay',     dropdown: 'filterStyleDropdown' },
+  { display: 'filterSeasonDisplay',    dropdown: 'filterSeasonDropdown' },
+  { display: 'filterScriptureDisplay', dropdown: 'filterScriptureDropdown' }
+];
+
+function _sfSyncFilterAria() {
+  SF_FILTER_MENUS.forEach(function(menu) {
+    var display = document.getElementById(menu.display);
+    var dd = document.getElementById(menu.dropdown);
+    if (!display) return;
+    // The scripture control opens a modal picker, not a listbox, so it keeps
+    // its aria-haspopup="dialog" and simply never reports as expanded here.
+    if (!dd) { display.setAttribute('aria-expanded', 'false'); return; }
+    display.setAttribute('aria-expanded', dd.classList.contains('hidden') ? 'false' : 'true');
+  });
+}
+window._sfSyncFilterAria = _sfSyncFilterAria;
+
+function _sfCloseAllFilterMenus() {
+  var closedOne = false;
+  SF_FILTER_MENUS.forEach(function(menu) {
+    var dd = document.getElementById(menu.dropdown);
+    if (!dd || dd.classList.contains('hidden')) return;
+    closedOne = true;
+    if (menu.close) menu.close();
+    else dd.classList.add('hidden');
+  });
+  _sfSyncFilterAria();
+  return closedOne;
+}
+window._sfCloseAllFilterMenus = _sfCloseAllFilterMenus;
+
+// Escape must peel ONE layer at a time. A document preview opened from inside
+// the song workspace has to close back to the workspace, not take the
+// workspace down with it -- which is exactly what a blanket "close everything"
+// handler does. Returns true when it consumed the key.
+function _sfEscapeCloseTopLayer() {
+  // 1. Filter menus sit above the page but below every modal.
+  if (_sfCloseAllFilterMenus()) return true;
+
+  // 2. The multi-link chooser is the shallowest transient layer.
+  var chooser = document.querySelector('.link-selector-popup');
+  if (chooser) { chooser.remove(); return true; }
+
+  // 3. Resource viewers, which are promoted above the song workspace.
+  var viewers = [
+    { id: 'docPreviewModal',     close: function() { closeDocPreview(); } },
+    { id: 'youtubePreviewModal', close: function() { closeYoutubePreview(); } },
+    { id: 'spotifyPreviewModal', close: function() { closeSpotifyPreview(); } }
+  ];
+  for (var i = 0; i < viewers.length; i++) {
+    var el = document.getElementById(viewers[i].id);
+    if (el && el.classList.contains('show')) {
+      try { viewers[i].close(); } catch (err) { closeModal(viewers[i].id); }
+      return true;
+    }
+  }
+
+  // 4. The song workspace itself -- but only when it is actually an overlay.
+  // On wide desktop the same element renders inline inside #sfWorkspacePanel,
+  // where it is the page content and Escape has no business dismissing it.
+  var lp = document.getElementById('lyricsPreviewModal');
+  if (lp && lp.classList.contains('show') && lp.parentNode === document.body) {
+    if (typeof closeLyricsPreviewModal === 'function') { closeLyricsPreviewModal(); return true; }
+  }
+  return false;
+}
+window._sfEscapeCloseTopLayer = _sfEscapeCloseTopLayer;
+
 function toggleFilterThemeDropdown() {
   var dd = document.getElementById('filterThemeDropdown');
   var display = document.getElementById('filterThemeDisplay');
@@ -10373,6 +10453,7 @@ function toggleFilterThemeDropdown() {
   dd.classList.add('filter-theme-portal');
   dd.classList.remove('hidden');
   _positionFilterThemeDropdown();
+  _sfSyncFilterAria();
 }
 
 function populateThemeFilterDropdown(themes) {
@@ -10503,6 +10584,7 @@ function _msChange(changedCb, cbClass) {
 function toggleFilterKeyDropdown() {
   var dd = document.getElementById('filterKeyDropdown');
   if (dd) dd.classList.toggle('hidden');
+  _sfSyncFilterAria();
 }
 function populateKeyFilterDropdown(keys) {
   var dd = document.getElementById('filterKeyDropdown');
@@ -10515,6 +10597,7 @@ function populateKeyFilterDropdown(keys) {
 function toggleFilterSeasonDropdown() {
   var dd = document.getElementById('filterSeasonDropdown');
   if (dd) dd.classList.toggle('hidden');
+  _sfSyncFilterAria();
 }
 function populateSeasonFilterDropdown(seasons) {
   var dd = document.getElementById('filterSeasonDropdown');
@@ -10546,6 +10629,7 @@ function toggleFilterStyleDropdown() {
   var dd = document.getElementById('filterStyleDropdown');
   if (!dd) return;
   dd.classList.toggle('hidden');
+  _sfSyncFilterAria();
 }
 
 function populateStyleFilterDropdown() {
@@ -11566,6 +11650,7 @@ document.addEventListener('click', function(e) {
     document.querySelectorAll('.theme-dropdown').forEach(function(dd) {
       dd.classList.add('hidden');
     });
+    if (typeof _sfSyncFilterAria === 'function') _sfSyncFilterAria();
   }
 });
 
@@ -20269,6 +20354,9 @@ window.loadEditSongData = function(song) {
     }
 
     document.onkeydown = function(e) {
+      // Peel the Songs stack one layer at a time first; only fall through to
+      // the blanket close when Escape belonged to none of those layers.
+      if (e.key === 'Escape' && typeof _sfEscapeCloseTopLayer === 'function' && _sfEscapeCloseTopLayer()) return;
       if (e.key === 'Escape') ['addSongModal','editSongModal','lyricsModal','previewModal','shareModal','helpModal','createOrderModal','homeOrderTypeModal','docPreviewModal','youtubePreviewModal','spotifyPreviewModal','mediaAddModal','playlistModal','songbookPreviewModal'].forEach(closeModal);
       var lm = $('lyricsModal');
       if (lm && lm.classList.contains('show') && STATE.lyricsMode === 'present' && !STATE.lyricsEditMode) {
