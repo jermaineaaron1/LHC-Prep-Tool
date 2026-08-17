@@ -10697,6 +10697,35 @@ var songData = window.songData; // local reference
 var currentLyricsMode = 'new';
 
 // ============ Songs Page Theme Filter Multi-Select ============
+// Theme metadata (colour, description) keyed by lowercased name. Populated
+// from song_themes at load; empty until then, and everything degrades to the
+// plain string behaviour if the table is unreachable.
+var _themeMetaCache = {};
+window._themeMetaCache = _themeMetaCache;
+
+function loadThemeMetadata() {
+  if (!window.SBQ_THEMES) return Promise.resolve([]);
+  return SBQ_THEMES.loadAll().then(function(list) {
+    (list || []).forEach(function(t) {
+      _themeMetaCache[String(t.name).toLowerCase()] = { colour: t.colour, description: t.description };
+    });
+    // Themes created on another device must appear in the picker here too.
+    if (window.STATE && STATE.songMeta && list.length) {
+      STATE.songMeta.themes = _getFilterThemeOptions(
+        (STATE.songMeta.themes || []).concat(list.map(function(t) { return t.name; }))
+      );
+    }
+    return list;
+  }).catch(function() { return []; });
+}
+window.loadThemeMetadata = loadThemeMetadata;
+
+function _themeColour(name) {
+  var m = _themeMetaCache[String(name || '').toLowerCase()];
+  return (m && m.colour) || '';
+}
+window._themeColour = _themeColour;
+
 function _getFilterThemeOptions(themes) {
   var combined = (Array.isArray(themes) ? themes : []).concat(
     typeof _getCustomThemes === 'function' ? _getCustomThemes() : []
@@ -10877,9 +10906,14 @@ function populateThemeFilterDropdown(themes) {
     '<input type="checkbox" id="filterThemeAll" onchange="updateFilterTheme(this)" ' + (selected.length === 0 ? 'checked' : '') + '> All Themes</label></div>';
   themes.forEach(function(t) {
     var isChecked = selected.indexOf(t) >= 0;
-    html += '<div class="sf-filter-theme-option" data-theme="' + escapeHtml(t.toLowerCase()) + '">' +
+    var col = _themeColour(t);
+    var meta = _themeMetaCache[String(t).toLowerCase()];
+    html += '<div class="sf-filter-theme-option" data-theme="' + escapeHtml(t.toLowerCase()) + '"' +
+      (meta && meta.description ? ' title="' + escapeHtml(meta.description) + '"' : '') + '>' +
       '<label>' +
-      '<input type="checkbox" class="filter-theme-cb" value="' + escapeHtml(t) + '" onchange="updateFilterTheme(this)" ' + (isChecked ? 'checked' : '') + '> ' + escapeHtml(t) + '</label></div>';
+      '<input type="checkbox" class="filter-theme-cb" value="' + escapeHtml(t) + '" onchange="updateFilterTheme(this)" ' + (isChecked ? 'checked' : '') + '>' +
+      (col ? '<span class="sf-theme-dot" style="background:' + escapeHtml(col) + '"></span>' : '') +
+      ' ' + escapeHtml(t) + '</label></div>';
   });
   html += '<p class="sf-filter-theme-noresult" id="filterThemeNoResult" hidden>No theme matches that search.</p>' +
     '</div><div class="sf-filter-theme-add">' +
@@ -10889,6 +10923,12 @@ function populateThemeFilterDropdown(themes) {
     'oninput="_themeClearError()" ' +
     'onkeydown="if(event.key===\'Enter\'){event.preventDefault();addFilterCustomTheme();}">' +
     '<button type="button" onclick="addFilterCustomTheme()"><i class="fa-solid fa-plus"></i> Add</button></div>' +
+    // Colour and description are backed by the song_themes table.
+    '<div class="sf-theme-meta">' +
+    '<input id="filterThemeNewDesc" type="text" maxlength="120" placeholder="Description (optional)" aria-label="Theme description">' +
+    '<label class="sf-theme-colour" title="Theme colour (optional)">' +
+    '<input id="filterThemeNewColour" type="color" value="#4c6ef5" aria-label="Theme colour"><span>Colour</span></label>' +
+    '</div>' +
     '<p class="sf-filter-theme-error" id="filterThemeError" role="alert" hidden></p></div>';
   dd.innerHTML = html;
 }
@@ -10971,6 +11011,11 @@ function addFilterCustomTheme() {
   }
   _themeClearError();
   if (!match) {
+    var descEl = document.getElementById('filterThemeNewDesc');
+    var colEl = document.getElementById('filterThemeNewColour');
+    var desc = descEl ? String(descEl.value || '').trim() : '';
+    var colour = colEl ? String(colEl.value || '') : '';
+
     var customs = typeof _getCustomThemes === 'function' ? _getCustomThemes() : [];
     customs.push(newTheme);
     customs = _getFilterThemeOptions(customs);
@@ -10979,6 +11024,23 @@ function addFilterCustomTheme() {
       STATE.songMeta.themes = _getFilterThemeOptions((STATE.songMeta.themes || []).concat(newTheme));
     }
     if (typeof loadCustomThemes === 'function') loadCustomThemes();
+
+    // Persist to song_themes so the theme, its colour and its description are
+    // shared across devices. localStorage above stays as the offline fallback,
+    // so a failure here still leaves the theme usable.
+    if (window.SBQ_THEMES) {
+      SBQ_THEMES.save({ id: 'theme_' + Date.now(), name: newTheme, description: desc, colour: colour })
+        .then(function() {
+          _themeMetaCache[newTheme.toLowerCase()] = { colour: colour, description: desc };
+          if (typeof showToast === 'function') showToast('Theme "' + newTheme + '" saved', 'success');
+        })
+        .catch(function() {
+          if (typeof showToast === 'function') {
+            showToast('Theme "' + newTheme + '" added on this device only — could not reach the server', 'warning');
+          }
+        });
+    }
+    if (descEl) descEl.value = '';
     match = newTheme;
   }
   populateThemeFilterDropdown((window.STATE && STATE.songMeta && STATE.songMeta.themes) || []);
@@ -19820,7 +19882,12 @@ window.loadEditSongData = function(song) {
       function push(label, value, cls) {
         String(value || '').split(/[,;]+/).forEach(function(v) {
           v = v.trim();
-          if (v) chips.push('<span class="lp-chip ' + cls + '"><b>' + label + '</b>' + escapeHtml(v) + '</span>');
+          if (!v) return;
+          // A theme with its own colour tints its chip; the category word stays
+          // in the text, so colour is never the only signal.
+          var col = (cls === 'lp-chip-theme' && typeof _themeColour === 'function') ? _themeColour(v) : '';
+          var style = col ? ' style="border-color:' + escapeHtml(col) + ';color:' + escapeHtml(col) + '"' : '';
+          chips.push('<span class="lp-chip ' + cls + '"' + style + '><b>' + label + '</b>' + escapeHtml(v) + '</span>');
         });
       }
       push('Theme: ', song.theme, 'lp-chip-theme');
@@ -20902,6 +20969,13 @@ window.loadEditSongData = function(song) {
       STATE.songs = songs || [];
       window.STATE = STATE;
       populateFilterDropdowns();
+      // Theme colours/descriptions and any themes created on another device.
+      // Non-blocking: the picker already works from song data alone.
+      if (typeof loadThemeMetadata === 'function') {
+        loadThemeMetadata().then(function(list) {
+          if (list && list.length) populateThemeFilterDropdown(STATE.songMeta.themes);
+        });
+      }
       renderSongs(false);
       renderSongStats();
       // Songs arrive asynchronously, so the LCD Projection Song Library panel
@@ -24856,6 +24930,58 @@ var SBQ_PROJECTION = {
 // ================================================================
 // SBQ_SONGBOOKS — Supabase helpers for standalone Songbooks table
 // ================================================================
+// ================================================================
+// SBQ_THEMES — song_themes table (migration 2026-08-17)
+// Themes remain comma-separated strings on songs.theme; this table only
+// DESCRIBES a theme (colour, description) and makes the custom list shared
+// across devices instead of living in one browser's localStorage.
+// ================================================================
+var SBQ_THEMES = {
+  _sb: function() { return (typeof SBQ_SONGS !== 'undefined' && SBQ_SONGS._sb) ? SBQ_SONGS._sb() : null; },
+  _tableExists: null,
+
+  loadAll: function() {
+    var sb = SBQ_THEMES._sb();
+    if (!sb) return Promise.resolve([]);
+    return sb.from('song_themes').select('*').order('name')
+      .then(function(r) {
+        if (r.error) {
+          // Table absent (migration not run) is not an error worth surfacing --
+          // the localStorage list still works.
+          SBQ_THEMES._tableExists = false;
+          return [];
+        }
+        SBQ_THEMES._tableExists = true;
+        return (r.data || []).map(function(row) {
+          return { id: row.id, name: row.name, description: row.description || '', colour: row.colour || '' };
+        });
+      })
+      .catch(function() { SBQ_THEMES._tableExists = false; return []; });
+  },
+
+  save: function(theme) {
+    var sb = SBQ_THEMES._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('song_themes').upsert([{
+      id: theme.id, name: theme.name,
+      description: theme.description || '', colour: theme.colour || ''
+    }]).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return { success: true };
+    });
+  },
+
+  remove: function(id) {
+    var sb = SBQ_THEMES._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('song_themes').delete().eq('id', id).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return { success: true };
+    });
+  }
+};
+window.SBQ_THEMES = SBQ_THEMES;
+
 var SBQ_SONGBOOKS = {
   _sb: function() { return getSupabaseClient(); },
   _tableExists: null, // null=unknown, true=ok, false=missing
@@ -86013,6 +86139,26 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── Theme colour + description (song_themes, migration-backed) ────────── */
+  #filterThemeDropdown .sf-theme-meta { display:flex; gap:7px; align-items:center; margin-top:7px; }
+  #filterThemeDropdown .sf-theme-meta input[type=text] {
+    flex:1 1 auto; min-width:0; min-height:32px; padding:0 9px; border-radius:8px;
+    border:1px solid var(--sf-line-2,#d0d8ec); background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.75rem; font-family:inherit;
+  }
+  #filterThemeDropdown .sf-theme-colour {
+    display:inline-flex; align-items:center; gap:5px; flex:none; cursor:pointer;
+    color:var(--sf-muted,#5f6b91); font-size:.68rem; font-weight:700;
+  }
+  #filterThemeDropdown .sf-theme-colour input[type=color] {
+    width:28px; height:28px; padding:0; border:1px solid var(--sf-line-2,#d0d8ec);
+    border-radius:7px; cursor:pointer; background:none;
+  }
+  .sf-theme-dot {
+    display:inline-block; width:9px; height:9px; border-radius:999px; flex:none;
+    margin-left:2px; box-shadow:0 0 0 1px rgba(15,28,63,.14);
+  }
 
   /* ── Appearance save controls (display_style, migration-backed) ────────── */
   .sf-appearance-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
