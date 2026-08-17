@@ -1970,12 +1970,23 @@
       #sfFilterGrid.sf-sheet-open .sf-primary-filter { display: none; }
       #sfFilterGrid.sf-sheet-open .sf-more-filter { display: block; }
       #sfMobileFilterApplyBtn.sf-sheet-open {
-        display: block; position: fixed; left: 16px; right: 16px;
+        display: flex; gap: 10px; position: fixed; left: 16px; right: 16px;
         bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 3001;
+      }
+      #sfMobileFilterApplyBtn .sf-sheet-apply {
+        flex: 1 1 auto; min-height: 48px;
         background: linear-gradient(135deg, var(--sa-blue, #4f6bf0), var(--sa-blue-2, #7c5cf5));
         color: #fff; border: none; border-radius: 999px; padding: 14px; font-weight: 700; font-size: 0.95rem;
         box-shadow: 0 10px 26px rgba(79,107,240,0.35);
       }
+      #sfMobileFilterApplyBtn .sf-sheet-reset {
+        flex: 0 0 auto; min-height: 48px;
+        background: #fff; color: #475569; border: 1px solid #cbd5e1; border-radius: 999px;
+        padding: 14px 16px; font-weight: 700; font-size: 0.85rem;
+        box-shadow: 0 8px 20px rgba(15,23,42,0.14);
+      }
+      #sfMobileFilterApplyBtn .sf-sheet-reset i { margin-right: 5px; }
+      #sfMobileFilterApplyBtn .sf-sheet-reset:disabled { opacity: 0.5; }
       #sfFilterGrid label { color: #64748b; font-size: 0.68rem; }
     }
 
@@ -5721,7 +5732,10 @@
             </div>
             <div class="sf-filter-spacer"></div>
           </div>
-          <button id="sfMobileFilterApplyBtn" type="button" onclick="toggleMobileFilterSheet(false)">Apply Filters</button>
+          <div id="sfMobileFilterApplyBtn">
+            <button type="button" class="sf-sheet-reset" onclick="resetMobileSheetFilters()"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Reset filters</button>
+            <button type="button" class="sf-sheet-apply" onclick="toggleMobileFilterSheet(false)">Apply Filters</button>
+          </div>
           </div>
         </div>
 
@@ -12021,6 +12035,59 @@ function toggleMobileFilterSheet(forceOpen) {
   }
 }
 window.toggleMobileFilterSheet = toggleMobileFilterSheet;
+
+// "Reset filters" inside the More filters sheet. Deliberately resets the
+// FILTERS ONLY and leaves the search box alone -- the sheet is a filter
+// surface, and silently wiping someone's typed query from it would be a
+// surprise. "Clear all" in the header is still the one control that does both.
+// Reuses the same STATE.filters shape and the same populate* helpers as
+// clearSongSearch() rather than keeping a second reset path in sync.
+function resetMobileSheetFilters() {
+  var S = window.LHC_STATE;
+  if (!S) return;
+  S.filters.themes = [];
+  S.filters.keys = [];
+  S.filters.style = '';
+  S.filters.styleEras = [];
+  S.filters.tempo = '';
+  S.filters.seasons = [];
+  S.filters.scriptures = [];
+
+  var tempo = document.getElementById('filterTempo');
+  if (tempo) tempo.value = '';
+  var labels = {
+    filterThemeDisplay: 'All',
+    filterKeyDisplay: 'All Keys',
+    filterStyleDisplay: 'All Styles',
+    filterSeasonDisplay: 'All Seasons',
+    filterScriptureDisplay: 'All'
+  };
+  Object.keys(labels).forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = labels[id];
+  });
+  var chips = document.getElementById('filterScriptureChips');
+  if (chips) chips.innerHTML = '';
+
+  // Rebuild the option lists so every checkbox reflects the cleared state.
+  var meta = (S.songMeta) || {};
+  if (typeof populateKeyFilterDropdown === 'function') populateKeyFilterDropdown(meta.keys || []);
+  if (typeof populateSeasonFilterDropdown === 'function') populateSeasonFilterDropdown(meta.seasons || []);
+  if (typeof populateStyleFilterDropdown === 'function') populateStyleFilterDropdown();
+  if (typeof populateThemeFilterDropdown === 'function') populateThemeFilterDropdown(meta.themes || []);
+  if (typeof _sfSyncFilterAria === 'function') _sfSyncFilterAria();
+
+  // Keep whatever the catalogue was showing: a live query stays filtered,
+  // an empty query falls back to the full A-Z listing rather than the
+  // "start typing" placeholder the user has clearly moved past.
+  if (S.filters.q) {
+    if (S.renderSongs) S.renderSongs(true);
+  } else if (typeof showAllSongs === 'function') {
+    showAllSongs();
+  }
+  if (typeof showToast === 'function') showToast('Filters reset', 'info');
+}
+window.resetMobileSheetFilters = resetMobileSheetFilters;
 
 // Mobile prioritises decision-making controls: Theme, Feel and Scripture live
 // in the dark search command area, while the library totals move into the
