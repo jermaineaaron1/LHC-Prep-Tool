@@ -176,6 +176,29 @@ A warning sign was visible and missed: the order count dropped from 5 to 4
 mid-session and was noticed but not investigated. Treat an unexplained change in
 that count as a stop-and-check, not a curiosity.
 
+**Recovery: investigated and declined — this is settled, do not reopen it.**
+The Supabase project has **no PITR, daily backups only, and no download option**
+on the plan in use, so the sole route was an all-or-nothing restore of the whole
+database to the previous night.
+
+The operator chose not to restore, and the arithmetic is why: it would have
+recovered `Service - 16 Aug 2026` — a service that had already happened, whose
+17 items were verified intact immediately before the loss, so nothing in it was
+unsaved — at the cost of destroying the `Service - 23 Aug 2026` rebuilt that
+same evening, which is the *upcoming* service, plus any song, roster and liturgy
+edits made during the day. Trading a finished service for a forthcoming one is
+the wrong direction.
+
+`Service - 16 Aug 2026` is therefore **gone for good**. If it is ever wanted for
+the record it can be reassembled by hand from the Liturgy library: the liturgy
+items, readings and slides all still exist as sources, and only that particular
+assembly of them was lost.
+
+Worth knowing for any future incident on this project: **daily-backup-only means
+there is no surgical recovery of a single row.** Anything deleted is either
+restored with the entire database or not at all. That is the real reason the
+delete-by-exclusion rule above matters so much here.
+
 ---
 
 ## OPEN — what is left to do (as of 2026-08-16, all LCD work merged and live)
