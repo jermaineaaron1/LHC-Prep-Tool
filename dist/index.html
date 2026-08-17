@@ -5954,7 +5954,15 @@
             <input type="color" id="sfChordColor" value="#991b1b" onchange="_sfApplyAppearance()" title="Chords colour" style="width:30px;height:30px;padding:0;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;">
           </div>
         </div>
-        <div style="font-size:11px;color:#a21caf;max-width:220px;line-height:1.4;">Applies while you're viewing this song. Saving it permanently needs one small pending update.</div>
+        <div class="sf-appearance-actions">
+          <button type="button" class="sf-appearance-btn primary" onclick="saveSongAppearance()">
+            <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save appearance
+          </button>
+          <button type="button" class="sf-appearance-btn" onclick="resetSongAppearance()">
+            <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Reset
+          </button>
+          <span id="sfAppearanceState" class="sf-appearance-state" aria-live="polite"></span>
+        </div>
       </div>
       <!-- Chunk 2b: chord sheet and contextual rail sit side by side on wide
            desktop; below 1080px the rail stacks under the sheet. -->
@@ -12564,7 +12572,49 @@ function _sfApplyAppearance() {
   var cc = (document.getElementById('sfChordColor') || {}).value || '';
   currentDisplayStyle = { lyricFont: lf, lyricSize: ls, lyricColor: lc, chordFont: cf, chordSize: cs, chordColor: cc };
   _sfPaintAppearance();
+  _sfMarkAppearanceDirty();
 }
+
+// ── display_style persistence (migration-backed) ────────────────────────────
+// The appearance controls used to be render-only and forgot everything on
+// close. songs.display_style now exists, so they can be saved -- but only when
+// the user asks, because painting on every keystroke would mean a write per
+// colour-picker drag.
+function _sfMarkAppearanceDirty() {
+  var el = document.getElementById('sfAppearanceState');
+  if (!el) return;
+  el.textContent = 'Unsaved appearance';
+  el.className = 'sf-appearance-state is-dirty';
+}
+
+function saveSongAppearance() {
+  var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
+  var el = document.getElementById('sfAppearanceState');
+  if (!song) return;
+  var style = Object.assign({}, currentDisplayStyle || {});
+  if (el) { el.textContent = 'Saving…'; el.className = 'sf-appearance-state'; }
+  SBQ_SONGS.updateDisplayStyle(song.id, style).then(function() {
+    song.display_style = style;
+    var list = (window.STATE && STATE.songs) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === song.id) list[i].display_style = style;
+    if (el) { el.textContent = 'Appearance saved'; el.className = 'sf-appearance-state is-ok'; }
+  }).catch(function(err) {
+    // Never report success for a write that did not land.
+    if (el) { el.textContent = 'Could not save appearance'; el.className = 'sf-appearance-state is-err'; }
+    if (typeof showToast === 'function') showToast('Could not save appearance: ' + ((err && err.message) || 'unknown error'), 'error');
+  });
+}
+window.saveSongAppearance = saveSongAppearance;
+
+function resetSongAppearance() {
+  ['sfLyricFont','sfLyricSize','sfChordFont','sfChordSize'].forEach(function(id) {
+    var e = document.getElementById(id); if (e) e.value = '';
+  });
+  var lc = document.getElementById('sfLyricColor'); if (lc) lc.value = '#1f2937';
+  var cc = document.getElementById('sfChordColor'); if (cc) cc.value = '#991b1b';
+  _sfApplyAppearance();
+}
+window.resetSongAppearance = resetSongAppearance;
 
 // Sets CSS custom properties on the container; the .lyric-line/.chord-line
 // rules pick these up via var(..., <default that matches today's look>), so
@@ -24963,6 +25013,20 @@ var SBQ_SONGS = {
           .catch(function() { try { sb.removeChannel(ch); } catch (e) {} });
       });
     } catch (e) { /* never let notification failure surface as a save failure */ }
+  },
+
+  // Writes only the display_style column. Deliberately does NOT broadcast on
+  // lhc-song-library: that channel means "the words changed", and appearance
+  // is presentation only -- announcing it would make open Orders and LCD
+  // Projection re-render slides for nothing.
+  updateDisplayStyle: function(id, style) {
+    var sb = SBQ_SONGS._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('songs').update({ display_style: style || {} }).eq('id', id)
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return { success: true };
+      });
   },
 
   updateLyrics: function(id, lyrics) {
@@ -85949,6 +86013,21 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── Appearance save controls (display_style, migration-backed) ────────── */
+  .sf-appearance-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .sf-appearance-btn {
+    display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:0 12px; cursor:pointer;
+    border:1px solid #f0abfc; border-radius:9px; background:#fff; color:#a21caf;
+    font-family:inherit; font-size:.74rem; font-weight:750;
+  }
+  .sf-appearance-btn.primary { border-color:transparent; background:#a21caf; color:#fff; }
+  .sf-appearance-btn:hover { filter:brightness(1.05); }
+  .sf-appearance-btn:focus-visible { outline:3px solid rgba(162,28,175,.4); outline-offset:2px; }
+  .sf-appearance-state { font-size:.72rem; font-weight:700; color:#a21caf; }
+  .sf-appearance-state.is-dirty { color:#9a5b16; }
+  .sf-appearance-state.is-ok { color:#0f7a41; }
+  .sf-appearance-state.is-err { color:#c81e1e; }
 
   /* ── Service suitability checkboxes (migration-backed) ─────────────────── */
   .asm-suit { display:flex; flex-wrap:wrap; gap:6px 14px; }
