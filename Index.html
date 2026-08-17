@@ -1925,8 +1925,22 @@
     .sf-res-info { flex: 1; min-width: 0; }
     .sf-res-label { font-weight: 600; font-size: 0.86rem; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sf-res-kind { font-size: 0.72rem; color: #94a3b8; margin-top: 1px; }
+    .sf-res-kind .sf-res-source { color: #cbd5e1; margin: 0 4px; }
+    .sf-res-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .sf-res-action { flex-shrink: 0; border: 1px solid #c7d2fe; background: #eef1ff; color: #4338ca; border-radius: 8px; padding: 6px 12px; font-size: 0.78rem; font-weight: 600; cursor: pointer; white-space: nowrap; font-family: 'Poppins', sans-serif; }
     .sf-res-action:hover { background: #e0e7ff; }
+    .sf-res-ext { flex-shrink: 0; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border: 1px solid #e2e8f0; background: #f8fafc; color: #64748b; border-radius: 8px; font-size: 0.8rem; cursor: pointer; }
+    .sf-res-ext:hover { background: #eef2f7; color: #334155; border-color: #cbd5e1; }
+    @media (max-width: 640px) {
+      /* Stack rather than squeeze: at phone widths a row of icon + two-line
+         text + two buttons cannot hold a readable label without truncating it
+         to nothing. */
+      .sf-res-card { flex-wrap: wrap; }
+      .sf-res-info { flex: 1 1 100%; order: 2; }
+      .sf-res-actions { order: 3; width: 100%; }
+      .sf-res-actions .sf-res-action { flex: 1 1 auto; text-align: center; min-height: 40px; }
+      .sf-res-ext { min-height: 40px; }
+    }
 
     /* ==================== SONGS PAGE — MOBILE FILTER SHEET (Phase 4) ==================== */
     #sfMobileFiltersBtn, #sfMobileFilterApplyBtn, #sfFilterSheetBackdrop { display: none; }
@@ -1970,12 +1984,23 @@
       #sfFilterGrid.sf-sheet-open .sf-primary-filter { display: none; }
       #sfFilterGrid.sf-sheet-open .sf-more-filter { display: block; }
       #sfMobileFilterApplyBtn.sf-sheet-open {
-        display: block; position: fixed; left: 16px; right: 16px;
+        display: flex; gap: 10px; position: fixed; left: 16px; right: 16px;
         bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 3001;
+      }
+      #sfMobileFilterApplyBtn .sf-sheet-apply {
+        flex: 1 1 auto; min-height: 48px;
         background: linear-gradient(135deg, var(--sa-blue, #4f6bf0), var(--sa-blue-2, #7c5cf5));
         color: #fff; border: none; border-radius: 999px; padding: 14px; font-weight: 700; font-size: 0.95rem;
         box-shadow: 0 10px 26px rgba(79,107,240,0.35);
       }
+      #sfMobileFilterApplyBtn .sf-sheet-reset {
+        flex: 0 0 auto; min-height: 48px;
+        background: #fff; color: #475569; border: 1px solid #cbd5e1; border-radius: 999px;
+        padding: 14px 16px; font-weight: 700; font-size: 0.85rem;
+        box-shadow: 0 8px 20px rgba(15,23,42,0.14);
+      }
+      #sfMobileFilterApplyBtn .sf-sheet-reset i { margin-right: 5px; }
+      #sfMobileFilterApplyBtn .sf-sheet-reset:disabled { opacity: 0.5; }
       #sfFilterGrid label { color: #64748b; font-size: 0.68rem; }
     }
 
@@ -4434,6 +4459,14 @@
         gap: 1rem;
         padding: 1rem;
       }
+      /* The (max-width:1024px) rule above stacks the shell into ONE column and
+         swaps the order so main sits above the sidebar. This block re-creates
+         TWO columns but inherited that swap, so main landed in the 230px
+         sidebar track and the sidebar took the 1fr content track -- every view
+         was squeezed to ~230px at 1024 landscape. Restoring source order puts
+         each back in its intended track. */
+      #playlistSidebar { order: 1; }
+      #main-content-container { order: 2; }
       .lhc-topnav-btn span { display: none; }
       .lhc-topnav-btn { padding: 7px 11px; }
       .lhc-topnav-links { gap: 1px; }
@@ -5668,21 +5701,21 @@
             <div class="sf-primary-filter">
               <label class="form-label"><i class="fa-solid fa-tags" aria-hidden="true"></i> Theme</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterThemeDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-label="Choose theme filter" onclick="toggleFilterThemeDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterThemeDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
+                <div id="filterThemeDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose theme filter" onclick="toggleFilterThemeDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterThemeDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
                 <div id="filterThemeDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
             <div class="sf-more-filter">
               <label class="form-label">Key</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterKeyDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterKeyDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Keys</div>
+                <div id="filterKeyDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose key filter" onclick="toggleFilterKeyDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterKeyDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Keys</div>
                 <div id="filterKeyDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:160px;"></div>
               </div>
             </div>
             <div class="sf-more-filter">
               <label class="form-label">Style</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterStyleDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Styles</div>
+                <div id="filterStyleDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose style filter" onclick="toggleFilterStyleDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterStyleDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Styles</div>
                 <div id="filterStyleDropdown" class="theme-dropdown hidden" style="z-index:300;min-width:240px;padding:8px 0;">
                   <!-- populated by populateStyleFilterDropdown() -->
                 </div>
@@ -5697,7 +5730,7 @@
             <div class="sf-more-filter">
               <label class="form-label">Season</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterSeasonDisplay" class="form-input form-select text-sm py-2 cursor-pointer" onclick="toggleFilterSeasonDropdown()" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Seasons</div>
+                <div id="filterSeasonDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose season filter" onclick="toggleFilterSeasonDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterSeasonDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Seasons</div>
                 <div id="filterSeasonDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
@@ -5721,7 +5754,10 @@
             </div>
             <div class="sf-filter-spacer"></div>
           </div>
-          <button id="sfMobileFilterApplyBtn" type="button" onclick="toggleMobileFilterSheet(false)">Apply Filters</button>
+          <div id="sfMobileFilterApplyBtn">
+            <button type="button" class="sf-sheet-reset" onclick="resetMobileSheetFilters()"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Reset filters</button>
+            <button type="button" class="sf-sheet-apply" onclick="toggleMobileFilterSheet(false)">Apply Filters</button>
+          </div>
           </div>
         </div>
 
@@ -5797,7 +5833,7 @@
             <button id="lyricsPreviewSaveBtn" class="lhc-pill-button text-sm hidden" title="Save lyrics" onclick="lyricsPreviewSaveInlineEdit()" style="background:#ecfdf5;border-color:#6ee7b7;color:#047857;">
               <i class="fa-solid fa-check mr-1"></i> Save
             </button>
-            <button id="lyricsPreviewCancelEditBtn" class="lhc-pill-button text-sm hidden" title="Cancel editing" onclick="lyricsPreviewToggleInlineEdit(false)" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
+            <button id="lyricsPreviewCancelEditBtn" class="lhc-pill-button text-sm hidden" title="Cancel editing" onclick="lyricsPreviewCancelInlineEdit()" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
               <i class="fa-solid fa-xmark mr-1"></i> Cancel
             </button>
             <button id="lyricsPreviewDetailsBtn" class="lhc-pill-button text-sm" title="Edit song details (title, key, theme, etc.)" onclick="lyricsPreviewOpenEditor()" style="background:#f8fafc;border-color:#cbd5e1;color:#64748b;">
@@ -10334,6 +10370,7 @@ function closeFilterThemeDropdown() {
     dd.style[prop] = '';
   });
   if (host && dd.parentElement !== host) host.appendChild(dd);
+  _sfSyncFilterAria();
 }
 
 function _positionFilterThemeDropdown() {
@@ -10349,6 +10386,10 @@ function _positionFilterThemeDropdown() {
   var preferredHeight = Math.min(430, Math.max(260, viewportHeight * 0.62));
   var top = rect.bottom + 7;
   if (below < 260 && rect.top > below) top = Math.max(12, rect.top - preferredHeight - 7);
+  // Final clamp. Both branches above are anchor-relative, so an anchor that
+  // has been scrolled out of view -- or sits near the bottom on a short
+  // viewport -- would otherwise place the menu partly or wholly off-screen.
+  top = Math.max(12, Math.min(top, viewportHeight - Math.min(preferredHeight, 200) - 12));
   dd.style.position = 'fixed';
   dd.style.left = left + 'px';
   dd.style.right = 'auto';
@@ -10358,6 +10399,93 @@ function _positionFilterThemeDropdown() {
   dd.style.overflow = 'hidden';
   dd.style.zIndex = '100050';
 }
+
+// ============================================================
+// Songs page — dropdown ARIA state + layered Escape handling
+// ============================================================
+// Every Songs filter control is a custom <div role="button"> rather than a
+// native <select>, so the open/closed state is invisible to assistive tech
+// unless we say so explicitly. One helper keeps aria-expanded honest for all
+// of them instead of scattering setAttribute calls through each toggler.
+var SF_FILTER_MENUS = [
+  { display: 'filterThemeDisplay',     dropdown: 'filterThemeDropdown',     close: function() { closeFilterThemeDropdown(); } },
+  { display: 'filterKeyDisplay',       dropdown: 'filterKeyDropdown' },
+  { display: 'filterStyleDisplay',     dropdown: 'filterStyleDropdown' },
+  { display: 'filterSeasonDisplay',    dropdown: 'filterSeasonDropdown' },
+  { display: 'filterScriptureDisplay', dropdown: 'filterScriptureDropdown' }
+];
+
+function _sfSyncFilterAria() {
+  SF_FILTER_MENUS.forEach(function(menu) {
+    var display = document.getElementById(menu.display);
+    var dd = document.getElementById(menu.dropdown);
+    if (!display) return;
+    // The scripture control opens a modal picker, not a listbox, so it keeps
+    // its aria-haspopup="dialog" and simply never reports as expanded here.
+    if (!dd) { display.setAttribute('aria-expanded', 'false'); return; }
+    display.setAttribute('aria-expanded', dd.classList.contains('hidden') ? 'false' : 'true');
+  });
+}
+window._sfSyncFilterAria = _sfSyncFilterAria;
+
+function _sfCloseAllFilterMenus() {
+  var closedOne = false;
+  SF_FILTER_MENUS.forEach(function(menu) {
+    var dd = document.getElementById(menu.dropdown);
+    if (!dd || dd.classList.contains('hidden')) return;
+    closedOne = true;
+    if (menu.close) menu.close();
+    else dd.classList.add('hidden');
+  });
+  _sfSyncFilterAria();
+  return closedOne;
+}
+window._sfCloseAllFilterMenus = _sfCloseAllFilterMenus;
+
+// Escape must peel ONE layer at a time. A document preview opened from inside
+// the song workspace has to close back to the workspace, not take the
+// workspace down with it -- which is exactly what a blanket "close everything"
+// handler does. Returns true when it consumed the key.
+function _sfEscapeCloseTopLayer() {
+  // 1. Filter menus sit above the page but below every modal.
+  if (_sfCloseAllFilterMenus()) return true;
+
+  // 2. The multi-link chooser is the shallowest transient layer.
+  var chooser = document.querySelector('.link-selector-popup');
+  if (chooser) { chooser.remove(); return true; }
+
+  // 3. Resource viewers, which are promoted above the song workspace.
+  var viewers = [
+    { id: 'docPreviewModal',     close: function() { closeDocPreview(); } },
+    { id: 'youtubePreviewModal', close: function() { closeYoutubePreview(); } },
+    { id: 'spotifyPreviewModal', close: function() { closeSpotifyPreview(); } }
+  ];
+  for (var i = 0; i < viewers.length; i++) {
+    var el = document.getElementById(viewers[i].id);
+    if (el && el.classList.contains('show')) {
+      try { viewers[i].close(); } catch (err) { closeModal(viewers[i].id); }
+      return true;
+    }
+  }
+
+  // 4. The lyrics editor, which is a layer inside the workspace: Escape backs
+  // out of editing (with the unsaved-changes guard) rather than closing the
+  // whole song.
+  if (window.STATE && STATE.lyricsPreviewEditMode && typeof lyricsPreviewCancelInlineEdit === 'function') {
+    lyricsPreviewCancelInlineEdit();
+    return true;
+  }
+
+  // 5. The song workspace itself -- but only when it is actually an overlay.
+  // On wide desktop the same element renders inline inside #sfWorkspacePanel,
+  // where it is the page content and Escape has no business dismissing it.
+  var lp = document.getElementById('lyricsPreviewModal');
+  if (lp && lp.classList.contains('show') && lp.parentNode === document.body) {
+    if (typeof closeLyricsPreviewModal === 'function') { closeLyricsPreviewModal(); return true; }
+  }
+  return false;
+}
+window._sfEscapeCloseTopLayer = _sfEscapeCloseTopLayer;
 
 function toggleFilterThemeDropdown() {
   var dd = document.getElementById('filterThemeDropdown');
@@ -10373,6 +10501,7 @@ function toggleFilterThemeDropdown() {
   dd.classList.add('filter-theme-portal');
   dd.classList.remove('hidden');
   _positionFilterThemeDropdown();
+  _sfSyncFilterAria();
 }
 
 function populateThemeFilterDropdown(themes) {
@@ -10503,6 +10632,7 @@ function _msChange(changedCb, cbClass) {
 function toggleFilterKeyDropdown() {
   var dd = document.getElementById('filterKeyDropdown');
   if (dd) dd.classList.toggle('hidden');
+  _sfSyncFilterAria();
 }
 function populateKeyFilterDropdown(keys) {
   var dd = document.getElementById('filterKeyDropdown');
@@ -10515,6 +10645,7 @@ function populateKeyFilterDropdown(keys) {
 function toggleFilterSeasonDropdown() {
   var dd = document.getElementById('filterSeasonDropdown');
   if (dd) dd.classList.toggle('hidden');
+  _sfSyncFilterAria();
 }
 function populateSeasonFilterDropdown(seasons) {
   var dd = document.getElementById('filterSeasonDropdown');
@@ -10546,6 +10677,7 @@ function toggleFilterStyleDropdown() {
   var dd = document.getElementById('filterStyleDropdown');
   if (!dd) return;
   dd.classList.toggle('hidden');
+  _sfSyncFilterAria();
 }
 
 function populateStyleFilterDropdown() {
@@ -11566,6 +11698,7 @@ document.addEventListener('click', function(e) {
     document.querySelectorAll('.theme-dropdown').forEach(function(dd) {
       dd.classList.add('hidden');
     });
+    if (typeof _sfSyncFilterAria === 'function') _sfSyncFilterAria();
   }
 });
 
@@ -11682,9 +11815,42 @@ function lyricsPreviewToggleInlineEdit(enter) {
     var b = document.getElementById(id);
     if (b) { b.disabled = !!enter; b.style.opacity = enter ? '0.45' : ''; b.style.pointerEvents = enter ? 'none' : ''; }
   });
+  // Snapshot what the words were on the way in, so "did the user actually
+  // change anything" is a comparison rather than a guess. Cleared on the way
+  // out so a stale baseline can never make a clean editor look dirty.
+  STATE._lpEditBaseline = enter ? String((song.lyrics || '')) : null;
   renderLyricsPreviewContent();
 }
 window.lyricsPreviewToggleInlineEdit = lyricsPreviewToggleInlineEdit;
+
+// True only while the inline editor is open AND its text differs from the
+// snapshot taken when it opened.
+function lyricsPreviewHasUnsavedEdits() {
+  if (!STATE.lyricsPreviewEditMode) return false;
+  var ta = document.getElementById('lyricsPreviewEditTextarea');
+  if (!ta || STATE._lpEditBaseline == null) return false;
+  return ta.value !== STATE._lpEditBaseline;
+}
+window.lyricsPreviewHasUnsavedEdits = lyricsPreviewHasUnsavedEdits;
+
+// Cancel is its own entry point rather than a flag on the toggle, because the
+// save path also calls the toggle to leave edit mode and must never be asked
+// to confirm a discard after it has just persisted the words.
+function lyricsPreviewCancelInlineEdit() {
+  if (!lyricsPreviewHasUnsavedEdits()) { lyricsPreviewToggleInlineEdit(false); return; }
+  var ask = (typeof window.customConfirm === 'function')
+    ? window.customConfirm('Discard changes?', 'Your edits to these lyrics have not been saved. Close the editor and lose them?')
+    : Promise.resolve(window.confirm('Discard your unsaved lyric changes?'));
+  ask.then(function(ok) { if (ok) lyricsPreviewToggleInlineEdit(false); });
+}
+window.lyricsPreviewCancelInlineEdit = lyricsPreviewCancelInlineEdit;
+
+// Leaving the page mid-edit is the one case the app cannot intercept itself.
+window.addEventListener('beforeunload', function(e) {
+  if (!lyricsPreviewHasUnsavedEdits()) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
 
 function lyricsPreviewSaveInlineEdit() {
   var song = currentLyricsPreviewSong;
@@ -11761,10 +11927,86 @@ function _sfResourceLabel(url, fallbackBase, idx, attName) {
   return fallbackBase + ' ' + (idx + 1);
 }
 
+// Some stored attachment rows hold SEVERAL urls joined with ", " in a single
+// record -- two songs in the live library do today. Every reader treated that
+// string as one url, so Preview handed a comma-joined blob to an iframe and the
+// document count under-reported. Expanding on read fixes the preview, the
+// count and the chooser without rewriting anyone's data; the rows themselves
+// are left exactly as they are.
+//
+// Identical urls are collapsed, because listing the same video twice is a
+// misleading resource indicator rather than two resources.
+function _sfExpandAttachments(song) {
+  var atts = Array.isArray(song && song.attachments) ? song.attachments : [];
+  var out = [], seen = {};
+  atts.forEach(function(a) {
+    if (!a) return;
+    var raw = String(a.url || a || '').trim();
+    if (!raw) return;
+    var parts = raw.split(/[,\s]+/).map(function(p) { return p.trim(); }).filter(Boolean);
+    // A single-url record keeps its stored name; a packed one cannot, because
+    // the one name never described more than the first url anyway.
+    var named = parts.length === 1;
+    parts.forEach(function(url) {
+      if (seen[url]) return;
+      seen[url] = true;
+      out.push({ url: url, name: named ? (a.name || '') : '' });
+    });
+  });
+  return out;
+}
+window._sfExpandAttachments = _sfExpandAttachments;
+
+// The same treatment for media links, which arrive as an array from one
+// normaliser and a comma string from the other.
+function _sfExpandMedia(song) {
+  var raw = (song && song.youtube) || '';
+  var list = Array.isArray(raw) ? raw : String(raw).split(/[,\s]+/);
+  var out = [], seen = {};
+  list.forEach(function(u) {
+    var url = String(u || '').trim();
+    if (!url || seen[url]) return;
+    seen[url] = true;
+    out.push(url);
+  });
+  return out;
+}
+window._sfExpandMedia = _sfExpandMedia;
+
+// Where a resource actually lives, so "YouTube 2" and "Score.pdf" stop being
+// the only thing the planner has to go on before clicking. Falls back to
+// nothing rather than guessing when the URL will not parse.
+function _sfResourceSource(url) {
+  try {
+    var host = new URL(String(url), window.location.href).hostname.replace(/^www\./, '');
+    return host || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+// Markup shared by every resource card: primary action, plus an
+// "open in a new tab" escape hatch for anything that renders in an embed.
+// The Word case already opens externally, so it never gets a second button.
+function _sfResourceActionsHtml(primaryAction, primaryLabel, url) {
+  var h = '<div class="sf-res-actions">';
+  h += '<button class="sf-res-action" data-action="' + primaryAction + '" data-url="' + escapeHtml(url) + '">' + primaryLabel + '</button>';
+  if (primaryAction !== 'word-open') {
+    h += '<button class="sf-res-ext" data-action="ext-open" data-url="' + escapeHtml(url) + '" ' +
+      'title="Open in a new tab" aria-label="Open in a new tab"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>';
+  }
+  return h + '</div>';
+}
+
+function _sfResourceMetaHtml(kindLabel, url) {
+  var src = _sfResourceSource(url);
+  return '<div class="sf-res-kind">' + escapeHtml(kindLabel) +
+    (src ? '<span class="sf-res-source">&middot;</span>' + escapeHtml(src) : '') + '</div>';
+}
+
 function _sfRenderResourcesPanel(song) {
-  var atts = Array.isArray(song.attachments) ? song.attachments.filter(function(a) { return a && (a.url || typeof a === 'string'); }) : [];
-  var ytAll = Array.isArray(song.youtube) ? song.youtube.filter(Boolean) :
-    (typeof song.youtube === 'string' && song.youtube.trim() ? song.youtube.split(/[,\n]+/).map(function(u) { return u.trim(); }).filter(Boolean) : []);
+  var atts = _sfExpandAttachments(song);
+  var ytAll = _sfExpandMedia(song);
   var ytUrls = ytAll.filter(function(u) { return u.indexOf('youtube') !== -1 || u.indexOf('youtu.be') !== -1; });
   var spUrls = ytAll.filter(function(u) { return u.indexOf('spotify.com') !== -1; });
 
@@ -11783,8 +12025,9 @@ function _sfRenderResourcesPanel(song) {
       var action = cls.kind === 'word' ? 'word-open' : 'doc-preview';
       html += '<div class="sf-res-card">' +
         '<div class="sf-res-icon" style="background:' + cls.bg + ';color:' + cls.color + ';"><i class="' + cls.icon + '"></i></div>' +
-        '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div><div class="sf-res-kind">' + cls.label + '</div></div>' +
-        '<button class="sf-res-action" data-action="' + action + '" data-url="' + escapeHtml(url) + '">' + actionLabel + '</button>' +
+        '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div>' +
+        _sfResourceMetaHtml(cls.label, url) + '</div>' +
+        _sfResourceActionsHtml(action, actionLabel, url) +
         '</div>';
     });
     html += '</div>';
@@ -11799,16 +12042,18 @@ function _sfRenderResourcesPanel(song) {
       var label = _sfResourceLabel(url, 'YouTube', idx, null);
       html += '<div class="sf-res-card">' +
         '<div class="sf-res-icon" style="background:#fee2e2;color:#dc2626;"><i class="fa-brands fa-youtube"></i></div>' +
-        '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div><div class="sf-res-kind">YouTube</div></div>' +
-        '<button class="sf-res-action" data-action="yt-play" data-url="' + escapeHtml(url) + '"><i class="fa-solid fa-play"></i> Play</button>' +
+        '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div>' +
+        _sfResourceMetaHtml('YouTube', url) + '</div>' +
+        _sfResourceActionsHtml('yt-play', '<i class="fa-solid fa-play"></i> Play', url) +
         '</div>';
     });
     spUrls.forEach(function(url, idx) {
       var label = _sfResourceLabel(url, 'Spotify', idx, null);
       html += '<div class="sf-res-card">' +
         '<div class="sf-res-icon" style="background:#dcfce7;color:#16a34a;"><i class="fa-brands fa-spotify"></i></div>' +
-        '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div><div class="sf-res-kind">Spotify</div></div>' +
-        '<button class="sf-res-action" data-action="sp-play" data-url="' + escapeHtml(url) + '"><i class="fa-solid fa-play"></i> Play</button>' +
+        '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div>' +
+        _sfResourceMetaHtml('Spotify', url) + '</div>' +
+        _sfResourceActionsHtml('sp-play', '<i class="fa-solid fa-play"></i> Play', url) +
         '</div>';
     });
     html += '</div>';
@@ -11821,13 +12066,13 @@ function _sfRenderResourcesPanel(song) {
 // Delegated click binder -- reads data-action/data-url so no raw URL is ever
 // embedded inside an onclick string (same idiom as bindSongItemEvents).
 function _sfBindResourceActions(container, song) {
-  var btns = container.querySelectorAll('.sf-res-action');
+  var btns = container.querySelectorAll('.sf-res-action, .sf-res-ext');
   btns.forEach(function(btn) {
     btn.onclick = function() {
       var url = btn.getAttribute('data-url');
       var action = btn.getAttribute('data-action');
-      if (action === 'word-open') {
-        window.open(url, '_blank');
+      if (action === 'ext-open' || action === 'word-open') {
+        window.open(url, '_blank', 'noopener,noreferrer');
       } else if (action === 'doc-preview') {
         if (typeof openDocPreviewModal === 'function') openDocPreviewModal(url, song.title);
       } else if (action === 'yt-play') {
@@ -11936,6 +12181,59 @@ function toggleMobileFilterSheet(forceOpen) {
   }
 }
 window.toggleMobileFilterSheet = toggleMobileFilterSheet;
+
+// "Reset filters" inside the More filters sheet. Deliberately resets the
+// FILTERS ONLY and leaves the search box alone -- the sheet is a filter
+// surface, and silently wiping someone's typed query from it would be a
+// surprise. "Clear all" in the header is still the one control that does both.
+// Reuses the same STATE.filters shape and the same populate* helpers as
+// clearSongSearch() rather than keeping a second reset path in sync.
+function resetMobileSheetFilters() {
+  var S = window.LHC_STATE;
+  if (!S) return;
+  S.filters.themes = [];
+  S.filters.keys = [];
+  S.filters.style = '';
+  S.filters.styleEras = [];
+  S.filters.tempo = '';
+  S.filters.seasons = [];
+  S.filters.scriptures = [];
+
+  var tempo = document.getElementById('filterTempo');
+  if (tempo) tempo.value = '';
+  var labels = {
+    filterThemeDisplay: 'All',
+    filterKeyDisplay: 'All Keys',
+    filterStyleDisplay: 'All Styles',
+    filterSeasonDisplay: 'All Seasons',
+    filterScriptureDisplay: 'All'
+  };
+  Object.keys(labels).forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = labels[id];
+  });
+  var chips = document.getElementById('filterScriptureChips');
+  if (chips) chips.innerHTML = '';
+
+  // Rebuild the option lists so every checkbox reflects the cleared state.
+  var meta = (S.songMeta) || {};
+  if (typeof populateKeyFilterDropdown === 'function') populateKeyFilterDropdown(meta.keys || []);
+  if (typeof populateSeasonFilterDropdown === 'function') populateSeasonFilterDropdown(meta.seasons || []);
+  if (typeof populateStyleFilterDropdown === 'function') populateStyleFilterDropdown();
+  if (typeof populateThemeFilterDropdown === 'function') populateThemeFilterDropdown(meta.themes || []);
+  if (typeof _sfSyncFilterAria === 'function') _sfSyncFilterAria();
+
+  // Keep whatever the catalogue was showing: a live query stays filtered,
+  // an empty query falls back to the full A-Z listing rather than the
+  // "start typing" placeholder the user has clearly moved past.
+  if (S.filters.q) {
+    if (S.renderSongs) S.renderSongs(true);
+  } else if (typeof showAllSongs === 'function') {
+    showAllSongs();
+  }
+  if (typeof showToast === 'function') showToast('Filters reset', 'info');
+}
+window.resetMobileSheetFilters = resetMobileSheetFilters;
 
 // Mobile prioritises decision-making controls: Theme, Feel and Scripture live
 // in the dark search command area, while the library totals move into the
@@ -12194,6 +12492,21 @@ window.lyricsRedo = lyricsRedo;
 window.applyLyricsFormat = applyLyricsFormat;
 
 function closeLyricsPreviewModal() {
+  // Closing the workspace while the editor is dirty would silently bin the
+  // words. Ask first, then finish the close from the answer. Callers ignore
+  // the return value, so deferring the rest of the teardown is safe.
+  if (lyricsPreviewHasUnsavedEdits()) {
+    var ask = (typeof window.customConfirm === 'function')
+      ? window.customConfirm('Discard changes?', 'Your edits to these lyrics have not been saved. Close this song and lose them?')
+      : Promise.resolve(window.confirm('Discard your unsaved lyric changes?'));
+    ask.then(function(ok) {
+      if (!ok) return;
+      STATE.lyricsPreviewEditMode = false;
+      STATE._lpEditBaseline = null;
+      closeLyricsPreviewModal();
+    });
+    return;
+  }
   var modal = document.getElementById('lyricsPreviewModal');
   if (modal) modal.classList.remove('show');
   currentTransposeValue = 0;
@@ -16970,11 +17283,13 @@ window.loadEditSongData = function(song) {
     if (song.theme) pills.push('<span class="meta-pill" style="background:#e0e7ff;color:#3730a3;border-color:#a5b4fc;">' + escapeHtml(song.theme) + '</span>');
     if (song.season) pills.push('<span class="meta-pill" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;">' + escapeHtml(song.season) + '</span>');
 
-    // Parse multiple URLs - split media into YouTube vs Spotify
-    var allMediaUrls = song.youtube ? (Array.isArray(song.youtube) ? song.youtube : String(song.youtube).split(/[,\s]+/)).filter(function(u) { return u.trim(); }) : [];
+    // Parse multiple URLs - split media into YouTube vs Spotify. Shared with
+    // the Resources panel so the card badge, the chooser and the panel can
+    // never disagree about how many resources a song actually has.
+    var allMediaUrls = _sfExpandMedia(song);
     var youtubeUrls = allMediaUrls.filter(function(u) { return u.includes('youtube') || u.includes('youtu.be'); });
     var spotifyUrls = allMediaUrls.filter(function(u) { return u.includes('spotify.com'); });
-    var docUrls = Array.isArray(song.attachments) ? song.attachments.map(function(a) { return a.url || a; }).filter(Boolean) : [];
+    var docUrls = _sfExpandAttachments(song).map(function(a) { return a.url; });
 
     var isSelected = STATE.lyricsCurrentSong && STATE.lyricsCurrentSong.id === song.id;
     var initial = (song.title || '?').charAt(0).toUpperCase();
@@ -17304,9 +17619,19 @@ window.loadEditSongData = function(song) {
     var popup = document.createElement('div');
     popup.id = 'linkSelectorPopup';
     popup.className = 'link-selector-popup';
-    popup.style.cssText = 'position:fixed;z-index:10000;background:white;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,0.25);padding:8px 0;min-width:200px;max-width:300px;';
-    popup.style.left = Math.min(event.clientX, window.innerWidth - 320) + 'px';
-    popup.style.top = Math.min(event.clientY, window.innerHeight - 200) + 'px';
+    // z-index 10000 put the chooser in the SAME band as .modal-overlay, so it
+    // only ever won by being the last child of <body>. Anything appended after
+    // it -- including the song workspace when that portals itself out -- would
+    // have covered it. It sits above the promoted resource band instead now,
+    // which is safe because every item handler removes the popup before
+    // opening a viewer, so the two are never on screen together.
+    popup.style.cssText = 'position:fixed;z-index:120001;background:white;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,0.25);padding:8px 0;min-width:200px;max-width:300px;';
+    // Clamp on BOTH sides: the upper clamp alone goes negative once the
+    // viewport is narrower than the popup, which pushes it off the left edge
+    // of a small phone.
+    var _popW = Math.min(300, window.innerWidth - 16);
+    popup.style.left = Math.max(8, Math.min(event.clientX, window.innerWidth - _popW - 8)) + 'px';
+    popup.style.top = Math.max(8, Math.min(event.clientY, window.innerHeight - 200)) + 'px';
 
     // Function to render popup content
     function renderPopupContent() {
@@ -20269,6 +20594,9 @@ window.loadEditSongData = function(song) {
     }
 
     document.onkeydown = function(e) {
+      // Peel the Songs stack one layer at a time first; only fall through to
+      // the blanket close when Escape belonged to none of those layers.
+      if (e.key === 'Escape' && typeof _sfEscapeCloseTopLayer === 'function' && _sfEscapeCloseTopLayer()) return;
       if (e.key === 'Escape') ['addSongModal','editSongModal','lyricsModal','previewModal','shareModal','helpModal','createOrderModal','homeOrderTypeModal','docPreviewModal','youtubePreviewModal','spotifyPreviewModal','mediaAddModal','playlistModal','songbookPreviewModal'].forEach(closeModal);
       var lm = $('lyricsModal');
       if (lm && lm.classList.contains('show') && STATE.lyricsMode === 'present' && !STATE.lyricsEditMode) {
