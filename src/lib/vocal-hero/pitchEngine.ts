@@ -133,10 +133,7 @@ export class PitchEngine {
 
     // Exponential smoothing — only smooth non-zero pitches
     if (hz > 0 && confidence >= this.opts.confidenceThreshold) {
-      this.smoothedHz =
-        this.smoothedHz === 0
-          ? hz
-          : this.opts.smoothing * this.smoothedHz + (1 - this.opts.smoothing) * hz;
+      this.smoothedHz = PitchEngine.smoothStep(this.smoothedHz, hz, this.opts.smoothing);
     } else {
       // Decay smoothly toward silence
       this.smoothedHz = this.smoothedHz * 0.7;
@@ -302,6 +299,38 @@ export class PitchEngine {
   }
 
   // ── Static helpers ────────────────────────────────────────────────────────
+
+  /** A deliberate leap rather than wobble within a note. Vibrato and the small
+   * scoops around a sustained pitch stay well inside a whole tone; a minor third
+   * in one frame is a singer moving to a different note. */
+  static readonly LEAP_CENTS = 250;
+
+  /**
+   * One step of the pitch smoother.
+   *
+   * Two things the old averaging got wrong, both of which cost the singer marks
+   * rather than merely looking odd:
+   *
+   * Averaging in HERTZ is not averaging in pitch. Hz is exponential in pitch, so
+   * the same filter settles faster falling than rising -- an ascending phrase
+   * was reported flat for longer than a descending one was reported sharp, and
+   * every reading in between sat at the wrong musical distance. Averaging the
+   * LOG of the frequency makes a semitone a semitone in either direction.
+   *
+   * And a smoother has no business smoothing a LEAP. Gliding from one note to
+   * the next drew a portamento nobody sang, and worse, delayed arrival at the
+   * new note by several frames -- landing after the onset window had opened, so
+   * a clean entry scored as a late one. A jump beyond a whole tone is taken at
+   * once; only movement small enough to be wobble is filtered.
+   */
+  static smoothStep(previousHz: number, hz: number, smoothing: number): number {
+    if (hz <= 0) return 0;
+    if (previousHz <= 0) return hz;
+    const cents = 1200 * Math.log2(hz / previousHz);
+    if (Math.abs(cents) >= PitchEngine.LEAP_CENTS) return hz;
+    const factor = Math.min(Math.max(1 - smoothing, 0), 1);
+    return previousHz * Math.pow(2, (cents * factor) / 1200);
+  }
 
   /**
    * Map a raw Hz frequency to a normalised 0–1 log scale matching the
