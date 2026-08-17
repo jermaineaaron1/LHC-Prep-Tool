@@ -4,53 +4,105 @@ _Last updated: 2026-08-17 by Claude Code_
 
 ---
 
-## 2026-08-17 — Song Finder complete redesign (branch `feature/song-finder-complete-redesign`, IN PROGRESS)
+## 2026-08-17 — Song Finder complete redesign (branch `feature/song-finder-complete-redesign`, ALL 12 CHUNKS DONE, NOT MERGED)
 
-**Not merged. Chunks 1 of 12 complete.** A 12-chunk brief covering every Song
-Finder surface — details workspace, dedicated editor, resource previews,
-Orders/Songbook/Share modals, themes, mobile screens, states, responsive pass.
-This entry records what is done, what is blocked, and where to pick up.
+**Awaiting review.** A 12-chunk brief covering every Song Finder surface. All
+twelve are implemented and verified; what follows is what changed, what was
+deliberately not built, and the two things that could not be tested here.
 
-### Done
+### The chunks
 
-- **Audit** (`SONG-FINDER-AUDIT.md`, rewritten) — the names that cannot be
-  renamed, the three pipelines carrying data off this page, and six blockers.
-- **Chunk 1, compact catalogue.** At 1366×768 the header was 312px and exactly
-  **one** card was visible. Now 142px and **three**. Causes were the search and
-  actions on separate rows, a redundant subtitle/hint/sub-header, and a
-  `max-height:74vh` scroller on `#songListContainer` that turned the catalogue
-  into a box inside the page. That scroller is only correct in the
-  master-detail split and is now scoped to `.sf-song-active`.
-  Statistics moved below the catalogue into a new `#sfStatsDesktopSlot`.
+1. **Compact catalogue.** At 1366×768 the header was 312px with exactly **one**
+   card visible; now 142px and **three**. Causes: search and actions on separate
+   rows, a redundant subtitle/hint/sub-header, and a `max-height:74vh` scroller
+   on `#songListContainer` that made the catalogue a box inside the page — that
+   scroller is only correct in the master-detail split and is now scoped to
+   `.sf-song-active`. Statistics moved below the catalogue.
+2. **Song Details workspace.** Breadcrumb, identity header, and a "Plan with
+   this song" rail (real orders, real songbooks, real resources). Opening a song
+   now **replaces** the catalogue rather than splitting beside it — with the rail
+   added, the chord sheet measured 404px at 1536. Catalogue scroll position is
+   captured on open and restored on close.
+3. **Add/Edit Song.** Step rail with scroll-spy, section numbers from a CSS
+   counter (so Add and Edit cannot drift), footer validation summary.
+4. **Lyrics editor.** Section outline parsed from the existing `[Bracket]`
+   markers, and an honest save-state badge.
+5. **Resources.** Image/audio/Spotify/web are now first-class types; background
+   scroll lock (reference-counted); Download resolving Drive/Docs export URLs;
+   sticky preview header.
+6. **Add to Order.** Section, position and transpose — closes blocker B5.
+7. **Add to Songbook.** Existing/new tabs, inline validation, no `prompt()`.
+8. **Share.** Six tiles, all real, including a genuine jsPDF export.
+9. **Themes.** Searchable, keyboard-navigable, with real duplicate/empty errors.
+10. **Mobile.** Sticky song actions; filter sheet header with Reset/title/Close
+    and a "Show N songs" button.
+11. **States.** One `_sfState` component for loading/empty/error, and the four
+    remaining browser dialogs replaced with the app's own modals.
+12. **Responsive + regression.** See below.
 
-### ⚠️ Blockers — six places the references show data the schema lacks
+### Bugs found while building, each worth knowing
 
-Full detail in `SONG-FINDER-AUDIT.md` §6. Summary:
+- **Two `closeDocPreview` definitions.** The previews' inline `onclick` resolves
+  to the **global** copies; the richer module versions are shadowed for that
+  path. Only the module copies released the scroll lock, so every open/close
+  cycle left the page one lock deeper until it could not scroll at all.
+- **`#lyricsPreviewModalContent` carries an inline `width:min(750px,95%)`**,
+  which silently beat the stylesheet rule meant to make the inline workspace
+  fill its column — so it had never actually filled.
+- **`offsetTop` was the wrong measure** for the step rail once `.asm-shell` was
+  added: the offsetParent changed and the scroll went nowhere.
+- **`clearSongSearch()` lands on the "start typing" placeholder**, so the empty
+  state's own recovery button produced a second empty panel.
 
-| | Reference shows | Reality |
-|---|---|---|
-| B1 | "Used 28 times in Orders", Recent-usage rail | no per-order usage history table |
-| B2 | **History** tab | no per-song change log |
-| B3 | Theme colour + description | themes are bare strings |
-| B4 | Songbook layout persisted per entry | `SBQ_SONGBOOKS` stores `songIds` only |
-| B5 | Add-to-Order section + position | always writes `sectionId:''` — **buildable, no migration** |
-| B6 | Time signature, BPM, alt title, CCLI, service suitability | no columns exist |
+### Verified
 
-**Recommendation: build B5, omit B1/B2 honestly rather than faking history, and
-get one reviewed migration approved for B3/B4/B6.** No migration has been
-written — the brief requires approval first.
+All eight target sizes (1920, 1536, 1366, 1024, 768, 430, 390, 360): no
+page-level horizontal overflow, cards readable with no inner scroll, theme menu
+portalled and inside the viewport at every size, previews at z-index 120000 with
+Close visible, scroll lock balanced, iframe cleared, Resources tab restored, and
+catalogue scroll position restored on close.
 
-### The one thing that will silently break
+Acceptance matrix: songs load, title and artist search, suggestions and
+scroll-to-card, theme/scripture/feel/key/style/season filters, filters combining,
+and reset — all pass. No duplicate DOM or stacked listeners after five
+open/close cycles (`_asmNavBound` and `_asmValidityBound` guards hold). All five
+views render at full width with no overflow.
 
-`SBQ_SONGS.updateLyrics` writes the column **and** broadcasts
-`song-lyrics-changed` on the `lhc-song-library` realtime channel. That broadcast
-is what makes an open Order or LCD Projection update. **A new editor that writes
-`songs.lyrics` directly will save the words and kill live sync with no error.**
+`tools/check-inline-scripts.py` 12/12; `tools/bg-repin-harness.js` 18/18;
+`npm run build` compiles and TypeScript passes.
 
-### Next
+### ⚠️ Two things NOT verified here
 
-Chunk 2 (Song Details workspace) is the largest remaining piece and depends on
-the B1/B2 decision, since the reference rail is half usage history.
+- **The mobile keyboard.** The brief asks for it explicitly. The hidden browser
+  pane never focuses the document, so no on-screen keyboard is raised. The
+  editor uses `100dvh` so the visual viewport shrinking keeps Save reachable —
+  correct mechanism, but reasoning, not evidence. **Needs a real phone.**
+- **Clipboard copy** in Share, for the same reason (`NotAllowedError: Document
+  is not focused`). It failed *honestly*, showing "Could not copy — select the
+  link above and copy it manually" rather than a false success.
+
+`npm run build` also still fails at page-data collection for
+`/api/vocal-hero/media` because `NEXT_PUBLIC_SUPABASE_URL` is unset locally —
+pre-existing and unrelated. Local `node_modules` had lost its `.bin` shims and
+needed `npm install` to repair; `package.json` and `package-lock.json` are
+unchanged.
+
+### Deliberately NOT built — and why
+
+Everything here would have been a control that discards what you type, or data
+invented to fill a panel. All are covered by
+`migrations/PROPOSED_2026-08-17_song_finder_redesign_fields.sql` (**not run**).
+
+| Reference shows | Why omitted |
+|---|---|
+| "Used 28 times in Orders", Recent usage rail | no per-order usage history (B1) |
+| History tab | no per-song change log (B2) |
+| Theme colour + description | themes are bare strings (B3) |
+| Songbook layout per entry | `song_ids` is a flat array every reader `.indexOf()`s (B4) |
+| Time signature, BPM, alt title, CCLI, service suitability | no columns (B6) |
+| Editor Settings panel | `display_style` has nowhere to persist |
+| "Autosaved just now" | the editor stages; the form saves. Saying otherwise would be a lie in the UI |
+| Share "Access: view only" | no permissions model exists |
 
 ---
 
