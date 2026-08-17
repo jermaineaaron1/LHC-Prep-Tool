@@ -5705,6 +5705,15 @@
           <div id="sfFilterSheetBackdrop" onclick="toggleMobileFilterSheet(false)"></div>
           <!-- Filters Grid -->
           <div id="sfFilterGrid" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-4">
+            <!-- Chunk 10: sheet header. Only rendered while the mobile sheet is
+                 open; on desktop the grid has no header row. -->
+            <div class="sf-sheet-header">
+              <button type="button" class="sf-sheet-reset-link" onclick="resetMobileSheetFilters()">Reset</button>
+              <span class="sf-sheet-title">More filters</span>
+              <button type="button" id="sfSheetCloseBtn" class="sf-sheet-close" aria-label="Close filters" onclick="toggleMobileFilterSheet(false)">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+              </button>
+            </div>
             <div class="sf-primary-filter">
               <label class="form-label"><i class="fa-solid fa-tags" aria-hidden="true"></i> Theme</label>
               <div class="theme-multiselect" style="position:relative;">
@@ -5763,7 +5772,7 @@
           </div>
           <div id="sfMobileFilterApplyBtn">
             <button type="button" class="sf-sheet-reset" onclick="resetMobileSheetFilters()"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Reset filters</button>
-            <button type="button" class="sf-sheet-apply" onclick="toggleMobileFilterSheet(false)">Apply Filters</button>
+            <button type="button" class="sf-sheet-apply" onclick="toggleMobileFilterSheet(false)">Show results</button>
           </div>
           </div>
         </div>
@@ -5987,6 +5996,20 @@
             </button>
           </section>
         </aside>
+      </div>
+      <!-- Chunk 10: mobile-only sticky actions. These call the same functions
+           as the toolbar buttons above, which scroll away on a phone -- they
+           are a second entry point, not a second implementation. -->
+      <div id="lpMobileActions" aria-label="Song actions">
+        <button type="button" class="lp-mact primary" onclick="_lpMobileAction('order')">
+          <i class="fa-solid fa-plus" aria-hidden="true"></i> Add to Order
+        </button>
+        <button type="button" class="lp-mact" onclick="_lpMobileAction('share')">
+          <i class="fa-solid fa-share-nodes" aria-hidden="true"></i> Share
+        </button>
+        <button type="button" class="lp-mact" onclick="_lpMobileAction('edit')">
+          <i class="fa-solid fa-pen" aria-hidden="true"></i> Edit
+        </button>
       </div>
       <div class="p-3 border-t border-slate-200 text-right" id="lpStatusBar">
         <span id="lyricsPreviewLastEdited" class="text-xs text-slate-400"></span>
@@ -18840,6 +18863,13 @@ window.loadEditSongData = function(song) {
     if (libraryMetric) libraryMetric.textContent = STATE.songs.length;
     if (lyricsMetric) lyricsMetric.textContent = STATE.songs.filter(function(s) { return !!String(s.lyrics || '').trim(); }).length;
     if (mediaMetric) mediaMetric.textContent = STATE.songs.filter(function(s) { return !!(String(s.youtube || '').trim() || (s.attachments && s.attachments.length)); }).length;
+
+    // Chunk 10: the sheet's primary button states what it will show, so the
+    // count comes from the same number the results row just reported.
+    var showBtn = document.querySelector('#sfMobileFilterApplyBtn .sf-sheet-apply');
+    if (showBtn) {
+      showBtn.textContent = (count === 1) ? 'Show 1 song' : 'Show ' + count + ' songs';
+    }
   }
 
   // ============================================================
@@ -19497,6 +19527,17 @@ window.loadEditSongData = function(song) {
   // Anything the schema cannot supply (time signature, BPM, usage counts) is
   // simply not rendered rather than shown empty or invented -- see
   // SONG-FINDER-AUDIT.md B1/B6.
+  // Chunk 10: the mobile action bar routes to the same dialogs the toolbar
+  // uses, so there is one implementation behind both.
+  function _lpMobileAction(kind) {
+    var song = STATE.lyricsCurrentSong;
+    if (!song) return;
+    if (kind === 'order' && typeof openAddToOrderModal === 'function') openAddToOrderModal(song.id);
+    else if (kind === 'share' && typeof openShareSongModal === 'function') openShareSongModal(song.id);
+    else if (kind === 'edit' && typeof lyricsPreviewOpenEditor === 'function') lyricsPreviewOpenEditor();
+  }
+  window._lpMobileAction = _lpMobileAction;
+
   function _lpRenderSongHeader(song) {
     if (!song) return;
     var crumb = document.getElementById('lpCrumbTitle');
@@ -85665,6 +85706,60 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── CHUNK 10: mobile internal screens ─────────────────────────────────── */
+  /* The sheet header only exists while the sheet is open. */
+  #sfFilterGrid .sf-sheet-header { display:none; }
+  #lpMobileActions { display:none; }
+
+  @media (max-width:768px) {
+    #sfFilterGrid.sf-sheet-open .sf-sheet-header {
+      grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; gap:10px;
+      margin:-6px 0 2px; padding-bottom:9px; border-bottom:1px solid var(--sf-line,#e3e8f4);
+    }
+    /* The CSS-generated title is replaced by the real header row. */
+    #sfFilterGrid.sf-sheet-open::before { content:none !important; }
+    .sf-sheet-title { color:var(--sf-navy,#0f1c3f); font-size:1rem; font-weight:800; }
+    .sf-sheet-reset-link {
+      padding:5px 2px; border:0; background:none; cursor:pointer;
+      color:var(--sf-blue-deep,#3b5bdb); font-family:inherit; font-size:.82rem; font-weight:750;
+    }
+    .sf-sheet-close {
+      width:36px; height:36px; display:grid; place-items:center; cursor:pointer;
+      border:1px solid var(--sf-line-2,#d0d8ec); border-radius:9px; background:#fff;
+      color:var(--sf-ink,#1a2547); font-size:.95rem;
+    }
+    .sf-sheet-close:focus-visible, .sf-sheet-reset-link:focus-visible {
+      outline:3px solid rgba(76,110,245,.38); outline-offset:2px;
+    }
+    /* Reset now lives in the header, so the footer is a single wide action. */
+    #sfMobileFilterApplyBtn .sf-sheet-reset { display:none; }
+
+    /* Sticky song actions. Uses dvh-aware safe-area padding so the bar is not
+       hidden behind the home indicator, and sits above the bottom nav. */
+    #lpMobileActions {
+      display:flex; gap:7px; flex:none; padding:9px 12px calc(9px + env(safe-area-inset-bottom,0px));
+      border-top:1px solid var(--sf-line,#e3e8f4); background:#fff;
+      box-shadow:0 -6px 18px rgba(15,28,63,.07);
+    }
+    .lp-mact {
+      flex:1 1 auto; min-height:46px; display:inline-flex; align-items:center; justify-content:center; gap:7px;
+      border:1px solid var(--sf-line-2,#d0d8ec); border-radius:11px; background:#fff; cursor:pointer;
+      color:var(--sf-ink,#1a2547); font-family:inherit; font-size:.78rem; font-weight:750;
+    }
+    .lp-mact.primary {
+      flex:1.5 1 auto; border-color:transparent; color:#fff;
+      background:linear-gradient(135deg,var(--sf-blue,#4c6ef5),var(--sf-violet,#7048e8));
+      box-shadow:0 6px 16px rgba(76,110,245,.26);
+    }
+    .lp-mact:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+    /* The status line duplicates what the bar already says on a phone. */
+    #lpStatusBar { display:none; }
+    /* Keyboard-aware: when the on-screen keyboard opens the visual viewport
+       shrinks, and 100dvh follows it, so the editor page and its Save stay
+       reachable instead of being pushed under the keyboard. */
+    #lyricsEditorModal .lyrics-editor-content { max-height:100dvh; }
+  }
 
   /* ── CHUNK 9: theme search, keyboard focus and validation ──────────────── */
   #filterThemeDropdown .sf-filter-theme-search {
