@@ -4,6 +4,56 @@ _Last updated: 2026-08-17 by Claude Code_
 
 ---
 
+## 2026-08-17 — Song Finder complete redesign (branch `feature/song-finder-complete-redesign`, IN PROGRESS)
+
+**Not merged. Chunks 1 of 12 complete.** A 12-chunk brief covering every Song
+Finder surface — details workspace, dedicated editor, resource previews,
+Orders/Songbook/Share modals, themes, mobile screens, states, responsive pass.
+This entry records what is done, what is blocked, and where to pick up.
+
+### Done
+
+- **Audit** (`SONG-FINDER-AUDIT.md`, rewritten) — the names that cannot be
+  renamed, the three pipelines carrying data off this page, and six blockers.
+- **Chunk 1, compact catalogue.** At 1366×768 the header was 312px and exactly
+  **one** card was visible. Now 142px and **three**. Causes were the search and
+  actions on separate rows, a redundant subtitle/hint/sub-header, and a
+  `max-height:74vh` scroller on `#songListContainer` that turned the catalogue
+  into a box inside the page. That scroller is only correct in the
+  master-detail split and is now scoped to `.sf-song-active`.
+  Statistics moved below the catalogue into a new `#sfStatsDesktopSlot`.
+
+### ⚠️ Blockers — six places the references show data the schema lacks
+
+Full detail in `SONG-FINDER-AUDIT.md` §6. Summary:
+
+| | Reference shows | Reality |
+|---|---|---|
+| B1 | "Used 28 times in Orders", Recent-usage rail | no per-order usage history table |
+| B2 | **History** tab | no per-song change log |
+| B3 | Theme colour + description | themes are bare strings |
+| B4 | Songbook layout persisted per entry | `SBQ_SONGBOOKS` stores `songIds` only |
+| B5 | Add-to-Order section + position | always writes `sectionId:''` — **buildable, no migration** |
+| B6 | Time signature, BPM, alt title, CCLI, service suitability | no columns exist |
+
+**Recommendation: build B5, omit B1/B2 honestly rather than faking history, and
+get one reviewed migration approved for B3/B4/B6.** No migration has been
+written — the brief requires approval first.
+
+### The one thing that will silently break
+
+`SBQ_SONGS.updateLyrics` writes the column **and** broadcasts
+`song-lyrics-changed` on the `lhc-song-library` realtime channel. That broadcast
+is what makes an open Order or LCD Projection update. **A new editor that writes
+`songs.lyrics` directly will save the words and kill live sync with no error.**
+
+### Next
+
+Chunk 2 (Song Details workspace) is the largest remaining piece and depends on
+the B1/B2 decision, since the reference rail is half usage history.
+
+---
+
 ## 2026-08-17 — Song Finder repalette (merged to `master`)
 
 **The visual half of the redesign brief, which the earlier branch got wrong by
