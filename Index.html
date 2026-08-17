@@ -5954,7 +5954,15 @@
             <input type="color" id="sfChordColor" value="#991b1b" onchange="_sfApplyAppearance()" title="Chords colour" style="width:30px;height:30px;padding:0;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;">
           </div>
         </div>
-        <div style="font-size:11px;color:#a21caf;max-width:220px;line-height:1.4;">Applies while you're viewing this song. Saving it permanently needs one small pending update.</div>
+        <div class="sf-appearance-actions">
+          <button type="button" class="sf-appearance-btn primary" onclick="saveSongAppearance()">
+            <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save appearance
+          </button>
+          <button type="button" class="sf-appearance-btn" onclick="resetSongAppearance()">
+            <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Reset
+          </button>
+          <span id="sfAppearanceState" class="sf-appearance-state" aria-live="polite"></span>
+        </div>
       </div>
       <!-- Chunk 2b: chord sheet and contextual rail sit side by side on wide
            desktop; below 1080px the rail stacks under the sheet. -->
@@ -8725,6 +8733,17 @@
                 <input id="newSongArtist" class="form-input" placeholder="Artist or composer name" autocomplete="off">
               </div>
             </div>
+            <div class="asm-grid-2" style="margin-top:10px;">
+              <div>
+                <label class="form-label" for="newSongAlternateTitle">Alternate Title</label>
+                <input id="newSongAlternateTitle" class="form-input" placeholder="Optional alternate or short title" autocomplete="off">
+              </div>
+              <div>
+                <label class="form-label" for="newSongCopyright">Copyright / CCLI</label>
+                <input id="newSongCopyright" class="form-input" placeholder="e.g. Public Domain" autocomplete="off">
+                <input id="newSongCcli" class="form-input" style="margin-top:6px;" placeholder="CCLI Song # (optional)" autocomplete="off">
+              </div>
+            </div>
           </div>
 
           <!-- § Musical + Liturgical — two cards side by side on desktop -->
@@ -8780,6 +8799,23 @@
                     <option value="Upbeat">Upbeat</option><option value="Meditative">Meditative</option>
                     <option value="Celebratory">Celebratory</option>
                   </select>
+                </div>
+              </div>
+              <div class="asm-grid-2 asm-field">
+                <div>
+                  <label class="form-label" for="newSongTimeSignature">Time Signature</label>
+                  <select id="newSongTimeSignature" class="form-input">
+                    <option value="">Not set</option>
+                    <option value="4/4">4/4</option><option value="3/4">3/4</option>
+                    <option value="6/8">6/8</option><option value="2/4">2/4</option>
+                    <option value="2/2">2/2</option><option value="12/8">12/8</option>
+                    <option value="5/4">5/4</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="newSongBpm">BPM</label>
+                  <input id="newSongBpm" class="form-input" type="number" min="20" max="300" step="1"
+                         inputmode="numeric" placeholder="e.g. 82" autocomplete="off">
                 </div>
               </div>
 
@@ -8861,6 +8897,16 @@
                 </button>
                 <div id="newSongScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;min-height:22px;"></div>
                 <input type="hidden" id="newSongScripture" value="">
+              </div>
+              <div class="asm-field">
+                <label class="form-label">Service Suitability</label>
+                <div class="asm-suit" id="newSongSuitability">
+                  <label><input type="checkbox" value="Sunday Worship"> Sunday Worship</label>
+                  <label><input type="checkbox" value="Weekday Service"> Weekday Service</label>
+                  <label><input type="checkbox" value="Funeral"> Funeral</label>
+                  <label><input type="checkbox" value="Wedding"> Wedding</label>
+                  <label><input type="checkbox" value="Youth Service"> Youth Service</label>
+                </div>
               </div>
             </div><!-- end Liturgical -->
 
@@ -9015,11 +9061,25 @@
           <p id="atbNewError" class="atb-error" hidden></p>
         </div>
 
-        <p class="atb-note">
-          <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-          A songbook stores which songs it contains. Per-songbook layout, key and
-          transposition are not stored yet — see the proposed migration.
-        </p>
+        <!-- Backed by songbook_entries. -->
+        <div class="atb-presentation">
+          <span class="ato-label">Layout in this songbook</span>
+          <div class="atb-layouts" role="radiogroup" aria-label="Layout">
+            <label class="atb-layout"><input type="radio" name="atbLayout" value="lyrics-only"><span><i class="fa-solid fa-align-left" aria-hidden="true"></i> Lyrics only</span></label>
+            <label class="atb-layout"><input type="radio" name="atbLayout" value="lyrics-chords" checked><span><i class="fa-solid fa-guitar" aria-hidden="true"></i> Lyrics + chords</span></label>
+            <label class="atb-layout"><input type="radio" name="atbLayout" value="two-column"><span><i class="fa-solid fa-table-columns" aria-hidden="true"></i> Two column</span></label>
+          </div>
+          <div class="ato-grid" style="margin-top:10px;">
+            <div>
+              <span class="ato-label">Key</span>
+              <div id="atbKeyStatic" class="ato-static"></div>
+            </div>
+            <div>
+              <label class="ato-label" for="atbTranspose">Transpose</label>
+              <select id="atbTranspose" class="ato-select"></select>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="ato-footer">
         <button type="button" class="lhc-pill-button" onclick="closeAddToSongbookModal()">Cancel</button>
@@ -9132,6 +9192,17 @@
                 <input id="editSongArtist" class="form-input" placeholder="Artist or composer name" autocomplete="off">
               </div>
             </div>
+            <div class="asm-grid-2" style="margin-top:10px;">
+              <div>
+                <label class="form-label" for="editSongAlternateTitle">Alternate Title</label>
+                <input id="editSongAlternateTitle" class="form-input" placeholder="Optional alternate or short title" autocomplete="off">
+              </div>
+              <div>
+                <label class="form-label" for="editSongCopyright">Copyright / CCLI</label>
+                <input id="editSongCopyright" class="form-input" placeholder="e.g. Public Domain" autocomplete="off">
+                <input id="editSongCcli" class="form-input" style="margin-top:6px;" placeholder="CCLI Song # (optional)" autocomplete="off">
+              </div>
+            </div>
           </div>
 
           <!-- § Musical + Liturgical -->
@@ -9187,6 +9258,23 @@
                     <option value="Upbeat">Upbeat</option><option value="Meditative">Meditative</option>
                     <option value="Celebratory">Celebratory</option>
                   </select>
+                </div>
+              </div>
+              <div class="asm-grid-2 asm-field">
+                <div>
+                  <label class="form-label" for="editSongTimeSignature">Time Signature</label>
+                  <select id="editSongTimeSignature" class="form-input">
+                    <option value="">Not set</option>
+                    <option value="4/4">4/4</option><option value="3/4">3/4</option>
+                    <option value="6/8">6/8</option><option value="2/4">2/4</option>
+                    <option value="2/2">2/2</option><option value="12/8">12/8</option>
+                    <option value="5/4">5/4</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="editSongBpm">BPM</label>
+                  <input id="editSongBpm" class="form-input" type="number" min="20" max="300" step="1"
+                         inputmode="numeric" placeholder="e.g. 82" autocomplete="off">
                 </div>
               </div>
 
@@ -9268,6 +9356,16 @@
                 </button>
                 <div id="editSongScriptureChips" style="display:flex;flex-wrap:wrap;gap:4px;min-height:22px;"></div>
                 <input type="hidden" id="editSongScripture" value="">
+              </div>
+              <div class="asm-field">
+                <label class="form-label">Service Suitability</label>
+                <div class="asm-suit" id="editSongSuitability">
+                  <label><input type="checkbox" value="Sunday Worship"> Sunday Worship</label>
+                  <label><input type="checkbox" value="Weekday Service"> Weekday Service</label>
+                  <label><input type="checkbox" value="Funeral"> Funeral</label>
+                  <label><input type="checkbox" value="Wedding"> Wedding</label>
+                  <label><input type="checkbox" value="Youth Service"> Youth Service</label>
+                </div>
               </div>
             </div><!-- end Liturgical -->
 
@@ -10613,6 +10711,35 @@ var songData = window.songData; // local reference
 var currentLyricsMode = 'new';
 
 // ============ Songs Page Theme Filter Multi-Select ============
+// Theme metadata (colour, description) keyed by lowercased name. Populated
+// from song_themes at load; empty until then, and everything degrades to the
+// plain string behaviour if the table is unreachable.
+var _themeMetaCache = {};
+window._themeMetaCache = _themeMetaCache;
+
+function loadThemeMetadata() {
+  if (!window.SBQ_THEMES) return Promise.resolve([]);
+  return SBQ_THEMES.loadAll().then(function(list) {
+    (list || []).forEach(function(t) {
+      _themeMetaCache[String(t.name).toLowerCase()] = { colour: t.colour, description: t.description };
+    });
+    // Themes created on another device must appear in the picker here too.
+    if (window.STATE && STATE.songMeta && list.length) {
+      STATE.songMeta.themes = _getFilterThemeOptions(
+        (STATE.songMeta.themes || []).concat(list.map(function(t) { return t.name; }))
+      );
+    }
+    return list;
+  }).catch(function() { return []; });
+}
+window.loadThemeMetadata = loadThemeMetadata;
+
+function _themeColour(name) {
+  var m = _themeMetaCache[String(name || '').toLowerCase()];
+  return (m && m.colour) || '';
+}
+window._themeColour = _themeColour;
+
 function _getFilterThemeOptions(themes) {
   var combined = (Array.isArray(themes) ? themes : []).concat(
     typeof _getCustomThemes === 'function' ? _getCustomThemes() : []
@@ -10793,9 +10920,14 @@ function populateThemeFilterDropdown(themes) {
     '<input type="checkbox" id="filterThemeAll" onchange="updateFilterTheme(this)" ' + (selected.length === 0 ? 'checked' : '') + '> All Themes</label></div>';
   themes.forEach(function(t) {
     var isChecked = selected.indexOf(t) >= 0;
-    html += '<div class="sf-filter-theme-option" data-theme="' + escapeHtml(t.toLowerCase()) + '">' +
+    var col = _themeColour(t);
+    var meta = _themeMetaCache[String(t).toLowerCase()];
+    html += '<div class="sf-filter-theme-option" data-theme="' + escapeHtml(t.toLowerCase()) + '"' +
+      (meta && meta.description ? ' title="' + escapeHtml(meta.description) + '"' : '') + '>' +
       '<label>' +
-      '<input type="checkbox" class="filter-theme-cb" value="' + escapeHtml(t) + '" onchange="updateFilterTheme(this)" ' + (isChecked ? 'checked' : '') + '> ' + escapeHtml(t) + '</label></div>';
+      '<input type="checkbox" class="filter-theme-cb" value="' + escapeHtml(t) + '" onchange="updateFilterTheme(this)" ' + (isChecked ? 'checked' : '') + '>' +
+      (col ? '<span class="sf-theme-dot" style="background:' + escapeHtml(col) + '"></span>' : '') +
+      ' ' + escapeHtml(t) + '</label></div>';
   });
   html += '<p class="sf-filter-theme-noresult" id="filterThemeNoResult" hidden>No theme matches that search.</p>' +
     '</div><div class="sf-filter-theme-add">' +
@@ -10805,6 +10937,12 @@ function populateThemeFilterDropdown(themes) {
     'oninput="_themeClearError()" ' +
     'onkeydown="if(event.key===\'Enter\'){event.preventDefault();addFilterCustomTheme();}">' +
     '<button type="button" onclick="addFilterCustomTheme()"><i class="fa-solid fa-plus"></i> Add</button></div>' +
+    // Colour and description are backed by the song_themes table.
+    '<div class="sf-theme-meta">' +
+    '<input id="filterThemeNewDesc" type="text" maxlength="120" placeholder="Description (optional)" aria-label="Theme description">' +
+    '<label class="sf-theme-colour" title="Theme colour (optional)">' +
+    '<input id="filterThemeNewColour" type="color" value="#4c6ef5" aria-label="Theme colour"><span>Colour</span></label>' +
+    '</div>' +
     '<p class="sf-filter-theme-error" id="filterThemeError" role="alert" hidden></p></div>';
   dd.innerHTML = html;
 }
@@ -10887,6 +11025,11 @@ function addFilterCustomTheme() {
   }
   _themeClearError();
   if (!match) {
+    var descEl = document.getElementById('filterThemeNewDesc');
+    var colEl = document.getElementById('filterThemeNewColour');
+    var desc = descEl ? String(descEl.value || '').trim() : '';
+    var colour = colEl ? String(colEl.value || '') : '';
+
     var customs = typeof _getCustomThemes === 'function' ? _getCustomThemes() : [];
     customs.push(newTheme);
     customs = _getFilterThemeOptions(customs);
@@ -10895,6 +11038,23 @@ function addFilterCustomTheme() {
       STATE.songMeta.themes = _getFilterThemeOptions((STATE.songMeta.themes || []).concat(newTheme));
     }
     if (typeof loadCustomThemes === 'function') loadCustomThemes();
+
+    // Persist to song_themes so the theme, its colour and its description are
+    // shared across devices. localStorage above stays as the offline fallback,
+    // so a failure here still leaves the theme usable.
+    if (window.SBQ_THEMES) {
+      SBQ_THEMES.save({ id: 'theme_' + Date.now(), name: newTheme, description: desc, colour: colour })
+        .then(function() {
+          _themeMetaCache[newTheme.toLowerCase()] = { colour: colour, description: desc };
+          if (typeof showToast === 'function') showToast('Theme "' + newTheme + '" saved', 'success');
+        })
+        .catch(function() {
+          if (typeof showToast === 'function') {
+            showToast('Theme "' + newTheme + '" added on this device only — could not reach the server', 'warning');
+          }
+        });
+    }
+    if (descEl) descEl.value = '';
     match = newTheme;
   }
   populateThemeFilterDropdown((window.STATE && STATE.songMeta && STATE.songMeta.themes) || []);
@@ -12488,7 +12648,49 @@ function _sfApplyAppearance() {
   var cc = (document.getElementById('sfChordColor') || {}).value || '';
   currentDisplayStyle = { lyricFont: lf, lyricSize: ls, lyricColor: lc, chordFont: cf, chordSize: cs, chordColor: cc };
   _sfPaintAppearance();
+  _sfMarkAppearanceDirty();
 }
+
+// ── display_style persistence (migration-backed) ────────────────────────────
+// The appearance controls used to be render-only and forgot everything on
+// close. songs.display_style now exists, so they can be saved -- but only when
+// the user asks, because painting on every keystroke would mean a write per
+// colour-picker drag.
+function _sfMarkAppearanceDirty() {
+  var el = document.getElementById('sfAppearanceState');
+  if (!el) return;
+  el.textContent = 'Unsaved appearance';
+  el.className = 'sf-appearance-state is-dirty';
+}
+
+function saveSongAppearance() {
+  var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
+  var el = document.getElementById('sfAppearanceState');
+  if (!song) return;
+  var style = Object.assign({}, currentDisplayStyle || {});
+  if (el) { el.textContent = 'Saving…'; el.className = 'sf-appearance-state'; }
+  SBQ_SONGS.updateDisplayStyle(song.id, style).then(function() {
+    song.display_style = style;
+    var list = (window.STATE && STATE.songs) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === song.id) list[i].display_style = style;
+    if (el) { el.textContent = 'Appearance saved'; el.className = 'sf-appearance-state is-ok'; }
+  }).catch(function(err) {
+    // Never report success for a write that did not land.
+    if (el) { el.textContent = 'Could not save appearance'; el.className = 'sf-appearance-state is-err'; }
+    if (typeof showToast === 'function') showToast('Could not save appearance: ' + ((err && err.message) || 'unknown error'), 'error');
+  });
+}
+window.saveSongAppearance = saveSongAppearance;
+
+function resetSongAppearance() {
+  ['sfLyricFont','sfLyricSize','sfChordFont','sfChordSize'].forEach(function(id) {
+    var e = document.getElementById(id); if (e) e.value = '';
+  });
+  var lc = document.getElementById('sfLyricColor'); if (lc) lc.value = '#1f2937';
+  var cc = document.getElementById('sfChordColor'); if (cc) cc.value = '#991b1b';
+  _sfApplyAppearance();
+}
+window.resetSongAppearance = resetSongAppearance;
 
 // Sets CSS custom properties on the container; the .lyric-line/.chord-line
 // rules pick these up via var(..., <default that matches today's look>), so
@@ -16716,7 +16918,16 @@ window.loadEditSongData = function(song) {
       useCount: parseInt(s.useCount) || 0,
       lastUsed: s.lastUsed || '',
       dateAdded: s.dateAdded || '',
-      lastEdited: s.lastEdited || ''
+      lastEdited: s.lastEdited || '',
+      // Fields backed by the 2026-08-17 migration. bpm stays a number or ''
+      // so an unset value never renders as 0.
+      alternateTitle: String(s.alternateTitle || '').trim(),
+      copyright: String(s.copyright || '').trim(),
+      ccliNumber: String(s.ccliNumber || '').trim(),
+      timeSignature: String(s.timeSignature || '').trim(),
+      bpm: (s.bpm == null || s.bpm === '') ? '' : (parseInt(s.bpm, 10) || ''),
+      serviceSuitability: Array.isArray(s.serviceSuitability) ? s.serviceSuitability : [],
+      display_style: (s.display_style && typeof s.display_style === 'object') ? s.display_style : {}
     };
   }
 
@@ -18020,6 +18231,22 @@ window.loadEditSongData = function(song) {
     document.getElementById('atbNewError').hidden = true;
     atbSwitchTab('existing');
 
+    // Presentation controls (songbook_entries).
+    document.getElementById('atbKeyStatic').textContent = song.key ? song.key + ' (Original)' : 'Not set';
+    var tr = document.getElementById('atbTranspose');
+    if (tr && !tr.options.length) {
+      var opts = ['0 (No transposition)'];
+      for (var i = 1; i <= 6; i++) opts.push('+' + i);
+      for (var j = -1; j >= -5; j--) opts.push(String(j));
+      tr.innerHTML = opts.map(function(label, idx) {
+        var val = idx === 0 ? 0 : (idx <= 6 ? idx : -(idx - 6));
+        return '<option value="' + val + '">' + label + '</option>';
+      }).join('');
+    }
+    if (tr) tr.value = '0';
+    var def = document.querySelector('input[name="atbLayout"][value="lyrics-chords"]');
+    if (def) def.checked = true;
+
     var list = document.getElementById('atbList');
     list.innerHTML = '<p class="atb-empty">Loading songbooks…</p>';
     openModal('addToSongbookModal');
@@ -18095,9 +18322,13 @@ window.loadEditSongData = function(song) {
                     createdDate: new Date().toISOString() };
       // Success is only reported after the save resolves.
       SBQ_SONGBOOKS.save(entry).then(function() {
-        showToast('"' + _atbSong.title + '" added to new songbook "' + entry.name + '"', 'success');
-        if (typeof renderSongbooksList === 'function') renderSongbooksList();
-        closeAddToSongbookModal();
+        // Presentation is saved after membership, and its failure must not
+        // claim the song was not added -- it was.
+        return _atbSavePresentation(entry.id, _atbSong.id).then(function() {
+          showToast('"' + _atbSong.title + '" added to new songbook "' + entry.name + '"', 'success');
+          if (typeof renderSongbooksList === 'function') renderSongbooksList();
+          closeAddToSongbookModal();
+        });
       }).catch(function(err) {
         showToast('Could not create songbook: ' + ((err && err.message) || 'unknown error'), 'error');
       }).finally(function() {
@@ -18109,7 +18340,24 @@ window.loadEditSongData = function(song) {
     if (!_atbSelectedId) { showToast('Choose a songbook first', 'warning'); return; }
     _sbPickerSongId = _atbSong.id;
     addSongToStandaloneSongbook(_atbSelectedId);
+    _atbSavePresentation(_atbSelectedId, _atbSong.id);
     closeAddToSongbookModal();
+  }
+
+  // Writes the chosen layout/key/transpose into songbook_entries. Membership
+  // has already been handled by SBQ_SONGBOOKS, so a failure here is reported
+  // as "added, but the layout did not save" rather than as a failed add.
+  function _atbSavePresentation(songbookId, songId) {
+    if (!window.SBQ_SB_ENTRIES) return Promise.resolve();
+    var layoutEl = document.querySelector('input[name="atbLayout"]:checked');
+    var trEl = document.getElementById('atbTranspose');
+    return SBQ_SB_ENTRIES.save(songbookId, songId, {
+      layout: layoutEl ? layoutEl.value : 'lyrics-chords',
+      keyOverride: (_atbSong && _atbSong.key) || '',
+      transposeSteps: trEl ? parseInt(trEl.value, 10) || 0 : 0
+    }).catch(function() {
+      showToast('Song added, but its layout could not be saved', 'warning');
+    });
   }
   window.confirmAddToSongbook = confirmAddToSongbook;
 
@@ -19489,6 +19737,13 @@ window.loadEditSongData = function(song) {
     $('editSongKey').value = song.key || '';
     $('editSongTempo').value = song.tempo || '';
     $('editSongTheme').value = song.theme || '';
+    // Migration-backed fields. bpm uses '' rather than 0 for unset.
+    $('editSongAlternateTitle').value = song.alternateTitle || '';
+    $('editSongCopyright').value = song.copyright || '';
+    $('editSongCcli').value = song.ccliNumber || '';
+    $('editSongTimeSignature').value = song.timeSignature || '';
+    $('editSongBpm').value = (song.bpm == null || song.bpm === '') ? '' : song.bpm;
+    _asmSetSuitability('editSongSuitability', song.serviceSuitability);
 
     // Season multi-select
     if (typeof setSeasonSelection === 'function') setSeasonSelection('edit', song.season || '');
@@ -19528,6 +19783,25 @@ window.loadEditSongData = function(song) {
     openModal('editSongModal');
   }
 
+  // Small readers for the migration-backed fields, shared by add and edit so
+  // the two forms cannot diverge.
+  function _asmVal(id) { var e = document.getElementById(id); return e ? String(e.value || '').trim() : ''; }
+  function _asmSuitability(containerId) {
+    var box = document.getElementById(containerId);
+    if (!box) return [];
+    return Array.prototype.filter.call(box.querySelectorAll('input[type=checkbox]'), function(c) { return c.checked; })
+      .map(function(c) { return c.value; });
+  }
+  function _asmSetSuitability(containerId, values) {
+    var box = document.getElementById(containerId);
+    if (!box) return;
+    var set = {};
+    (Array.isArray(values) ? values : []).forEach(function(v) { set[String(v).toLowerCase()] = true; });
+    box.querySelectorAll('input[type=checkbox]').forEach(function(c) {
+      c.checked = !!set[String(c.value).toLowerCase()];
+    });
+  }
+
   function saveEditSong() {
     var songId = $('editSongId').value;
     var title = ($('editSongTitle').value || '').trim();
@@ -19548,6 +19822,13 @@ window.loadEditSongData = function(song) {
     var songData = {
       id: songId,
       title: title,
+      // Fields backed by the 2026-08-17 migration.
+      alternateTitle: _asmVal('editSongAlternateTitle'),
+      copyright: _asmVal('editSongCopyright'),
+      ccliNumber: _asmVal('editSongCcli'),
+      timeSignature: _asmVal('editSongTimeSignature'),
+      bpm: _asmVal('editSongBpm'),
+      serviceSuitability: _asmSuitability('editSongSuitability'),
       artist: $('editSongArtist').value || '',
       category: $('editSongCategory').value || '',
       era: ($('editSongEra') ? $('editSongEra').value : '') || '',
@@ -19652,7 +19933,12 @@ window.loadEditSongData = function(song) {
       function push(label, value, cls) {
         String(value || '').split(/[,;]+/).forEach(function(v) {
           v = v.trim();
-          if (v) chips.push('<span class="lp-chip ' + cls + '"><b>' + label + '</b>' + escapeHtml(v) + '</span>');
+          if (!v) return;
+          // A theme with its own colour tints its chip; the category word stays
+          // in the text, so colour is never the only signal.
+          var col = (cls === 'lp-chip-theme' && typeof _themeColour === 'function') ? _themeColour(v) : '';
+          var style = col ? ' style="border-color:' + escapeHtml(col) + ';color:' + escapeHtml(col) + '"' : '';
+          chips.push('<span class="lp-chip ' + cls + '"' + style + '><b>' + label + '</b>' + escapeHtml(v) + '</span>');
         });
       }
       push('Theme: ', song.theme, 'lp-chip-theme');
@@ -20662,6 +20948,13 @@ window.loadEditSongData = function(song) {
 
     var songData = {
       title: title,
+      // Fields backed by the 2026-08-17 migration.
+      alternateTitle: _asmVal('newSongAlternateTitle'),
+      copyright: _asmVal('newSongCopyright'),
+      ccliNumber: _asmVal('newSongCcli'),
+      timeSignature: _asmVal('newSongTimeSignature'),
+      bpm: _asmVal('newSongBpm'),
+      serviceSuitability: _asmSuitability('newSongSuitability'),
       artist: $('newSongArtist').value || '',
       category: $('newSongCategory').value || '',
       era: ($('newSongEra') ? $('newSongEra').value : '') || '',
@@ -20727,6 +21020,13 @@ window.loadEditSongData = function(song) {
       STATE.songs = songs || [];
       window.STATE = STATE;
       populateFilterDropdowns();
+      // Theme colours/descriptions and any themes created on another device.
+      // Non-blocking: the picker already works from song data alone.
+      if (typeof loadThemeMetadata === 'function') {
+        loadThemeMetadata().then(function(list) {
+          if (list && list.length) populateThemeFilterDropdown(STATE.songMeta.themes);
+        });
+      }
       renderSongs(false);
       renderSongStats();
       // Songs arrive asynchronously, so the LCD Projection Song Library panel
@@ -21890,6 +22190,11 @@ window.loadEditSongData = function(song) {
       // Clear scripture chips in case modal was used before
       var schips = $('newSongScriptureChips'); if (schips) schips.innerHTML = '';
       var shid = $('newSongScripture'); if (shid) shid.value = '';
+      // Migration-backed fields start empty; the modal is reused between adds,
+      // so a previous song's values would otherwise persist into the next one.
+      ['newSongAlternateTitle','newSongCopyright','newSongCcli','newSongTimeSignature','newSongBpm']
+        .forEach(function(id) { var e = $(id); if (e) e.value = ''; });
+      _asmSetSuitability('newSongSuitability', []);
     };
     var snb = $('saveNewSongBtn'); if (snb) snb.onclick = saveNewSong;
     var seb = $('saveEditSongBtn'); if (seb) seb.onclick = saveEditSong;
@@ -23665,7 +23970,17 @@ function songToRow(song) {
     use_count:   parseInt(song.useCount) || 0,
     last_used:   song.lastUsed    || '',
     date_added:  song.dateAdded   || '',
-    last_edited: song.lastEdited  || ''
+    last_edited: song.lastEdited  || '',
+    // Columns added by 2026-08-17_song_finder_redesign_fields. bpm is the one
+    // numeric field, so an empty box must become null rather than 0 -- 0 BPM
+    // would read as a real (and wrong) tempo.
+    alternate_title:     song.alternateTitle || '',
+    copyright:           song.copyright      || '',
+    ccli_number:         song.ccliNumber     || '',
+    time_signature:      song.timeSignature  || '',
+    bpm:                 (song.bpm === '' || song.bpm == null) ? null : (parseInt(song.bpm, 10) || null),
+    service_suitability: Array.isArray(song.serviceSuitability) ? song.serviceSuitability : [],
+    display_style:       (song.display_style && typeof song.display_style === 'object') ? song.display_style : {}
   };
 }
 
@@ -23689,7 +24004,20 @@ function normalizeSongFromSupabase(row) {
     useCount:    row.use_count,
     lastUsed:    row.last_used,
     dateAdded:   row.date_added,
-    lastEdited:  row.last_edited
+    lastEdited:  row.last_edited,
+    // New columns, normalised HERE rather than relying on normalizeSong.
+    // normalizeSong is module-scoped and this function is global, so the
+    // typeof guard below has always been false and the bridged object is what
+    // actually ships. bpm in particular must become '' and not stay null, or
+    // the number input renders "null"; the jsonb fields must be real
+    // array/object defaults for rows written before the migration.
+    alternateTitle:     row.alternate_title || '',
+    copyright:          row.copyright       || '',
+    ccliNumber:         row.ccli_number     || '',
+    timeSignature:      row.time_signature  || '',
+    bpm:                (row.bpm == null || row.bpm === '') ? '' : row.bpm,
+    serviceSuitability: Array.isArray(row.service_suitability) ? row.service_suitability : [],
+    display_style:      (row.display_style && typeof row.display_style === 'object') ? row.display_style : {}
   };
   return (typeof normalizeSong === 'function') ? normalizeSong(bridged) : bridged;
 }
@@ -24653,6 +24981,117 @@ var SBQ_PROJECTION = {
 // ================================================================
 // SBQ_SONGBOOKS — Supabase helpers for standalone Songbooks table
 // ================================================================
+// ================================================================
+// SBQ_THEMES — song_themes table (migration 2026-08-17)
+// Themes remain comma-separated strings on songs.theme; this table only
+// DESCRIBES a theme (colour, description) and makes the custom list shared
+// across devices instead of living in one browser's localStorage.
+// ================================================================
+var SBQ_THEMES = {
+  _sb: function() { return (typeof SBQ_SONGS !== 'undefined' && SBQ_SONGS._sb) ? SBQ_SONGS._sb() : null; },
+  _tableExists: null,
+
+  loadAll: function() {
+    var sb = SBQ_THEMES._sb();
+    if (!sb) return Promise.resolve([]);
+    return sb.from('song_themes').select('*').order('name')
+      .then(function(r) {
+        if (r.error) {
+          // Table absent (migration not run) is not an error worth surfacing --
+          // the localStorage list still works.
+          SBQ_THEMES._tableExists = false;
+          return [];
+        }
+        SBQ_THEMES._tableExists = true;
+        return (r.data || []).map(function(row) {
+          return { id: row.id, name: row.name, description: row.description || '', colour: row.colour || '' };
+        });
+      })
+      .catch(function() { SBQ_THEMES._tableExists = false; return []; });
+  },
+
+  save: function(theme) {
+    var sb = SBQ_THEMES._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('song_themes').upsert([{
+      id: theme.id, name: theme.name,
+      description: theme.description || '', colour: theme.colour || ''
+    }]).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return { success: true };
+    });
+  },
+
+  remove: function(id) {
+    var sb = SBQ_THEMES._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('song_themes').delete().eq('id', id).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return { success: true };
+    });
+  }
+};
+window.SBQ_THEMES = SBQ_THEMES;
+
+// ================================================================
+// SBQ_SB_ENTRIES — songbook_entries table (migration 2026-08-17)
+// Per-songbook presentation for a song. songbooks.song_ids REMAINS the
+// membership list; this only carries layout/key/transpose, so every existing
+// reader that does song_ids.indexOf() is untouched.
+// ================================================================
+var SBQ_SB_ENTRIES = {
+  _sb: function() { return (typeof SBQ_SONGS !== 'undefined' && SBQ_SONGS._sb) ? SBQ_SONGS._sb() : null; },
+  _tableExists: null,
+
+  forSongbook: function(songbookId) {
+    var sb = SBQ_SB_ENTRIES._sb();
+    if (!sb || !songbookId) return Promise.resolve({});
+    return sb.from('songbook_entries').select('*').eq('songbook_id', songbookId)
+      .then(function(r) {
+        if (r.error) { SBQ_SB_ENTRIES._tableExists = false; return {}; }
+        SBQ_SB_ENTRIES._tableExists = true;
+        var byId = {};
+        (r.data || []).forEach(function(row) {
+          byId[row.song_id] = {
+            layout: row.layout || 'lyrics-chords',
+            keyOverride: row.key_override || '',
+            transposeSteps: row.transpose_steps || 0,
+            sortOrder: row.sort_order || 0
+          };
+        });
+        return byId;
+      })
+      .catch(function() { SBQ_SB_ENTRIES._tableExists = false; return {}; });
+  },
+
+  save: function(songbookId, songId, entry) {
+    var sb = SBQ_SB_ENTRIES._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('songbook_entries').upsert([{
+      songbook_id: songbookId,
+      song_id: songId,
+      layout: (entry && entry.layout) || 'lyrics-chords',
+      key_override: (entry && entry.keyOverride) || '',
+      transpose_steps: (entry && parseInt(entry.transposeSteps, 10)) || 0,
+      sort_order: (entry && parseInt(entry.sortOrder, 10)) || 0
+    }]).then(function(r) {
+      if (r.error) throw new Error(r.error.message);
+      return { success: true };
+    });
+  },
+
+  remove: function(songbookId, songId) {
+    var sb = SBQ_SB_ENTRIES._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('songbook_entries').delete().eq('songbook_id', songbookId).eq('song_id', songId)
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return { success: true };
+      });
+  }
+};
+window.SBQ_SB_ENTRIES = SBQ_SB_ENTRIES;
+
 var SBQ_SONGBOOKS = {
   _sb: function() { return getSupabaseClient(); },
   _tableExists: null, // null=unknown, true=ok, false=missing
@@ -24810,6 +25249,20 @@ var SBQ_SONGS = {
           .catch(function() { try { sb.removeChannel(ch); } catch (e) {} });
       });
     } catch (e) { /* never let notification failure surface as a save failure */ }
+  },
+
+  // Writes only the display_style column. Deliberately does NOT broadcast on
+  // lhc-song-library: that channel means "the words changed", and appearance
+  // is presentation only -- announcing it would make open Orders and LCD
+  // Projection re-render slides for nothing.
+  updateDisplayStyle: function(id, style) {
+    var sb = SBQ_SONGS._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('songs').update({ display_style: style || {} }).eq('id', id)
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return { success: true };
+      });
   },
 
   updateLyrics: function(id, lyrics) {
@@ -85797,6 +86250,50 @@ window.LHC_Install = (function() {
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
 
+  /* ── Theme colour + description (song_themes, migration-backed) ────────── */
+  #filterThemeDropdown .sf-theme-meta { display:flex; gap:7px; align-items:center; margin-top:7px; }
+  #filterThemeDropdown .sf-theme-meta input[type=text] {
+    flex:1 1 auto; min-width:0; min-height:32px; padding:0 9px; border-radius:8px;
+    border:1px solid var(--sf-line-2,#d0d8ec); background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.75rem; font-family:inherit;
+  }
+  #filterThemeDropdown .sf-theme-colour {
+    display:inline-flex; align-items:center; gap:5px; flex:none; cursor:pointer;
+    color:var(--sf-muted,#5f6b91); font-size:.68rem; font-weight:700;
+  }
+  #filterThemeDropdown .sf-theme-colour input[type=color] {
+    width:28px; height:28px; padding:0; border:1px solid var(--sf-line-2,#d0d8ec);
+    border-radius:7px; cursor:pointer; background:none;
+  }
+  .sf-theme-dot {
+    display:inline-block; width:9px; height:9px; border-radius:999px; flex:none;
+    margin-left:2px; box-shadow:0 0 0 1px rgba(15,28,63,.14);
+  }
+
+  /* ── Appearance save controls (display_style, migration-backed) ────────── */
+  .sf-appearance-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .sf-appearance-btn {
+    display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:0 12px; cursor:pointer;
+    border:1px solid #f0abfc; border-radius:9px; background:#fff; color:#a21caf;
+    font-family:inherit; font-size:.74rem; font-weight:750;
+  }
+  .sf-appearance-btn.primary { border-color:transparent; background:#a21caf; color:#fff; }
+  .sf-appearance-btn:hover { filter:brightness(1.05); }
+  .sf-appearance-btn:focus-visible { outline:3px solid rgba(162,28,175,.4); outline-offset:2px; }
+  .sf-appearance-state { font-size:.72rem; font-weight:700; color:#a21caf; }
+  .sf-appearance-state.is-dirty { color:#9a5b16; }
+  .sf-appearance-state.is-ok { color:#0f7a41; }
+  .sf-appearance-state.is-err { color:#c81e1e; }
+
+  /* ── Service suitability checkboxes (migration-backed) ─────────────────── */
+  .asm-suit { display:flex; flex-wrap:wrap; gap:6px 14px; }
+  .asm-suit label {
+    display:inline-flex; align-items:center; gap:6px; cursor:pointer;
+    color:var(--sf-ink,#1a2547); font-size:.76rem; font-weight:600;
+  }
+  .asm-suit input { width:15px; height:15px; accent-color:var(--sf-blue,#4c6ef5); }
+  .asm-suit input:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+
   /* ── CHUNK 11: one shared state component ──────────────────────────────── */
   #songFinderView .sf-state {
     display:flex; flex-direction:column; align-items:center; text-align:center;
@@ -85968,6 +86465,25 @@ window.LHC_Install = (function() {
                border:1px dashed var(--sf-line-2,#d0d8ec); border-radius:11px; background:var(--sf-surface,#f7f9fd); }
   .atb-error { margin:7px 0 0; color:#9a5b16; font-size:.74rem; font-weight:650; }
   .atb-error[hidden] { display:none; }
+  .atb-presentation { margin-top:13px; padding-top:12px; border-top:1px solid var(--sf-line,#e3e8f4); }
+  .atb-layouts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+  .atb-layout { position:relative; cursor:pointer; }
+  .atb-layout input { position:absolute; opacity:0; width:0; height:0; }
+  .atb-layout span {
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px;
+    min-height:58px; padding:8px 5px; text-align:center;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:10px; background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.7rem; font-weight:700;
+  }
+  .atb-layout span i { font-size:.95rem; color:var(--sf-muted,#5f6b91); }
+  .atb-layout input:checked + span {
+    border-color:var(--sf-blue,#4c6ef5); background:var(--sf-tint,#eef2ff);
+    color:var(--sf-blue-deep,#3b5bdb); box-shadow:0 0 0 3px rgba(76,110,245,.14);
+  }
+  .atb-layout input:checked + span i { color:var(--sf-blue-deep,#3b5bdb); }
+  .atb-layout input:focus-visible + span { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  @media (max-width:560px) { .atb-layouts { grid-template-columns:1fr; } }
+
   .atb-note {
     display:flex; align-items:flex-start; gap:8px; margin:13px 0 0; padding:9px 11px;
     border:1px solid var(--sf-line,#e3e8f4); border-radius:10px; background:var(--sf-surface,#f7f9fd);
