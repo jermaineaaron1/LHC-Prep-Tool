@@ -4,9 +4,21 @@ _Last updated: 2026-08-17 by Claude Code_
 
 ---
 
-## 2026-08-17 — Song Finder premium redesign (branch `feature/song-finder-premium-redesign`, NOT merged)
+## 2026-08-17 — Song Finder premium redesign (merged to `master`)
 
-**Awaiting review. Do not merge until it has been looked at on a real device.**
+**Merged on the operator's instruction from `feature/song-finder-premium-redesign`.**
+
+**Two things were NOT verified before merging, both recorded honestly rather
+than quietly dropped:**
+
+- **No real device.** All responsive checking was viewport emulation across
+  eight sizes (1920 → 360). The on-device mobile keyboard is the one behaviour
+  emulation cannot reproduce, so if anything is wrong on a phone it will be
+  there.
+- **Acceptance test 37** (Songbook → Song Order → LCD Projection) is recorded as
+  *unchanged*, **not** as an observed pass. The diff touches no order-save path —
+  no change to `collectOrderItems`, `refreshSongSlidesInOrder` or any slide
+  pipeline — but that chain was never walked end to end.
 
 ### The thing to know before reading the brief again
 
