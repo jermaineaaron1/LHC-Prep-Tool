@@ -9007,6 +9007,51 @@
     </div>
   </div>
 
+  <!-- ==================== CHUNK 8: SHARE SONG ==================== -->
+  <div id="shareSongModal" class="modal-overlay" style="z-index:10006;">
+    <div class="modal-content ato-content">
+      <div class="ato-header">
+        <h3 id="shareSongHeading">Share song</h3>
+        <button type="button" class="lhc-pill-button" title="Close" aria-label="Close" onclick="closeShareSongModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="ato-body">
+        <span class="ato-label">Share using</span>
+        <div class="share-grid">
+          <button type="button" class="share-tile" onclick="shareSongAction('copy')">
+            <i class="fa-solid fa-link" aria-hidden="true"></i><span>Copy song link</span>
+          </button>
+          <button type="button" class="share-tile" onclick="shareSongAction('whatsapp')">
+            <i class="fa-brands fa-whatsapp" style="color:#12a35a;" aria-hidden="true"></i><span>WhatsApp</span>
+          </button>
+          <button type="button" class="share-tile" onclick="shareSongAction('email')">
+            <i class="fa-solid fa-envelope" aria-hidden="true"></i><span>Email</span>
+          </button>
+          <button type="button" class="share-tile" onclick="shareSongAction('pdf')">
+            <i class="fa-solid fa-file-pdf" style="color:#c81e1e;" aria-hidden="true"></i><span>Download PDF</span>
+          </button>
+          <button type="button" class="share-tile" onclick="shareSongAction('print')">
+            <i class="fa-solid fa-print" aria-hidden="true"></i><span>Print</span>
+          </button>
+          <button type="button" class="share-tile" onclick="shareSongAction('lyrics')">
+            <i class="fa-solid fa-align-left" aria-hidden="true"></i><span>Copy lyrics only</span>
+          </button>
+        </div>
+
+        <label class="ato-label" for="shareSongLink" style="margin-top:14px;">Song link</label>
+        <div class="share-link-row">
+          <input id="shareSongLink" class="ato-select" type="text" readonly>
+          <button type="button" class="roster-action-btn primary" onclick="shareSongAction('copy')">
+            <i class="fa-solid fa-copy mr-1"></i> Copy
+          </button>
+        </div>
+        <p id="shareSongFeedback" class="share-feedback" hidden aria-live="polite"></p>
+      </div>
+      <div class="ato-footer">
+        <button type="button" class="lhc-pill-button" onclick="closeShareSongModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== MOBILE SONG ACTION SHEET ==================== -->
   <div id="mobileSongActionSheet" style="display:none;position:fixed;inset:0;z-index:9100;">
     <div id="msasBackdrop" onclick="closeMobileSongActionSheet()" style="position:absolute;inset:0;background:rgba(0,0,0,0.45);"></div>
@@ -13192,6 +13237,10 @@ window.lyricsPreviewOpenEditor = function() {
 window.lyricsPreviewShare = function(btn) {
   var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
   if (!song) return;
+
+  // Chunk 8: the full share dialog, which offers every real option rather than
+  // only a link. The native sheet below stays as the fallback.
+  if (typeof window.openShareSongModal === 'function') { window.openShareSongModal(song.id); return; }
 
   var baseUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
   var songUrl  = baseUrl + '?song=' + encodeURIComponent(song.id);
@@ -17613,6 +17662,162 @@ window.loadEditSongData = function(song) {
   window._asmInitStepNav = _asmInitStepNav;
   window._asmUpdateValidity = _asmUpdateValidity;
 
+  // ── Chunk 8: Share ────────────────────────────────────────────────────────
+  // Every tile here does something real. The reference also shows an
+  // "Access: view only / can edit" control -- there is no permissions model
+  // behind it, so it is omitted rather than shipped as a dead dropdown.
+  var _shareSong = null;
+
+  function _shareSongUrl(song) {
+    // ?song=<id> is handled at boot and opens this song, so the link is real
+    // and stable rather than a decorative string.
+    var base = (window.__WEBAPP_URL || window.location.href).split('?')[0];
+    return base + '?song=' + encodeURIComponent(song.id);
+  }
+
+  function openShareSongModal(songId) {
+    var song = STATE.songs && STATE.songs.find(function(s) { return s.id === songId; });
+    if (!song) { showToast('Song not found', 'error'); return; }
+    _shareSong = song;
+    document.getElementById('shareSongHeading').textContent = 'Share “' + (song.title || 'song') + '”';
+    document.getElementById('shareSongLink').value = _shareSongUrl(song);
+    _shareFeedback('', null);
+    openModal('shareSongModal');
+  }
+  window.openShareSongModal = openShareSongModal;
+
+  function closeShareSongModal() { closeModal('shareSongModal'); }
+  window.closeShareSongModal = closeShareSongModal;
+
+  function _shareFeedback(msg, ok) {
+    var el = document.getElementById('shareSongFeedback');
+    if (!el) return;
+    if (!msg) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false;
+    el.className = 'share-feedback ' + (ok ? 'is-ok' : 'is-err');
+    el.innerHTML = '<i class="fa-solid ' + (ok ? 'fa-circle-check' : 'fa-circle-exclamation') + '"></i> ' + escapeHtml(msg);
+  }
+
+  // Clipboard needs a fallback: navigator.clipboard is unavailable on
+  // non-secure origins, and reporting success when nothing was copied would be
+  // exactly the decorative feedback the brief rules out.
+  function _shareCopy(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;top:-1000px;opacity:0;';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        ok ? resolve() : reject(new Error('copy rejected'));
+      } catch (e) { reject(e); }
+    });
+  }
+
+  function _shareLyricsText(song) {
+    var lyrics = String(song.lyrics || '').trim();
+    if (!lyrics) return '';
+    var head = song.title + (song.artist ? '\n' + song.artist : '');
+    return head + '\n\n' + lyrics;
+  }
+
+  function shareSongAction(kind) {
+    var song = _shareSong;
+    if (!song) return;
+    var url = _shareSongUrl(song);
+
+    if (kind === 'copy') {
+      _shareCopy(url)
+        .then(function() { _shareFeedback('Link copied to clipboard', true); })
+        .catch(function() { _shareFeedback('Could not copy — select the link above and copy it manually', false); });
+      return;
+    }
+
+    if (kind === 'whatsapp') {
+      var msg = '🎵 *' + (song.title || 'Worship Song') + '*' + (song.artist ? ' — ' + song.artist : '') +
+                '\n\nOpen the chords and lyrics:\n' + url;
+      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
+      _shareFeedback('WhatsApp opened', true);
+      return;
+    }
+
+    if (kind === 'email') {
+      var body = (song.title || 'Worship song') + (song.artist ? '\nby ' + song.artist : '') +
+                 '\n\nOpen the chords and lyrics:\n' + url;
+      window.location.href = 'mailto:?subject=' + encodeURIComponent(song.title || 'Worship song') +
+                             '&body=' + encodeURIComponent(body);
+      _shareFeedback('Email draft opened', true);
+      return;
+    }
+
+    if (kind === 'lyrics') {
+      var text = _shareLyricsText(song);
+      if (!text) { _shareFeedback('This song has no lyrics saved yet', false); return; }
+      _shareCopy(text)
+        .then(function() { _shareFeedback('Lyrics copied to clipboard', true); })
+        .catch(function() { _shareFeedback('Could not copy the lyrics', false); });
+      return;
+    }
+
+    if (kind === 'print') {
+      if (typeof printLyricsPreview === 'function' && STATE.lyricsCurrentSong &&
+          STATE.lyricsCurrentSong.id === song.id) {
+        printLyricsPreview();
+        _shareFeedback('Print dialog opened', true);
+      } else {
+        _shareFeedback('Open the song first, then use Print', false);
+      }
+      return;
+    }
+
+    if (kind === 'pdf') { _shareDownloadPdf(song); return; }
+  }
+  window.shareSongAction = shareSongAction;
+
+  // Real PDF, built with the jsPDF already loaded for camera-to-PDF. Plain
+  // monospace so chord columns keep their alignment on the page.
+  function _shareDownloadPdf(song) {
+    var lyrics = String(song.lyrics || '').trim();
+    if (!lyrics) { _shareFeedback('This song has no lyrics to export', false); return; }
+    var jsPDFctor = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDFctor) { _shareFeedback('PDF export is unavailable — use Print instead', false); return; }
+    try {
+      var doc = new jsPDFctor({ orientation: 'p', unit: 'mm', format: 'a4' });
+      var margin = 15, y = margin, pageH = doc.internal.pageSize.getHeight();
+
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+      doc.text(String(song.title || 'Song'), margin, y); y += 7;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90);
+      var sub = [song.artist, song.key ? 'Key ' + song.key : '', song.tempo].filter(Boolean).join('  •  ');
+      if (sub) { doc.text(sub, margin, y); y += 6; }
+      doc.setTextColor(0);
+      y += 2;
+
+      doc.setFont('courier', 'normal'); doc.setFontSize(10);
+      lyrics.split('\n').forEach(function(line) {
+        if (y > pageH - margin) { doc.addPage(); y = margin; }
+        // Long lines wrap rather than running off the page.
+        var parts = doc.splitTextToSize(line || ' ', 180);
+        parts.forEach(function(p) {
+          if (y > pageH - margin) { doc.addPage(); y = margin; }
+          doc.text(p, margin, y); y += 4.6;
+        });
+      });
+
+      var safe = String(song.title || 'song').replace(/[^\w\-]+/g, '_').slice(0, 60) || 'song';
+      doc.save(safe + '.pdf');
+      _shareFeedback('PDF downloaded', true);
+    } catch (e) {
+      _shareFeedback('Could not build the PDF — use Print instead', false);
+    }
+  }
+
   // ── Chunk 7: Add to Songbook dialog ───────────────────────────────────────
   // Uses the existing SBQ_SONGBOOKS records and addSongToStandaloneSongbook --
   // no second songbook implementation, per the brief.
@@ -18156,7 +18361,14 @@ window.loadEditSongData = function(song) {
     return h;
   }
 
+  // Chunk 8: the card's Share button now opens the share dialog rather than
+  // jumping straight to WhatsApp -- WhatsApp is still one tile inside it.
   function shareSongCardWhatsApp(song) {
+    if (song && typeof openShareSongModal === 'function') { openShareSongModal(song.id); return; }
+    return _shareSongWhatsAppDirect(song);
+  }
+
+  function _shareSongWhatsAppDirect(song) {
     if (!song) return;
     var baseUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
     var songUrl = baseUrl + '?song=' + encodeURIComponent(song.id);
@@ -85370,6 +85582,32 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── CHUNK 8: Share dialog ─────────────────────────────────────────────── */
+  .share-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .share-tile {
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px;
+    min-height:76px; padding:10px 6px; cursor:pointer;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:11px; background:#fff;
+    color:var(--sf-ink,#1a2547); font-family:inherit; font-size:.7rem; font-weight:700; text-align:center;
+  }
+  .share-tile i { font-size:1.15rem; color:var(--sf-blue-deep,#3b5bdb); }
+  .share-tile:hover { border-color:#b9c5ea; background:var(--sf-tint,#eef2ff); transform:translateY(-1px); }
+  .share-tile:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  .share-link-row { display:flex; gap:8px; align-items:center; }
+  .share-link-row .ato-select { flex:1 1 auto; min-width:0; }
+  .share-feedback {
+    display:flex; align-items:center; gap:7px; margin:11px 0 0;
+    font-size:.75rem; font-weight:650;
+  }
+  .share-feedback[hidden] { display:none; }
+  .share-feedback.is-ok { color:#0f7a41; }
+  .share-feedback.is-err { color:#9a5b16; }
+  @media (max-width:560px) {
+    .share-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .share-tile { min-height:72px; }
+  }
+  @media (prefers-reduced-motion:reduce) { .share-tile:hover { transform:none; } }
 
   /* ── CHUNK 7: Add to Songbook dialog ───────────────────────────────────── */
   .atb-tabs { display:flex; gap:4px; padding:0 18px; border-bottom:1px solid var(--sf-line,#e3e8f4); }
