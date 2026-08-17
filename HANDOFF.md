@@ -78,8 +78,18 @@ alike; Preview now loads a real document instead of a comma-joined blob
 (`drive.google.com/file/d/…/preview` for Drive files, the inline text branch for
 Google Docs), and open-in-new-tab carries a single real url.
 
-The `songs_attachment_repair_backup` table still holds the pre-repair snapshot.
-Drop it once you are satisfied: `DROP TABLE songs_attachment_repair_backup;`
+The pre-repair state is archived in
+`migrations/2026-08-17_unpack_song_attachment_urls.pre-repair-snapshot.json`,
+with a verified `restore_sql` block. The `songs_attachment_repair_backup` table
+did its job (2 rows) and has been dropped.
+
+**One trap that cost a round trip, worth remembering.** That backup table read
+back as **empty** through the app's anon connection while actually holding both
+rows. A table created in the Supabase SQL Editor gets **RLS enabled with no
+policy**, and RLS filters anon reads to zero rows **silently** — no error, just
+an empty set, which looks identical to "the insert did nothing". Verify a backup
+as the **postgres** role in the SQL Editor; never conclude anything about a new
+table's contents from the app's client.
 
 Scope confirmed against all 51 rows — those two songs are the only ones
 affected. Three array values in total: "Away in Manger" attachments (1 entry
