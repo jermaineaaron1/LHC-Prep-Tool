@@ -1,0 +1,79 @@
+{
+  "_comment": [
+    "Pre-repair snapshot of the two rows changed by",
+    "2026-08-17_unpack_song_attachment_urls.sql. Captured from the live table on",
+    "2026-08-17, immediately BEFORE that migration was run.",
+    "",
+    "Why this file exists: the migration also wrote a backup into the table",
+    "songs_attachment_repair_backup, but that table read back as EMPTY from the",
+    "app's anon connection afterwards - either it captured nothing, or RLS is on",
+    "with no policy and is hiding the rows. Rather than leave the rollback",
+    "depending on which, the snapshot is archived here in git where it is",
+    "unambiguous and survives the backup table being dropped.",
+    "",
+    "Nothing was actually lost in the repair: every DISTINCT url present before",
+    "is present after. The repair only split packed entries, dropped one",
+    "duplicated Google Doc url and one duplicated YouTube url, and replaced stale",
+    "metadata (a type:'GDOC' field that described a Drive *file* as a Google",
+    "*Doc') with the shape the app's own parseFileUrl() generates.",
+    "",
+    "To restore, run the restore_sql below in the Supabase SQL Editor."
+  ],
+  "captured_at": "2026-08-17",
+  "table": "songs",
+  "rows": [
+    {
+      "id": "song_1767451889865",
+      "title": "Away in Manger",
+      "attachments": [
+        {
+          "ext": "gdoc",
+          "icon": "fa-file-word",
+          "name": "Google Doc",
+          "type": "GDOC",
+          "url": "https://drive.google.com/file/d/15WuTTYdtXK2KJnoVMCRWjVBsISg_Lc8F/view?usp=drive_link, https://docs.google.com/document/d/1LsM05phNJjTbfEUgusFhFUY2uFrFgajc/edit?usp=drive_link&ouid=106958184850014570488&rtpof=true&sd=true, https://docs.google.com/document/d/1LsM05phNJjTbfEUgusFhFUY2uFrFgajc/edit?usp=drive_link&ouid=106958184850014570488&rtpof=true&sd=true, https://docs.google.com/document/d/1FqWhmFz6wzWbftqXpcpWKaPi28Q6TVBQkZKvlFRaqDA/edit?usp=drive_link, https://docs.google.com/document/d/1tl6yP-YcskR1sYJFGw2GkFB6Q6_GGiKN/edit?usp=sharing&ouid=106958184850014570488&rtpof=true&sd=true"
+        },
+        {
+          "ext": "gdoc",
+          "icon": "fa-file-word",
+          "name": "Google Doc",
+          "url": "https://docs.google.com/document/d/1k74Gkz0wjNbj116T6HZ95gWoO7X5YcUu/edit"
+        }
+      ],
+      "youtube": [
+        "https://www.youtube.com/watch?v=3dxzdsfJp2s",
+        "https://www.youtube.com/watch?v=GjtYtBGrP6Y",
+        "https://www.youtube.com/watch?v=GjtYtBGrP6Y"
+      ]
+    },
+    {
+      "id": "song_1767452779910",
+      "title": "Hark the Herald Angel Sing",
+      "attachments": [
+        {
+          "name": "Document",
+          "type": "GDOC",
+          "url": "https://docs.google.com/document/d/1T_gbpWf52feBufbBem5hKGP6TTUmrkhY/edit?usp=drive_link&ouid=106958184850014570488&rtpof=true&sd=true, https://drive.google.com/file/d/1UqKy4WhU4xmc2jz6VDzrU5AxGQSDPsPV/view?usp=drive_link"
+        }
+      ],
+      "youtube": [
+        "https://www.youtube.com/watch?v=Z67EXPODXO8, https://www.youtube.com/watch?v=-21i2R6b1qA"
+      ]
+    }
+  ],
+  "restore_sql": [
+    "-- Restores the exact pre-repair state of both rows. Only needed if the",
+    "-- repair has to be undone; it re-introduces the packed urls and the broken",
+    "-- Preview behaviour they caused.",
+    "BEGIN;",
+    "UPDATE songs SET",
+    "  attachments = '[{\"ext\":\"gdoc\",\"icon\":\"fa-file-word\",\"name\":\"Google Doc\",\"type\":\"GDOC\",\"url\":\"https://drive.google.com/file/d/15WuTTYdtXK2KJnoVMCRWjVBsISg_Lc8F/view?usp=drive_link, https://docs.google.com/document/d/1LsM05phNJjTbfEUgusFhFUY2uFrFgajc/edit?usp=drive_link&ouid=106958184850014570488&rtpof=true&sd=true, https://docs.google.com/document/d/1LsM05phNJjTbfEUgusFhFUY2uFrFgajc/edit?usp=drive_link&ouid=106958184850014570488&rtpof=true&sd=true, https://docs.google.com/document/d/1FqWhmFz6wzWbftqXpcpWKaPi28Q6TVBQkZKvlFRaqDA/edit?usp=drive_link, https://docs.google.com/document/d/1tl6yP-YcskR1sYJFGw2GkFB6Q6_GGiKN/edit?usp=sharing&ouid=106958184850014570488&rtpof=true&sd=true\"},{\"ext\":\"gdoc\",\"icon\":\"fa-file-word\",\"name\":\"Google Doc\",\"url\":\"https://docs.google.com/document/d/1k74Gkz0wjNbj116T6HZ95gWoO7X5YcUu/edit\"}]'::jsonb,",
+    "  youtube = '[\"https://www.youtube.com/watch?v=3dxzdsfJp2s\",\"https://www.youtube.com/watch?v=GjtYtBGrP6Y\",\"https://www.youtube.com/watch?v=GjtYtBGrP6Y\"]'::jsonb",
+    "WHERE id = 'song_1767451889865';",
+    "UPDATE songs SET",
+    "  attachments = '[{\"name\":\"Document\",\"type\":\"GDOC\",\"url\":\"https://docs.google.com/document/d/1T_gbpWf52feBufbBem5hKGP6TTUmrkhY/edit?usp=drive_link&ouid=106958184850014570488&rtpof=true&sd=true, https://drive.google.com/file/d/1UqKy4WhU4xmc2jz6VDzrU5AxGQSDPsPV/view?usp=drive_link\"}]'::jsonb,",
+    "  youtube = '[\"https://www.youtube.com/watch?v=Z67EXPODXO8, https://www.youtube.com/watch?v=-21i2R6b1qA\"]'::jsonb",
+    "WHERE id = 'song_1767452779910';",
+    "COMMIT;"
+  ]
+}
