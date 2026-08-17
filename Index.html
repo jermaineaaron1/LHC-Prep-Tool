@@ -5811,7 +5811,7 @@
             <button id="lyricsPreviewSaveBtn" class="lhc-pill-button text-sm hidden" title="Save lyrics" onclick="lyricsPreviewSaveInlineEdit()" style="background:#ecfdf5;border-color:#6ee7b7;color:#047857;">
               <i class="fa-solid fa-check mr-1"></i> Save
             </button>
-            <button id="lyricsPreviewCancelEditBtn" class="lhc-pill-button text-sm hidden" title="Cancel editing" onclick="lyricsPreviewToggleInlineEdit(false)" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
+            <button id="lyricsPreviewCancelEditBtn" class="lhc-pill-button text-sm hidden" title="Cancel editing" onclick="lyricsPreviewCancelInlineEdit()" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
               <i class="fa-solid fa-xmark mr-1"></i> Cancel
             </button>
             <button id="lyricsPreviewDetailsBtn" class="lhc-pill-button text-sm" title="Edit song details (title, key, theme, etc.)" onclick="lyricsPreviewOpenEditor()" style="background:#f8fafc;border-color:#cbd5e1;color:#64748b;">
@@ -10442,7 +10442,15 @@ function _sfEscapeCloseTopLayer() {
     }
   }
 
-  // 4. The song workspace itself -- but only when it is actually an overlay.
+  // 4. The lyrics editor, which is a layer inside the workspace: Escape backs
+  // out of editing (with the unsaved-changes guard) rather than closing the
+  // whole song.
+  if (window.STATE && STATE.lyricsPreviewEditMode && typeof lyricsPreviewCancelInlineEdit === 'function') {
+    lyricsPreviewCancelInlineEdit();
+    return true;
+  }
+
+  // 5. The song workspace itself -- but only when it is actually an overlay.
   // On wide desktop the same element renders inline inside #sfWorkspacePanel,
   // where it is the page content and Escape has no business dismissing it.
   var lp = document.getElementById('lyricsPreviewModal');
@@ -11781,9 +11789,42 @@ function lyricsPreviewToggleInlineEdit(enter) {
     var b = document.getElementById(id);
     if (b) { b.disabled = !!enter; b.style.opacity = enter ? '0.45' : ''; b.style.pointerEvents = enter ? 'none' : ''; }
   });
+  // Snapshot what the words were on the way in, so "did the user actually
+  // change anything" is a comparison rather than a guess. Cleared on the way
+  // out so a stale baseline can never make a clean editor look dirty.
+  STATE._lpEditBaseline = enter ? String((song.lyrics || '')) : null;
   renderLyricsPreviewContent();
 }
 window.lyricsPreviewToggleInlineEdit = lyricsPreviewToggleInlineEdit;
+
+// True only while the inline editor is open AND its text differs from the
+// snapshot taken when it opened.
+function lyricsPreviewHasUnsavedEdits() {
+  if (!STATE.lyricsPreviewEditMode) return false;
+  var ta = document.getElementById('lyricsPreviewEditTextarea');
+  if (!ta || STATE._lpEditBaseline == null) return false;
+  return ta.value !== STATE._lpEditBaseline;
+}
+window.lyricsPreviewHasUnsavedEdits = lyricsPreviewHasUnsavedEdits;
+
+// Cancel is its own entry point rather than a flag on the toggle, because the
+// save path also calls the toggle to leave edit mode and must never be asked
+// to confirm a discard after it has just persisted the words.
+function lyricsPreviewCancelInlineEdit() {
+  if (!lyricsPreviewHasUnsavedEdits()) { lyricsPreviewToggleInlineEdit(false); return; }
+  var ask = (typeof window.customConfirm === 'function')
+    ? window.customConfirm('Discard changes?', 'Your edits to these lyrics have not been saved. Close the editor and lose them?')
+    : Promise.resolve(window.confirm('Discard your unsaved lyric changes?'));
+  ask.then(function(ok) { if (ok) lyricsPreviewToggleInlineEdit(false); });
+}
+window.lyricsPreviewCancelInlineEdit = lyricsPreviewCancelInlineEdit;
+
+// Leaving the page mid-edit is the one case the app cannot intercept itself.
+window.addEventListener('beforeunload', function(e) {
+  if (!lyricsPreviewHasUnsavedEdits()) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
 
 function lyricsPreviewSaveInlineEdit() {
   var song = currentLyricsPreviewSong;
@@ -12346,6 +12387,21 @@ window.lyricsRedo = lyricsRedo;
 window.applyLyricsFormat = applyLyricsFormat;
 
 function closeLyricsPreviewModal() {
+  // Closing the workspace while the editor is dirty would silently bin the
+  // words. Ask first, then finish the close from the answer. Callers ignore
+  // the return value, so deferring the rest of the teardown is safe.
+  if (lyricsPreviewHasUnsavedEdits()) {
+    var ask = (typeof window.customConfirm === 'function')
+      ? window.customConfirm('Discard changes?', 'Your edits to these lyrics have not been saved. Close this song and lose them?')
+      : Promise.resolve(window.confirm('Discard your unsaved lyric changes?'));
+    ask.then(function(ok) {
+      if (!ok) return;
+      STATE.lyricsPreviewEditMode = false;
+      STATE._lpEditBaseline = null;
+      closeLyricsPreviewModal();
+    });
+    return;
+  }
   var modal = document.getElementById('lyricsPreviewModal');
   if (modal) modal.classList.remove('show');
   currentTransposeValue = 0;
