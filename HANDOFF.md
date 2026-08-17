@@ -1,6 +1,124 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-08-16 by Claude Code_
+_Last updated: 2026-08-17 by Claude Code_
+
+---
+
+## 2026-08-17 — Song Finder premium redesign (branch `feature/song-finder-premium-redesign`, NOT merged)
+
+**Awaiting review. Do not merge until it has been looked at on a real device.**
+
+### The thing to know before reading the brief again
+
+**Most of the redesign brief was already built and already on `master`.** The
+`sf-*` design system, the portalled Theme dropdown with its add-a-theme box, the
+mobile Theme/Scripture/Feel row defaulting to "All", the "More filters" sheet,
+suggestion-to-card scrolling with the highlight, and the promoted resource
+preview layer (`promoteSongResourceModal`, z-index 120000) were all shipped
+already. This was established by driving the live app against the 51 real songs,
+not by reading code — see `SONG-FINDER-AUDIT.md`, committed first for exactly
+this reason.
+
+So this branch is **not** a rebuild. **34 of the brief's 40 acceptance tests
+passed before a line was changed.** It closes the six gaps that were left, plus
+two real bugs found while testing. Rewriting what already worked would have put
+the Orders and Songbook pipelines at risk for nothing.
+
+### What changed
+
+1. **Escape did nothing on this page.** It now peels exactly one layer — filter
+   menu → link chooser → resource viewer → lyrics editor → song workspace — so
+   closing a document preview returns to the workspace instead of dismissing
+   both. The workspace is only escapable when it is genuinely an overlay; at
+   ≥1080px the same element renders inline in `#sfWorkspacePanel` and is page
+   content. The old global handler closed a fixed list of modals *all at once*;
+   that path still runs when Escape belongs to none of the Songs layers.
+2. **`aria-expanded`** is now kept in sync on all four custom filter dropdowns
+   from one helper, and Key/Style/Season gained `role`, `tabindex` and
+   Enter/Space — they had none of it.
+3. **"Reset filters"** in the More filters sheet. It resets filters only and
+   deliberately leaves the search box alone; "Clear all" in the header remains
+   the one control that does both. `#sfMobileFilterApplyBtn` kept its id and
+   became the row holding both buttons, so the three places that reparent the
+   sheet between `<body>` and the page still move one element.
+4. **Unsaved lyric edits are no longer binned silently.** Cancel, closing the
+   song, and Escape each compare against a snapshot taken when the editor
+   opened. Cancel is its own entry point rather than a flag, because the save
+   path also uses the toggle to leave edit mode and must never be asked to
+   confirm discarding words it just persisted.
+5. **Resource cards** show the domain a resource lives on, and everything that
+   renders in an embed gained an open-in-new-tab escape hatch.
+6. **The link chooser** moved off z-index 10000 — the same band as
+   `.modal-overlay`, where it only won by being the last child of `<body>` — and
+   its position is clamped on both sides so a narrow phone cannot push it off
+   the left edge.
+
+### ⚠️ Two real bugs found while testing, both pre-existing
+
+**Packed attachment URLs.** Some stored attachment rows hold **several URLs
+joined with `", "` in a single record**. Two songs in the live library do today:
+**"Away in Manger"** and **"Hark the Herald Angel Sing"**. Every reader treated
+that string as one URL, so Preview handed a comma-joined blob to an iframe (it
+could not load) and the badge under-reported 5 documents as 2.
+
+Fixed **on read** by `_sfExpandAttachments()` / `_sfExpandMedia()`, which also
+collapse duplicate URLs. **No data was rewritten** — the rows are exactly as they
+were. If you would rather clean the rows themselves that is a separate,
+reviewable migration; the display fix means nothing is broken while it waits.
+
+**Every view was 230px wide at 1024 landscape.** Not a Songs bug — the app
+shell. The `(max-width:1024px)` rule stacks `.lhc-root` into one column and
+swaps the order so main sits above the sidebar; the tablet-landscape block
+re-creates **two** columns but inherited that swap, so main landed in the 230px
+sidebar track and the sidebar took the `1fr` content track. On master the Songs
+catalogue rendered **210px wide inside a 1024 viewport**. Home, Roster, Orders
+and Liturgy were all affected identically.
+
+Fixed by restoring source order inside that one media query. **This is the only
+change on this branch outside the Songs page**, and it was verified across all
+five views (230px → 731px, no horizontal overflow). Desktop sizes never match
+that query and are untouched.
+
+### Verified
+
+- Acceptance tests **1–36 and 38–40 pass**, driven against the live app.
+- Test 37 (Songbook → Song Order → LCD) — **the pipeline is untouched by this
+  branch**; the diff contains no change to `collectOrderItems`,
+  `refreshSongSlidesInOrder` or any order-save path. Recorded as unchanged, not
+  as an observed pass.
+- Add to Order and Add to Songbook were tested **end to end against Supabase**
+  using a throwaway song, order and songbook so no real service was touched.
+  `songId`, `sourceId`, lyrics, `masterLyrics`, youtube, attachments,
+  `transposeSteps` and `sortOrder` all survive; the duplicate guard holds; the
+  confirmation toast names the destination and fires only after the save
+  resolves. **All four test records were deleted afterwards** — songs back to
+  51, orders back to 4.
+- Sizes: 1920×1080, 1536×864, 1366×768, 1024×768, 768×1024, 430×932, 390×844,
+  360×740. No page-level horizontal overflow at any of them; preview Close
+  visible at all of them.
+- `python tools/check-inline-scripts.py --check` — all 12 blocks pass.
+
+### Known limitations
+
+- **`npm run build` does not go green locally**, and did not before this branch
+  either. It compiles and TypeScript passes, then fails collecting page data for
+  `/api/vocal-hero/media` because `NEXT_PUBLIC_SUPABASE_URL` is unset locally
+  (there is only `.env.local.example`). Unrelated to these changes.
+- **`npx eslint .` cannot run**: ESLint 9 wants `eslint.config.js` and the repo
+  has none. Pre-existing.
+- **No mockups were supplied with the request**, so this branch was built
+  against the written spec alone. Anything where a picture would have decided
+  the look — exact spacing, the card's visual weight — follows the existing
+  shipped design rather than inventing a new one.
+- Adding a song from Song Finder still lands it **unsectioned** at the end of an
+  order (`sectionId: ''`). That is long-standing behaviour, left alone
+  deliberately.
+- Appearance controls (lyric/chord font, size, colour) remain **view-only**; the
+  panel says so. Persisting them still needs the proposed
+  `migrations/2026-07-17_add_songs_display_style.sql`, which has not been run.
+- The Home page's trending list maps attachments the old way and would still
+  mis-handle those two packed rows. Left alone because the brief says not to
+  touch Home; it is a one-line change to `_sfExpandAttachments` when wanted.
 
 ---
 
