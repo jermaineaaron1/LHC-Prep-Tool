@@ -9188,7 +9188,12 @@
   <div id="lyricsEditorModal" class="lyrics-editor-modal">
     <div class="lyrics-editor-content">
       <div class="lyrics-editor-header">
-        <h3><i class="fa-solid fa-music text-indigo-500"></i> Lyrics & Chords Editor</h3>
+        <h3><i class="fa-solid fa-music text-indigo-500"></i> Lyrics &amp; Chords Editor</h3>
+        <span id="lyricsEditorSongTitle" class="lyrics-editor-songtitle"></span>
+        <!-- Honest state. This editor stages into the song form; the form's
+             Save is what persists and broadcasts, so it must NOT claim to have
+             autosaved. -->
+        <span id="lyricsEditorState" class="lyrics-editor-state" aria-live="polite"></span>
         <button type="button" class="lhc-pill-button" onclick="closeLyricsEditor()">
           <i class="fa-solid fa-xmark"></i>
         </button>
@@ -9264,6 +9269,13 @@
               </button>
             </div>
           </div>
+          <!-- Chunk 4: section outline. Derived from the text on every input,
+               so it can never disagree with the document. -->
+          <div class="lyrics-editor-main">
+          <aside id="lyricsOutline" aria-label="Section outline">
+            <div class="lyrics-outline-head">Outline</div>
+            <div id="lyricsOutlineList"></div>
+          </aside>
           <div class="lyrics-editor-wrapper">
             <div id="lyricsRichEditor" class="lyrics-rich-editor" contenteditable="true"
                  data-placeholder="Type or paste lyrics here...
@@ -9277,6 +9289,7 @@ C       G      D
 I once was lost but now am found"
                  oninput="onRichEditorInput()"></div>
           </div>
+          </div><!-- end lyrics-editor-main -->
           <textarea id="lyricsEditorTextarea" class="lyrics-textarea"></textarea>
         </div>
         <div class="lyrics-editor-right">
@@ -14102,6 +14115,15 @@ function openLyricsEditor(mode) {
   lyricsHistory = [lyrics];
   lyricsHistoryIndex = 0;
 
+  // Chunk 4: outline, song title and a clean state for this session.
+  _lyricsRenderOutline(lyrics);
+  _lyricsSetEditorState(false);
+  var titleEl = document.getElementById('lyricsEditorSongTitle');
+  if (titleEl) {
+    var src = document.getElementById(mode + 'SongTitle');
+    titleEl.textContent = (src && src.value.trim()) || '';
+  }
+
   modal.classList.add('show');
 
   // Populate rich editor with syntax highlighting
@@ -14259,6 +14281,87 @@ function renderRichEditor(text) {
   richEditor.innerHTML = html;
 }
 
+// ── Chunk 4: section outline ────────────────────────────────────────────────
+// Sections are the existing [Bracket] markers, which is the convention the rest
+// of the app already parses -- no second notation is introduced.
+function _lyricsParseSections(text) {
+  var lines = String(text || '').split('\n');
+  var out = [], cur = null;
+  lines.forEach(function(line, i) {
+    var m = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (m) {
+      cur = { name: m[1].trim(), line: i, lines: 0 };
+      out.push(cur);
+    } else if (cur && line.trim()) {
+      cur.lines++;
+    }
+  });
+  return out;
+}
+
+function _lyricsRenderOutline(text) {
+  var list = document.getElementById('lyricsOutlineList');
+  if (!list) return;
+  var secs = _lyricsParseSections(text);
+  if (!secs.length) {
+    list.innerHTML = '<p class="lyrics-outline-empty">Add a section marker like <code>[Verse 1]</code> to build an outline.</p>';
+    return;
+  }
+  list.innerHTML = secs.map(function(s, i) {
+    return '<button type="button" class="lyrics-outline-item" data-line="' + s.line + '" data-idx="' + i + '">' +
+      '<span class="lyrics-outline-name">' + escapeHtml(s.name) + '</span>' +
+      '<small>' + s.lines + ' line' + (s.lines === 1 ? '' : 's') + '</small></button>';
+  }).join('');
+  list.querySelectorAll('.lyrics-outline-item').forEach(function(btn) {
+    btn.onclick = function() { _lyricsJumpToSection(parseInt(btn.getAttribute('data-line'), 10)); };
+  });
+}
+
+// Places the caret at the start of the section's line in the contenteditable,
+// counting characters rather than assuming one DOM node per line.
+function _lyricsJumpToSection(lineIdx) {
+  var ed = document.getElementById('lyricsRichEditor');
+  var ta = document.getElementById('lyricsEditorTextarea');
+  if (!ed || !ta) return;
+  var lines = String(ta.value || '').split('\n');
+  var offset = 0;
+  for (var i = 0; i < lineIdx && i < lines.length; i++) offset += lines[i].length + 1;
+  ed.focus();
+  try {
+    var walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT, null, false);
+    var seen = 0, node, target = null, targetOff = 0;
+    while ((node = walker.nextNode())) {
+      var len = node.textContent.length;
+      if (seen + len >= offset) { target = node; targetOff = Math.max(0, offset - seen); break; }
+      seen += len;
+    }
+    if (target) {
+      var range = document.createRange();
+      range.setStart(target, Math.min(targetOff, target.textContent.length));
+      range.collapse(true);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      var el = target.parentElement;
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+    }
+  } catch (e) { /* caret placement is a convenience, never a failure */ }
+}
+
+// Dirty/clean badge. Deliberately never says "autosaved": this editor stages
+// into the song form and the form's Save is what persists and broadcasts.
+function _lyricsSetEditorState(dirty) {
+  var el = document.getElementById('lyricsEditorState');
+  if (!el) return;
+  window._lyricsEditorDirty = !!dirty;
+  el.className = 'lyrics-editor-state ' + (dirty ? 'is-dirty' : 'is-clean');
+  el.innerHTML = dirty
+    ? '<i class="fa-solid fa-circle" aria-hidden="true"></i> Unsaved changes'
+    : '<i class="fa-solid fa-circle-check" aria-hidden="true"></i> No changes yet';
+}
+window._lyricsRenderOutline = _lyricsRenderOutline;
+window._lyricsSetEditorState = _lyricsSetEditorState;
+
 function onRichEditorInput() {
   var richEditor = document.getElementById('lyricsRichEditor');
   var textarea = document.getElementById('lyricsEditorTextarea');
@@ -14273,6 +14376,13 @@ function onRichEditorInput() {
   window.lyricsHistoryDebounce = setTimeout(function() {
     saveLyricsState();
   }, 500);
+
+  // Chunk 4: outline and dirty state are derived from the text, never stored
+  // separately, so they cannot disagree with the document. Both only read it --
+  // nothing here writes back into the editor, which is what keeps the caret
+  // still while typing.
+  _lyricsRenderOutline(text);
+  _lyricsSetEditorState(true);
 
   // Update preview immediately.
   // NOTE: We deliberately do NOT re-render innerHTML during typing.
@@ -84829,6 +84939,63 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ==========================================================================
+     CHUNK 4 — Lyrics & Chords editor: section outline and honest save state.
+
+     The editor itself, its undo/redo, transpose and live preview already
+     existed and are untouched. This adds the outline from reference image 3
+     and a state badge that tells the truth: the editor STAGES into the song
+     form, and the form's Save is what persists and broadcasts, so the badge
+     never claims to have autosaved.
+     ========================================================================== */
+  .lyrics-editor-songtitle {
+    margin-left:10px; color:var(--sf-muted,#5f6b91); font-size:.82rem; font-weight:650;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:34ch;
+  }
+  .lyrics-editor-state {
+    margin-left:auto; margin-right:10px; display:inline-flex; align-items:center; gap:6px;
+    padding:3px 10px; border-radius:999px; font-size:.7rem; font-weight:750; white-space:nowrap;
+  }
+  .lyrics-editor-state i { font-size:.55rem; }
+  .lyrics-editor-state.is-dirty { background:#fff7ed; color:#9a5b16; border:1px solid #fed7aa; }
+  .lyrics-editor-state.is-clean { background:#f0fdf4; color:#0f7a41; border:1px solid #a9e8c0; }
+
+  .lyrics-editor-main { display:flex; align-items:stretch; gap:10px; min-height:0; flex:1 1 auto; }
+  .lyrics-editor-main > .lyrics-editor-wrapper { flex:1 1 auto; min-width:0; }
+  #lyricsOutline {
+    flex:0 0 168px; min-width:0; display:flex; flex-direction:column;
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:10px;
+    background:var(--sf-surface,#f7f9fd); overflow:hidden;
+  }
+  .lyrics-outline-head {
+    padding:8px 10px; border-bottom:1px solid var(--sf-line,#e3e8f4);
+    color:var(--sf-muted,#5f6b91); font-size:.62rem; font-weight:800;
+    letter-spacing:.1em; text-transform:uppercase;
+  }
+  #lyricsOutlineList { overflow-y:auto; padding:5px; display:flex; flex-direction:column; gap:3px; }
+  .lyrics-outline-item {
+    display:flex; flex-direction:column; align-items:flex-start; gap:1px; width:100%;
+    padding:6px 8px; border:1px solid transparent; border-radius:8px; background:#fff;
+    cursor:pointer; text-align:left; font-family:inherit;
+  }
+  .lyrics-outline-item:hover { border-color:#b9c5ea; background:var(--sf-tint,#eef2ff); }
+  .lyrics-outline-item:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  .lyrics-outline-name {
+    color:var(--sf-navy,#0f1c3f); font-size:.74rem; font-weight:750;
+    max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .lyrics-outline-item small { color:var(--sf-muted,#5f6b91); font-size:.63rem; }
+  .lyrics-outline-empty { margin:0; padding:8px; color:var(--sf-muted,#5f6b91); font-size:.7rem; line-height:1.5; }
+  .lyrics-outline-empty code {
+    padding:1px 4px; border-radius:4px; background:var(--sf-surface-2,#eff2fa);
+    color:var(--sf-blue-deep,#3b5bdb); font-size:.68rem;
+  }
+  @media (max-width:900px) {
+    /* The outline would halve an already narrow editing column on a phone. */
+    #lyricsOutline { display:none; }
+    .lyrics-editor-songtitle { display:none; }
+  }
 
   /* ==========================================================================
      CHUNK 3 — Add / Edit Song: numbered sections and a step rail.
