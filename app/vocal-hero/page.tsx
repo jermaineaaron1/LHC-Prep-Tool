@@ -19,6 +19,7 @@ import { HighScoreBoard } from './HighScoreBoard';
 import { CountInOverlay } from './CountInOverlay';
 import { rememberPlayerName, storedPlayerName } from './playerName';
 import { playEntranceCue } from '@/lib/vocal-hero/cueTones';
+import { useWakeLock } from '@/lib/vocal-hero/useWakeLock';
 import { summariseRound } from '@/lib/vocal-hero/review';
 import type { RoundReview } from '@/lib/vocal-hero/review';
 import { TransposeBadge, TransposePicker, rememberTranspose, storedTranspose, transposeNotes } from './TransposePicker';
@@ -216,6 +217,9 @@ export default function VocalHeroHostPage() {
       void savePlayerRoundStats({ session_id: session.id, player_id: soloPlayer.id, score: scorer.currentTotal, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit });
     });
   }, [session?.id, session?.status, soloPlayer]);
+
+  // The host screen is usually a projector or a laptop left alone on a stand.
+  useWakeLock(Boolean(session) && session?.status !== 'ended');
 
   async function chooseSong(next: Song) {
     try {
