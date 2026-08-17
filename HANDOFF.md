@@ -4,6 +4,60 @@ _Last updated: 2026-08-17 by Claude Code_
 
 ---
 
+## 2026-08-17 — Usage and History built WITHOUT a migration (branch `feature/song-usage-and-history`, NOT merged)
+
+B1 and B2 were both recorded as blocked on new tables. **Usage was not** —
+`order_items` already holds every song placement, so it is derivable. Neither
+feature needed a schema change.
+
+### What was built
+
+- `SBQ.getSongUsage(songId)` → the orders and songbooks a song appears in.
+- A usage line in the song header: *"Used in N orders · in M songbooks"*.
+- A **"Where this song is used"** rail card listing each, tagged In Order /
+  In Songbook.
+- A **History tab**: an activity timeline from the song's created/edited stamps,
+  the orders it was added to (with dates), and the songbooks holding it.
+
+### ⚠️ An accuracy bug this corrected
+
+**The `orders` table holds two kinds of row**: real worship orders (`order_*`)
+and songbook-backed pseudo-orders (`standalone_sb_*`). The existing
+`SBQ.getSongUsageStats` counts both, so **a song sitting only in a songbook is
+reported as order usage**. Right now *every* song item in `order_items` belongs
+to a `standalone_*` row, so that stat is currently all songbook data.
+
+`getSongUsage` separates them and takes songbook membership from
+`songbooks.song_ids`, which is canonical — some `standalone_sb_*` rows outlive
+the songbook that created them. **`getSongUsageStats` is left in place** for the
+sidebar; it is only the new panel that is accurate. Worth fixing the sidebar too
+if those numbers are ever quoted.
+
+### What History is, and is not
+
+It is an **activity timeline**, and is labelled as one. It is **not** a
+field-by-field change log — nothing records per-field history, and the
+reference's "View change history" would need a change-log table plus a write on
+every save. The panel says so in plain text rather than implying diffs it cannot
+show. Songbook membership carries no timestamp, so those rows read *"No date
+recorded"* instead of borrowing one.
+
+### Housekeeping note — not mine
+
+`order_items` contains a leftover row under order id
+`standalone_zztest_sb_1785606158374`, dated 2026-08-01, from an earlier session.
+Left alone (the rule is to delete only ids you created), but worth clearing.
+
+### Verified
+
+A songbook-only song reads *"0 orders · 1 songbook"* — which the old stat would
+have got wrong. A throwaway order made it read *"1 order · 0 songbooks"* with the
+service date in both the rail and the timeline; that order was deleted and songs
+are back to 51. Full catalogue regression re-run: filters, reset, all five detail
+tabs and transpose all still correct.
+
+---
+
 ## 2026-08-17 — The migration is RUN, and the four blocked features are built (branch `feature/song-finder-new-schema-fields`, NOT merged)
 
 `2026-08-17_song_finder_redesign_fields.sql` was **run in the Supabase SQL
