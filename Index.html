@@ -16884,6 +16884,58 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 9) SONG RENDERING - WITH CLICKABLE TITLE & GOOGLE DOC BUTTON
   // ============================================================
+  // ── Chunk 11: one state component for the catalogue ───────────────────────
+  // Loading, empty and error all read the same instead of each screen
+  // inventing its own markup.
+  function _sfState(o) {
+    return '<div class="sf-state' + (o.tone ? ' is-' + o.tone : '') + '" role="status">' +
+      '<div class="sf-state-icon"><i class="fa-solid ' + (o.icon || 'fa-circle-info') + '" aria-hidden="true"></i></div>' +
+      '<h4>' + escapeHtml(o.title || '') + '</h4>' +
+      (o.body ? '<p>' + escapeHtml(o.body) + '</p>' : '') +
+      (o.action || '') + '</div>';
+  }
+  window._sfState = _sfState;
+
+  // Shown while the first load is in flight, so the catalogue is never a blank
+  // panel that looks like an empty library.
+  function _sfShowCatalogueLoading() {
+    var container = document.getElementById('songListContainer');
+    var empty = document.getElementById('songEmptyState');
+    if (empty) empty.style.display = 'none';
+    if (container) {
+      container.innerHTML = _sfState({
+        icon: 'fa-spinner fa-spin', title: 'Loading your song library…',
+        body: 'Fetching songs, lyrics and resources.'
+      });
+    }
+  }
+  window._sfShowCatalogueLoading = _sfShowCatalogueLoading;
+
+  // Distinguishes "the library is genuinely empty" from "we could not reach
+  // the backend", because the two need different actions from the user.
+  function _sfShowCatalogueError(message) {
+    var container = document.getElementById('songListContainer');
+    var empty = document.getElementById('songEmptyState');
+    if (empty) empty.style.display = 'none';
+    if (container) {
+      container.innerHTML = _sfState({
+        tone: 'error', icon: 'fa-triangle-exclamation',
+        title: 'Could not load the song library',
+        body: message || 'The backend did not respond. Your connection may be offline.',
+        action: '<button type="button" class="sf-state-btn" onclick="loadSongs()">Try again</button>'
+      });
+    }
+  }
+  window._sfShowCatalogueError = _sfShowCatalogueError;
+
+  // Recovery action for the empty state: clear, then land on the full library
+  // rather than the "start typing" placeholder.
+  function _sfClearAndShowAll() {
+    clearSongSearch();
+    if (typeof showAllSongs === 'function') showAllSongs();
+  }
+  window._sfClearAndShowAll = _sfClearAndShowAll;
+
   function renderSongs(forceShow) {
     var container = $('songListContainer');
     var emptyState = $('songEmptyState');
@@ -16902,8 +16954,18 @@ window.loadEditSongData = function(song) {
     updateResultCounts(filtered.length);
 
     if (!filtered.length) {
+      // Chunk 11: one shared state component, and it offers a way out rather
+      // than only stating the problem.
       if (container) {
-        container.innerHTML = '<div class="text-center py-10 text-slate-500"><i class="fa-solid fa-search text-3xl mb-3 opacity-50"></i><p class="font-semibold">No songs found</p><p class="text-sm">Try different search terms or clear filters.</p></div>';
+        container.innerHTML = _sfState({
+          icon: 'fa-magnifying-glass',
+          title: 'No songs match',
+          body: 'Nothing in the library matches this search and filter combination.',
+          // Not plain clearSongSearch(): that lands on the "start typing"
+          // prompt, so recovering from an empty result would show another
+          // empty panel. This clears and then shows the library.
+          action: '<button type="button" class="sf-state-btn" onclick="_sfClearAndShowAll()">Clear search and filters</button>'
+        });
       }
       return;
     }
@@ -17370,9 +17432,14 @@ window.loadEditSongData = function(song) {
     });
   }
 
+  // Chunk 11: the app's own confirm/prompt modals instead of the browser's.
   function deleteStandaloneSongbook(itemId) {
     var rawId = itemId.replace(/^sb-/, '');
-    if (!confirm('Delete this songbook? This cannot be undone.')) return;
+    window.customConfirm('Delete songbook?', 'This removes the songbook. The songs themselves are not deleted.')
+      .then(function(ok) { if (ok) _deleteStandaloneSongbookConfirmed(rawId); });
+  }
+
+  function _deleteStandaloneSongbookConfirmed(rawId) {
     SBQ_SONGBOOKS.remove(rawId).catch(function() {}).finally(function() {
       try {
         var list = JSON.parse(localStorage.getItem('lhc_standalone_songbooks') || '[]');
@@ -17386,10 +17453,15 @@ window.loadEditSongData = function(song) {
   window.deleteStandaloneSongbook = deleteStandaloneSongbook;
 
   function renameSongbook(itemId, currentName) {
+    window.customPrompt('Rename songbook', 'Give this songbook a new name.', currentName)
+      .then(function(v) { _renameSongbookConfirmed(itemId, currentName, v); });
+  }
+
+  function _renameSongbookConfirmed(itemId, currentName, newName) {
     var rawId = itemId.replace(/^sb-/, '');
-    var newName = prompt('Rename songbook:', currentName);
-    if (!newName || !newName.trim() || newName.trim() === currentName) return;
-    newName = newName.trim();
+    if (!newName || !String(newName).trim()) return;
+    newName = String(newName).trim().replace(/\s+/g, ' ');
+    if (newName === currentName) return;
     SBQ_SONGBOOKS.loadAll().then(function(sbList) {
       var sb = sbList.find(function(s) { return s.id === rawId; });
       if (!sb) throw new Error('not found');
@@ -17411,8 +17483,11 @@ window.loadEditSongData = function(song) {
   window.renameSongbook = renameSongbook;
 
   function openCreateSongbookModal() {
-    var name = prompt('Songbook name:', 'Worship Songs ' + new Date().getFullYear());
-    if (!name) return;
+    window.customPrompt('New songbook', 'Name this songbook.', 'Worship Songs ' + new Date().getFullYear())
+      .then(function(name) { if (name && String(name).trim()) _createSongbookConfirmed(String(name).trim().replace(/\s+/g, ' ')); });
+  }
+
+  function _createSongbookConfirmed(name) {
     var entry = {
       id: 'sb_' + Date.now(),
       name: name.trim(),
@@ -19500,13 +19575,16 @@ window.loadEditSongData = function(song) {
   }
 
   function deleteSong() {
-    var songId = $('editSongId').value;
     var title = $('editSongTitle').value;
-    
-    if (!confirm('Are you sure you want to delete "' + title + '"?\n\nThis action cannot be undone.')) {
-      return;
-    }
+    // Chunk 11: the app's own confirm rather than the browser's, and it names
+    // what is actually at stake.
+    window.customConfirm('Delete this song?',
+      '“' + title + '” will be removed from the library. Orders and songbooks that already contain it keep their copy.')
+      .then(function(ok) { if (ok) _deleteSongConfirmed(); });
+  }
 
+  function _deleteSongConfirmed() {
+    var songId = $('editSongId').value;
     showLoader(true);
     SBQ_SONGS.delete(songId).then(function(result) {
       showToast('Song deleted successfully!', 'success');
@@ -20640,6 +20718,11 @@ window.loadEditSongData = function(song) {
   // 16) DATA LOADING
   // ============================================================
   function loadSongs() {
+    // Chunk 11: only show the loading state on a genuinely empty catalogue.
+    // A refresh with songs already on screen should not blank them out.
+    if (!(STATE.songs && STATE.songs.length) && typeof _sfShowCatalogueLoading === 'function') {
+      _sfShowCatalogueLoading();
+    }
     return SBQ_SONGS.getAll().then(function(songs) {
       STATE.songs = songs || [];
       window.STATE = STATE;
@@ -20676,6 +20759,13 @@ window.loadEditSongData = function(song) {
       $('backendStatus').textContent = 'Backend: Error ✗';
       $('backendStatus').style.color = '#fca5a5';
       showToast('Failed to load songs', 'error');
+      // Chunk 11: an inline state with a retry, rather than only a toast that
+      // vanishes and leaves an empty panel behind.
+      if (!(STATE.songs && STATE.songs.length) && typeof _sfShowCatalogueError === 'function') {
+        _sfShowCatalogueError(navigator.onLine === false
+          ? 'You appear to be offline. Reconnect and try again.'
+          : (err && err.message) ? String(err.message) : null);
+      }
     });
   }
 
@@ -85706,6 +85796,37 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── CHUNK 11: one shared state component ──────────────────────────────── */
+  #songFinderView .sf-state {
+    display:flex; flex-direction:column; align-items:center; text-align:center;
+    gap:9px; padding:38px 22px; margin:6px;
+    border:1px dashed var(--sf-line-2,#d0d8ec); border-radius:14px;
+    background:#fff;
+  }
+  #songFinderView .sf-state-icon {
+    width:46px; height:46px; display:grid; place-items:center; border-radius:13px;
+    background:var(--sf-tint,#eef2ff); color:var(--sf-blue-deep,#3b5bdb); font-size:1.15rem;
+  }
+  #songFinderView .sf-state h4 {
+    margin:0; color:var(--sf-navy,#0f1c3f); font-family:'Cinzel',serif;
+    font-size:1rem; font-weight:750;
+  }
+  #songFinderView .sf-state p {
+    margin:0; max-width:44ch; color:var(--sf-muted,#5f6b91); font-size:.8rem; line-height:1.55;
+  }
+  #songFinderView .sf-state-btn {
+    margin-top:3px; min-height:38px; padding:0 15px; cursor:pointer;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:9px; background:#fff;
+    color:var(--sf-blue-deep,#3b5bdb); font-family:inherit; font-size:.78rem; font-weight:750;
+  }
+  #songFinderView .sf-state-btn:hover { background:var(--sf-tint,#eef2ff); border-color:#b9c5ea; }
+  #songFinderView .sf-state-btn:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  /* Error keeps the same shape and only changes hue, so a failure never looks
+     like a different screen. */
+  #songFinderView .sf-state.is-error { border-color:#fed7aa; background:#fff7ed; }
+  #songFinderView .sf-state.is-error .sf-state-icon { background:#ffedd5; color:#9a5b16; }
+  #songFinderView .sf-state.is-error h4 { color:#9a5b16; }
 
   /* ── CHUNK 10: mobile internal screens ─────────────────────────────────── */
   /* The sheet header only exists while the sheet is open. */
