@@ -8961,6 +8961,52 @@
     </div>
   </div>
 
+  <!-- ==================== CHUNK 7: ADD TO SONGBOOK ==================== -->
+  <div id="addToSongbookModal" class="modal-overlay" style="z-index:10006;">
+    <div class="modal-content ato-content">
+      <div class="ato-header">
+        <h3>Add to Songbook</h3>
+        <button type="button" class="lhc-pill-button" title="Close" aria-label="Close" onclick="closeAddToSongbookModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="atb-tabs" role="tablist">
+        <button type="button" id="atbTabExisting" class="atb-tab is-active" role="tab" aria-selected="true" onclick="atbSwitchTab('existing')">Select existing songbook</button>
+        <button type="button" id="atbTabNew" class="atb-tab" role="tab" aria-selected="false" onclick="atbSwitchTab('new')">Create new songbook</button>
+      </div>
+      <div class="ato-body">
+        <div class="ato-song">
+          <div class="ato-song-art" id="atbArt" aria-hidden="true"></div>
+          <div class="ato-song-ident">
+            <b id="atbTitle"></b>
+            <span id="atbArtist"></span>
+            <small id="atbKey"></small>
+          </div>
+        </div>
+
+        <div id="atbPanelExisting">
+          <div id="atbList" class="atb-list"></div>
+        </div>
+
+        <div id="atbPanelNew" hidden>
+          <label class="ato-label" for="atbNewName">Songbook name</label>
+          <input id="atbNewName" class="ato-select" type="text" maxlength="80" placeholder="e.g. Traditional Hymns — Main" autocomplete="off">
+          <p id="atbNewError" class="atb-error" hidden></p>
+        </div>
+
+        <p class="atb-note">
+          <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+          A songbook stores which songs it contains. Per-songbook layout, key and
+          transposition are not stored yet — see the proposed migration.
+        </p>
+      </div>
+      <div class="ato-footer">
+        <button type="button" class="lhc-pill-button" onclick="closeAddToSongbookModal()">Cancel</button>
+        <button type="button" id="atbConfirmBtn" class="roster-action-btn primary" onclick="confirmAddToSongbook()">
+          <i class="fa-solid fa-book-open mr-1"></i> Add to Songbook
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== MOBILE SONG ACTION SHEET ==================== -->
   <div id="mobileSongActionSheet" style="display:none;position:fixed;inset:0;z-index:9100;">
     <div id="msasBackdrop" onclick="closeMobileSongActionSheet()" style="position:absolute;inset:0;background:rgba(0,0,0,0.45);"></div>
@@ -17567,6 +17613,120 @@ window.loadEditSongData = function(song) {
   window._asmInitStepNav = _asmInitStepNav;
   window._asmUpdateValidity = _asmUpdateValidity;
 
+  // ── Chunk 7: Add to Songbook dialog ───────────────────────────────────────
+  // Uses the existing SBQ_SONGBOOKS records and addSongToStandaloneSongbook --
+  // no second songbook implementation, per the brief.
+  var _atbSong = null;
+  var _atbBooks = [];
+  var _atbSelectedId = null;
+
+  function openAddToSongbookModal(songId) {
+    var song = STATE.songs && STATE.songs.find(function(s) { return s.id === songId; });
+    if (!song) { showToast('Song not found', 'error'); return; }
+    _atbSong = song;
+    _atbSelectedId = null;
+
+    document.getElementById('atbArt').textContent = (song.title || '?').charAt(0).toUpperCase();
+    document.getElementById('atbTitle').textContent = song.title || '';
+    document.getElementById('atbArtist').textContent = song.artist || 'Unknown artist';
+    document.getElementById('atbKey').textContent = song.key ? 'Key: ' + song.key + ' (Original)' : 'No key set';
+    document.getElementById('atbNewName').value = '';
+    document.getElementById('atbNewError').hidden = true;
+    atbSwitchTab('existing');
+
+    var list = document.getElementById('atbList');
+    list.innerHTML = '<p class="atb-empty">Loading songbooks…</p>';
+    openModal('addToSongbookModal');
+
+    SBQ_SONGBOOKS.loadAll().then(function(books) {
+      _atbBooks = books || [];
+      _atbRenderList();
+    }).catch(function() {
+      list.innerHTML = '<p class="atb-empty">Songbooks are unavailable right now. You can still create a new one.</p>';
+    });
+  }
+  window.openAddToSongbookModal = openAddToSongbookModal;
+
+  function _atbRenderList() {
+    var list = document.getElementById('atbList');
+    if (!list) return;
+    if (!_atbBooks.length) {
+      list.innerHTML = '<p class="atb-empty">No songbooks yet — use <b>Create new songbook</b>.</p>';
+      return;
+    }
+    list.innerHTML = _atbBooks.map(function(sb) {
+      var n = (sb.songIds || []).length;
+      var has = _atbSong && (sb.songIds || []).indexOf(_atbSong.id) !== -1;
+      return '<label class="atb-card' + (has ? ' is-in' : '') + '">' +
+        '<input type="radio" name="atbBook" value="' + escapeHtml(sb.id) + '"' + (has ? ' disabled' : '') + '>' +
+        '<span class="atb-card-body"><b>' + escapeHtml(sb.name || 'Untitled Songbook') + '</b>' +
+        '<small>' + n + ' song' + (n === 1 ? '' : 's') + (has ? ' &middot; already contains this song' : '') + '</small></span></label>';
+    }).join('');
+    list.querySelectorAll('input[name="atbBook"]').forEach(function(r) {
+      r.onchange = function() { _atbSelectedId = r.value; };
+    });
+  }
+
+  function atbSwitchTab(which) {
+    var isNew = which === 'new';
+    document.getElementById('atbPanelExisting').hidden = isNew;
+    document.getElementById('atbPanelNew').hidden = !isNew;
+    var te = document.getElementById('atbTabExisting'), tn = document.getElementById('atbTabNew');
+    te.classList.toggle('is-active', !isNew); te.setAttribute('aria-selected', String(!isNew));
+    tn.classList.toggle('is-active', isNew);  tn.setAttribute('aria-selected', String(isNew));
+    document.getElementById('atbConfirmBtn').innerHTML = isNew
+      ? '<i class="fa-solid fa-plus mr-1"></i> Create &amp; Add'
+      : '<i class="fa-solid fa-book-open mr-1"></i> Add to Songbook';
+  }
+  window.atbSwitchTab = atbSwitchTab;
+
+  function closeAddToSongbookModal() { closeModal('addToSongbookModal'); }
+  window.closeAddToSongbookModal = closeAddToSongbookModal;
+
+  function confirmAddToSongbook() {
+    if (!_atbSong) return;
+    var creating = !document.getElementById('atbPanelNew').hidden;
+    var btn = document.getElementById('atbConfirmBtn');
+
+    if (creating) {
+      var nameEl = document.getElementById('atbNewName');
+      var errEl = document.getElementById('atbNewError');
+      var name = String(nameEl.value || '').trim().replace(/\s+/g, ' ');
+      if (!name) {
+        errEl.textContent = 'Give the songbook a name.'; errEl.hidden = false; nameEl.focus(); return;
+      }
+      // Case-insensitive duplicate check against the real records.
+      var clash = _atbBooks.find(function(sb) {
+        return String(sb.name || '').trim().toLowerCase() === name.toLowerCase();
+      });
+      if (clash) {
+        errEl.textContent = 'A songbook named "' + clash.name + '" already exists. Choose a different name.';
+        errEl.hidden = false; nameEl.focus(); return;
+      }
+      errEl.hidden = true;
+      btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Creating…';
+      var entry = { id: 'sb_' + Date.now(), name: name, songIds: [_atbSong.id], songCount: 1,
+                    createdDate: new Date().toISOString() };
+      // Success is only reported after the save resolves.
+      SBQ_SONGBOOKS.save(entry).then(function() {
+        showToast('"' + _atbSong.title + '" added to new songbook "' + entry.name + '"', 'success');
+        if (typeof renderSongbooksList === 'function') renderSongbooksList();
+        closeAddToSongbookModal();
+      }).catch(function(err) {
+        showToast('Could not create songbook: ' + ((err && err.message) || 'unknown error'), 'error');
+      }).finally(function() {
+        btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-plus mr-1"></i> Create &amp; Add';
+      });
+      return;
+    }
+
+    if (!_atbSelectedId) { showToast('Choose a songbook first', 'warning'); return; }
+    _sbPickerSongId = _atbSong.id;
+    addSongToStandaloneSongbook(_atbSelectedId);
+    closeAddToSongbookModal();
+  }
+  window.confirmAddToSongbook = confirmAddToSongbook;
+
   // ── Chunk 6: Add to Worship Order dialog ──────────────────────────────────
   // In this scope so it can reuse addSongToOrderFromFinder and its duplicate
   // rules rather than reimplementing the write.
@@ -17801,10 +17961,8 @@ window.loadEditSongData = function(song) {
 
   function lpRailAddToSongbook() {
     var song = STATE.lyricsCurrentSong;
-    var sel = document.getElementById('lpRailSongbook');
-    if (!song || !sel || !sel.value) { showToast('Choose a songbook first', 'warning'); return; }
-    _sbPickerSongId = song.id;
-    addSongToStandaloneSongbook(sel.value);
+    if (!song) return;
+    openAddToSongbookModal(song.id);
   }
   window.lpRailAddToSongbook = lpRailAddToSongbook;
   window._lpRenderRail = _lpRenderRail;
@@ -85212,6 +85370,37 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── CHUNK 7: Add to Songbook dialog ───────────────────────────────────── */
+  .atb-tabs { display:flex; gap:4px; padding:0 18px; border-bottom:1px solid var(--sf-line,#e3e8f4); }
+  .atb-tab {
+    padding:9px 12px; border:0; border-bottom:2px solid transparent; background:none; cursor:pointer;
+    color:var(--sf-muted,#5f6b91); font-family:inherit; font-size:.79rem; font-weight:700;
+  }
+  .atb-tab.is-active { color:var(--sf-blue-deep,#3b5bdb); border-bottom-color:var(--sf-blue-deep,#3b5bdb); }
+  .atb-tab:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:-2px; }
+  .atb-list { display:flex; flex-direction:column; gap:7px; max-height:264px; overflow-y:auto; }
+  .atb-card {
+    display:flex; align-items:center; gap:10px; padding:10px 11px; cursor:pointer;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:11px; background:#fff;
+  }
+  .atb-card:hover { border-color:#b9c5ea; background:var(--sf-tint,#eef2ff); }
+  .atb-card:has(input:checked) { border-color:var(--sf-blue,#4c6ef5); background:var(--sf-tint,#eef2ff); box-shadow:0 0 0 3px rgba(76,110,245,.14); }
+  .atb-card.is-in { opacity:.62; cursor:not-allowed; }
+  .atb-card input { flex:none; width:16px; height:16px; accent-color:var(--sf-blue,#4c6ef5); }
+  .atb-card-body { min-width:0; display:flex; flex-direction:column; gap:1px; }
+  .atb-card-body b { color:var(--sf-navy,#0f1c3f); font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .atb-card-body small { color:var(--sf-muted,#5f6b91); font-size:.7rem; }
+  .atb-empty { margin:0; padding:14px; text-align:center; color:var(--sf-muted,#5f6b91); font-size:.78rem;
+               border:1px dashed var(--sf-line-2,#d0d8ec); border-radius:11px; background:var(--sf-surface,#f7f9fd); }
+  .atb-error { margin:7px 0 0; color:#9a5b16; font-size:.74rem; font-weight:650; }
+  .atb-error[hidden] { display:none; }
+  .atb-note {
+    display:flex; align-items:flex-start; gap:8px; margin:13px 0 0; padding:9px 11px;
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:10px; background:var(--sf-surface,#f7f9fd);
+    color:var(--sf-muted,#5f6b91); font-size:.72rem; line-height:1.5;
+  }
+  .atb-note i { margin-top:2px; color:var(--sf-blue-deep,#3b5bdb); }
 
   /* ── CHUNK 6: Add to Worship Order dialog ──────────────────────────────── */
   #addToOrderModal .ato-content { width:min(560px,95vw); max-height:92vh; display:flex; flex-direction:column; padding:0; }
