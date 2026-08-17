@@ -4,6 +4,113 @@ _Last updated: 2026-08-17 by Claude Code_
 
 ---
 
+## 2026-08-17 — Song Finder complete redesign (merged to `master`)
+
+**Merged on the operator's instruction.** A 12-chunk brief covering every Song
+Finder surface. All twelve are implemented and verified; what follows is what
+changed, what was deliberately not built, and the two things that could not be
+tested here.
+
+**Merged WITHOUT real-device testing.** The mobile keyboard behaviour and the
+Share clipboard copy were never exercised — see "Two things NOT verified" below.
+If a phone problem surfaces this week, those are the first places to look.
+
+### The chunks
+
+1. **Compact catalogue.** At 1366×768 the header was 312px with exactly **one**
+   card visible; now 142px and **three**. Causes: search and actions on separate
+   rows, a redundant subtitle/hint/sub-header, and a `max-height:74vh` scroller
+   on `#songListContainer` that made the catalogue a box inside the page — that
+   scroller is only correct in the master-detail split and is now scoped to
+   `.sf-song-active`. Statistics moved below the catalogue.
+2. **Song Details workspace.** Breadcrumb, identity header, and a "Plan with
+   this song" rail (real orders, real songbooks, real resources). Opening a song
+   now **replaces** the catalogue rather than splitting beside it — with the rail
+   added, the chord sheet measured 404px at 1536. Catalogue scroll position is
+   captured on open and restored on close.
+3. **Add/Edit Song.** Step rail with scroll-spy, section numbers from a CSS
+   counter (so Add and Edit cannot drift), footer validation summary.
+4. **Lyrics editor.** Section outline parsed from the existing `[Bracket]`
+   markers, and an honest save-state badge.
+5. **Resources.** Image/audio/Spotify/web are now first-class types; background
+   scroll lock (reference-counted); Download resolving Drive/Docs export URLs;
+   sticky preview header.
+6. **Add to Order.** Section, position and transpose — closes blocker B5.
+7. **Add to Songbook.** Existing/new tabs, inline validation, no `prompt()`.
+8. **Share.** Six tiles, all real, including a genuine jsPDF export.
+9. **Themes.** Searchable, keyboard-navigable, with real duplicate/empty errors.
+10. **Mobile.** Sticky song actions; filter sheet header with Reset/title/Close
+    and a "Show N songs" button.
+11. **States.** One `_sfState` component for loading/empty/error, and the four
+    remaining browser dialogs replaced with the app's own modals.
+12. **Responsive + regression.** See below.
+
+### Bugs found while building, each worth knowing
+
+- **Two `closeDocPreview` definitions.** The previews' inline `onclick` resolves
+  to the **global** copies; the richer module versions are shadowed for that
+  path. Only the module copies released the scroll lock, so every open/close
+  cycle left the page one lock deeper until it could not scroll at all.
+- **`#lyricsPreviewModalContent` carries an inline `width:min(750px,95%)`**,
+  which silently beat the stylesheet rule meant to make the inline workspace
+  fill its column — so it had never actually filled.
+- **`offsetTop` was the wrong measure** for the step rail once `.asm-shell` was
+  added: the offsetParent changed and the scroll went nowhere.
+- **`clearSongSearch()` lands on the "start typing" placeholder**, so the empty
+  state's own recovery button produced a second empty panel.
+
+### Verified
+
+All eight target sizes (1920, 1536, 1366, 1024, 768, 430, 390, 360): no
+page-level horizontal overflow, cards readable with no inner scroll, theme menu
+portalled and inside the viewport at every size, previews at z-index 120000 with
+Close visible, scroll lock balanced, iframe cleared, Resources tab restored, and
+catalogue scroll position restored on close.
+
+Acceptance matrix: songs load, title and artist search, suggestions and
+scroll-to-card, theme/scripture/feel/key/style/season filters, filters combining,
+and reset — all pass. No duplicate DOM or stacked listeners after five
+open/close cycles (`_asmNavBound` and `_asmValidityBound` guards hold). All five
+views render at full width with no overflow.
+
+`tools/check-inline-scripts.py` 12/12; `tools/bg-repin-harness.js` 18/18;
+`npm run build` compiles and TypeScript passes.
+
+### ⚠️ Two things NOT verified here
+
+- **The mobile keyboard.** The brief asks for it explicitly. The hidden browser
+  pane never focuses the document, so no on-screen keyboard is raised. The
+  editor uses `100dvh` so the visual viewport shrinking keeps Save reachable —
+  correct mechanism, but reasoning, not evidence. **Needs a real phone.**
+- **Clipboard copy** in Share, for the same reason (`NotAllowedError: Document
+  is not focused`). It failed *honestly*, showing "Could not copy — select the
+  link above and copy it manually" rather than a false success.
+
+`npm run build` also still fails at page-data collection for
+`/api/vocal-hero/media` because `NEXT_PUBLIC_SUPABASE_URL` is unset locally —
+pre-existing and unrelated. Local `node_modules` had lost its `.bin` shims and
+needed `npm install` to repair; `package.json` and `package-lock.json` are
+unchanged.
+
+### Deliberately NOT built — and why
+
+Everything here would have been a control that discards what you type, or data
+invented to fill a panel. All are covered by
+`migrations/PROPOSED_2026-08-17_song_finder_redesign_fields.sql` (**not run**).
+
+| Reference shows | Why omitted |
+|---|---|
+| "Used 28 times in Orders", Recent usage rail | no per-order usage history (B1) |
+| History tab | no per-song change log (B2) |
+| Theme colour + description | themes are bare strings (B3) |
+| Songbook layout per entry | `song_ids` is a flat array every reader `.indexOf()`s (B4) |
+| Time signature, BPM, alt title, CCLI, service suitability | no columns (B6) |
+| Editor Settings panel | `display_style` has nowhere to persist |
+| "Autosaved just now" | the editor stages; the form saves. Saying otherwise would be a lie in the UI |
+| Share "Access: view only" | no permissions model exists |
+
+---
+
 ## 2026-08-17 — Song Finder repalette (merged to `master`)
 
 **The visual half of the redesign brief, which the earlier branch got wrong by

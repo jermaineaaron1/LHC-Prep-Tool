@@ -1764,7 +1764,12 @@
          container instead -- setting max-height/overflow-y on the card
          directly gets silently overridden by that inline style, clipping
          the list instead of scrolling it. */
-      #songFinderView #songListContainer {
+      /* Chunk 1: this nested scroller is only correct in the master-detail
+         split, where the list has to scroll independently beside the open
+         song. While simply browsing it turned the catalogue into a short box
+         inside the page, so it is now scoped to the split state and the list
+         otherwise flows with the page. */
+      #songFinderView #sfResultsGrid.sf-song-active #songListContainer {
         max-height: 74vh;
         overflow-y: auto;
       }
@@ -5700,6 +5705,15 @@
           <div id="sfFilterSheetBackdrop" onclick="toggleMobileFilterSheet(false)"></div>
           <!-- Filters Grid -->
           <div id="sfFilterGrid" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-4">
+            <!-- Chunk 10: sheet header. Only rendered while the mobile sheet is
+                 open; on desktop the grid has no header row. -->
+            <div class="sf-sheet-header">
+              <button type="button" class="sf-sheet-reset-link" onclick="resetMobileSheetFilters()">Reset</button>
+              <span class="sf-sheet-title">More filters</span>
+              <button type="button" id="sfSheetCloseBtn" class="sf-sheet-close" aria-label="Close filters" onclick="toggleMobileFilterSheet(false)">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+              </button>
+            </div>
             <div class="sf-primary-filter">
               <label class="form-label"><i class="fa-solid fa-tags" aria-hidden="true"></i> Theme</label>
               <div class="theme-multiselect" style="position:relative;">
@@ -5758,7 +5772,7 @@
           </div>
           <div id="sfMobileFilterApplyBtn">
             <button type="button" class="sf-sheet-reset" onclick="resetMobileSheetFilters()"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Reset filters</button>
-            <button type="button" class="sf-sheet-apply" onclick="toggleMobileFilterSheet(false)">Apply Filters</button>
+            <button type="button" class="sf-sheet-apply" onclick="toggleMobileFilterSheet(false)">Show results</button>
           </div>
           </div>
         </div>
@@ -5799,10 +5813,26 @@
   <div id="lyricsPreviewModal" class="modal-overlay">
     <div id="lyricsPreviewModalContent" class="modal-content" style="width: min(750px, 95%); max-height: 90vh; display: flex; flex-direction: column; padding: 0;">
       <div id="lyricsPreviewHeaderPanel" class="p-4 border-b border-slate-200">
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <h3 id="lyricsPreviewTitle" class="font-cinzel text-xl font-bold text-slate-800"></h3>
+        <!-- Chunk 2: breadcrumb. "Back to library" is the same close call as
+             the X, so it restores the catalogue scroll position too. -->
+        <nav id="lpBreadcrumb" aria-label="Breadcrumb">
+          <button type="button" class="lp-crumb-link" onclick="closeLyricsPreviewModal()">Songs</button>
+          <span class="lp-crumb-sep" aria-hidden="true">/</span>
+          <span class="lp-crumb-current" id="lpCrumbTitle"></span>
+          <button type="button" id="lpBackBtn" onclick="closeLyricsPreviewModal()">
+            <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to library
+          </button>
+        </nav>
+        <div class="flex items-center justify-between gap-4" id="lpSongHeader">
+          <div class="lp-song-art" id="lpSongArt" aria-hidden="true"></div>
+          <div class="lp-song-ident">
+            <div class="lp-title-row">
+              <h3 id="lyricsPreviewTitle" class="font-cinzel text-xl font-bold text-slate-800"></h3>
+              <span id="lpStyleBadge" class="lp-style-badge" hidden></span>
+            </div>
             <p id="lyricsPreviewArtist" class="text-sm text-slate-500 mt-1"></p>
+            <div id="lpMetaLine" class="lp-meta-line"></div>
+            <div id="lpBadges" class="lp-badges"></div>
           </div>
           <div class="flex items-center gap-2">
             <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button lp-header-icon-btn" title="Fullscreen" onclick="toggleLyricsPreviewFullscreen()">
@@ -5926,16 +5956,74 @@
         </div>
         <div style="font-size:11px;color:#a21caf;max-width:220px;line-height:1.4;">Applies while you're viewing this song. Saving it permanently needs one small pending update.</div>
       </div>
-      <div id="lyricsPreviewContent" class="flex-1 overflow-y-auto p-5" style="min-height: 300px;">
-        <!-- Lyrics content rendered here -->
+      <!-- Chunk 2b: chord sheet and contextual rail sit side by side on wide
+           desktop; below 1080px the rail stacks under the sheet. -->
+      <div id="lpBody">
+        <div id="lyricsPreviewContent" class="flex-1 overflow-y-auto p-5" style="min-height: 300px;">
+          <!-- Lyrics content rendered here -->
+        </div>
+        <aside id="lpRail" aria-label="Plan with this song">
+          <section class="lp-rail-card">
+            <h4><i class="fa-regular fa-calendar" aria-hidden="true"></i> Plan with this song</h4>
+            <label class="lp-rail-label" for="lpRailOrder">Service / Order</label>
+            <select id="lpRailOrder" class="lp-rail-select"></select>
+            <label class="lp-rail-label" for="lpRailSongbook">Songbook</label>
+            <select id="lpRailSongbook" class="lp-rail-select"></select>
+            <div class="lp-rail-2col">
+              <div>
+                <span class="lp-rail-label">Key</span>
+                <div id="lpRailKey" class="lp-rail-static"></div>
+              </div>
+              <div>
+                <label class="lp-rail-label" for="lpRailTranspose">Transpose</label>
+                <select id="lpRailTranspose" class="lp-rail-select"></select>
+              </div>
+            </div>
+            <div class="lp-rail-actions">
+              <button type="button" class="lp-rail-btn primary" onclick="lpRailAddToOrder()">
+                <i class="fa-solid fa-plus" aria-hidden="true"></i> Add to order
+              </button>
+              <button type="button" class="lp-rail-btn" onclick="lpRailAddToSongbook()">
+                <i class="fa-solid fa-book-open" aria-hidden="true"></i> Add to songbook
+              </button>
+            </div>
+          </section>
+          <section class="lp-rail-card">
+            <h4><i class="fa-regular fa-folder-open" aria-hidden="true"></i> Resources</h4>
+            <div id="lpRailResources"></div>
+            <button type="button" class="lp-rail-link" onclick="switchLyricsPreviewMode('resources')">
+              View all resources <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+            </button>
+          </section>
+        </aside>
       </div>
-      <div class="p-3 border-t border-slate-200 text-right">
+      <!-- Chunk 10: mobile-only sticky actions. These call the same functions
+           as the toolbar buttons above, which scroll away on a phone -- they
+           are a second entry point, not a second implementation. -->
+      <div id="lpMobileActions" aria-label="Song actions">
+        <button type="button" class="lp-mact primary" onclick="_lpMobileAction('order')">
+          <i class="fa-solid fa-plus" aria-hidden="true"></i> Add to Order
+        </button>
+        <button type="button" class="lp-mact" onclick="_lpMobileAction('share')">
+          <i class="fa-solid fa-share-nodes" aria-hidden="true"></i> Share
+        </button>
+        <button type="button" class="lp-mact" onclick="_lpMobileAction('edit')">
+          <i class="fa-solid fa-pen" aria-hidden="true"></i> Edit
+        </button>
+      </div>
+      <div class="p-3 border-t border-slate-200 text-right" id="lpStatusBar">
         <span id="lyricsPreviewLastEdited" class="text-xs text-slate-400"></span>
       </div>
     </div>
   </div>
         </div>
         </div>
+
+        <!-- Desktop home for the library metrics. The brief puts statistics
+             after the catalogue (position 6), not above it; on mobile the same
+             element still moves into #sfStatsMobileSlot. The element is
+             reparented, never duplicated, so its numbers stay live. -->
+        <div id="sfStatsDesktopSlot" aria-label="Library statistics"></div>
 
         <!-- ── Songbooks subsection ── -->
         <div id="sfSongbooksCard" class="lhc-card" style="margin-top:18px;">
@@ -8610,7 +8698,17 @@
         <button id="closeAddSongBtn" class="lhc-pill-button" title="Close" style="flex-shrink:0;"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
-      <!-- Scrollable body -->
+      <!-- Scrollable body. Chunk 3: the step nav is a sibling of the scroller
+           so it stays put while the form scrolls. It resolves its own modal
+           from the closest .asm-content, so both Add and Edit share it. -->
+      <div class="asm-shell">
+      <nav class="asm-stepnav" aria-label="Song form sections">
+        <button type="button" class="asm-step" data-step="1">Basic Info</button>
+        <button type="button" class="asm-step" data-step="2">Musical</button>
+        <button type="button" class="asm-step" data-step="3">Liturgical Context</button>
+        <button type="button" class="asm-step" data-step="4">Resources</button>
+        <button type="button" class="asm-step" data-step="5">Lyrics &amp; Chords</button>
+      </nav>
       <div class="asm-scroll">
         <div class="asm-body">
 
@@ -8770,7 +8868,7 @@
 
           <!-- § Media & Attachments -->
           <div class="asm-section">
-            <div class="asm-section-title"><i class="fa-solid fa-photo-film"></i> Media &amp; Attachments</div>
+            <div class="asm-section-title"><i class="fa-solid fa-photo-film"></i> Resources</div>
             <div class="asm-grid-2">
               <div>
                 <label class="form-label"><i class="fa-brands fa-youtube mr-1" style="color:#dc2626;"></i> Media Links</label>
@@ -8804,7 +8902,7 @@
 
           <!-- § Lyrics / Chords -->
           <div class="asm-section">
-            <div class="asm-section-title"><i class="fa-solid fa-file-lines"></i> Lyrics / Chords</div>
+            <div class="asm-section-title"><i class="fa-solid fa-file-lines"></i> Lyrics &amp; Chords</div>
             <button type="button" class="lyrics-edit-trigger" onclick="openLyricsEditor('new')">
               <i class="fa-solid fa-pen-to-square"></i><span>Open Lyrics Editor</span>
             </button>
@@ -8825,13 +8923,155 @@
 
         </div><!-- end asm-body -->
       </div><!-- end asm-scroll -->
+      </div><!-- end asm-shell -->
 
       <!-- Footer -->
       <div class="asm-footer">
+        <div class="asm-validity" aria-live="polite"></div>
         <button id="cancelAddSongBtn" class="lhc-pill-button"><i class="fa-solid fa-xmark mr-1"></i> Cancel</button>
         <button id="saveNewSongBtn" class="roster-action-btn primary"><i class="fa-solid fa-floppy-disk mr-1"></i> Save Song</button>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ==================== CHUNK 6: ADD TO WORSHIP ORDER ==================== -->
+  <div id="addToOrderModal" class="modal-overlay" style="z-index:10006;">
+    <div class="modal-content ato-content">
+      <div class="ato-header">
+        <h3>Add to Worship Order</h3>
+        <button type="button" class="lhc-pill-button" title="Close" aria-label="Close" onclick="closeAddToOrderModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="ato-body">
+        <div class="ato-song">
+          <div class="ato-song-art" id="atoArt" aria-hidden="true"></div>
+          <div class="ato-song-ident">
+            <b id="atoTitle"></b>
+            <span id="atoArtist"></span>
+            <small id="atoKey"></small>
+          </div>
+        </div>
+        <div class="ato-grid">
+          <div>
+            <label class="ato-label" for="atoOrder">Service / Order</label>
+            <select id="atoOrder" class="ato-select" onchange="_atoOnOrderChange()"></select>
+          </div>
+          <div>
+            <label class="ato-label" for="atoKeySel">Key</label>
+            <div id="atoKeySel" class="ato-static"></div>
+          </div>
+          <div>
+            <label class="ato-label" for="atoSection">Section</label>
+            <select id="atoSection" class="ato-select" onchange="_atoRefreshPositions()"></select>
+          </div>
+          <div>
+            <label class="ato-label" for="atoTranspose">Transpose</label>
+            <select id="atoTranspose" class="ato-select"></select>
+          </div>
+          <div class="ato-span2">
+            <label class="ato-label" for="atoPosition">Position in section</label>
+            <select id="atoPosition" class="ato-select"></select>
+          </div>
+        </div>
+        <div id="atoDuplicate" class="ato-warn" hidden></div>
+      </div>
+      <div class="ato-footer">
+        <button type="button" class="lhc-pill-button" onclick="closeAddToOrderModal()">Cancel</button>
+        <button type="button" id="atoConfirmBtn" class="roster-action-btn primary" onclick="confirmAddToOrder()">
+          <i class="fa-solid fa-check mr-1"></i> Add to Order
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CHUNK 7: ADD TO SONGBOOK ==================== -->
+  <div id="addToSongbookModal" class="modal-overlay" style="z-index:10006;">
+    <div class="modal-content ato-content">
+      <div class="ato-header">
+        <h3>Add to Songbook</h3>
+        <button type="button" class="lhc-pill-button" title="Close" aria-label="Close" onclick="closeAddToSongbookModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="atb-tabs" role="tablist">
+        <button type="button" id="atbTabExisting" class="atb-tab is-active" role="tab" aria-selected="true" onclick="atbSwitchTab('existing')">Select existing songbook</button>
+        <button type="button" id="atbTabNew" class="atb-tab" role="tab" aria-selected="false" onclick="atbSwitchTab('new')">Create new songbook</button>
+      </div>
+      <div class="ato-body">
+        <div class="ato-song">
+          <div class="ato-song-art" id="atbArt" aria-hidden="true"></div>
+          <div class="ato-song-ident">
+            <b id="atbTitle"></b>
+            <span id="atbArtist"></span>
+            <small id="atbKey"></small>
+          </div>
+        </div>
+
+        <div id="atbPanelExisting">
+          <div id="atbList" class="atb-list"></div>
+        </div>
+
+        <div id="atbPanelNew" hidden>
+          <label class="ato-label" for="atbNewName">Songbook name</label>
+          <input id="atbNewName" class="ato-select" type="text" maxlength="80" placeholder="e.g. Traditional Hymns — Main" autocomplete="off">
+          <p id="atbNewError" class="atb-error" hidden></p>
+        </div>
+
+        <p class="atb-note">
+          <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+          A songbook stores which songs it contains. Per-songbook layout, key and
+          transposition are not stored yet — see the proposed migration.
+        </p>
+      </div>
+      <div class="ato-footer">
+        <button type="button" class="lhc-pill-button" onclick="closeAddToSongbookModal()">Cancel</button>
+        <button type="button" id="atbConfirmBtn" class="roster-action-btn primary" onclick="confirmAddToSongbook()">
+          <i class="fa-solid fa-book-open mr-1"></i> Add to Songbook
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CHUNK 8: SHARE SONG ==================== -->
+  <div id="shareSongModal" class="modal-overlay" style="z-index:10006;">
+    <div class="modal-content ato-content">
+      <div class="ato-header">
+        <h3 id="shareSongHeading">Share song</h3>
+        <button type="button" class="lhc-pill-button" title="Close" aria-label="Close" onclick="closeShareSongModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="ato-body">
+        <span class="ato-label">Share using</span>
+        <div class="share-grid">
+          <button type="button" class="share-tile" onclick="shareSongAction('copy')">
+            <i class="fa-solid fa-link" aria-hidden="true"></i><span>Copy song link</span>
+          </button>
+          <button type="button" class="share-tile" onclick="shareSongAction('whatsapp')">
+            <i class="fa-brands fa-whatsapp" style="color:#12a35a;" aria-hidden="true"></i><span>WhatsApp</span>
+          </button>
+          <button type="button" class="share-tile" onclick="shareSongAction('email')">
+            <i class="fa-solid fa-envelope" aria-hidden="true"></i><span>Email</span>
+          </button>
+          <button type="button" class="share-tile" onclick="shareSongAction('pdf')">
+            <i class="fa-solid fa-file-pdf" style="color:#c81e1e;" aria-hidden="true"></i><span>Download PDF</span>
+          </button>
+          <button type="button" class="share-tile" onclick="shareSongAction('print')">
+            <i class="fa-solid fa-print" aria-hidden="true"></i><span>Print</span>
+          </button>
+          <button type="button" class="share-tile" onclick="shareSongAction('lyrics')">
+            <i class="fa-solid fa-align-left" aria-hidden="true"></i><span>Copy lyrics only</span>
+          </button>
+        </div>
+
+        <label class="ato-label" for="shareSongLink" style="margin-top:14px;">Song link</label>
+        <div class="share-link-row">
+          <input id="shareSongLink" class="ato-select" type="text" readonly>
+          <button type="button" class="roster-action-btn primary" onclick="shareSongAction('copy')">
+            <i class="fa-solid fa-copy mr-1"></i> Copy
+          </button>
+        </div>
+        <p id="shareSongFeedback" class="share-feedback" hidden aria-live="polite"></p>
+      </div>
+      <div class="ato-footer">
+        <button type="button" class="lhc-pill-button" onclick="closeShareSongModal()">Close</button>
+      </div>
     </div>
   </div>
 
@@ -8865,7 +9105,17 @@
 
       <input type="hidden" id="editSongId">
 
-      <!-- Scrollable body -->
+      <!-- Scrollable body. Chunk 3: the step nav is a sibling of the scroller
+           so it stays put while the form scrolls. It resolves its own modal
+           from the closest .asm-content, so both Add and Edit share it. -->
+      <div class="asm-shell">
+      <nav class="asm-stepnav" aria-label="Song form sections">
+        <button type="button" class="asm-step" data-step="1">Basic Info</button>
+        <button type="button" class="asm-step" data-step="2">Musical</button>
+        <button type="button" class="asm-step" data-step="3">Liturgical Context</button>
+        <button type="button" class="asm-step" data-step="4">Resources</button>
+        <button type="button" class="asm-step" data-step="5">Lyrics &amp; Chords</button>
+      </nav>
       <div class="asm-scroll">
         <div class="asm-body">
 
@@ -9025,7 +9275,7 @@
 
           <!-- § Media & Attachments -->
           <div class="asm-section">
-            <div class="asm-section-title"><i class="fa-solid fa-photo-film"></i> Media &amp; Attachments</div>
+            <div class="asm-section-title"><i class="fa-solid fa-photo-film"></i> Resources</div>
             <div class="asm-grid-2">
               <div>
                 <label class="form-label"><i class="fa-brands fa-youtube mr-1" style="color:#dc2626;"></i> Media Links</label>
@@ -9059,7 +9309,7 @@
 
           <!-- § Lyrics / Chords -->
           <div class="asm-section">
-            <div class="asm-section-title"><i class="fa-solid fa-file-lines"></i> Lyrics / Chords</div>
+            <div class="asm-section-title"><i class="fa-solid fa-file-lines"></i> Lyrics &amp; Chords</div>
             <button type="button" class="lyrics-edit-trigger" onclick="openLyricsEditor('edit')">
               <i class="fa-solid fa-pen-to-square"></i><span>Open Lyrics Editor</span>
             </button>
@@ -9080,12 +9330,14 @@
 
         </div><!-- end asm-body -->
       </div><!-- end asm-scroll -->
+      </div><!-- end asm-shell -->
 
       <!-- Footer — delete on left, save/cancel on right -->
       <div class="asm-footer has-delete">
         <button id="deleteSongBtn" class="roster-action-btn danger" style="display:flex;align-items:center;gap:6px;">
           <i class="fa-solid fa-trash"></i> Delete
         </button>
+        <div class="asm-validity" aria-live="polite"></div>
         <div style="display:flex;gap:8px;align-items:center;">
           <button id="cancelEditSongBtn" class="lhc-pill-button"><i class="fa-solid fa-xmark mr-1"></i> Cancel</button>
           <button id="saveEditSongBtn" class="roster-action-btn primary"><i class="fa-solid fa-floppy-disk mr-1"></i> Save Changes</button>
@@ -9099,7 +9351,12 @@
   <div id="lyricsEditorModal" class="lyrics-editor-modal">
     <div class="lyrics-editor-content">
       <div class="lyrics-editor-header">
-        <h3><i class="fa-solid fa-music text-indigo-500"></i> Lyrics & Chords Editor</h3>
+        <h3><i class="fa-solid fa-music text-indigo-500"></i> Lyrics &amp; Chords Editor</h3>
+        <span id="lyricsEditorSongTitle" class="lyrics-editor-songtitle"></span>
+        <!-- Honest state. This editor stages into the song form; the form's
+             Save is what persists and broadcasts, so it must NOT claim to have
+             autosaved. -->
+        <span id="lyricsEditorState" class="lyrics-editor-state" aria-live="polite"></span>
         <button type="button" class="lhc-pill-button" onclick="closeLyricsEditor()">
           <i class="fa-solid fa-xmark"></i>
         </button>
@@ -9175,6 +9432,13 @@
               </button>
             </div>
           </div>
+          <!-- Chunk 4: section outline. Derived from the text on every input,
+               so it can never disagree with the document. -->
+          <div class="lyrics-editor-main">
+          <aside id="lyricsOutline" aria-label="Section outline">
+            <div class="lyrics-outline-head">Outline</div>
+            <div id="lyricsOutlineList"></div>
+          </aside>
           <div class="lyrics-editor-wrapper">
             <div id="lyricsRichEditor" class="lyrics-rich-editor" contenteditable="true"
                  data-placeholder="Type or paste lyrics here...
@@ -9188,6 +9452,7 @@ C       G      D
 I once was lost but now am found"
                  oninput="onRichEditorInput()"></div>
           </div>
+          </div><!-- end lyrics-editor-main -->
           <textarea id="lyricsEditorTextarea" class="lyrics-textarea"></textarea>
         </div>
         <div class="lyrics-editor-right">
@@ -9265,6 +9530,9 @@ I once was lost but now am found"
             <span id="docPreviewZoomLevel" style="font-size:0.75rem;color:#64748b;min-width:36px;text-align:center;">100%</span>
             <button onclick="docPreviewZoom(1)" title="Zoom In" style="width:30px;height:30px;border:none;background:none;cursor:pointer;border-radius:6px;font-size:14px;color:#475569;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='none'"><i class="fa-solid fa-plus"></i></button>
           </div>
+          <button id="docPreviewDownloadBtn" class="lhc-pill-button text-sm" title="Download this document" style="background:#f0fdf4;border-color:#86efac;color:#0f7a41;">
+            <i class="fa-solid fa-download mr-1"></i> Download
+          </button>
           <button id="docPreviewOpenBtn" class="lhc-pill-button text-sm" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;">
             <i class="fa-solid fa-external-link mr-1"></i> Open in New Tab
           </button>
@@ -10512,29 +10780,112 @@ function populateThemeFilterDropdown(themes) {
   themes = _getFilterThemeOptions(themes);
   var selected = (window.LHC_STATE && window.LHC_STATE.filters.themes) || [];
   var html = '<div class="sf-filter-theme-menu-head"><strong>Choose themes</strong><span>' + themes.length + ' available</span></div>' +
-    '<div class="sf-filter-theme-options">' +
+    // Chunk 9: search. The list runs to 30+ themes, which is past the point
+    // where scanning it is reasonable.
+    '<div class="sf-filter-theme-search">' +
+    '<i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>' +
+    '<input id="filterThemeSearch" type="search" autocomplete="off" placeholder="Search themes…" ' +
+    'aria-label="Search themes" oninput="filterThemeSearch(this.value)" ' +
+    'onkeydown="_themeSearchKeydown(event)">' +
+    '</div>' +
+    '<div class="sf-filter-theme-options" id="filterThemeOptions" role="listbox" aria-multiselectable="true">' +
     '<div class="sf-filter-theme-option sf-filter-theme-all"><label>' +
     '<input type="checkbox" id="filterThemeAll" onchange="updateFilterTheme(this)" ' + (selected.length === 0 ? 'checked' : '') + '> All Themes</label></div>';
   themes.forEach(function(t) {
     var isChecked = selected.indexOf(t) >= 0;
-    html += '<div class="sf-filter-theme-option">' +
+    html += '<div class="sf-filter-theme-option" data-theme="' + escapeHtml(t.toLowerCase()) + '">' +
       '<label>' +
       '<input type="checkbox" class="filter-theme-cb" value="' + escapeHtml(t) + '" onchange="updateFilterTheme(this)" ' + (isChecked ? 'checked' : '') + '> ' + escapeHtml(t) + '</label></div>';
   });
-  html += '</div><div class="sf-filter-theme-add">' +
+  html += '<p class="sf-filter-theme-noresult" id="filterThemeNoResult" hidden>No theme matches that search.</p>' +
+    '</div><div class="sf-filter-theme-add">' +
     '<div><strong>Add a theme</strong><small>Make it available in filters and song editing.</small></div>' +
     '<div class="sf-filter-theme-add-controls"><input id="filterThemeNewInput" type="text" maxlength="60" placeholder="e.g. Family, Mission" ' +
+    'aria-label="New theme name" ' +
+    'oninput="_themeClearError()" ' +
     'onkeydown="if(event.key===\'Enter\'){event.preventDefault();addFilterCustomTheme();}">' +
-    '<button type="button" onclick="addFilterCustomTheme()"><i class="fa-solid fa-plus"></i> Add</button></div></div>';
+    '<button type="button" onclick="addFilterCustomTheme()"><i class="fa-solid fa-plus"></i> Add</button></div>' +
+    '<p class="sf-filter-theme-error" id="filterThemeError" role="alert" hidden></p></div>';
   dd.innerHTML = html;
 }
 
+// ── Chunk 9: theme search + keyboard navigation ─────────────────────────────
+function filterThemeSearch(q) {
+  var dd = document.getElementById('filterThemeDropdown');
+  if (!dd) return;
+  var needle = String(q || '').trim().toLowerCase();
+  var shown = 0;
+  dd.querySelectorAll('.sf-filter-theme-option[data-theme]').forEach(function(row) {
+    var hit = !needle || row.getAttribute('data-theme').indexOf(needle) !== -1;
+    row.hidden = !hit;
+    if (hit) shown++;
+  });
+  // "All Themes" is a control, not a theme, so it hides while searching.
+  var all = dd.querySelector('.sf-filter-theme-all');
+  if (all) all.hidden = !!needle;
+  var none = document.getElementById('filterThemeNoResult');
+  if (none) none.hidden = shown !== 0;
+}
+window.filterThemeSearch = filterThemeSearch;
+
+// Down/Up walk the visible options, Enter toggles the focused one.
+function _themeSearchKeydown(e) {
+  var dd = document.getElementById('filterThemeDropdown');
+  if (!dd) return;
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+  var boxes = Array.prototype.filter.call(
+    dd.querySelectorAll('.sf-filter-theme-option[data-theme] input.filter-theme-cb'),
+    function(cb) { var row = cb.closest('.sf-filter-theme-option'); return row && !row.hidden; }
+  );
+  if (!boxes.length) return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    // Enter with exactly one match is the fast path people expect.
+    if (boxes.length === 1) { boxes[0].checked = !boxes[0].checked; updateFilterTheme(boxes[0]); }
+    return;
+  }
+  e.preventDefault();
+  var active = document.activeElement;
+  var idx = boxes.indexOf(active);
+  var next = e.key === 'ArrowDown' ? idx + 1 : idx - 1;
+  if (next < 0) next = boxes.length - 1;
+  if (next >= boxes.length) next = 0;
+  boxes[next].focus();
+}
+window._themeSearchKeydown = _themeSearchKeydown;
+
+function _themeShowError(msg) {
+  var el = document.getElementById('filterThemeError');
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = false;
+}
+function _themeClearError() {
+  var el = document.getElementById('filterThemeError');
+  if (el) el.hidden = true;
+}
+window._themeClearError = _themeClearError;
+
 function addFilterCustomTheme() {
   var input = document.getElementById('filterThemeNewInput');
-  var newTheme = input ? input.value.trim() : '';
-  if (!newTheme) return;
+  // Chunk 9: normalise whitespace so "  Grace   Alone " and "Grace Alone"
+  // cannot both exist.
+  var newTheme = input ? String(input.value || '').trim().replace(/\s+/g, ' ') : '';
+  if (!newTheme) {
+    _themeShowError('Give the theme a name.');
+    if (input) input.focus();
+    return;
+  }
   var currentOptions = _getFilterThemeOptions((window.STATE && STATE.songMeta && STATE.songMeta.themes) || []);
   var match = currentOptions.find(function(theme) { return theme.toLowerCase() === newTheme.toLowerCase(); });
+  if (match) {
+    // Say so rather than silently selecting the existing one, which looked
+    // like the new theme had been created.
+    _themeShowError('A theme named “' + match + '” already exists.');
+    if (input) input.select();
+    return;
+  }
+  _themeClearError();
   if (!match) {
     var customs = typeof _getCustomThemes === 'function' ? _getCustomThemes() : [];
     customs.push(newTheme);
@@ -11913,6 +12264,13 @@ function _sfClassifyResource(url) {
   if (u.indexOf('drive.google.com/file/d/') !== -1) return { kind: 'drive', icon: 'fa-solid fa-file-pdf', color: '#dc2626', bg: '#fee2e2', label: 'Drive File' };
   if (/\.docx?(\?|#|$)/.test(u)) return { kind: 'word', icon: 'fa-solid fa-file-word', color: '#2b579a', bg: '#e8eef9', label: 'Word Document' };
   if (/\.pdf(\?|#|$)/.test(u)) return { kind: 'pdf', icon: 'fa-solid fa-file-pdf', color: '#dc2626', bg: '#fee2e2', label: 'PDF' };
+  // Chunk 5: the brief lists images and audio as first-class resource types.
+  // Without these they fell through to a generic "Document" and were offered a
+  // doc preview, which is the wrong viewer for both.
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/.test(u)) return { kind: 'image', icon: 'fa-solid fa-image', color: '#7048e8', bg: '#f3f0ff', label: 'Image' };
+  if (/\.(mp3|wav|m4a|aac|ogg|flac)(\?|#|$)/.test(u)) return { kind: 'audio', icon: 'fa-solid fa-music', color: '#0f7a41', bg: '#effcf4', label: 'Audio' };
+  if (u.indexOf('spotify.com') !== -1) return { kind: 'audio', icon: 'fa-brands fa-spotify', color: '#16a34a', bg: '#effcf4', label: 'Spotify' };
+  if (/^https?:\/\//.test(u) && !/\.[a-z0-9]{2,5}(\?|#|$)/.test(u)) return { kind: 'web', icon: 'fa-solid fa-globe', color: '#3b5bdb', bg: '#eef2ff', label: 'Web Link' };
   return { kind: 'other', icon: 'fa-solid fa-file-lines', color: '#64748b', bg: '#f1f5f9', label: 'Document' };
 }
 
@@ -12023,8 +12381,15 @@ function _sfRenderResourcesPanel(song) {
       var url = a.url || a;
       var cls = _sfClassifyResource(url);
       var label = _sfResourceLabel(url, cls.label, idx, a.name);
-      var actionLabel = cls.kind === 'word' ? '<i class="fa-solid fa-up-right-from-square"></i> Open in Word' : '<i class="fa-solid fa-eye"></i> Preview';
-      var action = cls.kind === 'word' ? 'word-open' : 'doc-preview';
+      // Only offer Preview for things this app can actually render inline.
+      // A raw .docx, an audio file or a plain web page cannot be, so each gets
+      // an honest Open instead of a preview that would fail.
+      var externalKinds = { word: 1, audio: 1, web: 1 };
+      var isExternal = !!externalKinds[cls.kind];
+      var actionLabel = isExternal
+        ? '<i class="fa-solid fa-up-right-from-square"></i> Open'
+        : '<i class="fa-solid fa-eye"></i> Preview';
+      var action = isExternal ? 'word-open' : 'doc-preview';
       html += '<div class="sf-res-card">' +
         '<div class="sf-res-icon" style="background:' + cls.bg + ';color:' + cls.color + ';"><i class="' + cls.icon + '"></i></div>' +
         '<div class="sf-res-info"><div class="sf-res-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</div>' +
@@ -12265,7 +12630,15 @@ function syncMobileSongFilterPriority() {
     mobileSlot.appendChild(grid);
     if (moreBtn) mobileSlot.appendChild(moreBtn);
   } else {
-    if (metricsDesktopHome && metricsDesktopHome.parentNode) {
+    // Statistics belong AFTER the catalogue on desktop (brief position 6), not
+    // above it -- in the header they cost 43px of above-the-fold height and
+    // pushed the third song card below it. #sfMetricsDesktopHome is kept as the
+    // legacy fallback so the strip can never end up orphaned if the newer slot
+    // is missing.
+    var statsDesktopSlot = document.getElementById('sfStatsDesktopSlot');
+    if (statsDesktopSlot) {
+      statsDesktopSlot.appendChild(metrics);
+    } else if (metricsDesktopHome && metricsDesktopHome.parentNode) {
       metricsDesktopHome.parentNode.insertBefore(metrics, metricsDesktopHome.nextSibling);
     }
     if (gridDesktopHome && gridDesktopHome.parentNode) {
@@ -12521,6 +12894,22 @@ function closeLyricsPreviewModal() {
   _lpHideScrollCue();
   // Exit fullscreen if active
   if (document.fullscreenElement) document.exitFullscreen().catch(function(){});
+
+  // Chunk 2: put the catalogue back where it was. Closing drops the
+  // master-detail split, which relayouts the list, so the restore is deferred
+  // to the next frame -- setting it synchronously lands on the pre-relayout
+  // height and gets clamped to the wrong offset.
+  var restore = STATE._sfScrollRestore;
+  if (restore) {
+    STATE._sfScrollRestore = null;
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        var lc = document.getElementById('songListContainer');
+        if (lc && restore.list) lc.scrollTop = restore.list;
+        if (restore.page) window.scrollTo(0, restore.page);
+      });
+    });
+  }
 }
 
 // On mobile (<1080px), #lyricsPreviewModal must render as a true
@@ -12955,6 +13344,10 @@ window.lyricsPreviewShare = function(btn) {
   var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
   if (!song) return;
 
+  // Chunk 8: the full share dialog, which offers every real option rather than
+  // only a link. The native sheet below stays as the fallback.
+  if (typeof window.openShareSongModal === 'function') { window.openShareSongModal(song.id); return; }
+
   var baseUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
   var songUrl  = baseUrl + '?song=' + encodeURIComponent(song.id);
   var title    = song.title || 'Worship Song';
@@ -13144,17 +13537,31 @@ function previewYoutube(url) {
   modal.classList.add('show');
 }
 
+// NOTE: these are the GLOBAL copies, and they are the ones the previews' inline
+// onclick="closeDocPreview()" actually resolves to -- the richer versions later
+// in the song module are shadowed for that call path. Keeping two independent
+// teardowns is how the scroll lock leaked: the module copy released it, this one
+// did not, so every open/close cycle left the page one lock deeper until it
+// could not scroll at all. They now release the lock and reset the zoom exactly
+// as the module copies do.
 function closeYoutubePreview() {
   var modal = document.getElementById('youtubePreviewModal');
   var frame = document.getElementById('youtubePreviewFrame');
-  frame.src = '';
-  modal.classList.remove('show');
+  if (typeof window._sfUnlockBackgroundScroll === 'function') window._sfUnlockBackgroundScroll();
+  if (frame) frame.src = '';
+  if (modal) modal.classList.remove('show');
 }
 
 function closeDocPreview() {
   var modal = document.getElementById('docPreviewModal');
   var frame = document.getElementById('docPreviewFrame');
-  if (frame) frame.src = '';
+  if (typeof window._sfUnlockBackgroundScroll === 'function') window._sfUnlockBackgroundScroll();
+  if (frame) { frame.src = ''; frame.style.transform = ''; frame.style.display = 'block'; }
+  var content = document.getElementById('docPreviewContent');
+  if (content) { content.style.display = 'none'; content.innerHTML = ''; content.style.zoom = '1'; }
+  window.__docPreviewZoom = 100;
+  var zoomLabel = document.getElementById('docPreviewZoomLevel');
+  if (zoomLabel) zoomLabel.textContent = '100%';
   if (modal) modal.classList.remove('show');
 }
 
@@ -13989,6 +14396,15 @@ function openLyricsEditor(mode) {
   lyricsHistory = [lyrics];
   lyricsHistoryIndex = 0;
 
+  // Chunk 4: outline, song title and a clean state for this session.
+  _lyricsRenderOutline(lyrics);
+  _lyricsSetEditorState(false);
+  var titleEl = document.getElementById('lyricsEditorSongTitle');
+  if (titleEl) {
+    var src = document.getElementById(mode + 'SongTitle');
+    titleEl.textContent = (src && src.value.trim()) || '';
+  }
+
   modal.classList.add('show');
 
   // Populate rich editor with syntax highlighting
@@ -14146,6 +14562,87 @@ function renderRichEditor(text) {
   richEditor.innerHTML = html;
 }
 
+// ── Chunk 4: section outline ────────────────────────────────────────────────
+// Sections are the existing [Bracket] markers, which is the convention the rest
+// of the app already parses -- no second notation is introduced.
+function _lyricsParseSections(text) {
+  var lines = String(text || '').split('\n');
+  var out = [], cur = null;
+  lines.forEach(function(line, i) {
+    var m = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (m) {
+      cur = { name: m[1].trim(), line: i, lines: 0 };
+      out.push(cur);
+    } else if (cur && line.trim()) {
+      cur.lines++;
+    }
+  });
+  return out;
+}
+
+function _lyricsRenderOutline(text) {
+  var list = document.getElementById('lyricsOutlineList');
+  if (!list) return;
+  var secs = _lyricsParseSections(text);
+  if (!secs.length) {
+    list.innerHTML = '<p class="lyrics-outline-empty">Add a section marker like <code>[Verse 1]</code> to build an outline.</p>';
+    return;
+  }
+  list.innerHTML = secs.map(function(s, i) {
+    return '<button type="button" class="lyrics-outline-item" data-line="' + s.line + '" data-idx="' + i + '">' +
+      '<span class="lyrics-outline-name">' + escapeHtml(s.name) + '</span>' +
+      '<small>' + s.lines + ' line' + (s.lines === 1 ? '' : 's') + '</small></button>';
+  }).join('');
+  list.querySelectorAll('.lyrics-outline-item').forEach(function(btn) {
+    btn.onclick = function() { _lyricsJumpToSection(parseInt(btn.getAttribute('data-line'), 10)); };
+  });
+}
+
+// Places the caret at the start of the section's line in the contenteditable,
+// counting characters rather than assuming one DOM node per line.
+function _lyricsJumpToSection(lineIdx) {
+  var ed = document.getElementById('lyricsRichEditor');
+  var ta = document.getElementById('lyricsEditorTextarea');
+  if (!ed || !ta) return;
+  var lines = String(ta.value || '').split('\n');
+  var offset = 0;
+  for (var i = 0; i < lineIdx && i < lines.length; i++) offset += lines[i].length + 1;
+  ed.focus();
+  try {
+    var walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT, null, false);
+    var seen = 0, node, target = null, targetOff = 0;
+    while ((node = walker.nextNode())) {
+      var len = node.textContent.length;
+      if (seen + len >= offset) { target = node; targetOff = Math.max(0, offset - seen); break; }
+      seen += len;
+    }
+    if (target) {
+      var range = document.createRange();
+      range.setStart(target, Math.min(targetOff, target.textContent.length));
+      range.collapse(true);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      var el = target.parentElement;
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+    }
+  } catch (e) { /* caret placement is a convenience, never a failure */ }
+}
+
+// Dirty/clean badge. Deliberately never says "autosaved": this editor stages
+// into the song form and the form's Save is what persists and broadcasts.
+function _lyricsSetEditorState(dirty) {
+  var el = document.getElementById('lyricsEditorState');
+  if (!el) return;
+  window._lyricsEditorDirty = !!dirty;
+  el.className = 'lyrics-editor-state ' + (dirty ? 'is-dirty' : 'is-clean');
+  el.innerHTML = dirty
+    ? '<i class="fa-solid fa-circle" aria-hidden="true"></i> Unsaved changes'
+    : '<i class="fa-solid fa-circle-check" aria-hidden="true"></i> No changes yet';
+}
+window._lyricsRenderOutline = _lyricsRenderOutline;
+window._lyricsSetEditorState = _lyricsSetEditorState;
+
 function onRichEditorInput() {
   var richEditor = document.getElementById('lyricsRichEditor');
   var textarea = document.getElementById('lyricsEditorTextarea');
@@ -14160,6 +14657,13 @@ function onRichEditorInput() {
   window.lyricsHistoryDebounce = setTimeout(function() {
     saveLyricsState();
   }, 500);
+
+  // Chunk 4: outline and dirty state are derived from the text, never stored
+  // separately, so they cannot disagree with the document. Both only read it --
+  // nothing here writes back into the editor, which is what keeps the caret
+  // still while typing.
+  _lyricsRenderOutline(text);
+  _lyricsSetEditorState(true);
 
   // Update preview immediately.
   // NOTE: We deliberately do NOT re-render innerHTML during typing.
@@ -16130,7 +16634,25 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 6) MODAL HELPERS
   // ============================================================
+  // Chunk 3: the song form modals get their step rail and validity summary set
+  // up here rather than at each of the three call sites that open them.
+  function _asmOnOpen(modalId) {
+    if (modalId !== 'addSongModal' && modalId !== 'editSongModal') return;
+    var modal = document.getElementById(modalId);
+    if (!modal) return;
+    if (typeof _asmInitStepNav === 'function') _asmInitStepNav(modal);
+    if (typeof _asmUpdateValidity === 'function') {
+      _asmUpdateValidity(modal);
+      var titleEl = modal.querySelector('input[id$="SongTitle"]');
+      if (titleEl && !titleEl._asmValidityBound) {
+        titleEl._asmValidityBound = true;
+        titleEl.addEventListener('input', function() { _asmUpdateValidity(modal); });
+      }
+    }
+  }
+
   function openModal(modalId) {
+    _asmOnOpen(modalId);
     var modal = $(modalId);
     if (modal) modal.classList.add('show');
   }
@@ -16362,6 +16884,58 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 9) SONG RENDERING - WITH CLICKABLE TITLE & GOOGLE DOC BUTTON
   // ============================================================
+  // ── Chunk 11: one state component for the catalogue ───────────────────────
+  // Loading, empty and error all read the same instead of each screen
+  // inventing its own markup.
+  function _sfState(o) {
+    return '<div class="sf-state' + (o.tone ? ' is-' + o.tone : '') + '" role="status">' +
+      '<div class="sf-state-icon"><i class="fa-solid ' + (o.icon || 'fa-circle-info') + '" aria-hidden="true"></i></div>' +
+      '<h4>' + escapeHtml(o.title || '') + '</h4>' +
+      (o.body ? '<p>' + escapeHtml(o.body) + '</p>' : '') +
+      (o.action || '') + '</div>';
+  }
+  window._sfState = _sfState;
+
+  // Shown while the first load is in flight, so the catalogue is never a blank
+  // panel that looks like an empty library.
+  function _sfShowCatalogueLoading() {
+    var container = document.getElementById('songListContainer');
+    var empty = document.getElementById('songEmptyState');
+    if (empty) empty.style.display = 'none';
+    if (container) {
+      container.innerHTML = _sfState({
+        icon: 'fa-spinner fa-spin', title: 'Loading your song library…',
+        body: 'Fetching songs, lyrics and resources.'
+      });
+    }
+  }
+  window._sfShowCatalogueLoading = _sfShowCatalogueLoading;
+
+  // Distinguishes "the library is genuinely empty" from "we could not reach
+  // the backend", because the two need different actions from the user.
+  function _sfShowCatalogueError(message) {
+    var container = document.getElementById('songListContainer');
+    var empty = document.getElementById('songEmptyState');
+    if (empty) empty.style.display = 'none';
+    if (container) {
+      container.innerHTML = _sfState({
+        tone: 'error', icon: 'fa-triangle-exclamation',
+        title: 'Could not load the song library',
+        body: message || 'The backend did not respond. Your connection may be offline.',
+        action: '<button type="button" class="sf-state-btn" onclick="loadSongs()">Try again</button>'
+      });
+    }
+  }
+  window._sfShowCatalogueError = _sfShowCatalogueError;
+
+  // Recovery action for the empty state: clear, then land on the full library
+  // rather than the "start typing" placeholder.
+  function _sfClearAndShowAll() {
+    clearSongSearch();
+    if (typeof showAllSongs === 'function') showAllSongs();
+  }
+  window._sfClearAndShowAll = _sfClearAndShowAll;
+
   function renderSongs(forceShow) {
     var container = $('songListContainer');
     var emptyState = $('songEmptyState');
@@ -16380,8 +16954,18 @@ window.loadEditSongData = function(song) {
     updateResultCounts(filtered.length);
 
     if (!filtered.length) {
+      // Chunk 11: one shared state component, and it offers a way out rather
+      // than only stating the problem.
       if (container) {
-        container.innerHTML = '<div class="text-center py-10 text-slate-500"><i class="fa-solid fa-search text-3xl mb-3 opacity-50"></i><p class="font-semibold">No songs found</p><p class="text-sm">Try different search terms or clear filters.</p></div>';
+        container.innerHTML = _sfState({
+          icon: 'fa-magnifying-glass',
+          title: 'No songs match',
+          body: 'Nothing in the library matches this search and filter combination.',
+          // Not plain clearSongSearch(): that lands on the "start typing"
+          // prompt, so recovering from an empty result would show another
+          // empty panel. This clears and then shows the library.
+          action: '<button type="button" class="sf-state-btn" onclick="_sfClearAndShowAll()">Clear search and filters</button>'
+        });
       }
       return;
     }
@@ -16848,9 +17432,14 @@ window.loadEditSongData = function(song) {
     });
   }
 
+  // Chunk 11: the app's own confirm/prompt modals instead of the browser's.
   function deleteStandaloneSongbook(itemId) {
     var rawId = itemId.replace(/^sb-/, '');
-    if (!confirm('Delete this songbook? This cannot be undone.')) return;
+    window.customConfirm('Delete songbook?', 'This removes the songbook. The songs themselves are not deleted.')
+      .then(function(ok) { if (ok) _deleteStandaloneSongbookConfirmed(rawId); });
+  }
+
+  function _deleteStandaloneSongbookConfirmed(rawId) {
     SBQ_SONGBOOKS.remove(rawId).catch(function() {}).finally(function() {
       try {
         var list = JSON.parse(localStorage.getItem('lhc_standalone_songbooks') || '[]');
@@ -16864,10 +17453,15 @@ window.loadEditSongData = function(song) {
   window.deleteStandaloneSongbook = deleteStandaloneSongbook;
 
   function renameSongbook(itemId, currentName) {
+    window.customPrompt('Rename songbook', 'Give this songbook a new name.', currentName)
+      .then(function(v) { _renameSongbookConfirmed(itemId, currentName, v); });
+  }
+
+  function _renameSongbookConfirmed(itemId, currentName, newName) {
     var rawId = itemId.replace(/^sb-/, '');
-    var newName = prompt('Rename songbook:', currentName);
-    if (!newName || !newName.trim() || newName.trim() === currentName) return;
-    newName = newName.trim();
+    if (!newName || !String(newName).trim()) return;
+    newName = String(newName).trim().replace(/\s+/g, ' ');
+    if (newName === currentName) return;
     SBQ_SONGBOOKS.loadAll().then(function(sbList) {
       var sb = sbList.find(function(s) { return s.id === rawId; });
       if (!sb) throw new Error('not found');
@@ -16889,8 +17483,11 @@ window.loadEditSongData = function(song) {
   window.renameSongbook = renameSongbook;
 
   function openCreateSongbookModal() {
-    var name = prompt('Songbook name:', 'Worship Songs ' + new Date().getFullYear());
-    if (!name) return;
+    window.customPrompt('New songbook', 'Name this songbook.', 'Worship Songs ' + new Date().getFullYear())
+      .then(function(name) { if (name && String(name).trim()) _createSongbookConfirmed(String(name).trim().replace(/\s+/g, ' ')); });
+  }
+
+  function _createSongbookConfirmed(name) {
     var entry = {
       id: 'sb_' + Date.now(),
       name: name.trim(),
@@ -17021,9 +17618,11 @@ window.loadEditSongData = function(song) {
     if (picker) picker.remove();
   }
 
-  function addSongToOrderFromFinder(orderId) {
+  // opts (all optional): { sectionId, position, transposeSteps }. Omitted, the
+  // song appends unsectioned exactly as before.
+  function addSongToOrderFromFinder(orderId, opts) {
     closeAddToSongbookPicker();
-    var songId = _sbPickerSongId;
+    var songId = (opts && opts.songId) || _sbPickerSongId;
     if (!songId) return;
     var song = STATE.songs && STATE.songs.find(function(s) { return s.id === songId; });
     if (!song) { showToast('Song not found', 'error'); return; }
@@ -17052,12 +17651,34 @@ window.loadEditSongData = function(song) {
 
       var youtubeArray = Array.isArray(song.youtube) ? song.youtube :
         (typeof song.youtube === 'string' && song.youtube.trim() ? song.youtube.split(/[,\n]+/).map(function(u){ return u.trim(); }).filter(Boolean) : []);
-      var newSortOrder = existingItems.length ? (Math.max.apply(null, existingItems.map(function(i){ return i.sortOrder || 0; })) + 1) : 0;
+
+      // Chunk 6: honour a chosen section and position when the dialog supplies
+      // them. Without opts this behaves exactly as before -- unsectioned and
+      // appended -- so the older call sites are unaffected.
+      var wantSection = (opts && opts.sectionId) || '';
+      var newSortOrder;
+      if (opts && opts.position != null) {
+        // Insert AT a position within the chosen section: everything at or
+        // after it shifts down, so the saved order matches what was picked.
+        var inSection = existingItems.filter(function(i) { return (i.sectionId || '') === wantSection; });
+        inSection.sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+        var atIdx = Math.max(0, Math.min(opts.position, inSection.length));
+        newSortOrder = atIdx < inSection.length
+          ? (inSection[atIdx].sortOrder || 0)
+          : (existingItems.length ? Math.max.apply(null, existingItems.map(function(i) { return i.sortOrder || 0; })) + 1 : 0);
+        if (atIdx < inSection.length) {
+          existingItems.forEach(function(i) {
+            if ((i.sectionId || '') === wantSection && (i.sortOrder || 0) >= newSortOrder) i.sortOrder = (i.sortOrder || 0) + 1;
+          });
+        }
+      } else {
+        newSortOrder = existingItems.length ? (Math.max.apply(null, existingItems.map(function(i){ return i.sortOrder || 0; })) + 1) : 0;
+      }
 
       var newItem = {
         id: 'wo-song-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
         itemType: 'song',
-        sectionId: '',
+        sectionId: wantSection,
         sortOrder: newSortOrder,
         sourceId: song.id,
         title: song.title,
@@ -17070,7 +17691,7 @@ window.loadEditSongData = function(song) {
           youtube: youtubeArray,
           attachments: Array.isArray(song.attachments) ? song.attachments : []
         },
-        customizations: { transposeSteps: 0 },
+        customizations: { transposeSteps: (opts && parseInt(opts.transposeSteps, 10)) || 0 },
         slides: [],
         backgrounds: {}
       };
@@ -17148,6 +17769,589 @@ window.loadEditSongData = function(song) {
     });
   }
   window.addSongToStandaloneSongbook = addSongToStandaloneSongbook;
+
+  // ── Chunk 3: Add/Edit Song step rail ──────────────────────────────────────
+  // Click scrolls to the section; scrolling highlights the step you are in.
+  // Bound once per modal and flagged on the element, because openAddSongModal /
+  // openEditSongModal can run many times in a session and re-binding would
+  // stack duplicate scroll listeners.
+  function _asmInitStepNav(modal) {
+    if (!modal || modal._asmNavBound) return;
+    var nav = modal.querySelector('.asm-stepnav');
+    var scroll = modal.querySelector('.asm-scroll');
+    var body = modal.querySelector('.asm-body');
+    if (!nav || !scroll || !body) return;
+    modal._asmNavBound = true;
+
+    var steps = Array.prototype.slice.call(nav.querySelectorAll('.asm-step'));
+    function sections() { return Array.prototype.slice.call(body.querySelectorAll('.asm-section')); }
+
+    // Measured against the scroller's own rect rather than offsetTop: the
+    // sections' offsetParent is not the scroller, so offsetTop is relative to
+    // the wrong box and the scroll silently goes nowhere.
+    function offsetWithin(sec) {
+      return (sec.getBoundingClientRect().top - scroll.getBoundingClientRect().top) + scroll.scrollTop;
+    }
+
+    steps.forEach(function(btn, i) {
+      btn.onclick = function() {
+        var sec = sections()[i];
+        if (!sec) return;
+        // Scroll the modal's own scroller, not the page. Smooth only when
+        // motion is welcome -- and an instant fallback also keeps this working
+        // where smooth-scroll animations cannot run.
+        var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        scroll.scrollTo({ top: Math.max(0, offsetWithin(sec) - 8), behavior: reduce ? 'auto' : 'smooth' });
+        _asmSetActiveStep(modal, i);
+      };
+    });
+
+    var ticking = false;
+    scroll.addEventListener('scroll', function() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function() {
+        ticking = false;
+        var secs = sections(), top = scroll.scrollTop, idx = 0;
+        secs.forEach(function(s, i) { if (offsetWithin(s) - 40 <= top) idx = i; });
+        _asmSetActiveStep(modal, idx);
+      });
+    }, { passive: true });
+
+    _asmSetActiveStep(modal, 0);
+  }
+
+  function _asmSetActiveStep(modal, idx) {
+    var steps = modal.querySelectorAll('.asm-step');
+    for (var i = 0; i < steps.length; i++) steps[i].classList.toggle('is-active', i === idx);
+  }
+
+  // Validation summary shown in the sticky footer. Title is the only required
+  // field, and that matches saveNewSong/saveEditSong -- nothing optional is
+  // dressed up as required here.
+  function _asmUpdateValidity(modal) {
+    if (!modal) return;
+    var box = modal.querySelector('.asm-validity');
+    if (!box) return;
+    var titleEl = modal.querySelector('input[id$="SongTitle"]');
+    var ok = !!(titleEl && String(titleEl.value || '').trim());
+    box.className = 'asm-validity ' + (ok ? 'is-ok' : 'is-warn');
+    box.innerHTML = '<i class="fa-solid ' + (ok ? 'fa-circle-check' : 'fa-circle-exclamation') + '"></i>' +
+      '<span class="asm-validity-text"><b>' + (ok ? 'All good!' : 'Title required') + '</b>' +
+      '<small>' + (ok ? 'No validation issues' : 'Add a song title before saving') + '</small></span>';
+  }
+  window._asmInitStepNav = _asmInitStepNav;
+  window._asmUpdateValidity = _asmUpdateValidity;
+
+  // ── Chunk 8: Share ────────────────────────────────────────────────────────
+  // Every tile here does something real. The reference also shows an
+  // "Access: view only / can edit" control -- there is no permissions model
+  // behind it, so it is omitted rather than shipped as a dead dropdown.
+  var _shareSong = null;
+
+  function _shareSongUrl(song) {
+    // ?song=<id> is handled at boot and opens this song, so the link is real
+    // and stable rather than a decorative string.
+    var base = (window.__WEBAPP_URL || window.location.href).split('?')[0];
+    return base + '?song=' + encodeURIComponent(song.id);
+  }
+
+  function openShareSongModal(songId) {
+    var song = STATE.songs && STATE.songs.find(function(s) { return s.id === songId; });
+    if (!song) { showToast('Song not found', 'error'); return; }
+    _shareSong = song;
+    document.getElementById('shareSongHeading').textContent = 'Share “' + (song.title || 'song') + '”';
+    document.getElementById('shareSongLink').value = _shareSongUrl(song);
+    _shareFeedback('', null);
+    openModal('shareSongModal');
+  }
+  window.openShareSongModal = openShareSongModal;
+
+  function closeShareSongModal() { closeModal('shareSongModal'); }
+  window.closeShareSongModal = closeShareSongModal;
+
+  function _shareFeedback(msg, ok) {
+    var el = document.getElementById('shareSongFeedback');
+    if (!el) return;
+    if (!msg) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false;
+    el.className = 'share-feedback ' + (ok ? 'is-ok' : 'is-err');
+    el.innerHTML = '<i class="fa-solid ' + (ok ? 'fa-circle-check' : 'fa-circle-exclamation') + '"></i> ' + escapeHtml(msg);
+  }
+
+  // Clipboard needs a fallback: navigator.clipboard is unavailable on
+  // non-secure origins, and reporting success when nothing was copied would be
+  // exactly the decorative feedback the brief rules out.
+  function _shareCopy(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;top:-1000px;opacity:0;';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        ok ? resolve() : reject(new Error('copy rejected'));
+      } catch (e) { reject(e); }
+    });
+  }
+
+  function _shareLyricsText(song) {
+    var lyrics = String(song.lyrics || '').trim();
+    if (!lyrics) return '';
+    var head = song.title + (song.artist ? '\n' + song.artist : '');
+    return head + '\n\n' + lyrics;
+  }
+
+  function shareSongAction(kind) {
+    var song = _shareSong;
+    if (!song) return;
+    var url = _shareSongUrl(song);
+
+    if (kind === 'copy') {
+      _shareCopy(url)
+        .then(function() { _shareFeedback('Link copied to clipboard', true); })
+        .catch(function() { _shareFeedback('Could not copy — select the link above and copy it manually', false); });
+      return;
+    }
+
+    if (kind === 'whatsapp') {
+      var msg = '🎵 *' + (song.title || 'Worship Song') + '*' + (song.artist ? ' — ' + song.artist : '') +
+                '\n\nOpen the chords and lyrics:\n' + url;
+      window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
+      _shareFeedback('WhatsApp opened', true);
+      return;
+    }
+
+    if (kind === 'email') {
+      var body = (song.title || 'Worship song') + (song.artist ? '\nby ' + song.artist : '') +
+                 '\n\nOpen the chords and lyrics:\n' + url;
+      window.location.href = 'mailto:?subject=' + encodeURIComponent(song.title || 'Worship song') +
+                             '&body=' + encodeURIComponent(body);
+      _shareFeedback('Email draft opened', true);
+      return;
+    }
+
+    if (kind === 'lyrics') {
+      var text = _shareLyricsText(song);
+      if (!text) { _shareFeedback('This song has no lyrics saved yet', false); return; }
+      _shareCopy(text)
+        .then(function() { _shareFeedback('Lyrics copied to clipboard', true); })
+        .catch(function() { _shareFeedback('Could not copy the lyrics', false); });
+      return;
+    }
+
+    if (kind === 'print') {
+      if (typeof printLyricsPreview === 'function' && STATE.lyricsCurrentSong &&
+          STATE.lyricsCurrentSong.id === song.id) {
+        printLyricsPreview();
+        _shareFeedback('Print dialog opened', true);
+      } else {
+        _shareFeedback('Open the song first, then use Print', false);
+      }
+      return;
+    }
+
+    if (kind === 'pdf') { _shareDownloadPdf(song); return; }
+  }
+  window.shareSongAction = shareSongAction;
+
+  // Real PDF, built with the jsPDF already loaded for camera-to-PDF. Plain
+  // monospace so chord columns keep their alignment on the page.
+  function _shareDownloadPdf(song) {
+    var lyrics = String(song.lyrics || '').trim();
+    if (!lyrics) { _shareFeedback('This song has no lyrics to export', false); return; }
+    var jsPDFctor = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDFctor) { _shareFeedback('PDF export is unavailable — use Print instead', false); return; }
+    try {
+      var doc = new jsPDFctor({ orientation: 'p', unit: 'mm', format: 'a4' });
+      var margin = 15, y = margin, pageH = doc.internal.pageSize.getHeight();
+
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+      doc.text(String(song.title || 'Song'), margin, y); y += 7;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90);
+      var sub = [song.artist, song.key ? 'Key ' + song.key : '', song.tempo].filter(Boolean).join('  •  ');
+      if (sub) { doc.text(sub, margin, y); y += 6; }
+      doc.setTextColor(0);
+      y += 2;
+
+      doc.setFont('courier', 'normal'); doc.setFontSize(10);
+      lyrics.split('\n').forEach(function(line) {
+        if (y > pageH - margin) { doc.addPage(); y = margin; }
+        // Long lines wrap rather than running off the page.
+        var parts = doc.splitTextToSize(line || ' ', 180);
+        parts.forEach(function(p) {
+          if (y > pageH - margin) { doc.addPage(); y = margin; }
+          doc.text(p, margin, y); y += 4.6;
+        });
+      });
+
+      var safe = String(song.title || 'song').replace(/[^\w\-]+/g, '_').slice(0, 60) || 'song';
+      doc.save(safe + '.pdf');
+      _shareFeedback('PDF downloaded', true);
+    } catch (e) {
+      _shareFeedback('Could not build the PDF — use Print instead', false);
+    }
+  }
+
+  // ── Chunk 7: Add to Songbook dialog ───────────────────────────────────────
+  // Uses the existing SBQ_SONGBOOKS records and addSongToStandaloneSongbook --
+  // no second songbook implementation, per the brief.
+  var _atbSong = null;
+  var _atbBooks = [];
+  var _atbSelectedId = null;
+
+  function openAddToSongbookModal(songId) {
+    var song = STATE.songs && STATE.songs.find(function(s) { return s.id === songId; });
+    if (!song) { showToast('Song not found', 'error'); return; }
+    _atbSong = song;
+    _atbSelectedId = null;
+
+    document.getElementById('atbArt').textContent = (song.title || '?').charAt(0).toUpperCase();
+    document.getElementById('atbTitle').textContent = song.title || '';
+    document.getElementById('atbArtist').textContent = song.artist || 'Unknown artist';
+    document.getElementById('atbKey').textContent = song.key ? 'Key: ' + song.key + ' (Original)' : 'No key set';
+    document.getElementById('atbNewName').value = '';
+    document.getElementById('atbNewError').hidden = true;
+    atbSwitchTab('existing');
+
+    var list = document.getElementById('atbList');
+    list.innerHTML = '<p class="atb-empty">Loading songbooks…</p>';
+    openModal('addToSongbookModal');
+
+    SBQ_SONGBOOKS.loadAll().then(function(books) {
+      _atbBooks = books || [];
+      _atbRenderList();
+    }).catch(function() {
+      list.innerHTML = '<p class="atb-empty">Songbooks are unavailable right now. You can still create a new one.</p>';
+    });
+  }
+  window.openAddToSongbookModal = openAddToSongbookModal;
+
+  function _atbRenderList() {
+    var list = document.getElementById('atbList');
+    if (!list) return;
+    if (!_atbBooks.length) {
+      list.innerHTML = '<p class="atb-empty">No songbooks yet — use <b>Create new songbook</b>.</p>';
+      return;
+    }
+    list.innerHTML = _atbBooks.map(function(sb) {
+      var n = (sb.songIds || []).length;
+      var has = _atbSong && (sb.songIds || []).indexOf(_atbSong.id) !== -1;
+      return '<label class="atb-card' + (has ? ' is-in' : '') + '">' +
+        '<input type="radio" name="atbBook" value="' + escapeHtml(sb.id) + '"' + (has ? ' disabled' : '') + '>' +
+        '<span class="atb-card-body"><b>' + escapeHtml(sb.name || 'Untitled Songbook') + '</b>' +
+        '<small>' + n + ' song' + (n === 1 ? '' : 's') + (has ? ' &middot; already contains this song' : '') + '</small></span></label>';
+    }).join('');
+    list.querySelectorAll('input[name="atbBook"]').forEach(function(r) {
+      r.onchange = function() { _atbSelectedId = r.value; };
+    });
+  }
+
+  function atbSwitchTab(which) {
+    var isNew = which === 'new';
+    document.getElementById('atbPanelExisting').hidden = isNew;
+    document.getElementById('atbPanelNew').hidden = !isNew;
+    var te = document.getElementById('atbTabExisting'), tn = document.getElementById('atbTabNew');
+    te.classList.toggle('is-active', !isNew); te.setAttribute('aria-selected', String(!isNew));
+    tn.classList.toggle('is-active', isNew);  tn.setAttribute('aria-selected', String(isNew));
+    document.getElementById('atbConfirmBtn').innerHTML = isNew
+      ? '<i class="fa-solid fa-plus mr-1"></i> Create &amp; Add'
+      : '<i class="fa-solid fa-book-open mr-1"></i> Add to Songbook';
+  }
+  window.atbSwitchTab = atbSwitchTab;
+
+  function closeAddToSongbookModal() { closeModal('addToSongbookModal'); }
+  window.closeAddToSongbookModal = closeAddToSongbookModal;
+
+  function confirmAddToSongbook() {
+    if (!_atbSong) return;
+    var creating = !document.getElementById('atbPanelNew').hidden;
+    var btn = document.getElementById('atbConfirmBtn');
+
+    if (creating) {
+      var nameEl = document.getElementById('atbNewName');
+      var errEl = document.getElementById('atbNewError');
+      var name = String(nameEl.value || '').trim().replace(/\s+/g, ' ');
+      if (!name) {
+        errEl.textContent = 'Give the songbook a name.'; errEl.hidden = false; nameEl.focus(); return;
+      }
+      // Case-insensitive duplicate check against the real records.
+      var clash = _atbBooks.find(function(sb) {
+        return String(sb.name || '').trim().toLowerCase() === name.toLowerCase();
+      });
+      if (clash) {
+        errEl.textContent = 'A songbook named "' + clash.name + '" already exists. Choose a different name.';
+        errEl.hidden = false; nameEl.focus(); return;
+      }
+      errEl.hidden = true;
+      btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Creating…';
+      var entry = { id: 'sb_' + Date.now(), name: name, songIds: [_atbSong.id], songCount: 1,
+                    createdDate: new Date().toISOString() };
+      // Success is only reported after the save resolves.
+      SBQ_SONGBOOKS.save(entry).then(function() {
+        showToast('"' + _atbSong.title + '" added to new songbook "' + entry.name + '"', 'success');
+        if (typeof renderSongbooksList === 'function') renderSongbooksList();
+        closeAddToSongbookModal();
+      }).catch(function(err) {
+        showToast('Could not create songbook: ' + ((err && err.message) || 'unknown error'), 'error');
+      }).finally(function() {
+        btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-plus mr-1"></i> Create &amp; Add';
+      });
+      return;
+    }
+
+    if (!_atbSelectedId) { showToast('Choose a songbook first', 'warning'); return; }
+    _sbPickerSongId = _atbSong.id;
+    addSongToStandaloneSongbook(_atbSelectedId);
+    closeAddToSongbookModal();
+  }
+  window.confirmAddToSongbook = confirmAddToSongbook;
+
+  // ── Chunk 6: Add to Worship Order dialog ──────────────────────────────────
+  // In this scope so it can reuse addSongToOrderFromFinder and its duplicate
+  // rules rather than reimplementing the write.
+  var _atoSong = null;
+  var _atoOrderItems = [];
+
+  function openAddToOrderModal(songId) {
+    var song = STATE.songs && STATE.songs.find(function(s) { return s.id === songId; });
+    if (!song) { showToast('Song not found', 'error'); return; }
+    _atoSong = song;
+
+    document.getElementById('atoArt').textContent = (song.title || '?').charAt(0).toUpperCase();
+    document.getElementById('atoTitle').textContent = song.title || '';
+    document.getElementById('atoArtist').textContent = song.artist || 'Unknown artist';
+    document.getElementById('atoKey').textContent = song.key ? 'Key: ' + song.key + ' (Original)' : 'No key set';
+    document.getElementById('atoKeySel').textContent = song.key ? song.key + ' (Original)' : 'Not set';
+
+    var orderSel = document.getElementById('atoOrder');
+    var orders = STATE.orders || [];
+    orderSel.innerHTML = orders.length
+      ? orders.map(function(o) {
+          return '<option value="' + escapeHtml(o.id) + '">' + escapeHtml(o.title || o.serviceDate || 'Service Order') + '</option>';
+        }).join('')
+      : '<option value="">No orders yet</option>';
+    orderSel.disabled = !orders.length;
+
+    var secSel = document.getElementById('atoSection');
+    var sections = window.SERVICE_SECTIONS || [];
+    secSel.innerHTML = '<option value="">No section (end of order)</option>' +
+      sections.map(function(s) { return '<option value="' + escapeHtml(s.id) + '">' + escapeHtml(s.label) + '</option>'; }).join('');
+
+    var tr = document.getElementById('atoTranspose');
+    var opts = ['0 (No transposition)'];
+    for (var i = 1; i <= 6; i++) opts.push('+' + i);
+    for (var j = -1; j >= -5; j--) opts.push(String(j));
+    tr.innerHTML = opts.map(function(label, idx) {
+      var val = idx === 0 ? 0 : (idx <= 6 ? idx : -(idx - 6));
+      return '<option value="' + val + '">' + label + '</option>';
+    }).join('');
+
+    document.getElementById('atoDuplicate').hidden = true;
+    document.getElementById('atoPosition').innerHTML = '<option value="">Loading…</option>';
+    openModal('addToOrderModal');
+    _atoOnOrderChange();
+  }
+  window.openAddToOrderModal = openAddToOrderModal;
+
+  function closeAddToOrderModal() { closeModal('addToOrderModal'); }
+  window.closeAddToOrderModal = closeAddToOrderModal;
+
+  // Loads the chosen order so section positions and the duplicate check are
+  // based on what is actually stored, not on the cached list.
+  function _atoOnOrderChange() {
+    var orderId = (document.getElementById('atoOrder') || {}).value;
+    var posSel = document.getElementById('atoPosition');
+    var dup = document.getElementById('atoDuplicate');
+    _atoOrderItems = [];
+    if (!orderId || !window.SBQ || !SBQ.loadOrder) { if (posSel) posSel.innerHTML = '<option value="0">First</option>'; return; }
+    posSel.innerHTML = '<option value="">Loading…</option>';
+    SBQ.loadOrder(orderId).then(function(res) {
+      _atoOrderItems = (res && res.items) || [];
+      _atoRefreshPositions();
+      var already = _atoOrderItems.find(function(i) {
+        return i.itemType === 'song' && _atoSong && (i.sourceId === _atoSong.id || (i.content && i.content.songId === _atoSong.id));
+      });
+      if (already) {
+        var secLabel = _atoSectionLabel(already.sectionId || '');
+        dup.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i><span><b>This song is already in this order.</b>' +
+          '<small>It appears in ' + escapeHtml(secLabel) + '. Adding it again will be refused.</small></span>';
+        dup.hidden = false;
+      } else {
+        dup.hidden = true;
+      }
+    }).catch(function() {
+      posSel.innerHTML = '<option value="0">First</option>';
+      dup.hidden = true;
+    });
+  }
+  window._atoOnOrderChange = _atoOnOrderChange;
+
+  function _atoSectionLabel(id) {
+    if (!id) return 'the unsectioned part of the order';
+    var s = (window.SERVICE_SECTIONS || []).find(function(x) { return x.id === id; });
+    return s ? s.label : id;
+  }
+
+  function _atoRefreshPositions() {
+    var posSel = document.getElementById('atoPosition');
+    var secId = (document.getElementById('atoSection') || {}).value || '';
+    if (!posSel) return;
+    var inSection = _atoOrderItems.filter(function(i) { return (i.sectionId || '') === secId; });
+    inSection.sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+    var html = '<option value="0">1 &mdash; First in section</option>';
+    inSection.forEach(function(item, idx) {
+      var label = (item.title || (item.content && item.content.title) || 'item');
+      html += '<option value="' + (idx + 1) + '">' + (idx + 2) + ' &mdash; After "' + escapeHtml(label) + '"</option>';
+    });
+    posSel.innerHTML = html;
+    posSel.value = String(inSection.length);
+  }
+  window._atoRefreshPositions = _atoRefreshPositions;
+
+  function confirmAddToOrder() {
+    if (!_atoSong) return;
+    var orderId = (document.getElementById('atoOrder') || {}).value;
+    if (!orderId) { showToast('Choose a service or order first', 'warning'); return; }
+    var btn = document.getElementById('atoConfirmBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Adding…'; }
+    // Reuses the tested writer, so the duplicate guard and the
+    // success-only-after-save rule both still apply.
+    addSongToOrderFromFinder(orderId, {
+      songId: _atoSong.id,
+      sectionId: (document.getElementById('atoSection') || {}).value || '',
+      position: parseInt((document.getElementById('atoPosition') || {}).value, 10),
+      transposeSteps: (document.getElementById('atoTranspose') || {}).value
+    });
+    setTimeout(function() {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i> Add to Order'; }
+      closeAddToOrderModal();
+    }, 900);
+  }
+  window.confirmAddToOrder = confirmAddToOrder;
+
+  // ── Chunk 2b: "Plan with this song" rail ──────────────────────────────────
+  // Defined in this scope on purpose: the two add functions read the
+  // module-private _sbPickerSongId, so the rail sets it the same way the picker
+  // does instead of forking a second, untested add path.
+  var _lpRailSongbooks = [];
+
+  function _lpRenderRail(song) {
+    var rail = document.getElementById('lpRail');
+    if (!rail || !song) return;
+
+    var orderSel = document.getElementById('lpRailOrder');
+    if (orderSel) {
+      var orders = STATE.orders || [];
+      orderSel.innerHTML = orders.length
+        ? orders.map(function(o) {
+            return '<option value="' + escapeHtml(o.id) + '">' +
+              escapeHtml(o.title || o.serviceDate || 'Service Order') + '</option>';
+          }).join('')
+        : '<option value="">No orders yet</option>';
+      orderSel.disabled = !orders.length;
+    }
+
+    var keyEl = document.getElementById('lpRailKey');
+    if (keyEl) keyEl.textContent = song.key ? song.key + ' (Original)' : 'Not set';
+
+    var tr = document.getElementById('lpRailTranspose');
+    if (tr && !tr.options.length) {
+      var opts = ['0 (No transposition)'];
+      for (var i = 1; i <= 6; i++) opts.push('+' + i);
+      for (var j = -1; j >= -5; j--) opts.push(String(j));
+      tr.innerHTML = opts.map(function(label, idx) {
+        var val = idx === 0 ? 0 : (idx <= 6 ? idx : -(idx - 6));
+        return '<option value="' + val + '">' + label + '</option>';
+      }).join('');
+    }
+
+    _lpRenderRailResources(song);
+
+    // Songbooks load asynchronously; show honest progress rather than an empty
+    // control that looks like "no songbooks exist".
+    var sbSel = document.getElementById('lpRailSongbook');
+    if (sbSel) {
+      sbSel.innerHTML = '<option value="">Loading songbooks…</option>';
+      sbSel.disabled = true;
+      SBQ_SONGBOOKS.loadAll().then(function(list) {
+        _lpRailSongbooks = list || [];
+        if (document.getElementById('lpRailSongbook') !== sbSel) return;
+        sbSel.innerHTML = _lpRailSongbooks.length
+          ? _lpRailSongbooks.map(function(sb) {
+              return '<option value="' + escapeHtml(sb.id) + '">' + escapeHtml(sb.name || 'Untitled Songbook') + '</option>';
+            }).join('')
+          : '<option value="">No songbooks yet</option>';
+        sbSel.disabled = !_lpRailSongbooks.length;
+      }).catch(function() {
+        sbSel.innerHTML = '<option value="">Songbooks unavailable</option>';
+        sbSel.disabled = true;
+      });
+    }
+  }
+
+  function _lpRenderRailResources(song) {
+    var box = document.getElementById('lpRailResources');
+    if (!box) return;
+    var docs = (typeof _sfExpandAttachments === 'function' ? _sfExpandAttachments(song) : []);
+    var media = (typeof _sfExpandMedia === 'function' ? _sfExpandMedia(song) : []);
+    var rows = [];
+    docs.slice(0, 3).forEach(function(a) {
+      var cls = _sfClassifyResource(a.url);
+      rows.push({ icon: cls.icon, color: cls.color, label: a.name || cls.label, kind: cls.label, url: a.url, action: 'doc' });
+    });
+    media.slice(0, 2).forEach(function(u, i) {
+      var isYt = u.indexOf('youtu') !== -1;
+      rows.push({ icon: isYt ? 'fa-brands fa-youtube' : 'fa-solid fa-link', color: isYt ? '#dc2626' : '#64748b',
+                  label: (isYt ? 'YouTube' : 'Link') + ' ' + (i + 1), kind: isYt ? 'YouTube' : 'Link', url: u, action: isYt ? 'yt' : 'ext' });
+    });
+    if (!rows.length) {
+      box.innerHTML = '<p class="lp-rail-empty">No resources attached yet.</p>';
+      return;
+    }
+    box.innerHTML = rows.map(function(r) {
+      return '<div class="lp-rail-res">' +
+        '<i class="' + r.icon + '" style="color:' + r.color + '"></i>' +
+        '<span class="lp-rail-res-label" title="' + escapeHtml(r.label) + '">' + escapeHtml(r.label) + '</span>' +
+        '<button type="button" class="lp-rail-res-btn" data-action="' + r.action + '" data-url="' + escapeHtml(r.url) + '">' +
+        (r.action === 'doc' ? 'Preview' : 'Open') + '</button></div>';
+    }).join('');
+    box.querySelectorAll('.lp-rail-res-btn').forEach(function(btn) {
+      btn.onclick = function() {
+        var url = btn.getAttribute('data-url'), act = btn.getAttribute('data-action');
+        if (act === 'doc') openDocPreviewModal(url, song.title);
+        else if (act === 'yt') openYoutubePreviewModal(url, song.title);
+        else window.open(url, '_blank', 'noopener,noreferrer');
+      };
+    });
+  }
+
+  // Chunk 6: the rail opens the full dialog, pre-set to the order chosen there,
+  // so section and position are always a deliberate choice rather than a
+  // silent append.
+  function lpRailAddToOrder() {
+    var song = STATE.lyricsCurrentSong;
+    if (!song) return;
+    openAddToOrderModal(song.id);
+    var sel = document.getElementById('lpRailOrder');
+    var target = document.getElementById('atoOrder');
+    if (sel && sel.value && target) { target.value = sel.value; _atoOnOrderChange(); }
+  }
+  window.lpRailAddToOrder = lpRailAddToOrder;
+
+  function lpRailAddToSongbook() {
+    var song = STATE.lyricsCurrentSong;
+    if (!song) return;
+    openAddToSongbookModal(song.id);
+  }
+  window.lpRailAddToSongbook = lpRailAddToSongbook;
+  window._lpRenderRail = _lpRenderRail;
 
   // ── Add Songs to Songbook/Order modal ──────────────────────────────────────
   var _addSongsTarget = null;
@@ -17338,7 +18542,14 @@ window.loadEditSongData = function(song) {
     return h;
   }
 
+  // Chunk 8: the card's Share button now opens the share dialog rather than
+  // jumping straight to WhatsApp -- WhatsApp is still one tile inside it.
   function shareSongCardWhatsApp(song) {
+    if (song && typeof openShareSongModal === 'function') { openShareSongModal(song.id); return; }
+    return _shareSongWhatsAppDirect(song);
+  }
+
+  function _shareSongWhatsAppDirect(song) {
     if (!song) return;
     var baseUrl = (window.__WEBAPP_URL || window.location.href).split('?')[0];
     var songUrl = baseUrl + '?song=' + encodeURIComponent(song.id);
@@ -17727,6 +18938,13 @@ window.loadEditSongData = function(song) {
     if (libraryMetric) libraryMetric.textContent = STATE.songs.length;
     if (lyricsMetric) lyricsMetric.textContent = STATE.songs.filter(function(s) { return !!String(s.lyrics || '').trim(); }).length;
     if (mediaMetric) mediaMetric.textContent = STATE.songs.filter(function(s) { return !!(String(s.youtube || '').trim() || (s.attachments && s.attachments.length)); }).length;
+
+    // Chunk 10: the sheet's primary button states what it will show, so the
+    // count comes from the same number the results row just reported.
+    var showBtn = document.querySelector('#sfMobileFilterApplyBtn .sf-sheet-apply');
+    if (showBtn) {
+      showBtn.textContent = (count === 1) ? 'Show 1 song' : 'Show ' + count + ' songs';
+    }
   }
 
   // ============================================================
@@ -18357,13 +19575,16 @@ window.loadEditSongData = function(song) {
   }
 
   function deleteSong() {
-    var songId = $('editSongId').value;
     var title = $('editSongTitle').value;
-    
-    if (!confirm('Are you sure you want to delete "' + title + '"?\n\nThis action cannot be undone.')) {
-      return;
-    }
+    // Chunk 11: the app's own confirm rather than the browser's, and it names
+    // what is actually at stake.
+    window.customConfirm('Delete this song?',
+      '“' + title + '” will be removed from the library. Orders and songbooks that already contain it keep their copy.')
+      .then(function(ok) { if (ok) _deleteSongConfirmed(); });
+  }
 
+  function _deleteSongConfirmed() {
+    var songId = $('editSongId').value;
     showLoader(true);
     SBQ_SONGS.delete(songId).then(function(result) {
       showToast('Song deleted successfully!', 'success');
@@ -18380,7 +19601,78 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 13) LYRICS PREVIEW MODAL (from song card)
   // ============================================================
+  // Chunk 2: fills the detail workspace header from the song record only.
+  // Anything the schema cannot supply (time signature, BPM, usage counts) is
+  // simply not rendered rather than shown empty or invented -- see
+  // SONG-FINDER-AUDIT.md B1/B6.
+  // Chunk 10: the mobile action bar routes to the same dialogs the toolbar
+  // uses, so there is one implementation behind both.
+  function _lpMobileAction(kind) {
+    var song = STATE.lyricsCurrentSong;
+    if (!song) return;
+    if (kind === 'order' && typeof openAddToOrderModal === 'function') openAddToOrderModal(song.id);
+    else if (kind === 'share' && typeof openShareSongModal === 'function') openShareSongModal(song.id);
+    else if (kind === 'edit' && typeof lyricsPreviewOpenEditor === 'function') lyricsPreviewOpenEditor();
+  }
+  window._lpMobileAction = _lpMobileAction;
+
+  function _lpRenderSongHeader(song) {
+    if (!song) return;
+    var crumb = document.getElementById('lpCrumbTitle');
+    if (crumb) crumb.textContent = song.title || 'Song';
+
+    var art = document.getElementById('lpSongArt');
+    if (art) art.textContent = (song.title || '?').charAt(0).toUpperCase();
+
+    var styleBadge = document.getElementById('lpStyleBadge');
+    if (styleBadge) {
+      var style = (song.style || song.category || '').trim();
+      styleBadge.textContent = style;
+      styleBadge.hidden = !style;
+    }
+
+    // Only Key exists as a real column; 4/4 and Tempo in the reference have no
+    // storage, so the line collapses to whatever is genuinely known.
+    var meta = document.getElementById('lpMetaLine');
+    if (meta) {
+      // Key only. The reference's "4/4 · Tempo 82" are time signature and BPM,
+      // which have no columns; our `tempo` field is the Feel value and already
+      // shows as a Feel chip below, so repeating it here reads as two facts.
+      var bits = [];
+      if (song.key) bits.push('Key ' + song.key);
+      meta.innerHTML = bits.map(function(b) {
+        return '<span>' + escapeHtml(b) + '</span>';
+      }).join('<span class="lp-meta-dot" aria-hidden="true">&middot;</span>');
+      meta.hidden = !bits.length;
+    }
+
+    var badges = document.getElementById('lpBadges');
+    if (badges) {
+      var chips = [];
+      function push(label, value, cls) {
+        String(value || '').split(/[,;]+/).forEach(function(v) {
+          v = v.trim();
+          if (v) chips.push('<span class="lp-chip ' + cls + '"><b>' + label + '</b>' + escapeHtml(v) + '</span>');
+        });
+      }
+      push('Theme: ', song.theme, 'lp-chip-theme');
+      push('Season: ', song.season, 'lp-chip-season');
+      push('Feel: ', song.tempo, 'lp-chip-feel');
+      badges.innerHTML = chips.join('');
+      badges.hidden = !chips.length;
+    }
+  }
+  window._lpRenderSongHeader = _lpRenderSongHeader;
+
   function openLyricsPreviewModal(song) {
+    // Remember where the catalogue was so Back/Close can put it back. The
+    // scroller is the page on desktop-browse and #songListContainer once the
+    // master-detail split takes over, so both are captured.
+    var _lc = document.getElementById('songListContainer');
+    STATE._sfScrollRestore = {
+      page: window.scrollY || document.documentElement.scrollTop || 0,
+      list: _lc ? _lc.scrollTop : 0
+    };
     STATE.lyricsCurrentSong = song;
     currentDisplayStyle = (song && song.display_style) ? Object.assign({}, song.display_style) : {};
     STATE.lyricsPreviewEditMode = false;
@@ -18396,6 +19688,8 @@ window.loadEditSongData = function(song) {
       if (b) { b.disabled = false; b.style.opacity = ''; b.style.pointerEvents = ''; }
     });
     _lpSyncModalParent(true);
+    _lpRenderSongHeader(song);
+    if (typeof window._lpRenderRail === 'function') window._lpRenderRail(song);
 
     // Use the global function from Part 4
     if (typeof window.setLyricsPreviewSong === 'function') {
@@ -18488,8 +19782,30 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 13B) DOC PREVIEW MODAL
   // ============================================================
+  // Chunk 5: background scroll lock. Reference-counted, because a chooser can
+  // hand straight over to a viewer -- a plain set/clear pair would unlock the
+  // page while a viewer was still open.
+  var _sfScrollLockCount = 0;
+  var _sfScrollLockY = 0;
+  function _sfLockBackgroundScroll() {
+    if (_sfScrollLockCount++ === 0) {
+      _sfScrollLockY = window.scrollY || 0;
+      document.body.style.overflow = 'hidden';
+    }
+  }
+  function _sfUnlockBackgroundScroll() {
+    if (_sfScrollLockCount === 0) return;
+    if (--_sfScrollLockCount === 0) {
+      document.body.style.overflow = '';
+      window.scrollTo(0, _sfScrollLockY);
+    }
+  }
+  window._sfLockBackgroundScroll = _sfLockBackgroundScroll;
+  window._sfUnlockBackgroundScroll = _sfUnlockBackgroundScroll;
+
   function promoteSongResourceModal(modal) {
     if (!modal) return;
+    _sfLockBackgroundScroll();
     // The mobile lyrics workspace is portalled to <body> when opened. Move
     // each child resource viewer after it as well, so equal/ancestor stacking
     // contexts can never place a document or video behind the workspace.
@@ -18561,13 +19877,28 @@ window.loadEditSongData = function(song) {
 
     // Store original URL for "Open in New Tab" button
     $('docPreviewOpenBtn').onclick = function() {
-      window.open(url, '_blank');
+      window.open(url, '_blank', 'noopener,noreferrer');
     };
+
+    // Chunk 5: Download. Google's viewer URLs are not files, so for Drive and
+    // Docs this points at their real export endpoint rather than handing the
+    // browser a page to "download". Anything else downloads directly.
+    var dl = $('docPreviewDownloadBtn');
+    if (dl) {
+      var dlUrl = url, fileId = (url.match(/\/d\/([a-zA-Z0-9_-]+)/) || [])[1];
+      if (fileId && url.indexOf('drive.google.com') !== -1) {
+        dlUrl = 'https://drive.google.com/uc?export=download&id=' + fileId;
+      } else if (fileId && url.indexOf('docs.google.com/document') !== -1) {
+        dlUrl = 'https://docs.google.com/document/d/' + fileId + '/export?format=pdf';
+      }
+      dl.onclick = function() { window.open(dlUrl, '_blank', 'noopener,noreferrer'); };
+    }
 
     openModal('docPreviewModal');
   }
   
   function closeDocPreview() {
+    _sfUnlockBackgroundScroll();
     $('docPreviewFrame').src = '';
     $('docPreviewFrame').style.transform = '';
     var previewContent = $('docPreviewContent');
@@ -18632,6 +19963,7 @@ window.loadEditSongData = function(song) {
   }
   
   function closeYoutubePreview() {
+    _sfUnlockBackgroundScroll();
     $('youtubePreviewFrame').src = '';
     closeModal('youtubePreviewModal');
   }
@@ -19386,6 +20718,11 @@ window.loadEditSongData = function(song) {
   // 16) DATA LOADING
   // ============================================================
   function loadSongs() {
+    // Chunk 11: only show the loading state on a genuinely empty catalogue.
+    // A refresh with songs already on screen should not blank them out.
+    if (!(STATE.songs && STATE.songs.length) && typeof _sfShowCatalogueLoading === 'function') {
+      _sfShowCatalogueLoading();
+    }
     return SBQ_SONGS.getAll().then(function(songs) {
       STATE.songs = songs || [];
       window.STATE = STATE;
@@ -19422,6 +20759,13 @@ window.loadEditSongData = function(song) {
       $('backendStatus').textContent = 'Backend: Error ✗';
       $('backendStatus').style.color = '#fca5a5';
       showToast('Failed to load songs', 'error');
+      // Chunk 11: an inline state with a retry, rather than only a toast that
+      // vanishes and leaves an empty panel behind.
+      if (!(STATE.songs && STATE.songs.length) && typeof _sfShowCatalogueError === 'function') {
+        _sfShowCatalogueError(navigator.onLine === false
+          ? 'You appear to be offline. Reconnect and try again.'
+          : (err && err.message) ? String(err.message) : null);
+      }
     });
   }
 
@@ -23555,6 +24899,10 @@ var WO = (function() {
     { id: 'dismissal', label: 'Closing / Dismissal' },
     { id: 'other', label: 'Other' }
   ];
+  // Chunk 6: the Add-to-Order dialog needs the same section list the service
+  // order itself uses. Exposed rather than copied, so a section added here can
+  // never go missing from that dialog.
+  window.SERVICE_SECTIONS = SERVICE_SECTIONS;
 
   // Order structures - serviceSectionId maps to SERVICE_SECTIONS for song auto-population
   // liturgySectionId maps to LiturgyModule section IDs for liturgy auto-population
@@ -84164,7 +85512,13 @@ window.LHC_Install = (function() {
     #songFinderView #sfResultsGrid.sf-song-active .sf-song-actions { grid-column:1/-1;max-width:none;justify-content:flex-start;padding-left:56px;margin-top:0; }
     #songFinderView #sfWorkspacePanel { align-items:stretch;justify-content:flex-start; }
     #sfWorkspacePanel #lyricsPreviewModal.show { width:100%;min-width:0;align-self:stretch; }
-    #sfWorkspacePanel #lyricsPreviewModalContent { width:100%;min-width:0;border:0;border-radius:0;background:#fff;box-shadow:none; }
+    /* !important because the element carries an inline width:min(750px,95%)
+       for its modal presentation, which a plain rule cannot beat -- that is why
+       the workspace never actually filled the column. */
+    #sfWorkspacePanel #lyricsPreviewModalContent {
+      width:100% !important; max-width:100% !important; min-width:0;
+      border:0;border-radius:0;background:#fff;box-shadow:none;
+    }
     #sfWorkspacePanel #lyricsPreviewHeaderPanel { padding:12px 14px;background:linear-gradient(160deg,#fdfdff,#f2f5fc);border:0;border-bottom:1px solid var(--sf-line);color:var(--sf-ink); }
     #sfWorkspacePanel #lyricsPreviewTitle { color:var(--sf-navy);font-size:1.45rem; }
     #sfWorkspacePanel #lyricsPreviewArtist { color:var(--sf-muted); }
@@ -84322,6 +85676,614 @@ window.LHC_Install = (function() {
     #addSongModal .asm-scroll,#editSongModal .asm-scroll { padding:0 12px; }
     #addSongModal .asm-section,#editSongModal .asm-section { padding:8px; }
   }
+  /* ==========================================================================
+     CHUNK 1 — compact catalogue.
+
+     The opening section pushed the catalogue below the fold: at 1366x768 the
+     header alone was 312px and only ONE card was visible. Reference image 1
+     puts the search and the three actions on a single row under the heading,
+     drops the subtitle, the keyboard hint and the big metrics strip, and goes
+     straight from the filter chips to the cards.
+
+     This is layout only -- no control is removed, and every id, class and
+     handler stays exactly where the JS expects it. The button row is placed
+     beside the search with `display:contents` on its wrapper rather than by
+     moving markup, so the inline onclick call sites are untouched.
+     ========================================================================== */
+  @media (min-width:769px) {
+    #songFinderView #sfCommandHeader {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      grid-template-areas:"copy copy" "search actions";
+      column-gap:10px; row-gap:9px; align-items:center;
+      padding:clamp(12px,1.6vw,18px) clamp(14px,2vw,22px);
+    }
+    /* Unwraps the copy+actions flex row so both become grid items. */
+    #songFinderView #sfCommandHeader > .flex.items-center.justify-between { display:contents; }
+    #songFinderView #sfCommandHeader .sf-command-copy { grid-area:copy; }
+    #songFinderView #sfCommandHeader .flex.gap-2.flex-wrap.items-center {
+      grid-area:actions; display:flex; align-items:center; gap:6px; flex-wrap:nowrap;
+    }
+    #songFinderView #sfCommandHeader .sf-search-field { grid-area:search; min-width:0; }
+    #songFinderView #sfCommandHeader .sf-library-metrics { grid-column:1/-1; }
+
+    /* Editorial trim: the heading carries the message, so the subtitle and the
+       "/ to focus" hint are redundant against a visible search field. */
+    #songFinderView .sf-command-subtitle { display:none; }
+    #songFinderView #sfCommandHeader .sf-search-foot { display:none; }
+    #songFinderView #sfCommandHeader h3.font-cinzel {
+      font-size:clamp(1.2rem,1.7vw,1.6rem); line-height:1.2;
+    }
+    #songFinderView #sfCommandHeader .lhc-section-title { margin-bottom:3px; font-size:.63rem; }
+    #songFinderView #sfCommandHeader #searchInput { height:46px; }
+
+    /* Statistics now live below the catalogue; the strip is compact and reads
+       as secondary rather than as a banner. */
+    #songFinderView #sfStatsDesktopSlot { margin-top:8px; }
+    #songFinderView #sfStatsDesktopSlot .sf-library-metrics {
+      margin-top:0; max-width:none; background:#fff;
+    }
+    #songFinderView #sfStatsDesktopSlot .sf-library-metrics > div { padding:6px 14px; }
+    #songFinderView #sfStatsDesktopSlot .sf-library-metrics strong { font-size:.92rem; }
+    #songFinderView #sfStatsDesktopSlot .sf-library-metrics span { font-size:.62rem; margin-top:2px; }
+
+    /* The results row already states the count; a second "Browse songs"
+       heading between it and the first card was pure vertical cost. */
+    #songFinderView .sf-catalog-head { display:none; }
+    #songFinderView #sfFilterBar { padding:8px 12px 9px; }
+    #songFinderView #sfResultsGrid { gap:10px; }
+  }
+
+  /* ==========================================================================
+     CHUNK 2 — Song Details workspace header.
+
+     Breadcrumb, song identity block and metadata chips, per reference image 2.
+     The usage line and History tab it also shows are deliberately absent: no
+     per-order usage history or per-song change log exists, and inventing them
+     would be decoration pretending to be data (audit B1/B2).
+     ========================================================================== */
+  #lpBreadcrumb {
+    display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+    margin-bottom:10px; font-size:.74rem; color:var(--sf-muted,#5f6b91);
+  }
+  #lpBreadcrumb .lp-crumb-link {
+    background:none; border:0; padding:0; cursor:pointer;
+    color:var(--sf-blue-deep,#3b5bdb); font-size:.74rem; font-weight:700;
+  }
+  #lpBreadcrumb .lp-crumb-link:hover { text-decoration:underline; }
+  #lpBreadcrumb .lp-crumb-sep { color:#b6c0da; }
+  #lpBreadcrumb .lp-crumb-current {
+    color:var(--sf-navy,#0f1c3f); font-weight:650;
+    max-width:min(46ch,52%); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  #lpBackBtn {
+    margin-left:auto; display:inline-flex; align-items:center; gap:6px;
+    min-height:30px; padding:0 11px; border:1px solid var(--sf-line-2,#d0d8ec);
+    border-radius:8px; background:#fff; color:var(--sf-ink,#1a2547);
+    font-size:.72rem; font-weight:700; cursor:pointer;
+  }
+  #lpBackBtn:hover { background:var(--sf-tint,#eef2ff); border-color:#b9c5ea; color:var(--sf-blue-deep,#3b5bdb); }
+  #lpBackBtn:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+
+  #lpSongHeader { align-items:flex-start; gap:14px; }
+  #lpSongHeader .lp-song-art {
+    flex:none; width:60px; height:64px; border-radius:12px; display:grid; place-items:center;
+    background:linear-gradient(155deg,var(--sf-blue-deep,#3b5bdb),var(--sf-violet,#7048e8));
+    color:#fff; font-family:'Cinzel',serif; font-size:1.5rem; font-weight:700;
+    box-shadow:inset 0 1px rgba(255,255,255,.22);
+  }
+  #lpSongHeader .lp-song-ident { flex:1 1 auto; min-width:0; }
+  #lpSongHeader .lp-title-row { display:flex; align-items:center; gap:9px; flex-wrap:wrap; min-width:0; }
+  #lpSongHeader .lp-style-badge {
+    flex:none; padding:2px 9px; border:1px solid #c3cdf3; border-radius:999px;
+    background:var(--sf-tint,#eef2ff); color:var(--sf-blue-deep,#3b5bdb);
+    font-size:.64rem; font-weight:800; letter-spacing:.02em;
+  }
+  #lpSongHeader .lp-style-badge[hidden] { display:none; }
+  .lp-meta-line { display:flex; align-items:center; gap:7px; margin-top:5px; color:var(--sf-ink,#1a2547); font-size:.76rem; font-weight:650; }
+  .lp-meta-line[hidden] { display:none; }
+  .lp-meta-line .lp-meta-dot { color:#b6c0da; }
+  .lp-badges { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; }
+  .lp-badges[hidden] { display:none; }
+  .lp-chip {
+    padding:2px 8px; border-radius:6px; font-size:.63rem; font-weight:650;
+    border:1px solid transparent; max-width:220px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap;
+  }
+  .lp-chip b { font-weight:800; opacity:.72; }
+  /* Distinct hues, but each chip also names its category in text, so the
+     grouping is never carried by colour alone. */
+  .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
+  .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
+  .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── CHUNK 11: one shared state component ──────────────────────────────── */
+  #songFinderView .sf-state {
+    display:flex; flex-direction:column; align-items:center; text-align:center;
+    gap:9px; padding:38px 22px; margin:6px;
+    border:1px dashed var(--sf-line-2,#d0d8ec); border-radius:14px;
+    background:#fff;
+  }
+  #songFinderView .sf-state-icon {
+    width:46px; height:46px; display:grid; place-items:center; border-radius:13px;
+    background:var(--sf-tint,#eef2ff); color:var(--sf-blue-deep,#3b5bdb); font-size:1.15rem;
+  }
+  #songFinderView .sf-state h4 {
+    margin:0; color:var(--sf-navy,#0f1c3f); font-family:'Cinzel',serif;
+    font-size:1rem; font-weight:750;
+  }
+  #songFinderView .sf-state p {
+    margin:0; max-width:44ch; color:var(--sf-muted,#5f6b91); font-size:.8rem; line-height:1.55;
+  }
+  #songFinderView .sf-state-btn {
+    margin-top:3px; min-height:38px; padding:0 15px; cursor:pointer;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:9px; background:#fff;
+    color:var(--sf-blue-deep,#3b5bdb); font-family:inherit; font-size:.78rem; font-weight:750;
+  }
+  #songFinderView .sf-state-btn:hover { background:var(--sf-tint,#eef2ff); border-color:#b9c5ea; }
+  #songFinderView .sf-state-btn:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  /* Error keeps the same shape and only changes hue, so a failure never looks
+     like a different screen. */
+  #songFinderView .sf-state.is-error { border-color:#fed7aa; background:#fff7ed; }
+  #songFinderView .sf-state.is-error .sf-state-icon { background:#ffedd5; color:#9a5b16; }
+  #songFinderView .sf-state.is-error h4 { color:#9a5b16; }
+
+  /* ── CHUNK 10: mobile internal screens ─────────────────────────────────── */
+  /* The sheet header only exists while the sheet is open. */
+  #sfFilterGrid .sf-sheet-header { display:none; }
+  #lpMobileActions { display:none; }
+
+  @media (max-width:768px) {
+    #sfFilterGrid.sf-sheet-open .sf-sheet-header {
+      grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; gap:10px;
+      margin:-6px 0 2px; padding-bottom:9px; border-bottom:1px solid var(--sf-line,#e3e8f4);
+    }
+    /* The CSS-generated title is replaced by the real header row. */
+    #sfFilterGrid.sf-sheet-open::before { content:none !important; }
+    .sf-sheet-title { color:var(--sf-navy,#0f1c3f); font-size:1rem; font-weight:800; }
+    .sf-sheet-reset-link {
+      padding:5px 2px; border:0; background:none; cursor:pointer;
+      color:var(--sf-blue-deep,#3b5bdb); font-family:inherit; font-size:.82rem; font-weight:750;
+    }
+    .sf-sheet-close {
+      width:36px; height:36px; display:grid; place-items:center; cursor:pointer;
+      border:1px solid var(--sf-line-2,#d0d8ec); border-radius:9px; background:#fff;
+      color:var(--sf-ink,#1a2547); font-size:.95rem;
+    }
+    .sf-sheet-close:focus-visible, .sf-sheet-reset-link:focus-visible {
+      outline:3px solid rgba(76,110,245,.38); outline-offset:2px;
+    }
+    /* Reset now lives in the header, so the footer is a single wide action. */
+    #sfMobileFilterApplyBtn .sf-sheet-reset { display:none; }
+
+    /* Sticky song actions. Uses dvh-aware safe-area padding so the bar is not
+       hidden behind the home indicator, and sits above the bottom nav. */
+    #lpMobileActions {
+      display:flex; gap:7px; flex:none; padding:9px 12px calc(9px + env(safe-area-inset-bottom,0px));
+      border-top:1px solid var(--sf-line,#e3e8f4); background:#fff;
+      box-shadow:0 -6px 18px rgba(15,28,63,.07);
+    }
+    .lp-mact {
+      flex:1 1 auto; min-height:46px; display:inline-flex; align-items:center; justify-content:center; gap:7px;
+      border:1px solid var(--sf-line-2,#d0d8ec); border-radius:11px; background:#fff; cursor:pointer;
+      color:var(--sf-ink,#1a2547); font-family:inherit; font-size:.78rem; font-weight:750;
+    }
+    .lp-mact.primary {
+      flex:1.5 1 auto; border-color:transparent; color:#fff;
+      background:linear-gradient(135deg,var(--sf-blue,#4c6ef5),var(--sf-violet,#7048e8));
+      box-shadow:0 6px 16px rgba(76,110,245,.26);
+    }
+    .lp-mact:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+    /* The status line duplicates what the bar already says on a phone. */
+    #lpStatusBar { display:none; }
+    /* Keyboard-aware: when the on-screen keyboard opens the visual viewport
+       shrinks, and 100dvh follows it, so the editor page and its Save stay
+       reachable instead of being pushed under the keyboard. */
+    #lyricsEditorModal .lyrics-editor-content { max-height:100dvh; }
+  }
+
+  /* ── CHUNK 9: theme search, keyboard focus and validation ──────────────── */
+  #filterThemeDropdown .sf-filter-theme-search {
+    position:relative; padding:8px 10px; border-bottom:1px solid var(--sf-line,#e3e8f4);
+    background:var(--sf-surface,#f7f9fd);
+  }
+  #filterThemeDropdown .sf-filter-theme-search i {
+    position:absolute; left:20px; top:50%; transform:translateY(-50%);
+    color:var(--sf-muted,#5f6b91); font-size:.72rem; pointer-events:none;
+  }
+  #filterThemeDropdown #filterThemeSearch {
+    width:100%; min-height:34px; padding:0 9px 0 28px; border-radius:8px;
+    border:1px solid var(--sf-line-2,#d0d8ec); background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.78rem; font-family:inherit;
+  }
+  #filterThemeDropdown #filterThemeSearch:focus-visible,
+  #filterThemeDropdown #filterThemeSearch:focus {
+    outline:none; border-color:var(--sf-blue,#4c6ef5); box-shadow:0 0 0 3px rgba(76,110,245,.16);
+  }
+  #filterThemeDropdown .sf-filter-theme-option[hidden] { display:none; }
+  /* Keyboard focus must be obvious -- the checkbox is small and the rows look
+     alike. */
+  #filterThemeDropdown .filter-theme-cb:focus-visible {
+    outline:3px solid rgba(76,110,245,.45); outline-offset:2px;
+  }
+  #filterThemeDropdown .sf-filter-theme-option:focus-within {
+    background:var(--sf-tint,#eef2ff); border-radius:7px;
+  }
+  #filterThemeDropdown .sf-filter-theme-noresult {
+    margin:0; padding:12px 14px; color:var(--sf-muted,#5f6b91); font-size:.75rem; text-align:center;
+  }
+  #filterThemeDropdown .sf-filter-theme-noresult[hidden] { display:none; }
+  #filterThemeDropdown .sf-filter-theme-error {
+    margin:7px 0 0; color:#9a5b16; font-size:.72rem; font-weight:650;
+  }
+  #filterThemeDropdown .sf-filter-theme-error[hidden] { display:none; }
+
+  /* ── CHUNK 8: Share dialog ─────────────────────────────────────────────── */
+  .share-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .share-tile {
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px;
+    min-height:76px; padding:10px 6px; cursor:pointer;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:11px; background:#fff;
+    color:var(--sf-ink,#1a2547); font-family:inherit; font-size:.7rem; font-weight:700; text-align:center;
+  }
+  .share-tile i { font-size:1.15rem; color:var(--sf-blue-deep,#3b5bdb); }
+  .share-tile:hover { border-color:#b9c5ea; background:var(--sf-tint,#eef2ff); transform:translateY(-1px); }
+  .share-tile:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  .share-link-row { display:flex; gap:8px; align-items:center; }
+  .share-link-row .ato-select { flex:1 1 auto; min-width:0; }
+  .share-feedback {
+    display:flex; align-items:center; gap:7px; margin:11px 0 0;
+    font-size:.75rem; font-weight:650;
+  }
+  .share-feedback[hidden] { display:none; }
+  .share-feedback.is-ok { color:#0f7a41; }
+  .share-feedback.is-err { color:#9a5b16; }
+  @media (max-width:560px) {
+    .share-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .share-tile { min-height:72px; }
+  }
+  @media (prefers-reduced-motion:reduce) { .share-tile:hover { transform:none; } }
+
+  /* ── CHUNK 7: Add to Songbook dialog ───────────────────────────────────── */
+  .atb-tabs { display:flex; gap:4px; padding:0 18px; border-bottom:1px solid var(--sf-line,#e3e8f4); }
+  .atb-tab {
+    padding:9px 12px; border:0; border-bottom:2px solid transparent; background:none; cursor:pointer;
+    color:var(--sf-muted,#5f6b91); font-family:inherit; font-size:.79rem; font-weight:700;
+  }
+  .atb-tab.is-active { color:var(--sf-blue-deep,#3b5bdb); border-bottom-color:var(--sf-blue-deep,#3b5bdb); }
+  .atb-tab:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:-2px; }
+  .atb-list { display:flex; flex-direction:column; gap:7px; max-height:264px; overflow-y:auto; }
+  .atb-card {
+    display:flex; align-items:center; gap:10px; padding:10px 11px; cursor:pointer;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:11px; background:#fff;
+  }
+  .atb-card:hover { border-color:#b9c5ea; background:var(--sf-tint,#eef2ff); }
+  .atb-card:has(input:checked) { border-color:var(--sf-blue,#4c6ef5); background:var(--sf-tint,#eef2ff); box-shadow:0 0 0 3px rgba(76,110,245,.14); }
+  .atb-card.is-in { opacity:.62; cursor:not-allowed; }
+  .atb-card input { flex:none; width:16px; height:16px; accent-color:var(--sf-blue,#4c6ef5); }
+  .atb-card-body { min-width:0; display:flex; flex-direction:column; gap:1px; }
+  .atb-card-body b { color:var(--sf-navy,#0f1c3f); font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .atb-card-body small { color:var(--sf-muted,#5f6b91); font-size:.7rem; }
+  .atb-empty { margin:0; padding:14px; text-align:center; color:var(--sf-muted,#5f6b91); font-size:.78rem;
+               border:1px dashed var(--sf-line-2,#d0d8ec); border-radius:11px; background:var(--sf-surface,#f7f9fd); }
+  .atb-error { margin:7px 0 0; color:#9a5b16; font-size:.74rem; font-weight:650; }
+  .atb-error[hidden] { display:none; }
+  .atb-note {
+    display:flex; align-items:flex-start; gap:8px; margin:13px 0 0; padding:9px 11px;
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:10px; background:var(--sf-surface,#f7f9fd);
+    color:var(--sf-muted,#5f6b91); font-size:.72rem; line-height:1.5;
+  }
+  .atb-note i { margin-top:2px; color:var(--sf-blue-deep,#3b5bdb); }
+
+  /* ── CHUNK 6: Add to Worship Order dialog ──────────────────────────────── */
+  #addToOrderModal .ato-content { width:min(560px,95vw); max-height:92vh; display:flex; flex-direction:column; padding:0; }
+  .ato-header {
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:14px 18px; border-bottom:1px solid var(--sf-line,#e3e8f4);
+  }
+  .ato-header h3 { margin:0; color:var(--sf-navy,#0f1c3f); font-family:'Cinzel',serif; font-size:1.06rem; font-weight:750; }
+  .ato-body { padding:14px 18px; overflow-y:auto; }
+  .ato-song {
+    display:flex; align-items:center; gap:11px; padding:10px; margin-bottom:13px;
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:11px; background:var(--sf-surface,#f7f9fd);
+  }
+  .ato-song-art {
+    flex:none; width:44px; height:48px; border-radius:9px; display:grid; place-items:center;
+    background:linear-gradient(155deg,var(--sf-blue-deep,#3b5bdb),var(--sf-violet,#7048e8));
+    color:#fff; font-family:'Cinzel',serif; font-size:1.15rem; font-weight:700;
+  }
+  .ato-song-ident { min-width:0; display:flex; flex-direction:column; gap:1px; }
+  .ato-song-ident b { color:var(--sf-navy,#0f1c3f); font-size:.9rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ato-song-ident span { color:var(--sf-muted,#5f6b91); font-size:.76rem; }
+  .ato-song-ident small { color:var(--sf-blue-deep,#3b5bdb); font-size:.7rem; font-weight:700; }
+  .ato-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
+  .ato-span2 { grid-column:1/-1; }
+  .ato-label {
+    display:block; margin:0 0 4px; color:var(--sf-muted,#5f6b91);
+    font-size:.64rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+  }
+  .ato-select, .ato-static {
+    width:100%; min-height:38px; padding:0 9px; border-radius:9px;
+    border:1px solid var(--sf-line-2,#d0d8ec); background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.8rem; font-family:inherit;
+  }
+  .ato-static { display:flex; align-items:center; background:var(--sf-surface-2,#eff2fa); font-weight:650; }
+  .ato-select:focus-visible { outline:3px solid rgba(76,110,245,.35); outline-offset:1px; }
+  .ato-warn {
+    display:flex; align-items:flex-start; gap:9px; margin-top:13px; padding:10px 12px;
+    border:1px solid #fed7aa; border-radius:10px; background:#fff7ed; color:#9a5b16;
+  }
+  .ato-warn[hidden] { display:none; }
+  .ato-warn i { margin-top:1px; }
+  .ato-warn b { display:block; font-size:.78rem; }
+  .ato-warn small { display:block; font-size:.72rem; opacity:.9; margin-top:1px; }
+  .ato-footer {
+    display:flex; align-items:center; justify-content:flex-end; gap:9px;
+    padding:12px 18px; border-top:1px solid var(--sf-line,#e3e8f4); background:#fff;
+  }
+  @media (max-width:560px) {
+    .ato-grid { grid-template-columns:1fr; }
+    #addToOrderModal .ato-content { width:100vw; max-height:100dvh; border-radius:16px 16px 0 0; }
+  }
+
+  /* ==========================================================================
+     CHUNK 5 — resource preview: the header never scrolls away.
+
+     The header already sat outside the scrolling region, so Close could not be
+     scrolled off. Making it explicitly sticky means that stays true even if the
+     viewer's internals change later, and it is what the brief asks for.
+     ========================================================================== */
+  #docPreviewModal #docPreviewHeader,
+  #youtubePreviewModal #youtubePreviewHeader {
+    position:sticky; top:0; z-index:3; flex:none;
+    background:#fff; border-bottom:1px solid var(--sf-line,#e3e8f4);
+  }
+  #docPreviewModal .modal-content,
+  #youtubePreviewModal .modal-content { display:flex; flex-direction:column; }
+  #docPreviewCloseBtn, #youtubePreviewCloseBtn { flex:none; }
+  @media (max-width:640px) {
+    /* Download is a nicety; on a phone the row must keep Close reachable. */
+    #docPreviewDownloadBtn { display:none !important; }
+  }
+
+  /* ==========================================================================
+     CHUNK 4 — Lyrics & Chords editor: section outline and honest save state.
+
+     The editor itself, its undo/redo, transpose and live preview already
+     existed and are untouched. This adds the outline from reference image 3
+     and a state badge that tells the truth: the editor STAGES into the song
+     form, and the form's Save is what persists and broadcasts, so the badge
+     never claims to have autosaved.
+     ========================================================================== */
+  .lyrics-editor-songtitle {
+    margin-left:10px; color:var(--sf-muted,#5f6b91); font-size:.82rem; font-weight:650;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:34ch;
+  }
+  .lyrics-editor-state {
+    margin-left:auto; margin-right:10px; display:inline-flex; align-items:center; gap:6px;
+    padding:3px 10px; border-radius:999px; font-size:.7rem; font-weight:750; white-space:nowrap;
+  }
+  .lyrics-editor-state i { font-size:.55rem; }
+  .lyrics-editor-state.is-dirty { background:#fff7ed; color:#9a5b16; border:1px solid #fed7aa; }
+  .lyrics-editor-state.is-clean { background:#f0fdf4; color:#0f7a41; border:1px solid #a9e8c0; }
+
+  .lyrics-editor-main { display:flex; align-items:stretch; gap:10px; min-height:0; flex:1 1 auto; }
+  .lyrics-editor-main > .lyrics-editor-wrapper { flex:1 1 auto; min-width:0; }
+  #lyricsOutline {
+    flex:0 0 168px; min-width:0; display:flex; flex-direction:column;
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:10px;
+    background:var(--sf-surface,#f7f9fd); overflow:hidden;
+  }
+  .lyrics-outline-head {
+    padding:8px 10px; border-bottom:1px solid var(--sf-line,#e3e8f4);
+    color:var(--sf-muted,#5f6b91); font-size:.62rem; font-weight:800;
+    letter-spacing:.1em; text-transform:uppercase;
+  }
+  #lyricsOutlineList { overflow-y:auto; padding:5px; display:flex; flex-direction:column; gap:3px; }
+  .lyrics-outline-item {
+    display:flex; flex-direction:column; align-items:flex-start; gap:1px; width:100%;
+    padding:6px 8px; border:1px solid transparent; border-radius:8px; background:#fff;
+    cursor:pointer; text-align:left; font-family:inherit;
+  }
+  .lyrics-outline-item:hover { border-color:#b9c5ea; background:var(--sf-tint,#eef2ff); }
+  .lyrics-outline-item:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  .lyrics-outline-name {
+    color:var(--sf-navy,#0f1c3f); font-size:.74rem; font-weight:750;
+    max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .lyrics-outline-item small { color:var(--sf-muted,#5f6b91); font-size:.63rem; }
+  .lyrics-outline-empty { margin:0; padding:8px; color:var(--sf-muted,#5f6b91); font-size:.7rem; line-height:1.5; }
+  .lyrics-outline-empty code {
+    padding:1px 4px; border-radius:4px; background:var(--sf-surface-2,#eff2fa);
+    color:var(--sf-blue-deep,#3b5bdb); font-size:.68rem;
+  }
+  @media (max-width:900px) {
+    /* The outline would halve an already narrow editing column on a phone. */
+    #lyricsOutline { display:none; }
+    .lyrics-editor-songtitle { display:none; }
+  }
+
+  /* ==========================================================================
+     CHUNK 3 — Add / Edit Song: numbered sections and a step rail.
+
+     The five sections already existed and are unchanged; this adds the numbered
+     navigation from reference image 3. Section numbers come from a CSS counter
+     rather than markup, so the two modals cannot drift out of sync and adding
+     or reordering a section renumbers everything automatically.
+     ========================================================================== */
+  #addSongModal .asm-shell, #editSongModal .asm-shell {
+    display:flex; align-items:stretch; gap:0; flex:1 1 auto; min-height:0;
+  }
+  #addSongModal .asm-stepnav, #editSongModal .asm-stepnav {
+    flex:0 0 176px; display:flex; flex-direction:column; gap:2px;
+    padding:14px 10px; border-right:1px solid var(--sf-line,#e3e8f4);
+    background:var(--sf-surface,#f7f9fd); counter-reset:asm-nav;
+  }
+  #addSongModal .asm-step, #editSongModal .asm-step {
+    display:flex; align-items:center; gap:9px; width:100%;
+    padding:7px 9px; border:0; border-radius:9px; background:none; cursor:pointer;
+    color:var(--sf-muted,#5f6b91); font-family:inherit; font-size:.76rem;
+    font-weight:650; text-align:left; line-height:1.25;
+  }
+  #addSongModal .asm-step::before, #editSongModal .asm-step::before {
+    counter-increment:asm-nav; content:counter(asm-nav);
+    flex:none; width:21px; height:21px; border-radius:999px;
+    display:grid; place-items:center;
+    background:#e2e8f6; color:var(--sf-muted,#5f6b91);
+    font-size:.66rem; font-weight:800;
+  }
+  #addSongModal .asm-step:hover, #editSongModal .asm-step:hover {
+    background:var(--sf-tint,#eef2ff); color:var(--sf-blue-deep,#3b5bdb);
+  }
+  #addSongModal .asm-step.is-active, #editSongModal .asm-step.is-active {
+    background:#fff; color:var(--sf-navy,#0f1c3f);
+    box-shadow:0 1px 3px rgba(15,28,63,.10);
+  }
+  #addSongModal .asm-step.is-active::before, #editSongModal .asm-step.is-active::before {
+    background:linear-gradient(135deg,var(--sf-blue,#4c6ef5),var(--sf-violet,#7048e8)); color:#fff;
+  }
+  #addSongModal .asm-step:focus-visible, #editSongModal .asm-step:focus-visible {
+    outline:3px solid rgba(76,110,245,.38); outline-offset:2px;
+  }
+
+  /* Numbered section headings, from the same counter idea. */
+  #addSongModal .asm-body, #editSongModal .asm-body { counter-reset:asm-sec; }
+  #addSongModal .asm-section-title, #editSongModal .asm-section-title {
+    display:flex; align-items:center; gap:8px;
+  }
+  #addSongModal .asm-section-title::before, #editSongModal .asm-section-title::before {
+    counter-increment:asm-sec; content:counter(asm-sec);
+    flex:none; width:20px; height:20px; border-radius:999px; display:grid; place-items:center;
+    background:linear-gradient(135deg,var(--sf-blue,#4c6ef5),var(--sf-violet,#7048e8));
+    color:#fff; font-size:.64rem; font-weight:800;
+  }
+
+  /* Validation summary in the sticky footer. */
+  #addSongModal .asm-footer, #editSongModal .asm-footer { gap:10px; }
+  .asm-validity { display:flex; align-items:center; gap:8px; margin-right:auto; min-width:0; }
+  .asm-validity i { font-size:1rem; }
+  .asm-validity .asm-validity-text { min-width:0; }
+  .asm-validity b { display:block; font-size:.78rem; font-weight:750; line-height:1.2; }
+  .asm-validity small { display:block; font-size:.68rem; opacity:.85; }
+  .asm-validity.is-ok { color:#0f7a41; }
+  .asm-validity.is-warn { color:#9a5b16; }
+
+  @media (max-width:900px) {
+    /* The rail becomes a horizontal strip rather than eating form width. */
+    #addSongModal .asm-shell, #editSongModal .asm-shell { flex-direction:column; }
+    #addSongModal .asm-stepnav, #editSongModal .asm-stepnav {
+      flex:none; flex-direction:row; gap:6px; padding:8px 10px; overflow-x:auto;
+      border-right:0; border-bottom:1px solid var(--sf-line,#e3e8f4); scrollbar-width:none;
+    }
+    #addSongModal .asm-stepnav::-webkit-scrollbar, #editSongModal .asm-stepnav::-webkit-scrollbar { display:none; }
+    #addSongModal .asm-step, #editSongModal .asm-step { width:auto; white-space:nowrap; flex:none; min-height:34px; }
+  }
+
+  /* ── Chunk 2b: the song workspace is a page, not a split pane ──────────────
+     Reference image 2 shows a breadcrumb and "Back to library", which only
+     makes sense if the song REPLACES the catalogue. Kept as a split, the chord
+     sheet measured 404px wide at 1536 once the rail was added -- too narrow to
+     read a chart in. Hiding the list gives the sheet the width the reference
+     shows, and the scroll position captured on open puts the catalogue back
+     exactly where it was on close. */
+  @media (min-width:1080px) {
+    #songFinderView #sfResultsGrid.sf-song-active #sfSongListCard { display:none; }
+    #songFinderView #sfResultsGrid.sf-song-active #sfWorkspacePanel {
+      flex:1 1 100%; max-width:100%;
+    }
+  }
+
+  /* ── Chunk 2b: contextual rail ─────────────────────────────────────────── */
+  #lpBody { display:flex; flex:1 1 auto; min-height:0; align-items:stretch; }
+  #lpBody > #lyricsPreviewContent { flex:1 1 auto; min-width:0; }
+  #lpRail {
+    flex:0 0 292px; max-width:292px; min-width:0; padding:14px;
+    border-left:1px solid var(--sf-line,#e3e8f4); background:var(--sf-surface,#f7f9fd);
+    overflow-y:auto; display:flex; flex-direction:column; gap:10px;
+  }
+  .lp-rail-card {
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:12px; background:#fff; padding:11px 12px;
+    box-shadow:0 1px 2px rgba(15,28,63,.04);
+  }
+  .lp-rail-card h4 {
+    display:flex; align-items:center; gap:7px; margin:0 0 9px;
+    color:var(--sf-navy,#0f1c3f); font-size:.82rem; font-weight:750;
+  }
+  .lp-rail-card h4 i { color:var(--sf-blue-deep,#3b5bdb); }
+  .lp-rail-label {
+    display:block; margin:0 0 4px; color:var(--sf-muted,#5f6b91);
+    font-size:.63rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase;
+  }
+  .lp-rail-select {
+    width:100%; min-height:36px; margin-bottom:9px; padding:0 8px;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:9px; background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.78rem; font-family:inherit;
+  }
+  .lp-rail-select:focus-visible { outline:3px solid rgba(76,110,245,.35); outline-offset:1px; }
+  .lp-rail-select:disabled { background:var(--sf-surface-2,#eff2fa); color:var(--sf-muted,#5f6b91); }
+  .lp-rail-2col { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .lp-rail-static {
+    min-height:36px; display:flex; align-items:center; padding:0 8px; margin-bottom:9px;
+    border:1px solid var(--sf-line,#e3e8f4); border-radius:9px;
+    background:var(--sf-surface-2,#eff2fa); color:var(--sf-ink,#1a2547);
+    font-size:.78rem; font-weight:650;
+  }
+  .lp-rail-actions { display:flex; flex-direction:column; gap:6px; margin-top:2px; }
+  .lp-rail-btn {
+    display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    min-height:38px; padding:0 12px; border-radius:9px; cursor:pointer;
+    border:1px solid var(--sf-line-2,#d0d8ec); background:#fff;
+    color:var(--sf-ink,#1a2547); font-size:.76rem; font-weight:750; font-family:inherit;
+  }
+  .lp-rail-btn:hover { background:var(--sf-tint,#eef2ff); border-color:#b9c5ea; color:var(--sf-blue-deep,#3b5bdb); }
+  .lp-rail-btn.primary {
+    border-color:transparent; color:#fff;
+    background:linear-gradient(135deg,var(--sf-blue,#4c6ef5),var(--sf-violet,#7048e8));
+    box-shadow:0 6px 16px rgba(76,110,245,.24);
+  }
+  .lp-rail-btn.primary:hover { color:#fff; filter:brightness(1.05); }
+  .lp-rail-btn:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  .lp-rail-res { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--sf-line,#e3e8f4); }
+  .lp-rail-res:last-of-type { border-bottom:0; }
+  .lp-rail-res-label {
+    flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    color:var(--sf-ink,#1a2547); font-size:.73rem; font-weight:600;
+  }
+  .lp-rail-res-btn {
+    flex:none; min-height:28px; padding:0 9px; border:1px solid #c3cdf3; border-radius:7px;
+    background:var(--sf-tint,#eef2ff); color:var(--sf-blue-deep,#3b5bdb);
+    font-size:.68rem; font-weight:750; cursor:pointer; font-family:inherit;
+  }
+  .lp-rail-res-btn:hover { background:#e0e7ff; }
+  .lp-rail-empty { margin:0; color:var(--sf-muted,#5f6b91); font-size:.73rem; }
+  .lp-rail-link {
+    margin-top:9px; padding:0; border:0; background:none; cursor:pointer;
+    color:var(--sf-blue-deep,#3b5bdb); font-size:.73rem; font-weight:750; font-family:inherit;
+  }
+  .lp-rail-link:hover { text-decoration:underline; }
+
+  /* Below the split breakpoint the workspace is a single column, so the rail
+     stacks under the chord sheet rather than squeezing it. */
+  @media (max-width:1079px) {
+    #lpBody { flex-direction:column; }
+    #lpRail {
+      flex:none; max-width:none; width:100%;
+      border-left:0; border-top:1px solid var(--sf-line,#e3e8f4);
+      flex-direction:row; flex-wrap:wrap; overflow:visible;
+    }
+    #lpRail .lp-rail-card { flex:1 1 260px; min-width:0; }
+  }
+
+  @media (max-width:640px) {
+    #lpRail { flex-direction:column; padding:10px; }
+    #lpRail .lp-rail-card { flex:1 1 auto; }
+    #lpBreadcrumb { margin-bottom:7px; font-size:.7rem; }
+    #lpBreadcrumb .lp-crumb-current { max-width:100%; }
+    #lpBackBtn { margin-left:0; }
+    #lpSongHeader .lp-song-art { width:46px; height:50px; font-size:1.15rem; border-radius:10px; }
+    #lpSongHeader { gap:10px; }
+  }
+
   @media (prefers-reduced-motion:reduce) {
     #songFinderView .song-list-item,#songFinderView .lhc-pill-button,#songFinderView .sf-action-icon { transition:none !important; }
     #songFinderView .song-list-item.sf-suggestion-target { animation:none !important; }
