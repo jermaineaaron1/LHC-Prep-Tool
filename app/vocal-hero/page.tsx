@@ -19,6 +19,7 @@ import { HighScoreBoard } from './HighScoreBoard';
 import { CountInOverlay } from './CountInOverlay';
 import { rememberPlayerName, storedPlayerName } from './playerName';
 import { playEntranceCue } from '@/lib/vocal-hero/cueTones';
+import { GuidePlayer, rememberGuideAudio, storedGuideAudio } from '@/lib/vocal-hero/guideTones';
 import { useWakeLock } from '@/lib/vocal-hero/useWakeLock';
 import { summariseRound } from '@/lib/vocal-hero/review';
 import type { RoundReview } from '@/lib/vocal-hero/review';
@@ -111,6 +112,12 @@ export default function VocalHeroHostPage() {
   const soloPhaseRef = useRef('Waiting');
   const soloLastPitchPaintRef = useRef(0);
   const cueContextRef = useRef<AudioContext | null>(null);
+  // The written notes, sounded through whatever speakers this machine has.
+  // On by default here: the host is the one device in the room everybody can
+  // hear, so it plays the part a piano would at a rehearsal.
+  const [guideAudio, setGuideAudioState] = useState(true);
+  useEffect(() => { setGuideAudioState(storedGuideAudio(true)); }, []);
+  function setGuideAudio(on: boolean) { setGuideAudioState(on); rememberGuideAudio(on); }
   const cuedRef = useRef({ outer: false, inner: false });
   const pauseStartedRef = useRef(0);
   const endedRef = useRef(false);
@@ -388,6 +395,26 @@ export default function VocalHeroHostPage() {
     if (context !== cueContextRef.current) window.setTimeout(() => void context.close(), 1800);
   }, [session?.status, soloNotes, soloPart, song, timeline.phase]);
 
+  // Sound the arrangement in time with the round.
+  //
+  // Driven by a coarse timer rather than the render loop: notes are handed to
+  // the audio clock ahead of time, so a slow frame delays nothing. Suppressed
+  // when the song has a real backing track, which would otherwise play
+  // underneath it, and reset on pause so queued notes do not sound on into
+  // the silence.
+  useEffect(() => {
+    if (!guideAudio || !song || session?.status !== 'playing' || backingTrackUrl) return;
+    const context = cueContextRef.current;
+    if (!context) return;
+    const player = new GuidePlayer(context);
+    const timer = window.setInterval(() => {
+      if (gamePaused) { player.reset(); return; }
+      if (!soloPhaseRef.current.startsWith('Live')) return;
+      player.update(soloNotes, soloElapsedRef.current);
+    }, 60);
+    return () => { window.clearInterval(timer); player.dispose(); };
+  }, [backingTrackUrl, gamePaused, guideAudio, session?.status, session?.playback_starts_at, song, soloNotes]);
+
   const phoneUrl = session ? `${window.location.origin}/vocal-hero/phone?room=${session.room_code}` : '';
   // The musical count-in and lead-in happen INSIDE the game: lanes visible,
   // bar frozen at zero, the count carried by an overlay. Only the scheduled
@@ -412,7 +439,7 @@ export default function VocalHeroHostPage() {
 
   return <main className="vh-app min-h-screen text-slate-100">
     {backingTrackUrl && <audio ref={audioRef} preload="auto" src={backingTrackUrl} className="hidden" />}
-    <header className="vh-topbar"><Brand /><span className="vh-divider" /><span className="text-xs tracking-[.2em] text-slate-400">{session ? 'LIVE SESSION' : 'SONG LIBRARY'}</span><span className="vh-live-dot">Live</span><div className="ml-auto flex flex-wrap items-center justify-end gap-2">{session?.status === 'playing' && <button onClick={gamePaused ? resumeGame : pauseGame} className="vh-outline-button border-cyan-300/35 text-cyan-100">{gamePaused ? '▶ Resume' : 'Ⅱ Pause'}</button>}{session && <button onClick={returnToLibrary} className="vh-outline-button">← Back to menu</button>}{session && <RoomCode code={session.room_code} />}<button onClick={() => window.open(session ? `/vocal-hero?fullscreen=1&room=${session.room_code}` : '/vocal-hero?fullscreen=1', '_blank', 'noopener')} className="vh-outline-button">Open full screen</button></div></header>
+    <header className="vh-topbar"><Brand /><span className="vh-divider" /><span className="text-xs tracking-[.2em] text-slate-400">{session ? 'LIVE SESSION' : 'SONG LIBRARY'}</span><span className="vh-live-dot">Live</span><div className="ml-auto flex flex-wrap items-center justify-end gap-2">{session?.status === 'playing' && <button onClick={gamePaused ? resumeGame : pauseGame} className="vh-outline-button border-cyan-300/35 text-cyan-100">{gamePaused ? '▶ Resume' : 'Ⅱ Pause'}</button>}{session?.status === 'playing' && !backingTrackUrl && <button onClick={() => setGuideAudio(!guideAudio)} title="Play the written notes out loud so singers can hear the line" className={`vh-outline-button ${guideAudio ? 'border-emerald-300/40 text-emerald-100' : 'text-slate-400'}`}>{guideAudio ? '♪ Guide on' : '♪ Guide off'}</button>}{session && <button onClick={returnToLibrary} className="vh-outline-button">← Back to menu</button>}{session && <RoomCode code={session.room_code} />}<button onClick={() => window.open(session ? `/vocal-hero?fullscreen=1&room=${session.room_code}` : '/vocal-hero?fullscreen=1', '_blank', 'noopener')} className="vh-outline-button">Open full screen</button></div></header>
     {error && <p className="border-y border-rose-400/30 bg-rose-950/50 px-5 py-3 text-sm text-rose-200">{error}</p>}
     {stage}
     {preRoll && <CountInOverlay phase={timeline.phase} />}
