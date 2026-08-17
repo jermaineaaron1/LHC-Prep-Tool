@@ -4,6 +4,67 @@ _Last updated: 2026-08-17 by Claude Code_
 
 ---
 
+## 2026-08-17 — Song Finder repalette (merged to `master`)
+
+**The visual half of the redesign brief, which the earlier branch got wrong by
+leaving alone.**
+
+The Song Finder entry below records that most of the brief was already built, and
+that judgement was right about *behaviour* — but it treated the existing look as
+"already done" without checking it against the brief's stated palette. It did not
+match. Reported as "I don't see any difference to the Song Finder page", which
+was a fair reading: nothing visual had changed, because nothing visual had been
+touched.
+
+### What the mismatch actually was
+
+The brief asked for a **bright** system: white and soft cool-grey surfaces, deep
+navy typography, **blue-to-purple accents**, and **restrained cyan highlights**.
+What was live was a **teal/cyan** system on a **dark** header — the single most
+dominant element on the page was the opposite of "bright".
+
+| | Was | Now |
+|---|---|---|
+| Header | dark teal, cyan glow | bright white/cool-grey, faint violet wash |
+| Heading type | slate `#1f2933` | deep navy `#0f1c3f` |
+| Accents | cyan `#22d3ee` → teal `#0f9f93` | blue → purple `#4c6ef5` → `#7048e8` |
+| Cyan | the dominant colour | a token only — restrained |
+
+### Colour only — this is the important part
+
+Every layout, size and functional rule was carried over **byte-for-byte**: the
+resource-viewer `z-index:120000`, the mobile preview sizing that keeps Close on
+screen, and the reduced-motion rules are untouched. The whole skin lives in one
+block scoped to `#songFinderView` (plus `#addSongModal`/`#editSongModal`), which
+is why a wholesale rewrite of it was safe. **If you need to undo this, that one
+block is the only thing to revert.**
+
+### Contrast was measured, not eyeballed
+
+All **613** text elements on solid backgrounds pass WCAG AA against their own
+surface; gradient-backed text sits at 5.55:1. Getting there fixed **three
+long-standing failures on this page** — the red link-count badge (3.76), the
+songbook meta line `#94a3b8` on white (2.56), and "Clear all", whose *inline*
+colour beat the header rule so it had to be overridden in CSS — plus one
+introduced during this work (the resource-count badge at 3.36 on soft violet,
+moved to `--sf-violet`).
+
+Rule applied throughout: anything carrying **information** rather than decoration
+is held to AA, including the "no files attached" state and the A–Z divider. Both
+were previously below it.
+
+**Method note.** A naive contrast sweep reports ~57 false failures here, because
+walking up for a non-transparent `background-color` skips straight past gradient
+backgrounds (which have `background-color: transparent`) and lands on white. The
+monogram and the Add Song button both sit on gradients. Stop the walk at the
+first ancestor that paints *anything* — solid **or** gradient — and reason about
+the gradient-backed ones separately.
+
+Verified at 1536, 1024, 390 and 360: no horizontal overflow, cards fit, previews
+still stack above the workspace, Escape still closes only the top layer.
+
+---
+
 ## 2026-08-17 — Song Finder premium redesign (merged to `master`)
 
 **Merged on the operator's instruction from `feature/song-finder-premium-redesign`.**
