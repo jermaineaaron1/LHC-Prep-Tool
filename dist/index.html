@@ -8675,7 +8675,17 @@
         <button id="closeAddSongBtn" class="lhc-pill-button" title="Close" style="flex-shrink:0;"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
-      <!-- Scrollable body -->
+      <!-- Scrollable body. Chunk 3: the step nav is a sibling of the scroller
+           so it stays put while the form scrolls. It resolves its own modal
+           from the closest .asm-content, so both Add and Edit share it. -->
+      <div class="asm-shell">
+      <nav class="asm-stepnav" aria-label="Song form sections">
+        <button type="button" class="asm-step" data-step="1">Basic Info</button>
+        <button type="button" class="asm-step" data-step="2">Musical</button>
+        <button type="button" class="asm-step" data-step="3">Liturgical Context</button>
+        <button type="button" class="asm-step" data-step="4">Resources</button>
+        <button type="button" class="asm-step" data-step="5">Lyrics &amp; Chords</button>
+      </nav>
       <div class="asm-scroll">
         <div class="asm-body">
 
@@ -8835,7 +8845,7 @@
 
           <!-- § Media & Attachments -->
           <div class="asm-section">
-            <div class="asm-section-title"><i class="fa-solid fa-photo-film"></i> Media &amp; Attachments</div>
+            <div class="asm-section-title"><i class="fa-solid fa-photo-film"></i> Resources</div>
             <div class="asm-grid-2">
               <div>
                 <label class="form-label"><i class="fa-brands fa-youtube mr-1" style="color:#dc2626;"></i> Media Links</label>
@@ -8869,7 +8879,7 @@
 
           <!-- § Lyrics / Chords -->
           <div class="asm-section">
-            <div class="asm-section-title"><i class="fa-solid fa-file-lines"></i> Lyrics / Chords</div>
+            <div class="asm-section-title"><i class="fa-solid fa-file-lines"></i> Lyrics &amp; Chords</div>
             <button type="button" class="lyrics-edit-trigger" onclick="openLyricsEditor('new')">
               <i class="fa-solid fa-pen-to-square"></i><span>Open Lyrics Editor</span>
             </button>
@@ -8890,9 +8900,11 @@
 
         </div><!-- end asm-body -->
       </div><!-- end asm-scroll -->
+      </div><!-- end asm-shell -->
 
       <!-- Footer -->
       <div class="asm-footer">
+        <div class="asm-validity" aria-live="polite"></div>
         <button id="cancelAddSongBtn" class="lhc-pill-button"><i class="fa-solid fa-xmark mr-1"></i> Cancel</button>
         <button id="saveNewSongBtn" class="roster-action-btn primary"><i class="fa-solid fa-floppy-disk mr-1"></i> Save Song</button>
       </div>
@@ -8930,7 +8942,17 @@
 
       <input type="hidden" id="editSongId">
 
-      <!-- Scrollable body -->
+      <!-- Scrollable body. Chunk 3: the step nav is a sibling of the scroller
+           so it stays put while the form scrolls. It resolves its own modal
+           from the closest .asm-content, so both Add and Edit share it. -->
+      <div class="asm-shell">
+      <nav class="asm-stepnav" aria-label="Song form sections">
+        <button type="button" class="asm-step" data-step="1">Basic Info</button>
+        <button type="button" class="asm-step" data-step="2">Musical</button>
+        <button type="button" class="asm-step" data-step="3">Liturgical Context</button>
+        <button type="button" class="asm-step" data-step="4">Resources</button>
+        <button type="button" class="asm-step" data-step="5">Lyrics &amp; Chords</button>
+      </nav>
       <div class="asm-scroll">
         <div class="asm-body">
 
@@ -9090,7 +9112,7 @@
 
           <!-- § Media & Attachments -->
           <div class="asm-section">
-            <div class="asm-section-title"><i class="fa-solid fa-photo-film"></i> Media &amp; Attachments</div>
+            <div class="asm-section-title"><i class="fa-solid fa-photo-film"></i> Resources</div>
             <div class="asm-grid-2">
               <div>
                 <label class="form-label"><i class="fa-brands fa-youtube mr-1" style="color:#dc2626;"></i> Media Links</label>
@@ -9124,7 +9146,7 @@
 
           <!-- § Lyrics / Chords -->
           <div class="asm-section">
-            <div class="asm-section-title"><i class="fa-solid fa-file-lines"></i> Lyrics / Chords</div>
+            <div class="asm-section-title"><i class="fa-solid fa-file-lines"></i> Lyrics &amp; Chords</div>
             <button type="button" class="lyrics-edit-trigger" onclick="openLyricsEditor('edit')">
               <i class="fa-solid fa-pen-to-square"></i><span>Open Lyrics Editor</span>
             </button>
@@ -9145,12 +9167,14 @@
 
         </div><!-- end asm-body -->
       </div><!-- end asm-scroll -->
+      </div><!-- end asm-shell -->
 
       <!-- Footer — delete on left, save/cancel on right -->
       <div class="asm-footer has-delete">
         <button id="deleteSongBtn" class="roster-action-btn danger" style="display:flex;align-items:center;gap:6px;">
           <i class="fa-solid fa-trash"></i> Delete
         </button>
+        <div class="asm-validity" aria-live="polite"></div>
         <div style="display:flex;gap:8px;align-items:center;">
           <button id="cancelEditSongBtn" class="lhc-pill-button"><i class="fa-solid fa-xmark mr-1"></i> Cancel</button>
           <button id="saveEditSongBtn" class="roster-action-btn primary"><i class="fa-solid fa-floppy-disk mr-1"></i> Save Changes</button>
@@ -16219,7 +16243,25 @@ window.loadEditSongData = function(song) {
   // ============================================================
   // 6) MODAL HELPERS
   // ============================================================
+  // Chunk 3: the song form modals get their step rail and validity summary set
+  // up here rather than at each of the three call sites that open them.
+  function _asmOnOpen(modalId) {
+    if (modalId !== 'addSongModal' && modalId !== 'editSongModal') return;
+    var modal = document.getElementById(modalId);
+    if (!modal) return;
+    if (typeof _asmInitStepNav === 'function') _asmInitStepNav(modal);
+    if (typeof _asmUpdateValidity === 'function') {
+      _asmUpdateValidity(modal);
+      var titleEl = modal.querySelector('input[id$="SongTitle"]');
+      if (titleEl && !titleEl._asmValidityBound) {
+        titleEl._asmValidityBound = true;
+        titleEl.addEventListener('input', function() { _asmUpdateValidity(modal); });
+      }
+    }
+  }
+
   function openModal(modalId) {
+    _asmOnOpen(modalId);
     var modal = $(modalId);
     if (modal) modal.classList.add('show');
   }
@@ -17237,6 +17279,79 @@ window.loadEditSongData = function(song) {
     });
   }
   window.addSongToStandaloneSongbook = addSongToStandaloneSongbook;
+
+  // ── Chunk 3: Add/Edit Song step rail ──────────────────────────────────────
+  // Click scrolls to the section; scrolling highlights the step you are in.
+  // Bound once per modal and flagged on the element, because openAddSongModal /
+  // openEditSongModal can run many times in a session and re-binding would
+  // stack duplicate scroll listeners.
+  function _asmInitStepNav(modal) {
+    if (!modal || modal._asmNavBound) return;
+    var nav = modal.querySelector('.asm-stepnav');
+    var scroll = modal.querySelector('.asm-scroll');
+    var body = modal.querySelector('.asm-body');
+    if (!nav || !scroll || !body) return;
+    modal._asmNavBound = true;
+
+    var steps = Array.prototype.slice.call(nav.querySelectorAll('.asm-step'));
+    function sections() { return Array.prototype.slice.call(body.querySelectorAll('.asm-section')); }
+
+    // Measured against the scroller's own rect rather than offsetTop: the
+    // sections' offsetParent is not the scroller, so offsetTop is relative to
+    // the wrong box and the scroll silently goes nowhere.
+    function offsetWithin(sec) {
+      return (sec.getBoundingClientRect().top - scroll.getBoundingClientRect().top) + scroll.scrollTop;
+    }
+
+    steps.forEach(function(btn, i) {
+      btn.onclick = function() {
+        var sec = sections()[i];
+        if (!sec) return;
+        // Scroll the modal's own scroller, not the page. Smooth only when
+        // motion is welcome -- and an instant fallback also keeps this working
+        // where smooth-scroll animations cannot run.
+        var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        scroll.scrollTo({ top: Math.max(0, offsetWithin(sec) - 8), behavior: reduce ? 'auto' : 'smooth' });
+        _asmSetActiveStep(modal, i);
+      };
+    });
+
+    var ticking = false;
+    scroll.addEventListener('scroll', function() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function() {
+        ticking = false;
+        var secs = sections(), top = scroll.scrollTop, idx = 0;
+        secs.forEach(function(s, i) { if (offsetWithin(s) - 40 <= top) idx = i; });
+        _asmSetActiveStep(modal, idx);
+      });
+    }, { passive: true });
+
+    _asmSetActiveStep(modal, 0);
+  }
+
+  function _asmSetActiveStep(modal, idx) {
+    var steps = modal.querySelectorAll('.asm-step');
+    for (var i = 0; i < steps.length; i++) steps[i].classList.toggle('is-active', i === idx);
+  }
+
+  // Validation summary shown in the sticky footer. Title is the only required
+  // field, and that matches saveNewSong/saveEditSong -- nothing optional is
+  // dressed up as required here.
+  function _asmUpdateValidity(modal) {
+    if (!modal) return;
+    var box = modal.querySelector('.asm-validity');
+    if (!box) return;
+    var titleEl = modal.querySelector('input[id$="SongTitle"]');
+    var ok = !!(titleEl && String(titleEl.value || '').trim());
+    box.className = 'asm-validity ' + (ok ? 'is-ok' : 'is-warn');
+    box.innerHTML = '<i class="fa-solid ' + (ok ? 'fa-circle-check' : 'fa-circle-exclamation') + '"></i>' +
+      '<span class="asm-validity-text"><b>' + (ok ? 'All good!' : 'Title required') + '</b>' +
+      '<small>' + (ok ? 'No validation issues' : 'Add a song title before saving') + '</small></span>';
+  }
+  window._asmInitStepNav = _asmInitStepNav;
+  window._asmUpdateValidity = _asmUpdateValidity;
 
   // ── Chunk 2b: "Plan with this song" rail ──────────────────────────────────
   // Defined in this scope on purpose: the two add functions read the
@@ -84714,6 +84829,82 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ==========================================================================
+     CHUNK 3 — Add / Edit Song: numbered sections and a step rail.
+
+     The five sections already existed and are unchanged; this adds the numbered
+     navigation from reference image 3. Section numbers come from a CSS counter
+     rather than markup, so the two modals cannot drift out of sync and adding
+     or reordering a section renumbers everything automatically.
+     ========================================================================== */
+  #addSongModal .asm-shell, #editSongModal .asm-shell {
+    display:flex; align-items:stretch; gap:0; flex:1 1 auto; min-height:0;
+  }
+  #addSongModal .asm-stepnav, #editSongModal .asm-stepnav {
+    flex:0 0 176px; display:flex; flex-direction:column; gap:2px;
+    padding:14px 10px; border-right:1px solid var(--sf-line,#e3e8f4);
+    background:var(--sf-surface,#f7f9fd); counter-reset:asm-nav;
+  }
+  #addSongModal .asm-step, #editSongModal .asm-step {
+    display:flex; align-items:center; gap:9px; width:100%;
+    padding:7px 9px; border:0; border-radius:9px; background:none; cursor:pointer;
+    color:var(--sf-muted,#5f6b91); font-family:inherit; font-size:.76rem;
+    font-weight:650; text-align:left; line-height:1.25;
+  }
+  #addSongModal .asm-step::before, #editSongModal .asm-step::before {
+    counter-increment:asm-nav; content:counter(asm-nav);
+    flex:none; width:21px; height:21px; border-radius:999px;
+    display:grid; place-items:center;
+    background:#e2e8f6; color:var(--sf-muted,#5f6b91);
+    font-size:.66rem; font-weight:800;
+  }
+  #addSongModal .asm-step:hover, #editSongModal .asm-step:hover {
+    background:var(--sf-tint,#eef2ff); color:var(--sf-blue-deep,#3b5bdb);
+  }
+  #addSongModal .asm-step.is-active, #editSongModal .asm-step.is-active {
+    background:#fff; color:var(--sf-navy,#0f1c3f);
+    box-shadow:0 1px 3px rgba(15,28,63,.10);
+  }
+  #addSongModal .asm-step.is-active::before, #editSongModal .asm-step.is-active::before {
+    background:linear-gradient(135deg,var(--sf-blue,#4c6ef5),var(--sf-violet,#7048e8)); color:#fff;
+  }
+  #addSongModal .asm-step:focus-visible, #editSongModal .asm-step:focus-visible {
+    outline:3px solid rgba(76,110,245,.38); outline-offset:2px;
+  }
+
+  /* Numbered section headings, from the same counter idea. */
+  #addSongModal .asm-body, #editSongModal .asm-body { counter-reset:asm-sec; }
+  #addSongModal .asm-section-title, #editSongModal .asm-section-title {
+    display:flex; align-items:center; gap:8px;
+  }
+  #addSongModal .asm-section-title::before, #editSongModal .asm-section-title::before {
+    counter-increment:asm-sec; content:counter(asm-sec);
+    flex:none; width:20px; height:20px; border-radius:999px; display:grid; place-items:center;
+    background:linear-gradient(135deg,var(--sf-blue,#4c6ef5),var(--sf-violet,#7048e8));
+    color:#fff; font-size:.64rem; font-weight:800;
+  }
+
+  /* Validation summary in the sticky footer. */
+  #addSongModal .asm-footer, #editSongModal .asm-footer { gap:10px; }
+  .asm-validity { display:flex; align-items:center; gap:8px; margin-right:auto; min-width:0; }
+  .asm-validity i { font-size:1rem; }
+  .asm-validity .asm-validity-text { min-width:0; }
+  .asm-validity b { display:block; font-size:.78rem; font-weight:750; line-height:1.2; }
+  .asm-validity small { display:block; font-size:.68rem; opacity:.85; }
+  .asm-validity.is-ok { color:#0f7a41; }
+  .asm-validity.is-warn { color:#9a5b16; }
+
+  @media (max-width:900px) {
+    /* The rail becomes a horizontal strip rather than eating form width. */
+    #addSongModal .asm-shell, #editSongModal .asm-shell { flex-direction:column; }
+    #addSongModal .asm-stepnav, #editSongModal .asm-stepnav {
+      flex:none; flex-direction:row; gap:6px; padding:8px 10px; overflow-x:auto;
+      border-right:0; border-bottom:1px solid var(--sf-line,#e3e8f4); scrollbar-width:none;
+    }
+    #addSongModal .asm-stepnav::-webkit-scrollbar, #editSongModal .asm-stepnav::-webkit-scrollbar { display:none; }
+    #addSongModal .asm-step, #editSongModal .asm-step { width:auto; white-space:nowrap; flex:none; min-height:34px; }
+  }
 
   /* ── Chunk 2b: the song workspace is a page, not a split pane ──────────────
      Reference image 2 shows a breadcrumb and "Back to library", which only
