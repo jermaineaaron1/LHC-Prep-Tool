@@ -1764,7 +1764,12 @@
          container instead -- setting max-height/overflow-y on the card
          directly gets silently overridden by that inline style, clipping
          the list instead of scrolling it. */
-      #songFinderView #songListContainer {
+      /* Chunk 1: this nested scroller is only correct in the master-detail
+         split, where the list has to scroll independently beside the open
+         song. While simply browsing it turned the catalogue into a short box
+         inside the page, so it is now scoped to the split state and the list
+         otherwise flows with the page. */
+      #songFinderView #sfResultsGrid.sf-song-active #songListContainer {
         max-height: 74vh;
         overflow-y: auto;
       }
@@ -5936,6 +5941,12 @@
   </div>
         </div>
         </div>
+
+        <!-- Desktop home for the library metrics. The brief puts statistics
+             after the catalogue (position 6), not above it; on mobile the same
+             element still moves into #sfStatsMobileSlot. The element is
+             reparented, never duplicated, so its numbers stay live. -->
+        <div id="sfStatsDesktopSlot" aria-label="Library statistics"></div>
 
         <!-- ── Songbooks subsection ── -->
         <div id="sfSongbooksCard" class="lhc-card" style="margin-top:18px;">
@@ -12265,7 +12276,15 @@ function syncMobileSongFilterPriority() {
     mobileSlot.appendChild(grid);
     if (moreBtn) mobileSlot.appendChild(moreBtn);
   } else {
-    if (metricsDesktopHome && metricsDesktopHome.parentNode) {
+    // Statistics belong AFTER the catalogue on desktop (brief position 6), not
+    // above it -- in the header they cost 43px of above-the-fold height and
+    // pushed the third song card below it. #sfMetricsDesktopHome is kept as the
+    // legacy fallback so the strip can never end up orphaned if the newer slot
+    // is missing.
+    var statsDesktopSlot = document.getElementById('sfStatsDesktopSlot');
+    if (statsDesktopSlot) {
+      statsDesktopSlot.appendChild(metrics);
+    } else if (metricsDesktopHome && metricsDesktopHome.parentNode) {
       metricsDesktopHome.parentNode.insertBefore(metrics, metricsDesktopHome.nextSibling);
     }
     if (gridDesktopHome && gridDesktopHome.parentNode) {
@@ -84322,6 +84341,64 @@ window.LHC_Install = (function() {
     #addSongModal .asm-scroll,#editSongModal .asm-scroll { padding:0 12px; }
     #addSongModal .asm-section,#editSongModal .asm-section { padding:8px; }
   }
+  /* ==========================================================================
+     CHUNK 1 — compact catalogue.
+
+     The opening section pushed the catalogue below the fold: at 1366x768 the
+     header alone was 312px and only ONE card was visible. Reference image 1
+     puts the search and the three actions on a single row under the heading,
+     drops the subtitle, the keyboard hint and the big metrics strip, and goes
+     straight from the filter chips to the cards.
+
+     This is layout only -- no control is removed, and every id, class and
+     handler stays exactly where the JS expects it. The button row is placed
+     beside the search with `display:contents` on its wrapper rather than by
+     moving markup, so the inline onclick call sites are untouched.
+     ========================================================================== */
+  @media (min-width:769px) {
+    #songFinderView #sfCommandHeader {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      grid-template-areas:"copy copy" "search actions";
+      column-gap:10px; row-gap:9px; align-items:center;
+      padding:clamp(12px,1.6vw,18px) clamp(14px,2vw,22px);
+    }
+    /* Unwraps the copy+actions flex row so both become grid items. */
+    #songFinderView #sfCommandHeader > .flex.items-center.justify-between { display:contents; }
+    #songFinderView #sfCommandHeader .sf-command-copy { grid-area:copy; }
+    #songFinderView #sfCommandHeader .flex.gap-2.flex-wrap.items-center {
+      grid-area:actions; display:flex; align-items:center; gap:6px; flex-wrap:nowrap;
+    }
+    #songFinderView #sfCommandHeader .sf-search-field { grid-area:search; min-width:0; }
+    #songFinderView #sfCommandHeader .sf-library-metrics { grid-column:1/-1; }
+
+    /* Editorial trim: the heading carries the message, so the subtitle and the
+       "/ to focus" hint are redundant against a visible search field. */
+    #songFinderView .sf-command-subtitle { display:none; }
+    #songFinderView #sfCommandHeader .sf-search-foot { display:none; }
+    #songFinderView #sfCommandHeader h3.font-cinzel {
+      font-size:clamp(1.2rem,1.7vw,1.6rem); line-height:1.2;
+    }
+    #songFinderView #sfCommandHeader .lhc-section-title { margin-bottom:3px; font-size:.63rem; }
+    #songFinderView #sfCommandHeader #searchInput { height:46px; }
+
+    /* Statistics now live below the catalogue; the strip is compact and reads
+       as secondary rather than as a banner. */
+    #songFinderView #sfStatsDesktopSlot { margin-top:8px; }
+    #songFinderView #sfStatsDesktopSlot .sf-library-metrics {
+      margin-top:0; max-width:none; background:#fff;
+    }
+    #songFinderView #sfStatsDesktopSlot .sf-library-metrics > div { padding:6px 14px; }
+    #songFinderView #sfStatsDesktopSlot .sf-library-metrics strong { font-size:.92rem; }
+    #songFinderView #sfStatsDesktopSlot .sf-library-metrics span { font-size:.62rem; margin-top:2px; }
+
+    /* The results row already states the count; a second "Browse songs"
+       heading between it and the first card was pure vertical cost. */
+    #songFinderView .sf-catalog-head { display:none; }
+    #songFinderView #sfFilterBar { padding:8px 12px 9px; }
+    #songFinderView #sfResultsGrid { gap:10px; }
+  }
+
   @media (prefers-reduced-motion:reduce) {
     #songFinderView .song-list-item,#songFinderView .lhc-pill-button,#songFinderView .sf-action-icon { transition:none !important; }
     #songFinderView .song-list-item.sf-suggestion-target { animation:none !important; }
