@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, RhythmicNoteValue, Song, SongNote, TimedLyricSection } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, midiSourceKey, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
+import { assignXmlParts, parseMusicXml, readMusicXmlFile, type MusicXmlImport } from '@/lib/vocal-hero/musicxml';
 import { detectVocalNotes, type AudioNoteDetectionDiagnostics } from '@/lib/vocal-hero/audioToNotes';
 import { supabase } from '@/lib/vocal-hero/supabaseClient';
 import { BackingTrackPanel } from './BackingTrackPanel';
@@ -391,6 +392,9 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [midiSourceParts, setMidiSourceParts] = useState<Record<string, number>>({});
   const [midiPart, setMidiPart] = useState<number | null>(null);
   const [midiMode, setMidiMode] = useState<'replace' | 'append'>('replace');
+  const [xmlPreview, setXmlPreview] = useState<{ fileName: string; result: MusicXmlImport } | null>(null);
+  const [xmlMapping, setXmlMapping] = useState<Record<string, number>>({});
+  const [xmlMode, setXmlMode] = useState<'replace' | 'append'>('replace');
   const [mediaUrl, setMediaUrl] = useState(song.backing_media_url ?? song.audio_url ?? '');
   const [mediaKind, setMediaKind] = useState<'audio' | 'video'>(song.backing_media_kind ?? 'audio');
   const [mediaName, setMediaName] = useState('');
@@ -423,6 +427,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
   const [lassoBox, setLassoBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const noteMoveRef = useRef<{ originX: number; originY: number; ids: string[]; initial: Record<string, { midi: number; start: number; end: number }>; targetId: string; deltaMidi: number; deltaTime: number; moved: boolean; historyPushed: boolean; selectionApplied: boolean } | null>(null);
   const midiInputRef = useRef<HTMLInputElement | null>(null);
+  const xmlInputRef = useRef<HTMLInputElement | null>(null);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const musicalLatchSignatureRef = useRef('');
   const selected = notes.find(note => note.id === selectedId) ?? null;
@@ -1079,6 +1084,40 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
       setMidiPreview({ fileName: file.name, notes: parsed });
     } catch (error) { setMidiError(error instanceof Error ? error.message : 'Unable to read this MIDI file.'); }
   }
+  /* MusicXML brings what MIDI cannot: which voice each note belongs to, and
+     the words already broken into syllables. So there is nothing to guess --
+     the review below is a confirmation, not a reconstruction. */
+  async function openMusicXml(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setMidiError(null);
+    try {
+      const result = parseMusicXml(await readMusicXmlFile(file));
+      setXmlMapping(Object.fromEntries(result.sources.map(source => [source.key, source.suggestedPart])));
+      setXmlPreview({ fileName: file.name, result });
+    } catch (error) { setMidiError(error instanceof Error ? error.message : 'Unable to read this MusicXML file.'); }
+  }
+  function applyXmlImport() {
+    if (!xmlPreview) return;
+    const imported = assignXmlParts(xmlPreview.result.notes, xmlMapping, () => `note-${crypto.randomUUID()}`);
+    const merged = xmlMode === 'replace' ? imported : [...notes, ...imported];
+    const resolved = resolveOverlapsPreservingRhythm(merged);
+    pushHistory();
+    setNotes(resolved.notes);
+    setSelectedIds(imported.map(note => note.id));
+    setSelectedId(imported[0]?.id ?? null);
+    setSelectedPart(imported[0]?.part ?? 0);
+    setXmlPreview(null);
+    setTool('select');
+    const { result } = xmlPreview;
+    setEditorNotice(
+      `Imported ${imported.length} notes from ${result.title || xmlPreview.fileName}` +
+      (result.lyricCount ? ` with ${result.lyricCount} syllables already attached` : ', though the score carried no lyrics') +
+      `. Written tempo ${Math.round(result.bpm)} bpm` +
+      (resolved.trimmed ? `; ${resolved.trimmed} note${resolved.trimmed === 1 ? ' was' : 's were'} shortened where they overlapped the next` : '') +
+      '.' + (result.warnings.length ? ' ' + result.warnings.join(' ') : ''));
+  }
   function applyMidiImport() {
     if (!midiPreview) return;
     const imported = assignMidiParts(midiPreview.notes, normaliseSatbMidiRanges(midiRanges), midiPart, midiSourceParts);
@@ -1109,10 +1148,10 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
         {timelineFocus && <TimelineFocusToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} selected={selected} bars={musicalBars} onLyricChange={lyric => selected && update(selected.id, { lyric })} onTrack={() => setShowBackingEditor(true)} onExit={() => void exitTimelineFocus()} onPlay={playFromCursor} onPause={pausePlayback} onStop={stopPlayback} isPlaying={isPlaying} isPaused={isPaused} playhead={playhead} zoom={zoom} setZoom={setZoom} onSave={() => void save()} saving={saving} />}
         {!timelineFocus && <div className="flex flex-wrap items-center gap-3 border-b border-white/[.06] bg-[#090c20] px-3 py-2 text-xs">
           <button onClick={() => void enterTimelineFocus()} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100">⛶ Timeline full screen</button>
-          <button onClick={() => midiInputRef.current?.click()} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100">Import MIDI</button>
+          <button onClick={() => xmlInputRef.current?.click()} title="MusicXML keeps voices and lyrics, so nothing has to be guessed" className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 font-semibold text-emerald-100">Import MusicXML</button><button onClick={() => midiInputRef.current?.click()} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100">Import MIDI</button>
           <button onClick={() => mediaInputRef.current?.click()} disabled={uploadingMedia} className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100 disabled:opacity-50">{uploadingMedia ? 'Uploading…' : mediaUrl ? 'Replace backing track' : 'Upload backing track'}</button>
           <span className="min-w-0 truncate text-slate-500">{mediaUrl ? `${mediaName || 'Backing track'} · synchronized with SATB` : 'Import MIDI notes or add an audio/video backing track.'}</span>
-          <input ref={midiInputRef} className="hidden" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" onChange={openMidi} />
+          <input ref={xmlInputRef} className="hidden" type="file" accept=".musicxml,.xml,.mxl" onChange={openMusicXml} /><input ref={midiInputRef} className="hidden" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" onChange={openMidi} />
           <input ref={mediaInputRef} className="hidden" type="file" accept="audio/*,video/*" onChange={uploadBackingTrack} />
           {mediaError && <p className="text-rose-200">Backing track: {mediaError}</p>}
         </div>}
@@ -1171,6 +1210,7 @@ export function ArrangementEditor({ song, onClose, onSave }: { song: Song; onClo
           onApply={applyHarmony}
           onClose={() => setShowHarmony(false)} />}
         {showBackingEditor && <div className="absolute inset-0 z-40 grid place-items-center bg-[#020510]/85 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-label="Backing track editor" className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-cyan-300/30 bg-[#08101f] shadow-[0_0_60px_#22d3ee20]"><header className="flex items-center gap-3 border-b border-white/10 px-5 py-4"><div><p className="text-[10px] font-bold tracking-[.2em] text-cyan-300">BACKING TRACK</p><h2 className="text-lg font-semibold">Audio/video arrangement</h2></div><button onClick={() => setShowBackingEditor(false)} className="ml-auto rounded-lg border border-white/15 px-4 py-2 text-xs">Done</button></header><div className="min-h-0 overflow-y-auto p-4"><BackingTrackPanel url={mediaUrl} kind={mediaKind} fileName={mediaName} settings={trackSettings} setSettings={setTrackSettingsDirty} uploading={uploadingMedia} transportTime={playhead} transportPlaying={isPlaying} onUpload={() => mediaInputRef.current?.click()} /></div></section></div>}
+        {xmlPreview && <MusicXmlImportDialog preview={xmlPreview} mapping={xmlMapping} setMapping={setXmlMapping} mode={xmlMode} setMode={setXmlMode} onCancel={() => setXmlPreview(null)} onApply={applyXmlImport} />}
         {midiPreview && <MidiImportDialog preview={midiPreview} ranges={midiRanges} setRanges={setMidiRanges} sourceParts={midiSourceParts} setSourceParts={setMidiSourceParts} fixedPart={midiPart} setFixedPart={setMidiPart} mode={midiMode} setMode={setMidiMode} onCancel={() => setMidiPreview(null)} onApply={applyMidiImport} />}
       </main>
     </div>
@@ -1638,3 +1678,22 @@ function VocalExpressionInspector({ note }: { note: SongNote }) {
 }
 function round(value: number) { return Math.round(value * 100) / 100; }
 function roundPrecise(value: number) { return Math.round(value * 1000) / 1000; }
+
+function MusicXmlImportDialog({ preview, mapping, setMapping, mode, setMode, onCancel, onApply }: { preview: { fileName: string; result: MusicXmlImport }; mapping: Record<string, number>; setMapping: (next: Record<string, number>) => void; mode: 'replace' | 'append'; setMode: (mode: 'replace' | 'append') => void; onCancel: () => void; onApply: () => void }) {
+  const { result, fileName } = preview;
+  const counts = [0, 1, 2, 3].map(part => result.sources.filter(source => mapping[source.key] === part).reduce((total, source) => total + source.count, 0));
+  const empty = [0, 1, 2, 3].filter(part => counts[part] === 0);
+  return <div className="absolute inset-0 z-40 grid place-items-center bg-[#020510]/85 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-label="Import MusicXML" className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-emerald-300/30 bg-[#0a1024] p-5 shadow-[0_0_50px_#34d39925]">
+    <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold tracking-[.2em] text-emerald-300">MUSICXML IMPORT</p><h2 className="mt-1 text-xl font-semibold">{result.title || fileName}</h2><p className="mt-1 text-xs text-slate-400">{result.notes.length} notes · {result.sources.length} voice{result.sources.length === 1 ? '' : 's'} · {result.lyricCount} syllables · written tempo {Math.round(result.bpm)} bpm</p></div><button onClick={onCancel} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300">Cancel</button></div>
+    <p className="mt-4 rounded-lg border border-emerald-300/20 bg-emerald-300/5 p-3 text-xs leading-relaxed text-emerald-100"><b>Voices and lyrics come from the score itself.</b> Unlike a MIDI file, nothing here is inferred from pitch: every voice below is a real part in the file, and its syllables are already attached to the right notes. Check the lanes and import.</p>
+    {result.warnings.map((warning, index) => <p key={index} className="mt-2 rounded-lg border border-amber-300/25 bg-amber-300/[.06] p-3 text-xs text-amber-100">{warning}</p>)}
+    <div className="mt-4 grid gap-2">{result.sources.map(source => <label key={source.key} className="grid items-center gap-2 rounded-lg border border-white/[.07] bg-white/[.025] p-2 text-xs sm:grid-cols-[1fr_190px]">
+      <span><b className="text-slate-200">{source.label}</b><span className="mt-1 block text-[10px] text-slate-500">{source.count} notes · {midiNoteName(source.low)}–{midiNoteName(source.high)} · suggested from {source.reason}</span></span>
+      <select value={mapping[source.key] ?? 0} onChange={event => setMapping({ ...mapping, [source.key]: Number(event.target.value) })} className="rounded-lg border border-white/10 bg-[#050816] px-3 py-2 text-white">{VOICES.map((voice, index) => <option key={voice} value={index}>{voice}{source.suggestedPart === index ? ' — suggested' : ''}</option>)}</select>
+    </label>)}</div>
+    <div className="mt-3 grid grid-cols-4 gap-2 text-center text-[11px]">{VOICES.map((voice, index) => <div key={voice} className="rounded-lg border p-2" style={{ borderColor: `${COLOURS[index]}55`, color: COLOURS[index] }}><b className="block text-base">{counts[index]}</b>{voice}</div>)}</div>
+    {empty.length > 0 && <p className="mt-2 text-[11px] text-amber-200">Nothing is going to {empty.map(part => VOICES[part]).join(', ')} — fine for a score with fewer parts; those lanes stay empty.</p>}
+    <label className="mt-4 block text-xs text-slate-400">Import action<select value={mode} onChange={event => setMode(event.target.value as 'replace' | 'append')} className="mt-1 w-full rounded-lg border border-white/10 bg-[#050816] px-3 py-2 text-sm text-white"><option value="replace">Replace current arrangement</option><option value="append">Append to current arrangement</option></select></label>
+    <div className="mt-5 flex justify-end gap-3"><button onClick={onCancel} className="rounded-lg border border-white/10 px-4 py-2 text-sm">Cancel</button><button onClick={onApply} className="rounded-lg border border-emerald-300/40 bg-emerald-300/15 px-4 py-2 text-sm font-semibold text-emerald-100">Import {result.notes.length} notes</button></div>
+  </section></div>;
+}
