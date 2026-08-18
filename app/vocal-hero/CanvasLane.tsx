@@ -28,7 +28,7 @@ function withAlpha(hex: string, alpha: number): string {
 
 export function CanvasLane({
   notes, partIndex, colour, getPosition, getPitchHz, trail, hitNotes,
-  lookAheadSeconds = 7, height = 260, partName, showLyrics = true,
+  lookAheadSeconds = 7, height = 260, partName, showLyrics = true, playerCount,
 }: {
   notes: SongNote[];
   partIndex: number;
@@ -42,6 +42,8 @@ export function CanvasLane({
   height?: number;
   partName?: string;
   showLyrics?: boolean;
+  /** How many singers are on this part, shown in the header during a round. */
+  playerCount?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -218,7 +220,7 @@ export function CanvasLane({
   return <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#08111f]" aria-label={`${partName ?? 'Pitch'} lane`}>
     {partName && <div className="flex items-center justify-between border-b border-white/10 px-3 py-1.5">
       <span className="text-[11px] font-black uppercase tracking-[.16em]" style={{ color: colour }}>{partName}</span>
-      <span className="text-[9px] uppercase tracking-[.14em] text-slate-500">next {lookAheadSeconds}s</span>
+      <span className="text-[9px] uppercase tracking-[.14em] text-slate-500">{playerCount === undefined ? '' : playerCount + ' singing · '}next {lookAheadSeconds}s</span>
     </div>}
     <div ref={boxRef} style={{ height }} className="relative w-full"><canvas ref={canvasRef} className="block" /></div>
   </section>;
