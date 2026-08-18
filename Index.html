@@ -3821,13 +3821,15 @@
         padding-bottom: 4px;
         overflow: visible;
       }
+      /* Each row WRAPS. It used to scroll horizontally, which parked
+         "Print / PDF" 115px off the right edge of a 375px phone with no
+         affordance saying anything was there. A hidden action is a missing
+         action, so the row grows downward instead. */
       #lyricsPreviewToolbar > div {
         display: flex;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         gap: 6px;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
+        overflow-x: visible;
         padding-bottom: 2px;
       }
       #lyricsPreviewToolbar > div::-webkit-scrollbar { display: none; }
@@ -3836,8 +3838,16 @@
         padding-top: 6px;
         border-top: 1px solid var(--sf-line, #e3e8f4);
       }
+      /* 44px is the iOS minimum tap target; these were 30px. Scoped to the
+         phone breakpoint so the desktop density pass is untouched. */
       #lyricsPreviewToolbar .lhc-pill-button,
-      #lyricsPreviewToolbar button { white-space: nowrap; flex-shrink: 0; font-size: 0.72rem !important; padding: 6px 10px !important; }
+      #lyricsPreviewToolbar button {
+        white-space: nowrap; flex-shrink: 0;
+        font-size: 0.72rem !important;
+        padding: 6px 12px !important;
+        min-height: 44px;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
       /* Hide icons inside toolbar to save space (text labels are enough) */
       #lyricsPreviewToolbar .lhc-pill-button i,
       #lyricsPreviewToolbar button i { display: none !important; }
@@ -20325,40 +20335,25 @@ window.loadEditSongData = function(song) {
     var previewContent = $('docPreviewContent');
 
     if (url.includes('docs.google.com/document')) {
-      // Google Docs - fetch and render content inline (199/200/203)
-      frame.style.display = 'none';
-      if (previewContent) {
+      // Embed Google's own /preview view, exactly as the Drive branch below
+      // does. This used to call scanDocumentForLyrics through Apps Script and
+      // render the extracted text; that backend is gone on the Vercel build,
+      // so google.script.run is undefined, the call always resolved
+      // "No backend available", and every Google Doc fell through to a
+      // thumbnail plus an "Open in Google Docs" link -- never an actual
+      // preview. /preview embeds for any doc the viewer can already open.
+      var gdocId = (url.match(/\/d\/([a-zA-Z0-9_-]+)/) || [])[1];
+      if (gdocId) {
+        if (previewContent) previewContent.style.display = 'none';
+        frame.style.display = 'block';
+        frame.src = 'https://docs.google.com/document/d/' + gdocId + '/preview';
+      } else if (previewContent) {
+        // No id in the url -- keep the escape hatch rather than a blank frame.
+        frame.style.display = 'none';
         previewContent.style.display = 'block';
-        previewContent.innerHTML = '<div style="padding:20px;">' +
-          '<div class="wo-doc-loading"><i class="fa-solid fa-spinner"></i>Loading document content...</div>' +
-          '</div>';
-        // Fetch content
-        var renderInModal = function(text) {
-          previewContent.innerHTML = '<div style="padding:30px 32px;">' +
-            '<div class="wo-doc-rendered-content" id="docModalRendered">' + formatLyricsWithHighlights(text) + '</div>' +
-            '</div>';
-        };
-        // Check WO cache
-        if (typeof WO !== 'undefined' && WO._docContentCache && WO._docContentCache[url]) {
-          renderInModal(WO._docContentCache[url]);
-        } else {
-          // Thumbnail fallback for when text extraction fails
-          var modalDocId = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-          var modalThumbUrl = modalDocId ? 'https://drive.google.com/thumbnail?id=' + modalDocId[1] + '&sz=w600' : '';
-          var modalFallback = '<div style="text-align:center;padding:40px 24px;">' +
-            (modalThumbUrl ? '<img src="' + modalThumbUrl + '" style="max-width:100%;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:16px;box-shadow:0 2px 12px rgba(0,0,0,0.08);" onerror="this.style.display=\'none\'" alt="Document preview">' : '') +
-            '<p style="color:#64748b;font-size:0.95em;margin-bottom:16px;">Text extraction not available for this document type.</p>' +
-            '<a href="' + escapeHtml(url) + '" target="_blank" style="color:#6366f1;font-weight:600;text-decoration:none;"><i class="fa-solid fa-external-link" style="margin-right:4px;"></i>Open in Google Docs</a></div>';
-          callGAS('scanDocumentForLyrics', [url]).then(function(result) {
-            if (result && result.lyrics && result.lyrics.trim()) {
-              renderInModal(result.lyrics);
-            } else {
-              previewContent.innerHTML = modalFallback;
-            }
-          }).catch(function(err) {
-            previewContent.innerHTML = modalFallback;
-          });
-        }
+        previewContent.innerHTML = '<div style="text-align:center;padding:40px 24px;">' +
+          '<p style="color:#64748b;font-size:0.95em;margin-bottom:16px;">This document cannot be previewed inline.</p>' +
+          '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" style="color:#6366f1;font-weight:600;text-decoration:none;">Open in Google Docs</a></div>';
       }
     } else if (url.includes('drive.google.com/file/d/')) {
       // Drive files use /preview which works
