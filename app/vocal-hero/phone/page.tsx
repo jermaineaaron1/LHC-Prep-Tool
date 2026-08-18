@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { fetchPlayers, fetchSectionScores, fetchSessionByCode, fetchSong, joinSession, savePlayerRoundStats, subscribeToSession, updatePlayerLobbyState } from '@/lib/vocal-hero/supabaseClient';
+import { fetchPlayers, fetchSectionScores, fetchSessionByCode, fetchSong, joinSession, resumePlayer, savePlayerRoundStats, subscribeToSession, touchPlayer, updatePlayerLobbyState } from '@/lib/vocal-hero/supabaseClient';
 import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
 import { ScoreEngine } from '@/lib/vocal-hero/scoreEngine';
 import type { Difficulty, NoteScoreResult } from '@/lib/vocal-hero/scoreEngine';
@@ -17,6 +17,7 @@ import { HighScoreBoard } from '../HighScoreBoard';
 import { CountInOverlay } from '../CountInOverlay';
 import { CanvasLane } from '../CanvasLane';
 import { rememberPlayerName, storedPlayerName } from '../playerName';
+import { HEARTBEAT_MS, forgetPlayerId, rememberPlayerId, storedPlayerId } from '@/lib/vocal-hero/presence';
 import { playEntranceCue } from '@/lib/vocal-hero/cueTones';
 import { GuidePlayer, rememberGuideAudio, storedGuideAudio } from '@/lib/vocal-hero/guideTones';
 import { useWakeLock } from '@/lib/vocal-hero/useWakeLock';
@@ -97,6 +98,18 @@ function PhoneGame() {
   function setDifficulty(next: Difficulty) { setDifficultyState(next); rememberDifficulty(next); }
   const pitchRef = useRef<PitchEngine | null>(null); const scoreRef = useRef<ScoreEngine | null>(null); const unsubRef = useRef<(() => void) | null>(null); const startedRef = useRef(false); const elapsedRef = useRef(0); const phaseRef = useRef('Waiting'); const lastPitchPaintRef = useRef(0); const cuedRef = useRef({ outer: false, inner: false });
   useEffect(() => () => { pitchRef.current?.stop(); void scoreRef.current?.stop(); unsubRef.current?.(); void cueContextRef.current?.close().catch(() => undefined); }, []);
+  // "Still here." Also sent the moment the tab comes back, so someone who
+  // glanced at a notification is not shown as missing for another quarter
+  // minute.
+  useEffect(() => {
+    if (!player) return;
+    const beat = () => { void touchPlayer(player.id).catch(() => undefined); };
+    beat();
+    const timer = window.setInterval(beat, HEARTBEAT_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible') beat(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [player?.id]);
   useEffect(() => { if (!session) return; const interval = window.setInterval(() => { setNow(Date.now()); void fetchPlayers(session.id).then(setPlayers); void fetchSectionScores(session.id).then(setSections).catch(() => setSections([])); }, 900); return () => clearInterval(interval); }, [session]);
   useEffect(() => {
     if (session?.status !== 'playing') return;
@@ -196,7 +209,13 @@ function PhoneGame() {
   useEffect(() => { if (!session || !song || !player || !part || session.status !== 'playing' || startedRef.current) return; startedRef.current = true; const scorer = new ScoreEngine({ part, partIndex, notes, songDuration: song.duration, playerId: player.id, sessionId: session.id, difficulty, practice: warmUp, onScoreUpdate: (_, total) => setScore(total), onNoteResult: result => { resultsRef.current.push(result); setHits(current => ({ ...current, [result.noteId]: result.points > 0 })); } }); scoreRef.current = scorer; scorer.start(); void startPitchTracking(); }, [difficulty, notes, part, partIndex, player, session, song]);
   useEffect(() => { if (session?.status !== 'playing' || !player) return; const interval = setInterval(() => { const stats = scoreRef.current?.stats; if (stats && !warmUpRef.current) void savePlayerRoundStats({ session_id: session.id, player_id: player.id, score: scoreRef.current?.currentTotal ?? 0, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit }); }, 3000); return () => clearInterval(interval); }, [player, session?.id, session?.status]);
   useEffect(() => { if (session?.status !== 'ended' || !player || !scoreRef.current) return; pitchRef.current?.stop(); setReview(summariseRound(resultsRef.current, notes)); const scorer = scoreRef.current; /* stop() resolves the note still in progress, so both the total and the counts change during it: reading either beforehand loses the last note of every round. The phone was also saving the score STATE, which lags the engine by a render, while the host saved the engine's own total — so the two disagreed. */ void scorer.stop().then(() => { if (warmUpRef.current) return; const stats = scorer.stats; void savePlayerRoundStats({ session_id: session.id, player_id: player.id, score: scorer.currentTotal, accuracy: stats.accuracy, notes_attempted: stats.attempted, notes_hit: stats.hit }); }); }, [player, session?.status]);
-  async function join(event: React.FormEvent) { event.preventDefault(); if (!room || !name.trim()) { setError('Enter your room code and name.'); return; } try { const next = await fetchSessionByCode(room); if (!next || next.status === 'ended') throw new Error('That room is unavailable.'); const nextSong = await fetchSong(next.song_id); if (!nextSong) throw new Error('Song not found.'); const nextPlayer = await joinSession(next.id, name.trim(), partIndex); rememberPlayerName(name); setClockOffset(await measureServerClockOffset().catch(() => 0)); unsubRef.current?.(); roundKeyRef.current = null; unsubRef.current = subscribeToSession(next.id, setSession); clearTrail(trailRef.current); resultsRef.current = []; setReview(null); setSession(next); setSong(nextSong); setPlayer(nextPlayer); setPlayers(await fetchPlayers(next.id)); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to join.'); } }
+  async function join(event: React.FormEvent) { event.preventDefault(); if (!room || !name.trim()) { setError('Enter your room code and name.'); return; } try { const next = await fetchSessionByCode(room); if (!next || next.status === 'ended') throw new Error('That room is unavailable.'); const nextSong = await fetchSong(next.song_id); if (!nextSong) throw new Error('Song not found.'); // Take back this device's existing seat if it still exists, rather than
+        // sitting down twice: a reload used to leave the first singer stranded in
+        // the lobby and start the newcomer on zero.
+        const remembered = storedPlayerId(room);
+        const resumed = remembered ? await resumePlayer(next.id, remembered) : null;
+        const nextPlayer = resumed ?? await joinSession(next.id, name.trim(), partIndex);
+        if (!resumed) rememberPlayerId(room, nextPlayer.id); else setPartIndex(nextPlayer.part_index); rememberPlayerName(name); setClockOffset(await measureServerClockOffset().catch(() => 0)); unsubRef.current?.(); roundKeyRef.current = null; unsubRef.current = subscribeToSession(next.id, setSession); clearTrail(trailRef.current); resultsRef.current = []; setReview(null); setSession(next); setSong(nextSong); setPlayer(nextPlayer); setPlayers(await fetchPlayers(next.id)); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to join.'); } }
   async function testMic() { if (!player) return; setMic('checking'); await startPitchTracking(); await updatePlayerLobbyState(player.id, { ready_at: player.ready_at ?? null, mic_status: pitchRef.current?.isRunning ? 'ready' : 'blocked' }); }
   // Tapping ready is the last user gesture before the song starts, and the
   // only one that reliably happens. The microphone is claimed HERE rather than

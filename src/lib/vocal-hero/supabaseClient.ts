@@ -205,6 +205,37 @@ export async function joinSession(
   return data as SessionPlayer;
 }
 
+/**
+ * Take back the seat this device already had in this room, if it still exists.
+ *
+ * Joining used to be an unconditional INSERT, so a reload, a dropped signal or
+ * a locked screen produced a second singer of the same name with a score of
+ * zero while the first sat in the lobby for ever. Resuming keeps the row, and
+ * therefore the score, the part and the readiness that went with it.
+ *
+ * Returns null when there is nothing to resume -- a fresh device, a cleared
+ * browser, or a row that belonged to a different room.
+ */
+export async function resumePlayer(sessionId: string, playerId: string): Promise<SessionPlayer | null> {
+  const { data, error } = await supabase
+    .from('vh_session_players')
+    .select('*')
+    .eq('id', playerId)
+    .eq('session_id', sessionId)
+    .maybeSingle();
+  if (error || !data) return null;
+  await supabase.from('vh_session_players').update({ last_seen_at: new Date().toISOString() }).eq('id', playerId);
+  return data as SessionPlayer;
+}
+
+/** "Still here." Written on a timer while a singer has the room open. */
+export async function touchPlayer(playerId: string): Promise<void> {
+  await supabase
+    .from('vh_session_players')
+    .update({ last_seen_at: new Date().toISOString() })
+    .eq('id', playerId);
+}
+
 export async function updatePlayerLobbyState(
   playerId: string,
   values: Pick<SessionPlayer, 'ready_at' | 'mic_status'>
