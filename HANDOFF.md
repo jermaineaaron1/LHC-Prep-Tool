@@ -1,9 +1,59 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-08-17 by Claude Code_
+_Last updated: 2026-08-18 by Claude Code_
 
 ---
 
+## 2026-08-18 — Partial song saves no longer blank the rest of the row (branch `feature/mobile-song-actions`)
+
+### The defect
+
+`SBQ_SONGS.update(song)` rebuilds the WHOLE row through `songToRow()`, which
+defaults every field it is not handed — arrays to `[]`, strings to `''`. That is
+correct for the Edit Song form, where emptying a box must clear the column, and
+destructive everywhere else.
+
+Two call sites passed partial payloads:
+
+- **Add Doc** (`_lpAttachDoc`) — added on this branch — sent `{id, title, attachments}`.
+- **Add Media** (`dispatchMediaSave`, standalone context) — **pre-existing on
+  `master`** — sent `{id, youtube, attachments}` with **no title at all**.
+
+Either one strips `lyrics`, `key`, `theme`, `artist`, `season`, `style`,
+`use_count` and the date stamps off whichever song it touches. The second has
+been live for users.
+
+### The fix
+
+`SBQ_SONGS.updateFields(id, patch)` writes **only** the columns handed to it
+(dropping `id` and any `undefined`, and skipping the round trip entirely on an
+empty patch). Both call sites now use it. The Edit Song form still uses
+`update()` — a full-row write is what it wants.
+
+Verified with the Supabase handle stubbed, so nothing reached the database:
+Add Doc emits `{attachments}`; Add Media, driven end to end through the real
+modal, emits `{youtube}` scoped to the song id. Both previously emitted all 22
+columns. The song used for the test was re-read afterwards and is unchanged.
+
+### ⚠️ One row was lost before this was found
+
+I hit this defect myself against the live table while reverting a test value on
+**"Away in Manger"** (`song_1767451889865`), which blanked that row. Blast
+radius was exactly one row — the other 50 songs were re-checked field by field
+and are intact.
+
+**Not recoverable** from anything in the repo: its lyrics (chorded, in D),
+theme, tempo, style, season, scripture, artist, use_count and date stamps.
+`order_items`, localStorage, the repo and the full session transcript were all
+searched; the transcript proves the lyrics existed but never captured the text.
+
+`migrations/2026-08-18_restore_away_in_manger.sql` restores what has a verified
+source — attachments and youtube from the 2026-08-17 unpack migration, and
+`key = 'D'` from a probe that read the live row. **Try a real backup first**:
+Supabase Dashboard → Database → Backups, or the legacy Google Sheets `Songs`
+sheet, where this song's id originated. A full restore beats the partial one.
+
+---
 ## 2026-08-17 — Usage and History built WITHOUT a migration (merged to `master`)
 
 B1 and B2 were both recorded as blocked on new tables. **Usage was not** —

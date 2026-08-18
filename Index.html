@@ -3808,20 +3808,34 @@
       #lyricsPreviewHeaderPanel .flex.items-center.justify-between > div:first-child { flex: 1; min-width: 0; overflow: hidden; }
       #lyricsPreviewTitle { font-size: 1rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #lyricsPreviewArtist { font-size: 0.72rem !important; margin-top: 2px !important; }
-      /* Toolbar: single flat horizontal scroll row */
+      /* Toolbar: TWO stacked rows -- tabs on the first line, actions parked on
+         a second line beneath them. Each row scrolls horizontally on its own,
+         so the actions no longer trail off the end of the tab strip. */
       #lyricsPreviewToolbar {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
         flex-wrap: nowrap !important;
-        justify-content: flex-start !important;
         gap: 6px !important;
         margin-top: 10px !important;
         padding-bottom: 4px;
-        scrollbar-width: none;
+        overflow: visible;
       }
-      #lyricsPreviewToolbar::-webkit-scrollbar { display: none; }
-      /* Dissolve the two inner groups — all buttons become direct flex children */
-      #lyricsPreviewToolbar > div { display: contents; }
+      #lyricsPreviewToolbar > div {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 6px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+      }
+      #lyricsPreviewToolbar > div::-webkit-scrollbar { display: none; }
+      /* The action row reads as a distinct second line, not a wrapped tail. */
+      #lyricsPreviewToolbar > div:last-child {
+        padding-top: 6px;
+        border-top: 1px solid var(--sf-line, #e3e8f4);
+      }
       #lyricsPreviewToolbar .lhc-pill-button,
       #lyricsPreviewToolbar button { white-space: nowrap; flex-shrink: 0; font-size: 0.72rem !important; padding: 6px 10px !important; }
       /* Hide icons inside toolbar to save space (text labels are enough) */
@@ -5847,12 +5861,16 @@
         <div id="lyricsPreviewToolbar" class="flex items-center justify-between mt-4 flex-wrap gap-2">
           <div class="flex gap-2">
             <button id="lyricsPreviewLyricsBtn" class="lhc-pill-button lhc-pill-button-active text-sm" onclick="switchLyricsPreviewMode('lyrics')">
-              <i class="fa-solid fa-file-lines mr-1"></i> Lyrics Only
+              <i class="fa-solid fa-file-lines mr-1"></i> Lyrics
             </button>
             <button id="lyricsPreviewChordsBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('chords')">
-              <i class="fa-solid fa-guitar mr-1"></i> Lyrics + Chords
+              <i class="fa-solid fa-guitar mr-1"></i> Chords
             </button>
-            <button id="lyricsPreviewResourcesBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('resources')">
+            <button id="lyricsPreviewYoutubeBtn" class="lhc-pill-button text-sm lp-badge-btn" style="display:none;" onclick="lyricsPreviewYoutube()" title="Watch an attached video">
+              <i class="fa-brands fa-youtube mr-1"></i> YouTube
+              <span id="lyricsPreviewYoutubeBadge" class="lp-btn-badge" style="display:none;"></span>
+            </button>
+            <button id="lyricsPreviewResourcesBtn" class="lhc-pill-button text-sm" style="display:none;" onclick="switchLyricsPreviewMode('resources')">
               <i class="fa-solid fa-folder-open mr-1"></i> Resources
             </button>
             <button id="lyricsPreviewHistoryBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('history')">
@@ -5899,73 +5917,21 @@
                 <option value="-5">-5</option>
               </select>
             </div>
-            <button id="lyricsPreviewAppearanceBtn" class="lhc-pill-button text-sm" title="Display appearance" onclick="toggleLyricsPreviewAppearance()" style="background:#fdf4ff;border-color:#f0abfc;color:#a21caf;">
-              <i class="fa-solid fa-palette mr-1"></i> Aa
-            </button>
             <!-- View Doc button: shown when song has attachments -->
-            <button id="lyricsPreviewDocBtn" class="lhc-pill-button text-sm" style="display:none;background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;position:relative;" onclick="lyricsPreviewViewDoc()" title="View attached music score / document">
+            <button id="lyricsPreviewDocBtn" class="lhc-pill-button text-sm lp-badge-btn" style="display:none;background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;" onclick="lyricsPreviewViewDoc()" title="View attached documents">
               <i class="fa-solid fa-file-lines mr-1"></i> View Doc
-              <span id="lyricsPreviewDocBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#0369a1;color:white;border-radius:999px;font-size:10px;font-weight:700;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px;"></span>
+              <span id="lyricsPreviewDocBadge" class="lp-btn-badge" style="display:none;background:#0369a1;"></span>
             </button>
             <!-- Add Doc button: always shown for adding a document/score link -->
             <button id="lyricsPreviewAddDocBtn" class="lhc-pill-button text-sm" style="background:#f0fdf4;border-color:#86efac;color:#15803d;" onclick="lyricsPreviewAddDoc()" title="Attach a music score or document link">
               <i class="fa-solid fa-paperclip mr-1"></i> Add Doc
             </button>
+            <input type="file" id="lpDocFileInput" style="display:none" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="lpHandleDocFile(this)">
+            <input type="file" id="lpDocCameraInput" style="display:none" accept="image/*" capture="environment" onchange="lpHandleDocFile(this)">
             <button class="lhc-pill-button text-sm" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="printLyricsPreview()">
               <i class="fa-solid fa-print mr-1"></i> Print / PDF
             </button>
           </div>
-        </div>
-      </div>
-      <div id="lyricsPreviewAppearanceBar" style="display:none;padding:10px 16px;background:#fdf4ff;border-bottom:1px solid #f0abfc;gap:18px;flex-wrap:wrap;align-items:flex-end;">
-        <div style="display:flex;flex-direction:column;gap:4px;">
-          <span style="font-size:10px;font-weight:700;color:#a21caf;text-transform:uppercase;letter-spacing:0.05em;">Lyrics</span>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <select id="sfLyricFont" class="format-select" onchange="_sfApplyAppearance()" title="Lyrics font">
-              <option value="">Default font</option>
-              <option value="Courier New, monospace">Monospace</option>
-              <option value="Georgia, serif">Georgia</option>
-              <option value="Arial, sans-serif">Arial</option>
-              <option value="Times New Roman, serif">Times</option>
-            </select>
-            <select id="sfLyricSize" class="format-select" onchange="_sfApplyAppearance()" title="Lyrics size">
-              <option value="">Default size</option>
-              <option value="15px">15px</option>
-              <option value="17px">17px</option>
-              <option value="19px">19px</option>
-              <option value="22px">22px</option>
-              <option value="26px">26px</option>
-            </select>
-            <input type="color" id="sfLyricColor" value="#1f2937" onchange="_sfApplyAppearance()" title="Lyrics colour" style="width:30px;height:30px;padding:0;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;">
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:4px;">
-          <span style="font-size:10px;font-weight:700;color:#a21caf;text-transform:uppercase;letter-spacing:0.05em;">Chords</span>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <select id="sfChordFont" class="format-select" onchange="_sfApplyAppearance()" title="Chords font">
-              <option value="">Default font</option>
-              <option value="Courier New, monospace">Monospace</option>
-              <option value="Georgia, serif">Georgia</option>
-              <option value="Arial, sans-serif">Arial</option>
-            </select>
-            <select id="sfChordSize" class="format-select" onchange="_sfApplyAppearance()" title="Chords size">
-              <option value="">Default size</option>
-              <option value="13px">13px</option>
-              <option value="15px">15px</option>
-              <option value="17px">17px</option>
-              <option value="20px">20px</option>
-            </select>
-            <input type="color" id="sfChordColor" value="#991b1b" onchange="_sfApplyAppearance()" title="Chords colour" style="width:30px;height:30px;padding:0;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;">
-          </div>
-        </div>
-        <div class="sf-appearance-actions">
-          <button type="button" class="sf-appearance-btn primary" onclick="saveSongAppearance()">
-            <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save appearance
-          </button>
-          <button type="button" class="sf-appearance-btn" onclick="resetSongAppearance()">
-            <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Reset
-          </button>
-          <span id="sfAppearanceState" class="sf-appearance-state" aria-live="polite"></span>
         </div>
       </div>
       <!-- Chunk 2b: chord sheet and contextual rail sit side by side on wide
@@ -7913,7 +7879,6 @@
   #lyricsPreviewContent .section-header.intro   { background: #e0f2fe; color: #0369a1; }
   #lyricsPreviewContent .chord-line { color: var(--sf-chord-color, #991b1b); font-weight: 700; font-family: var(--sf-chord-font, 'Courier New', monospace); font-size: var(--sf-chord-size, 17px); margin-bottom: -4px; white-space: pre; }
   #lyricsPreviewContent .lyric-line { color: var(--sf-lyric-color, #1f2937); font-family: var(--sf-lyric-font, inherit); font-size: var(--sf-lyric-size, 19px); line-height: 1.7; }
-  #lyricsPreviewAppearanceBtn.lhc-pill-button-active { background: #a21caf !important; border-color: #a21caf !important; color: #fff !important; }
     #lyricsPreviewContent .ci-line  { display: block; margin-bottom: 6px; }
   #lyricsPreviewContent .ci-w     { display: inline-block; white-space: nowrap; vertical-align: bottom; }
   #lyricsPreviewContent .ci-seg   { display: inline-block; position: relative; padding-top: 1.2em; vertical-align: bottom; white-space: pre; font-size: var(--sf-lyric-size, 19px); line-height: 1.5; color: var(--sf-lyric-color, #1f2937); font-family: var(--sf-lyric-font, inherit); }
@@ -9424,6 +9389,62 @@
               <span id="editSongLyricsInfo">Lyrics saved</span>
             </div>
             <input type="hidden" id="editSongLyricsData" value="">
+
+            <!-- Appearance: moved here from the song page's "Aa" bar. These
+                 save with the form's Save Changes, like every other field,
+                 rather than needing a save of their own. -->
+            <div class="asm-appearance">
+              <div class="asm-appearance-head">
+                <span>Appearance</span>
+                <button type="button" class="asm-appearance-reset" onclick="resetSongAppearance()">
+                  <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Reset to default
+                </button>
+              </div>
+              <div class="asm-appearance-grid">
+                <div>
+                  <span class="asm-appearance-label">Lyrics</span>
+                  <div class="asm-appearance-row">
+                    <select id="sfLyricFont" class="form-input" onchange="_sfApplyAppearance()" aria-label="Lyrics font">
+                      <option value="">Default font</option>
+                      <option value="Courier New, monospace">Monospace</option>
+                      <option value="Georgia, serif">Georgia</option>
+                      <option value="Arial, sans-serif">Arial</option>
+                      <option value="Times New Roman, serif">Times</option>
+                    </select>
+                    <select id="sfLyricSize" class="form-input" onchange="_sfApplyAppearance()" aria-label="Lyrics size">
+                      <option value="">Default size</option>
+                      <option value="15px">15px</option>
+                      <option value="17px">17px</option>
+                      <option value="19px">19px</option>
+                      <option value="22px">22px</option>
+                      <option value="26px">26px</option>
+                    </select>
+                    <input type="color" id="sfLyricColor" value="#1f2937" onchange="_sfApplyAppearance()" aria-label="Lyrics colour" title="Lyrics colour">
+                  </div>
+                </div>
+                <div>
+                  <span class="asm-appearance-label">Chords</span>
+                  <div class="asm-appearance-row">
+                    <select id="sfChordFont" class="form-input" onchange="_sfApplyAppearance()" aria-label="Chords font">
+                      <option value="">Default font</option>
+                      <option value="Courier New, monospace">Monospace</option>
+                      <option value="Georgia, serif">Georgia</option>
+                      <option value="Arial, sans-serif">Arial</option>
+                    </select>
+                    <select id="sfChordSize" class="form-input" onchange="_sfApplyAppearance()" aria-label="Chords size">
+                      <option value="">Default size</option>
+                      <option value="13px">13px</option>
+                      <option value="15px">15px</option>
+                      <option value="17px">17px</option>
+                      <option value="20px">20px</option>
+                    </select>
+                    <input type="color" id="sfChordColor" value="#991b1b" onchange="_sfApplyAppearance()" aria-label="Chords colour" title="Chords colour">
+                  </div>
+                </div>
+              </div>
+              <p class="asm-appearance-note">Applies wherever this song's lyrics are shown. Saved with the song.</p>
+            </div>
+
             <div class="preview-section" style="margin-top:10px;">
               <div class="preview-buttons">
                 <button type="button" class="preview-btn" onclick="showSongPreview('edit','lyrics')"><i class="fa-solid fa-file-lines"></i> Lyrics Only</button>
@@ -12278,14 +12299,12 @@ function renderLyricsPreviewContent() {
   }
 
   if (currentLyricsPreviewMode === 'resources') {
-    var _appBar = document.getElementById('lyricsPreviewAppearanceBar'); if (_appBar) _appBar.style.display = 'none';
     container.innerHTML = _sfRenderResourcesPanel(currentLyricsPreviewSong);
     _sfBindResourceActions(container, currentLyricsPreviewSong);
     return;
   }
 
   if (currentLyricsPreviewMode === 'history') {
-    var _hb = document.getElementById('lyricsPreviewAppearanceBar'); if (_hb) _hb.style.display = 'none';
     _sfRenderHistoryPanel(currentLyricsPreviewSong, container);
     return;
   }
@@ -12750,16 +12769,6 @@ function _sfBindResourceActions(container, song) {
 // migrations/2026-07-17_add_songs_display_style.sql, proposed but not run).
 // Nothing here touches formatLyricsWithTranspose() or the lyrics text --
 // purely a CSS custom-property overlay on the preview container.
-function toggleLyricsPreviewAppearance() {
-  var bar = document.getElementById('lyricsPreviewAppearanceBar');
-  if (!bar) return;
-  var showing = bar.style.display !== 'none';
-  bar.style.display = showing ? 'none' : 'flex';
-  var btn = document.getElementById('lyricsPreviewAppearanceBtn');
-  if (btn) btn.classList.toggle('lhc-pill-button-active', !showing);
-  if (!showing) _sfSyncAppearanceControls();
-}
-
 function _sfSyncAppearanceControls() {
   var d = currentDisplayStyle || {};
   var lf = document.getElementById('sfLyricFont'); if (lf) lf.value = d.lyricFont || '';
@@ -12779,40 +12788,12 @@ function _sfApplyAppearance() {
   var cc = (document.getElementById('sfChordColor') || {}).value || '';
   currentDisplayStyle = { lyricFont: lf, lyricSize: ls, lyricColor: lc, chordFont: cf, chordSize: cs, chordColor: cc };
   _sfPaintAppearance();
-  _sfMarkAppearanceDirty();
 }
 
-// ── display_style persistence (migration-backed) ────────────────────────────
-// The appearance controls used to be render-only and forgot everything on
-// close. songs.display_style now exists, so they can be saved -- but only when
-// the user asks, because painting on every keystroke would mean a write per
-// colour-picker drag.
-function _sfMarkAppearanceDirty() {
-  var el = document.getElementById('sfAppearanceState');
-  if (!el) return;
-  el.textContent = 'Unsaved appearance';
-  el.className = 'sf-appearance-state is-dirty';
-}
-
-function saveSongAppearance() {
-  var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
-  var el = document.getElementById('sfAppearanceState');
-  if (!song) return;
-  var style = Object.assign({}, currentDisplayStyle || {});
-  if (el) { el.textContent = 'Saving…'; el.className = 'sf-appearance-state'; }
-  SBQ_SONGS.updateDisplayStyle(song.id, style).then(function() {
-    song.display_style = style;
-    var list = (window.STATE && STATE.songs) || [];
-    for (var i = 0; i < list.length; i++) if (list[i].id === song.id) list[i].display_style = style;
-    if (el) { el.textContent = 'Appearance saved'; el.className = 'sf-appearance-state is-ok'; }
-  }).catch(function(err) {
-    // Never report success for a write that did not land.
-    if (el) { el.textContent = 'Could not save appearance'; el.className = 'sf-appearance-state is-err'; }
-    if (typeof showToast === 'function') showToast('Could not save appearance: ' + ((err && err.message) || 'unknown error'), 'error');
-  });
-}
-window.saveSongAppearance = saveSongAppearance;
-
+// Appearance is part of the song record now: the controls live in Edit Song
+// and persist through saveEditSong -> songToRow -> songs.display_style, like
+// every other field. The standalone "Save appearance" button that used to sit
+// on the song page is gone with it.
 function resetSongAppearance() {
   ['sfLyricFont','sfLyricSize','sfChordFont','sfChordSize'].forEach(function(id) {
     var e = document.getElementById(id); if (e) e.value = '';
@@ -12827,7 +12808,14 @@ window.resetSongAppearance = resetSongAppearance;
 // rules pick these up via var(..., <default that matches today's look>), so
 // an untouched song renders identically to before this feature existed.
 function _sfPaintAppearance() {
-  var container = document.getElementById('lyricsPreviewContent');
+  // Paints every surface that renders this song's lyrics: the song page, and
+  // the Edit Song preview now that the controls live there.
+  var targets = [document.getElementById('lyricsPreviewContent'),
+                 document.getElementById('editSongPreviewContent')].filter(Boolean);
+  targets.forEach(_sfPaintAppearanceOn);
+}
+
+function _sfPaintAppearanceOn(container) {
   if (!container) return;
   var d = currentDisplayStyle || {};
   // Only set a custom property when the user actually picked a value --
@@ -13528,58 +13516,159 @@ function printLyricsPreview() {
   setTimeout(function() { printWindow.print(); }, 400);
 }
 
-// View Doc: opens the attached document(s) from lyrics preview modal
+// Anchors a chooser popup under the button that opened it.
+function _lpAnchorEvent(btnId) {
+  var btn = document.getElementById(btnId);
+  var r = btn ? btn.getBoundingClientRect() : { left: window.innerWidth / 2, bottom: 120 };
+  return { clientX: r.left, clientY: r.bottom + 4 };
+}
+
+// View Doc: a badge listing every attached document. One opens straight into
+// the preview; several offer a chooser first, so no arbitrary file is picked.
 window.lyricsPreviewViewDoc = function() {
   var song = currentLyricsPreviewSong;
   if (!song) return;
-  var atts = Array.isArray(song.attachments) ? song.attachments.filter(function(a) { return a && (a.url || typeof a === 'string'); }) : [];
-  var urls = atts.map(function(a) { return a.url || a; }).filter(Boolean);
-  if (urls.length === 0) return;
-  if (urls.length === 1) {
-    if (typeof openDocPreviewModal === 'function') openDocPreviewModal(urls[0], song.title);
-    else window.open(urls[0], '_blank');
-  } else {
-    var btn = document.getElementById('lyricsPreviewDocBtn');
-    var rect = btn ? btn.getBoundingClientRect() : { left: window.innerWidth / 2, bottom: 120 };
-    var fakeEvent = { clientX: rect.left, clientY: rect.bottom + 4 };
-    if (typeof showLinkSelectorPopup === 'function') showLinkSelectorPopup(fakeEvent, urls, 'doc', song.title);
-    else window.open(urls[0], '_blank');
-  }
+  var docs = (typeof _sfExpandAttachments === 'function')
+    ? _sfExpandAttachments(song).map(function(a) { return a.url; })
+    : (song.attachments || []).map(function(a) { return a.url || a; }).filter(Boolean);
+  if (!docs.length) { showToast('No documents attached yet', 'info'); return; }
+  if (docs.length === 1) { openDocPreviewModal(docs[0], song.title); return; }
+  showLinkSelectorPopup(_lpAnchorEvent('lyricsPreviewDocBtn'), docs, 'doc', song.title);
 };
 
-// Add Doc: attaches a document/score URL to the song from within the lyrics preview modal
+// YouTube badge: replaces the Resources tab on the song page. Same rule --
+// one video plays, several offer a choice.
+window.lyricsPreviewYoutube = function() {
+  var song = currentLyricsPreviewSong;
+  if (!song) return;
+  var media = (typeof _sfExpandMedia === 'function') ? _sfExpandMedia(song) : [];
+  var yts = media.filter(function(u) { return u.indexOf('youtu') !== -1; });
+  if (!yts.length) { showToast('No videos attached yet', 'info'); return; }
+  if (yts.length === 1) { openYoutubePreviewModal(yts[0], song.title); return; }
+  showLinkSelectorPopup(_lpAnchorEvent('lyricsPreviewYoutubeBtn'), yts, 'youtube', song.title);
+};
+
+// Keeps both badges in step with the song actually on screen.
+window._lpSyncMediaBadges = function(song) {
+  function paint(btnId, badgeId, count) {
+    var btn = document.getElementById(btnId), badge = document.getElementById(badgeId);
+    if (!btn) return;
+    btn.style.display = count > 0 ? '' : 'none';
+    if (badge) {
+      badge.textContent = count;
+      badge.style.display = count > 1 ? '' : 'none';
+    }
+  }
+  if (!song) return;
+  var docs = (typeof _sfExpandAttachments === 'function') ? _sfExpandAttachments(song).length : 0;
+  var media = (typeof _sfExpandMedia === 'function') ? _sfExpandMedia(song) : [];
+  paint('lyricsPreviewDocBtn', 'lyricsPreviewDocBadge', docs);
+  paint('lyricsPreviewYoutubeBtn', 'lyricsPreviewYoutubeBadge', yt_count(media));
+};
+function yt_count(media) {
+  return media.filter(function(u) { return u.indexOf('youtu') !== -1; }).length;
+}
+
+// Add Doc: three real routes -- upload a file from the device, paste a Google
+// Doc / Drive / PDF link, or scan with the camera. All three end at the same
+// place: an entry appended to song.attachments, which is what View Doc lists.
 window.lyricsPreviewAddDoc = function() {
   var song = currentLyricsPreviewSong;
   if (!song) return;
-  if (typeof window.customPrompt !== 'function') return;
-  window.customPrompt('Add Document', 'Paste the URL for the music score or document (Google Drive, PDF, etc.):', '').then(function(url) {
-    if (!url || !url.trim()) return;
-    url = url.trim();
-    var fileInfo = typeof parseFileUrl === 'function' ? parseFileUrl(url) : { url: url, name: 'Document', ext: 'link', icon: 'fa-link' };
-    var atts = Array.isArray(song.attachments) ? song.attachments.slice() : [];
-    atts.push(fileInfo);
-    if (typeof callGAS === 'function') {
-      callGAS('updateSong', [{ id: song.id, attachments: atts }]).then(function(result) {
-        if (result && result.success !== false) {
-          song.attachments = atts;
-          if (typeof showToast === 'function') showToast('Document attached to "' + song.title + '"', 'success');
-          // Refresh View Doc button
-          if (typeof window.setLyricsPreviewSong === 'function') window.setLyricsPreviewSong(song);
-          // Sync to STATE
-          if (window.STATE && Array.isArray(window.STATE.songs)) {
-            var idx = window.STATE.songs.findIndex(function(s) { return s.id === song.id; });
-            if (idx >= 0) window.STATE.songs[idx].attachments = atts;
-            if (typeof renderSongs === 'function') renderSongs(false);
-          }
-        } else {
-          if (typeof showToast === 'function') showToast('Failed to save document link', 'error');
-        }
-      }).catch(function() {
-        if (typeof showToast === 'function') showToast('Failed to save document link', 'error');
-      });
+  _lpShowAddDocMenu();
+};
+
+function _lpShowAddDocMenu() {
+  var existing = document.getElementById('lpAddDocMenu');
+  if (existing) existing.remove();
+  var r = _lpAnchorEvent('lyricsPreviewAddDocBtn');
+  var menu = document.createElement('div');
+  menu.id = 'lpAddDocMenu';
+  menu.className = 'lp-adddoc-menu';
+  menu.innerHTML =
+    '<div class="lp-adddoc-head">Add a document</div>' +
+    '<button type="button" data-act="upload"><i class="fa-solid fa-arrow-up-from-bracket"></i><span><b>Upload from device</b><small>PDF, Word, image</small></span></button>' +
+    '<button type="button" data-act="link"><i class="fa-solid fa-link"></i><span><b>Paste a link</b><small>Google Doc, Drive, any URL</small></span></button>' +
+    '<button type="button" data-act="camera"><i class="fa-solid fa-camera"></i><span><b>Scan with camera</b><small>Photograph a score</small></span></button>';
+  document.body.appendChild(menu);
+  // Clamp on both sides so a narrow phone cannot push it off-screen.
+  var w = Math.min(268, window.innerWidth - 16);
+  menu.style.width = w + 'px';
+  menu.style.left = Math.max(8, Math.min(r.clientX, window.innerWidth - w - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(r.clientY, window.innerHeight - 210)) + 'px';
+
+  menu.querySelectorAll('button').forEach(function(b) {
+    b.onclick = function() {
+      var act = b.getAttribute('data-act');
+      menu.remove();
+      if (act === 'upload') document.getElementById('lpDocFileInput').click();
+      else if (act === 'camera') document.getElementById('lpDocCameraInput').click();
+      else _lpAddDocByLink();
+    };
+  });
+  setTimeout(function() {
+    document.addEventListener('click', function close(e) {
+      if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); }
+    });
+  }, 80);
+}
+
+function _lpAddDocByLink() {
+  var song = currentLyricsPreviewSong;
+  if (!song || typeof window.customPrompt !== 'function') return;
+  window.customPrompt('Add document link', 'Paste a Google Doc, Drive or PDF link.', '').then(function(url) {
+    if (!url || !String(url).trim()) return;
+    url = String(url).trim();
+    if (!/^https?:\/\//i.test(url)) { showToast('That does not look like a link', 'error'); return; }
+    var info = (typeof parseFileUrl === 'function') ? parseFileUrl(url) : { url: url, name: 'Document', ext: 'link', icon: 'fa-link' };
+    _lpAttachDoc(info);
+  });
+}
+
+// Shared by the upload and camera inputs -- one file handler, two entry points.
+window.lpHandleDocFile = function(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  var song = currentLyricsPreviewSong;
+  if (!song) return;
+  showToast('Uploading "' + file.name + '"…', 'info');
+  uploadToSupabase(file, 'song-docs').then(function(res) {
+    if (!res || res.error || !res.url) {
+      showToast('Upload failed: ' + ((res && res.error) || 'unknown error'), 'error');
+      return;
     }
+    var info = (typeof parseFileUrl === 'function') ? parseFileUrl(res.url) : { url: res.url };
+    info.url = res.url;
+    info.name = file.name;   // the real filename beats a guessed label
+    _lpAttachDoc(info);
+  }).catch(function(err) {
+    showToast('Upload failed: ' + ((err && err.message) || 'unknown error'), 'error');
   });
 };
+
+// Persists the attachment and refreshes everything that counts documents.
+// Success is only reported after the save resolves.
+function _lpAttachDoc(info) {
+  var song = currentLyricsPreviewSong;
+  if (!song || !info || !info.url) return;
+  var atts = Array.isArray(song.attachments) ? song.attachments.slice() : [];
+  atts.push(info);
+  SBQ_SONGS.updateFields(song.id, { attachments: atts }).then(function() {
+    song.attachments = atts;
+    if (window.STATE && Array.isArray(STATE.songs)) {
+      for (var i = 0; i < STATE.songs.length; i++) {
+        if (STATE.songs[i].id === song.id) STATE.songs[i].attachments = atts;
+      }
+    }
+    if (typeof window._lpSyncMediaBadges === 'function') window._lpSyncMediaBadges(song);
+    if (typeof _lpRenderRailResources === 'function') _lpRenderRailResources(song);
+    if (currentLyricsPreviewMode === 'resources') renderLyricsPreviewContent();
+    showToast('Document attached to "' + song.title + '"', 'success');
+  }).catch(function(err) {
+    showToast('Could not attach the document: ' + ((err && err.message) || 'unknown error'), 'error');
+  });
+}
 
 // Make functions globally accessible
 window.switchLyricsPreviewMode = switchLyricsPreviewMode;
@@ -13622,25 +13711,9 @@ window.setLyricsPreviewSong = function(song) {
   document.getElementById('transposeContainer').style.display = 'none';
   document.getElementById('transposeSelect').value = '0';
 
-  // Show/hide View Doc button based on attachments
-  var docBtn = document.getElementById('lyricsPreviewDocBtn');
-  var docBadge = document.getElementById('lyricsPreviewDocBadge');
-  if (docBtn) {
-    var atts = Array.isArray(song.attachments) ? song.attachments.filter(function(a) { return a && (a.url || typeof a === 'string'); }) : [];
-    if (atts.length > 0) {
-      docBtn.style.display = '';
-      if (docBadge) {
-        if (atts.length > 1) {
-          docBadge.textContent = atts.length;
-          docBadge.style.display = '';
-        } else {
-          docBadge.style.display = 'none';
-        }
-      }
-    } else {
-      docBtn.style.display = 'none';
-    }
-  }
+  // View Doc and YouTube badges. Both use the shared expand helpers, so a
+  // record holding several urls in one entry is counted correctly.
+  if (typeof window._lpSyncMediaBadges === 'function') window._lpSyncMediaBadges(song);
 
   renderLyricsPreviewContent();
 };
@@ -19875,6 +19948,12 @@ window.loadEditSongData = function(song) {
     $('editSongTimeSignature').value = song.timeSignature || '';
     $('editSongBpm').value = (song.bpm == null || song.bpm === '') ? '' : song.bpm;
     _asmSetSuitability('editSongSuitability', song.serviceSuitability);
+    // Appearance controls now live in this form, so they load from the song
+    // being edited rather than from whatever the song page last had open.
+    currentDisplayStyle = (song.display_style && typeof song.display_style === 'object')
+      ? Object.assign({}, song.display_style) : {};
+    if (typeof _sfSyncAppearanceControls === 'function') _sfSyncAppearanceControls();
+    if (typeof _sfPaintAppearance === 'function') _sfPaintAppearance();
 
     // Season multi-select
     if (typeof setSeasonSelection === 'function') setSeasonSelection('edit', song.season || '');
@@ -19960,6 +20039,8 @@ window.loadEditSongData = function(song) {
       timeSignature: _asmVal('editSongTimeSignature'),
       bpm: _asmVal('editSongBpm'),
       serviceSuitability: _asmSuitability('editSongSuitability'),
+      // Saved with the form, so Save Changes covers appearance too.
+      display_style: (typeof currentDisplayStyle === 'object' && currentDisplayStyle) ? currentDisplayStyle : {},
       artist: $('editSongArtist').value || '',
       category: $('editSongCategory').value || '',
       era: ($('editSongEra') ? $('editSongEra').value : '') || '',
@@ -20873,12 +20954,10 @@ window.loadEditSongData = function(song) {
       }
 
       // Save to backend
-      var updateData = {
-        id: song.id,
-        youtube: isMedia ? song.youtube.split(/[,\s]+/).filter(Boolean) : undefined,
-        attachments: !isMedia ? song.attachments : undefined
-      };
-      SBQ_SONGS.update(updateData).then(function() {
+      var updateData = isMedia
+        ? { youtube: song.youtube.split(/[,\s]+/).filter(Boolean) }
+        : { attachments: song.attachments };
+      SBQ_SONGS.updateFields(song.id, updateData).then(function() {
         showToast('Media added to "' + song.title + '"!', 'success');
         renderSongs();
       }).catch(function(err) {
@@ -25443,6 +25522,30 @@ var SBQ_SONGS = {
   // lhc-song-library: that channel means "the words changed", and appearance
   // is presentation only -- announcing it would make open Orders and LCD
   // Projection re-render slides for nothing.
+  // Writes ONLY the columns handed in. Use this for any partial save.
+  //
+  // update() above rebuilds the WHOLE row through songToRow(), which defaults
+  // every field it is not given -- arrays to [], strings to ''. That is correct
+  // for the Edit Song form (emptying a box must clear the column) and
+  // destructive everywhere else: a {id, title, attachments} payload silently
+  // blanks lyrics, key, theme and the rest. Attaching a document or a media
+  // link must not be able to do that.
+  updateFields: function(id, patch) {
+    var sb = SBQ_SONGS._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    if (!id) return Promise.reject(new Error('updateFields needs a song id'));
+    var clean = {};
+    Object.keys(patch || {}).forEach(function(k) {
+      if (k !== 'id' && patch[k] !== undefined) clean[k] = patch[k];
+    });
+    if (!Object.keys(clean).length) return Promise.resolve({ success: true });
+    return sb.from('songs').update(clean).eq('id', id)
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return { success: true };
+      });
+  },
+
   updateDisplayStyle: function(id, style) {
     var sb = SBQ_SONGS._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
@@ -86438,6 +86541,36 @@ window.LHC_Install = (function() {
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
 
+  /* ── Badge buttons (View Doc / YouTube) ────────────────────────────────── */
+  .lp-badge-btn { position: relative; }
+  .lp-btn-badge {
+    position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px;
+    padding: 0 4px; border-radius: 999px; background: #dc2626; color: #fff;
+    font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+  }
+
+  /* ── Add Doc chooser ───────────────────────────────────────────────────── */
+  .lp-adddoc-menu {
+    position: fixed; z-index: 120002; padding: 6px; border-radius: 12px;
+    background: #fff; border: 1px solid var(--sf-line-2, #d0d8ec);
+    box-shadow: 0 14px 40px rgba(15, 28, 63, .22);
+  }
+  .lp-adddoc-head {
+    padding: 6px 9px 8px; color: var(--sf-muted, #5f6b91);
+    font-size: .64rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  }
+  .lp-adddoc-menu button {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 9px; border: 0; border-radius: 9px; background: none; cursor: pointer;
+    text-align: left; font-family: inherit;
+  }
+  .lp-adddoc-menu button:hover { background: var(--sf-tint, #eef2ff); }
+  .lp-adddoc-menu button:focus-visible { outline: 3px solid rgba(76,110,245,.38); outline-offset: -2px; }
+  .lp-adddoc-menu button > i { flex: none; width: 18px; text-align: center; color: var(--sf-blue-deep, #3b5bdb); }
+  .lp-adddoc-menu button span { display: flex; flex-direction: column; min-width: 0; }
+  .lp-adddoc-menu button b { color: var(--sf-navy, #0f1c3f); font-size: .78rem; font-weight: 700; }
+  .lp-adddoc-menu button small { color: var(--sf-muted, #5f6b91); font-size: .68rem; }
+
   /* ── Usage line, usage rail card and the History panel ─────────────────── */
   .lp-usage-line { margin-top:5px; color:var(--sf-muted,#5f6b91); font-size:.73rem; font-weight:650; }
   .lp-usage-line[hidden] { display:none; }
@@ -86499,20 +86632,38 @@ window.LHC_Install = (function() {
     margin-left:2px; box-shadow:0 0 0 1px rgba(15,28,63,.14);
   }
 
-  /* ── Appearance save controls (display_style, migration-backed) ────────── */
-  .sf-appearance-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .sf-appearance-btn {
-    display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:0 12px; cursor:pointer;
-    border:1px solid #f0abfc; border-radius:9px; background:#fff; color:#a21caf;
-    font-family:inherit; font-size:.74rem; font-weight:750;
+  /* ── Appearance block inside Edit Song ─────────────────────────────────── */
+  .asm-appearance {
+    margin-top:12px; padding:11px 12px; border:1px solid var(--sf-line,#e3e8f4);
+    border-radius:11px; background:var(--sf-surface,#f7f9fd);
   }
-  .sf-appearance-btn.primary { border-color:transparent; background:#a21caf; color:#fff; }
-  .sf-appearance-btn:hover { filter:brightness(1.05); }
-  .sf-appearance-btn:focus-visible { outline:3px solid rgba(162,28,175,.4); outline-offset:2px; }
-  .sf-appearance-state { font-size:.72rem; font-weight:700; color:#a21caf; }
-  .sf-appearance-state.is-dirty { color:#9a5b16; }
-  .sf-appearance-state.is-ok { color:#0f7a41; }
-  .sf-appearance-state.is-err { color:#c81e1e; }
+  .asm-appearance-head {
+    display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:9px;
+  }
+  .asm-appearance-head > span {
+    color:var(--sf-muted,#5f6b91); font-size:.64rem; font-weight:800;
+    letter-spacing:.07em; text-transform:uppercase;
+  }
+  .asm-appearance-reset {
+    display:inline-flex; align-items:center; gap:5px; padding:4px 9px; cursor:pointer;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:8px; background:#fff;
+    color:var(--sf-ink,#1a2547); font-family:inherit; font-size:.68rem; font-weight:700;
+  }
+  .asm-appearance-reset:hover { background:var(--sf-tint,#eef2ff); border-color:#b9c5ea; color:var(--sf-blue-deep,#3b5bdb); }
+  .asm-appearance-reset:focus-visible { outline:3px solid rgba(76,110,245,.38); outline-offset:2px; }
+  .asm-appearance-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
+  .asm-appearance-label {
+    display:block; margin-bottom:4px; color:var(--sf-navy,#0f1c3f);
+    font-size:.7rem; font-weight:750;
+  }
+  .asm-appearance-row { display:flex; gap:6px; align-items:center; }
+  .asm-appearance-row .form-input { min-height:34px; font-size:.74rem; padding:0 7px; min-width:0; }
+  .asm-appearance-row input[type=color] {
+    flex:none; width:34px; height:34px; padding:0; cursor:pointer;
+    border:1px solid var(--sf-line-2,#d0d8ec); border-radius:8px; background:none;
+  }
+  .asm-appearance-note { margin:9px 0 0; color:var(--sf-muted,#5f6b91); font-size:.68rem; }
+  @media (max-width:640px) { .asm-appearance-grid { grid-template-columns:1fr; } }
 
   /* ── Service suitability checkboxes (migration-backed) ─────────────────── */
   .asm-suit { display:flex; flex-wrap:wrap; gap:6px 14px; }
