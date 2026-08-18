@@ -3808,20 +3808,34 @@
       #lyricsPreviewHeaderPanel .flex.items-center.justify-between > div:first-child { flex: 1; min-width: 0; overflow: hidden; }
       #lyricsPreviewTitle { font-size: 1rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #lyricsPreviewArtist { font-size: 0.72rem !important; margin-top: 2px !important; }
-      /* Toolbar: single flat horizontal scroll row */
+      /* Toolbar: TWO stacked rows -- tabs on the first line, actions parked on
+         a second line beneath them. Each row scrolls horizontally on its own,
+         so the actions no longer trail off the end of the tab strip. */
       #lyricsPreviewToolbar {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
         flex-wrap: nowrap !important;
-        justify-content: flex-start !important;
         gap: 6px !important;
         margin-top: 10px !important;
         padding-bottom: 4px;
-        scrollbar-width: none;
+        overflow: visible;
       }
-      #lyricsPreviewToolbar::-webkit-scrollbar { display: none; }
-      /* Dissolve the two inner groups — all buttons become direct flex children */
-      #lyricsPreviewToolbar > div { display: contents; }
+      #lyricsPreviewToolbar > div {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 6px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+      }
+      #lyricsPreviewToolbar > div::-webkit-scrollbar { display: none; }
+      /* The action row reads as a distinct second line, not a wrapped tail. */
+      #lyricsPreviewToolbar > div:last-child {
+        padding-top: 6px;
+        border-top: 1px solid var(--sf-line, #e3e8f4);
+      }
       #lyricsPreviewToolbar .lhc-pill-button,
       #lyricsPreviewToolbar button { white-space: nowrap; flex-shrink: 0; font-size: 0.72rem !important; padding: 6px 10px !important; }
       /* Hide icons inside toolbar to save space (text labels are enough) */
@@ -5847,12 +5861,16 @@
         <div id="lyricsPreviewToolbar" class="flex items-center justify-between mt-4 flex-wrap gap-2">
           <div class="flex gap-2">
             <button id="lyricsPreviewLyricsBtn" class="lhc-pill-button lhc-pill-button-active text-sm" onclick="switchLyricsPreviewMode('lyrics')">
-              <i class="fa-solid fa-file-lines mr-1"></i> Lyrics Only
+              <i class="fa-solid fa-file-lines mr-1"></i> Lyrics
             </button>
             <button id="lyricsPreviewChordsBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('chords')">
-              <i class="fa-solid fa-guitar mr-1"></i> Lyrics + Chords
+              <i class="fa-solid fa-guitar mr-1"></i> Chords
             </button>
-            <button id="lyricsPreviewResourcesBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('resources')">
+            <button id="lyricsPreviewYoutubeBtn" class="lhc-pill-button text-sm lp-badge-btn" style="display:none;" onclick="lyricsPreviewYoutube()" title="Watch an attached video">
+              <i class="fa-brands fa-youtube mr-1"></i> YouTube
+              <span id="lyricsPreviewYoutubeBadge" class="lp-btn-badge" style="display:none;"></span>
+            </button>
+            <button id="lyricsPreviewResourcesBtn" class="lhc-pill-button text-sm" style="display:none;" onclick="switchLyricsPreviewMode('resources')">
               <i class="fa-solid fa-folder-open mr-1"></i> Resources
             </button>
             <button id="lyricsPreviewHistoryBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('history')">
@@ -5899,18 +5917,17 @@
                 <option value="-5">-5</option>
               </select>
             </div>
-            <button id="lyricsPreviewAppearanceBtn" class="lhc-pill-button text-sm" title="Display appearance" onclick="toggleLyricsPreviewAppearance()" style="background:#fdf4ff;border-color:#f0abfc;color:#a21caf;">
-              <i class="fa-solid fa-palette mr-1"></i> Aa
-            </button>
             <!-- View Doc button: shown when song has attachments -->
-            <button id="lyricsPreviewDocBtn" class="lhc-pill-button text-sm" style="display:none;background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;position:relative;" onclick="lyricsPreviewViewDoc()" title="View attached music score / document">
+            <button id="lyricsPreviewDocBtn" class="lhc-pill-button text-sm lp-badge-btn" style="display:none;background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;" onclick="lyricsPreviewViewDoc()" title="View attached documents">
               <i class="fa-solid fa-file-lines mr-1"></i> View Doc
-              <span id="lyricsPreviewDocBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#0369a1;color:white;border-radius:999px;font-size:10px;font-weight:700;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px;"></span>
+              <span id="lyricsPreviewDocBadge" class="lp-btn-badge" style="display:none;background:#0369a1;"></span>
             </button>
             <!-- Add Doc button: always shown for adding a document/score link -->
             <button id="lyricsPreviewAddDocBtn" class="lhc-pill-button text-sm" style="background:#f0fdf4;border-color:#86efac;color:#15803d;" onclick="lyricsPreviewAddDoc()" title="Attach a music score or document link">
               <i class="fa-solid fa-paperclip mr-1"></i> Add Doc
             </button>
+            <input type="file" id="lpDocFileInput" style="display:none" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="lpHandleDocFile(this)">
+            <input type="file" id="lpDocCameraInput" style="display:none" accept="image/*" capture="environment" onchange="lpHandleDocFile(this)">
             <button class="lhc-pill-button text-sm" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="printLyricsPreview()">
               <i class="fa-solid fa-print mr-1"></i> Print / PDF
             </button>
@@ -13528,58 +13545,159 @@ function printLyricsPreview() {
   setTimeout(function() { printWindow.print(); }, 400);
 }
 
-// View Doc: opens the attached document(s) from lyrics preview modal
+// Anchors a chooser popup under the button that opened it.
+function _lpAnchorEvent(btnId) {
+  var btn = document.getElementById(btnId);
+  var r = btn ? btn.getBoundingClientRect() : { left: window.innerWidth / 2, bottom: 120 };
+  return { clientX: r.left, clientY: r.bottom + 4 };
+}
+
+// View Doc: a badge listing every attached document. One opens straight into
+// the preview; several offer a chooser first, so no arbitrary file is picked.
 window.lyricsPreviewViewDoc = function() {
   var song = currentLyricsPreviewSong;
   if (!song) return;
-  var atts = Array.isArray(song.attachments) ? song.attachments.filter(function(a) { return a && (a.url || typeof a === 'string'); }) : [];
-  var urls = atts.map(function(a) { return a.url || a; }).filter(Boolean);
-  if (urls.length === 0) return;
-  if (urls.length === 1) {
-    if (typeof openDocPreviewModal === 'function') openDocPreviewModal(urls[0], song.title);
-    else window.open(urls[0], '_blank');
-  } else {
-    var btn = document.getElementById('lyricsPreviewDocBtn');
-    var rect = btn ? btn.getBoundingClientRect() : { left: window.innerWidth / 2, bottom: 120 };
-    var fakeEvent = { clientX: rect.left, clientY: rect.bottom + 4 };
-    if (typeof showLinkSelectorPopup === 'function') showLinkSelectorPopup(fakeEvent, urls, 'doc', song.title);
-    else window.open(urls[0], '_blank');
-  }
+  var docs = (typeof _sfExpandAttachments === 'function')
+    ? _sfExpandAttachments(song).map(function(a) { return a.url; })
+    : (song.attachments || []).map(function(a) { return a.url || a; }).filter(Boolean);
+  if (!docs.length) { showToast('No documents attached yet', 'info'); return; }
+  if (docs.length === 1) { openDocPreviewModal(docs[0], song.title); return; }
+  showLinkSelectorPopup(_lpAnchorEvent('lyricsPreviewDocBtn'), docs, 'doc', song.title);
 };
 
-// Add Doc: attaches a document/score URL to the song from within the lyrics preview modal
+// YouTube badge: replaces the Resources tab on the song page. Same rule --
+// one video plays, several offer a choice.
+window.lyricsPreviewYoutube = function() {
+  var song = currentLyricsPreviewSong;
+  if (!song) return;
+  var media = (typeof _sfExpandMedia === 'function') ? _sfExpandMedia(song) : [];
+  var yts = media.filter(function(u) { return u.indexOf('youtu') !== -1; });
+  if (!yts.length) { showToast('No videos attached yet', 'info'); return; }
+  if (yts.length === 1) { openYoutubePreviewModal(yts[0], song.title); return; }
+  showLinkSelectorPopup(_lpAnchorEvent('lyricsPreviewYoutubeBtn'), yts, 'youtube', song.title);
+};
+
+// Keeps both badges in step with the song actually on screen.
+window._lpSyncMediaBadges = function(song) {
+  function paint(btnId, badgeId, count) {
+    var btn = document.getElementById(btnId), badge = document.getElementById(badgeId);
+    if (!btn) return;
+    btn.style.display = count > 0 ? '' : 'none';
+    if (badge) {
+      badge.textContent = count;
+      badge.style.display = count > 1 ? '' : 'none';
+    }
+  }
+  if (!song) return;
+  var docs = (typeof _sfExpandAttachments === 'function') ? _sfExpandAttachments(song).length : 0;
+  var media = (typeof _sfExpandMedia === 'function') ? _sfExpandMedia(song) : [];
+  paint('lyricsPreviewDocBtn', 'lyricsPreviewDocBadge', docs);
+  paint('lyricsPreviewYoutubeBtn', 'lyricsPreviewYoutubeBadge', yt_count(media));
+};
+function yt_count(media) {
+  return media.filter(function(u) { return u.indexOf('youtu') !== -1; }).length;
+}
+
+// Add Doc: three real routes -- upload a file from the device, paste a Google
+// Doc / Drive / PDF link, or scan with the camera. All three end at the same
+// place: an entry appended to song.attachments, which is what View Doc lists.
 window.lyricsPreviewAddDoc = function() {
   var song = currentLyricsPreviewSong;
   if (!song) return;
-  if (typeof window.customPrompt !== 'function') return;
-  window.customPrompt('Add Document', 'Paste the URL for the music score or document (Google Drive, PDF, etc.):', '').then(function(url) {
-    if (!url || !url.trim()) return;
-    url = url.trim();
-    var fileInfo = typeof parseFileUrl === 'function' ? parseFileUrl(url) : { url: url, name: 'Document', ext: 'link', icon: 'fa-link' };
-    var atts = Array.isArray(song.attachments) ? song.attachments.slice() : [];
-    atts.push(fileInfo);
-    if (typeof callGAS === 'function') {
-      callGAS('updateSong', [{ id: song.id, attachments: atts }]).then(function(result) {
-        if (result && result.success !== false) {
-          song.attachments = atts;
-          if (typeof showToast === 'function') showToast('Document attached to "' + song.title + '"', 'success');
-          // Refresh View Doc button
-          if (typeof window.setLyricsPreviewSong === 'function') window.setLyricsPreviewSong(song);
-          // Sync to STATE
-          if (window.STATE && Array.isArray(window.STATE.songs)) {
-            var idx = window.STATE.songs.findIndex(function(s) { return s.id === song.id; });
-            if (idx >= 0) window.STATE.songs[idx].attachments = atts;
-            if (typeof renderSongs === 'function') renderSongs(false);
-          }
-        } else {
-          if (typeof showToast === 'function') showToast('Failed to save document link', 'error');
-        }
-      }).catch(function() {
-        if (typeof showToast === 'function') showToast('Failed to save document link', 'error');
-      });
+  _lpShowAddDocMenu();
+};
+
+function _lpShowAddDocMenu() {
+  var existing = document.getElementById('lpAddDocMenu');
+  if (existing) existing.remove();
+  var r = _lpAnchorEvent('lyricsPreviewAddDocBtn');
+  var menu = document.createElement('div');
+  menu.id = 'lpAddDocMenu';
+  menu.className = 'lp-adddoc-menu';
+  menu.innerHTML =
+    '<div class="lp-adddoc-head">Add a document</div>' +
+    '<button type="button" data-act="upload"><i class="fa-solid fa-arrow-up-from-bracket"></i><span><b>Upload from device</b><small>PDF, Word, image</small></span></button>' +
+    '<button type="button" data-act="link"><i class="fa-solid fa-link"></i><span><b>Paste a link</b><small>Google Doc, Drive, any URL</small></span></button>' +
+    '<button type="button" data-act="camera"><i class="fa-solid fa-camera"></i><span><b>Scan with camera</b><small>Photograph a score</small></span></button>';
+  document.body.appendChild(menu);
+  // Clamp on both sides so a narrow phone cannot push it off-screen.
+  var w = Math.min(268, window.innerWidth - 16);
+  menu.style.width = w + 'px';
+  menu.style.left = Math.max(8, Math.min(r.clientX, window.innerWidth - w - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(r.clientY, window.innerHeight - 210)) + 'px';
+
+  menu.querySelectorAll('button').forEach(function(b) {
+    b.onclick = function() {
+      var act = b.getAttribute('data-act');
+      menu.remove();
+      if (act === 'upload') document.getElementById('lpDocFileInput').click();
+      else if (act === 'camera') document.getElementById('lpDocCameraInput').click();
+      else _lpAddDocByLink();
+    };
+  });
+  setTimeout(function() {
+    document.addEventListener('click', function close(e) {
+      if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); }
+    });
+  }, 80);
+}
+
+function _lpAddDocByLink() {
+  var song = currentLyricsPreviewSong;
+  if (!song || typeof window.customPrompt !== 'function') return;
+  window.customPrompt('Add document link', 'Paste a Google Doc, Drive or PDF link.', '').then(function(url) {
+    if (!url || !String(url).trim()) return;
+    url = String(url).trim();
+    if (!/^https?:\/\//i.test(url)) { showToast('That does not look like a link', 'error'); return; }
+    var info = (typeof parseFileUrl === 'function') ? parseFileUrl(url) : { url: url, name: 'Document', ext: 'link', icon: 'fa-link' };
+    _lpAttachDoc(info);
+  });
+}
+
+// Shared by the upload and camera inputs -- one file handler, two entry points.
+window.lpHandleDocFile = function(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  var song = currentLyricsPreviewSong;
+  if (!song) return;
+  showToast('Uploading "' + file.name + '"…', 'info');
+  uploadToSupabase(file, 'song-docs').then(function(res) {
+    if (!res || res.error || !res.url) {
+      showToast('Upload failed: ' + ((res && res.error) || 'unknown error'), 'error');
+      return;
     }
+    var info = (typeof parseFileUrl === 'function') ? parseFileUrl(res.url) : { url: res.url };
+    info.url = res.url;
+    info.name = file.name;   // the real filename beats a guessed label
+    _lpAttachDoc(info);
+  }).catch(function(err) {
+    showToast('Upload failed: ' + ((err && err.message) || 'unknown error'), 'error');
   });
 };
+
+// Persists the attachment and refreshes everything that counts documents.
+// Success is only reported after the save resolves.
+function _lpAttachDoc(info) {
+  var song = currentLyricsPreviewSong;
+  if (!song || !info || !info.url) return;
+  var atts = Array.isArray(song.attachments) ? song.attachments.slice() : [];
+  atts.push(info);
+  SBQ_SONGS.update({ id: song.id, title: song.title, attachments: atts }).then(function() {
+    song.attachments = atts;
+    if (window.STATE && Array.isArray(STATE.songs)) {
+      for (var i = 0; i < STATE.songs.length; i++) {
+        if (STATE.songs[i].id === song.id) STATE.songs[i].attachments = atts;
+      }
+    }
+    if (typeof window._lpSyncMediaBadges === 'function') window._lpSyncMediaBadges(song);
+    if (typeof _lpRenderRailResources === 'function') _lpRenderRailResources(song);
+    if (currentLyricsPreviewMode === 'resources') renderLyricsPreviewContent();
+    showToast('Document attached to "' + song.title + '"', 'success');
+  }).catch(function(err) {
+    showToast('Could not attach the document: ' + ((err && err.message) || 'unknown error'), 'error');
+  });
+}
 
 // Make functions globally accessible
 window.switchLyricsPreviewMode = switchLyricsPreviewMode;
@@ -13622,25 +13740,9 @@ window.setLyricsPreviewSong = function(song) {
   document.getElementById('transposeContainer').style.display = 'none';
   document.getElementById('transposeSelect').value = '0';
 
-  // Show/hide View Doc button based on attachments
-  var docBtn = document.getElementById('lyricsPreviewDocBtn');
-  var docBadge = document.getElementById('lyricsPreviewDocBadge');
-  if (docBtn) {
-    var atts = Array.isArray(song.attachments) ? song.attachments.filter(function(a) { return a && (a.url || typeof a === 'string'); }) : [];
-    if (atts.length > 0) {
-      docBtn.style.display = '';
-      if (docBadge) {
-        if (atts.length > 1) {
-          docBadge.textContent = atts.length;
-          docBadge.style.display = '';
-        } else {
-          docBadge.style.display = 'none';
-        }
-      }
-    } else {
-      docBtn.style.display = 'none';
-    }
-  }
+  // View Doc and YouTube badges. Both use the shared expand helpers, so a
+  // record holding several urls in one entry is counted correctly.
+  if (typeof window._lpSyncMediaBadges === 'function') window._lpSyncMediaBadges(song);
 
   renderLyricsPreviewContent();
 };
@@ -86437,6 +86539,36 @@ window.LHC_Install = (function() {
   .lp-chip-theme  { background:#eef2ff; border-color:#c3cdf3; color:#3b3fae; }
   .lp-chip-season { background:#fff7ed; border-color:#fed7aa; color:#9a5b16; }
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
+
+  /* ── Badge buttons (View Doc / YouTube) ────────────────────────────────── */
+  .lp-badge-btn { position: relative; }
+  .lp-btn-badge {
+    position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px;
+    padding: 0 4px; border-radius: 999px; background: #dc2626; color: #fff;
+    font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+  }
+
+  /* ── Add Doc chooser ───────────────────────────────────────────────────── */
+  .lp-adddoc-menu {
+    position: fixed; z-index: 120002; padding: 6px; border-radius: 12px;
+    background: #fff; border: 1px solid var(--sf-line-2, #d0d8ec);
+    box-shadow: 0 14px 40px rgba(15, 28, 63, .22);
+  }
+  .lp-adddoc-head {
+    padding: 6px 9px 8px; color: var(--sf-muted, #5f6b91);
+    font-size: .64rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  }
+  .lp-adddoc-menu button {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 9px; border: 0; border-radius: 9px; background: none; cursor: pointer;
+    text-align: left; font-family: inherit;
+  }
+  .lp-adddoc-menu button:hover { background: var(--sf-tint, #eef2ff); }
+  .lp-adddoc-menu button:focus-visible { outline: 3px solid rgba(76,110,245,.38); outline-offset: -2px; }
+  .lp-adddoc-menu button > i { flex: none; width: 18px; text-align: center; color: var(--sf-blue-deep, #3b5bdb); }
+  .lp-adddoc-menu button span { display: flex; flex-direction: column; min-width: 0; }
+  .lp-adddoc-menu button b { color: var(--sf-navy, #0f1c3f); font-size: .78rem; font-weight: 700; }
+  .lp-adddoc-menu button small { color: var(--sf-muted, #5f6b91); font-size: .68rem; }
 
   /* ── Usage line, usage rail card and the History panel ─────────────────── */
   .lp-usage-line { margin-top:5px; color:var(--sf-muted,#5f6b91); font-size:.73rem; font-weight:650; }
