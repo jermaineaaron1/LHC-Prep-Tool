@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Song } from '@/lib/vocal-hero/types';
-import { SatbLane, clearTrail, pushTrail } from './SatbLane';
+import { clearTrail, pushTrail } from './SatbLane';
+import { CanvasLane } from './CanvasLane';
 import type { TrailSample } from './SatbLane';
 import { KaraokeLyrics } from './KaraokeLyrics';
 import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
@@ -48,6 +49,11 @@ export function PracticeStage({ song, onExit }: { song: Song; onExit: () => void
   const positionRef = useRef(0);
   const lapRef = useRef(0);
   const paintRef = useRef(0);
+  // The canvas reads these every frame. Keeping the playhead and the detected
+  // pitch out of React state is what lets the lane run at 60fps while the page
+  // around it renders at reading speed.
+  const pitchValueRef = useRef(0);
+  const lastTextPaintRef = useRef(0);
 
   const allNotes = useMemo(() => transposeNotes(playableNotes(song), transpose), [song, transpose]);
   const guide = isGuideMelody(allNotes);
@@ -61,11 +67,15 @@ export function PracticeStage({ song, onExit }: { song: Song; onExit: () => void
   useEffect(() => {
     let frame = 0;
     const tick = () => {
-      const sample = transportRef.current.sample(Date.now());
+      const now = Date.now();
+      const sample = transportRef.current.sample(now);
       positionRef.current = sample.position;
       lapRef.current = sample.lap;
-      // The lane redraws from this, so it is the one thing that has to be state.
-      setPosition(sample.position);
+      // The lane draws itself from the ref above. Only the WORDS and the note
+      // readout are React, and nobody reads either sixty times a second -- so
+      // this costs twelve renders instead of sixty, and the animation is not
+      // affected by any of them.
+      if (now - lastTextPaintRef.current > 80) { lastTextPaintRef.current = now; setPosition(sample.position); }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -110,7 +120,8 @@ export function PracticeStage({ song, onExit }: { song: Song; onExit: () => void
       minHz: PitchEngine.midiToHz(range.low - 3 + transpose),
       maxHz: PitchEngine.midiToHz(range.high + 3 + transpose),
       onPitch: sample => {
-        if (performance.now() - paintRef.current > 33) { setPitch(sample.frequency); paintRef.current = performance.now(); }
+        pitchValueRef.current = sample.frequency;
+        if (performance.now() - paintRef.current > 90) { setPitch(sample.frequency); paintRef.current = performance.now(); }
         if (sample.confidence > .78 && transportRef.current.isPlaying) pushTrail(trailRef.current, positionRef.current, sample.frequency);
       },
     });
@@ -172,7 +183,7 @@ export function PracticeStage({ song, onExit }: { song: Song; onExit: () => void
     </div>}
 
     <div className="mt-4"><KaraokeLyrics song={song} notes={allNotes} partIndex={lanePart} elapsed={position} /></div>
-    <div className="mt-4"><SatbLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} elapsed={position} notes={allNotes} pitchHz={pitch} trail={trailRef.current} lookAheadSeconds={7} /></div>
+    <div className="mt-4"><CanvasLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} notes={allNotes} getPosition={() => positionRef.current} getPitchHz={() => pitchValueRef.current} trail={trailRef.current} lookAheadSeconds={7} height={280} /></div>
 
     {/* The scrubber doubles as the loop display: a singer should be able to see
         the region they are repeating, not just be inside it. */}
