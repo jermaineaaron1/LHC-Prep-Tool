@@ -168,23 +168,17 @@ export default function VocalHeroHostPage() {
     })();
   }, []);
   useEffect(() => () => { listeners.current.forEach(close => close()); soloPitchRef.current?.stop(); void soloScoreRef.current?.stop(); void cueContextRef.current?.close().catch(() => undefined); }, []);
-  // Closing the tab is the commonest way a room is abandoned, and the one the
-  // page cannot handle with an ordinary request.
-  useEffect(() => {
-    const id = session?.id;
-    if (!id || session?.status === 'ended') return;
-    // ONLY a real teardown. Closing on visibilitychange was far too eager: a
-    // host who switches windows to look at their phone, or whose screen locks
-    // for a moment, is not leaving the rehearsal -- but the room shut itself
-    // within seconds, before a single singer could join.
-    //
-    // `persisted` marks a page going into the back/forward cache rather than
-    // away, which is what a phone does when it is backgrounded; that is not
-    // leaving either.
-    const onPageHide = (event: PageTransitionEvent) => { if (!event.persisted) closeRound(id, true); };
-    window.addEventListener('pagehide', onPageHide);
-    return () => { window.removeEventListener('pagehide', onPageHide); };
-  }, [session?.id, session?.status]);
+  /* A room now closes ONLY when the host says so -- 'Back to menu', or picking
+     a different song. Nothing automatic.
+
+     Two earlier attempts were both worse than the accumulation they were meant
+     to prevent. Closing on visibilitychange killed the room the instant the
+     host tab lost focus, which is what happens the moment anyone opens the
+     phone URL in a second tab; two rooms died inside two minutes. Closing on
+     pagehide was subtler but still wrong, because a refresh is not leaving.
+
+     An abandoned room lingering is untidy. A room that vanishes while singers
+     are joining it is broken, and tidiness is not worth that. */
   useEffect(() => {
     if (!session) return;
     const interval = window.setInterval(() => {
