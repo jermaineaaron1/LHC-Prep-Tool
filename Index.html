@@ -17312,8 +17312,50 @@ window.loadEditSongData = function(song) {
     // Keys: always show all 12 chromatic keys (not extracted from songs)
     STATE.songMeta.keys = FIXED_KEYS;
     STATE.songMeta.tempos = getUniqueValues(songs, 'tempo');
-    // Seasons: fixed liturgical calendar (not extracted from songs)
-    STATE.songMeta.seasons = FIXED_SEASONS.filter(function(s) { return s !== 'All Seasons'; });
+    // Seasons: only what the library actually uses, so every option in the
+    // filter matches at least one song. The fixed calendar listed 15 seasons
+    // of which 9 matched nothing, while the one song tagged plain "Advent"
+    // had no option at all -- the calendar offers "Advent 1st Sunday" and
+    // friends. FIXED_SEASONS still drives the season PICKER when tagging a
+    // song; it just no longer decides what you can filter by.
+    //
+    // getUniqueValues() is not reused here: it lowercases everything after
+    // the first letter, which is harmless for "Ballad" but turns
+    // "Holy Trinity Sunday" into "Holy trinity sunday".
+    STATE.songMeta.seasons = (function() {
+      var seen = {}, out = [];
+      songs.forEach(function(s) {
+        String(s.season || '').split(/[,;\/]+/).forEach(function(part) {
+          var v = part.trim();
+          if (!v) return;
+          var k = v.toLowerCase();
+          if (seen[k]) return;
+          seen[k] = true;
+          out.push(v);
+        });
+      });
+      // Liturgical order where the calendar knows the season, then anything
+      // it does not recognise, alphabetically, at the end.
+      var order = {};
+      FIXED_SEASONS.forEach(function(s, i) { order[s.toLowerCase()] = i; });
+      function rank(v) {
+        var k = v.toLowerCase();
+        if (order[k] !== undefined) return order[k];
+        // A broader tag like "Advent" is not in the calendar, which only
+        // lists "Advent 1st Sunday" and friends. Rank it with the first
+        // entry it prefixes so it lands in the church year where it belongs
+        // rather than at the end.
+        for (var i = 0; i < FIXED_SEASONS.length; i++) {
+          if (FIXED_SEASONS[i].toLowerCase().indexOf(k + ' ') === 0) return i - 0.5;
+        }
+        return Infinity;
+      }
+      return out.sort(function(a, b) {
+        var ra = rank(a), rb = rank(b);
+        if (ra === Infinity && rb === Infinity) return a.localeCompare(b);
+        return ra - rb;
+      });
+    })();
     // Scripture: collect existing refs from songs (used as quick-pick suggestions)
     var scriptureSet = {};
     songs.forEach(function(s) {
