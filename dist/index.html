@@ -7937,6 +7937,7 @@
   #lyricsPreviewContent .ci-seg   { display: inline-block; position: relative; padding-top: 1.2em; vertical-align: bottom; white-space: pre; font-size: var(--sf-lyric-size, 19px); line-height: 1.5; color: var(--sf-lyric-color, #1f2937); font-family: var(--sf-lyric-font, inherit); }
   #lyricsPreviewContent .ci-chord { position: absolute; top: 0; left: 0; font-family: var(--sf-chord-font, 'Courier New', monospace); font-weight: 700; color: var(--sf-chord-color, #991b1b); font-size: var(--sf-chord-size, 0.78em); white-space: nowrap; line-height: 1.1; }
   #lyricsPreviewToolbar .lhc-pill-button-active { background: #2563eb !important; border-color: #1d4ed8 !important; color: #ffffff !important; box-shadow: 0 4px 12px rgba(37,99,235,0.35) !important; }
+  #lyricsPreviewScrollCue.is-fading { opacity: 0; transition: opacity .38s ease; }
   #lyricsPreviewScrollCue { position: fixed; z-index: 100001; display: none; align-items: center; gap: 6px; transform: translateX(-50%); padding: 6px 14px; background: #2563eb; color: #fff; border-radius: 999px; font-size: 0.8rem; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,0.28); cursor: pointer; animation: lpCueBounce 1.4s ease-in-out infinite; }
   @keyframes lpCueBounce { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(4px); } }
   
@@ -13069,6 +13070,7 @@ if (document.readyState === 'loading') {
 
 // Floating "Scroll for more" cue: shows at the bottom of the lyrics area when the
 // content scrolls off-screen (either column in 2-col mode), hides at the bottom.
+var _lpCueHideTimer = null;
 function _lpUpdateScrollCue() {
   var content = document.getElementById('lyricsPreviewContent');
   if (!content) return;
@@ -13088,7 +13090,19 @@ function _lpUpdateScrollCue() {
     cue.style.display = 'inline-flex';
     cue.style.top = Math.round(r.bottom - 46) + 'px';
     cue.style.left = Math.round(r.left + r.width / 2) + 'px';
+    // It floats over the scroll area, so whatever is under it is hidden --
+    // two lines of lyrics, permanently, on a page whose job is showing
+    // lyrics. Bottom padding only clears the very end of the song, not the
+    // middle, so instead it shows its piece and then gets out of the way.
+    // Any scroll re-arms it, so it is there exactly when it is useful.
+    clearTimeout(_lpCueHideTimer);
+    cue.classList.remove('is-fading');
+    _lpCueHideTimer = setTimeout(function() {
+      cue.classList.add('is-fading');
+      _lpCueHideTimer = setTimeout(function() { cue.style.display = 'none'; }, 400);
+    }, 2600);
   } else {
+    clearTimeout(_lpCueHideTimer);
     cue.style.display = 'none';
   }
 }
@@ -87159,7 +87173,10 @@ window.LHC_Install = (function() {
     /* rather than the leftover space under the buttons.                     */
     #lyricsPreviewContent {
       margin: 8px 10px 10px !important;
-      padding: 10px 12px !important;
+      /* The bottom 56px is clearance for the floating "Scroll for more"
+         pill, which is positioned 46px up from this box's bottom edge and
+         was landing on top of the last two lines of lyrics. */
+      padding: 10px 12px 56px !important;
       border: 1px solid var(--sf-line, #e3e8f4);
       border-radius: 12px;
       background: #fff;
