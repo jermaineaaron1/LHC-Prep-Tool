@@ -66,6 +66,11 @@ export class PitchEngine {
   private relaxed = false;
   private silentFrames = 0;
   private recovering = false;
+  /** How many times the engine has torn itself down and re-acquired the
+   *  microphone. Capped: a device that hands back silence three times running
+   *  is not going to hand back sound on the fourth, and an uncapped loop would
+   *  strobe the permission indicator for ever. */
+  private recoverCount = 0;
 
   // Scratch space for the analysis, allocated once. The detector runs on every
   // animation frame; allocating these per frame handed the garbage collector a
@@ -128,6 +133,12 @@ export class PitchEngine {
     } catch (cause) {
       throw classify(cause);
     }
+
+    // A track can END underneath a live stream -- the OS reclaims the device
+    // for a call, a wired headset is unplugged -- and an analyser fed by a dead
+    // track reads as silence indistinguishable from a resting singer. The
+    // watchdog would eventually notice; the event says so immediately.
+    this.stream.getAudioTracks()[0]?.addEventListener('ended', this.onTrackEnded);
 
     this.context  = new AudioContext({ latencyHint: 'interactive' });
 
@@ -212,12 +223,16 @@ export class PitchEngine {
    * nothing they can do about it.
    */
   private async recover(): Promise<void> {
-    if (this.recovering || this.relaxed) return;
+    // The old guard bailed out once `relaxed` was set, so the engine got ONE
+    // recovery in its life: silence after the relaxed retry was permanent, even
+    // when the cause -- another app holding the microphone, a track the OS
+    // muted and later released -- had long since cleared.
+    this.silentFrames = 0; // reset even when declining, so the watchdog paces itself
+    if (this.recovering || this.recoverCount >= 3) return;
     this.recovering = true;
-    const onPitch = this.opts.onPitch;
+    this.recoverCount += 1;
     this.stop();
-    try { await this.start(true); } catch { /* nothing further to try */ }
-    void onPitch;
+    try { await this.start(true); } catch { /* surfaced through isRunning */ }
     this.recovering = false;
   }
 
@@ -236,6 +251,16 @@ export class PitchEngine {
     if (typeof document !== 'undefined' && document.visibilityState === 'visible') void this.resume();
   };
 
+  private onTrackEnded = (): void => { void this.recover(); };
+
+  /** The state of the audio track itself, for diagnostics. `muted: true` with
+   *  everything else healthy is the signature of the OS withholding input --
+   *  a different failure from a refused permission, and fixed differently. */
+  get trackInfo(): { label: string; muted: boolean; state: string } | null {
+    const track = this.stream?.getAudioTracks()[0];
+    return track ? { label: track.label, muted: track.muted, state: track.readyState } : null;
+  }
+
   stop(): void {
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibility);
     if (this.animFrame !== null) {
@@ -244,6 +269,7 @@ export class PitchEngine {
     }
     this.source?.disconnect();
     this.sink?.disconnect();
+    this.stream?.getAudioTracks()[0]?.removeEventListener('ended', this.onTrackEnded);
     this.stream?.getTracks().forEach(t => t.stop());
     this.context?.close();
     this.context  = null;
@@ -281,8 +307,18 @@ export class PitchEngine {
     // second and a half is not a quiet singer; it is a capture path this device
     // will not honour. Try once with the browser's own settings.
     if (this.lastLevel < 0.00005) {
-      if (++this.silentFrames === 90 && !this.relaxed && !this.recovering) void this.recover();
+      this.silentFrames += 1;
+      // A retry for every ~1.5s the silence persists -- recover() resets the
+      // count and enforces its own cap, so this settles after three attempts.
+      if (this.silentFrames >= 90 && !this.recovering) void this.recover();
     } else this.silentFrames = 0;
+
+    // recover() runs synchronously as far as its stop(), which nulls every
+    // field this tick is standing on. Without this bail-out the remainder of
+    // the tick dereferences a torn-down engine -- an uncaught TypeError on
+    // every recovery since the watchdog first shipped, masked only because
+    // the crash killed a frame that was being cancelled anyway.
+    if (!this.context) return;
 
     this.opts.onPitch({
       frequency:  this.smoothedHz,
