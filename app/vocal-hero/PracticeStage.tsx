@@ -10,6 +10,7 @@ import { MicError, PitchEngine, type MicFailure } from '@/lib/vocal-hero/pitchEn
 import { isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
 import { detectionRange, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { transposeNotes } from './TransposePicker';
+import { useNarrow } from '@/lib/vocal-hero/useNarrow';
 import { GuidePlayer } from '@/lib/vocal-hero/guideTones';
 import { Transport, phraseAround, type LoopRegion } from '@/lib/vocal-hero/transport';
 
@@ -55,6 +56,10 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
   // was still null, and nothing in its deps changed when Play finally created
   // one, so the tones never sounded at all. This is what re-runs it.
   const [audioReady, setAudioReady] = useState(false);
+  const narrow = useNarrow();
+  // Speed and key matter, but not sixty times a minute -- on a phone they fold
+  // away so the lane gets the height instead.
+  const [showTools, setShowTools] = useState(false);
 
   const transportRef = useRef(new Transport());
   const contextRef = useRef<AudioContext | null>(null);
@@ -203,11 +208,11 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
   const colour = guide ? '#ff60bc' : COLOURS[part];
   const pct = duration > 0 ? Math.min(100, Math.max(0, (position / duration) * 100)) : 0;
 
-  return <div className="mx-auto max-w-6xl px-5 py-5">
-    <div className="flex flex-wrap items-center justify-between gap-3">
+  return <div className="mx-auto flex h-[calc(100dvh-45px)] w-full max-w-6xl flex-col overflow-hidden px-2 py-2 sm:block sm:h-auto sm:overflow-visible sm:px-5 sm:py-5">
+    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 sm:gap-3">
       <div>
-        <p className="text-[10px] font-black uppercase tracking-[.22em] text-emerald-300">Practice · nothing is scored</p>
-        <h1 className="text-xl font-semibold">{song.title}</h1>
+        <p className="hidden text-[10px] font-black uppercase tracking-[.22em] text-emerald-300 sm:block">Practice · nothing is scored</p>
+        <h1 className="max-w-[55vw] truncate text-sm font-semibold sm:max-w-none sm:text-xl">{song.title}</h1>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => setGuideAudio(!guideAudio)} className={`vh-outline-button ${guideAudio ? 'border-emerald-300/40 text-emerald-100' : 'text-slate-400'}`}>{guideAudio ? '♪ Guide on' : '♪ Guide off'}</button>
@@ -215,19 +220,19 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
       </div>
     </div>
 
-    {!guide && <div className="mt-4 flex flex-wrap gap-2">
+    {!guide && <div className="mt-2 flex shrink-0 gap-1.5 overflow-x-auto pb-1 sm:mt-4 sm:flex-wrap sm:gap-2 sm:overflow-visible sm:pb-0">
       {VOICES.map((voice, index) => <button key={voice} onClick={() => { setPart(index); pitchRef.current?.stop(); pitchRef.current = null; setMic('unknown'); }}
-        className="rounded-xl border px-4 py-2 text-sm font-semibold"
+        className="shrink-0 rounded-xl border px-3 py-1.5 text-xs font-semibold sm:px-4 sm:py-2 sm:text-sm"
         style={{ borderColor: index === part ? COLOURS[index] : '#ffffff20', background: index === part ? `${COLOURS[index]}18` : 'transparent', color: index === part ? COLOURS[index] : '#94a3b8' }}>{voice}</button>)}
     </div>}
 
-    <div className="mt-4"><KaraokeLyrics song={song} notes={allNotes} partIndex={lanePart} elapsed={position} /></div>
-    <div className="mt-4"><CanvasLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} notes={allNotes} getPosition={() => positionRef.current} getPitchHz={() => pitchValueRef.current} getLevel={() => levelRef.current} trail={trailRef.current} lookAheadSeconds={7} height={280} /></div>
+    <div className="mt-1 shrink-0 sm:mt-4"><KaraokeLyrics song={song} notes={allNotes} partIndex={lanePart} elapsed={position} compact={narrow} /></div>
+    <div className="mt-1 min-h-[120px] flex-1 sm:mt-4 sm:min-h-0 sm:flex-none"><CanvasLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} notes={allNotes} getPosition={() => positionRef.current} getPitchHz={() => pitchValueRef.current} getLevel={() => levelRef.current} trail={trailRef.current} lookAheadSeconds={7} height={280} fill={narrow} /></div>
 
     {/* The scrubber doubles as the loop display: a singer should be able to see
         the region they are repeating, not just be inside it. */}
-    <div className="mt-4">
-      <div className="relative h-9 w-full overflow-hidden rounded-xl border border-white/10 bg-black/30">
+    <div className="mt-2 shrink-0 sm:mt-4">
+      <div className="relative h-7 w-full overflow-hidden rounded-xl border border-white/10 bg-black/30 sm:h-9">
         {loop && duration > 0 && <div className="absolute inset-y-0 bg-emerald-300/20 ring-1 ring-inset ring-emerald-300/40"
           style={{ left: `${(loop.start / duration) * 100}%`, width: `${((loop.end - loop.start) / duration) * 100}%` }} />}
         <div className="absolute inset-y-0 w-[2px] bg-[#f6c65b] shadow-[0_0_10px_#f6c65b]" style={{ left: `${pct}%` }} />
@@ -238,15 +243,15 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
       <div className="mt-1 flex justify-between text-[10px] text-slate-500"><span>{position.toFixed(1)}s</span>{loop && <span className="text-emerald-300">looping {loop.start.toFixed(1)}–{loop.end.toFixed(1)}s</span>}<span>{duration.toFixed(0)}s</span></div>
     </div>
 
-    <div className="mt-4 flex flex-wrap items-center gap-3">
-      <button onClick={() => void togglePlay()} className="vh-primary-button px-6 py-3 text-base">{playing ? 'Ⅱ Pause' : '▶ Play'}</button>
-      <button onClick={() => seekTo(Math.max(0, positionRef.current - 4))} className="vh-outline-button">↺ Back 4s</button>
-      <button onClick={loopThisPhrase} className="vh-outline-button border-emerald-300/40 text-emerald-100">⟲ Loop this phrase</button>
+    <div className="mt-2 flex shrink-0 flex-wrap items-center gap-2 sm:mt-4 sm:gap-3">
+      <button onClick={() => void togglePlay()} className="vh-primary-button px-4 py-2 sm:px-6 sm:py-3 sm:text-base">{playing ? 'Ⅱ Pause' : '▶ Play'}</button>
+      <button onClick={() => seekTo(Math.max(0, positionRef.current - 4))} className="vh-outline-button">↺ <span className="hidden sm:inline">Back </span>4s</button>
+      <button onClick={loopThisPhrase} className="vh-outline-button border-emerald-300/40 text-emerald-100">⟲ Loop<span className="hidden sm:inline"> this phrase</span></button>
       {loop && <button onClick={() => applyLoop(null)} className="vh-outline-button">Clear loop</button>}
-      <span className="text-xs text-slate-500">{mic === 'ready' ? '● mic live' : mic === 'blocked' ? '● mic blocked' : mic === 'checking' ? '● checking mic' : '○ mic starts with play'}</span>{mic === 'blocked' && micReason && <p className="mt-2 rounded-xl border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-100">{micReason === 'insecure' ? 'This page is not on HTTPS, so the browser will not hand out a microphone.' : micReason === 'unsupported' ? (standalone ? 'This installed app window offers no microphone API. Open the app in your browser instead.' : 'This browser offers no microphone API.') : micReason === 'notfound' ? 'No microphone was offered by this device.' : micReason === 'busy' ? 'Another app is holding the microphone — close any call or recorder and press play again.' : standalone ? 'The installed app was refused the microphone. It keeps a separate permission from your browser, so allowing it in Chrome does not cover this window.' : 'Permission was refused. Allow the microphone for this site, then reload.'}</p>}
+      <button onClick={() => setShowTools(!showTools)} className="vh-outline-button sm:hidden">⚙ {showTools ? 'Hide' : 'Speed & key'}</button><span className="text-xs text-slate-500">{mic === 'ready' ? '● mic live' : mic === 'blocked' ? '● mic blocked' : mic === 'checking' ? '● checking mic' : '○ mic starts with play'}</span>{mic === 'blocked' && micReason && <p className="mt-2 rounded-xl border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-100">{micReason === 'insecure' ? 'This page is not on HTTPS, so the browser will not hand out a microphone.' : micReason === 'unsupported' ? (standalone ? 'This installed app window offers no microphone API. Open the app in your browser instead.' : 'This browser offers no microphone API.') : micReason === 'notfound' ? 'No microphone was offered by this device.' : micReason === 'busy' ? 'Another app is holding the microphone — close any call or recorder and press play again.' : standalone ? 'The installed app was refused the microphone. It keeps a separate permission from your browser, so allowing it in Chrome does not cover this window.' : 'Permission was refused. Allow the microphone for this site, then reload.'}</p>}
     </div>
 
-    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+    <div className={(showTools ? 'grid' : 'hidden') + ' mt-2 shrink-0 grid-cols-1 gap-2 sm:mt-4 sm:grid sm:grid-cols-2 sm:gap-4'}>
       <div className="vh-panel p-4">
         <p className="text-[10px] uppercase tracking-[.18em] text-slate-500">Speed</p>
         <div className="mt-2 flex flex-wrap gap-2">{SPEEDS.map(rate => <button key={rate} onClick={() => applySpeed(rate)}
@@ -265,10 +270,10 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
       </div>
     </div>
 
-    <section className="vh-panel mt-4 flex items-center justify-between p-4">
-      <div><p className="text-[10px] uppercase tracking-wider text-slate-500">You sang</p><b className="text-3xl text-cyan-200">{feedback.detected}</b></div>
-      <div className="px-2 text-center"><p className={`text-sm font-black ${feedback.state === 'correct' ? 'text-emerald-300' : feedback.state === 'high' || feedback.state === 'low' || feedback.state === 'octave' ? 'text-amber-300' : 'text-slate-400'}`}>{feedback.label}</p><small className="block text-[10px] text-slate-500">{feedback.difference}</small></div>
-      <div className="text-right"><p className="text-[10px] uppercase tracking-wider text-slate-500">Target</p><b className="text-3xl text-white">{feedback.target}</b></div>
+    <section className="vh-panel mt-2 flex shrink-0 items-center justify-between p-2 sm:mt-4 sm:p-4">
+      <div><p className="text-[10px] uppercase tracking-wider text-slate-500">You sang</p><b className="text-lg text-cyan-200 sm:text-3xl">{feedback.detected}</b></div>
+      <div className="px-2 text-center"><p className={`text-sm font-black ${feedback.state === 'correct' ? 'text-emerald-300' : feedback.state === 'high' || feedback.state === 'low' || feedback.state === 'octave' ? 'text-amber-300' : 'text-slate-400'}`}>{feedback.label}</p><small className="hidden text-[10px] text-slate-500 sm:block">{feedback.difference}</small></div>
+      <div className="text-right"><p className="text-[10px] uppercase tracking-wider text-slate-500">Target</p><b className="text-lg text-white sm:text-3xl">{feedback.target}</b></div>
     </section>
   </div>;
 }

@@ -28,7 +28,7 @@ function withAlpha(hex: string, alpha: number): string {
 
 export function CanvasLane({
   notes, partIndex, colour, getPosition, getPitchHz, getLevel, trail, hitNotes,
-  lookAheadSeconds = 7, height = 260, partName, showLyrics = true, playerCount,
+  lookAheadSeconds = 7, height = 260, partName, showLyrics = true, playerCount, fill = false,
 }: {
   notes: SongNote[];
   partIndex: number;
@@ -47,6 +47,11 @@ export function CanvasLane({
   showLyrics?: boolean;
   /** How many singers are on this part, shown in the header during a round. */
   playerCount?: number;
+  /** Fill the parent's height instead of taking a fixed one. The portrait
+   *  layout is a no-scroll column, and the lane is the row that absorbs
+   *  whatever the others leave -- a fixed height cannot express that. The
+   *  ResizeObserver below already tracks the box, so nothing else changes. */
+  fill?: boolean;
 }) {
   // Both of these used to be recomputed on every frame of every lane, which on
   // the largest song in the library came to 47ms of pure bookkeeping per second
@@ -265,17 +270,21 @@ export function CanvasLane({
     frame = requestAnimationFrame(draw);
 
     return () => { cancelAnimationFrame(frame); observer.disconnect(); };
-    // Deliberately empty: the loop lives for the lifetime of the lane and reads
-    // everything current through propsRef. Re-creating it on a prop change is
-    // what would make the animation stutter.
-  }, [colour]);
+    // Nearly empty on purpose: the loop lives for the lifetime of the lane and
+    // reads everything current through propsRef, because re-creating it on a
+    // prop change is what would make the animation stutter. `fill` is the one
+    // exception -- it swaps the box between a fixed height and flex-1, and the
+    // canvas was measured before the swap. The ResizeObserver alone proved not
+    // to catch that transition reliably, so the loop restarts once, at a moment
+    // when the layout is changing anyway.
+  }, [colour, fill]);
 
-  return <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#08111f]" aria-label={`${partName ?? 'Pitch'} lane`}>
-    {partName && <div className="flex items-center justify-between border-b border-white/10 px-3 py-1.5">
+  return <section className={'overflow-hidden rounded-2xl border border-white/10 bg-[#08111f]' + (fill ? ' flex h-full min-h-0 flex-col' : '')} aria-label={`${partName ?? 'Pitch'} lane`}>
+    {partName && <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-1.5">
       <span className="text-[11px] font-black uppercase tracking-[.16em]" style={{ color: colour }}>{partName}</span>
       <span className="text-[9px] uppercase tracking-[.14em] text-slate-500">{playerCount === undefined ? '' : playerCount + ' singing · '}next {lookAheadSeconds}s</span>
     </div>}
-    <div ref={boxRef} style={{ height }} className="relative w-full"><canvas ref={canvasRef} className="block" /></div>
+    <div ref={boxRef} style={fill ? undefined : { height }} className={'relative w-full' + (fill ? ' min-h-0 flex-1' : '')}><canvas ref={canvasRef} className="block" /></div>
   </section>;
 }
 
