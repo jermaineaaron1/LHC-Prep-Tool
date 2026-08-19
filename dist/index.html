@@ -5788,12 +5788,6 @@
                 <div id="filterTempoDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose feel filter" onclick="toggleFilterTempoDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterTempoDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
                 <div id="filterTempoDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
-              <!-- Kept, hidden: applyFiltersAndSort, clearSongSearch and the
-                   mobile-sheet sync all read this element by id. The visible
-                   control above writes here and fires change. -->
-              <select id="filterTempo" class="hidden" aria-hidden="true" tabindex="-1">
-                <option value="">All</option>
-              </select>
             </div>
             <div class="sf-primary-filter">
               <label class="form-label"><i class="fa-solid fa-leaf" aria-hidden="true"></i> Season</label>
@@ -11214,6 +11208,10 @@ function _msChange(changedCb, cbClass) {
     window.LHC_STATE.filters.seasons = selected;
     var d = document.getElementById('filterSeasonDisplay');
     if (d) d.textContent = selected.length === 0 ? 'All' : selected.length <= 2 ? selected.join(', ') : selected.slice(0,2).join(', ') + ' +' + (selected.length-2) + ' more';
+  } else if (cbClass === 'filter-tempo-cb') {
+    window.LHC_STATE.filters.tempos = selected;
+    var d = document.getElementById('filterTempoDisplay');
+    if (d) d.textContent = selected.length === 0 ? 'All' : selected.length <= 2 ? selected.join(', ') : selected.slice(0,2).join(', ') + ' +' + (selected.length-2) + ' more';
   } else if (cbClass === 'filter-scripture-cb') {
     window.LHC_STATE.filters.scriptures = selected;
     var d = document.getElementById('filterScriptureDisplay');
@@ -11256,41 +11254,10 @@ window.toggleFilterTempoDropdown = toggleFilterTempoDropdown;
 function populateTempoFilterDropdown(tempos) {
   var dd = document.getElementById('filterTempoDropdown');
   if (!dd) return;
-  var sel = document.getElementById('filterTempo');
-  var current = sel ? sel.value : '';
-  var rows = [{ value: '', label: 'All' }].concat((tempos || []).map(function(x) {
-    return { value: x, label: x };
-  }));
-  dd.innerHTML = rows.map(function(r, i) {
-    var on = (r.value === current);
-    return '<div class="sf-single-opt' + (on ? ' is-on' : '') + '" role="option" tabindex="0"' +
-      ' aria-selected="' + (on ? 'true' : 'false') + '"' +
-      ' onclick="setTempoFilter(this.getAttribute(\'data-v\'))"' +
-      ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();setTempoFilter(this.getAttribute(\'data-v\'));}"' +
-      ' data-v="' + escapeHtml(r.value) + '"' +
-      (i === 0 ? ' style="border-bottom:1px solid #e2e8f0;"' : '') + '>' +
-      '<span>' + escapeHtml(r.label) + '</span>' +
-      (on ? '<i class="fa-solid fa-check" aria-hidden="true"></i>' : '') +
-      '</div>';
-  }).join('');
+  var selected = (window.LHC_STATE && window.LHC_STATE.filters.tempos) || [];
+  dd.innerHTML = _buildMultiSelectHtml(tempos || [], selected, 'All', 'filter-tempo-cb');
 }
 window.populateTempoFilterDropdown = populateTempoFilterDropdown;
-
-function setTempoFilter(value) {
-  var sel = document.getElementById('filterTempo');
-  var disp = document.getElementById('filterTempoDisplay');
-  if (sel) {
-    sel.value = value || '';
-    // Everything downstream listens on the select, not on this control.
-    sel.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-  if (disp) disp.textContent = value ? value : 'All';
-  var dd = document.getElementById('filterTempoDropdown');
-  if (dd) dd.classList.add('hidden');
-  populateTempoFilterDropdown((window.LHC_STATE && LHC_STATE.songMeta && LHC_STATE.songMeta.tempos) || []);
-  _sfSyncFilterAria();
-}
-window.setTempoFilter = setTempoFilter;
 
 function populateSeasonFilterDropdown(seasons) {
   var dd = document.getElementById('filterSeasonDropdown');
@@ -12986,12 +12953,10 @@ function resetMobileSheetFilters() {
   S.filters.keys = [];
   S.filters.style = '';
   S.filters.styleEras = [];
-  S.filters.tempo = '';
+  S.filters.tempos = [];
   S.filters.seasons = [];
   S.filters.scriptures = [];
 
-  var tempo = document.getElementById('filterTempo');
-  if (tempo) tempo.value = '';
   var labels = {
     filterThemeDisplay: 'All',
     filterKeyDisplay: 'All Keys',
@@ -16846,7 +16811,7 @@ window.loadEditSongData = function(song) {
     songs: [],
     filteredSongs: [],
     songMeta: { themes: [], keys: [], styles: [], tempos: [], seasons: [], scriptures: [] },
-    filters: { q: '', themes: [], keys: [], style: '', styleEras: [], tempo: '', seasons: [], scriptures: [], sort: 'title-asc' },
+    filters: { q: '', themes: [], keys: [], style: '', styleEras: [], tempos: [], seasons: [], scriptures: [], sort: 'title-asc' },
     orders: [],
     currentOrder: null,
     rosterMonth: new Date().getMonth(),
@@ -17362,7 +17327,6 @@ window.loadEditSongData = function(song) {
     populateThemeFilterDropdown(STATE.songMeta.themes);
     populateKeyFilterDropdown(STATE.songMeta.keys);
     populateStyleFilterDropdown(); // custom style dropdown (Hymn / Contemporary)
-    fillSelectOptions($('filterTempo'), STATE.songMeta.tempos, 'All');
     populateTempoFilterDropdown(STATE.songMeta.tempos);
     populateSeasonFilterDropdown(STATE.songMeta.seasons);
     // Scripture: initialise the bible picker display
@@ -17433,9 +17397,11 @@ window.loadEditSongData = function(song) {
         });
       }
     }
-    if (f.tempo) result = result.filter(function(s) {
-      var tempos = String(s.tempo || '').toLowerCase().split(/[,;\/]+/).map(function(t) { return t.trim().toLowerCase(); });
-      return tempos.indexOf(f.tempo.toLowerCase()) >= 0 || s.tempo === f.tempo;
+    // Multi-select, matching Theme and Season: a song matches if ANY chosen
+    // feel is among the (possibly comma-separated) feels tagged on it.
+    if (f.tempos && f.tempos.length > 0) result = result.filter(function(s) {
+      var songTempos = String(s.tempo || '').toLowerCase().split(/[,;\/]+/).map(function(x) { return x.trim(); });
+      return f.tempos.some(function(sel) { return songTempos.indexOf(String(sel).toLowerCase()) >= 0; });
     });
     if (f.seasons && f.seasons.length > 0) result = result.filter(function(s) {
       var songSeasons = String(s.season || '').toLowerCase().split(/[,;\/]+/).map(function(t) { return t.trim().toLowerCase(); });
@@ -19085,11 +19051,9 @@ window.loadEditSongData = function(song) {
     STATE.filters.keys = [];
     STATE.filters.style = '';
     STATE.filters.styleEras = [];
-    STATE.filters.tempo = '';
+    STATE.filters.tempos = [];
     STATE.filters.seasons = [];
     STATE.filters.scriptures = [];
-    var filterTempo = $('filterTempo');
-    if (filterTempo) filterTempo.value = '';
     // Reset multi-select display labels
     var d;
     d = document.getElementById('filterThemeDisplay'); if (d) d.textContent = 'All';
@@ -22553,7 +22517,7 @@ window.loadEditSongData = function(song) {
     });
 
     // filterStyle is now a custom dropdown (not a <select>) — handled by setStyleFilter()
-    ['filterTempo','sortBy'].forEach(function(id) {
+    ['sortBy'].forEach(function(id) {
       var el = $(id); if (el) el.onchange = function(e) {
         var k = id.replace('filter','').toLowerCase();
         if (k === 'sortby') STATE.filters.sort = e.target.value;
@@ -86922,16 +86886,6 @@ window.LHC_Install = (function() {
     text-align: center;
   }
 
-  /* Single-select rows in the Feel panel. Same padding and hover as the
-     multi-select rows next door, minus the checkbox. */
-  .sf-single-opt {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    padding: 7px 12px; font-size: .85rem; cursor: pointer;
-    color: var(--sf-ink, #1a2547);
-  }
-  .sf-single-opt:hover, .sf-single-opt:focus-visible { background: var(--sf-tint, #eef2ff); outline: none; }
-  .sf-single-opt.is-on { font-weight: 700; color: var(--sf-blue-deep, #3b5bdb); }
-  .sf-single-opt i { font-size: .78rem; }
 
   /* ====================================================================== */
   /* LIBRARY METRICS — a footnote, not a headline                           */
