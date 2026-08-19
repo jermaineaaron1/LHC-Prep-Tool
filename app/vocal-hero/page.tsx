@@ -6,8 +6,8 @@ import {
   scheduleSessionStart, setSessionPaused, subscribeToPlayers, subscribeToSession, updatePlayerLobbyState, updateSong,
 } from '@/lib/vocal-hero/supabaseClient';
 import type { GameSession, SectionScore, SessionPlayer, Song, SongNote } from '@/lib/vocal-hero/types';
-import { SatbLane, clearTrail, pushTrail } from './SatbLane';
-import type { TrailSample } from './SatbLane';
+import { clearTrail, pushTrail } from '@/lib/vocal-hero/trail';
+import type { TrailSample } from '@/lib/vocal-hero/trail';
 import { isGuideMelody, playableNotes, playablePart } from '@/lib/vocal-hero/songData';
 import { measureServerClockOffset } from '@/lib/vocal-hero/clock';
 import { ArrangementEditor } from './ArrangementEditor';
