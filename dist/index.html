@@ -9724,6 +9724,9 @@ I once was lost but now am found"
           <button id="docPreviewOpenBtn" class="lhc-pill-button text-sm" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;">
             <i class="fa-solid fa-external-link mr-1"></i> Open in New Tab
           </button>
+          <button id="docPreviewDeleteBtn" class="lhc-pill-button text-sm" title="Remove this document from the song" aria-label="Remove this document" onclick="lpDeleteCurrentDoc()" style="background:#fee2e2;border-color:#fca5a5;color:#b91c1c;">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
           <button id="docPreviewFullscreenBtn" class="lhc-pill-button" title="Fullscreen" aria-label="Enter fullscreen" onclick="toggleDocPreviewFullscreen()">
             <i class="fa-solid fa-expand"></i>
           </button>
@@ -13683,6 +13686,50 @@ function _lpAnchorEvent(btnId) {
 
 // View Doc: a badge listing every attached document. One opens straight into
 // the preview; several offer a chooser first, so no arbitrary file is picked.
+// Removing a document used to mean opening Details and hunting for it in the
+// Resources section. It is now a tap from wherever the document already is:
+// the chooser row, or the viewer you opened it in.
+//
+// The write goes through updateFields, which touches only the attachments
+// column -- update() rebuilds the whole row and would blank everything it was
+// not handed.
+window.lpDeleteDoc = function(url, opts) {
+  var song = currentLyricsPreviewSong;
+  if (!song || !url) return;
+  opts = opts || {};
+  var ask = (typeof window.customConfirm === 'function')
+    ? window.customConfirm('Remove document?', 'This unlinks the document from "' + (song.title || 'this song') + '". The file itself stays in Google Drive.')
+    : Promise.resolve(window.confirm('Remove this document from the song?'));
+  ask.then(function(ok) {
+    if (!ok) return;
+    var before = (song.attachments || []).slice();
+    var after = before.filter(function(a) { return (a && (a.url || a)) !== url; });
+    if (after.length === before.length) { showToast('That document is no longer attached', 'info'); return; }
+    SBQ_SONGS.updateFields(song.id, { attachments: after }).then(function() {
+      song.attachments = after;
+      var list = (window.LHC_STATE && LHC_STATE.songs) || [];
+      for (var i = 0; i < list.length; i++) { if (list[i].id === song.id) list[i].attachments = after; }
+      if (typeof window._lpSyncMediaBadges === 'function') window._lpSyncMediaBadges(song);
+      if (typeof _lpRenderRailResources === 'function') _lpRenderRailResources(song);
+      if (currentLyricsPreviewMode === 'resources' && typeof renderLyricsPreviewContent === 'function') renderLyricsPreviewContent();
+      if (typeof renderSongs === 'function') renderSongs(true);
+      var popup = document.getElementById('linkSelectorPopup');
+      if (popup) popup.remove();
+      if (opts.closeViewer && typeof closeDocPreview === 'function') closeDocPreview();
+      showToast('Document removed', 'success');
+    }).catch(function(err) {
+      showToast('Could not remove it: ' + ((err && err.message) || 'unknown error'), 'error');
+    });
+  });
+};
+
+// The viewer's Remove button acts on whatever it is currently showing.
+window.lpDeleteCurrentDoc = function() {
+  var url = window.__lpDocPreviewUrl;
+  if (!url) return;
+  window.lpDeleteDoc(url, { closeViewer: true });
+};
+
 window.lyricsPreviewViewDoc = function() {
   var song = currentLyricsPreviewSong;
   if (!song) return;
@@ -19595,6 +19642,13 @@ window.loadEditSongData = function(song) {
         html += '<div class="link-selector-item" data-url="' + escapeHtml(url) + '" data-idx="' + idx + '" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;" onmouseover="this.style.background=\'#f1f5f9\'" onmouseout="this.style.background=\'white\'">';
         html += '<i class="' + icon + '"></i>';
         html += '<span class="link-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(label) + '</span>';
+        // Documents can be unlinked from here. stopPropagation matters --
+        // without it the row's own click opens the viewer on the way out.
+        if (type === 'doc') {
+          html += '<button type="button" class="link-selector-del" title="Remove this document" aria-label="Remove this document"'
+               + ' onclick="event.stopPropagation();lpDeleteDoc(this.parentNode.getAttribute(&quot;data-url&quot;))">'
+               + '<i class="fa-solid fa-trash-can"></i></button>';
+        }
         html += '</div>';
       });
 
@@ -20622,6 +20676,10 @@ window.loadEditSongData = function(song) {
     promoteSongResourceModal(modal);
 
     $('docPreviewTitle').textContent = title || 'Document';
+    window.__lpDocPreviewUrl = url;   // what Remove acts on
+    // Only offer Remove when the viewer was opened from a song.
+    var _del = document.getElementById('docPreviewDeleteBtn');
+    if (_del) _del.style.display = (typeof currentLyricsPreviewSong !== 'undefined' && currentLyricsPreviewSong) ? '' : 'none';
 
     var frame = $('docPreviewFrame');
     var previewContent = $('docPreviewContent');
@@ -87207,6 +87265,22 @@ window.LHC_Install = (function() {
       display: flex; flex-direction: row; gap: 6px;
     }
     #lyricsPreviewModal #lpRail .lp-rail-actions > * { flex: 1 1 0; min-width: 0; }
+  }
+
+  /* Unlink a document straight from the chooser. Kept quiet until reached for,
+     so the row still reads as "open this", with removal as the deliberate act. */
+  .link-selector-del {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; margin: -6px -8px -6px 0;
+    border: 0; border-radius: 8px; background: none; cursor: pointer;
+    color: #94a3b8; font-size: .82rem;
+  }
+  .link-selector-del:hover, .link-selector-del:focus-visible {
+    background: #fee2e2; color: #b91c1c; outline: none;
+  }
+  @media (max-width: 768px) {
+    /* A 44px target on a phone, matching every other control. */
+    .link-selector-del { width: 44px; height: 44px; margin: -10px -10px -10px 0; }
   }
 
   .lp-badge-btn { position: relative; }
