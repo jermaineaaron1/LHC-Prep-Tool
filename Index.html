@@ -5877,7 +5877,10 @@
             <div id="lpBadges" class="lp-badges"></div>
           </div>
           <div class="flex items-center gap-2">
-            <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button lp-header-icon-btn" title="Fullscreen" onclick="toggleLyricsPreviewFullscreen()">
+            <button id="lyricsPreviewDetailsBtn" class="lhc-pill-button lp-header-icon-btn" title="Song details (title, key, theme, resources)" aria-label="Song details" onclick="lyricsPreviewOpenEditor()">
+              <i class="fa-solid fa-sliders"></i>
+            </button>
+            <button id="lyricsPreviewFullscreenBtn" class="lhc-pill-button lp-header-icon-btn" title="Fullscreen" aria-label="Enter fullscreen" onclick="toggleLyricsPreviewFullscreen()">
               <i class="fa-solid fa-expand"></i>
             </button>
             <button class="lhc-pill-button lp-header-icon-btn" title="Close" onclick="closeLyricsPreviewModal()">
@@ -5937,9 +5940,6 @@
             </button>
             <button id="lyricsPreviewTwoColBtn" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewTwoCol()" title="Toggle 2-column layout" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
               <i class="fa-solid fa-table-columns mr-1"></i> 2 Col
-            </button>
-            <button id="lyricsPreviewDetailsBtn" class="lhc-pill-button text-sm" title="Edit song details (title, key, theme, etc.)" onclick="lyricsPreviewOpenEditor()" style="background:#f8fafc;border-color:#cbd5e1;color:#64748b;">
-              <i class="fa-solid fa-sliders mr-1"></i> Details
             </button>
             <button id="lyricsPreviewShareBtn" class="lhc-pill-button text-sm" title="Share song link" onclick="lyricsPreviewShare(this)" style="background:#f0fdf4;border-color:#86efac;color:#15803d;">
               <i class="fa-solid fa-share-nodes mr-1"></i> Share
@@ -9700,6 +9700,9 @@ I once was lost but now am found"
           <button id="docPreviewOpenBtn" class="lhc-pill-button text-sm" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;">
             <i class="fa-solid fa-external-link mr-1"></i> Open in New Tab
           </button>
+          <button id="docPreviewFullscreenBtn" class="lhc-pill-button" title="Fullscreen" aria-label="Enter fullscreen" onclick="toggleDocPreviewFullscreen()">
+            <i class="fa-solid fa-expand"></i>
+          </button>
           <button id="docPreviewCloseBtn" class="lhc-pill-button" title="Close document preview" aria-label="Close document preview" onclick="closeDocPreview()">
             <i class="fa-solid fa-xmark"></i>
           </button>
@@ -13307,40 +13310,92 @@ function _lpHideScrollCue() {
   if (cue) cue.style.display = 'none';
 }
 
-function toggleLyricsPreviewFullscreen() {
+// Fullscreen covers whatever the card is currently showing -- lyrics, chords
+// or a document -- because it expands the card itself, not one pane.
+//
+// Restoring used to write the DESKTOP size back as an inline style, and an
+// inline width beats the stylesheet, so a phone came out of fullscreen with a
+// 95%-wide sheet instead of the full-width one. Clearing the properties hands
+// the decision back to the stylesheet, which is per-breakpoint.
+function _lpRestoreFromFullscreen() {
   var content = document.getElementById('lyricsPreviewModalContent');
   var btn = document.getElementById('lyricsPreviewFullscreenBtn');
-  if (!content) return;
-  if (!document.fullscreenElement) {
-    content.requestFullscreen().then(function() {
-      if (btn) btn.innerHTML = '<i class="fa-solid fa-compress"></i>';
-      content.style.maxHeight = '100vh';
-      content.style.width = '100vw';
-      content.style.borderRadius = '0';
-    }).catch(function(err) {
-      // Fallback: expand modal via CSS
-      content.classList.toggle('lyrics-preview-fullscreen');
-    });
-  } else {
-    document.exitFullscreen().catch(function(){});
-    if (btn) btn.innerHTML = '<i class="fa-solid fa-expand"></i>';
-    content.style.maxHeight = '90vh';
-    content.style.width = 'min(750px, 95%)';
-    content.style.borderRadius = '';
+  if (content) {
+    content.classList.remove('lyrics-preview-fullscreen');
+    content.style.removeProperty('max-height');
+    content.style.removeProperty('width');
+    content.style.removeProperty('border-radius');
+  }
+  if (btn) {
+    btn.innerHTML = '<i class="fa-solid fa-expand"></i>';
+    btn.setAttribute('title', 'Fullscreen');
+    btn.setAttribute('aria-label', 'Enter fullscreen');
   }
 }
 
-document.addEventListener('fullscreenchange', function() {
+function _lpMarkFullscreen() {
   var btn = document.getElementById('lyricsPreviewFullscreenBtn');
-  if (!document.fullscreenElement && btn) {
-    btn.innerHTML = '<i class="fa-solid fa-expand"></i>';
-    var content = document.getElementById('lyricsPreviewModalContent');
-    if (content) {
-      content.style.maxHeight = '90vh';
-      content.style.width = 'min(750px, 95%)';
-      content.style.borderRadius = '';
-    }
+  if (btn) {
+    btn.innerHTML = '<i class="fa-solid fa-compress"></i>';
+    btn.setAttribute('title', 'Exit fullscreen');
+    btn.setAttribute('aria-label', 'Exit fullscreen');
   }
+}
+
+function toggleLyricsPreviewFullscreen() {
+  var content = document.getElementById('lyricsPreviewModalContent');
+  if (!content) return;
+  // Two ways to be fullscreen: the native API, or the CSS fallback for
+  // browsers that refuse it. Checking only document.fullscreenElement meant a
+  // card expanded through the fallback could never be collapsed again -- the
+  // button just tried to enter fullscreen a second time.
+  if (content.classList.contains('lyrics-preview-fullscreen')) {
+    _lpRestoreFromFullscreen();
+    return;
+  }
+  if (!document.fullscreenElement) {
+    var req = content.requestFullscreen && content.requestFullscreen();
+    if (req && req.then) {
+      req.then(function() {
+        _lpMarkFullscreen();
+        content.style.maxHeight = '100vh';
+        content.style.width = '100vw';
+        content.style.borderRadius = '0';
+      }).catch(function() {
+        // iOS Safari refuses requestFullscreen on a div, so fall back to a
+        // CSS class that fills the viewport. The same button exits it.
+        content.classList.add('lyrics-preview-fullscreen');
+        _lpMarkFullscreen();
+      });
+    } else {
+      content.classList.add('lyrics-preview-fullscreen');
+      _lpMarkFullscreen();
+    }
+  } else {
+    document.exitFullscreen().catch(function(){});
+    _lpRestoreFromFullscreen();
+  }
+}
+window.toggleLyricsPreviewFullscreen = toggleLyricsPreviewFullscreen;
+
+// The document viewer gets its own fullscreen, so a score can fill the phone.
+function toggleDocPreviewFullscreen() {
+  var content = document.querySelector('#docPreviewModal .modal-content');
+  var btn = document.getElementById('docPreviewFullscreenBtn');
+  if (!content) return;
+  var on = content.classList.toggle('doc-preview-fullscreen');
+  if (btn) {
+    btn.innerHTML = on ? '<i class="fa-solid fa-compress"></i>' : '<i class="fa-solid fa-expand"></i>';
+    btn.setAttribute('title', on ? 'Exit fullscreen' : 'Fullscreen');
+    btn.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Enter fullscreen');
+  }
+}
+window.toggleDocPreviewFullscreen = toggleDocPreviewFullscreen;
+
+// Covers the hardware back gesture and the Esc key, which exit fullscreen
+// without going through the button.
+document.addEventListener('fullscreenchange', function() {
+  if (!document.fullscreenElement) _lpRestoreFromFullscreen();
 });
 
 // ── Print helpers ──────────────────────────────────────────────────────────
@@ -20405,6 +20460,19 @@ window.loadEditSongData = function(song) {
         if (previewContent) previewContent.style.display = 'none';
         frame.style.display = 'block';
         frame.src = 'https://drive.google.com/file/d/' + fileId[1] + '/preview';
+      }
+    } else if (/\.(jpe?g|png|gif|webp|bmp|avif|heic)(\?|#|$)/i.test(url)) {
+      // An image handed to an iframe renders at its NATURAL pixel size, so a
+      // phone photo of a score arrived enormous and scrolled. An <img> that
+      // contains itself in the frame shows the whole page at a true aspect
+      // ratio -- fit to the screen, neither blown up nor shrunk.
+      frame.style.display = 'none';
+      if (previewContent) {
+        previewContent.style.display = 'block';
+        previewContent.innerHTML =
+          '<div class="doc-preview-imgwrap">' +
+            '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(title || 'Document') + '">' +
+          '</div>';
       }
     } else {
       if (previewContent) previewContent.style.display = 'none';
@@ -86586,6 +86654,117 @@ window.LHC_Install = (function() {
      affordance, added in the max-width:768px block below. */
   #lpMoreActions.lp-row-more { display: contents; }
   #lpMoreToggle { display: none; }
+
+  /* ====================================================================== */
+  /* FULLSCREEN                                                             */
+  /* Fullscreen expands the whole card, so it covers whatever the card is    */
+  /* showing: lyrics, chords or a document. The same button exits, and its   */
+  /* icon and label flip so the way out is never in doubt.                   */
+  /* ====================================================================== */
+  /* The CSS fallback for browsers that refuse requestFullscreen on a div    */
+  /* (iOS Safari). The class was being toggled already but had no rule, so   */
+  /* the fallback silently did nothing. */
+  #lyricsPreviewModal .modal-content.lyrics-preview-fullscreen,
+  #docPreviewModal .modal-content.doc-preview-fullscreen,
+  .lyrics-preview-fullscreen,
+  .doc-preview-fullscreen {
+    position: fixed !important; inset: 0 !important;
+    width: 100vw !important; max-width: 100vw !important;
+    height: 100vh !important; height: 100dvh !important;
+    max-height: 100vh !important; max-height: 100dvh !important;
+    margin: 0 !important; border-radius: 0 !important;
+    z-index: 130000 !important;
+  }
+
+  /* ====================================================================== */
+  /* DOCUMENT / IMAGE PREVIEW — true size, fit to the frame                 */
+  /* An image handed to an iframe renders at its natural pixel size, so a    */
+  /* phone photo of a score arrived enormous and had to be scrolled around.  */
+  /* Contained in the frame it shows whole, at a true aspect ratio.          */
+  /* ====================================================================== */
+  .doc-preview-imgwrap {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    padding: 8px; overflow: auto; background: #f1f5f9;
+  }
+  .doc-preview-imgwrap img {
+    max-width: 100%; max-height: 100%;
+    width: auto; height: auto;
+    object-fit: contain;
+    border-radius: 8px; box-shadow: 0 2px 14px rgba(15, 28, 63, .16); background: #fff;
+  }
+
+  /* ====================================================================== */
+  /* SONG DETAILS FORM ON A PHONE                                           */
+  /* Two things pushed content out of frame: the step rail scrolled          */
+  /* sideways (617px of steps in a 374px window, so two of five were off     */
+  /* screen), and the footer packed three items onto one nowrap line, which  */
+  /* crushed the validity block to 13px and stacked its text one letter per  */
+  /* line. Both now use the vertical space instead of overflowing.           */
+  /* ====================================================================== */
+  @media (max-width: 768px) {
+    /* Every step visible at once, wrapped rather than scrolled. */
+    #addSongModal .asm-stepnav, #editSongModal .asm-stepnav {
+      flex-wrap: wrap !important;
+      overflow-x: visible !important;
+      gap: 4px !important;
+      padding: 6px 8px !important;
+    }
+    #addSongModal .asm-step, #editSongModal .asm-step {
+      flex: 1 1 calc(50% - 4px) !important;
+      min-width: 0 !important;
+      white-space: normal !important;
+      min-height: 34px !important;
+      padding: 5px 8px !important;
+      font-size: .7rem !important;
+    }
+
+    /* Footer: validity gets its own line above the buttons instead of
+       competing with them for a single row. */
+    .asm-footer, #editSongModal .asm-footer {
+      flex-wrap: wrap !important;
+      gap: 6px !important;
+      padding: 6px 10px !important;
+    }
+    .asm-validity {
+      flex: 1 0 100% !important;
+      order: -1;
+      min-width: 0;
+      margin-right: 0 !important;
+      font-size: .68rem;
+    }
+    .asm-validity > * { min-width: 0; }
+
+    /* Compact, but still legible: trim the air between fields and sections. */
+    #addSongModal .asm-section, #editSongModal .asm-section { padding: 8px !important; }
+    #addSongModal .asm-body, #editSongModal .asm-body { gap: 6px !important; padding: 6px 0 8px !important; }
+    #addSongModal .asm-header, #editSongModal .asm-header { padding: 8px 10px !important; }
+
+    /* Nothing in the form may reach past the sheet.
+
+       A grid or flex child defaults to min-width:auto, which means it refuses
+       to shrink below its content -- so one long unbroken filename pushed the
+       whole media row 373px wide inside a 291px track and everything to its
+       right left the screen. max-width:100% cannot fix that, because the
+       track itself had already been sized by the content. min-width:0 is what
+       lets the track win; the filename then truncates instead of pushing. */
+    #addSongModal .asm-grid-2 > *, #editSongModal .asm-grid-2 > *,
+    #addSongModal .asm-section > *, #editSongModal .asm-section > * { min-width: 0 !important; }
+    #addSongModal .link-list, #editSongModal .link-list,
+    #addSongModal .link-item, #editSongModal .link-item { min-width: 0 !important; }
+    #addSongModal .link-info, #editSongModal .link-info { min-width: 0 !important; overflow: hidden; }
+    #addSongModal .link-info *, #editSongModal .link-info * {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+    }
+    /* The row's buttons keep their size; the name yields instead. */
+    #addSongModal .link-actions, #editSongModal .link-actions { flex: none !important; }
+    #addSongModal .link-item, #editSongModal .link-item { padding: 8px 10px !important; gap: 8px !important; }
+    #addSongModal .asm-content *, #editSongModal .asm-content * { max-width: 100%; }
+    #addSongModal input, #addSongModal select, #addSongModal textarea,
+    #editSongModal input, #editSongModal select, #editSongModal textarea {
+      max-width: 100%; box-sizing: border-box;
+    }
+  }
 
   .lp-badge-btn { position: relative; }
   .lp-btn-badge {
