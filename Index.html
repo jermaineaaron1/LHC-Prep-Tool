@@ -5992,6 +5992,9 @@
                 <option value="-5">-5</option>
               </select>
             </div>
+            <button id="lpAddVideoBtn" class="lhc-pill-button text-sm" title="Attach a YouTube video" onclick="lpAddVideoByLink()" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;">
+              <i class="fa-brands fa-youtube mr-1"></i> Add Video
+            </button>
             <button id="lyricsPreviewPrintBtn" class="lhc-pill-button text-sm" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="printLyricsPreview()">
               <i class="fa-solid fa-print mr-1"></i> Print / PDF
             </button>
@@ -9764,6 +9767,9 @@ I once was lost but now am found"
         <div class="youtube-preview-actions flex gap-2">
           <button id="youtubePreviewOpenBtn" class="lhc-pill-button text-sm" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;">
             <i class="fa-brands fa-youtube mr-1"></i> Open on YouTube
+          </button>
+          <button id="youtubePreviewDeleteBtn" class="lhc-pill-button text-sm" title="Remove this video from the song" aria-label="Remove this video" onclick="lpDeleteCurrentVideo()" style="background:#fee2e2;border-color:#fca5a5;color:#b91c1c;">
+            <i class="fa-solid fa-trash-can"></i>
           </button>
           <button id="youtubePreviewCloseBtn" class="lhc-pill-button" title="Close video preview" aria-label="Close video preview" onclick="closeYoutubePreview()">
             <i class="fa-solid fa-xmark"></i>
@@ -13754,6 +13760,68 @@ window.lyricsPreviewViewDoc = function() {
 
 // YouTube badge: replaces the Resources tab on the song page. Same rule --
 // one video plays, several offer a choice.
+// Videos get the same treatment documents just got: add and remove without a
+// trip through Details. The write goes through updateFields, so it touches the
+// youtube column alone -- update() rebuilds the whole row and blanks whatever
+// it was not handed.
+function _lpSaveVideos(song, list, msg, opts) {
+  opts = opts || {};
+  return SBQ_SONGS.updateFields(song.id, { youtube: list }).then(function() {
+    song.youtube = list;
+    var songs = (window.LHC_STATE && LHC_STATE.songs) || [];
+    for (var i = 0; i < songs.length; i++) { if (songs[i].id === song.id) songs[i].youtube = list; }
+    if (typeof window._lpSyncMediaBadges === 'function') window._lpSyncMediaBadges(song);
+    if (typeof _lpRenderRailResources === 'function') _lpRenderRailResources(song);
+    if (currentLyricsPreviewMode === 'resources' && typeof renderLyricsPreviewContent === 'function') renderLyricsPreviewContent();
+    if (typeof renderSongs === 'function') renderSongs(true);
+    var popup = document.getElementById('linkSelectorPopup');
+    if (popup) popup.remove();
+    if (opts.closeViewer && typeof closeYoutubePreview === 'function') closeYoutubePreview();
+    showToast(msg, 'success');
+  }).catch(function(err) {
+    showToast('Could not save: ' + ((err && err.message) || 'unknown error'), 'error');
+  });
+}
+
+window.lpDeleteVideo = function(url, opts) {
+  var song = currentLyricsPreviewSong;
+  if (!song || !url) return;
+  var ask = (typeof window.customConfirm === 'function')
+    ? window.customConfirm('Remove video?', 'This unlinks the video from "' + (song.title || 'this song') + '". Nothing is removed from YouTube.')
+    : Promise.resolve(window.confirm('Remove this video from the song?'));
+  ask.then(function(ok) {
+    if (!ok) return;
+    var before = Array.isArray(song.youtube) ? song.youtube.slice()
+               : (song.youtube ? String(song.youtube).split(/[,\s]+/).filter(Boolean) : []);
+    var after = before.filter(function(u) { return u !== url; });
+    if (after.length === before.length) { showToast('That video is no longer attached', 'info'); return; }
+    _lpSaveVideos(song, after, 'Video removed', opts);
+  });
+};
+
+// The viewer's Remove acts on whatever is playing.
+window.lpDeleteCurrentVideo = function() {
+  if (!window.__lpVideoPreviewUrl) return;
+  window.lpDeleteVideo(window.__lpVideoPreviewUrl, { closeViewer: true });
+};
+
+// Reached from the More panel, so it is available even when a song has no
+// videos yet and the YouTube badge is therefore hidden.
+window.lpAddVideoByLink = function() {
+  var song = currentLyricsPreviewSong;
+  if (!song || typeof window.customPrompt !== 'function') return;
+  window.customPrompt('Add a video', 'Paste a YouTube link.', '').then(function(url) {
+    if (!url || !String(url).trim()) return;
+    url = String(url).trim();
+    if (!/^https?:\/\//i.test(url)) { showToast('That does not look like a link', 'error'); return; }
+    var list = Array.isArray(song.youtube) ? song.youtube.slice()
+             : (song.youtube ? String(song.youtube).split(/[,\s]+/).filter(Boolean) : []);
+    if (list.indexOf(url) >= 0) { showToast('That video is already attached', 'info'); return; }
+    list.push(url);
+    _lpSaveVideos(song, list, 'Video added');
+  });
+};
+
 window.lyricsPreviewYoutube = function() {
   var song = currentLyricsPreviewSong;
   if (!song) return;
@@ -19655,9 +19723,10 @@ window.loadEditSongData = function(song) {
         html += '<span class="link-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(label) + '</span>';
         // Documents can be unlinked from here. stopPropagation matters --
         // without it the row's own click opens the viewer on the way out.
-        if (type === 'doc') {
-          html += '<button type="button" class="link-selector-del" title="Remove this document" aria-label="Remove this document"'
-               + ' onclick="event.stopPropagation();lpDeleteDoc(this.parentNode.getAttribute(&quot;data-url&quot;))">'
+        if (type === 'doc' || type === 'youtube') {
+          var _delWhat = (type === 'youtube') ? 'video' : 'document';
+          html += '<button type="button" class="link-selector-del" title="Remove this ' + _delWhat + '" aria-label="Remove this ' + _delWhat + '"'
+               + ' onclick="event.stopPropagation();' + (type === 'youtube' ? 'lpDeleteVideo' : 'lpDeleteDoc') + '(this.parentNode.getAttribute(&quot;data-url&quot;))">'
                + '<i class="fa-solid fa-trash-can"></i></button>';
         }
         html += '</div>';
@@ -20811,6 +20880,9 @@ window.loadEditSongData = function(song) {
     promoteSongResourceModal(modal);
     
     $('youtubePreviewTitle').textContent = title || 'Video';
+    window.__lpVideoPreviewUrl = url;   // what Remove acts on
+    var _vdel = document.getElementById('youtubePreviewDeleteBtn');
+    if (_vdel) _vdel.style.display = (typeof currentLyricsPreviewSong !== 'undefined' && currentLyricsPreviewSong) ? '' : 'none';
     
     var videoId = extractYoutubeId(url);
     if (videoId) {
