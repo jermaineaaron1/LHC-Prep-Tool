@@ -60,6 +60,9 @@ export class PitchEngine {
    *  is arriving even when no pitch has locked -- without it, a dead input and
    *  a singer resting look identical. */
   private lastLevel = 0;
+  /** The constant the last frame was riding on. ~0 on a healthy device; the
+   *  field report that cracked this showed 110. Kept for diagnostics. */
+  private lastDcOffset = 0;
   /** A silent tap to the destination. See the note where it is built. */
   private sink: GainNode | null = null;
   /** Some devices deliver nothing at all with voice processing switched off. */
@@ -267,6 +270,12 @@ export class PitchEngine {
     return this.lastLevel;
   }
 
+  /** The DC shelf removed from the last frame. Anything past ~0.05 means this
+   *  device's capture path is broken in the way the engine now corrects. */
+  get dcOffset(): number {
+    return this.lastDcOffset;
+  }
+
   /** What rate this device actually gave us. Phones vary, and the analysis
    *  is sized from it, so it is worth being able to see. */
   get sampleRate(): number {
@@ -324,6 +333,22 @@ export class PitchEngine {
     if (!this.analyser || !this.buffer || !this.context) return;
 
     this.analyser.getFloatTimeDomainData(this.buffer);
+
+    // Some Android audio stacks hand the microphone over with an enormous DC
+    // offset when voice processing is asked off -- the field report that
+    // exposed this showed a steady level of 110 on a scale that ends at 1.0.
+    // A constant that size poisons everything downstream at once: the level
+    // meter pegs full ("sound is reaching the app"), the silence watchdog sees
+    // a roar and never recovers, and the normalised autocorrelation reads ~1
+    // at EVERY lag -- no peak stands out, so confidence pins to 0.00 and no
+    // note is ever found, while the singer's voice rides invisibly on top.
+    // Centre the frame before anything else sees it.
+    const frame = this.buffer;
+    let mean = 0;
+    for (let i = 0; i < frame.length; i++) mean += frame[i];
+    mean /= frame.length;
+    this.lastDcOffset = mean;
+    if (Math.abs(mean) > 1e-4) { for (let i = 0; i < frame.length; i++) frame[i] -= mean; }
 
     const { hz, confidence } = this.autocorrelate(this.buffer, this.context.sampleRate);
 
