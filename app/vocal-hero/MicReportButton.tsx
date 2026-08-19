@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
+import type { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
+import { sendMicReport } from '@/lib/vocal-hero/micReport';
 
 /**
  * One tap gathers everything a dead microphone refuses to say out loud and
@@ -24,27 +25,7 @@ export function MicReportButton({ getEngine, context }: { getEngine: () => Pitch
       const trace: number[] = [];
       if (engine) for (let i = 0; i < 20; i++) { trace.push(Number(engine.level.toFixed(5))); await new Promise(resolve => setTimeout(resolve, 100)); }
       setState('sending');
-      const env = await PitchEngine.environment();
-      let inputs: string[] = [];
-      try { inputs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput').map(d => d.label || '(unnamed input)'); } catch { inputs = ['(device list unavailable)']; }
-      const payload = {
-        context,
-        at: new Date().toISOString(),
-        inIframe: window.self !== window.top,
-        userAgent: navigator.userAgent,
-        env,
-        inputs,
-        engine: engine ? {
-          running: engine.isRunning, suspended: engine.isSuspended, sampleRate: engine.sampleRate, capture: engine.captureMode,
-          track: engine.trackInfo, recovery: engine.recoveryInfo,
-          levelNow: engine.level, dcOffset: engine.dcOffset, levelTrace: trace,
-          traceMax: Math.max(0, ...trace), traceAvg: trace.length ? trace.reduce((a, b) => a + b, 0) / trace.length : 0,
-        } : null,
-      };
-      const response = await fetch('/api/vocal-hero/mic-report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      const data = await response.json() as { code?: string; error?: string };
-      if (!response.ok || !data.code) throw new Error(data.error || 'Could not send.');
-      setCode(data.code);
+      setCode(await sendMicReport(engine, context, engine ? trace : undefined));
       setState('done');
     } catch {
       setState('failed');

@@ -30,9 +30,14 @@ export async function POST(request: Request) {
     const code = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
     const path = `mic-reports/${code}.json`;
     const body = JSON.stringify({ ...parsed, receivedAt: new Date().toISOString() });
-    const { error } = await getServiceClient().storage.from(BUCKET)
-      .upload(path, new Blob([body], { type: 'application/json' }), { upsert: false, contentType: 'application/json' });
+    const storage = getServiceClient().storage.from(BUCKET);
+    const { error } = await storage.upload(path, new Blob([body], { type: 'application/json' }), { upsert: false, contentType: 'application/json' });
     if (error) throw new Error(error.message);
+    // The same report also lands at a FIXED path. Relaying an 8-character
+    // code turned out to be the step every field report stalled on; a
+    // constant address means the developer fetches the newest report
+    // unprompted. Best-effort -- the coded copy above already succeeded.
+    await storage.upload('mic-reports/latest.json', new Blob([body], { type: 'application/json' }), { upsert: true, contentType: 'application/json' }).then(() => undefined, () => undefined);
     return NextResponse.json({ code });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to store the report.' }, { status: 500 });
