@@ -13905,9 +13905,46 @@ window.toggleLyricsPreviewTwoCol = function() {
   setTimeout(_lpUpdateScrollCue, 60);
 };
 
+// Details closes the song page before opening the editor, so the two
+// full-height sheets never stack. The cost was that dismissing the editor
+// dropped you on the catalogue instead of the song you were reading. This
+// remembers where you came from and takes you back.
+var _lpReturnToSongId = null;
+var _lpEditorWatcher = null;
+
+function _lpWatchEditorClose() {
+  if (_lpEditorWatcher) return;                 // one observer is enough
+  var modal = document.getElementById('editSongModal');
+  if (!modal || typeof MutationObserver !== 'function') return;
+  // Watching the class beats hooking each exit: the editor closes through
+  // Save, Delete, Cancel, the X and Escape, and this catches all five.
+  _lpEditorWatcher = new MutationObserver(function() {
+    if (modal.classList.contains('show') || !_lpReturnToSongId) return;
+    var id = _lpReturnToSongId;
+    _lpReturnToSongId = null;
+    // Saving triggers a reload, so the song object is replaced -- look it up
+    // by id, retrying briefly while that settles. A song that never appears
+    // was deleted, and then there is nothing to go back to.
+    var tries = 0;
+    (function attempt() {
+      var songs = (window.LHC_STATE && window.LHC_STATE.songs) || [];
+      var fresh = null;
+      for (var i = 0; i < songs.length; i++) { if (songs[i].id === id) { fresh = songs[i]; break; } }
+      if (fresh) {
+        if (typeof openLyricsPreviewModal === 'function') openLyricsPreviewModal(fresh);
+        return;
+      }
+      if (++tries < 6) setTimeout(attempt, 200);
+    })();
+  });
+  _lpEditorWatcher.observe(modal, { attributes: true, attributeFilter: ['class'] });
+}
+
 window.lyricsPreviewOpenEditor = function() {
   var song = currentLyricsPreviewSong || (window.STATE && window.STATE.lyricsCurrentSong);
   if (!song) return;
+  _lpReturnToSongId = song.id;
+  _lpWatchEditorClose();
   if (typeof closeLyricsPreviewModal === 'function') closeLyricsPreviewModal();
   if (typeof openEditSongModal === 'function') setTimeout(function() { openEditSongModal(song); }, 120);
 };
