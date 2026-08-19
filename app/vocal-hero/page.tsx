@@ -19,6 +19,7 @@ import type { NoteScoreResult } from '@/lib/vocal-hero/scoreEngine';
 import { RoundReviewPanel } from './RoundReview';
 import { HighScoreBoard } from './HighScoreBoard';
 import { CountInOverlay } from './CountInOverlay';
+import { MicReportButton } from './MicReportButton';
 import { CanvasLane } from './CanvasLane';
 import { isPresent, lastSeenLabel } from '@/lib/vocal-hero/presence';
 import { PracticeStage } from './PracticeStage';
@@ -642,7 +643,7 @@ function SoloMicDiag({ getEngine, getLevel }: { getEngine: () => PitchEngine | n
     }, 400);
     return () => window.clearInterval(timer);
   }, [getEngine, getLevel]);
-  return <p className="mx-auto mt-2 max-w-md text-center font-mono text-[9px] leading-relaxed text-slate-500">{line}</p>;
+  return <div className="mx-auto mt-2 max-w-md"><p className="text-center font-mono text-[9px] leading-relaxed text-slate-500">{line}</p><MicReportButton getEngine={getEngine} context="solo-countdown" /></div>;
 }
 
 function SoloCountdownStage({ song, part, phase, mic, getLevel, getEngine }: { song: Song; part: number; phase: string; mic: string; getLevel: () => number; getEngine: () => PitchEngine | null }) {
