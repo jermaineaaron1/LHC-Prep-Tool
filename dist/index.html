@@ -3871,9 +3871,12 @@
       #lpUsageLine, #lpBadges { display: none; }
       #lyricsPreviewHeaderPanel.lp-more-open #lpUsageLine { display: block; }
       #lyricsPreviewHeaderPanel.lp-more-open #lpBadges { display: flex; }
-      /* Hide icons inside toolbar to save space (text labels are enough) */
-      #lyricsPreviewToolbar .lhc-pill-button i,
-      #lyricsPreviewToolbar button i { display: none !important; }
+      /* Hide icons inside toolbar to save space (text labels are enough).
+         :not(#lpMoreToggle) matters -- that control is icon-only now, so the
+         blanket rule left it an empty white box. */
+      #lyricsPreviewToolbar .lhc-pill-button:not(#lpMoreToggle) i,
+      #lyricsPreviewToolbar button:not(#lpMoreToggle) i { display: none !important; }
+      #lyricsPreviewToolbar #lpMoreToggle i { display: inline-block !important; font-size: .95rem; }
       #lyricsPreviewToolbar select { font-size: 0.68rem !important; padding: 4px 22px 4px 7px !important; flex-shrink: 0; }
       /* Lyrics content area */
       #lyricsPreviewContent { padding: 12px 14px !important; }
@@ -87006,13 +87009,13 @@ window.LHC_Install = (function() {
        375px. The 44px tap height is untouched -- only the sides give. */
     #lyricsPreviewToolbar .lhc-pill-button:not(.hidden),
     #lyricsPreviewToolbar button:not(.hidden) {
-      padding: 4px 6px !important;
-      font-size: .66rem !important;
+      padding: 4px 5px !important;
+      font-size: .65rem !important;
     }
     /* No margin-left:auto here: in a wrapping flex row an auto margin eats
        all the free space, which pushed the dots onto a second line even
        though they fit. They just sit at the end of the row. */
-    #lyricsPreviewToolbar #lpMoreToggle { padding: 4px 8px !important; }
+    #lyricsPreviewToolbar #lpMoreToggle { padding: 4px 7px !important; }
     /* The folded panel is a row of its own beneath the line. */
     #lyricsPreviewHeaderPanel.lp-more-open #lpMoreActions.lp-row-more { flex-basis: 100%; }
 
@@ -87117,7 +87120,17 @@ window.LHC_Install = (function() {
     /* The style badge used to wrap under the title, costing a whole second
        line for one chip. The title already truncates with an ellipsis, so
        keeping the row on one line loses nothing and saves ~26px. */
-    #lpSongHeader .lp-title-row { flex-wrap: nowrap !important; }
+    /* The title wraps rather than truncating. Holding this row to one line
+       saved 26px but cost the song its name -- "Alas! and Did My Saviour
+       Bleed" showed as "ALAS! AN...". The name is the point of the page. */
+    #lpSongHeader .lp-title-row { flex-wrap: wrap !important; align-items: baseline; }
+    #lyricsPreviewTitle {
+      white-space: normal !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      font-size: .92rem !important;
+      line-height: 1.25;
+    }
     #lpBreadcrumb { margin-bottom: 4px !important; }
     #lyricsPreviewToolbar { margin-top: 6px !important; }
     #lyricsPreviewContent { margin-top: 6px !important; }
@@ -87126,10 +87139,11 @@ window.LHC_Install = (function() {
     /* instead of two loose rows of pills.                                   */
     #lyricsPreviewToolbar {
       margin-top: 8px !important;
-      /* 4px sides and a 3px gap are what let seven controls share one line
-         at 375px -- at 6px/5px they needed 313px of a 297px row. */
-      padding: 5px 4px !important;
-      gap: 3px !important;
+      /* 3px sides and a 2px gap are what let seven controls share one line
+         at 375px. The budget got tighter once the three-dot icon actually
+         rendered: an empty box was 16px, a real one is 30px. */
+      padding: 5px 3px !important;
+      gap: 2px !important;
       border: 1px solid var(--sf-line, #e3e8f4);
       border-radius: 12px;
       background: var(--sf-surface, #f7f9fd);
