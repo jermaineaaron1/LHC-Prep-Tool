@@ -5675,13 +5675,13 @@
         <!-- Search & Filters Card -->
         <div id="sfSearchCard" class="lhc-card" style="margin-bottom: 16px;">
           <div id="sfCommandHeader">
-          <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <div id="sfCommandTopRow" class="flex items-center justify-between flex-wrap gap-3 mb-4">
             <div class="sf-command-copy">
               <p class="lhc-section-title"><i class="fa-solid fa-wave-square"></i> Worship music catalogue</p>
               <h3 class="font-cinzel text-lg font-bold text-slate-800">Your service starts with the right song.</h3>
               <p class="sf-command-subtitle">Search lyrics, themes, scripture and resources in one curated library.</p>
             </div>
-            <div class="flex gap-2 flex-wrap items-center">
+            <div id="sfCommandActions" class="flex gap-2 flex-wrap items-center">
               <button class="lhc-pill-button" id="allSongsBtn" onclick="showAllSongs()" title="Show all songs A–Z">
                 <i class="fa-solid fa-list mr-1"></i> All Songs
               </button>
@@ -86764,6 +86764,69 @@ window.LHC_Install = (function() {
     #editSongModal input, #editSongModal select, #editSongModal textarea {
       max-width: 100%; box-sizing: border-box;
     }
+  }
+
+  /* ====================================================================== */
+  /* SONGS PAGE SEARCH CARD ON A PHONE                                      */
+  /*                                                                        */
+  /* The card led with 155px of masthead -- an eyebrow, a headline, a line   */
+  /* of prose and a button row -- so the search box did not appear until     */
+  /* 339px down the screen, below the fold on a short phone. On a page whose */
+  /* whole job is finding a song, search should be the first thing under the */
+  /* title.                                                                  */
+  /*                                                                        */
+  /* Nothing moves in the markup. The header becomes a flex column and the   */
+  /* pieces are reordered, with the copy row set to display:contents so its  */
+  /* two children can be ordered independently of each other.               */
+  /* ====================================================================== */
+  @media (max-width: 768px) {
+    #sfCommandHeader { display: flex; flex-direction: column; padding: 8px !important; }
+    #sfCommandTopRow { display: contents; }
+
+    .sf-command-copy   { order: 1; }
+    .sf-search-field   { order: 2; margin-top: 6px !important; }
+    #sfMobilePrioritySlot { order: 3; }
+    #sfCommandActions  { order: 4; }
+
+    /* The masthead goes entirely on a phone. The tab bar directly above
+       already reads "Songs", the subtitle only restates the search
+       placeholder, and the headline is brand copy -- 43px of screen for
+       something the user has already been told. Desktop keeps all of it. */
+    .sf-command-copy { display: none; }
+
+    /* The actions read as a footer to the card now that they sit under the
+       filters, so they get room to breathe and a rule above them. */
+    #sfCommandActions {
+      margin-top: 8px; padding-top: 8px;
+      border-top: 1px solid var(--sf-line, #e3e8f4);
+      gap: 6px !important;
+    }
+    #sfCommandActions .lhc-pill-button { flex: 1 1 0; min-width: 0; justify-content: center; }
+
+    /* ---- Filter row: one shape, three times -------------------------- */
+    /* The cells were each free to size their own label and control, so the
+       three columns did not line up with one another. Fixing the label to a
+       single truncating line and the control to one height makes the row
+       read as one object. */
+    #sfFilterGrid { padding-top: 8px !important; margin-bottom: 6px !important; gap: 6px !important; }
+    #sfFilterGrid > * { min-width: 0; }
+    #sfFilterGrid .sf-filter-label,
+    #sfFilterGrid label {
+      display: block; margin-bottom: 3px;
+      font-size: .58rem; line-height: 1.2; letter-spacing: .04em;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #sfFilterGrid select,
+    #sfFilterGrid .sf-filter-control,
+    #sfFilterGrid [id$="Display"] {
+      width: 100%; min-width: 0; box-sizing: border-box;
+      height: 40px; min-height: 40px;
+    }
+    #sfMobileFiltersBtn { margin-top: 4px !important; }
+
+    /* The whole card, tightened. */
+    #sfSearchCard { padding: 8px !important; }
+    #sfCommandTopRow, #sfCommandHeader > div { margin-bottom: 0 !important; }
   }
 
   .lp-badge-btn { position: relative; }
