@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { SongNote } from '@/lib/vocal-hero/types';
 import { hzToMidi, midiNoteName } from '@/lib/vocal-hero/liveCues';
-import type { TrailSample } from './SatbLane';
+import type { TrailSample } from '@/lib/vocal-hero/trail';
 import { CURSOR, laneBounds, xForTime, yForMidi } from '@/lib/vocal-hero/laneGeometry';
 
 // The highway, drawn rather than laid out.

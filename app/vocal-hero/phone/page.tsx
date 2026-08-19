@@ -10,8 +10,8 @@ import { DifficultyPicker, rememberDifficulty, storedDifficulty } from '../Diffi
 import { LatencyRow } from '../LatencyCalibration';
 import { storedLatencySec } from '@/lib/vocal-hero/latency';
 import type { GameSession, SectionScore, SessionPlayer, Song, SongNote } from '@/lib/vocal-hero/types';
-import { SatbLane, clearTrail, pushTrail } from '../SatbLane';
-import type { TrailSample } from '../SatbLane';
+import { clearTrail, pushTrail } from '@/lib/vocal-hero/trail';
+import type { TrailSample } from '@/lib/vocal-hero/trail';
 import { RoundReviewPanel } from '../RoundReview';
 import { HighScoreBoard } from '../HighScoreBoard';
 import { CountInOverlay } from '../CountInOverlay';

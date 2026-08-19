@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Song } from '@/lib/vocal-hero/types';
-import { clearTrail, pushTrail } from './SatbLane';
+import { clearTrail, pushTrail } from '@/lib/vocal-hero/trail';
 import { CanvasLane } from './CanvasLane';
-import type { TrailSample } from './SatbLane';
+import type { TrailSample } from '@/lib/vocal-hero/trail';
 import { KaraokeLyrics } from './KaraokeLyrics';
 import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
 import { isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
