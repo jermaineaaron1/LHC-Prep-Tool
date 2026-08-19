@@ -86616,6 +86616,129 @@ window.LHC_Install = (function() {
   .lp-adddoc-menu button b { color: var(--sf-navy, #0f1c3f); font-size: .78rem; font-weight: 700; }
   .lp-adddoc-menu button small { color: var(--sf-muted, #5f6b91); font-size: .68rem; }
 
+  /* ====================================================================== */
+  /* SONG CARD ON A PHONE — three zones, one frame each                     */
+  /*                                                                        */
+  /* The card carries three different kinds of thing and they used to run    */
+  /* together as one grey column:                                            */
+  /*                                                                        */
+  /*   1. identity  — art, title, key: what this song IS                    */
+  /*   2. controls  — tabs and actions: what you can DO                     */
+  /*   3. content   — lyrics, chords, a document: what you READ             */
+  /*                                                                        */
+  /* Each gets its own boundary so the eye can find the lyrics without       */
+  /* reading the furniture. Framing is drawn with hairlines and a tint       */
+  /* rather than heavy borders, and it costs almost no vertical space.       */
+  /* ====================================================================== */
+  @media (max-width: 768px) {
+    /* Zone 1: identity. A hairline closes it off; no box, so it stays airy. */
+    #lyricsPreviewHeaderPanel { padding: 8px 12px 6px !important; }
+    #lpSongHeader {
+      gap: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--sf-line, #e3e8f4);
+    }
+    #lpSongHeader .lp-song-art { width: 42px; height: 46px; font-size: 1.05rem; border-radius: 10px; }
+    /* The style badge used to wrap under the title, costing a whole second
+       line for one chip. The title already truncates with an ellipsis, so
+       keeping the row on one line loses nothing and saves ~26px. */
+    #lpSongHeader .lp-title-row { flex-wrap: nowrap !important; }
+    #lpBreadcrumb { margin-bottom: 4px !important; }
+    #lyricsPreviewToolbar { margin-top: 6px !important; }
+    #lyricsPreviewContent { margin-top: 6px !important; }
+
+    /* Zone 2: controls. A tinted, rounded frame reads as one control block  */
+    /* instead of two loose rows of pills.                                   */
+    #lyricsPreviewToolbar {
+      margin-top: 8px !important;
+      padding: 6px !important;
+      gap: 5px !important;
+      border: 1px solid var(--sf-line, #e3e8f4);
+      border-radius: 12px;
+      background: var(--sf-surface, #f7f9fd);
+    }
+    /* The divider between tabs and actions is now internal to that frame,   */
+    /* so it can be lighter than it was as a standalone rule.                */
+    #lyricsPreviewToolbar > .lp-row-actions {
+      padding-top: 5px !important;
+      border-top: 1px solid var(--sf-line-2, #dfe5f5) !important;
+    }
+
+    /* Zone 3: content. A framed page so the lyrics look like the subject    */
+    /* rather than the leftover space under the buttons.                     */
+    #lyricsPreviewContent {
+      margin: 8px 10px 10px !important;
+      padding: 10px 12px !important;
+      border: 1px solid var(--sf-line, #e3e8f4);
+      border-radius: 12px;
+      background: #fff;
+    }
+  }
+
+  /* ====================================================================== */
+  /* SHORT VIEWPORTS — a phone held sideways                                */
+  /*                                                                        */
+  /* Rotating a 375x812 phone gives 812x375, which is WIDER than the 768px   */
+  /* mobile breakpoint, so every compaction rule above switched off at       */
+  /* exactly the moment vertical space became scarce: 78% of the screen went */
+  /* to furniture and roughly three lines of lyrics survived. Height is the  */
+  /* thing actually in short supply here, so this block keys off height and  */
+  /* applies at any width.                                                   */
+  /* ====================================================================== */
+  @media (max-height: 540px) {
+    #lyricsPreviewModal .modal-content {
+      height: 100vh; height: 100dvh;
+      max-height: 100vh !important; max-height: 100dvh !important;
+      border-radius: 0 !important;
+    }
+    #lyricsPreviewHeaderPanel { padding: 5px 10px !important; }
+    #lpBreadcrumb { margin-bottom: 2px !important; }
+    #lpSongHeader { gap: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--sf-line, #e3e8f4); }
+    #lpSongHeader .lp-song-art { width: 30px; height: 32px; font-size: .8rem; border-radius: 8px; }
+    #lyricsPreviewTitle { font-size: .92rem !important; }
+    #lyricsPreviewArtist { display: none; }
+
+    /* Same fold as the narrow layout: reference data goes behind More so    */
+    /* the lyrics keep the screen. Key stays — it gets read at a glance.     */
+    #lpUsageLine, #lpBadges { display: none; }
+    #lyricsPreviewHeaderPanel.lp-more-open #lpUsageLine { display: block; }
+    #lyricsPreviewHeaderPanel.lp-more-open #lpBadges { display: flex; }
+    #lpMoreActions.lp-row-more { display: none; }
+    #lyricsPreviewHeaderPanel.lp-more-open #lpMoreActions.lp-row-more {
+      display: flex; padding-top: 5px;
+      border-top: 1px dashed var(--sf-line, #e3e8f4);
+    }
+    #lpMoreToggle { display: inline-flex !important; margin-left: auto; }
+
+    #lyricsPreviewToolbar {
+      margin-top: 5px !important; padding: 5px !important; gap: 4px !important;
+      border: 1px solid var(--sf-line, #e3e8f4); border-radius: 10px;
+      background: var(--sf-surface, #f7f9fd);
+      /* Sideways there is width to spare and none to spare vertically, so
+         the tab group and the action group share one line instead of
+         stacking the way they do in portrait. */
+      flex-direction: row !important; align-items: center !important;
+      flex-wrap: wrap !important;
+    }
+    #lyricsPreviewToolbar > div { display: flex; flex-wrap: wrap; gap: 4px; }
+    #lyricsPreviewToolbar > .lp-row-actions { padding-top: 0 !important; border-top: 0 !important; }
+    /* 38px rather than 44px: with 375px of height a 44px floor would spend  */
+    /* a quarter of the screen on two rows of buttons. Still comfortably     */
+    /* above the 30px this started at, and portrait keeps the full 44px.     */
+    #lyricsPreviewToolbar .lhc-pill-button:not(.hidden),
+    #lyricsPreviewToolbar button:not(.hidden) {
+      min-height: 38px; padding: 4px 10px !important; font-size: .7rem !important;
+      display: inline-flex; align-items: center; justify-content: center;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    #lyricsPreviewContent {
+      margin: 5px 8px 8px !important; padding: 8px 10px !important;
+      border: 1px solid var(--sf-line, #e3e8f4); border-radius: 10px; background: #fff;
+    }
+    /* The sticky footer would eat a third of a landscape screen. */
+    #lyricsPreviewModal .p-3 { padding: 4px 10px !important; }
+  }
+
   /* ── Usage line, usage rail card and the History panel ─────────────────── */
   .lp-usage-line { margin-top:5px; color:var(--sf-muted,#5f6b91); font-size:.73rem; font-weight:650; }
   .lp-usage-line[hidden] { display:none; }
