@@ -1221,13 +1221,24 @@
     .practice-game-iframe {
       width: 100%;
       height: calc(100vh - 110px);
+      height: calc(100dvh - 110px);
       border: none;
       border-radius: var(--card-radius);
       box-shadow: var(--shadow-soft);
       display: block;
     }
     @media (max-width: 768px) {
-      .practice-game-iframe { height: calc(100vh - 90px); }
+      /* The old 90px ignored most of what surrounds this frame. Measured on
+         the live app at 375px: sticky top bar 80, view padding 10, practice
+         header 66+12, bottom nav 68 -- 237px of chrome in all, against which
+         the frame overhung the nav by 147px with no way to scroll to it. dvh
+         rather than vh, because vh on mobile pretends the browser bar is not
+         there. */
+      .practice-game-iframe {
+        height: calc(100vh - 238px);
+        height: calc(100dvh - 238px - env(safe-area-inset-bottom, 0px));
+        min-height: 320px;
+      }
       .practice-game-title { font-size: 0.85rem; }
     }
 
