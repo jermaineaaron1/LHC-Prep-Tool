@@ -20,6 +20,7 @@ import { RoundReviewPanel } from './RoundReview';
 import { HighScoreBoard } from './HighScoreBoard';
 import { CountInOverlay } from './CountInOverlay';
 import { MicReportButton } from './MicReportButton';
+import { ENGINE_BUILD, armAutoMicReport } from '@/lib/vocal-hero/micReport';
 import { CanvasLane } from './CanvasLane';
 import { isPresent, lastSeenLabel } from '@/lib/vocal-hero/presence';
 import { PracticeStage } from './PracticeStage';
@@ -340,7 +341,7 @@ export default function VocalHeroHostPage() {
       }
     } });
     soloPitchRef.current = engine;
-    try { await engine.start(); setSoloMic('ready'); return true; }
+    try { await engine.start(); setSoloMic('ready'); armAutoMicReport(() => soloPitchRef.current); return true; }
     catch (cause) { soloPitchRef.current = null; setSoloMic('blocked'); soloMicReasonRef.current = cause instanceof MicError ? cause.reason : 'unknown'; return false; }
   }
   async function startSolo(part: number) {
@@ -637,6 +638,7 @@ function SoloMicDiag({ getEngine, getLevel }: { getEngine: () => PitchEngine | n
         (engine.sampleRate ? (engine.sampleRate / 1000).toFixed(1) + ' kHz' : 'no context'),
         'dc ' + engine.dcOffset.toFixed(3),
         'capture ' + engine.captureMode,
+        'build ' + ENGINE_BUILD,
         'audio ' + (engine.isSuspended ? 'PAUSED' : 'running'),
         track ? `input "${track.label || 'unnamed'}"${track.muted ? ' MUTED BY OS' : ''} ${track.state}` : 'no track',
         env.standalone ? 'installed app' : 'browser tab',
