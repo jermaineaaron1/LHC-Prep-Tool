@@ -173,10 +173,17 @@ export default function VocalHeroHostPage() {
   useEffect(() => {
     const id = session?.id;
     if (!id || session?.status === 'ended') return;
-    const onHide = () => { if (document.visibilityState === 'hidden') closeRound(id, true); };
-    window.addEventListener('pagehide', onHide);
-    document.addEventListener('visibilitychange', onHide);
-    return () => { window.removeEventListener('pagehide', onHide); document.removeEventListener('visibilitychange', onHide); };
+    // ONLY a real teardown. Closing on visibilitychange was far too eager: a
+    // host who switches windows to look at their phone, or whose screen locks
+    // for a moment, is not leaving the rehearsal -- but the room shut itself
+    // within seconds, before a single singer could join.
+    //
+    // `persisted` marks a page going into the back/forward cache rather than
+    // away, which is what a phone does when it is backgrounded; that is not
+    // leaving either.
+    const onPageHide = (event: PageTransitionEvent) => { if (!event.persisted) closeRound(id, true); };
+    window.addEventListener('pagehide', onPageHide);
+    return () => { window.removeEventListener('pagehide', onPageHide); };
   }, [session?.id, session?.status]);
   useEffect(() => {
     if (!session) return;
