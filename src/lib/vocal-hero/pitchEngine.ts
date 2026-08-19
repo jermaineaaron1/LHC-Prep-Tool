@@ -28,6 +28,10 @@ export class PitchEngine {
   private buffer:   Float32Array<ArrayBuffer> | null = null;
   private smoothedHz = 0;
   private startTime  = 0;
+  /** Loudness of the last frame, 0-1. Exposed so a caller can show that sound
+   *  is arriving even when no pitch has locked -- without it, a dead input and
+   *  a singer resting look identical. */
+  private lastLevel = 0;
 
   // Scratch space for the analysis, allocated once. The detector runs on every
   // animation frame; allocating these per frame handed the garbage collector a
@@ -69,6 +73,19 @@ export class PitchEngine {
     });
 
     this.context  = new AudioContext({ latencyHint: 'interactive' });
+
+    // A context created AFTER an await is no longer inside the user gesture that
+    // began this call, and mobile browsers start such a context suspended. A
+    // suspended context's AnalyserNode returns pure silence, so the microphone
+    // light is on, getUserMedia has succeeded, the stream is live -- and every
+    // frame reads zero. Desktop is lenient about the same policy, which is why
+    // this only ever showed up on phones.
+    if (this.context.state === 'suspended') {
+      try { await this.context.resume(); } catch { /* surfaced through isSuspended */ }
+    }
+    // Mobile also suspends a context whenever the page goes to the background,
+    // and does not resume it on return.
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibility);
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize        = this.opts.bufferSize;
     this.analyser.smoothingTimeConstant = 0; // we do our own smoothing
@@ -102,7 +119,29 @@ export class PitchEngine {
     this.fineCorr   = new Float32Array(2 * this.decimation + 4);
   }
 
+  /** Wake a context the browser suspended. Safe to call from a tap. */
+  async resume(): Promise<void> {
+    if (this.context?.state === 'suspended') {
+      try { await this.context.resume(); } catch { /* nothing more to try */ }
+    }
+  }
+
+  /** True when audio is being BLOCKED rather than merely quiet. */
+  get isSuspended(): boolean {
+    return this.context?.state === 'suspended';
+  }
+
+  /** Loudness of the most recent frame, 0-1. */
+  get level(): number {
+    return this.lastLevel;
+  }
+
+  private onVisibility = (): void => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') void this.resume();
+  };
+
   stop(): void {
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibility);
     if (this.animFrame !== null) {
       cancelAnimationFrame(this.animFrame);
       this.animFrame = null;
@@ -144,6 +183,7 @@ export class PitchEngine {
       frequency:  this.smoothedHz,
       timestamp:  this.context.currentTime - this.startTime,
       confidence: hz > 0 ? confidence : 0,
+      level:      this.lastLevel,
     });
 
     this.animFrame = requestAnimationFrame(this.loop);
@@ -176,6 +216,7 @@ export class PitchEngine {
     fullSq[0] = 0;
     for (let i = 0; i < SIZE; i++) fullSq[i + 1] = fullSq[i] + buf[i] * buf[i];
     const rms = Math.sqrt(fullSq[SIZE] / SIZE);
+    this.lastLevel = rms;
     if (rms < 0.01) return { hz: 0, confidence: 0 };
 
     // The normalised autocorrelation is

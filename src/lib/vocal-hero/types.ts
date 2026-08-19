@@ -208,6 +208,10 @@ export interface PitchSample {
   frequency: number;  // Hz, 0 = silence
   timestamp: number;  // seconds
   confidence: number; // 0–1
+  /** Loudness of the frame, 0–1. Sound arriving without a pitch lock is a
+   *  different state from no sound at all, and a singer needs to tell them
+   *  apart when nothing is being detected. */
+  level?: number;
 }
 
 export interface ScoreBatch {
