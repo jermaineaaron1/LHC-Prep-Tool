@@ -4,7 +4,7 @@ import { getServiceClient } from '@/lib/vocal-hero/supabaseClient';
 const BUCKET = 'vocal-hero-media';
 // A report is a handful of numbers and device labels. Anything bigger is not
 // a report.
-const MAX_REPORT_BYTES = 16 * 1024;
+const MAX_REPORT_BYTES = 64 * 1024; // a 1024-sample raw window rides along now
 
 /**
  * Stores a microphone diagnostic report where a developer can actually read

@@ -67,6 +67,16 @@ export class PitchEngine {
   /** The constant the last frame was riding on. ~0 on a healthy device; the
    *  field report that cracked this showed 110. Kept for diagnostics. */
   private lastDcOffset = 0;
+  /** Running amplitude of the incoming data, for devices that deliver samples
+   *  far outside the spec's -1..1 -- the field report showed a zero-mean
+   *  signal with RMS ~107, raw ADC counts rather than normalised audio. Decays
+   *  slowly so a loud entry does not deafen the frames after it. */
+  private scaleEstimate = 1;
+  private lastConfidence = 0;
+  /** Frames in which sound was clearly arriving and yet no pitch would lock.
+   *  Loud garbage from a broken input looks HEALTHY to the silence watchdog,
+   *  so it never cycled devices -- this counter is what finally does. */
+  private unpitchedFrames = 0;
   /** A silent tap to the destination. See the note where it is built. */
   private sink: GainNode | null = null;
   /** Some devices deliver nothing at all with voice processing switched off. */
@@ -297,6 +307,27 @@ export class PitchEngine {
     return this.lastDcOffset;
   }
 
+  /** The running amplitude the frames are being divided by; 1 on a healthy
+   *  device, ~150 on the field device that delivers raw ADC counts. */
+  get inputScale(): number {
+    return this.scaleEstimate;
+  }
+
+  get confidence(): number {
+    return this.lastConfidence;
+  }
+
+  /** A copy of the most recent analysis frame (post centring and scaling),
+   *  for the report: with the actual waveform on file, what the device
+   *  delivers stops being a matter of inference. */
+  sampleWindow(count = 1024): number[] {
+    if (!this.buffer) return [];
+    const n = Math.min(count, this.buffer.length);
+    const out = new Array<number>(n);
+    for (let i = 0; i < n; i++) out[i] = Number(this.buffer[i].toFixed(4));
+    return out;
+  }
+
   /** Which tap the samples come through: 'direct' (ScriptProcessorNode, the
    *  actual buffers) or 'analyser' (the node that has twice proven
    *  untrustworthy in the field). */
@@ -351,6 +382,11 @@ export class PitchEngine {
     this.stream   = null;
     this.buffer   = null;
     this.smoothedHz = 0;
+    // Per-stream state: the amplitude scale and the unpitched count describe
+    // the DEVICE that was just released, not the engine.
+    this.scaleEstimate = 1;
+    this.unpitchedFrames = 0;
+    this.lastConfidence = 0;
   }
 
   get isRunning(): boolean {
@@ -394,7 +430,33 @@ export class PitchEngine {
     this.lastDcOffset = mean;
     if (Math.abs(mean) > 1e-4) { for (let i = 0; i < frame.length; i++) frame[i] -= mean; }
 
+    // Spec audio lives in -1..1. The field device delivers ~±150, which pegs
+    // the level meter, satisfies the silence watchdog for ever, and makes
+    // every RMS-derived number a lie. Track the running peak and, when it is
+    // clearly out of spec, scale the frame back into it. Detection itself is
+    // amplitude-normalised either way; this is for every consumer of `level`.
+    let peak = 0;
+    for (let i = 0; i < frame.length; i++) { const a = Math.abs(frame[i]); if (a > peak) peak = a; }
+    this.scaleEstimate = Math.max(peak, this.scaleEstimate * 0.999, 1);
+    // Scale only frames that are themselves out of spec. The estimate decays
+    // slowly, and dividing a clean frame by a stale estimate from a previous
+    // loud stream crushed real singing below the silence gate -- caught in
+    // test when the device cycler landed on a healthy microphone and the
+    // engine went deaf to it.
+    if (peak > 2 && this.scaleEstimate > 2) { const k = 1 / this.scaleEstimate; for (let i = 0; i < frame.length; i++) frame[i] *= k; }
+
     const { hz, confidence } = this.autocorrelate(this.buffer, this.context.sampleRate);
+    this.lastConfidence = confidence;
+
+    // The complement of the silence watchdog: sound clearly arriving, no
+    // pitch ever locking. A dead input that emits loud noise -- which is what
+    // the field device's "Default" route does -- passes every loudness test
+    // and fails every musical one, so after ~8s of that, recovery (and its
+    // device cycling) is the right response. Real singing resets the count
+    // many times a second, so it never fires mid-song.
+    if (this.lastLevel > 0.01 && (hz === 0 || confidence < 0.3)) {
+      if (++this.unpitchedFrames >= 480 && !this.recovering) { this.unpitchedFrames = 0; void this.recover(); }
+    } else if (hz > 0 && confidence >= this.opts.confidenceThreshold) this.unpitchedFrames = 0;
 
     // Exponential smoothing — only smooth non-zero pitches
     if (hz > 0 && confidence >= this.opts.confidenceThreshold) {
