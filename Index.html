@@ -3862,7 +3862,9 @@
         padding-top: 6px;
         border-top: 1px dashed var(--sf-line, #e3e8f4);
       }
-      #lyricsPreviewToolbar #lpMoreToggle { display: inline-flex; margin-left: auto; }
+      /* No auto margin: in a wrapping flex row it claims all the free space
+         and pushes the dots onto a line of their own. */
+      #lyricsPreviewToolbar #lpMoreToggle { display: inline-flex; margin-left: 0; }
       /* Theme/season chips and the usage line are reference data, not things
          you reach for mid-song. They ride the same fold, so the lyrics start
          higher. Key stays visible -- that one gets read at a glance. */
@@ -5858,6 +5860,12 @@
   <!-- ==================== MODAL: LYRICS PREVIEW (from song card) ==================== -->
   <div id="lyricsPreviewModal" class="modal-overlay">
     <div id="lyricsPreviewModalContent" class="modal-content" style="width: min(750px, 95%); max-height: 90vh; display: flex; flex-direction: column; padding: 0;">
+      <!-- Outside the header on purpose: fullscreen hides that header, and
+           the way back out must not go with it. position:fixed, so where it
+           sits in the DOM costs nothing. -->
+      <button id="lpExitLyricsOnly" type="button" onclick="toggleLyricsPreviewFullscreen()" aria-label="Exit fullscreen">
+        <i class="fa-solid fa-compress" aria-hidden="true"></i> Exit fullscreen
+      </button>
       <div id="lyricsPreviewHeaderPanel" class="p-4 border-b border-slate-200">
         <!-- Chunk 2: breadcrumb. "Back to library" is the same close call as
              the X, so it restores the catalogue scroll position too. -->
@@ -5932,8 +5940,8 @@
             </button>
             <input type="file" id="lpDocFileInput" style="display:none" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="lpHandleDocFile(this)">
             <input type="file" id="lpDocCameraInput" style="display:none" accept="image/*" capture="environment" onchange="lpHandleDocFile(this)">
-            <button id="lpMoreToggle" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewMore()" aria-expanded="false" aria-controls="lpMoreActions" title="More actions" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
-              <i class="fa-solid fa-ellipsis mr-1"></i> More <i id="lpMoreChevron" class="fa-solid fa-chevron-down" style="font-size:0.6em;margin-left:3px;"></i>
+            <button id="lpMoreToggle" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewMore()" aria-expanded="false" aria-controls="lpMoreActions" title="More actions" aria-label="More actions" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
+              <i id="lpMoreChevron" class="fa-solid fa-ellipsis"></i>
             </button>
           </div>
           <!-- Row 3: everything else, folded away on a phone so the lyrics win
@@ -13351,6 +13359,7 @@ function _lpRestoreFromFullscreen() {
   var btn = document.getElementById('lyricsPreviewFullscreenBtn');
   if (content) {
     content.classList.remove('lyrics-preview-fullscreen');
+    content.classList.remove('lp-lyrics-only');
     content.style.removeProperty('max-height');
     content.style.removeProperty('width');
     content.style.removeProperty('border-radius');
@@ -13363,6 +13372,10 @@ function _lpRestoreFromFullscreen() {
 }
 
 function _lpMarkFullscreen() {
+  var content = document.getElementById('lyricsPreviewModalContent');
+  // Fullscreen means the words only: header, controls, planning rail and
+  // action bar all step aside.
+  if (content) content.classList.add('lp-lyrics-only');
   var btn = document.getElementById('lyricsPreviewFullscreenBtn');
   if (btn) {
     btn.innerHTML = '<i class="fa-solid fa-compress"></i>';
@@ -13378,7 +13391,7 @@ function toggleLyricsPreviewFullscreen() {
   // browsers that refuse it. Checking only document.fullscreenElement meant a
   // card expanded through the fallback could never be collapsed again -- the
   // button just tried to enter fullscreen a second time.
-  if (content.classList.contains('lyrics-preview-fullscreen')) {
+  if (content.classList.contains('lyrics-preview-fullscreen') || content.classList.contains('lp-lyrics-only')) {
     _lpRestoreFromFullscreen();
     return;
   }
@@ -13851,10 +13864,9 @@ window.toggleLyricsPreviewMore = function() {
   if (!bar) return;
   var open = bar.classList.toggle('lp-more-open');
   if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  if (chevron) {
-    chevron.classList.toggle('fa-chevron-down', !open);
-    chevron.classList.toggle('fa-chevron-up', open);
-  }
+  // The control is three dots in one row now, so it does not flip to an
+  // arrow; the panel opening underneath is the affordance.
+  if (chevron) chevron.classList.toggle('is-open', open);
 };
 
 window.toggleLyricsPreviewTwoCol = function() {
@@ -86975,6 +86987,81 @@ window.LHC_Install = (function() {
     #songFinderView #sfStatsMobileSlot .sf-library-metrics span { font-weight: 600; }
   }
 
+  /* ====================================================================== */
+  /* ONE ROW OF CONTROLS, AND THE LYRICS GET THE REST                       */
+  /* ====================================================================== */
+  @media (max-width: 768px) {
+    /* display:contents dissolves the two row wrappers, so their buttons
+       become direct children of the toolbar and lay out as a single line:
+       Lyrics, Chords, YouTube, Edit, View Doc, Add Doc, then the dots. No
+       markup moves, so every onclick and id stays where it was. */
+    #lyricsPreviewToolbar > .lp-row-tabs,
+    #lyricsPreviewToolbar > .lp-row-actions { display: contents; }
+    #lyricsPreviewToolbar {
+      flex-direction: row !important;
+      flex-wrap: wrap !important;
+      align-items: center !important;
+    }
+    /* Tighter than the two-row layout so seven controls fit one line at
+       375px. The 44px tap height is untouched -- only the sides give. */
+    #lyricsPreviewToolbar .lhc-pill-button:not(.hidden),
+    #lyricsPreviewToolbar button:not(.hidden) {
+      padding: 4px 6px !important;
+      font-size: .66rem !important;
+    }
+    /* No margin-left:auto here: in a wrapping flex row an auto margin eats
+       all the free space, which pushed the dots onto a second line even
+       though they fit. They just sit at the end of the row. */
+    #lyricsPreviewToolbar #lpMoreToggle { padding: 4px 8px !important; }
+    /* The folded panel is a row of its own beneath the line. */
+    #lyricsPreviewHeaderPanel.lp-more-open #lpMoreActions.lp-row-more { flex-basis: 100%; }
+
+    /* The freed row goes to the lyrics. 300px of lyrics under a 490px
+       "Plan with this song" rail had the supporting material outweighing
+       the song; the window now takes the screen down to the action bar and
+       the rail is reached by scrolling. */
+    #lyricsPreviewContent {
+      min-height: calc(100dvh - 310px) !important;
+      height: auto !important;
+    }
+  }
+
+  /* ====================================================================== */
+  /* LYRICS-ONLY FULLSCREEN                                                 */
+  /* Fullscreen used to enlarge the whole card, furniture included. This    */
+  /* mode pushes everything else away -- breadcrumb, title, controls, the   */
+  /* planning rail, the action bar -- and gives the screen to the words.    */
+  /* One floating button gets you back out.                                 */
+  /* ====================================================================== */
+  .lp-lyrics-only #lpBreadcrumb,
+  .lp-lyrics-only #lpSongHeader,
+  .lp-lyrics-only #lyricsPreviewToolbar,
+  .lp-lyrics-only #lpRail,
+  .lp-lyrics-only #lpMobileActions { display: none !important; }
+  .lp-lyrics-only #lyricsPreviewHeaderPanel {
+    padding: 0 !important; border-bottom: 0 !important;
+  }
+  .lp-lyrics-only #lpBody { height: 100%; }
+  .lp-lyrics-only #lyricsPreviewContent {
+    margin: 0 !important;
+    border: 0 !important; border-radius: 0 !important;
+    height: 100dvh !important; max-height: 100dvh !important;
+    min-height: 100dvh !important;
+    padding: 14px 16px 64px !important;
+  }
+  /* Sits above the lyrics, clear of the last line thanks to the padding. */
+  #lpExitLyricsOnly {
+    position: fixed; z-index: 130001;
+    right: 14px; bottom: 14px;
+    display: none; align-items: center; gap: 7px;
+    min-height: 44px; padding: 0 16px;
+    border: 1px solid var(--sf-line-2, #d0d8ec); border-radius: 999px;
+    background: rgba(255,255,255,.94); backdrop-filter: blur(6px);
+    color: var(--sf-navy, #0f1c3f); font-size: .78rem; font-weight: 700;
+    box-shadow: 0 6px 20px rgba(15,28,63,.22); cursor: pointer;
+  }
+  .lp-lyrics-only #lpExitLyricsOnly { display: inline-flex; }
+
   .lp-badge-btn { position: relative; }
   .lp-btn-badge {
     position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px;
@@ -87039,8 +87126,10 @@ window.LHC_Install = (function() {
     /* instead of two loose rows of pills.                                   */
     #lyricsPreviewToolbar {
       margin-top: 8px !important;
-      padding: 6px !important;
-      gap: 5px !important;
+      /* 4px sides and a 3px gap are what let seven controls share one line
+         at 375px -- at 6px/5px they needed 313px of a 297px row. */
+      padding: 5px 4px !important;
+      gap: 3px !important;
       border: 1px solid var(--sf-line, #e3e8f4);
       border-radius: 12px;
       background: var(--sf-surface, #f7f9fd);
@@ -87096,7 +87185,7 @@ window.LHC_Install = (function() {
       display: flex; padding-top: 5px;
       border-top: 1px dashed var(--sf-line, #e3e8f4);
     }
-    #lpMoreToggle { display: inline-flex !important; margin-left: auto; }
+    #lpMoreToggle { display: inline-flex !important; margin-left: 0; }
 
     #lyricsPreviewToolbar {
       margin-top: 5px !important; padding: 5px !important; gap: 4px !important;
