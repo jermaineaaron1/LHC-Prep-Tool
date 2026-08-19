@@ -141,3 +141,66 @@ export function formatTime(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
+
+/** A stretch of the song worth going back to. */
+export interface WeakPassage {
+  start: number;
+  end: number;
+  /** Average points per note across the passage. */
+  average: number;
+  noteCount: number;
+  /** The words there, so the offer names something the singer recognises. */
+  words: string;
+}
+
+/**
+ * The phrase that went worst.
+ *
+ * A round tells a singer their score; it does not tell them where to go back
+ * to, and "sing it all again" is not practice. Grouping by the silences gives a
+ * musical unit rather than an arbitrary few seconds, and the phrase with the
+ * lowest average is the one worth twenty repetitions.
+ *
+ * Phrases of one note are ignored: a single fluffed entry is a moment, not a
+ * passage, and looping it teaches nothing.
+ */
+export function weakestPassage(
+  notes: SongNote[],
+  results: NoteScoreResult[],
+  partIndex: number,
+  gap = 0.7,
+): WeakPassage | null {
+  const mine = notes
+    .filter(note => note.part === partIndex || note.part === -1)
+    .sort((a, b) => a.start - b.start);
+  if (mine.length < 2) return null;
+
+  const scoreById = new Map(results.map(result => [result.noteId, result.points]));
+  // Only judge what was actually attempted: a round abandoned half way through
+  // would otherwise always nominate the part nobody reached.
+  const attempted = mine.filter(note => scoreById.has(note.id));
+  if (attempted.length < 2) return null;
+
+  const phrases: SongNote[][] = [[attempted[0]]];
+  for (let i = 1; i < attempted.length; i++) {
+    const previous = attempted[i - 1];
+    if (attempted[i].start - previous.end >= gap) phrases.push([attempted[i]]);
+    else phrases[phrases.length - 1].push(attempted[i]);
+  }
+
+  let worst: WeakPassage | null = null;
+  for (const phrase of phrases) {
+    if (phrase.length < 2) continue;
+    const total = phrase.reduce((sum, note) => sum + (scoreById.get(note.id) ?? 0), 0);
+    const average = total / phrase.length;
+    if (worst && average >= worst.average) continue;
+    worst = {
+      start: phrase[0].start,
+      end: phrase[phrase.length - 1].end,
+      average,
+      noteCount: phrase.length,
+      words: phrase.map(note => note.lyric).filter(Boolean).join(' ').replace(/-\s/g, ''),
+    };
+  }
+  return worst;
+}

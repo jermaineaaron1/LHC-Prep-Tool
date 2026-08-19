@@ -30,11 +30,15 @@ const SPEEDS = [0.5, 0.6, 0.7, 0.85, 1];
  * line, the same guide tones and the same pitch detection. Nothing here talks to
  * a session, which is what keeps the multiplayer path exactly as it was.
  */
-export function PracticeStage({ song, onExit }: { song: Song; onExit: () => void }) {
-  const [part, setPart] = useState(0);
+export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song: Song; onExit: () => void; initialLoop?: LoopRegion | null; initialPart?: number }) {
+  const [part, setPart] = useState(initialPart ?? 0);
   const [transpose, setTranspose] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [loop, setLoopRegion] = useState<LoopRegion | null>(null);
+  // Arriving straight from a round with a passage to fix: the loop is set and
+  // the playhead put at its start, so the singer presses play and is already
+  // on the bit that went wrong rather than hunting for it.
+  const appliedInitialRef = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [pitch, setPitch] = useState(0);
@@ -86,6 +90,15 @@ export function PracticeStage({ song, onExit }: { song: Song; onExit: () => void
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  useEffect(() => {
+    if (appliedInitialRef.current || !initialLoop) return;
+    appliedInitialRef.current = true;
+    transportRef.current.setLoop(initialLoop, Date.now());
+    transportRef.current.seek(initialLoop.start, Date.now());
+    setLoopRegion(transportRef.current.loopRegion);
+    setPosition(initialLoop.start);
+  }, [initialLoop]);
+
   // Guide tones, scheduled against the audio clock and re-armed each lap: the
   // second time round the loop must sound, and the scheduler remembers what it
   // has already played.
@@ -132,7 +145,7 @@ export function PracticeStage({ song, onExit }: { song: Song; onExit: () => void
   async function startMic() {
     if (pitchRef.current?.isRunning) return;
     setMic('checking');
-    const band = detectionRange(part, transpose);
+    const band = detectionRange(part, transpose, playableNotes(song));
     const engine = new PitchEngine({
       bufferSize: 2048, confidenceThreshold: .76, smoothing: .22,
       minHz: PitchEngine.midiToHz(band.minMidi),

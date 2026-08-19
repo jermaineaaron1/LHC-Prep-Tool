@@ -20,6 +20,9 @@ import { CountInOverlay } from './CountInOverlay';
 import { CanvasLane } from './CanvasLane';
 import { isPresent, lastSeenLabel } from '@/lib/vocal-hero/presence';
 import { PracticeStage } from './PracticeStage';
+import { weakestPassage } from '@/lib/vocal-hero/review';
+import type { WeakPassage } from '@/lib/vocal-hero/review';
+import type { LoopRegion } from '@/lib/vocal-hero/transport';
 import { rememberPlayerName, storedPlayerName } from './playerName';
 import { playEntranceCue } from '@/lib/vocal-hero/cueTones';
 import { GuidePlayer, rememberGuideAudio, storedGuideAudio } from '@/lib/vocal-hero/guideTones';
@@ -62,6 +65,8 @@ export default function VocalHeroHostPage() {
   // Practice runs entirely on its own transport with no session behind it,
   // which is what keeps the multiplayer round path exactly as it was.
   const [practiceSong, setPracticeSong] = useState<Song | null>(null);
+  const [practiceLoop, setPracticeLoop] = useState<LoopRegion | null>(null);
+  const [practicePart, setPracticePart] = useState<number | undefined>(undefined);
   const [soloPlayer, setSoloPlayer] = useState<SessionPlayer | null>(null);
   const [soloStarting, setSoloStarting] = useState<number | null>(null);
   const [soloMic, setSoloMic] = useState<'unknown' | 'checking' | 'ready' | 'blocked'>('unknown');
@@ -117,6 +122,9 @@ export default function VocalHeroHostPage() {
   const soloPhaseRef = useRef('Waiting');
   const soloLastPitchPaintRef = useRef(0);
   const cueContextRef = useRef<AudioContext | null>(null);
+  // The written line, UNtransposed: detectionRange applies the shift itself,
+  // so handing it already-shifted notes would count the transpose twice.
+  const notesRef = useRef<SongNote[]>([]);
   // The live pitch, for the canvas to draw at 60fps. The state copy below is
   // throttled for the text readout, which nobody reads that fast.
   const soloPitchValueRef = useRef(0);
@@ -298,7 +306,7 @@ export default function VocalHeroHostPage() {
     if (soloPitchRef.current?.isRunning) return true;
     setSoloMic('checking');
     const shift = transposeRef.current;
-    const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, minHz: PitchEngine.midiToHz(detectionRange(part, shift).minMidi), maxHz: PitchEngine.midiToHz(detectionRange(part, shift).maxMidi), onPitch: sample => {
+    const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, minHz: PitchEngine.midiToHz(detectionRange(part, shift, notesRef.current).minMidi), maxHz: PitchEngine.midiToHz(detectionRange(part, shift, notesRef.current).maxMidi), onPitch: sample => {
       if (performance.now() - soloLastPitchPaintRef.current > 33) { setSoloPitch(sample.frequency); soloLastPitchPaintRef.current = performance.now(); }
       // This sample is the sound of a moment already past: the beat took time to
       // reach the singer's ears, and their answer took time to reach the analyser.
@@ -427,6 +435,7 @@ export default function VocalHeroHostPage() {
   }
 
   const notes = useMemo(() => song ? playableNotes(song) : [], [song]);
+  notesRef.current = notes;
   const soloNotes = useMemo(() => transposeNotes(notes, transpose), [notes, transpose]);
   // The starting notes, sounded once in each countdown: once while the round is
   // being scheduled, and again once the in-game count begins. Two hearings
@@ -485,13 +494,22 @@ export default function VocalHeroHostPage() {
         ? <SoloCountdownStage song={song} part={soloPart} phase={timeline.phase} mic={soloMic} />
         : <CountdownStage song={song} players={players} phase={timeline.phase} />
     : session?.status === 'ended' && song && soloReview && soloPart !== null
-      ? <SoloReviewStage song={song} part={soloPart} score={soloScore} review={soloReview} warmUp={warmUp} playerName={soloPlayer?.player_name ?? 'Solo Singer'} onDone={returnToLibrary} />
+      ? <SoloReviewStage song={song} part={soloPart} score={soloScore} review={soloReview} warmUp={warmUp} playerName={soloPlayer?.player_name ?? 'Solo Singer'}
+        weakest={soloPart === null ? null : weakestPassage(soloNotes, resultsRef.current, soloPart)}
+        onPractiseWeakest={passage => {
+          /* A score says how it went; it does not say where to go back to, and
+             "sing it all again" is not practice. This opens the phrase that went
+             worst, already looping, with the playhead on it. */
+          setPracticeLoop({ start: passage.start, end: passage.end });
+          setPracticePart(soloPart ?? 0);
+          setPracticeSong(song);
+        }} onDone={returnToLibrary} />
     : session?.status === 'ended' && song
       ? <HostRoundEndStage song={song} players={players} sections={sections} onAgain={() => void start()} onDone={returnToLibrary} />
     : session && song
       ? <Lobby song={song} session={session} players={players} phoneUrl={phoneUrl} onStart={start} onStartSolo={startSolo} soloStarting={soloStarting} difficulty={difficulty} setDifficulty={setDifficulty} latencySec={latencySec} applyLatency={applyLatency} transpose={transpose} setTranspose={setTranspose} warmUp={warmUp} setWarmUp={setWarmUp} soloName={soloName} setSoloName={setSoloName} />
       : practiceSong
-        ? <PracticeStage song={practiceSong} onExit={() => setPracticeSong(null)} />
+        ? <PracticeStage song={practiceSong} initialLoop={practiceLoop} initialPart={practicePart} onExit={() => { setPracticeSong(null); setPracticeLoop(null); setPracticePart(undefined); }} />
         : <SongPicker songs={songs} onChoose={chooseSong} onEdit={setEditingSong} onCreate={() => setShowCreateSong(true)} onScores={setScoresFor} onPractice={setPracticeSong} />;
 
   return <main className="vh-app min-h-screen text-slate-100">
@@ -585,8 +603,9 @@ function SoloLiveStage({ song, notes, transpose, warmUp, part, elapsed, getElaps
 /** Where a finished solo round lands. It used to drop straight back to the
  * lobby, so everything the round had just measured was gone before the singer
  * could read any of it. */
-function SoloReviewStage({ song, part, score, review, warmUp, playerName, onDone }: {
+function SoloReviewStage({ song, part, score, review, warmUp, playerName, onDone, weakest, onPractiseWeakest }: {
   song: Song; part: number; score: number; review: RoundReview; warmUp: boolean; playerName: string; onDone: () => void;
+  weakest: WeakPassage | null; onPractiseWeakest: (passage: WeakPassage) => void;
 }) {
   return <section className="mx-auto max-w-[900px] px-5 py-10">
     <div className="vh-panel p-6">
@@ -600,7 +619,7 @@ function SoloReviewStage({ song, part, score, review, warmUp, playerName, onDone
       </div>
       <div className="mt-6"><RoundReviewPanel review={review} colour={COLOURS[part]} /></div>
       {!warmUp && <div className="mt-4"><HighScoreBoard songId={song.id} highlight={[playerName]} /></div>}
-      <div className="mt-6 flex justify-end"><button onClick={onDone} className="vh-primary-button min-w-40">Back to the library</button></div>
+      <div className="mt-6 flex justify-end">{weakest && <button onClick={() => onPractiseWeakest(weakest)} title="Loop just this phrase, at whatever speed you like" className="vh-outline-button min-w-40 border-emerald-300/40 text-emerald-100">⟲ Practise the weakest phrase</button>}<button onClick={onDone} className="vh-primary-button min-w-40">Back to the library</button></div>
     </div>
   </section>;
 }
