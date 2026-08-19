@@ -71,6 +71,13 @@ export class PitchEngine {
    *  is not going to hand back sound on the fourth, and an uncapped loop would
    *  strobe the permission indicator for ever. */
   private recoverCount = 0;
+  /** Microphones already tried and found silent. The commonest
+   *  granted-but-silent case on a phone is a DEFAULT input that does not
+   *  deliver -- a Bluetooth route with its microphone off is the classic --
+   *  so retrying the same default for ever can never succeed. Recovery walks
+   *  the device list instead. */
+  private triedDeviceIds = new Set<string>();
+  private preferredDeviceId: string | null = null;
 
   // Scratch space for the analysis, allocated once. The detector runs on every
   // animation frame; allocating these per frame handed the garbage collector a
@@ -122,12 +129,14 @@ export class PitchEngine {
     }
 
     try {
+      const device = this.preferredDeviceId ? { deviceId: { exact: this.preferredDeviceId } } : null;
       this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: relaxed ? true : {
+        audio: relaxed ? (device ?? true) : {
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl:  false,
           channelCount: 1,
+          ...device,
         },
       });
     } catch (cause) {
@@ -231,7 +240,24 @@ export class PitchEngine {
     if (this.recovering || this.recoverCount >= 3) return;
     this.recovering = true;
     this.recoverCount += 1;
+    const failed = this.stream?.getAudioTracks()[0]?.getSettings?.().deviceId;
+    if (failed) this.triedDeviceIds.add(failed);
     this.stop();
+    // The first retry stays on the default input with the browser's own
+    // processing, for the devices that only speak that dialect. From the
+    // second, move to a microphone not yet tried: 'default' and
+    // 'communications' are aliases of physical devices already covered by
+    // their real ids, so they are skipped rather than retried under new names.
+    if (this.recoverCount >= 2) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const next = devices.find(d => d.kind === 'audioinput' && d.deviceId
+          && d.deviceId !== 'default' && d.deviceId !== 'communications'
+          && !this.triedDeviceIds.has(d.deviceId));
+        this.preferredDeviceId = next?.deviceId ?? null;
+        if (next) this.triedDeviceIds.add(next.deviceId);
+      } catch { this.preferredDeviceId = null; }
+    }
     try { await this.start(true); } catch { /* surfaced through isRunning */ }
     this.recovering = false;
   }
@@ -259,6 +285,13 @@ export class PitchEngine {
   get trackInfo(): { label: string; muted: boolean; state: string } | null {
     const track = this.stream?.getAudioTracks()[0];
     return track ? { label: track.label, muted: track.muted, state: track.readyState } : null;
+  }
+
+  /** How many times the engine has re-acquired the microphone, and on which
+   *  input it currently sits. For the report a singer sends when it all stays
+   *  silent anyway. */
+  get recoveryInfo(): { attempts: number; deviceId: string | null } {
+    return { attempts: this.recoverCount, deviceId: this.stream?.getAudioTracks()[0]?.getSettings?.().deviceId ?? null };
   }
 
   stop(): void {
