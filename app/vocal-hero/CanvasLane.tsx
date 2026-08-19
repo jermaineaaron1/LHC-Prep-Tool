@@ -27,7 +27,7 @@ function withAlpha(hex: string, alpha: number): string {
 }
 
 export function CanvasLane({
-  notes, partIndex, colour, getPosition, getPitchHz, trail, hitNotes,
+  notes, partIndex, colour, getPosition, getPitchHz, getLevel, trail, hitNotes,
   lookAheadSeconds = 7, height = 260, partName, showLyrics = true, playerCount,
 }: {
   notes: SongNote[];
@@ -36,6 +36,9 @@ export function CanvasLane({
   /** Read every frame. Keeping the playhead out of React state is the point. */
   getPosition: () => number;
   getPitchHz?: () => number;
+  /** Input loudness, 0-1. Drawn on the lane so a singer can see the app is
+   *  hearing them even in the moments before a pitch locks. */
+  getLevel?: () => number;
   trail?: TrailSample[];
   hitNotes?: Record<string, boolean>;
   lookAheadSeconds?: number;
@@ -58,8 +61,8 @@ export function CanvasLane({
   const boxRef = useRef<HTMLDivElement | null>(null);
   // The draw loop must not be torn down and rebuilt when a prop changes, or a
   // re-render would stutter the animation. It reads the latest props from here.
-  const propsRef = useRef({ bounds, laneNotes, colour, getPosition, getPitchHz, trail, hitNotes, lookAheadSeconds, showLyrics });
-  propsRef.current = { bounds, laneNotes, colour, getPosition, getPitchHz, trail, hitNotes, lookAheadSeconds, showLyrics };
+  const propsRef = useRef({ bounds, laneNotes, colour, getPosition, getPitchHz, getLevel, trail, hitNotes, lookAheadSeconds, showLyrics });
+  propsRef.current = { bounds, laneNotes, colour, getPosition, getPitchHz, getLevel, trail, hitNotes, lookAheadSeconds, showLyrics };
 
   useEffect(() => {
     const canvas = canvasRef.current, box = boxRef.current;
@@ -201,7 +204,14 @@ export function CanvasLane({
       context.shadowBlur = 0;
 
       // ---- the voice, on the line where it belongs
+      //
+      // Three states, drawn differently, because a singer needs to tell them
+      // apart at a glance while singing: a locked pitch, sound arriving without
+      // a pitch yet, and nothing reaching the app at all.
       const hz = p.getPitchHz?.() ?? 0;
+      const level = p.getLevel?.() ?? 0;
+      const hearing = level > 0.002;
+
       if (hz > 0) {
         const y = Math.max(8, Math.min(drawHeight - 8, yForMidi(hzToMidi(hz), low, high, drawHeight)));
         context.beginPath();
@@ -214,6 +224,40 @@ export function CanvasLane({
         context.fill();
         context.stroke();
         context.shadowBlur = 0;
+        // The note being sung, written beside the dot: the singer should never
+        // have to look away from the lane to find out what they are on.
+        const name = midiNoteName(Math.round(hzToMidi(hz)));
+        context.font = '700 12px ui-sans-serif, system-ui';
+        const textWidth = context.measureText(name).width;
+        context.fillStyle = 'rgba(4, 9, 20, .8)';
+        roundRect(context, cursorX + 12, y - 10, textWidth + 10, 20, 5);
+        context.fill();
+        context.fillStyle = '#ffffff';
+        context.fillText(name, cursorX + 17, y + 4);
+      } else if (hearing) {
+        // Sound is arriving but nothing has locked. A pulse says "heard, still
+        // deciding" rather than leaving the lane looking dead.
+        const pulse = 7 + Math.sin(Date.now() / 140) * 2.5;
+        context.beginPath();
+        context.arc(cursorX, drawHeight / 2, pulse, 0, Math.PI * 2);
+        context.strokeStyle = 'rgba(251, 191, 36, .8)';
+        context.lineWidth = 2;
+        context.stroke();
+      }
+
+      // ---- the input meter, always visible
+      //
+      // Without it, "the app cannot hear me" and "I am not singing" look
+      // identical, which is exactly how a silent microphone went unnoticed.
+      const meterHeight = drawHeight - 16;
+      const filled = Math.min(1, level * 45) * meterHeight;
+      context.fillStyle = 'rgba(255,255,255,.07)';
+      roundRect(context, width - 9, 8, 4, meterHeight, 2);
+      context.fill();
+      if (filled > 1) {
+        context.fillStyle = hz > 0 ? 'rgba(110, 231, 183, .95)' : 'rgba(251, 191, 36, .9)';
+        roundRect(context, width - 9, 8 + (meterHeight - filled), 4, filled, 2);
+        context.fill();
       }
 
       frame = requestAnimationFrame(draw);
