@@ -5783,15 +5783,22 @@
               </div>
             </div>
             <div class="sf-primary-filter">
-              <label class="form-label" for="filterTempo"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> Feel</label>
-              <select id="filterTempo" class="form-input form-select text-sm py-2">
+              <label class="form-label"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> Feel</label>
+              <div class="theme-multiselect" style="position:relative;">
+                <div id="filterTempoDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose feel filter" onclick="toggleFilterTempoDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterTempoDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
+                <div id="filterTempoDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
+              </div>
+              <!-- Kept, hidden: applyFiltersAndSort, clearSongSearch and the
+                   mobile-sheet sync all read this element by id. The visible
+                   control above writes here and fires change. -->
+              <select id="filterTempo" class="hidden" aria-hidden="true" tabindex="-1">
                 <option value="">All</option>
               </select>
             </div>
-            <div class="sf-more-filter">
-              <label class="form-label">Season</label>
+            <div class="sf-primary-filter">
+              <label class="form-label"><i class="fa-solid fa-leaf" aria-hidden="true"></i> Season</label>
               <div class="theme-multiselect" style="position:relative;">
-                <div id="filterSeasonDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose season filter" onclick="toggleFilterSeasonDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterSeasonDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All Seasons</div>
+                <div id="filterSeasonDisplay" class="form-input form-select text-sm py-2 cursor-pointer" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose season filter" onclick="toggleFilterSeasonDropdown()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleFilterSeasonDropdown();}" style="user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">All</div>
                 <div id="filterSeasonDropdown" class="theme-dropdown hidden" style="z-index:200;min-width:180px;"></div>
               </div>
             </div>
@@ -10882,6 +10889,7 @@ var SF_FILTER_MENUS = [
   { display: 'filterKeyDisplay',       dropdown: 'filterKeyDropdown' },
   { display: 'filterStyleDisplay',     dropdown: 'filterStyleDropdown' },
   { display: 'filterSeasonDisplay',    dropdown: 'filterSeasonDropdown' },
+  { display: 'filterTempoDisplay',     dropdown: 'filterTempoDropdown' },
   { display: 'filterScriptureDisplay', dropdown: 'filterScriptureDropdown' }
 ];
 
@@ -11205,7 +11213,7 @@ function _msChange(changedCb, cbClass) {
   } else if (cbClass === 'filter-season-cb') {
     window.LHC_STATE.filters.seasons = selected;
     var d = document.getElementById('filterSeasonDisplay');
-    if (d) d.textContent = selected.length === 0 ? 'All Seasons' : selected.length <= 2 ? selected.join(', ') : selected.slice(0,2).join(', ') + ' +' + (selected.length-2) + ' more';
+    if (d) d.textContent = selected.length === 0 ? 'All' : selected.length <= 2 ? selected.join(', ') : selected.slice(0,2).join(', ') + ' +' + (selected.length-2) + ' more';
   } else if (cbClass === 'filter-scripture-cb') {
     window.LHC_STATE.filters.scriptures = selected;
     var d = document.getElementById('filterScriptureDisplay');
@@ -11233,6 +11241,57 @@ function toggleFilterSeasonDropdown() {
   if (dd) dd.classList.toggle('hidden');
   _sfSyncFilterAria();
 }
+// ============ Feel (tempo) filter -- same control as Theme ============
+// Theme is a multi-select; Feel stays SINGLE-select, which is how it has
+// always behaved. What is shared is the control: the same pill, the same
+// dropdown panel, the same open/close and Escape handling, so the row reads
+// as one family instead of one custom pill beside a native <select>.
+function toggleFilterTempoDropdown() {
+  var dd = document.getElementById('filterTempoDropdown');
+  if (dd) dd.classList.toggle('hidden');
+  _sfSyncFilterAria();
+}
+window.toggleFilterTempoDropdown = toggleFilterTempoDropdown;
+
+function populateTempoFilterDropdown(tempos) {
+  var dd = document.getElementById('filterTempoDropdown');
+  if (!dd) return;
+  var sel = document.getElementById('filterTempo');
+  var current = sel ? sel.value : '';
+  var rows = [{ value: '', label: 'All' }].concat((tempos || []).map(function(x) {
+    return { value: x, label: x };
+  }));
+  dd.innerHTML = rows.map(function(r, i) {
+    var on = (r.value === current);
+    return '<div class="sf-single-opt' + (on ? ' is-on' : '') + '" role="option" tabindex="0"' +
+      ' aria-selected="' + (on ? 'true' : 'false') + '"' +
+      ' onclick="setTempoFilter(this.getAttribute(\'data-v\'))"' +
+      ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();setTempoFilter(this.getAttribute(\'data-v\'));}"' +
+      ' data-v="' + escapeHtml(r.value) + '"' +
+      (i === 0 ? ' style="border-bottom:1px solid #e2e8f0;"' : '') + '>' +
+      '<span>' + escapeHtml(r.label) + '</span>' +
+      (on ? '<i class="fa-solid fa-check" aria-hidden="true"></i>' : '') +
+      '</div>';
+  }).join('');
+}
+window.populateTempoFilterDropdown = populateTempoFilterDropdown;
+
+function setTempoFilter(value) {
+  var sel = document.getElementById('filterTempo');
+  var disp = document.getElementById('filterTempoDisplay');
+  if (sel) {
+    sel.value = value || '';
+    // Everything downstream listens on the select, not on this control.
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  if (disp) disp.textContent = value ? value : 'All';
+  var dd = document.getElementById('filterTempoDropdown');
+  if (dd) dd.classList.add('hidden');
+  populateTempoFilterDropdown((window.LHC_STATE && LHC_STATE.songMeta && LHC_STATE.songMeta.tempos) || []);
+  _sfSyncFilterAria();
+}
+window.setTempoFilter = setTempoFilter;
+
 function populateSeasonFilterDropdown(seasons) {
   var dd = document.getElementById('filterSeasonDropdown');
   if (!dd) return;
@@ -12937,7 +12996,8 @@ function resetMobileSheetFilters() {
     filterThemeDisplay: 'All',
     filterKeyDisplay: 'All Keys',
     filterStyleDisplay: 'All Styles',
-    filterSeasonDisplay: 'All Seasons',
+    filterSeasonDisplay: 'All',
+    filterTempoDisplay: 'All',
     filterScriptureDisplay: 'All'
   };
   Object.keys(labels).forEach(function(id) {
@@ -17303,6 +17363,7 @@ window.loadEditSongData = function(song) {
     populateKeyFilterDropdown(STATE.songMeta.keys);
     populateStyleFilterDropdown(); // custom style dropdown (Hymn / Contemporary)
     fillSelectOptions($('filterTempo'), STATE.songMeta.tempos, 'All');
+    populateTempoFilterDropdown(STATE.songMeta.tempos);
     populateSeasonFilterDropdown(STATE.songMeta.seasons);
     // Scripture: initialise the bible picker display
     _updateScriptureDisplay();
@@ -19034,7 +19095,8 @@ window.loadEditSongData = function(song) {
     d = document.getElementById('filterThemeDisplay'); if (d) d.textContent = 'All';
     d = document.getElementById('filterKeyDisplay'); if (d) d.textContent = 'All Keys';
     d = document.getElementById('filterStyleDisplay'); if (d) d.textContent = 'All Styles';
-    d = document.getElementById('filterSeasonDisplay'); if (d) d.textContent = 'All Seasons';
+    d = document.getElementById('filterSeasonDisplay'); if (d) d.textContent = 'All';
+    d = document.getElementById('filterTempoDisplay'); if (d) d.textContent = 'All';
     d = document.getElementById('filterScriptureDisplay'); if (d) d.textContent = 'All';
     d = document.getElementById('filterScriptureChips'); if (d) d.innerHTML = '';
     // Re-populate dropdowns to reset checkboxes
@@ -19042,6 +19104,7 @@ window.loadEditSongData = function(song) {
     populateSeasonFilterDropdown(STATE.songMeta.seasons);
     populateStyleFilterDropdown();
     populateThemeFilterDropdown(STATE.songMeta.themes);
+    populateTempoFilterDropdown(STATE.songMeta.tempos);
     renderSongs(false);
   }
 
@@ -86841,6 +86904,79 @@ window.LHC_Install = (function() {
     /* The whole card, tightened. */
     #sfSearchCard { padding: 8px !important; }
     #sfCommandTopRow, #sfCommandHeader > div { margin-bottom: 0 !important; }
+  }
+
+  /* ====================================================================== */
+  /* FILTER ROW — one control, four times                                   */
+  /* ====================================================================== */
+  /* The value sits dead centre in every filter, so "All" lines up across
+     Theme, Feel, Season and Scripture instead of each one starting wherever
+     its own padding left it. */
+  #songFinderView #filterThemeDisplay,
+  #songFinderView #filterTempoDisplay,
+  #songFinderView #filterSeasonDisplay,
+  #songFinderView #filterScriptureDisplay,
+  #songFinderView #filterKeyDisplay,
+  #songFinderView #filterStyleDisplay {
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+  }
+
+  /* Single-select rows in the Feel panel. Same padding and hover as the
+     multi-select rows next door, minus the checkbox. */
+  .sf-single-opt {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 7px 12px; font-size: .85rem; cursor: pointer;
+    color: var(--sf-ink, #1a2547);
+  }
+  .sf-single-opt:hover, .sf-single-opt:focus-visible { background: var(--sf-tint, #eef2ff); outline: none; }
+  .sf-single-opt.is-on { font-weight: 700; color: var(--sf-blue-deep, #3b5bdb); }
+  .sf-single-opt i { font-size: .78rem; }
+
+  /* ====================================================================== */
+  /* LIBRARY METRICS — a footnote, not a headline                           */
+  /* Three big numbers in bordered boxes read like the point of the page.    */
+  /* They are a nice-to-know, so they become one quiet line.                 */
+  /* ====================================================================== */
+  #songFinderView .sf-library-metrics {
+    margin-top: 6px; border: 0; border-radius: 0; background: none; box-shadow: none;
+    gap: 14px; align-items: baseline; flex-wrap: wrap;
+  }
+  #songFinderView .sf-library-metrics > div {
+    flex-direction: row; align-items: baseline; gap: 4px;
+    padding: 0; border-right: 0; min-width: 0;
+  }
+  #songFinderView .sf-library-metrics strong {
+    font-size: .72rem; font-weight: 700; color: var(--sf-muted, #5f6b91);
+  }
+  #songFinderView .sf-library-metrics span {
+    font-size: .68rem; margin-top: 0; color: var(--sf-muted, #5f6b91);
+  }
+  /* "Ready for Orders & Songbooks" is reassurance, not data. */
+  #songFinderView .sf-library-metrics .sf-metric-note { display: none; }
+
+  @media (max-width: 768px) {
+    /* Four filters wrap two-up rather than squeezing into one line. */
+    #songFinderView #sfFilterGrid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
+    /* On a phone the strip is reparented into #sfStatsMobileSlot, and the
+       rules scoped to that slot carry two ids -- they outrank a single-id
+       selector no matter how late it appears. Matching that specificity is
+       what actually turns the three boxed numbers into one quiet line. */
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      border: 0; border-radius: 0; background: none; box-shadow: none;
+      margin-top: 5px; overflow: visible; align-items: baseline;
+    }
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics > div {
+      flex-direction: row; align-items: baseline; gap: 4px;
+      padding: 0; border-right: 0; min-width: 0; background: none;
+    }
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics strong,
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics span {
+      font-size: .64rem; font-weight: 700; color: var(--sf-muted, #5f6b91); margin-top: 0;
+    }
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics span { font-weight: 600; }
   }
 
   .lp-badge-btn { position: relative; }
