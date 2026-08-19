@@ -50,6 +50,10 @@ function classify(cause: unknown): MicError {
 export class PitchEngine {
   private context:  AudioContext | null = null;
   private analyser: AnalyserNode  | null = null;
+  /** Raw-sample capture, preferred over the analyser wherever it exists. */
+  private processor: ScriptProcessorNode | null = null;
+  private samplesFresh = false;
+  private capture: 'direct' | 'analyser' = 'analyser';
   private source:   MediaStreamAudioSourceNode | null = null;
   private stream:   MediaStream   | null = null;
   private animFrame: number | null = null;
@@ -166,25 +170,42 @@ export class PitchEngine {
     // Mobile also suspends a context whenever the page goes to the background,
     // and does not resume it on return.
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibility);
-    this.analyser = this.context.createAnalyser();
-    this.analyser.fftSize        = this.opts.bufferSize;
-    this.analyser.smoothingTimeConstant = 0; // we do our own smoothing
-
     this.source = this.context.createMediaStreamSource(this.stream);
-    this.source.connect(this.analyser);
+    this.buffer = new Float32Array(this.opts.bufferSize) as Float32Array<ArrayBuffer>;
 
-    // An analyser alone is a dead end: several mobile browsers do not PULL
-    // audio through a graph with no path to the destination, so the analyser
-    // reads silence for ever while the microphone light stays on and the stream
-    // is live. Desktop pulls it regardless, which is why this only ever showed
-    // up on phones. The gain is zero, so nothing is heard -- the connection
-    // exists solely to make the graph run.
+    // A graph with no path to the destination is not pulled on several mobile
+    // browsers, so whatever taps it reads silence for ever while the
+    // microphone light stays on. The gain is zero: nothing is heard, the
+    // connection exists solely to make the graph run.
     this.sink = this.context.createGain();
     this.sink.gain.value = 0;
-    this.analyser.connect(this.sink);
     this.sink.connect(this.context.destination);
 
-    this.buffer    = new Float32Array(this.opts.bufferSize) as Float32Array<ArrayBuffer>;
+    // Read the samples DIRECTLY rather than through an AnalyserNode. The
+    // analyser has now failed twice in the field in ways the API cannot
+    // report: graphs it silently does not pull, and one device whose
+    // getFloatTimeDomainData delivered values around 110 on a scale that ends
+    // at 1.0 -- not audio at all. A ScriptProcessorNode hands over the actual
+    // buffers flowing through the graph; deprecated, but it works on every
+    // browser that has ever shipped Web Audio, which is precisely the point.
+    // The analyser remains only as the fallback for a runtime with no SPN.
+    try {
+      this.processor = this.context.createScriptProcessor(this.opts.bufferSize, 1, 1);
+      this.processor.onaudioprocess = event => {
+        this.buffer?.set(event.inputBuffer.getChannelData(0));
+        this.samplesFresh = true;
+      };
+      this.source.connect(this.processor);
+      this.processor.connect(this.sink);
+      this.capture = 'direct';
+    } catch {
+      this.analyser = this.context.createAnalyser();
+      this.analyser.fftSize = this.opts.bufferSize;
+      this.analyser.smoothingTimeConstant = 0; // we do our own smoothing
+      this.source.connect(this.analyser);
+      this.analyser.connect(this.sink);
+      this.capture = 'analyser';
+    }
     this.startTime = this.context.currentTime;
     this.allocate(this.context.sampleRate);
 
@@ -276,6 +297,13 @@ export class PitchEngine {
     return this.lastDcOffset;
   }
 
+  /** Which tap the samples come through: 'direct' (ScriptProcessorNode, the
+   *  actual buffers) or 'analyser' (the node that has twice proven
+   *  untrustworthy in the field). */
+  get captureMode(): 'direct' | 'analyser' {
+    return this.capture;
+  }
+
   /** What rate this device actually gave us. Phones vary, and the analysis
    *  is sized from it, so it is worth being able to see. */
   get sampleRate(): number {
@@ -310,6 +338,8 @@ export class PitchEngine {
       this.animFrame = null;
     }
     this.source?.disconnect();
+    if (this.processor) { this.processor.onaudioprocess = null; this.processor.disconnect(); this.processor = null; }
+    this.samplesFresh = false;
     this.sink?.disconnect();
     this.stream?.getAudioTracks()[0]?.removeEventListener('ended', this.onTrackEnded);
     this.stream?.getTracks().forEach(t => t.stop());
@@ -330,9 +360,23 @@ export class PitchEngine {
   // ── Analysis loop ─────────────────────────────────────────────────────────
 
   private loop = (): void => {
-    if (!this.analyser || !this.buffer || !this.context) return;
+    if (!this.buffer || !this.context) return;
 
-    this.analyser.getFloatTimeDomainData(this.buffer);
+    if (this.capture === 'direct') {
+      // The processor fills the buffer on the audio thread's schedule. Before
+      // its first delivery there is nothing to analyse; skipping the frame is
+      // honest, and the silence watchdog still counts it.
+      if (!this.samplesFresh) {
+        this.lastLevel = 0;
+        this.silentFrames += 1;
+        if (this.silentFrames >= 90 && !this.recovering) void this.recover();
+        if (this.context) this.animFrame = requestAnimationFrame(this.loop);
+        return;
+      }
+    } else {
+      if (!this.analyser) return;
+      this.analyser.getFloatTimeDomainData(this.buffer);
+    }
 
     // Some Android audio stacks hand the microphone over with an enormous DC
     // offset when voice processing is asked off -- the field report that

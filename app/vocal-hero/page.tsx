@@ -636,6 +636,7 @@ function SoloMicDiag({ getEngine, getLevel }: { getEngine: () => PitchEngine | n
         'level ' + getLevel().toFixed(4),
         (engine.sampleRate ? (engine.sampleRate / 1000).toFixed(1) + ' kHz' : 'no context'),
         'dc ' + engine.dcOffset.toFixed(3),
+        'capture ' + engine.captureMode,
         'audio ' + (engine.isSuspended ? 'PAUSED' : 'running'),
         track ? `input "${track.label || 'unnamed'}"${track.muted ? ' MUTED BY OS' : ''} ${track.state}` : 'no track',
         env.standalone ? 'installed app' : 'browser tab',
