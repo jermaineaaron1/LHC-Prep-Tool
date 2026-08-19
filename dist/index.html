@@ -3834,20 +3834,37 @@
       }
       #lyricsPreviewToolbar > div::-webkit-scrollbar { display: none; }
       /* The action row reads as a distinct second line, not a wrapped tail. */
-      #lyricsPreviewToolbar > div:last-child {
+      #lyricsPreviewToolbar > .lp-row-actions {
         padding-top: 6px;
         border-top: 1px solid var(--sf-line, #e3e8f4);
       }
       /* 44px is the iOS minimum tap target; these were 30px. Scoped to the
          phone breakpoint so the desktop density pass is untouched. */
-      #lyricsPreviewToolbar .lhc-pill-button,
-      #lyricsPreviewToolbar button {
+      /* :not(.hidden) matters -- an id-scoped display rule outranks the
+         .hidden utility, which is what made Save and Cancel appear on the
+         phone while not editing. */
+      #lyricsPreviewToolbar .lhc-pill-button:not(.hidden),
+      #lyricsPreviewToolbar button:not(.hidden) {
         white-space: nowrap; flex-shrink: 0;
         font-size: 0.72rem !important;
         padding: 6px 12px !important;
         min-height: 44px;
         display: inline-flex; align-items: center; justify-content: center;
       }
+      /* The folded group. Closed by default so the lyrics start higher. */
+      #lyricsPreviewToolbar #lpMoreActions.lp-row-more { display: none; }
+      #lyricsPreviewHeaderPanel.lp-more-open #lpMoreActions.lp-row-more {
+        display: flex;
+        padding-top: 6px;
+        border-top: 1px dashed var(--sf-line, #e3e8f4);
+      }
+      #lyricsPreviewToolbar #lpMoreToggle { display: inline-flex; margin-left: auto; }
+      /* Theme/season chips and the usage line are reference data, not things
+         you reach for mid-song. They ride the same fold, so the lyrics start
+         higher. Key stays visible -- that one gets read at a glance. */
+      #lpUsageLine, #lpBadges { display: none; }
+      #lyricsPreviewHeaderPanel.lp-more-open #lpUsageLine { display: block; }
+      #lyricsPreviewHeaderPanel.lp-more-open #lpBadges { display: flex; }
       /* Hide icons inside toolbar to save space (text labels are enough) */
       #lyricsPreviewToolbar .lhc-pill-button i,
       #lyricsPreviewToolbar button i { display: none !important; }
@@ -5869,29 +5886,25 @@
           </div>
         </div>
         <div id="lyricsPreviewToolbar" class="flex items-center justify-between mt-4 flex-wrap gap-2">
-          <div class="flex gap-2">
+          <!-- Row 1: what you are looking at. -->
+          <div class="flex gap-2 lp-row-tabs">
             <button id="lyricsPreviewLyricsBtn" class="lhc-pill-button lhc-pill-button-active text-sm" onclick="switchLyricsPreviewMode('lyrics')">
               <i class="fa-solid fa-file-lines mr-1"></i> Lyrics
             </button>
             <button id="lyricsPreviewChordsBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('chords')">
               <i class="fa-solid fa-guitar mr-1"></i> Chords
             </button>
-            <button id="lyricsPreviewYoutubeBtn" class="lhc-pill-button text-sm lp-badge-btn" style="display:none;" onclick="lyricsPreviewYoutube()" title="Watch an attached video">
+            <button id="lyricsPreviewYoutubeBtn" class="lhc-pill-button text-sm lp-badge-btn" style="display:none;background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="lyricsPreviewYoutube()" title="Watch an attached video">
               <i class="fa-brands fa-youtube mr-1"></i> YouTube
               <span id="lyricsPreviewYoutubeBadge" class="lp-btn-badge" style="display:none;"></span>
             </button>
             <button id="lyricsPreviewResourcesBtn" class="lhc-pill-button text-sm" style="display:none;" onclick="switchLyricsPreviewMode('resources')">
               <i class="fa-solid fa-folder-open mr-1"></i> Resources
             </button>
-            <button id="lyricsPreviewHistoryBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('history')">
-              <i class="fa-solid fa-clock-rotate-left mr-1"></i> History
-            </button>
-            <button id="lyricsPreviewTwoColBtn" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewTwoCol()" title="Toggle 2-column layout" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
-              <i class="fa-solid fa-table-columns mr-1"></i> 2 Col
-            </button>
           </div>
-          <div class="flex gap-2 items-center flex-wrap">
-             <button id="lyricsPreviewEditBtn" class="lhc-pill-button text-sm" title="Edit lyrics inline" onclick="lyricsPreviewToggleInlineEdit(true)" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;">
+          <!-- Row 2: the actions worth reaching without opening anything. -->
+          <div class="flex gap-2 items-center flex-wrap lp-row-actions">
+            <button id="lyricsPreviewEditBtn" class="lhc-pill-button text-sm" title="Edit lyrics inline" onclick="lyricsPreviewToggleInlineEdit(true)" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;">
               <i class="fa-solid fa-pen-to-square mr-1"></i> Edit
             </button>
             <button id="lyricsPreviewSaveBtn" class="lhc-pill-button text-sm hidden" title="Save lyrics" onclick="lyricsPreviewSaveInlineEdit()" style="background:#ecfdf5;border-color:#6ee7b7;color:#047857;">
@@ -5899,6 +5912,31 @@
             </button>
             <button id="lyricsPreviewCancelEditBtn" class="lhc-pill-button text-sm hidden" title="Cancel editing" onclick="lyricsPreviewCancelInlineEdit()" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
               <i class="fa-solid fa-xmark mr-1"></i> Cancel
+            </button>
+            <!-- View Doc button: shown when song has attachments -->
+            <button id="lyricsPreviewDocBtn" class="lhc-pill-button text-sm lp-badge-btn" style="display:none;background:#f0fdf4;border-color:#86efac;color:#15803d;" onclick="lyricsPreviewViewDoc()" title="View attached documents">
+              <i class="fa-solid fa-file-lines mr-1"></i> View Doc
+              <span id="lyricsPreviewDocBadge" class="lp-btn-badge" style="display:none;background:#15803d;"></span>
+            </button>
+            <!-- Add Doc button: always shown for adding a document/score link -->
+            <button id="lyricsPreviewAddDocBtn" class="lhc-pill-button text-sm" style="background:#f0fdf4;border-color:#86efac;color:#15803d;" onclick="lyricsPreviewAddDoc()" title="Attach a music score or document link">
+              <i class="fa-solid fa-paperclip mr-1"></i> Add Doc
+            </button>
+            <input type="file" id="lpDocFileInput" style="display:none" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="lpHandleDocFile(this)">
+            <input type="file" id="lpDocCameraInput" style="display:none" accept="image/*" capture="environment" onchange="lpHandleDocFile(this)">
+            <button id="lpMoreToggle" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewMore()" aria-expanded="false" aria-controls="lpMoreActions" title="More actions" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
+              <i class="fa-solid fa-ellipsis mr-1"></i> More <i id="lpMoreChevron" class="fa-solid fa-chevron-down" style="font-size:0.6em;margin-left:3px;"></i>
+            </button>
+          </div>
+          <!-- Row 3: everything else, folded away on a phone so the lyrics win
+               the screen. On desktop this is display:contents and the buttons
+               sit in the toolbar exactly as they always did. -->
+          <div id="lpMoreActions" class="flex gap-2 items-center flex-wrap lp-row-more">
+            <button id="lyricsPreviewHistoryBtn" class="lhc-pill-button text-sm" onclick="switchLyricsPreviewMode('history')">
+              <i class="fa-solid fa-clock-rotate-left mr-1"></i> History
+            </button>
+            <button id="lyricsPreviewTwoColBtn" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewTwoCol()" title="Toggle 2-column layout" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
+              <i class="fa-solid fa-table-columns mr-1"></i> 2 Col
             </button>
             <button id="lyricsPreviewDetailsBtn" class="lhc-pill-button text-sm" title="Edit song details (title, key, theme, etc.)" onclick="lyricsPreviewOpenEditor()" style="background:#f8fafc;border-color:#cbd5e1;color:#64748b;">
               <i class="fa-solid fa-sliders mr-1"></i> Details
@@ -5927,18 +5965,7 @@
                 <option value="-5">-5</option>
               </select>
             </div>
-            <!-- View Doc button: shown when song has attachments -->
-            <button id="lyricsPreviewDocBtn" class="lhc-pill-button text-sm lp-badge-btn" style="display:none;background:#e0f2fe;border-color:#7dd3fc;color:#0369a1;" onclick="lyricsPreviewViewDoc()" title="View attached documents">
-              <i class="fa-solid fa-file-lines mr-1"></i> View Doc
-              <span id="lyricsPreviewDocBadge" class="lp-btn-badge" style="display:none;background:#0369a1;"></span>
-            </button>
-            <!-- Add Doc button: always shown for adding a document/score link -->
-            <button id="lyricsPreviewAddDocBtn" class="lhc-pill-button text-sm" style="background:#f0fdf4;border-color:#86efac;color:#15803d;" onclick="lyricsPreviewAddDoc()" title="Attach a music score or document link">
-              <i class="fa-solid fa-paperclip mr-1"></i> Add Doc
-            </button>
-            <input type="file" id="lpDocFileInput" style="display:none" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="lpHandleDocFile(this)">
-            <input type="file" id="lpDocCameraInput" style="display:none" accept="image/*" capture="environment" onchange="lpHandleDocFile(this)">
-            <button class="lhc-pill-button text-sm" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="printLyricsPreview()">
+            <button id="lyricsPreviewPrintBtn" class="lhc-pill-button text-sm" style="background:#fee2e2;border-color:#fca5a5;color:#dc2626;" onclick="printLyricsPreview()">
               <i class="fa-solid fa-print mr-1"></i> Print / PDF
             </button>
           </div>
@@ -13729,6 +13756,22 @@ window.setLyricsPreviewSong = function(song) {
 };
 
 // ── Preview modal action buttons ────────────────────────────────────────────
+
+// Folds the secondary action group away on a phone so the lyrics start higher
+// up the screen. Desktop never calls this -- the toggle is display:none there
+// and the group renders as display:contents, so every button stays in the row.
+window.toggleLyricsPreviewMore = function() {
+  var bar = document.getElementById('lyricsPreviewHeaderPanel');
+  var btn = document.getElementById('lpMoreToggle');
+  var chevron = document.getElementById('lpMoreChevron');
+  if (!bar) return;
+  var open = bar.classList.toggle('lp-more-open');
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (chevron) {
+    chevron.classList.toggle('fa-chevron-down', !open);
+    chevron.classList.toggle('fa-chevron-up', open);
+  }
+};
 
 window.toggleLyricsPreviewTwoCol = function() {
   var content = document.getElementById('lyricsPreviewContent');
@@ -86537,6 +86580,13 @@ window.LHC_Install = (function() {
   .lp-chip-feel   { background:#f3f0ff; border-color:#d8ccfa; color:#5b32c4; }
 
   /* ── Badge buttons (View Doc / YouTube) ────────────────────────────────── */
+  /* -- Toolbar rows ------------------------------------------------------- */
+  /* On a wide screen nothing is folded away: the "More" group dissolves into
+     the toolbar row and its toggle disappears. Collapsing is purely a phone
+     affordance, added in the max-width:768px block below. */
+  #lpMoreActions.lp-row-more { display: contents; }
+  #lpMoreToggle { display: none; }
+
   .lp-badge-btn { position: relative; }
   .lp-btn-badge {
     position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px;
