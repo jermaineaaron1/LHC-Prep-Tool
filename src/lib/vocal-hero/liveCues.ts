@@ -56,30 +56,39 @@ export function hzToMidi(hz: number) {
   return hz > 0 ? 69 + 12 * Math.log2(hz / 440) : 0;
 }
 
-/** The written range of each voice, in MIDI. */
+/** Fallback when a song has nothing written for a voice. */
 const PART_RANGES = [{ low: 60, high: 81 }, { low: 53, high: 74 }, { low: 48, high: 67 }, { low: 40, high: 64 }];
-/** Nothing below C2 or above C6 is a singing voice; searching there only costs. */
-const FLOOR = 36, CEILING = 84;
+/** Absolute limits. Below A1 and above C7 there is no singing to find, only cost. */
+const FLOOR = 33, CEILING = 96;
+/** How far outside the written line a singer may stray and still be heard. */
+const SLACK = 12;
 
 /**
- * The band the detector should listen across for a given voice.
+ * The band the detector should listen across.
  *
- * It used to be the part's own range plus three semitones, which meant a singer
- * outside it was not detected BADLY -- they were not searched for at all, and
- * came back as the same zero as silence. Someone on the soprano line who drops
- * an octave was told "no voice detected", which reads as a broken microphone
- * rather than "you are out of range".
+ * Two things went wrong with deriving this from a generic part range. A song
+ * whose soprano line is written far below a soprano's range -- which happens,
+ * usually from a bad import -- had notes nobody could be detected on, so they
+ * could never be scored. And a fixed ceiling does not move when the music does:
+ * transposing up pushed the top of the line past a band that stayed where it
+ * was, which put 417 notes in the library out of reach at +/-6.
  *
- * An octave either side covers the thing singers actually do, and measured on
- * the real engine it costs about 0.03 ms a frame -- roughly a fiftieth of one
- * per cent of a core. Scoring is unaffected: it aligns octaves separately, and
- * still reports the shift rather than forgiving it.
+ * Deriving it from the notes actually written for that voice fixes both, and is
+ * tighter for narrow parts into the bargain. The octave of slack is what lets a
+ * singer be heard when they drop the line an octave rather than strain for it.
  */
-export function detectionRange(partIndex: number, semitoneShift = 0): { minMidi: number; maxMidi: number } {
+export function detectionRange(
+  partIndex: number,
+  semitoneShift = 0,
+  notes?: Array<{ part: number; midi: number }>,
+): { minMidi: number; maxMidi: number } {
+  const mine = notes?.filter(note => note.part === partIndex || note.part === -1) ?? [];
   const part = PART_RANGES[partIndex] ?? PART_RANGES[0];
+  const low = mine.length ? Math.min(...mine.map(n => n.midi)) : part.low;
+  const high = mine.length ? Math.max(...mine.map(n => n.midi)) : part.high;
   return {
-    minMidi: Math.max(FLOOR, part.low - 12 + semitoneShift),
-    maxMidi: Math.min(CEILING, part.high + 12 + semitoneShift),
+    minMidi: Math.max(FLOOR, low - SLACK + semitoneShift),
+    maxMidi: Math.min(CEILING, high + SLACK + semitoneShift),
   };
 }
 

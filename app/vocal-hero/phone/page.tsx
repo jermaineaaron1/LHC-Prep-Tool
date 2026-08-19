@@ -74,6 +74,8 @@ function PhoneGame() {
      This one is created and resumed on the ready tap and kept for the round. */
   const cueContextRef = useRef<AudioContext | null>(null);
   const pitchValueRef = useRef(0);
+  // As on the host: the written line, before any transpose.
+  const notesRef = useRef<SongNote[]>([]);
   const clockInputsRef = useRef({ session: null as GameSession | null, clockOffset: 0, paused: false, pausedElapsed: 0 });
   // This singer's own line, sounded in their ear. OFF by default: in a room
   // full of phones each playing a different part, the guide stops being
@@ -132,7 +134,7 @@ function PhoneGame() {
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [session?.status]);
-  const runningTimeline = timelineFor(session, now + clockOffset); const timeline = session?.paused ? { phase: 'Paused', songElapsed: pausedElapsed } : runningTimeline; const notes = useMemo(() => transposeNotes(song ? playableNotes(song) : [], transpose), [song, transpose]); const part = song ? playablePart(song, partIndex) : null;
+  const runningTimeline = timelineFor(session, now + clockOffset); const timeline = session?.paused ? { phase: 'Paused', songElapsed: pausedElapsed } : runningTimeline; const notes = useMemo(() => transposeNotes(song ? playableNotes(song) : [], transpose), [song, transpose]); notesRef.current = song ? playableNotes(song) : []; const part = song ? playablePart(song, partIndex) : null;
   useEffect(() => { if (session?.paused) setPausedElapsed(runningTimeline.songElapsed); }, [session?.paused]);
   clockInputsRef.current = { session, clockOffset, paused: Boolean(session?.paused), pausedElapsed };
   // Only while no round is running: during one the animation loop owns these.
@@ -169,7 +171,7 @@ function PhoneGame() {
     setScore(0); setHits({}); cuedRef.current = { outer: false, inner: false };
   }, [clockOffset, session?.playback_starts_at, session?.status]);
 
-  async function startPitchTracking() { if (pitchRef.current?.isRunning) return true; const shift = transposeRef.current; const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, minHz: PitchEngine.midiToHz(detectionRange(partIndex, shift).minMidi), maxHz: PitchEngine.midiToHz(detectionRange(partIndex, shift).maxMidi), onPitch: sample => { pitchValueRef.current = sample.frequency; if (performance.now() - lastPitchPaintRef.current > 90) { setPitch(sample.frequency); setLevel(sample.level ?? 0); lastPitchPaintRef.current = performance.now(); } // This sample is the sound of a moment already past: the beat took time to
+  async function startPitchTracking() { if (pitchRef.current?.isRunning) return true; const shift = transposeRef.current; const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, minHz: PitchEngine.midiToHz(detectionRange(partIndex, shift, notesRef.current).minMidi), maxHz: PitchEngine.midiToHz(detectionRange(partIndex, shift, notesRef.current).maxMidi), onPitch: sample => { pitchValueRef.current = sample.frequency; if (performance.now() - lastPitchPaintRef.current > 90) { setPitch(sample.frequency); setLevel(sample.level ?? 0); lastPitchPaintRef.current = performance.now(); } // This sample is the sound of a moment already past: the beat took time to
       // reach the singer's ears, and their answer took time to reach the analyser.
       // Scoring it against the clock as it stands now would mark every note late.
       if (phaseRef.current === 'live' && sample.confidence > .78) { const songTime = Math.max(0, elapsedRef.current - latencyRef.current); scoreRef.current?.scorePitch(sample.frequency, songTime); pushTrail(trailRef.current, songTime, sample.frequency); } } }); pitchRef.current = engine; try { await engine.start(); setAudioBlocked(engine.isSuspended); setMic('ready'); return true; } catch { pitchRef.current = null; setMic('blocked'); return false; } }
