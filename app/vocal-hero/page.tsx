@@ -159,6 +159,16 @@ export default function VocalHeroHostPage() {
     })();
   }, []);
   useEffect(() => () => { listeners.current.forEach(close => close()); soloPitchRef.current?.stop(); void soloScoreRef.current?.stop(); void cueContextRef.current?.close().catch(() => undefined); }, []);
+  // Closing the tab is the commonest way a room is abandoned, and the one the
+  // page cannot handle with an ordinary request.
+  useEffect(() => {
+    const id = session?.id;
+    if (!id || session?.status === 'ended') return;
+    const onHide = () => { if (document.visibilityState === 'hidden') closeRound(id, true); };
+    window.addEventListener('pagehide', onHide);
+    document.addEventListener('visibilitychange', onHide);
+    return () => { window.removeEventListener('pagehide', onHide); document.removeEventListener('visibilitychange', onHide); };
+  }, [session?.id, session?.status]);
   useEffect(() => {
     if (!session) return;
     const interval = window.setInterval(() => {
@@ -256,12 +266,28 @@ export default function VocalHeroHostPage() {
   // The host screen is usually a projector or a laptop left alone on a stand.
   useWakeLock(Boolean(session) && session?.status !== 'ended');
 
+  /* A round only ever ended by playing to the finish, so every abandoned one
+     stayed 'playing' and showed up as a live room. Every exit closes it now.
+     Beacon rather than fetch on teardown: the browser will not wait for a
+     promise while the page is going away. */
+  function closeRound(sessionId: string | undefined, viaBeacon = false) {
+    if (!sessionId) return;
+    const body = JSON.stringify({ sessionId });
+    if (viaBeacon && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      navigator.sendBeacon('/api/vocal-hero/abandon', new Blob([body], { type: 'application/json' }));
+      return;
+    }
+    void fetch('/api/vocal-hero/abandon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(() => undefined);
+  }
+
   async function chooseSong(next: Song) {
     try {
       soloPitchRef.current?.stop(); void soloScoreRef.current?.stop(); soloScoreRef.current = null; soloScoreStartedRef.current = false;
       setSoloPart(null); setSoloPlayer(null); setSoloMic('unknown'); setSoloPitch(0); setSoloScore(0); setSoloHits({}); setSoloLastResult(null); setSoloFullBoard(false); clearTrail(trailRef.current); resultsRef.current = []; setSoloReview(null); endedRef.current = false;
       setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
       cuedRef.current = { outer: false, inner: false };
+      // Picking a different song abandons the room this one was in.
+      closeRound(session?.id);
       const created = await createSession(next.id, 'worship-host');
       listeners.current.forEach(close => close());
       listeners.current = [subscribeToPlayers(created.id, setPlayers), subscribeToSession(created.id, setSession)];
@@ -389,6 +415,7 @@ export default function VocalHeroHostPage() {
   }
 
   function returnToLibrary() {
+    closeRound(session?.id);
     audioRef.current?.pause();
     if (audioRef.current) audioRef.current.currentTime = 0;
     soloPitchRef.current?.stop(); soloPitchRef.current = null;
