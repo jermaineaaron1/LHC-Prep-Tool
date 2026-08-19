@@ -19,6 +19,34 @@ export interface PitchEngineOptions {
   maxHz?: number;
 }
 
+/** Why the microphone could not be opened. "blocked" is the only one a singer
+ *  can fix by changing their mind; the rest need a different window, a
+ *  different URL, or another app closed, and telling someone to "allow the
+ *  microphone" when the API is not even present sends them hunting through
+ *  settings that will never contain the answer. */
+export type MicFailure = 'blocked' | 'insecure' | 'unsupported' | 'notfound' | 'busy' | 'unknown';
+
+export class MicError extends Error {
+  constructor(readonly reason: MicFailure, message: string) { super(message); this.name = 'MicError'; }
+}
+
+/** Turn whatever getUserMedia rejected with into one of the reasons above.
+ *  The DOMException names are the standard ones; browsers differ in which they
+ *  choose, so several map onto the same outcome. */
+function classify(cause: unknown): MicError {
+  const name = (cause as { name?: string } | null)?.name ?? '';
+  switch (name) {
+    case 'NotAllowedError': case 'SecurityError': case 'PermissionDeniedError':
+      return new MicError('blocked', 'Microphone permission was refused for this window.');
+    case 'NotFoundError': case 'DevicesNotFoundError': case 'OverconstrainedError':
+      return new MicError('notfound', 'No microphone was offered by this device.');
+    case 'NotReadableError': case 'TrackStartError': case 'AbortError':
+      return new MicError('busy', 'The microphone is held by another app.');
+    default:
+      return new MicError('unknown', (cause as Error | null)?.message || 'The microphone could not be opened.');
+  }
+}
+
 export class PitchEngine {
   private context:  AudioContext | null = null;
   private analyser: AnalyserNode  | null = null;
@@ -74,14 +102,32 @@ export class PitchEngine {
     // stream when all of it is disabled, and a game that hears nothing is worse
     // than one that hears late. `relaxed` is the fallback the loop falls back
     // to, letting the browser choose.
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: relaxed ? true : {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl:  false,
-        channelCount: 1,
-      },
-    });
+    // Reaching straight through `navigator.mediaDevices` is how this used to
+    // read, and on a phone that is where it fell over rather than where it
+    // reported a problem. The object is ABSENT -- not empty, absent -- in an
+    // insecure context and in some installed app shells, so the old line threw
+    // a TypeError about reading a property of undefined. That was caught by the
+    // caller's bare `catch` and shown as "microphone blocked", sending the
+    // singer to a permission screen where everything already said Allow.
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      throw new MicError('insecure', 'Microphones are only available over HTTPS.');
+    }
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      throw new MicError('unsupported', 'This window offers no microphone API. Open the app in the browser instead.');
+    }
+
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: relaxed ? true : {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl:  false,
+          channelCount: 1,
+        },
+      });
+    } catch (cause) {
+      throw classify(cause);
+    }
 
     this.context  = new AudioContext({ latencyHint: 'interactive' });
 
@@ -482,6 +528,35 @@ export class PitchEngine {
   static centsDiff(playerHz: number, targetHz: number): number {
     if (playerHz <= 0 || targetHz <= 0) return 0;
     return 1200 * Math.log2(playerHz / targetHz);
+  }
+
+  /** What kind of window this is, and what the microphone is allowed to do in
+   *  it. An installed PWA is a SEPARATE permission scope from the browser that
+   *  installed it: granting the microphone in Chrome grants nothing to the app
+   *  on the home screen, and a singer who has already said yes once will
+   *  reasonably insist the permission is on. This is what tells the two apart.
+   *
+   *  `permission` is best-effort -- Safari does not implement the microphone
+   *  permission name and rejects the query, which is itself worth reporting. */
+  static async environment(): Promise<{
+    secure: boolean; hasMediaDevices: boolean; standalone: boolean; permission: string;
+  }> {
+    const standalone = typeof window !== 'undefined'
+      && (window.matchMedia?.('(display-mode: standalone)').matches === true
+        || window.matchMedia?.('(display-mode: fullscreen)').matches === true
+        // iOS home-screen web clips predate display-mode and report this instead.
+        || (navigator as unknown as { standalone?: boolean }).standalone === true);
+    let permission = 'unknown';
+    try {
+      const status = await navigator.permissions?.query({ name: 'microphone' as PermissionName });
+      if (status) permission = status.state;
+    } catch { permission = 'unsupported'; }
+    return {
+      secure: typeof window === 'undefined' || window.isSecureContext,
+      hasMediaDevices: Boolean(navigator?.mediaDevices?.getUserMedia),
+      standalone,
+      permission,
+    };
   }
 
   static midiToHz(midi: number): number {
