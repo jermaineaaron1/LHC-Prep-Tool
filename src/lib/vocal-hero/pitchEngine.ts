@@ -136,6 +136,12 @@ export class PitchEngine {
     return this.lastLevel;
   }
 
+  /** What rate this device actually gave us. Phones vary, and the analysis
+   *  is sized from it, so it is worth being able to see. */
+  get sampleRate(): number {
+    return this.context?.sampleRate ?? 0;
+  }
+
   private onVisibility = (): void => {
     if (typeof document !== 'undefined' && document.visibilityState === 'visible') void this.resume();
   };
@@ -217,7 +223,18 @@ export class PitchEngine {
     for (let i = 0; i < SIZE; i++) fullSq[i + 1] = fullSq[i] + buf[i] * buf[i];
     const rms = Math.sqrt(fullSq[SIZE] / SIZE);
     this.lastLevel = rms;
-    if (rms < 0.01) return { hz: 0, confidence: 0 };
+    // A floor against a dead line, nothing more. It used to sit at 0.01, which
+    // measured out as a cliff: detection was exact to the cent down to 0.0103
+    // and returned NOTHING below it. A phone held at arm's length with automatic
+    // gain switched off -- which this engine asks for, to keep the latency down
+    // -- delivers less than that from a singer who is not shouting, and every
+    // one of those frames was thrown away as if it were silence.
+    //
+    // Nothing is lost by lowering it, because the RMS gate was never what
+    // rejected noise: pure noise is refused by the correlation floor below at
+    // every level, right up to an RMS of 0.116. This only has to reject a
+    // disconnected microphone.
+    if (rms < 0.002) return { hz: 0, confidence: 0 };
 
     // The normalised autocorrelation is
     //   r[lag] = Σ buf[i]·buf[i+lag] / sqrt( Σ buf[i]² · Σ buf[i+lag]² )
