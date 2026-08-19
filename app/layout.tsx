@@ -4,6 +4,16 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'LHC Worship Prep',
   description: 'Worship preparation for Luther House Chapel',
+  // public/manifest.json has existed since June wired to nothing -- no link
+  // element, no metadata entry -- so no browser has ever read it. Adding the
+  // app to a home screen therefore produced a bare shortcut with no declared
+  // scope, name or icon. This is what makes it a real installable app.
+  //
+  // `appleWebApp.capable` is deliberately left off. It forces an iOS home
+  // screen entry into a standalone shell, where getUserMedia has a markedly
+  // worse record than in Safari proper, and no amount of hidden browser chrome
+  // is worth costing a singer their microphone.
+  manifest: '/manifest.json',
 };
 
 /**

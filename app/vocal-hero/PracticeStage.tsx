@@ -6,7 +6,7 @@ import { clearTrail, pushTrail } from '@/lib/vocal-hero/trail';
 import { CanvasLane } from './CanvasLane';
 import type { TrailSample } from '@/lib/vocal-hero/trail';
 import { KaraokeLyrics } from './KaraokeLyrics';
-import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
+import { MicError, PitchEngine, type MicFailure } from '@/lib/vocal-hero/pitchEngine';
 import { isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
 import { detectionRange, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { transposeNotes } from './TransposePicker';
@@ -43,6 +43,12 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
   const [position, setPosition] = useState(0);
   const [pitch, setPitch] = useState(0);
   const [mic, setMic] = useState<'unknown' | 'checking' | 'ready' | 'blocked'>('unknown');
+  // Practice is where a singer is alone with the thing and has nobody to ask,
+  // so a mic that fails silently here is worse than in a room. Same reasoning
+  // as the phone: keep WHY it failed, not just that it did.
+  const [micReason, setMicReason] = useState<MicFailure | null>(null);
+  const [standalone, setStandalone] = useState(false);
+  useEffect(() => { void PitchEngine.environment().then(env => setStandalone(env.standalone)); }, []);
   const [guideAudio, setGuideAudio] = useState(true);
   // The AudioContext cannot exist until the first tap -- browsers refuse one
   // without a gesture. The guide effect below read the ref and gave up when it
@@ -158,8 +164,8 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
         if (sample.confidence > .78 && transportRef.current.isPlaying) pushTrail(trailRef.current, positionRef.current, sample.frequency);
       },
     });
-    try { await engine.start(); pitchRef.current = engine; setMic('ready'); }
-    catch { pitchRef.current = null; setMic('blocked'); }
+    try { await engine.start(); pitchRef.current = engine; setMicReason(null); setMic('ready'); }
+    catch (cause) { pitchRef.current = null; setMicReason(cause instanceof MicError ? cause.reason : 'unknown'); setMic('blocked'); }
   }
 
   async function togglePlay() {
@@ -237,7 +243,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
       <button onClick={() => seekTo(Math.max(0, positionRef.current - 4))} className="vh-outline-button">↺ Back 4s</button>
       <button onClick={loopThisPhrase} className="vh-outline-button border-emerald-300/40 text-emerald-100">⟲ Loop this phrase</button>
       {loop && <button onClick={() => applyLoop(null)} className="vh-outline-button">Clear loop</button>}
-      <span className="text-xs text-slate-500">{mic === 'ready' ? '● mic live' : mic === 'blocked' ? '● mic blocked' : mic === 'checking' ? '● checking mic' : '○ mic starts with play'}</span>
+      <span className="text-xs text-slate-500">{mic === 'ready' ? '● mic live' : mic === 'blocked' ? '● mic blocked' : mic === 'checking' ? '● checking mic' : '○ mic starts with play'}</span>{mic === 'blocked' && micReason && <p className="mt-2 rounded-xl border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-100">{micReason === 'insecure' ? 'This page is not on HTTPS, so the browser will not hand out a microphone.' : micReason === 'unsupported' ? (standalone ? 'This installed app window offers no microphone API. Open the app in your browser instead.' : 'This browser offers no microphone API.') : micReason === 'notfound' ? 'No microphone was offered by this device.' : micReason === 'busy' ? 'Another app is holding the microphone — close any call or recorder and press play again.' : standalone ? 'The installed app was refused the microphone. It keeps a separate permission from your browser, so allowing it in Chrome does not cover this window.' : 'Permission was refused. Allow the microphone for this site, then reload.'}</p>}
     </div>
 
     <div className="mt-4 grid gap-4 sm:grid-cols-2">
