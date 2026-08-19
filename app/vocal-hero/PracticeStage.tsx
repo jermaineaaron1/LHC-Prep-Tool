@@ -8,14 +8,13 @@ import type { TrailSample } from './SatbLane';
 import { KaraokeLyrics } from './KaraokeLyrics';
 import { PitchEngine } from '@/lib/vocal-hero/pitchEngine';
 import { isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
-import { livePitchFeedback } from '@/lib/vocal-hero/liveCues';
+import { detectionRange, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { transposeNotes } from './TransposePicker';
 import { GuidePlayer } from '@/lib/vocal-hero/guideTones';
 import { Transport, phraseAround, type LoopRegion } from '@/lib/vocal-hero/transport';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
-const PITCH_RANGES = [{ low: 60, high: 81 }, { low: 53, high: 74 }, { low: 48, high: 67 }, { low: 40, high: 64 }];
 const SPEEDS = [0.5, 0.6, 0.7, 0.85, 1];
 
 /**
@@ -41,6 +40,11 @@ export function PracticeStage({ song, onExit }: { song: Song; onExit: () => void
   const [pitch, setPitch] = useState(0);
   const [mic, setMic] = useState<'unknown' | 'checking' | 'ready' | 'blocked'>('unknown');
   const [guideAudio, setGuideAudio] = useState(true);
+  // The AudioContext cannot exist until the first tap -- browsers refuse one
+  // without a gesture. The guide effect below read the ref and gave up when it
+  // was still null, and nothing in its deps changed when Play finally created
+  // one, so the tones never sounded at all. This is what re-runs it.
+  const [audioReady, setAudioReady] = useState(false);
 
   const transportRef = useRef(new Transport());
   const contextRef = useRef<AudioContext | null>(null);
@@ -102,23 +106,37 @@ export function PracticeStage({ song, onExit }: { song: Song; onExit: () => void
       player.update(myNotes, positionRef.current);
     }, 60);
     return () => { window.clearInterval(timer); player.dispose(); };
-  }, [guideAudio, myNotes]);
+  }, [guideAudio, myNotes, audioReady]);
 
   useEffect(() => () => { pitchRef.current?.stop(); void contextRef.current?.close().catch(() => undefined); }, []);
+  // The detector is built once, with a frequency band fixed at that moment. A
+  // key change moves the notes out from under it, so it has to be rebuilt --
+  // otherwise the readout and the trail quietly stop working with nothing on
+  // screen to explain why.
+  const firstBandRef = useRef(true);
+  useEffect(() => {
+    if (firstBandRef.current) { firstBandRef.current = false; return; }
+    if (!pitchRef.current) return;
+    pitchRef.current.stop();
+    pitchRef.current = null;
+    setMic('unknown');
+    if (transportRef.current.isPlaying) void startMic();
+  }, [transpose, part]);
 
   async function ensureAudio() {
     contextRef.current ??= new AudioContext({ latencyHint: 'interactive' });
     if (contextRef.current.state === 'suspended') await contextRef.current.resume();
+    setAudioReady(true);
   }
 
   async function startMic() {
     if (pitchRef.current?.isRunning) return;
     setMic('checking');
-    const range = PITCH_RANGES[part] ?? PITCH_RANGES[0];
+    const band = detectionRange(part, transpose);
     const engine = new PitchEngine({
       bufferSize: 2048, confidenceThreshold: .76, smoothing: .22,
-      minHz: PitchEngine.midiToHz(range.low - 3 + transpose),
-      maxHz: PitchEngine.midiToHz(range.high + 3 + transpose),
+      minHz: PitchEngine.midiToHz(band.minMidi),
+      maxHz: PitchEngine.midiToHz(band.maxMidi),
       onPitch: sample => {
         pitchValueRef.current = sample.frequency;
         if (performance.now() - paintRef.current > 90) { setPitch(sample.frequency); paintRef.current = performance.now(); }
@@ -228,7 +246,7 @@ export function PracticeStage({ song, onExit }: { song: Song; onExit: () => void
 
     <section className="vh-panel mt-4 flex items-center justify-between p-4">
       <div><p className="text-[10px] uppercase tracking-wider text-slate-500">You sang</p><b className="text-3xl text-cyan-200">{feedback.detected}</b></div>
-      <div className="px-2 text-center"><p className={`text-sm font-black ${feedback.state === 'correct' ? 'text-emerald-300' : feedback.state === 'high' || feedback.state === 'low' ? 'text-amber-300' : 'text-slate-400'}`}>{feedback.label}</p><small className="block text-[10px] text-slate-500">{feedback.difference}</small></div>
+      <div className="px-2 text-center"><p className={`text-sm font-black ${feedback.state === 'correct' ? 'text-emerald-300' : feedback.state === 'high' || feedback.state === 'low' || feedback.state === 'octave' ? 'text-amber-300' : 'text-slate-400'}`}>{feedback.label}</p><small className="block text-[10px] text-slate-500">{feedback.difference}</small></div>
       <div className="text-right"><p className="text-[10px] uppercase tracking-wider text-slate-500">Target</p><b className="text-3xl text-white">{feedback.target}</b></div>
     </section>
   </div>;

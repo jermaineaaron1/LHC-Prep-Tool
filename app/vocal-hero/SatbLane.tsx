@@ -146,7 +146,7 @@ export function SatbLane({
 
   const feedback = livePitchFeedback(target?.midi ?? null, pitchHz ?? 0);
   const timingLabel = target ? 'ON TIME' : next && next.start - elapsed <= .8 ? `GET READY · ${(next.start - elapsed).toFixed(1)}s` : 'WAIT';
-  const feedbackColour = feedback.state === 'correct' ? '#6ee7b7' : feedback.state === 'high' || feedback.state === 'low' ? '#fbbf24' : '#94a3b8';
+  const feedbackColour = feedback.state === 'correct' ? '#6ee7b7' : feedback.state === 'high' || feedback.state === 'low' || feedback.state === 'octave' ? '#fbbf24' : '#94a3b8';
 
   return <section className="flex overflow-hidden rounded-2xl border border-white/10 bg-[#08111f]" style={{ height: laneHeight }} aria-label={`${partName} pitch lane`}>
     <div className="flex w-24 shrink-0 flex-col items-center justify-center border-r border-white/10 px-2" style={{ background: `${colour}18` }}>

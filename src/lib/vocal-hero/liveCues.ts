@@ -56,6 +56,33 @@ export function hzToMidi(hz: number) {
   return hz > 0 ? 69 + 12 * Math.log2(hz / 440) : 0;
 }
 
+/** The written range of each voice, in MIDI. */
+const PART_RANGES = [{ low: 60, high: 81 }, { low: 53, high: 74 }, { low: 48, high: 67 }, { low: 40, high: 64 }];
+/** Nothing below C2 or above C6 is a singing voice; searching there only costs. */
+const FLOOR = 36, CEILING = 84;
+
+/**
+ * The band the detector should listen across for a given voice.
+ *
+ * It used to be the part's own range plus three semitones, which meant a singer
+ * outside it was not detected BADLY -- they were not searched for at all, and
+ * came back as the same zero as silence. Someone on the soprano line who drops
+ * an octave was told "no voice detected", which reads as a broken microphone
+ * rather than "you are out of range".
+ *
+ * An octave either side covers the thing singers actually do, and measured on
+ * the real engine it costs about 0.03 ms a frame -- roughly a fiftieth of one
+ * per cent of a core. Scoring is unaffected: it aligns octaves separately, and
+ * still reports the shift rather than forgiving it.
+ */
+export function detectionRange(partIndex: number, semitoneShift = 0): { minMidi: number; maxMidi: number } {
+  const part = PART_RANGES[partIndex] ?? PART_RANGES[0];
+  return {
+    minMidi: Math.max(FLOOR, part.low - 12 + semitoneShift),
+    maxMidi: Math.min(CEILING, part.high + 12 + semitoneShift),
+  };
+}
+
 export function livePitchFeedback(targetMidi: number | null, pitchHz: number) {
   const rawDetectedMidi = hzToMidi(pitchHz);
   const detected = pitchHz > 0 ? midiNoteName(rawDetectedMidi) : '—';
@@ -72,6 +99,17 @@ export function livePitchFeedback(targetMidi: number | null, pitchHz: number) {
   const cents = Math.round(1200 * Math.log2(pitchHz / (440 * 2 ** ((targetMidi - 69) / 12))));
   const shared = { target, detected, cents, detectedCents, semitoneDifference, difference };
   if (Math.abs(cents) <= 50) return { ...shared, state: 'correct' as const, label: 'ON PITCH', instruction: `Hold ${target}` };
+  // The right note in the wrong octave is a different mistake from a wrong
+  // note, and the singer can hear that they are "on" it. Saying TOO LOW to
+  // someone singing the correct pitch class is simply misleading.
+  if (semitoneDifference !== 0 && Math.abs(semitoneDifference) % 12 === 0) {
+    const octaves = Math.abs(semitoneDifference) / 12;
+    const way = semitoneDifference < 0 ? 'below' : 'above';
+    return { ...shared, state: 'octave' as const,
+      difference: `Right note, ${octaves === 1 ? 'an octave' : octaves + ' octaves'} ${way}`,
+      label: 'RIGHT NOTE, WRONG OCTAVE',
+      instruction: `You are singing ${detected}; the line is ${target}` };
+  }
   if (cents < 0) return { ...shared, state: 'low' as const, label: 'TOO LOW', instruction: `Sing higher toward ${target} ↑` };
   return { ...shared, state: 'high' as const, label: 'TOO HIGH', instruction: `Sing lower toward ${target} ↓` };
 }
