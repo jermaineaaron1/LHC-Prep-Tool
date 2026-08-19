@@ -35,7 +35,7 @@ export function MicReportButton({ getEngine, context }: { getEngine: () => Pitch
         env,
         inputs,
         engine: engine ? {
-          running: engine.isRunning, suspended: engine.isSuspended, sampleRate: engine.sampleRate,
+          running: engine.isRunning, suspended: engine.isSuspended, sampleRate: engine.sampleRate, capture: engine.captureMode,
           track: engine.trackInfo, recovery: engine.recoveryInfo,
           levelNow: engine.level, dcOffset: engine.dcOffset, levelTrace: trace,
           traceMax: Math.max(0, ...trace), traceAvg: trace.length ? trace.reduce((a, b) => a + b, 0) / trace.length : 0,
