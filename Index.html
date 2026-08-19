@@ -5993,6 +5993,13 @@
         <div id="lyricsPreviewContent" class="flex-1 overflow-y-auto p-5" style="min-height: 300px;">
           <!-- Lyrics content rendered here -->
         </div>
+        <!-- Collapsed on a phone so the song, not the paperwork, is what you
+             scroll into. Everything inside is one tap away. -->
+        <button id="lpRailToggle" type="button" onclick="toggleLpRail()"
+                aria-expanded="false" aria-controls="lpRail">
+          <span><i class="fa-regular fa-calendar" aria-hidden="true"></i> Plan with this song</span>
+          <i id="lpRailChevron" class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+        </button>
         <aside id="lpRail" aria-label="Plan with this song">
           <section class="lp-rail-card">
             <h4><i class="fa-regular fa-calendar" aria-hidden="true"></i> Plan with this song</h4>
@@ -13869,6 +13876,23 @@ window.setLyricsPreviewSong = function(song) {
   renderLyricsPreviewContent();
 };
 
+// The planning rail is taller than the lyrics it sits under, and most of it
+// repeats controls that already exist -- transpose is in the More panel,
+// Resources duplicates the YouTube and View Doc badges, Add to order is in the
+// bottom bar. It stays collapsed until asked for.
+window.toggleLpRail = function() {
+  var rail = document.getElementById('lpRail');
+  var btn  = document.getElementById('lpRailToggle');
+  var chev = document.getElementById('lpRailChevron');
+  if (!rail) return;
+  var open = rail.classList.toggle('is-open');
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (chev) {
+    chev.classList.toggle('fa-chevron-down', !open);
+    chev.classList.toggle('fa-chevron-up', open);
+  }
+};
+
 // ── Preview modal action buttons ────────────────────────────────────────────
 
 // Folds the secondary action group away on a phone so the lyrics start higher
@@ -20436,6 +20460,12 @@ window.loadEditSongData = function(song) {
       _lpc.style.removeProperty('width');
       _lpc.style.removeProperty('border-radius');
     }
+    var _lpr = document.getElementById('lpRail');
+    if (_lpr) _lpr.classList.remove('is-open');
+    var _lprt = document.getElementById('lpRailToggle');
+    if (_lprt) _lprt.setAttribute('aria-expanded', 'false');
+    var _lprc = document.getElementById('lpRailChevron');
+    if (_lprc) { _lprc.classList.add('fa-chevron-down'); _lprc.classList.remove('fa-chevron-up'); }
     var _lph = document.getElementById('lyricsPreviewHeaderPanel');
     if (_lph) _lph.classList.remove('lp-more-open');
     var _lpm = document.getElementById('lpMoreToggle');
@@ -87140,6 +87170,44 @@ window.LHC_Install = (function() {
     box-shadow: 0 6px 20px rgba(15,28,63,.22); cursor: pointer;
   }
   .lp-lyrics-only #lpExitLyricsOnly { display: inline-flex; }
+
+  /* ====================================================================== */
+  /* PLANNING RAIL — folded, so the song dominates                          */
+  /* 557px of planning sat under 502px of lyrics: the paperwork was taller  */
+  /* than the song. Most of it repeats controls that exist elsewhere, so it */
+  /* collapses to one strip and opens on request.                           */
+  /* ====================================================================== */
+  #lpRailToggle { display: none; }
+  @media (max-width: 768px) {
+    #lpRailToggle {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      width: calc(100% - 20px); margin: 0 10px 10px;
+      min-height: 44px; padding: 0 14px;
+      border: 1px solid var(--sf-line, #e3e8f4); border-radius: 12px;
+      background: var(--sf-surface, #f7f9fd);
+      color: var(--sf-navy, #0f1c3f); font-size: .78rem; font-weight: 700;
+      font-family: inherit; cursor: pointer;
+    }
+    #lpRailToggle i { color: var(--sf-blue-deep, #3b5bdb); }
+    /* Scoped through the modal id: the base #lpRail{display:flex} rule sits
+       later in this stylesheet, and a media query adds no specificity, so a
+       bare #lpRail here would lose on source order alone. */
+    #lyricsPreviewModal #lpRail { display: none; }
+    #lyricsPreviewModal #lpRail.is-open { display: block; }
+
+    /* Tighter when it is open, too. */
+    #lyricsPreviewModal #lpRail { padding: 0 10px 10px !important; }
+    #lpRail .lp-rail-card { padding: 9px 10px !important; margin-bottom: 8px; }
+    #lpRail .lp-rail-card h4 { margin-bottom: 6px !important; font-size: .78rem; }
+    #lpRail .lp-rail-label { margin-bottom: 2px !important; }
+    #lpRail .lp-rail-select { margin-bottom: 6px !important; }
+    /* The two Add buttons sit side by side rather than stacked. The base rule
+       sets flex-direction:column, so the direction has to be named. */
+    #lyricsPreviewModal #lpRail .lp-rail-actions {
+      display: flex; flex-direction: row; gap: 6px;
+    }
+    #lyricsPreviewModal #lpRail .lp-rail-actions > * { flex: 1 1 0; min-width: 0; }
+  }
 
   .lp-badge-btn { position: relative; }
   .lp-btn-badge {
