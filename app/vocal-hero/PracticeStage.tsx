@@ -61,6 +61,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
   // pitch out of React state is what lets the lane run at 60fps while the page
   // around it renders at reading speed.
   const pitchValueRef = useRef(0);
+  const levelRef = useRef(0);
   const lastTextPaintRef = useRef(0);
 
   const allNotes = useMemo(() => transposeNotes(playableNotes(song), transpose), [song, transpose]);
@@ -152,6 +153,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
       maxHz: PitchEngine.midiToHz(band.maxMidi),
       onPitch: sample => {
         pitchValueRef.current = sample.frequency;
+        levelRef.current = sample.level ?? 0;
         if (performance.now() - paintRef.current > 90) { setPitch(sample.frequency); paintRef.current = performance.now(); }
         if (sample.confidence > .78 && transportRef.current.isPlaying) pushTrail(trailRef.current, positionRef.current, sample.frequency);
       },
@@ -214,7 +216,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
     </div>}
 
     <div className="mt-4"><KaraokeLyrics song={song} notes={allNotes} partIndex={lanePart} elapsed={position} /></div>
-    <div className="mt-4"><CanvasLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} notes={allNotes} getPosition={() => positionRef.current} getPitchHz={() => pitchValueRef.current} trail={trailRef.current} lookAheadSeconds={7} height={280} /></div>
+    <div className="mt-4"><CanvasLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} notes={allNotes} getPosition={() => positionRef.current} getPitchHz={() => pitchValueRef.current} getLevel={() => levelRef.current} trail={trailRef.current} lookAheadSeconds={7} height={280} /></div>
 
     {/* The scrubber doubles as the loop display: a singer should be able to see
         the region they are repeating, not just be inside it. */}

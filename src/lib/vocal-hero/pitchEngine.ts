@@ -32,6 +32,12 @@ export class PitchEngine {
    *  is arriving even when no pitch has locked -- without it, a dead input and
    *  a singer resting look identical. */
   private lastLevel = 0;
+  /** A silent tap to the destination. See the note where it is built. */
+  private sink: GainNode | null = null;
+  /** Some devices deliver nothing at all with voice processing switched off. */
+  private relaxed = false;
+  private silentFrames = 0;
+  private recovering = false;
 
   // Scratch space for the analysis, allocated once. The detector runs on every
   // animation frame; allocating these per frame handed the garbage collector a
@@ -58,13 +64,18 @@ export class PitchEngine {
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  async start(): Promise<void> {
+  async start(relaxed = false): Promise<void> {
     if (this.context) return; // already running
+    this.relaxed = relaxed;
 
+    // Voice processing can buffer a phone microphone by hundreds of
+    // milliseconds, which is counterproductive for an on-beat pitch game -- so
+    // it is asked for off. But some devices hand back a silent or unusable
+    // stream when all of it is disabled, and a game that hears nothing is worse
+    // than one that hears late. `relaxed` is the fallback the loop falls back
+    // to, letting the browser choose.
     this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        // Voice processing can buffer a phone microphone by hundreds of
-        // milliseconds. It is counterproductive for an on-beat pitch game.
+      audio: relaxed ? true : {
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl:  false,
@@ -92,6 +103,17 @@ export class PitchEngine {
 
     this.source = this.context.createMediaStreamSource(this.stream);
     this.source.connect(this.analyser);
+
+    // An analyser alone is a dead end: several mobile browsers do not PULL
+    // audio through a graph with no path to the destination, so the analyser
+    // reads silence for ever while the microphone light stays on and the stream
+    // is live. Desktop pulls it regardless, which is why this only ever showed
+    // up on phones. The gain is zero, so nothing is heard -- the connection
+    // exists solely to make the graph run.
+    this.sink = this.context.createGain();
+    this.sink.gain.value = 0;
+    this.analyser.connect(this.sink);
+    this.sink.connect(this.context.destination);
 
     this.buffer    = new Float32Array(this.opts.bufferSize) as Float32Array<ArrayBuffer>;
     this.startTime = this.context.currentTime;
@@ -131,6 +153,28 @@ export class PitchEngine {
     return this.context?.state === 'suspended';
   }
 
+  /** True once the strict constraints were abandoned for the browser's own. */
+  get usingFallbackInput(): boolean {
+    return this.relaxed;
+  }
+
+  /**
+   * Start again, letting the browser pick its own capture settings.
+   *
+   * Called automatically when a running context delivers nothing but silence,
+   * because on the devices where that happens the singer has no way to know and
+   * nothing they can do about it.
+   */
+  private async recover(): Promise<void> {
+    if (this.recovering || this.relaxed) return;
+    this.recovering = true;
+    const onPitch = this.opts.onPitch;
+    this.stop();
+    try { await this.start(true); } catch { /* nothing further to try */ }
+    void onPitch;
+    this.recovering = false;
+  }
+
   /** Loudness of the most recent frame, 0-1. */
   get level(): number {
     return this.lastLevel;
@@ -153,11 +197,13 @@ export class PitchEngine {
       this.animFrame = null;
     }
     this.source?.disconnect();
+    this.sink?.disconnect();
     this.stream?.getTracks().forEach(t => t.stop());
     this.context?.close();
     this.context  = null;
     this.analyser = null;
     this.source   = null;
+    this.sink     = null;
     this.stream   = null;
     this.buffer   = null;
     this.smoothedHz = 0;
@@ -184,6 +230,13 @@ export class PitchEngine {
       this.smoothedHz = this.smoothedHz * 0.7;
       if (this.smoothedHz < this.opts.minHz) this.smoothedHz = 0;
     }
+
+    // A context that is running and yet delivers pure digital silence for a
+    // second and a half is not a quiet singer; it is a capture path this device
+    // will not honour. Try once with the browser's own settings.
+    if (this.lastLevel < 0.00005) {
+      if (++this.silentFrames === 90 && !this.relaxed && !this.recovering) void this.recover();
+    } else this.silentFrames = 0;
 
     this.opts.onPitch({
       frequency:  this.smoothedHz,
