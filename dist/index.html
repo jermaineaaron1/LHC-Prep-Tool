@@ -5948,12 +5948,6 @@
               <i class="fa-solid fa-file-lines mr-1"></i> View Doc
               <span id="lyricsPreviewDocBadge" class="lp-btn-badge" style="display:none;background:#15803d;"></span>
             </button>
-            <!-- Add Doc button: always shown for adding a document/score link -->
-            <button id="lyricsPreviewAddDocBtn" class="lhc-pill-button text-sm" style="background:#f0fdf4;border-color:#86efac;color:#15803d;" onclick="lyricsPreviewAddDoc()" title="Attach a music score or document link">
-              <i class="fa-solid fa-paperclip mr-1"></i> Add Doc
-            </button>
-            <input type="file" id="lpDocFileInput" style="display:none" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="lpHandleDocFile(this)">
-            <input type="file" id="lpDocCameraInput" style="display:none" accept="image/*" capture="environment" onchange="lpHandleDocFile(this)">
             <button id="lpMoreToggle" class="lhc-pill-button text-sm" onclick="toggleLyricsPreviewMore()" aria-expanded="false" aria-controls="lpMoreActions" title="More actions" aria-label="More actions" style="background:#f8fafc;border-color:#cbd5e1;color:#475569;">
               <i id="lpMoreChevron" class="fa-solid fa-ellipsis"></i>
             </button>
@@ -5992,6 +5986,15 @@
                 <option value="-5">-5</option>
               </select>
             </div>
+            <!-- The two "attach something" actions sit together. Add Doc moved
+                 here from the main row: that row had grown to seven controls at
+                 3px padding to fit, and adding a thing is a deliberate act, not
+                 one worth permanent space beside the view switchers. -->
+            <button id="lyricsPreviewAddDocBtn" class="lhc-pill-button text-sm" style="background:#f0fdf4;border-color:#86efac;color:#15803d;" onclick="lyricsPreviewAddDoc()" title="Attach a music score or document link">
+              <i class="fa-solid fa-paperclip mr-1"></i> Add Doc
+            </button>
+            <input type="file" id="lpDocFileInput" style="display:none" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="lpHandleDocFile(this)">
+            <input type="file" id="lpDocCameraInput" style="display:none" accept="image/*" capture="environment" onchange="lpHandleDocFile(this)">
             <button id="lpAddVideoBtn" class="lhc-pill-button text-sm" title="Attach a YouTube video" onclick="lpAddVideoByLink()" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;">
               <i class="fa-brands fa-youtube mr-1"></i> Add Video
             </button>
@@ -87256,8 +87259,8 @@ window.LHC_Install = (function() {
        375px. The 44px tap height is untouched -- only the sides give. */
     #lyricsPreviewToolbar .lhc-pill-button:not(.hidden),
     #lyricsPreviewToolbar button:not(.hidden) {
-      padding: 4px 5px !important;
-      font-size: .65rem !important;
+      padding: 4px 8px !important;
+      font-size: .68rem !important;
     }
     /* No margin-left:auto here: in a wrapping flex row an auto margin eats
        all the free space, which pushed the dots onto a second line even
@@ -87440,11 +87443,10 @@ window.LHC_Install = (function() {
     /* instead of two loose rows of pills.                                   */
     #lyricsPreviewToolbar {
       margin-top: 8px !important;
-      /* 3px sides and a 2px gap are what let seven controls share one line
-         at 375px. The budget got tighter once the three-dot icon actually
-         rendered: an empty box was 16px, a real one is 30px. */
-      padding: 5px 3px !important;
-      gap: 2px !important;
+      /* Six controls now that Add Doc has moved into the More panel, so the
+         row is no longer squeezed to 3px/2px to fit. */
+      padding: 5px 5px !important;
+      gap: 4px !important;
       border: 1px solid var(--sf-line, #e3e8f4);
       border-radius: 12px;
       background: var(--sf-surface, #f7f9fd);
