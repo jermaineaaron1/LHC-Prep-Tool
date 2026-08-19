@@ -51,18 +51,18 @@ function LyricLine({ segments, fallback, className, sung = SUNG, unsung = UNSUNG
 export function KaraokeLyrics({ song, notes, partIndex, elapsed, compact = false }: { song: Song; notes: SongNote[]; partIndex: number; elapsed: number; compact?: boolean }) {
   const cue = karaokeCue(song, notes, partIndex, elapsed);
   const maxLines = song.backing_track_settings?.karaoke_lyrics?.max_lines ?? 2;
-  const size = compact ? 'text-2xl' : maxLines === 1 ? 'text-2xl sm:text-4xl' : 'text-3xl sm:text-5xl';
-  return <section className={`rounded-2xl border border-cyan-300/20 bg-[linear-gradient(135deg,#081326,#120d29)] text-center shadow-[0_16px_50px_#02061788] ${compact ? 'p-4' : 'p-5 sm:p-6'}`} aria-label="Karaoke lyrics">
+  const size = compact ? 'text-lg sm:text-2xl' : maxLines === 1 ? 'text-xl sm:text-4xl' : 'text-2xl sm:text-5xl';
+  return <section className={`rounded-2xl border border-cyan-300/20 bg-[linear-gradient(135deg,#081326,#120d29)] text-center shadow-[0_16px_50px_#02061788] ${compact ? 'p-2 sm:p-4' : 'p-5 sm:p-6'}`} aria-label="Karaoke lyrics">
     <p className="text-[10px] font-black uppercase tracking-[.22em] text-cyan-300">{cue.waiting ? 'Coming up' : 'Sing now'}</p>
-    <div className={`mx-auto mt-2 flex max-w-5xl items-center justify-center overflow-hidden ${compact ? 'min-h-16' : maxLines === 1 ? 'min-h-20' : 'min-h-24'}`}>
+    <div className={`mx-auto mt-2 flex max-w-5xl items-center justify-center overflow-hidden ${compact ? 'min-h-10 sm:min-h-16' : maxLines === 1 ? 'min-h-14 sm:min-h-20' : 'min-h-16 sm:min-h-24'}`}>
       <LyricLine
         segments={cue.segments}
         fallback={cue.text}
         className={`${size} max-w-full font-black leading-tight ${maxLines === 1 ? 'whitespace-nowrap' : 'line-clamp-2'}`}
       />
     </div>
-    <div className="mx-auto mt-3 h-1.5 max-w-4xl overflow-hidden rounded-full bg-white/10"><span className="block h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-[width] duration-75" style={{ width: `${cue.progress * 100}%` }} /></div>
-    {!compact && <p className="mt-2 min-h-5 text-sm text-slate-500">{cue.nextText ? `Next: ${cue.nextText}` : 'Follow the target note as it reaches the gold strike line'}</p>}
+    <div className={`mx-auto h-1.5 max-w-4xl overflow-hidden rounded-full bg-white/10 ${compact ? 'mt-1.5 sm:mt-3' : 'mt-3'}`}><span className="block h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-[width] duration-75" style={{ width: `${cue.progress * 100}%` }} /></div>
+    {!compact && <p className="hidden sm:mt-2 sm:block sm:min-h-5 sm:text-sm text-slate-500">{cue.nextText ? `Next: ${cue.nextText}` : 'Follow the target note as it reaches the gold strike line'}</p>}
   </section>;
 }
 
