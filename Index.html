@@ -20421,6 +20421,31 @@ window.loadEditSongData = function(song) {
     STATE.lyricsCurrentSong = song;
     currentDisplayStyle = (song && song.display_style) ? Object.assign({}, song.display_style) : {};
     STATE.lyricsPreviewEditMode = false;
+
+    // Every song opens in the same known state. Both of these used to survive
+    // from the previous song: an open More panel ate a row of the lyrics, and
+    // -- worse -- fullscreen carried over, so the next song appeared with no
+    // title, no controls and an "Exit fullscreen" button nobody had asked
+    // for. Fullscreen is a decision about the song you are reading, not a
+    // mode the page stays in.
+    var _lpc = document.getElementById('lyricsPreviewModalContent');
+    if (_lpc) {
+      _lpc.classList.remove('lp-lyrics-only');
+      _lpc.classList.remove('lyrics-preview-fullscreen');
+      _lpc.style.removeProperty('max-height');
+      _lpc.style.removeProperty('width');
+      _lpc.style.removeProperty('border-radius');
+    }
+    var _lph = document.getElementById('lyricsPreviewHeaderPanel');
+    if (_lph) _lph.classList.remove('lp-more-open');
+    var _lpm = document.getElementById('lpMoreToggle');
+    if (_lpm) _lpm.setAttribute('aria-expanded', 'false');
+    var _lpf = document.getElementById('lyricsPreviewFullscreenBtn');
+    if (_lpf) {
+      _lpf.innerHTML = '<i class="fa-solid fa-expand"></i>';
+      _lpf.setAttribute('title', 'Fullscreen');
+      _lpf.setAttribute('aria-label', 'Enter fullscreen');
+    }
     var _srg = document.getElementById('sfResultsGrid'); if (_srg) _srg.classList.add('sf-song-active');
     document.querySelectorAll('#songListContainer .song-list-item').forEach(function(row) {
       row.classList.toggle('is-selected', row.dataset.songId === song.id);
