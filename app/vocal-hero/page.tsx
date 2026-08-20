@@ -20,7 +20,7 @@ import { RoundReviewPanel } from './RoundReview';
 import { HighScoreBoard } from './HighScoreBoard';
 import { CountInOverlay } from './CountInOverlay';
 import { MicReportButton } from './MicReportButton';
-import { ENGINE_BUILD, armAutoMicReport } from '@/lib/vocal-hero/micReport';
+import { ENGINE_BUILD, armAutoMicReport, rememberWorkingDevice, storedWorkingDevice } from '@/lib/vocal-hero/micReport';
 import { CanvasLane } from './CanvasLane';
 import { isPresent, lastSeenLabel } from '@/lib/vocal-hero/presence';
 import { PracticeStage } from './PracticeStage';
@@ -327,7 +327,7 @@ export default function VocalHeroHostPage() {
     if (soloPitchRef.current?.isRunning) return true;
     setSoloMic('checking');
     const shift = transposeRef.current;
-    const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, minHz: PitchEngine.midiToHz(detectionRange(part, shift, notesRef.current).minMidi), maxHz: PitchEngine.midiToHz(detectionRange(part, shift, notesRef.current).maxMidi), onPitch: sample => {
+    const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, initialDeviceId: storedWorkingDevice(), onWorkingDevice: rememberWorkingDevice, minHz: PitchEngine.midiToHz(detectionRange(part, shift, notesRef.current).minMidi), maxHz: PitchEngine.midiToHz(detectionRange(part, shift, notesRef.current).maxMidi), onPitch: sample => {
       if (performance.now() - soloLastPitchPaintRef.current > 33) { setSoloPitch(sample.frequency); soloLastPitchPaintRef.current = performance.now(); }
       // This sample is the sound of a moment already past: the beat took time to
       // reach the singer's ears, and their answer took time to reach the analyser.
