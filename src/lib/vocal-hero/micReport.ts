@@ -6,7 +6,7 @@ import { PitchEngine } from './pitchEngine';
  *  diagnostics panel and stamped into every report, because "is the phone
  *  even running the new code?" has cost this investigation at least two
  *  rounds of guessing. */
-export const ENGINE_BUILD = 'device-4';
+export const ENGINE_BUILD = 'sense-5';
 
 const WORKING_DEVICE_KEY = 'lhc_vh_mic_device';
 
@@ -41,7 +41,7 @@ export async function sendMicReport(engine: PitchEngine | null, context: string,
     inputs,
     engine: engine ? {
       running: engine.isRunning, suspended: engine.isSuspended, sampleRate: engine.sampleRate, capture: engine.captureMode,
-      track: engine.trackInfo, recovery: engine.recoveryInfo, inputScale: engine.inputScale, confidenceNow: engine.confidence,
+      track: engine.trackInfo, recovery: engine.recoveryInfo, inputScale: engine.inputScale, confidenceNow: engine.confidence, noise: engine.noiseInfo,
       rawWindow: engine.sampleWindow(1024),
       levelNow: engine.level, dcOffset: engine.dcOffset, levelTrace: levels,
       traceMax: Math.max(0, ...levels), traceAvg: levels.length ? levels.reduce((a, b) => a + b, 0) / levels.length : 0,
