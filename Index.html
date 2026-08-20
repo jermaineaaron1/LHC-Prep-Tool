@@ -19708,8 +19708,29 @@ window.loadEditSongData = function(song) {
         var label = type === 'youtube' ? 'Video ' + (idx + 1) :
                     type === 'spotify' ? 'Track ' + (idx + 1) : 'Document ' + (idx + 1);
 
+        // The name stored on the attachment wins: it is what the person who
+        // attached the file actually saw -- a filename, or the site a chord
+        // sheet came from. Falling straight through to "Document 1" threw
+        // that away and made two documents indistinguishable in the one place
+        // built for telling them apart.
+        var _stored = (function() {
+          var songs = (window.LHC_STATE && LHC_STATE.songs) || [];
+          for (var si = 0; si < songs.length; si++) {
+            var atts = songs[si].attachments || [];
+            for (var ai = 0; ai < atts.length; ai++) {
+              var a = atts[ai];
+              if (a && (a.url || a) === url && a.name) return String(a.name);
+            }
+          }
+          return '';
+        })();
+        // Generic stored names carry no more than the fallback does, so they
+        // do not displace it.
+        if (_stored && !/^(google doc|google drive file|document|drive file|file|link)$/i.test(_stored.trim())) {
+          label = _stored.length > 30 ? _stored.substring(0, 30) + '…' : _stored;
+        }
         // Check for actual title from songFileNames
-        if (window.songFileNames && window.songFileNames[url] && window.songFileNames[url].name) {
+        else if (window.songFileNames && window.songFileNames[url] && window.songFileNames[url].name) {
           label = window.songFileNames[url].name;
           // Truncate to 30 characters
           if (label.length > 30) {
