@@ -16,7 +16,7 @@ import { RoundReviewPanel } from '../RoundReview';
 import { HighScoreBoard } from '../HighScoreBoard';
 import { CountInOverlay } from '../CountInOverlay';
 import { MicReportButton } from '../MicReportButton';
-import { ENGINE_BUILD, armAutoMicReport } from '@/lib/vocal-hero/micReport';
+import { ENGINE_BUILD, armAutoMicReport, rememberWorkingDevice, storedWorkingDevice } from '@/lib/vocal-hero/micReport';
 import { CanvasLane } from '../CanvasLane';
 import { rememberPlayerName, storedPlayerName } from '../playerName';
 import { HEARTBEAT_MS, forgetPlayerId, rememberPlayerId, storedPlayerId } from '@/lib/vocal-hero/presence';
@@ -186,7 +186,7 @@ function PhoneGame() {
     setScore(0); setHits({}); cuedRef.current = { outer: false, inner: false };
   }, [clockOffset, session?.playback_starts_at, session?.status]);
 
-  async function startPitchTracking() { if (pitchRef.current?.isRunning) return true; const shift = transposeRef.current; const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, minHz: PitchEngine.midiToHz(detectionRange(partIndex, shift, notesRef.current).minMidi), maxHz: PitchEngine.midiToHz(detectionRange(partIndex, shift, notesRef.current).maxMidi), onPitch: sample => { pitchValueRef.current = sample.frequency; if (performance.now() - lastPitchPaintRef.current > 90) { setPitch(sample.frequency); setLevel(sample.level ?? 0); setDiag({ hz: sample.frequency, level: sample.level ?? 0, confidence: sample.confidence, rate: pitchRef.current?.sampleRate ?? 0, dc: pitchRef.current?.dcOffset ?? 0, capture: pitchRef.current?.captureMode ?? '—' }); lastPitchPaintRef.current = performance.now(); } // This sample is the sound of a moment already past: the beat took time to
+  async function startPitchTracking() { if (pitchRef.current?.isRunning) return true; const shift = transposeRef.current; const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .76, smoothing: .22, initialDeviceId: storedWorkingDevice(), onWorkingDevice: rememberWorkingDevice, minHz: PitchEngine.midiToHz(detectionRange(partIndex, shift, notesRef.current).minMidi), maxHz: PitchEngine.midiToHz(detectionRange(partIndex, shift, notesRef.current).maxMidi), onPitch: sample => { pitchValueRef.current = sample.frequency; if (performance.now() - lastPitchPaintRef.current > 90) { setPitch(sample.frequency); setLevel(sample.level ?? 0); setDiag({ hz: sample.frequency, level: sample.level ?? 0, confidence: sample.confidence, rate: pitchRef.current?.sampleRate ?? 0, dc: pitchRef.current?.dcOffset ?? 0, capture: pitchRef.current?.captureMode ?? '—' }); lastPitchPaintRef.current = performance.now(); } // This sample is the sound of a moment already past: the beat took time to
       // reach the singer's ears, and their answer took time to reach the analyser.
       // Scoring it against the clock as it stands now would mark every note late.
       if (phaseRef.current === 'live' && sample.confidence > .78) { const songTime = Math.max(0, elapsedRef.current - latencyRef.current); scoreRef.current?.scorePitch(sample.frequency, songTime); pushTrail(trailRef.current, songTime, sample.frequency); } } }); pitchRef.current = engine; try { await engine.start(); setAudioBlocked(engine.isSuspended); setMicReason(null); setMic('ready'); readEnv(); armAutoMicReport(() => pitchRef.current); return true; } catch (cause) { pitchRef.current = null; setMicReason(cause instanceof MicError ? cause.reason : 'unknown'); setMic('blocked'); readEnv(); return false; } }

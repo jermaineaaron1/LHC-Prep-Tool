@@ -6,7 +6,21 @@ import { PitchEngine } from './pitchEngine';
  *  diagnostics panel and stamped into every report, because "is the phone
  *  even running the new code?" has cost this investigation at least two
  *  rounds of guessing. */
-export const ENGINE_BUILD = 'scale-3';
+export const ENGINE_BUILD = 'device-4';
+
+const WORKING_DEVICE_KEY = 'lhc_vh_mic_device';
+
+/** The last input that actually produced pitched audio on this phone. The
+ *  field device's Default route is loud garbage, and the cycler that escapes
+ *  it costs ~16 seconds -- which a round's opening bars paid every time until
+ *  this was remembered. */
+export function storedWorkingDevice(): string | null {
+  try { return localStorage.getItem(WORKING_DEVICE_KEY); } catch { return null; }
+}
+
+export function rememberWorkingDevice(deviceId: string): void {
+  try { localStorage.setItem(WORKING_DEVICE_KEY, deviceId); } catch { /* private mode */ }
+}
 
 /** Gathers everything a dead microphone refuses to say out loud. The caller
  *  supplies the level trace (recorded while the singer speaks) or lets this

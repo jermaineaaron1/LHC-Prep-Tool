@@ -17,6 +17,14 @@ export interface PitchEngineOptions {
   minHz?: number;
   /** Maximum frequency to consider (Hz). Default: 1100 */
   maxHz?: number;
+  /** Open this input first, rather than the default. Comes from the last
+   *  device that actually produced pitched audio on this phone -- the field
+   *  device's Default route is loud garbage, and rediscovering that costs
+   *  ~16s of every round's opening bars. */
+  initialDeviceId?: string | null;
+  /** Fired once per stream, the first time a pitch genuinely locks: this
+   *  input works. The caller persists it for next time. */
+  onWorkingDevice?: (deviceId: string) => void;
 }
 
 /** Why the microphone could not be opened. "blocked" is the only one a singer
@@ -77,6 +85,7 @@ export class PitchEngine {
    *  Loud garbage from a broken input looks HEALTHY to the silence watchdog,
    *  so it never cycled devices -- this counter is what finally does. */
   private unpitchedFrames = 0;
+  private announcedDevice = false;
   /** A silent tap to the destination. See the note where it is built. */
   private sink: GainNode | null = null;
   /** Some devices deliver nothing at all with voice processing switched off. */
@@ -115,8 +124,11 @@ export class PitchEngine {
       confidenceThreshold: 0.85,
       minHz:               70,
       maxHz:               1100,
+      initialDeviceId:     null,
+      onWorkingDevice:     () => undefined,
       ...options,
     };
+    this.preferredDeviceId = this.opts.initialDeviceId;
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -145,9 +157,8 @@ export class PitchEngine {
       throw new MicError('unsupported', 'This window offers no microphone API. Open the app in the browser instead.');
     }
 
-    try {
-      const device = this.preferredDeviceId ? { deviceId: { exact: this.preferredDeviceId } } : null;
-      this.stream = await navigator.mediaDevices.getUserMedia({
+    const acquire = (device: { deviceId: { exact: string } } | null) =>
+      navigator.mediaDevices.getUserMedia({
         audio: relaxed ? (device ?? true) : {
           echoCancellation: false,
           noiseSuppression: false,
@@ -156,6 +167,17 @@ export class PitchEngine {
           ...device,
         },
       });
+    try {
+      const device = this.preferredDeviceId ? { deviceId: { exact: this.preferredDeviceId } } : null;
+      try {
+        this.stream = await acquire(device);
+      } catch (cause) {
+        // A remembered input that has since vanished -- a headset unplugged
+        // between sessions -- must cost a fallback, not the whole microphone.
+        if (!device) throw cause;
+        this.preferredDeviceId = null;
+        this.stream = await acquire(null);
+      }
     } catch (cause) {
       throw classify(cause);
     }
@@ -387,6 +409,7 @@ export class PitchEngine {
     this.scaleEstimate = 1;
     this.unpitchedFrames = 0;
     this.lastConfidence = 0;
+    this.announcedDevice = false;
   }
 
   get isRunning(): boolean {
@@ -447,6 +470,11 @@ export class PitchEngine {
 
     const { hz, confidence } = this.autocorrelate(this.buffer, this.context.sampleRate);
     this.lastConfidence = confidence;
+    if (hz > 0 && confidence >= this.opts.confidenceThreshold && !this.announcedDevice) {
+      this.announcedDevice = true;
+      const id = this.stream?.getAudioTracks()[0]?.getSettings?.().deviceId;
+      if (id) this.opts.onWorkingDevice(id);
+    }
 
     // The complement of the silence watchdog: sound clearly arriving, no
     // pitch ever locking. A dead input that emits loud noise -- which is what

@@ -7,6 +7,7 @@ import { CanvasLane } from './CanvasLane';
 import type { TrailSample } from '@/lib/vocal-hero/trail';
 import { KaraokeLyrics } from './KaraokeLyrics';
 import { MicError, PitchEngine, type MicFailure } from '@/lib/vocal-hero/pitchEngine';
+import { rememberWorkingDevice, storedWorkingDevice } from '@/lib/vocal-hero/micReport';
 import { isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
 import { detectionRange, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { transposeNotes } from './TransposePicker';
@@ -160,6 +161,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
     const band = detectionRange(part, transpose, playableNotes(song));
     const engine = new PitchEngine({
       bufferSize: 2048, confidenceThreshold: .76, smoothing: .22,
+      initialDeviceId: storedWorkingDevice(), onWorkingDevice: rememberWorkingDevice,
       minHz: PitchEngine.midiToHz(band.minMidi),
       maxHz: PitchEngine.midiToHz(band.maxMidi),
       onPitch: sample => {
