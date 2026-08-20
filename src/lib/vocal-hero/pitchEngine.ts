@@ -86,6 +86,12 @@ export class PitchEngine {
    *  so it never cycled devices -- this counter is what finally does. */
   private unpitchedFrames = 0;
   private announcedDevice = false;
+  /** The room's own loudness, learned from frames in which nobody is singing.
+   *  The gate below asks the voice to stand clearly above THIS, which is what
+   *  "sensitivity" actually means in a church hall: a fixed threshold is
+   *  either deaf to soft singers in a quiet room or wide open to breaths and
+   *  chatter in a loud one. */
+  private noiseFloor = 0.001;
   /** A silent tap to the destination. See the note where it is built. */
   private sink: GainNode | null = null;
   /** Some devices deliver nothing at all with voice processing switched off. */
@@ -339,6 +345,11 @@ export class PitchEngine {
     return this.lastConfidence;
   }
 
+  /** The learned room loudness and the gate derived from it, for reports. */
+  get noiseInfo(): { floor: number; gate: number } {
+    return { floor: this.noiseFloor, gate: Math.min(0.08, Math.max(0.002, this.noiseFloor * 2.5)) };
+  }
+
   /** A copy of the most recent analysis frame (post centring and scaling),
    *  for the report: with the actual waveform on file, what the device
    *  delivers stops being a matter of inference. */
@@ -410,6 +421,7 @@ export class PitchEngine {
     this.unpitchedFrames = 0;
     this.lastConfidence = 0;
     this.announcedDevice = false;
+    this.noiseFloor = 0.001;
   }
 
   get isRunning(): boolean {
@@ -470,6 +482,13 @@ export class PitchEngine {
 
     const { hz, confidence } = this.autocorrelate(this.buffer, this.context.sampleRate);
     this.lastConfidence = confidence;
+    // Learn the room from unpitched frames only: singing holds the floor
+    // still, silence and chatter move it. Slow on the way up, so one cough
+    // does not deafen the gate; the floor is per-stream state and resets with
+    // the device.
+    if (!(hz > 0 && confidence >= this.opts.confidenceThreshold)) {
+      this.noiseFloor = this.noiseFloor * 0.98 + this.lastLevel * 0.02;
+    }
     if (hz > 0 && confidence >= this.opts.confidenceThreshold && !this.announcedDevice) {
       this.announcedDevice = true;
       const id = this.stream?.getAudioTracks()[0]?.getSettings?.().deviceId;
@@ -561,7 +580,11 @@ export class PitchEngine {
     // rejected noise: pure noise is refused by the correlation floor below at
     // every level, right up to an RMS of 0.116. This only has to reject a
     // disconnected microphone.
-    if (rms < 0.002) return { hz: 0, confidence: 0 };
+    // Adaptive: 2.5x the learned room floor, never below the dead-line gate
+    // of 0.002 (soft singers in quiet rooms live just above it -- the old
+    // 0.01 cliff threw their frames away), and never above 0.08, so a loud
+    // room cannot gate out genuine singing entirely.
+    if (rms < Math.min(0.08, Math.max(0.002, this.noiseFloor * 2.5))) return { hz: 0, confidence: 0 };
 
     // The normalised autocorrelation is
     //   r[lag] = Σ buf[i]·buf[i+lag] / sqrt( Σ buf[i]² · Σ buf[i+lag]² )
