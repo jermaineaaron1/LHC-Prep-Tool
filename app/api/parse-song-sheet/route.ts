@@ -94,11 +94,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const fileRes = await fetch(url);
-    if (!fileRes.ok) {
-      return NextResponse.json({ error: `Could not download the image (status ${fileRes.status}).` }, { status: 502 });
+    // Its own try/catch: an unreachable host throws rather than returning a
+    // response, and without this the outer handler reports it as the opaque
+    // "Scan failed: fetch failed".
+    let fileBuffer: Buffer;
+    try {
+      const fileRes = await fetch(url);
+      if (!fileRes.ok) {
+        return NextResponse.json({ error: `Could not download the image (status ${fileRes.status}).` }, { status: 502 });
+      }
+      fileBuffer = Buffer.from(await fileRes.arrayBuffer());
+    } catch {
+      return NextResponse.json({ error: 'Could not reach the uploaded image. Check the connection and try again.' }, { status: 502 });
     }
-    const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
 
     // ~18MB of base64 is well inside the inline-data limit; a phone photo is
     // far smaller, but a scanned PDF can be large.
@@ -146,7 +154,11 @@ export async function POST(req: NextRequest) {
     ].join('\n');
 
     const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
+
+    // The free flash tier returns 503 UNAVAILABLE under load often enough
+    // that a single attempt is not a fair test. Two quick retries turn most
+    // of those into a scan rather than an error the reader must interpret.
+    const callModel = async () => ai.models.generateContent({
       // Version-agnostic alias, matching the lectionary route: always the
       // current flash-tier model, so a retired dated version cannot break this.
       model: 'gemini-flash-latest',
@@ -162,6 +174,24 @@ export async function POST(req: NextRequest) {
         responseSchema: RESPONSE_SCHEMA,
       },
     });
+
+    let response;
+    try {
+      response = await callModel();
+    } catch (e1) {
+      if (!/50[0-9]|unavailable|overloaded|high demand|429|rate/i.test(String(e1))) throw e1;
+      await new Promise((r) => setTimeout(r, 1200));
+      try {
+        response = await callModel();
+      } catch (e2) {
+        const quota = /429|quota|rate limit/i.test(String(e2));
+        return NextResponse.json({
+          error: quota
+            ? 'The scanning service has hit its rate limit for now. Wait a minute and try again, or add the song manually.'
+            : 'The scanning service is busy right now. Try again in a moment, or add the song manually.',
+        }, { status: 503 });
+      }
+    }
 
     const raw = response.text;
     if (!raw) {
@@ -210,7 +240,16 @@ export async function POST(req: NextRequest) {
       ...(dropped.length ? { droppedFields: dropped } : {}),
     });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Unknown error';
-    return NextResponse.json({ error: `Scan failed: ${msg}` }, { status: 500 });
+    const raw = e instanceof Error ? e.message : 'Unknown error';
+    // Provider errors arrive as a JSON blob; nobody should have to parse one
+    // to learn that the scanner is busy.
+    const msg = /unavailable|overloaded|high demand/i.test(raw)
+      ? 'The scanning service is busy right now. Try again in a moment, or add the song manually.'
+      : /429|quota|rate limit/i.test(raw)
+        ? 'The scanning service has hit its rate limit for now. Try again shortly, or add the song manually.'
+        : /api key|permission|unauthenticated|401|403/i.test(raw)
+          ? 'The scanning service rejected the credentials on this server. Add the song manually and let an admin know.'
+          : 'The scan could not be completed. Add the song manually instead.';
+    return NextResponse.json({ error: msg }, { status: 502 });
   }
 }
