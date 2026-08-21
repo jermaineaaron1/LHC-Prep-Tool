@@ -14091,8 +14091,10 @@ window.asHandleScanFile = function(input) {
   if (!file) return;
   if (typeof showLoader === 'function') showLoader(true);
   showToast('Reading the sheet\u2026', 'info');
+  var _asScanUrl = '';
   uploadToSupabase(file, 'song-scans').then(function(res) {
     if (!res || res.error || !res.url) throw new Error((res && res.error) || 'upload failed');
+    _asScanUrl = res.url;
     // The vocabularies travel with the request, taken from the live library, so
     // the scan can only return values that already exist here.
     var meta = (window.LHC_STATE && LHC_STATE.songMeta) || {};
@@ -14115,6 +14117,9 @@ window.asHandleScanFile = function(input) {
   }).then(function(out) {
     if (typeof showLoader === 'function') showLoader(false);
     if (!out.ok) throw new Error(out.body && out.body.error ? out.body.error : 'scan failed');
+    // The photo travels with the song: a musician who wants the actual sheet
+    // music, not just the chords and words, opens it from the song's documents.
+    out.body.__scanUrl = _asScanUrl;
     openAddSongForm(out.body);
   }).catch(function(err) {
     if (typeof showLoader === 'function') showLoader(false);
@@ -14187,6 +14192,20 @@ function _asmApplyScan(d) {
   if (d.lyrics) {
     _asmSetNewLyrics(d.lyrics);
     filled.push(d.chordsFound ? 'lyrics with chords' : 'lyrics');
+  }
+
+  // Keep the photograph as one of the song's documents. Added after the form
+  // has been cleared, or the clear would drop it. It saves with the song, so
+  // the sheet music is one tap away on the song page afterwards.
+  if (d.__scanUrl) {
+    var info = (typeof parseFileUrl === 'function') ? parseFileUrl(d.__scanUrl) : { url: d.__scanUrl };
+    info.url = d.__scanUrl;
+    info.name = ((d.title || 'Song') + ' — scanned sheet');
+    if (!window.songData) window.songData = {};
+    if (!window.songData.new) window.songData.new = { youtube: [], attachments: [], lyrics: '' };
+    window.songData.new.attachments.push(info);
+    if (typeof renderAttachments === 'function') renderAttachments('new');
+    filled.push('the photo, kept as a document');
   }
 
   var b = document.getElementById('asmScanBanner');
