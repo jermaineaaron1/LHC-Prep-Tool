@@ -183,7 +183,12 @@ export async function POST(req: NextRequest) {
     // same way -- 50s before the reader was told anything. Falling through to a
     // lighter model instead actually gets an answer, and lite is more than
     // capable of transcribing a page of chords and words.
-    const MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
+    // Lite goes first, and that order is measured rather than assumed: flash
+    // spent ~35s failing with UNAVAILABLE before lite answered, putting a
+    // successful scan at 60s. Lite answers quickly and transcribing a page of
+    // chords and words is well within it; flash is the fallback for when lite
+    // is the one that is busy.
+    const MODELS = ['gemini-flash-lite-latest', 'gemini-flash-latest'];
     const callModel = async (model: string) => ai.models.generateContent({
       // Version-agnostic alias, matching the lectionary route: always the
       // current flash-tier model, so a retired dated version cannot break this.
