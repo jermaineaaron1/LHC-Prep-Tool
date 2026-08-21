@@ -54,12 +54,18 @@ const RESPONSE_SCHEMA = {
     season: { type: Type.STRING, nullable: true, description: 'Liturgical season, chosen from the allowed seasons list, or null. Only when the text clearly belongs to that season.' },
     themes: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Up to three themes, each chosen from the allowed themes list. Empty array if none clearly apply.' },
     scripture: { type: Type.STRING, nullable: true, description: 'Any scripture reference printed on the sheet, e.g. "Psalm 23". Null if absent.' },
+    alternateTitle: { type: Type.STRING, nullable: true, description: 'A second title in brackets or on the line below. Null if there is only one title.' },
+    copyright: { type: Type.STRING, nullable: true, description: 'The copyright line as printed, e.g. "(c) 1998 Thankyou Music". Usually small print at the foot of the page. Null if absent.' },
+    ccli: { type: Type.STRING, nullable: true, description: 'The CCLI SONG number only, digits alone, from text like "CCLI Song #1234567". Not the licence number. Null if absent.' },
+    timeSignature: { type: Type.STRING, nullable: true, description: 'Time signature as printed, e.g. "4/4", "3/4", "6/8". On a score it follows the clef and key signature. Null if absent.' },
+    bpm: { type: Type.INTEGER, nullable: true, description: 'Beats per minute only if a number is printed. Null if none is printed -- never estimate one.' },
+    capo: { type: Type.STRING, nullable: true, description: 'Any capo instruction as printed, e.g. "Capo 3". Null if absent.' },
     lyrics: { type: Type.STRING, nullable: true, description: 'The full lyrics in the required chord-sheet format. Null if no lyrics are legible.' },
     chordsFound: { type: Type.BOOLEAN, description: 'True only if chord symbols were actually printed on the sheet and have been transcribed. False for a sheet with lyrics only, or a music score with no chord symbols.' },
     confidence: { type: Type.STRING, description: 'One of "high", "medium", "low" -- how legible the sheet was overall.' },
     notes: { type: Type.STRING, nullable: true, description: 'One short sentence for the reviewer about anything unclear, cut off, or guessed. Null if the read was clean.' },
   },
-  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'lyrics', 'chordsFound', 'confidence', 'notes'],
+  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'alternateTitle', 'copyright', 'ccli', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'confidence', 'notes'],
 };
 
 // The client hands this route a URL and the server fetches it, so without a
@@ -194,6 +200,23 @@ export async function POST(req: NextRequest) {
       'On a score the lyrics sit under the staff, split across notes by hyphens.',
       'Rejoin them ("A- ma- zing" becomes "Amazing").',
       '',
+      'ALSO ON THE PAGE, and easy to miss:',
+      '  * The copyright line in small print at the foot, and a CCLI song number',
+      '    ("CCLI Song #1234567"). Take the SONG number, not the licence number.',
+      '  * A time signature after the clef, and a printed tempo such as 72 bpm.',
+      '    Only report a BPM that is actually printed -- never estimate one.',
+      '  * A capo instruction, and any second title in brackets or underneath.',
+      '',
+      'LAYOUTS THAT CATCH PEOPLE OUT:',
+      '  * Hymnals stack verses: several numbered verses printed under one staff,',
+      '    or in a block below it. Each is its own [Verse n] section -- do not',
+      '    return only the first.',
+      '  * Two columns: read the whole left column down, then the right. Never',
+      '    read straight across the gutter.',
+      '  * Repeat directions (D.C., D.S., Repeat chorus, x2) are instructions, not',
+      '    lyrics. Keep them out of the words and mention them in notes instead.',
+      '  * A chorus printed once stays printed once, however often it is sung.',
+      '',
       'CONTROLLED VALUES — for the fields below you must choose from these exact',
       'lists or return null. Never invent a value that is not listed.',
       list('Allowed keys', v.keys),
@@ -282,6 +305,20 @@ export async function POST(req: NextRequest) {
       ? (result.themes as unknown[]).map((x) => pick(x, v.themes)).filter((x): x is string => !!x).slice(0, 3)
       : [];
 
+    // chordsFound is the model's own claim about its work, and it has been
+    // wrong in both directions -- reporting none while transcribing chord
+    // lines, and vice versa. Checking the transcription settles it: a chord
+    // line is a line whose every token is chord-shaped.
+    const lyricsText = typeof result.lyrics === 'string' ? result.lyrics : '';
+    const CHORD = /^[A-G](#|b|♯|♭)?(maj|min|m|M|dim|aug|sus|add|alt)?[0-9]*(sus[24]|add[29]|maj[79]|b5|b9|#5|#9|#11|b13)*(\/[A-G](#|b)?)?$/;
+    const chordLineCount = lyricsText.split(/\r?\n/).filter((line) => {
+      const tokens = line.trim().split(/\s+/).filter(Boolean);
+      if (!tokens.length || tokens.length > 12) return false;
+      if (/^\[.*\]$/.test(line.trim())) return false;   // a section header
+      return tokens.every((tok) => CHORD.test(tok));
+    }).length;
+    const chordsActuallyPresent = chordLineCount > 0;
+
     const dropped: string[] = [];
     if (result.key && !pick(result.key, v.keys)) dropped.push('key');
     if (result.tempo && !pick(result.tempo, v.tempos)) dropped.push('feel');
@@ -297,8 +334,19 @@ export async function POST(req: NextRequest) {
       season: pick(result.season, v.seasons),
       themes,
       scripture: typeof result.scripture === 'string' ? result.scripture.trim() : null,
+      alternateTitle: typeof result.alternateTitle === 'string' ? result.alternateTitle.trim() : null,
+      copyright: typeof result.copyright === 'string' ? result.copyright.trim() : null,
+      // Digits only: sheets print "CCLI Song #1234567" and the field wants the number.
+      ccli: typeof result.ccli === 'string' ? (result.ccli.replace(/\D+/g, '') || null) : null,
+      timeSignature: typeof result.timeSignature === 'string' ? result.timeSignature.trim() : null,
+      // A printed tempo, never an estimated one; anything outside a plausible
+      // range is a misread rather than a marking.
+      bpm: (typeof result.bpm === 'number' && result.bpm >= 30 && result.bpm <= 260) ? Math.round(result.bpm) : null,
+      capo: typeof result.capo === 'string' ? result.capo.trim() : null,
       lyrics: typeof result.lyrics === 'string' ? result.lyrics : null,
-      chordsFound: result.chordsFound === true,
+      // What is in the transcription wins over what the model said about it.
+      chordsFound: chordsActuallyPresent,
+      chordLines: chordLineCount,
       confidence: typeof result.confidence === 'string' ? result.confidence : 'low',
       notes: typeof result.notes === 'string' ? result.notes.trim() : null,
       ...(dropped.length ? { droppedFields: dropped } : {}),
