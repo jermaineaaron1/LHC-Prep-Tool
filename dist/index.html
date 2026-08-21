@@ -14124,6 +14124,34 @@ window.asHandleScanFile = function(input) {
   });
 };
 
+// Lyrics live in three places and all three must agree:
+//
+//   songData.new.lyrics   what the Lyrics & Chords editor opens with
+//   #newSongLyricsData    what saveNewSong() reads when the song is saved
+//   the summary chip      what tells you there are lyrics at all
+//
+// The scan was setting only the hidden field, so the lyrics were really
+// there and would have saved -- but the editor opened empty, because it
+// reads songData. This mirrors what saveLyricsEditor() does on the way out.
+function _asmSetNewLyrics(text) {
+  text = text || '';
+  if (!window.songData) window.songData = {};
+  if (!window.songData.new) window.songData.new = { youtube: [], attachments: [], lyrics: '' };
+  window.songData.new.lyrics = text;
+  var hidden = document.getElementById('newSongLyricsData');
+  if (hidden) hidden.value = text;
+  var summary = document.getElementById('newSongLyricsSummary');
+  var info = document.getElementById('newSongLyricsInfo');
+  if (summary && text.trim()) {
+    var lines = text.split('\n').filter(function(l) { return l.trim(); }).length;
+    var sections = (text.match(/\[.+\]/g) || []).length;
+    if (info) info.textContent = sections + ' section(s), ' + lines + ' lines';
+    summary.classList.remove('hidden');
+  } else if (summary) {
+    summary.classList.add('hidden');
+  }
+}
+
 function _asmClearScanBanner() {
   var b = document.getElementById('asmScanBanner');
   if (b) { b.style.display = 'none'; b.innerHTML = ''; }
@@ -14157,9 +14185,7 @@ function _asmApplyScan(d) {
     filled.push('themes');
   }
   if (d.lyrics) {
-    var ta = document.getElementById('newSongLyricsData');
-    if (ta) { ta.value = d.lyrics; ta.dispatchEvent(new Event('change', { bubbles: true })); }
-    if (typeof updateNewSongLyricsSummary === 'function') updateNewSongLyricsSummary();
+    _asmSetNewLyrics(d.lyrics);
     filled.push(d.chordsFound ? 'lyrics with chords' : 'lyrics');
   }
 
@@ -23034,11 +23060,15 @@ window.loadEditSongData = function(song) {
        'newSongAlternateTitle','newSongCopyright','newSongCcli','newSongTimeSignature','newSongBpm']
         .forEach(function(id) { var e = $(id); if (e) e.value = ''; });
       if (typeof updateNewSongLyricsSummary === 'function') updateNewSongLyricsSummary();
-      // Media and attachments belong to the song being added, not the last one.
+      // Media, attachments and lyrics belong to the song being added, not the
+      // last one. songData is the editor's copy -- clearing only the hidden
+      // field would leave the previous song's words in the editor.
       if (window.songData && window.songData.new) {
         window.songData.new.youtube = [];
         window.songData.new.attachments = [];
+        window.songData.new.lyrics = '';
       }
+      if (typeof _asmSetNewLyrics === 'function') _asmSetNewLyrics('');
       _asmSetSuitability('newSongSuitability', []);
       if (prefill) _asmApplyScan(prefill);
       else _asmClearScanBanner();
