@@ -62,14 +62,39 @@ const RESPONSE_SCHEMA = {
   required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'lyrics', 'chordsFound', 'confidence', 'notes'],
 };
 
+// The client hands this route a URL and the server fetches it, so without a
+// host check the endpoint will fetch anything reachable from the deployment --
+// internal addresses included -- and hand the contents to a model that
+// describes them back. Restricting it to our own storage bucket closes that,
+// and means an image must be uploaded through the app before it can be
+// scanned at all.
+function isOwnStorage(url: string): boolean {
+  let u: URL;
+  try { u = new URL(url); } catch { return false; }
+  if (u.protocol !== 'https:') return false;
+  const configured = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  let allowedHost = '';
+  try { allowedHost = configured ? new URL(configured).hostname : ''; } catch { allowedHost = ''; }
+  // Fall back to the shape of a Supabase storage host so a missing env var
+  // cannot silently open this up to the whole internet.
+  return allowedHost
+    ? u.hostname === allowedHost
+    : /^[a-z0-9-]+\.supabase\.co$/i.test(u.hostname);
+}
+
 function extFromUrl(url: string): string {
   const clean = url.split('?')[0].split('#')[0];
   const m = clean.match(/\.([a-zA-Z0-9]+)$/);
   return m ? m[1].toLowerCase() : '';
 }
 
+// Capped: the vocabularies arrive from the client, and an oversized list would
+// inflate the prompt (and the bill) without improving the read.
 function list(label: string, items: unknown): string {
-  const arr = Array.isArray(items) ? items.filter((x) => typeof x === 'string' && x.trim()) : [];
+  const arr = (Array.isArray(items) ? items : [])
+    .filter((x): x is string => typeof x === 'string' && !!x.trim())
+    .slice(0, 120)
+    .map((x) => x.slice(0, 60));
   if (!arr.length) return `${label}: (none defined - always return null for this field)`;
   return `${label}: ${arr.join(' | ')}`;
 }
@@ -89,6 +114,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!isOwnStorage(url)) {
+      return NextResponse.json(
+        { error: 'That image is not one this app uploaded. Take or choose the photo again.' },
+        { status: 400 }
+      );
+    }
+
     const ext = extFromUrl(url);
     const mime = MIME_TYPES[ext];
     if (!mime) {
@@ -103,7 +135,7 @@ export async function POST(req: NextRequest) {
     // "Scan failed: fetch failed".
     let fileBuffer: Buffer;
     try {
-      const fileRes = await fetch(url);
+      const fileRes = await fetch(url, { signal: AbortSignal.timeout(15000) });
       if (!fileRes.ok) {
         return NextResponse.json({ error: `Could not download the image (status ${fileRes.status}).` }, { status: 502 });
       }
@@ -178,16 +210,12 @@ export async function POST(req: NextRequest) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Retrying the SAME model was the wrong move: when flash is overloaded it
-    // stays overloaded, so a second attempt just spent another 25s to fail the
-    // same way -- 50s before the reader was told anything. Falling through to a
-    // lighter model instead actually gets an answer, and lite is more than
-    // capable of transcribing a page of chords and words.
-    // Lite goes first, and that order is measured rather than assumed: flash
-    // spent ~35s failing with UNAVAILABLE before lite answered, putting a
-    // successful scan at 60s. Lite answers quickly and transcribing a page of
-    // chords and words is well within it; flash is the fallback for when lite
-    // is the one that is busy.
+    // Fall through models rather than retrying one: an overloaded model stays
+    // overloaded, so a second attempt at the same one just fails again slower.
+    // Lite leads on measurement, not preference -- flash spent ~35s returning
+    // UNAVAILABLE before lite answered, which put a successful scan at 60s.
+    // Lite alone answers in about 7s and reading a page of chords and words is
+    // well within it; flash covers the case where lite is the busy one.
     const MODELS = ['gemini-flash-lite-latest', 'gemini-flash-latest'];
     const callModel = async (model: string) => ai.models.generateContent({
       // Version-agnostic alias, matching the lectionary route: always the
