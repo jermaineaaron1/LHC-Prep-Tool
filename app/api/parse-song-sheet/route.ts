@@ -26,6 +26,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
 
 export const runtime = 'nodejs';
+// Reading a page of music takes the model 20-25s on a busy day. The platform
+// default is far shorter than that, so without this the function is killed
+// mid-scan and the reader sees a timeout rather than a result.
+export const maxDuration = 60;
 
 const MIME_TYPES: Record<string, string> = {
   jpg: 'image/jpeg',
@@ -174,13 +178,16 @@ export async function POST(req: NextRequest) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // The free flash tier returns 503 UNAVAILABLE under load often enough
-    // that a single attempt is not a fair test. Two quick retries turn most
-    // of those into a scan rather than an error the reader must interpret.
-    const callModel = async () => ai.models.generateContent({
+    // Retrying the SAME model was the wrong move: when flash is overloaded it
+    // stays overloaded, so a second attempt just spent another 25s to fail the
+    // same way -- 50s before the reader was told anything. Falling through to a
+    // lighter model instead actually gets an answer, and lite is more than
+    // capable of transcribing a page of chords and words.
+    const MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
+    const callModel = async (model: string) => ai.models.generateContent({
       // Version-agnostic alias, matching the lectionary route: always the
       // current flash-tier model, so a retired dated version cannot break this.
-      model: 'gemini-flash-latest',
+      model,
       contents: [{
         role: 'user',
         parts: [
@@ -195,21 +202,26 @@ export async function POST(req: NextRequest) {
     });
 
     let response;
-    try {
-      response = await callModel();
-    } catch (e1) {
-      if (!/50[0-9]|unavailable|overloaded|high demand|429|rate/i.test(String(e1))) throw e1;
-      await new Promise((r) => setTimeout(r, 1200));
+    let lastErr: unknown = null;
+    for (const model of MODELS) {
       try {
-        response = await callModel();
-      } catch (e2) {
-        const quota = /429|quota|rate limit/i.test(String(e2));
-        return NextResponse.json({
-          error: quota
-            ? 'The scanning service has hit its rate limit for now. Wait a minute and try again, or add the song manually.'
-            : 'The scanning service is busy right now. Try again in a moment, or add the song manually.',
-        }, { status: 503 });
+        response = await callModel(model);
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        // Anything that is not the model being busy is a real failure and
+        // should surface immediately rather than burning the next model too.
+        if (!/50[0-9]|unavailable|overloaded|high demand|429|rate/i.test(String(err))) throw err;
       }
+    }
+    if (!response) {
+      const quota = /429|quota|rate limit/i.test(String(lastErr));
+      return NextResponse.json({
+        error: quota
+          ? 'The scanning service has hit its rate limit for now. Wait a minute and try again, or add the song manually.'
+          : 'Every scanning model is busy right now. Try again in a few minutes, or add the song manually.',
+      }, { status: 503 });
     }
 
     const raw = response.text;
