@@ -8742,6 +8742,36 @@
 
 </style>
 
+  <!-- ============ MODAL: ADD SONG — scan or type? ============ -->
+  <!-- The first question when adding a song. Scanning only pre-fills the same
+       form; nothing is saved until Save Song is pressed. -->
+  <div id="addSongChooser" class="modal-overlay" style="z-index:10006;">
+    <div class="modal-content asc-content">
+      <div class="asc-head">
+        <h3><i class="fa-solid fa-music" aria-hidden="true"></i> Add a song</h3>
+        <button type="button" class="asc-close" aria-label="Close" onclick="closeAddSongChooser()">
+          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+        </button>
+      </div>
+      <p class="asc-sub">Start from a photo of a chord sheet, or fill the form in yourself.</p>
+      <button type="button" class="asc-opt is-primary" onclick="addSongScan(&#39;camera&#39;)">
+        <span class="asc-ico"><i class="fa-solid fa-camera" aria-hidden="true"></i></span>
+        <span class="asc-txt"><b>Scan with camera</b><small>Photograph a chord sheet</small></span>
+      </button>
+      <button type="button" class="asc-opt" onclick="addSongScan(&#39;file&#39;)">
+        <span class="asc-ico"><i class="fa-solid fa-image" aria-hidden="true"></i></span>
+        <span class="asc-txt"><b>Upload a picture</b><small>A photo or scan already on this device</small></span>
+      </button>
+      <button type="button" class="asc-opt" onclick="addSongManually()">
+        <span class="asc-ico"><i class="fa-solid fa-keyboard" aria-hidden="true"></i></span>
+        <span class="asc-txt"><b>Enter manually</b><small>Type the details in</small></span>
+      </button>
+      <p class="asc-foot"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> A scan fills the form in for you to check. Nothing is saved until you press Save Song.</p>
+      <input type="file" id="asScanCamera" accept="image/*" capture="environment" style="display:none" onchange="asHandleScanFile(this)">
+      <input type="file" id="asScanFile" accept="image/*,.pdf" style="display:none" onchange="asHandleScanFile(this)">
+    </div>
+  </div>
+
   <!-- ==================== MODAL: ADD SONG ==================== -->
   <div id="addSongModal" class="modal-overlay" style="z-index:10005;">
     <div class="modal-content asm-content">
@@ -8770,6 +8800,10 @@
       </nav>
       <div class="asm-scroll">
         <div class="asm-body">
+
+          <!-- Says what the scan filled in, and what it could not. Hidden when
+               the song is being typed in by hand. -->
+          <div id="asmScanBanner" class="asm-scan-banner" style="display:none;"></div>
 
           <!-- § Basic Info -->
           <div class="asm-section">
@@ -14021,6 +14055,128 @@ window.toggleLpRail = function() {
     chev.classList.toggle('fa-chevron-up', open);
   }
 };
+
+// ══ Add a song by scanning a chord sheet ═══════════════════════════════
+//
+// Photo -> Supabase storage -> /api/parse-song-sheet -> the Add Song form,
+// pre-filled and flagged. The scan is a draft: every field stays editable and
+// nothing is written until the person presses Save Song. That is deliberate --
+// a wrong value that saved itself would be worse than no scan at all.
+
+window.openAddSongChooser = function() {
+  var m = document.getElementById('addSongChooser');
+  if (m) m.classList.add('show');
+};
+window.closeAddSongChooser = function() {
+  var m = document.getElementById('addSongChooser');
+  if (m) m.classList.remove('show');
+};
+
+window.addSongManually = function() {
+  closeAddSongChooser();
+  openAddSongForm(null);
+};
+
+// Camera and file picker are two inputs into one handler, the same shape the
+// Add Doc routes use.
+window.addSongScan = function(which) {
+  closeAddSongChooser();
+  var input = document.getElementById(which === 'camera' ? 'asScanCamera' : 'asScanFile');
+  if (input) input.click();
+};
+
+window.asHandleScanFile = function(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (typeof showLoader === 'function') showLoader(true);
+  showToast('Reading the sheet\u2026', 'info');
+  uploadToSupabase(file, 'song-scans').then(function(res) {
+    if (!res || res.error || !res.url) throw new Error((res && res.error) || 'upload failed');
+    // The vocabularies travel with the request, taken from the live library, so
+    // the scan can only return values that already exist here.
+    var meta = (window.LHC_STATE && LHC_STATE.songMeta) || {};
+    return fetch('/api/parse-song-sheet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: res.url,
+        vocab: {
+          keys: meta.keys || [],
+          tempos: meta.tempos || [],
+          styles: meta.styles || [],
+          seasons: meta.seasons || [],
+          themes: meta.themes || []
+        }
+      })
+    });
+  }).then(function(r) {
+    return r.json().then(function(body) { return { ok: r.ok, body: body }; });
+  }).then(function(out) {
+    if (typeof showLoader === 'function') showLoader(false);
+    if (!out.ok) throw new Error(out.body && out.body.error ? out.body.error : 'scan failed');
+    openAddSongForm(out.body);
+  }).catch(function(err) {
+    if (typeof showLoader === 'function') showLoader(false);
+    showToast('Could not read that sheet: ' + ((err && err.message) || 'unknown error'), 'error');
+    // A failed scan still leaves you able to type the song in.
+    openAddSongForm(null);
+  });
+};
+
+function _asmClearScanBanner() {
+  var b = document.getElementById('asmScanBanner');
+  if (b) { b.style.display = 'none'; b.innerHTML = ''; }
+  var form = document.getElementById('addSongModal');
+  if (form) Array.prototype.slice.call(form.querySelectorAll('.asm-from-scan'))
+    .forEach(function(e) { e.classList.remove('asm-from-scan'); });
+}
+
+// Marks a field as coming from the scan, so the reviewer can see at a glance
+// what was read off the page and what they typed themselves.
+function _asmSetScanned(id, value) {
+  var el = document.getElementById(id);
+  if (!el || value === null || value === undefined || value === '') return false;
+  el.value = value;
+  el.classList.add('asm-from-scan');
+  if (typeof el.dispatchEvent === 'function') el.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+}
+
+function _asmApplyScan(d) {
+  var filled = [];
+  if (_asmSetScanned('newSongTitle', d.title)) filled.push('title');
+  if (_asmSetScanned('newSongArtist', d.artist)) filled.push('artist');
+  if (_asmSetScanned('newSongKey', d.key)) filled.push('key');
+  if (_asmSetScanned('newSongTempo', d.tempo)) filled.push('feel');
+  if (_asmSetScanned('newSongCategory', d.style)) filled.push('style');
+  if (_asmSetScanned('newSongSeason', d.season)) filled.push('season');
+  if (_asmSetScanned('newSongScripture', d.scripture)) filled.push('scripture');
+  if (d.themes && d.themes.length && typeof setThemeSelection === 'function') {
+    setThemeSelection('new', d.themes.join(', '));
+    filled.push('themes');
+  }
+  if (d.lyrics) {
+    var ta = document.getElementById('newSongLyricsData');
+    if (ta) { ta.value = d.lyrics; ta.dispatchEvent(new Event('change', { bubbles: true })); }
+    if (typeof updateNewSongLyricsSummary === 'function') updateNewSongLyricsSummary();
+    filled.push(d.chordsFound ? 'lyrics with chords' : 'lyrics');
+  }
+
+  var b = document.getElementById('asmScanBanner');
+  if (!b) return;
+  var conf = (d.confidence || 'low').toLowerCase();
+  var tone = conf === 'high' ? 'is-high' : conf === 'medium' ? 'is-med' : 'is-low';
+  var bits = [];
+  bits.push('<b>Scanned from your photo.</b> Check every field before saving.');
+  bits.push('<span class="asm-scan-filled">Filled: ' + (filled.length ? escapeHtml(filled.join(', ')) : 'nothing legible') + '</span>');
+  if (!d.chordsFound) bits.push('<span class="asm-scan-warn">No chord symbols were printed on this sheet, so none were added.</span>');
+  if (d.droppedFields && d.droppedFields.length) bits.push('<span class="asm-scan-warn">Ignored a value not in your library for: ' + escapeHtml(d.droppedFields.join(', ')) + '.</span>');
+  if (d.notes) bits.push('<span class="asm-scan-note">' + escapeHtml(d.notes) + '</span>');
+  b.className = 'asm-scan-banner ' + tone;
+  b.innerHTML = bits.join('');
+  b.style.display = 'block';
+}
 
 // ── Preview modal action buttons ────────────────────────────────────────────
 
@@ -22856,7 +23012,10 @@ window.loadEditSongData = function(song) {
       };
     });
 
-    var ab = $('openAddSongBtn'); if (ab) ab.onclick = function() {
+    // Adding a song now starts with a question: scan a sheet, or type it in.
+    // The form itself is unchanged either way -- scanning only pre-fills it,
+    // and nothing reaches the database until Save Song is pressed.
+    window.openAddSongForm = function(prefill) {
       openModal('addSongModal');
       // Initialize the style dropdown for fresh state
       if (typeof initSongStyleDropdown === 'function') initSongStyleDropdown('new', '', '');
@@ -22866,12 +23025,25 @@ window.loadEditSongData = function(song) {
       // Clear scripture chips in case modal was used before
       var schips = $('newSongScriptureChips'); if (schips) schips.innerHTML = '';
       var shid = $('newSongScripture'); if (shid) shid.value = '';
-      // Migration-backed fields start empty; the modal is reused between adds,
-      // so a previous song's values would otherwise persist into the next one.
-      ['newSongAlternateTitle','newSongCopyright','newSongCcli','newSongTimeSignature','newSongBpm']
+      // The modal is reused between adds, so every field is cleared first --
+      // otherwise the last song's title, key and lyrics are still sitting there
+      // when the next one is added. Only the migration-backed fields were being
+      // cleared before, which left the main ones carrying over.
+      ['newSongTitle','newSongArtist','newSongKey','newSongTempo','newSongCategory',
+       'newSongSeason','newSongEra','newSongLyricsData',
+       'newSongAlternateTitle','newSongCopyright','newSongCcli','newSongTimeSignature','newSongBpm']
         .forEach(function(id) { var e = $(id); if (e) e.value = ''; });
+      if (typeof updateNewSongLyricsSummary === 'function') updateNewSongLyricsSummary();
+      // Media and attachments belong to the song being added, not the last one.
+      if (window.songData && window.songData.new) {
+        window.songData.new.youtube = [];
+        window.songData.new.attachments = [];
+      }
       _asmSetSuitability('newSongSuitability', []);
+      if (prefill) _asmApplyScan(prefill);
+      else _asmClearScanBanner();
     };
+    var ab = $('openAddSongBtn'); if (ab) ab.onclick = function() { openAddSongChooser(); };
     var snb = $('saveNewSongBtn'); if (snb) snb.onclick = saveNewSong;
     var seb = $('saveEditSongBtn'); if (seb) seb.onclick = saveEditSong;
     var db = $('deleteSongBtn'); if (db) db.onclick = deleteSong;
@@ -87389,6 +87561,56 @@ window.LHC_Install = (function() {
     /* A 44px target on a phone, matching every other control. */
     .link-selector-del { width: 44px; height: 44px; margin: -10px -10px -10px 0; }
   }
+
+  /* ====================================================================== */
+  /* ADD A SONG — scan or type                                              */
+  /* ====================================================================== */
+  #addSongChooser .asc-content { width: min(420px, 94vw); padding: 16px; border-radius: 18px; background: #fff; }
+  .asc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .asc-head h3 {
+    margin: 0; display: flex; align-items: center; gap: 8px;
+    font-family: "Cinzel", serif; font-size: 1.12rem; font-weight: 700; color: var(--sf-navy, #0f1c3f);
+  }
+  .asc-head h3 i { color: var(--sf-blue-deep, #3b5bdb); }
+  .asc-close {
+    flex: none; width: 36px; height: 36px; border-radius: 999px;
+    border: 1px solid var(--sf-line, #e3e8f4); background: #fff; color: var(--sf-muted, #5f6b91); cursor: pointer;
+  }
+  .asc-sub { margin: 6px 0 12px; font-size: .82rem; color: var(--sf-muted, #5f6b91); }
+  .asc-opt {
+    display: flex; align-items: center; gap: 12px; width: 100%;
+    margin-bottom: 8px; padding: 12px; min-height: 60px;
+    border: 1px solid var(--sf-line, #e3e8f4); border-radius: 14px;
+    background: #fff; text-align: left; cursor: pointer; font-family: inherit;
+  }
+  .asc-opt:hover, .asc-opt:focus-visible { border-color: var(--sf-blue-deep, #3b5bdb); background: var(--sf-tint, #eef2ff); outline: none; }
+  .asc-opt.is-primary { border-color: #bfd0ff; background: var(--sf-tint, #eef2ff); }
+  .asc-ico {
+    flex: none; display: grid; place-items: center; width: 42px; height: 42px;
+    border-radius: 12px; color: #fff; font-size: 1rem;
+    background: linear-gradient(155deg, var(--sf-blue-deep, #3b5bdb), var(--sf-violet, #7048e8));
+  }
+  .asc-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .asc-txt b { font-size: .88rem; color: var(--sf-navy, #0f1c3f); }
+  .asc-txt small { font-size: .74rem; color: var(--sf-muted, #5f6b91); }
+  .asc-foot { margin: 10px 0 0; display: flex; gap: 7px; align-items: flex-start; font-size: .72rem; line-height: 1.35; color: var(--sf-muted, #5f6b91); }
+  .asc-foot i { margin-top: 2px; color: var(--sf-blue-deep, #3b5bdb); }
+
+  /* The review banner, and the marks on the fields the scan filled. */
+  .asm-scan-banner {
+    margin: 0 0 8px; padding: 9px 11px; border-radius: 12px;
+    border: 1px solid #bfd0ff; background: var(--sf-tint, #eef2ff);
+    font-size: .76rem; line-height: 1.45; color: var(--sf-navy, #0f1c3f);
+  }
+  .asm-scan-banner.is-low { border-color: #fcd34d; background: #fffbeb; }
+  .asm-scan-banner.is-med { border-color: #bfdbfe; background: #eff6ff; }
+  .asm-scan-banner span { display: block; margin-top: 3px; }
+  .asm-scan-filled { color: var(--sf-muted, #5f6b91); }
+  .asm-scan-warn { color: #b45309; font-weight: 650; }
+  .asm-scan-note { color: var(--sf-muted, #5f6b91); font-style: italic; }
+  /* A quiet edge, not a highlight -- these are ordinary values now, they just
+     came from the photo rather than the keyboard. */
+  .asm-from-scan { border-left: 3px solid var(--sf-violet, #7048e8) !important; background: #fbfaff; }
 
   .lp-badge-btn { position: relative; }
   .lp-btn-badge {
