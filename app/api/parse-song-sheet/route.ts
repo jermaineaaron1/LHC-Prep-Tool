@@ -94,14 +94,28 @@ function isOwnStorage(url: string): boolean {
 const CHORD_TOKEN = /^[A-G](#|b|\u266f|\u266d)?(maj|min|m|M|dim|aug|sus|add|alt)?[0-9]*(sus[24]|add[29]|maj[79]|b5|b9|#5|#9|#11|b13)*(\/[A-G](#|b)?)?$/;
 
 function isChordLine(line: string): boolean {
-  const tokens = line.trim().split(/\s+/).filter(Boolean);
+  const bare = line.trim();
+  if (!bare) return false;
+  if (/^\[.*\]$/.test(bare)) return false;
+  // Chord lines carry directions: "C G C D (G Last time)", "Am F (x2)",
+  // "E7 (x2)". Judging the line with the note still in it failed the shape
+  // test and sent a real chord line off to be wrapped like prose. The note is
+  // set aside and the chords judged on their own.
+  //
+  // A first attempt demanded two chords once a note was present, to stop a
+  // lyric reduced to one word by its own bracket being read as a chord. That
+  // rejected "E7 (x2)", which is an ordinary chord line. The shape test is
+  // enough on its own: a line has to be nothing but chords to pass it, and a
+  // bracket with no chords beside it strips to nothing and fails anyway.
+  const hasNote = /\([^)]*\)/.test(bare);
+  const stripped = hasNote ? bare.replace(/\([^)]*\)/g, ' ').trim() : bare;
+  const tokens = stripped.split(/\s+/).filter(Boolean);
   // The bound is a sanity check, not the safeguard. It used to be 12, which
   // had it backwards: a line of 14 chords over a long lyric is perfectly
   // ordinary, and rejecting it meant the chord line was treated as lyrics and
   // wrapped in half. What actually keeps lyrics out is the shape test below --
   // "Amazing", "Be still" and "Do Re Mi" all fail it, at any length.
   if (!tokens.length || tokens.length > 32) return false;
-  if (/^\[.*\]$/.test(line.trim())) return false;
   return tokens.every((tok) => CHORD_TOKEN.test(tok));
 }
 
@@ -232,7 +246,12 @@ function reflowLines(text: string): string {
     const line = src[i];
 
     // A chord line is emitted by the lyric it sits above, so skip it here.
-    if (isChordLine(line) && i + 1 < src.length && src[i + 1].trim() && !isChordLine(src[i + 1])) continue;
+    // Skip a chord line only when a LYRIC follows it -- that lyric will emit
+    // it. Above a section header there is no lyric to ride with, and skipping
+    // there dropped the chord entirely.
+    const next = i + 1 < src.length ? src[i + 1] : '';
+    const nextIsLyric = !!next.trim() && !isChordLine(next) && !/^\[.*\]$/.test(next.trim());
+    if (isChordLine(line) && nextIsLyric) continue;
 
     if (!line.trim() || /^\[.*\]$/.test(line.trim()) || isChordLine(line)) { out.push(line); continue; }
 
@@ -252,7 +271,15 @@ function reflowLines(text: string): string {
         // ENDS. One sitting in the gap after the comma is over the next phrase,
         // not the one just finished, so it travels with the tail.
         const head = chords.filter((t) => t.start - base < cut);
-        const tail = chords.filter((t) => t.start - base >= cut);
+        let tail = chords.filter((t) => t.start - base >= cut);
+        // A direction like (x2) annotates the phrase it was written on. Left to
+        // partition on position it could be carried to the next line and end up
+        // stranded there alone, a bracket floating between two lyrics. It stays
+        // with the chords it was written beside.
+        if (tail.length && tail.every((x) => /^\(.*\)$/.test(x.text))) {
+          head.push(...tail);
+          tail = [];
+        }
         const headLine = render(head.map((t) => ({ ...t, start: t.start - base })));
         if (headLine.trim()) out.push(headLine);
         chords = tail;
@@ -269,6 +296,46 @@ function reflowLines(text: string): string {
     }
     out.push(lyric);
   }
+  return out.join('\n');
+}
+
+// A last pass for presentation. None of this changes a word or a chord; it
+// settles how the page reads. The library shows why it is needed: [Chorus]
+// appears 54 times and [CHORUS] 5 more, [Verse 1] 28 times and [VERSE 1]
+// twice, so the same section is written three ways across one shelf of songs.
+function tidy(text: string): string {
+  const lines = text.split(/\r?\n/).map((l) => l.replace(/\s+$/, ''));
+
+  const out: string[] = [];
+  for (const line of lines) {
+    const bare = line.trim();
+
+    // Section headers in one voice: [CHORUS] and [chorus] both become
+    // [Chorus], and a stray [Verse1] gains its space.
+    if (/^\[.+\]$/.test(bare)) {
+      let name = bare.slice(1, -1).trim().replace(/\s+/g, ' ');
+      name = name.replace(/^([a-z]+)(\d)/i, '$1 $2');
+      name = name.split(' ').map((w) =>
+        /^\d+$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+      ).join(' ');
+      // Pre-Chorus keeps its capital on both halves.
+      name = name.replace(/-([a-z])/g, (_, c) => '-' + c.toUpperCase());
+      // One blank line before a header, never at the very top.
+      if (out.length && out[out.length - 1].trim()) out.push('');
+      out.push('[' + name + ']');
+      continue;
+    }
+
+    // Never more than one blank line in a row, and none to open with.
+    if (!bare) {
+      if (!out.length || !out[out.length - 1].trim()) continue;
+      out.push('');
+      continue;
+    }
+    out.push(line);
+  }
+
+  while (out.length && !out[out.length - 1].trim()) out.pop();
   return out.join('\n');
 }
 
@@ -526,7 +593,8 @@ export async function POST(req: NextRequest) {
     // syllable. joinSyllables does both together.
     // Order matters: join the split words first, then wrap. Wrapping first
     // would count "lead" and "eth" as two of the seven words.
-    const joined = reflowLines(joinSyllables(lyricsText));
+    // Join split words, wrap over-long lines, then settle the presentation.
+    const joined = tidy(reflowLines(joinSyllables(lyricsText)));
 
     // chordsFound is the model's claim about its own work, and it has been
     // wrong in both directions. The transcription settles it -- counted after
