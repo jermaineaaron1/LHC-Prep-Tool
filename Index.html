@@ -17768,6 +17768,12 @@ window.loadEditSongData = function(song) {
   // Fixed list of all 12 chromatic keys (each entry covers both enharmonic spellings)
   var FIXED_KEYS = ['C', 'C# / D♭', 'D', 'D# / E♭', 'E', 'F', 'F# / G♭', 'G', 'G# / A♭', 'A', 'A# / B♭', 'B'];
 
+  // The three styles a song can be given. Not derived from the library: this
+  // is the taxonomy, and a song with anything else in the column would be a
+  // mistake rather than a fourth style. Must stay in step with the picker in
+  // populateSongStyleDropdown(), which writes these same three strings.
+  var FIXED_STYLES = ['Traditional Hymn', 'Contemporary', 'Contemporary Hymn'];
+
   // Fixed liturgical seasons used at LHC
   var FIXED_SEASONS = [
     'All Seasons',
@@ -17784,6 +17790,16 @@ window.loadEditSongData = function(song) {
     STATE.songMeta.themes = getUniqueValues(songs, 'theme');
     // Keys: always show all 12 chromatic keys (not extracted from songs)
     STATE.songMeta.keys = FIXED_KEYS;
+    // Styles were declared in songMeta and never assigned, so this stayed the
+    // empty array it was initialised as. Nothing on screen depended on it --
+    // the style filter and the song picker both carry their own copy of the
+    // taxonomy -- so the gap went unnoticed until the sheet scanner started
+    // sending songMeta as its vocabulary. It sent no styles, the server
+    // rightly refused to accept a style that was not on the list, and the
+    // field could never be filled from a scan however clearly the sheet said
+    // 'hymn'. getUniqueValues is not used here: it lowercases everything after
+    // the first letter, which would make 'Traditional hymn' of a real value.
+    STATE.songMeta.styles = FIXED_STYLES;
     STATE.songMeta.tempos = getUniqueValues(songs, 'tempo');
     // Seasons: only what the library actually uses, so every option in the
     // filter matches at least one song. The fixed calendar listed 15 seasons
