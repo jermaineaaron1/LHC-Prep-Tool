@@ -14198,7 +14198,7 @@ function _asmApplyScan(d) {
   }
   if (d.lyrics) {
     _asmSetNewLyrics(d.lyrics);
-    filled.push(d.chordsFound ? 'lyrics with chords' : 'lyrics');
+    filled.push(d.chordsFound ? 'lyrics with chords' : d.chordsSuggested ? 'lyrics with suggested chords' : 'lyrics');
   }
 
   // Keep the photograph as one of the song's documents. Added after the form
@@ -14222,7 +14222,14 @@ function _asmApplyScan(d) {
   var bits = [];
   bits.push('<b>Scanned from your photo.</b> Check every field before saving.');
   bits.push('<span class="asm-scan-filled">Filled: ' + (filled.length ? escapeHtml(filled.join(', ')) : 'nothing legible') + '</span>');
-  if (!d.chordsFound) bits.push('<span class="asm-scan-warn">No chord symbols were printed on this sheet, so none were added.</span>');
+  if (d.chordsSuggested) {
+    bits.push('<span class="asm-scan-suggested">The chords below were <b>not</b> on the sheet' + (d.key ? ' &mdash; they were worked out from the key of ' + escapeHtml(d.key) : '') + '. Play them through before you use them.</span>');
+    // An out-of-key chord in a suggestion is a mistake rather than a choice,
+    // and it is named so the reviewer knows where to look first.
+    if (d.outOfKey && d.outOfKey.length) bits.push('<span class="asm-scan-warn">Check these especially, they sit outside the key: ' + escapeHtml(d.outOfKey.join(', ')) + '.</span>');
+  } else if (!d.chordsFound) {
+    bits.push('<span class="asm-scan-warn">No chord symbols were printed on this sheet, so none were added.</span>');
+  }
   if (d.droppedFields && d.droppedFields.length) bits.push('<span class="asm-scan-warn">Ignored a value not in your library for: ' + escapeHtml(d.droppedFields.join(', ')) + '.</span>');
   // No capo field exists, so rather than drop the reading it is shown where the
   // reviewer will see it before saving.
@@ -87666,6 +87673,10 @@ window.LHC_Install = (function() {
   .asm-scan-banner span { display: block; margin-top: 3px; }
   .asm-scan-filled { color: var(--sf-muted, #5f6b91); }
   .asm-scan-warn { color: #b45309; font-weight: 650; }
+  .asm-scan-suggested {
+    color: #6d28d9; font-weight: 600;
+    border-left: 3px solid #a78bfa; padding-left: 8px; margin-top: 5px !important;
+  }
   .asm-scan-note { color: var(--sf-muted, #5f6b91); font-style: italic; }
   /* A quiet edge, not a highlight -- these are ordinary values now, they just
      came from the photo rather than the keyboard. */

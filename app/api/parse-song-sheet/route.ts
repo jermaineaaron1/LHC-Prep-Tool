@@ -15,9 +15,13 @@
 //     returns null -- it never invents a value. Free text here would fragment
 //     the filters, which read the library's own values.
 //
-//   * Chords are reported as found or not found. A photograph of a hymn score
-//     with no printed chord symbols has no chords to read, and inventing
-//     plausible ones would be worse than returning none.
+//   * Chords are reported by provenance, not just presence. chordsFound means
+//     symbols were printed on the page and transcribed. chordsSuggested means
+//     the page had none and a plain diatonic accompaniment was proposed from
+//     the key -- useful on a hymn score, but a proposal, and the banner in the
+//     add-song form says so. The two are never both true, an unproposed
+//     suggestion is checked against the key before it is returned, and doubt
+//     resolves towards 'suggested' so it reaches the person reviewing it.
 //
 // Requires GEMINI_API_KEY -- a free key from Google AI Studio
 // (https://aistudio.google.com/apikey), no paid plan needed.
@@ -61,11 +65,12 @@ const RESPONSE_SCHEMA = {
     bpm: { type: Type.INTEGER, nullable: true, description: 'Beats per minute only if a number is printed. Null if none is printed -- never estimate one.' },
     capo: { type: Type.STRING, nullable: true, description: 'Any capo instruction as printed, e.g. "Capo 3". Null if absent.' },
     lyrics: { type: Type.STRING, nullable: true, description: 'The full lyrics in the required chord-sheet format. Null if no lyrics are legible.' },
-    chordsFound: { type: Type.BOOLEAN, description: 'True only if chord symbols were actually printed on the sheet and have been transcribed. False for a sheet with lyrics only, or a music score with no chord symbols.' },
+    chordsFound: { type: Type.BOOLEAN, description: 'True only if chord symbols were actually WRITTEN on the sheet and transcribed. False otherwise, including when chords have been suggested instead.' },
+    chordsSuggested: { type: Type.BOOLEAN, description: 'True only if no chords were written and you proposed a simple diatonic accompaniment. Never true at the same time as chordsFound.' },
     confidence: { type: Type.STRING, description: 'One of "high", "medium", "low" -- how legible the sheet was overall.' },
     notes: { type: Type.STRING, nullable: true, description: 'One short sentence for the reviewer about anything unclear, cut off, or guessed. Null if the read was clean.' },
   },
-  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'alternateTitle', 'copyright', 'ccli', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'confidence', 'notes'],
+  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'alternateTitle', 'copyright', 'ccli', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'chordsSuggested', 'confidence', 'notes'],
 };
 
 // The client hands this route a URL and the server fetches it, so without a
@@ -118,6 +123,49 @@ function isChordLine(line: string): boolean {
   if (!tokens.length || tokens.length > 32) return false;
   return tokens.every((tok) => CHORD_TOKEN.test(tok));
 }
+// Suggested chords are checked against the key they claim to be in. A chord
+// invented outside the key is the failure mode that matters here: it sounds
+// wrong under the congregation, and nobody proofreads a chord chart that
+// arrived looking finished. Printed chords are never judged this way -- an
+// out-of-key chord on a published sheet is the composer's, and correct.
+const PITCH: Record<string, number> = {
+  C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5, 'F#': 6, Gb: 6,
+  G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11,
+};
+const MAJOR_STEPS = [0, 2, 4, 5, 7, 9, 11];
+const MINOR_STEPS = [0, 2, 3, 5, 7, 8, 10];
+
+function chordRoot(chord: string): number | null {
+  const m = String(chord).replace(/\u266f/g, '#').replace(/\u266d/g, 'b').match(/^([A-G])(#|b)?/);
+  if (!m) return null;
+  const p = PITCH[m[1] + (m[2] || '')];
+  return p === undefined ? null : p;
+}
+
+// Every chord in the transcription that does not belong to the stated key.
+// Quality is not judged, only the root -- a major chord where a minor was
+// wanted is a matter of taste, but an Eb in the key of G is a mistake.
+function outOfKeyChords(text: string, key: string | null): string[] {
+  const km = String(key || '').match(/^([A-G])(#|b|\u266f|\u266d)?\s*(m|min|minor)?/i);
+  if (!km) return [];                        // no key read: nothing to check against
+  const acc = (km[2] || '').replace('\u266f', '#').replace('\u266d', 'b');
+  const tonic = PITCH[km[1].toUpperCase() + acc];
+  if (tonic === undefined) return [];
+  const scale = (km[3] ? MINOR_STEPS : MAJOR_STEPS).map((s) => (tonic + s) % 12);
+  const bad = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    if (!isChordLine(line)) continue;
+    for (const token of line.match(/\S+/g) || []) {
+      // A slash chord is only as good as both of its halves.
+      for (const half of token.split('/')) {
+        const r = chordRoot(half);
+        if (r !== null && !scale.includes(r)) { bad.add(token); break; }
+      }
+    }
+  }
+  return [...bad];
+}
+
 
 // Words that follow a dash as themselves rather than as the tail of a split
 // word. Deliberately excludes anything that is also a common syllable -- "to"
@@ -471,10 +519,26 @@ export async function POST(req: NextRequest) {
       'Use that horizontal position to work out which word or syllable of the lyric',
       'underneath it falls on, and place it above that word in your output.',
       '',
-      'What you must NOT do is work chords out from the notes themselves. If no',
-      'chord symbols are written anywhere on the page, set chordsFound to false and',
-      'return the lyrics with no chord lines at all. Absence of written symbols is',
-      'the test -- not whether the page happens to be a score.',
+      'TRANSCRIBED CHORDS VERSUS SUGGESTED ONES -- keep these apart.',
+      'If chord symbols ARE written on the page, transcribe those and only those.',
+      'Never adjust them, never add to them, and set chordsSuggested to false.',
+      '',
+      'If NO chord symbols are written anywhere -- a hymn score with staves and',
+      'nothing above them -- you may propose a simple accompaniment instead. Set',
+      'chordsFound to false and chordsSuggested to true. Rules for proposing:',
+      '  * Work from the key and the notes on the page. Do not recall the song',
+      '    from memory, and do not copy a harmonisation you have seen elsewhere.',
+      '  * Stay diatonic to the key. Plain triads: I, ii, iii, IV, V, vi. A V7',
+      '    at a cadence is welcome. Nothing beyond that -- no borrowed chords,',
+      '    no extensions, no reharmonisation. A congregation is going to sing',
+      '    it and a volunteer is going to play it.',
+      '  * One chord per bar is the default; two where the harmony plainly',
+      '    moves mid-bar. Resist more.',
+      '  * Begin on I and end each verse on I or V. Cadence conventionally.',
+      '  * Place each chord over the syllable that falls on the beat it starts.',
+      '  * If you cannot read the key confidently, propose nothing at all:',
+      '    leave the lyrics bare, both flags false, and say so in notes. A bare',
+      '    sheet costs a musician a few minutes; a wrong chord costs a Sunday.',
       '',
       'On a score the lyrics sit under the staff, split across notes by hyphens.',
       'Rejoin them ("A- ma- zing" becomes "Amazing").',
@@ -601,6 +665,17 @@ export async function POST(req: NextRequest) {
     // joining, since that is the text the reader will actually get.
     const chordsActuallyPresent = joined.split(/\r?\n/).some(isChordLine);
 
+    // Chords the model read off the page, versus chords it worked out from
+    // the key. Both are chords in the same text; only the provenance differs,
+    // and the reviewer needs to be told which they are looking at. Only a
+    // positive claim of printed chords counts as one -- anything less certain
+    // is reported as suggested, so the doubt reaches the reviewer instead of
+    // being resolved silently in the scanner's favour.
+    const chordsPrinted = chordsActuallyPresent && result.chordsFound === true;
+    const chordsSuggested = chordsActuallyPresent && !chordsPrinted;
+    const suggestedKey = pick(result.key, v.keys);
+    const outOfKey = chordsSuggested ? outOfKeyChords(joined, suggestedKey) : [];
+
     const dropped: string[] = [];
     if (result.key && !pick(result.key, v.keys)) dropped.push('key');
     if (result.tempo && !pick(result.tempo, v.tempos)) dropped.push('feel');
@@ -627,7 +702,9 @@ export async function POST(req: NextRequest) {
       capo: typeof result.capo === 'string' ? result.capo.trim() : null,
       lyrics: joined || null,
       // What is in the transcription wins over what the model said about it.
-      chordsFound: chordsActuallyPresent,
+      chordsFound: chordsPrinted,
+      chordsSuggested,
+      ...(outOfKey.length ? { outOfKey } : {}),
       chordLines: joined.split(/\r?\n/).filter(isChordLine).length,
       confidence: typeof result.confidence === 'string' ? result.confidence : 'low',
       notes: typeof result.notes === 'string' ? result.notes.trim() : null,
