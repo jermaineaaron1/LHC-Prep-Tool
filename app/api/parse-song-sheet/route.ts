@@ -88,6 +88,67 @@ function isOwnStorage(url: string): boolean {
     : /^[a-z0-9-]+\.supabase\.co$/i.test(u.hostname);
 }
 
+// A chord line is one whose every token is chord-shaped. Used both to verify
+// the model's chordsFound claim and to know which line to keep aligned when
+// syllable hyphens are removed from the lyric beneath it.
+const CHORD_TOKEN = /^[A-G](#|b|\u266f|\u266d)?(maj|min|m|M|dim|aug|sus|add|alt)?[0-9]*(sus[24]|add[29]|maj[79]|b5|b9|#5|#9|#11|b13)*(\/[A-G](#|b)?)?$/;
+
+function isChordLine(line: string): boolean {
+  const tokens = line.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length || tokens.length > 12) return false;
+  if (/^\[.*\]$/.test(line.trim())) return false;
+  return tokens.every((tok) => CHORD_TOKEN.test(tok));
+}
+
+// Spans to delete from a lyric line: a hyphen with whitespace beside it,
+// joining two word characters. "lead - eth" is one word the engraver split
+// across notes. "well-known", with no spaces, is a real compound and stays.
+function hyphenRanges(lyric: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const re = /(\w)(\s*-\s*)(\w)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(lyric)) !== null) {
+    if (!/\s/.test(m[2])) continue;
+    const start = m.index + m[1].length;
+    ranges.push({ start, end: start + m[2].length });
+    re.lastIndex = start;
+  }
+  return ranges;
+}
+
+// Pull the chord line left by the same amount. Chord text is never destroyed:
+// if the span covers chord characters, spaces after it are taken instead, so
+// the symbol shifts intact and stays over its syllable.
+function shiftChordLine(chordLine: string, ranges: Array<{ start: number; end: number }>): string {
+  const chars = chordLine.split('');
+  for (let i = ranges.length - 1; i >= 0; i--) {
+    const { start, end } = ranges[i];
+    let need = end - start;
+    for (let p = Math.min(end, chars.length) - 1; p >= start && need > 0; p--) {
+      if (chars[p] === ' ') { chars.splice(p, 1); need--; }
+    }
+    let p = start;
+    while (need > 0 && p < chars.length) {
+      if (chars[p] === ' ') { chars.splice(p, 1); need--; } else { p++; }
+    }
+  }
+  return chars.join('').replace(/\s+$/, '');
+}
+
+function joinSyllables(text: string): string {
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    if (isChordLine(lines[i]) || /^\[.*\]$/.test(lines[i].trim())) continue;
+    const ranges = hyphenRanges(lines[i]);
+    if (!ranges.length) continue;
+    if (i > 0 && isChordLine(lines[i - 1])) lines[i - 1] = shiftChordLine(lines[i - 1], ranges);
+    let out = lines[i];
+    for (let r = ranges.length - 1; r >= 0; r--) out = out.slice(0, ranges[r].start) + out.slice(ranges[r].end);
+    lines[i] = out;
+  }
+  return lines.join('\n');
+}
+
 function extFromUrl(url: string): string {
   const clean = url.split('?')[0].split('#')[0];
   const m = clean.match(/\.([a-zA-Z0-9]+)$/);
@@ -167,6 +228,33 @@ export async function POST(req: NextRequest) {
       '',
       'Transcribe what is actually on the page. Do not complete a song from memory,',
       'do not correct the wording, and do not add verses that are not shown.',
+      '',
+      'LINE BREAKS FOLLOW THE MUSIC, NOT THE PAGE:',
+      '  * Each line of lyrics covers TWO BARS. In 4/4 that is eight beats; in',
+      '    3/4, six. Start a new line at every second barline.',
+      '  * Use the barlines on the staff to decide this, not where the printed',
+      '    text happens to wrap.',
+      '  * If there is no staff and no barlines to count -- a plain chord sheet --',
+      '    keep the printed line breaks instead.',
+      '',
+      'WORDS ARE WHOLE, NEVER SPLIT:',
+      '  * A score hyphenates words across notes: "lead - eth", "bless - ed".',
+      '    Those hyphens belong to the engraving, not the word. Write "leadeth",',
+      '    "blessed". Never emit a hyphen that only splits a word across notes.',
+      '  * A genuine compound keeps its hyphen: "well-known" stays "well-known".',
+      '',
+      'A CHORD SITS OVER THE SYLLABLE IT FALLS ON:',
+      '  * When a chord changes partway through a word, put the symbol above that',
+      '    syllable -- not above the start of the word.',
+      '  * Count characters. The first character of the chord symbol goes directly',
+      '    above the first letter of the syllable it lands on.',
+      '  * Worked example. G7/C falls on the "eth" of "leadeth", so:',
+      '',
+      '        C       G7/C',
+      '        He leadeth me',
+      '',
+      '    The G is above the t of leadeth, inside that syllable -- not above',
+      '    the l where the word begins.',
       '',
       'LYRICS FORMAT — this matters, the app parses it:',
       '  * Mark each section on its own line in square brackets: [Verse 1], [Chorus],',
@@ -305,19 +393,19 @@ export async function POST(req: NextRequest) {
       ? (result.themes as unknown[]).map((x) => pick(x, v.themes)).filter((x): x is string => !!x).slice(0, 3)
       : [];
 
-    // chordsFound is the model's own claim about its work, and it has been
-    // wrong in both directions -- reporting none while transcribing chord
-    // lines, and vice versa. Checking the transcription settles it: a chord
-    // line is a line whose every token is chord-shaped.
     const lyricsText = typeof result.lyrics === 'string' ? result.lyrics : '';
-    const CHORD = /^[A-G](#|b|♯|♭)?(maj|min|m|M|dim|aug|sus|add|alt)?[0-9]*(sus[24]|add[29]|maj[79]|b5|b9|#5|#9|#11|b13)*(\/[A-G](#|b)?)?$/;
-    const chordLineCount = lyricsText.split(/\r?\n/).filter((line) => {
-      const tokens = line.trim().split(/\s+/).filter(Boolean);
-      if (!tokens.length || tokens.length > 12) return false;
-      if (/^\[.*\]$/.test(line.trim())) return false;   // a section header
-      return tokens.every((tok) => CHORD.test(tok));
-    }).length;
-    const chordsActuallyPresent = chordLineCount > 0;
+
+    // The engraving's hyphens are removed here rather than only asked for,
+    // because a model that leaves one in produces "lead - eth" in the editor.
+    // Removing them shortens the lyric line, so every chord to the right has to
+    // move left by the same number of characters or it ends up over the wrong
+    // syllable. joinSyllables does both together.
+    const joined = joinSyllables(lyricsText);
+
+    // chordsFound is the model's claim about its own work, and it has been
+    // wrong in both directions. The transcription settles it -- counted after
+    // joining, since that is the text the reader will actually get.
+    const chordsActuallyPresent = joined.split(/\r?\n/).some(isChordLine);
 
     const dropped: string[] = [];
     if (result.key && !pick(result.key, v.keys)) dropped.push('key');
@@ -343,10 +431,10 @@ export async function POST(req: NextRequest) {
       // range is a misread rather than a marking.
       bpm: (typeof result.bpm === 'number' && result.bpm >= 30 && result.bpm <= 260) ? Math.round(result.bpm) : null,
       capo: typeof result.capo === 'string' ? result.capo.trim() : null,
-      lyrics: typeof result.lyrics === 'string' ? result.lyrics : null,
+      lyrics: joined || null,
       // What is in the transcription wins over what the model said about it.
       chordsFound: chordsActuallyPresent,
-      chordLines: chordLineCount,
+      chordLines: joined.split(/\r?\n/).filter(isChordLine).length,
       confidence: typeof result.confidence === 'string' ? result.confidence : 'low',
       notes: typeof result.notes === 'string' ? result.notes.trim() : null,
       ...(dropped.length ? { droppedFields: dropped } : {}),
