@@ -1039,7 +1039,12 @@ export async function POST(req: NextRequest) {
     // only seen the chords.
     let suggestedKey = pickKey(result.key, v.keys);
     let keyInferred = false;
-    if (!suggestedKey && !result.key) {
+    // Whenever there is no usable key -- the model returned none, or returned
+    // something the library does not list. An unmatched string is no more
+    // trustworthy than nothing, and the first version of this only covered the
+    // nothing case, so a sheet came back keyless with the chords sitting right
+    // there saying A-flat.
+    if (!suggestedKey) {
       const guess = inferKeyFromChords(joined);
       const matched = guess ? pickKey(guess, v.keys) : null;
       if (matched) { suggestedKey = matched; keyInferred = true; }

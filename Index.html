@@ -14205,6 +14205,44 @@ function _asmClearScanBanner() {
     .forEach(function(e) { e.classList.remove('asm-from-scan'); });
 }
 
+// The key needs its own setter. Everything else the scan fills is a text
+// input or a select whose values are the library's own strings, so assigning
+// them works. The key is neither: the vocabulary sent to the scanner comes
+// from FIXED_KEYS, which spells a key the way a person reads it -- "G# / A\u266d"
+// -- while the dropdown's option values are bare, "G#". Assigning the display
+// string to the select silently left it blank.
+//
+// It failed for exactly the five sharp and flat keys, which is most of the
+// hymnal, and it failed invisibly: the banner counted the key as filled and
+// the field got the violet from-the-scan edge, while the dropdown said
+// nothing. A song would have been saved with no key at all.
+function _asmSetKeyField(value) {
+  var el = document.getElementById('newSongKey');
+  if (!el || value === null || value === undefined || value === '') return false;
+  var norm = function(s) {
+    return String(s).replace(/\u266f/g, '#').replace(/\u266d/g, 'b')
+      .replace(/\s*(major|maj)\s*$/i, '').replace(/\s+/g, '').toLowerCase();
+  };
+  // "G# / A\u266d" is one key written two ways, so either spelling may match.
+  var wanted = String(value).split('/').map(norm).filter(Boolean);
+  wanted.unshift(norm(value));
+  for (var w = 0; w < wanted.length; w++) {
+    for (var i = 0; i < el.options.length; i++) {
+      var opt = el.options[i];
+      if (!opt.value) continue;
+      // Both sides are split: the incoming key may be 'G# / A♭' or plain 'Ab',
+      // and the option is 'G#' labelled 'G# / Ab'. Either half matching is enough.
+      var forms = [norm(opt.value)].concat(String(opt.value).split('/').map(norm))
+                    .concat(String(opt.text).split('/').map(norm));
+      if (forms.indexOf(wanted[w]) !== -1) {
+        el.value = opt.value;
+        el.classList.add('asm-from-scan');
+        return true;
+      }
+    }
+  }
+  return false;                       // say nothing rather than claim a key
+}
 // Marks a field as coming from the scan, so the reviewer can see at a glance
 // what was read off the page and what they typed themselves.
 function _asmSetScanned(id, value) {
@@ -14220,7 +14258,7 @@ function _asmApplyScan(d) {
   var filled = [];
   if (_asmSetScanned('newSongTitle', d.title)) filled.push('title');
   if (_asmSetScanned('newSongArtist', d.artist)) filled.push('artist');
-  if (_asmSetScanned('newSongKey', d.key)) filled.push('key');
+  if (_asmSetKeyField(d.key)) filled.push(d.keyInferred ? 'key (worked out from the chords)' : 'key');
   if (_asmSetScanned('newSongTempo', d.tempo)) filled.push('feel');
   if (_asmSetScanned('newSongCategory', d.style)) filled.push('style');
   if (_asmSetScanned('newSongSeason', d.season)) filled.push('season');
@@ -14274,6 +14312,9 @@ function _asmApplyScan(d) {
   if (d.droppedFields && d.droppedFields.length) bits.push('<span class="asm-scan-warn">Ignored a value not in your library for: ' + escapeHtml(d.droppedFields.join(', ')) + '.</span>');
   // No capo field exists, so rather than drop the reading it is shown where the
   // reviewer will see it before saving.
+  // A key read off the signature and a key deduced from the chords are not the
+  // same claim, and only one of them should be trusted for a transposition.
+  if (d.keyInferred && d.key) bits.push('<span class="asm-scan-suggested">The key signature was not legible. <b>' + escapeHtml(d.key) + '</b> was worked out from the chords instead — confirm it before transposing.</span>');
   if (d.capo) bits.push('<span class="asm-scan-note">Sheet says: ' + escapeHtml(d.capo) + '</span>');
   if (d.notes) bits.push('<span class="asm-scan-note">' + escapeHtml(d.notes) + '</span>');
   b.className = 'asm-scan-banner ' + tone;
