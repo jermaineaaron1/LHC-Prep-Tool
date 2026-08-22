@@ -721,6 +721,10 @@ export async function POST(req: NextRequest) {
           : slow
             ? 'The scan is taking longer than this page can wait for. Busy pages -- several verses, handwritten chords -- sometimes do. Try again; it usually goes through.'
             : 'Every scanning model is busy right now. Try again in a few minutes, or add the song manually.',
+        // Same stage timings a successful scan reports. Without them a failure
+        // is a sentence with no evidence behind it, and working out whether the
+        // models were slow or the service refused means reproducing it by hand.
+        timings: { totalMs: Date.now() - t0, fetchMs, bytes: fileBuffer.byteLength, attempts, escalation },
       }, { status: 503 });
     }
 
@@ -884,6 +888,9 @@ export async function POST(req: NextRequest) {
         : /api key|permission|unauthenticated|401|403/i.test(raw)
           ? 'The scanning service rejected the credentials on this server. Add the song manually and let an admin know.'
           : 'The scan could not be completed. Add the song manually instead.';
-    return NextResponse.json({ error: msg }, { status: 502 });
+    return NextResponse.json({
+      error: msg,
+      timings: { totalMs: Date.now() - t0, fetchMs, attempts, escalation },
+    }, { status: 502 });
   }
 }

@@ -28,6 +28,7 @@
 //   node tools/scan-eval.js --only screenshot   only sheets whose name matches
 //   node tools/scan-eval.js --limit 3           first N sheets
 //   node tools/scan-eval.js --repeat 3          scan each sheet N times
+//   node tools/scan-eval.js --gap 8000          wait N ms between scans
 //   node tools/scan-eval.js --compare A.json B.json     diff two saved runs
 //
 // READ THIS BEFORE TRUSTING A SINGLE RUN
@@ -40,6 +41,16 @@
 // difference in chord lines is well inside the noise. Use --repeat to scan each
 // sheet several times; the table then shows the spread, and only a change
 // larger than that spread means anything.
+//
+// THE GAP MATTERS -- DO NOT MEASURE RELIABILITY WITHOUT IT
+// Scanning back to back trips the provider's rate limit, and a throttled call
+// does not answer quickly with a refusal: it hangs until something gives up.
+// Ten requests fired with no gap produced four failures; the same sheet
+// scanned four times a few seconds apart produced none. An early audit read
+// 24% of scans failing and very nearly reported it as a user-facing figure --
+// it was the harness doing something no person does. The default gap is 1.5s,
+// which is fine for comparing outputs. Use --gap 8000 or more when the
+// question is how often a scan actually fails.
 //
 // WHAT IT COSTS
 // One Gemini call per sheet, sometimes two when a score escalates. It reads
@@ -360,6 +371,8 @@ async function main() {
   if (limit > 0) sheets = sheets.slice(0, limit);
   console.log('sheets    ' + sheets.length);
 
+  const gapMs = Math.max(0, Number(flag('gap')) || 1500);
+  if (gapMs !== 1500) console.log('gap       ' + gapMs + 'ms between scans');
   const repeat = Math.max(1, Number(flag('repeat')) || 1);
   if (repeat > 1) console.log('repeat    ' + repeat + ' scans per sheet');
 
@@ -371,7 +384,7 @@ async function main() {
       tries.push(await scanOne(endpoint, sheets[i], vocab));
       // A gap between calls. The endpoint falls back between models when one is
       // busy, and a burst is the surest way to make every model busy at once.
-      if (k < repeat - 1) await new Promise((r2) => setTimeout(r2, 1500));
+      if (k < repeat - 1) await new Promise((r2) => setTimeout(r2, gapMs));
     }
     // The median run represents the sheet. A mean would invent a chord-line
     // count no scan actually produced, and the lyrics saved beside it have to
@@ -390,7 +403,7 @@ async function main() {
     console.log(r.error ? 'ERROR'
       : (r.ms + 'ms, ' + r.chordLines + ' chord lines'
          + (r.repeats ? '  (' + tries.length + ' scans, ' + r.chordLinesMin + '-' + r.chordLinesMax + ' chord lines)' : '')));
-    if (i < sheets.length - 1) await new Promise((r2) => setTimeout(r2, 1500));
+    if (i < sheets.length - 1) await new Promise((r2) => setTimeout(r2, gapMs));
   }
 
   printRun(rows);
