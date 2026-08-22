@@ -95,7 +95,12 @@ const CHORD_TOKEN = /^[A-G](#|b|\u266f|\u266d)?(maj|min|m|M|dim|aug|sus|add|alt)
 
 function isChordLine(line: string): boolean {
   const tokens = line.trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length || tokens.length > 12) return false;
+  // The bound is a sanity check, not the safeguard. It used to be 12, which
+  // had it backwards: a line of 14 chords over a long lyric is perfectly
+  // ordinary, and rejecting it meant the chord line was treated as lyrics and
+  // wrapped in half. What actually keeps lyrics out is the shape test below --
+  // "Amazing", "Be still" and "Do Re Mi" all fail it, at any length.
+  if (!tokens.length || tokens.length > 32) return false;
   if (/^\[.*\]$/.test(line.trim())) return false;
   return tokens.every((tok) => CHORD_TOKEN.test(tok));
 }
@@ -145,12 +150,18 @@ function shiftChordLine(chordLine: string, ranges: Array<{ start: number; end: n
   for (let i = ranges.length - 1; i >= 0; i--) {
     const { start, end } = ranges[i];
     let need = end - start;
+    // A space may only go if one remains between its neighbours. Taking the
+    // last space between two chords welds them together -- "Dm E7" came out
+    // as "DmE7", which is not a chord at all. Alignment drifting a character
+    // is the lesser harm, so the shift stops short instead.
+    const removable = (p: number) =>
+      chars[p] === ' ' && !(p > 0 && chars[p - 1] !== ' ' && p + 1 < chars.length && chars[p + 1] !== ' ');
     for (let p = Math.min(end, chars.length) - 1; p >= start && need > 0; p--) {
-      if (chars[p] === ' ') { chars.splice(p, 1); need--; }
+      if (removable(p)) { chars.splice(p, 1); need--; }
     }
     let p = start;
     while (need > 0 && p < chars.length) {
-      if (chars[p] === ' ') { chars.splice(p, 1); need--; } else { p++; }
+      if (removable(p)) { chars.splice(p, 1); need--; } else { p++; }
     }
   }
   return chars.join('').replace(/\s+$/, '');
@@ -188,7 +199,15 @@ function tokensOf(line: string): Array<{ text: string; start: number; end: numbe
 function render(tokens: Array<{ text: string; start: number }>): string {
   let out = '';
   for (const t of tokens) {
-    if (t.start > out.length) out += ' '.repeat(t.start - out.length);
+    if (t.start > out.length) {
+      out += ' '.repeat(t.start - out.length);
+    } else if (out.length) {
+      // Two chords must never touch. Rebasing a dense chord line can push one
+      // token's column back onto the previous token's text, and appending
+      // there welded them into a single invalid chord -- "Am F" came out as
+      // "AmF". A chord shifts right rather than merge.
+      out += ' ';
+    }
     out += t.text;
   }
   return out;
