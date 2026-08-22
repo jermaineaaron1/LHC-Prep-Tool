@@ -100,6 +100,20 @@ function isChordLine(line: string): boolean {
   return tokens.every((tok) => CHORD_TOKEN.test(tok));
 }
 
+// Words that follow a dash as themselves rather than as the tail of a split
+// word. Deliberately excludes anything that is also a common syllable -- "to"
+// (in-to), "so" (al-so), "out" (with-out) -- because the two failures are not
+// equal. A missed join leaves "with - out" on screen where the reviewer sees
+// and fixes it; a wrong join silently welds "Jesus - my" into "Jesusmy".
+const STANDALONE_AFTER_DASH = new Set([
+  'and', 'my', 'the', 'of', 'he', 'she', 'we', 'you', 'your', 'they', 'their',
+  'them', 'his', 'her', 'him', 'our', 'but', 'yet', 'when', 'where', 'what',
+  'who', 'will', 'with', 'from', 'that', 'this', 'these', 'those', 'there',
+  'then', 'than', 'are', 'was', 'were', 'have', 'has', 'had', 'not', 'all',
+  'any', 'may', 'shall', 'should', 'would', 'could', 'lord', 'god', 'jesus',
+  'christ', 'holy', 'praise', 'glory', 'grace', 'love', 'come', 'let',
+]);
+
 // Spans to delete from a lyric line: a hyphen with whitespace beside it,
 // joining two word characters. "lead - eth" is one word the engraver split
 // across notes. "well-known", with no spaces, is a real compound and stays.
@@ -109,6 +123,13 @@ function hyphenRanges(lyric: string): Array<{ start: number; end: number }> {
   let m: RegExpExecArray | null;
   while ((m = re.exec(lyric)) !== null) {
     if (!/\s/.test(m[2])) continue;
+    // A dash used as punctuation is not a split word. Two tells, both cheap:
+    // the next word starts with a capital ("Holy - Holy", "Jesus - My"), or it
+    // is a word that stands on its own ("- and", "- my").
+    const after = lyric.slice(m.index + m[1].length + m[2].length).split(/\s/)[0] || '';
+    const bare = after.replace(/[^A-Za-z']/g, '');
+    if (/^[A-Z]/.test(after)) continue;
+    if (STANDALONE_AFTER_DASH.has(bare.toLowerCase())) continue;
     const start = m.index + m[1].length;
     ranges.push({ start, end: start + m[2].length });
     re.lastIndex = start;
