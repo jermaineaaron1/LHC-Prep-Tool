@@ -657,6 +657,13 @@ export async function POST(req: NextRequest) {
       config: {
         responseMimeType: 'application/json',
         responseSchema: RESPONSE_SCHEMA,
+        // Transcription, not composition. Left unset, this model samples at
+        // temperature 1.0, and it showed: two scans of one sheet agreed on
+        // about three quarters of their chord symbols, and chord-line counts
+        // swung by seven across repeats of the same photograph. Nothing about
+        // reading a page off a photo is helped by creative sampling -- the
+        // chords are already printed, and the words are the words.
+        temperature: 0,
       },
     });
 
