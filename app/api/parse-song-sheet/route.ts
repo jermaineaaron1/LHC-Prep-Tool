@@ -345,6 +345,82 @@ function render(tokens: Array<{ text: string; start: number }>): string {
   return out;
 }
 
+// Put back together what the engraver took apart.
+//
+// reflowLines only ever splits: it takes a line that ran on too long and cuts
+// it at a comma or the word cap. Nothing joined a line that was too SHORT, and
+// a score produces those constantly, because the model transcribes each staff
+// system as its own line. A verse came back as "and did my" / "Sovereign die?"
+// / "whole" / "O," -- fragments that are not phrases, broken where the page ran
+// out of width rather than where the singer breathes.
+//
+// A line is merged into the next unless it ends where a line should end: a
+// full stop, question or exclamation always ends one, and a comma does too --
+// that is the break the singer was asked for. The exception is a fragment of
+// one or two words, which is not a phrase however it is punctuated, so a
+// stranded "O," rejoins the line it belongs to.
+//
+// Merging first and splitting afterwards is what makes the result even: the
+// text is gathered back into phrases, then cut again at commas and the word
+// cap, so every line is filled to the same rule instead of to the width of
+// whatever staff it was printed on.
+const ENDS_A_LINE = /[.!?]["'\u2019]?$/;
+const ENDS_A_CLAUSE = /[,;:]["'\u2019]?$/;
+
+function mergeBrokenLines(text: string): string {
+  const src = text.split(/\r?\n/);
+
+  // A chord line and the lyric beneath it move together or not at all.
+  type Unit = { raw?: string; chord?: string; lyric?: string };
+  const units: Unit[] = [];
+  for (let i = 0; i < src.length; i++) {
+    const line = src[i];
+    const bare = line.trim();
+    if (!bare || /^\[.*\]$/.test(bare)) { units.push({ raw: line }); continue; }
+    if (isChordLine(line)) {
+      const next = src[i + 1];
+      if (next !== undefined && next.trim() && !isChordLine(next) && !/^\[.*\]$/.test(next.trim())) {
+        units.push({ chord: line, lyric: next });
+        i++;
+      } else {
+        units.push({ raw: line });
+      }
+      continue;
+    }
+    units.push({ lyric: line });
+  }
+
+  const out: Unit[] = [];
+  for (const unit of units) {
+    const prev = out[out.length - 1];
+    const canMerge = prev && prev.lyric !== undefined && unit.lyric !== undefined;
+    if (canMerge) {
+      const left = (prev.lyric as string).replace(/\s+$/, '');
+      const words = left.split(/\s+/).filter(Boolean).length;
+      const fragment = words > 0 && words <= 2;
+      const finished = ENDS_A_LINE.test(left) || (ENDS_A_CLAUSE.test(left) && !fragment);
+      if (!finished && left) {
+        const shift = left.length + 1;
+        const chords = [
+          ...(prev.chord ? tokensOf(prev.chord) : []),
+          ...(unit.chord ? tokensOf(unit.chord).map((c) => ({ ...c, start: c.start + shift })) : []),
+        ];
+        prev.lyric = left + ' ' + (unit.lyric as string).replace(/^\s+/, '');
+        prev.chord = chords.length ? render(chords) : undefined;
+        continue;
+      }
+    }
+    out.push({ ...unit });
+  }
+
+  const lines: string[] = [];
+  for (const u of out) {
+    if (u.raw !== undefined) { lines.push(u.raw); continue; }
+    if (u.chord) lines.push(u.chord);
+    if (u.lyric !== undefined) lines.push(u.lyric);
+  }
+  return lines.join('\n');
+}
 // Where to cut a line that is too long. Prefer the last comma at or before the
 // word cap -- that is where the singer breathes. Otherwise cut at the cap.
 function breakAfter(line: string): number {
@@ -840,7 +916,9 @@ export async function POST(req: NextRequest) {
     // Order matters: join the split words first, then wrap. Wrapping first
     // would count "lead" and "eth" as two of the seven words.
     // Join split words, wrap over-long lines, then settle the presentation.
-    let joined = tidy(reflowLines(joinSyllables(lyricsText)));
+    // Merge before splitting: gather the fragments back into phrases, then cut
+    // them again to one rule, so the lines come out even.
+    let joined = tidy(reflowLines(mergeBrokenLines(joinSyllables(lyricsText))));
 
     // Reading chord symbols already printed on a page is OCR, which the small
     // model does well and fast. Reading notes off a stave and working out the
@@ -871,7 +949,7 @@ export async function POST(req: NextRequest) {
         if (betterRaw) {
           const second = JSON.parse(betterRaw) as Record<string, unknown>;
           const secondLyrics = typeof second.lyrics === 'string' ? second.lyrics : '';
-          const secondJoined = tidy(reflowLines(joinSyllables(secondLyrics)));
+          const secondJoined = tidy(reflowLines(mergeBrokenLines(joinSyllables(secondLyrics))));
           // Only taken if it actually did better. A second empty answer, or one
           // that lost lyrics along the way, is discarded and the first stands.
           if (secondJoined.split(/\r?\n/).some(isChordLine)) {
