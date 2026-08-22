@@ -426,6 +426,14 @@ function list(label: string, items: unknown): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Stage timings, reported on every response. A scan that takes forty
+  // seconds and one that takes four look identical from the outside, and
+  // without knowing which stage ate the time -- or which model answered --
+  // a slow scan can only be guessed at.
+  const t0 = Date.now();
+  let fetchMs = 0;
+  const attempts: Array<{ model: string; ms: number; ok: boolean; err?: string }> = [];
+  let escalation: { attempted: boolean; ms: number; taken: boolean } = { attempted: false, ms: 0, taken: false };
   try {
     const { url, vocab } = await req.json();
     if (!url || typeof url !== 'string') {
@@ -460,12 +468,14 @@ export async function POST(req: NextRequest) {
     // response, and without this the outer handler reports it as the opaque
     // "Scan failed: fetch failed".
     let fileBuffer: Buffer;
+    const tFetch = Date.now();
     try {
       const fileRes = await fetch(url, { signal: AbortSignal.timeout(15000) });
       if (!fileRes.ok) {
         return NextResponse.json({ error: `Could not download the image (status ${fileRes.status}).` }, { status: 502 });
       }
       fileBuffer = Buffer.from(await fileRes.arrayBuffer());
+      fetchMs = Date.now() - tFetch;
     } catch {
       return NextResponse.json({ error: 'Could not reach the uploaded image. Check the connection and try again.' }, { status: 502 });
     }
@@ -632,7 +642,6 @@ export async function POST(req: NextRequest) {
     // UNAVAILABLE before lite answered, which put a successful scan at 60s.
     // Lite alone answers in about 7s and reading a page of chords and words is
     // well within it; flash covers the case where lite is the busy one.
-    const startedAt = Date.now();
     const MODELS = ['gemini-flash-lite-latest', 'gemini-flash-latest'];
     const callModel = async (model: string) => ai.models.generateContent({
       // Version-agnostic alias, matching the lectionary route: always the
@@ -655,12 +664,15 @@ export async function POST(req: NextRequest) {
     let lastErr: unknown = null;
     let answeredBy = MODELS[0];
     for (const model of MODELS) {
+      const tModel = Date.now();
       try {
         response = await callModel(model);
+        attempts.push({ model, ms: Date.now() - tModel, ok: true });
         answeredBy = model;
         lastErr = null;
         break;
       } catch (err) {
+        attempts.push({ model, ms: Date.now() - tModel, ok: false, err: String(err).slice(0, 120) });
         lastErr = err;
         // Anything that is not the model being busy is a real failure and
         // should surface immediately rather than burning the next model too.
@@ -729,8 +741,10 @@ export async function POST(req: NextRequest) {
       !joined.split(/\r?\n/).some(isChordLine)
       && result.hasMusicNotation === true
       && answeredBy !== MODELS[MODELS.length - 1]
-      && Date.now() - startedAt < ESCALATE_BUDGET_MS
+      && Date.now() - t0 < ESCALATE_BUDGET_MS
     ) {
+      escalation = { attempted: true, ms: 0, taken: false };
+      const tEsc = Date.now();
       try {
         const better = await callModel(MODELS[MODELS.length - 1]);
         const betterRaw = better.text;
@@ -744,12 +758,14 @@ export async function POST(req: NextRequest) {
             joined = secondJoined;
             result = second;
             escalatedTo = MODELS[MODELS.length - 1];
+            escalation.taken = true;
           }
         }
       } catch {
         // The first answer is already good enough to return; a failed second
         // attempt must not turn a usable scan into an error.
       }
+      escalation.ms = Date.now() - tEsc;
     }
 
     // chordsFound is the model's claim about its own work, and it has been
@@ -803,6 +819,13 @@ export async function POST(req: NextRequest) {
       // What is in the transcription wins over what the model said about it.
       chordsFound: chordsPrinted,
       ...(escalatedTo ? { escalatedTo } : {}),
+      timings: {
+        totalMs: Date.now() - t0,
+        fetchMs,
+        bytes: fileBuffer.byteLength,
+        attempts,
+        escalation,
+      },
       chordsSuggested,
       // Sent so the form can say something useful when there are no chords:
       // a page of words has none to find, a score that yielded none is a
