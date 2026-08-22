@@ -806,6 +806,30 @@ export async function POST(req: NextRequest) {
       return typeof hit === 'string' ? hit : null;
     };
 
+    // Keys need their own matcher. The library lists a key as "G# / A\u266d" --
+    // one option covering both spellings -- while a model reading four flats off
+    // a page writes "Ab", as any musician would. Exact matching threw that away,
+    // and a scan that had read the key signature correctly came back with no key
+    // at all: one sheet in seven, for a difference of notation.
+    //
+    // So each side of the slash is tried on its own, with the printed accidentals
+    // normalised to plain # and b, and a trailing "major" ignored.
+    const pickKey = (value: unknown, allowed: unknown): string | null => {
+      const exact = pick(value, allowed);
+      if (exact) return exact;
+      if (typeof value !== 'string' || !value.trim()) return null;
+      const norm = (s: string) => s
+        .replace(/\u266f/g, '#').replace(/\u266d/g, 'b')
+        .replace(/\s*(major|maj)\s*$/i, '')
+        .trim().toLowerCase();
+      const want = norm(value);
+      if (!want) return null;
+      const arr = Array.isArray(allowed) ? allowed : [];
+      const hit = arr.find((a) => typeof a === 'string'
+        && a.split('/').some((half) => norm(half) === want));
+      return typeof hit === 'string' ? hit : null;
+    };
+
     const lyricsText = typeof result.lyrics === 'string' ? result.lyrics : '';
 
     // The engraving's hyphens are removed here rather than only asked for,
@@ -877,7 +901,7 @@ export async function POST(req: NextRequest) {
     // being resolved silently in the scanner's favour.
     const chordsPrinted = chordsActuallyPresent && result.chordsFound === true;
     const chordsSuggested = chordsActuallyPresent && !chordsPrinted;
-    const suggestedKey = pick(result.key, v.keys);
+    const suggestedKey = pickKey(result.key, v.keys);
     const outOfKey = chordsSuggested ? outOfKeyChords(joined, suggestedKey) : [];
 
     // Read after any escalation, not before: everything else is read off
@@ -888,7 +912,7 @@ export async function POST(req: NextRequest) {
       : [];
 
     const dropped: string[] = [];
-    if (result.key && !pick(result.key, v.keys)) dropped.push('key');
+    if (result.key && !pickKey(result.key, v.keys)) dropped.push('key');
     if (result.tempo && !pick(result.tempo, v.tempos)) dropped.push('feel');
     if (result.style && !pick(result.style, v.styles)) dropped.push('style');
     if (result.season && !pick(result.season, v.seasons)) dropped.push('season');
@@ -896,7 +920,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       title: typeof result.title === 'string' ? result.title.trim() : null,
       artist: typeof result.artist === 'string' ? result.artist.trim() : null,
-      key: pick(result.key, v.keys),
+      key: pickKey(result.key, v.keys),
       tempo: pick(result.tempo, v.tempos),
       style: pick(result.style, v.styles),
       season: pick(result.season, v.seasons),
