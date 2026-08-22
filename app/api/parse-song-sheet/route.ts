@@ -224,6 +224,22 @@ const STANDALONE_AFTER_DASH = new Set([
   'christ', 'holy', 'praise', 'glory', 'grace', 'love', 'come', 'let',
 ]);
 
+// Genuinely hyphenated words, which keep their hyphen. Everything else with
+// a hyphen in it is treated as a word the engraver split across two notes.
+//
+// That is the right default for this material: across the test corpus every
+// hyphen the model returned was a syllable split -- "un-known", "de-gree",
+// "faith-ful", "dark-ness", "Jor-dan", "pit-y" -- and not one was a real
+// compound. The list exists for the case that has not turned up yet, and is
+// meant to grow when one does. A word wrongly joined shows up as nonsense in
+// a draft somebody is about to read; a hyphen wrongly kept is the thing this
+// feature was asked to stop doing.
+const KEEP_HYPHEN = new Set([
+  'well-known', 'well-loved', 'well-pleased', 'well-being', 'god-given',
+  'heaven-sent', 'blood-bought', 'thrice-holy', 'ever-present', 'ever-living',
+  'new-found', 'far-off', 'age-old', 'hard-won', 'self-same', 'twenty-four',
+]);
+
 // Spans to delete from a lyric line: a hyphen with whitespace beside it,
 // joining two word characters. "lead - eth" is one word the engraver split
 // across notes. "well-known", with no spaces, is a real compound and stays.
@@ -232,7 +248,18 @@ function hyphenRanges(lyric: string): Array<{ start: number; end: number }> {
   const re = /(\w)(\s*-\s*)(\w)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(lyric)) !== null) {
-    if (!/\s/.test(m[2])) continue;
+    // A tight hyphen used to be skipped outright, on the theory that only a
+    // spaced one could be a syllable split. The model emits both spacings for
+    // the same split, so that theory cost 19 unjoined words across seven test
+    // sheets. Asking the prompt to fix it did not work -- the count came back
+    // 28 -- so the rule is enforced here instead, where it is not a matter of
+    // the model being in the mood to comply.
+    if (!/\s/.test(m[2])) {
+      const around = lyric.slice(0, m.index + 1).match(/[A-Za-z\u2019']+$/);
+      const rest = lyric.slice(m.index + m[1].length + m[2].length).match(/^[A-Za-z\u2019']+/);
+      const whole = ((around ? around[0] : m[1]) + '-' + (rest ? rest[0] : m[3])).toLowerCase();
+      if (KEEP_HYPHEN.has(whole)) continue;
+    }
     // A dash used as punctuation is not a split word. Two tells, both cheap:
     // the next word starts with a capital ("Holy - Holy", "Jesus - My"), or it
     // is a word that stands on its own ("- and", "- my").
