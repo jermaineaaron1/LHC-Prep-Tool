@@ -7943,6 +7943,13 @@
   .preview-lyrics .section-header:first-child { margin-top: 0; }
   .preview-lyrics .chord-line { color: #dc2626; font-weight: 600; font-family: 'Courier New', monospace; font-size: 13px; margin-bottom: -2px; white-space: pre; }
   .preview-lyrics .lyric-line { color: #1f2937; }
+  /* Inline chord spans, so the Add Song preview aligns the same way the song
+     page and the print sheet do. A chord sits above its own slice of lyric
+     rather than trusting two different fonts to share a column grid. */
+  .preview-lyrics .ci-line  { display: block; margin-bottom: 5px; }
+  .preview-lyrics .ci-w     { display: inline-block; white-space: nowrap; vertical-align: bottom; }
+  .preview-lyrics .ci-seg   { display: inline-block; position: relative; padding-top: 1.15em; vertical-align: bottom; white-space: pre; color: #1f2937; line-height: 1.5; }
+  .preview-lyrics .ci-chord { position: absolute; top: 0; left: 0; font-family: 'Courier New', monospace; font-weight: 700; color: #dc2626; font-size: 0.8em; white-space: nowrap; line-height: 1.1; }
   
   /* Lyrics Preview Modal Specific */
   #lyricsPreviewContent { padding: 20px; }
@@ -17113,28 +17120,54 @@ function showSongPreview(mode, type) {
   }
 }
 
+// Used by the Add/Edit Song preview -- which is where a freshly scanned sheet
+// is first read, and therefore where the chords have to look right.
+//
+// It used to emit the chord line as its own <div>, relying on the two lines
+// sharing a monospace grid. They did not: .chord-line is Courier at 17px and
+// .lyric-line inherits the page's proportional face at 19px, so a chord
+// placed over the tenth character of the lyric landed nowhere near it. The
+// column alignment the scanner works so hard to get right was being thrown
+// away at the last step, in the one view used to check it.
+//
+// Now it uses the same engine as the song page and the print sheet:
+// buildInlineChordHtml puts each chord in a span above the exact slice of
+// lyric it belongs to. Alignment stops depending on font metrics, and the
+// lines reflow properly in a narrow modal instead of scattering.
 function formatLyrics(text, showChords) {
   var lines = text.split('\n');
   var html = '';
+  var i = 0;
 
-  for (var i = 0; i < lines.length; i++) {
+  while (i < lines.length) {
     var line = lines[i];
     var trimmed = line.trim();
 
     if (trimmed.match(/^\[.+\]$/)) {
       var sectionName = trimmed.slice(1, -1);
       html += '<div class="section-header">' + escapeHtmlModal(sectionName) + '</div>';
+      i++;
     } else if (isChordLineGlobal(line)) {
       if (showChords) {
-        html += '<div class="chord-line">' + escapeHtmlModal(line) + '</div>';
+        // A chord line belongs to the lyric under it. Anything else -- another
+        // chord line, a header, the end of the text -- means it stands alone.
+        var nextLyric = (i + 1 < lines.length && lines[i + 1].trim() &&
+                         !isChordLineGlobal(lines[i + 1]) && !lines[i + 1].trim().match(/^\[.+\]$/))
+                        ? lines[i + 1] : null;
+        html += buildInlineChordHtml(line, nextLyric || '', 0);
+        i += (nextLyric !== null) ? 2 : 1;
+      } else {
+        i++;                                   // chords hidden: drop the line
       }
     } else if (trimmed) {
       html += '<div class="lyric-line">' + escapeHtmlModal(line) + '</div>';
+      i++;
     } else {
       html += '<div style="height: 8px;"></div>';
+      i++;
     }
   }
-  
+
   return html;
 }
 
