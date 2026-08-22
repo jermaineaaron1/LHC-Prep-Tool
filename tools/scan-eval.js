@@ -170,6 +170,7 @@ async function scanOne(endpoint, sheet, vocab) {
       outOfKey: body.outOfKey || [],
       escalatedTo: body.escalatedTo || null,
       droppedFields: body.droppedFields || [],
+      timings: body.timings || null,
       confidence: body.confidence || null,
       notes: body.notes || null,
       lyrics: body.lyrics || null,
@@ -197,6 +198,16 @@ function printRun(rows) {
     if (r.outOfKey.length) flags.push('outOfKey:' + r.outOfKey.join('/'));
     if (r.droppedFields.length) flags.push('dropped:' + r.droppedFields.join('/'));
     if (r.chords !== 'none' && r.chordLines === 0) flags.push('CLAIMED-BUT-EMPTY');
+    const tm = r.timings;
+    if (tm) {
+      // Only worth the space when something took real time.
+      const failed = (tm.attempts || []).filter((a) => !a.ok);
+      if (failed.length) flags.push('fellBack(' + failed.map((a) => a.model.replace('gemini-', '') + ':' + Math.round(a.ms / 1000) + 's').join(',') + ')');
+      const answered = (tm.attempts || []).find((a) => a.ok);
+      if (answered && answered.model !== 'gemini-flash-lite-latest') flags.push('via:' + answered.model.replace('gemini-', ''));
+      if (tm.escalation && tm.escalation.attempted) flags.push('escalate:' + Math.round(tm.escalation.ms / 1000) + 's' + (tm.escalation.taken ? '(kept)' : '(discarded)'));
+      if (tm.fetchMs > 2000) flags.push('imageFetch:' + Math.round(tm.fetchMs / 1000) + 's');
+    }
     console.log(
       pad(r.label, 30) + padL(r.ms, 7) + '  ' + pad(r.title, 28) + '  ' + pad(r.key, 9) +
       pad(r.chords, 11) + padL(r.chordLines, 4) + padL(r.lyricLines, 4) + padL(r.sections, 5) + '  ' +
@@ -218,6 +229,21 @@ function printRun(rows) {
     const times = ok.map((r) => r.ms).sort((a, b) => a - b);
     console.log('time              median ' + times[Math.floor(times.length / 2)] + 'ms, slowest ' + times[times.length - 1] + 'ms');
   }
+  const timed = ok.filter((r) => r.timings);
+  if (timed.length) {
+    const sum = (f) => timed.reduce((a, r) => a + f(r), 0);
+    const modelMs = (r) => (r.timings.attempts || []).reduce((a, x) => a + x.ms, 0);
+    console.log('stages           image ' + Math.round(sum((r) => r.timings.fetchMs) / timed.length) + 'ms avg, model ' +
+      Math.round(sum(modelMs) / timed.length) + 'ms avg, escalation ' +
+      Math.round(sum((r) => (r.timings.escalation ? r.timings.escalation.ms : 0)) / timed.length) + 'ms avg');
+    const fellBack = timed.filter((r) => (r.timings.attempts || []).some((a) => !a.ok));
+    console.log('model fallbacks  ' + fellBack.length + '/' + timed.length +
+      (fellBack.length ? '  (a busy model costs its own timeout before the next is tried)' : ''));
+    const escalated = timed.filter((r) => r.timings.escalation && r.timings.escalation.attempted);
+    console.log('escalations      ' + escalated.length + '/' + timed.length +
+      (escalated.length ? ', ' + escalated.filter((r) => r.timings.escalation.taken).length + ' kept' : ''));
+  }
+
   const suspicious = ok.filter((r) => r.chords !== 'none' && r.chordLines === 0);
   if (suspicious.length) {
     console.log('');
