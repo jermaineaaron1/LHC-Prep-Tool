@@ -429,7 +429,14 @@ function breakAfter(line: string): number {
   for (let i = Math.min(MAX_WORDS, w.length) - 1; i >= 0; i--) {
     if (/[,;:]$/.test(w[i].text)) return w[i].end;
   }
-  return w[MAX_WORDS - 1].end;
+  // Cutting exactly at the cap can leave a one or two word orphan on the next
+  // line -- which is the raggedness this whole pass exists to remove, so
+  // creating it here would be self-defeating. When the overflow is that small,
+  // the line is split down the middle instead and both halves read as phrases:
+  // eight words break 4 and 4, not 7 and 1.
+  const overflow = w.length - MAX_WORDS;
+  const cut = overflow <= 2 ? Math.ceil(w.length / 2) : MAX_WORDS;
+  return w[cut - 1].end;
 }
 
 function reflowLines(text: string): string {
