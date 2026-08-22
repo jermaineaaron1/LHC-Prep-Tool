@@ -119,6 +119,11 @@ const CHORD_SLASH_ONLY = '\\/[A-G]' + CHORD_ACCIDENTAL;
 const CHORD_ONE = '(' + CHORD_BASE + '|' + CHORD_SLASH_ONLY + ')';
 const CHORD_TOKEN = new RegExp('^' + CHORD_ONE + '(-' + CHORD_ONE + ')*$');
 
+// A token that failed the chord test but still looks like one that was
+// misread: a note letter, then at most a few chord-ish characters. "Bbn"
+// qualifies; "the", "Amazing" and "me," do not.
+const NEARLY_A_CHORD = /^[A-G][A-Za-z0-9#b/\u266d\u266f-]{0,3}$/;
+
 function isChordLine(line: string): boolean {
   const bare = line.trim();
   if (!bare) return false;
@@ -142,7 +147,24 @@ function isChordLine(line: string): boolean {
   // wrapped in half. What actually keeps lyrics out is the shape test below --
   // "Amazing", "Be still" and "Do Re Mi" all fail it, at any length.
   if (!tokens.length || tokens.length > 32) return false;
-  return tokens.every((tok) => CHORD_TOKEN.test(tok));
+  const good = tokens.filter((tok) => CHORD_TOKEN.test(tok));
+  if (good.length === tokens.length) return true;
+
+  // One misread character must not cost a whole line of chords.
+  //
+  // Handwriting gets read imperfectly: a pencilled Bbm came back as "Bbn",
+  // and because every token had to be chord-shaped, that single letter
+  // demoted the entire line into the lyrics -- eight chord lines lost from
+  // one page over one character. The same brittleness had already been paid
+  // for twice, with "/G" and "Db-Ab".
+  //
+  // So a line may carry a minority of unrecognised tokens, provided real
+  // chords clearly dominate and the strays still look like failed attempts at
+  // a chord rather than words: short, starting on a note letter. Prose cannot
+  // reach three quarters chord-shaped, which is what keeps lyrics out.
+  if (tokens.length < 3 || good.length < 2) return false;
+  if (good.length / tokens.length < 0.75) return false;
+  return tokens.every((tok) => CHORD_TOKEN.test(tok) || NEARLY_A_CHORD.test(tok));
 }
 // Suggested chords are checked against the key they claim to be in. A chord
 // invented outside the key is the failure mode that matters here: it sounds
