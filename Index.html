@@ -14177,7 +14177,12 @@ function _asmSetChordNote(d) {
     html = '<i class="fa-solid fa-wand-magic-sparkles"></i> These chords were <b>suggested</b>' + (d.key ? ' from the key of ' + escapeHtml(d.key) : '') + ', not read off the sheet. Play them through first.';
   } else {
     cls = 'is-none';
-    html = '<i class="fa-solid fa-circle-info"></i> <b>No chords.</b> Nothing was printed on the sheet, and none could be worked out from it \u2014 that needs a photo of the music itself, staves and notes, with the key signature in shot.';
+    // Two quite different situations, and the remedy differs. A page of words
+    // has nothing to analyse and never will. A score that yielded nothing
+    // usually means the key signature or the notes did not come out clearly.
+    html = d.hasMusicNotation
+      ? '<i class="fa-solid fa-circle-info"></i> <b>No chords.</b> None were printed, and the key could not be read confidently enough to suggest any. A straighter, closer shot of the first line \u2014 key signature included \u2014 usually fixes it.'
+      : '<i class="fa-solid fa-circle-info"></i> <b>No chords.</b> This photo is words only, so there is nothing to work chords out from. Photograph the music itself \u2014 staves and notes \u2014 and they can be suggested for you.';
   }
   el.className = 'asm-chord-note ' + cls;
   el.innerHTML = html;

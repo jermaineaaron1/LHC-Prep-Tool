@@ -67,10 +67,11 @@ const RESPONSE_SCHEMA = {
     lyrics: { type: Type.STRING, nullable: true, description: 'The full lyrics in the required chord-sheet format. Null if no lyrics are legible.' },
     chordsFound: { type: Type.BOOLEAN, description: 'True only if chord symbols were actually WRITTEN on the sheet and transcribed. False otherwise, including when chords have been suggested instead.' },
     chordsSuggested: { type: Type.BOOLEAN, description: 'True only if no chords were written and you proposed a simple diatonic accompaniment. Never true at the same time as chordsFound.' },
+    hasMusicNotation: { type: Type.BOOLEAN, description: 'True if the page shows actual music notation -- five-line staves with note heads. False for a page of words only, whether typed, printed or handwritten.' },
     confidence: { type: Type.STRING, description: 'One of "high", "medium", "low" -- how legible the sheet was overall.' },
     notes: { type: Type.STRING, nullable: true, description: 'One short sentence for the reviewer about anything unclear, cut off, or guessed. Null if the read was clean.' },
   },
-  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'alternateTitle', 'copyright', 'ccli', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'chordsSuggested', 'confidence', 'notes'],
+  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'alternateTitle', 'copyright', 'ccli', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'chordsSuggested', 'hasMusicNotation', 'confidence', 'notes'],
 };
 
 // The client hands this route a URL and the server fetches it, so without a
@@ -519,6 +520,10 @@ export async function POST(req: NextRequest) {
       'Use that horizontal position to work out which word or syllable of the lyric',
       'underneath it falls on, and place it above that word in your output.',
       '',
+      'Set hasMusicNotation true if the page shows five-line staves with note',
+      'heads on them, false if it is words only. Answer for the page in front of',
+      'you, not for what the song usually looks like.',
+      '',
       'TRANSCRIBED CHORDS VERSUS SUGGESTED ONES -- keep these apart.',
       'If chord symbols ARE written on the page, transcribe those and only those.',
       'Never adjust them, never add to them, and set chordsSuggested to false.',
@@ -582,6 +587,7 @@ export async function POST(req: NextRequest) {
     // UNAVAILABLE before lite answered, which put a successful scan at 60s.
     // Lite alone answers in about 7s and reading a page of chords and words is
     // well within it; flash covers the case where lite is the busy one.
+    const startedAt = Date.now();
     const MODELS = ['gemini-flash-lite-latest', 'gemini-flash-latest'];
     const callModel = async (model: string) => ai.models.generateContent({
       // Version-agnostic alias, matching the lectionary route: always the
@@ -602,9 +608,11 @@ export async function POST(req: NextRequest) {
 
     let response;
     let lastErr: unknown = null;
+    let answeredBy = MODELS[0];
     for (const model of MODELS) {
       try {
         response = await callModel(model);
+        answeredBy = model;
         lastErr = null;
         break;
       } catch (err) {
@@ -644,9 +652,6 @@ export async function POST(req: NextRequest) {
       const hit = arr.find((a) => typeof a === 'string' && a.toLowerCase() === value.trim().toLowerCase());
       return typeof hit === 'string' ? hit : null;
     };
-    const themes = Array.isArray(result.themes)
-      ? (result.themes as unknown[]).map((x) => pick(x, v.themes)).filter((x): x is string => !!x).slice(0, 3)
-      : [];
 
     const lyricsText = typeof result.lyrics === 'string' ? result.lyrics : '';
 
@@ -658,7 +663,49 @@ export async function POST(req: NextRequest) {
     // Order matters: join the split words first, then wrap. Wrapping first
     // would count "lead" and "eth" as two of the seven words.
     // Join split words, wrap over-long lines, then settle the presentation.
-    const joined = tidy(reflowLines(joinSyllables(lyricsText)));
+    let joined = tidy(reflowLines(joinSyllables(lyricsText)));
+
+    // Reading chord symbols already printed on a page is OCR, which the small
+    // model does well and fast. Reading notes off a stave and working out the
+    // harmony is a different job, and lite mostly declines it -- which is why a
+    // scanned hymn score came back as bare lyrics.
+    //
+    // So: when the fast model finds no chords on a page that does have staves
+    // and notes, ask the larger one once. The notation test is what keeps this
+    // cheap -- a typed lyric sheet has no chords either, and escalating on that
+    // would spend twenty seconds proving there is nothing to analyse.
+    // Nothing is spent in the common cases: a sheet with chords printed on it
+    // never reaches here, nor does a page with no music on it. It is skipped
+    // when too little of the sixty second budget is left to finish, since a
+    // timeout would lose the lyrics already read -- half an answer beats none.
+    const ESCALATE_BUDGET_MS = 22000;
+    let escalatedTo: string | null = null;
+    if (
+      !joined.split(/\r?\n/).some(isChordLine)
+      && result.hasMusicNotation === true
+      && answeredBy !== MODELS[MODELS.length - 1]
+      && Date.now() - startedAt < ESCALATE_BUDGET_MS
+    ) {
+      try {
+        const better = await callModel(MODELS[MODELS.length - 1]);
+        const betterRaw = better.text;
+        if (betterRaw) {
+          const second = JSON.parse(betterRaw) as Record<string, unknown>;
+          const secondLyrics = typeof second.lyrics === 'string' ? second.lyrics : '';
+          const secondJoined = tidy(reflowLines(joinSyllables(secondLyrics)));
+          // Only taken if it actually did better. A second empty answer, or one
+          // that lost lyrics along the way, is discarded and the first stands.
+          if (secondJoined.split(/\r?\n/).some(isChordLine)) {
+            joined = secondJoined;
+            result = second;
+            escalatedTo = MODELS[MODELS.length - 1];
+          }
+        }
+      } catch {
+        // The first answer is already good enough to return; a failed second
+        // attempt must not turn a usable scan into an error.
+      }
+    }
 
     // chordsFound is the model's claim about its own work, and it has been
     // wrong in both directions. The transcription settles it -- counted after
@@ -675,6 +722,13 @@ export async function POST(req: NextRequest) {
     const chordsSuggested = chordsActuallyPresent && !chordsPrinted;
     const suggestedKey = pick(result.key, v.keys);
     const outOfKey = chordsSuggested ? outOfKeyChords(joined, suggestedKey) : [];
+
+    // Read after any escalation, not before: everything else is read off
+    // result when the response is built, but themes were being computed early,
+    // which would have taken them from the answer that was thrown away.
+    const themes = Array.isArray(result.themes)
+      ? (result.themes as unknown[]).map((x) => pick(x, v.themes)).filter((x): x is string => !!x).slice(0, 3)
+      : [];
 
     const dropped: string[] = [];
     if (result.key && !pick(result.key, v.keys)) dropped.push('key');
@@ -703,7 +757,12 @@ export async function POST(req: NextRequest) {
       lyrics: joined || null,
       // What is in the transcription wins over what the model said about it.
       chordsFound: chordsPrinted,
+      ...(escalatedTo ? { escalatedTo } : {}),
       chordsSuggested,
+      // Sent so the form can say something useful when there are no chords:
+      // a page of words has none to find, a score that yielded none is a
+      // different problem with a different remedy.
+      hasMusicNotation: result.hasMusicNotation === true,
       ...(outOfKey.length ? { outOfKey } : {}),
       chordLines: joined.split(/\r?\n/).filter(isChordLine).length,
       confidence: typeof result.confidence === 'string' ? result.confidence : 'low',
