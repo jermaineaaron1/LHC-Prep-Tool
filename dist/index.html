@@ -9041,6 +9041,10 @@
               <i class="fa-solid fa-check-circle"></i>
               <span id="newSongLyricsInfo">Lyrics saved</span>
             </div>
+            <!-- Where the chords came from, said next to the chords. The scan
+                 banner explains this too, but it sits at the top of a five-step
+                 form and nobody reading the lyrics can see it. -->
+            <div id="newSongChordNote" class="asm-chord-note hidden"></div>
             <input type="hidden" id="newSongLyricsData" value="">
             <div class="preview-section" style="margin-top:10px;">
               <div class="preview-buttons">
@@ -14157,9 +14161,33 @@ function _asmSetNewLyrics(text) {
   }
 }
 
+// Says where the chords came from, in the step where the chords are. Three
+// outcomes, and the empty-handed one is the one that most needs explaining:
+// a sheet can come back without chords because none were printed and none
+// could be worked out, and that is worth a sentence rather than silence.
+function _asmSetChordNote(d) {
+  var el = document.getElementById('newSongChordNote');
+  if (!el) return;
+  var cls, html;
+  if (d.chordsFound) {
+    cls = 'is-read';
+    html = '<i class="fa-solid fa-guitar"></i> Chords were read off the sheet' + (d.chordLines ? ' (' + d.chordLines + ' chord line' + (d.chordLines !== 1 ? 's' : '') + ')' : '') + '.';
+  } else if (d.chordsSuggested) {
+    cls = 'is-suggested';
+    html = '<i class="fa-solid fa-wand-magic-sparkles"></i> These chords were <b>suggested</b>' + (d.key ? ' from the key of ' + escapeHtml(d.key) : '') + ', not read off the sheet. Play them through first.';
+  } else {
+    cls = 'is-none';
+    html = '<i class="fa-solid fa-circle-info"></i> <b>No chords.</b> Nothing was printed on the sheet, and none could be worked out from it \u2014 that needs a photo of the music itself, staves and notes, with the key signature in shot.';
+  }
+  el.className = 'asm-chord-note ' + cls;
+  el.innerHTML = html;
+}
+
 function _asmClearScanBanner() {
   var b = document.getElementById('asmScanBanner');
   if (b) { b.style.display = 'none'; b.innerHTML = ''; }
+  var cn = document.getElementById('newSongChordNote');
+  if (cn) { cn.className = 'asm-chord-note hidden'; cn.innerHTML = ''; }
   var form = document.getElementById('addSongModal');
   if (form) Array.prototype.slice.call(form.querySelectorAll('.asm-from-scan'))
     .forEach(function(e) { e.classList.remove('asm-from-scan'); });
@@ -14199,6 +14227,7 @@ function _asmApplyScan(d) {
   if (d.lyrics) {
     _asmSetNewLyrics(d.lyrics);
     filled.push(d.chordsFound ? 'lyrics with chords' : d.chordsSuggested ? 'lyrics with suggested chords' : 'lyrics');
+    _asmSetChordNote(d);
   }
 
   // Keep the photograph as one of the song's documents. Added after the form
@@ -17148,6 +17177,8 @@ window.resetNewSongData = function() {
   document.getElementById('newSongYoutubeList').innerHTML = '';
   document.getElementById('newSongAttachments').innerHTML = '';
   document.getElementById('newSongLyricsSummary').classList.add('hidden');
+  var _cn = document.getElementById('newSongChordNote');
+  if (_cn) { _cn.className = 'asm-chord-note hidden'; _cn.innerHTML = ''; }
   document.getElementById('newSongLyricsData').value = '';
   document.getElementById('newSongPreviewContent').classList.add('hidden');
   if (typeof setSeasonSelection === 'function') setSeasonSelection('new', '');
@@ -87673,6 +87704,15 @@ window.LHC_Install = (function() {
   .asm-scan-banner span { display: block; margin-top: 3px; }
   .asm-scan-filled { color: var(--sf-muted, #5f6b91); }
   .asm-scan-warn { color: #b45309; font-weight: 650; }
+  .asm-chord-note {
+    margin: 6px 0 0; padding: 8px 10px; border-radius: 10px;
+    font-size: .74rem; line-height: 1.45; border: 1px solid transparent;
+  }
+  .asm-chord-note.hidden { display: none; }
+  .asm-chord-note i { margin-right: 5px; }
+  .asm-chord-note.is-read { color: #15803d; background: #f0fdf4; border-color: #bbf7d0; }
+  .asm-chord-note.is-suggested { color: #6d28d9; background: #f5f3ff; border-color: #ddd6fe; }
+  .asm-chord-note.is-none { color: #92400e; background: #fffbeb; border-color: #fde68a; }
   .asm-scan-suggested {
     color: #6d28d9; font-weight: 600;
     border-left: 3px solid #a78bfa; padding-left: 8px; margin-top: 5px !important;
