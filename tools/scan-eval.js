@@ -211,6 +211,7 @@ function printRun(rows) {
     if (r.droppedFields.length) flags.push('dropped:' + r.droppedFields.join('/'));
     if (r.chords !== 'none' && r.chordLines === 0) flags.push('CLAIMED-BUT-EMPTY');
     if (r.repeats && r.chordLinesMin !== r.chordLinesMax) flags.push('spread:' + r.chordLinesMin + '-' + r.chordLinesMax);
+    if (r.failures) flags.push('FAILED ' + r.failures + '/' + r.attempts);
     const tm = r.timings;
     if (tm) {
       // Only worth the space when something took real time.
@@ -233,7 +234,15 @@ function printRun(rows) {
   const withChords = ok.filter((r) => r.chordLines > 0);
   const scoresWithChords = scores.filter((r) => r.chordLines > 0);
   console.log('-'.repeat(120));
-  console.log('sheets            ' + rows.length + '  (' + (rows.length - ok.length) + ' errored)');
+  console.log('sheets            ' + rows.length + '  (' + (rows.length - ok.length) + ' with no usable scan)');
+  const totalTries = rows.reduce((a, r) => a + (r.attempts || 1), 0);
+  const totalFails = rows.reduce((a, r) => a + (r.failures || (r.error ? 1 : 0)), 0);
+  if (totalFails) {
+    console.log('scans failed      ' + totalFails + '/' + totalTries +
+      ' (' + Math.round(totalFails / totalTries * 100) + '%)  -- counted per scan, not per sheet');
+  } else {
+    console.log('scans failed      0/' + totalTries);
+  }
   console.log('with chords       ' + withChords.length + '/' + ok.length);
   console.log('scores            ' + scores.length + ', of which ' + scoresWithChords.length + ' got chords');
   console.log('titles read       ' + ok.filter((r) => r.title).length + '/' + ok.length);
@@ -371,6 +380,8 @@ async function main() {
     const r = good.length ? good[Math.floor(good.length / 2)] : tries[0];
     if (repeat > 1 && good.length) {
       r.repeats = tries.map((x) => ({ ms: x.ms, chordLines: x.chordLines, error: x.error || null }));
+      r.attempts = tries.length;
+      r.failures = tries.length - good.length;
       r.chordLinesMin = good[0].chordLines;
       r.chordLinesMax = good[good.length - 1].chordLines;
       r.msMean = Math.round(good.reduce((a, x) => a + x.ms, 0) / good.length);

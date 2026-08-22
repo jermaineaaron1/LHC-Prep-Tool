@@ -642,8 +642,21 @@ export async function POST(req: NextRequest) {
     // UNAVAILABLE before lite answered, which put a successful scan at 60s.
     // Lite alone answers in about 7s and reading a page of chords and words is
     // well within it; flash covers the case where lite is the busy one.
+    // The platform kills the function at maxDuration and answers with an HTML
+    // error page, which is not JSON and says nothing useful. Worse, a single
+    // slow call would sit there consuming the entire budget, so the fallback
+    // model -- the whole point of having one -- never got a turn: measured over
+    // 21 scans, 5 died at 60s and not one of them ever reached the second model.
+    //
+    // So the request keeps its own deadline, comfortably inside the platform's,
+    // and hands each model a slice of it. A page that answers in the usual few
+    // seconds is untouched; a slow one now gets a second, independent attempt
+    // instead of one long doomed wait.
+    const HARD_DEADLINE_MS = 54000;
+    const budgetLeft = () => HARD_DEADLINE_MS - (Date.now() - t0);
+
     const MODELS = ['gemini-flash-lite-latest', 'gemini-flash-latest'];
-    const callModel = async (model: string) => ai.models.generateContent({
+    const callModel = async (model: string, budgetMs: number) => ai.models.generateContent({
       // Version-agnostic alias, matching the lectionary route: always the
       // current flash-tier model, so a retired dated version cannot break this.
       model,
@@ -664,16 +677,26 @@ export async function POST(req: NextRequest) {
         // reading a page off a photo is helped by creative sampling -- the
         // chords are already printed, and the words are the words.
         temperature: 0,
+        // Ours, not the platform's: an abort we raise is catchable and leaves
+        // time to try something else.
+        abortSignal: AbortSignal.timeout(Math.max(1000, budgetMs)),
       },
     });
 
     let response;
     let lastErr: unknown = null;
     let answeredBy = MODELS[0];
-    for (const model of MODELS) {
+    for (let mi = 0; mi < MODELS.length; mi++) {
+      const model = MODELS[mi];
+      const isLast = mi === MODELS.length - 1;
+      // The last model may use everything that is left. An earlier one is
+      // capped so there is still a usable slice behind it -- 30s covers every
+      // scan we have measured that succeeded at all.
+      const budget = isLast ? budgetLeft() : Math.min(30000, budgetLeft() - 18000);
+      if (budget < 5000) break;                 // too little left to be worth starting
       const tModel = Date.now();
       try {
-        response = await callModel(model);
+        response = await callModel(model, budget);
         attempts.push({ model, ms: Date.now() - tModel, ok: true });
         answeredBy = model;
         lastErr = null;
@@ -683,15 +706,21 @@ export async function POST(req: NextRequest) {
         lastErr = err;
         // Anything that is not the model being busy is a real failure and
         // should surface immediately rather than burning the next model too.
-        if (!/50[0-9]|unavailable|overloaded|high demand|429|rate/i.test(String(err))) throw err;
+        // Our own abort counts as "busy" -- it means this model did not answer
+        // in the time it was given, which is exactly when the next one is worth
+        // a try. Without this the abort would be rethrown as a hard failure.
+        if (!/50[0-9]|unavailable|overloaded|high demand|429|rate|abort|timeout|timed out/i.test(String(err))) throw err;
       }
     }
     if (!response) {
       const quota = /429|quota|rate limit/i.test(String(lastErr));
+      const slow = /abort|timeout|timed out/i.test(String(lastErr));
       return NextResponse.json({
         error: quota
           ? 'The scanning service has hit its rate limit for now. Wait a minute and try again, or add the song manually.'
-          : 'Every scanning model is busy right now. Try again in a few minutes, or add the song manually.',
+          : slow
+            ? 'The scan is taking longer than this page can wait for. Busy pages -- several verses, handwritten chords -- sometimes do. Try again; it usually goes through.'
+            : 'Every scanning model is busy right now. Try again in a few minutes, or add the song manually.',
       }, { status: 503 });
     }
 
@@ -753,7 +782,7 @@ export async function POST(req: NextRequest) {
       escalation = { attempted: true, ms: 0, taken: false };
       const tEsc = Date.now();
       try {
-        const better = await callModel(MODELS[MODELS.length - 1]);
+        const better = await callModel(MODELS[MODELS.length - 1], budgetLeft());
         const betterRaw = better.text;
         if (betterRaw) {
           const second = JSON.parse(betterRaw) as Record<string, unknown>;
