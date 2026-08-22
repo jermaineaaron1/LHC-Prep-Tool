@@ -210,6 +210,47 @@ function outOfKeyChords(text: string, key: string | null): string[] {
 }
 
 
+// Work the key out from the chords when the model did not read it.
+//
+// The key signature is four flats in one corner of a photograph and the model
+// misses it perhaps one scan in six -- the sheet comes back correct in every
+// other respect and with no key at all. But the chords were transcribed, and
+// a page of Ab, Bbm, Cm, Db, Eb and Fm can only be in one or two keys. That is
+// arithmetic, not judgement, so it does not need the model.
+//
+// Only keys containing EVERY chord are considered. Where several do -- Ab and
+// Db both hold all six of those -- the tonic is settled by the chord the music
+// ends on, then the one it begins on, which is how tonality works in the hymns
+// this reads. Anything still ambiguous is left null: a wrong key transposes the
+// whole song, so silence is much the cheaper mistake.
+const PITCH_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+
+function inferKeyFromChords(text: string): string | null {
+  const tokens = text.split(/\r?\n/).filter(isChordLine).join(' ').match(/\S+/g) || [];
+  const roots: number[] = [];
+  for (const tok of tokens) {
+    // The chord proper, not its bass note: an inversion does not change the key.
+    const r = chordRoot(tok.split('/')[0]);
+    if (r !== null) roots.push(r);
+  }
+  const distinct = [...new Set(roots)];
+  // Two chords fit too many keys to mean anything.
+  if (distinct.length < 3) return null;
+
+  const fits: number[] = [];
+  for (let tonic = 0; tonic < 12; tonic++) {
+    const scale = MAJOR_STEPS.map((s) => (tonic + s) % 12);
+    if (distinct.every((r) => scale.includes(r))) fits.push(tonic);
+  }
+  if (!fits.length) return null;                     // a misread chord, most likely
+  if (fits.length === 1) return PITCH_NAMES[fits[0]];
+
+  const last = roots[roots.length - 1];
+  if (fits.includes(last)) return PITCH_NAMES[last];
+  const first = roots[0];
+  if (fits.includes(first)) return PITCH_NAMES[first];
+  return null;
+}
 // Words that follow a dash as themselves rather than as the tail of a split
 // word. Deliberately excludes anything that is also a common syllable -- "to"
 // (in-to), "so" (al-so), "out" (with-out) -- because the two failures are not
@@ -993,7 +1034,16 @@ export async function POST(req: NextRequest) {
     // being resolved silently in the scanner's favour.
     const chordsPrinted = chordsActuallyPresent && result.chordsFound === true;
     const chordsSuggested = chordsActuallyPresent && !chordsPrinted;
-    const suggestedKey = pickKey(result.key, v.keys);
+    // The model first; the chords only when it read no key at all. A key it
+    // did read is never second-guessed -- it saw the signature and this has
+    // only seen the chords.
+    let suggestedKey = pickKey(result.key, v.keys);
+    let keyInferred = false;
+    if (!suggestedKey && !result.key) {
+      const guess = inferKeyFromChords(joined);
+      const matched = guess ? pickKey(guess, v.keys) : null;
+      if (matched) { suggestedKey = matched; keyInferred = true; }
+    }
     const outOfKey = chordsSuggested ? outOfKeyChords(joined, suggestedKey) : [];
 
     // Read after any escalation, not before: everything else is read off
@@ -1012,7 +1062,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       title: typeof result.title === 'string' ? result.title.trim() : null,
       artist: typeof result.artist === 'string' ? result.artist.trim() : null,
-      key: pickKey(result.key, v.keys),
+      key: suggestedKey,
+      // Told apart from a key read off the signature, because a reviewer
+      // checking a transposition should know which they are looking at.
+      ...(keyInferred ? { keyInferred: true } : {}),
       tempo: pick(result.tempo, v.tempos),
       style: pick(result.style, v.styles),
       season: pick(result.season, v.seasons),
