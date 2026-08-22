@@ -149,6 +149,89 @@ function joinSyllables(text: string): string {
   return lines.join('\n');
 }
 
+// When the barlines cannot be counted -- a photo with no staff, or a model
+// that ran a line on -- lyrics are wrapped here instead: keep words together
+// up to a comma, otherwise cap the line at seven words. A line already inside
+// that is left untouched.
+const MAX_WORDS = 7;
+
+function tokensOf(line: string): Array<{ text: string; start: number; end: number }> {
+  const out: Array<{ text: string; start: number; end: number }> = [];
+  const re = /\S+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) out.push({ text: m[0], start: m.index, end: m.index + m[0].length });
+  return out;
+}
+
+// Lay tokens back out at their columns.
+function render(tokens: Array<{ text: string; start: number }>): string {
+  let out = '';
+  for (const t of tokens) {
+    if (t.start > out.length) out += ' '.repeat(t.start - out.length);
+    out += t.text;
+  }
+  return out;
+}
+
+// Where to cut a line that is too long. Prefer the last comma at or before the
+// word cap -- that is where the singer breathes. Otherwise cut at the cap.
+function breakAfter(line: string): number {
+  const w = tokensOf(line);
+  if (w.length <= MAX_WORDS) return -1;
+  for (let i = Math.min(MAX_WORDS, w.length) - 1; i >= 0; i--) {
+    if (/[,;:]$/.test(w[i].text)) return w[i].end;
+  }
+  return w[MAX_WORDS - 1].end;
+}
+
+function reflowLines(text: string): string {
+  const src = text.split(/\r?\n/);
+  const out: string[] = [];
+
+  for (let i = 0; i < src.length; i++) {
+    const line = src[i];
+
+    // A chord line is emitted by the lyric it sits above, so skip it here.
+    if (isChordLine(line) && i + 1 < src.length && src[i + 1].trim() && !isChordLine(src[i + 1])) continue;
+
+    if (!line.trim() || /^\[.*\]$/.test(line.trim()) || isChordLine(line)) { out.push(line); continue; }
+
+    let chords: Array<{ text: string; start: number; end: number }> | null =
+      (i > 0 && isChordLine(src[i - 1])) ? tokensOf(src[i - 1]) : null;
+    let lyric = line;
+    let base = 0;              // absolute column in the ORIGINAL line
+
+    for (;;) {
+      const cut = breakAfter(lyric);
+      if (cut < 0) break;
+
+      const tailStart = cut + (lyric.slice(cut).length - lyric.slice(cut).replace(/^\s+/, '').length);
+
+      if (chords) {
+        // A chord belongs to the head only if it starts before the head's text
+        // ENDS. One sitting in the gap after the comma is over the next phrase,
+        // not the one just finished, so it travels with the tail.
+        const head = chords.filter((t) => t.start - base < cut);
+        const tail = chords.filter((t) => t.start - base >= cut);
+        const headLine = render(head.map((t) => ({ ...t, start: t.start - base })));
+        if (headLine.trim()) out.push(headLine);
+        chords = tail;
+      }
+      out.push(lyric.slice(0, cut).replace(/\s+$/, ''));
+
+      lyric = lyric.slice(tailStart);
+      base += tailStart;
+    }
+
+    if (chords && chords.length) {
+      const last = render(chords.map((t) => ({ ...t, start: Math.max(0, t.start - base) })));
+      if (last.trim()) out.push(last);
+    }
+    out.push(lyric);
+  }
+  return out.join('\n');
+}
+
 function extFromUrl(url: string): string {
   const clean = url.split('?')[0].split('#')[0];
   const m = clean.match(/\.([a-zA-Z0-9]+)$/);
@@ -236,6 +319,7 @@ export async function POST(req: NextRequest) {
       '    text happens to wrap.',
       '  * If there is no staff and no barlines to count -- a plain chord sheet --',
       '    keep the printed line breaks instead.',
+      '  * Failing both, end the line at a comma, or after seven words at most.',
       '',
       'WORDS ARE WHOLE, NEVER SPLIT:',
       '  * A score hyphenates words across notes: "lead - eth", "bless - ed".',
@@ -400,7 +484,9 @@ export async function POST(req: NextRequest) {
     // Removing them shortens the lyric line, so every chord to the right has to
     // move left by the same number of characters or it ends up over the wrong
     // syllable. joinSyllables does both together.
-    const joined = joinSyllables(lyricsText);
+    // Order matters: join the split words first, then wrap. Wrapping first
+    // would count "lead" and "eth" as two of the seven words.
+    const joined = reflowLines(joinSyllables(lyricsText));
 
     // chordsFound is the model's claim about its own work, and it has been
     // wrong in both directions. The transcription settles it -- counted after
