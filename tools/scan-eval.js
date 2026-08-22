@@ -27,7 +27,19 @@
 //   node tools/scan-eval.js --target local      against http://localhost:3000
 //   node tools/scan-eval.js --only screenshot   only sheets whose name matches
 //   node tools/scan-eval.js --limit 3           first N sheets
+//   node tools/scan-eval.js --repeat 3          scan each sheet N times
 //   node tools/scan-eval.js --compare A.json B.json     diff two saved runs
+//
+// READ THIS BEFORE TRUSTING A SINGLE RUN
+// The model does not repeat itself. Two scans of the same sheet, at the same
+// size, minutes apart, agreed on only about three quarters of their chord
+// symbols and nine tenths of their words -- and eight identical requests
+// returned chord-line counts of 22, 17, 20, 17, 20, 20, 21 and 21.
+//
+// So a single run cannot tell you whether a prompt change helped. A five-line
+// difference in chord lines is well inside the noise. Use --repeat to scan each
+// sheet several times; the table then shows the spread, and only a change
+// larger than that spread means anything.
 //
 // WHAT IT COSTS
 // One Gemini call per sheet, sometimes two when a score escalates. It reads
@@ -198,6 +210,7 @@ function printRun(rows) {
     if (r.outOfKey.length) flags.push('outOfKey:' + r.outOfKey.join('/'));
     if (r.droppedFields.length) flags.push('dropped:' + r.droppedFields.join('/'));
     if (r.chords !== 'none' && r.chordLines === 0) flags.push('CLAIMED-BUT-EMPTY');
+    if (r.repeats && r.chordLinesMin !== r.chordLinesMax) flags.push('spread:' + r.chordLinesMin + '-' + r.chordLinesMax);
     const tm = r.timings;
     if (tm) {
       // Only worth the space when something took real time.
@@ -242,6 +255,13 @@ function printRun(rows) {
     const escalated = timed.filter((r) => r.timings.escalation && r.timings.escalation.attempted);
     console.log('escalations      ' + escalated.length + '/' + timed.length +
       (escalated.length ? ', ' + escalated.filter((r) => r.timings.escalation.taken).length + ' kept' : ''));
+  }
+
+  const repeated = ok.filter((r) => r.repeats);
+  if (repeated.length) {
+    const worst = Math.max(...repeated.map((r) => r.chordLinesMax - r.chordLinesMin));
+    console.log('repeat spread    chord lines varied by up to ' + worst + ' across repeats of one sheet');
+    console.log('                 a difference smaller than that is noise, not a result');
   }
 
   const suspicious = ok.filter((r) => r.chords !== 'none' && r.chordLines === 0);
@@ -331,14 +351,34 @@ async function main() {
   if (limit > 0) sheets = sheets.slice(0, limit);
   console.log('sheets    ' + sheets.length);
 
+  const repeat = Math.max(1, Number(flag('repeat')) || 1);
+  if (repeat > 1) console.log('repeat    ' + repeat + ' scans per sheet');
+
   const rows = [];
   for (let i = 0; i < sheets.length; i++) {
     process.stdout.write('  [' + (i + 1) + '/' + sheets.length + '] ' + sheets[i].label + ' ... ');
-    const r = await scanOne(endpoint, sheets[i], vocab);
+    const tries = [];
+    for (let k = 0; k < repeat; k++) {
+      tries.push(await scanOne(endpoint, sheets[i], vocab));
+      // A gap between calls. The endpoint falls back between models when one is
+      // busy, and a burst is the surest way to make every model busy at once.
+      if (k < repeat - 1) await new Promise((r2) => setTimeout(r2, 1500));
+    }
+    // The median run represents the sheet. A mean would invent a chord-line
+    // count no scan actually produced, and the lyrics saved beside it have to
+    // be lyrics that really came back.
+    const good = tries.filter((x) => !x.error).sort((a, b) => a.chordLines - b.chordLines);
+    const r = good.length ? good[Math.floor(good.length / 2)] : tries[0];
+    if (repeat > 1 && good.length) {
+      r.repeats = tries.map((x) => ({ ms: x.ms, chordLines: x.chordLines, error: x.error || null }));
+      r.chordLinesMin = good[0].chordLines;
+      r.chordLinesMax = good[good.length - 1].chordLines;
+      r.msMean = Math.round(good.reduce((a, x) => a + x.ms, 0) / good.length);
+    }
     rows.push(r);
-    console.log(r.error ? 'ERROR' : (r.ms + 'ms, ' + r.chordLines + ' chord lines'));
-    // A gap between calls. The endpoint falls back between models when one is
-    // busy, and a burst is the surest way to make every model busy at once.
+    console.log(r.error ? 'ERROR'
+      : (r.ms + 'ms, ' + r.chordLines + ' chord lines'
+         + (r.repeats ? '  (' + tries.length + ' scans, ' + r.chordLinesMin + '-' + r.chordLinesMax + ' chord lines)' : '')));
     if (i < sheets.length - 1) await new Promise((r2) => setTimeout(r2, 1500));
   }
 
