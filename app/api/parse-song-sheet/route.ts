@@ -97,7 +97,27 @@ function isOwnStorage(url: string): boolean {
 // A chord line is one whose every token is chord-shaped. Used both to verify
 // the model's chordsFound claim and to know which line to keep aligned when
 // syllable hyphens are removed from the lyric beneath it.
-const CHORD_TOKEN = /^[A-G](#|b|\u266f|\u266d)?(maj|min|m|M|dim|aug|sus|add|alt)?[0-9]*(sus[24]|add[29]|maj[79]|b5|b9|#5|#9|#11|b13)*(\/[A-G](#|b)?)?$/;
+// Built from a base shape rather than written out flat, because two things a
+// hand-annotated hymnal does routinely were failing it, and one bad token
+// disqualifies the whole line -- which then gets treated as a lyric and
+// wrapped like prose.
+//
+//   Ab /G      a bass note written apart from the chord it belongs under.
+//              On paper the slash sits under the stave where the bass moves,
+//              so it is often a token of its own.
+//   Db-Ab      two chords in one bar, joined by a dash. Standard shorthand
+//              when someone is pencilling changes in above a printed score.
+//
+// Every part of a dash chain must itself be chord-shaped, which is what keeps
+// lyrics out: "A-men" and "well-known" both fail on their second half.
+const CHORD_ACCIDENTAL = '(#|b|\u266f|\u266d)?';
+const CHORD_BASE = '[A-G]' + CHORD_ACCIDENTAL
+  + '(maj|min|m|M|dim|aug|sus|add|alt)?[0-9]*'
+  + '(sus[24]|add[29]|maj[79]|b5|b9|#5|#9|#11|b13)*'
+  + '(\\/[A-G]' + CHORD_ACCIDENTAL + ')?';
+const CHORD_SLASH_ONLY = '\\/[A-G]' + CHORD_ACCIDENTAL;
+const CHORD_ONE = '(' + CHORD_BASE + '|' + CHORD_SLASH_ONLY + ')';
+const CHORD_TOKEN = new RegExp('^' + CHORD_ONE + '(-' + CHORD_ONE + ')*$');
 
 function isChordLine(line: string): boolean {
   const bare = line.trim();
