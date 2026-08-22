@@ -237,7 +237,7 @@ function compare(aPath, bPath) {
   console.log('A  ' + path.basename(aPath) + '   ' + a.startedAt);
   console.log('B  ' + path.basename(bPath) + '   ' + b.startedAt);
   console.log('');
-  console.log(pad('sheet', 34) + pad('chords', 22) + pad('chord lines', 16) + pad('title', 20) + 'ms');
+  console.log(pad('sheet', 36) + pad('chords', 22) + pad('chord lines', 16) + pad('title', 20) + 'ms');
   console.log('-'.repeat(110));
 
   let better = 0, worse = 0;
@@ -250,11 +250,11 @@ function compare(aPath, bPath) {
     const dl = (Number(f(y, 'chordLines')) || 0) - (Number(f(x, 'chordLines')) || 0);
     if (dl > 0) better++; else if (dl < 0) worse++;
     if (!chordsMoved && !linesMoved && !titleMoved) {
-      console.log(pad(label, 34) + pad('(unchanged)', 22));
+      console.log(pad(label, 36) + pad('(unchanged)', 22));
       continue;
     }
     console.log(
-      pad(label, 34) +
+      pad(label, 36) +
       pad(chordsMoved ? f(x, 'chords') + ' -> ' + f(y, 'chords') : f(y, 'chords'), 22) +
       pad(linesMoved ? f(x, 'chordLines') + ' -> ' + f(y, 'chordLines') : String(f(y, 'chordLines')), 16) +
       pad(titleMoved ? 'CHANGED' : 'same', 20) +
