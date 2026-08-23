@@ -27,6 +27,7 @@
 // (https://aistudio.google.com/apikey), no paid plan needed.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { applyLearnedRules } from './learned-rules';
 import { GoogleGenAI, Type } from '@google/genai';
 
 export const runtime = 'nodejs';
@@ -1028,6 +1029,12 @@ export async function POST(req: NextRequest) {
     // so running it again costs a scan of the text and fixes the whole class.
     let joined = tidy(reflowLines(joinSyllables(mergeBrokenLines(joinSyllables(lyricsText)))));
 
+    // Corrections that have proved mechanical enough to apply without asking.
+    // Empty today: see learned-rules.ts for what earns a place and why nothing
+    // has yet. Applied last, so a rule sees the text as the reviewer will.
+    const learned = applyLearnedRules(joined, isChordLine);
+    joined = learned.text;
+
     // Reading chord symbols already printed on a page is OCR, which the small
     // model does well and fast. Reading notes off a stave and working out the
     // harmony is a different job, and lite mostly declines it -- which is why a
@@ -1160,6 +1167,10 @@ export async function POST(req: NextRequest) {
         escalation,
       },
       chordsSuggested,
+      // Named rather than done silently: an automatic edit the reviewer cannot
+      // see is one they cannot disagree with.
+      ...(learned.applied.length ? { rulesApplied: learned.applied } : {}),
+      ...(learned.skipped.length ? { rulesSkipped: learned.skipped } : {}),
       // The page had more verses on it than came back. Reported even after an
       // escalation, because the second read can fall short too, and a hymn
       // quietly missing four of its five verses is worth saying out loud.
