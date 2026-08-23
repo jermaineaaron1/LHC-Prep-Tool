@@ -296,11 +296,30 @@ function hyphenRanges(lyric: string): Array<{ start: number; end: number }> {
     // sheets. Asking the prompt to fix it did not work -- the count came back
     // 28 -- so the rule is enforced here instead, where it is not a matter of
     // the model being in the mood to comply.
-    if (!/\s/.test(m[2])) {
-      const around = lyric.slice(0, m.index + 1).match(/[A-Za-z\u2019']+$/);
-      const rest = lyric.slice(m.index + m[1].length + m[2].length).match(/^[A-Za-z\u2019']+/);
-      const whole = ((around ? around[0] : m[1]) + '-' + (rest ? rest[0] : m[3])).toLowerCase();
-      if (KEEP_HYPHEN.has(whole)) continue;
+    // A real compound keeps its hyphen however the page spaced it. This used
+    // to be checked only for a tight hyphen, on the reasoning that a spaced one
+    // must be a syllable split -- but a compound broken across a line ending,
+    // "A well-" / "known hymn", becomes "well- known" once the lines are
+    // merged, and the tight-only test let that through and welded it into
+    // "wellknown". The list is short and explicit, so consulting it either way
+    // costs nothing and cannot swallow a genuine split.
+    const around = lyric.slice(0, m.index + 1).match(/[A-Za-z\u2019']+$/);
+    const rest = lyric.slice(m.index + m[1].length + m[2].length).match(/^[A-Za-z\u2019']+/);
+    const whole = ((around ? around[0] : m[1]) + '-' + (rest ? rest[0] : m[3])).toLowerCase();
+    if (KEEP_HYPHEN.has(whole)) {
+      // Keep the hyphen, lose the gaps. A compound the page broke across a
+      // line comes back as "well- known", which is neither the split it looks
+      // like nor the word it is. Deleting only the whitespace either side of
+      // the hyphen leaves "well-known" and moves any chords by the same
+      // amount, exactly as joining a real split does.
+      const sepStart = m.index + m[1].length;
+      const dash = m[2].indexOf('-');
+      if (dash > 0) ranges.push({ start: sepStart, end: sepStart + dash });
+      const tailStart = sepStart + dash + 1;
+      const tailEnd = sepStart + m[2].length;
+      if (tailEnd > tailStart) ranges.push({ start: tailStart, end: tailEnd });
+      re.lastIndex = sepStart;
+      continue;
     }
     // A dash used as punctuation is not a split word. Two tells, both cheap:
     // the next word starts with a capital ("Holy - Holy", "Jesus - My"), or it
@@ -999,7 +1018,15 @@ export async function POST(req: NextRequest) {
     // Join split words, wrap over-long lines, then settle the presentation.
     // Merge before splitting: gather the fragments back into phrases, then cut
     // them again to one rule, so the lines come out even.
-    let joined = tidy(reflowLines(mergeBrokenLines(joinSyllables(lyricsText))));
+    // joinSyllables runs twice, and the second pass is not belt and braces.
+    // It works a line at a time, so a word the engraver split across a line
+    // ending -- "Grace un-" / "known!" -- has nothing after the hyphen to join
+    // to on the first pass. mergeBrokenLines then stitches the lines together
+    // and the two halves become neighbours for the first time, which is where
+    // "un- known", "pit - y" and "faith- ful" were coming from in real scans.
+    // The pass is idempotent -- nothing is left to join the second time round --
+    // so running it again costs a scan of the text and fixes the whole class.
+    let joined = tidy(reflowLines(joinSyllables(mergeBrokenLines(joinSyllables(lyricsText)))));
 
     // Reading chord symbols already printed on a page is OCR, which the small
     // model does well and fast. Reading notes off a stave and working out the
@@ -1036,7 +1063,7 @@ export async function POST(req: NextRequest) {
         if (betterRaw) {
           const second = JSON.parse(betterRaw) as Record<string, unknown>;
           const secondLyrics = typeof second.lyrics === 'string' ? second.lyrics : '';
-          const secondJoined = tidy(reflowLines(mergeBrokenLines(joinSyllables(secondLyrics))));
+          const secondJoined = tidy(reflowLines(joinSyllables(mergeBrokenLines(joinSyllables(secondLyrics)))));
           // Only taken if it actually did better -- more verses when verses were
           // missing, chords when chords were missing. A second answer that fixes
           // neither is discarded and the first stands.
