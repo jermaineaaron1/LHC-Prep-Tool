@@ -68,10 +68,11 @@ const RESPONSE_SCHEMA = {
     chordsFound: { type: Type.BOOLEAN, description: 'True only if chord symbols were actually WRITTEN on the sheet and transcribed. False otherwise, including when chords have been suggested instead.' },
     chordsSuggested: { type: Type.BOOLEAN, description: 'True only if no chords were written and you proposed a simple diatonic accompaniment, AND you wrote those chords into the lyrics field as chord lines. Never true at the same time as chordsFound.' },
     hasMusicNotation: { type: Type.BOOLEAN, description: 'True if the page shows actual music notation -- five-line staves with note heads. False for a page of words only, whether typed, printed or handwritten.' },
+    versesOnPage: { type: Type.INTEGER, description: 'How many numbered verses are printed on the page. Count the verse numbers you can see (1. 2. 3.) even when they share a staff. 0 if the verses are not numbered.' },
     confidence: { type: Type.STRING, description: 'One of "high", "medium", "low" -- how legible the sheet was overall.' },
     notes: { type: Type.STRING, nullable: true, description: 'One short sentence for the reviewer about anything unclear, cut off, or guessed. Null if the read was clean.' },
   },
-  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'alternateTitle', 'copyright', 'ccli', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'chordsSuggested', 'hasMusicNotation', 'confidence', 'notes'],
+  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'alternateTitle', 'copyright', 'ccli', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'chordsSuggested', 'hasMusicNotation', 'versesOnPage', 'confidence', 'notes'],
 };
 
 // The client hands this route a URL and the server fetches it, so without a
@@ -797,10 +798,35 @@ export async function POST(req: NextRequest) {
       '    Only report a BPM that is actually printed -- never estimate one.',
       '  * A capo instruction, and any second title in brackets or underneath.',
       '',
+      'COUNT THE VERSES FIRST. Before transcribing anything, look for the verse',
+      'numbers on the page -- 1. 2. 3. down the left of the lyric block, or before',
+      'the first word of each line. Put that count in versesOnPage, then make sure',
+      'your lyrics contain exactly that many [Verse n] sections. A page with five',
+      'numbered verses and one verse in the output is the single most common way',
+      'this goes wrong.',
+      '',
+      'A hymnal stacks its verses under one staff, like this:',
+      '',
+      '    1. A - las!  and did  my  Sa - vior bleed,',
+      '    2. Was  it   for crimes that  I   have done,',
+      '    3. Well might the sun  in  dark - ness hide,',
+      '',
+      'Those are three verses, not one line of three. Read across for verse 1,',
+      'then across again for verse 2, and return:',
+      '',
+      '    [Verse 1]',
+      '    Alas! and did my Savior bleed,',
+      '',
+      '    [Verse 2]',
+      '    Was it for crimes that I have done,',
+      '',
+      '    [Verse 3]',
+      '    Well might the sun in darkness hide,',
+      '',
+      'The chords above the staff belong to all of them, so repeat the chord line',
+      'over each verse rather than only the first.',
+      '',
       'LAYOUTS THAT CATCH PEOPLE OUT:',
-      '  * Hymnals stack verses: several numbered verses printed under one staff,',
-      '    or in a block below it. Each is its own [Verse n] section -- do not',
-      '    return only the first.',
       '  * Two columns: read the whole left column down, then the right. Never',
       '    read straight across the gutter.',
       '  * Repeat directions (D.C., D.S., Repeat chorus, x2) are instructions, not',
@@ -988,11 +1014,17 @@ export async function POST(req: NextRequest) {
     // never reaches here, nor does a page with no music on it. It is skipped
     // when too little of the sixty second budget is left to finish, since a
     // timeout would lose the lyrics already read -- half an answer beats none.
+    // What the model said was on the page, against what it actually returned.
+    // A page it counted five verses on that comes back with one is a truncated
+    // read, and it announced the discrepancy itself.
+    const sectionsIn = (s: string) => (s.match(/^\[.+\]$/gm) || []).length;
+    const versesClaimed = typeof result.versesOnPage === 'number' ? result.versesOnPage : 0;
+    const versesShort = versesClaimed > 1 && sectionsIn(joined) < versesClaimed;
+
     const ESCALATE_BUDGET_MS = 22000;
     let escalatedTo: string | null = null;
     if (
-      !joined.split(/\r?\n/).some(isChordLine)
-      && result.hasMusicNotation === true
+      (versesShort || (!joined.split(/\r?\n/).some(isChordLine) && result.hasMusicNotation === true))
       && answeredBy !== MODELS[MODELS.length - 1]
       && Date.now() - t0 < ESCALATE_BUDGET_MS
     ) {
@@ -1005,9 +1037,13 @@ export async function POST(req: NextRequest) {
           const second = JSON.parse(betterRaw) as Record<string, unknown>;
           const secondLyrics = typeof second.lyrics === 'string' ? second.lyrics : '';
           const secondJoined = tidy(reflowLines(mergeBrokenLines(joinSyllables(secondLyrics))));
-          // Only taken if it actually did better. A second empty answer, or one
-          // that lost lyrics along the way, is discarded and the first stands.
-          if (secondJoined.split(/\r?\n/).some(isChordLine)) {
+          // Only taken if it actually did better -- more verses when verses were
+          // missing, chords when chords were missing. A second answer that fixes
+          // neither is discarded and the first stands.
+          const improved = versesShort
+            ? sectionsIn(secondJoined) > sectionsIn(joined)
+            : secondJoined.split(/\r?\n/).some(isChordLine);
+          if (improved) {
             joined = secondJoined;
             result = second;
             escalatedTo = MODELS[MODELS.length - 1];
@@ -1097,6 +1133,12 @@ export async function POST(req: NextRequest) {
         escalation,
       },
       chordsSuggested,
+      // The page had more verses on it than came back. Reported even after an
+      // escalation, because the second read can fall short too, and a hymn
+      // quietly missing four of its five verses is worth saying out loud.
+      ...(versesClaimed ? { versesOnPage: versesClaimed } : {}),
+      ...(versesClaimed > 1 && sectionsIn(joined) < versesClaimed
+        ? { versesMissing: versesClaimed - sectionsIn(joined) } : {}),
       // Sent so the form can say something useful when there are no chords:
       // a page of words has none to find, a score that yielded none is a
       // different problem with a different remedy.
