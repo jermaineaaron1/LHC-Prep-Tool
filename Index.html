@@ -14245,9 +14245,39 @@ function _asmSetKeyField(value) {
 }
 // Marks a field as coming from the scan, so the reviewer can see at a glance
 // what was read off the page and what they typed themselves.
+// Values the scan read off the page but the form had nowhere to put. Kept so
+// the banner can say so: a reading that is silently dropped is worse than one
+// that never happened, because nobody knows to go and add it.
+var _asmUnstored = [];
+
 function _asmSetScanned(id, value) {
   var el = document.getElementById(id);
   if (!el || value === null || value === undefined || value === '') return false;
+
+  // A <select> only holds strings equal to one of its options. Assigning
+  // anything else leaves it blank and reports no error, which is how a whole
+  // hymnal's worth of keys went missing before anyone noticed. So a dropdown
+  // is matched by meaning -- spacing, case and a trailing "major" or "time"
+  // ignored -- and if nothing matches, the value is recorded as unstored
+  // rather than quietly thrown away.
+  if (el.tagName === 'SELECT') {
+    var norm = function(s) {
+      return String(s).replace(/\u266f/g, '#').replace(/\u266d/g, 'b')
+        .replace(/\s*(major|maj|time)\s*$/i, '').replace(/\s+/g, '').toLowerCase();
+    };
+    var want = norm(value);
+    for (var i = 0; i < el.options.length; i++) {
+      var opt = el.options[i];
+      if (!opt.value) continue;
+      if (norm(opt.value) === want || norm(opt.text) === want) {
+        el.value = opt.value;
+        el.classList.add('asm-from-scan');
+        return true;
+      }
+    }
+    _asmUnstored.push({ id: id, value: String(value) });
+    return false;
+  }
   el.value = value;
   el.classList.add('asm-from-scan');
   if (typeof el.dispatchEvent === 'function') el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -14256,6 +14286,7 @@ function _asmSetScanned(id, value) {
 
 function _asmApplyScan(d) {
   var filled = [];
+  _asmUnstored = [];
   if (_asmSetScanned('newSongTitle', d.title)) filled.push('title');
   if (_asmSetScanned('newSongArtist', d.artist)) filled.push('artist');
   if (_asmSetKeyField(d.key)) filled.push(d.keyInferred ? 'key (worked out from the chords)' : 'key');
@@ -14315,6 +14346,12 @@ function _asmApplyScan(d) {
   // A key read off the signature and a key deduced from the chords are not the
   // same claim, and only one of them should be trusted for a transposition.
   if (d.keyInferred && d.key) bits.push('<span class="asm-scan-suggested">The key signature was not legible. <b>' + escapeHtml(d.key) + '</b> was worked out from the chords instead — confirm it before transposing.</span>');
+  // Read off the page but with nowhere in the form to hold it. Shown so the
+  // reviewer can enter it by hand instead of never learning it was there.
+  if (_asmUnstored.length) {
+    bits.push('<span class="asm-scan-warn">Read from the sheet but not on the list, so not filled in: '
+      + escapeHtml(_asmUnstored.map(function(u) { return u.value; }).join(', ')) + '.</span>');
+  }
   if (d.capo) bits.push('<span class="asm-scan-note">Sheet says: ' + escapeHtml(d.capo) + '</span>');
   if (d.notes) bits.push('<span class="asm-scan-note">' + escapeHtml(d.notes) + '</span>');
   b.className = 'asm-scan-banner ' + tone;
