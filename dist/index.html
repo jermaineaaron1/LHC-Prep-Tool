@@ -14250,6 +14250,14 @@ function _asmSetKeyField(value) {
 // that never happened, because nobody knows to go and add it.
 var _asmUnstored = [];
 
+// What the last scan proposed, held until the song is saved so the two can be
+// recorded together. The pair is the only thing that teaches this feature
+// anything: the model cannot be trained, so the way it improves is somebody
+// noticing a pattern in what has to be corrected, and a pattern needs a record
+// of the corrections. Without this, every edit is forgotten the moment it is
+// made.
+window._asmLastScan = null;
+
 function _asmSetScanned(id, value) {
   var el = document.getElementById(id);
   if (!el || value === null || value === undefined || value === '') return false;
@@ -14284,9 +14292,59 @@ function _asmSetScanned(id, value) {
   return true;
 }
 
+// Records what the scan proposed against what was actually saved.
+//
+// Written as a file beside the photograph rather than into a table: this needs
+// no schema change, no policy change, and nothing else in the app reads it. A
+// record is a few kilobytes of JSON against photographs of two megabytes, so
+// the storage it costs is not worth measuring.
+//
+// It never blocks or fails a save. A song being added matters; a note about how
+// it was added does not, and the day this breaks it must not take saving with
+// it.
+function _asmRecordCorrection(saved) {
+  try {
+    var last = window._asmLastScan;
+    if (!last || !last.scan) return;
+    // Only if this save plausibly belongs to that scan. Two hours is generous
+    // for someone checking a sheet carefully, and short enough that a scan
+    // abandoned yesterday is not attributed to a song typed in by hand today.
+    if (Date.now() - last.at > 2 * 60 * 60 * 1000) { window._asmLastScan = null; return; }
+
+    var fields = ['title', 'artist', 'key', 'tempo', 'category', 'season', 'theme',
+                  'scripture', 'alternateTitle', 'copyright', 'ccliNumber',
+                  'timeSignature', 'bpm', 'lyrics'];
+    var savedSubset = {};
+    fields.forEach(function(f) { savedSubset[f] = saved[f] === undefined ? null : saved[f]; });
+
+    var record = {
+      recordedAt: new Date().toISOString(),
+      songId: saved.id || null,
+      scanUrl: last.scanUrl,
+      scan: last.scan,
+      saved: savedSubset
+    };
+    window._asmLastScan = null;
+
+    var name = (saved.title || 'song').replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 48) + '.json';
+    var blob = new File([JSON.stringify(record, null, 2)], name, { type: 'application/json' });
+    if (typeof uploadToSupabase === 'function') {
+      uploadToSupabase(blob, 'scan-corrections').then(function(r) {
+        if (r && r.error) console.warn('correction not recorded:', r.error);
+      }).catch(function() {});
+    }
+  } catch (e) {
+    console.warn('correction not recorded:', e);
+  }
+}
 function _asmApplyScan(d) {
   var filled = [];
   _asmUnstored = [];
+  try {
+    var keep = {};
+    Object.keys(d || {}).forEach(function(k) { if (k !== '__scanUrl') keep[k] = d[k]; });
+    window._asmLastScan = { at: Date.now(), scanUrl: d.__scanUrl || null, scan: keep };
+  } catch (e) { window._asmLastScan = null; }
   if (_asmSetScanned('newSongTitle', d.title)) filled.push('title');
   if (_asmSetScanned('newSongArtist', d.artist)) filled.push('artist');
   if (_asmSetKeyField(d.key)) filled.push(d.keyInferred ? 'key (worked out from the chords)' : 'key');
@@ -22027,6 +22085,8 @@ window.loadEditSongData = function(song) {
 
     // Auto-assign ID before inserting
     songData.id = 'song_' + Date.now();
+    // Before the save, while the scan that produced this is still in hand.
+    if (typeof _asmRecordCorrection === 'function') _asmRecordCorrection(songData);
     showLoader(true);
     SBQ_SONGS.create(songData).then(function(result) {
       showToast('Song added successfully!', 'success');
