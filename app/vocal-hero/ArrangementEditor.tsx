@@ -488,6 +488,28 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   // every value button is annotated against.
   const remainingQuarters = entryBar ? Math.max(0, (entryBar.end - entryStart) / (60 / entryBar.bpm)) : 0;
   const keySignature = useMemo(() => inferKeySignature(notes.map(note => note.midi)), [notes]);
+  // The engraver's grouping rule as an entry assistant: a dotted quaver
+  // placed on the beat leaves a semiquaver of that beat unspent, and the
+  // natural next note IS that semiquaver — so when the sticky value would
+  // cross the beat boundary from mid-beat, the entry value auto-switches to
+  // the exact completion. On the boundary, the sticky value rules again,
+  // which is what makes 'dotted-quaver, semiquaver, dotted-quaver…' typing
+  // flow with no palette visits at all.
+  const beatCompletion = useMemo(() => {
+    if (!entryBar) return null;
+    const quarter = 60 / entryBar.bpm;
+    const beatLen = quarter * (4 / entryBar.denominator);
+    const intoBeat = ((entryStart - entryBar.start) % beatLen + beatLen) % beatLen;
+    const eps = 0.02 * beatLen;
+    if (intoBeat < eps || beatLen - intoBeat < eps) return null;      // on the boundary
+    const remainingQ = (beatLen - intoBeat) / quarter;
+    const sticky = NOTE_VALUES.find(item => item.value === (musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE));
+    if (!sticky || sticky.quarterBeats <= remainingQ + 0.01) return null;  // sticky fits the beat
+    const completion = NOTE_VALUES.find(item =>
+      (item.group === 'Straight' || item.group === 'Dotted') && Math.abs(item.quarterBeats - remainingQ) < 0.02);
+    return completion ?? null;
+  }, [entryBar, entryStart, musicalTimeline.snap_value]);
+  const entryValue: RhythmicNoteValue = beatCompletion?.value ?? musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
   const selectedNotes = useMemo(() => notes.filter(note => selectedIds.includes(note.id)).sort((a, b) => a.start - b.start || a.part - b.part), [notes, selectedIds]);
 
   useEffect(() => {
@@ -748,11 +770,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const natural = pc + alteration;
     const midi = natural + 12 * Math.round((reference - natural) / 12);
     setStepCaret(null);
-    addNote(selectedPart, entryStart, midi, undefined, '');
+    addNote(selectedPart, entryStart, midi, entryStart + noteDurationAt(musicalBars, entryStart, entryValue), '');
   }
   function restStepAdvance() {
-    const value = musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
-    setStepCaret(entryStart + noteDurationAt(musicalBars, entryStart, value));
+    setStepCaret(entryStart + noteDurationAt(musicalBars, entryStart, entryValue));
   }
   function fillRestOfBar() {
     if (!entryBar || remainingQuarters < .12) return;
@@ -1324,6 +1345,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               stepInput={stepInput}
               onStepInput={value => { setStepInput(value); setStepCaret(null); }}
               caretLabel={compactBeatLabel(beatPositionAt(musicalBars, entryStart + 0.005))}
+              completion={beatCompletion ? { symbol: beatCompletion.symbol, short: beatCompletion.short } : null}
               voiceName={VOICES[selectedPart] ?? 'Voice'}
               remainingQuarters={remainingQuarters}
               barFill={entryBar ? Math.max(0, Math.min(1, (entryStart - entryBar.start) / Math.max(.001, entryBar.end - entryBar.start))) : 0}
@@ -1477,11 +1499,12 @@ function LyricLineDialog({ targetCount, targetLabel, onApply, onClose }: { targe
  * marked as tying into the next bar. With Step entry on, letters A–G enter
  * pitches in the song's key at the caret, R rests forward, arrows adjust.
  */
-function NoteEntryPalette({ snapValue, onValue, stepInput, onStepInput, caretLabel, voiceName, remainingQuarters, barFill, onFillBar, onRest }: {
+function NoteEntryPalette({ snapValue, onValue, stepInput, onStepInput, caretLabel, voiceName, remainingQuarters, barFill, onFillBar, onRest, completion }: {
   snapValue: RhythmicNoteValue; onValue: (value: RhythmicNoteValue) => void;
   stepInput: boolean; onStepInput: (value: boolean) => void;
   caretLabel: string; voiceName: string; remainingQuarters: number; barFill: number;
   onFillBar: () => void; onRest: () => void;
+  completion: { symbol: string; short: string } | null;
 }) {
   const bases: Array<{ base: RhythmicNoteValue; key: string }> = [
     { base: 'whole', key: '7' }, { base: 'half', key: '6' }, { base: 'quarter', key: '5' },
@@ -1519,6 +1542,9 @@ function NoteEntryPalette({ snapValue, onValue, stepInput, onStepInput, caretLab
       <button onClick={() => { const map: Record<string, RhythmicNoteValue> = { 'whole': 'dotted-whole', 'half': 'dotted-half', 'quarter': 'dotted-quarter', 'eighth': 'dotted-eighth', 'sixteenth': 'dotted-sixteenth' }; onValue(dotted ? activeBase : (map[activeBase] ?? activeBase)); }}
         title="Dot the value (.)" className={`px-2.5 py-1.5 text-base leading-none ${dotted ? 'bg-cyan-300/25 text-cyan-100' : 'text-slate-400 hover:bg-white/[.06]'}`}>·</button>
     </span>
+    {completion && <span className="flex items-center gap-1 rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-2 py-1 text-[10px] text-cyan-100"
+      title="The chosen value would cross the beat, so the next entry automatically uses the value that completes this beat — the classic pairing: a dotted quaver takes a semiquaver, a quaver takes a quaver.">
+      auto <b className="font-['Segoe_UI_Symbol','Noto_Music',serif] text-sm">{completion.symbol}</b> completes the beat</span>}
     <span className="ml-1 flex min-w-44 items-center gap-2 text-[10px] text-slate-400">
       <span><b className="text-slate-200">{voiceName}</b> · next entry {caretLabel} · <b className={remainingQuarters > .05 ? 'text-cyan-200' : 'text-slate-500'}>{fraction(remainingQuarters)} beat{Math.abs(remainingQuarters - 1) < .05 ? '' : 's'} left in the bar</b></span>
       <span className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10"><span className="block h-full rounded-full bg-cyan-300/70" style={{ width: `${Math.round(barFill * 100)}%` }} /></span>
