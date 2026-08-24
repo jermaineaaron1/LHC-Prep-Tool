@@ -65,22 +65,30 @@ export function RenditionBuilder({ songTitle, notes, timedLyrics, cards, onCards
       <button onClick={onClose} className="rounded-lg border border-white/15 px-3 py-2 text-xs text-slate-200">Close</button>
     </header>
 
-    <p className="mt-2 max-w-2xl text-xs leading-relaxed text-slate-400">Build the presentation as a stack of passes through the song. Each card is one pass with its own voices, key, tempo and feel — the classic shape is unison first, parts second, and the last verse lifted a step.</p>
+    <p className="mt-2 max-w-2xl text-xs leading-relaxed text-slate-400">The song itself is one recorded verse, and it stays exactly as it is. This screen decides how that verse is <b className="text-slate-200">performed</b>: how many times it is sung, and who sings, in what key, at what tempo, each time through. Stack the passes top to bottom, then hear the result or save it as its own song — the original is never touched.</p>
 
     {notice && <div className="mt-3 rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">{notice}</div>}
 
-    <div className="mt-4 flex flex-wrap gap-2">
+    <p className="mt-4 text-[10px] font-black uppercase tracking-[.2em] text-slate-500">1 · Tap a piece of the song to add a pass</p>
+    <div className="mt-2 flex flex-wrap gap-2">
       {sections.map(section => <button key={section.id} onClick={() => { setCards(current => [...current, defaultCard(section.id)]); setNotice(null); }}
         className="max-w-full rounded-xl border border-white/12 bg-white/[.04] px-3 py-2 text-left hover:bg-white/[.08]">
-        <b className="text-xs text-cyan-200">＋ {section.name}</b>
-        <span className="block max-w-56 truncate text-[10px] text-slate-500">{section.words}</span>
+        <b className="block max-w-64 truncate text-xs text-cyan-200">＋ {section.id === 'whole' ? 'The whole verse' : `“${section.words}”`}</b>
+        <span className="block text-[10px] text-slate-500">{section.id === 'whole' ? section.words : section.name}</span>
       </button>)}
     </div>
 
-    <div className="mt-4 space-y-2">
+    {cards.length > 0 && <p className="mt-4 text-[10px] font-black uppercase tracking-[.2em] text-slate-500">2 · Your presentation, sung top to bottom</p>}
+    <div className="mt-2 space-y-2">
       {!cards.length && <div className="vh-panel grid place-items-center px-6 py-10 text-center">
-        <p className="text-sm text-slate-300">Tap a section above to add the first pass.</p>
-        <p className="mt-1 text-xs text-slate-500">Three “Whole verse” cards make a three-verse presentation from one transcribed verse.</p>
+        <p className="text-sm text-slate-300">Nothing here yet — this is where your presentation takes shape.</p>
+        <button onClick={() => { setCards(() => [
+          { ...defaultCard('whole'), mode: 'unison' as const },
+          defaultCard('whole'),
+          { ...defaultCard('whole'), transpose: 1, dynamics: 'full' as const },
+        ]); setNotice('The classic shape: verse 1 everyone on the melody, verse 2 in parts, verse 3 up a step at full voice. Change anything — or remove cards and build your own.'); }}
+          className="vh-primary-button mt-4">▶ Start me off: the classic three-verse shape</button>
+        <p className="mt-3 text-xs text-slate-500">Or tap any piece of the song above to add a single pass.</p>
       </div>}
       {cards.map((card, index) => {
         const section = sectionOf(card);
@@ -133,7 +141,8 @@ export function RenditionBuilder({ songTitle, notes, timedLyrics, cards, onCards
     </div>
 
     {cards.length > 0 && <footer className="mt-5 space-y-3">
-      <p className="text-xs text-slate-400">{cards.length} pass{cards.length === 1 ? '' : 'es'} · about {Math.floor(compiled.duration / 60)}:{String(compiled.duration % 60).padStart(2, '0')} · {compiled.notes.length} notes</p>
+      <p className="text-[10px] font-black uppercase tracking-[.2em] text-slate-500">3 · Hear it, or keep it</p>
+      <p className="text-xs text-slate-400">{cards.length} pass{cards.length === 1 ? '' : 'es'} · about {Math.floor(compiled.duration / 60)}:{String(compiled.duration % 60).padStart(2, '0')} of singing · {compiled.notes.length} notes</p>
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => { onApply({ notes: compiled.notes, timedLyrics: compiled.timedLyrics }, summary); }}
           className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-100"
