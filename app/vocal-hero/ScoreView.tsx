@@ -20,9 +20,9 @@ const BAR_PAD = 16;
 const MARGIN_LEFT = 78;              // clef + signature + meter
 const SYSTEM_W = 1120;
 const TREBLE_MID = 66;               // y of the treble middle line (B4)
-const BASS_MID = 138;                // y of the bass middle line (D3)
-const LYRIC_Y = 176;
-const SYSTEM_H = 200;
+const BASS_MID = 152;                // y of the bass middle line (D3)
+const LYRIC_Y = 110;                 // the alley between the staves, where hymnals put the words
+const SYSTEM_H = 214;
 const COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
 
 const FLAT_STEPS_TREBLE = [0, 3, -1, 2, -2, 1, -3];

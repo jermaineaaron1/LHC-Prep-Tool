@@ -470,7 +470,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
     setNotes(current => {
       const latched = quantizeAndResolveNotes(current, musicalBars, division);
-      const changed = latched.some((note, index) => Math.abs(note.start - current[index].start) > .0005 || Math.abs(note.end - current[index].end) > .0005);
+      // Announce only MUSICAL movement. Stored times are rounded to
+      // milliseconds, so half-millisecond drift is constant background noise
+      // -- and the old half-millisecond threshold made this banner fire on
+      // songs whose notes had not meaningfully moved at all.
+      const changed = latched.some((note, index) => Math.abs(note.start - current[index].start) > .01 || Math.abs(note.end - current[index].end) > .01);
       if (changed) setEditorNotice(`Arrangement aligned to the ${GRID_DIVISIONS.find(item => item.value === division)?.label ?? `1/${division} grid`}; same-voice clashes were moved to the next available position.`);
       return latched;
     });
