@@ -105,13 +105,18 @@ const PLAIN: Array<{ beats: number; value: number; dotted: boolean }> = [
  * from live data with articulation gaps (a quarter is stored ~0.96 beats), so
  * the input is first snapped to the nearest printable total.
  */
+/** Snap a lived duration (articulation gap included) to its musical total. */
+export function snapBeats(rawBeats: number): number {
+  const printable = [0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 16];
+  return printable.reduce((best, value) => Math.abs(value - rawBeats) < Math.abs(best - rawBeats) ? value : best, 0.25);
+}
+
 export function durationToSymbols(rawBeats: number): NoteSymbol[] {
   // Snap to MUSICAL totals, not to any quarter-beat multiple: a stored whole
   // note arrives as ~3.84 beats (articulation gap included), and the nearest
   // 0.25-grid value is 3.75 — which would print as a tied chain of three
   // glyphs. The nearest note-shaped total is 4: one whole note.
-  const printable = [0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 16];
-  const beats = printable.reduce((best, value) => Math.abs(value - rawBeats) < Math.abs(best - rawBeats) ? value : best, 0.25);
+  const beats = snapBeats(rawBeats);
   const out: NoteSymbol[] = [];
   let remaining = Math.max(0.25, beats);
   while (remaining > 0.001) {

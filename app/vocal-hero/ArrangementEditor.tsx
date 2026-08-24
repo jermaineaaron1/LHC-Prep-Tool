@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RenditionBuilder } from './RenditionBuilder';
 import { ScoreView, type ScoreBar } from './ScoreView';
+import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
 import type { RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
 import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, RhythmicNoteValue, Song, SongNote, TimedLyricSection } from '@/lib/vocal-hero/types';
@@ -396,6 +397,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   // A musician reads staves; the grid is for surgery. Score is the default
   // way of SEEING the notes, with the piano roll one toggle away.
   const [noteView, setNoteView] = useState<'score' | 'grid'>('score');
+  // MuseScore-style step entry: pick a value, type pitches, the caret walks
+  // the bar. The caret normally derives from the selection (the end of the
+  // selected note, else the end of the voice); a rest overrides it forward.
+  const [stepInput, setStepInput] = useState(false);
+  const [stepCaret, setStepCaret] = useState<number | null>(null);
   // The rendition always compiles from the SOURCE arrangement, never from its
   // own output — otherwise hear-and-return would stack passes of passes. The
   // source tracks the editor's notes until the first apply, so a note fixed
@@ -460,6 +466,50 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const cursorMusicalState = musicalStateAt(musicalTimeline, playhead ?? 0);
   const scoreBars: ScoreBar[] = useMemo(() => musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length), numerator: bar.numerator, denominator: bar.denominator, number: bar.number })), [musicalBars]);
   const noteByPart = useMemo(() => VOICES.map((_, index) => notes.filter(note => note.part === index || (note.part === -1 && index === selectedPart))), [notes, selectedPart]);
+  const entryStart = useMemo(() => {
+    if (stepCaret !== null) return stepCaret;
+    const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+    const inVoice = (note: SongNote) => note.part === selectedPart || note.part === -1;
+    const musicalEnd = (note: SongNote) => {
+      const state = musicalStateAt(musicalTimeline, note.start);
+      const quarter = 60 / state.bpm;
+      // The caret sits where the note musically finishes: a stored whole note
+      // lives ~3.84 beats but OWNS four, and entry continues after the fourth.
+      return note.start + snapBeats((note.end - note.start) / quarter) * quarter;
+    };
+    const selectedNote = notes.find(note => note.id === selectedId);
+    const base = selectedNote && inVoice(selectedNote)
+      ? musicalEnd(selectedNote)
+      : notes.some(inVoice) ? Math.max(...notes.filter(inVoice).map(musicalEnd)) : (playhead ?? 0);
+    return snapTimeToGrid(musicalBars, base, division, 'round');
+  }, [stepCaret, notes, selectedId, selectedPart, playhead, musicalBars, musicalTimeline.snap_division]);
+  const entryBar = useMemo(() => musicalBars.find(bar => entryStart >= bar.start - .001 && entryStart < bar.end - .001) ?? null, [musicalBars, entryStart]);
+  // Remaining room in the caret's bar, in quarter-note beats — the number
+  // every value button is annotated against.
+  const remainingQuarters = entryBar ? Math.max(0, (entryBar.end - entryStart) / (60 / entryBar.bpm)) : 0;
+  const keySignature = useMemo(() => inferKeySignature(notes.map(note => note.midi)), [notes]);
+  // The engraver's grouping rule as an entry assistant: a dotted quaver
+  // placed on the beat leaves a semiquaver of that beat unspent, and the
+  // natural next note IS that semiquaver — so when the sticky value would
+  // cross the beat boundary from mid-beat, the entry value auto-switches to
+  // the exact completion. On the boundary, the sticky value rules again,
+  // which is what makes 'dotted-quaver, semiquaver, dotted-quaver…' typing
+  // flow with no palette visits at all.
+  const beatCompletion = useMemo(() => {
+    if (!entryBar) return null;
+    const quarter = 60 / entryBar.bpm;
+    const beatLen = quarter * (4 / entryBar.denominator);
+    const intoBeat = ((entryStart - entryBar.start) % beatLen + beatLen) % beatLen;
+    const eps = 0.02 * beatLen;
+    if (intoBeat < eps || beatLen - intoBeat < eps) return null;      // on the boundary
+    const remainingQ = (beatLen - intoBeat) / quarter;
+    const sticky = NOTE_VALUES.find(item => item.value === (musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE));
+    if (!sticky || sticky.quarterBeats <= remainingQ + 0.01) return null;  // sticky fits the beat
+    const completion = NOTE_VALUES.find(item =>
+      (item.group === 'Straight' || item.group === 'Dotted') && Math.abs(item.quarterBeats - remainingQ) < 0.02);
+    return completion ?? null;
+  }, [entryBar, entryStart, musicalTimeline.snap_value]);
+  const entryValue: RhythmicNoteValue = beatCompletion?.value ?? musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
   const selectedNotes = useMemo(() => notes.filter(note => selectedIds.includes(note.id)).sort((a, b) => a.start - b.start || a.part - b.part), [notes, selectedIds]);
 
   useEffect(() => {
@@ -694,11 +744,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     if (context.state === 'suspended') void context.resume().then(() => play(context)).catch(() => undefined);
     else play(context);
   }
-  function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number) {
+  function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number, lyric = 'New lyric') {
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
     const value = musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
     const id = `note-${crypto.randomUUID()}`;
-    const candidate = quantizeNote({ id, part, midi, start, end: end ?? start + noteDurationAt(musicalBars, start, value), lyric: 'New lyric', velocity: 100 }, musicalBars, division);
+    const candidate = quantizeNote({ id, part, midi, start, end: end ?? start + noteDurationAt(musicalBars, start, value), lyric, velocity: 100 }, musicalBars, division);
     if (collisionInVoice([candidate], notes)) {
       setEditorNotice(`${VOICES[part] ?? 'This voice'} already has a note on ${compactBeatLabel(beatPositionAt(musicalBars, candidate.start))}. Notes in one voice cannot overlap.`);
       return;
@@ -708,6 +758,37 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); setEditorNotice(null);
     auditionNote(candidate);
   }
+  function insertStepPitch(letter: string) {
+    const PC: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
+    const pc = PC[letter];
+    if (pc === undefined || !entryBar) return;
+    const inVoice = notes.filter(note => (note.part === selectedPart || note.part === -1) && note.start < entryStart + .01).sort((a, b) => a.start - b.start);
+    const reference = inVoice.at(-1)?.midi ?? [69, 64, 57, 48][selectedPart] ?? 60;
+    // Letters enter the DIATONIC pitch of the song's key, nearest the line's
+    // last note — in E-flat major, typing E gives E-flat, as it should.
+    const alteration = signatureAlteration(letter.toUpperCase(), keySignature);
+    const natural = pc + alteration;
+    const midi = natural + 12 * Math.round((reference - natural) / 12);
+    setStepCaret(null);
+    addNote(selectedPart, entryStart, midi, entryStart + noteDurationAt(musicalBars, entryStart, entryValue), '');
+  }
+  function restStepAdvance() {
+    setStepCaret(entryStart + noteDurationAt(musicalBars, entryStart, entryValue));
+  }
+  function fillRestOfBar() {
+    if (!entryBar || remainingQuarters < .12) return;
+    const inVoice = notes.filter(note => (note.part === selectedPart || note.part === -1) && note.start < entryStart + .01).sort((a, b) => a.start - b.start);
+    const reference = inVoice.at(-1)?.midi ?? [69, 64, 57, 48][selectedPart] ?? 60;
+    setStepCaret(null);
+    addNote(selectedPart, entryStart, reference, entryBar.end, '');
+  }
+  function nudgeSelectedPitch(delta: number) {
+    const target = notes.find(note => note.id === selectedId);
+    if (target) update(target.id, { midi: Math.max(24, Math.min(96, target.midi + delta)) });
+  }
+  const stepApiRef = useRef({ insertStepPitch, restStepAdvance, nudgeSelectedPitch, changeNoteValue, stepInput, snapValue: musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE });
+  stepApiRef.current = { insertStepPitch, restStepAdvance, nudgeSelectedPitch, changeNoteValue, stepInput, snapValue: musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE };
+
   function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const pointerTime = Math.max(0, (event.clientX - bounds.left) / zoom); const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION; const range = pitchRangeForPart(part, notes); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, snapTimeToGrid(musicalBars, pointerTime, division), range.max - row); }
   function duplicateSelected() {
     if (!selected) return;
@@ -870,6 +951,15 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       const key = event.key.toLowerCase();
+      const api = stepApiRef.current;
+      if (api.stepInput && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const numbered: Record<string, RhythmicNoteValue> = { '7': 'whole', '6': 'half', '5': 'quarter', '4': 'eighth', '3': 'sixteenth' };
+        if (numbered[key]) { event.preventDefault(); api.changeNoteValue(numbered[key]); return; }
+        if (key === '.') { event.preventDefault(); const map: Record<string, RhythmicNoteValue> = { 'whole': 'dotted-whole', 'half': 'dotted-half', 'quarter': 'dotted-quarter', 'eighth': 'dotted-eighth', 'sixteenth': 'dotted-sixteenth', 'dotted-whole': 'whole', 'dotted-half': 'half', 'dotted-quarter': 'quarter', 'dotted-eighth': 'eighth', 'dotted-sixteenth': 'sixteenth' }; const next = map[api.snapValue]; if (next) api.changeNoteValue(next); return; }
+        if ('abcdefg'.includes(key)) { event.preventDefault(); api.insertStepPitch(key); return; }
+        if (key === 'r') { event.preventDefault(); api.restStepAdvance(); return; }
+        if (key === 'arrowup' || key === 'arrowdown') { event.preventDefault(); api.nudgeSelectedPitch(key === 'arrowup' ? 1 : -1); return; }
+      }
       if ((key === 'backspace' || key === 'delete') && selectedIds.length) { event.preventDefault(); removeSelected(); return; }
       if ((!event.ctrlKey && !event.metaKey) || event.altKey) return;
       if (key === 'c' && selectedIds.length) { event.preventDefault(); copySelectedNotes(); }
@@ -1249,6 +1339,19 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             {!timelineFocus && <><MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onSnapDivision={changeSnapDivision} onNoteValue={changeNoteValue} onLatchAll={latchAllToNoteValue} onRemove={removeMusicalEvent} />
             <BeatPrecisionPanel selectedNotes={selectedNotes} bars={musicalBars} cursor={playhead ?? 0} clipboardCount={noteClipboard.length} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} />
             <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><p className="mr-auto max-w-4xl leading-relaxed"><b className="text-slate-200">Select in either Select or Draw mode.</b> Drag a note body left/right for timing and up/down for pitch. Ctrl-click adds individual notes; drag empty space to lasso any notes inside the rectangle. Starts and durations latch to the selected musical note value; a single voice cannot contain overlapping targets.</p><button onClick={() => setCollapsedVoices([true, true, true, true])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Collapse all voices</button><button onClick={() => setCollapsedVoices([false, false, false, false])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Expand all voices</button></div></>}
+            <NoteEntryPalette
+              snapValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE}
+              onValue={changeNoteValue}
+              stepInput={stepInput}
+              onStepInput={value => { setStepInput(value); setStepCaret(null); }}
+              caretLabel={compactBeatLabel(beatPositionAt(musicalBars, entryStart + 0.005))}
+              completion={beatCompletion ? { symbol: beatCompletion.symbol, short: beatCompletion.short } : null}
+              voiceName={VOICES[selectedPart] ?? 'Voice'}
+              remainingQuarters={remainingQuarters}
+              barFill={entryBar ? Math.max(0, Math.min(1, (entryStart - entryBar.start) / Math.max(.001, entryBar.end - entryBar.start))) : 0}
+              onFillBar={fillRestOfBar}
+              onRest={restStepAdvance}
+            />
             <div className="mb-2 flex items-center gap-1 text-xs">
               <button onClick={() => setNoteView('score')} className={`rounded-l-lg border px-3 py-1.5 ${noteView === 'score' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="The arrangement as a classic closed score — treble staff for Soprano and Alto, bass staff for Tenor and Bass">𝄞 Score</button>
               <button onClick={() => setNoteView('grid')} className={`rounded-r-lg border px-3 py-1.5 ${noteView === 'grid' ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/12 text-slate-400'}`} title="The piano-roll grid — for drawing and dragging notes">▦ Grid</button>
@@ -1386,6 +1489,71 @@ function LyricLineDialog({ targetCount, targetLabel, onApply, onClose }: { targe
         <button onClick={() => onApply(line)} disabled={!line.trim()} className="rounded-lg border border-amber-300/40 bg-amber-300/10 px-4 py-2 text-xs font-semibold text-amber-100 disabled:opacity-40">Place on notes</button>
       </footer>
     </section>
+  </div>;
+}
+
+/**
+ * The MuseScore-shaped entry strip: pick a value (buttons or the numbers
+ * 3–7), and every button is annotated against the room LEFT in the caret's
+ * bar — the one that exactly fills it says so, the ones that spill are
+ * marked as tying into the next bar. With Step entry on, letters A–G enter
+ * pitches in the song's key at the caret, R rests forward, arrows adjust.
+ */
+function NoteEntryPalette({ snapValue, onValue, stepInput, onStepInput, caretLabel, voiceName, remainingQuarters, barFill, onFillBar, onRest, completion }: {
+  snapValue: RhythmicNoteValue; onValue: (value: RhythmicNoteValue) => void;
+  stepInput: boolean; onStepInput: (value: boolean) => void;
+  caretLabel: string; voiceName: string; remainingQuarters: number; barFill: number;
+  onFillBar: () => void; onRest: () => void;
+  completion: { symbol: string; short: string } | null;
+}) {
+  const bases: Array<{ base: RhythmicNoteValue; key: string }> = [
+    { base: 'whole', key: '7' }, { base: 'half', key: '6' }, { base: 'quarter', key: '5' },
+    { base: 'eighth', key: '4' }, { base: 'sixteenth', key: '3' },
+  ];
+  const dotted = snapValue.startsWith('dotted-');
+  const activeBase = (dotted ? snapValue.slice(7) : snapValue) as RhythmicNoteValue;
+  const fraction = (quarters: number) => {
+    const whole = Math.floor(quarters + 1e-6);
+    const rem = quarters - whole;
+    if (rem > .94) return String(whole + 1);
+    const part = Math.abs(rem - .5) < .06 ? '½' : Math.abs(rem - .25) < .06 ? '¼' : Math.abs(rem - .75) < .06 ? '¾' : rem > .06 ? `~${rem.toFixed(2)}` : '';
+    return whole ? `${whole}${part}` : (part || '0');
+  };
+  return <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-[#080b1d] px-3 py-2 text-xs">
+    <button onClick={() => onStepInput(!stepInput)}
+      className={`rounded-lg border px-3 py-1.5 font-bold ${stepInput ? 'border-emerald-300/60 bg-emerald-300/15 text-emerald-100' : 'border-white/15 text-slate-300'}`}
+      title="MuseScore-style typing: numbers 3–7 pick the value, letters A–G enter pitches in the song's key, R rests forward, ↑↓ adjust the last note, . toggles the dot">
+      {stepInput ? '● Step entry ON' : 'Step entry'}</button>
+    <span className="flex items-center overflow-hidden rounded-lg border border-fuchsia-300/30">
+      {bases.map(({ base, key }) => {
+        const definition = NOTE_VALUES.find(item => item.value === (dotted ? `dotted-${base}` : base)) ?? NOTE_VALUES.find(item => item.value === base)!;
+        const quarters = definition.quarterBeats;
+        const fills = Math.abs(quarters - remainingQuarters) < .05 && remainingQuarters > .05;
+        const spills = quarters > remainingQuarters + .05;
+        const active = activeBase === base;
+        return <button key={base} onClick={() => onValue(definition.value)}
+          title={`${definition.label} (${key})${fills ? ' — exactly fills this bar' : spills ? ' — ties into the next bar' : ''}`}
+          className={`relative px-2.5 py-1.5 font-['Segoe_UI_Symbol','Noto_Music',serif] text-base leading-none ${active ? 'bg-fuchsia-400/25 text-white' : 'text-slate-300 hover:bg-white/[.06]'} ${fills ? 'text-emerald-200' : ''} ${spills ? 'text-amber-200/80' : ''}`}>
+          {definition.symbol}
+          <sub className="ml-0.5 align-sub text-[8px] text-slate-500">{key}</sub>
+          {fills && <span className="absolute inset-x-1 bottom-0 h-0.5 rounded bg-emerald-300" />}
+        </button>;
+      })}
+      <button onClick={() => { const map: Record<string, RhythmicNoteValue> = { 'whole': 'dotted-whole', 'half': 'dotted-half', 'quarter': 'dotted-quarter', 'eighth': 'dotted-eighth', 'sixteenth': 'dotted-sixteenth' }; onValue(dotted ? activeBase : (map[activeBase] ?? activeBase)); }}
+        title="Dot the value (.)" className={`px-2.5 py-1.5 text-base leading-none ${dotted ? 'bg-cyan-300/25 text-cyan-100' : 'text-slate-400 hover:bg-white/[.06]'}`}>·</button>
+    </span>
+    {completion && <span className="flex items-center gap-1 rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-2 py-1 text-[10px] text-cyan-100"
+      title="The chosen value would cross the beat, so the next entry automatically uses the value that completes this beat — the classic pairing: a dotted quaver takes a semiquaver, a quaver takes a quaver.">
+      auto <b className="font-['Segoe_UI_Symbol','Noto_Music',serif] text-sm">{completion.symbol}</b> completes the beat</span>}
+    <span className="ml-1 flex min-w-44 items-center gap-2 text-[10px] text-slate-400">
+      <span><b className="text-slate-200">{voiceName}</b> · next entry {caretLabel} · <b className={remainingQuarters > .05 ? 'text-cyan-200' : 'text-slate-500'}>{fraction(remainingQuarters)} beat{Math.abs(remainingQuarters - 1) < .05 ? '' : 's'} left in the bar</b></span>
+      <span className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10"><span className="block h-full rounded-full bg-cyan-300/70" style={{ width: `${Math.round(barFill * 100)}%` }} /></span>
+    </span>
+    <button onClick={onFillBar} disabled={remainingQuarters < .12}
+      title="Enter one note on the previous pitch lasting exactly the rest of this bar"
+      className="rounded-lg border border-cyan-300/30 px-2.5 py-1.5 text-cyan-100 disabled:opacity-30">Fill rest of bar</button>
+    <button onClick={onRest} title="Move the entry point forward by the selected value without a note (R)"
+      className="rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">Rest →</button>
   </div>;
 }
 
