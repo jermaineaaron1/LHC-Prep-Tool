@@ -540,7 +540,7 @@ export default function VocalHeroHostPage() {
     {error && <p className="border-y border-rose-400/30 bg-rose-950/50 px-5 py-3 text-sm text-rose-200">{error}</p>}
     {stage}
     {preRoll && <CountInOverlay phase={timeline.phase} />}
-    {editingSong && <ArrangementEditor song={editingSong} onClose={() => setEditingSong(null)} onSave={saveArrangement} />}
+    {editingSong && <ArrangementEditor song={editingSong} onClose={() => setEditingSong(null)} onSave={saveArrangement} onSongCreated={() => { void fetchAllSongs().then(rows => setSongs(rows.filter(row => row.status === 'ready' || row.status === 'draft'))).catch(() => undefined); }} />}
     {showCreateSong && <CreateSongDialog creating={creatingSong} onCancel={() => setShowCreateSong(false)} onCreate={createNewSong} />}
     {scoresFor && <HighScoresDialog song={scoresFor} onClose={() => setScoresFor(null)} />}
   </main>;
