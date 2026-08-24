@@ -191,3 +191,69 @@ export function resolveOverlapsPreservingRhythm(input: SongNote[], minimumSec = 
 
   return { notes: input.map(note => adjusted.get(note.id) ?? note), trimmed, stacked };
 }
+
+// ── Harmony onto the melody's rhythm ───────────────────────────────────────
+
+export interface AlignResult {
+  notes: SongNote[];
+  /** How many notes actually moved. */
+  aligned: number;
+}
+
+/**
+ * Snap the harmony voices onto the melody's rhythm.
+ *
+ * The alignment problem this solves: a harmony line entered by hand drifts a
+ * few hundredths off the soprano at every chord, and nudging each note flush
+ * by eye is exactly the tedium an editor should not require. Starts snap to
+ * the nearest MELODY onset; ends snap to the nearest melody boundary after
+ * the start, so a half note held across two melody quarters stays held — the
+ * tool aligns edges, it does not force one-note-per-note.
+ *
+ * The melody itself (part 0, and part -1 unison lines) is never touched.
+ * With `onlyIds`, only those notes move — the selection wins, as everywhere
+ * else in the editor. Collisions resolve forward: a note whose snapped start
+ * would overlap its predecessor takes the next onset instead, mirroring the
+ * editor's quantise behaviour.
+ */
+export function alignToMelodyRhythm(all: SongNote[], onlyIds: ReadonlySet<string> | null = null): AlignResult {
+  const melody = all.filter(note => note.part === 0 || note.part === -1);
+  if (!melody.length) return { notes: all, aligned: 0 };
+  const round = (value: number) => Math.round(value * 1000) / 1000;
+  const onsets = Array.from(new Set(melody.map(note => round(note.start)))).sort((a, b) => a - b);
+  // Ends snap to where melody notes END — not to the next onset — so the
+  // harmony keeps the same articulation gap the melody has, instead of
+  // ringing into the next chord's attack.
+  const bounds = Array.from(new Set(melody.map(note => round(note.end)))).sort((a, b) => a - b);
+  const nearest = (list: number[], time: number) =>
+    list.reduce((best, value) => Math.abs(value - time) < Math.abs(best - time) ? value : best, list[0]);
+
+  const adjusted = new Map<string, SongNote>();
+  let aligned = 0;
+  const parts = Array.from(new Set(all.map(note => note.part))).filter(part => part > 0);
+  for (const part of parts) {
+    const voice = all.filter(note => note.part === part).sort((a, b) => a.start - b.start || a.end - b.end);
+    let voiceEnd = 0;
+    for (const note of voice) {
+      if (onlyIds && !onlyIds.has(note.id)) { voiceEnd = Math.max(voiceEnd, note.end); continue; }
+      let start = nearest(onsets, note.start);
+      if (start < voiceEnd - .0005) start = onsets.find(value => value > voiceEnd - .0005) ?? voiceEnd;
+      const later = bounds.filter(value => value > start + .01);
+      const end = later.length ? nearest(later, Math.max(note.end, start + .01)) : Math.max(round(note.end), start + .1);
+      const moved = Math.abs(start - note.start) > .0005 || Math.abs(end - note.end) > .0005;
+      if (moved) aligned += 1;
+      // A stretched note keeps the shape of its expression curve, scaled to
+      // the new length, the same way the editor's own drag handles do it.
+      const scale = (end - start) / Math.max(.001, note.end - note.start);
+      const next: SongNote = {
+        ...note, start: round(start), end: round(end),
+        expression: note.expression?.contour.length
+          ? { ...note.expression, contour: note.expression.contour.map(point => ({ ...point, offset: round(Math.min(end - start, Math.max(0, point.offset * scale))) })) }
+          : note.expression,
+      };
+      adjusted.set(note.id, next);
+      voiceEnd = next.end;
+    }
+  }
+  return { notes: all.map(note => adjusted.get(note.id) ?? note), aligned };
+}
