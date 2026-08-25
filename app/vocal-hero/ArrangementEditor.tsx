@@ -705,7 +705,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setTimedLyrics(snapshot.timedLyrics.map(section => ({ ...section }))); setTrackSettings(current => ({ ...current, karaoke_lyrics: snapshot.karaokeLyrics ? { ...snapshot.karaokeLyrics } : undefined })); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, snap_value: snapshot.musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
   function undo() { const previous = history.past.at(-1); if (!previous) return; dirtyRef.current = true; const current = makeSnapshot(); restoreSnapshot(previous); setHistory({ past: history.past.slice(0, -1), future: [current, ...history.future] }); }
   function redo() { const next = history.future[0]; if (!next) return; dirtyRef.current = true; const current = makeSnapshot(); restoreSnapshot(next); setHistory({ past: [...history.past, current].slice(-100), future: history.future.slice(1) }); }
-  function update(id: string, values: Partial<SongNote>) {
+  function update(id: string, values: Partial<SongNote>, quiet = false) {
     const target = notes.find(note => note.id === id);
     if (!target) return;
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
@@ -719,7 +719,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setNotes(current => current.map(note => note.id === id ? candidate : note));
     if (values.lyric !== undefined) {
       setTrackSettings(current => ({ ...current, karaoke_lyrics: { targets_per_phrase: current.karaoke_lyrics?.targets_per_phrase ?? DEFAULT_TARGETS_PER_PHRASE, max_lines: current.karaoke_lyrics?.max_lines ?? 2, source: 'notes' } }));
-      setEditorNotice('Note lyric updated. Gameplay always reads the chosen voice directly from note lyrics and groups them one musical measure at a time. Save to publish the change.');
+      if (!quiet) setEditorNotice('Note lyric updated. Save to publish the change.');
       return;
     }
     setEditorNotice(null);
@@ -1443,7 +1443,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number + 1 : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
                 <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number + 1 : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
-                <span className="ml-2 text-[10px] text-slate-500">Select drags a note (up/down by staff position, left/right by beat) · Draw clicks new notes onto either staff at the palette's value · Erase removes.</span>
+                <span className="ml-2 text-[10px] text-slate-500">Select drags a note (up/down by staff position, left/right by beat) · Draw clicks new notes onto any staff · Erase removes · Double-click a word to edit lyrics: Tab = next word, Enter = done.</span>
               </>}
             </div>
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
@@ -1455,7 +1455,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   addNote(part, snapTimeToGrid(musicalBars, time, division), midi, undefined, '');
                 }}
                 onEraseNote={removeNote}
-                onDragCommit={(id, changes) => update(id, changes)} />
+                onDragCommit={(id, changes) => update(id, changes)}
+                onLyricChange={(id, lyric) => update(id, { lyric }, true)} />
             </div>}
             {noteView === 'grid' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <div style={{ width: timelineWidth + TIMELINE_LABEL_WIDTH }}>
@@ -1808,7 +1809,7 @@ function EditorToolbar({ extras, tool, setTool, drawNoteValue, onDrawNoteValueCh
   const status = playScope === 'range' ? `Range ${playRange.start.toFixed(2)}s–${playRange.end.toFixed(2)}s` : playScope === 'note' ? `${selectedCount || 1} selected note${selectedCount === 1 ? '' : 's'}` : playParts.every(Boolean) ? 'All voices' : VOICES.filter((_, index) => playParts[index]).join(' + ');
   const formatTime = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds)) % 60).padStart(2, '0')}`;
   return <div className="border-b border-white/10 bg-[#0a0c20] text-xs">
-    <div className="flex h-14 items-center gap-1.5 overflow-x-auto px-3">
+    <div className="flex h-14 items-center gap-1.5 overflow-x-auto px-3 [&>*]:shrink-0">
       <span className="flex overflow-hidden rounded-lg border border-white/12">
         {(['select', 'draw', 'erase'] as EditorTool[]).map(value => <button key={value} onClick={() => setTool(value)}
           className={`px-3 py-2 capitalize ${tool === value ? 'bg-fuchsia-500/25 text-fuchsia-100' : 'text-slate-300 hover:bg-white/[.06]'}`}>{value}</button>)}
@@ -1820,7 +1821,6 @@ function EditorToolbar({ extras, tool, setTool, drawNoteValue, onDrawNoteValueCh
       <button onClick={onRemove} disabled={!selectedCount} title="Remove the selection (Delete)" className="rounded-lg border border-rose-300/30 px-2.5 py-2 text-rose-200 disabled:opacity-40">✕{selectedCount > 1 ? ` ${selectedCount}` : ''}</button>
       <span className="h-6 w-px bg-white/10" />
       <button onClick={onHarmonise} title="Copy a voice into another at an interval" className="rounded-lg border border-emerald-300/30 bg-emerald-300/[.07] px-3 py-2 text-emerald-100">♫ Harmony</button>
-      <button onClick={onTypeLyrics} title="Type or paste a whole line and lay it across the notes" className="rounded-lg border border-amber-300/30 bg-amber-300/[.07] px-3 py-2 text-amber-100">T Lyrics</button>
       <button onClick={onAlignToMelody} title="Snap Alto, Tenor and Bass onto the Soprano's rhythm" className="rounded-lg border border-cyan-300/30 bg-cyan-300/[.07] px-3 py-2 text-cyan-100">Align</button>
       <span className="ml-2 hidden whitespace-nowrap text-[10px] text-slate-500 lg:block">{status}</span>
       {playScope !== 'all' && <button onClick={onClearSelection} className="rounded-md border border-white/10 px-2 py-1.5 text-slate-300">Clear</button>}
