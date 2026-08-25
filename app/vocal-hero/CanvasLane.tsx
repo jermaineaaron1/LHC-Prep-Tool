@@ -159,6 +159,45 @@ export function CanvasLane({
         roundRect(context, x, y - h / 2, w, h, Math.min(6, h / 2));
         context.fill();
 
+        // ---- the green proof
+        // Exactly the stretch of this note the singer has hit so far turns
+        // green — the portion, not the whole bar, so a note released early
+        // keeps a green head and an unfilled tail. Matching is octave-
+        // forgiving, the same courtesy the score engine extends.
+        const sung = p.trail;
+        if (sung?.length && note.start <= position) {
+          const upTo = Math.min(position, note.end);
+          context.shadowBlur = 0;
+          context.globalAlpha = past ? .9 : 1;
+          const run = context.createLinearGradient(x, y - h / 2, x, y + h / 2);
+          run.addColorStop(0, 'rgba(74, 222, 128, .98)');
+          run.addColorStop(1, 'rgba(16, 185, 129, .85)');
+          context.save();
+          roundRect(context, x, y - h / 2, w, h, Math.min(6, h / 2));
+          context.clip();
+          context.fillStyle = run;
+          let runStart = -1, lastGood = -1;
+          const paint = (from: number, to: number) => {
+            if (to - from < 0.045) return;
+            const x1 = xForTime(from, position, look, width);
+            const x2 = xForTime(Math.min(to + 0.03, note.end), position, look, width);
+            if (x2 - x1 >= 2) context.fillRect(x1, y - h / 2, x2 - x1, h);
+          };
+          for (const sample of sung) {
+            if (sample.t < note.start) continue;
+            if (sample.t > upTo) break;
+            let good = false;
+            if (sample.hz > 0) {
+              const raw = Math.abs(hzToMidi(sample.hz) - note.midi) % 12;
+              good = Math.min(raw, 12 - raw) <= 0.6;
+            }
+            if (good) { if (runStart < 0) runStart = sample.t; lastGood = sample.t; }
+            else if (runStart >= 0 && sample.t - lastGood > 0.09) { paint(runStart, lastGood); runStart = -1; }
+          }
+          if (runStart >= 0) paint(runStart, lastGood);
+          context.restore();
+        }
+
         if (active) {
           context.shadowBlur = 0;
           context.strokeStyle = '#ffffff';
