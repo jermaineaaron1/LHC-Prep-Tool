@@ -63,11 +63,18 @@ type Glyph = {
   id: string; part: number; x: number; y: number; step: number;
   value: number; dotted: boolean; tieFrom?: { x: number; y: number };
   mark: string | null; lyric: string; staff: number; system: number; midi: number;
+  /** For beaming: which bar and beat this symbol starts in. */
+  barNumber: number; beat: number;
+  /** Set when the symbol belongs to a beam group: the stem direction the
+   *  group agreed on, and the y the stems all reach. */
+  beam?: { up: boolean; y: number };
 };
+
+type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; double: boolean };
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -76,9 +83,42 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   onAddNote: (part: number, time: number, midi: number) => void;
   onEraseNote: (id: string) => void;
   onDragCommit: (id: string, changes: { midi: number; start: number; end: number }) => void;
+  onLyricChange: (id: string, lyric: string) => void;
 }) {
   const layout = useMemo(() => buildLayout(notes, bars), [notes, bars]);
   const [drag, setDrag] = useState<DragPreview>(null);
+  // Inline lyric editing: double-click a word under the melody (or the empty
+  // spot where one belongs), type, Tab to the next note, Enter to finish.
+  const [lyricEdit, setLyricEdit] = useState<{ id: string; x: number; system: number; value: string } | null>(null);
+  const melodyAnchors = useMemo(() => layout.glyphs
+    .filter(g => g.staff === 0 && (g.part === 0 || g.part === -1))
+    .filter((g, i, all) => all.findIndex(o => o.id === g.id) === i)
+    .sort((a, b) => a.system - b.system || a.x - b.x), [layout]);
+  function startLyricEdit(anchor: { id: string; x: number; system: number }) {
+    const note = notes.find(n => n.id === anchor.id);
+    setLyricEdit({ id: anchor.id, x: anchor.x, system: anchor.system, value: note?.lyric ?? '' });
+  }
+  function commitLyric(advance: boolean) {
+    if (!lyricEdit) return;
+    onLyricChange(lyricEdit.id, lyricEdit.value.trim());
+    if (!advance) { setLyricEdit(null); return; }
+    const index = melodyAnchors.findIndex(a => a.id === lyricEdit.id);
+    const next = melodyAnchors[index + 1];
+    if (next) startLyricEdit(next); else setLyricEdit(null);
+  }
+  function lyricBandDoubleClick(event: React.MouseEvent<SVGSVGElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - bounds.left - 12;
+    const y = event.clientY - bounds.top;
+    const system = Math.floor((y - 12) / SYSTEM_H);
+    const yIn = y - 12 - system * SYSTEM_H;
+    if (yIn < STAFF_MIDS[0] + 5 * GAP || yIn > LYRIC_Y + 12) return;
+    const candidates = melodyAnchors.filter(a => a.system === system);
+    if (!candidates.length) return;
+    const nearest = candidates.reduce((best, a) => Math.abs(a.x - x) < Math.abs(best.x - x) ? a : best, candidates[0]);
+    if (Math.abs(nearest.x - x) > 40) return;
+    startLyricEdit(nearest);
+  }
   const dragRef = useRef<{ id: string; note: SongNote; step: number; clef: StaffClef; originX: number; originY: number; secondsPerPx: number; moved: boolean } | null>(null);
 
   function beginDrag(event: React.PointerEvent, glyph: Glyph) {
@@ -135,21 +175,33 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
 
   return <div className="vh-editor-scrollbars relative h-full overflow-auto px-4 py-4">
     <ScoreBody layout={layout} selectedIds={selectedIds} drag={drag} tool={tool}
-      onGlyphDown={beginDrag} onMove={moveDrag} onUp={endDrag} onStaffClick={staffClick} />
+      onGlyphDown={beginDrag} onMove={moveDrag} onUp={endDrag} onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
+    {lyricEdit && <input autoFocus value={lyricEdit.value}
+      onChange={event => setLyricEdit(current => current && { ...current, value: event.target.value })}
+      onKeyDown={event => {
+        if (event.key === 'Tab') { event.preventDefault(); commitLyric(true); }
+        else if (event.key === 'Enter') { event.preventDefault(); commitLyric(false); }
+        else if (event.key === 'Escape') setLyricEdit(null);
+      }}
+      onBlur={() => commitLyric(false)}
+      aria-label="Lyric for the selected note"
+      className="absolute z-20 w-24 rounded border border-fuchsia-300/60 bg-[#100a1f] px-1.5 py-0.5 text-center text-xs text-white shadow-[0_0_18px_#ec489944]"
+      style={{ left: lyricEdit.x + 12 + 16 - 48, top: lyricEdit.system * SYSTEM_H + 12 + LYRIC_Y + 16 - 12 }} />}
   </div>;
 }
 
-const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, tool, onGlyphDown, onMove, onUp, onStaffClick }: {
+const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, tool, onGlyphDown, onMove, onUp, onStaffClick, onDoubleClick }: {
   layout: Layout; selectedIds: string[]; drag: DragPreview; tool: ScoreTool;
   onGlyphDown: (event: React.PointerEvent, glyph: Glyph) => void;
   onMove: (event: React.PointerEvent) => void;
   onUp: () => void;
   onStaffClick: (event: React.MouseEvent<SVGSVGElement>) => void;
+  onDoubleClick: (event: React.MouseEvent<SVGSVGElement>) => void;
 }) {
   const selected = new Set(selectedIds);
   return <svg width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} className="select-none"
-    onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onClick={onStaffClick}
+    onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onClick={onStaffClick} onDoubleClick={onDoubleClick}
     style={{ cursor: tool === 'erase' ? 'not-allowed' : 'crosshair' }}>
     {Array.from({ length: layout.systems }, (_, system) => {
       const top = system * SYSTEM_H;
@@ -181,6 +233,10 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
           </g>)}
       </g>;
     })}
+    {layout.beams.map((beam, i) => <g key={`beam-${i}`} transform={`translate(12 ${beam.system * SYSTEM_H + 12})`}>
+      <line x1={beam.x1} x2={beam.x2} y1={beam.y} y2={beam.y} stroke="#ffffff" strokeWidth={3.2} />
+      {beam.double && <line x1={beam.x1} x2={beam.x2} y1={beam.y + (beam.up ? 5 : -5)} y2={beam.y + (beam.up ? 5 : -5)} stroke="#ffffff" strokeWidth={3.2} />}
+    </g>)}
     {layout.glyphs.map(glyph => {
       const top = glyph.system * SYSTEM_H + 12;
       const isSelected = selected.has(glyph.id);
@@ -190,9 +246,11 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
       const gx = glyph.x + (dragging ? dragging.dx : 0);
       const previewStep = glyph.step + (dragging ? dragging.dSteps : 0);
       // One voice per staff: stems follow the engraving rule — up below the
-      // middle line, down on or above it.
-      const stemUp = previewStep < 0;
+      // middle line, down on or above it — unless a beam group has already
+      // agreed a direction for the whole figure.
+      const stemUp = glyph.beam ? glyph.beam.up : previewStep < 0;
       const stemX = gx + (stemUp ? 4.4 : -4.4);
+      const stemEndY = glyph.beam && !dragging ? glyph.beam.y : gy + (stemUp ? -26 : 26);
       const mid = STAFF_MIDS[glyph.staff];
       const ledger: number[] = [];
       for (let line = 6; line <= Math.abs(previewStep); line += 2) ledger.push(previewStep > 0 ? line : -line);
@@ -203,11 +261,11 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
         {glyph.mark && !dragging && <text x={gx - 15} y={gy + 4.5} fontSize={13} fill={colour}>{glyph.mark}</text>}
         <ellipse cx={gx} cy={gy} rx={4.8} ry={3.5} transform={`rotate(-14 ${gx} ${gy})`}
           fill={glyph.value >= 2 ? 'transparent' : colour} stroke={colour} strokeWidth={glyph.value >= 2 ? 1.6 : 1} />
-        {glyph.value < 4 && <line x1={stemX} x2={stemX} y1={gy} y2={gy + (stemUp ? -26 : 26)} stroke={colour} strokeWidth={1.1} />}
-        {glyph.value <= 0.5 && <path d={stemUp
+        {glyph.value < 4 && <line x1={stemX} x2={stemX} y1={gy} y2={stemEndY} stroke={colour} strokeWidth={1.1} />}
+        {glyph.value <= 0.5 && !glyph.beam && <path d={stemUp
           ? `M ${stemX} ${gy - 26} c 6 4, 9 8, 6 16`
           : `M ${stemX} ${gy + 26} c 6 -4, 9 -8, 6 -16`} stroke={colour} strokeWidth={1.4} fill="none" />}
-        {glyph.value <= 0.25 && <path d={stemUp
+        {glyph.value <= 0.25 && !glyph.beam && <path d={stemUp
           ? `M ${stemX} ${gy - 20} c 6 4, 9 8, 6 16`
           : `M ${stemX} ${gy + 20} c 6 -4, 9 -8, 6 -16`} stroke={colour} strokeWidth={1.4} fill="none" />}
         {glyph.dotted && <circle cx={gx + 8.5} cy={glyph.step % 2 === 0 ? gy - STEP : gy} r={1.7} fill={colour} />}
@@ -315,6 +373,7 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[]) {
           mark: first ? accidentalMark(pitch, signature, state) : null,
           lyric: first && (note.part === 0 || note.part === -1) ? note.lyric ?? '' : '',
           staff, system: position.system,
+          barNumber: bar.number, beat: Math.floor((symbolTime - bar.start) / beatLen + 1e-6),
         });
         previous = { x: position.x, y };
         first = false;
@@ -323,6 +382,31 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[]) {
       spanStart = spanEnd;
     }
   }
+  // Beaming — the rule a reader expects: quavers and semiquavers that share
+  // a beat share a beam, flags only for the ones left on their own. Groups
+  // never cross a barline or a beat boundary; the group takes one stem
+  // direction (the majority's) and a flat beam at the extreme stem end.
+  const beams: Beam[] = [];
+  const byStaff = new Map<string, Glyph[]>();
+  for (const glyph of glyphs) {
+    if (glyph.value > 0.5) continue;
+    const key = `${glyph.staff}-${glyph.barNumber}-${glyph.beat}`;
+    const list = byStaff.get(key) ?? [];
+    list.push(glyph); byStaff.set(key, list);
+  }
+  for (const group of byStaff.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => a.x - b.x);
+    const up = group.filter(g => g.step < 0).length >= group.length / 2;
+    const stemLen = 26;
+    const y = up
+      ? Math.min(...group.map(g => g.y)) - stemLen
+      : Math.max(...group.map(g => g.y)) + stemLen;
+    for (const glyph of group) glyph.beam = { up, y };
+    const x1 = group[0].x + (up ? 4.4 : -4.4);
+    const x2 = group[group.length - 1].x + (up ? 4.4 : -4.4);
+    beams.push({ system: group[0].system, x1, x2, y, up, double: group.every(g => g.value <= 0.25) });
+  }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
-  return { glyphs, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
+  return { glyphs, beams, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
 }
