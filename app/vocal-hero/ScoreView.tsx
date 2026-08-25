@@ -74,7 +74,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, signature }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, resolveAdd, signature }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -84,6 +84,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   onEraseNote: (id: string) => void;
   onDragCommit: (id: string, changes: { midi: number; start: number; end: number }) => void;
   onLyricChange: (id: string, lyric: string) => void;
+  /** Where a click at this time would actually put the note (snapped and
+   *  clamped into its bar) — drives the ghost head under the cursor. */
+  resolveAdd?: (time: number) => number;
   /** Spell in this key instead of inferring one — a compiled rendition with
    *  a lifted last verse stays spelled in the song's own key, and the lift
    *  wears its honest accidentals. */
@@ -124,6 +127,31 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     startLyricEdit(nearest);
   }
   const dragRef = useRef<{ id: string; note: SongNote; step: number; clef: StaffClef; originX: number; originY: number; secondsPerPx: number; moved: boolean } | null>(null);
+  // The ghost head: a faint notehead that rides the cursor over empty staff
+  // space, already snapped to where a click would land — so "the note goes
+  // exactly where I aim" is visible before the click. Imperative (a ref, no
+  // state) so mousemove never re-renders the engraving.
+  const ghostRef = useRef<HTMLDivElement | null>(null);
+  function updateGhost(event: React.PointerEvent) {
+    const ghost = ghostRef.current;
+    if (!ghost) return;
+    const hide = () => { ghost.style.display = 'none'; };
+    if (dragRef.current || tool === 'erase' || (event.target as Element).closest('[data-glyph]')) return hide();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - bounds.left - 12;
+    const y = event.clientY - bounds.top;
+    const system = Math.floor((y - 12) / SYSTEM_H);
+    const yIn = y - 12 - system * SYSTEM_H;
+    const staff = STAFF_MIDS.findIndex(mid => yIn > mid - 5 * GAP && yIn < mid + 5 * GAP);
+    if (staff < 0) return hide();
+    const time = layout.xyToTime(system, x);
+    if (time === null) return hide();
+    const landed = layout.timeToXY(resolveAdd ? resolveAdd(time) : time);
+    if (!landed) return hide();
+    const step = Math.round((STAFF_MIDS[staff] - yIn) / STEP);
+    ghost.style.display = 'block';
+    ghost.style.transform = `translate(${landed.x + 12 + 16 - 5}px, ${landed.system * SYSTEM_H + 12 + (STAFF_MIDS[staff] - step * STEP) + 16 - 4}px)`;
+  }
 
   function beginDrag(event: React.PointerEvent, glyph: Glyph) {
     if (tool === 'erase') { onEraseNote(glyph.id); return; }
@@ -179,8 +207,13 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
 
   return <div className="vh-editor-scrollbars relative h-full overflow-auto px-4 py-4">
     <ScoreBody layout={layout} selectedIds={selectedIds} drag={drag} tool={tool}
-      onGlyphDown={beginDrag} onMove={moveDrag} onUp={endDrag} onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} />
+      onGlyphDown={beginDrag} onMove={event => { moveDrag(event); updateGhost(event); }} onUp={endDrag}
+      onLeave={() => { if (ghostRef.current) ghostRef.current.style.display = 'none'; }}
+      onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={onEraseNote} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
+    <div ref={ghostRef} className="pointer-events-none absolute left-0 top-0 z-10 hidden">
+      <div className="h-2 w-2.5 rounded-[50%] border border-cyan-300/90 bg-cyan-300/25" style={{ transform: 'rotate(-14deg)' }} />
+    </div>
     {lyricEdit && <input autoFocus value={lyricEdit.value}
       onChange={event => setLyricEdit(current => current && { ...current, value: event.target.value })}
       onKeyDown={event => {
@@ -195,17 +228,19 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   </div>;
 }
 
-const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, tool, onGlyphDown, onMove, onUp, onStaffClick, onDoubleClick }: {
+const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, tool, onGlyphDown, onMove, onUp, onLeave, onStaffClick, onDoubleClick, onGlyphContext }: {
   layout: Layout; selectedIds: string[]; drag: DragPreview; tool: ScoreTool;
   onGlyphDown: (event: React.PointerEvent, glyph: Glyph) => void;
   onMove: (event: React.PointerEvent) => void;
   onUp: () => void;
+  onLeave: () => void;
   onStaffClick: (event: React.MouseEvent<SVGSVGElement>) => void;
   onDoubleClick: (event: React.MouseEvent<SVGSVGElement>) => void;
+  onGlyphContext: (id: string) => void;
 }) {
   const selected = new Set(selectedIds);
   return <svg width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} className="select-none"
-    onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onClick={onStaffClick} onDoubleClick={onDoubleClick}
+    onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onLeave} onClick={onStaffClick} onDoubleClick={onDoubleClick}
     style={{ cursor: tool === 'erase' ? 'not-allowed' : 'crosshair' }}>
     {Array.from({ length: layout.systems }, (_, system) => {
       const top = system * SYSTEM_H;
@@ -237,6 +272,12 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
           </g>)}
       </g>;
     })}
+    {layout.rests.map((rest, i) => <g key={`rest-${i}`} transform={`translate(12 ${rest.system * SYSTEM_H + 12})`} pointerEvents="none" opacity={0.6}>
+      {rest.block === 'whole' && <rect x={rest.x - 4.5} y={STAFF_MIDS[rest.staff] - GAP} width={9} height={3.6} fill="#ffffff" />}
+      {rest.block === 'half' && <rect x={rest.x - 4.5} y={STAFF_MIDS[rest.staff] - 3.6} width={9} height={3.6} fill="#ffffff" />}
+      {rest.symbol && <text x={rest.x} y={STAFF_MIDS[rest.staff] + 8} fontSize={24} textAnchor="middle" fill="#ffffff" fontFamily="'Segoe UI Symbol','Noto Music',serif">{rest.symbol}</text>}
+      {rest.dotted && <circle cx={rest.x + 9} cy={STAFF_MIDS[rest.staff] - STEP} r={1.6} fill="#ffffff" />}
+    </g>)}
     {layout.beams.map((beam, i) => <g key={`beam-${i}`} transform={`translate(12 ${beam.system * SYSTEM_H + 12})`}>
       <line x1={beam.x1} x2={beam.x2} y1={beam.y} y2={beam.y} stroke="#ffffff" strokeWidth={3.2} />
       {beam.double && <line x1={beam.x1} x2={beam.x2} y1={beam.y + (beam.up ? 5 : -5)} y2={beam.y + (beam.up ? 5 : -5)} stroke="#ffffff" strokeWidth={3.2} />}
@@ -260,6 +301,7 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
       for (let line = 6; line <= Math.abs(previewStep); line += 2) ledger.push(previewStep > 0 ? line : -line);
       return <g key={`${glyph.id}-${glyph.x}`} data-glyph transform={`translate(12 ${top})`}
         onPointerDown={event => onGlyphDown(event, glyph)}
+        onContextMenu={event => { event.preventDefault(); event.stopPropagation(); onGlyphContext(glyph.id); }}
         style={{ cursor: tool === 'erase' ? 'not-allowed' : 'pointer' }}>
         {ledger.map(step => <line key={step} x1={gx - 8} x2={gx + 8} y1={mid - step * STEP} y2={mid - step * STEP} stroke="#ffffff55" strokeWidth={1} />)}
         {glyph.mark && !dragging && <text x={gx - 15} y={gy + 4.5} fontSize={13} fill={colour}>{glyph.mark}</text>}
@@ -324,10 +366,21 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
 
   const usable = SYSTEM_W - MARGIN_LEFT - 12;
   type PlacedBar = ScoreBar & { system: number; x: number; width: number };
+  // Bars breathe for their words, as engraving always has: a bar whose
+  // melody carries long syllables widens until neighbouring lyrics stop
+  // colliding, instead of every bar getting the same beats-times-pixels.
+  const lyricNeed = new Map<number, number>();
+  for (const bar of bars) {
+    const carriers = notes.filter(note => (note.part === 0 || note.part === -1)
+      && (note.lyric ?? '').trim() && note.start >= bar.start - 0.001 && note.start < bar.end - 0.001);
+    if (!carriers.length) continue;
+    lyricNeed.set(bar.number, carriers.reduce((sum, note) => sum + Math.max(16, note.lyric!.trim().length * 5.6 + 8), 0));
+  }
   const placed: PlacedBar[] = [];
   let system = 0, x = MARGIN_LEFT;
   for (const bar of bars) {
-    const width = bar.beatCount * BEAT_W + BAR_PAD;
+    const natural = bar.beatCount * BEAT_W;
+    const width = Math.max(natural, Math.min(natural * 2.4, lyricNeed.get(bar.number) ?? 0)) + BAR_PAD;
     if (x + width > MARGIN_LEFT + usable && x > MARGIN_LEFT) { system += 1; x = MARGIN_LEFT; }
     placed.push({ ...bar, system, x, width });
     x += width;
@@ -347,7 +400,10 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
   const xyToTime = (systemIndex: number, x: number) => {
     const bar = placed.find(item => item.system === systemIndex && x >= item.x && x < item.x + item.width);
     if (!bar) return null;
-    const frac = Math.max(0, Math.min(1, (x - bar.x - 6) / Math.max(1, bar.width - BAR_PAD)));
+    // Clamped just under 1: a click in the bar's trailing padding must stay
+    // THIS bar's time — at exactly bar.end it would belong to the next bar,
+    // and a note aimed at the last beat landed on the wrong side of the line.
+    const frac = Math.max(0, Math.min(0.999, (x - bar.x - 6) / Math.max(1, bar.width - BAR_PAD)));
     return bar.start + frac * (bar.end - bar.start);
   };
   const systemWidth = (index: number) => {
@@ -400,6 +456,52 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
       spanStart = spanEnd;
     }
   }
+  // Rests make the arithmetic visible: silence in a bar is engraved, so
+  // every bar visibly adds up to its meter instead of looking short. The
+  // whole-bar rest is the hanging block whatever the meter; the half rest
+  // sits on the middle line; shorter rests are the usual squiggles.
+  type Rest = { x: number; system: number; staff: number; symbol: string | null; block: 'whole' | 'half' | null; dotted: boolean };
+  const rests: Rest[] = [];
+  const REST_GLYPHS: Record<number, string> = { 1: '\u{1D13D}', 0.5: '\u{1D13E}', 0.25: '\u{1D13F}' };
+  // Rests live only where the piece does: the grid keeps empty padding bars
+  // after the last note so there is room to click new music in, and those
+  // must stay clean staves, not four rows of whole rests.
+  const musicEnd = notes.length ? Math.max(...notes.map(note => note.end)) : 0;
+  for (let staff = 0; staff < 4; staff++) {
+    const staffNotes = notes.filter(note => staffOfPart(note.part) === staff).sort((a, b) => a.start - b.start);
+    if (!staffNotes.length) continue;  // an unused voice stays a clean staff, not a wall of rests
+    for (const bar of placed) {
+      if (bar.start > musicEnd - 0.05) break;
+      const beatLen = (bar.end - bar.start) / bar.beatCount;
+      // Gaps are measured in BEATS, and anything under a fifth of a beat is
+      // articulation, not silence: stored durations carry a ~4% breathing
+      // gap, which after a half note is 0.08 beats — printing that as a
+      // semiquaver rest would litter the page with phantom rests.
+      let cursor = bar.start;
+      const gaps: Array<[number, number]> = [];
+      for (const note of staffNotes) {
+        if (note.end <= bar.start + 0.01 || note.start >= bar.end - 0.01) continue;
+        const from = Math.max(bar.start, note.start);
+        if ((from - cursor) / beatLen > 0.2) gaps.push([cursor, from]);
+        cursor = Math.max(cursor, Math.min(bar.end, note.end));
+      }
+      if ((bar.end - cursor) / beatLen > 0.2) gaps.push([cursor, bar.end]);
+      for (const [gapStart, gapEnd] of gaps) {
+        const wholeBar = gapEnd - gapStart > bar.end - bar.start - 0.02;
+        const symbols = wholeBar ? [{ value: 4, dotted: false }] : durationToSymbols((gapEnd - gapStart) / beatLen);
+        let restTime = gapStart;
+        for (const symbol of symbols) {
+          const position = timeToXY(restTime)!;
+          rests.push({
+            x: position.x, system: position.system, staff, dotted: symbol.dotted,
+            symbol: REST_GLYPHS[symbol.value] ?? null,
+            block: symbol.value >= 4 || wholeBar ? 'whole' : symbol.value >= 2 ? 'half' : null,
+          });
+          restTime = Math.min(gapEnd, restTime + symbol.value * (symbol.dotted ? 1.5 : 1) * beatLen);
+        }
+      }
+    }
+  }
   // Beaming — the rule a reader expects: quavers and semiquavers that share
   // a beat share a beam, flags only for the ones left on their own. Groups
   // never cross a barline or a beat boundary; the group takes one stem
@@ -426,5 +528,5 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     beams.push({ system: group[0].system, x1, x2, y, up, double: group.every(g => g.value <= 0.25) });
   }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
-  return { glyphs, beams, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
+  return { glyphs, beams, rests, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
 }

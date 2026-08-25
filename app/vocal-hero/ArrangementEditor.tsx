@@ -749,9 +749,25 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const timingChanged = values.start !== undefined || values.end !== undefined || values.part !== undefined;
     const candidate = timingChanged ? quantizeNote({ ...target, ...values }, musicalBars, division) : { ...target, ...values };
     pushHistory();
-    // A note moved or resized onto occupied time takes that time — the space
-    // it leaves behind becomes rest. Refusing with a notice made every drag
-    // in a full bar a dead end.
+    // Dropping a note onto exactly ONE other note swaps their places — each
+    // takes the other's start and keeps its own length, pitch and word.
+    // Anything else that is moved or resized onto occupied time takes that
+    // time, and the space it leaves behind becomes rest. (Refusing with a
+    // notice made every drag in a full bar a dead end.)
+    if (timingChanged && values.start !== undefined) {
+      const overlapped = notes.filter(note => note.id !== id && note.part === candidate.part
+        && note.start < candidate.end - .0005 && note.end > candidate.start + .0005);
+      if (overlapped.length === 1) {
+        const partner = overlapped[0];
+        const moved = { ...candidate, start: partner.start, end: roundPrecise(partner.start + (target.end - target.start)) };
+        const slid = { ...partner, start: target.start, end: roundPrecise(target.start + (partner.end - partner.start)) };
+        if (!collisionInVoice([moved, slid], notes.filter(note => note.id !== id && note.id !== partner.id))) {
+          setNotes(current => current.map(note => note.id === id ? moved : note.id === partner.id ? slid : note));
+          setEditorNotice(null);
+          return;
+        }
+      }
+    }
     setNotes(current => timingChanged
       ? carveSpace(current, candidate.part, candidate.start, candidate.end, id).map(note => note.id === id ? candidate : note)
       : current.map(note => note.id === id ? candidate : note));
@@ -800,6 +816,21 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       if (keepTail) result.push({ ...note, id: keepHead ? `note-${crypto.randomUUID()}` : note.id, start: roundPrecise(end), lyric: keepHead ? '' : note.lyric });
     }
     return result;
+  }
+  /** Where a score click at `time` actually puts a note: snapped to the
+   *  grid, then clamped INSIDE the clicked bar — the start can reach the
+   *  bar's last grid slot but no further, and the note is cut at the
+   *  barline. Writing near the end of a bar used to round forward onto the
+   *  next bar's first beat and spill over its barline. */
+  function resolveScoreAdd(time: number) {
+    const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+    const value = musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
+    const bar = musicalBars.find(item => time >= item.start && time < item.end);
+    const snapped = snapTimeToGrid(musicalBars, time, division);
+    if (!bar) return { start: snapped, end: roundPrecise(snapped + noteDurationAt(musicalBars, snapped, value)) };
+    const step = snapStepAt(musicalBars, bar.start, division);
+    const start = Math.min(Math.max(snapped, roundPrecise(bar.start)), snapTimeToGrid(musicalBars, bar.end - step, division));
+    return { start, end: Math.min(roundPrecise(start + noteDurationAt(musicalBars, start, value)), roundPrecise(bar.end)) };
   }
   function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number, lyric = '') {
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
@@ -1525,7 +1556,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number + 1 : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
                 <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number + 1 : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
-                <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly there at the palette's value — writing over something replaces it · drag a note for pitch and timing · with a note selected, the value buttons (or keys 3–7 and .) change its length · Erase removes · Double-click a word to edit lyrics: Tab = next word, Enter = done.</span>
+                <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly where the ghost head shows · drop a note onto another to swap them · with a note selected, the value buttons (or keys 3–7 and .) change its length · right-click a note to remove it, leaving its rest · Double-click a word to edit lyrics: Tab = next word, Enter = done.</span>
               </>}
             </div>
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
@@ -1533,9 +1564,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onSelectNote={(id, part) => { setSelectedId(id); setSelectedIds([id]); if (part >= 0) setSelectedPart(part); }}
                 onAddNote={(part, time, midi) => {
                   // Open score: the staff clicked IS the voice entered.
-                  const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
-                  addNote(part, snapTimeToGrid(musicalBars, time, division), midi, undefined, '');
+                  const landing = resolveScoreAdd(time);
+                  addNote(part, landing.start, midi, landing.end, '');
                 }}
+                resolveAdd={time => resolveScoreAdd(time).start}
                 onEraseNote={removeNote}
                 onDragCommit={(id, changes) => update(id, changes)}
                 onLyricChange={(id, lyric) => update(id, { lyric }, true)} />
