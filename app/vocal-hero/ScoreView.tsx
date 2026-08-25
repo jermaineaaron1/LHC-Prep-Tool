@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useRef, useState } from 'react';
-import type { SongNote } from '@/lib/vocal-hero/types';
+import type { NoteMarks, SongNote } from '@/lib/vocal-hero/types';
 import { accidentalMark, durationToSymbols, inferKeySignature, signatureAlteration, spellPitch, staffStep, type Accidental } from '@/lib/vocal-hero/notation';
 
 // The OPEN choral score, as the approved redesign draws it: every voice on
@@ -68,9 +68,13 @@ type Glyph = {
   /** Set when the symbol belongs to a beam group: the stem direction the
    *  group agreed on, and the y the stems all reach. */
   beam?: { up: boolean; y: number };
+  /** A triplet member: printed with the little 3. */
+  triplet: boolean;
+  /** The note's performance markings, carried on its FIRST symbol only. */
+  marks?: NoteMarks;
 };
 
-type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; double: boolean };
+type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; double: boolean; triplet: boolean };
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
@@ -78,7 +82,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
-  onSelectNote: (id: string, part: number) => void;
+  onSelectNote: (id: string, part: number, additive?: boolean) => void;
   /** part comes from the staff that was clicked — the staff IS the voice. */
   onAddNote: (part: number, time: number, midi: number) => void;
   onEraseNote: (id: string) => void;
@@ -159,7 +163,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
 
   function beginDrag(event: React.PointerEvent, glyph: Glyph) {
     if (tool === 'erase') { onEraseNote(glyph.id); return; }
-    onSelectNote(glyph.id, glyph.part);
+    // Ctrl/Cmd/Shift-click builds a selection — slurs and hairpins span it.
+    onSelectNote(glyph.id, glyph.part, event.ctrlKey || event.metaKey || event.shiftKey);
     const note = notes.find(item => item.id === glyph.id);
     const bar = layout.barAt(note?.start ?? 0);
     if (!note || !bar) return;
@@ -287,7 +292,26 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
     {layout.beams.map((beam, i) => <g key={`beam-${i}`} transform={`translate(12 ${beam.system * SYSTEM_H + 12})`}>
       <line x1={beam.x1} x2={beam.x2} y1={beam.y} y2={beam.y} stroke="#ffffff" strokeWidth={3.2} />
       {beam.double && <line x1={beam.x1} x2={beam.x2} y1={beam.y + (beam.up ? 5 : -5)} y2={beam.y + (beam.up ? 5 : -5)} stroke="#ffffff" strokeWidth={3.2} />}
+      {beam.triplet && <text x={(beam.x1 + beam.x2) / 2} y={beam.y + (beam.up ? -4 : 12)} fontSize={10} fontStyle="italic" fontWeight={700} textAnchor="middle" fill="#ffffffcc">3</text>}
     </g>)}
+    {layout.spans.map((span, i) => {
+      const mid = STAFF_MIDS[span.staff];
+      const top = span.system * SYSTEM_H + 12;
+      if (span.kind === 'slur') {
+        const arcY = Math.min(span.y1, span.y2) - 20;
+        return <g key={`span-${i}`} transform={`translate(12 ${top})`} pointerEvents="none">
+          <path d={`M ${span.x1} ${span.y1 - 7} Q ${(span.x1 + span.x2) / 2} ${arcY}, ${span.x2} ${span.y2 - 7}`} stroke="#ffffffd8" strokeWidth={1.4} fill="none" />
+        </g>;
+      }
+      // Hairpins sit above the staff in vocal writing — the words own the space below.
+      const yMid = mid - 2 * GAP - 9;
+      const wide = 4.5;
+      return <g key={`span-${i}`} transform={`translate(12 ${top})`} pointerEvents="none" stroke="#ffffffc8" strokeWidth={1.2} fill="none">
+        {span.kind === 'cresc'
+          ? <path d={`M ${span.x2} ${yMid - wide} L ${span.x1} ${yMid} L ${span.x2} ${yMid + wide}`} />
+          : <path d={`M ${span.x1} ${yMid - wide} L ${span.x2} ${yMid} L ${span.x1} ${yMid + wide}`} />}
+      </g>;
+    })}
     {layout.glyphs.map(glyph => {
       const top = glyph.system * SYSTEM_H + 12;
       const isSelected = selected.has(glyph.id);
@@ -329,6 +353,11 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
           ? `M ${stemX} ${gy - 20} c 6 4, 9 8, 6 16`
           : `M ${stemX} ${gy + 20} c 6 -4, 9 -8, 6 -16`} stroke={colour} strokeWidth={1.4} fill="none" />}
         {glyph.dotted && <circle cx={gx + 8.5} cy={glyph.step % 2 === 0 ? gy - STEP : gy} r={1.7} fill={colour} />}
+        {glyph.triplet && !glyph.beam && <text x={gx} y={gy - (previewStep < 0 ? 32 : 14)} fontSize={10} fontStyle="italic" fontWeight={700} textAnchor="middle" fill="#ffffffcc">3</text>}
+        {glyph.marks?.staccato && <circle cx={gx} cy={gy + (stemUp ? 8 : -8)} r={1.7} fill={colour} />}
+        {glyph.marks?.tenuto && <rect x={gx - 4} y={gy + (stemUp ? 7 : -8.5)} width={8} height={1.8} fill={colour} />}
+        {glyph.marks?.fermata && <text x={gx} y={mid - 2 * GAP - 14} fontSize={15} textAnchor="middle" fill="#ffffffd8" fontFamily="'Segoe UI Symbol','Noto Music',serif">{'\u{1D110}'}</text>}
+        {glyph.marks?.dynamic && <text x={gx} y={mid - 2 * GAP - 3} fontSize={12} fontStyle="italic" fontWeight={800} textAnchor="middle" fill="#fbbf24" fontFamily="Georgia,'Times New Roman',serif">{glyph.marks.dynamic}</text>}
         {glyph.tieFrom && glyph.tieFrom.x < glyph.x && !dragging &&
           <path d={`M ${glyph.tieFrom.x + 5} ${glyph.tieFrom.y + 6} Q ${(glyph.tieFrom.x + glyph.x) / 2} ${glyph.tieFrom.y + 12}, ${glyph.x - 5} ${glyph.y + 6}`} stroke={colour} strokeWidth={1.1} fill="none" />}
         {glyph.lyric && <text x={glyph.x} y={LYRIC_Y} fontSize={10.5} fill={isSelected ? '#ec4899' : '#cbd5e1'} textAnchor="middle">{glyph.lyric}</text>}
@@ -424,6 +453,9 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
   const glyphs: Glyph[] = [];
   const sorted = [...notes].sort((a, b) => a.start - b.start || a.part - b.part);
   const barStates = new Map<string, Map<string, Accidental>>();
+  // A dynamic prints once, where it changes — a phrase marked forte is one
+  // f, not one per note.
+  const lastDynamic = new Map<number, string | undefined>();
   for (const note of sorted) {
     const staff = staffOfPart(note.part);
     const clef = STAFF_CLEFS[staff];
@@ -452,7 +484,13 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
         const y = mid - step * STEP;
         glyphs.push({
           id: note.id, part: note.part, x: position.x, y, step, midi: note.midi,
-          value: symbol.value, dotted: symbol.dotted,
+          value: symbol.value, dotted: symbol.dotted, triplet: symbol.triplet,
+          marks: first ? (() => {
+            if (!note.marks) return undefined;
+            if (note.marks.dynamic && lastDynamic.get(staff) === note.marks.dynamic) return { ...note.marks, dynamic: undefined };
+            if (note.marks.dynamic) lastDynamic.set(staff, note.marks.dynamic);
+            return note.marks;
+          })() : undefined,
           tieFrom: previous ?? undefined,
           mark: first ? accidentalMark(pitch, signature, state) : null,
           lyric: first && (note.part === 0 || note.part === -1) ? note.lyric ?? '' : '',
@@ -461,7 +499,7 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
         });
         previous = { x: position.x, y };
         first = false;
-        symbolTime += symbol.value * (symbol.dotted ? 1.5 : 1) * beatLen;
+        symbolTime += symbol.beats * beatLen;
       }
       spanStart = spanEnd;
     }
@@ -535,8 +573,30 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     for (const glyph of group) glyph.beam = { up, y };
     const x1 = group[0].x + (up ? 4.4 : -4.4);
     const x2 = group[group.length - 1].x + (up ? 4.4 : -4.4);
-    beams.push({ system: group[0].system, x1, x2, y, up, double: group.every(g => g.value <= 0.25) });
+    beams.push({ system: group[0].system, x1, x2, y, up, double: group.every(g => g.value <= 0.25), triplet: group.every(g => g.triplet) });
+  }
+  // Slurs and hairpins: 'start' marks open, the next 'end' in the same staff
+  // closes. Drawn only when both ends share a system — the common case; an
+  // arc across a line break is a later refinement.
+  type Span = { kind: 'slur' | 'cresc' | 'decresc'; staff: number; system: number; x1: number; y1: number; x2: number; y2: number };
+  const spans: Span[] = [];
+  for (let staff = 0; staff < 4; staff++) {
+    const firsts = glyphs.filter(g => g.staff === staff && g.marks).sort((a, b) => a.system - b.system || a.x - b.x);
+    let openSlur: Glyph | null = null;
+    let openPin: { glyph: Glyph; kind: 'cresc' | 'decresc' } | null = null;
+    for (const glyph of firsts) {
+      if (glyph.marks!.slur === 'start') openSlur = glyph;
+      else if (glyph.marks!.slur === 'end' && openSlur) {
+        if (openSlur.system === glyph.system) spans.push({ kind: 'slur', staff, system: glyph.system, x1: openSlur.x, y1: openSlur.y, x2: glyph.x, y2: glyph.y });
+        openSlur = null;
+      }
+      if (glyph.marks!.hairpin === 'cresc' || glyph.marks!.hairpin === 'decresc') openPin = { glyph, kind: glyph.marks!.hairpin! as 'cresc' | 'decresc' };
+      else if (glyph.marks!.hairpin === 'end' && openPin) {
+        if (openPin.glyph.system === glyph.system) spans.push({ kind: openPin.kind, staff, system: glyph.system, x1: openPin.glyph.x, y1: 0, x2: glyph.x, y2: 0 });
+        openPin = null;
+      }
+    }
   }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
-  return { glyphs, beams, rests, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
+  return { glyphs, beams, rests, spans, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
 }
