@@ -7,7 +7,7 @@ import { ScoreView, type ScoreBar } from './ScoreView';
 import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
 import { compileRendition, deriveSections, type RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
-import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, RhythmicNoteValue, Song, SongNote, TimedLyricSection } from '@/lib/vocal-hero/types';
+import type { BackingTrackClip, BackingTrackSettings, DynamicMark, MusicalTimelineSettings, NoteMarks, RhythmicNoteValue, Song, SongNote, TimedLyricSection } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, midiSourceKey, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
 import { assignXmlParts, parseMusicXml, readMusicXmlFile, type MusicXmlImport } from '@/lib/vocal-hero/musicxml';
@@ -985,6 +985,49 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setEditorNotice(null);
   }
   function removeNote(id: string) { pushHistory(); setNotes(current => current.filter(note => note.id !== id)); setSelectedId(current => current === id ? null : current); setSelectedIds(current => current.filter(item => item !== id)); }
+  /** Rewrite the marks (and optionally velocity) of every selected note, in
+   *  time order, in one history step. Empty marks objects are dropped so the
+   *  stored JSON stays clean. */
+  function editSelectionMarks(mutate: (marks: NoteMarks, index: number, count: number) => { marks: NoteMarks; velocity?: number }) {
+    if (!selectedIds.length) return;
+    pushHistory();
+    setNotes(current => {
+      const chosen = current.filter(note => selectedIds.includes(note.id)).sort((a, b) => a.start - b.start);
+      const order = new Map(chosen.map((note, index) => [note.id, index]));
+      return current.map(note => {
+        const index = order.get(note.id);
+        if (index === undefined) return note;
+        const result = mutate({ ...(note.marks ?? {}) }, index, chosen.length);
+        const kept = Object.fromEntries(Object.entries(result.marks).filter(([, value]) => value !== undefined && value !== false));
+        return { ...note, marks: Object.keys(kept).length ? kept as NoteMarks : undefined, ...(result.velocity !== undefined ? { velocity: result.velocity } : {}) };
+      });
+    });
+    setEditorNotice(null);
+  }
+  function applyDynamicToSelection(dynamic: DynamicMark | null) {
+    const DYNAMIC_VELOCITY: Record<DynamicMark, number> = { pp: 40, p: 55, mp: 70, mf: 85, f: 100, ff: 115 };
+    editSelectionMarks(marks => dynamic
+      ? { marks: { ...marks, dynamic }, velocity: DYNAMIC_VELOCITY[dynamic] }
+      : { marks: { ...marks, dynamic: undefined }, velocity: 100 });
+  }
+  function toggleMarkOnSelection(key: 'staccato' | 'tenuto' | 'fermata') {
+    const allHave = selectedNotes.length > 0 && selectedNotes.every(note => note.marks?.[key]);
+    editSelectionMarks(marks => ({ marks: { ...marks, [key]: allHave ? undefined : true } }));
+  }
+  function applySpanToSelection(kind: 'slur' | 'cresc' | 'decresc') {
+    if (selectedNotes.length < 2) return;
+    const first = selectedNotes[0], last = selectedNotes[selectedNotes.length - 1];
+    const already = kind === 'slur'
+      ? first.marks?.slur === 'start' && last.marks?.slur === 'end'
+      : first.marks?.hairpin === kind && last.marks?.hairpin === 'end';
+    editSelectionMarks((marks, index, count) => {
+      if (kind === 'slur') return { marks: { ...marks, slur: already ? undefined : index === 0 ? 'start' : index === count - 1 ? 'end' : undefined } };
+      return { marks: { ...marks, hairpin: already ? undefined : index === 0 ? kind : index === count - 1 ? 'end' : undefined } };
+    });
+  }
+  function clearMarksOnSelection() {
+    editSelectionMarks(() => ({ marks: {}, velocity: 100 }));
+  }
   function removeSelected() { if (!selectedIds.length) return; pushHistory(); setNotes(current => current.filter(note => !selectedIds.includes(note.id))); setSelectedId(null); setSelectedIds([]); }
   function beginResizeHistory() { pushHistory(); }
   function beginNoteMove(id: string, clientX: number, clientY: number, additive = false) {
@@ -1250,7 +1293,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         const audibleStart = Math.max(note.start, first);
         const at = (audibleStart - first) / transportRate;
         const length = Math.max(.07, (Math.min(note.end, end) - audibleStart) / transportRate);
-        playPianoTone(context, note, context.currentTime + at, length);
+        // Articulation is audible: staccato speaks at half length, tenuto
+        // holds through the articulation gap.
+        const played = note.marks?.staccato ? Math.max(.05, length * 0.5) : note.marks?.tenuto ? length * 1.04 : length;
+        playPianoTone(context, note, context.currentTime + at, played);
       });
     }
     // The backing track belongs to the song as recorded; a compiled
@@ -1623,6 +1669,12 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               onFillBar={fillRestOfBar}
               onRest={restStepAdvance}
             />}
+            {noteView !== 'rendition' && selectedNotes.length > 0 && <ExpressionBar
+              selection={selectedNotes}
+              onDynamic={applyDynamicToSelection}
+              onToggle={toggleMarkOnSelection}
+              onSpan={applySpanToSelection}
+              onClear={clearMarksOnSelection} />}
             <div className="mb-2 flex items-center gap-1 text-xs">
               <button onClick={() => switchView('score')} className={`rounded-l-lg border px-3 py-1.5 ${noteView === 'score' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="The arrangement as an engraved open score — one staff per voice">𝄞 Score</button>
               <button onClick={() => switchView('grid')} className={`border px-3 py-1.5 ${noteView === 'grid' ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/12 text-slate-400'}`} title="The piano-roll grid — for drawing and dragging notes">▦ Grid</button>
@@ -1635,7 +1687,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             </div>
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <ScoreView notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
-                onSelectNote={(id, part) => { setSelectedId(id); setSelectedIds([id]); if (part >= 0) setSelectedPart(part); }}
+                onSelectNote={(id, part, additive) => {
+                  setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]);
+                  setSelectedId(id);
+                  if (part >= 0) setSelectedPart(part);
+                }}
                 onAddNote={(part, time, midi) => {
                   // Open score: the staff clicked IS the voice entered.
                   const landing = resolveScoreAdd(time);
@@ -1810,6 +1866,38 @@ function LyricLineDialog({ targetCount, targetLabel, onApply, onClose }: { targe
  * marked as tying into the next bar. With Step entry on, letters A–G enter
  * pitches in the song's key at the caret, R rests forward, arrows adjust.
  */
+function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onClear }: {
+  selection: SongNote[];
+  onDynamic: (dynamic: DynamicMark | null) => void;
+  onToggle: (key: 'staccato' | 'tenuto' | 'fermata') => void;
+  onSpan: (kind: 'slur' | 'cresc' | 'decresc') => void;
+  onClear: () => void;
+}) {
+  const DYNAMICS: DynamicMark[] = ['pp', 'p', 'mp', 'mf', 'f', 'ff'];
+  const activeDynamic = selection.every(note => note.marks?.dynamic === selection[0]?.marks?.dynamic) ? selection[0]?.marks?.dynamic : undefined;
+  const allHave = (key: 'staccato' | 'tenuto' | 'fermata') => selection.every(note => note.marks?.[key]);
+  const spanned = (kind: 'slur' | 'cresc' | 'decresc') => selection.length >= 2 && (kind === 'slur'
+    ? selection[0].marks?.slur === 'start' && selection[selection.length - 1].marks?.slur === 'end'
+    : selection[0].marks?.hairpin === kind && selection[selection.length - 1].marks?.hairpin === 'end');
+  const toggleClass = (on: boolean) => `rounded-lg border px-2.5 py-1.5 ${on ? 'border-amber-300/60 bg-amber-300/15 text-amber-100' : 'border-white/12 text-slate-300 hover:bg-white/[.06]'}`;
+  return <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-amber-300/20 bg-[#0a0d1f] px-3 py-2 text-xs">
+    <span className="text-[9px] font-black uppercase tracking-[.18em] text-amber-200/80">Expression · {selection.length} note{selection.length === 1 ? '' : 's'}</span>
+    <span className="flex overflow-hidden rounded-lg border border-white/12">
+      {DYNAMICS.map(dynamic => <button key={dynamic} onClick={() => onDynamic(activeDynamic === dynamic ? null : dynamic)}
+        title={{ pp: 'Pianissimo — very soft', p: 'Piano — soft', mp: 'Mezzo-piano', mf: 'Mezzo-forte', f: 'Forte — loud', ff: 'Fortissimo — very loud' }[dynamic]}
+        className={`px-2 py-1.5 font-serif italic font-black ${activeDynamic === dynamic ? 'bg-amber-300/25 text-amber-100' : 'text-slate-300 hover:bg-white/[.06]'}`}>{dynamic}</button>)}
+    </span>
+    <button onClick={() => onToggle('staccato')} title="Staccato — detached, half length in playback" className={toggleClass(allHave('staccato'))}>·&nbsp;Staccato</button>
+    <button onClick={() => onToggle('tenuto')} title="Tenuto — sustain the note its full written length" className={toggleClass(allHave('tenuto'))}>–&nbsp;Sustain</button>
+    <button onClick={() => onToggle('fermata')} title="Fermata — the pause, engraved over the note" className={toggleClass(allHave('fermata'))}>{'\u{1D110}'}&nbsp;Pause</button>
+    <span className="h-5 w-px bg-white/10" />
+    <button onClick={() => onSpan('slur')} disabled={selection.length < 2} title="Slur / legato — one arc over the selected notes (select 2 or more)" className={`${toggleClass(spanned('slur'))} disabled:opacity-35`}>⌒&nbsp;Slur</button>
+    <button onClick={() => onSpan('cresc')} disabled={selection.length < 2} title="Crescendo — grow through the selected notes" className={`${toggleClass(spanned('cresc'))} disabled:opacity-35`}>&lt;&nbsp;Cresc.</button>
+    <button onClick={() => onSpan('decresc')} disabled={selection.length < 2} title="Decrescendo — fade through the selected notes" className={`${toggleClass(spanned('decresc'))} disabled:opacity-35`}>&gt;&nbsp;Decresc.</button>
+    <button onClick={onClear} title="Remove every marking from the selection" className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">✕ Clear</button>
+  </div>;
+}
+
 function NoteEntryPalette({ snapValue, onValue, stepInput, onStepInput, caretLabel, voiceName, remainingQuarters, barFill, onFillBar, onRest, completion }: {
   snapValue: RhythmicNoteValue; onValue: (value: RhythmicNoteValue) => void;
   stepInput: boolean; onStepInput: (value: boolean) => void;
@@ -1822,7 +1910,8 @@ function NoteEntryPalette({ snapValue, onValue, stepInput, onStepInput, caretLab
     { base: 'eighth', key: '4' }, { base: 'sixteenth', key: '3' },
   ];
   const dotted = snapValue.startsWith('dotted-');
-  const activeBase = (dotted ? snapValue.slice(7) : snapValue) as RhythmicNoteValue;
+  const triplet = snapValue.endsWith('-triplet');
+  const activeBase = (dotted ? snapValue.slice(7) : triplet ? snapValue.slice(0, -8) : snapValue) as RhythmicNoteValue;
   const fraction = (quarters: number) => {
     const whole = Math.floor(quarters + 1e-6);
     const rem = quarters - whole;
@@ -1852,6 +1941,8 @@ function NoteEntryPalette({ snapValue, onValue, stepInput, onStepInput, caretLab
       })}
       <button onClick={() => { const map: Record<string, RhythmicNoteValue> = { 'whole': 'dotted-whole', 'half': 'dotted-half', 'quarter': 'dotted-quarter', 'eighth': 'dotted-eighth', 'sixteenth': 'dotted-sixteenth' }; onValue(dotted ? activeBase : (map[activeBase] ?? activeBase)); }}
         title="Dot the value (.)" className={`px-2.5 py-1.5 text-base leading-none ${dotted ? 'bg-cyan-300/25 text-cyan-100' : 'text-slate-400 hover:bg-white/[.06]'}`}>·</button>
+      <button onClick={() => { const map: Record<string, RhythmicNoteValue> = { 'half': 'half-triplet', 'quarter': 'quarter-triplet', 'eighth': 'eighth-triplet', 'sixteenth': 'sixteenth-triplet' }; onValue(triplet ? activeBase : (map[activeBase] ?? activeBase)); }}
+        title="Triplet — three of these in the time of two. Enter three in a row to fill the beat; they engrave with the little 3." className={`px-2 py-1.5 text-[11px] font-black italic leading-none ${triplet ? 'bg-fuchsia-300/25 text-fuchsia-100' : 'text-slate-400 hover:bg-white/[.06]'}`}>3</button>
     </span>
     {completion && <span className="flex items-center gap-1 rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-2 py-1 text-[10px] text-cyan-100"
       title="The chosen value would cross the beat, so the next entry automatically uses the value that completes this beat — the classic pairing: a dotted quaver takes a semiquaver, a quaver takes a quaver.">

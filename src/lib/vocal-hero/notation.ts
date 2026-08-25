@@ -86,12 +86,26 @@ export function staffStep(pitch: SpelledPitch, clef: 'treble' | 'bass'): number 
 }
 
 export interface NoteSymbol {
-  /** In beats: 4 whole, 2 half, 1 quarter, .5 eighth, .25 sixteenth. */
+  /** The printed shape, in beats: 4 whole, 2 half, 1 quarter, .5 eighth,
+   *  .25 sixteenth. A triplet prints the shape of its dyadic cousin. */
   value: number;
   dotted: boolean;
+  /** How much time the symbol actually owns — differs from the printed value
+   *  for triplets (an eighth-triplet prints as an eighth but owns 1/3). */
+  beats: number;
+  /** Part of a triplet group: engrave with the little 3. */
+  triplet: boolean;
   /** Tied to the NEXT symbol in the list. */
   tiedToNext: boolean;
 }
+
+/** value/beats for the triplet shapes the entry palette offers. */
+const TRIPLETS: Array<{ beats: number; value: number }> = [
+  { beats: 4 / 3, value: 2 },   // half-note triplet
+  { beats: 2 / 3, value: 1 },   // quarter-note triplet
+  { beats: 1 / 3, value: 0.5 }, // eighth-note triplet
+  { beats: 1 / 6, value: 0.25 },// sixteenth-note triplet
+];
 
 const PLAIN: Array<{ beats: number; value: number; dotted: boolean }> = [
   { beats: 4, value: 4, dotted: false }, { beats: 3, value: 2, dotted: true },
@@ -105,9 +119,11 @@ const PLAIN: Array<{ beats: number; value: number; dotted: boolean }> = [
  * from live data with articulation gaps (a quarter is stored ~0.96 beats), so
  * the input is first snapped to the nearest printable total.
  */
-/** Snap a lived duration (articulation gap included) to its musical total. */
+/** Snap a lived duration (articulation gap included) to its musical total.
+ *  The thirds are in the list so triplet entries engrave as themselves
+ *  instead of being dragged to the nearest dyadic value. */
 export function snapBeats(rawBeats: number): number {
-  const printable = [0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 16];
+  const printable = [1 / 6, 0.25, 1 / 3, 0.5, 2 / 3, 0.75, 1, 4 / 3, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 16];
   return printable.reduce((best, value) => Math.abs(value - rawBeats) < Math.abs(best - rawBeats) ? value : best, 0.25);
 }
 
@@ -117,11 +133,15 @@ export function durationToSymbols(rawBeats: number): NoteSymbol[] {
   // 0.25-grid value is 3.75 — which would print as a tied chain of three
   // glyphs. The nearest note-shaped total is 4: one whole note.
   const beats = snapBeats(rawBeats);
+  // A third-of-a-beat total is a triplet member: print the dyadic shape it
+  // borrows, own the time it actually has.
+  const triplet = TRIPLETS.find(item => Math.abs(item.beats - beats) < 0.01);
+  if (triplet) return [{ value: triplet.value, dotted: false, beats: triplet.beats, triplet: true, tiedToNext: false }];
   const out: NoteSymbol[] = [];
   let remaining = Math.max(0.25, beats);
   while (remaining > 0.001) {
     const fit = PLAIN.find(item => item.beats <= remaining + 0.001) ?? PLAIN[PLAIN.length - 1];
-    out.push({ value: fit.value, dotted: fit.dotted, tiedToNext: false });
+    out.push({ value: fit.value, dotted: fit.dotted, beats: fit.beats, triplet: false, tiedToNext: false });
     remaining -= fit.beats;
   }
   for (let i = 0; i + 1 < out.length; i++) out[i].tiedToNext = true;

@@ -30,6 +30,26 @@ export interface SongNote {
    * to `midi`; level is normalized 0-1. Stored inside the existing notes JSON.
    */
   expression?: VocalNoteExpression;
+  /** Performance markings. They live ON the note, so they ride through every
+   * edit, rendition compile and save without any bookkeeping. Spanning marks
+   * (slur, hairpin) sit on their first and last notes and are paired in time
+   * order at render time. */
+  marks?: NoteMarks;
+}
+
+export type DynamicMark = 'pp' | 'p' | 'mp' | 'mf' | 'f' | 'ff';
+
+export interface NoteMarks {
+  dynamic?: DynamicMark;
+  staccato?: boolean;
+  /** Tenuto — hold the note its full written length ("sustain"). */
+  tenuto?: boolean;
+  /** Fermata — the pause, engraved over the note. */
+  fermata?: boolean;
+  /** A slur/legato arc: 'start' on its first note, 'end' on its last. */
+  slur?: 'start' | 'end';
+  /** A hairpin: 'cresc' or 'decresc' on its first note, 'end' on its last. */
+  hairpin?: 'cresc' | 'decresc' | 'end';
 }
 
 export interface VocalExpressionPoint {
