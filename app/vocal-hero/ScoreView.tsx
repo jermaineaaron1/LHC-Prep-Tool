@@ -74,7 +74,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, signature }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -84,8 +84,12 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   onEraseNote: (id: string) => void;
   onDragCommit: (id: string, changes: { midi: number; start: number; end: number }) => void;
   onLyricChange: (id: string, lyric: string) => void;
+  /** Spell in this key instead of inferring one — a compiled rendition with
+   *  a lifted last verse stays spelled in the song's own key, and the lift
+   *  wears its honest accidentals. */
+  signature?: number;
 }) {
-  const layout = useMemo(() => buildLayout(notes, bars), [notes, bars]);
+  const layout = useMemo(() => buildLayout(notes, bars, signature), [notes, bars, signature]);
   const [drag, setDrag] = useState<DragPreview>(null);
   // Inline lyric editing: double-click a word under the melody (or the empty
   // spot where one belongs), type, Tab to the next note, Enter to finish.
@@ -302,10 +306,14 @@ function CursorLayer({ layout, getPlayhead }: { layout: Layout; getPlayhead: () 
 
 type Layout = ReturnType<typeof buildLayout>;
 
-function buildLayout(notes: SongNote[], rawBars: ScoreBar[]) {
+function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?: number) {
+  // The page opens where the music does: whole bars of lead-in silence are
+  // dropped, not shifted — shifting the grid under the notes broke any bar
+  // list whose lengths vary (a rendition with a broader pass), and it made
+  // the printed bar numbers disagree with the entry caret's.
   const offset = notes.length ? Math.min(...notes.map(note => note.start)) : 0;
-  const bars = rawBars.map(bar => ({ ...bar, start: bar.start + offset, end: bar.end + offset }));
-  const signature = inferKeySignature(notes.map(note => note.midi));
+  const bars = rawBars.filter(bar => bar.end > offset + 0.01);
+  const signature = signatureOverride ?? inferKeySignature(notes.map(note => note.midi));
   const mark = signature > 0 ? '♯' : '♭';
   const steps = signature > 0 ? SHARP_STEPS_TREBLE : FLAT_STEPS_TREBLE;
   const signatureGlyphs = Array.from({ length: Math.abs(signature) }, (_, index) => ({ index, mark, trebleStep: steps[index] }));
@@ -322,7 +330,10 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[]) {
   }
   const systems = (placed.at(-1)?.system ?? 0) + 1;
   const barlines = placed.map(bar => ({ system: bar.system, x: bar.x + bar.width, number: bar.number + 1 }));
-  const barAt = (time: number) => placed.find(item => time + 0.01 >= item.start && time + 0.01 < item.end) ?? placed.at(-1);
+  const barAt = (time: number) => {
+    if (placed.length && time + 0.01 < placed[0].start) return placed[0];
+    return placed.find(item => time + 0.01 >= item.start && time + 0.01 < item.end) ?? placed.at(-1);
+  };
   const timeToXY = (time: number) => {
     const bar = barAt(time);
     if (!bar) return null;
@@ -357,6 +368,9 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[]) {
       const bar = placed.find(item => probe >= item.start && probe < item.end) ?? placed.at(-1);
       if (!bar) break;
       const spanEnd = Math.min(note.end, bar.end);
+      // A note past the last bar would pin spanEnd behind spanStart and spin
+      // this loop forever — draw what fits and stop.
+      if (spanEnd <= spanStart + 0.0001) break;
       if (spanEnd - spanStart < 0.04) { spanStart = spanEnd; continue; }
       const beatLen = (bar.end - bar.start) / bar.beatCount;
       const symbols = durationToSymbols((spanEnd - spanStart) / beatLen);

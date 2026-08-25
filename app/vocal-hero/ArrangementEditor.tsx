@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { RenditionBuilder } from './RenditionBuilder';
+import { RenditionRail } from './RenditionBuilder';
 import { ScoreView, type ScoreBar } from './ScoreView';
 import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
-import type { RenditionCard } from '@/lib/vocal-hero/rendition';
+import { compileRendition, deriveSections, type RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
 import type { BackingTrackClip, BackingTrackSettings, MusicalTimelineSettings, RhythmicNoteValue, Song, SongNote, TimedLyricSection } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
@@ -251,7 +251,11 @@ function quantizeNote(note: SongNote, bars: MusicalBar[], division: NoteDivision
   const start = snapTimeToGrid(bars, note.start, division);
   const step = snapStepAt(bars, start, division);
   const units = Math.max(1, Math.round((note.end - note.start) / Math.max(.001, step)));
-  return remapNoteExpression(note, start, roundPrecise(start + units * step));
+  // The end lands ON the grid, like the start: a millisecond-rounded start
+  // plus an exact duration could end a millisecond past the next note's
+  // snapped start, and the overlap resolver read that rounding noise as a
+  // real clash — pushing every later note in the voice one grid step along.
+  return remapNoteExpression(note, start, snapTimeToGrid(bars, start + units * step, division));
 }
 function latchNoteToValue(note: SongNote, bars: MusicalBar[], division: NoteDivision, value: RhythmicNoteValue) {
   const start = snapTimeToGrid(bars, note.start, division);
@@ -296,7 +300,7 @@ function quantizeAndResolveNotes(input: SongNote[], bars: MusicalBar[], division
     quantized.filter(note => note.part === part).sort((a, b) => a.start - b.start || a.end - b.end).forEach(note => {
       const duration = Math.max(snapStepAt(bars, note.start, division), note.end - note.start);
       const start = note.start < voiceEnd - .0005 ? snapTimeToGrid(bars, voiceEnd, division, 'ceil') : note.start;
-      const next = { ...note, start, end: roundPrecise(start + duration) };
+      const next = { ...note, start, end: snapTimeToGrid(bars, start + duration, division) };
       adjusted.set(note.id, next);
       voiceEnd = next.end;
     });
@@ -387,16 +391,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [recordingTimelineOffset, setRecordingTimelineOffset] = useState(0);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [editorNotice, setEditorNotice] = useState<string | null>(null);
-  // The redesigned front door: a song with notes opens on the rendition
-  // builder (sections, passes, key lifts — the choir-shaped decisions); the
-  // note editor is one click away for surgery. An empty draft still opens on
-  // the note editor, because there is nothing to arrange yet.
-  const [editorMode, setEditorMode] = useState<'rendition' | 'notes'>(() => playableNotes(song).length ? 'rendition' : 'notes');
   const [savingRendition, setSavingRendition] = useState(false);
   const [renditionCards, setRenditionCards] = useState<RenditionCard[]>([]);
-  // A musician reads staves; the grid is for surgery. Score is the default
-  // way of SEEING the notes, with the piano roll one toggle away.
-  const [noteView, setNoteView] = useState<'score' | 'grid'>('score');
+  // A musician reads staves; the grid is for surgery; the rendition stage
+  // shapes the performance — three views of one editor, Score the default.
+  const [noteView, setNoteView] = useState<'score' | 'grid' | 'rendition'>('score');
   // MuseScore-style step entry: pick a value, type pitches, the caret walks
   // the bar. The caret normally derives from the selection (the end of the
   // selected note, else the end of the voice); a rest overrides it forward.
@@ -466,6 +465,24 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const musicalBars = useMemo(() => buildMusicalGrid(duration, musicalTimeline), [duration, musicalTimeline]);
   const cursorMusicalState = musicalStateAt(musicalTimeline, playhead ?? 0);
   const scoreBars: ScoreBar[] = useMemo(() => musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length), numerator: bar.numerator, denominator: bar.denominator, number: bar.number })), [musicalBars]);
+  // Rendition: compiled from the SOURCE arrangement, never from its own
+  // output — the source tracks the live notes until a compiled rendition is
+  // loaded into the editor, then freezes on the pre-load arrangement.
+  if (!renditionAppliedRef.current || !renditionSourceRef.current) renditionSourceRef.current = { notes, lyrics: timedLyrics };
+  const renditionSource = renditionSourceRef.current;
+  const renditionSections = useMemo(() => deriveSections(renditionSource.notes, renditionSource.lyrics), [renditionSource.notes, renditionSource.lyrics]);
+  const baseMusicalState = musicalStateAt(musicalTimeline, 0);
+  const compiledRendition = useMemo(() => compileRendition(renditionSource.notes, renditionSource.lyrics, renditionSections, renditionCards, { bpm: baseMusicalState.bpm, beatsPerBar: baseMusicalState.numerator }),
+    [renditionSource.notes, renditionSource.lyrics, renditionSections, renditionCards, baseMusicalState.bpm, baseMusicalState.numerator]);
+  // The compiled score is spelled in the SOURCE key: a lifted final pass then
+  // shows its honest accidentals instead of dragging the whole page into a
+  // compromise signature.
+  const renditionSignature = useMemo(() => inferKeySignature(renditionSource.notes.map(note => note.midi)), [renditionSource.notes]);
+  // What the transport performs depends on the view: the rendition stage
+  // plays its compilation, Score and Grid play the arrangement itself.
+  const activePerformance = noteView === 'rendition'
+    ? { notes: compiledRendition.notes, end: Math.max(.1, compiledRendition.duration) }
+    : { notes, end: transportEnd };
   const noteByPart = useMemo(() => VOICES.map((_, index) => notes.filter(note => note.part === index || (note.part === -1 && index === selectedPart))), [notes, selectedPart]);
   const entryStart = useMemo(() => {
     if (stepCaret !== null) return stepCaret;
@@ -970,6 +987,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   useEffect(() => {
     const handleClipboardShortcut = (event: KeyboardEvent) => {
       if (midiPreview || showBackingEditor || showLyricLine || showHarmony) return;
+      // The rendition stage edits passes, not notes — note shortcuts would
+      // silently mutate the hidden arrangement.
+      if (noteView === 'rendition') return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       const key = event.key.toLowerCase();
@@ -989,7 +1009,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     };
     window.addEventListener('keydown', handleClipboardShortcut);
     return () => window.removeEventListener('keydown', handleClipboardShortcut);
-  }, [midiPreview, noteClipboard, notes, playhead, selectedIds, showBackingEditor, showHarmony, showLyricLine]);
+  }, [midiPreview, noteClipboard, notes, noteView, playhead, selectedIds, showBackingEditor, showHarmony, showLyricLine]);
   function stopBackingTrack() { backingPlayGenerationRef.current += 1; if (backingStartTimerRef.current) clearTimeout(backingStartTimerRef.current); backingStartTimerRef.current = null; backingMediaRef.current?.pause(); }
   function effectiveTrackClips() {
     if (trackSettings.clips !== undefined) return [...trackSettings.clips].sort((a, b) => a.timeline_start - b.timeline_start);
@@ -1057,7 +1077,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setIsPlaying(false);
   }
   function setTransportPosition(time: number) {
-    const next = Math.max(0, Math.min(transportEnd, time));
+    const next = Math.max(0, Math.min(activePerformance.end, time));
     playheadRef.current = next;
     setPlayhead(next);
     return next;
@@ -1066,11 +1086,12 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   function pausePlayback() { if (!transportRunningRef.current) return; haltPlaybackEngine(); setIsPaused(true); }
   function finishPlayback(time: number) { haltPlaybackEngine(); setTransportPosition(time); setIsPaused(false); }
   function playbackSelection(forceAll = false) {
-    const enabled = forceAll ? notes : notes.filter(note => note.part < 0 || playParts[note.part]);
+    const source = activePerformance.notes;
+    const enabled = forceAll ? source : source.filter(note => note.part < 0 || playParts[note.part]);
     const scoped = forceAll || playScope === 'all' ? enabled : playScope === 'note' ? enabled.filter(note => selectedIds.includes(note.id)) : enabled.filter(note => note.end >= playRange.start && note.start <= playRange.end);
     const ordered = [...scoped].sort((a, b) => a.start - b.start);
     const start = forceAll || playScope === 'all' ? 0 : playScope === 'range' ? playRange.start : ordered[0]?.start ?? 0;
-    const end = forceAll || playScope === 'all' ? transportEnd : playScope === 'range' ? Math.min(transportEnd, playRange.end) : Math.max(start, ...ordered.map(note => note.end));
+    const end = forceAll || playScope === 'all' ? activePerformance.end : playScope === 'range' ? Math.min(activePerformance.end, playRange.end) : Math.max(start, ...ordered.map(note => note.end));
     return { ordered, start, end };
   }
   function startPlaybackAt(requestedTime: number, forceAll = false) {
@@ -1092,7 +1113,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         playPianoTone(context, note, context.currentTime + at, length);
       });
     }
-    startBackingTrack(first, transportRate);
+    // The backing track belongs to the song as recorded; a compiled
+    // rendition has its own timeline, so the track stays silent there.
+    if (noteView !== 'rendition') startBackingTrack(first, transportRate);
     setTransportPosition(first);
     setIsPaused(false);
     const startedAt = performance.now();
@@ -1289,42 +1312,53 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       (resolved.stacked ? `. ${resolved.stacked} note${resolved.stacked === 1 ? ' shares a start' : 's share a start'} with another in the same voice — a chord one voice cannot sing, kept for you to split or delete` : '') + '.');
   }
 
-  if (!renditionAppliedRef.current || !renditionSourceRef.current) renditionSourceRef.current = { notes, lyrics: timedLyrics };
-  if (editorMode === 'rendition') {
-    return <div className="vh-editor-scrollbars fixed inset-0 z-50 overflow-y-auto bg-[#020510] text-slate-100">
-      <RenditionBuilder
-        songTitle={title}
-        notes={renditionSourceRef.current.notes}
-        timedLyrics={renditionSourceRef.current.lyrics}
-        cards={renditionCards}
-        onCardsChange={setRenditionCards}
-        saving={savingRendition}
-        onOpenNotes={() => setEditorMode('notes')}
-        onClose={onClose}
-        onApply={(compiled, summary) => {
-          renditionAppliedRef.current = true;
-          pushHistory();
-          setNotes(compiled.notes);
-          setTimedLyrics(compiled.timedLyrics);
-          setEditorMode('notes');
-          setEditorNotice(`Rendition applied: ${summary || 'empty'}. Play it here; Undo brings the original arrangement back. Saving from this screen overwrites THIS song — use the rendition screen's "Save as a new song" to keep both.`);
-        }}
-        onSaveAsNew={async (compiled, newTitle) => {
-          setSavingRendition(true);
-          try {
-            const stub = await createSongStub({ title: newTitle, artist: song.artist ?? undefined, tags: song.tags ?? undefined });
-            await updateSong(stub.id, {
-              notes: compiled.notes, timed_lyrics: compiled.timedLyrics, duration: compiled.duration,
-              bpm: song.bpm, time_sig: song.time_sig, status: 'ready',
-              arranged_by: `Our rendition, arranged from “${song.title}”`,
-            });
-            onSongCreated?.();
-          } finally {
-            setSavingRendition(false);
-          }
-        }}
-      />
-    </div>;
+  // Switching what the transport performs mid-flight would leave the engine
+  // playing one thing while the page shows another — stop first, always.
+  function switchView(view: 'score' | 'grid' | 'rendition') {
+    if (view === noteView) return;
+    stopPlayback();
+    setNoteView(view);
+  }
+  function applyRendition() {
+    renditionAppliedRef.current = true;
+    pushHistory();
+    stopPlayback();
+    setNotes(compiledRendition.notes);
+    setTimedLyrics(compiledRendition.timedLyrics);
+    // The compiled bars come with their own tempo map (broader and brighter
+    // passes change bpm exactly on their opening barline) — hand it to the
+    // editor so its grid agrees with every pass.
+    setMusicalTimeline(current => ({ ...current, tempo_changes: compiledRendition.tempoEvents.map(event => ({ at: event.at, bpm: event.bpm })) }));
+    setSelectedIds([]);
+    setSelectedId(null);
+    setNoteView('score');
+    setEditorNotice('Rendition loaded into the note editor for fine-tuning. Undo brings the original arrangement back. Saving from here overwrites THIS song — use the rendition stage’s “Save as a new song” to keep both.');
+  }
+  async function saveRenditionAsNew(newTitle: string) {
+    setSavingRendition(true);
+    try {
+      const stub = await createSongStub({ title: newTitle, artist: song.artist ?? undefined, tags: song.tags ?? undefined });
+      await updateSong(stub.id, {
+        notes: compiledRendition.notes, timed_lyrics: compiledRendition.timedLyrics, duration: compiledRendition.duration,
+        bpm: compiledRendition.tempoEvents[0]?.bpm ?? song.bpm, time_sig: song.time_sig, status: 'ready',
+        arranged_by: `Our rendition, arranged from “${song.title}”`,
+        ...(compiledRendition.tempoEvents.length > 1 ? {
+          backing_track_settings: {
+            ...DEFAULT_TRACK_SETTINGS,
+            musical_timeline: {
+              tempo_changes: compiledRendition.tempoEvents.map(event => ({ at: event.at, bpm: event.bpm })),
+              meter_changes: [{ at: 0, numerator: baseMusicalState.numerator, denominator: 4 }],
+              key_changes: [{ at: 0, tonic: baseMusicalState.tonic, mode: baseMusicalState.mode }],
+              snap_division: musicalTimeline.snap_division,
+              snap_value: musicalTimeline.snap_value,
+            },
+          },
+        } : {}),
+      });
+      onSongCreated?.();
+    } finally {
+      setSavingRendition(false);
+    }
   }
   return <div ref={editorRootRef} data-timeline-focus={timelineFocus ? 'true' : 'false'} className="vh-editor-scrollbars fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
     <audio ref={backingMediaRef} src={mediaUrl || undefined} preload="auto" className="hidden" onLoadedMetadata={event => { const media_duration = event.currentTarget.duration; if (Number.isFinite(media_duration)) setTrackSettings(current => current.media_duration === media_duration ? current : { ...current, media_duration }); }} onTimeUpdate={enforceBackingEdits} />
@@ -1338,7 +1372,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       <span className={`hidden rounded-full px-2.5 py-1 text-[10px] font-bold md:block ${dirtyRef.current ? 'border border-amber-300/30 bg-amber-300/10 text-amber-200' : 'border border-emerald-300/25 bg-emerald-300/[.07] text-emerald-300'}`}>{dirtyRef.current ? '● Unsaved changes' : '✓ Saved'}</span>
       <div className="ml-auto flex items-center gap-2">
         <button onClick={() => void save()} disabled={saving} className="rounded-lg bg-[linear-gradient(120deg,#d946ef,#22d3ee)] px-4 py-2 text-xs font-black text-[#08101d] disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
-        <button onClick={() => setEditorMode('rendition')} title="Arrange the performance: passes, keys, tempos" className="rounded-lg border border-cyan-300/35 bg-cyan-300/[.07] px-3 py-2 text-xs font-semibold text-cyan-100">⟳ Rendition</button>
+        <button onClick={() => switchView(noteView === 'rendition' ? 'score' : 'rendition')} aria-pressed={noteView === 'rendition'} title="Shape the performance: passes, keys, tempos — over the live score" className={`rounded-lg border px-3 py-2 text-xs font-semibold ${noteView === 'rendition' ? 'border-cyan-300/70 bg-cyan-300/20 text-cyan-50' : 'border-cyan-300/35 bg-cyan-300/[.07] text-cyan-100'}`}>⟳ Rendition</button>
         <button onClick={() => void toggleFullscreen()} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'} className="rounded-lg border border-white/15 px-3 py-2 text-xs">{isFullscreen ? '⊙' : '⛶'}</button>
         <button onClick={() => void closeOrExitFullscreen()} title={isFullscreen ? 'Exit full screen without closing the editor' : 'Close the song editor'} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button>
       </div>
@@ -1363,11 +1397,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             </div>
           </div>; })}
         </div>
-        <button onClick={() => addNote()} className="mt-3 w-full rounded-lg border border-dashed border-fuchsia-400/40 px-3 py-2 text-xs text-fuchsia-300">＋ Add note in {VOICES[selectedPart] ?? 'voice'}</button>
+        {noteView !== 'rendition' && <button onClick={() => addNote()} className="mt-3 w-full rounded-lg border border-dashed border-fuchsia-400/40 px-3 py-2 text-xs text-fuchsia-300">＋ Add note in {VOICES[selectedPart] ?? 'voice'}</button>}
         <button onClick={selectAllVoices} className="mt-2 w-full rounded-lg border border-white/12 px-3 py-2 text-[11px] text-slate-300">🔊 All voices audible</button>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
-        {!timelineFocus && <EditorToolbar extras={<span className="relative">
+        {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="relative">
           <button onClick={() => setMoreOpen(open => !open)} aria-expanded={moreOpen} title="Import, backing track, recording, zoom and more"
             className={`rounded-lg border px-3 py-2 font-bold ${moreOpen ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/15 text-slate-200'}`}>⋯</button>
           {moreOpen && <div className="absolute right-0 top-11 z-[75] w-80 space-y-3 rounded-2xl border border-white/12 bg-[#0a0e22f8] p-3 text-xs shadow-[0_24px_70px_#000d] backdrop-blur">
@@ -1400,7 +1434,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             <div><p className="mb-1 text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Draw length &amp; glossary</p>
               <DrawNoteValuePicker value={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onChange={changeNoteValue} /></div>
           </div>}
-        </span>} tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onTypeLyrics={() => setShowLyricLine(true)} onHarmonise={() => setShowHarmony(true)} onAlignToMelody={alignHarmonyToMelody} onOpenRendition={() => setEditorMode('rendition')} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onConvertTake={() => void convertRecordedTake()} convertingTake={transcribingTake} recordingPart={recordingPart} onRecordingPartChange={part => { setRecordingPart(part); setTranscriptionDiagnostics(null); setRecordError(null); }} transcriptionSnap={transcriptionSnap} onTranscriptionSnapChange={setTranscriptionSnap} onSave={() => void save()} saving={saving} />}
+        </span>} tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onTypeLyrics={() => setShowLyricLine(true)} onHarmonise={() => setShowHarmony(true)} onAlignToMelody={alignHarmonyToMelody} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onConvertTake={() => void convertRecordedTake()} convertingTake={transcribingTake} recordingPart={recordingPart} onRecordingPartChange={part => { setRecordingPart(part); setTranscriptionDiagnostics(null); setRecordError(null); }} transcriptionSnap={transcriptionSnap} onTranscriptionSnapChange={setTranscriptionSnap} onSave={() => void save()} saving={saving} />}
         {timelineFocus && <TimelineFocusToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} selected={selected} bars={musicalBars} onLyricChange={lyric => selected && update(selected.id, { lyric })} onTrack={() => setShowBackingEditor(true)} onExit={() => void exitTimelineFocus()} onPlay={playFromCursor} onPause={pausePlayback} onStop={stopPlayback} isPlaying={isPlaying} isPaused={isPaused} playhead={playhead} zoom={zoom} setZoom={setZoom} onSave={() => void save()} saving={saving} />}
         <input ref={xmlInputRef} className="hidden" type="file" accept=".musicxml,.xml,.mxl" onChange={openMusicXml} /><input ref={midiInputRef} className="hidden" type="file" accept=".mid,.midi,audio/midi" onChange={openMidi} /><input ref={mediaInputRef} className="hidden" type="file" accept="audio/*,video/*" onChange={uploadBackingTrack} />
         {recordError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">Microphone: {recordError}</div>}
@@ -1418,13 +1452,13 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         {editorNotice && <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4"><div className="pointer-events-auto flex max-w-2xl items-center gap-3 rounded-2xl border border-amber-300/25 bg-[#1c1608f2] px-4 py-2.5 text-xs text-amber-100 shadow-[0_18px_50px_#000c] backdrop-blur"><span>{editorNotice}</span><button onClick={() => setEditorNotice(null)} aria-label="Dismiss editor notice" className="rounded border border-amber-200/25 px-2 py-0.5">Close</button></div></div>}
         <div className="flex min-h-0 flex-1">
           <section className={`min-w-0 flex-1 overflow-auto ${timelineFocus ? 'p-1' : 'p-3'}`}>
-            {!timelineFocus && <><details className="mb-2 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
+            {!timelineFocus && noteView !== 'rendition' && <><details className="mb-2 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
               <summary className="cursor-pointer select-none font-semibold text-slate-300">Grid, tempo map &amp; drawn length <span className="ml-2 text-[10px] text-slate-500">{cursorMusicalState.numerator}/{cursorMusicalState.denominator} · {cursorMusicalState.bpm} bpm · {cursorMusicalState.tonic} {cursorMusicalState.mode}</span></summary>
               <div className="pt-2"><MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onSnapDivision={changeSnapDivision} onNoteValue={changeNoteValue} onLatchAll={latchAllToNoteValue} onRemove={removeMusicalEvent} /></div>
             </details>
             <div className="xl:hidden"><BeatPrecisionPanel selectedNotes={selectedNotes} bars={musicalBars} cursor={playhead ?? 0} clipboardCount={noteClipboard.length} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} /></div>
             <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><p className="mr-auto max-w-4xl leading-relaxed"><b className="text-slate-200">Select in either Select or Draw mode.</b> Drag a note body left/right for timing and up/down for pitch. Ctrl-click adds individual notes; drag empty space to lasso any notes inside the rectangle. Starts and durations latch to the selected musical note value; a single voice cannot contain overlapping targets.</p><button onClick={() => setCollapsedVoices([true, true, true, true])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Collapse all voices</button><button onClick={() => setCollapsedVoices([false, false, false, false])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Expand all voices</button></div></>}
-            <NoteEntryPalette
+            {noteView !== 'rendition' && <NoteEntryPalette
               snapValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE}
               onValue={changeNoteValue}
               stepInput={stepInput}
@@ -1436,10 +1470,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               barFill={entryBar ? Math.max(0, Math.min(1, (entryStart - entryBar.start) / Math.max(.001, entryBar.end - entryBar.start))) : 0}
               onFillBar={fillRestOfBar}
               onRest={restStepAdvance}
-            />
+            />}
             <div className="mb-2 flex items-center gap-1 text-xs">
-              <button onClick={() => setNoteView('score')} className={`rounded-l-lg border px-3 py-1.5 ${noteView === 'score' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="The arrangement as a classic closed score — treble staff for Soprano and Alto, bass staff for Tenor and Bass">𝄞 Score</button>
-              <button onClick={() => setNoteView('grid')} className={`rounded-r-lg border px-3 py-1.5 ${noteView === 'grid' ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/12 text-slate-400'}`} title="The piano-roll grid — for drawing and dragging notes">▦ Grid</button>
+              <button onClick={() => switchView('score')} className={`rounded-l-lg border px-3 py-1.5 ${noteView === 'score' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="The arrangement as an engraved open score — one staff per voice">𝄞 Score</button>
+              <button onClick={() => switchView('grid')} className={`border px-3 py-1.5 ${noteView === 'grid' ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/12 text-slate-400'}`} title="The piano-roll grid — for drawing and dragging notes">▦ Grid</button>
+              <button onClick={() => switchView('rendition')} className={`rounded-r-lg border px-3 py-1.5 ${noteView === 'rendition' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="Shape the performance: stack passes of the song, choose who sings each one, and hear the result">⟳ Rendition</button>
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number + 1 : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
                 <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number + 1 : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
@@ -1473,7 +1508,31 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 </div>
               </div>
             </div>}
-            {!timelineFocus && <details className="mt-3 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
+            {noteView === 'rendition' && <>
+              <RenditionRail
+                songTitle={title}
+                sections={renditionSections}
+                cards={renditionCards}
+                onCardsChange={setRenditionCards}
+                compiled={compiledRendition}
+                getPlayhead={() => playheadRef.current}
+                isPlaying={isPlaying}
+                onPlayFrom={time => startPlaybackAt(time)}
+                onPause={pausePlayback}
+                onStop={stopPlayback}
+                onLoadIntoEditor={applyRendition}
+                onSaveAsNew={saveRenditionAsNew}
+                onNotice={setEditorNotice}
+                saving={savingRendition} />
+              {compiledRendition.notes.length > 0
+                ? <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: 'max(360px, calc(100vh - 470px))' }}>
+                  <ScoreView notes={compiledRendition.notes} bars={compiledRendition.bars} getPlayhead={() => playheadRef.current} selectedIds={[]} tool="select"
+                    signature={renditionSignature}
+                    onSelectNote={() => {}} onAddNote={() => {}} onEraseNote={() => {}} onDragCommit={() => {}} onLyricChange={() => {}} />
+                </div>
+                : <div className="grid h-56 place-items-center rounded-xl border border-white/10 bg-[#050716] text-xs text-slate-500">The engraved score of your presentation appears here as soon as it has a pass.</div>}
+            </>}
+            {!timelineFocus && noteView !== 'rendition' && <details className="mt-3 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
               <summary className="cursor-pointer font-semibold text-slate-300">Arrangement controls: dynamics, breath &amp; part mixer</summary>
               <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto]">
                 <div className="space-y-3"><div className="rounded-lg border border-cyan-300/20 bg-cyan-300/5 p-3 text-cyan-100"><b>Gameplay lyrics follow the selected voice.</b><span className="mt-1 block text-slate-400">Add lyrics directly to piano-roll notes. The live display groups those lyrics by musical measure using this song’s tempo and time-signature map.</span></div><Automation notes={notes} /></div>
@@ -1481,7 +1540,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               </div>
             </details>}
           </section>
-          {!timelineFocus && <Inspector selected={selected} bars={musicalBars} update={update} onDelete={removeSelected} onDuplicate={duplicateSelected} />}
+          {!timelineFocus && noteView !== 'rendition' && <Inspector selected={selected} bars={musicalBars} update={update} onDelete={removeSelected} onDuplicate={duplicateSelected} />}
         </div>
         {showLyricLine && <LyricLineDialog
           targetCount={lyricTargets().length}
@@ -1804,7 +1863,7 @@ function DrawNoteValuePicker({ value, onChange }: { value: RhythmicNoteValue; on
     </div>, document.body)}
   </div>;
 }
-function EditorToolbar({ extras, tool, setTool, drawNoteValue, onDrawNoteValueChange, playScope, playParts, onPlayAll, onPlayPart, playRange, playhead, onClearSelection, selectedCount, onRemove, canUndo, canRedo, onUndo, onRedo, zoom, setZoom, onDuplicate, onCopy, onPaste, clipboardCount, onTypeLyrics, onHarmonise, onAlignToMelody, onOpenRendition, onPlay, onPlayFromStart, onPause, onStop, onSkip, isPlaying, isPaused, onRecord, recording, onPlayTake, hasTake, onConvertTake, convertingTake, recordingPart, onRecordingPartChange, transcriptionSnap, onTranscriptionSnapChange, onSave, saving }: { extras?: React.ReactNode; tool: EditorTool; setTool: (tool: EditorTool) => void; drawNoteValue: RhythmicNoteValue; onDrawNoteValueChange: (value: RhythmicNoteValue) => void; playScope: PlaybackScope; playParts: boolean[]; onPlayAll: () => void; onPlayPart: (part: number, additive?: boolean) => void; playRange: { start: number; end: number }; playhead: number | null; onClearSelection: () => void; selectedCount: number; onRemove: () => void; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; zoom: number; setZoom: (value: number) => void; onDuplicate: () => void; onCopy: () => void; onPaste: () => void; clipboardCount: number; onTypeLyrics: () => void; onHarmonise: () => void; onAlignToMelody: () => void; onOpenRendition: () => void; onPlay: () => void; onPlayFromStart: () => void; onPause: () => void; onStop: () => void; onSkip: (seconds: number) => void; isPlaying: boolean; isPaused: boolean; onRecord: () => void; recording: boolean; onPlayTake: () => void; hasTake: boolean; onConvertTake: () => void; convertingTake: boolean; recordingPart: number; onRecordingPartChange: (part: number) => void; transcriptionSnap: boolean; onTranscriptionSnapChange: (snap: boolean) => void; onSave: () => void; saving: boolean }) {
+function EditorToolbar({ extras, tool, setTool, drawNoteValue, onDrawNoteValueChange, playScope, playParts, onPlayAll, onPlayPart, playRange, playhead, onClearSelection, selectedCount, onRemove, canUndo, canRedo, onUndo, onRedo, zoom, setZoom, onDuplicate, onCopy, onPaste, clipboardCount, onTypeLyrics, onHarmonise, onAlignToMelody, onPlay, onPlayFromStart, onPause, onStop, onSkip, isPlaying, isPaused, onRecord, recording, onPlayTake, hasTake, onConvertTake, convertingTake, recordingPart, onRecordingPartChange, transcriptionSnap, onTranscriptionSnapChange, onSave, saving }: { extras?: React.ReactNode; tool: EditorTool; setTool: (tool: EditorTool) => void; drawNoteValue: RhythmicNoteValue; onDrawNoteValueChange: (value: RhythmicNoteValue) => void; playScope: PlaybackScope; playParts: boolean[]; onPlayAll: () => void; onPlayPart: (part: number, additive?: boolean) => void; playRange: { start: number; end: number }; playhead: number | null; onClearSelection: () => void; selectedCount: number; onRemove: () => void; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; zoom: number; setZoom: (value: number) => void; onDuplicate: () => void; onCopy: () => void; onPaste: () => void; clipboardCount: number; onTypeLyrics: () => void; onHarmonise: () => void; onAlignToMelody: () => void; onPlay: () => void; onPlayFromStart: () => void; onPause: () => void; onStop: () => void; onSkip: (seconds: number) => void; isPlaying: boolean; isPaused: boolean; onRecord: () => void; recording: boolean; onPlayTake: () => void; hasTake: boolean; onConvertTake: () => void; convertingTake: boolean; recordingPart: number; onRecordingPartChange: (part: number) => void; transcriptionSnap: boolean; onTranscriptionSnapChange: (snap: boolean) => void; onSave: () => void; saving: boolean }) {
   const toolButton = (value: EditorTool, label: string) => <button onClick={() => setTool(value)} className={`rounded-lg border px-3 py-2 ${tool === value ? 'border-fuchsia-400/60 bg-fuchsia-500/20 text-fuchsia-100' : 'border-white/10 text-slate-100'}`}>{label}</button>;
   const status = playScope === 'range' ? `Range ${playRange.start.toFixed(2)}s–${playRange.end.toFixed(2)}s` : playScope === 'note' ? `${selectedCount || 1} selected note${selectedCount === 1 ? '' : 's'}` : playParts.every(Boolean) ? 'All voices' : VOICES.filter((_, index) => playParts[index]).join(' + ');
   const formatTime = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds)) % 60).padStart(2, '0')}`;
