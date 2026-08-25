@@ -74,7 +74,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, resolveAdd, signature }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, onDeselect, resolveAdd, signature }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -84,6 +84,10 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   onEraseNote: (id: string) => void;
   onDragCommit: (id: string, changes: { midi: number; start: number; end: number }) => void;
   onLyricChange: (id: string, lyric: string) => void;
+  /** Double-clicking a SELECTED notehead calls this — the escape hatch that
+   *  turns the value palette back into "set the next entry" instead of
+   *  "re-value the selection". */
+  onDeselect?: () => void;
   /** Where a click at this time would actually put the note (snapped and
    *  clamped into its bar) — drives the ghost head under the cursor. */
   resolveAdd?: (time: number) => number;
@@ -207,7 +211,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
 
   return <div className="vh-editor-scrollbars relative h-full overflow-auto px-4 py-4">
     <ScoreBody layout={layout} selectedIds={selectedIds} drag={drag} tool={tool}
-      onGlyphDown={beginDrag} onMove={event => { moveDrag(event); updateGhost(event); }} onUp={endDrag}
+      onGlyphDown={beginDrag} onGlyphDoubleClick={glyph => { if (selectedIds.includes(glyph.id)) onDeselect?.(); }}
+      onMove={event => { moveDrag(event); updateGhost(event); }} onUp={endDrag}
       onLeave={() => { if (ghostRef.current) ghostRef.current.style.display = 'none'; }}
       onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={onEraseNote} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
@@ -228,9 +233,10 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   </div>;
 }
 
-const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, tool, onGlyphDown, onMove, onUp, onLeave, onStaffClick, onDoubleClick, onGlyphContext }: {
+const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, tool, onGlyphDown, onGlyphDoubleClick, onMove, onUp, onLeave, onStaffClick, onDoubleClick, onGlyphContext }: {
   layout: Layout; selectedIds: string[]; drag: DragPreview; tool: ScoreTool;
   onGlyphDown: (event: React.PointerEvent, glyph: Glyph) => void;
+  onGlyphDoubleClick: (glyph: Glyph) => void;
   onMove: (event: React.PointerEvent) => void;
   onUp: () => void;
   onLeave: () => void;
@@ -307,9 +313,13 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
         {glyph.mark && !dragging && <text x={gx - 15} y={gy + 4.5} fontSize={13} fill={colour}>{glyph.mark}</text>}
         {/* An invisible catch area: the printed head is ~5px, far too small a
             target — clicks meant for the note were landing on "empty staff"
-            and writing a new one instead. */}
-        <circle cx={gx} cy={gy} r={9} fill="transparent" stroke="none" />
-        <ellipse cx={gx} cy={gy} rx={4.8} ry={3.5} transform={`rotate(-14 ${gx} ${gy})`}
+            and writing a new one instead. Double-click sits on the HEAD, not
+            the whole group, so double-clicking the lyric word below still
+            opens the lyric editor. */}
+        <circle cx={gx} cy={gy} r={9} fill="transparent" stroke="none"
+          onDoubleClick={event => { event.stopPropagation(); onGlyphDoubleClick(glyph); }} />
+        <ellipse onDoubleClick={event => { event.stopPropagation(); onGlyphDoubleClick(glyph); }}
+          cx={gx} cy={gy} rx={4.8} ry={3.5} transform={`rotate(-14 ${gx} ${gy})`}
           fill={glyph.value >= 2 ? 'transparent' : colour} stroke={colour} strokeWidth={glyph.value >= 2 ? 1.6 : 1} />
         {glyph.value < 4 && <line x1={stemX} x2={stemX} y1={gy} y2={stemEndY} stroke={colour} strokeWidth={1.1} />}
         {glyph.value <= 0.5 && !glyph.beam && <path d={stemUp
