@@ -402,6 +402,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [stepInput, setStepInput] = useState(false);
   const [stepCaret, setStepCaret] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [closePrompt, setClosePrompt] = useState(false);
   // The rendition always compiles from the SOURCE arrangement, never from its
   // own output — otherwise hear-and-return would stack passes of passes. The
   // source tracks the editor's notes until the first apply, so a note fixed
@@ -587,7 +588,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       await document.exitFullscreen();
       return;
     }
-    if (dirtyRef.current && !window.confirm('You have unsaved changes. Close the editor without saving them?')) return;
+    // The browser's own confirm() box looked like a foreign object over the
+    // editor — this is the same question asked in the editor's own voice,
+    // with the answer people actually want ("Save and close") added.
+    if (dirtyRef.current) { setClosePrompt(true); return; }
     onClose();
   }
 
@@ -1586,6 +1590,18 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         </div>}
         {midiError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">MIDI import: {midiError}</div>}
         {editorNotice && <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4"><div className="pointer-events-auto flex max-w-2xl items-center gap-3 rounded-2xl border border-amber-300/25 bg-[#1c1608f2] px-4 py-2.5 text-xs text-amber-100 shadow-[0_18px_50px_#000c] backdrop-blur"><span>{editorNotice}</span><button onClick={() => setEditorNotice(null)} aria-label="Dismiss editor notice" className="rounded border border-amber-200/25 px-2 py-0.5">Close</button></div></div>}
+        {closePrompt && <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setClosePrompt(false)}>
+          <div role="alertdialog" aria-label="Unsaved changes" onClick={event => event.stopPropagation()}
+            className="w-full max-w-md rounded-2xl border border-amber-300/25 bg-[#0d1024] p-5 shadow-[0_30px_90px_#000d,0_0_40px_#f59e0b22]">
+            <p className="text-sm font-black text-amber-100">● Unsaved changes</p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">This arrangement has edits that are not saved yet. Closing without saving loses them.</p>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button autoFocus onClick={() => setClosePrompt(false)} className="rounded-lg border border-white/15 px-3 py-2 text-xs text-slate-200">Keep editing</button>
+              <button onClick={() => { setClosePrompt(false); dirtyRef.current = false; onClose(); }} className="rounded-lg border border-rose-300/35 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-200">Discard changes</button>
+              <button disabled={saving} onClick={() => { void save().then(() => { setClosePrompt(false); if (!dirtyRef.current) onClose(); }); }} className="rounded-lg bg-[linear-gradient(120deg,#d946ef,#22d3ee)] px-4 py-2 text-xs font-black text-[#08101d] disabled:opacity-50">{saving ? 'Saving…' : 'Save and close'}</button>
+            </div>
+          </div>
+        </div>}
         <div className="flex min-h-0 flex-1">
           <section className={`min-w-0 flex-1 overflow-auto ${timelineFocus ? 'p-1' : 'p-3'}`}>
             {!timelineFocus && noteView !== 'rendition' && <><details className="mb-2 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
