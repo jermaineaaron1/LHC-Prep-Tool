@@ -303,13 +303,12 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
           <path d={`M ${span.x1} ${span.y1 - 7} Q ${(span.x1 + span.x2) / 2} ${arcY}, ${span.x2} ${span.y2 - 7}`} stroke="#ffffffd8" strokeWidth={1.4} fill="none" />
         </g>;
       }
-      // Hairpins sit above the staff in vocal writing — the words own the space below.
+      // Hairpins sit above the staff in vocal writing — the words own the
+      // space below. The two jaw lines run between this segment's opening
+      // widths, so a wedge split over a line break stays continuous.
       const yMid = mid - 2 * GAP - 9;
-      const wide = 4.5;
       return <g key={`span-${i}`} transform={`translate(12 ${top})`} pointerEvents="none" stroke="#ffffffc8" strokeWidth={1.2} fill="none">
-        {span.kind === 'cresc'
-          ? <path d={`M ${span.x2} ${yMid - wide} L ${span.x1} ${yMid} L ${span.x2} ${yMid + wide}`} />
-          : <path d={`M ${span.x1} ${yMid - wide} L ${span.x2} ${yMid} L ${span.x1} ${yMid + wide}`} />}
+        <path d={`M ${span.x1} ${yMid - span.w1} L ${span.x2} ${yMid - span.w2} M ${span.x1} ${yMid + span.w1} L ${span.x2} ${yMid + span.w2}`} />
       </g>;
     })}
     {layout.glyphs.map(glyph => {
@@ -578,23 +577,38 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
   // Slurs and hairpins: 'start' marks open, the next 'end' in the same staff
   // closes. Drawn only when both ends share a system — the common case; an
   // arc across a line break is a later refinement.
-  type Span = { kind: 'slur' | 'cresc' | 'decresc'; staff: number; system: number; x1: number; y1: number; x2: number; y2: number };
+  // A span that crosses a line break is drawn in two pieces, the way
+  // engraving always has: out to the right edge, then in from the left
+  // margin. Hairpins carry their opening widths so the wedge grows (or
+  // narrows) continuously across the break.
+  type Span = { kind: 'slur' | 'pin'; staff: number; system: number; x1: number; y1: number; x2: number; y2: number; w1: number; w2: number };
   const spans: Span[] = [];
+  const PIN_W = 4.5;
+  const pushSlur = (staff: number, from: Glyph, to: Glyph) => {
+    if (from.system === to.system) spans.push({ kind: 'slur', staff, system: to.system, x1: from.x, y1: from.y, x2: to.x, y2: to.y, w1: 0, w2: 0 });
+    else {
+      spans.push({ kind: 'slur', staff, system: from.system, x1: from.x, y1: from.y, x2: systemWidth(from.system) - 6, y2: from.y, w1: 0, w2: 0 });
+      spans.push({ kind: 'slur', staff, system: to.system, x1: MARGIN_LEFT + 2, y1: to.y, x2: to.x, y2: to.y, w1: 0, w2: 0 });
+    }
+  };
+  const pushPin = (staff: number, from: Glyph, to: Glyph, kind: 'cresc' | 'decresc') => {
+    const wide = kind === 'cresc' ? [0, PIN_W] : [PIN_W, 0];
+    if (from.system === to.system) spans.push({ kind: 'pin', staff, system: to.system, x1: from.x, y1: 0, x2: to.x, y2: 0, w1: wide[0], w2: wide[1] });
+    else {
+      const midWidth = (wide[0] + wide[1]) / 2;
+      spans.push({ kind: 'pin', staff, system: from.system, x1: from.x, y1: 0, x2: systemWidth(from.system) - 6, y2: 0, w1: wide[0], w2: midWidth });
+      spans.push({ kind: 'pin', staff, system: to.system, x1: MARGIN_LEFT + 2, y1: 0, x2: to.x, y2: 0, w1: midWidth, w2: wide[1] });
+    }
+  };
   for (let staff = 0; staff < 4; staff++) {
     const firsts = glyphs.filter(g => g.staff === staff && g.marks).sort((a, b) => a.system - b.system || a.x - b.x);
     let openSlur: Glyph | null = null;
     let openPin: { glyph: Glyph; kind: 'cresc' | 'decresc' } | null = null;
     for (const glyph of firsts) {
       if (glyph.marks!.slur === 'start') openSlur = glyph;
-      else if (glyph.marks!.slur === 'end' && openSlur) {
-        if (openSlur.system === glyph.system) spans.push({ kind: 'slur', staff, system: glyph.system, x1: openSlur.x, y1: openSlur.y, x2: glyph.x, y2: glyph.y });
-        openSlur = null;
-      }
+      else if (glyph.marks!.slur === 'end' && openSlur) { pushSlur(staff, openSlur, glyph); openSlur = null; }
       if (glyph.marks!.hairpin === 'cresc' || glyph.marks!.hairpin === 'decresc') openPin = { glyph, kind: glyph.marks!.hairpin! as 'cresc' | 'decresc' };
-      else if (glyph.marks!.hairpin === 'end' && openPin) {
-        if (openPin.glyph.system === glyph.system) spans.push({ kind: openPin.kind, staff, system: glyph.system, x1: openPin.glyph.x, y1: 0, x2: glyph.x, y2: 0 });
-        openPin = null;
-      }
+      else if (glyph.marks!.hairpin === 'end' && openPin) { pushPin(staff, openPin.glyph, glyph, openPin.kind); openPin = null; }
     }
   }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
