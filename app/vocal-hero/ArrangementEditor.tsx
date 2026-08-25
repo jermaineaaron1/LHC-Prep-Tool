@@ -480,9 +480,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const selectedNote = notes.find(note => note.id === selectedId);
     const base = selectedNote && inVoice(selectedNote)
       ? musicalEnd(selectedNote)
-      : notes.some(inVoice) ? Math.max(...notes.filter(inVoice).map(musicalEnd)) : (playhead ?? 0);
+      : notes.some(inVoice) ? Math.max(...notes.filter(inVoice).map(musicalEnd)) : (playheadRef.current ?? 0);
     return snapTimeToGrid(musicalBars, base, division, 'round');
-  }, [stepCaret, notes, selectedId, selectedPart, playhead, musicalBars, musicalTimeline.snap_division]);
+  }, [stepCaret, notes, selectedId, selectedPart, musicalBars, musicalTimeline.snap_division]);  // deliberately not `playhead`: entry does not follow playback
   const entryBar = useMemo(() => musicalBars.find(bar => entryStart >= bar.start - .001 && entryStart < bar.end - .001) ?? null, [musicalBars, entryStart]);
   // Remaining room in the caret's bar, in quarter-note beats — the number
   // every value button is annotated against.
@@ -781,6 +781,27 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const reference = inVoice.at(-1)?.midi ?? [69, 64, 57, 48][selectedPart] ?? 60;
     setStepCaret(null);
     addNote(selectedPart, entryStart, reference, entryBar.end, '');
+  }
+  function insertBarAtCaret() {
+    if (!entryBar) return;
+    const length = entryBar.end - entryBar.start;
+    pushHistory();
+    setNotes(current => current.map(note => note.start >= entryBar.start - .005 ? { ...note, start: note.start + length, end: note.end + length } : note));
+    setTimedLyrics(current => current.map(line => line.start >= entryBar.start - .005 ? { ...line, start: line.start + length, end: line.end + length } : line));
+    setEditorNotice(`An empty bar was inserted at bar ${entryBar.number + 1}; everything after it moved one bar later. Undo reverses it.`);
+  }
+  function deleteBarAtCaret() {
+    if (!entryBar) return;
+    const length = entryBar.end - entryBar.start;
+    const removed = notes.filter(note => note.start >= entryBar.start - .005 && note.start < entryBar.end - .005).length;
+    pushHistory();
+    setNotes(current => current
+      .filter(note => !(note.start >= entryBar.start - .005 && note.start < entryBar.end - .005))
+      .map(note => note.start >= entryBar.end - .005 ? { ...note, start: note.start - length, end: note.end - length } : note));
+    setTimedLyrics(current => current
+      .filter(line => !(line.start >= entryBar.start - .005 && line.end <= entryBar.end + .005))
+      .map(line => line.start >= entryBar.end - .005 ? { ...line, start: line.start - length, end: line.end - length } : line));
+    setEditorNotice(`Bar ${entryBar.number + 1} removed${removed ? ` with its ${removed} note${removed === 1 ? '' : 's'}` : ''}; later bars moved up. Undo reverses it.`);
   }
   function nudgeSelectedPitch(delta: number) {
     const target = notes.find(note => note.id === selectedId);
@@ -1355,11 +1376,23 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             <div className="mb-2 flex items-center gap-1 text-xs">
               <button onClick={() => setNoteView('score')} className={`rounded-l-lg border px-3 py-1.5 ${noteView === 'score' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="The arrangement as a classic closed score — treble staff for Soprano and Alto, bass staff for Tenor and Bass">𝄞 Score</button>
               <button onClick={() => setNoteView('grid')} className={`rounded-r-lg border px-3 py-1.5 ${noteView === 'grid' ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/12 text-slate-400'}`} title="The piano-roll grid — for drawing and dragging notes">▦ Grid</button>
-              {noteView === 'score' && <span className="ml-2 text-[10px] text-slate-500">Click a note to select it, then edit with the panels; play with the transport above. Drawing new notes happens in the Grid.</span>}
+              {noteView === 'score' && <>
+                <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number + 1 : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
+                <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number + 1 : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
+                <span className="ml-2 text-[10px] text-slate-500">Select drags a note (up/down by staff position, left/right by beat) · Draw clicks new notes onto either staff at the palette's value · Erase removes.</span>
+              </>}
             </div>
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
-              <ScoreView notes={notes} bars={scoreBars} playhead={playhead} selectedIds={selectedIds}
-                onSelectNote={(id, part) => { setSelectedId(id); setSelectedIds([id]); if (part >= 0) setSelectedPart(part); setTool('select'); }} />
+              <ScoreView notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
+                onSelectNote={(id, part) => { setSelectedId(id); setSelectedIds([id]); if (part >= 0) setSelectedPart(part); }}
+                onAddNote={(staff, time, midi) => {
+                  const staffParts = staff === 'treble' ? [0, 1] : [2, 3];
+                  const part = staffParts.includes(selectedPart) ? selectedPart : staffParts[0];
+                  const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
+                  addNote(part, snapTimeToGrid(musicalBars, time, division), midi, undefined, '');
+                }}
+                onEraseNote={removeNote}
+                onDragCommit={(id, changes) => update(id, changes)} />
             </div>}
             {noteView === 'grid' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <div style={{ width: timelineWidth + TIMELINE_LABEL_WIDTH }}>
