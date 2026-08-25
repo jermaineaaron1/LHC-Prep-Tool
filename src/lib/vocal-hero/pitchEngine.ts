@@ -92,6 +92,18 @@ export class PitchEngine {
    *  either deaf to soft singers in a quiet room or wide open to breaths and
    *  chatter in a loud one. */
   private noiseFloor = 0.001;
+  /** Frames of grace after confident voice: while it runs, only the dead-line
+   *  gate applies, so a breath or consonant cannot hand the singer to the
+   *  adaptive gate mid-phrase. */
+  private voicedHold = 0;
+  /** True once THIS stream has produced confident pitch: a proven capture
+   *  path is never torn down by the loud-but-unpitched watchdog, whose job
+   *  is broken routes that never lock at all. */
+  private streamProven = false;
+  /** Running loudness of the singer's own confident frames. The adaptive
+   *  gate may never rise above half of this: whatever the room does between
+   *  phrases, the voice that has already been heard must get back in. */
+  private voicedLevel = 0;
   /** A silent tap to the destination. See the note where it is built. */
   private sink: GainNode | null = null;
   /** Some devices deliver nothing at all with voice processing switched off. */
@@ -422,6 +434,9 @@ export class PitchEngine {
     this.lastConfidence = 0;
     this.announcedDevice = false;
     this.noiseFloor = 0.001;
+    this.voicedHold = 0;
+    this.streamProven = false;
+    this.voicedLevel = 0;
   }
 
   get isRunning(): boolean {
@@ -482,31 +497,48 @@ export class PitchEngine {
 
     const { hz, confidence } = this.autocorrelate(this.buffer, this.context.sampleRate);
     this.lastConfidence = confidence;
-    // Learn the room from unpitched frames only: singing holds the floor
-    // still, silence and chatter move it. Slow on the way up, so one cough
-    // does not deafen the gate; the floor is per-stream state and resets with
-    // the device.
-    if (!(hz > 0 && confidence >= this.opts.confidenceThreshold)) {
+    // Hysteresis: once a pitch is locked, a frame that AGREES with the lock
+    // needs less proof to keep it. The single hard threshold meant one
+    // breathy vowel or register shift below it broke the lock outright, and
+    // the singer watched detection blink off and on while the level meter
+    // showed their voice arriving the whole time.
+    const nearLock = this.smoothedHz > 0 && hz > 0 && Math.abs(12 * Math.log2(hz / this.smoothedHz)) < 1.5;
+    const accepted = hz > 0 && (confidence >= this.opts.confidenceThreshold
+      || (nearLock && confidence >= Math.min(0.6, this.opts.confidenceThreshold)));
+    if (accepted) {
+      this.voicedHold = 90;
+      this.streamProven = true;
+      this.voicedLevel = this.voicedLevel > 0 ? this.voicedLevel * 0.95 + this.lastLevel * 0.05 : this.lastLevel;
+    } else if (this.voicedHold > 0) this.voicedHold -= 1;
+    // Learn the room only when nobody has sung for a while. The old rule
+    // learned from EVERY unpitched frame -- but consonants, breaths and note
+    // attacks are loud AND unpitched, so a verse of singing pumped the floor
+    // toward the voice itself until the gate swallowed it: detection cut out
+    // mid-phrase and came back only after a pause let the floor decay. An
+    // idle loud room still raises the floor exactly as before.
+    if (!accepted && this.voicedHold === 0) {
       this.noiseFloor = this.noiseFloor * 0.98 + this.lastLevel * 0.02;
     }
-    if (hz > 0 && confidence >= this.opts.confidenceThreshold && !this.announcedDevice) {
+    if (accepted && !this.announcedDevice) {
       this.announcedDevice = true;
       const id = this.stream?.getAudioTracks()[0]?.getSettings?.().deviceId;
       if (id) this.opts.onWorkingDevice(id);
     }
 
     // The complement of the silence watchdog: sound clearly arriving, no
-    // pitch ever locking. A dead input that emits loud noise -- which is what
+    // pitch EVER locking. A dead input that emits loud noise -- which is what
     // the field device's "Default" route does -- passes every loudness test
     // and fails every musical one, so after ~8s of that, recovery (and its
-    // device cycling) is the right response. Real singing resets the count
-    // many times a second, so it never fires mid-song.
+    // device cycling) is the right response. A stream that has already
+    // produced confident pitch is a different animal: tearing it down
+    // mid-song for a noisy stretch cost seconds of detection, so a proven
+    // stream is left alone -- the true-silence watchdog still guards it.
     if (this.lastLevel > 0.01 && (hz === 0 || confidence < 0.3)) {
-      if (++this.unpitchedFrames >= 480 && !this.recovering) { this.unpitchedFrames = 0; void this.recover(); }
-    } else if (hz > 0 && confidence >= this.opts.confidenceThreshold) this.unpitchedFrames = 0;
+      if (++this.unpitchedFrames >= 480 && !this.recovering && !this.streamProven) { this.unpitchedFrames = 0; void this.recover(); }
+    } else if (accepted || (hz > 0 && confidence >= 0.5)) this.unpitchedFrames = 0;
 
     // Exponential smoothing — only smooth non-zero pitches
-    if (hz > 0 && confidence >= this.opts.confidenceThreshold) {
+    if (accepted) {
       this.smoothedHz = PitchEngine.smoothStep(this.smoothedHz, hz, this.opts.smoothing);
     } else {
       // Decay smoothly toward silence
@@ -583,8 +615,16 @@ export class PitchEngine {
     // Adaptive: 2.5x the learned room floor, never below the dead-line gate
     // of 0.002 (soft singers in quiet rooms live just above it -- the old
     // 0.01 cliff threw their frames away), and never above 0.08, so a loud
-    // room cannot gate out genuine singing entirely.
-    if (rms < Math.min(0.08, Math.max(0.002, this.noiseFloor * 2.5))) return { hz: 0, confidence: 0 };
+    // room cannot gate out genuine singing entirely. Two overrides put the
+    // VOICE above the room's claims: while the singer was confidently voiced
+    // within the last ~1.5s only the dead-line applies, and once this stream
+    // has heard the singer at all, the gate may never rise above half their
+    // own level -- however loud the room got between phrases, the voice that
+    // was already heard must get back in.
+    const adaptive = Math.min(0.08, Math.max(0.002, this.noiseFloor * 2.5));
+    const voicedCap = this.voicedLevel > 0 ? Math.max(0.002, this.voicedLevel * 0.5) : 0.08;
+    const gate = this.voicedHold > 0 ? 0.002 : Math.min(adaptive, voicedCap);
+    if (rms < gate) return { hz: 0, confidence: 0 };
 
     // The normalised autocorrelation is
     //   r[lag] = Σ buf[i]·buf[i+lag] / sqrt( Σ buf[i]² · Σ buf[i+lag]² )
