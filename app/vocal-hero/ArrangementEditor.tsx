@@ -638,7 +638,27 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   function changeNoteValue(value: RhythmicNoteValue) {
     pushHistory();
     const definition = noteValue(value);
-    setMusicalTimeline(current => ({ ...current, snap_value: value, snap_division: compatibleGrid(current.snap_division ?? DEFAULT_SNAP_DIVISION, definition.requiredGrid) }));
+    const division = compatibleGrid(musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, definition.requiredGrid);
+    setMusicalTimeline(current => ({ ...current, snap_value: value, snap_division: division }));
+    // With notes selected — and step entry off, where numbers set the NEXT
+    // entry as in MuseScore — the value buttons EDIT: the selected notes take
+    // the value, consuming following material the way lengthening does on
+    // paper. A crotchet turned minim eats the crotchet after it; a minim
+    // turned crotchet leaves its second half as rest.
+    if (!stepInput && selectedIds.length) {
+      setNotes(current => {
+        let next = current;
+        for (const id of selectedIds) {
+          const target = next.find(note => note.id === id);
+          if (!target) continue;
+          const end = snapTimeToGrid(musicalBars, target.start + noteDurationAt(musicalBars, target.start, value), division);
+          next = carveSpace(next, target.part, target.start, end, id).map(note => note.id === id ? { ...note, end } : note);
+        }
+        return next;
+      });
+      setEditorNotice(`${definition.symbol} ${definition.label} — selected note${selectedIds.length === 1 ? '' : 's'} re-valued; new entries use this length too.`);
+      return;
+    }
     setEditorNotice(`${definition.symbol} ${definition.label} selected. New notes use this length; the placement grid remains fine enough for the shorter notes that may follow it.`);
   }
 
@@ -728,12 +748,13 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
     const timingChanged = values.start !== undefined || values.end !== undefined || values.part !== undefined;
     const candidate = timingChanged ? quantizeNote({ ...target, ...values }, musicalBars, division) : { ...target, ...values };
-    if (collisionInVoice([candidate], notes.filter(note => note.id !== id))) {
-      setEditorNotice(`${VOICES[candidate.part] ?? 'This voice'} already has a note in that position. Move or resize the existing target first.`);
-      return;
-    }
     pushHistory();
-    setNotes(current => current.map(note => note.id === id ? candidate : note));
+    // A note moved or resized onto occupied time takes that time — the space
+    // it leaves behind becomes rest. Refusing with a notice made every drag
+    // in a full bar a dead end.
+    setNotes(current => timingChanged
+      ? carveSpace(current, candidate.part, candidate.start, candidate.end, id).map(note => note.id === id ? candidate : note)
+      : current.map(note => note.id === id ? candidate : note));
     if (values.lyric !== undefined) {
       setTrackSettings(current => ({ ...current, karaoke_lyrics: { targets_per_phrase: current.karaoke_lyrics?.targets_per_phrase ?? DEFAULT_TARGETS_PER_PHRASE, max_lines: current.karaoke_lyrics?.max_lines ?? 2, source: 'notes' } }));
       if (!quiet) setEditorNotice('Note lyric updated. Save to publish the change.');
@@ -762,17 +783,31 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     if (context.state === 'suspended') void context.resume().then(() => play(context)).catch(() => undefined);
     else play(context);
   }
-  function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number, lyric = 'New lyric') {
+  /** Make [start, end) free in one voice, the way a pencil frees paper: the
+   *  note sounding at `start` is cut off there, notes fully inside the span
+   *  go, and a note the span cuts into keeps its tail. Anything left shorter
+   *  than one grid step goes too. Writing where something already sounds now
+   *  REPLACES it — the old behavior refused with a notice, which on a fully
+   *  transcribed song made the editor feel dead: every bar was "occupied". */
+  function carveSpace(all: SongNote[], part: number, start: number, end: number, keepId?: string) {
+    const step = snapStepAt(musicalBars, start, musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION);
+    const result: SongNote[] = [];
+    for (const note of all) {
+      if (note.id === keepId || note.part !== part || note.end <= start + .0005 || note.start >= end - .0005) { result.push(note); continue; }
+      const keepHead = start - note.start >= step - .001;
+      const keepTail = note.end - end >= step - .001;
+      if (keepHead) result.push({ ...note, end: roundPrecise(start) });
+      if (keepTail) result.push({ ...note, id: keepHead ? `note-${crypto.randomUUID()}` : note.id, start: roundPrecise(end), lyric: keepHead ? '' : note.lyric });
+    }
+    return result;
+  }
+  function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number, lyric = '') {
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
     const value = musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
     const id = `note-${crypto.randomUUID()}`;
     const candidate = quantizeNote({ id, part, midi, start, end: end ?? start + noteDurationAt(musicalBars, start, value), lyric, velocity: 100 }, musicalBars, division);
-    if (collisionInVoice([candidate], notes)) {
-      setEditorNotice(`${VOICES[part] ?? 'This voice'} already has a note on ${compactBeatLabel(beatPositionAt(musicalBars, candidate.start))}. Notes in one voice cannot overlap.`);
-      return;
-    }
     pushHistory();
-    setNotes(current => [...current, candidate]);
+    setNotes(current => [...carveSpace(current, candidate.part, candidate.start, candidate.end), candidate]);
     setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); setEditorNotice(null);
     auditionNote(candidate);
   }
@@ -937,7 +972,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   function selectAllVoices() { clearPlaybackSelections(); haltPlaybackEngine(); setTransportPosition(0); setIsPaused(false); }
   function selectPlayPart(part: number, additive = false) { setPlayParts(current => additive ? current.map((enabled, index) => index === part ? !enabled : enabled) : VOICES.map((_, index) => index === part)); setPlayScope('all'); setRangeParts(null); setSelectedId(null); setSelectedIds([]); haltPlaybackEngine(); setTransportPosition(0); setIsPaused(false); focusVoice(part); }
   function beginLasso(event: React.PointerEvent<HTMLDivElement>) {
-    if ((tool !== 'select' && tool !== 'draw') || event.button !== 0 || (event.target as HTMLElement).closest('[data-note-id]')) return;
+    if (tool !== 'select' || event.button !== 0 || (event.target as HTMLElement).closest('[data-note-id]')) return;
     lassoRef.current = { originX: event.clientX, originY: event.clientY, additive: event.ctrlKey || event.metaKey, baseIds: event.ctrlKey || event.metaKey ? [...selectedIds] : [], moved: false };
     // Do not capture a plain pointer-down: Draw mode still needs the lane's
     // ensuing click to create a note. Capture only after this becomes a drag.
@@ -980,8 +1015,13 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   }
   function handleLaneClick(part: number, event: React.MouseEvent<HTMLDivElement>) {
     if (suppressLaneClickRef.current) { suppressLaneClickRef.current = false; return; }
-    if (tool === 'draw') addAt(part, event);
-    else if (tool === 'erase') clearPlaybackSelections();
+    if (tool === 'erase') clearPlaybackSelections();
+  }
+  // The Draw tool is gone — one mode does everything. In the grid, a
+  // double-click on empty lane space writes a note there.
+  function handleLaneDoubleClick(part: number, event: React.MouseEvent<HTMLDivElement>) {
+    if (tool !== 'select' || (event.target as HTMLElement).closest('[data-note-id]')) return;
+    addAt(part, event);
   }
 
   useEffect(() => {
@@ -994,13 +1034,20 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       const key = event.key.toLowerCase();
       const api = stepApiRef.current;
+      const numbered: Record<string, RhythmicNoteValue> = { '7': 'whole', '6': 'half', '5': 'quarter', '4': 'eighth', '3': 'sixteenth' };
+      const dotMap: Record<string, RhythmicNoteValue> = { 'whole': 'dotted-whole', 'half': 'dotted-half', 'quarter': 'dotted-quarter', 'eighth': 'dotted-eighth', 'sixteenth': 'dotted-sixteenth', 'dotted-whole': 'whole', 'dotted-half': 'half', 'dotted-quarter': 'quarter', 'dotted-eighth': 'eighth', 'dotted-sixteenth': 'sixteenth' };
       if (api.stepInput && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        const numbered: Record<string, RhythmicNoteValue> = { '7': 'whole', '6': 'half', '5': 'quarter', '4': 'eighth', '3': 'sixteenth' };
         if (numbered[key]) { event.preventDefault(); api.changeNoteValue(numbered[key]); return; }
-        if (key === '.') { event.preventDefault(); const map: Record<string, RhythmicNoteValue> = { 'whole': 'dotted-whole', 'half': 'dotted-half', 'quarter': 'dotted-quarter', 'eighth': 'dotted-eighth', 'sixteenth': 'dotted-sixteenth', 'dotted-whole': 'whole', 'dotted-half': 'half', 'dotted-quarter': 'quarter', 'dotted-eighth': 'eighth', 'dotted-sixteenth': 'sixteenth' }; const next = map[api.snapValue]; if (next) api.changeNoteValue(next); return; }
+        if (key === '.') { event.preventDefault(); const next = dotMap[api.snapValue]; if (next) api.changeNoteValue(next); return; }
         if ('abcdefg'.includes(key)) { event.preventDefault(); api.insertStepPitch(key); return; }
         if (key === 'r') { event.preventDefault(); api.restStepAdvance(); return; }
         if (key === 'arrowup' || key === 'arrowdown') { event.preventDefault(); api.nudgeSelectedPitch(key === 'arrowup' ? 1 : -1); return; }
+      }
+      // Outside step entry the same keys edit the SELECTION, as in MuseScore:
+      // 5 turns the selected note into a crotchet, . dots it.
+      if (!api.stepInput && !event.ctrlKey && !event.metaKey && !event.altKey && selectedIds.length) {
+        if (numbered[key]) { event.preventDefault(); api.changeNoteValue(numbered[key]); return; }
+        if (key === '.') { event.preventDefault(); const next = dotMap[api.snapValue]; if (next) api.changeNoteValue(next); return; }
       }
       if ((key === 'backspace' || key === 'delete') && selectedIds.length) { event.preventDefault(); removeSelected(); return; }
       if ((!event.ctrlKey && !event.metaKey) || event.altKey) return;
@@ -1457,7 +1504,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               <div className="pt-2"><MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onSnapDivision={changeSnapDivision} onNoteValue={changeNoteValue} onLatchAll={latchAllToNoteValue} onRemove={removeMusicalEvent} /></div>
             </details>
             <div className="xl:hidden"><BeatPrecisionPanel selectedNotes={selectedNotes} bars={musicalBars} cursor={playhead ?? 0} clipboardCount={noteClipboard.length} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} /></div>
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><p className="mr-auto max-w-4xl leading-relaxed"><b className="text-slate-200">Select in either Select or Draw mode.</b> Drag a note body left/right for timing and up/down for pitch. Ctrl-click adds individual notes; drag empty space to lasso any notes inside the rectangle. Starts and durations latch to the selected musical note value; a single voice cannot contain overlapping targets.</p><button onClick={() => setCollapsedVoices([true, true, true, true])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Collapse all voices</button><button onClick={() => setCollapsedVoices([false, false, false, false])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Expand all voices</button></div></>}
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><p className="mr-auto max-w-4xl leading-relaxed"><b className="text-slate-200">One mode does everything.</b> Drag a note body left/right for timing and up/down for pitch; double-click empty lane space to write a note there. Ctrl-click builds a selection; drag empty space to lasso. Starts and durations latch to the selected musical note value; writing over an existing note replaces it.</p><button onClick={() => setCollapsedVoices([true, true, true, true])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Collapse all voices</button><button onClick={() => setCollapsedVoices([false, false, false, false])} className="rounded-md border border-white/10 px-2 py-1 text-slate-300">Expand all voices</button></div></>}
             {noteView !== 'rendition' && <NoteEntryPalette
               snapValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE}
               onValue={changeNoteValue}
@@ -1478,7 +1525,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number + 1 : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
                 <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number + 1 : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
-                <span className="ml-2 text-[10px] text-slate-500">Select drags a note (up/down by staff position, left/right by beat) · Draw clicks new notes onto any staff · Erase removes · Double-click a word to edit lyrics: Tab = next word, Enter = done.</span>
+                <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly there at the palette's value — writing over something replaces it · drag a note for pitch and timing · with a note selected, the value buttons (or keys 3–7 and .) change its length · Erase removes · Double-click a word to edit lyrics: Tab = next word, Enter = done.</span>
               </>}
             </div>
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
@@ -1504,7 +1551,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 </div>
                 <div className="relative" onPointerDown={beginLasso} onPointerMove={moveLasso} onPointerUp={endLasso} onPointerCancel={endLasso}>
                   {lassoBox && <span className="pointer-events-none absolute z-50 rounded border border-fuchsia-200 bg-fuchsia-400/15 shadow-[0_0_22px_#f0abfc55]" style={lassoBox} />}
-                  {VOICES.map((voice, index) => <PianoTrack key={voice} name={voice} part={index} notes={noteByPart[index]} selectedId={selectedId} selectedIds={selectedIds} tool={tool} playhead={playhead} selectedRange={playScope === 'range' && rangeParts && index >= rangeParts.start && index <= rangeParts.end ? playRange : null} width={timelineWidth} zoom={zoom} bars={musicalBars} freeGrid={freeGrid} collapsed={collapsedVoices[index]} onToggleCollapse={() => setCollapsedVoices(current => current.map((value, part) => part === index ? !value : value))} onAdd={handleLaneClick} onSelect={selectNote} onRemove={removeNote} onNoteMoveStart={beginNoteMove} onNoteMove={moveNote} onNoteMoveEnd={endNoteMove} onResizeStart={beginResizeHistory} onResize={resizeNote} onEmptyClick={clearPlaybackSelections} />)}
+                  {VOICES.map((voice, index) => <PianoTrack key={voice} name={voice} part={index} notes={noteByPart[index]} selectedId={selectedId} selectedIds={selectedIds} tool={tool} playhead={playhead} selectedRange={playScope === 'range' && rangeParts && index >= rangeParts.start && index <= rangeParts.end ? playRange : null} width={timelineWidth} zoom={zoom} bars={musicalBars} freeGrid={freeGrid} collapsed={collapsedVoices[index]} onToggleCollapse={() => setCollapsedVoices(current => current.map((value, part) => part === index ? !value : value))} onAdd={handleLaneClick} onAddDouble={handleLaneDoubleClick} onSelect={selectNote} onRemove={removeNote} onNoteMoveStart={beginNoteMove} onNoteMove={moveNote} onNoteMoveEnd={endNoteMove} onResizeStart={beginResizeHistory} onResize={resizeNote} onEmptyClick={clearPlaybackSelections} />)}
                 </div>
               </div>
             </div>}
@@ -1870,7 +1917,7 @@ function EditorToolbar({ extras, tool, setTool, drawNoteValue, onDrawNoteValueCh
   return <div className="border-b border-white/10 bg-[#0a0c20] text-xs">
     <div className="flex h-14 items-center gap-1.5 overflow-x-auto px-3 [&>*]:shrink-0">
       <span className="flex overflow-hidden rounded-lg border border-white/12">
-        {(['select', 'draw', 'erase'] as EditorTool[]).map(value => <button key={value} onClick={() => setTool(value)}
+        {(['select', 'erase'] as EditorTool[]).map(value => <button key={value} onClick={() => setTool(value)}
           className={`px-3 py-2 capitalize ${tool === value ? 'bg-fuchsia-500/25 text-fuchsia-100' : 'text-slate-300 hover:bg-white/[.06]'}`}>{value}</button>)}
       </span>
       <span className="h-6 w-px bg-white/10" />
@@ -1905,7 +1952,7 @@ function TimelineFocusToolbar({ tool, setTool, drawNoteValue, onDrawNoteValueCha
   return <div className="sticky top-0 z-[70] flex min-h-16 items-center gap-2 overflow-x-auto border-b border-fuchsia-300/25 bg-[#070a19]/95 px-3 py-2 text-xs shadow-[0_14px_40px_#000b,0_0_30px_#a855f722] backdrop-blur-xl">
     <button onClick={onExit} title="Return to the complete editor without discarding unsaved work" className="rounded-lg border border-white/15 bg-white/[.04] px-3 py-2 font-semibold">← Exit timeline</button>
     <span className="h-8 w-px shrink-0 bg-white/10" />
-    {(['select', 'draw', 'erase'] as EditorTool[]).map(value => <button key={value} onClick={() => setTool(value)} className={`rounded-lg border px-3 py-2 capitalize ${tool === value ? 'border-fuchsia-300/60 bg-fuchsia-400/15 text-fuchsia-100' : 'border-white/10 text-slate-300'}`}>{value}</button>)}
+    {(['select', 'erase'] as EditorTool[]).map(value => <button key={value} onClick={() => setTool(value)} className={`rounded-lg border px-3 py-2 capitalize ${tool === value ? 'border-fuchsia-300/60 bg-fuchsia-400/15 text-fuchsia-100' : 'border-white/10 text-slate-300'}`}>{value}</button>)}
     <DrawNoteValuePicker value={drawNoteValue} onChange={onDrawNoteValueChange} />
     <div className="flex shrink-0 items-center gap-2 rounded-xl border border-cyan-300/20 bg-cyan-300/[.06] px-3 py-2"><span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">Placement</span>{placement ? <><b className="text-cyan-100">{placement.bar}.{placement.beat}</b><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${beatOffsetLabel(placement.fraction) === 'ON BEAT' ? 'bg-emerald-300/15 text-emerald-200' : 'bg-amber-300/15 text-amber-200'}`}>{beatOffsetLabel(placement.fraction)}</span></> : <span className="text-slate-500">Select a note</span>}</div>
     <label className="flex min-w-64 shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2"><span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">Note lyric</span><input value={selected?.lyric ?? ''} onChange={event => onLyricChange(event.target.value)} disabled={!selected} placeholder="Select one note" className="min-w-0 flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-slate-600 disabled:opacity-50" /></label>
@@ -1949,7 +1996,7 @@ function MusicalGridOverlay({ bars, zoom, labels = false, subtle = false }: { ba
   // and the notes for attention. They stay visible as a rough reference.
   return <span className="pointer-events-none absolute inset-0 z-[2]" aria-hidden="true" style={{ opacity: subtle ? .3 : 1 }}>{bars.map(bar => <span key={`${bar.number}-${bar.start}`}><i className="absolute inset-y-0 w-0.5 bg-cyan-100/65 shadow-[0_0_10px_#22d3ee45]" style={{ left: bar.start * zoom }} />{bar.beats.map(beat => { const beatWidth = Math.max(1, (beat.end - beat.start) * zoom); return <span key={beat.start} className="absolute inset-y-0 border-l border-slate-200/30" style={{ left: beat.start * zoom, width: beatWidth, background: beat.beat % 2 ? 'linear-gradient(90deg,#67e8f908,transparent)' : 'linear-gradient(90deg,#d8b4fe0b,transparent)' }}><i className="absolute inset-y-0 left-1/2 w-px bg-fuchsia-200/15" />{beat.subdivisionStarts.map(value => <i key={value} className="absolute inset-y-0 w-px bg-slate-300/[.09]" style={{ left: (value - beat.start) * zoom }} />)}{labels && beatWidth >= 27 && <b className="absolute left-1 top-1 rounded bg-[#050817]/80 px-1 font-mono text-[8px] font-semibold text-cyan-100/80">{bar.number}.{beat.beat}</b>}</span>; })}</span>)}</span>;
 }
-function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead, selectedRange, width, zoom, bars, freeGrid, collapsed, onToggleCollapse, onAdd, onSelect, onRemove, onNoteMoveStart, onNoteMove, onNoteMoveEnd, onResizeStart, onResize }: { name: string; part: number; notes: SongNote[]; selectedId: string | null; selectedIds: string[]; tool: EditorTool; playhead: number | null; selectedRange: { start: number; end: number } | null; width: number; zoom: number; bars: MusicalBar[]; freeGrid: boolean; collapsed: boolean; onToggleCollapse: () => void; onAdd: (part: number, event: React.MouseEvent<HTMLDivElement>) => void; onSelect: (id: string, additive?: boolean) => void; onRemove: (id: string) => void; onNoteMoveStart: (id: string, clientX: number, clientY: number, additive?: boolean) => void; onNoteMove: (clientX: number, clientY: number) => boolean; onNoteMoveEnd: () => boolean; onResizeStart: () => void; onResize: (id: string, end: number) => void; onEmptyClick: () => void }) {
+function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead, selectedRange, width, zoom, bars, freeGrid, collapsed, onToggleCollapse, onAdd, onAddDouble, onSelect, onRemove, onNoteMoveStart, onNoteMove, onNoteMoveEnd, onResizeStart, onResize }: { name: string; part: number; notes: SongNote[]; selectedId: string | null; selectedIds: string[]; tool: EditorTool; playhead: number | null; selectedRange: { start: number; end: number } | null; width: number; zoom: number; bars: MusicalBar[]; freeGrid: boolean; collapsed: boolean; onToggleCollapse: () => void; onAdd: (part: number, event: React.MouseEvent<HTMLDivElement>) => void; onAddDouble: (part: number, event: React.MouseEvent<HTMLDivElement>) => void; onSelect: (id: string, additive?: boolean) => void; onRemove: (id: string) => void; onNoteMoveStart: (id: string, clientX: number, clientY: number, additive?: boolean) => void; onNoteMove: (clientX: number, clientY: number) => boolean; onNoteMoveEnd: () => boolean; onResizeStart: () => void; onResize: (id: string, end: number) => void; onEmptyClick: () => void }) {
   const resizing = useRef<{ id: string; start: number; initialEnd: number; noteStart: number } | null>(null);
   const notePointerActive = useRef(false);
   const suppressNoteClick = useRef(false);
@@ -1959,7 +2006,7 @@ function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead
   function beginResize(event: React.PointerEvent<HTMLSpanElement>, note: SongNote) { event.stopPropagation(); onResizeStart(); resizing.current = { id: note.id, start: event.clientX, initialEnd: note.end, noteStart: note.start }; event.currentTarget.setPointerCapture(event.pointerId); }
   function resize(event: React.PointerEvent<HTMLSpanElement>) { const active = resizing.current; if (!active) return; onResize(active.id, Math.max(active.noteStart + .001, active.initialEnd + ((event.clientX - active.start) / zoom))); }
   function finishResize(event: React.PointerEvent<HTMLSpanElement>) { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); resizing.current = null; }
-  function beginMove(event: React.PointerEvent<HTMLButtonElement>, note: SongNote) { event.stopPropagation(); if ((tool !== 'select' && tool !== 'draw') || event.button !== 0) return; notePointerActive.current = true; suppressNoteClick.current = true; onNoteMoveStart(note.id, event.clientX, event.clientY, event.ctrlKey || event.metaKey || event.shiftKey); event.currentTarget.setPointerCapture(event.pointerId); }
+  function beginMove(event: React.PointerEvent<HTMLButtonElement>, note: SongNote) { event.stopPropagation(); if (tool !== 'select' || event.button !== 0) return; notePointerActive.current = true; suppressNoteClick.current = true; onNoteMoveStart(note.id, event.clientX, event.clientY, event.ctrlKey || event.metaKey || event.shiftKey); event.currentTarget.setPointerCapture(event.pointerId); }
   function move(event: React.PointerEvent<HTMLButtonElement>) { if (!notePointerActive.current) return; suppressNoteClick.current = onNoteMove(event.clientX, event.clientY) || suppressNoteClick.current; }
   function finishMove(event: React.PointerEvent<HTMLButtonElement>) { if (!notePointerActive.current) return; suppressNoteClick.current = onNoteMoveEnd() || suppressNoteClick.current; notePointerActive.current = false; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }
   if (collapsed) return <div id={`vh-voice-${part}`} className="flex h-14 scroll-mt-3 overflow-hidden border-b border-cyan-100/10" data-voice-part={part}>
@@ -1974,12 +2021,12 @@ function PianoTrack({ name, part, notes, selectedId, selectedIds, tool, playhead
       <div className="absolute inset-x-0 top-0 flex h-[34px] items-center gap-1 border-b border-cyan-100/15 bg-[#111631] px-2"><b className="text-[23px] leading-none" style={{ color: COLOURS[part] }}>{name[0]}</b><b className="truncate text-[17px]" style={{ color: COLOURS[part] }}>{name}</b><button onPointerDown={event => event.stopPropagation()} onClick={onToggleCollapse} title={`Collapse ${name} piano roll`} className="ml-auto rounded px-1 text-sm text-slate-400 hover:bg-white/10 hover:text-white">▾</button></div>
       {pitches.map((pitch, index) => { const sharp = [1, 3, 6, 8, 10].includes(pitch % 12); const outside = pitch < range.natural.min || pitch > range.natural.max; return <span key={pitch} className={`absolute right-1 flex items-center justify-end border font-mono text-[12px] font-bold shadow-sm ${sharp ? 'w-[86px] rounded-l-md border-slate-600 bg-[linear-gradient(90deg,#05070d,#222a3d)] pr-2 text-cyan-100' : 'left-1 rounded-l-md border-slate-300/30 bg-[linear-gradient(90deg,#edf4ff,#aebbd2)] pr-3 text-[#111827]'}`} style={{ top: PITCH_HEADER_HEIGHT + index * PITCH_ROW_HEIGHT + 1, height: PITCH_ROW_HEIGHT - 2, opacity: outside ? .45 : 1 }}><span className="mr-auto ml-2 text-[8px] opacity-55">{sharp ? '♯' : '▏'}</span>{midiNoteName(pitch)}</span>; })}
     </div>
-    <div onClick={event => onAdd(part, event)} className={`relative bg-[#060919] ${tool === 'draw' ? 'cursor-crosshair' : tool === 'erase' ? 'cursor-not-allowed' : 'cursor-default'}`} style={{ width, height: laneHeight }}><MusicalGridOverlay bars={bars} zoom={zoom} labels subtle={freeGrid} />
+    <div onClick={event => onAdd(part, event)} onDoubleClick={event => onAddDouble(part, event)} className={`relative bg-[#060919] ${tool === 'erase' ? 'cursor-not-allowed' : 'cursor-default'}`} style={{ width, height: laneHeight }}><MusicalGridOverlay bars={bars} zoom={zoom} labels subtle={freeGrid} />
       <span className="pointer-events-none absolute inset-x-0 top-0 h-[34px] border-b border-cyan-200/15 bg-[linear-gradient(90deg,rgba(255,255,255,.035),transparent)]" />
       {pitches.map((pitch, index) => { const outside = pitch < range.natural.min || pitch > range.natural.max; return <span key={pitch} title={outside ? `${midiNoteName(pitch)} is outside the comfortable ${name} range — usable, but a stretch` : undefined} className={`pointer-events-none absolute inset-x-0 border-b ${[1, 3, 6, 8, 10].includes(pitch % 12) ? 'border-white/[.035] bg-black/25' : pitch % 12 === 0 ? 'border-cyan-100/20 bg-cyan-200/[.025]' : 'border-white/[.075]'}`} style={{ top: PITCH_HEADER_HEIGHT + index * PITCH_ROW_HEIGHT, height: PITCH_ROW_HEIGHT, boxShadow: outside ? 'inset 0 0 0 999px rgba(2,6,23,.55)' : undefined }} />; })}
       {selectedRange && <span className="pointer-events-none absolute inset-y-0 z-[1] bg-fuchsia-300/15 ring-1 ring-inset ring-fuchsia-200/60" style={{ left: selectedRange.start * zoom, width: Math.max(2, (selectedRange.end - selectedRange.start) * zoom) }} />}
       {playhead !== null && <span className="pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-white shadow-[0_0_12px_#f4a5ff]" style={{ left: playhead * zoom }} />}
-      {notes.filter(note => note.part === part || note.part === -1).map(note => { const active = playhead !== null && playhead >= note.start && playhead < note.end; const inRange = selectedRange && note.end >= selectedRange.start && note.start <= selectedRange.end; const isSelected = selectedIds.includes(note.id); const position = beatPositionAt(bars, note.start); const beatLabel = compactBeatLabel(position); const offsetLabel = position ? beatOffsetLabel(position.fraction) : 'No beat'; return <button key={note.id} data-note-id={note.id} aria-pressed={isSelected} title={`${midiNoteName(note.midi)} · Bar/beat ${beatLabel} · ${offsetLabel} · ${note.start.toFixed(3)}s–${note.end.toFixed(3)}s · drag in any direction`} onPointerDown={event => beginMove(event, note)} onPointerMove={move} onPointerUp={finishMove} onPointerCancel={finishMove} onDoubleClick={event => { event.stopPropagation(); const additive = event.ctrlKey || event.metaKey || event.shiftKey; if (!isSelected || additive) onSelect(note.id, additive); }} onClick={event => { event.stopPropagation(); if (suppressNoteClick.current) { suppressNoteClick.current = false; return; } if (tool === 'erase') onRemove(note.id); else onSelect(note.id, event.ctrlKey || event.metaKey || event.shiftKey); }} className={`absolute z-10 touch-none overflow-visible rounded-md border text-left text-[9px] font-black text-[#07111d] transition-[filter,box-shadow] ${tool === 'select' || tool === 'draw' ? 'cursor-move active:cursor-grabbing' : ''}`} style={{ left: note.start * zoom, top: PITCH_HEADER_HEIGHT + (range.max - note.midi) * PITCH_ROW_HEIGHT + 2, width: Math.max(24, (note.end - note.start) * zoom - 2), height: PITCH_ROW_HEIGHT - 4, background: `linear-gradient(180deg,#ffffffaa 0,#ffffff20 42%,#00000018 100%),${COLOURS[part]}`, borderColor: isSelected ? '#fff' : `${COLOURS[part]}dd`, boxShadow: active ? `0 0 28px 6px ${COLOURS[part]}` : isSelected ? `0 0 0 2px #fff,0 0 22px ${COLOURS[part]}` : `0 4px 8px #000b,0 0 8px ${COLOURS[part]}55`, outline: active ? '2px solid white' : inRange ? '2px solid #f5d0fe' : 'none' }}><span className="flex h-full min-w-0 items-center gap-1 overflow-hidden px-1"><b className="shrink-0 rounded bg-black/65 px-1 py-px text-[8px] text-white">{midiNoteName(note.midi)}</b><em className="truncate not-italic">{note.lyric || 'Note'}</em>{isSelected && <small className="ml-auto shrink-0 rounded bg-white/80 px-1 font-mono text-[8px] text-[#11152a]">{beatLabel}</small>}</span>{tool !== 'erase' && <span aria-label="Drag to resize note" onPointerDown={event => beginResize(event, note)} onPointerMove={resize} onPointerUp={finishResize} onPointerCancel={finishResize} className="absolute -right-1 top-0 h-full w-2 cursor-ew-resize rounded-r bg-white/85 opacity-0 transition-opacity hover:opacity-100 focus:opacity-100" />}</button>; })}
+      {notes.filter(note => note.part === part || note.part === -1).map(note => { const active = playhead !== null && playhead >= note.start && playhead < note.end; const inRange = selectedRange && note.end >= selectedRange.start && note.start <= selectedRange.end; const isSelected = selectedIds.includes(note.id); const position = beatPositionAt(bars, note.start); const beatLabel = compactBeatLabel(position); const offsetLabel = position ? beatOffsetLabel(position.fraction) : 'No beat'; return <button key={note.id} data-note-id={note.id} aria-pressed={isSelected} title={`${midiNoteName(note.midi)} · Bar/beat ${beatLabel} · ${offsetLabel} · ${note.start.toFixed(3)}s–${note.end.toFixed(3)}s · drag in any direction`} onPointerDown={event => beginMove(event, note)} onPointerMove={move} onPointerUp={finishMove} onPointerCancel={finishMove} onDoubleClick={event => { event.stopPropagation(); const additive = event.ctrlKey || event.metaKey || event.shiftKey; if (!isSelected || additive) onSelect(note.id, additive); }} onClick={event => { event.stopPropagation(); if (suppressNoteClick.current) { suppressNoteClick.current = false; return; } if (tool === 'erase') onRemove(note.id); else onSelect(note.id, event.ctrlKey || event.metaKey || event.shiftKey); }} className={`absolute z-10 touch-none overflow-visible rounded-md border text-left text-[9px] font-black text-[#07111d] transition-[filter,box-shadow] ${tool === 'select' ? 'cursor-move active:cursor-grabbing' : ''}`} style={{ left: note.start * zoom, top: PITCH_HEADER_HEIGHT + (range.max - note.midi) * PITCH_ROW_HEIGHT + 2, width: Math.max(24, (note.end - note.start) * zoom - 2), height: PITCH_ROW_HEIGHT - 4, background: `linear-gradient(180deg,#ffffffaa 0,#ffffff20 42%,#00000018 100%),${COLOURS[part]}`, borderColor: isSelected ? '#fff' : `${COLOURS[part]}dd`, boxShadow: active ? `0 0 28px 6px ${COLOURS[part]}` : isSelected ? `0 0 0 2px #fff,0 0 22px ${COLOURS[part]}` : `0 4px 8px #000b,0 0 8px ${COLOURS[part]}55`, outline: active ? '2px solid white' : inRange ? '2px solid #f5d0fe' : 'none' }}><span className="flex h-full min-w-0 items-center gap-1 overflow-hidden px-1"><b className="shrink-0 rounded bg-black/65 px-1 py-px text-[8px] text-white">{midiNoteName(note.midi)}</b><em className="truncate not-italic">{note.lyric || 'Note'}</em>{isSelected && <small className="ml-auto shrink-0 rounded bg-white/80 px-1 font-mono text-[8px] text-[#11152a]">{beatLabel}</small>}</span>{tool !== 'erase' && <span aria-label="Drag to resize note" onPointerDown={event => beginResize(event, note)} onPointerMove={resize} onPointerUp={finishResize} onPointerCancel={finishResize} className="absolute -right-1 top-0 h-full w-2 cursor-ew-resize rounded-r bg-white/85 opacity-0 transition-opacity hover:opacity-100 focus:opacity-100" />}</button>; })}
     </div>
   </div>;
 }
