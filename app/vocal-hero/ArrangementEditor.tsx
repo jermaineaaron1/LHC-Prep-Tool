@@ -989,7 +989,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   /** Rewrite the marks (and optionally velocity) of every selected note, in
    *  time order, in one history step. Empty marks objects are dropped so the
    *  stored JSON stays clean. */
-  function editSelectionMarks(mutate: (marks: NoteMarks, index: number, count: number) => { marks: NoteMarks; velocity?: number }) {
+  function editSelectionMarks(mutate: (marks: NoteMarks, note: SongNote, index: number, count: number) => { marks: NoteMarks; velocity?: number }) {
     if (!selectedIds.length) return;
     pushHistory();
     setNotes(current => {
@@ -998,7 +998,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       return current.map(note => {
         const index = order.get(note.id);
         if (index === undefined) return note;
-        const result = mutate({ ...(note.marks ?? {}) }, index, chosen.length);
+        const result = mutate({ ...(note.marks ?? {}) }, note, index, chosen.length);
         const kept = Object.fromEntries(Object.entries(result.marks).filter(([, value]) => value !== undefined && value !== false));
         return { ...note, marks: Object.keys(kept).length ? kept as NoteMarks : undefined, ...(result.velocity !== undefined ? { velocity: result.velocity } : {}) };
       });
@@ -1016,14 +1016,25 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     editSelectionMarks(marks => ({ marks: { ...marks, [key]: allHave ? undefined : true } }));
   }
   function applySpanToSelection(kind: 'slur' | 'cresc' | 'decresc') {
-    if (selectedNotes.length < 2) return;
-    const first = selectedNotes[0], last = selectedNotes[selectedNotes.length - 1];
-    const already = kind === 'slur'
-      ? first.marks?.slur === 'start' && last.marks?.slur === 'end'
-      : first.marks?.hairpin === kind && last.marks?.hairpin === 'end';
-    editSelectionMarks((marks, index, count) => {
-      if (kind === 'slur') return { marks: { ...marks, slur: already ? undefined : index === 0 ? 'start' : index === count - 1 ? 'end' : undefined } };
-      return { marks: { ...marks, hairpin: already ? undefined : index === 0 ? kind : index === count - 1 ? 'end' : undefined } };
+    // A span is a VOICE-level thing, so the selection is grouped by part and
+    // every part with two or more selected notes gets its own span — select a
+    // phrase across all four voices and the whole choir swells together. The
+    // old rule took the global first and last note, which in a cross-voice
+    // selection put the two ends in different parts: they never paired, and
+    // nothing drew.
+    const byPart = new Map<number, SongNote[]>();
+    for (const note of selectedNotes) { const list = byPart.get(note.part) ?? []; list.push(note); byPart.set(note.part, list); }
+    const eligible = [...byPart.values()].filter(list => list.length >= 2);
+    if (!eligible.length) return;
+    const roles = new Map<string, 'first' | 'last'>();
+    for (const list of eligible) { roles.set(list[0].id, 'first'); roles.set(list[list.length - 1].id, 'last'); }
+    const already = eligible.every(list => kind === 'slur'
+      ? list[0].marks?.slur === 'start' && list[list.length - 1].marks?.slur === 'end'
+      : list[0].marks?.hairpin === kind && list[list.length - 1].marks?.hairpin === 'end');
+    editSelectionMarks((marks, note) => {
+      const role = roles.get(note.id);
+      if (kind === 'slur') return { marks: { ...marks, slur: already ? undefined : role === 'first' ? 'start' : role === 'last' ? 'end' : undefined } };
+      return { marks: { ...marks, hairpin: already ? undefined : role === 'first' ? kind : role === 'last' ? 'end' : undefined } };
     });
   }
   function clearMarksOnSelection() {
@@ -1888,9 +1899,11 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onClear }: {
   const DYNAMICS: DynamicMark[] = ['pp', 'p', 'mp', 'mf', 'f', 'ff'];
   const activeDynamic = selection.every(note => note.marks?.dynamic === selection[0]?.marks?.dynamic) ? selection[0]?.marks?.dynamic : undefined;
   const allHave = (key: 'staccato' | 'tenuto' | 'fermata') => selection.every(note => note.marks?.[key]);
-  const spanned = (kind: 'slur' | 'cresc' | 'decresc') => selection.length >= 2 && (kind === 'slur'
-    ? selection[0].marks?.slur === 'start' && selection[selection.length - 1].marks?.slur === 'end'
-    : selection[0].marks?.hairpin === kind && selection[selection.length - 1].marks?.hairpin === 'end');
+  const voices = [...selection.reduce((map, note) => { const list = map.get(note.part) ?? []; list.push(note); map.set(note.part, list); return map; }, new Map<number, SongNote[]>()).values()].filter(list => list.length >= 2);
+  const spanReady = voices.length > 0;
+  const spanned = (kind: 'slur' | 'cresc' | 'decresc') => spanReady && voices.every(list => kind === 'slur'
+    ? list[0].marks?.slur === 'start' && list[list.length - 1].marks?.slur === 'end'
+    : list[0].marks?.hairpin === kind && list[list.length - 1].marks?.hairpin === 'end');
   const toggleClass = (on: boolean) => `rounded-lg border px-2.5 py-1.5 ${on ? 'border-amber-300/60 bg-amber-300/15 text-amber-100' : 'border-white/12 text-slate-300 hover:bg-white/[.06]'}`;
   return <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-amber-300/20 bg-[#0a0d1f] px-3 py-2 text-xs">
     <span className="text-[9px] font-black uppercase tracking-[.18em] text-amber-200/80">Expression · {selection.length} note{selection.length === 1 ? '' : 's'}</span>
@@ -1903,9 +1916,9 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onClear }: {
     <button onClick={() => onToggle('tenuto')} title="Tenuto — sustain the note its full written length" className={toggleClass(allHave('tenuto'))}>–&nbsp;Sustain</button>
     <button onClick={() => onToggle('fermata')} title="Fermata — the pause, engraved over the note" className={toggleClass(allHave('fermata'))}>{'\u{1D110}'}&nbsp;Pause</button>
     <span className="h-5 w-px bg-white/10" />
-    <button onClick={() => onSpan('slur')} disabled={selection.length < 2} title="Slur / legato — one arc over the selected notes (select 2 or more)" className={`${toggleClass(spanned('slur'))} disabled:opacity-35`}>⌒&nbsp;Slur</button>
-    <button onClick={() => onSpan('cresc')} disabled={selection.length < 2} title="Crescendo — grow through the selected notes" className={`${toggleClass(spanned('cresc'))} disabled:opacity-35`}>&lt;&nbsp;Cresc.</button>
-    <button onClick={() => onSpan('decresc')} disabled={selection.length < 2} title="Decrescendo — fade through the selected notes" className={`${toggleClass(spanned('decresc'))} disabled:opacity-35`}>&gt;&nbsp;Decresc.</button>
+    <button onClick={() => onSpan('slur')} disabled={!spanReady} title="Slur / legato — one arc over the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices slurs each of them." className={`${toggleClass(spanned('slur'))} disabled:opacity-35`}>⌒&nbsp;Slur</button>
+    <button onClick={() => onSpan('cresc')} disabled={!spanReady} title="Crescendo — grow through the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices swells them together." className={`${toggleClass(spanned('cresc'))} disabled:opacity-35`}>&lt;&nbsp;Cresc.</button>
+    <button onClick={() => onSpan('decresc')} disabled={!spanReady} title="Decrescendo — fade through the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices fades them together." className={`${toggleClass(spanned('decresc'))} disabled:opacity-35`}>&gt;&nbsp;Decresc.</button>
     <button onClick={onClear} title="Remove every marking from the selection" className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">✕ Clear</button>
   </div>;
 }
