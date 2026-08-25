@@ -8,7 +8,7 @@ import type { TrailSample } from '@/lib/vocal-hero/trail';
 import { KaraokeLyrics } from './KaraokeLyrics';
 import { MicError, PitchEngine, type MicFailure } from '@/lib/vocal-hero/pitchEngine';
 import { rememberWorkingDevice, storedWorkingDevice } from '@/lib/vocal-hero/micReport';
-import { isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
+import { gameNotes, isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
 import { detectionRange, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { transposeNotes } from './TransposePicker';
 import { useNarrow } from '@/lib/vocal-hero/useNarrow';
@@ -76,7 +76,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
   const levelRef = useRef(0);
   const lastTextPaintRef = useRef(0);
 
-  const allNotes = useMemo(() => transposeNotes(playableNotes(song), transpose), [song, transpose]);
+  const allNotes = useMemo(() => transposeNotes(gameNotes(song), transpose), [song, transpose]);
   const guide = isGuideMelody(allNotes);
   const lanePart = guide ? -1 : part;
   const myNotes = useMemo(() => allNotes.filter(note => note.part === lanePart || note.part === -1), [allNotes, lanePart]);

@@ -17,6 +17,7 @@ import { BackingTrackPanel } from './BackingTrackPanel';
 import { BackingTrackLane } from './BackingTrackLane';
 import { DEFAULT_TARGETS_PER_PHRASE } from '@/lib/vocal-hero/liveCues';
 import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, splitIntoSyllables, spreadLyricsAcrossNotes, alignToMelodyRhythm } from '@/lib/vocal-hero/arrange';
+import { interpretMarks, unwarpTime, warpTime } from '@/lib/vocal-hero/performMarks';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#ffae42', '#4ca0ff', '#43e2bb'];
@@ -1285,18 +1286,28 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const first = requested >= end - .01 ? start : requested;
     const preview = ordered.filter(note => note.start <= end && note.end >= first);
     const transportRate = Math.max(.5, Math.min(1.5, trackSettings.speed));
+    // The marks PLAY: hairpins ramp loudness across their span, slurs run
+    // legato, and fermatas hold time itself — the cursor waits on the held
+    // note and everything after arrives later. A backing track cannot wait,
+    // so with one loaded the holds are skipped and time stays literal.
+    const performed = interpretMarks(activePerformance.notes);
+    const holds = mediaUrl && noteView !== 'rendition' ? [] : performed.holds.filter(hold => hold.at > first + .01 && hold.at <= end + .01);
+    const totalHeld = holds.reduce((sum, hold) => sum + hold.extra, 0);
     if (preview.length) {
       const context = new AudioContext();
       audioContextRef.current = context;
       void context.resume();
       preview.forEach(note => {
         const audibleStart = Math.max(note.start, first);
-        const at = (audibleStart - first) / transportRate;
-        const length = Math.max(.07, (Math.min(note.end, end) - audibleStart) / transportRate);
-        // Articulation is audible: staccato speaks at half length, tenuto
-        // holds through the articulation gap.
-        const played = note.marks?.staccato ? Math.max(.05, length * 0.5) : note.marks?.tenuto ? length * 1.04 : length;
-        playPianoTone(context, note, context.currentTime + at, played);
+        const at = (warpTime(holds, audibleStart) - first) / transportRate;
+        let length = Math.max(.07, (Math.min(note.end, end) - audibleStart));
+        const hold = holds.find(item => Math.abs(item.at - note.end) < 0.12);
+        if (hold) length += hold.extra;                    // the held note sustains through its pause
+        else if (note.marks?.staccato) length = Math.max(.05, length * 0.5);
+        else if (performed.legato.has(note.id)) length = Math.max(length, (performed.nextStart.get(note.id) ?? note.end) - audibleStart);
+        else if (note.marks?.tenuto) length *= 1.04;
+        const velocity = performed.velocity.get(note.id);
+        playPianoTone(context, velocity !== undefined ? { ...note, velocity } : note, context.currentTime + at, length / transportRate);
       });
     }
     // The backing track belongs to the song as recorded; a compiled
@@ -1307,7 +1318,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const startedAt = performance.now();
     const tick = () => {
       if (!transportRunningRef.current) return;
-      const next = Math.min(end, first + ((performance.now() - startedAt) / 1000) * transportRate);
+      const perfNow = first + ((performance.now() - startedAt) / 1000) * transportRate;
+      const next = Math.min(end, unwarpTime(holds, perfNow));
       playheadRef.current = next;
       setPlayhead(next);
       if (next < end) animationFrameRef.current = requestAnimationFrame(tick);
@@ -1315,7 +1327,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     transportRunningRef.current = true;
     setIsPlaying(true);
     tick();
-    playbackTimerRef.current = setTimeout(() => finishPlayback(end), Math.max(.1, (end - first) / transportRate) * 1000 + 80);
+    playbackTimerRef.current = setTimeout(() => finishPlayback(end), Math.max(.1, (end - first + totalHeld) / transportRate) * 1000 + 80);
   }
   function playFromCursor() { startPlaybackAt(playheadRef.current); }
   function playFromStart() { const selection = playbackSelection(); startPlaybackAt(selection.start); }

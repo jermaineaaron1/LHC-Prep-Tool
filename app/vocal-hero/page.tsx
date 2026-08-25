@@ -10,7 +10,7 @@ import {
 import type { GameSession, SectionScore, SessionPlayer, Song, SongNote } from '@/lib/vocal-hero/types';
 import { clearTrail, pushTrail } from '@/lib/vocal-hero/trail';
 import type { TrailSample } from '@/lib/vocal-hero/trail';
-import { isGuideMelody, playableNotes, playablePart } from '@/lib/vocal-hero/songData';
+import { gameNotes, isGuideMelody, playablePart } from '@/lib/vocal-hero/songData';
 import { measureServerClockOffset } from '@/lib/vocal-hero/clock';
 import { ArrangementEditor } from './ArrangementEditor';
 import { MicError, PitchEngine, type MicFailure } from '@/lib/vocal-hero/pitchEngine';
@@ -164,7 +164,7 @@ export default function VocalHeroHostPage() {
   // plus a tail so the final note's own scoring window can close.
   const finishesAt = useMemo(() => {
     if (!song) return Number.POSITIVE_INFINITY;
-    const lastNote = playableNotes(song).reduce((latest, note) => Math.max(latest, note.end), 0);
+    const lastNote = gameNotes(song).reduce((latest, note) => Math.max(latest, note.end), 0);
     return Math.max(song.duration || 0, lastNote) + END_TAIL_SEC;
   }, [song]);
   const runningTimeline = timelineFor(session, now + clockOffset);
@@ -260,7 +260,7 @@ export default function VocalHeroHostPage() {
     if (!session || !song || !soloPlayer || soloPart === null || session.status !== 'playing' || soloScoreStartedRef.current) return;
     soloScoreStartedRef.current = true;
     const scorer = new ScoreEngine({
-      part: playablePart(song, soloPart), partIndex: soloPart, notes: transposeNotes(playableNotes(song), transpose), songDuration: song.duration,
+      part: playablePart(song, soloPart), partIndex: soloPart, notes: transposeNotes(gameNotes(song), transpose), songDuration: song.duration,
       playerId: soloPlayer.id, sessionId: session.id, difficulty, practice: warmUp,
       onScoreUpdate: (_, total) => setSoloScore(total),
       onNoteResult: result => { resultsRef.current.push(result); setSoloHits(current => ({ ...current, [result.noteId]: result.points > 0 })); setSoloLastResult(result); },
@@ -280,7 +280,7 @@ export default function VocalHeroHostPage() {
   useEffect(() => {
     if (session?.status !== 'ended' || !soloPlayer) return;
     soloPitchRef.current?.stop();
-    if (song) setSoloReview(summariseRound(resultsRef.current, transposeNotes(playableNotes(song), transposeRef.current)));
+    if (song) setSoloReview(summariseRound(resultsRef.current, transposeNotes(gameNotes(song), transposeRef.current)));
     const scorer = soloScoreRef.current;
     if (!scorer) return;
     // stop() resolves the note still in progress, so the counts change during
@@ -456,7 +456,7 @@ export default function VocalHeroHostPage() {
     setGamePaused(false); setPausedElapsed(0); pauseStartedRef.current = 0;
   }
 
-  const notes = useMemo(() => song ? playableNotes(song) : [], [song]);
+  const notes = useMemo(() => song ? gameNotes(song) : [], [song]);
   notesRef.current = notes;
   const soloNotes = useMemo(() => transposeNotes(notes, transpose), [notes, transpose]);
   // The starting notes, sounded once in each countdown: once while the round is
