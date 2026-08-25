@@ -1,3 +1,4 @@
+import { applyFermataHolds } from './performMarks';
 import type { SatbPart, Song, SongNote } from './types';
 
 const FALLBACK_RANGES = [
@@ -16,6 +17,14 @@ const FALLBACK_RANGES = [
  * The resulting -1 part is a shared melody guide. It must never be rendered as
  * four cloned SATB parts: true SATB lanes require an authored arrangement.
  */
+/** The notes a GAME surface should run on: the written notes with fermata
+ *  holds baked into real time — unless the song has a backing track, which
+ *  cannot wait, in which case time stays literal. */
+export function gameNotes(song: Song): SongNote[] {
+  const written = playableNotes(song);
+  return song.backing_media_url ? written : applyFermataHolds(written);
+}
+
 export function playableNotes(song: Song): SongNote[] {
   if (song.notes?.length) return song.notes;
   const chordGroups: Array<Array<NonNullable<Song['game_notes']>[number]>> = [];

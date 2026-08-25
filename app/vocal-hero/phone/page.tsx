@@ -27,7 +27,7 @@ import { summariseRound } from '@/lib/vocal-hero/review';
 import type { RoundReview } from '@/lib/vocal-hero/review';
 import { TransposeBadge, TransposePicker, rememberTranspose, storedTranspose, transposeNotes } from '../TransposePicker';
 import { WarmUpBadge, WarmUpToggle } from '../WarmUpToggle';
-import { isGuideMelody, playableNotes, playablePart } from '@/lib/vocal-hero/songData';
+import { gameNotes, isGuideMelody, playablePart } from '@/lib/vocal-hero/songData';
 import { measureServerClockOffset } from '@/lib/vocal-hero/clock';
 import { detectionRange, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { KaraokeLyrics } from '../KaraokeLyrics';
@@ -149,7 +149,7 @@ function PhoneGame() {
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [session?.status]);
-  const runningTimeline = timelineFor(session, now + clockOffset); const timeline = session?.paused ? { phase: 'Paused', songElapsed: pausedElapsed } : runningTimeline; const notes = useMemo(() => transposeNotes(song ? playableNotes(song) : [], transpose), [song, transpose]); notesRef.current = song ? playableNotes(song) : []; const part = song ? playablePart(song, partIndex) : null;
+  const runningTimeline = timelineFor(session, now + clockOffset); const timeline = session?.paused ? { phase: 'Paused', songElapsed: pausedElapsed } : runningTimeline; const notes = useMemo(() => transposeNotes(song ? gameNotes(song) : [], transpose), [song, transpose]); notesRef.current = song ? gameNotes(song) : []; const part = song ? playablePart(song, partIndex) : null;
   useEffect(() => { if (session?.paused) setPausedElapsed(runningTimeline.songElapsed); }, [session?.paused]);
   clockInputsRef.current = { session, clockOffset, paused: Boolean(session?.paused), pausedElapsed };
   // Only while no round is running: during one the animation loop owns these.

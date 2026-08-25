@@ -80,6 +80,26 @@ export function warpTime(holds: PerformanceHold[], time: number): number {
   return holds.reduce((total, hold) => total + (time > hold.at + 0.001 ? hold.extra : 0), time);
 }
 
+/** Bake the fermata holds into the notes themselves, for surfaces that run
+ *  on the literal clock (game rounds, practice): the held note becomes
+ *  longer, notes spanning the moment sustain through it, and everything
+ *  after arrives later — so lanes, scoring windows, live lyrics and the
+ *  review all honour the pause with no clock arithmetic anywhere. */
+export function applyFermataHolds(notes: SongNote[]): SongNote[] {
+  const { holds } = interpretMarks(notes);
+  if (!holds.length) return notes;
+  const ms = (value: number) => Math.round(value * 1000) / 1000;
+  return notes.map(note => {
+    let shift = 0, extend = 0;
+    for (const hold of holds) {
+      if (note.start >= hold.at - 0.001) shift += hold.extra;   // starting AT the pause means waiting through it
+      else if (Math.abs(note.end - hold.at) < 0.12 || (note.start < hold.at - 0.001 && note.end > hold.at + 0.001)) extend += hold.extra;
+    }
+    if (!shift && !extend) return note;
+    return { ...note, start: ms(note.start + shift), end: ms(note.end + shift + extend) };
+  });
+}
+
 /** Performance time -> score time. During a hold the score stands still at
  *  the held moment — which is exactly what the playback cursor should do. */
 export function unwarpTime(holds: PerformanceHold[], performance: number): number {
