@@ -1,4 +1,4 @@
-import { applyFermataHolds } from './performMarks';
+import { applyPerformanceTiming } from './performMarks';
 import type { SatbPart, Song, SongNote } from './types';
 
 const FALLBACK_RANGES = [
@@ -22,7 +22,7 @@ const FALLBACK_RANGES = [
  *  cannot wait, in which case time stays literal. */
 export function gameNotes(song: Song): SongNote[] {
   const written = playableNotes(song);
-  return song.backing_media_url ? written : applyFermataHolds(written);
+  return song.backing_media_url ? written : applyPerformanceTiming(written);
 }
 
 export function playableNotes(song: Song): SongNote[] {

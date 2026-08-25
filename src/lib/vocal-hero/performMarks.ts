@@ -12,7 +12,7 @@
 //   after it — in every voice — arrives later. Holds at the same moment in
 //   different voices are one hold, the way a choir breathes together.
 
-import type { SongNote } from './types';
+import type { SongNote, TempoMarkKind } from './types';
 
 export interface PerformanceHold { at: number; extra: number }
 
@@ -78,6 +78,118 @@ export function interpretMarks(all: SongNote[]): MarkPerformance {
 /** Score time -> performance time: everything after a hold arrives later. */
 export function warpTime(holds: PerformanceHold[], time: number): number {
   return holds.reduce((total, hold) => total + (time > hold.at + 0.001 ? hold.extra : 0), time);
+}
+
+/** The tempo landscape the marks describe: piecewise-linear speed factors
+ *  (1 = as written), one segment per region between tempo marks. rit ramps
+ *  to 70% of the prevailing speed, accel to 130%, a tempo restores 1, and
+ *  Allegro is a brisk constant 1.25 — and the music KEEPS a ramp's arrival
+ *  speed until told otherwise, exactly as players would. */
+export interface TempoSegment { from: number; to: number; f1: number; f2: number }
+
+export function tempoSegments(notes: SongNote[], until: number): TempoSegment[] {
+  const markers: Array<{ at: number; kind: TempoMarkKind }> = [];
+  for (const note of notes) {
+    if (!note.marks?.tempo) continue;
+    if (markers.some(marker => Math.abs(marker.at - note.start) < 0.1)) continue;  // one mark per moment, whichever voice carries it
+    markers.push({ at: note.start, kind: note.marks.tempo });
+  }
+  markers.sort((a, b) => a.at - b.at);
+  if (!markers.length) return [];
+  const segments: TempoSegment[] = [];
+  let prevailing = 1;
+  if (markers[0].at > 0.001) segments.push({ from: 0, to: markers[0].at, f1: 1, f2: 1 });
+  markers.forEach((marker, index) => {
+    const to = markers[index + 1]?.at ?? Math.max(until, marker.at + 0.001);
+    let f1 = prevailing, f2 = prevailing;
+    if (marker.kind === 'rit') { f1 = prevailing; f2 = Math.max(0.5, prevailing * 0.7); }
+    else if (marker.kind === 'accel') { f1 = prevailing; f2 = Math.min(1.6, prevailing * 1.3); }
+    else if (marker.kind === 'atempo') { f1 = 1; f2 = 1; }
+    else if (marker.kind === 'allegro') { f1 = 1.25; f2 = 1.25; }
+    segments.push({ from: marker.at, to, f1, f2 });
+    prevailing = f2;
+  });
+  return segments;
+}
+
+/** Score time and performance time as one sampled, invertible table: tempo
+ *  ramps integrate continuously, fermata holds insert their pauses, and both
+ *  directions are a binary search away. Null when the marks change nothing —
+ *  callers can skip all arithmetic. */
+export interface WarpTable { score: number[]; perf: number[] }
+
+export function buildWarpTable(notes: SongNote[], until: number): WarpTable | null {
+  const { holds } = interpretMarks(notes);
+  const segments = tempoSegments(notes, until);
+  const flat = segments.every(segment => Math.abs(segment.f1 - 1) < 1e-6 && Math.abs(segment.f2 - 1) < 1e-6);
+  if (!holds.length && (!segments.length || flat)) return null;
+  const factorAt = (time: number) => {
+    for (const segment of segments) {
+      if (time >= segment.from - 1e-9 && time < segment.to) {
+        const t = (time - segment.from) / Math.max(1e-9, segment.to - segment.from);
+        return segment.f1 + (segment.f2 - segment.f1) * t;
+      }
+    }
+    return segments.length && time >= segments[segments.length - 1].to ? segments[segments.length - 1].f2 : 1;
+  };
+  const score: number[] = [0];
+  const perf: number[] = [0];
+  const step = 0.05;
+  let accumulated = 0;
+  let holdIndex = 0;
+  for (let time = step; time <= until + step; time += step) {
+    const mid = time - step / 2;
+    accumulated += step / Math.max(0.25, factorAt(mid));
+    while (holdIndex < holds.length && holds[holdIndex].at <= time + 1e-9) {
+      // land a point exactly at the hold, then jump: everything at or after
+      // the pause arrives later, and the plateau inverts to a standing cursor
+      const at = holds[holdIndex].at;
+      const partial = accumulated - (time - at) / Math.max(0.25, factorAt(mid));
+      score.push(at); perf.push(partial);
+      score.push(at); perf.push(partial + holds[holdIndex].extra);
+      accumulated += holds[holdIndex].extra;
+      holdIndex += 1;
+    }
+    score.push(time); perf.push(accumulated);
+  }
+  return { score, perf };
+}
+
+const lookup = (from: number[], to: number[], value: number): number => {
+  if (value <= from[0]) return to[0];
+  let low = 0, high = from.length - 1;
+  if (value >= from[high]) return to[high] + (value - from[high]);
+  while (high - low > 1) { const mid = (low + high) >> 1; if (from[mid] <= value) low = mid; else high = mid; }
+  const spanFrom = from[high] - from[low];
+  if (spanFrom < 1e-9) return to[low];
+  return to[low] + (to[high] - to[low]) * ((value - from[low]) / spanFrom);
+};
+
+/** Score time -> performance time through the table. */
+export function tableWarp(table: WarpTable, time: number): number { return lookup(table.score, table.perf, time); }
+/** Performance time -> score time; a fermata's plateau maps to its moment. */
+export function tableUnwarp(table: WarpTable, performance: number): number { return lookup(table.perf, table.score, performance); }
+
+/** Remap the notes into performance time, for surfaces that run on the
+ *  literal clock (game rounds, practice): ritardando genuinely broadens the
+ *  bars, accelerando tightens them, a fermata's note lasts through its
+ *  pause, and every voice agrees because it is one table. */
+export function applyPerformanceTiming(notes: SongNote[]): SongNote[] {
+  const until = notes.length ? Math.max(...notes.map(note => note.end)) + 1 : 1;
+  const table = buildWarpTable(notes, until);
+  if (!table) return notes;
+  const { holds } = interpretMarks(notes);
+  const ms = (value: number) => Math.round(value * 1000) / 1000;
+  return notes.map(note => {
+    const start = tableWarp(table, note.start);
+    let end = tableWarp(table, note.end);
+    // The table's plateau already lands AFTER the pause at the hold's exact
+    // moment; this only catches a note whose stored end sits a few ms shy of
+    // it, so that note still sustains through the hold.
+    const hold = holds.find(item => Math.abs(item.at - note.end) < 0.12);
+    if (hold) end = tableWarp(table, hold.at);
+    return { ...note, start: ms(start), end: ms(end) };
+  });
 }
 
 /** Bake the fermata holds into the notes themselves, for surfaces that run

@@ -50,7 +50,13 @@ export interface NoteMarks {
   slur?: 'start' | 'end';
   /** A hairpin: 'cresc' or 'decresc' on its first note, 'end' on its last. */
   hairpin?: 'cresc' | 'decresc' | 'end';
+  /** A tempo instruction taking effect at this note: ritardando and
+   * accelerando ramp until the next tempo mark (or the end), 'atempo'
+   * returns to the written speed, 'allegro' sets a brisk constant. */
+  tempo?: TempoMarkKind;
 }
+
+export type TempoMarkKind = 'rit' | 'accel' | 'atempo' | 'allegro';
 
 export interface VocalExpressionPoint {
   offset: number;
