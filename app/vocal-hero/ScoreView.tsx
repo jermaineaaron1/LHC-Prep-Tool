@@ -294,6 +294,8 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
       {beam.double && <line x1={beam.x1} x2={beam.x2} y1={beam.y + (beam.up ? 5 : -5)} y2={beam.y + (beam.up ? 5 : -5)} stroke="#ffffff" strokeWidth={3.2} />}
       {beam.triplet && <text x={(beam.x1 + beam.x2) / 2} y={beam.y + (beam.up ? -4 : 12)} fontSize={10} fontStyle="italic" fontWeight={700} textAnchor="middle" fill="#ffffffcc">3</text>}
     </g>)}
+    {layout.tempoTexts.map((text, i) => <text key={`tempo-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 26}
+      fontSize={12} fontStyle="italic" fontWeight={800} fill="#7dd3fc" fontFamily="Georgia,'Times New Roman',serif">{text.label}</text>)}
     {layout.spans.map((span, i) => {
       const mid = STAFF_MIDS[span.staff];
       const top = span.system * SYSTEM_H + 12;
@@ -611,6 +613,16 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
       else if (glyph.marks!.hairpin === 'end' && openPin) { pushPin(staff, openPin.glyph, glyph, openPin.kind); openPin = null; }
     }
   }
+  // Tempo terms are SCORE-level: whichever voice carries the mark, the term
+  // prints once above the top staff at that moment.
+  const TEMPO_LABELS: Record<string, string> = { rit: 'rit.', accel: 'accel.', atempo: 'a tempo', allegro: 'Allegro' };
+  const tempoTexts: Array<{ x: number; system: number; label: string }> = [];
+  for (const glyph of glyphs) {
+    const kind = glyph.marks?.tempo;
+    if (!kind) continue;
+    if (tempoTexts.some(text => text.system === glyph.system && Math.abs(text.x - glyph.x) < 14)) continue;
+    tempoTexts.push({ x: glyph.x, system: glyph.system, label: TEMPO_LABELS[kind] ?? kind });
+  }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
-  return { glyphs, beams, rests, spans, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
+  return { glyphs, beams, rests, spans, tempoTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
 }

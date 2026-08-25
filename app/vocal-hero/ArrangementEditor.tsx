@@ -7,7 +7,7 @@ import { ScoreView, type ScoreBar } from './ScoreView';
 import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
 import { compileRendition, deriveSections, type RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
-import type { BackingTrackClip, BackingTrackSettings, DynamicMark, MusicalTimelineSettings, NoteMarks, RhythmicNoteValue, Song, SongNote, TimedLyricSection } from '@/lib/vocal-hero/types';
+import type { BackingTrackClip, BackingTrackSettings, DynamicMark, MusicalTimelineSettings, NoteMarks, RhythmicNoteValue, Song, SongNote, TempoMarkKind, TimedLyricSection } from '@/lib/vocal-hero/types';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, midiSourceKey, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
 import { assignXmlParts, parseMusicXml, readMusicXmlFile, type MusicXmlImport } from '@/lib/vocal-hero/musicxml';
@@ -17,7 +17,7 @@ import { BackingTrackPanel } from './BackingTrackPanel';
 import { BackingTrackLane } from './BackingTrackLane';
 import { DEFAULT_TARGETS_PER_PHRASE } from '@/lib/vocal-hero/liveCues';
 import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, splitIntoSyllables, spreadLyricsAcrossNotes, alignToMelodyRhythm } from '@/lib/vocal-hero/arrange';
-import { interpretMarks, unwarpTime, warpTime } from '@/lib/vocal-hero/performMarks';
+import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vocal-hero/performMarks';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#ffae42', '#4ca0ff', '#43e2bb'];
@@ -1015,6 +1015,17 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const allHave = selectedNotes.length > 0 && selectedNotes.every(note => note.marks?.[key]);
     editSelectionMarks(marks => ({ marks: { ...marks, [key]: allHave ? undefined : true } }));
   }
+  function applyTempoToSelection(kind: TempoMarkKind) {
+    // A tempo instruction is a moment, not a range: it lands on the earliest
+    // selected note and takes effect from there — rit. and accel. ramp until
+    // the next tempo mark, a tempo and Allegro hold until the next.
+    const first = selectedNotes[0];
+    if (!first) return;
+    const already = first.marks?.tempo === kind;
+    editSelectionMarks((marks, note) => note.id === first.id
+      ? { marks: { ...marks, tempo: already ? undefined : kind } }
+      : { marks });
+  }
   function applySpanToSelection(kind: 'slur' | 'cresc' | 'decresc') {
     // A span is a VOICE-level thing, so the selection is grouped by part and
     // every part with two or more selected notes gets its own span — select a
@@ -1298,25 +1309,29 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const preview = ordered.filter(note => note.start <= end && note.end >= first);
     const transportRate = Math.max(.5, Math.min(1.5, trackSettings.speed));
     // The marks PLAY: hairpins ramp loudness across their span, slurs run
-    // legato, and fermatas hold time itself — the cursor waits on the held
-    // note and everything after arrives later. A backing track cannot wait,
-    // so with one loaded the holds are skipped and time stays literal.
+    // legato, fermatas hold time itself, and rit./accel./a tempo/Allegro
+    // bend the clock — all through one warp table, so the cursor and the
+    // tones always agree. A backing track cannot wait or bend, so with one
+    // loaded time stays literal.
     const performed = interpretMarks(activePerformance.notes);
-    const holds = mediaUrl && noteView !== 'rendition' ? [] : performed.holds.filter(hold => hold.at > first + .01 && hold.at <= end + .01);
-    const totalHeld = holds.reduce((sum, hold) => sum + hold.extra, 0);
+    const table = mediaUrl && noteView !== 'rendition' ? null : buildWarpTable(activePerformance.notes, end + 1);
+    const w = (time: number) => table ? tableWarp(table, time) : time;
     if (preview.length) {
       const context = new AudioContext();
       audioContextRef.current = context;
       void context.resume();
       preview.forEach(note => {
         const audibleStart = Math.max(note.start, first);
-        const at = (warpTime(holds, audibleStart) - first) / transportRate;
-        let length = Math.max(.07, (Math.min(note.end, end) - audibleStart));
-        const hold = holds.find(item => Math.abs(item.at - note.end) < 0.12);
-        if (hold) length += hold.extra;                    // the held note sustains through its pause
-        else if (note.marks?.staccato) length = Math.max(.05, length * 0.5);
-        else if (performed.legato.has(note.id)) length = Math.max(length, (performed.nextStart.get(note.id) ?? note.end) - audibleStart);
-        else if (note.marks?.tenuto) length *= 1.04;
+        const at = (w(audibleStart) - w(first)) / transportRate;
+        // Lengths live in performance time now, so a ritardando's notes are
+        // genuinely broader and a held note sounds through its pause.
+        const hold = performed.holds.find(item => table && Math.abs(item.at - note.end) < 0.12);
+        // w(hold.at) already lands AFTER the pause — the held note's sound
+        // reaches through it without counting the hold twice.
+        let length = Math.max(.07, (hold && table ? tableWarp(table, hold.at) : w(Math.min(note.end, end))) - w(audibleStart));
+        if (!hold && note.marks?.staccato) length = Math.max(.05, length * 0.5);
+        else if (!hold && performed.legato.has(note.id)) length = Math.max(length, w(performed.nextStart.get(note.id) ?? note.end) - w(audibleStart));
+        else if (!hold && note.marks?.tenuto) length *= 1.04;
         const velocity = performed.velocity.get(note.id);
         playPianoTone(context, velocity !== undefined ? { ...note, velocity } : note, context.currentTime + at, length / transportRate);
       });
@@ -1329,8 +1344,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const startedAt = performance.now();
     const tick = () => {
       if (!transportRunningRef.current) return;
-      const perfNow = first + ((performance.now() - startedAt) / 1000) * transportRate;
-      const next = Math.min(end, unwarpTime(holds, perfNow));
+      const perfNow = w(first) + ((performance.now() - startedAt) / 1000) * transportRate;
+      const next = Math.min(end, table ? tableUnwarp(table, perfNow) : perfNow);
       playheadRef.current = next;
       setPlayhead(next);
       if (next < end) animationFrameRef.current = requestAnimationFrame(tick);
@@ -1338,7 +1353,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     transportRunningRef.current = true;
     setIsPlaying(true);
     tick();
-    playbackTimerRef.current = setTimeout(() => finishPlayback(end), Math.max(.1, (end - first + totalHeld) / transportRate) * 1000 + 80);
+    playbackTimerRef.current = setTimeout(() => finishPlayback(end), Math.max(.1, (w(end) - w(first)) / transportRate) * 1000 + 80);
   }
   function playFromCursor() { startPlaybackAt(playheadRef.current); }
   function playFromStart() { const selection = playbackSelection(); startPlaybackAt(selection.start); }
@@ -1697,6 +1712,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               onDynamic={applyDynamicToSelection}
               onToggle={toggleMarkOnSelection}
               onSpan={applySpanToSelection}
+              onTempo={applyTempoToSelection}
               onClear={clearMarksOnSelection} />}
             <div className="mb-2 flex items-center gap-1 text-xs">
               <button onClick={() => switchView('score')} className={`rounded-l-lg border px-3 py-1.5 ${noteView === 'score' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="The arrangement as an engraved open score — one staff per voice">𝄞 Score</button>
@@ -1889,13 +1905,18 @@ function LyricLineDialog({ targetCount, targetLabel, onApply, onClose }: { targe
  * marked as tying into the next bar. With Step entry on, letters A–G enter
  * pitches in the song's key at the caret, R rests forward, arrows adjust.
  */
-function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onClear }: {
+function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, onClear }: {
   selection: SongNote[];
   onDynamic: (dynamic: DynamicMark | null) => void;
   onToggle: (key: 'staccato' | 'tenuto' | 'fermata') => void;
   onSpan: (kind: 'slur' | 'cresc' | 'decresc') => void;
+  onTempo: (kind: TempoMarkKind) => void;
   onClear: () => void;
 }) {
+  const activeTempo = selection[0]?.marks?.tempo;
+  const tempoButton = (kind: TempoMarkKind, label: string, title: string) =>
+    <button onClick={() => onTempo(kind)} title={title}
+      className={`rounded-lg border px-2.5 py-1.5 font-serif italic ${activeTempo === kind ? 'border-sky-300/60 bg-sky-300/15 text-sky-100' : 'border-white/12 text-slate-300 hover:bg-white/[.06]'}`}>{label}</button>;
   const DYNAMICS: DynamicMark[] = ['pp', 'p', 'mp', 'mf', 'f', 'ff'];
   const activeDynamic = selection.every(note => note.marks?.dynamic === selection[0]?.marks?.dynamic) ? selection[0]?.marks?.dynamic : undefined;
   const allHave = (key: 'staccato' | 'tenuto' | 'fermata') => selection.every(note => note.marks?.[key]);
@@ -1919,6 +1940,11 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onClear }: {
     <button onClick={() => onSpan('slur')} disabled={!spanReady} title="Slur / legato — one arc over the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices slurs each of them." className={`${toggleClass(spanned('slur'))} disabled:opacity-35`}>⌒&nbsp;Slur</button>
     <button onClick={() => onSpan('cresc')} disabled={!spanReady} title="Crescendo — grow through the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices swells them together." className={`${toggleClass(spanned('cresc'))} disabled:opacity-35`}>&lt;&nbsp;Cresc.</button>
     <button onClick={() => onSpan('decresc')} disabled={!spanReady} title="Decrescendo — fade through the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices fades them together." className={`${toggleClass(spanned('decresc'))} disabled:opacity-35`}>&gt;&nbsp;Decresc.</button>
+    <span className="h-5 w-px bg-white/10" />
+    {tempoButton('rit', 'rit.', 'Ritardando — gradually slow down from the first selected note until the next tempo mark (or the end)')}
+    {tempoButton('accel', 'accel.', 'Accelerando — gradually speed up from the first selected note until the next tempo mark')}
+    {tempoButton('atempo', 'a tempo', 'A tempo — return to the written speed from the first selected note')}
+    {tempoButton('allegro', 'Allegro', 'Allegro — brisk (about 5/4 of the written speed) from the first selected note')}
     <button onClick={onClear} title="Remove every marking from the selection" className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">✕ Clear</button>
   </div>;
 }
