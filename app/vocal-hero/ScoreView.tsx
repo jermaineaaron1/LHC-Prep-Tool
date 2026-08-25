@@ -263,6 +263,10 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
         style={{ cursor: tool === 'erase' ? 'not-allowed' : 'pointer' }}>
         {ledger.map(step => <line key={step} x1={gx - 8} x2={gx + 8} y1={mid - step * STEP} y2={mid - step * STEP} stroke="#ffffff55" strokeWidth={1} />)}
         {glyph.mark && !dragging && <text x={gx - 15} y={gy + 4.5} fontSize={13} fill={colour}>{glyph.mark}</text>}
+        {/* An invisible catch area: the printed head is ~5px, far too small a
+            target — clicks meant for the note were landing on "empty staff"
+            and writing a new one instead. */}
+        <circle cx={gx} cy={gy} r={9} fill="transparent" stroke="none" />
         <ellipse cx={gx} cy={gy} rx={4.8} ry={3.5} transform={`rotate(-14 ${gx} ${gy})`}
           fill={glyph.value >= 2 ? 'transparent' : colour} stroke={colour} strokeWidth={glyph.value >= 2 ? 1.6 : 1} />
         {glyph.value < 4 && <line x1={stemX} x2={stemX} y1={gy} y2={stemEndY} stroke={colour} strokeWidth={1.1} />}
