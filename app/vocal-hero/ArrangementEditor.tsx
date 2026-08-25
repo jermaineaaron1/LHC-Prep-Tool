@@ -646,16 +646,25 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     // paper. A crotchet turned minim eats the crotchet after it; a minim
     // turned crotchet leaves its second half as rest.
     if (!stepInput && selectedIds.length) {
+      // Lengthening never eats what follows any more: the rest of the bar
+      // slides right, and overflow ties into a freshly inserted bar.
+      // Shortening leaves its remainder as rest.
+      const shifts: Array<{ from: number; by: number }> = [];
       setNotes(current => {
         let next = current;
-        for (const id of selectedIds) {
+        const ordered = [...selectedIds].map(id => next.find(note => note.id === id)).filter((note): note is SongNote => Boolean(note)).sort((a, b) => a.start - b.start).map(note => note.id);
+        for (const id of ordered) {
           const target = next.find(note => note.id === id);
           if (!target) continue;
           const end = snapTimeToGrid(musicalBars, target.start + noteDurationAt(musicalBars, target.start, value), division);
-          next = carveSpace(next, target.part, target.start, end, id).map(note => note.id === id ? { ...note, end } : note);
+          if (end <= target.start + .01) continue;
+          const flowed = placeWithFlow(next, { ...target, end });
+          next = flowed.notes;
+          if (flowed.shiftBy > 0) shifts.push({ from: flowed.shiftFrom, by: flowed.shiftBy });
         }
         return next;
       });
+      for (const shift of shifts) shiftLyricsLater(shift.from, shift.by);
       setEditorNotice(`${definition.symbol} ${definition.label} — selected note${selectedIds.length === 1 ? '' : 's'} re-valued; new entries use this length too.`);
       return;
     }
@@ -830,16 +839,63 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     if (!bar) return { start: snapped, end: roundPrecise(snapped + noteDurationAt(musicalBars, snapped, value)) };
     const step = snapStepAt(musicalBars, bar.start, division);
     const start = Math.min(Math.max(snapped, roundPrecise(bar.start)), snapTimeToGrid(musicalBars, bar.end - step, division));
-    return { start, end: Math.min(roundPrecise(start + noteDurationAt(musicalBars, start, value)), roundPrecise(bar.end)) };
+    // No cut at the barline any more: a value that outgrows the bar ties
+    // into the fresh bar that placeWithFlow inserts for it.
+    return { start, end: roundPrecise(start + noteDurationAt(musicalBars, start, value)) };
+  }
+  /** A note's length in whole grid time — the stored duration keeps a ~4%
+   *  articulation gap, but flowing notes one after another must advance by
+   *  what each note OWNS, or every pack drifts off the grid. */
+  function musicalDurationOf(note: SongNote) {
+    const quarter = 60 / musicalStateAt(musicalTimeline, note.start).bpm;
+    return snapBeats((note.end - note.start) / quarter) * quarter;
+  }
+  /** Place `candidate` in its voice WITHOUT touching anything that starts
+   *  earlier: the rest of the bar slides right to make room (never left),
+   *  and when the bar cannot hold it all, fresh bars are inserted between
+   *  this bar and the next — later bars keep their music exactly where it
+   *  was. A note that outgrows its bar crosses the new barline and engraves
+   *  as a tie; what the new bars do not use engraves as rest. */
+  function placeWithFlow(all: SongNote[], candidate: SongNote): { notes: SongNote[]; shiftFrom: number; shiftBy: number } {
+    const bar = musicalBars.find(item => candidate.start >= item.start - .001 && candidate.start < item.end - .001);
+    if (!bar) return { notes: [...all.filter(note => note.id !== candidate.id), candidate], shiftFrom: Number.POSITIVE_INFINITY, shiftBy: 0 };
+    const barLen = bar.end - bar.start;
+    const tail = all.filter(note => note.id !== candidate.id && note.part === candidate.part
+      && note.start >= candidate.start - .0005 && note.start < bar.end - .0005).sort((a, b) => a.start - b.start);
+    const tailIds = new Set(tail.map(note => note.id));
+    let cursor = roundPrecise(candidate.start + musicalDurationOf(candidate));
+    const placedTail: SongNote[] = [];
+    for (const note of tail) {
+      const start = roundPrecise(Math.max(cursor, note.start));  // push only, never pull — a shortened note leaves rest
+      placedTail.push({ ...note, start, end: roundPrecise(start + (note.end - note.start)) });
+      cursor = roundPrecise(start + musicalDurationOf(note));
+    }
+    const overflow = cursor - bar.end;
+    const shiftBy = overflow > .001 ? Math.ceil((overflow - .001) / barLen) * barLen : 0;
+    let working = all.filter(note => note.id !== candidate.id && !tailIds.has(note.id));
+    if (shiftBy > 0) working = working.map(note => note.start >= bar.end - .005 ? { ...note, start: roundPrecise(note.start + shiftBy), end: roundPrecise(note.end + shiftBy) } : note);
+    return { notes: [...working, candidate, ...placedTail], shiftFrom: bar.end, shiftBy };
+  }
+  function shiftLyricsLater(from: number, by: number) {
+    if (by <= 0) return;
+    setTimedLyrics(current => current.map(line => line.start >= from - .005 ? { ...line, start: roundPrecise(line.start + by), end: roundPrecise(line.end + by) } : line));
   }
   function addNote(part = selectedPart, start = notes.reduce((latest, note) => Math.max(latest, note.end), 0), midi = 60, end?: number, lyric = '') {
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
     const value = musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
+    // The new note NEVER trims what came before it: aimed inside an earlier
+    // note's span, it takes the first free spot after that note instead.
+    const blocker = notes.filter(note => note.part === part && note.start < start - .0005
+      && note.start + musicalDurationOf(note) > start + .0005).sort((a, b) => b.start - a.start)[0];
+    const at = blocker ? snapTimeToGrid(musicalBars, blocker.start + musicalDurationOf(blocker), division) : start;
     const id = `note-${crypto.randomUUID()}`;
-    const candidate = quantizeNote({ id, part, midi, start, end: end ?? start + noteDurationAt(musicalBars, start, value), lyric, velocity: 100 }, musicalBars, division);
+    const candidate = quantizeNote({ id, part, midi, start: at, end: end !== undefined ? at + (end - start) : at + noteDurationAt(musicalBars, at, value), lyric, velocity: 100 }, musicalBars, division);
     pushHistory();
-    setNotes(current => [...carveSpace(current, candidate.part, candidate.start, candidate.end), candidate]);
-    setSelectedPart(part); setSelectedId(id); setSelectedIds([id]); setEditorNotice(null);
+    const flowed = placeWithFlow(notes, candidate);
+    setNotes(flowed.notes);
+    shiftLyricsLater(flowed.shiftFrom, flowed.shiftBy);
+    setSelectedPart(part); setSelectedId(id); setSelectedIds([id]);
+    setEditorNotice(flowed.shiftBy > 0 ? 'A fresh bar was inserted to hold the overflow — everything after it kept its place. Undo reverses it.' : null);
     auditionNote(candidate);
   }
   function insertStepPitch(letter: string) {
@@ -891,8 +947,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const target = notes.find(note => note.id === selectedId);
     if (target) update(target.id, { midi: Math.max(24, Math.min(96, target.midi + delta)) });
   }
-  const stepApiRef = useRef({ insertStepPitch, restStepAdvance, nudgeSelectedPitch, changeNoteValue, stepInput, snapValue: musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE });
-  stepApiRef.current = { insertStepPitch, restStepAdvance, nudgeSelectedPitch, changeNoteValue, stepInput, snapValue: musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE };
+  const stepApiRef = useRef({ insertStepPitch, restStepAdvance, nudgeSelectedPitch, changeNoteValue, undo, redo, stepInput, snapValue: musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE });
+  stepApiRef.current = { insertStepPitch, restStepAdvance, nudgeSelectedPitch, changeNoteValue, undo, redo, stepInput, snapValue: musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE };
 
   function addAt(part: number, event: React.MouseEvent<HTMLDivElement>) { const bounds = event.currentTarget.getBoundingClientRect(); const pointerTime = Math.max(0, (event.clientX - bounds.left) / zoom); const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION; const range = pitchRangeForPart(part, notes); const row = Math.max(0, Math.min(range.max - range.min, Math.floor((event.clientY - bounds.top - PITCH_HEADER_HEIGHT) / PITCH_ROW_HEIGHT))); addNote(part, snapTimeToGrid(musicalBars, pointerTime, division), range.max - row); }
   function duplicateSelected() {
@@ -1082,6 +1138,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       }
       if ((key === 'backspace' || key === 'delete') && selectedIds.length) { event.preventDefault(); removeSelected(); return; }
       if ((!event.ctrlKey && !event.metaKey) || event.altKey) return;
+      if (key === 'z') { event.preventDefault(); if (event.shiftKey) api.redo(); else api.undo(); return; }
+      if (key === 'y') { event.preventDefault(); api.redo(); return; }
       if (key === 'c' && selectedIds.length) { event.preventDefault(); copySelectedNotes(); }
       if (key === 'v' && noteClipboard.length) { event.preventDefault(); pasteCopiedNotes(); }
     };
@@ -1556,7 +1614,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number + 1 : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
                 <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number + 1 : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
-                <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly where the ghost head shows · drop a note onto another to swap them · with a note selected, the value buttons (or keys 3–7 and .) change its length · right-click a note to remove it, leaving its rest · Double-click a word to edit lyrics: Tab = next word, Enter = done.</span>
+                <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly where the ghost head shows — what follows slides right, and overflow ties into a freshly inserted bar · drop a note onto another to swap them · with a note selected, the value buttons (or keys 3–7 and .) change its length · right-click removes a note, leaving its rest · Ctrl+Z undo, Ctrl+Y redo · Double-click a word to edit lyrics: Tab = next word, Enter = done.</span>
               </>}
             </div>
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
