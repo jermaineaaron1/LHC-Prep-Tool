@@ -1,30 +1,38 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
+import type { SongNote } from '@/lib/vocal-hero/types';
+import { parseChord } from '@/lib/vocal-hero/chords';
 
-// The Part studio's staff: the written instrument line drawn — and DRAWN ON —
-// as real notation, the way the SATB staves work. The text tab stays the
-// stored format; this editor parses it into cells on the eighth grid, lets
-// the mouse place noteheads on staff lines and spaces, and writes the tokens
-// back. The drum tab gets the matching treatment as a lane grid.
+// The Part studio's aligned sections. Everything in this file draws on ONE
+// shared time axis: the same left margin, the same pixels per eighth, the
+// same number of columns — so the SATB overview, the instrument staff and
+// the drum grid sit strictly above one another and a note placed in any of
+// them is measurable against the guide lines that run through all three.
 //
-// Interactions (instrument staff):
-//   click            place a note at that eighth, on that line/space
-//   Ctrl+click       place it sharpened
-//   Shift+click      extend the note ending just before this eighth (a ~)
-//   right-click      clear the eighth back to a rest
-// Slides (e3>g3) survive edits to other columns and keep printing with
-// their arrows; write or change a slide in the text below.
+// Instrument staff interactions:
+//   click            toggle a pitch at that eighth — click more pitches in
+//                    the same column to STACK A CHORD, click a head again
+//                    to remove it
+//   Ctrl+click       the sharpened pitch
+//   Shift+click      lengthen the note ending just before this eighth (~)
+//   right-click      clear the whole eighth back to a rest
+//   fx strip (under the staff): click cycles accent (>) → staccato (·) → off
+// Chords can also be written as [Em7] in the text — the symbol's own
+// voicing appears on the staff with its name above; touching that column
+// converts it to the explicit notes.
 
+export const PART_CELL = 30;
+export const PART_LEFT = 46;
 const STEP = 3.5;
-const CELL = 26;
-const LEFT = 46;
 const LETTER_PC = [0, 2, 4, 5, 7, 9, 11];
 const PC_NAME = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b'];
 const PC_LETTER = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6];
 const PC_SHARP = [false, true, false, true, false, false, true, false, true, false, true, false];
+const VOICE_COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
+const VOICE_LABELS = ['S', 'A', 'T', 'B'];
 
-interface Cell { midi: number; hold: number; slideTo?: number }
+interface Cell { midis: number[]; hold: number; slideTo?: number; accent?: boolean; staccato?: boolean; symbol?: string }
 
 function tokenMidi(token: string): number | null {
   const match = token.toLowerCase().match(/^([a-g])([#b]?)(-?\d)$/);
@@ -39,11 +47,10 @@ function midiToken(midi: number): string {
   return PC_NAME[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
 }
 
-/** The tab text as cells on the eighth grid (null = rest). */
-function parseCells(text: string): { cells: (Cell | null)[]; length: number } {
+export function parsePartCells(text: string): (Cell | null)[] {
   const tokens = text.replace(/\|/g, ' ').trim().split(/\s+/).filter(Boolean);
   const cells: (Cell | null)[] = [];
-  for (const token of tokens) {
+  for (let token of tokens) {
     if (token === '~') {
       const last = [...cells].reverse().find(cell => cell);
       if (last) last.hold += 1;
@@ -51,30 +58,58 @@ function parseCells(text: string): { cells: (Cell | null)[]; length: number } {
       continue;
     }
     if (token === '-' || token === '.') { cells.push(null); continue; }
+    let accent = false, staccato = false;
+    while (/[!.]$/.test(token) && token.length > 1) {
+      if (token.endsWith('!')) accent = true; else staccato = true;
+      token = token.slice(0, -1);
+    }
+    const flags = { ...(accent ? { accent: true } : {}), ...(staccato ? { staccato: true } : {}) };
+    const symbol = token.match(/^\[(.+)\]$/);
+    if (symbol) {
+      const chord = parseChord(symbol[1]);
+      if (chord && chord.midis.length) cells.push({ midis: [...chord.midis].sort((a, b) => a - b), hold: 1, symbol: symbol[1], ...flags });
+      else cells.push(null);
+      continue;
+    }
     const slide = token.split('>');
-    const midi = tokenMidi(slide[0]);
-    if (midi === null) { cells.push(null); continue; }
-    const slideTo = slide[1] ? tokenMidi(slide[1]) : null;
-    cells.push({ midi, hold: 1, ...(slideTo !== null && slideTo !== undefined ? { slideTo } : {}) });
+    const midis = slide[0].split(',').map(tokenMidi).filter((midi): midi is number => midi !== null).sort((a, b) => a - b);
+    if (!midis.length) { cells.push(null); continue; }
+    const slideTo = midis.length === 1 && slide[1] ? tokenMidi(slide[1]) : null;
+    cells.push({ midis, hold: 1, ...(slideTo !== null && slideTo !== undefined ? { slideTo } : {}), ...flags });
   }
-  return { cells, length: cells.length };
+  return cells;
 }
 
-function buildText(cells: (Cell | null)[]): string {
+export function buildPartText(cells: (Cell | null)[]): string {
   const out: string[] = [];
   let skip = 0;
   for (let index = 0; index < cells.length; index++) {
     if (skip > 0) { out.push('~'); skip -= 1; continue; }
     const cell = cells[index];
     if (!cell) { out.push('-'); continue; }
-    out.push(midiToken(cell.midi) + (cell.slideTo !== undefined ? '>' + midiToken(cell.slideTo) : ''));
+    let token = cell.symbol
+      ? `[${cell.symbol}]`
+      : cell.midis.map(midiToken).join(',') + (cell.slideTo !== undefined && cell.midis.length === 1 ? '>' + midiToken(cell.slideTo) : '');
+    if (cell.accent) token += '!';
+    if (cell.staccato) token += '.';
+    out.push(token);
     skip = cell.hold - 1;
   }
   while (out.length && out[out.length - 1] === '-') out.pop();
   return out.join(' ');
 }
 
-/** Diatonic staff step from the clef's middle line (treble: B4, bass: D3). */
+/** Length in eighths of a written line (for the shared column count). */
+export function partLengthEighths(text: string): number {
+  return parsePartCells(text).length;
+}
+export function drumLengthEighths(text: string): number {
+  return Math.max(0, ...text.split(/\n/).map(line => {
+    const match = line.match(/^\s*[KSHTtBPc]\s*:\s*(.*)$/);
+    return match ? match[1].replace(/[|\s]/g, '').length : 0;
+  }));
+}
+
 function midiStep(midi: number, bass: boolean): { step: number; sharp: boolean } {
   const pc = ((midi % 12) + 12) % 12;
   const letterAbs = (Math.floor(midi / 12) - 1) * 7 + PC_LETTER[pc];
@@ -88,90 +123,181 @@ function stepMidi(step: number, bass: boolean, sharp: boolean): number {
   return LETTER_PC[letter] + 12 * (octave + 1) + (sharp ? 1 : 0);
 }
 
-export function InstrumentStaffEditor({ value, onChange, eighthsPerBar }: {
-  value: string; onChange: (next: string) => void; eighthsPerBar: number;
+/** The vertical guide lines all sections share: an eighth is faint, a beat
+ *  firmer, a barline strong. Rendered per-svg at identical x positions so
+ *  the lines read as continuous rails down the whole studio. */
+function GuideLines({ columns, perBar, y1, y2 }: { columns: number; perBar: number; y1: number; y2: number }) {
+  return <>{Array.from({ length: columns + 1 }, (_, column) => {
+    const x = PART_LEFT + column * PART_CELL;
+    const onBar = column % perBar === 0, onBeat = column % 2 === 0;
+    return <line key={column} x1={x} x2={x} y1={y1} y2={y2}
+      stroke={onBar ? '#7dd3fc55' : onBeat ? '#ffffff26' : '#ffffff12'} strokeWidth={onBar ? 1.4 : 1} />;
+  })}</>;
+}
+
+export function partWidth(columns: number): number { return PART_LEFT + columns * PART_CELL + 10; }
+
+/** The song itself, on the studio's axis: chord symbols and the four voices
+ *  drawn from the anchor bar across exactly the shared columns — the ruler
+ *  the written part is measured against. */
+export function AlignedVoicesOverview({ notes, chords, from, eighthLen, columns, perBar }: {
+  notes: SongNote[]; chords: Array<{ at: number; symbol: string }>;
+  from: number; eighthLen: number; columns: number; perBar: number;
 }) {
-  const { cells } = useMemo(() => parseCells(value), [value]);
-  const [extraBars, setExtraBars] = useState(0);
-  const perBar = Math.max(2, eighthsPerBar);
-  const columns = Math.min(32, Math.max(perBar * 2, Math.ceil(cells.length / perBar) * perBar) + extraBars * perBar);
-  const notes = cells.map((cell, column) => cell ? { ...cell, column } : null).filter(Boolean) as Array<Cell & { column: number }>;
-  const bass = notes.length ? [...notes.map(note => note.midi)].sort((a, b) => a - b)[Math.floor(notes.length / 2)] < 57 : false;
-  const mid = 46;
-  const width = LEFT + columns * CELL + 10;
-  const height = 100;
+  const until = from + columns * eighthLen;
+  const ROW = 26, TOP = 30;
+  const height = TOP + 4 * ROW + 16;
+  const x = (time: number) => PART_LEFT + (time - from) / eighthLen * PART_CELL;
+  const voiceNotes = useMemo(() => notes.filter(note => note.start < until && note.end > from), [notes, from, until]);
+  const ranges = useMemo(() => VOICE_LABELS.map((_, part) => {
+    const own = voiceNotes.filter(note => (note.part === part || (part === 0 && note.part === -1)));
+    if (!own.length) return { low: 48, high: 72 };
+    const midis = own.map(note => note.midi);
+    return { low: Math.min(...midis), high: Math.max(...midis) };
+  }), [voiceNotes]);
+  return <svg width={partWidth(columns)} height={height} aria-hidden style={{ display: 'block' }}>
+    <GuideLines columns={columns} perBar={perBar} y1={12} y2={height - 4} />
+    {Array.from({ length: columns }, (_, column) => column % 2 === 0 && <text key={column} x={PART_LEFT + column * PART_CELL + 3} y={10} fontSize={8} fill="#7dd3fc99">{column % perBar === 0 ? `bar ${Math.floor(column / perBar) + 1}` : `${(column % perBar) / 2 + 1}`}</text>)}
+    {chords.filter(chord => chord.at >= from - 0.01 && chord.at < until).map((chord, index) =>
+      <text key={index} x={x(chord.at) + 2} y={TOP - 6} fontSize={11} fontWeight={800} fill="#fde68a">{chord.symbol}</text>)}
+    {VOICE_LABELS.map((label, part) => {
+      const top = TOP + part * ROW;
+      const { low, high } = ranges[part];
+      const span = Math.max(5, high - low);
+      return <g key={label}>
+        <text x={8} y={top + 15} fontSize={11} fontWeight={800} fill={VOICE_COLOURS[part]}>{label}</text>
+        <line x1={PART_LEFT} x2={partWidth(columns) - 8} y1={top + ROW - 3} y2={top + ROW - 3} stroke="#ffffff14" strokeWidth={1} />
+        {voiceNotes.filter(note => note.part === part || (part === 0 && note.part === -1)).map(note => {
+          const left = Math.max(PART_LEFT, x(note.start));
+          const width = Math.max(4, x(Math.min(note.end, until)) - left - 2);
+          const y = top + 4 + (1 - (note.midi - low) / span) * (ROW - 12);
+          return <g key={note.id}>
+            <rect x={left} y={y} width={width} height={4.4} rx={2.2} fill={VOICE_COLOURS[part]} opacity={0.92} />
+            {part === 0 && note.lyric && x(note.start) >= PART_LEFT - 1 && <text x={left + 1} y={top + ROW - 6} fontSize={7.5} fill="#94a3b8">{note.lyric}</text>}
+          </g>;
+        })}
+      </g>;
+    })}
+  </svg>;
+}
+
+export function InstrumentStaffEditor({ value, onChange, columns, perBar }: {
+  value: string; onChange: (next: string) => void; columns: number; perBar: number;
+}) {
+  const cells = useMemo(() => parsePartCells(value), [value]);
+  const stacks = cells.map((cell, column) => cell ? { ...cell, column } : null).filter(Boolean) as Array<Cell & { column: number }>;
+  const allMidis = stacks.flatMap(stack => stack.midis);
+  const bass = allMidis.length ? [...allMidis].sort((a, b) => a - b)[Math.floor(allMidis.length / 2)] < 57 : false;
+  const mid = 48;
+  const FX_Y = 96;
+  const height = 122;
 
   function edit(mutate: (next: (Cell | null)[]) => void) {
-    const next = cells.slice();
+    const next = cells.map(cell => cell ? { ...cell, midis: [...cell.midis] } : null);
     while (next.length < columns) next.push(null);
     mutate(next);
-    onChange(buildText(next));
+    onChange(buildPartText(next));
   }
-  function clearSpan(next: (Cell | null)[], column: number) {
-    // free this eighth: truncate any earlier note whose hold reaches it
+  function freeSpan(next: (Cell | null)[], column: number) {
     for (let index = 0; index < column; index++) {
       const cell = next[index];
       if (cell && index + cell.hold > column) cell.hold = column - index;
     }
-    next[column] = null;
   }
   function handleClick(event: React.MouseEvent<SVGSVGElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
-    const column = Math.floor((event.clientX - bounds.left - LEFT) / CELL);
+    const column = Math.floor((event.clientX - bounds.left - PART_LEFT) / PART_CELL);
     if (column < 0 || column >= columns) return;
+    const clickY = event.clientY - bounds.top;
+    if (clickY >= FX_Y - 8) {
+      // the fx strip: accent -> staccato -> plain
+      edit(next => {
+        const cell = next[column];
+        if (!cell) return;
+        if (cell.accent) { delete cell.accent; cell.staccato = true; }
+        else if (cell.staccato) delete cell.staccato;
+        else cell.accent = true;
+        delete cell.symbol; // still the same voicing, now explicit
+      });
+      return;
+    }
     if (event.shiftKey) {
       edit(next => {
         for (let index = column - 1; index >= 0; index--) {
           const cell = next[index];
-          if (cell) { if (index + cell.hold === column) { clearSpan(next, column); next[index] = cell; cell.hold += 1; } return; }
+          if (cell) { if (index + cell.hold === column && !next[column]) cell.hold += 1; return; }
         }
       });
       return;
     }
-    const step = Math.max(-11, Math.min(11, Math.round((mid - (event.clientY - bounds.top)) / STEP)));
+    const step = Math.max(-13, Math.min(13, Math.round((mid - clickY) / STEP)));
     const midi = stepMidi(step, bass, event.ctrlKey || event.metaKey);
-    edit(next => { clearSpan(next, column); next[column] = { midi, hold: 1 }; });
+    edit(next => {
+      const existing = next[column];
+      if (existing) {
+        // toggle the pitch inside the stack: same pitch out, new pitch in
+        const at = existing.midis.indexOf(midi);
+        if (at >= 0) existing.midis.splice(at, 1);
+        else existing.midis.push(midi);
+        existing.midis.sort((a, b) => a - b);
+        delete existing.symbol;
+        if (!existing.midis.length) next[column] = null;
+        if (existing.midis.length > 1) delete existing.slideTo;
+      } else {
+        freeSpan(next, column);
+        next[column] = { midis: [midi], hold: 1 };
+      }
+    });
   }
   function handleContext(event: React.MouseEvent<SVGSVGElement>) {
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
-    const column = Math.floor((event.clientX - bounds.left - LEFT) / CELL);
+    const column = Math.floor((event.clientX - bounds.left - PART_LEFT) / PART_CELL);
     if (column < 0 || column >= columns) return;
-    edit(next => clearSpan(next, column));
+    edit(next => { freeSpan(next, column); next[column] = null; });
   }
 
-  return <div className="overflow-x-auto rounded-lg border border-white/12 bg-[#050716]">
-    <svg width={width} height={height} onClick={handleClick} onContextMenu={handleContext} style={{ cursor: 'crosshair', display: 'block' }}>
-      {Array.from({ length: columns + 1 }, (_, column) => {
-        const x = LEFT + column * CELL;
-        const onBar = column % perBar === 0, onBeat = column % 2 === 0;
-        return <line key={column} x1={x} x2={x} y1={14} y2={height - 20} stroke={onBar ? '#ffffff38' : onBeat ? '#ffffff1c' : '#ffffff0e'} strokeWidth={onBar ? 1.2 : 1} />;
-      })}
-      {Array.from({ length: columns }, (_, column) => column % 2 === 0 && <text key={`n${column}`} x={LEFT + column * CELL + 3} y={11} fontSize={8} fill="#64748b">{column % perBar === 0 ? `bar ${column / perBar + 1}` : `${(column % perBar) / 2 + 1}`}</text>)}
-      {[-2, -1, 0, 1, 2].map(line => <line key={line} x1={8} x2={width - 6} y1={mid + line * 2 * STEP} y2={mid + line * 2 * STEP} stroke="#ffffff50" strokeWidth={1} />)}
-      <text x={10} y={bass ? mid + 2 : mid + 2 * STEP * 2 - 2} fontSize={bass ? 26 : 32} fill="#ffffffd8" fontFamily="'Segoe UI Symbol','Noto Music',serif">{bass ? '\u{1D122}' : '\u{1D11E}'}</text>
-      {notes.map(note => {
-        const { step, sharp } = midiStep(note.midi, bass);
-        const x = LEFT + note.column * CELL + CELL / 2;
-        const y = mid - step * STEP;
-        const ledgers: number[] = [];
-        for (let line = 6; line <= Math.abs(step); line += 2) ledgers.push(step > 0 ? line : -line);
-        return <g key={note.column}>
-          {ledgers.map(line => <line key={line} x1={x - 8} x2={x + 8} y1={mid - line * STEP} y2={mid - line * STEP} stroke="#ffffff45" strokeWidth={1} />)}
-          {note.hold > 1 && <line x1={x + 5} x2={LEFT + (note.column + note.hold) * CELL - 4} y1={y} y2={y} stroke="#93c5fd88" strokeWidth={2.6} strokeLinecap="round" />}
-          {sharp && <text x={x - 14} y={y + 4} fontSize={11} fill="#93c5fd">♯</text>}
-          <ellipse cx={x} cy={y} rx={4.6} ry={3.4} transform={`rotate(-14 ${x} ${y})`} fill="#93c5fd" />
-          <line x1={x + 4.2} x2={x + 4.2} y1={y} y2={y - 20} stroke="#93c5fd" strokeWidth={1.1} />
-          {note.slideTo !== undefined && <text x={x + 7} y={y - 6} fontSize={9} fontWeight={700} fill="#7dd3fc">{note.slideTo > note.midi ? '↗' : '↘'}</text>}
-          <text x={x} y={height - 7} fontSize={7.5} textAnchor="middle" fill="#64748b">{midiToken(note.midi)}</text>
-        </g>;
-      })}
-    </svg>
-    <div className="flex items-center justify-between border-t border-white/10 px-2 py-1 text-[9.5px] text-slate-500">
-      <span>click = note on that line/space · Ctrl+click = ♯ · Shift+click = lengthen the note into this eighth · right-click = rest</span>
-      <button onClick={() => setExtraBars(current => current + 1)} disabled={columns >= 32} className="rounded border border-white/15 px-1.5 py-0.5 text-slate-300 disabled:opacity-30">＋ bar</button>
-    </div>
-  </div>;
+  return <svg width={partWidth(columns)} height={height} onClick={handleClick} onContextMenu={handleContext}
+    style={{ cursor: 'crosshair', display: 'block' }}>
+    <GuideLines columns={columns} perBar={perBar} y1={6} y2={height - 4} />
+    {[-2, -1, 0, 1, 2].map(line => <line key={line} x1={8} x2={partWidth(columns) - 6} y1={mid + line * 2 * STEP} y2={mid + line * 2 * STEP} stroke="#ffffff50" strokeWidth={1} />)}
+    <text x={10} y={bass ? mid + 2 : mid + 2 * STEP * 2 - 2} fontSize={bass ? 26 : 32} fill="#ffffffd8" fontFamily="'Segoe UI Symbol','Noto Music',serif">{bass ? '\u{1D122}' : '\u{1D11E}'}</text>
+    <text x={8} y={FX_Y + 8} fontSize={8} fontWeight={700} fill="#64748b">fx</text>
+    <line x1={PART_LEFT} x2={partWidth(columns) - 6} y1={FX_Y - 8} y2={FX_Y - 8} stroke="#ffffff18" strokeWidth={1} />
+    {stacks.map(stack => {
+      const x = PART_LEFT + stack.column * PART_CELL + PART_CELL / 2;
+      return <g key={stack.column}>
+        {stack.symbol && <text x={x} y={13} fontSize={9} fontWeight={800} textAnchor="middle" fill="#fde68a">{stack.symbol}</text>}
+        {stack.hold > 1 && (() => {
+          const { step } = midiStep(stack.midis[stack.midis.length - 1], bass);
+          const y = mid - step * STEP;
+          return <line x1={x + 5} x2={PART_LEFT + (stack.column + stack.hold) * PART_CELL - 4} y1={y} y2={y} stroke="#93c5fd88" strokeWidth={2.6} strokeLinecap="round" />;
+        })()}
+        {stack.midis.map(midi => {
+          const { step, sharp } = midiStep(midi, bass);
+          const y = mid - step * STEP;
+          const ledgers: number[] = [];
+          for (let line = 6; line <= Math.abs(step); line += 2) ledgers.push(step > 0 ? line : -line);
+          return <g key={midi}>
+            {ledgers.map(line => <line key={line} x1={x - 8} x2={x + 8} y1={mid - line * STEP} y2={mid - line * STEP} stroke="#ffffff45" strokeWidth={1} />)}
+            {sharp && <text x={x - 14} y={y + 4} fontSize={11} fill="#93c5fd">♯</text>}
+            <ellipse cx={x} cy={y} rx={4.6} ry={3.4} transform={`rotate(-14 ${x} ${y})`} fill="#93c5fd" />
+          </g>;
+        })}
+        {(() => {
+          const top = midiStep(stack.midis[stack.midis.length - 1], bass);
+          const bottom = midiStep(stack.midis[0], bass);
+          return <line x1={x + 4.2} x2={x + 4.2} y1={mid - bottom.step * STEP} y2={mid - top.step * STEP - 18} stroke="#93c5fd" strokeWidth={1.1} />;
+        })()}
+        {stack.slideTo !== undefined && stack.midis.length === 1 && (() => {
+          const { step } = midiStep(stack.midis[0], bass);
+          return <text x={x + 7} y={mid - step * STEP - 6} fontSize={9} fontWeight={700} fill="#7dd3fc">{stack.slideTo > stack.midis[0] ? '↗' : '↘'}</text>;
+        })()}
+        {(stack.accent || stack.staccato) && <text x={x} y={FX_Y + 8} fontSize={stack.accent ? 10 : 13} fontWeight={800} textAnchor="middle" fill="#fbbf24">{stack.accent ? '>' : '·'}</text>}
+        <text x={x} y={height - 6} fontSize={7.5} textAnchor="middle" fill="#64748b">{stack.symbol ?? (stack.midis.length > 2 ? midiToken(stack.midis[0]) + '+' + (stack.midis.length - 1) : stack.midis.map(midiToken).join(','))}</text>
+      </g>;
+    })}
+  </svg>;
 }
 
 const DRUM_LANES: Array<[string, string]> = [['K', 'kick'], ['S', 'snare'], ['H', 'hat'], ['T', 'tom hi'], ['t', 'tom lo'], ['B', 'cajón bass'], ['P', 'cajón slap'], ['c', 'cajón tick']];
@@ -198,17 +324,12 @@ function buildDrumText(lanes: Map<string, string[]>, columns: number): string {
   return lines.join('\n');
 }
 
-export function DrumGridEditor({ value, onChange, eighthsPerBar }: {
-  value: string; onChange: (next: string) => void; eighthsPerBar: number;
+export function DrumGridEditor({ value, onChange, columns, perBar }: {
+  value: string; onChange: (next: string) => void; columns: number; perBar: number;
 }) {
   const lanes = useMemo(() => parseDrumCells(value), [value]);
-  const [extraBars, setExtraBars] = useState(0);
-  const perBar = Math.max(2, eighthsPerBar);
-  const longest = Math.max(0, ...[...lanes.values()].map(cells => cells.length));
-  const columns = Math.min(32, Math.max(perBar * 2, Math.ceil(longest / perBar) * perBar) + extraBars * perBar);
-  const ROW = 15;
-  const width = LEFT + columns * CELL + 10;
-  const height = 16 + DRUM_LANES.length * ROW + 4;
+  const ROW = 16;
+  const height = 8 + DRUM_LANES.length * ROW + 4;
 
   function cycle(letter: string, column: number) {
     const next = new Map([...lanes.entries()].map(([key, cells]) => [key, cells.slice()]));
@@ -220,36 +341,25 @@ export function DrumGridEditor({ value, onChange, eighthsPerBar }: {
     onChange(buildDrumText(next, columns));
   }
 
-  return <div className="overflow-x-auto rounded-lg border border-white/12 bg-[#050716]">
-    <svg width={width} height={height} style={{ display: 'block' }}>
-      {Array.from({ length: columns + 1 }, (_, column) => {
-        const x = LEFT + column * CELL;
-        const onBar = column % perBar === 0, onBeat = column % 2 === 0;
-        return <line key={column} x1={x} x2={x} y1={13} y2={height - 4} stroke={onBar ? '#ffffff38' : onBeat ? '#ffffff1c' : '#ffffff0e'} strokeWidth={onBar ? 1.2 : 1} />;
-      })}
-      {Array.from({ length: columns }, (_, column) => column % 2 === 0 && <text key={`n${column}`} x={LEFT + column * CELL + 3} y={10} fontSize={8} fill="#64748b">{column % perBar === 0 ? `bar ${column / perBar + 1}` : `${(column % perBar) / 2 + 1}`}</text>)}
-      {DRUM_LANES.map(([letter, name], row) => {
-        const y = 16 + row * ROW;
-        const cells = lanes.get(letter) ?? [];
-        return <g key={letter}>
-          <text x={6} y={y + 10} fontSize={8.5} fontWeight={700} fill="#fca5a5cc">{letter}</text>
-          <text x={16} y={y + 10} fontSize={7} fill="#64748b">{name}</text>
-          <line x1={LEFT} x2={width - 6} y1={y + ROW - 2} y2={y + ROW - 2} stroke="#ffffff10" strokeWidth={1} />
-          {Array.from({ length: columns }, (_, column) => {
-            const mark = cells[column] && cells[column] !== '.' ? cells[column] : '-';
-            const cx = LEFT + column * CELL + CELL / 2;
-            return <g key={column} onClick={() => cycle(letter, column)} style={{ cursor: 'pointer' }}>
-              <rect x={LEFT + column * CELL + 1} y={y} width={CELL - 2} height={ROW - 3} fill="transparent" />
-              {mark !== '-' && <circle cx={cx} cy={y + 6} r={mark === 'X' || mark === 'O' ? 4.6 : 3.2}
-                fill={mark === 'X' || mark === 'O' ? '#fb7185' : '#fca5a5'} opacity={0.95} />}
-            </g>;
-          })}
-        </g>;
-      })}
-    </svg>
-    <div className="flex items-center justify-between border-t border-white/10 px-2 py-1 text-[9.5px] text-slate-500">
-      <span>click a cell to cycle: hit → accent → off</span>
-      <button onClick={() => setExtraBars(current => current + 1)} disabled={columns >= 32} className="rounded border border-white/15 px-1.5 py-0.5 text-slate-300 disabled:opacity-30">＋ bar</button>
-    </div>
-  </div>;
+  return <svg width={partWidth(columns)} height={height} style={{ display: 'block' }}>
+    <GuideLines columns={columns} perBar={perBar} y1={4} y2={height - 4} />
+    {DRUM_LANES.map(([letter, name], row) => {
+      const y = 8 + row * ROW;
+      const cells = lanes.get(letter) ?? [];
+      return <g key={letter}>
+        <text x={6} y={y + 10} fontSize={8.5} fontWeight={700} fill="#fca5a5cc">{letter}</text>
+        <text x={16} y={y + 10} fontSize={7} fill="#64748b">{name}</text>
+        <line x1={PART_LEFT} x2={partWidth(columns) - 6} y1={y + ROW - 2} y2={y + ROW - 2} stroke="#ffffff10" strokeWidth={1} />
+        {Array.from({ length: columns }, (_, column) => {
+          const mark = cells[column] && cells[column] !== '.' ? cells[column] : '-';
+          const cx = PART_LEFT + column * PART_CELL + PART_CELL / 2;
+          return <g key={column} onClick={() => cycle(letter, column)} style={{ cursor: 'pointer' }}>
+            <rect x={PART_LEFT + column * PART_CELL + 1} y={y} width={PART_CELL - 2} height={ROW - 3} fill="transparent" />
+            {mark !== '-' && <circle cx={cx} cy={y + 6} r={mark === 'X' || mark === 'O' ? 4.8 : 3.3}
+              fill={mark === 'X' || mark === 'O' ? '#fb7185' : '#fca5a5'} opacity={0.95} />}
+          </g>;
+        })}
+      </g>;
+    })}
+  </svg>;
 }

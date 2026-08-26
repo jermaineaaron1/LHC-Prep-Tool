@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RenditionRail } from './RenditionBuilder';
 import { ScoreView, type ScoreBar } from './ScoreView';
-import { DrumGridEditor, InstrumentStaffEditor } from './PartStaffEditor';
+import { AlignedVoicesOverview, DrumGridEditor, InstrumentStaffEditor, drumLengthEighths, partLengthEighths } from './PartStaffEditor';
 import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
 import { compileRendition, deriveSections, type RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
@@ -1127,9 +1127,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       ? `▶ Auditioning the band from bar ${(bar.number ?? 0) + 1} — double-click the instruction to write the part yourself.`
       : 'The band is silent here — chord styles need chord symbols to play.');
   }
-  const [bandWrite, setBandWrite] = useState<{ target: { noteId: string } | 'default'; barNumber: number; from: number; barLen: number } | null>(null);
+  const [bandWrite, setBandWrite] = useState<{ target: { noteId: string } | 'default'; barNumber: number; from: number; barLen: number; perBar: number } | null>(null);
   const [draftInstrumentTab, setDraftInstrumentTab] = useState('');
   const [draftDrumTab, setDraftDrumTab] = useState('');
+  const [patternBars, setPatternBars] = useState(2);
   function openBandWrite(target: { noteId: string } | 'default') {
     void auditionContextRef.current?.close().catch(() => undefined);
     const bar = anchorBarOf(target);
@@ -1138,8 +1139,17 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const own = target !== 'default' ? notes.find(note => note.id === target.noteId)?.marks?.band : undefined;
     setDraftInstrumentTab(own?.instrument_tab ?? accompaniment.instrument_tab ?? '');
     setDraftDrumTab(own?.drum_tab ?? accompaniment.drum_tab ?? '');
-    setBandWrite({ target, barNumber: (bar?.number ?? 0) + 1, from: bar?.start ?? 0, barLen: bar ? bar.end - bar.start : 2 });
+    setPatternBars(2);
+    setBandWrite({ target, barNumber: (bar?.number ?? 0) + 1, from: bar?.start ?? 0, barLen: bar ? bar.end - bar.start : 2, perBar: Math.max(2, (bar?.beats.length ?? 2) * 2) });
   }
+  // Every studio section shares ONE column count, so the three stay strictly
+  // aligned and equally long: at least the chosen bars, grown to fit the
+  // longer of the two written parts.
+  const studioColumns = useMemo(() => {
+    if (!bandWrite) return 8;
+    const content = Math.max(partLengthEighths(draftInstrumentTab), drumLengthEighths(draftDrumTab));
+    return Math.min(32, Math.max(patternBars * bandWrite.perBar, Math.ceil(content / bandWrite.perBar) * bandWrite.perBar));
+  }, [bandWrite, draftInstrumentTab, draftDrumTab, patternBars]);
   // The studio's preview: the DRAFT tabs playing everywhere (band marks
   // stripped), so the writer sees and hears the whole line against SATB.
   const draftBandEvents = useMemo(() => {
@@ -1976,26 +1986,26 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         </div>}
         {bandWrite && <div className="fixed inset-0 z-[85] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => { void auditionContextRef.current?.close().catch(() => undefined); setBandWrite(null); }}>
           <div role="dialog" aria-label="Part studio" onClick={event => event.stopPropagation()}
-            className="flex max-h-[92vh] w-full max-w-4xl flex-col gap-3 overflow-auto rounded-2xl border border-sky-300/25 bg-[#0a0e20] p-4 shadow-[0_30px_90px_#000d,0_0_40px_#38bdf822]">
+            className="flex max-h-[92vh] w-full flex-col gap-3 overflow-auto rounded-2xl border border-sky-300/25 bg-[#0a0e20] p-5 shadow-[0_30px_90px_#000d,0_0_40px_#38bdf822]" style={{ maxWidth: 900 }}>
             <div className="flex items-center justify-between">
               <p className="text-sm font-black text-sky-100">✍ Part studio — {bandWrite.target === 'default' ? 'from the top of the song' : `from bar ${bandWrite.barNumber}`}</p>
-              <button onClick={() => { void auditionContextRef.current?.close().catch(() => undefined); setBandWrite(null); }} aria-label="Close part studio" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300">✕</button>
-            </div>
-            <p className="text-[11px] leading-relaxed text-slate-400">The overview shows all four voices with your written part printing into the 🎸/🥁 lane underneath as you type — that is exactly how it will land against the singing. One token per eighth note; the line loops until the band is told otherwise.</p>
-            <div ref={element => { if (element && element.dataset.scrolled !== '1') { element.dataset.scrolled = '1'; element.scrollTop = Math.max(0, (bandWrite.from / Math.max(1, transportEnd)) * element.scrollHeight - 70); } }}
-              className="max-h-72 overflow-auto rounded-xl border border-white/10 bg-[#050716]">
-              <div style={{ zoom: 0.6 } as React.CSSProperties}>
-                <ScoreView notes={notes} bars={scoreBars} getPlayhead={() => null} selectedIds={[]} tool="select"
-                  onSelectNote={() => undefined} onAddNote={() => undefined} onEraseNote={() => undefined}
-                  onDragCommit={() => undefined} onLyricChange={() => undefined}
-                  chords={trackSettings.chord_symbols} bandEvents={draftBandEvents} />
+              <div className="flex items-center gap-2">
+                <button onClick={() => setPatternBars(current => Math.min(8, current + 1))} disabled={studioColumns >= 32}
+                  title="Extend the pattern by one bar — all three sections grow together" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300 disabled:opacity-30">＋ bar</button>
+                <button onClick={() => { void auditionContextRef.current?.close().catch(() => undefined); setBandWrite(null); }} aria-label="Close part studio" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300">✕</button>
               </div>
             </div>
-            <div className="flex flex-col gap-2">
-              <span className="text-[11px] font-black uppercase tracking-[.14em] text-sky-200">🎸 Instrument line — draw it on the staff</span>
-              <InstrumentStaffEditor value={draftInstrumentTab} onChange={setDraftInstrumentTab} eighthsPerBar={Math.max(2, (scoreBars[0]?.numerator ?? 4) * 2)} />
-              <span className="text-[11px] font-black uppercase tracking-[.14em] text-rose-200">🥁 Drums — tap the grid</span>
-              <DrumGridEditor value={draftDrumTab} onChange={setDraftDrumTab} eighthsPerBar={Math.max(2, (scoreBars[0]?.numerator ?? 4) * 2)} />
+            <p className="text-[11px] leading-relaxed text-slate-400">All three sections share one ruler: the guide lines run through the song's voices, your staff and your drums, so every note you place is measured against the singing directly above it. The part loops from bar {bandWrite.barNumber} until the band is told otherwise. On the staff: <b className="text-slate-300">click</b> = note (click more pitches in the same column to stack a chord; click a head again to remove it) · <b className="text-slate-300">Ctrl</b> = ♯ · <b className="text-slate-300">Shift</b> = lengthen · <b className="text-slate-300">right-click</b> = rest · the <b className="text-slate-300">fx</b> strip cycles accent → staccato · type <b className="text-slate-300">[Em7]</b> in the written form for a full chord voicing.</p>
+            <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#050716]">
+              <div className="w-max">
+                <div className="px-0 pt-1"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-slate-500">The song — voices &amp; chords</span>
+                  <AlignedVoicesOverview notes={notes} chords={trackSettings.chord_symbols ?? []} from={bandWrite.from}
+                    eighthLen={bandWrite.barLen / bandWrite.perBar} columns={studioColumns} perBar={bandWrite.perBar} /></div>
+                <div className="border-t border-sky-300/15"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-sky-200">🎸 Your instrument — notes &amp; chords on the staff</span>
+                  <InstrumentStaffEditor value={draftInstrumentTab} onChange={setDraftInstrumentTab} columns={studioColumns} perBar={bandWrite.perBar} /></div>
+                <div className="border-t border-rose-300/15"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-rose-200">🥁 Your drums — tap the grid</span>
+                  <DrumGridEditor value={draftDrumTab} onChange={setDraftDrumTab} columns={studioColumns} perBar={bandWrite.perBar} /></div>
+              </div>
             </div>
             <details className="text-[11px] text-slate-300">
               <summary className="cursor-pointer text-slate-400">Written form (the same part as text — edit either, they stay in step)</summary>
@@ -2005,7 +2015,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   <textarea rows={3} value={draftInstrumentTab} onChange={event => setDraftInstrumentTab(event.target.value)} spellCheck={false}
                     placeholder={'e3 g3 b3 e4 ~ - e3>g3 -'}
                     className="rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 font-mono text-[11px] text-white" />
-                  <span className="text-slate-500">note names per eighth (e3, f#3, bb2) · <b>~</b> holds the note longer (two ~ = a quarter more) · <b>-</b> rest · <b>e3&gt;g3</b> slides · bar lines | are ignored</span>
+                  <span className="text-slate-500">note names per eighth (e3, f#3, bb2) · <b>e3,g3,b3</b> a chord · <b>[Em7]</b> a symbol's voicing · <b>~</b> holds longer · <b>-</b> rest · <b>e3&gt;g3</b> slides · <b>!</b> accent · <b>.</b> staccato (e3! or [Em7].) · bar lines | are ignored</span>
                 </label>
                 <label className="flex flex-col gap-1">
                   <span className="font-black uppercase tracking-[.14em] text-rose-200">🥁 Drum tab</span>
