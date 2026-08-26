@@ -88,7 +88,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -117,6 +117,12 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   /** The song-wide starting band, shown as a clickable label at the head
    *  of the directive line. */
   bandDefaults?: { instrument: string; drums: string };
+  /** Clicking a directive auditions it: the editor plays just the band
+   *  from that instruction's bar. */
+  onBandAudition?: (target: { noteId: string } | 'default') => void;
+  /** Double-clicking a directive (or the popover's Write button) opens the
+   *  part studio: the SATB overview plus the written-out line editor. */
+  onBandWrite?: (target: { noteId: string } | 'default') => void;
   /** Double-clicking a SELECTED notehead calls this — the escape hatch that
    *  turns the value palette back into "set the next entry" instead of
    *  "re-value the selection". */
@@ -316,14 +322,16 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     {(layout.bandTexts.length > 0 || (onBandEdit && bandDefaults)) && <svg className="absolute left-4 top-4 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
       {onBandEdit && bandDefaults && <text x={14} y={12 + STAFF_MIDS[3] + 2 * GAP + 16} fontSize={10} fontStyle="italic" fontWeight={700}
         fill="#fca5a5cc" className="hover:fill-white" style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-        onClick={() => setBandEdit({ target: 'default', x: 30, system: 0 })}>
-        <title>The band from the top of the song — click to change it</title>
+        onClick={() => { setBandEdit({ target: 'default', x: 30, system: 0 }); onBandAudition?.('default'); }}
+        onDoubleClick={() => { setBandEdit(null); onBandWrite?.('default'); }}>
+        <title>The band from the top of the song — click to hear and change it; double-click to write the part</title>
         {shortStyle(bandDefaults.instrument)} · {shortStyle(bandDefaults.drums)}</text>}
       {layout.bandTexts.map((text, i) => <text key={`band-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 16}
         fontSize={10} fontStyle="italic" fontWeight={700} fill="#fca5a5cc"
         className={onBandEdit ? 'hover:fill-white' : undefined} style={onBandEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
-        onClick={onBandEdit ? () => setBandEdit({ target: { noteId: text.noteId }, x: text.x, system: text.system }) : undefined}>
-        {onBandEdit && <title>Band instruction from this bar — click to change or remove it</title>}
+        onClick={onBandEdit ? () => { setBandEdit({ target: { noteId: text.noteId }, x: text.x, system: text.system }); onBandAudition?.({ noteId: text.noteId }); } : undefined}
+        onDoubleClick={onBandWrite ? () => { setBandEdit(null); onBandWrite({ noteId: text.noteId }); } : undefined}>
+        {onBandEdit && <title>Band instruction from this bar — click to hear and change it; double-click to write the part</title>}
         {text.label}</text>)}
     </svg>}
     {laneMarks.length > 0 && <svg className="pointer-events-none absolute left-4 top-4" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
@@ -406,6 +414,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
             {DRUM_STYLES.filter(style => isDefault || style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
             {!isDefault && <option value="stop">🚫 Stop the drums</option>}
           </select></label>
+        {onBandWrite && <button onClick={() => { const target = bandEdit.target; setBandEdit(null); onBandWrite(target); }}
+          className="mt-1.5 w-full rounded border border-sky-300/30 px-2 py-1 text-sky-200 hover:bg-sky-300/10">✍ Write the part yourself…</button>}
         {!isDefault && <button onClick={() => { onBandEdit(bandEdit.target, 'remove', ''); setBandEdit(null); }}
           className="mt-1.5 w-full rounded border border-rose-300/30 px-2 py-1 text-rose-200 hover:bg-rose-300/10">Remove this instruction</button>}
         <button onClick={() => setBandEdit(null)} className="mt-1.5 w-full rounded border border-emerald-300/30 px-2 py-1 text-emerald-200 hover:bg-emerald-300/10">Done</button>
