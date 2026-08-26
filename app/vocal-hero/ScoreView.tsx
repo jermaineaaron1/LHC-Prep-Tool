@@ -94,9 +94,10 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
    *  turns the value palette back into "set the next entry" instead of
    *  "re-value the selection". */
   onDeselect?: () => void;
-  /** Where a click at this time would actually put the note (snapped and
-   *  clamped into its bar) — drives the ghost head under the cursor. */
-  resolveAdd?: (time: number) => number;
+  /** Where a click at this time, on this staff, would actually put the
+   *  note (snapped, clamped into its bar, moved past any blocking note) —
+   *  drives the ghost head under the cursor. */
+  resolveAdd?: (time: number, part: number) => number;
   /** Spell in this key instead of inferring one — a compiled rendition with
    *  a lifted last verse stays spelled in the song's own key, and the lift
    *  wears its honest accidentals. */
@@ -156,7 +157,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     if (staff < 0) return hide();
     const time = layout.xyToTime(system, x);
     if (time === null) return hide();
-    const landed = layout.timeToXY(resolveAdd ? resolveAdd(time) : time);
+    const landed = layout.timeToXY(resolveAdd ? resolveAdd(time, staff) : time);
     if (!landed) return hide();
     const step = Math.round((STAFF_MIDS[staff] - yIn) / STEP);
     ghost.style.display = 'block';
@@ -175,7 +176,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       originX: event.clientX, originY: event.clientY,
       secondsPerPx: (bar.end - bar.start) / (bar.width - BAR_PAD), moved: false,
     };
-    (event.target as Element).setPointerCapture?.(event.pointerId);
+    try { (event.target as Element).setPointerCapture?.(event.pointerId); } catch { /* synthetic pointers have no capture */ }
   }
   function moveDrag(event: React.PointerEvent) {
     const active = dragRef.current;

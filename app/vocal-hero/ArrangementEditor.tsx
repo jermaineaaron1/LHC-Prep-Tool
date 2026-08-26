@@ -844,14 +844,24 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
    *  bar's last grid slot but no further, and the note is cut at the
    *  barline. Writing near the end of a bar used to round forward onto the
    *  next bar's first beat and spill over its barline. */
-  function resolveScoreAdd(time: number) {
+  function resolveScoreAdd(time: number, part?: number) {
     const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
     const value = musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE;
     const bar = musicalBars.find(item => time >= item.start && time < item.end);
-    const snapped = snapTimeToGrid(musicalBars, time, division);
-    if (!bar) return { start: snapped, end: roundPrecise(snapped + noteDurationAt(musicalBars, snapped, value)) };
-    const step = snapStepAt(musicalBars, bar.start, division);
-    const start = Math.min(Math.max(snapped, roundPrecise(bar.start)), snapTimeToGrid(musicalBars, bar.end - step, division));
+    let start = snapTimeToGrid(musicalBars, time, division);
+    if (bar) {
+      const step = snapStepAt(musicalBars, bar.start, division);
+      start = Math.min(Math.max(start, roundPrecise(bar.start)), snapTimeToGrid(musicalBars, bar.end - step, division));
+    }
+    // The blocker rule lives HERE so the ghost head is honest: aimed inside
+    // an earlier note's span, the note (and the ghost) take the first free
+    // spot after it — the audit caught the ghost showing the click point
+    // while the note landed after the blocker.
+    if (part !== undefined) {
+      const blocker = notes.filter(note => note.part === part && note.start < start - .0005
+        && note.start + musicalDurationOf(note) > start + .0005).sort((a, b) => b.start - a.start)[0];
+      if (blocker) start = snapTimeToGrid(musicalBars, blocker.start + musicalDurationOf(blocker), division);
+    }
     // No cut at the barline any more: a value that outgrows the bar ties
     // into the fresh bar that placeWithFlow inserts for it.
     return { start, end: roundPrecise(start + noteDurationAt(musicalBars, start, value)) };
@@ -1375,7 +1385,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       });
       // ---- the band: the SAVED guitar and drum styles, on the same warped
       // clock as the voices — what plays here is what the room will hear.
-      if (noteView !== 'rendition') {
+      // Like practice and the round: a real backing track fills the space,
+      // so the synthesized band stands down rather than playing over it.
+      if (noteView !== 'rendition' && !mediaUrl) {
         const lastSound = activePerformance.notes.reduce((latest, note) => Math.max(latest, note.end), 0);
         const bandBars = musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length) }));
         // Events are built in PERFORMANCE time (the same warp as the voices),
@@ -1834,10 +1846,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 }}
                 onAddNote={(part, time, midi) => {
                   // Open score: the staff clicked IS the voice entered.
-                  const landing = resolveScoreAdd(time);
+                  const landing = resolveScoreAdd(time, part);
                   addNote(part, landing.start, midi, landing.end, '');
                 }}
-                resolveAdd={time => resolveScoreAdd(time).start}
+                resolveAdd={(time, part) => resolveScoreAdd(time, part).start}
                 chords={trackSettings.chord_symbols}
                 onDeselect={() => { setSelectedId(null); setSelectedIds([]); setEditorNotice(null); }}
                 onEraseNote={removeNote}

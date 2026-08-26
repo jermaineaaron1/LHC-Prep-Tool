@@ -320,7 +320,13 @@ export function buildBandEvents(options: {
           const degree = step.degree === -1 ? -1 : (step.degree + (instrument === 'gtr-solo' ? solowalk : 0)) % upper.length;
           midis = [degree === -1 ? tones.bass : upper[degree] + 12 * (step.octave ?? 0)];
         } else midis = tones.midis;
-        const writtenSustain = (step.sustain ?? (step.kind === 'pluck' || step.kind === 'keys' ? 1.6 : 1.9)) * beatLen;
+        let writtenSustain = (step.sustain ?? (step.kind === 'pluck' || step.kind === 'keys' ? 1.6 : 1.9)) * beatLen;
+        // A held chord must not smear into the NEXT harmony: block chords
+        // release where the chord symbol changes.
+        if (step.kind === 'keys' && step.degree === undefined) {
+          const nextChange = sortedChords.find(chord => chord.at > time + 0.02);
+          if (nextChange) writtenSustain = Math.min(writtenSustain, Math.max(0.3, nextChange.at - time));
+        }
         events.push({
           id: `i-${bar.start.toFixed(3)}-${step.beat}`,
           at: warp(time), kind: step.kind, midis,
