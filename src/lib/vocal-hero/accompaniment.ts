@@ -16,7 +16,7 @@ import { parseChord } from './chords';
 import { interpretMarks } from './performMarks';
 import type { SongNote } from './types';
 import {
-  playCajonBass, playCajonSlap, playCajonTick,
+  playBassTone, playCajonBass, playCajonSlap, playCajonTick,
   playHat, playKeyTone, playKick, playPluck, playSnare, playStrum, playTom,
 } from './voiceSynth';
 
@@ -27,6 +27,7 @@ export type InstrumentStyleId =
   | 'off'
   | 'gtr-down' | 'gtr-folk' | 'gtr-8ths' | 'gtr-arp' | 'gtr-travis' | 'gtr-solo'
   | 'pno-chords' | 'pno-arp'
+  | 'bass-walk'
   | 'melody-gtr' | 'melody-pno'
   | 'custom';
 export type DrumStyleId = 'off' | 'drum-kit' | 'drum-drive' | 'cajon-groove' | 'cajon-sway' | 'custom';
@@ -41,6 +42,7 @@ export const INSTRUMENT_STYLES: Array<{ id: InstrumentStyleId; label: string }> 
   { id: 'gtr-solo', label: 'Guitar — solo line over the changes' },
   { id: 'pno-chords', label: 'Piano — held chords' },
   { id: 'pno-arp', label: 'Piano — flowing arpeggio' },
+  { id: 'bass-walk', label: 'Bass — walking line' },
   { id: 'melody-gtr', label: 'Guitar — double the melody' },
   { id: 'melody-pno', label: 'Piano — double the melody' },
   { id: 'custom', label: 'Custom — your written-out line' },
@@ -56,7 +58,7 @@ export const DRUM_STYLES: Array<{ id: DrumStyleId; label: string }> = [
 ];
 
 export type BandEventKind =
-  | 'strum-down' | 'strum-up' | 'pluck' | 'keys'
+  | 'strum-down' | 'strum-up' | 'pluck' | 'keys' | 'bass'
   | 'kick' | 'snare' | 'hat' | 'tom-low' | 'tom-high'
   | 'cajon-bass' | 'cajon-slap' | 'cajon-tick';
 
@@ -207,6 +209,29 @@ export function parseInstrumentTab(text: string): ParsedInstrumentTab | null {
   return { notes, lengthEighths: index };
 }
 
+/** Deterministic per-event jitter: a hash of the id spread over ±1, so the
+ *  same song humanizes the same way on every device, every play. */
+function jitterOf(id: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < id.length; index++) { hash ^= id.charCodeAt(index); hash = Math.imul(hash, 16777619); }
+  return ((hash >>> 8) % 2001) / 1000 - 1;   // -1 .. +1
+}
+
+/** Walk a bass line through a bar: root, chord tones, and a chromatic
+ *  approach note aimed at the NEXT chord's root — the classic shape. */
+function walkBar(bar: BandBar, tones: { midis: number[]; bass: number }, nextRootPc: number): number[] {
+  const clampBass = (midi: number) => { let out = midi; while (out < 38) out += 12; while (out > 55) out -= 12; return out; };
+  const root = clampBass(tones.bass);
+  const upper = tones.midis.slice(1);
+  const third = clampBass(upper[1] ?? root + 4);
+  const fifth = clampBass(upper[2] ?? root + 7);
+  const target = clampBass(36 + nextRootPc);
+  // approach chromatically from whichever side is nearer
+  const approach = target + (Math.abs(target - 1 - fifth) <= Math.abs(target + 1 - fifth) ? -1 : 1);
+  const steps = [root, third, fifth, clampBass(approach)];
+  return steps.slice(0, bar.beatCount);
+}
+
 /** The chord sounding at a moment: the last symbol at or before it. */
 function chordTonesAt(chords: ChordAt[], time: number, transpose: number): { midis: number[]; bass: number } | null {
   let active: ChordAt | null = null;
@@ -270,6 +295,12 @@ export function buildBandEvents(options: {
   effectiveVelocity?: Map<string, number>;
   /** The written-out lines behind the 'custom' styles. */
   customTabs?: { instrument?: string; drums?: string };
+  /** ±8ms seeded jitter so the band breathes instead of sounding quantized.
+   *  On by default; pass false for grid-exact output (tests, exports). */
+  humanize?: boolean;
+  /** Two bars of stick clicks in the lead-in before the first entry. On by
+   *  default when the lead-in has room. */
+  countIn?: boolean;
 }): BandEvent[] {
   const { bars, chords, notes, defaults, until } = options;
   const transpose = options.transpose ?? 0;
@@ -293,6 +324,37 @@ export function buildBandEvents(options: {
   const drumTab = options.customTabs?.drums ? parseDrumTab(options.customTabs.drums) : null;
 
   const events: BandEvent[] = [];
+
+  // ---- the count-in: two bars of clicks in the lead-in, so the room
+  // breathes together before the first entry. Cajon songs click woodier.
+  if (options.countIn !== false && notes.length) {
+    const firstEntry = Math.min(...notes.map(note => note.start));
+    // A drummer counts right up to the entry — including into a pickup bar.
+    // The last two bars that BEGIN before the first note carry the clicks,
+    // and every click lands strictly before the singing starts. Songs whose
+    // lead-in is too short for at least four clicks get none.
+    const countBars = bars.filter(bar => bar.start < firstEntry - 0.05).slice(-2);
+    const opening = regionAt(regions, firstEntry + 0.01);
+    const bandPlays = opening.instrument !== 'off' || opening.drums !== 'off';
+    const tick: BandEventKind = opening.drums.startsWith('cajon') ? 'cajon-tick' : 'hat';
+    if (bandPlays && countBars.length) {
+      const clicks: BandEvent[] = [];
+      countBars.forEach((bar, barIndex) => {
+        const beatLen = (bar.end - bar.start) / bar.beatCount;
+        const lastBar = barIndex === countBars.length - 1;
+        for (let beat = 0; beat < bar.beatCount; beat++) {
+          const time = bar.start + beat * beatLen;
+          if (time >= firstEntry - 0.05) break;
+          clicks.push({ id: `ci-${barIndex}-${beat}`, at: warp(time), kind: tick, level: beat === 0 ? 0.06 : 0.035 });
+          // the run-up to the entry doubles into eighths — the classic call-in
+          if (lastBar && beat >= bar.beatCount / 2 && time + beatLen / 2 < firstEntry - 0.05) {
+            clicks.push({ id: `ci-${barIndex}-${beat}h`, at: warp(time + beatLen / 2), kind: tick, level: 0.03 });
+          }
+        }
+      });
+      if (clicks.length >= 4) events.push(...clicks);
+    }
+  }
   let solowalk = 0;
   let instrumentEighth = 0;
   let drumEighth = 0;
@@ -335,6 +397,24 @@ export function buildBandEvents(options: {
         });
       }
       if (instrument === 'gtr-solo') solowalk = (solowalk + 1) % 3;
+    }
+    if (instrument === 'bass-walk') {
+      const tones = chordTonesAt(sortedChords, bar.start + 0.01, transpose);
+      if (tones) {
+        const next = sortedChords.find(chord => chord.at > bar.start + 0.02);
+        const nextTones = next ? chordTonesAt(sortedChords, next.at + 0.01, transpose) : null;
+        const nextRootPc = ((nextTones ?? tones).bass % 12 + 12) % 12;
+        const walk = walkBar(bar, tones, nextRootPc);
+        walk.forEach((midi, beat) => {
+          const time = bar.start + beat * beatLen;
+          if (time >= until) return;
+          events.push({
+            id: `b-${bar.start.toFixed(3)}-${beat}`,
+            at: warp(time), kind: 'bass', midis: [midi],
+            sustain: sustainWarped(time, beatLen * 0.95), gain,
+          });
+        });
+      }
     }
     if (instrument === 'custom' && instrumentTab) {
       const eighthLen = beatLen / 2;
@@ -391,6 +471,18 @@ export function buildBandEvents(options: {
     instrumentEighth += bar.beatCount * 2;
     drumEighth += bar.beatCount * 2;
   }
+  // ±8ms of seeded humanity (drums tighter at ±5ms): enough that the strums
+  // stop sounding quantized, never enough to read as a timing mistake. The
+  // count-in stays machine-crisp — it IS the click.
+  if (options.humanize !== false) {
+    const DRUMS: BandEventKind[] = ['kick', 'snare', 'hat', 'tom-low', 'tom-high', 'cajon-bass', 'cajon-slap', 'cajon-tick'];
+    for (const event of events) {
+      if (event.id.startsWith('ci-')) continue;
+      const spread = DRUMS.includes(event.kind) ? 0.005 : 0.008;
+      event.at = Math.max(0, event.at + jitterOf(event.id) * spread);
+    }
+  }
+
   // The last chord is left to ring, the way a band actually finishes.
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
@@ -403,7 +495,7 @@ export function buildBandEvents(options: {
 }
 
 const BASE_LEVEL: Record<BandEventKind, number> = {
-  'strum-down': 0.045, 'strum-up': 0.04, pluck: 0.05, keys: 0.05,
+  'strum-down': 0.045, 'strum-up': 0.04, pluck: 0.05, keys: 0.05, bass: 0.09,
   kick: 0.16, snare: 0.09, hat: 0.035, 'tom-low': 0.11, 'tom-high': 0.1,
   'cajon-bass': 0.13, 'cajon-slap': 0.07, 'cajon-tick': 0.025,
 };
@@ -415,6 +507,7 @@ export function playBandEvent(context: AudioContext, event: BandEvent, when: num
     case 'strum-up': playStrum(context, event.midis ?? [], when, 'up', event.sustain ?? 0.8, level); break;
     case 'pluck': (event.midis ?? []).forEach(midi => playPluck(context, midi, when, event.sustain ?? 0.9, level)); break;
     case 'keys': (event.midis ?? []).forEach((midi, index) => playKeyTone(context, midi, when + index * 0.006, event.sustain ?? 1.2, level)); break;
+    case 'bass': (event.midis ?? []).forEach(midi => playBassTone(context, midi, when, event.sustain ?? 0.8, level)); break;
     case 'kick': playKick(context, when, level); break;
     case 'snare': playSnare(context, when, level); break;
     case 'hat': playHat(context, when, level); break;

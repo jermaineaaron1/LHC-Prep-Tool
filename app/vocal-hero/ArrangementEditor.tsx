@@ -21,6 +21,7 @@ import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vo
 import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
 import { buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
+import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#ffae42', '#4ca0ff', '#43e2bb'];
@@ -1051,6 +1052,25 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     });
     setEditorNotice(null);
   }
+  const grooveSeedRef = useRef(0);
+  function generateGroove() {
+    // Each press dictates the NEXT vibe: chords read from the voices when
+    // none exist, band instructions at the section turns, singer dynamics
+    // that build, and a held final note — one undoable edit.
+    const vibe = GROOVE_VIBES[grooveSeedRef.current % GROOVE_VIBES.length];
+    grooveSeedRef.current += 1;
+    const bandBars = musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length) }));
+    const plan = planGroove(notes, bandBars, trackSettings.chord_symbols ?? [], keySignature < 0, vibe);
+    if (!plan) { setEditorNotice('This song is too short to shape into sections.'); return; }
+    pushHistory();
+    if (plan.chords) setTrackSettingsDirty(current => ({ ...current, chord_symbols: plan.chords! }));
+    setNotes(current => current.map(note => {
+      const patch = plan.markPatches.find(item => item.noteId === note.id);
+      if (!patch) return note;
+      return { ...note, marks: { ...(note.marks ?? {}), ...patch.marks }, ...(patch.velocity !== undefined ? { velocity: patch.velocity } : {}) };
+    }));
+    setEditorNotice(`🎲 ${plan.summary}. Press again for the next vibe; Undo removes it; Save keeps it.`);
+  }
   function applyBandToSelection(field: 'instrument' | 'drums', value: string) {
     const first = selectedNotes[0];
     if (!first) return;
@@ -1742,6 +1762,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   {DRUM_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
                 </select></label>
               <span className="text-slate-500">chord styles need chord symbols; mid-song changes ride the notes (Expression bar)</span>
+              <button onClick={generateGroove} title="Dictate a whole arrangement: chords read from the voices, band instructions at the section turns, singer dynamics that build, a held final note. Press again for a different vibe." className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-1.5 font-semibold text-fuchsia-100">🎲 Generate a groove</button>
             </div>
             {accompaniment.guitar === 'custom' && <div>
               <p className="mb-1 text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Your instrument line — one token per eighth, looped: note names hit, ~ holds, - rests</p>
