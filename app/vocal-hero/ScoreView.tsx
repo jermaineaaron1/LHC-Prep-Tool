@@ -2,7 +2,7 @@
 
 import React, { useMemo, useRef, useState } from 'react';
 import type { NoteMarks, SongNote } from '@/lib/vocal-hero/types';
-import type { BandEvent } from '@/lib/vocal-hero/accompaniment';
+import { DRUM_STYLES, INSTRUMENT_STYLES, type BandEvent } from '@/lib/vocal-hero/accompaniment';
 import { accidentalMark, durationToSymbols, inferKeySignature, signatureAlteration, spellPitch, staffStep, type Accidental } from '@/lib/vocal-hero/notation';
 
 // The OPEN choral score, as the approved redesign draws it: every voice on
@@ -20,6 +20,11 @@ import { accidentalMark, durationToSymbols, inferKeySignature, signatureAlterati
 
 export interface ScoreBar { start: number; end: number; beatCount: number; numerator: number; denominator: number; number: number }
 export type ScoreTool = 'select' | 'draw' | 'erase';
+
+/** A band style id compressed for print: "🎸 folk · 🥁 straight". */
+const shortStyle = (value: string) => value === 'stop' || value === 'off' ? 'tacet'
+  : value.replace('melody-gtr', '🎸 melody').replace('melody-pno', '🎹 melody').replace('bass-walk', '🎸 walking bass')
+    .replace('gtr-', '🎸 ').replace('pno-', '🎹 ').replace('drum-', '🥁 ').replace('cajon-', '🪘 ').replace('custom', '✍ custom');
 
 const GAP = 7;
 const STEP = GAP / 2;
@@ -83,7 +88,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -104,6 +109,14 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
    *  strum arrows, arpeggio note names, bass walk, drum strikes — at the
    *  exact beat position it sounds, under the singing it accompanies. */
   bandEvents?: BandEvent[];
+  /** When wired, clicking a band directive under the bass staff opens an
+   *  in-place popover; its choices arrive here. The target names the note
+   *  carrying the instruction, or 'default' for the song-wide starting
+   *  band. field 'remove' clears the instruction entirely. */
+  onBandEdit?: (target: { noteId: string } | 'default', field: 'instrument' | 'drums' | 'remove', value: string) => void;
+  /** The song-wide starting band, shown as a clickable label at the head
+   *  of the directive line. */
+  bandDefaults?: { instrument: string; drums: string };
   /** Double-clicking a SELECTED notehead calls this — the escape hatch that
    *  turns the value palette back into "set the next entry" instead of
    *  "re-value the selection". */
@@ -152,6 +165,10 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     return marks;
   }, [bandEvents, layout]);
   const laneSystems = useMemo(() => [...new Set(laneMarks.map(mark => mark.system))], [laneMarks]);
+  // In-place band editing: click a directive (or the default label at the
+  // head of the line) and a popover with the instrument/drum pickers opens
+  // right there.
+  const [bandEdit, setBandEdit] = useState<{ target: { noteId: string } | 'default'; x: number; system: number } | null>(null);
   const [drag, setDrag] = useState<DragPreview>(null);
   // Inline lyric editing: double-click a word under the melody (or the empty
   // spot where one belongs), type, Tab to the next note, Enter to finish.
@@ -296,6 +313,19 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       onLeave={() => { if (ghostRef.current) ghostRef.current.style.display = 'none'; }}
       onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={onEraseNote} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
+    {(layout.bandTexts.length > 0 || (onBandEdit && bandDefaults)) && <svg className="absolute left-4 top-4 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
+      {onBandEdit && bandDefaults && <text x={14} y={12 + STAFF_MIDS[3] + 2 * GAP + 16} fontSize={10} fontStyle="italic" fontWeight={700}
+        fill="#fca5a5cc" className="hover:fill-white" style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+        onClick={() => setBandEdit({ target: 'default', x: 30, system: 0 })}>
+        <title>The band from the top of the song — click to change it</title>
+        {shortStyle(bandDefaults.instrument)} · {shortStyle(bandDefaults.drums)}</text>}
+      {layout.bandTexts.map((text, i) => <text key={`band-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 16}
+        fontSize={10} fontStyle="italic" fontWeight={700} fill="#fca5a5cc"
+        className={onBandEdit ? 'hover:fill-white' : undefined} style={onBandEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
+        onClick={onBandEdit ? () => setBandEdit({ target: { noteId: text.noteId }, x: text.x, system: text.system }) : undefined}>
+        {onBandEdit && <title>Band instruction from this bar — click to change or remove it</title>}
+        {text.label}</text>)}
+    </svg>}
     {laneMarks.length > 0 && <svg className="pointer-events-none absolute left-4 top-4" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
       {laneSystems.map(system => <g key={system} fontSize={8}>
         <text x={2} y={system * SYSTEM_H + 12 + LANE_INSTRUMENT_Y} fill="#93c5fd" opacity={0.5}>🎸</text>
@@ -350,6 +380,37 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       aria-label="Chord on this beat"
       className="absolute z-20 w-16 rounded border border-amber-300/70 bg-[#1a1206] px-1.5 py-0.5 text-center text-xs font-bold text-amber-100 shadow-[0_0_18px_#f59e0b44] placeholder:font-normal placeholder:text-amber-200/30"
       style={{ left: chordEdit.x + 12 + 16 - 32, top: chordEdit.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24 + 16 - 20 }} />}
+    {bandEdit && onBandEdit && (() => {
+      const isDefault = bandEdit.target === 'default';
+      const current = isDefault
+        ? { instrument: bandDefaults?.instrument ?? 'off', drums: bandDefaults?.drums ?? 'off' }
+        : (notes.find(note => note.id === (bandEdit.target as { noteId: string }).noteId)?.marks?.band ?? {});
+      return <div className="absolute z-30 w-60 rounded-xl border border-rose-300/40 bg-[#160a14] p-2 text-[10px] text-slate-200 shadow-[0_0_28px_#f43f5e40]"
+        style={{ left: Math.max(4, Math.min(bandEdit.x + 12 + 16 - 120, SYSTEM_W - 230)), top: bandEdit.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 22 + 16 }}
+        onKeyDown={event => { if (event.key === 'Escape') setBandEdit(null); }}>
+        <div className="mb-1.5 flex items-center justify-between">
+          <b className="text-[9px] font-black uppercase tracking-[.16em] text-rose-200">{isDefault ? 'Band · from the top' : 'Band · from this bar'}</b>
+          <button onClick={() => setBandEdit(null)} aria-label="Close band editor" className="rounded px-1.5 text-slate-400 hover:text-white">✕</button>
+        </div>
+        <label className="mb-1 flex items-center gap-1.5">🎸
+          <select autoFocus value={current.instrument ?? ''} onChange={event => onBandEdit(bandEdit.target, 'instrument', event.target.value)}
+            aria-label="Instrument from here" className="w-full rounded border border-white/15 bg-black/40 px-1 py-1 text-[10px] text-white">
+            {!isDefault && <option value="">(keep playing)</option>}
+            {INSTRUMENT_STYLES.filter(style => isDefault || style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
+            {!isDefault && <option value="stop">🚫 Stop the instrument</option>}
+          </select></label>
+        <label className="flex items-center gap-1.5">🥁
+          <select value={current.drums ?? ''} onChange={event => onBandEdit(bandEdit.target, 'drums', event.target.value)}
+            aria-label="Drums from here" className="w-full rounded border border-white/15 bg-black/40 px-1 py-1 text-[10px] text-white">
+            {!isDefault && <option value="">(keep playing)</option>}
+            {DRUM_STYLES.filter(style => isDefault || style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
+            {!isDefault && <option value="stop">🚫 Stop the drums</option>}
+          </select></label>
+        {!isDefault && <button onClick={() => { onBandEdit(bandEdit.target, 'remove', ''); setBandEdit(null); }}
+          className="mt-1.5 w-full rounded border border-rose-300/30 px-2 py-1 text-rose-200 hover:bg-rose-300/10">Remove this instruction</button>}
+        <button onClick={() => setBandEdit(null)} className="mt-1.5 w-full rounded border border-emerald-300/30 px-2 py-1 text-emerald-200 hover:bg-emerald-300/10">Done</button>
+      </div>;
+    })()}
   </div>;
 }
 
@@ -415,8 +476,6 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
       fontSize={12} fontStyle="italic" fontWeight={800} fill="#7dd3fc" fontFamily="Georgia,'Times New Roman',serif">{text.label}</text>)}
     {layout.chordTexts.map((text, i) => <text key={`chord-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24}
       fontSize={12} fontWeight={800} textAnchor="middle" fill="#fde68a">{text.label}</text>)}
-    {layout.bandTexts.map((text, i) => <text key={`band-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 16}
-      fontSize={10} fontStyle="italic" fontWeight={700} fill="#fca5a5cc">{text.label}</text>)}
     {layout.spans.map((span, i) => {
       const mid = STAFF_MIDS[span.staff];
       const top = span.system * SYSTEM_H + 12;
@@ -746,10 +805,7 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
   }
   // Band instructions print below the bass staff, where a rhythm section
   // reads: "gtr folk · kit", "band: tacet".
-  const shortStyle = (value: string) => value === 'stop' || value === 'off' ? 'tacet'
-    : value.replace('melody-gtr', '🎸 melody').replace('melody-pno', '🎹 melody').replace('bass-walk', '🎸 walking bass')
-      .replace('gtr-', '🎸 ').replace('pno-', '🎹 ').replace('drum-', '🥁 ').replace('cajon-', '🪘 ').replace('custom', '✍ custom');
-  const bandTexts: Array<{ x: number; system: number; label: string }> = [];
+  const bandTexts: Array<{ x: number; system: number; label: string; noteId: string }> = [];
   for (const glyph of glyphs) {
     const band = glyph.marks?.band;
     if (!band || (!band.instrument && !band.drums)) continue;
@@ -757,7 +813,7 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     const parts: string[] = [];
     if (band.instrument) parts.push(shortStyle(band.instrument));
     if (band.drums) parts.push(shortStyle(band.drums));
-    bandTexts.push({ x: glyph.x, system: glyph.system, label: parts.join(' · ') });
+    bandTexts.push({ x: glyph.x, system: glyph.system, label: parts.join(' · '), noteId: glyph.id });
   }
   // Slide (portamento) lines: from a marked note's head toward the next
   // note's head on the same staff — the singer's glide, drawn. A slide
