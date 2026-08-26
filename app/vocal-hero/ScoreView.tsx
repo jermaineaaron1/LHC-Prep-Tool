@@ -78,7 +78,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, onDeselect, resolveAdd, signature }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onDeselect, resolveAdd, signature }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -88,19 +88,22 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   onEraseNote: (id: string) => void;
   onDragCommit: (id: string, changes: { midi: number; start: number; end: number }) => void;
   onLyricChange: (id: string, lyric: string) => void;
+  /** Chord symbols to engrave above the top staff, in song time. */
+  chords?: Array<{ at: number; symbol: string }>;
   /** Double-clicking a SELECTED notehead calls this — the escape hatch that
    *  turns the value palette back into "set the next entry" instead of
    *  "re-value the selection". */
   onDeselect?: () => void;
-  /** Where a click at this time would actually put the note (snapped and
-   *  clamped into its bar) — drives the ghost head under the cursor. */
-  resolveAdd?: (time: number) => number;
+  /** Where a click at this time, on this staff, would actually put the
+   *  note (snapped, clamped into its bar, moved past any blocking note) —
+   *  drives the ghost head under the cursor. */
+  resolveAdd?: (time: number, part: number) => number;
   /** Spell in this key instead of inferring one — a compiled rendition with
    *  a lifted last verse stays spelled in the song's own key, and the lift
    *  wears its honest accidentals. */
   signature?: number;
 }) {
-  const layout = useMemo(() => buildLayout(notes, bars, signature), [notes, bars, signature]);
+  const layout = useMemo(() => buildLayout(notes, bars, signature, chords), [notes, bars, signature, chords]);
   const [drag, setDrag] = useState<DragPreview>(null);
   // Inline lyric editing: double-click a word under the melody (or the empty
   // spot where one belongs), type, Tab to the next note, Enter to finish.
@@ -154,7 +157,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     if (staff < 0) return hide();
     const time = layout.xyToTime(system, x);
     if (time === null) return hide();
-    const landed = layout.timeToXY(resolveAdd ? resolveAdd(time) : time);
+    const landed = layout.timeToXY(resolveAdd ? resolveAdd(time, staff) : time);
     if (!landed) return hide();
     const step = Math.round((STAFF_MIDS[staff] - yIn) / STEP);
     ghost.style.display = 'block';
@@ -173,7 +176,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       originX: event.clientX, originY: event.clientY,
       secondsPerPx: (bar.end - bar.start) / (bar.width - BAR_PAD), moved: false,
     };
-    (event.target as Element).setPointerCapture?.(event.pointerId);
+    try { (event.target as Element).setPointerCapture?.(event.pointerId); } catch { /* synthetic pointers have no capture */ }
   }
   function moveDrag(event: React.PointerEvent) {
     const active = dragRef.current;
@@ -294,8 +297,12 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
       {beam.double && <line x1={beam.x1} x2={beam.x2} y1={beam.y + (beam.up ? 5 : -5)} y2={beam.y + (beam.up ? 5 : -5)} stroke="#ffffff" strokeWidth={3.2} />}
       {beam.triplet && <text x={(beam.x1 + beam.x2) / 2} y={beam.y + (beam.up ? -4 : 12)} fontSize={10} fontStyle="italic" fontWeight={700} textAnchor="middle" fill="#ffffffcc">3</text>}
     </g>)}
-    {layout.tempoTexts.map((text, i) => <text key={`tempo-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 26}
+    {layout.tempoTexts.map((text, i) => <text key={`tempo-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 38}
       fontSize={12} fontStyle="italic" fontWeight={800} fill="#7dd3fc" fontFamily="Georgia,'Times New Roman',serif">{text.label}</text>)}
+    {layout.chordTexts.map((text, i) => <text key={`chord-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24}
+      fontSize={12} fontWeight={800} textAnchor="middle" fill="#fde68a">{text.label}</text>)}
+    {layout.bandTexts.map((text, i) => <text key={`band-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 16}
+      fontSize={10} fontStyle="italic" fontWeight={700} fill="#fca5a5cc">{text.label}</text>)}
     {layout.spans.map((span, i) => {
       const mid = STAFF_MIDS[span.staff];
       const top = span.system * SYSTEM_H + 12;
@@ -392,7 +399,7 @@ function CursorLayer({ layout, getPlayhead }: { layout: Layout; getPlayhead: () 
 
 type Layout = ReturnType<typeof buildLayout>;
 
-function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?: number) {
+function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?: number, chords?: Array<{ at: number; symbol: string }>) {
   // The page opens where the music does: whole bars of lead-in silence are
   // dropped, not shifted — shifting the grid under the notes broke any bar
   // list whose lengths vary (a rendition with a broader pass), and it made
@@ -623,6 +630,26 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     if (tempoTexts.some(text => text.system === glyph.system && Math.abs(text.x - glyph.x) < 14)) continue;
     tempoTexts.push({ x: glyph.x, system: glyph.system, label: TEMPO_LABELS[kind] ?? kind });
   }
+  // Band instructions print below the bass staff, where a rhythm section
+  // reads: "gtr folk · kit", "band: tacet".
+  const shortStyle = (value: string) => value === 'stop' || value === 'off' ? 'tacet'
+    : value.replace('gtr-', 'gtr ').replace('pno-', 'pno ').replace('drum-', '').replace('cajon-', 'cajon ').replace('melody-gtr', 'gtr melody').replace('melody-pno', 'pno melody');
+  const bandTexts: Array<{ x: number; system: number; label: string }> = [];
+  for (const glyph of glyphs) {
+    const band = glyph.marks?.band;
+    if (!band || (!band.instrument && !band.drums)) continue;
+    if (bandTexts.some(text => text.system === glyph.system && Math.abs(text.x - glyph.x) < 14)) continue;
+    const parts: string[] = [];
+    if (band.instrument) parts.push(shortStyle(band.instrument));
+    if (band.drums) parts.push(shortStyle(band.drums));
+    bandTexts.push({ x: glyph.x, system: glyph.system, label: parts.join(' · ') });
+  }
+  // Chord symbols ride above the top staff, lead-sheet style.
+  const chordTexts: Array<{ x: number; system: number; label: string }> = [];
+  for (const chord of chords ?? []) {
+    const position = timeToXY(chord.at);
+    if (position) chordTexts.push({ x: position.x, system: position.system, label: chord.symbol });
+  }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
-  return { glyphs, beams, rests, spans, tempoTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
+  return { glyphs, beams, rests, spans, tempoTexts, chordTexts, bandTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
 }

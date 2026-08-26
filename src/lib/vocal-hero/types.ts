@@ -54,6 +54,10 @@ export interface NoteMarks {
    * accelerando ramp until the next tempo mark (or the end), 'atempo'
    * returns to the written speed, 'allegro' sets a brisk constant. */
   tempo?: TempoMarkKind;
+  /** A band instruction taking effect at this note's bar: an instrument
+   * and/or drum style id from the accompaniment catalogs, or 'stop'.
+   * It plays until the next instruction. */
+  band?: { instrument?: string; drums?: string };
 }
 
 export type TempoMarkKind = 'rit' | 'accel' | 'atempo' | 'allegro';
@@ -109,6 +113,12 @@ export type RhythmicNoteValue =
   | 'sixty-fourth' | 'dotted-sixty-fourth' | 'double-dotted-sixty-fourth' | 'sixty-fourth-triplet';
 
 export interface BackingTrackSettings {
+  /** Guitar/piano chord symbols over the score, in song time. */
+  chord_symbols?: Array<{ at: number; symbol: string }>;
+  /** The band: which instrument and drum/cajon styles play under this song
+   *  (in the editor preview, in practice, and in the room during a round),
+   *  plus the written-out tabs behind the 'custom' styles. */
+  accompaniment?: { guitar: string; drums: string; instrument_tab?: string; drum_tab?: string };
   volume: number;
   speed: number;
   /** Seconds to nudge the backing track relative to arrangement time. */

@@ -1,0 +1,456 @@
+'use client';
+
+// The band that reads the score, not just the grid.
+//
+// Instrument instructions live ON the singing notes, like tempo marks: an
+// instruction at a note takes effect from that note's bar and PLAYS UNTIL
+// the next instruction or an explicit stop. The song's saved styles are the
+// opening default. The band also follows the music's own expression — its
+// loudness tracks the choir's dynamics and hairpins bar by bar, its clock is
+// the same warp the singers get (so it broadens through a ritardando and
+// waits through a fermata with the chord ringing across the pause), and the
+// final chord is left to ring. All of the EVENT BUILDING is pure and tested;
+// only the last inch touches WebAudio.
+
+import { parseChord } from './chords';
+import { interpretMarks } from './performMarks';
+import type { SongNote } from './types';
+import {
+  playCajonBass, playCajonSlap, playCajonTick,
+  playHat, playKeyTone, playKick, playPluck, playSnare, playStrum, playTom,
+} from './voiceSynth';
+
+export interface BandBar { start: number; end: number; beatCount: number }
+export interface ChordAt { at: number; symbol: string }
+
+export type InstrumentStyleId =
+  | 'off'
+  | 'gtr-down' | 'gtr-folk' | 'gtr-8ths' | 'gtr-arp' | 'gtr-travis' | 'gtr-solo'
+  | 'pno-chords' | 'pno-arp'
+  | 'melody-gtr' | 'melody-pno'
+  | 'custom';
+export type DrumStyleId = 'off' | 'drum-kit' | 'drum-drive' | 'cajon-groove' | 'cajon-sway' | 'custom';
+
+export const INSTRUMENT_STYLES: Array<{ id: InstrumentStyleId; label: string }> = [
+  { id: 'off', label: 'No instrument' },
+  { id: 'gtr-down', label: 'Guitar — downstrums' },
+  { id: 'gtr-folk', label: 'Guitar — folk strum (D D-U -U D-U)' },
+  { id: 'gtr-8ths', label: 'Guitar — driving eighths' },
+  { id: 'gtr-arp', label: 'Guitar — fingerpicked arpeggio' },
+  { id: 'gtr-travis', label: 'Guitar — Travis picking' },
+  { id: 'gtr-solo', label: 'Guitar — solo line over the changes' },
+  { id: 'pno-chords', label: 'Piano — held chords' },
+  { id: 'pno-arp', label: 'Piano — flowing arpeggio' },
+  { id: 'melody-gtr', label: 'Guitar — double the melody' },
+  { id: 'melody-pno', label: 'Piano — double the melody' },
+  { id: 'custom', label: 'Custom — your written-out line' },
+];
+
+export const DRUM_STYLES: Array<{ id: DrumStyleId; label: string }> = [
+  { id: 'off', label: 'No drums' },
+  { id: 'drum-kit', label: 'Kit — straight' },
+  { id: 'drum-drive', label: 'Kit — driving' },
+  { id: 'cajon-groove', label: 'Cajon — groove' },
+  { id: 'cajon-sway', label: 'Cajon — sway (waltz-friendly)' },
+  { id: 'custom', label: 'Custom — your written-out tab' },
+];
+
+export type BandEventKind =
+  | 'strum-down' | 'strum-up' | 'pluck' | 'keys'
+  | 'kick' | 'snare' | 'hat' | 'tom-low' | 'tom-high'
+  | 'cajon-bass' | 'cajon-slap' | 'cajon-tick';
+
+export interface BandEvent {
+  id: string;
+  /** Performance time when a warp is supplied, written time otherwise. */
+  at: number;
+  kind: BandEventKind;
+  midis?: number[];
+  sustain?: number;
+  level?: number;
+  /** The expression-following factor: the choir's dynamics at this moment. */
+  gain?: number;
+}
+
+type PatternStep = { beat: number; kind: BandEventKind; degree?: number; octave?: number; level?: number; sustain?: number };
+
+// Patterns are authored across a four-beat bar and clipped to the bar's real
+// beat count, so 2/4 takes the front half and 3/4 the front three beats.
+const INSTRUMENT_PATTERNS: Partial<Record<InstrumentStyleId, PatternStep[]>> = {
+  'gtr-down': [0, 1, 2, 3].map(beat => ({ beat, kind: 'strum-down' as const })),
+  'gtr-folk': [
+    { beat: 0, kind: 'strum-down' }, { beat: 1, kind: 'strum-down' }, { beat: 1.5, kind: 'strum-up' },
+    { beat: 2.5, kind: 'strum-up' }, { beat: 3, kind: 'strum-down' }, { beat: 3.5, kind: 'strum-up' },
+  ],
+  'gtr-8ths': [0, 1, 2, 3].flatMap(beat => [
+    { beat, kind: 'strum-down' as const }, { beat: beat + 0.5, kind: 'strum-up' as const, level: 0.03 },
+  ]),
+  'gtr-arp': [
+    { beat: 0, kind: 'pluck', degree: -1 }, { beat: 0.5, kind: 'pluck', degree: 0 },
+    { beat: 1, kind: 'pluck', degree: 1 }, { beat: 1.5, kind: 'pluck', degree: 2 },
+    { beat: 2, kind: 'pluck', degree: 1 }, { beat: 2.5, kind: 'pluck', degree: 2, octave: 1 },
+    { beat: 3, kind: 'pluck', degree: 1 }, { beat: 3.5, kind: 'pluck', degree: 0 },
+  ],
+  'gtr-travis': [
+    { beat: 0, kind: 'pluck', degree: -1 }, { beat: 0.5, kind: 'pluck', degree: 2 },
+    { beat: 1, kind: 'pluck', degree: 1 }, { beat: 1.5, kind: 'pluck', degree: 2 },
+    { beat: 2, kind: 'pluck', degree: -1 }, { beat: 2.5, kind: 'pluck', degree: 1 },
+    { beat: 3, kind: 'pluck', degree: 2 }, { beat: 3.5, kind: 'pluck', degree: 0, octave: 1 },
+  ],
+  'gtr-solo': [
+    { beat: 0, kind: 'pluck', degree: 0, octave: 1 }, { beat: 0.5, kind: 'pluck', degree: 1, octave: 1 },
+    { beat: 1, kind: 'pluck', degree: 2, octave: 1 }, { beat: 1.5, kind: 'pluck', degree: 0, octave: 2 },
+    { beat: 2, kind: 'pluck', degree: 2, octave: 1 }, { beat: 2.5, kind: 'pluck', degree: 1, octave: 1 },
+    { beat: 3, kind: 'pluck', degree: 2, octave: 1 }, { beat: 3.5, kind: 'pluck', degree: 1, octave: 1 },
+  ],
+  // Piano: the left hand holds the bar down, the right answers on the half.
+  'pno-chords': [
+    { beat: 0, kind: 'keys', sustain: 4 }, { beat: 2, kind: 'keys', level: 0.035, sustain: 2 },
+  ],
+  'pno-arp': [
+    { beat: 0, kind: 'keys', degree: -1 }, { beat: 0.5, kind: 'keys', degree: 0 },
+    { beat: 1, kind: 'keys', degree: 1 }, { beat: 1.5, kind: 'keys', degree: 2 },
+    { beat: 2, kind: 'keys', degree: 0, octave: 1 }, { beat: 2.5, kind: 'keys', degree: 2 },
+    { beat: 3, kind: 'keys', degree: 1 }, { beat: 3.5, kind: 'keys', degree: 0 },
+  ],
+};
+
+const DRUM_PATTERNS: Partial<Record<DrumStyleId, PatternStep[]>> = {
+  'drum-kit': [
+    { beat: 0, kind: 'kick' }, { beat: 2, kind: 'kick' },
+    { beat: 1, kind: 'snare' }, { beat: 3, kind: 'snare' },
+    ...[0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map(beat => ({ beat, kind: 'hat' as const })),
+  ],
+  'drum-drive': [
+    { beat: 0, kind: 'kick' }, { beat: 2, kind: 'kick' }, { beat: 2.5, kind: 'kick', level: 0.1 },
+    { beat: 1, kind: 'snare' }, { beat: 3, kind: 'snare' },
+    ...[0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map(beat => ({ beat, kind: 'hat' as const, level: 0.045 })),
+  ],
+  'cajon-groove': [
+    { beat: 0, kind: 'cajon-bass' }, { beat: 2.5, kind: 'cajon-bass' },
+    { beat: 1, kind: 'cajon-slap' }, { beat: 3, kind: 'cajon-slap' },
+    ...[0.5, 1.5, 2, 3.5].map(beat => ({ beat, kind: 'cajon-tick' as const })),
+  ],
+  'cajon-sway': [
+    { beat: 0, kind: 'cajon-bass' },
+    { beat: 2, kind: 'cajon-slap' },
+    ...[0.5, 1, 1.5, 2.5].map(beat => ({ beat, kind: 'cajon-tick' as const })),
+  ],
+};
+
+// ── written-out tabs ───────────────────────────────────────────────────────
+// The DSL a drummer or guitarist would scribble. One column per EIGHTH.
+//
+// Drum tab, one lane per line, looped over its length:
+//   K: o---o---     kick / bass drum
+//   S: --o---o-     snare
+//   H: x-x-x-x-     hi-hat
+//   T: ------oo     low tom      t: high tom
+//   B: o---o---     cajon bass   P: cajon slap   c: cajon tick
+// 'x' or 'o' hits, capitals in the SYMBOL position accent (X / O), '-' or
+// '.' rests, spaces and bar lines '|' are ignored.
+//
+// Instrument line: space-separated tokens, one per eighth, looped:
+//   e3 g3 b3 e4 ~ - g3 b3
+// note names hit, '~' extends the previous note, '-' rests, '|' ignored.
+
+const DRUM_LANES: Record<string, BandEventKind> = {
+  K: 'kick', S: 'snare', H: 'hat', T: 'tom-low', t: 'tom-high',
+  B: 'cajon-bass', P: 'cajon-slap', c: 'cajon-tick',
+};
+
+export interface DrumTabHit { eighth: number; kind: BandEventKind; accent: boolean }
+export interface ParsedDrumTab { hits: DrumTabHit[]; lengthEighths: number }
+
+export function parseDrumTab(text: string): ParsedDrumTab | null {
+  const hits: DrumTabHit[] = [];
+  let length = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    const match = raw.match(/^\s*([KSHTtBPc])\s*:\s*(.+)$/);
+    if (!match) continue;
+    const kind = DRUM_LANES[match[1]];
+    const cells = match[2].replace(/[|\s]/g, '');
+    length = Math.max(length, cells.length);
+    for (let index = 0; index < cells.length; index++) {
+      const cell = cells[index];
+      if (cell === '-' || cell === '.') continue;
+      hits.push({ eighth: index, kind, accent: cell === 'X' || cell === 'O' });
+    }
+  }
+  if (!hits.length || !length) return null;
+  return { hits, lengthEighths: length };
+}
+
+const TAB_LETTER_PC: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
+
+export interface InstrumentTabNote { eighth: number; midi: number; holdEighths: number }
+export interface ParsedInstrumentTab { notes: InstrumentTabNote[]; lengthEighths: number }
+
+export function parseInstrumentTab(text: string): ParsedInstrumentTab | null {
+  const tokens = text.replace(/\|/g, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return null;
+  const notes: InstrumentTabNote[] = [];
+  let index = 0;
+  for (const token of tokens) {
+    if (token === '-' || token === '.') { index += 1; continue; }
+    if (token === '~') { if (notes.length) notes[notes.length - 1].holdEighths += 1; index += 1; continue; }
+    const match = token.toLowerCase().match(/^([a-g])([#b]?)(-?\d)$/);
+    if (!match) { index += 1; continue; }
+    let pc = TAB_LETTER_PC[match[1]];
+    if (match[2] === '#') pc += 1;
+    if (match[2] === 'b') pc -= 1;
+    const midi = pc + 12 * (parseInt(match[3], 10) + 1);
+    notes.push({ eighth: index, midi, holdEighths: 1 });
+    index += 1;
+  }
+  if (!notes.length) return null;
+  return { notes, lengthEighths: index };
+}
+
+/** The chord sounding at a moment: the last symbol at or before it. */
+function chordTonesAt(chords: ChordAt[], time: number, transpose: number): { midis: number[]; bass: number } | null {
+  let active: ChordAt | null = null;
+  for (const chord of chords) {
+    if (chord.at <= time + 0.02) active = chord;
+    else break;
+  }
+  if (!active) return null;
+  const parsed = parseChord(active.symbol);
+  if (!parsed) return null;
+  const midis = parsed.midis.map(midi => midi + transpose);
+  return { midis, bass: midis[0] };
+}
+
+export interface BandRegion { from: number; instrument: InstrumentStyleId; drums: DrumStyleId }
+
+/** The style timeline: the song's defaults from the top, then every
+ *  band instruction found on a note, in time order. 'stop' is a style. */
+export function bandRegions(notes: SongNote[], defaults: { instrument: InstrumentStyleId; drums: DrumStyleId }): BandRegion[] {
+  const regions: BandRegion[] = [{ from: 0, ...defaults }];
+  const marked = notes
+    .filter(note => note.marks?.band && (note.marks.band.instrument || note.marks.band.drums))
+    .sort((a, b) => a.start - b.start);
+  for (const note of marked) {
+    const previous = regions[regions.length - 1];
+    const instruction = note.marks!.band!;
+    const resolve = (value: string | undefined, current: string): string =>
+      value === undefined ? current : value === 'stop' ? 'off' : value;
+    regions.push({
+      from: note.start,
+      instrument: resolve(instruction.instrument, previous.instrument) as InstrumentStyleId,
+      drums: resolve(instruction.drums, previous.drums) as DrumStyleId,
+    });
+  }
+  return regions;
+}
+
+const regionAt = (regions: BandRegion[], time: number): BandRegion => {
+  let active = regions[0];
+  for (const region of regions) {
+    if (region.from <= time + 0.02) active = region;
+    else break;
+  }
+  return active;
+};
+
+export function buildBandEvents(options: {
+  bars: BandBar[];
+  chords: ChordAt[];
+  /** The singing itself: instrument instructions ride these notes, the
+   *  band's loudness follows their dynamics, and the melody styles double
+   *  the part 0 / part -1 line. */
+  notes: SongNote[];
+  defaults: { instrument: InstrumentStyleId; drums: DrumStyleId };
+  /** Stop where the music stops — no band through the empty padding bars. */
+  until: number;
+  transpose?: number;
+  warp?: (time: number) => number;
+  /** Hairpin-adjusted velocities by note id (from interpretMarks), so the
+   *  band swells and fades WITH the choir. Falls back to stored velocity. */
+  effectiveVelocity?: Map<string, number>;
+  /** The written-out lines behind the 'custom' styles. */
+  customTabs?: { instrument?: string; drums?: string };
+}): BandEvent[] {
+  const { bars, chords, notes, defaults, until } = options;
+  const transpose = options.transpose ?? 0;
+  const warp = options.warp ?? ((time: number) => time);
+  const velocity = options.effectiveVelocity;
+  const sortedChords = [...chords].sort((a, b) => a.at - b.at);
+  const regions = bandRegions(notes, defaults);
+  const melody = notes.filter(note => note.part === 0 || note.part === -1).sort((a, b) => a.start - b.start);
+
+  // The choir's loudness, bar by bar: mean effective velocity of the notes
+  // sounding in the bar against the mf baseline of 88. This is what makes a
+  // crescendo lift the drums as well as the voices.
+  const loudness = (bar: BandBar): number => {
+    const sounding = notes.filter(note => note.start < bar.end && note.end > bar.start);
+    if (!sounding.length) return 1;
+    const mean = sounding.reduce((sum, note) => sum + (velocity?.get(note.id) ?? note.velocity), 0) / sounding.length;
+    return Math.max(0.55, Math.min(1.45, mean / 88));
+  };
+
+  const instrumentTab = options.customTabs?.instrument ? parseInstrumentTab(options.customTabs.instrument) : null;
+  const drumTab = options.customTabs?.drums ? parseDrumTab(options.customTabs.drums) : null;
+
+  const events: BandEvent[] = [];
+  let solowalk = 0;
+  let instrumentEighth = 0;
+  let drumEighth = 0;
+  for (const bar of bars) {
+    if (bar.start >= until - 0.05) break;
+    const beatLen = (bar.end - bar.start) / bar.beatCount;
+    // A style change takes effect at the barline: the region active at the
+    // bar's first beat governs the whole bar, the way bands actually turn.
+    const region = regionAt(regions, bar.start + 0.01);
+    const gain = loudness(bar);
+    const sustainWarped = (time: number, written: number) => Math.max(0.2, warp(time + written) - warp(time));
+
+    const instrument = region.instrument;
+    if (instrument !== 'off' && !instrument.startsWith('melody')) {
+      const pattern = INSTRUMENT_PATTERNS[instrument] ?? [];
+      for (const step of pattern) {
+        if (step.beat >= bar.beatCount - 0.01) continue;
+        const time = bar.start + step.beat * beatLen;
+        if (time >= until) continue;
+        const tones = chordTonesAt(sortedChords, time, transpose);
+        if (!tones) continue;
+        const upper = tones.midis.slice(1);
+        let midis: number[];
+        if (step.degree !== undefined) {
+          const degree = step.degree === -1 ? -1 : (step.degree + (instrument === 'gtr-solo' ? solowalk : 0)) % upper.length;
+          midis = [degree === -1 ? tones.bass : upper[degree] + 12 * (step.octave ?? 0)];
+        } else midis = tones.midis;
+        let writtenSustain = (step.sustain ?? (step.kind === 'pluck' || step.kind === 'keys' ? 1.6 : 1.9)) * beatLen;
+        // A held chord must not smear into the NEXT harmony: block chords
+        // release where the chord symbol changes.
+        if (step.kind === 'keys' && step.degree === undefined) {
+          const nextChange = sortedChords.find(chord => chord.at > time + 0.02);
+          if (nextChange) writtenSustain = Math.min(writtenSustain, Math.max(0.3, nextChange.at - time));
+        }
+        events.push({
+          id: `i-${bar.start.toFixed(3)}-${step.beat}`,
+          at: warp(time), kind: step.kind, midis,
+          sustain: sustainWarped(time, writtenSustain),
+          level: step.level, gain,
+        });
+      }
+      if (instrument === 'gtr-solo') solowalk = (solowalk + 1) % 3;
+    }
+    if (instrument === 'custom' && instrumentTab) {
+      const eighthLen = beatLen / 2;
+      for (let cell = 0; cell < bar.beatCount * 2; cell++) {
+        const position = (instrumentEighth + cell) % instrumentTab.lengthEighths;
+        const time = bar.start + cell * eighthLen;
+        if (time >= until) continue;
+        for (const note of instrumentTab.notes) {
+          if (note.eighth !== position) continue;
+          events.push({
+            id: `c-${bar.start.toFixed(3)}-${cell}`,
+            at: warp(time), kind: 'pluck', midis: [note.midi + transpose],
+            sustain: sustainWarped(time, note.holdEighths * eighthLen * 1.05),
+            level: 0.05, gain,
+          });
+        }
+      }
+    }
+    if (instrument.startsWith('melody')) {
+      const kind: BandEventKind = instrument === 'melody-pno' ? 'keys' : 'pluck';
+      for (const note of melody) {
+        if (note.start < bar.start - 0.01 || note.start >= bar.end - 0.01 || note.start >= until) continue;
+        events.push({
+          id: `m-${note.id}`,
+          at: warp(note.start), kind, midis: [note.midi + transpose],
+          sustain: sustainWarped(note.start, Math.max(0.2, note.end - note.start)),
+          level: 0.045, gain,
+        });
+      }
+    }
+    if (region.drums === 'custom' && drumTab) {
+      const eighthLen = beatLen / 2;
+      for (let cell = 0; cell < bar.beatCount * 2; cell++) {
+        const position = (drumEighth + cell) % drumTab.lengthEighths;
+        const time = bar.start + cell * eighthLen;
+        if (time >= until) continue;
+        for (const hit of drumTab.hits) {
+          if (hit.eighth !== position) continue;
+          events.push({
+            id: `dc-${bar.start.toFixed(3)}-${cell}-${hit.kind}`,
+            at: warp(time), kind: hit.kind,
+            level: hit.accent ? BASE_LEVEL[hit.kind] * 1.5 : undefined, gain,
+          });
+        }
+      }
+    } else if (region.drums !== 'off') {
+      for (const step of DRUM_PATTERNS[region.drums] ?? []) {
+        if (step.beat >= bar.beatCount - 0.01) continue;
+        const time = bar.start + step.beat * beatLen;
+        if (time >= until) continue;
+        events.push({ id: `d-${bar.start.toFixed(3)}-${step.beat}-${step.kind}`, at: warp(time), kind: step.kind, level: step.level, gain });
+      }
+    }
+    instrumentEighth += bar.beatCount * 2;
+    drumEighth += bar.beatCount * 2;
+  }
+  // The last chord is left to ring, the way a band actually finishes.
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event.kind === 'strum-down' || event.kind === 'strum-up' || event.kind === 'keys') {
+      event.sustain = Math.max(event.sustain ?? 1, 2.5);
+      break;
+    }
+  }
+  return events.sort((a, b) => a.at - b.at);
+}
+
+const BASE_LEVEL: Record<BandEventKind, number> = {
+  'strum-down': 0.045, 'strum-up': 0.04, pluck: 0.05, keys: 0.05,
+  kick: 0.16, snare: 0.09, hat: 0.035, 'tom-low': 0.11, 'tom-high': 0.1,
+  'cajon-bass': 0.13, 'cajon-slap': 0.07, 'cajon-tick': 0.025,
+};
+
+export function playBandEvent(context: AudioContext, event: BandEvent, when: number): void {
+  const level = (event.level ?? BASE_LEVEL[event.kind]) * (event.gain ?? 1);
+  switch (event.kind) {
+    case 'strum-down': playStrum(context, event.midis ?? [], when, 'down', event.sustain ?? 1, level); break;
+    case 'strum-up': playStrum(context, event.midis ?? [], when, 'up', event.sustain ?? 0.8, level); break;
+    case 'pluck': (event.midis ?? []).forEach(midi => playPluck(context, midi, when, event.sustain ?? 0.9, level)); break;
+    case 'keys': (event.midis ?? []).forEach((midi, index) => playKeyTone(context, midi, when + index * 0.006, event.sustain ?? 1.2, level)); break;
+    case 'kick': playKick(context, when, level); break;
+    case 'snare': playSnare(context, when, level); break;
+    case 'hat': playHat(context, when, level); break;
+    case 'tom-low': playTom(context, when, false, level); break;
+    case 'tom-high': playTom(context, when, true, level); break;
+    case 'cajon-bass': playCajonBass(context, when, level); break;
+    case 'cajon-slap': playCajonSlap(context, when, level); break;
+    case 'cajon-tick': playCajonTick(context, when, level); break;
+  }
+}
+
+const LOOKAHEAD = 0.6;
+
+/** The GuidePlayer's twin: hand the audio clock every band event that begins
+ *  within the lookahead. Safe to call as often as you like. */
+export class BandPlayer {
+  private readonly context: AudioContext;
+  private scheduled = new Set<string>();
+  private events: BandEvent[];
+
+  constructor(context: AudioContext, events: BandEvent[]) {
+    this.context = context;
+    this.events = events;
+  }
+
+  update(songElapsed: number, rate = 1): void {
+    const now = this.context.currentTime;
+    for (const event of this.events) {
+      if (this.scheduled.has(event.id)) continue;
+      const delay = event.at - songElapsed;   // in song seconds
+      if (delay > LOOKAHEAD) break;
+      this.scheduled.add(event.id);
+      if (delay < -0.05) continue;   // gone by — count it done, do not fire late
+      playBandEvent(this.context, event, now + Math.max(0, delay) / Math.max(0.25, rate));
+    }
+  }
+
+  reset(): void { this.scheduled.clear(); }
+}
