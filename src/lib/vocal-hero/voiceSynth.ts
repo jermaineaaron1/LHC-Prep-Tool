@@ -11,6 +11,56 @@
 
 import type { SongNote } from './types';
 
+
+// ── the mix bus ────────────────────────────────────────────────────────────
+// Every synthesized sound used to hit the destination raw, so the band was
+// a pile of soloists. One shared bus per AudioContext: gentle compression
+// glues the levels, and a small synthesized room (1.1s of shaped noise as
+// the impulse) puts voices and instruments in the same space.
+
+const busCache = new WeakMap<AudioContext, GainNode>();
+
+function roomImpulse(context: AudioContext, seconds: number, decay: number): AudioBuffer {
+  const length = Math.floor(context.sampleRate * seconds);
+  const buffer = context.createBuffer(2, length, context.sampleRate);
+  for (let channel = 0; channel < 2; channel++) {
+    const data = buffer.getChannelData(channel);
+    for (let index = 0; index < length; index++) {
+      data[index] = (Math.random() * 2 - 1) * Math.pow(1 - index / length, decay);
+    }
+  }
+  return buffer;
+}
+
+export function mixBus(context: AudioContext): AudioNode {
+  const cached = busCache.get(context);
+  if (cached) return cached;
+  const input = context.createGain();
+  input.gain.value = 1;
+  const compressor = context.createDynamicsCompressor();
+  compressor.threshold.value = -20;
+  compressor.knee.value = 18;
+  compressor.ratio.value = 4;
+  compressor.attack.value = 0.004;
+  compressor.release.value = 0.18;
+  const dry = context.createGain();
+  dry.gain.value = 1;
+  const wet = context.createGain();
+  wet.gain.value = 0.16;
+  try {
+    const room = context.createConvolver();
+    room.buffer = roomImpulse(context, 1.1, 2.4);
+    input.connect(room);
+    room.connect(wet);
+    wet.connect(compressor);
+  } catch { /* a runtime without ConvolverNode still gets the glue */ }
+  input.connect(dry);
+  dry.connect(compressor);
+  compressor.connect(context.destination);   // the ONE line that goes to the hardware
+  busCache.set(context, input);
+  return input;
+}
+
 // F1/F2/F3 in Hz for the sung vowels, mid register.
 const VOWELS: Record<string, [number, number, number]> = {
   a: [700, 1220, 2600],
@@ -52,7 +102,7 @@ export function playVoiceTone(
   master.gain.exponentialRampToValueAtTime(gainLevel, startAt + Math.min(0.08, audible * 0.3));
   master.gain.setValueAtTime(gainLevel, Math.max(startAt, releaseAt - 0.1));
   master.gain.exponentialRampToValueAtTime(0.0001, releaseAt + 0.12);
-  master.connect(context.destination);
+  master.connect(mixBus(context));
 
   // gentle top-end rolloff so the saws read as breath, not buzz
   const shelf = context.createBiquadFilter();
@@ -125,7 +175,7 @@ export function playPluck(context: AudioContext, midi: number, startAt: number, 
   bright.connect(brightGain);
   brightGain.connect(filter);
   filter.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(mixBus(context));
   [oscillator, bright].forEach(node => { node.start(startAt); node.stop(startAt + Math.max(0.3, length) + 0.1); });
 }
 
@@ -155,7 +205,7 @@ export function playKick(context: AudioContext, startAt: number, level = 0.16): 
   gain.gain.setValueAtTime(level, startAt);
   gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.24);
   oscillator.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(mixBus(context));
   oscillator.start(startAt);
   oscillator.stop(startAt + 0.3);
 }
@@ -172,7 +222,7 @@ export function playSnare(context: AudioContext, startAt: number, level = 0.09):
   gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.16);
   source.connect(band);
   band.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(mixBus(context));
   source.start(startAt);
   source.stop(startAt + 0.2);
 }
@@ -188,7 +238,7 @@ export function playHat(context: AudioContext, startAt: number, level = 0.035): 
   gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.05);
   source.connect(high);
   high.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(mixBus(context));
   source.start(startAt);
   source.stop(startAt + 0.08);
 }
@@ -205,7 +255,7 @@ export function playCajonBass(context: AudioContext, startAt: number, level = 0.
   gain.gain.setValueAtTime(level, startAt);
   gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.14);
   oscillator.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(mixBus(context));
   oscillator.start(startAt);
   oscillator.stop(startAt + 0.18);
 }
@@ -231,7 +281,7 @@ export function playCajonSlap(context: AudioContext, startAt: number, level = 0.
   bodyGain.gain.value = 0.4;
   source.connect(crack); crack.connect(gain);
   source.connect(body); body.connect(bodyGain); bodyGain.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(mixBus(context));
   source.start(startAt);
   source.stop(startAt + 0.12);
 }
@@ -261,7 +311,7 @@ export function playKeyTone(context: AudioContext, midi: number, startAt: number
   main.connect(gain);
   colour.connect(colourGain);
   colourGain.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(mixBus(context));
   [main, colour].forEach(node => { node.start(startAt); node.stop(startAt + hold + 0.3); });
 }
 
@@ -274,7 +324,7 @@ export function playTom(context: AudioContext, startAt: number, high: boolean, l
   gain.gain.setValueAtTime(level, startAt);
   gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.28);
   oscillator.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(mixBus(context));
   oscillator.start(startAt);
   oscillator.stop(startAt + 0.32);
 }
@@ -300,6 +350,6 @@ export function playBassTone(context: AudioContext, midi: number, startAt: numbe
   main.connect(gain);
   body.connect(bodyGain);
   bodyGain.connect(gain);
-  gain.connect(context.destination);
+  gain.connect(mixBus(context));
   [main, body].forEach(node => { node.start(startAt); node.stop(startAt + hold + 0.25); });
 }
