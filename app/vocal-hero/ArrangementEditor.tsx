@@ -474,6 +474,23 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const musicalBars = useMemo(() => buildMusicalGrid(duration, musicalTimeline), [duration, musicalTimeline]);
   const cursorMusicalState = musicalStateAt(musicalTimeline, playhead ?? 0);
   const scoreBars: ScoreBar[] = useMemo(() => musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length), numerator: bar.numerator, denominator: bar.denominator, number: bar.number })), [musicalBars]);
+  // What the band will ACTUALLY play, in written time — the score's band
+  // lane prints these events so every strum, arpeggio note, bass step and
+  // drum hit is visible under the singing it accompanies.
+  const laneBandEvents = useMemo(() => {
+    const lastSound = notes.reduce((latest, note) => Math.max(latest, note.end), 0);
+    if (!lastSound) return undefined;
+    if (accompaniment.guitar === 'off' && accompaniment.drums === 'off' && !notes.some(note => note.marks?.band)) return undefined;
+    const bandBars = musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length) }));
+    return buildBandEvents({
+      bars: bandBars, chords: trackSettings.chord_symbols ?? [], notes,
+      defaults: { instrument: accompaniment.guitar as InstrumentStyleId, drums: accompaniment.drums as DrumStyleId },
+      until: lastSound + 0.05,
+      customTabs: { instrument: accompaniment.instrument_tab, drums: accompaniment.drum_tab },
+      humanize: false, countIn: false,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, musicalBars, trackSettings.chord_symbols, accompaniment.guitar, accompaniment.drums, accompaniment.instrument_tab, accompaniment.drum_tab]);
   // Rendition: compiled from the SOURCE arrangement, never from its own
   // output — the source tracks the live notes until a compiled rendition is
   // loaded into the editor, then freezes on the pre-load arrangement.
@@ -1030,7 +1047,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       ? { marks: { ...marks, dynamic }, velocity: DYNAMIC_VELOCITY[dynamic] }
       : { marks: { ...marks, dynamic: undefined }, velocity: 100 });
   }
-  function toggleMarkOnSelection(key: 'staccato' | 'tenuto' | 'fermata') {
+  function toggleMarkOnSelection(key: 'staccato' | 'tenuto' | 'fermata' | 'slide') {
     const allHave = selectedNotes.length > 0 && selectedNotes.every(note => note.marks?.[key]);
     editSelectionMarks(marks => ({ marks: { ...marks, [key]: allHave ? undefined : true } }));
   }
@@ -1412,7 +1429,12 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         else if (!hold && note.marks?.tenuto) length *= 1.04;
         const velocity = performed.velocity.get(note.id);
         const played = velocity !== undefined ? { ...note, velocity } : note;
-        if (previewVoices) playVoiceTone(context, played, context.currentTime + at, length / transportRate);
+        // A slide mark bends this note's tail into the NEXT note of the
+        // same voice — the sung portamento, audible in the preview.
+        const slideTarget = note.marks?.slide
+          ? activePerformance.notes.filter(item => item.part === note.part && item.id !== note.id && item.start >= note.end - 0.05).sort((a, b) => a.start - b.start)[0]?.midi
+          : undefined;
+        if (previewVoices) playVoiceTone(context, played, context.currentTime + at, length / transportRate, slideTarget);
         else playPianoTone(context, played, context.currentTime + at, length / transportRate);
       });
       // ---- the band: the SAVED guitar and drum styles, on the same warped
@@ -1778,7 +1800,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             </div>
             {accompaniment.guitar === 'custom' && <div>
               <p className="mb-1 text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Your instrument line — one token per eighth, looped: note names hit, ~ holds, - rests</p>
-              <textarea aria-label="Custom instrument line" rows={2} defaultValue={accompaniment.instrument_tab ?? ''} placeholder="e3 g3 b3 e4 ~ - g3 b3"
+              <textarea aria-label="Custom instrument line" rows={2} defaultValue={accompaniment.instrument_tab ?? ''} placeholder="e3 g3 b3 e4 ~ - e3>g3  (~ holds, - rests, e3>g3 slides)"
                 onBlur={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: 'custom', drums: current.accompaniment?.drums ?? 'off', instrument_tab: event.target.value, drum_tab: current.accompaniment?.drum_tab } }))}
                 className="w-full rounded-lg border border-white/15 bg-black/30 px-2 py-1.5 font-mono text-[11px] text-white" /></div>}
             {accompaniment.drums === 'custom' && <div>
@@ -1858,6 +1880,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               onTempo={applyTempoToSelection}
               chord={(trackSettings.chord_symbols ?? []).find(chord => selectedNotes[0] && Math.abs(chord.at - selectedNotes[0].start) <= 0.05)?.symbol ?? ''}
               onChord={setChordAtSelection}
+              bandBarNumber={selectedNotes[0] ? (musicalBars.find(bar => selectedNotes[0].start + 0.01 >= bar.start && selectedNotes[0].start + 0.01 < bar.end)?.number ?? 0) + 1 : undefined}
               onBand={applyBandToSelection}
               onClear={clearMarksOnSelection} />}
             <div className="mb-2 flex items-center gap-1 text-xs">
@@ -1867,7 +1890,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number + 1 : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
                 <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number + 1 : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
-                <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly where the ghost head shows — what follows slides right, and overflow ties into a freshly inserted bar · drop a note onto another to swap them · with a note selected, the value buttons (or keys 3–7 and .) change its length — double-click the note to deselect it first if you only want to pick the next entry's value · right-click removes a note, leaving its rest · Ctrl+Z undo, Ctrl+Y redo · Double-click a word to edit lyrics: Tab = next word, Enter = done · the faint dashed boxes above the top staff take chord symbols — click one and type (Tab = next beat, empty = clear).</span>
+                <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly where the ghost head shows — what follows slides right, and overflow ties into a freshly inserted bar · drop a note onto another to swap them · with a note selected, the value buttons (or keys 3–7 and .) change its length — double-click the note to deselect it first if you only want to pick the next entry's value · right-click removes a note, leaving its rest · Ctrl+Z undo, Ctrl+Y redo · Double-click a word to edit lyrics: Tab = next word, Enter = done · the faint dashed boxes above the top staff take chord symbols — click one and type (Tab = next beat, empty = clear) · the 🎸/🥁 lane under the bass staff prints every hit the band will actually play, beat by beat.</span>
               </>}
             </div>
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
@@ -1885,6 +1908,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 resolveAdd={(time, part) => resolveScoreAdd(time, part).start}
                 chords={trackSettings.chord_symbols}
                 onChordEdit={setChordAtTime}
+                bandEvents={laneBandEvents}
                 onDeselect={() => { setSelectedId(null); setSelectedIds([]); setEditorNotice(null); }}
                 onEraseNote={removeNote}
                 onDragCommit={(id, changes) => update(id, changes)}
@@ -2053,16 +2077,18 @@ function LyricLineDialog({ targetCount, targetLabel, onApply, onClose }: { targe
  * marked as tying into the next bar. With Step entry on, letters A–G enter
  * pitches in the song's key at the caret, R rests forward, arrows adjust.
  */
-function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord, onChord, onBand, onClear }: {
+function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord, onChord, onBand, onClear, bandBarNumber }: {
   selection: SongNote[];
   onDynamic: (dynamic: DynamicMark | null) => void;
-  onToggle: (key: 'staccato' | 'tenuto' | 'fermata') => void;
+  onToggle: (key: 'staccato' | 'tenuto' | 'fermata' | 'slide') => void;
   onSpan: (kind: 'slur' | 'cresc' | 'decresc') => void;
   onTempo: (kind: TempoMarkKind) => void;
   chord: string;
   onChord: (symbol: string) => void;
   onBand: (field: 'instrument' | 'drums', value: string) => void;
   onClear: () => void;
+  /** The printed number of the bar a band instruction here would start in. */
+  bandBarNumber?: number;
 }) {
   const bandMark = selection[0]?.marks?.band;
   const activeTempo = selection[0]?.marks?.tempo;
@@ -2071,7 +2097,7 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
       className={`rounded-lg border px-2.5 py-1.5 font-serif italic ${activeTempo === kind ? 'border-sky-300/60 bg-sky-300/15 text-sky-100' : 'border-white/12 text-slate-300 hover:bg-white/[.06]'}`}>{label}</button>;
   const DYNAMICS: DynamicMark[] = ['pp', 'p', 'mp', 'mf', 'f', 'ff'];
   const activeDynamic = selection.every(note => note.marks?.dynamic === selection[0]?.marks?.dynamic) ? selection[0]?.marks?.dynamic : undefined;
-  const allHave = (key: 'staccato' | 'tenuto' | 'fermata') => selection.every(note => note.marks?.[key]);
+  const allHave = (key: 'staccato' | 'tenuto' | 'fermata' | 'slide') => selection.every(note => note.marks?.[key]);
   const voices = [...selection.reduce((map, note) => { const list = map.get(note.part) ?? []; list.push(note); map.set(note.part, list); return map; }, new Map<number, SongNote[]>()).values()].filter(list => list.length >= 2);
   const spanReady = voices.length > 0;
   const spanned = (kind: 'slur' | 'cresc' | 'decresc') => spanReady && voices.every(list => kind === 'slur'
@@ -2088,6 +2114,7 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
     <button onClick={() => onToggle('staccato')} title="Staccato — detached, half length in playback" className={toggleClass(allHave('staccato'))}>·&nbsp;Staccato</button>
     <button onClick={() => onToggle('tenuto')} title="Tenuto — sustain the note its full written length" className={toggleClass(allHave('tenuto'))}>–&nbsp;Sustain</button>
     <button onClick={() => onToggle('fermata')} title="Fermata — the pause, engraved over the note" className={toggleClass(allHave('fermata'))}>{'\u{1D110}'}&nbsp;Pause</button>
+    <button onClick={() => onToggle('slide')} title="Slide (portamento) — glide out of this note into the next note of the same voice. Drawn as a glide line in the score; the preview voice bends its pitch through the join." className={toggleClass(allHave('slide'))}>⟋&nbsp;Slide</button>
     <span className="h-5 w-px bg-white/10" />
     <button onClick={() => onSpan('slur')} disabled={!spanReady} title="Slur / legato — one arc over the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices slurs each of them." className={`${toggleClass(spanned('slur'))} disabled:opacity-35`}>⌒&nbsp;Slur</button>
     <button onClick={() => onSpan('cresc')} disabled={!spanReady} title="Crescendo — grow through the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices swells them together." className={`${toggleClass(spanned('cresc'))} disabled:opacity-35`}>&lt;&nbsp;Cresc.</button>
@@ -2105,24 +2132,28 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
     {tempoButton('atempo', 'a tempo', 'A tempo — return to the written speed from the first selected note')}
     {tempoButton('allegro', 'Allegro', 'Allegro — brisk (about 5/4 of the written speed) from the first selected note')}
     <span className="h-5 w-px bg-white/10" />
-    <label className="flex items-center gap-1" title="Band instruction from the first selected note's bar onward: pick an instrument style, or Stop. Plays until the next instruction.">
-      <span className="text-[9px] font-black uppercase tracking-[.14em] text-slate-500">Instr.</span>
-      <select value={bandMark?.instrument ?? ''} onChange={event => onBand('instrument', event.target.value)}
-        className="max-w-32 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
-        <option value="">(keep)</option>
-        {INSTRUMENT_STYLES.filter(style => style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
-        <option value="stop">Stop playing</option>
-      </select>
-    </label>
-    <label className="flex items-center gap-1" title="Drum instruction from the first selected note's bar onward: pick a beat, or Stop. Plays until the next instruction.">
-      <span className="text-[9px] font-black uppercase tracking-[.14em] text-slate-500">Beat</span>
-      <select value={bandMark?.drums ?? ''} onChange={event => onBand('drums', event.target.value)}
-        className="max-w-32 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
-        <option value="">(keep)</option>
-        {DRUM_STYLES.filter(style => style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
-        <option value="stop">Stop playing</option>
-      </select>
-    </label>
+    <span className="flex items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/[.06] px-2 py-1"
+      title="The band, from this note's bar onward. Whatever you pick here plays until a later note changes it or says Stop — it is one rhythm section for the whole choir, not per voice. The lane under the bass staff shows exactly what it plays.">
+      <span className="text-[9px] font-black uppercase tracking-[.14em] text-rose-200/90">Band from bar {bandBarNumber ?? '?'}</span>
+      <label className="flex items-center gap-1">
+        <span className="text-[10px]">🎸</span>
+        <select value={bandMark?.instrument ?? ''} onChange={event => onBand('instrument', event.target.value)}
+          className="max-w-36 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
+          <option value="">(keep playing)</option>
+          {INSTRUMENT_STYLES.filter(style => style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
+          <option value="stop">🚫 Stop the instrument</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-1">
+        <span className="text-[10px]">🥁</span>
+        <select value={bandMark?.drums ?? ''} onChange={event => onBand('drums', event.target.value)}
+          className="max-w-36 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
+          <option value="">(keep playing)</option>
+          {DRUM_STYLES.filter(style => style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
+          <option value="stop">🚫 Stop the drums</option>
+        </select>
+      </label>
+    </span>
     <button onClick={onClear} title="Remove every marking from the selection" className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">✕ Clear</button>
   </div>;
 }
