@@ -116,17 +116,23 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   // Click one, type, Enter to finish — Tab hops to the next beat like a
   // lead sheet being filled in left to right.
   const [chordEdit, setChordEdit] = useState<{ index: number; at: number; x: number; system: number; value: string } | null>(null);
-  const chordNear = (at: number) => chords?.find(chord => Math.abs(chord.at - at) < 0.04);
+  // A slot owns any chord inside its half-beat window; the exact match is
+  // only for "did the typed value actually change" at commit time.
+  const chordInSlot = (slot: { at: number; window: number }) => chords?.find(chord => Math.abs(chord.at - slot.at) < slot.window);
   function startChordEdit(index: number) {
     const slot = layout.chordSlots[index];
     if (!slot) { setChordEdit(null); return; }
-    const existing = chordNear(slot.at);
-    setChordEdit({ index, at: existing?.at ?? slot.at, x: slot.x, system: slot.system, value: existing?.symbol ?? '' });
+    const existing = chordInSlot(slot);
+    // The input opens over the chord it edits, even when that chord sits
+    // off the beat — not over the beat's own gridline.
+    const position = existing ? layout.timeToXY(existing.at) : null;
+    setChordEdit({ index, at: existing?.at ?? slot.at, x: position?.x ?? slot.x, system: position?.system ?? slot.system, value: existing?.symbol ?? '' });
   }
   function commitChord(step: number) {
     if (!chordEdit) return;
     const typed = chordEdit.value.trim();
-    if (typed !== (chordNear(chordEdit.at)?.symbol ?? '')) onChordEdit?.(chordEdit.at, typed);
+    const existing = chords?.find(chord => Math.abs(chord.at - chordEdit.at) < 0.04);
+    if (typed !== (existing?.symbol ?? '')) onChordEdit?.(chordEdit.at, typed);
     if (!step) { setChordEdit(null); return; }
     startChordEdit(chordEdit.index + step);
   }
@@ -248,16 +254,20 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
     {onChordEdit && <svg className="absolute left-4 top-4 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
       {layout.chordSlots.map((slot, index) => {
-        const filled = chordNear(slot.at);
+        const filled = chordInSlot(slot);
+        const fx = filled ? (layout.timeToXY(filled.at)?.x ?? slot.x) : slot.x;
+        const ringW = filled ? Math.max(26, filled.symbol.length * 6.6 + 10) : 18;
         const baseline = slot.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24;
-        return <g key={index} style={{ pointerEvents: 'auto', cursor: 'text' }}
+        // The whole beat cell is the click target; the drawn box stays small.
+        return <g key={index} className="group" style={{ pointerEvents: 'auto', cursor: 'text' }}
           onClick={event => { event.stopPropagation(); startChordEdit(index); }}>
           <title>{filled ? `${filled.symbol} — click to change or clear` : 'Click to write a chord on this beat'}</title>
+          <rect x={slot.x + 12 - 17} y={baseline - 16} width={34} height={22} fill="transparent" />
           {filled
-            ? <rect x={slot.x + 12 - 15} y={baseline - 12} width={30} height={16} rx={3.5} fill="#fde68a18" stroke="#fde68a" strokeWidth={1}
-              className="opacity-0 transition-opacity hover:opacity-70" />
+            ? <rect x={fx + 12 - ringW / 2} y={baseline - 12} width={ringW} height={16} rx={3.5} fill="#fde68a18" stroke="#fde68a" strokeWidth={1}
+              className="opacity-0 transition-opacity group-hover:opacity-70" />
             : <rect x={slot.x + 12 - 9} y={baseline - 10} width={18} height={13} rx={3} fill="transparent" stroke="#fde68a" strokeWidth={1} strokeDasharray="2.5 2.5"
-              className="opacity-20 transition-opacity hover:opacity-80" />}
+              className="opacity-20 transition-opacity group-hover:opacity-80" />}
         </g>;
       })}
     </svg>}
@@ -276,6 +286,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       className="absolute z-20 w-24 rounded border border-fuchsia-300/60 bg-[#100a1f] px-1.5 py-0.5 text-center text-xs text-white shadow-[0_0_18px_#ec489944]"
       style={{ left: lyricEdit.x + 12 + 16 - 48, top: lyricEdit.system * SYSTEM_H + 12 + LYRIC_Y + 16 - 12 }} />}
     {chordEdit && <input autoFocus value={chordEdit.value} placeholder="C, G7…"
+      onFocus={event => event.target.select()}
       onChange={event => setChordEdit(current => current && { ...current, value: event.target.value })}
       onKeyDown={event => {
         if (event.key === 'Tab') { event.preventDefault(); commitChord(event.shiftKey ? -1 : 1); }
@@ -700,14 +711,17 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     if (position) chordTexts.push({ x: position.x, system: position.system, label: chord.symbol });
   }
   // One chord landing slot floats over every beat — the lead sheet's empty
-  // spaces made clickable. Rendered only when an onChordEdit handler is wired.
-  const chordSlots: Array<{ at: number; x: number; system: number }> = [];
+  // spaces made clickable. Each slot OWNS the half-beat around it, so a
+  // chord entered off the beat (via the Expression bar) still belongs to
+  // its nearest slot instead of leaving a deceptively empty box beside it.
+  // Rendered only when an onChordEdit handler is wired.
+  const chordSlots: Array<{ at: number; x: number; system: number; window: number }> = [];
   for (const bar of placed) {
     const beatLen = (bar.end - bar.start) / Math.max(1, bar.beatCount);
     for (let beat = 0; beat < bar.beatCount; beat++) {
       const at = bar.start + beat * beatLen;
       const position = timeToXY(at);
-      if (position) chordSlots.push({ at: Math.round(at * 1000) / 1000, x: position.x, system: position.system });
+      if (position) chordSlots.push({ at: Math.round(at * 1000) / 1000, x: position.x, system: position.system, window: beatLen / 2 });
     }
   }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
