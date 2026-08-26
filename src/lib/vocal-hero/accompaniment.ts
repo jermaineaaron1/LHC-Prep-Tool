@@ -72,6 +72,9 @@ export interface BandEvent {
   level?: number;
   /** The expression-following factor: the choir's dynamics at this moment. */
   gain?: number;
+  /** Slide target (midi): the pluck bends into this pitch as it rings —
+   *  written in the tab as e3>g3. */
+  slideTo?: number;
 }
 
 type PatternStep = { beat: number; kind: BandEventKind; degree?: number; octave?: number; level?: number; sustain?: number };
@@ -185,8 +188,15 @@ export function parseDrumTab(text: string): ParsedDrumTab | null {
 
 const TAB_LETTER_PC: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 
-export interface InstrumentTabNote { eighth: number; midi: number; holdEighths: number }
+export interface InstrumentTabNote { eighth: number; midi: number; holdEighths: number; slideTo?: number }
 export interface ParsedInstrumentTab { notes: InstrumentTabNote[]; lengthEighths: number }
+
+function tabTokenMidi(letter: string, accidental: string, octave: string): number {
+  let pc = TAB_LETTER_PC[letter];
+  if (accidental === '#') pc += 1;
+  if (accidental === 'b') pc -= 1;
+  return pc + 12 * (parseInt(octave, 10) + 1);
+}
 
 export function parseInstrumentTab(text: string): ParsedInstrumentTab | null {
   const tokens = text.replace(/\|/g, ' ').trim().split(/\s+/).filter(Boolean);
@@ -196,13 +206,12 @@ export function parseInstrumentTab(text: string): ParsedInstrumentTab | null {
   for (const token of tokens) {
     if (token === '-' || token === '.') { index += 1; continue; }
     if (token === '~') { if (notes.length) notes[notes.length - 1].holdEighths += 1; index += 1; continue; }
-    const match = token.toLowerCase().match(/^([a-g])([#b]?)(-?\d)$/);
+    // e3 plays the note; e3>g3 slides it into the target as it rings.
+    const match = token.toLowerCase().match(/^([a-g])([#b]?)(-?\d)(?:>([a-g])([#b]?)(-?\d))?$/);
     if (!match) { index += 1; continue; }
-    let pc = TAB_LETTER_PC[match[1]];
-    if (match[2] === '#') pc += 1;
-    if (match[2] === 'b') pc -= 1;
-    const midi = pc + 12 * (parseInt(match[3], 10) + 1);
-    notes.push({ eighth: index, midi, holdEighths: 1 });
+    const midi = tabTokenMidi(match[1], match[2], match[3]);
+    const slideTo = match[4] ? tabTokenMidi(match[4], match[5], match[6]) : undefined;
+    notes.push({ eighth: index, midi, holdEighths: 1, ...(slideTo !== undefined ? { slideTo } : {}) });
     index += 1;
   }
   if (!notes.length) return null;
@@ -429,6 +438,7 @@ export function buildBandEvents(options: {
             at: warp(time), kind: 'pluck', midis: [note.midi + transpose],
             sustain: sustainWarped(time, note.holdEighths * eighthLen * 1.05),
             level: 0.05, gain,
+            ...(note.slideTo !== undefined ? { slideTo: note.slideTo + transpose } : {}),
           });
         }
       }
@@ -505,7 +515,7 @@ export function playBandEvent(context: AudioContext, event: BandEvent, when: num
   switch (event.kind) {
     case 'strum-down': playStrum(context, event.midis ?? [], when, 'down', event.sustain ?? 1, level); break;
     case 'strum-up': playStrum(context, event.midis ?? [], when, 'up', event.sustain ?? 0.8, level); break;
-    case 'pluck': (event.midis ?? []).forEach(midi => playPluck(context, midi, when, event.sustain ?? 0.9, level)); break;
+    case 'pluck': (event.midis ?? []).forEach(midi => playPluck(context, midi, when, event.sustain ?? 0.9, level, event.slideTo)); break;
     case 'keys': (event.midis ?? []).forEach((midi, index) => playKeyTone(context, midi, when + index * 0.006, event.sustain ?? 1.2, level)); break;
     case 'bass': (event.midis ?? []).forEach(midi => playBassTone(context, midi, when, event.sustain ?? 0.8, level)); break;
     case 'kick': playKick(context, when, level); break;

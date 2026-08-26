@@ -83,12 +83,15 @@ export function vowelOf(lyric: string | undefined): [number, number, number] {
   return VOWELS.a;
 }
 
-/** A sung note. Returns a stop function, like the piano tone does. */
+/** A sung note. Returns a stop function, like the piano tone does.
+ *  `glideToMidi` bends the tail of the note into the next pitch — the
+ *  portamento a marked slide asks for. */
 export function playVoiceTone(
   context: AudioContext,
   note: SongNote,
   startAt: number,
   length: number,
+  glideToMidi?: number,
 ): () => void {
   const frequency = 440 * Math.pow(2, (note.midi - 69) / 12);
   const gainLevel = Math.max(0.02, Math.min(0.11, note.velocity / 1250));
@@ -129,7 +132,16 @@ export function playVoiceTone(
   const oscillators = [0, 7].map(cents => {
     const oscillator = context.createOscillator();
     oscillator.type = 'sawtooth';
-    oscillator.frequency.value = frequency * Math.pow(2, cents / 1200);
+    const detuned = frequency * Math.pow(2, cents / 1200);
+    oscillator.frequency.value = detuned;
+    if (glideToMidi !== undefined) {
+      // Portamento: hold the written pitch, then bend through the last
+      // stretch of the note into the next pitch — a singer's slide.
+      const target = 440 * Math.pow(2, (glideToMidi - 69) / 12) * Math.pow(2, cents / 1200);
+      const bend = Math.min(0.22, Math.max(0.08, audible * 0.45));
+      oscillator.frequency.setValueAtTime(detuned, Math.max(startAt, releaseAt - bend));
+      oscillator.frequency.exponentialRampToValueAtTime(target, releaseAt);
+    }
     oscillator.connect(source);
     return oscillator;
   });
@@ -151,8 +163,10 @@ export function playVoiceTone(
   };
 }
 
-/** A plucked chord tone — the accompaniment's guitar/piano middle ground. */
-export function playPluck(context: AudioContext, midi: number, startAt: number, length: number, level = 0.05): void {
+/** A plucked chord tone — the accompaniment's guitar/piano middle ground.
+ *  `glideTo` slides the pitch into a target note over the pluck's ring —
+ *  the written tab's e3>g3. */
+export function playPluck(context: AudioContext, midi: number, startAt: number, length: number, level = 0.05, glideTo?: number): void {
   const frequency = 440 * Math.pow(2, (midi - 69) / 12);
   const oscillator = context.createOscillator();
   oscillator.type = 'triangle';
@@ -160,6 +174,15 @@ export function playPluck(context: AudioContext, midi: number, startAt: number, 
   const bright = context.createOscillator();
   bright.type = 'sawtooth';
   bright.frequency.value = frequency;
+  if (glideTo !== undefined) {
+    const target = 440 * Math.pow(2, (glideTo - 69) / 12);
+    const from = startAt + Math.min(0.1, length * 0.25);
+    const to = startAt + Math.max(0.22, length * 0.9);
+    [oscillator, bright].forEach(node => {
+      node.frequency.setValueAtTime(frequency, from);
+      node.frequency.exponentialRampToValueAtTime(target, to);
+    });
+  }
   const brightGain = context.createGain();
   brightGain.gain.setValueAtTime(0.3, startAt);
   brightGain.gain.exponentialRampToValueAtTime(0.02, startAt + 0.35);

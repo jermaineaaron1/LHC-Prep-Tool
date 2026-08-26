@@ -48,6 +48,10 @@ export interface NoteMarks {
   fermata?: boolean;
   /** A slur/legato arc: 'start' on its first note, 'end' on its last. */
   slur?: 'start' | 'end';
+  /** A slide (portamento): the voice glides out of this note into the NEXT
+   * note of the same part. Engraved as a straight glide line between the
+   * two heads; the preview voice bends its pitch through the join. */
+  slide?: boolean;
   /** A hairpin: 'cresc' or 'decresc' on its first note, 'end' on its last. */
   hairpin?: 'cresc' | 'decresc' | 'end';
   /** A tempo instruction taking effect at this note: ritardando and

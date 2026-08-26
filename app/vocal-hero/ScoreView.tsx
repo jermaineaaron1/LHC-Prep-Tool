@@ -2,6 +2,7 @@
 
 import React, { useMemo, useRef, useState } from 'react';
 import type { NoteMarks, SongNote } from '@/lib/vocal-hero/types';
+import type { BandEvent } from '@/lib/vocal-hero/accompaniment';
 import { accidentalMark, durationToSymbols, inferKeySignature, signatureAlteration, spellPitch, staffStep, type Accidental } from '@/lib/vocal-hero/notation';
 
 // The OPEN choral score, as the approved redesign draws it: every voice on
@@ -28,7 +29,11 @@ const MARGIN_LEFT = 78;
 const SYSTEM_W = 1120;
 const STAFF_MIDS = [56, 132, 208, 284];
 const LYRIC_Y = 96;
-const SYSTEM_H = 342;
+const SYSTEM_H = 374;
+// The band lane: two thin rows under the bass staff where the rhythm
+// section's ACTUAL events print — what the ear will hear, on paper.
+const LANE_INSTRUMENT_Y = 330;
+const LANE_DRUM_Y = 344;
 const VOICE_COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
 
 type StaffClef = 'treble' | 'treble8' | 'bass';
@@ -78,7 +83,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -94,6 +99,11 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
    *  staff — click it and type the chord. Called with the beat's time and
    *  the typed symbol ('' clears the chord there). */
   onChordEdit?: (at: number, symbol: string) => void;
+  /** The band's WRITTEN-TIME events (no warp, no humanize, no count-in).
+   *  When supplied, two lane rows under the bass staff print every hit —
+   *  strum arrows, arpeggio note names, bass walk, drum strikes — at the
+   *  exact beat position it sounds, under the singing it accompanies. */
+  bandEvents?: BandEvent[];
   /** Double-clicking a SELECTED notehead calls this — the escape hatch that
    *  turns the value palette back into "set the next entry" instead of
    *  "re-value the selection". */
@@ -108,6 +118,40 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   signature?: number;
 }) {
   const layout = useMemo(() => buildLayout(notes, bars, signature, chords), [notes, bars, signature, chords]);
+  // The band lane, printed: every event at its exact written position.
+  // Strums are arrows (soft upstrokes dimmed), arpeggio/bass notes are
+  // NAMED so the picking pattern reads like a tab, block chords are ▪,
+  // drums print their strikes. A tab slide (e3>g3) wears its arrow.
+  const laneMarks = useMemo(() => {
+    if (!bandEvents?.length) return [];
+    const names = layout.signature < 0
+      ? ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B']
+      : ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+    const marks: Array<{ x: number; system: number; drum: boolean; label: string; dim: boolean }> = [];
+    for (const event of bandEvents) {
+      const position = layout.timeToXY(event.at);
+      if (!position) continue;
+      let label = '', dim = false, drum = false;
+      switch (event.kind) {
+        case 'strum-down': label = '↓'; break;
+        case 'strum-up': label = '↑'; dim = true; break;
+        case 'pluck': case 'keys': case 'bass': {
+          const solo = event.midis && event.midis.length === 1 ? event.midis[0] : null;
+          label = solo !== null ? names[((solo % 12) + 12) % 12] : '▪';
+          if (solo !== null && event.slideTo !== undefined) label += event.slideTo > solo ? '↗' : '↘';
+          break;
+        }
+        case 'kick': case 'cajon-bass': label = '●'; drum = true; break;
+        case 'snare': case 'cajon-slap': label = '×'; drum = true; break;
+        case 'hat': case 'cajon-tick': label = '•'; dim = true; drum = true; break;
+        case 'tom-low': label = 'T'; drum = true; break;
+        case 'tom-high': label = 't'; drum = true; break;
+      }
+      if (label) marks.push({ x: position.x, system: position.system, drum, label, dim });
+    }
+    return marks;
+  }, [bandEvents, layout]);
+  const laneSystems = useMemo(() => [...new Set(laneMarks.map(mark => mark.system))], [laneMarks]);
   const [drag, setDrag] = useState<DragPreview>(null);
   // Inline lyric editing: double-click a word under the melody (or the empty
   // spot where one belongs), type, Tab to the next note, Enter to finish.
@@ -252,6 +296,15 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       onLeave={() => { if (ghostRef.current) ghostRef.current.style.display = 'none'; }}
       onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={onEraseNote} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
+    {laneMarks.length > 0 && <svg className="pointer-events-none absolute left-4 top-4" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
+      {laneSystems.map(system => <g key={system} fontSize={8}>
+        <text x={2} y={system * SYSTEM_H + 12 + LANE_INSTRUMENT_Y} fill="#93c5fd" opacity={0.5}>🎸</text>
+        <text x={2} y={system * SYSTEM_H + 12 + LANE_DRUM_Y} fill="#fca5a5" opacity={0.5}>🥁</text>
+      </g>)}
+      {laneMarks.map((mark, i) => <text key={i} x={mark.x + 12} y={mark.system * SYSTEM_H + 12 + (mark.drum ? LANE_DRUM_Y : LANE_INSTRUMENT_Y)}
+        fontSize={mark.label.length > 1 ? 7.5 : 9.5} textAnchor="middle" fontWeight={700}
+        fill={mark.drum ? '#fca5a5' : '#93c5fd'} opacity={mark.dim ? 0.4 : 0.85}>{mark.label}</text>)}
+    </svg>}
     {onChordEdit && <svg className="absolute left-4 top-4 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
       {layout.chordSlots.map((slot, index) => {
         const filled = chordInSlot(slot);
@@ -356,6 +409,8 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
       {beam.double && <line x1={beam.x1} x2={beam.x2} y1={beam.y + (beam.up ? 5 : -5)} y2={beam.y + (beam.up ? 5 : -5)} stroke="#ffffff" strokeWidth={3.2} />}
       {beam.triplet && <text x={(beam.x1 + beam.x2) / 2} y={beam.y + (beam.up ? -4 : 12)} fontSize={10} fontStyle="italic" fontWeight={700} textAnchor="middle" fill="#ffffffcc">3</text>}
     </g>)}
+    {layout.slides.map((slide, i) => <line key={`slide-${i}`} transform={`translate(12 ${slide.system * SYSTEM_H + 12})`}
+      x1={slide.x1} y1={slide.y1} x2={slide.x2} y2={slide.y2} stroke="#ffffffd8" strokeWidth={1.6} pointerEvents="none" />)}
     {layout.tempoTexts.map((text, i) => <text key={`tempo-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 38}
       fontSize={12} fontStyle="italic" fontWeight={800} fill="#7dd3fc" fontFamily="Georgia,'Times New Roman',serif">{text.label}</text>)}
     {layout.chordTexts.map((text, i) => <text key={`chord-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24}
@@ -704,6 +759,26 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     if (band.drums) parts.push(shortStyle(band.drums));
     bandTexts.push({ x: glyph.x, system: glyph.system, label: parts.join(' · ') });
   }
+  // Slide (portamento) lines: from a marked note's head toward the next
+  // note's head on the same staff — the singer's glide, drawn. A slide
+  // that crosses a line break (or leads nowhere) becomes a short tick
+  // sloped toward where the voice is going.
+  const slides: Array<{ x1: number; y1: number; x2: number; y2: number; system: number }> = [];
+  for (const note of sorted) {
+    if (!note.marks?.slide) continue;
+    const staff = staffOfPart(note.part);
+    const from = glyphs.filter(glyph => glyph.id === note.id && glyph.staff === staff).at(-1);
+    if (!from) continue;
+    const next = sorted.filter(item => staffOfPart(item.part) === staff && item.id !== note.id && item.start >= note.end - 0.05)
+      .sort((a, b) => a.start - b.start)[0];
+    const to = next ? glyphs.find(glyph => glyph.id === next.id) : undefined;
+    if (to && to.system === from.system && to.x - from.x >= 18) {
+      slides.push({ x1: from.x + 7, y1: from.y + (to.y >= from.y ? 2 : -2), x2: to.x - 7, y2: to.y + (to.y >= from.y ? -2 : 2), system: from.system });
+    } else {
+      const slope = to ? (to.y > from.y ? 6 : -6) : 4;
+      slides.push({ x1: from.x + 7, y1: from.y + (slope > 0 ? 2 : -2), x2: from.x + 17, y2: from.y + slope, system: from.system });
+    }
+  }
   // Chord symbols ride above the top staff, lead-sheet style.
   const chordTexts: Array<{ x: number; system: number; label: string }> = [];
   for (const chord of chords ?? []) {
@@ -725,5 +800,5 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     }
   }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
-  return { glyphs, beams, rests, spans, tempoTexts, chordTexts, chordSlots, bandTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
+  return { glyphs, beams, rests, spans, slides, tempoTexts, chordTexts, chordSlots, bandTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
 }
