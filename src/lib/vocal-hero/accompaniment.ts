@@ -255,7 +255,13 @@ function chordTonesAt(chords: ChordAt[], time: number, transpose: number): { mid
   return { midis, bass: midis[0] };
 }
 
-export interface BandRegion { from: number; instrument: InstrumentStyleId; drums: DrumStyleId }
+export interface BandRegion {
+  from: number; instrument: InstrumentStyleId; drums: DrumStyleId;
+  /** The written part behind a 'custom' style IN THIS REGION — the
+   *  instruction's own tab when it carries one, inherited while the field
+   *  is untouched, undefined to fall back to the song-wide tab. */
+  instrumentTab?: string; drumTab?: string;
+}
 
 /** The style timeline: the song's defaults from the top, then every
  *  band instruction found on a note, in time order. 'stop' is a style. */
@@ -273,6 +279,10 @@ export function bandRegions(notes: SongNote[], defaults: { instrument: Instrumen
       from: note.start,
       instrument: resolve(instruction.instrument, previous.instrument) as InstrumentStyleId,
       drums: resolve(instruction.drums, previous.drums) as DrumStyleId,
+      // A field the instruction touches takes the instruction's tab (even
+      // none); an untouched field keeps carrying the part already playing.
+      instrumentTab: instruction.instrument !== undefined ? instruction.instrument_tab : previous.instrumentTab,
+      drumTab: instruction.drums !== undefined ? instruction.drum_tab : previous.drumTab,
     });
   }
   return regions;
@@ -329,8 +339,22 @@ export function buildBandEvents(options: {
     return Math.max(0.55, Math.min(1.45, mean / 88));
   };
 
-  const instrumentTab = options.customTabs?.instrument ? parseInstrumentTab(options.customTabs.instrument) : null;
-  const drumTab = options.customTabs?.drums ? parseDrumTab(options.customTabs.drums) : null;
+  // Written parts resolve per REGION: an instruction's own tab first, the
+  // song-wide tab as the fallback. Parses are memoized by text.
+  const parsedInstrumentTabs = new Map<string, ParsedInstrumentTab | null>();
+  const parsedDrumTabs = new Map<string, ParsedDrumTab | null>();
+  const instrumentTabFor = (region: BandRegion): ParsedInstrumentTab | null => {
+    const text = region.instrumentTab ?? options.customTabs?.instrument ?? '';
+    if (!text.trim()) return null;
+    if (!parsedInstrumentTabs.has(text)) parsedInstrumentTabs.set(text, parseInstrumentTab(text));
+    return parsedInstrumentTabs.get(text)!;
+  };
+  const drumTabFor = (region: BandRegion): ParsedDrumTab | null => {
+    const text = region.drumTab ?? options.customTabs?.drums ?? '';
+    if (!text.trim()) return null;
+    if (!parsedDrumTabs.has(text)) parsedDrumTabs.set(text, parseDrumTab(text));
+    return parsedDrumTabs.get(text)!;
+  };
 
   const events: BandEvent[] = [];
 
@@ -365,8 +389,12 @@ export function buildBandEvents(options: {
     }
   }
   let solowalk = 0;
-  let instrumentEighth = 0;
-  let drumEighth = 0;
+  // A written part begins where ITS instruction begins: the loop phase
+  // resets whenever the active tab text changes, instead of counting
+  // eighths from the top of the song (which made a part written for a
+  // later section enter mid-pattern).
+  let instrumentEighth = 0, activeInstrumentText = '';
+  let drumEighth = 0, activeDrumText = '';
   for (const bar of bars) {
     if (bar.start >= until - 0.05) break;
     const beatLen = (bar.end - bar.start) / bar.beatCount;
@@ -425,6 +453,9 @@ export function buildBandEvents(options: {
         });
       }
     }
+    const instrumentText = instrument === 'custom' ? (region.instrumentTab ?? options.customTabs?.instrument ?? '') : '';
+    if (instrumentText !== activeInstrumentText) { activeInstrumentText = instrumentText; instrumentEighth = 0; }
+    const instrumentTab = instrument === 'custom' ? instrumentTabFor(region) : null;
     if (instrument === 'custom' && instrumentTab) {
       const eighthLen = beatLen / 2;
       for (let cell = 0; cell < bar.beatCount * 2; cell++) {
@@ -455,6 +486,9 @@ export function buildBandEvents(options: {
         });
       }
     }
+    const drumText = region.drums === 'custom' ? (region.drumTab ?? options.customTabs?.drums ?? '') : '';
+    if (drumText !== activeDrumText) { activeDrumText = drumText; drumEighth = 0; }
+    const drumTab = region.drums === 'custom' ? drumTabFor(region) : null;
     if (region.drums === 'custom' && drumTab) {
       const eighthLen = beatLen / 2;
       for (let cell = 0; cell < bar.beatCount * 2; cell++) {

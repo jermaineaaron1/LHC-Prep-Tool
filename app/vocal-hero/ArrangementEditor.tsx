@@ -1091,6 +1091,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       else {
         const band = { ...(marks.band ?? {}) };
         if (value) band[field] = value; else delete band[field];
+        // Leaving 'custom' retires the instruction's written part with it.
+        if (field === 'instrument' && value !== 'custom') delete band.instrument_tab;
+        if (field === 'drums' && value !== 'custom') delete band.drum_tab;
         if (band.instrument || band.drums) marks.band = band; else delete marks.band;
       }
       return { ...note, marks: Object.keys(marks).length ? marks : undefined };
@@ -1130,8 +1133,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   function openBandWrite(target: { noteId: string } | 'default') {
     void auditionContextRef.current?.close().catch(() => undefined);
     const bar = anchorBarOf(target);
-    setDraftInstrumentTab(accompaniment.instrument_tab ?? '');
-    setDraftDrumTab(accompaniment.drum_tab ?? '');
+    // An instruction's OWN written part comes up for editing; the song-wide
+    // tab only fills in when the instruction has none of its own yet.
+    const own = target !== 'default' ? notes.find(note => note.id === target.noteId)?.marks?.band : undefined;
+    setDraftInstrumentTab(own?.instrument_tab ?? accompaniment.instrument_tab ?? '');
+    setDraftDrumTab(own?.drum_tab ?? accompaniment.drum_tab ?? '');
     setBandWrite({ target, barNumber: (bar?.number ?? 0) + 1, from: bar?.start ?? 0, barLen: bar ? bar.end - bar.start : 2 });
   }
   // The studio's preview: the DRAFT tabs playing everywhere (band marks
@@ -1157,25 +1163,27 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     if (!bandWrite) return;
     const instrument = draftInstrumentTab.trim();
     const drums = draftDrumTab.trim();
-    setTrackSettingsDirty(current => {
-      const acc = {
-        guitar: current.accompaniment?.guitar ?? 'gtr-folk', drums: current.accompaniment?.drums ?? 'off',
-        instrument_tab: instrument || undefined, drum_tab: drums || undefined,
-      };
-      if (bandWrite.target === 'default') {
+    if (bandWrite.target === 'default') {
+      // The song-wide part: lives on the accompaniment settings.
+      setTrackSettingsDirty(current => {
+        const acc = {
+          guitar: current.accompaniment?.guitar ?? 'gtr-folk', drums: current.accompaniment?.drums ?? 'off',
+          instrument_tab: instrument || undefined, drum_tab: drums || undefined,
+        };
         if (instrument) acc.guitar = 'custom';
         if (drums) acc.drums = 'custom';
-      }
-      return { ...current, accompaniment: acc };
-    });
-    if (bandWrite.target !== 'default' && (instrument || drums)) {
+        return { ...current, accompaniment: acc };
+      });
+    } else {
+      // A section's part: lives ON ITS INSTRUCTION, so every section keeps
+      // its own written music — editing one never rewrites another.
       const noteId = bandWrite.target.noteId;
       pushHistory();
       setNotes(current => current.map(note => {
         if (note.id !== noteId) return note;
         const band = { ...(note.marks?.band ?? {}) };
-        if (instrument) band.instrument = 'custom';
-        if (drums) band.drums = 'custom';
+        if (instrument) { band.instrument = 'custom'; band.instrument_tab = instrument; } else delete band.instrument_tab;
+        if (drums) { band.drums = 'custom'; band.drum_tab = drums; } else delete band.drum_tab;
         return { ...note, marks: { ...(note.marks ?? {}), band } };
       }));
     }
@@ -1220,6 +1228,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       if (note.id !== first.id) return { marks };
       const band = { ...(marks.band ?? {}) };
       if (value) band[field] = value; else delete band[field];
+      if (field === 'instrument' && value !== 'custom') delete band.instrument_tab;
+      if (field === 'drums' && value !== 'custom') delete band.drum_tab;
       return { marks: { ...marks, band: band.instrument || band.drums ? band : undefined } };
     });
   }
