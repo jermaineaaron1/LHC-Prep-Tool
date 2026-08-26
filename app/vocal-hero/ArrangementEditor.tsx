@@ -1069,6 +1069,32 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     });
     setEditorNotice(null);
   }
+  function applyBandAt(target: { noteId: string } | 'default', field: 'instrument' | 'drums' | 'remove', value: string) {
+    // The score's band directives land here: clicking one opens a popover
+    // and its choices arrive as targeted edits — no need to hunt for the
+    // carrying note. 'default' edits the song-wide starting band instead.
+    if (target === 'default') {
+      const mapped = value === 'stop' ? 'off' : value;
+      setTrackSettingsDirty(current => ({ ...current, accompaniment: {
+        guitar: field === 'instrument' ? mapped : current.accompaniment?.guitar ?? 'gtr-folk',
+        drums: field === 'drums' ? mapped : current.accompaniment?.drums ?? 'off',
+        instrument_tab: current.accompaniment?.instrument_tab, drum_tab: current.accompaniment?.drum_tab,
+      } }));
+      return;
+    }
+    pushHistory();
+    setNotes(current => current.map(note => {
+      if (note.id !== target.noteId) return note;
+      const marks = { ...(note.marks ?? {}) };
+      if (field === 'remove') { delete marks.band; }
+      else {
+        const band = { ...(marks.band ?? {}) };
+        if (value) band[field] = value; else delete band[field];
+        if (band.instrument || band.drums) marks.band = band; else delete marks.band;
+      }
+      return { ...note, marks: Object.keys(marks).length ? marks : undefined };
+    }));
+  }
   function setChordAtTime(at: number, symbol: string) {
     // The score's per-beat chord slots land here. '' clears the beat.
     const clean = symbol.trim();
@@ -1890,7 +1916,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number + 1 : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
                 <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number + 1 : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
-                <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly where the ghost head shows — what follows slides right, and overflow ties into a freshly inserted bar · drop a note onto another to swap them · with a note selected, the value buttons (or keys 3–7 and .) change its length — double-click the note to deselect it first if you only want to pick the next entry's value · right-click removes a note, leaving its rest · Ctrl+Z undo, Ctrl+Y redo · Double-click a word to edit lyrics: Tab = next word, Enter = done · the faint dashed boxes above the top staff take chord symbols — click one and type (Tab = next beat, empty = clear) · the 🎸/🥁 lane under the bass staff prints every hit the band will actually play, beat by beat.</span>
+                <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly where the ghost head shows — what follows slides right, and overflow ties into a freshly inserted bar · drop a note onto another to swap them · with a note selected, the value buttons (or keys 3–7 and .) change its length — double-click the note to deselect it first if you only want to pick the next entry's value · right-click removes a note, leaving its rest · Ctrl+Z undo, Ctrl+Y redo · Double-click a word to edit lyrics: Tab = next word, Enter = done · the faint dashed boxes above the top staff take chord symbols — click one and type (Tab = next beat, empty = clear) · the 🎸/🥁 lane under the bass staff prints every hit the band will actually play, beat by beat — click any band instruction on that line (or the label at its head) to change or remove it right there.</span>
               </>}
             </div>
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
@@ -1909,6 +1935,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 chords={trackSettings.chord_symbols}
                 onChordEdit={setChordAtTime}
                 bandEvents={laneBandEvents}
+                onBandEdit={applyBandAt}
+                bandDefaults={{ instrument: accompaniment.guitar, drums: accompaniment.drums }}
                 onDeselect={() => { setSelectedId(null); setSelectedIds([]); setEditorNotice(null); }}
                 onEraseNote={removeNote}
                 onDragCommit={(id, changes) => update(id, changes)}
