@@ -188,7 +188,20 @@ export function parseDrumTab(text: string): ParsedDrumTab | null {
 
 const TAB_LETTER_PC: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 
-export interface InstrumentTabNote { eighth: number; midi: number; holdEighths: number; slideTo?: number }
+export interface InstrumentTabNote {
+  eighth: number;
+  /** Lowest pitch — kept for compatibility; midis carries the whole stack. */
+  midi: number;
+  /** Every pitch sounding at this eighth — one entry for a single note, a
+   *  full voicing for a chord (e3,g3,b3) or a [Em7] symbol token. */
+  midis: number[];
+  holdEighths: number;
+  slideTo?: number;
+  accent?: boolean;
+  staccato?: boolean;
+  /** The chord symbol this stack came from, when it was written as [Sym]. */
+  symbol?: string;
+}
 export interface ParsedInstrumentTab { notes: InstrumentTabNote[]; lengthEighths: number }
 
 function tabTokenMidi(letter: string, accidental: string, octave: string): number {
@@ -198,20 +211,44 @@ function tabTokenMidi(letter: string, accidental: string, octave: string): numbe
   return pc + 12 * (parseInt(octave, 10) + 1);
 }
 
+/** One written token:
+ *    e3            a note        e3>g3   slide into g3 as it rings
+ *    e3,g3,b3      a chord       [Em7]   the symbol's own voicing
+ *  suffixes: ! accent (louder) · . staccato (short)  — e3! or [Em7].  */
 export function parseInstrumentTab(text: string): ParsedInstrumentTab | null {
   const tokens = text.replace(/\|/g, ' ').trim().split(/\s+/).filter(Boolean);
   if (!tokens.length) return null;
   const notes: InstrumentTabNote[] = [];
   let index = 0;
-  for (const token of tokens) {
+  for (let token of tokens) {
     if (token === '-' || token === '.') { index += 1; continue; }
     if (token === '~') { if (notes.length) notes[notes.length - 1].holdEighths += 1; index += 1; continue; }
-    // e3 plays the note; e3>g3 slides it into the target as it rings.
-    const match = token.toLowerCase().match(/^([a-g])([#b]?)(-?\d)(?:>([a-g])([#b]?)(-?\d))?$/);
-    if (!match) { index += 1; continue; }
-    const midi = tabTokenMidi(match[1], match[2], match[3]);
-    const slideTo = match[4] ? tabTokenMidi(match[4], match[5], match[6]) : undefined;
-    notes.push({ eighth: index, midi, holdEighths: 1, ...(slideTo !== undefined ? { slideTo } : {}) });
+    let accent = false, staccato = false;
+    while (/[!.]$/.test(token) && token.length > 1) {
+      if (token.endsWith('!')) accent = true;
+      else staccato = true;
+      token = token.slice(0, -1);
+    }
+    const flags = { ...(accent ? { accent: true } : {}), ...(staccato ? { staccato: true } : {}) };
+    const symbol = token.match(/^\[(.+)\]$/);
+    if (symbol) {
+      const parsed = parseChord(symbol[1]);
+      if (parsed && parsed.midis.length) notes.push({ eighth: index, midi: parsed.midis[0], midis: parsed.midis, holdEighths: 1, symbol: symbol[1], ...flags });
+      index += 1;
+      continue;
+    }
+    const parts = token.toLowerCase().split(',').filter(Boolean);
+    const midis: number[] = [];
+    let slideTo: number | undefined;
+    for (const part of parts) {
+      const match = part.match(/^([a-g])([#b]?)(-?\d)(?:>([a-g])([#b]?)(-?\d))?$/);
+      if (!match) continue;
+      midis.push(tabTokenMidi(match[1], match[2], match[3]));
+      if (match[4] && parts.length === 1) slideTo = tabTokenMidi(match[4], match[5], match[6]);
+    }
+    if (!midis.length) { index += 1; continue; }
+    midis.sort((a, b) => a - b);
+    notes.push({ eighth: index, midi: midis[0], midis, holdEighths: 1, ...(slideTo !== undefined ? { slideTo } : {}), ...flags });
     index += 1;
   }
   if (!notes.length) return null;
@@ -464,11 +501,12 @@ export function buildBandEvents(options: {
         if (time >= until) continue;
         for (const note of instrumentTab.notes) {
           if (note.eighth !== position) continue;
+          const written = note.holdEighths * eighthLen * (note.staccato ? 0.4 : 1.05);
           events.push({
             id: `c-${bar.start.toFixed(3)}-${cell}`,
-            at: warp(time), kind: 'pluck', midis: [note.midi + transpose],
-            sustain: sustainWarped(time, note.holdEighths * eighthLen * 1.05),
-            level: 0.05, gain,
+            at: warp(time), kind: 'pluck', midis: (note.midis ?? [note.midi]).map(midi => midi + transpose),
+            sustain: sustainWarped(time, written),
+            level: note.accent ? 0.078 : 0.05, gain,
             ...(note.slideTo !== undefined ? { slideTo: note.slideTo + transpose } : {}),
           });
         }
