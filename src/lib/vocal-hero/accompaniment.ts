@@ -329,23 +329,30 @@ export function buildBandEvents(options: {
   // breathes together before the first entry. Cajon songs click woodier.
   if (options.countIn !== false && notes.length) {
     const firstEntry = Math.min(...notes.map(note => note.start));
-    const leadBars = bars.filter(bar => bar.end <= firstEntry + 0.01);
-    const countBars = leadBars.slice(-2);
+    // A drummer counts right up to the entry — including into a pickup bar.
+    // The last two bars that BEGIN before the first note carry the clicks,
+    // and every click lands strictly before the singing starts. Songs whose
+    // lead-in is too short for at least four clicks get none.
+    const countBars = bars.filter(bar => bar.start < firstEntry - 0.05).slice(-2);
     const opening = regionAt(regions, firstEntry + 0.01);
     const bandPlays = opening.instrument !== 'off' || opening.drums !== 'off';
     const tick: BandEventKind = opening.drums.startsWith('cajon') ? 'cajon-tick' : 'hat';
-    if (bandPlays && countBars.length === 2) {
+    if (bandPlays && countBars.length) {
+      const clicks: BandEvent[] = [];
       countBars.forEach((bar, barIndex) => {
         const beatLen = (bar.end - bar.start) / bar.beatCount;
+        const lastBar = barIndex === countBars.length - 1;
         for (let beat = 0; beat < bar.beatCount; beat++) {
           const time = bar.start + beat * beatLen;
-          events.push({ id: `ci-${barIndex}-${beat}`, at: warp(time), kind: tick, level: beat === 0 ? 0.06 : 0.035 });
-          // the second half of the last bar doubles up — the classic call-in
-          if (barIndex === 1 && beat >= bar.beatCount / 2) {
-            events.push({ id: `ci-${barIndex}-${beat}h`, at: warp(time + beatLen / 2), kind: tick, level: 0.03 });
+          if (time >= firstEntry - 0.05) break;
+          clicks.push({ id: `ci-${barIndex}-${beat}`, at: warp(time), kind: tick, level: beat === 0 ? 0.06 : 0.035 });
+          // the run-up to the entry doubles into eighths — the classic call-in
+          if (lastBar && beat >= bar.beatCount / 2 && time + beatLen / 2 < firstEntry - 0.05) {
+            clicks.push({ id: `ci-${barIndex}-${beat}h`, at: warp(time + beatLen / 2), kind: tick, level: 0.03 });
           }
         }
       });
+      if (clicks.length >= 4) events.push(...clicks);
     }
   }
   let solowalk = 0;
