@@ -278,3 +278,28 @@ export function playTom(context: AudioContext, startAt: number, high: boolean, l
   oscillator.start(startAt);
   oscillator.stop(startAt + 0.32);
 }
+
+/** An upright-ish bass: warm fundamental, a whisper of octave, long body. */
+export function playBassTone(context: AudioContext, midi: number, startAt: number, length: number, level = 0.09): void {
+  const frequency = 440 * Math.pow(2, (midi - 69) / 12);
+  const main = context.createOscillator();
+  main.type = 'sine';
+  main.frequency.value = frequency;
+  const body = context.createOscillator();
+  body.type = 'triangle';
+  body.frequency.value = frequency * 2;
+  const bodyGain = context.createGain();
+  bodyGain.gain.setValueAtTime(0.22, startAt);
+  bodyGain.gain.exponentialRampToValueAtTime(0.04, startAt + 0.4);
+  const gain = context.createGain();
+  const hold = Math.max(0.2, length);
+  gain.gain.setValueAtTime(0.0001, startAt);
+  gain.gain.exponentialRampToValueAtTime(level, startAt + 0.02);
+  gain.gain.setValueAtTime(level * 0.85, Math.max(startAt + 0.03, startAt + hold - 0.12));
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + hold + 0.15);
+  main.connect(gain);
+  body.connect(bodyGain);
+  bodyGain.connect(gain);
+  gain.connect(context.destination);
+  [main, body].forEach(node => { node.start(startAt); node.stop(startAt + hold + 0.25); });
+}
