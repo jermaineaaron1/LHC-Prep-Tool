@@ -33,28 +33,28 @@ export type InstrumentStyleId =
 export type DrumStyleId = 'off' | 'drum-kit' | 'drum-drive' | 'cajon-groove' | 'cajon-sway' | 'custom';
 
 export const INSTRUMENT_STYLES: Array<{ id: InstrumentStyleId; label: string }> = [
-  { id: 'off', label: 'No instrument' },
-  { id: 'gtr-down', label: 'Guitar — downstrums' },
-  { id: 'gtr-folk', label: 'Guitar — folk strum (D D-U -U D-U)' },
-  { id: 'gtr-8ths', label: 'Guitar — driving eighths' },
-  { id: 'gtr-arp', label: 'Guitar — fingerpicked arpeggio' },
-  { id: 'gtr-travis', label: 'Guitar — Travis picking' },
-  { id: 'gtr-solo', label: 'Guitar — solo line over the changes' },
-  { id: 'pno-chords', label: 'Piano — held chords' },
-  { id: 'pno-arp', label: 'Piano — flowing arpeggio' },
-  { id: 'bass-walk', label: 'Bass — walking line' },
-  { id: 'melody-gtr', label: 'Guitar — double the melody' },
-  { id: 'melody-pno', label: 'Piano — double the melody' },
-  { id: 'custom', label: 'Custom — your written-out line' },
+  { id: 'off', label: '— No instrument' },
+  { id: 'gtr-down', label: '🎸 Guitar · downstrums' },
+  { id: 'gtr-folk', label: '🎸 Guitar · folk strum (D D-U -U D-U)' },
+  { id: 'gtr-8ths', label: '🎸 Guitar · driving eighths' },
+  { id: 'gtr-arp', label: '🎸 Guitar · fingerpicked arpeggio' },
+  { id: 'gtr-travis', label: '🎸 Guitar · Travis picking' },
+  { id: 'gtr-solo', label: '🎸 Guitar · solo line over the changes' },
+  { id: 'pno-chords', label: '🎹 Piano · held chords' },
+  { id: 'pno-arp', label: '🎹 Piano · flowing arpeggio' },
+  { id: 'bass-walk', label: '🎸 Bass · walking line' },
+  { id: 'melody-gtr', label: '🎸 Guitar · double the melody' },
+  { id: 'melody-pno', label: '🎹 Piano · double the melody' },
+  { id: 'custom', label: '✍ Custom · your written-out line' },
 ];
 
 export const DRUM_STYLES: Array<{ id: DrumStyleId; label: string }> = [
-  { id: 'off', label: 'No drums' },
-  { id: 'drum-kit', label: 'Kit — straight' },
-  { id: 'drum-drive', label: 'Kit — driving' },
-  { id: 'cajon-groove', label: 'Cajon — groove' },
-  { id: 'cajon-sway', label: 'Cajon — sway (waltz-friendly)' },
-  { id: 'custom', label: 'Custom — your written-out tab' },
+  { id: 'off', label: '— No drums' },
+  { id: 'drum-kit', label: '🥁 Kit · straight' },
+  { id: 'drum-drive', label: '🥁 Kit · driving' },
+  { id: 'cajon-groove', label: '🪘 Cajon · groove' },
+  { id: 'cajon-sway', label: '🪘 Cajon · sway (waltz-friendly)' },
+  { id: 'custom', label: '✍ Custom · your written-out tab' },
 ];
 
 export type BandEventKind =
