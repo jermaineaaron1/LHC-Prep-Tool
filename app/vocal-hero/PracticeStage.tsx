@@ -9,8 +9,8 @@ import { KaraokeLyrics } from './KaraokeLyrics';
 import { MicError, PitchEngine, type MicFailure } from '@/lib/vocal-hero/pitchEngine';
 import { rememberWorkingDevice, storedWorkingDevice } from '@/lib/vocal-hero/micReport';
 import { gameNotes, isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
-import { BandPlayer, buildBandEvents, type DrumStyleId, type GuitarStyleId } from '@/lib/vocal-hero/accompaniment';
-import { buildWarpTable, tableWarp } from '@/lib/vocal-hero/performMarks';
+import { BandPlayer, buildBandEvents, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
+import { buildWarpTable, interpretMarks, tableWarp } from '@/lib/vocal-hero/performMarks';
 import { detectionRange, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { transposeNotes } from './TransposePicker';
 import { useNarrow } from '@/lib/vocal-hero/useNarrow';
@@ -43,11 +43,12 @@ function bandEventsForSong(song: Song, transpose = 0) {
   const settings = song.backing_track_settings;
   const accompaniment = settings?.accompaniment ?? { guitar: 'gtr-folk', drums: 'off' };
   const chords = settings?.chord_symbols ?? [];
-  const guitarActive = accompaniment.guitar !== 'off' && chords.length > 0;
-  const drumsActive = accompaniment.drums !== 'off';
-  if (!guitarActive && !drumsActive) return [];
   const written = playableNotes(song);
   if (!written.length) return [];
+  const marked = written.some(note => note.marks?.band);
+  const guitarActive = (accompaniment.guitar !== 'off' && chords.length > 0) || marked;
+  const drumsActive = accompaniment.drums !== 'off' || marked;
+  if (!guitarActive && !drumsActive) return [];
   const lastEnd = written.reduce((latest, note) => Math.max(latest, note.end), 0);
   const beat = 60 / Math.max(20, song.bpm || 90);
   const barLen = beat * Math.max(1, song.time_sig || 4);
@@ -55,10 +56,12 @@ function bandEventsForSong(song: Song, transpose = 0) {
   for (let start = 0; start < lastEnd; start += barLen) bars.push({ start, end: start + barLen, beatCount: Math.max(1, song.time_sig || 4) });
   const table = song.backing_media_url ? null : buildWarpTable(written, lastEnd + 1);
   return buildBandEvents({
-    bars, chords,
-    guitar: accompaniment.guitar as GuitarStyleId, drums: accompaniment.drums as DrumStyleId,
+    bars, chords, notes: written,
+    defaults: { instrument: accompaniment.guitar as InstrumentStyleId, drums: accompaniment.drums as DrumStyleId },
     until: lastEnd + 0.1, transpose,
     warp: table ? time => tableWarp(table, time) : undefined,
+    effectiveVelocity: interpretMarks(written).velocity,
+    customTabs: { instrument: accompaniment.instrument_tab, drums: accompaniment.drum_tab },
   });
 }
 

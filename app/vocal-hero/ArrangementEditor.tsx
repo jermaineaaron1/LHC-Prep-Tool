@@ -20,7 +20,7 @@ import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, spli
 import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vocal-hero/performMarks';
 import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
-import { buildBandEvents, DRUM_STYLES, GUITAR_STYLES, playBandEvent, type DrumStyleId, type GuitarStyleId } from '@/lib/vocal-hero/accompaniment';
+import { buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#ffae42', '#4ca0ff', '#43e2bb'];
@@ -1041,6 +1041,16 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     });
     setEditorNotice(null);
   }
+  function applyBandToSelection(field: 'instrument' | 'drums', value: string) {
+    const first = selectedNotes[0];
+    if (!first) return;
+    editSelectionMarks((marks, note) => {
+      if (note.id !== first.id) return { marks };
+      const band = { ...(marks.band ?? {}) };
+      if (value) band[field] = value; else delete band[field];
+      return { marks: { ...marks, band: band.instrument || band.drums ? band : undefined } };
+    });
+  }
   function applyTempoToSelection(kind: TempoMarkKind) {
     // A tempo instruction is a moment, not a range: it lands on the earliest
     // selected note and takes effect from there — rit. and accel. ramp until
@@ -1368,14 +1378,23 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       if (noteView !== 'rendition') {
         const lastSound = activePerformance.notes.reduce((latest, note) => Math.max(latest, note.end), 0);
         const bandBars = musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length) }));
+        // Events are built in PERFORMANCE time (the same warp as the voices),
+        // so a strum before a fermata rings through the pause and the beat
+        // broadens with a ritardando. Loudness follows the choir's dynamics
+        // and hairpins via the interpreted velocities.
         const events = buildBandEvents({
           bars: bandBars, chords: trackSettings.chord_symbols ?? [],
-          guitar: accompaniment.guitar as GuitarStyleId, drums: accompaniment.drums as DrumStyleId,
+          notes: activePerformance.notes,
+          defaults: { instrument: accompaniment.guitar as InstrumentStyleId, drums: accompaniment.drums as DrumStyleId },
           until: Math.min(end, lastSound + .1),
+          warp: w,
+          effectiveVelocity: performed.velocity,
+          customTabs: { instrument: accompaniment.instrument_tab, drums: accompaniment.drum_tab },
         });
+        const windowFrom = w(first) - .01, windowTo = w(end);
         for (const event of events) {
-          if (event.at < first - .01 || event.at >= end) continue;
-          playBandEvent(context, event, context.currentTime + (w(event.at) - w(first)) / transportRate);
+          if (event.at < windowFrom || event.at >= windowTo) continue;
+          playBandEvent(context, event, context.currentTime + (event.at - w(first)) / transportRate);
         }
       }
     }
@@ -1700,18 +1719,28 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             </div>
             <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">The band — saved with the song; heard in preview, practice and rounds</p>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-1.5 text-slate-400">Guitar
-                <select aria-label="Guitar style" value={accompaniment.guitar} onChange={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: event.target.value, drums: current.accompaniment?.drums ?? 'off' } }))}
+              <label className="flex items-center gap-1.5 text-slate-400">Instrument
+                <select aria-label="Instrument style" value={accompaniment.guitar} onChange={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { ...(current.accompaniment ?? { drums: 'off' }), guitar: event.target.value, drums: current.accompaniment?.drums ?? 'off' } }))}
                   className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] text-white">
-                  {GUITAR_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
+                  {INSTRUMENT_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
                 </select></label>
               <label className="flex items-center gap-1.5 text-slate-400">Drums
-                <select aria-label="Drum style" value={accompaniment.drums} onChange={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: current.accompaniment?.guitar ?? 'gtr-folk', drums: event.target.value } }))}
+                <select aria-label="Drum style" value={accompaniment.drums} onChange={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { ...(current.accompaniment ?? { guitar: 'gtr-folk' }), guitar: current.accompaniment?.guitar ?? 'gtr-folk', drums: event.target.value } }))}
                   className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] text-white">
                   {DRUM_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
                 </select></label>
-              <span className="text-slate-500">guitar needs chord symbols to play</span>
+              <span className="text-slate-500">chord styles need chord symbols; mid-song changes ride the notes (Expression bar)</span>
             </div>
+            {accompaniment.guitar === 'custom' && <div>
+              <p className="mb-1 text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Your instrument line — one token per eighth, looped: note names hit, ~ holds, - rests</p>
+              <textarea aria-label="Custom instrument line" rows={2} defaultValue={accompaniment.instrument_tab ?? ''} placeholder="e3 g3 b3 e4 ~ - g3 b3"
+                onBlur={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: 'custom', drums: current.accompaniment?.drums ?? 'off', instrument_tab: event.target.value, drum_tab: current.accompaniment?.drum_tab } }))}
+                className="w-full rounded-lg border border-white/15 bg-black/30 px-2 py-1.5 font-mono text-[11px] text-white" /></div>}
+            {accompaniment.drums === 'custom' && <div>
+              <p className="mb-1 text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Your drum tab — one column per eighth, looped. Lanes: K kick · S snare · H hat · T/t toms · B/P/c cajon. x or o hits, X/O accents, - rests</p>
+              <textarea aria-label="Custom drum tab" rows={4} defaultValue={accompaniment.drum_tab ?? ''} placeholder={'K: o---o---\nS: --o---o-\nH: x-x-x-x-'}
+                onBlur={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: current.accompaniment?.guitar ?? 'gtr-folk', drums: 'custom', instrument_tab: current.accompaniment?.instrument_tab, drum_tab: event.target.value } }))}
+                className="w-full rounded-lg border border-white/15 bg-black/30 px-2 py-1.5 font-mono text-[11px] text-white" /></div>}
             <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Song key</p>
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => transposeSong(-1)} title="Move every note and chord down a semitone" className="rounded-lg border border-white/15 px-3 py-1.5 text-slate-200">- semitone</button>
@@ -1784,6 +1813,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               onTempo={applyTempoToSelection}
               chord={(trackSettings.chord_symbols ?? []).find(chord => selectedNotes[0] && Math.abs(chord.at - selectedNotes[0].start) <= 0.05)?.symbol ?? ''}
               onChord={setChordAtSelection}
+              onBand={applyBandToSelection}
               onClear={clearMarksOnSelection} />}
             <div className="mb-2 flex items-center gap-1 text-xs">
               <button onClick={() => switchView('score')} className={`rounded-l-lg border px-3 py-1.5 ${noteView === 'score' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="The arrangement as an engraved open score — one staff per voice">𝄞 Score</button>
@@ -1977,7 +2007,7 @@ function LyricLineDialog({ targetCount, targetLabel, onApply, onClose }: { targe
  * marked as tying into the next bar. With Step entry on, letters A–G enter
  * pitches in the song's key at the caret, R rests forward, arrows adjust.
  */
-function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord, onChord, onClear }: {
+function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord, onChord, onBand, onClear }: {
   selection: SongNote[];
   onDynamic: (dynamic: DynamicMark | null) => void;
   onToggle: (key: 'staccato' | 'tenuto' | 'fermata') => void;
@@ -1985,8 +2015,10 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
   onTempo: (kind: TempoMarkKind) => void;
   chord: string;
   onChord: (symbol: string) => void;
+  onBand: (field: 'instrument' | 'drums', value: string) => void;
   onClear: () => void;
 }) {
+  const bandMark = selection[0]?.marks?.band;
   const activeTempo = selection[0]?.marks?.tempo;
   const tempoButton = (kind: TempoMarkKind, label: string, title: string) =>
     <button onClick={() => onTempo(kind)} title={title}
@@ -2026,6 +2058,25 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
     {tempoButton('accel', 'accel.', 'Accelerando — gradually speed up from the first selected note until the next tempo mark')}
     {tempoButton('atempo', 'a tempo', 'A tempo — return to the written speed from the first selected note')}
     {tempoButton('allegro', 'Allegro', 'Allegro — brisk (about 5/4 of the written speed) from the first selected note')}
+    <span className="h-5 w-px bg-white/10" />
+    <label className="flex items-center gap-1" title="Band instruction from the first selected note's bar onward: pick an instrument style, or Stop. Plays until the next instruction.">
+      <span className="text-[9px] font-black uppercase tracking-[.14em] text-slate-500">Instr.</span>
+      <select value={bandMark?.instrument ?? ''} onChange={event => onBand('instrument', event.target.value)}
+        className="max-w-32 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
+        <option value="">(keep)</option>
+        {INSTRUMENT_STYLES.filter(style => style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
+        <option value="stop">Stop playing</option>
+      </select>
+    </label>
+    <label className="flex items-center gap-1" title="Drum instruction from the first selected note's bar onward: pick a beat, or Stop. Plays until the next instruction.">
+      <span className="text-[9px] font-black uppercase tracking-[.14em] text-slate-500">Beat</span>
+      <select value={bandMark?.drums ?? ''} onChange={event => onBand('drums', event.target.value)}
+        className="max-w-32 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
+        <option value="">(keep)</option>
+        {DRUM_STYLES.filter(style => style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
+        <option value="stop">Stop playing</option>
+      </select>
+    </label>
     <button onClick={onClear} title="Remove every marking from the selection" className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">✕ Clear</button>
   </div>;
 }

@@ -300,6 +300,8 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
       fontSize={12} fontStyle="italic" fontWeight={800} fill="#7dd3fc" fontFamily="Georgia,'Times New Roman',serif">{text.label}</text>)}
     {layout.chordTexts.map((text, i) => <text key={`chord-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24}
       fontSize={12} fontWeight={800} textAnchor="middle" fill="#fde68a">{text.label}</text>)}
+    {layout.bandTexts.map((text, i) => <text key={`band-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 16}
+      fontSize={10} fontStyle="italic" fontWeight={700} fill="#fca5a5cc">{text.label}</text>)}
     {layout.spans.map((span, i) => {
       const mid = STAFF_MIDS[span.staff];
       const top = span.system * SYSTEM_H + 12;
@@ -627,6 +629,20 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     if (tempoTexts.some(text => text.system === glyph.system && Math.abs(text.x - glyph.x) < 14)) continue;
     tempoTexts.push({ x: glyph.x, system: glyph.system, label: TEMPO_LABELS[kind] ?? kind });
   }
+  // Band instructions print below the bass staff, where a rhythm section
+  // reads: "gtr folk · kit", "band: tacet".
+  const shortStyle = (value: string) => value === 'stop' || value === 'off' ? 'tacet'
+    : value.replace('gtr-', 'gtr ').replace('pno-', 'pno ').replace('drum-', '').replace('cajon-', 'cajon ').replace('melody-gtr', 'gtr melody').replace('melody-pno', 'pno melody');
+  const bandTexts: Array<{ x: number; system: number; label: string }> = [];
+  for (const glyph of glyphs) {
+    const band = glyph.marks?.band;
+    if (!band || (!band.instrument && !band.drums)) continue;
+    if (bandTexts.some(text => text.system === glyph.system && Math.abs(text.x - glyph.x) < 14)) continue;
+    const parts: string[] = [];
+    if (band.instrument) parts.push(shortStyle(band.instrument));
+    if (band.drums) parts.push(shortStyle(band.drums));
+    bandTexts.push({ x: glyph.x, system: glyph.system, label: parts.join(' · ') });
+  }
   // Chord symbols ride above the top staff, lead-sheet style.
   const chordTexts: Array<{ x: number; system: number; label: string }> = [];
   for (const chord of chords ?? []) {
@@ -634,5 +650,5 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     if (position) chordTexts.push({ x: position.x, system: position.system, label: chord.symbol });
   }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
-  return { glyphs, beams, rests, spans, tempoTexts, chordTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
+  return { glyphs, beams, rests, spans, tempoTexts, chordTexts, bandTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
 }

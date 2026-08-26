@@ -239,3 +239,42 @@ export function playCajonSlap(context: AudioContext, startAt: number, level = 0.
 export function playCajonTick(context: AudioContext, startAt: number, level = 0.025): void {
   playHat(context, startAt, level);
 }
+
+/** Piano-ish key tone: rounder than the pluck, sustains while held. */
+export function playKeyTone(context: AudioContext, midi: number, startAt: number, length: number, level = 0.05): void {
+  const frequency = 440 * Math.pow(2, (midi - 69) / 12);
+  const main = context.createOscillator();
+  main.type = 'triangle';
+  main.frequency.value = frequency;
+  const colour = context.createOscillator();
+  colour.type = 'sine';
+  colour.frequency.value = frequency * 2;
+  const colourGain = context.createGain();
+  colourGain.gain.setValueAtTime(0.25, startAt);
+  colourGain.gain.exponentialRampToValueAtTime(0.03, startAt + 0.5);
+  const gain = context.createGain();
+  const hold = Math.max(0.25, length);
+  gain.gain.setValueAtTime(0.0001, startAt);
+  gain.gain.exponentialRampToValueAtTime(level, startAt + 0.015);
+  gain.gain.setValueAtTime(level * 0.8, Math.max(startAt + 0.02, startAt + hold - 0.15));
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + hold + 0.2);
+  main.connect(gain);
+  colour.connect(colourGain);
+  colourGain.connect(gain);
+  gain.connect(context.destination);
+  [main, colour].forEach(node => { node.start(startAt); node.stop(startAt + hold + 0.3); });
+}
+
+/** Toms, for written-out drum tabs: pitched skins between kick and snare. */
+export function playTom(context: AudioContext, startAt: number, high: boolean, level = 0.11): void {
+  const oscillator = context.createOscillator();
+  oscillator.frequency.setValueAtTime(high ? 220 : 150, startAt);
+  oscillator.frequency.exponentialRampToValueAtTime(high ? 150 : 95, startAt + 0.1);
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(level, startAt);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.28);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start(startAt);
+  oscillator.stop(startAt + 0.32);
+}
