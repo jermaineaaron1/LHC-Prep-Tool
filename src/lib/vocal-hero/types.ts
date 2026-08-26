@@ -111,6 +111,9 @@ export type RhythmicNoteValue =
 export interface BackingTrackSettings {
   /** Guitar/piano chord symbols over the score, in song time. */
   chord_symbols?: Array<{ at: number; symbol: string }>;
+  /** The band: which guitar and drum/cajon styles play under this song, in
+   *  the editor preview, in practice, and in the room during a round. */
+  accompaniment?: { guitar: string; drums: string };
   volume: number;
   speed: number;
   /** Seconds to nudge the backing track relative to arrangement time. */

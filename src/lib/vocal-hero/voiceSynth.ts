@@ -129,6 +129,15 @@ export function playPluck(context: AudioContext, midi: number, startAt: number, 
   [oscillator, bright].forEach(node => { node.start(startAt); node.stop(startAt + Math.max(0.3, length) + 0.1); });
 }
 
+/** A strummed chord: the pluck rolled across the strings. Down begins on
+ *  the low strings; up answers lighter from the top three. */
+export function playStrum(context: AudioContext, midis: number[], startAt: number, direction: 'down' | 'up', sustain: number, level = 0.05): void {
+  const strings = direction === 'down' ? midis : [...midis].slice(-3).reverse();
+  const gap = direction === 'down' ? 0.014 : 0.01;
+  const each = direction === 'down' ? level : level * 0.6;
+  strings.forEach((midi, index) => playPluck(context, midi, startAt + index * gap, sustain, each));
+}
+
 // ── the kit ────────────────────────────────────────────────────────────────
 
 function noiseBuffer(context: AudioContext): AudioBuffer {
@@ -182,4 +191,51 @@ export function playHat(context: AudioContext, startAt: number, level = 0.035): 
   gain.connect(context.destination);
   source.start(startAt);
   source.stop(startAt + 0.08);
+}
+
+// ── the cajon ──────────────────────────────────────────────────────────────
+// Palm near the centre for the bass tone, fingers at the edge for the slap,
+// a knuckle tick to keep the subdivision — woodier and softer than the kit.
+
+export function playCajonBass(context: AudioContext, startAt: number, level = 0.13): void {
+  const oscillator = context.createOscillator();
+  oscillator.frequency.setValueAtTime(110, startAt);
+  oscillator.frequency.exponentialRampToValueAtTime(62, startAt + 0.06);
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(level, startAt);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.14);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start(startAt);
+  oscillator.stop(startAt + 0.18);
+}
+
+export function playCajonSlap(context: AudioContext, startAt: number, level = 0.07): void {
+  const source = context.createBufferSource();
+  const buffer = context.createBuffer(1, context.sampleRate * 0.12, context.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let index = 0; index < data.length; index++) data[index] = Math.random() * 2 - 1;
+  source.buffer = buffer;
+  const crack = context.createBiquadFilter();
+  crack.type = 'bandpass';
+  crack.frequency.value = 2900;
+  crack.Q.value = 1.2;
+  const body = context.createBiquadFilter();
+  body.type = 'bandpass';
+  body.frequency.value = 900;
+  body.Q.value = 1;
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(level, startAt);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.09);
+  const bodyGain = context.createGain();
+  bodyGain.gain.value = 0.4;
+  source.connect(crack); crack.connect(gain);
+  source.connect(body); body.connect(bodyGain); bodyGain.connect(gain);
+  gain.connect(context.destination);
+  source.start(startAt);
+  source.stop(startAt + 0.12);
+}
+
+export function playCajonTick(context: AudioContext, startAt: number, level = 0.025): void {
+  playHat(context, startAt, level);
 }

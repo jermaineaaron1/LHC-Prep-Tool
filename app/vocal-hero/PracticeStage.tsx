@@ -9,6 +9,8 @@ import { KaraokeLyrics } from './KaraokeLyrics';
 import { MicError, PitchEngine, type MicFailure } from '@/lib/vocal-hero/pitchEngine';
 import { rememberWorkingDevice, storedWorkingDevice } from '@/lib/vocal-hero/micReport';
 import { gameNotes, isGuideMelody, playableNotes } from '@/lib/vocal-hero/songData';
+import { BandPlayer, buildBandEvents, type DrumStyleId, type GuitarStyleId } from '@/lib/vocal-hero/accompaniment';
+import { buildWarpTable, tableWarp } from '@/lib/vocal-hero/performMarks';
 import { detectionRange, livePitchFeedback } from '@/lib/vocal-hero/liveCues';
 import { transposeNotes } from './TransposePicker';
 import { useNarrow } from '@/lib/vocal-hero/useNarrow';
@@ -32,6 +34,34 @@ const SPEEDS = [0.5, 0.6, 0.7, 0.85, 1];
  * line, the same guide tones and the same pitch detection. Nothing here talks to
  * a session, which is what keeps the multiplayer path exactly as it was.
  */
+
+/** The band events for a song as the GAME hears it: uniform bars from the
+ *  written meter, warped through the song's own marks — the identical
+ *  arithmetic gameNotes uses, so the strums land on the (possibly held or
+ *  broadened) beats the singers see. */
+function bandEventsForSong(song: Song, transpose = 0) {
+  const settings = song.backing_track_settings;
+  const accompaniment = settings?.accompaniment ?? { guitar: 'gtr-folk', drums: 'off' };
+  const chords = settings?.chord_symbols ?? [];
+  const guitarActive = accompaniment.guitar !== 'off' && chords.length > 0;
+  const drumsActive = accompaniment.drums !== 'off';
+  if (!guitarActive && !drumsActive) return [];
+  const written = playableNotes(song);
+  if (!written.length) return [];
+  const lastEnd = written.reduce((latest, note) => Math.max(latest, note.end), 0);
+  const beat = 60 / Math.max(20, song.bpm || 90);
+  const barLen = beat * Math.max(1, song.time_sig || 4);
+  const bars: Array<{ start: number; end: number; beatCount: number }> = [];
+  for (let start = 0; start < lastEnd; start += barLen) bars.push({ start, end: start + barLen, beatCount: Math.max(1, song.time_sig || 4) });
+  const table = song.backing_media_url ? null : buildWarpTable(written, lastEnd + 1);
+  return buildBandEvents({
+    bars, chords,
+    guitar: accompaniment.guitar as GuitarStyleId, drums: accompaniment.drums as DrumStyleId,
+    until: lastEnd + 0.1, transpose,
+    warp: table ? time => tableWarp(table, time) : undefined,
+  });
+}
+
 export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song: Song; onExit: () => void; initialLoop?: LoopRegion | null; initialPart?: number }) {
   const [part, setPart] = useState(initialPart ?? 0);
   const [transpose, setTranspose] = useState(0);
@@ -52,6 +82,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
   const [standalone, setStandalone] = useState(false);
   useEffect(() => { void PitchEngine.environment().then(env => setStandalone(env.standalone)); }, []);
   const [guideAudio, setGuideAudio] = useState(true);
+  const [bandAudio, setBandAudio] = useState(true);
   // The AudioContext cannot exist until the first tap -- browsers refuse one
   // without a gesture. The guide effect below read the ref and gave up when it
   // was still null, and nothing in its deps changed when Play finally created
@@ -133,6 +164,27 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
     }, 60);
     return () => { window.clearInterval(timer); player.dispose(); };
   }, [guideAudio, myNotes, audioReady]);
+
+  // The band, on the same clock as the guide: the song's saved guitar and
+  // drum styles, following the transpose the singer chose.
+  useEffect(() => {
+    if (!bandAudio) return;
+    const context = contextRef.current;
+    if (!context) return;
+    const events = bandEventsForSong(song, transpose);
+    if (!events.length) return;
+    const player = new BandPlayer(context, events);
+    let lastLap = lapRef.current;
+    let lastPosition = positionRef.current;
+    const timer = window.setInterval(() => {
+      if (!transportRef.current.isPlaying) { player.reset(); return; }
+      if (lapRef.current !== lastLap || positionRef.current < lastPosition - 0.25) player.reset();
+      lastLap = lapRef.current;
+      lastPosition = positionRef.current;
+      player.update(positionRef.current, transportRef.current.currentRate);
+    }, 60);
+    return () => window.clearInterval(timer);
+  }, [bandAudio, song, transpose, audioReady]);
 
   useEffect(() => () => { pitchRef.current?.stop(); void contextRef.current?.close().catch(() => undefined); }, []);
   // The detector is built once, with a frequency band fixed at that moment. A
@@ -218,6 +270,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => setGuideAudio(!guideAudio)} className={`vh-outline-button ${guideAudio ? 'border-emerald-300/40 text-emerald-100' : 'text-slate-400'}`}>{guideAudio ? '♪ Guide on' : '♪ Guide off'}</button>
+        <button onClick={() => setBandAudio(!bandAudio)} title="The song's saved guitar and drum accompaniment" className={`vh-outline-button ${bandAudio ? 'border-amber-300/40 text-amber-100' : 'text-slate-400'}`}>{bandAudio ? '♬ Band on' : '♬ Band off'}</button>
         <button onClick={onExit} className="vh-outline-button">← Back to library</button>
       </div>
     </div>

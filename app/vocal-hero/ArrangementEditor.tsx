@@ -19,7 +19,8 @@ import { DEFAULT_TARGETS_PER_PHRASE } from '@/lib/vocal-hero/liveCues';
 import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, splitIntoSyllables, spreadLyricsAcrossNotes, alignToMelodyRhythm } from '@/lib/vocal-hero/arrange';
 import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vocal-hero/performMarks';
 import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
-import { playHat, playKick, playPluck, playSnare, playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
+import { playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
+import { buildBandEvents, DRUM_STYLES, GUITAR_STYLES, playBandEvent, type DrumStyleId, type GuitarStyleId } from '@/lib/vocal-hero/accompaniment';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#ffae42', '#4ca0ff', '#43e2bb'];
@@ -405,10 +406,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [stepInput, setStepInput] = useState(false);
   const [stepCaret, setStepCaret] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  // The preview SINGS by default; the piano remains one tap away. Drums are
-  // an opt-in count-keeper.
+  // The preview SINGS by default; the piano remains one tap away.
   const [previewVoices, setPreviewVoices] = useState(true);
-  const [drumsOn, setDrumsOn] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
   // The rendition always compiles from the SOURCE arrangement, never from its
   // own output — otherwise hear-and-return would stack passes of passes. The
@@ -437,6 +436,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [showLyricLine, setShowLyricLine] = useState(false);
   const [showHarmony, setShowHarmony] = useState(false);
   const [trackSettings, setTrackSettings] = useState<BackingTrackSettings>({ ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) });
+  const accompaniment = trackSettings.accompaniment ?? { guitar: 'gtr-folk', drums: 'off' };
   const [musicalTimeline, setMusicalTimeline] = useState<MusicalTimelineSettings>(() => normaliseMusicalTimeline(song, { ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) }));
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -1363,35 +1363,19 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         if (previewVoices) playVoiceTone(context, played, context.currentTime + at, length / transportRate);
         else playPianoTone(context, played, context.currentTime + at, length / transportRate);
       });
-      // ---- the accompaniment: chord symbols strummed under the voices
-      const chords = noteView === 'rendition' ? [] : [...(trackSettings.chord_symbols ?? [])].sort((a, b) => a.at - b.at);
-      chords.forEach((chord, index) => {
-        if (chord.at < first - .05 || chord.at >= end) return;
-        const parsed = parseChord(chord.symbol);
-        if (!parsed) return;
-        const untilScore = Math.min(chords[index + 1]?.at ?? chord.at + 2.6, end);
-        const at = Math.max(0, (w(Math.max(chord.at, first)) - w(first)) / transportRate);
-        const sustain = Math.max(0.4, Math.min(3, (w(untilScore) - w(Math.max(chord.at, first))) / transportRate));
-        parsed.midis.forEach((midi, voiceIndex) => playPluck(context, midi, context.currentTime + at + voiceIndex * 0.028, sustain));
-      });
-      // ---- the kit, walking the same warped grid the music does
-      if (drumsOn) {
-        const drumBars = noteView === 'rendition' ? compiledRendition.bars : musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length) }));
+      // ---- the band: the SAVED guitar and drum styles, on the same warped
+      // clock as the voices — what plays here is what the room will hear.
+      if (noteView !== 'rendition') {
         const lastSound = activePerformance.notes.reduce((latest, note) => Math.max(latest, note.end), 0);
-        for (const bar of drumBars) {
-          if (bar.end <= first || bar.start >= Math.min(end, lastSound + .1)) continue;
-          const beatLen = (bar.end - bar.start) / bar.beatCount;
-          for (let beat = 0; beat < bar.beatCount; beat++) {
-            const tick = bar.start + beat * beatLen;
-            if (tick < first - .01 || tick >= end) continue;
-            const when = context.currentTime + (w(tick) - w(first)) / transportRate;
-            const backbeat = bar.beatCount === 4 ? beat === 1 || beat === 3 : beat === bar.beatCount - 1 && bar.beatCount > 1;
-            if (beat === 0 || (bar.beatCount === 4 && beat === 2)) playKick(context, when);
-            if (backbeat) playSnare(context, when);
-            playHat(context, when);
-            const half = tick + beatLen / 2;
-            if (half < end) playHat(context, context.currentTime + (w(half) - w(first)) / transportRate, 0.02);
-          }
+        const bandBars = musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length) }));
+        const events = buildBandEvents({
+          bars: bandBars, chords: trackSettings.chord_symbols ?? [],
+          guitar: accompaniment.guitar as GuitarStyleId, drums: accompaniment.drums as DrumStyleId,
+          until: Math.min(end, lastSound + .1),
+        });
+        for (const event of events) {
+          if (event.at < first - .01 || event.at >= end) continue;
+          playBandEvent(context, event, context.currentTime + (w(event.at) - w(first)) / transportRate);
         }
       }
     }
@@ -1688,9 +1672,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           <button onClick={() => setPreviewVoices(current => !current)} aria-pressed={previewVoices}
             title={previewVoices ? 'The preview sings: vowels from the lyrics, vibrato and all. Tap for piano.' : 'The preview plays piano. Tap to hear it sung.'}
             className={`rounded-lg border px-2.5 py-2 ${previewVoices ? 'border-emerald-300/50 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-slate-300'}`}>{previewVoices ? '\ud83c\udfa4' : '\ud83c\udfb9'}</button>
-          <button onClick={() => setDrumsOn(current => !current)} aria-pressed={drumsOn}
-            title="Drum beat under playback: kick, snare and hats on this song's meter, following every rit. and hold"
-            className={`rounded-lg border px-2.5 py-2 ${drumsOn ? 'border-amber-300/50 bg-amber-300/10 text-amber-100' : 'border-white/15 text-slate-300'}`}>{'\ud83e\udd41'}</button>
+          <button onClick={() => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: (current.accompaniment?.guitar ?? 'gtr-folk'), drums: (current.accompaniment?.drums ?? 'off') === 'off' ? 'drum-kit' : 'off' } }))} aria-pressed={accompaniment.drums !== 'off'}
+            title="Drums on or off for THIS SONG — saved with it, heard in preview, practice and rounds. Pick the style (kit or cajon) under the three-dots menu."
+            className={`rounded-lg border px-2.5 py-2 ${accompaniment.drums !== 'off' ? 'border-amber-300/50 bg-amber-300/10 text-amber-100' : 'border-white/15 text-slate-300'}`}>{'\ud83e\udd41'}</button>
           <button onClick={() => setMoreOpen(open => !open)} aria-expanded={moreOpen} title="Import, backing track, recording, zoom and more"
             className={`rounded-lg border px-3 py-2 font-bold ${moreOpen ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/15 text-slate-200'}`}>⋯</button>
           {moreOpen && <div className="absolute right-0 top-11 z-[75] w-80 space-y-3 rounded-2xl border border-white/12 bg-[#0a0e22f8] p-3 text-xs shadow-[0_24px_70px_#000d] backdrop-blur">
@@ -1713,6 +1697,20 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   <select aria-label="Transcription timing treatment" value={transcriptionSnap ? 'grid' : 'exact'} onChange={event => setTranscriptionSnap(event.target.value === 'grid')} className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] text-white"><option value="grid">Snap to grid</option><option value="exact">As sung</option></select></label>
                 <button onClick={() => void convertRecordedTake()} disabled={transcribingTake} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100 disabled:opacity-40">{transcribingTake ? 'Detecting…' : 'Take → notes'}</button>
               </>}
+            </div>
+            <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">The band — saved with the song; heard in preview, practice and rounds</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1.5 text-slate-400">Guitar
+                <select aria-label="Guitar style" value={accompaniment.guitar} onChange={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: event.target.value, drums: current.accompaniment?.drums ?? 'off' } }))}
+                  className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] text-white">
+                  {GUITAR_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
+                </select></label>
+              <label className="flex items-center gap-1.5 text-slate-400">Drums
+                <select aria-label="Drum style" value={accompaniment.drums} onChange={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: current.accompaniment?.guitar ?? 'gtr-folk', drums: event.target.value } }))}
+                  className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] text-white">
+                  {DRUM_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
+                </select></label>
+              <span className="text-slate-500">guitar needs chord symbols to play</span>
             </div>
             <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Song key</p>
             <div className="flex flex-wrap items-center gap-2">

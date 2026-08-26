@@ -10,7 +10,9 @@ import {
 import type { GameSession, SectionScore, SessionPlayer, Song, SongNote } from '@/lib/vocal-hero/types';
 import { clearTrail, pushTrail } from '@/lib/vocal-hero/trail';
 import type { TrailSample } from '@/lib/vocal-hero/trail';
-import { gameNotes, isGuideMelody, playablePart } from '@/lib/vocal-hero/songData';
+import { gameNotes, isGuideMelody, playableNotes, playablePart } from '@/lib/vocal-hero/songData';
+import { BandPlayer, buildBandEvents, type DrumStyleId, type GuitarStyleId } from '@/lib/vocal-hero/accompaniment';
+import { buildWarpTable, tableWarp } from '@/lib/vocal-hero/performMarks';
 import { measureServerClockOffset } from '@/lib/vocal-hero/clock';
 import { ArrangementEditor } from './ArrangementEditor';
 import { MicError, PitchEngine, type MicFailure } from '@/lib/vocal-hero/pitchEngine';
@@ -58,6 +60,34 @@ const COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
 /** Time allowed after the last note before the round is called finished, so
  * that note's own scoring window closes first. */
 const END_TAIL_SEC = 2.5;
+
+
+/** The band events for a song as the GAME hears it: uniform bars from the
+ *  written meter, warped through the song's own marks — the identical
+ *  arithmetic gameNotes uses, so the strums land on the (possibly held or
+ *  broadened) beats the singers see. */
+function bandEventsForSong(song: Song, transpose = 0) {
+  const settings = song.backing_track_settings;
+  const accompaniment = settings?.accompaniment ?? { guitar: 'gtr-folk', drums: 'off' };
+  const chords = settings?.chord_symbols ?? [];
+  const guitarActive = accompaniment.guitar !== 'off' && chords.length > 0;
+  const drumsActive = accompaniment.drums !== 'off';
+  if (!guitarActive && !drumsActive) return [];
+  const written = playableNotes(song);
+  if (!written.length) return [];
+  const lastEnd = written.reduce((latest, note) => Math.max(latest, note.end), 0);
+  const beat = 60 / Math.max(20, song.bpm || 90);
+  const barLen = beat * Math.max(1, song.time_sig || 4);
+  const bars: Array<{ start: number; end: number; beatCount: number }> = [];
+  for (let start = 0; start < lastEnd; start += barLen) bars.push({ start, end: start + barLen, beatCount: Math.max(1, song.time_sig || 4) });
+  const table = song.backing_media_url ? null : buildWarpTable(written, lastEnd + 1);
+  return buildBandEvents({
+    bars, chords,
+    guitar: accompaniment.guitar as GuitarStyleId, drums: accompaniment.drums as DrumStyleId,
+    until: lastEnd + 0.1, transpose,
+    warp: table ? time => tableWarp(table, time) : undefined,
+  });
+}
 
 export default function VocalHeroHostPage() {
   const [songs, setSongs] = useState<Song[]>([]);
@@ -155,6 +185,7 @@ export default function VocalHeroHostPage() {
   // On by default here: the host is the one device in the room everybody can
   // hear, so it plays the part a piano would at a rehearsal.
   const [guideAudio, setGuideAudioState] = useState(true);
+  const [bandAudio, setBandAudio] = useState(true);
   useEffect(() => { setGuideAudioState(storedGuideAudio(true)); }, []);
   function setGuideAudio(on: boolean) { setGuideAudioState(on); rememberGuideAudio(on); }
   const cuedRef = useRef({ outer: false, inner: false });
@@ -501,6 +532,24 @@ export default function VocalHeroHostPage() {
     return () => { window.clearInterval(timer); player.dispose(); };
   }, [backingTrackUrl, gamePaused, guideAudio, session?.status, session?.playback_starts_at, song, soloNotes]);
 
+  // The band plays the ROOM: same clock as the guide, the song's saved
+  // guitar and drum styles, silent when a real backing track already fills
+  // the space.
+  useEffect(() => {
+    if (!bandAudio || !song || session?.status !== 'playing' || backingTrackUrl) return;
+    const context = cueContextRef.current;
+    if (!context) return;
+    const events = bandEventsForSong(song);
+    if (!events.length) return;
+    const player = new BandPlayer(context, events);
+    const timer = window.setInterval(() => {
+      if (gamePaused) { player.reset(); return; }
+      if (!soloPhaseRef.current.startsWith('Live')) return;
+      player.update(soloElapsedRef.current);
+    }, 60);
+    return () => window.clearInterval(timer);
+  }, [backingTrackUrl, bandAudio, gamePaused, session?.status, session?.playback_starts_at, song]);
+
   const phoneUrl = session ? `${window.location.origin}/vocal-hero/phone?room=${session.room_code}` : '';
   // The musical count-in and lead-in happen INSIDE the game: lanes visible,
   // bar frozen at zero, the count carried by an overlay. Only the scheduled
@@ -536,7 +585,7 @@ export default function VocalHeroHostPage() {
 
   return <main className="vh-app min-h-screen overflow-x-hidden text-slate-100">
     {backingTrackUrl && <audio ref={audioRef} preload="auto" src={backingTrackUrl} className="hidden" />}
-    <header className="vh-topbar"><Brand /><span className="vh-divider" /><span className="text-xs tracking-[.2em] text-slate-400">{session ? 'LIVE SESSION' : 'SONG LIBRARY'}</span><span className="vh-live-dot">Live</span><div className="ml-auto flex flex-wrap items-center justify-end gap-2">{session?.status === 'playing' && <button onClick={gamePaused ? resumeGame : pauseGame} className="vh-outline-button border-cyan-300/35 text-cyan-100">{gamePaused ? '▶ Resume' : 'Ⅱ Pause'}</button>}{session?.status === 'playing' && !backingTrackUrl && <button onClick={() => setGuideAudio(!guideAudio)} title="Play the written notes out loud so singers can hear the line" className={`vh-outline-button ${guideAudio ? 'border-emerald-300/40 text-emerald-100' : 'text-slate-400'}`}>{guideAudio ? '♪ Guide on' : '♪ Guide off'}</button>}{session && <button onClick={returnToLibrary} className="vh-outline-button">← Back to menu</button>}{session && <RoomCode code={session.room_code} />}<button onClick={() => window.open(session ? `/vocal-hero?fullscreen=1&room=${session.room_code}` : '/vocal-hero?fullscreen=1', '_blank', 'noopener')} className="vh-outline-button">Open full screen</button></div></header>
+    <header className="vh-topbar"><Brand /><span className="vh-divider" /><span className="text-xs tracking-[.2em] text-slate-400">{session ? 'LIVE SESSION' : 'SONG LIBRARY'}</span><span className="vh-live-dot">Live</span><div className="ml-auto flex flex-wrap items-center justify-end gap-2">{session?.status === 'playing' && <button onClick={gamePaused ? resumeGame : pauseGame} className="vh-outline-button border-cyan-300/35 text-cyan-100">{gamePaused ? '▶ Resume' : 'Ⅱ Pause'}</button>}{session?.status === 'playing' && !backingTrackUrl && <button onClick={() => setGuideAudio(!guideAudio)} title="Play the written notes out loud so singers can hear the line" className={`vh-outline-button ${guideAudio ? 'border-emerald-300/40 text-emerald-100' : 'text-slate-400'}`}>{guideAudio ? '♪ Guide on' : '♪ Guide off'}</button>}{session?.status === 'playing' && !backingTrackUrl && <button onClick={() => setBandAudio(!bandAudio)} title="The song's saved guitar and drum accompaniment, played to the room" className={`vh-outline-button ${bandAudio ? 'border-amber-300/40 text-amber-100' : 'text-slate-400'}`}>{bandAudio ? '♬ Band on' : '♬ Band off'}</button>}{session && <button onClick={returnToLibrary} className="vh-outline-button">← Back to menu</button>}{session && <RoomCode code={session.room_code} />}<button onClick={() => window.open(session ? `/vocal-hero?fullscreen=1&room=${session.room_code}` : '/vocal-hero?fullscreen=1', '_blank', 'noopener')} className="vh-outline-button">Open full screen</button></div></header>
     {error && <p className="border-y border-rose-400/30 bg-rose-950/50 px-5 py-3 text-sm text-rose-200">{error}</p>}
     {stage}
     {preRoll && <CountInOverlay phase={timeline.phase} />}
