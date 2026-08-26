@@ -60,8 +60,11 @@ export interface NoteMarks {
   tempo?: TempoMarkKind;
   /** A band instruction taking effect at this note's bar: an instrument
    * and/or drum style id from the accompaniment catalogs, or 'stop'.
-   * It plays until the next instruction. */
-  band?: { instrument?: string; drums?: string };
+   * It plays until the next instruction. When the style is 'custom', the
+   * instruction can carry ITS OWN written part in instrument_tab/drum_tab —
+   * so different sections keep different written parts; without one it
+   * falls back to the song-wide tab. */
+  band?: { instrument?: string; drums?: string; instrument_tab?: string; drum_tab?: string };
 }
 
 export type TempoMarkKind = 'rit' | 'accel' | 'atempo' | 'allegro';
