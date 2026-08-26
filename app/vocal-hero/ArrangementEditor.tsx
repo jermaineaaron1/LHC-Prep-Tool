@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RenditionRail } from './RenditionBuilder';
 import { ScoreView, type ScoreBar } from './ScoreView';
+import { DrumGridEditor, InstrumentStaffEditor } from './PartStaffEditor';
 import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
 import { compileRendition, deriveSections, type RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
@@ -1980,22 +1981,31 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   chords={trackSettings.chord_symbols} bandEvents={draftBandEvents} />
               </div>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="flex flex-col gap-1 text-[11px] text-slate-300">
-                <span className="font-black uppercase tracking-[.14em] text-sky-200">🎸 Instrument line</span>
-                <textarea rows={3} value={draftInstrumentTab} onChange={event => setDraftInstrumentTab(event.target.value)} spellCheck={false}
-                  placeholder={'e3 g3 b3 e4 ~ - e3>g3 -'}
-                  className="rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 font-mono text-[11px] text-white" />
-                <span className="text-slate-500">note names per eighth (e3, f#3, bb2) · <b>~</b> holds the note longer (two ~ = a quarter more) · <b>-</b> rest · <b>e3&gt;g3</b> slides · bar lines | are ignored</span>
-              </label>
-              <label className="flex flex-col gap-1 text-[11px] text-slate-300">
-                <span className="font-black uppercase tracking-[.14em] text-rose-200">🥁 Drum tab</span>
-                <textarea rows={3} value={draftDrumTab} onChange={event => setDraftDrumTab(event.target.value)} spellCheck={false}
-                  placeholder={'K: o---o---\nS: --o---o-\nH: x-x-x-x-\nT: -------o'}
-                  className="rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 font-mono text-[11px] text-white" />
-                <span className="text-slate-500"><b>K</b> kick · <b>S</b> snare · <b>H</b> hat · <b>T/t</b> toms · <b>B/P/c</b> cajon — one column per eighth, <b>x/o</b> hit, <b>X/O</b> accent, <b>-</b> rest</span>
-              </label>
+            <div className="flex flex-col gap-2">
+              <span className="text-[11px] font-black uppercase tracking-[.14em] text-sky-200">🎸 Instrument line — draw it on the staff</span>
+              <InstrumentStaffEditor value={draftInstrumentTab} onChange={setDraftInstrumentTab} eighthsPerBar={Math.max(2, (scoreBars[0]?.numerator ?? 4) * 2)} />
+              <span className="text-[11px] font-black uppercase tracking-[.14em] text-rose-200">🥁 Drums — tap the grid</span>
+              <DrumGridEditor value={draftDrumTab} onChange={setDraftDrumTab} eighthsPerBar={Math.max(2, (scoreBars[0]?.numerator ?? 4) * 2)} />
             </div>
+            <details className="text-[11px] text-slate-300">
+              <summary className="cursor-pointer text-slate-400">Written form (the same part as text — edit either, they stay in step)</summary>
+              <div className="mt-2 grid gap-3 md:grid-cols-2">
+                <label className="flex flex-col gap-1">
+                  <span className="font-black uppercase tracking-[.14em] text-sky-200">🎸 Instrument line</span>
+                  <textarea rows={3} value={draftInstrumentTab} onChange={event => setDraftInstrumentTab(event.target.value)} spellCheck={false}
+                    placeholder={'e3 g3 b3 e4 ~ - e3>g3 -'}
+                    className="rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 font-mono text-[11px] text-white" />
+                  <span className="text-slate-500">note names per eighth (e3, f#3, bb2) · <b>~</b> holds the note longer (two ~ = a quarter more) · <b>-</b> rest · <b>e3&gt;g3</b> slides · bar lines | are ignored</span>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="font-black uppercase tracking-[.14em] text-rose-200">🥁 Drum tab</span>
+                  <textarea rows={3} value={draftDrumTab} onChange={event => setDraftDrumTab(event.target.value)} spellCheck={false}
+                    placeholder={'K: o---o---\nS: --o---o-\nH: x-x-x-x-\nT: -------o'}
+                    className="rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 font-mono text-[11px] text-white" />
+                  <span className="text-slate-500"><b>K</b> kick · <b>S</b> snare · <b>H</b> hat · <b>T/t</b> toms · <b>B/P/c</b> cajon — one column per eighth, <b>x/o</b> hit, <b>X/O</b> accent, <b>-</b> rest</span>
+                </label>
+              </div>
+            </details>
             <div className="flex items-center justify-between gap-2 text-[11px]">
               <span className="font-mono text-slate-500">count the eighths: {Array.from({ length: Math.max(1, scoreBars[0]?.numerator ?? 4) }, (_, i) => `${i + 1} &`).join(' ')} | (one bar)</span>
               <div className="flex gap-2">
