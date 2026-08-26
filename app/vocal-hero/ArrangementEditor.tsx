@@ -1105,7 +1105,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     return musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length) }));
   }
   function anchorBarOf(target: { noteId: string } | 'default') {
-    const anchor = target === 'default' ? 0 : (notes.find(note => note.id === target.noteId)?.start ?? 0);
+    // 'from the top' means where the MUSIC starts — a song with silent
+    // lead-in bars anchors at its first sung bar, never at empty ones.
+    const anchor = target === 'default'
+      ? (notes.length ? Math.min(...notes.map(note => note.start)) : 0)
+      : (notes.find(note => note.id === target.noteId)?.start ?? 0);
     return musicalBars.find(bar => anchor + 0.01 >= bar.start && anchor + 0.01 < bar.end) ?? musicalBars[0];
   }
   function playAudition(events: BandEvent[], from: number, seconds: number) {

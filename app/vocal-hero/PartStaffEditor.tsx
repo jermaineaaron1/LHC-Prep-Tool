@@ -137,43 +137,53 @@ function GuideLines({ columns, perBar, y1, y2 }: { columns: number; perBar: numb
 
 export function partWidth(columns: number): number { return PART_LEFT + columns * PART_CELL + 10; }
 
-/** The song itself, on the studio's axis: chord symbols and the four voices
- *  drawn from the anchor bar across exactly the shared columns — the ruler
- *  the written part is measured against. */
+/** The song itself, on the studio's axis — as WRITTEN NOTATION. Each voice
+ *  gets its own five-line staff (S/A treble, T treble sounding an octave
+ *  down, B bass) with real noteheads, sharps, ledger lines, hold lines for
+ *  duration, and the soprano's lyrics — the reference the instrumentalist
+ *  reads bar by bar while writing the part below. */
+const OV_STEP = 2.6;
+const OV_CLEF: Array<'treble' | 'treble8' | 'bass'> = ['treble', 'treble', 'treble8', 'bass'];
+function overviewStep(midi: number, clef: 'treble' | 'treble8' | 'bass'): { step: number; sharp: boolean } {
+  const base = midiStep(midi, clef === 'bass');
+  return clef === 'treble8' ? { ...base, step: base.step + 7 } : base;
+}
 export function AlignedVoicesOverview({ notes, chords, from, eighthLen, columns, perBar }: {
   notes: SongNote[]; chords: Array<{ at: number; symbol: string }>;
   from: number; eighthLen: number; columns: number; perBar: number;
 }) {
   const until = from + columns * eighthLen;
-  const ROW = 26, TOP = 30;
-  const height = TOP + 4 * ROW + 16;
+  const ROW = 46, TOP = 32;
+  const height = TOP + 4 * ROW + 18;
   const x = (time: number) => PART_LEFT + (time - from) / eighthLen * PART_CELL;
   const voiceNotes = useMemo(() => notes.filter(note => note.start < until && note.end > from), [notes, from, until]);
-  const ranges = useMemo(() => VOICE_LABELS.map((_, part) => {
-    const own = voiceNotes.filter(note => (note.part === part || (part === 0 && note.part === -1)));
-    if (!own.length) return { low: 48, high: 72 };
-    const midis = own.map(note => note.midi);
-    return { low: Math.min(...midis), high: Math.max(...midis) };
-  }), [voiceNotes]);
   return <svg width={partWidth(columns)} height={height} aria-hidden style={{ display: 'block' }}>
     <GuideLines columns={columns} perBar={perBar} y1={12} y2={height - 4} />
     {Array.from({ length: columns }, (_, column) => column % 2 === 0 && <text key={column} x={PART_LEFT + column * PART_CELL + 3} y={10} fontSize={8} fill="#7dd3fc99">{column % perBar === 0 ? `bar ${Math.floor(column / perBar) + 1}` : `${(column % perBar) / 2 + 1}`}</text>)}
     {chords.filter(chord => chord.at >= from - 0.01 && chord.at < until).map((chord, index) =>
-      <text key={index} x={x(chord.at) + 2} y={TOP - 6} fontSize={11} fontWeight={800} fill="#fde68a">{chord.symbol}</text>)}
+      <text key={index} x={x(chord.at) + 2} y={TOP - 8} fontSize={11} fontWeight={800} fill="#fde68a">{chord.symbol}</text>)}
     {VOICE_LABELS.map((label, part) => {
-      const top = TOP + part * ROW;
-      const { low, high } = ranges[part];
-      const span = Math.max(5, high - low);
+      const clef = OV_CLEF[part];
+      const mid = TOP + part * ROW + 20;
+      const own = voiceNotes.filter(note => note.part === part || (part === 0 && note.part === -1));
       return <g key={label}>
-        <text x={8} y={top + 15} fontSize={11} fontWeight={800} fill={VOICE_COLOURS[part]}>{label}</text>
-        <line x1={PART_LEFT} x2={partWidth(columns) - 8} y1={top + ROW - 3} y2={top + ROW - 3} stroke="#ffffff14" strokeWidth={1} />
-        {voiceNotes.filter(note => note.part === part || (part === 0 && note.part === -1)).map(note => {
+        <text x={6} y={mid + 4} fontSize={11} fontWeight={800} fill={VOICE_COLOURS[part]}>{label}</text>
+        <text x={20} y={clef === 'bass' ? mid + 1 : mid + 2 * OV_STEP * 2 - 1} fontSize={clef === 'bass' ? 15 : 19} fill="#ffffff90" fontFamily="'Segoe UI Symbol','Noto Music',serif">{clef === 'bass' ? '\u{1D122}' : '\u{1D11E}'}</text>
+        {[-2, -1, 0, 1, 2].map(line => <line key={line} x1={18} x2={partWidth(columns) - 6} y1={mid + line * 2 * OV_STEP} y2={mid + line * 2 * OV_STEP} stroke="#ffffff42" strokeWidth={0.8} />)}
+        {own.map(note => {
+          const { step, sharp } = overviewStep(note.midi, clef);
+          const clamped = Math.max(-9, Math.min(9, step));
+          const y = mid - clamped * OV_STEP;
           const left = Math.max(PART_LEFT, x(note.start));
-          const width = Math.max(4, x(Math.min(note.end, until)) - left - 2);
-          const y = top + 4 + (1 - (note.midi - low) / span) * (ROW - 12);
+          const right = x(Math.min(note.end, until));
+          const ledgers: number[] = [];
+          for (let line = 6; line <= Math.abs(clamped); line += 2) ledgers.push(clamped > 0 ? line : -line);
           return <g key={note.id}>
-            <rect x={left} y={y} width={width} height={4.4} rx={2.2} fill={VOICE_COLOURS[part]} opacity={0.92} />
-            {part === 0 && note.lyric && x(note.start) >= PART_LEFT - 1 && <text x={left + 1} y={top + ROW - 6} fontSize={7.5} fill="#94a3b8">{note.lyric}</text>}
+            {ledgers.map(line => <line key={line} x1={left - 2} x2={left + 9} y1={mid - line * OV_STEP} y2={mid - line * OV_STEP} stroke="#ffffff38" strokeWidth={0.8} />)}
+            {right - left > 12 && <line x1={left + 6} x2={right - 3} y1={y} y2={y} stroke={VOICE_COLOURS[part]} strokeWidth={1.8} strokeLinecap="round" opacity={0.5} />}
+            {sharp && x(note.start) >= PART_LEFT - 1 && <text x={left - 8} y={y + 3.4} fontSize={9} fill={VOICE_COLOURS[part]} opacity={0.9}>♯</text>}
+            <ellipse cx={left + 3.6} cy={y} rx={3.7} ry={2.8} transform={`rotate(-14 ${left + 3.6} ${y})`} fill={VOICE_COLOURS[part]} opacity={0.95} />
+            {part === 0 && note.lyric && x(note.start) >= PART_LEFT - 1 && <text x={left} y={mid + 5 * OV_STEP + 9} fontSize={7.5} fill="#94a3b8">{note.lyric}</text>}
           </g>;
         })}
       </g>;
