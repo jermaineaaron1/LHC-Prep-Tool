@@ -78,7 +78,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, onDeselect, resolveAdd, signature }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onDeselect, resolveAdd, signature }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -88,6 +88,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   onEraseNote: (id: string) => void;
   onDragCommit: (id: string, changes: { midi: number; start: number; end: number }) => void;
   onLyricChange: (id: string, lyric: string) => void;
+  /** Chord symbols to engrave above the top staff, in song time. */
+  chords?: Array<{ at: number; symbol: string }>;
   /** Double-clicking a SELECTED notehead calls this — the escape hatch that
    *  turns the value palette back into "set the next entry" instead of
    *  "re-value the selection". */
@@ -100,7 +102,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
    *  wears its honest accidentals. */
   signature?: number;
 }) {
-  const layout = useMemo(() => buildLayout(notes, bars, signature), [notes, bars, signature]);
+  const layout = useMemo(() => buildLayout(notes, bars, signature, chords), [notes, bars, signature, chords]);
   const [drag, setDrag] = useState<DragPreview>(null);
   // Inline lyric editing: double-click a word under the melody (or the empty
   // spot where one belongs), type, Tab to the next note, Enter to finish.
@@ -294,8 +296,10 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
       {beam.double && <line x1={beam.x1} x2={beam.x2} y1={beam.y + (beam.up ? 5 : -5)} y2={beam.y + (beam.up ? 5 : -5)} stroke="#ffffff" strokeWidth={3.2} />}
       {beam.triplet && <text x={(beam.x1 + beam.x2) / 2} y={beam.y + (beam.up ? -4 : 12)} fontSize={10} fontStyle="italic" fontWeight={700} textAnchor="middle" fill="#ffffffcc">3</text>}
     </g>)}
-    {layout.tempoTexts.map((text, i) => <text key={`tempo-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 26}
+    {layout.tempoTexts.map((text, i) => <text key={`tempo-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 38}
       fontSize={12} fontStyle="italic" fontWeight={800} fill="#7dd3fc" fontFamily="Georgia,'Times New Roman',serif">{text.label}</text>)}
+    {layout.chordTexts.map((text, i) => <text key={`chord-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24}
+      fontSize={12} fontWeight={800} textAnchor="middle" fill="#fde68a">{text.label}</text>)}
     {layout.spans.map((span, i) => {
       const mid = STAFF_MIDS[span.staff];
       const top = span.system * SYSTEM_H + 12;
@@ -392,7 +396,7 @@ function CursorLayer({ layout, getPlayhead }: { layout: Layout; getPlayhead: () 
 
 type Layout = ReturnType<typeof buildLayout>;
 
-function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?: number) {
+function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?: number, chords?: Array<{ at: number; symbol: string }>) {
   // The page opens where the music does: whole bars of lead-in silence are
   // dropped, not shifted — shifting the grid under the notes broke any bar
   // list whose lengths vary (a rendition with a broader pass), and it made
@@ -623,6 +627,12 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     if (tempoTexts.some(text => text.system === glyph.system && Math.abs(text.x - glyph.x) < 14)) continue;
     tempoTexts.push({ x: glyph.x, system: glyph.system, label: TEMPO_LABELS[kind] ?? kind });
   }
+  // Chord symbols ride above the top staff, lead-sheet style.
+  const chordTexts: Array<{ x: number; system: number; label: string }> = [];
+  for (const chord of chords ?? []) {
+    const position = timeToXY(chord.at);
+    if (position) chordTexts.push({ x: position.x, system: position.system, label: chord.symbol });
+  }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
-  return { glyphs, beams, rests, spans, tempoTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
+  return { glyphs, beams, rests, spans, tempoTexts, chordTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
 }

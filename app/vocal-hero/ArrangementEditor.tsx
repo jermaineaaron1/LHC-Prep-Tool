@@ -18,6 +18,8 @@ import { BackingTrackLane } from './BackingTrackLane';
 import { DEFAULT_TARGETS_PER_PHRASE } from '@/lib/vocal-hero/liveCues';
 import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, splitIntoSyllables, spreadLyricsAcrossNotes, alignToMelodyRhythm } from '@/lib/vocal-hero/arrange';
 import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vocal-hero/performMarks';
+import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
+import { playHat, playKick, playPluck, playSnare, playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#ffae42', '#4ca0ff', '#43e2bb'];
@@ -72,7 +74,7 @@ function pitchRangeForPart(part: number, notes: SongNote[] = []) {
 type EditableSong = Pick<Song, 'id' | 'title' | 'notes' | 'timed_lyrics' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>;
 type EditorTool = 'select' | 'draw' | 'erase';
 type PlaybackScope = 'all' | 'range' | 'note';
-type ArrangementSnapshot = { title: string; notes: SongNote[]; timedLyrics: TimedLyricSection[]; karaokeLyrics: BackingTrackSettings['karaoke_lyrics']; musicalTimeline: MusicalTimelineSettings; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
+type ArrangementSnapshot = { title: string; notes: SongNote[]; timedLyrics: TimedLyricSection[]; chordSymbols: Array<{ at: number; symbol: string }>; karaokeLyrics: BackingTrackSettings['karaoke_lyrics']; musicalTimeline: MusicalTimelineSettings; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
 type MidiPreview = { fileName: string; notes: ImportedMidiNote[] };
 const DEFAULT_TRACK_SETTINGS: BackingTrackSettings = { volume: 1, speed: 1, timeline_offset: 0, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, loop_enabled: false, skip_regions: [], split_markers: [], media_duration: null, effect: 'none' };
 
@@ -403,6 +405,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [stepInput, setStepInput] = useState(false);
   const [stepCaret, setStepCaret] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  // The preview SINGS by default; the piano remains one tap away. Drums are
+  // an opt-in count-keeper.
+  const [previewVoices, setPreviewVoices] = useState(true);
+  const [drumsOn, setDrumsOn] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
   // The rendition always compiles from the SOURCE arrangement, never from its
   // own output — otherwise hear-and-return would stack passes of passes. The
@@ -751,9 +757,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setEditorNotice(`Copied ${result.copied} note${result.copied === 1 ? '' : 's'} into ${VOICES[toPart]}${result.replaced ? `, replacing ${result.replaced}` : ''}. Chromatic copy — check it against the key by ear.`);
   }
 
-  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), timedLyrics: timedLyrics.map(section => ({ ...section })), karaokeLyrics: trackSettings.karaoke_lyrics ? { ...trackSettings.karaoke_lyrics } : undefined, musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: musicalTimeline.snap_division, snap_value: musicalTimeline.snap_value }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
+  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), timedLyrics: timedLyrics.map(section => ({ ...section })), chordSymbols: (trackSettings.chord_symbols ?? []).map(chord => ({ ...chord })), karaokeLyrics: trackSettings.karaoke_lyrics ? { ...trackSettings.karaoke_lyrics } : undefined, musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: musicalTimeline.snap_division, snap_value: musicalTimeline.snap_value }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
   function pushHistory() { dirtyRef.current = true; const snapshot = makeSnapshot(); setHistory(current => ({ past: [...current.past, snapshot].slice(-100), future: [] })); }
-  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setTimedLyrics(snapshot.timedLyrics.map(section => ({ ...section }))); setTrackSettings(current => ({ ...current, karaoke_lyrics: snapshot.karaokeLyrics ? { ...snapshot.karaokeLyrics } : undefined })); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, snap_value: snapshot.musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
+  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setTimedLyrics(snapshot.timedLyrics.map(section => ({ ...section }))); setTrackSettings(current => ({ ...current, chord_symbols: snapshot.chordSymbols.map(chord => ({ ...chord })), karaoke_lyrics: snapshot.karaokeLyrics ? { ...snapshot.karaokeLyrics } : undefined })); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, snap_value: snapshot.musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
   function undo() { const previous = history.past.at(-1); if (!previous) return; dirtyRef.current = true; const current = makeSnapshot(); restoreSnapshot(previous); setHistory({ past: history.past.slice(0, -1), future: [current, ...history.future] }); }
   function redo() { const next = history.future[0]; if (!next) return; dirtyRef.current = true; const current = makeSnapshot(); restoreSnapshot(next); setHistory({ past: [...history.past, current].slice(-100), future: history.future.slice(1) }); }
   function update(id: string, values: Partial<SongNote>, quiet = false) {
@@ -803,7 +809,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const generation = noteAuditionGenerationRef.current;
     const play = (context: AudioContext) => {
       if (generation !== noteAuditionGenerationRef.current) return;
-      noteAuditionStopRef.current = playPianoTone(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start), 0);
+      noteAuditionStopRef.current = previewVoices
+        ? playVoiceTone(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start))
+        : playPianoTone(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start), 0);
     };
     let context = noteAuditionContextRef.current;
     if (!context || context.state === 'closed') {
@@ -1014,6 +1022,24 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   function toggleMarkOnSelection(key: 'staccato' | 'tenuto' | 'fermata') {
     const allHave = selectedNotes.length > 0 && selectedNotes.every(note => note.marks?.[key]);
     editSelectionMarks(marks => ({ marks: { ...marks, [key]: allHave ? undefined : true } }));
+  }
+  function transposeSong(semitones: number) {
+    pushHistory();
+    setNotes(current => current.map(note => ({ ...note, midi: Math.max(24, Math.min(96, note.midi + semitones)) })));
+    setTrackSettingsDirty(current => ({ ...current, chord_symbols: (current.chord_symbols ?? []).map(chord => ({ ...chord, symbol: transposeChordSymbol(chord.symbol, semitones) })) }));
+    setEditorNotice(`Whole song moved ${semitones > 0 ? 'up' : 'down'} a semitone — notes and chord symbols together. Undo reverses it.`);
+  }
+  function setChordAtSelection(symbol: string) {
+    const first = selectedNotes[0];
+    if (!first) return;
+    pushHistory();
+    const at = roundPrecise(first.start);
+    setTrackSettingsDirty(current => {
+      const others = (current.chord_symbols ?? []).filter(chord => Math.abs(chord.at - at) > 0.05);
+      const next = symbol.trim() ? [...others, { at, symbol: symbol.trim() }].sort((a, b) => a.at - b.at) : others;
+      return { ...current, chord_symbols: next };
+    });
+    setEditorNotice(null);
   }
   function applyTempoToSelection(kind: TempoMarkKind) {
     // A tempo instruction is a moment, not a range: it lands on the earliest
@@ -1333,8 +1359,41 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         else if (!hold && performed.legato.has(note.id)) length = Math.max(length, w(performed.nextStart.get(note.id) ?? note.end) - w(audibleStart));
         else if (!hold && note.marks?.tenuto) length *= 1.04;
         const velocity = performed.velocity.get(note.id);
-        playPianoTone(context, velocity !== undefined ? { ...note, velocity } : note, context.currentTime + at, length / transportRate);
+        const played = velocity !== undefined ? { ...note, velocity } : note;
+        if (previewVoices) playVoiceTone(context, played, context.currentTime + at, length / transportRate);
+        else playPianoTone(context, played, context.currentTime + at, length / transportRate);
       });
+      // ---- the accompaniment: chord symbols strummed under the voices
+      const chords = noteView === 'rendition' ? [] : [...(trackSettings.chord_symbols ?? [])].sort((a, b) => a.at - b.at);
+      chords.forEach((chord, index) => {
+        if (chord.at < first - .05 || chord.at >= end) return;
+        const parsed = parseChord(chord.symbol);
+        if (!parsed) return;
+        const untilScore = Math.min(chords[index + 1]?.at ?? chord.at + 2.6, end);
+        const at = Math.max(0, (w(Math.max(chord.at, first)) - w(first)) / transportRate);
+        const sustain = Math.max(0.4, Math.min(3, (w(untilScore) - w(Math.max(chord.at, first))) / transportRate));
+        parsed.midis.forEach((midi, voiceIndex) => playPluck(context, midi, context.currentTime + at + voiceIndex * 0.028, sustain));
+      });
+      // ---- the kit, walking the same warped grid the music does
+      if (drumsOn) {
+        const drumBars = noteView === 'rendition' ? compiledRendition.bars : musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length) }));
+        const lastSound = activePerformance.notes.reduce((latest, note) => Math.max(latest, note.end), 0);
+        for (const bar of drumBars) {
+          if (bar.end <= first || bar.start >= Math.min(end, lastSound + .1)) continue;
+          const beatLen = (bar.end - bar.start) / bar.beatCount;
+          for (let beat = 0; beat < bar.beatCount; beat++) {
+            const tick = bar.start + beat * beatLen;
+            if (tick < first - .01 || tick >= end) continue;
+            const when = context.currentTime + (w(tick) - w(first)) / transportRate;
+            const backbeat = bar.beatCount === 4 ? beat === 1 || beat === 3 : beat === bar.beatCount - 1 && bar.beatCount > 1;
+            if (beat === 0 || (bar.beatCount === 4 && beat === 2)) playKick(context, when);
+            if (backbeat) playSnare(context, when);
+            playHat(context, when);
+            const half = tick + beatLen / 2;
+            if (half < end) playHat(context, context.currentTime + (w(half) - w(first)) / transportRate, 0.02);
+          }
+        }
+      }
     }
     // The backing track belongs to the song as recorded; a compiled
     // rendition has its own timeline, so the track stays silent there.
@@ -1625,7 +1684,13 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         <button onClick={selectAllVoices} className="mt-2 w-full rounded-lg border border-white/12 px-3 py-2 text-[11px] text-slate-300">🔊 All voices audible</button>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
-        {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="relative">
+        {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="relative flex items-center gap-1.5">
+          <button onClick={() => setPreviewVoices(current => !current)} aria-pressed={previewVoices}
+            title={previewVoices ? 'The preview sings: vowels from the lyrics, vibrato and all. Tap for piano.' : 'The preview plays piano. Tap to hear it sung.'}
+            className={`rounded-lg border px-2.5 py-2 ${previewVoices ? 'border-emerald-300/50 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-slate-300'}`}>{previewVoices ? '\ud83c\udfa4' : '\ud83c\udfb9'}</button>
+          <button onClick={() => setDrumsOn(current => !current)} aria-pressed={drumsOn}
+            title="Drum beat under playback: kick, snare and hats on this song's meter, following every rit. and hold"
+            className={`rounded-lg border px-2.5 py-2 ${drumsOn ? 'border-amber-300/50 bg-amber-300/10 text-amber-100' : 'border-white/15 text-slate-300'}`}>{'\ud83e\udd41'}</button>
           <button onClick={() => setMoreOpen(open => !open)} aria-expanded={moreOpen} title="Import, backing track, recording, zoom and more"
             className={`rounded-lg border px-3 py-2 font-bold ${moreOpen ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/15 text-slate-200'}`}>⋯</button>
           {moreOpen && <div className="absolute right-0 top-11 z-[75] w-80 space-y-3 rounded-2xl border border-white/12 bg-[#0a0e22f8] p-3 text-xs shadow-[0_24px_70px_#000d] backdrop-blur">
@@ -1648,6 +1713,12 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   <select aria-label="Transcription timing treatment" value={transcriptionSnap ? 'grid' : 'exact'} onChange={event => setTranscriptionSnap(event.target.value === 'grid')} className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] text-white"><option value="grid">Snap to grid</option><option value="exact">As sung</option></select></label>
                 <button onClick={() => void convertRecordedTake()} disabled={transcribingTake} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100 disabled:opacity-40">{transcribingTake ? 'Detecting…' : 'Take → notes'}</button>
               </>}
+            </div>
+            <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Song key</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => transposeSong(-1)} title="Move every note and chord down a semitone" className="rounded-lg border border-white/15 px-3 py-1.5 text-slate-200">- semitone</button>
+              <button onClick={() => transposeSong(1)} title="Move every note and chord up a semitone" className="rounded-lg border border-white/15 px-3 py-1.5 text-slate-200">+ semitone</button>
+              <span className="text-slate-500">renditions can still lift per verse</span>
             </div>
             <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">View</p>
             <div className="flex flex-wrap items-center gap-2">
@@ -1713,6 +1784,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               onToggle={toggleMarkOnSelection}
               onSpan={applySpanToSelection}
               onTempo={applyTempoToSelection}
+              chord={(trackSettings.chord_symbols ?? []).find(chord => selectedNotes[0] && Math.abs(chord.at - selectedNotes[0].start) <= 0.05)?.symbol ?? ''}
+              onChord={setChordAtSelection}
               onClear={clearMarksOnSelection} />}
             <div className="mb-2 flex items-center gap-1 text-xs">
               <button onClick={() => switchView('score')} className={`rounded-l-lg border px-3 py-1.5 ${noteView === 'score' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="The arrangement as an engraved open score — one staff per voice">𝄞 Score</button>
@@ -1737,6 +1810,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   addNote(part, landing.start, midi, landing.end, '');
                 }}
                 resolveAdd={time => resolveScoreAdd(time).start}
+                chords={trackSettings.chord_symbols}
                 onDeselect={() => { setSelectedId(null); setSelectedIds([]); setEditorNotice(null); }}
                 onEraseNote={removeNote}
                 onDragCommit={(id, changes) => update(id, changes)}
@@ -1905,12 +1979,14 @@ function LyricLineDialog({ targetCount, targetLabel, onApply, onClose }: { targe
  * marked as tying into the next bar. With Step entry on, letters A–G enter
  * pitches in the song's key at the caret, R rests forward, arrows adjust.
  */
-function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, onClear }: {
+function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord, onChord, onClear }: {
   selection: SongNote[];
   onDynamic: (dynamic: DynamicMark | null) => void;
   onToggle: (key: 'staccato' | 'tenuto' | 'fermata') => void;
   onSpan: (kind: 'slur' | 'cresc' | 'decresc') => void;
   onTempo: (kind: TempoMarkKind) => void;
+  chord: string;
+  onChord: (symbol: string) => void;
   onClear: () => void;
 }) {
   const activeTempo = selection[0]?.marks?.tempo;
@@ -1940,6 +2016,13 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, onClea
     <button onClick={() => onSpan('slur')} disabled={!spanReady} title="Slur / legato — one arc over the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices slurs each of them." className={`${toggleClass(spanned('slur'))} disabled:opacity-35`}>⌒&nbsp;Slur</button>
     <button onClick={() => onSpan('cresc')} disabled={!spanReady} title="Crescendo — grow through the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices swells them together." className={`${toggleClass(spanned('cresc'))} disabled:opacity-35`}>&lt;&nbsp;Cresc.</button>
     <button onClick={() => onSpan('decresc')} disabled={!spanReady} title="Decrescendo — fade through the selected notes. Ctrl-click 2 or more notes in a voice; selecting several voices fades them together." className={`${toggleClass(spanned('decresc'))} disabled:opacity-35`}>&gt;&nbsp;Decresc.</button>
+    <span className="h-5 w-px bg-white/10" />
+    <label className="flex items-center gap-1.5" title="Guitar/piano chord at the first selected note. Type Em, G/B, Cmaj7 and press Enter; engraved above the staff and strummed under playback. Empty removes it.">
+      <span className="text-[9px] font-black uppercase tracking-[.14em] text-slate-500">Chord</span>
+      <input key={selection[0]?.id ?? 'none'} defaultValue={chord} placeholder="Em"
+        onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); onChord((event.target as HTMLInputElement).value); } }}
+        className="w-16 rounded-lg border border-white/12 bg-black/25 px-2 py-1.5 text-center font-bold text-white" />
+    </label>
     <span className="h-5 w-px bg-white/10" />
     {tempoButton('rit', 'rit.', 'Ritardando — gradually slow down from the first selected note until the next tempo mark (or the end)')}
     {tempoButton('accel', 'accel.', 'Accelerando — gradually speed up from the first selected note until the next tempo mark')}

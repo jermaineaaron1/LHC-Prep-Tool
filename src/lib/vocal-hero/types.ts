@@ -109,6 +109,8 @@ export type RhythmicNoteValue =
   | 'sixty-fourth' | 'dotted-sixty-fourth' | 'double-dotted-sixty-fourth' | 'sixty-fourth-triplet';
 
 export interface BackingTrackSettings {
+  /** Guitar/piano chord symbols over the score, in song time. */
+  chord_symbols?: Array<{ at: number; symbol: string }>;
   volume: number;
   speed: number;
   /** Seconds to nudge the backing track relative to arrangement time. */
