@@ -115,10 +115,17 @@ export function planGroove(
   const mainAt = first + span * 0.25;
   const finalAt = first + span * 0.7;
   const anchor = (time: number) => melody.find(note => note.start >= time - 0.01) ?? melody[melody.length - 1];
-  const opening = anchor(first);
-  const main = anchor(mainAt);
-  const finale = anchor(finalAt);
-  if (main.id === opening.id || finale.id === main.id) return null;   // too short to sectionize
+  let opening = anchor(first);
+  let main = anchor(mainAt);
+  let finale = anchor(finalAt);
+  if (main.id === opening.id || finale.id === main.id) {
+    // A long silence can swallow the proportional anchors (partial
+    // transcriptions); fall back to spreading the sections by note index.
+    opening = melody[0];
+    main = melody[Math.floor(melody.length * 0.25)];
+    finale = melody[Math.floor(melody.length * 0.7)];
+  }
+  if (main.id === opening.id || finale.id === main.id) return null;   // genuinely too short
 
   const markPatches: GroovePlan['markPatches'] = [];
   const stamp = (note: SongNote, section: { instrument: string; drums: string }, dynamic: DynamicMark) => {
