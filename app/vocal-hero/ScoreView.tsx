@@ -78,7 +78,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onDeselect, resolveAdd, signature }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -90,6 +90,10 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   onLyricChange: (id: string, lyric: string) => void;
   /** Chord symbols to engrave above the top staff, in song time. */
   chords?: Array<{ at: number; symbol: string }>;
+  /** When wired, an empty landing box floats over every beat above the top
+   *  staff — click it and type the chord. Called with the beat's time and
+   *  the typed symbol ('' clears the chord there). */
+  onChordEdit?: (at: number, symbol: string) => void;
   /** Double-clicking a SELECTED notehead calls this — the escape hatch that
    *  turns the value palette back into "set the next entry" instead of
    *  "re-value the selection". */
@@ -108,6 +112,30 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   // Inline lyric editing: double-click a word under the melody (or the empty
   // spot where one belongs), type, Tab to the next note, Enter to finish.
   const [lyricEdit, setLyricEdit] = useState<{ id: string; x: number; system: number; value: string } | null>(null);
+  // Inline chord entry: every beat has a landing slot above the top staff.
+  // Click one, type, Enter to finish — Tab hops to the next beat like a
+  // lead sheet being filled in left to right.
+  const [chordEdit, setChordEdit] = useState<{ index: number; at: number; x: number; system: number; value: string } | null>(null);
+  // A slot owns any chord inside its half-beat window; the exact match is
+  // only for "did the typed value actually change" at commit time.
+  const chordInSlot = (slot: { at: number; window: number }) => chords?.find(chord => Math.abs(chord.at - slot.at) < slot.window);
+  function startChordEdit(index: number) {
+    const slot = layout.chordSlots[index];
+    if (!slot) { setChordEdit(null); return; }
+    const existing = chordInSlot(slot);
+    // The input opens over the chord it edits, even when that chord sits
+    // off the beat — not over the beat's own gridline.
+    const position = existing ? layout.timeToXY(existing.at) : null;
+    setChordEdit({ index, at: existing?.at ?? slot.at, x: position?.x ?? slot.x, system: position?.system ?? slot.system, value: existing?.symbol ?? '' });
+  }
+  function commitChord(step: number) {
+    if (!chordEdit) return;
+    const typed = chordEdit.value.trim();
+    const existing = chords?.find(chord => Math.abs(chord.at - chordEdit.at) < 0.04);
+    if (typed !== (existing?.symbol ?? '')) onChordEdit?.(chordEdit.at, typed);
+    if (!step) { setChordEdit(null); return; }
+    startChordEdit(chordEdit.index + step);
+  }
   const melodyAnchors = useMemo(() => layout.glyphs
     .filter(g => g.staff === 0 && (g.part === 0 || g.part === -1))
     .filter((g, i, all) => all.findIndex(o => o.id === g.id) === i)
@@ -224,6 +252,25 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       onLeave={() => { if (ghostRef.current) ghostRef.current.style.display = 'none'; }}
       onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={onEraseNote} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
+    {onChordEdit && <svg className="absolute left-4 top-4 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
+      {layout.chordSlots.map((slot, index) => {
+        const filled = chordInSlot(slot);
+        const fx = filled ? (layout.timeToXY(filled.at)?.x ?? slot.x) : slot.x;
+        const ringW = filled ? Math.max(26, filled.symbol.length * 6.6 + 10) : 18;
+        const baseline = slot.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24;
+        // The whole beat cell is the click target; the drawn box stays small.
+        return <g key={index} className="group" style={{ pointerEvents: 'auto', cursor: 'text' }}
+          onClick={event => { event.stopPropagation(); startChordEdit(index); }}>
+          <title>{filled ? `${filled.symbol} — click to change or clear` : 'Click to write a chord on this beat'}</title>
+          <rect x={slot.x + 12 - 17} y={baseline - 16} width={34} height={22} fill="transparent" />
+          {filled
+            ? <rect x={fx + 12 - ringW / 2} y={baseline - 12} width={ringW} height={16} rx={3.5} fill="#fde68a18" stroke="#fde68a" strokeWidth={1}
+              className="opacity-0 transition-opacity group-hover:opacity-70" />
+            : <rect x={slot.x + 12 - 9} y={baseline - 10} width={18} height={13} rx={3} fill="transparent" stroke="#fde68a" strokeWidth={1} strokeDasharray="2.5 2.5"
+              className="opacity-20 transition-opacity group-hover:opacity-80" />}
+        </g>;
+      })}
+    </svg>}
     <div ref={ghostRef} className="pointer-events-none absolute left-0 top-0 z-10 hidden">
       <div className="h-2 w-2.5 rounded-[50%] border border-cyan-300/90 bg-cyan-300/25" style={{ transform: 'rotate(-14deg)' }} />
     </div>
@@ -238,6 +285,18 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       aria-label="Lyric for the selected note"
       className="absolute z-20 w-24 rounded border border-fuchsia-300/60 bg-[#100a1f] px-1.5 py-0.5 text-center text-xs text-white shadow-[0_0_18px_#ec489944]"
       style={{ left: lyricEdit.x + 12 + 16 - 48, top: lyricEdit.system * SYSTEM_H + 12 + LYRIC_Y + 16 - 12 }} />}
+    {chordEdit && <input autoFocus value={chordEdit.value} placeholder="C, G7…"
+      onFocus={event => event.target.select()}
+      onChange={event => setChordEdit(current => current && { ...current, value: event.target.value })}
+      onKeyDown={event => {
+        if (event.key === 'Tab') { event.preventDefault(); commitChord(event.shiftKey ? -1 : 1); }
+        else if (event.key === 'Enter') { event.preventDefault(); commitChord(0); }
+        else if (event.key === 'Escape') setChordEdit(null);
+      }}
+      onBlur={() => commitChord(0)}
+      aria-label="Chord on this beat"
+      className="absolute z-20 w-16 rounded border border-amber-300/70 bg-[#1a1206] px-1.5 py-0.5 text-center text-xs font-bold text-amber-100 shadow-[0_0_18px_#f59e0b44] placeholder:font-normal placeholder:text-amber-200/30"
+      style={{ left: chordEdit.x + 12 + 16 - 32, top: chordEdit.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24 + 16 - 20 }} />}
   </div>;
 }
 
@@ -633,7 +692,8 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
   // Band instructions print below the bass staff, where a rhythm section
   // reads: "gtr folk · kit", "band: tacet".
   const shortStyle = (value: string) => value === 'stop' || value === 'off' ? 'tacet'
-    : value.replace('gtr-', 'gtr ').replace('pno-', 'pno ').replace('drum-', '').replace('cajon-', 'cajon ').replace('melody-gtr', 'gtr melody').replace('melody-pno', 'pno melody');
+    : value.replace('melody-gtr', '🎸 melody').replace('melody-pno', '🎹 melody').replace('bass-walk', '🎸 walking bass')
+      .replace('gtr-', '🎸 ').replace('pno-', '🎹 ').replace('drum-', '🥁 ').replace('cajon-', '🪘 ').replace('custom', '✍ custom');
   const bandTexts: Array<{ x: number; system: number; label: string }> = [];
   for (const glyph of glyphs) {
     const band = glyph.marks?.band;
@@ -650,6 +710,20 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     const position = timeToXY(chord.at);
     if (position) chordTexts.push({ x: position.x, system: position.system, label: chord.symbol });
   }
+  // One chord landing slot floats over every beat — the lead sheet's empty
+  // spaces made clickable. Each slot OWNS the half-beat around it, so a
+  // chord entered off the beat (via the Expression bar) still belongs to
+  // its nearest slot instead of leaving a deceptively empty box beside it.
+  // Rendered only when an onChordEdit handler is wired.
+  const chordSlots: Array<{ at: number; x: number; system: number; window: number }> = [];
+  for (const bar of placed) {
+    const beatLen = (bar.end - bar.start) / Math.max(1, bar.beatCount);
+    for (let beat = 0; beat < bar.beatCount; beat++) {
+      const at = bar.start + beat * beatLen;
+      const position = timeToXY(at);
+      if (position) chordSlots.push({ at: Math.round(at * 1000) / 1000, x: position.x, system: position.system, window: beatLen / 2 });
+    }
+  }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
-  return { glyphs, beams, rests, spans, tempoTexts, chordTexts, bandTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
+  return { glyphs, beams, rests, spans, tempoTexts, chordTexts, chordSlots, bandTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
 }
