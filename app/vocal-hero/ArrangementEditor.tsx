@@ -1348,7 +1348,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       return;
     }
     const boundaryBar = musicalBars.find(item => item.number === endBar);
-    const closing = endBar > startBar ? closingFor(carrier.start, (boundaryBar ?? bar).end, carrier.id) : null;
+    // The closing restores the sound AS IT IS at the drop point — including
+    // any instruction already on the carrier that this drop overrides — so
+    // a painted break ends by handing back exactly what was playing.
+    const closing = endBar > startBar ? closingFor(carrier.start, (boundaryBar ?? bar).end, null) : null;
     pushHistory();
     setNotes(current => current.map(note => {
       if (note.id === carrier.id) {
