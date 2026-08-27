@@ -160,7 +160,8 @@ const DRUM_PATTERNS: Partial<Record<DrumStyleId, PatternStep[]>> = {
 // note names hit, '~' extends the previous note, '-' rests, '|' ignored.
 
 const DRUM_LANES: Record<string, BandEventKind> = {
-  K: 'kick', S: 'snare', H: 'hat', T: 'tom-low', t: 'tom-high',
+  // Capital T is the HIGH tom, small t the low — matching the studio grid.
+  K: 'kick', S: 'snare', H: 'hat', T: 'tom-high', t: 'tom-low',
   B: 'cajon-bass', P: 'cajon-slap', c: 'cajon-tick',
 };
 

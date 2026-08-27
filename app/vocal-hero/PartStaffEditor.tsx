@@ -252,6 +252,9 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
   hoverColumn?: number | null; onHoverColumn?: (column: number | null) => void;
 }) {
   const cells = useMemo(() => parsePartCells(value), [value]);
+  // The value brush: how long the next placed note lasts, in eighths.
+  // Double-clicking an existing note re-values it to the brush.
+  const [brush, setBrush] = React.useState(2);
   const stacks = cells.map((cell, column) => cell ? { ...cell, column } : null).filter(Boolean) as Array<Cell & { column: number }>;
   const allMidis = stacks.flatMap(stack => stack.midis);
   const bass = allMidis.length ? [...allMidis].sort((a, b) => a - b)[Math.floor(allMidis.length / 2)] < 57 : false;
@@ -270,6 +273,26 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
       const cell = next[index];
       if (cell && index + cell.hold > column) cell.hold = column - index;
     }
+  }
+  /** Make room for a note of `length` eighths starting at `column`: earlier
+   *  notes reaching in are truncated, notes starting inside are removed. */
+  function clearRange(next: (Cell | null)[], column: number, length: number) {
+    freeSpan(next, column);
+    for (let index = column; index < Math.min(columns, column + length); index++) next[index] = null;
+  }
+  function handleDouble(event: React.MouseEvent<SVGSVGElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const column = Math.floor((event.clientX - bounds.left - PART_LEFT) / PART_CELL);
+    if (column < 0 || column >= columns) return;
+    // Re-value in place: the stack keeps its pitches, its length becomes
+    // the brush.
+    edit(next => {
+      const cell = next[column];
+      if (!cell) return;
+      clearRange(next, column + 1, brush - 1);
+      next[column] = cell;
+      cell.hold = Math.max(1, Math.min(brush, columns - column));
+    });
   }
   function handleClick(event: React.MouseEvent<SVGSVGElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -311,8 +334,8 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
         if (!existing.midis.length) next[column] = null;
         if (existing.midis.length > 1) delete existing.slideTo;
       } else {
-        freeSpan(next, column);
-        next[column] = { midis: [midi], hold: 1 };
+        clearRange(next, column, brush);
+        next[column] = { midis: [midi], hold: Math.max(1, Math.min(brush, columns - column)) };
       }
     });
   }
@@ -324,7 +347,16 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
     edit(next => { freeSpan(next, column); next[column] = null; });
   }
 
-  return <svg width={partWidth(columns)} height={height} onClick={handleClick} onContextMenu={handleContext}
+  return <div>
+    <div className="flex items-center gap-1 pb-1 pt-0.5" style={{ paddingLeft: PART_LEFT }}>
+      <span className="text-[8px] font-black uppercase tracking-[.14em] text-slate-500">Value</span>
+      {([[1, '\u{1D160}', 'eighth'], [2, '\u{1D15F}', 'quarter'], [3, '\u{1D15F}.', 'dotted quarter'], [4, '\u{1D15E}', 'half'], [6, '\u{1D15E}.', 'dotted half'], [8, '\u{1D15D}', 'whole']] as Array<[number, string, string]>).map(([hold, glyph, name]) =>
+        <button key={hold} onClick={() => setBrush(hold)} title={`${name} — new notes last this long; double-click an existing note to re-value it`}
+          className={`min-w-[26px] rounded border px-1.5 py-0.5 text-[13px] leading-none ${brush === hold ? 'border-sky-300/60 bg-sky-300/15 text-sky-100' : 'border-white/12 text-slate-400 hover:bg-white/[.06]'}`}
+          style={{ fontFamily: "'Segoe UI Symbol','Noto Music',serif" }}>{glyph}</button>)}
+      <span className="text-[9px] text-slate-500">click places this value · double-click a note re-values it</span>
+    </div>
+    <svg width={partWidth(columns)} height={height} onClick={handleClick} onContextMenu={handleContext} onDoubleClick={handleDouble}
     onMouseMove={onHoverColumn ? event => onHoverColumn(columnFromEvent(event, columns)) : undefined}
     onMouseLeave={onHoverColumn ? () => onHoverColumn(null) : undefined}
     style={{ cursor: 'crosshair', display: 'block' }}>
@@ -349,38 +381,51 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
     <line x1={PART_LEFT} x2={partWidth(columns) - 6} y1={FX_Y - 8} y2={FX_Y - 8} stroke="#ffffff18" strokeWidth={1} />
     {stacks.map(stack => {
       const x = PART_LEFT + stack.column * PART_CELL + PART_CELL / 2;
+      // Engrave the stack with its TRUE VALUE, the same arithmetic the
+      // score uses: hold in eighths -> symbols (a 3-eighth hold prints a
+      // dotted quarter; a 5-eighth hold a half tied to an eighth).
+      const symbols = durationToSymbols(stack.hold / 2);
+      const topInfo = midiStep(stack.midis[stack.midis.length - 1], bass);
+      const bottomInfo = midiStep(stack.midis[0], bass);
+      const topY = mid - topInfo.step * STEP;
+      const bottomY = mid - bottomInfo.step * STEP;
+      let pieceEighth = 0;
       return <g key={stack.column}>
         {stack.symbol && <text x={x} y={13} fontSize={9} fontWeight={800} textAnchor="middle" fill="#fde68a">{stack.symbol}</text>}
-        {stack.hold > 1 && (() => {
-          const { step } = midiStep(stack.midis[stack.midis.length - 1], bass);
-          const y = mid - step * STEP;
-          return <line x1={x + 5} x2={PART_LEFT + (stack.column + stack.hold) * PART_CELL - 4} y1={y} y2={y} stroke="#93c5fd88" strokeWidth={2.6} strokeLinecap="round" />;
-        })()}
-        {stack.midis.map(midi => {
-          const { step, sharp } = midiStep(midi, bass);
-          const y = mid - step * STEP;
-          const ledgers: number[] = [];
-          for (let line = 6; line <= Math.abs(step); line += 2) ledgers.push(step > 0 ? line : -line);
-          return <g key={midi}>
-            {ledgers.map(line => <line key={line} x1={x - 8} x2={x + 8} y1={mid - line * STEP} y2={mid - line * STEP} stroke="#ffffff45" strokeWidth={1} />)}
-            {sharp && <text x={x - 14} y={y + 4} fontSize={11} fill="#93c5fd">♯</text>}
-            <ellipse cx={x} cy={y} rx={4.6} ry={3.4} transform={`rotate(-14 ${x} ${y})`} fill="#93c5fd" />
+        {symbols.map((symbol, index) => {
+          const px = PART_LEFT + (stack.column + pieceEighth) * PART_CELL + PART_CELL / 2;
+          pieceEighth += symbol.beats * 2;
+          const nx = PART_LEFT + (stack.column + pieceEighth) * PART_CELL + PART_CELL / 2;
+          const hollow = symbol.value >= 2;
+          const whole = symbol.value >= 4;
+          const stemTop = topY - 18;
+          return <g key={index}>
+            {stack.midis.map(midi => {
+              const { step, sharp } = midiStep(midi, bass);
+              const y = mid - step * STEP;
+              const ledgers: number[] = [];
+              for (let line = 6; line <= Math.abs(step); line += 2) ledgers.push(step > 0 ? line : -line);
+              return <g key={midi}>
+                {ledgers.map(line => <line key={line} x1={px - 8} x2={px + 8} y1={mid - line * STEP} y2={mid - line * STEP} stroke="#ffffff45" strokeWidth={1} />)}
+                {index === 0 && sharp && <text x={px - 14} y={y + 4} fontSize={11} fill="#93c5fd">♯</text>}
+                <ellipse cx={px} cy={y} rx={4.6} ry={3.4} transform={`rotate(-14 ${px} ${y})`}
+                  fill={hollow ? 'transparent' : '#93c5fd'} stroke="#93c5fd" strokeWidth={hollow ? 1.5 : 1} />
+              </g>;
+            })}
+            {!whole && <line x1={px + 4.2} x2={px + 4.2} y1={bottomY} y2={stemTop} stroke="#93c5fd" strokeWidth={1.1} />}
+            {symbol.value <= 0.5 && <path d={`M ${px + 4.2} ${stemTop} q 6 4 4 10`} stroke="#93c5fd" strokeWidth={1.1} fill="none" />}
+            {symbol.value <= 0.25 && <path d={`M ${px + 4.2} ${stemTop + 5} q 6 4 4 10`} stroke="#93c5fd" strokeWidth={1.1} fill="none" />}
+            {symbol.dotted && <circle cx={px + 8.5} cy={topY - 2.5} r={1.5} fill="#93c5fd" />}
+            {index < symbols.length - 1 && <path d={`M ${px + 5} ${topY - 6} Q ${(px + nx) / 2} ${topY - 11}, ${nx - 4} ${topY - 6}`} stroke="#93c5fd" strokeWidth={1} fill="none" opacity={0.8} />}
           </g>;
         })}
-        {(() => {
-          const top = midiStep(stack.midis[stack.midis.length - 1], bass);
-          const bottom = midiStep(stack.midis[0], bass);
-          return <line x1={x + 4.2} x2={x + 4.2} y1={mid - bottom.step * STEP} y2={mid - top.step * STEP - 18} stroke="#93c5fd" strokeWidth={1.1} />;
-        })()}
-        {stack.slideTo !== undefined && stack.midis.length === 1 && (() => {
-          const { step } = midiStep(stack.midis[0], bass);
-          return <text x={x + 7} y={mid - step * STEP - 6} fontSize={9} fontWeight={700} fill="#7dd3fc">{stack.slideTo > stack.midis[0] ? '↗' : '↘'}</text>;
-        })()}
+        {stack.slideTo !== undefined && stack.midis.length === 1 && <text x={x + 7} y={topY - 6} fontSize={9} fontWeight={700} fill="#7dd3fc">{stack.slideTo > stack.midis[0] ? '↗' : '↘'}</text>}
         {(stack.accent || stack.staccato) && <text x={x} y={FX_Y + 8} fontSize={stack.accent ? 10 : 13} fontWeight={800} textAnchor="middle" fill="#fbbf24">{stack.accent ? '>' : '·'}</text>}
         <text x={x} y={height - 6} fontSize={7.5} textAnchor="middle" fill="#64748b">{stack.symbol ?? (stack.midis.length > 2 ? midiToken(stack.midis[0]) + '+' + (stack.midis.length - 1) : stack.midis.map(midiToken).join(','))}</text>
       </g>;
     })}
-  </svg>;
+    </svg>
+  </div>;
 }
 
 const DRUM_LANES: Array<[string, string]> = [['K', 'kick'], ['S', 'snare'], ['H', 'hat'], ['T', 'tom hi'], ['t', 'tom lo'], ['B', 'cajón bass'], ['P', 'cajón slap'], ['c', 'cajón tick']];
