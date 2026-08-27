@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RenditionRail } from './RenditionBuilder';
 import { ScoreView, type ScoreBar } from './ScoreView';
-import { AlignedVoicesOverview, DrumGridEditor, InstrumentStaffEditor, drumLengthEighths, partLengthEighths } from './PartStaffEditor';
+import { AlignedVoicesOverview, DrumGridEditor, InstrumentStaffEditor, drumLengthEighths, midiToken, partLengthEighths } from './PartStaffEditor';
 import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
 import { compileRendition, deriveSections, type RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
@@ -21,7 +21,7 @@ import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, spli
 import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vocal-hero/performMarks';
 import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
-import { buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
+import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
@@ -1135,16 +1135,70 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [draftInstrumentTab, setDraftInstrumentTab] = useState('');
   const [draftDrumTab, setDraftDrumTab] = useState('');
   const [patternBars, setPatternBars] = useState(2);
+  // The alignment rail: whichever section the cursor is over, one glowing
+  // column runs through voices, staff and drums at that eighth.
+  const [studioHover, setStudioHover] = useState<number | null>(null);
+  /** Print what the band ACTUALLY plays in a window into editable tab text —
+   *  how the studio opens a preset pattern as its exact notes. */
+  function materializeInstrumentTab(events: BandEvent[], from: number, eighthLen: number, columns: number): string {
+    const cells: string[] = Array.from({ length: columns }, () => '-');
+    for (const event of events) {
+      if (!['pluck', 'keys', 'bass', 'strum-down', 'strum-up'].includes(event.kind) || !event.midis?.length) continue;
+      const cell = Math.round((event.at - from) / eighthLen);
+      if (cell < 0 || cell >= columns) continue;
+      const existing = cells[cell] === '-' ? [] : cells[cell].split(',');
+      cells[cell] = [...new Set([...existing, ...event.midis.map(midiToken)])].join(',');
+    }
+    while (cells.length && cells[cells.length - 1] === '-') cells.pop();
+    return cells.some(cell => cell !== '-') ? cells.join(' ') : '';
+  }
+  const DRUM_KIND_LANE: Record<string, string> = { kick: 'K', snare: 'S', hat: 'H', 'tom-high': 'T', 'tom-low': 't', 'cajon-bass': 'B', 'cajon-slap': 'P', 'cajon-tick': 'c' };
+  function materializeDrumTab(events: BandEvent[], from: number, eighthLen: number, columns: number): string {
+    const lanes = new Map<string, string[]>();
+    for (const event of events) {
+      const lane = DRUM_KIND_LANE[event.kind];
+      if (!lane) continue;
+      const cell = Math.round((event.at - from) / eighthLen);
+      if (cell < 0 || cell >= columns) continue;
+      if (!lanes.has(lane)) lanes.set(lane, Array.from({ length: columns }, () => '-'));
+      lanes.get(lane)![cell] = 'o';
+    }
+    return [...lanes.entries()].map(([lane, cells]) => {
+      while (cells.length && cells[cells.length - 1] === '-') cells.pop();
+      return `${lane}: ${cells.join('')}`;
+    }).join('\n');
+  }
   function openBandWrite(target: { noteId: string } | 'default') {
     void auditionContextRef.current?.close().catch(() => undefined);
     const bar = anchorBarOf(target);
-    // An instruction's OWN written part comes up for editing; the song-wide
-    // tab only fills in when the instruction has none of its own yet.
+    const from = bar?.start ?? 0;
+    const perBar = Math.max(2, (bar?.beats.length ?? 2) * 2);
+    const eighthLen = bar ? (bar.end - bar.start) / perBar : 0.25;
+    // The studio edits the EXACT part sounding here. Priority: the
+    // instruction's own written part; a custom region's tab; otherwise the
+    // preset pattern is materialized into concrete notes over this window,
+    // ready to be reshaped.
     const own = target !== 'default' ? notes.find(note => note.id === target.noteId)?.marks?.band : undefined;
-    setDraftInstrumentTab(own?.instrument_tab ?? accompaniment.instrument_tab ?? '');
-    setDraftDrumTab(own?.drum_tab ?? accompaniment.drum_tab ?? '');
-    setPatternBars(2);
-    setBandWrite({ target, barNumber: (bar?.number ?? 0) + 1, from: bar?.start ?? 0, barLen: bar ? bar.end - bar.start : 2, perBar: Math.max(2, (bar?.beats.length ?? 2) * 2) });
+    const regions = bandRegions(notes, { instrument: accompaniment.guitar as InstrumentStyleId, drums: accompaniment.drums as DrumStyleId });
+    let region = regions[0];
+    for (const item of regions) { if (item.from <= from + 0.02) region = item; else break; }
+    const seedColumns = Math.min(32, 4 * perBar);
+    const windowEvents = (laneBandEvents ?? []).filter(event => event.at >= from - 0.01 && event.at < from + seedColumns * eighthLen - 0.001);
+    const instrumentDraft = own?.instrument_tab
+      ?? (region.instrument === 'custom' ? (region.instrumentTab ?? accompaniment.instrument_tab ?? '')
+        : region.instrument !== 'off' ? materializeInstrumentTab(windowEvents, from, eighthLen, seedColumns) : '');
+    const drumDraft = own?.drum_tab
+      ?? (region.drums === 'custom' ? (region.drumTab ?? accompaniment.drum_tab ?? '')
+        : region.drums !== 'off' ? materializeDrumTab(windowEvents, from, eighthLen, seedColumns) : '');
+    setDraftInstrumentTab(instrumentDraft);
+    setDraftDrumTab(drumDraft);
+    const contentBars = Math.ceil(Math.max(partLengthEighths(instrumentDraft), drumLengthEighths(drumDraft), 1) / perBar);
+    setPatternBars(Math.min(4, Math.max(2, contentBars)));
+    setStudioHover(null);
+    setBandWrite({ target, barNumber: (bar?.number ?? 0) + 1, from, barLen: bar ? bar.end - bar.start : 2, perBar });
+    const materialized = (!own?.instrument_tab && region.instrument !== 'custom' && region.instrument !== 'off')
+      || (!own?.drum_tab && region.drums !== 'custom' && region.drums !== 'off');
+    if (materialized) setEditorNotice('The part below is EXACTLY what the band plays here, printed as editable notes — reshape it and press Use this part to make it this section’s own.');
   }
   // Every studio section shares ONE column count, so the three stay strictly
   // aligned and equally long: at least the chosen bars, grown to fit the
@@ -1154,6 +1208,18 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const content = Math.max(partLengthEighths(draftInstrumentTab), drumLengthEighths(draftDrumTab));
     return Math.min(32, Math.max(patternBars * bandWrite.perBar, Math.ceil(content / bandWrite.perBar) * bandWrite.perBar));
   }, [bandWrite, draftInstrumentTab, draftDrumTab, patternBars]);
+  // The SATB pitches as ghost dashes on the instrument staff, column by
+  // column — place a head ON a dash to double that voice, off it to harmonize.
+  const studioReference = useMemo(() => {
+    if (!bandWrite) return [];
+    const eighthLen = bandWrite.barLen / bandWrite.perBar;
+    const until = bandWrite.from + studioColumns * eighthLen;
+    return notes.filter(note => note.start < until && note.end > bandWrite.from).map(note => ({
+      midi: note.midi, part: note.part < 0 ? 0 : Math.min(3, note.part),
+      startEighth: Math.max(0, Math.floor((note.start - bandWrite.from) / eighthLen + 0.001)),
+      endEighth: Math.min(studioColumns, Math.ceil((note.end - bandWrite.from) / eighthLen - 0.001)),
+    })).filter(reference => reference.endEighth > reference.startEighth);
+  }, [bandWrite, notes, studioColumns]);
   // The studio's preview: the DRAFT tabs playing everywhere (band marks
   // stripped), so the writer sees and hears the whole line against SATB.
   const draftBandEvents = useMemo(() => {
@@ -1999,16 +2065,19 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 <button onClick={() => { void auditionContextRef.current?.close().catch(() => undefined); setBandWrite(null); }} aria-label="Close part studio" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300">✕</button>
               </div>
             </div>
-            <p className="text-[11px] leading-relaxed text-slate-400">All three sections share one ruler: the guide lines run through the song's voices, your staff and your drums, so every note you place is measured against the singing directly above it. The part loops from bar {bandWrite.barNumber} until the band is told otherwise. On the staff: <b className="text-slate-300">click</b> = note (click more pitches in the same column to stack a chord; click a head again to remove it) · <b className="text-slate-300">Ctrl</b> = ♯ · <b className="text-slate-300">Shift</b> = lengthen · <b className="text-slate-300">right-click</b> = rest · the <b className="text-slate-300">fx</b> strip cycles accent → staccato · type <b className="text-slate-300">[Em7]</b> in the written form for a full chord voicing.</p>
+            <p className="text-[11px] leading-relaxed text-slate-400">This is the EXACT part the band plays from bar {bandWrite.barNumber}, printed as editable notes — reshape it, or start fresh. Move the mouse and one glowing column runs through the voices, your staff and your drums; the faint coloured dashes on your staff are the S/A/T/B pitches themselves — land a head on a dash to double that voice, next to it to harmonize. On the staff: <b className="text-slate-300">click</b> = note (more pitches in one column stack a chord; click a head again to remove it) · <b className="text-slate-300">Ctrl</b> = ♯ · <b className="text-slate-300">Shift</b> = lengthen · <b className="text-slate-300">right-click</b> = rest · the <b className="text-slate-300">fx</b> strip cycles accent → staccato · <b className="text-slate-300">[Em7]</b> in the written form voices a chord symbol.</p>
             <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#050716]">
               <div className="w-max">
                 <div className="px-0 pt-1"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-slate-500">The song — voices &amp; chords</span>
                   <AlignedVoicesOverview notes={notes} chords={trackSettings.chord_symbols ?? []} from={bandWrite.from}
-                    eighthLen={bandWrite.barLen / bandWrite.perBar} columns={studioColumns} perBar={bandWrite.perBar} /></div>
-                <div className="border-t border-sky-300/15"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-sky-200">🎸 Your instrument — notes &amp; chords on the staff</span>
-                  <InstrumentStaffEditor value={draftInstrumentTab} onChange={setDraftInstrumentTab} columns={studioColumns} perBar={bandWrite.perBar} /></div>
+                    eighthLen={bandWrite.barLen / bandWrite.perBar} columns={studioColumns} perBar={bandWrite.perBar}
+                    hoverColumn={studioHover} onHoverColumn={setStudioHover} /></div>
+                <div className="border-t border-sky-300/15"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-sky-200">🎸 Your instrument — the exact part, editable</span>
+                  <InstrumentStaffEditor value={draftInstrumentTab} onChange={setDraftInstrumentTab} columns={studioColumns} perBar={bandWrite.perBar}
+                    reference={studioReference} hoverColumn={studioHover} onHoverColumn={setStudioHover} /></div>
                 <div className="border-t border-rose-300/15"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-rose-200">🥁 Your drums — tap the grid</span>
-                  <DrumGridEditor value={draftDrumTab} onChange={setDraftDrumTab} columns={studioColumns} perBar={bandWrite.perBar} /></div>
+                  <DrumGridEditor value={draftDrumTab} onChange={setDraftDrumTab} columns={studioColumns} perBar={bandWrite.perBar}
+                    hoverColumn={studioHover} onHoverColumn={setStudioHover} /></div>
               </div>
             </div>
             <details className="text-[11px] text-slate-300">
