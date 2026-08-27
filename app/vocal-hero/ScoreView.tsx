@@ -88,7 +88,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -120,6 +120,11 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   /** Clicking a directive auditions it: the editor plays just the band
    *  from that instruction's bar. */
   onBandAudition?: (target: { noteId: string } | 'default') => void;
+  /** Dropping a band chip from the palette: called with the PRINTED bar
+   *  numbers the drag painted (start === end for a plain drop) and the
+   *  chip's payload. While a chip is over the score, the painted bars
+   *  highlight so the range is visible before release. */
+  onBandDrop?: (startBar: number, endBar: number, payload: { field: string; style: string }) => void;
   /** Double-clicking a directive (or the popover's Write button) opens the
    *  part studio: the SATB overview plus the written-out line editor. */
   onBandWrite?: (target: { noteId: string } | 'default') => void;
@@ -175,6 +180,39 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   // head of the line) and a popover with the instrument/drum pickers opens
   // right there.
   const [bandEdit, setBandEdit] = useState<{ target: { noteId: string } | 'default'; x: number; system: number } | null>(null);
+  // A band chip being dragged over the score: the painted bar range.
+  const [dropRange, setDropRange] = useState<{ anchor: number; current: number } | null>(null);
+  function barUnderDrag(event: React.DragEvent<HTMLDivElement>): number | null {
+    const container = event.currentTarget;
+    const bounds = container.getBoundingClientRect();
+    const x = event.clientX - bounds.left + container.scrollLeft - 16 - 12;
+    const y = event.clientY - bounds.top + container.scrollTop - 16;
+    const system = Math.floor((y - 12) / SYSTEM_H);
+    const time = layout.xyToTime(system, x);
+    if (time === null) return null;
+    return layout.barAt(time)?.number ?? null;
+  }
+  function handleBandDragOver(event: React.DragEvent<HTMLDivElement>) {
+    if (!onBandDrop || !event.dataTransfer.types.includes('application/x-vh-band')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    const bar = barUnderDrag(event);
+    if (bar === null) return;
+    setDropRange(current => current && current.current === bar ? current : { anchor: current?.anchor ?? bar, current: bar });
+  }
+  function handleBandDrop(event: React.DragEvent<HTMLDivElement>) {
+    if (!onBandDrop || !event.dataTransfer.types.includes('application/x-vh-band')) return;
+    event.preventDefault();
+    const range = dropRange;
+    setDropRange(null);
+    try {
+      const payload = JSON.parse(event.dataTransfer.getData('application/x-vh-band')) as { field: string; style: string };
+      const bar = barUnderDrag(event) ?? range?.current ?? range?.anchor;
+      if (bar === null || bar === undefined) return;
+      const anchor = range?.anchor ?? bar;
+      onBandDrop(Math.min(anchor, bar), Math.max(anchor, bar), payload);
+    } catch { /* not our payload */ }
+  }
   const [drag, setDrag] = useState<DragPreview>(null);
   // Inline lyric editing: double-click a word under the melody (or the empty
   // spot where one belongs), type, Tab to the next note, Enter to finish.
@@ -312,7 +350,13 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     onAddNote(staff, time, stepToMidi(step, STAFF_CLEFS[staff], layout.signature));
   }
 
-  return <div className="vh-editor-scrollbars relative h-full overflow-auto px-4 py-4">
+  return <div className="vh-editor-scrollbars relative h-full overflow-auto px-4 py-4"
+    onDragOver={onBandDrop ? handleBandDragOver : undefined}
+    onDrop={onBandDrop ? handleBandDrop : undefined}
+    onDragLeave={onBandDrop ? event => {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) setDropRange(null);
+    } : undefined}>
     <ScoreBody layout={layout} selectedIds={selectedIds} drag={drag} tool={tool}
       onGlyphDown={beginDrag} onGlyphDoubleClick={glyph => { if (selectedIds.includes(glyph.id)) onDeselect?.(); }}
       onMove={event => { moveDrag(event); updateGhost(event); }} onUp={endDrag}
@@ -333,6 +377,12 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         onDoubleClick={onBandWrite ? () => { setBandEdit(null); onBandWrite({ noteId: text.noteId }); } : undefined}>
         {onBandEdit && <title>Band instruction from this bar — click to hear and change it; double-click to write the part</title>}
         {text.label}</text>)}
+    </svg>}
+    {dropRange && <svg className="pointer-events-none absolute left-4 top-4 z-20" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
+      {layout.placedBars.filter(bar => bar.number >= Math.min(dropRange.anchor, dropRange.current) && bar.number <= Math.max(dropRange.anchor, dropRange.current)).map(bar =>
+        <rect key={bar.number} x={bar.x + 12} y={bar.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 26}
+          width={bar.width} height={STAFF_MIDS[3] - STAFF_MIDS[0] + 4 * GAP + 46} rx={6}
+          fill="#fbbf2415" stroke="#fbbf24" strokeWidth={1.2} strokeDasharray="5 4" />)}
     </svg>}
     {laneMarks.length > 0 && <svg className="pointer-events-none absolute left-4 top-4" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
       {laneSystems.map(system => <g key={system} fontSize={8}>
@@ -866,5 +916,5 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     }
   }
   const meter: [number, number] = [bars[0]?.numerator ?? 4, bars[0]?.denominator ?? 4];
-  return { glyphs, beams, rests, spans, slides, tempoTexts, chordTexts, chordSlots, bandTexts, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
+  return { glyphs, beams, rests, spans, slides, tempoTexts, chordTexts, chordSlots, bandTexts, placedBars: placed, systems, barlines, signatureGlyphs, meter, signature, timeToXY, xyToTime, barAt, systemWidth };
 }
