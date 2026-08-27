@@ -1274,6 +1274,58 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bandWrite, draftInstrumentTab, draftDrumTab, musicalBars, notes, trackSettings.chord_symbols, accompaniment.guitar, accompaniment.drums]);
+  /** The instruction that ENDS a limited span: restores what played before
+   *  the anchor (or the given override), on the first note at the boundary.
+   *  Null when a later instruction already takes over inside the span. */
+  function closingFor(anchorTime: number, boundary: number, excludeNoteId: string | null, override?: NonNullable<NoteMarks['band']>): { carrierId: string; band: NonNullable<NoteMarks['band']> } | null {
+    const intervening = notes.some(note => note.id !== excludeNoteId && note.marks?.band && note.start > anchorTime + 0.01 && note.start < boundary + 0.02);
+    const carrier = notes.filter(note => note.start >= boundary - 0.02).sort((a, b) => a.start - b.start)[0];
+    if (intervening || !carrier) return null;
+    if (override) return { carrierId: carrier.id, band: override };
+    const others = notes.filter(note => note.id !== excludeNoteId);
+    const regions = bandRegions(others, { instrument: accompaniment.guitar as InstrumentStyleId, drums: accompaniment.drums as DrumStyleId });
+    let previous = regions[0];
+    for (const item of regions) { if (item.from <= anchorTime + 0.01) previous = item; else break; }
+    const style = (value: string) => value === 'off' ? 'stop' : value;
+    return { carrierId: carrier.id, band: {
+      instrument: style(previous.instrument), drums: style(previous.drums),
+      ...(previous.instrument === 'custom' && previous.instrumentTab ? { instrument_tab: previous.instrumentTab } : {}),
+      ...(previous.drums === 'custom' && previous.drumTab ? { drum_tab: previous.drumTab } : {}),
+    } };
+  }
+  /** A band chip dropped on the score: place the instruction on the first
+   *  note of the painted range; painting several bars limits the span with
+   *  a closing instruction. The custom chip opens the Part studio instead. */
+  function handleBandChipDrop(startBar: number, endBar: number, payload: { field: string; style: string }) {
+    const bar = musicalBars.find(item => item.number === startBar);
+    if (!bar) return;
+    const carrier = notes.filter(note => note.start >= bar.start - 0.02 && note.start < bar.end - 0.01).sort((a, b) => a.start - b.start)[0]
+      ?? notes.filter(note => note.start >= bar.start - 0.02).sort((a, b) => a.start - b.start)[0];
+    if (!carrier) { setEditorNotice('No note there to carry the instruction — drop it on a bar with singing.'); return; }
+    if (payload.field === 'custom') {
+      openBandWrite({ noteId: carrier.id });
+      if (endBar > startBar) setApplyBars(Math.min(8, endBar - startBar + 1));
+      return;
+    }
+    const boundaryBar = musicalBars.find(item => item.number === endBar);
+    const closing = endBar > startBar ? closingFor(carrier.start, (boundaryBar ?? bar).end, carrier.id) : null;
+    pushHistory();
+    setNotes(current => current.map(note => {
+      if (note.id === carrier.id) {
+        const band = { ...(note.marks?.band ?? {}) };
+        if (payload.field === 'stop') { band.instrument = 'stop'; band.drums = 'stop'; delete band.instrument_tab; delete band.drum_tab; }
+        else if (payload.field === 'instrument') { band.instrument = payload.style; delete band.instrument_tab; }
+        else { band.drums = payload.style; delete band.drum_tab; }
+        return { ...note, marks: { ...(note.marks ?? {}), band } };
+      }
+      if (closing && note.id === closing.carrierId) return { ...note, marks: { ...(note.marks ?? {}), band: closing.band } };
+      return note;
+    }));
+    const effective = carrier.start - bar.start > 0.03 ? startBar + 2 : startBar + 1;
+    setEditorNotice(endBar > startBar
+      ? `Dropped: plays bars ${effective}–${endBar + 1}, then the previous sound resumes${closing ? '' : ' (a later instruction takes over)'} . Undo removes it.`
+      : `Dropped: plays from bar ${effective} until the next instruction. Undo removes it.`);
+  }
   function saveBandWrite() {
     if (!bandWrite) return;
     const instrument = draftInstrumentTab.trim();
@@ -1281,29 +1333,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     // A part limited to N bars gets a CLOSING instruction at its boundary
     // that restores whatever played before it — unless a later instruction
     // already takes over inside the span.
-    let closing: { carrierId: string; band: NonNullable<NoteMarks['band']> } | null = null;
-    if (applyBars) {
-      const boundary = bandWrite.from + applyBars * bandWrite.barLen;
-      const targetNoteId = bandWrite.target !== 'default' ? bandWrite.target.noteId : null;
-      const intervening = notes.some(note => note.id !== targetNoteId && note.marks?.band && note.start > bandWrite.anchorTime + 0.01 && note.start < boundary + 0.02);
-      const carrier = notes.filter(note => note.start >= boundary - 0.02).sort((a, b) => a.start - b.start)[0];
-      if (!intervening && carrier) {
-        if (bandWrite.target === 'default') {
-          closing = { carrierId: carrier.id, band: { instrument: 'stop', drums: 'stop' } };
-        } else {
-          const others = notes.filter(note => note.id !== targetNoteId);
-          const regions = bandRegions(others, { instrument: accompaniment.guitar as InstrumentStyleId, drums: accompaniment.drums as DrumStyleId });
-          let previous = regions[0];
-          for (const item of regions) { if (item.from <= bandWrite.anchorTime + 0.01) previous = item; else break; }
-          const style = (value: string) => value === 'off' ? 'stop' : value;
-          closing = { carrierId: carrier.id, band: {
-            instrument: style(previous.instrument), drums: style(previous.drums),
-            ...(previous.instrument === 'custom' && previous.instrumentTab ? { instrument_tab: previous.instrumentTab } : {}),
-            ...(previous.drums === 'custom' && previous.drumTab ? { drum_tab: previous.drumTab } : {}),
-          } };
-        }
-      }
-    }
+    const closing = applyBars
+      ? closingFor(bandWrite.anchorTime, bandWrite.from + applyBars * bandWrite.barLen,
+        bandWrite.target !== 'default' ? bandWrite.target.noteId : null,
+        bandWrite.target === 'default' ? { instrument: 'stop', drums: 'stop' } : undefined)
+      : null;
     if (bandWrite.target === 'default') {
       // The song-wide part: lives on the accompaniment settings.
       setTrackSettingsDirty(current => {
@@ -2234,6 +2268,27 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly where the ghost head shows — what follows slides right, and overflow ties into a freshly inserted bar · drop a note onto another to swap them · with a note selected, the value buttons (or keys 3–7 and .) change its length — double-click the note to deselect it first if you only want to pick the next entry's value · right-click removes a note, leaving its rest · Ctrl+Z undo, Ctrl+Y redo · Double-click a word to edit lyrics: Tab = next word, Enter = done · the faint dashed boxes above the top staff take chord symbols — click one and type (Tab = next beat, empty = clear) · the 🎸/🥁 lane under the bass staff prints every hit the band will actually play, beat by beat — click any band instruction on that line (or the label at its head) to change or remove it right there.</span>
               </>}
             </div>
+            {noteView === 'score' && <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-white/10 bg-[#0a0d1f] px-3 py-2 text-[10px]">
+              <span className="font-black uppercase tracking-[.16em] text-slate-500" title="Grab a chip and drop it on a note — the band plays that style from its bar. Drag ACROSS several bars before releasing to limit it to exactly that range (the previous sound resumes after).">Drag onto the score ➜</span>
+              {INSTRUMENT_STYLES.filter(style => style.id !== 'off' && style.id !== 'custom').map(style =>
+                <span key={style.id} draggable
+                  onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'instrument', style: style.id })); event.dataTransfer.effectAllowed = 'copy'; }}
+                  title={`${style.label} — drop on a note; drag across bars to limit the span`}
+                  className="cursor-grab select-none rounded-lg border border-sky-300/25 bg-sky-300/[.07] px-2 py-1 text-sky-100 active:cursor-grabbing">{style.label.replace(/(Guitar|Piano|Bass) · /, '').replace(/\s*\(.*\)/, '')}</span>)}
+              {DRUM_STYLES.filter(style => style.id !== 'off' && style.id !== 'custom').map(style =>
+                <span key={style.id} draggable
+                  onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'drums', style: style.id })); event.dataTransfer.effectAllowed = 'copy'; }}
+                  title={`${style.label} — drop on a note; drag across bars to limit the span`}
+                  className="cursor-grab select-none rounded-lg border border-rose-300/25 bg-rose-300/[.07] px-2 py-1 text-rose-100 active:cursor-grabbing">{style.label.replace(/(Kit|Cajon) · /, '$1 ').replace(/\s*\(.*\)/, '')}</span>)}
+              <span draggable
+                onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'custom', style: 'custom' })); event.dataTransfer.effectAllowed = 'copy'; }}
+                title="Drop to open the Part studio for that spot — drag across bars first and the part applies to exactly that range"
+                className="cursor-grab select-none rounded-lg border border-fuchsia-300/30 bg-fuchsia-300/10 px-2 py-1 font-semibold text-fuchsia-100 active:cursor-grabbing">✍ Custom part</span>
+              <span draggable
+                onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'stop', style: 'stop' })); event.dataTransfer.effectAllowed = 'copy'; }}
+                title="Drop to silence the whole band from that bar (until the next instruction)"
+                className="cursor-grab select-none rounded-lg border border-white/15 px-2 py-1 text-slate-300 active:cursor-grabbing">🚫 Stop band</span>
+            </div>}
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <ScoreView notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
                 onSelectNote={(id, part, additive) => {
@@ -2254,6 +2309,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 bandDefaults={{ instrument: accompaniment.guitar, drums: accompaniment.drums }}
                 onBandAudition={auditionBandAt}
                 onBandWrite={openBandWrite}
+                onBandDrop={handleBandChipDrop}
                 onDeselect={() => { setSelectedId(null); setSelectedIds([]); setEditorNotice(null); }}
                 onEraseNote={removeNote}
                 onDragCommit={(id, changes) => update(id, changes)}
