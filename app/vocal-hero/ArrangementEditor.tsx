@@ -1107,10 +1107,17 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   function anchorBarOf(target: { noteId: string } | 'default') {
     // 'from the top' means where the MUSIC starts — a song with silent
     // lead-in bars anchors at its first sung bar, never at empty ones.
+    // An instruction riding a MID-BAR note governs from the NEXT barline
+    // (the band turns at barlines), so its window starts there too.
     const anchor = target === 'default'
       ? (notes.length ? Math.min(...notes.map(note => note.start)) : 0)
       : (notes.find(note => note.id === target.noteId)?.start ?? 0);
-    return musicalBars.find(bar => anchor + 0.01 >= bar.start && anchor + 0.01 < bar.end) ?? musicalBars[0];
+    const bar = musicalBars.find(item => anchor + 0.01 >= item.start && anchor + 0.01 < item.end) ?? musicalBars[0];
+    if (target !== 'default' && bar && anchor - bar.start > 0.03) {
+      const index = musicalBars.indexOf(bar);
+      return musicalBars[index + 1] ?? bar;
+    }
+    return bar;
   }
   function playAudition(events: BandEvent[], from: number, seconds: number) {
     void auditionContextRef.current?.close().catch(() => undefined);
@@ -1180,8 +1187,12 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     // ready to be reshaped.
     const own = target !== 'default' ? notes.find(note => note.id === target.noteId)?.marks?.band : undefined;
     const regions = bandRegions(notes, { instrument: accompaniment.guitar as InstrumentStyleId, drums: accompaniment.drums as DrumStyleId });
+    // The region THIS instruction creates — resolved at the instruction's
+    // own time, not the bar start (where a mid-bar instruction hasn't
+    // turned yet and the previous section would be seeded instead).
+    const anchorTime = target === 'default' ? from : (notes.find(note => note.id === target.noteId)?.start ?? from);
     let region = regions[0];
-    for (const item of regions) { if (item.from <= from + 0.02) region = item; else break; }
+    for (const item of regions) { if (item.from <= anchorTime + 0.02) region = item; else break; }
     const seedColumns = Math.min(32, 4 * perBar);
     const windowEvents = (laneBandEvents ?? []).filter(event => event.at >= from - 0.01 && event.at < from + seedColumns * eighthLen - 0.001);
     const instrumentDraft = own?.instrument_tab
