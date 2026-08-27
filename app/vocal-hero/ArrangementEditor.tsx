@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RenditionRail } from './RenditionBuilder';
 import { ScoreView, type ScoreBar } from './ScoreView';
-import { AlignedVoicesOverview, DrumGridEditor, InstrumentStaffEditor, drumLengthEighths, midiToken, partLengthEighths } from './PartStaffEditor';
+import { AlignedVoicesOverview, DrumGridEditor, InstrumentStaffEditor, PART_CELL, PART_LEFT, drumLengthEighths, midiToken, partLengthEighths } from './PartStaffEditor';
 import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
 import { compileRendition, deriveSections, type RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
@@ -1132,7 +1132,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   }
   /** The studio's second preview: the part TOGETHER with the singing —
    *  every voice sounding in the window joins the band. */
-  function playAuditionWithVoices(events: BandEvent[], from: number, seconds: number): boolean {
+  function playAuditionWithVoices(events: BandEvent[], from: number, seconds: number): { context: AudioContext; start: number } | null {
     const running = playAudition(events, from, seconds) ?? (() => {
       const context = new AudioContext();
       auditionContextRef.current = context;
@@ -1146,8 +1146,48 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       const length = Math.min(note.end, until) - Math.max(note.start, from);
       if (length > 0.04) playVoiceTone(running.context, note, running.start + at, length);
     }
-    return sounding.length > 0;
+    return sounding.length > 0 || events.length > 0 ? running : null;
   }
+  /** The needle: while an audition runs, a cyan line rides the shared
+   *  ruler through all three sections at the audio clock's position. */
+  const [auditionRun, setAuditionRun] = useState<{ context: AudioContext; startAt: number; seconds: number } | null>(null);
+  const studioNeedleRef = useRef<HTMLDivElement | null>(null);
+  const studioScrollRef = useRef<HTMLDivElement | null>(null);
+  function stopAudition() {
+    void auditionContextRef.current?.close().catch(() => undefined);
+    setAuditionRun(null);
+  }
+  useEffect(() => {
+    if (!auditionRun || !bandWrite) return;
+    const eighthLen = bandWrite.barLen / bandWrite.perBar;
+    let raf = 0;
+    const tick = () => {
+      const elapsed = auditionRun.context.currentTime - auditionRun.startAt;
+      const needle = studioNeedleRef.current;
+      if (needle && elapsed >= 0) {
+        needle.style.display = 'block';
+        const left = PART_LEFT + (elapsed / eighthLen) * PART_CELL;
+        needle.style.left = `${left}px`;
+        const scroller = studioScrollRef.current;
+        if (scroller) {
+          const target = Math.max(0, left - scroller.clientWidth * 0.45);
+          if (Math.abs(scroller.scrollLeft - target) > 10) scroller.scrollLeft = target;
+        }
+      }
+      if (elapsed > auditionRun.seconds + 0.3) {
+        setAuditionRun(null);
+        void auditionRun.context.close().catch(() => undefined);
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (studioNeedleRef.current) studioNeedleRef.current.style.display = 'none';
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auditionRun]);
   function auditionBandAt(target: { noteId: string } | 'default') {
     const bar = anchorBarOf(target);
     if (!bar || !laneBandEvents) { setEditorNotice('Nothing for the band to play yet — give it chord symbols, a melody style, or a written part.'); return; }
@@ -1198,7 +1238,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     }).join('\n');
   }
   function openBandWrite(target: { noteId: string } | 'default') {
-    void auditionContextRef.current?.close().catch(() => undefined);
+    stopAudition();
     const bar = anchorBarOf(target);
     const from = bar?.start ?? 0;
     const perBar = Math.max(2, (bar?.beats.length ?? 2) * 2);
@@ -1328,6 +1368,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   }
   function saveBandWrite() {
     if (!bandWrite) return;
+    stopAudition();
     const instrument = draftInstrumentTab.trim();
     const drums = draftDrumTab.trim();
     // A part limited to N bars gets a CLOSING instruction at its boundary
@@ -2146,7 +2187,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           {transcriptionDiagnostics.rejectedOutOfRangeFrames > 0 && <span className="text-amber-200">{transcriptionDiagnostics.rejectedOutOfRangeFrames} frames outside {VOICES[recordingPart]} range rejected</span>}
         </div>}
         {midiError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">MIDI import: {midiError}</div>}
-        {editorNotice && <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4"><div className="pointer-events-auto flex max-w-2xl items-center gap-3 rounded-2xl border border-amber-300/25 bg-[#1c1608f2] px-4 py-2.5 text-xs text-amber-100 shadow-[0_18px_50px_#000c] backdrop-blur"><span>{editorNotice}</span><button onClick={() => setEditorNotice(null)} aria-label="Dismiss editor notice" className="rounded border border-amber-200/25 px-2 py-0.5">Close</button></div></div>}
+        {editorNotice && <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[95] flex justify-center px-4"><div className="pointer-events-auto flex max-w-2xl items-center gap-3 rounded-2xl border border-amber-300/25 bg-[#1c1608f2] px-4 py-2.5 text-xs text-amber-100 shadow-[0_18px_50px_#000c] backdrop-blur"><span>{editorNotice}</span><button onClick={() => setEditorNotice(null)} aria-label="Dismiss editor notice" className="rounded border border-amber-200/25 px-2 py-0.5">Close</button></div></div>}
         {closePrompt && <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => setClosePrompt(false)}>
           <div role="alertdialog" aria-label="Unsaved changes" onClick={event => event.stopPropagation()}
             className="w-full max-w-md rounded-2xl border border-amber-300/25 bg-[#0d1024] p-5 shadow-[0_30px_90px_#000d,0_0_40px_#f59e0b22]">
@@ -2159,7 +2200,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             </div>
           </div>
         </div>}
-        {bandWrite && <div className="fixed inset-0 z-[85] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => { void auditionContextRef.current?.close().catch(() => undefined); setBandWrite(null); }}>
+        {bandWrite && <div className="fixed inset-0 z-[85] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => { stopAudition(); setBandWrite(null); }}>
           <div role="dialog" aria-label="Part studio" onClick={event => event.stopPropagation()}
             className="flex max-h-[92vh] w-full flex-col gap-3 overflow-auto rounded-2xl border border-sky-300/25 bg-[#0a0e20] p-5 shadow-[0_30px_90px_#000d,0_0_40px_#38bdf822]" style={{ maxWidth: 900 }}>
             <div className="flex items-center justify-between">
@@ -2174,12 +2215,13 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   </select></label>
                 <button onClick={() => setPatternBars(current => current + 1)} disabled={studioColumns >= 64}
                   title="Extend the pattern by one bar — all three sections grow together" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300 disabled:opacity-30">＋ bar</button>
-                <button onClick={() => { void auditionContextRef.current?.close().catch(() => undefined); setBandWrite(null); }} aria-label="Close part studio" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300">✕</button>
+                <button onClick={() => { stopAudition(); setBandWrite(null); }} aria-label="Close part studio" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300">✕</button>
               </div>
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">This is the EXACT part the band plays from bar {bandWrite.barNumber}, printed as editable notes — reshape it, or start fresh. Move the mouse and one glowing column runs through the voices, your staff and your drums; the faint coloured dashes on your staff are the S/A/T/B pitches themselves — land a head on a dash to double that voice, next to it to harmonize. On the staff: <b className="text-slate-300">click</b> = note (more pitches in one column stack a chord; click a head again to remove it) · <b className="text-slate-300">Ctrl</b> = ♯ · <b className="text-slate-300">Shift</b> = lengthen · <b className="text-slate-300">right-click</b> = rest · the <b className="text-slate-300">fx</b> strip cycles accent → staccato · <b className="text-slate-300">[Em7]</b> in the written form voices a chord symbol.</p>
-            <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#050716]">
-              <div className="w-max">
+            <div ref={studioScrollRef} className="overflow-x-auto rounded-xl border border-white/10 bg-[#050716]">
+              <div className="relative w-max">
+                <div ref={studioNeedleRef} className="pointer-events-none absolute bottom-0 top-0 z-10 hidden w-[2px] rounded bg-cyan-300 shadow-[0_0_10px_#22d3ee]" />
                 <div className="px-0 pt-1"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-slate-500">The song — voices &amp; chords</span>
                   <AlignedVoicesOverview notes={notes} chords={trackSettings.chord_symbols ?? []} from={bandWrite.from}
                     eighthLen={bandWrite.barLen / bandWrite.perBar} columns={studioColumns} perBar={bandWrite.perBar}
@@ -2214,13 +2256,25 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             <div className="flex items-center justify-between gap-2 text-[11px]">
               <span className="font-mono text-slate-500">count the eighths: {Array.from({ length: Math.max(1, scoreBars[0]?.numerator ?? 4) }, (_, i) => `${i + 1} &`).join(' ')} | (one bar)</span>
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => { const seconds = studioColumns * (bandWrite.barLen / bandWrite.perBar) + 0.01; const ok = draftBandEvents && playAudition(draftBandEvents, bandWrite.from, seconds); if (!ok) setEditorNotice('Nothing to audition yet — write a note or two first.'); }}
-                  title="Hear ONLY the instrument and drum part, across the whole window" className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 font-semibold text-emerald-100">▶ Part alone</button>
-                <button onClick={() => { const seconds = studioColumns * (bandWrite.barLen / bandWrite.perBar) + 0.01; if (!draftBandEvents || !playAuditionWithVoices(draftBandEvents, bandWrite.from, seconds)) setEditorNotice('Nothing sounds in this window yet.'); }}
-                  title="Hear the part together with the choir's voices, across the whole window" className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100">▶ With the voices</button>
-                {bandWrite.target !== 'default' && <button onClick={() => { const target = bandWrite.target; void auditionContextRef.current?.close().catch(() => undefined); setBandWrite(null); applyBandAt(target, 'remove', ''); setEditorNotice('The instruction and its written part are removed — the previous sound plays on through here.'); }}
+                <button onClick={() => {
+                  if (auditionRun) { stopAudition(); return; }
+                  const seconds = studioColumns * (bandWrite.barLen / bandWrite.perBar) + 0.01;
+                  const run = draftBandEvents ? playAudition(draftBandEvents, bandWrite.from, seconds) : null;
+                  if (!run) { setEditorNotice('Nothing to audition yet — write a note or two first.'); return; }
+                  setAuditionRun({ context: run.context, startAt: run.start, seconds });
+                }}
+                  title="Hear ONLY the instrument and drum part, across the whole window — the needle rides the ruler" className={`rounded-lg border px-3 py-2 font-semibold ${auditionRun ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-emerald-300/40 bg-emerald-300/10 text-emerald-100'}`}>{auditionRun ? '■ Stop' : '▶ Part alone'}</button>
+                <button onClick={() => {
+                  if (auditionRun) { stopAudition(); return; }
+                  const seconds = studioColumns * (bandWrite.barLen / bandWrite.perBar) + 0.01;
+                  const run = draftBandEvents ? playAuditionWithVoices(draftBandEvents, bandWrite.from, seconds) : null;
+                  if (!run) { setEditorNotice('Nothing sounds in this window yet.'); return; }
+                  setAuditionRun({ context: run.context, startAt: run.start, seconds });
+                }}
+                  title="Hear the part together with the choir's voices, across the whole window — the needle rides the ruler" className={`rounded-lg border px-3 py-2 font-semibold ${auditionRun ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-fuchsia-300/40 bg-fuchsia-300/10 text-fuchsia-100'}`}>{auditionRun ? '■ Stop' : '▶ With the voices'}</button>
+                {bandWrite.target !== 'default' && <button onClick={() => { const target = bandWrite.target; stopAudition(); setBandWrite(null); applyBandAt(target, 'remove', ''); setEditorNotice('The instruction and its written part are removed — the previous sound plays on through here.'); }}
                   title="Delete this instruction and its written part; the previous sound continues through these bars" className="rounded-lg border border-rose-300/35 px-3 py-2 font-semibold text-rose-200">🗑 Remove</button>}
-                <button onClick={() => { void auditionContextRef.current?.close().catch(() => undefined); setBandWrite(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-slate-300">Cancel</button>
+                <button onClick={() => { stopAudition(); setBandWrite(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-slate-300">Cancel</button>
                 <button onClick={saveBandWrite} className="rounded-lg bg-[linear-gradient(120deg,#38bdf8,#a78bfa)] px-4 py-2 font-black text-[#08101d]">Use this part</button>
               </div>
             </div>
