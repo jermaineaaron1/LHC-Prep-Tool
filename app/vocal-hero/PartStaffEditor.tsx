@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import type { SongNote } from '@/lib/vocal-hero/types';
 import { parseChord } from '@/lib/vocal-hero/chords';
+import { durationToSymbols } from '@/lib/vocal-hero/notation';
 
 // The Part studio's aligned sections. Everything in this file draws on ONE
 // shared time axis: the same left margin, the same pixels per eighth, the
@@ -191,16 +192,51 @@ export function AlignedVoicesOverview({ notes, chords, from, eighthLen, columns,
           const { step, sharp } = overviewStep(note.midi, clef);
           const clamped = Math.max(-9, Math.min(9, step));
           const y = mid - clamped * OV_STEP;
-          const left = Math.max(PART_LEFT, x(note.start));
-          const right = x(Math.min(note.end, until));
           const ledgers: number[] = [];
           for (let line = 6; line <= Math.abs(clamped); line += 2) ledgers.push(clamped > 0 ? line : -line);
+          const stemUp = clamped < 0;
+          // The same engraving arithmetic as the main score: the note is
+          // split at barlines, each span printed with its true VALUES —
+          // filled quarters, hollow halves, flags on eighths, dots, and
+          // ties between the pieces. What the editor engraves, this shows.
+          const beatLen = eighthLen * 2;
+          const barLen = perBar * eighthLen;
+          type Piece = { time: number; value: number; dotted: boolean; tie: boolean };
+          const pieces: Piece[] = [];
+          let spanStart = Math.max(note.start, from);
+          const noteEnd = Math.min(note.end, until);
+          let guard = 0;
+          while (spanStart < noteEnd - 0.001 && guard++ < 16) {
+            const barEnd = from + (Math.floor((spanStart - from) / barLen + 1e-6) + 1) * barLen;
+            const spanEnd = Math.min(noteEnd, barEnd);
+            if (spanEnd - spanStart < 0.02) { spanStart = spanEnd; continue; }
+            const symbols = durationToSymbols((spanEnd - spanStart) / beatLen);
+            let time = spanStart;
+            for (const symbol of symbols) {
+              pieces.push({ time, value: symbol.value, dotted: symbol.dotted, tie: true });
+              time += symbol.beats * beatLen;
+            }
+            spanStart = spanEnd;
+          }
+          if (pieces.length) pieces[pieces.length - 1].tie = false;
           return <g key={note.id}>
-            {ledgers.map(line => <line key={line} x1={left - 2} x2={left + 9} y1={mid - line * OV_STEP} y2={mid - line * OV_STEP} stroke="#ffffff38" strokeWidth={0.8} />)}
-            {right - left > 12 && <line x1={left + 6} x2={right - 3} y1={y} y2={y} stroke={VOICE_COLOURS[part]} strokeWidth={1.8} strokeLinecap="round" opacity={0.5} />}
-            {sharp && x(note.start) >= PART_LEFT - 1 && <text x={left - 8} y={y + 3.4} fontSize={9} fill={VOICE_COLOURS[part]} opacity={0.9}>♯</text>}
-            <ellipse cx={left + 3.6} cy={y} rx={3.7} ry={2.8} transform={`rotate(-14 ${left + 3.6} ${y})`} fill={VOICE_COLOURS[part]} opacity={0.95} />
-            {part === 0 && note.lyric && x(note.start) >= PART_LEFT - 1 && <text x={left} y={mid + 5 * OV_STEP + 9} fontSize={7.5} fill="#94a3b8">{note.lyric}</text>}
+            {pieces.map((piece, index) => {
+              const px = Math.max(PART_LEFT, x(piece.time)) + 3.6;
+              const hollow = piece.value >= 2;
+              const stemEnd = stemUp ? y - 12 : y + 12;
+              return <g key={index}>
+                {ledgers.map(line => <line key={line} x1={px - 5.6} x2={px + 5.6} y1={mid - line * OV_STEP} y2={mid - line * OV_STEP} stroke="#ffffff38" strokeWidth={0.8} />)}
+                {index === 0 && sharp && <text x={px - 11} y={y + 3.4} fontSize={9} fill={VOICE_COLOURS[part]} opacity={0.9}>♯</text>}
+                <ellipse cx={px} cy={y} rx={3.7} ry={2.8} transform={`rotate(-14 ${px} ${y})`}
+                  fill={hollow ? 'transparent' : VOICE_COLOURS[part]} stroke={VOICE_COLOURS[part]} strokeWidth={hollow ? 1.3 : 1} opacity={0.95} />
+                {piece.value < 4 && <line x1={px + (stemUp ? 3.4 : -3.4)} x2={px + (stemUp ? 3.4 : -3.4)} y1={y} y2={stemEnd} stroke={VOICE_COLOURS[part]} strokeWidth={1} opacity={0.95} />}
+                {piece.value <= 0.5 && <path d={`M ${px + (stemUp ? 3.4 : -3.4)} ${stemEnd} q 5 ${stemUp ? 3 : -3} 3.5 ${stemUp ? 8 : -8}`} stroke={VOICE_COLOURS[part]} strokeWidth={1} fill="none" opacity={0.95} />}
+                {piece.value <= 0.25 && <path d={`M ${px + (stemUp ? 3.4 : -3.4)} ${stemEnd + (stemUp ? 4 : -4)} q 5 ${stemUp ? 3 : -3} 3.5 ${stemUp ? 8 : -8}`} stroke={VOICE_COLOURS[part]} strokeWidth={1} fill="none" opacity={0.95} />}
+                {piece.dotted && <circle cx={px + 7} cy={y - 2} r={1.3} fill={VOICE_COLOURS[part]} opacity={0.95} />}
+                {piece.tie && pieces[index + 1] && <path d={`M ${px + 4} ${y + (stemUp ? 4.5 : -4.5)} Q ${(px + Math.max(PART_LEFT, x(pieces[index + 1].time)) + 3.6) / 2} ${y + (stemUp ? 9 : -9)}, ${Math.max(PART_LEFT, x(pieces[index + 1].time))} ${y + (stemUp ? 4.5 : -4.5)}`} stroke={VOICE_COLOURS[part]} strokeWidth={0.9} fill="none" opacity={0.8} />}
+              </g>;
+            })}
+            {part === 0 && note.lyric && x(note.start) >= PART_LEFT - 1 && <text x={Math.max(PART_LEFT, x(note.start))} y={mid + 5 * OV_STEP + 9} fontSize={7.5} fill="#94a3b8">{note.lyric}</text>}
           </g>;
         })}
       </g>;
