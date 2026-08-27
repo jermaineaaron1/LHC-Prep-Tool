@@ -43,9 +43,22 @@ function tokenMidi(token: string): number | null {
   return pc + 12 * (parseInt(match[3], 10) + 1);
 }
 
-function midiToken(midi: number): string {
+export function midiToken(midi: number): string {
   return PC_NAME[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
 }
+
+/** Shared hover machinery: report which eighth the cursor is over, and draw
+ *  the glowing rail that every section renders at the same column. */
+function columnFromEvent(event: React.MouseEvent<SVGSVGElement>, columns: number): number | null {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  const column = Math.floor((event.clientX - bounds.left - PART_LEFT) / PART_CELL);
+  return column >= 0 && column < columns ? column : null;
+}
+function HoverRail({ hoverColumn, columns }: { hoverColumn?: number | null; columns: number }) {
+  if (hoverColumn === null || hoverColumn === undefined || hoverColumn >= columns) return null;
+  return <rect x={PART_LEFT + hoverColumn * PART_CELL} y={0} width={PART_CELL} height="100%" fill="#7dd3fc14" pointerEvents="none" />;
+}
+export interface StudioReferenceNote { midi: number; part: number; startEighth: number; endEighth: number }
 
 export function parsePartCells(text: string): (Cell | null)[] {
   const tokens = text.replace(/\|/g, ' ').trim().split(/\s+/).filter(Boolean);
@@ -148,16 +161,20 @@ function overviewStep(midi: number, clef: 'treble' | 'treble8' | 'bass'): { step
   const base = midiStep(midi, clef === 'bass');
   return clef === 'treble8' ? { ...base, step: base.step + 7 } : base;
 }
-export function AlignedVoicesOverview({ notes, chords, from, eighthLen, columns, perBar }: {
+export function AlignedVoicesOverview({ notes, chords, from, eighthLen, columns, perBar, hoverColumn, onHoverColumn }: {
   notes: SongNote[]; chords: Array<{ at: number; symbol: string }>;
   from: number; eighthLen: number; columns: number; perBar: number;
+  hoverColumn?: number | null; onHoverColumn?: (column: number | null) => void;
 }) {
   const until = from + columns * eighthLen;
   const ROW = 46, TOP = 32;
   const height = TOP + 4 * ROW + 18;
   const x = (time: number) => PART_LEFT + (time - from) / eighthLen * PART_CELL;
   const voiceNotes = useMemo(() => notes.filter(note => note.start < until && note.end > from), [notes, from, until]);
-  return <svg width={partWidth(columns)} height={height} aria-hidden style={{ display: 'block' }}>
+  return <svg width={partWidth(columns)} height={height} aria-hidden style={{ display: 'block' }}
+    onMouseMove={onHoverColumn ? event => onHoverColumn(columnFromEvent(event, columns)) : undefined}
+    onMouseLeave={onHoverColumn ? () => onHoverColumn(null) : undefined}>
+    <HoverRail hoverColumn={hoverColumn} columns={columns} />
     <GuideLines columns={columns} perBar={perBar} y1={12} y2={height - 4} />
     {Array.from({ length: columns }, (_, column) => column % 2 === 0 && <text key={column} x={PART_LEFT + column * PART_CELL + 3} y={10} fontSize={8} fill="#7dd3fc99">{column % perBar === 0 ? `bar ${Math.floor(column / perBar) + 1}` : `${(column % perBar) / 2 + 1}`}</text>)}
     {chords.filter(chord => chord.at >= from - 0.01 && chord.at < until).map((chord, index) =>
@@ -191,8 +208,12 @@ export function AlignedVoicesOverview({ notes, chords, from, eighthLen, columns,
   </svg>;
 }
 
-export function InstrumentStaffEditor({ value, onChange, columns, perBar }: {
+export function InstrumentStaffEditor({ value, onChange, columns, perBar, reference, hoverColumn, onHoverColumn }: {
   value: string; onChange: (next: string) => void; columns: number; perBar: number;
+  /** The SATB notes in this window, drawn as faint coloured dashes so the
+   *  part is written against the voices' own pitches. */
+  reference?: StudioReferenceNote[];
+  hoverColumn?: number | null; onHoverColumn?: (column: number | null) => void;
 }) {
   const cells = useMemo(() => parsePartCells(value), [value]);
   const stacks = cells.map((cell, column) => cell ? { ...cell, column } : null).filter(Boolean) as Array<Cell & { column: number }>;
@@ -268,9 +289,25 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar }: {
   }
 
   return <svg width={partWidth(columns)} height={height} onClick={handleClick} onContextMenu={handleContext}
+    onMouseMove={onHoverColumn ? event => onHoverColumn(columnFromEvent(event, columns)) : undefined}
+    onMouseLeave={onHoverColumn ? () => onHoverColumn(null) : undefined}
     style={{ cursor: 'crosshair', display: 'block' }}>
+    <HoverRail hoverColumn={hoverColumn} columns={columns} />
     <GuideLines columns={columns} perBar={perBar} y1={6} y2={height - 4} />
     {[-2, -1, 0, 1, 2].map(line => <line key={line} x1={8} x2={partWidth(columns) - 6} y1={mid + line * 2 * STEP} y2={mid + line * 2 * STEP} stroke="#ffffff50" strokeWidth={1} />)}
+    {reference?.map((voice, index) => {
+      const { step } = midiStep(voice.midi, bass);
+      const clamped = Math.max(-13, Math.min(13, step));
+      const y = mid - clamped * STEP;
+      return <g key={`ref-${index}`} pointerEvents="none">
+        {Array.from({ length: voice.endEighth - voice.startEighth }, (_, offset) => {
+          const column = voice.startEighth + offset;
+          if (column >= columns) return null;
+          return <line key={column} x1={PART_LEFT + column * PART_CELL + 5} x2={PART_LEFT + (column + 1) * PART_CELL - 5}
+            y1={y} y2={y} stroke={VOICE_COLOURS[voice.part]} strokeWidth={2.2} strokeLinecap="round" opacity={0.22} />;
+        })}
+      </g>;
+    })}
     <text x={10} y={bass ? mid + 2 : mid + 2 * STEP * 2 - 2} fontSize={bass ? 26 : 32} fill="#ffffffd8" fontFamily="'Segoe UI Symbol','Noto Music',serif">{bass ? '\u{1D122}' : '\u{1D11E}'}</text>
     <text x={8} y={FX_Y + 8} fontSize={8} fontWeight={700} fill="#64748b">fx</text>
     <line x1={PART_LEFT} x2={partWidth(columns) - 6} y1={FX_Y - 8} y2={FX_Y - 8} stroke="#ffffff18" strokeWidth={1} />
@@ -334,8 +371,9 @@ function buildDrumText(lanes: Map<string, string[]>, columns: number): string {
   return lines.join('\n');
 }
 
-export function DrumGridEditor({ value, onChange, columns, perBar }: {
+export function DrumGridEditor({ value, onChange, columns, perBar, hoverColumn, onHoverColumn }: {
   value: string; onChange: (next: string) => void; columns: number; perBar: number;
+  hoverColumn?: number | null; onHoverColumn?: (column: number | null) => void;
 }) {
   const lanes = useMemo(() => parseDrumCells(value), [value]);
   const ROW = 16;
@@ -351,7 +389,10 @@ export function DrumGridEditor({ value, onChange, columns, perBar }: {
     onChange(buildDrumText(next, columns));
   }
 
-  return <svg width={partWidth(columns)} height={height} style={{ display: 'block' }}>
+  return <svg width={partWidth(columns)} height={height} style={{ display: 'block' }}
+    onMouseMove={onHoverColumn ? event => onHoverColumn(columnFromEvent(event, columns)) : undefined}
+    onMouseLeave={onHoverColumn ? () => onHoverColumn(null) : undefined}>
+    <HoverRail hoverColumn={hoverColumn} columns={columns} />
     <GuideLines columns={columns} perBar={perBar} y1={4} y2={height - 4} />
     {DRUM_LANES.map(([letter, name], row) => {
       const y = 8 + row * ROW;
