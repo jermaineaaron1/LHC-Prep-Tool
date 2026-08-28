@@ -23,9 +23,9 @@ import { durationToSymbols } from '@/lib/vocal-hero/notation';
 // voicing appears on the staff with its name above; touching that column
 // converts it to the explicit notes.
 
-export const PART_CELL = 30;
-export const PART_LEFT = 46;
-const STEP = 3.5;
+export const PART_CELL = 44;
+export const PART_LEFT = 58;
+const STEP = 4.6;
 const LETTER_PC = [0, 2, 4, 5, 7, 9, 11];
 const PC_NAME = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b'];
 const PC_LETTER = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6];
@@ -157,7 +157,7 @@ export function partWidth(columns: number): number { return PART_LEFT + columns 
  *  down, B bass) with real noteheads, sharps, ledger lines, hold lines for
  *  duration, and the soprano's lyrics — the reference the instrumentalist
  *  reads bar by bar while writing the part below. */
-const OV_STEP = 2.6;
+const OV_STEP = 3.4;
 const OV_CLEF: Array<'treble' | 'treble8' | 'bass'> = ['treble', 'treble', 'treble8', 'bass'];
 function overviewStep(midi: number, clef: 'treble' | 'treble8' | 'bass'): { step: number; sharp: boolean } {
   const base = midiStep(midi, clef === 'bass');
@@ -169,7 +169,7 @@ export function AlignedVoicesOverview({ notes, chords, from, eighthLen, columns,
   hoverColumn?: number | null; onHoverColumn?: (column: number | null) => void;
 }) {
   const until = from + columns * eighthLen;
-  const ROW = 46, TOP = 32;
+  const ROW = 62, TOP = 36;
   const height = TOP + 4 * ROW + 18;
   const x = (time: number) => PART_LEFT + (time - from) / eighthLen * PART_CELL;
   const voiceNotes = useMemo(() => notes.filter(note => note.start < until && note.end > from), [notes, from, until]);
@@ -178,16 +178,16 @@ export function AlignedVoicesOverview({ notes, chords, from, eighthLen, columns,
     onMouseLeave={onHoverColumn ? () => onHoverColumn(null) : undefined}>
     <HoverRail hoverColumn={hoverColumn} columns={columns} />
     <GuideLines columns={columns} perBar={perBar} y1={12} y2={height - 4} />
-    {Array.from({ length: columns }, (_, column) => column % 2 === 0 && <text key={column} x={PART_LEFT + column * PART_CELL + 3} y={10} fontSize={8} fill="#7dd3fc99">{column % perBar === 0 ? `bar ${Math.floor(column / perBar) + 1}` : `${(column % perBar) / 2 + 1}`}</text>)}
+    {Array.from({ length: columns }, (_, column) => column % 2 === 0 && <text key={column} x={PART_LEFT + column * PART_CELL + 3} y={11} fontSize={9.5} fill="#7dd3fc99">{column % perBar === 0 ? `bar ${Math.floor(column / perBar) + 1}` : `${(column % perBar) / 2 + 1}`}</text>)}
     {chords.filter(chord => chord.at >= from - 0.01 && chord.at < until).map((chord, index) =>
-      <text key={index} x={x(chord.at) + 2} y={TOP - 8} fontSize={11} fontWeight={800} fill="#fde68a">{chord.symbol}</text>)}
+      <text key={index} x={x(chord.at) + 2} y={TOP - 9} fontSize={13} fontWeight={800} fill="#fde68a">{chord.symbol}</text>)}
     {VOICE_LABELS.map((label, part) => {
       const clef = OV_CLEF[part];
       const mid = TOP + part * ROW + 20;
       const own = voiceNotes.filter(note => note.part === part || (part === 0 && note.part === -1));
       return <g key={label}>
         <text x={6} y={mid + 4} fontSize={11} fontWeight={800} fill={VOICE_COLOURS[part]}>{label}</text>
-        <text x={20} y={clef === 'bass' ? mid + 1 : mid + 2 * OV_STEP * 2 - 1} fontSize={clef === 'bass' ? 15 : 19} fill="#ffffff90" fontFamily="'Segoe UI Symbol','Noto Music',serif">{clef === 'bass' ? '\u{1D122}' : '\u{1D11E}'}</text>
+        <text x={20} y={clef === 'bass' ? mid + 1 : mid + 2 * OV_STEP * 2 - 1} fontSize={clef === 'bass' ? 19 : 25} fill="#ffffff90" fontFamily="'Segoe UI Symbol','Noto Music',serif">{clef === 'bass' ? '\u{1D122}' : '\u{1D11E}'}</text>
         {[-2, -1, 0, 1, 2].map(line => <line key={line} x1={18} x2={partWidth(columns) - 6} y1={mid + line * 2 * OV_STEP} y2={mid + line * 2 * OV_STEP} stroke="#ffffff42" strokeWidth={0.8} />)}
         {own.map(note => {
           const { step, sharp } = overviewStep(note.midi, clef);
@@ -224,20 +224,20 @@ export function AlignedVoicesOverview({ notes, chords, from, eighthLen, columns,
             {pieces.map((piece, index) => {
               const px = Math.max(PART_LEFT, x(piece.time)) + 3.6;
               const hollow = piece.value >= 2;
-              const stemEnd = stemUp ? y - 12 : y + 12;
+              const stemEnd = stemUp ? y - 16 : y + 16;
               return <g key={index}>
                 {ledgers.map(line => <line key={line} x1={px - 5.6} x2={px + 5.6} y1={mid - line * OV_STEP} y2={mid - line * OV_STEP} stroke="#ffffff38" strokeWidth={0.8} />)}
                 {index === 0 && sharp && <text x={px - 11} y={y + 3.4} fontSize={9} fill={VOICE_COLOURS[part]} opacity={0.9}>♯</text>}
-                <ellipse cx={px} cy={y} rx={3.7} ry={2.8} transform={`rotate(-14 ${px} ${y})`}
+                <ellipse cx={px} cy={y} rx={4.7} ry={3.6} transform={`rotate(-14 ${px} ${y})`}
                   fill={hollow ? 'transparent' : VOICE_COLOURS[part]} stroke={VOICE_COLOURS[part]} strokeWidth={hollow ? 1.3 : 1} opacity={0.95} />
-                {piece.value < 4 && <line x1={px + (stemUp ? 3.4 : -3.4)} x2={px + (stemUp ? 3.4 : -3.4)} y1={y} y2={stemEnd} stroke={VOICE_COLOURS[part]} strokeWidth={1} opacity={0.95} />}
+                {piece.value < 4 && <line x1={px + (stemUp ? 3.4 : -3.4)} x2={px + (stemUp ? 3.4 : -3.4)} y1={y} y2={stemEnd} stroke={VOICE_COLOURS[part]} strokeWidth={1.2} opacity={0.95} />}
                 {piece.value <= 0.5 && <path d={`M ${px + (stemUp ? 3.4 : -3.4)} ${stemEnd} q 5 ${stemUp ? 3 : -3} 3.5 ${stemUp ? 8 : -8}`} stroke={VOICE_COLOURS[part]} strokeWidth={1} fill="none" opacity={0.95} />}
                 {piece.value <= 0.25 && <path d={`M ${px + (stemUp ? 3.4 : -3.4)} ${stemEnd + (stemUp ? 4 : -4)} q 5 ${stemUp ? 3 : -3} 3.5 ${stemUp ? 8 : -8}`} stroke={VOICE_COLOURS[part]} strokeWidth={1} fill="none" opacity={0.95} />}
                 {piece.dotted && <circle cx={px + 7} cy={y - 2} r={1.3} fill={VOICE_COLOURS[part]} opacity={0.95} />}
                 {piece.tie && pieces[index + 1] && <path d={`M ${px + 4} ${y + (stemUp ? 4.5 : -4.5)} Q ${(px + Math.max(PART_LEFT, x(pieces[index + 1].time)) + 3.6) / 2} ${y + (stemUp ? 9 : -9)}, ${Math.max(PART_LEFT, x(pieces[index + 1].time))} ${y + (stemUp ? 4.5 : -4.5)}`} stroke={VOICE_COLOURS[part]} strokeWidth={0.9} fill="none" opacity={0.8} />}
               </g>;
             })}
-            {part === 0 && note.lyric && x(note.start) >= PART_LEFT - 1 && <text x={Math.max(PART_LEFT, x(note.start))} y={mid + 5 * OV_STEP + 9} fontSize={7.5} fill="#94a3b8">{note.lyric}</text>}
+            {part === 0 && note.lyric && x(note.start) >= PART_LEFT - 1 && <text x={Math.max(PART_LEFT, x(note.start))} y={mid + 5 * OV_STEP + 11} fontSize={9.5} fill="#94a3b8">{note.lyric}</text>}
           </g>;
         })}
       </g>;
@@ -259,9 +259,9 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
   const stacks = cells.map((cell, column) => cell ? { ...cell, column } : null).filter(Boolean) as Array<Cell & { column: number }>;
   const allMidis = stacks.flatMap(stack => stack.midis);
   const bass = allMidis.length ? [...allMidis].sort((a, b) => a - b)[Math.floor(allMidis.length / 2)] < 57 : false;
-  const mid = 48;
-  const FX_Y = 96;
-  const height = 122;
+  const mid = 64;
+  const FX_Y = 126;
+  const height = 158;
 
   function edit(mutate: (next: (Cell | null)[]) => void) {
     const next = cells.map(cell => cell ? { ...cell, midis: [...cell.midis] } : null);
@@ -321,7 +321,7 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
       });
       return;
     }
-    const step = Math.max(-13, Math.min(13, Math.round((mid - clickY) / STEP)));
+    const step = Math.max(-11, Math.min(11, Math.round((mid - clickY) / STEP)));
     const midi = stepMidi(step, bass, event.ctrlKey || event.metaKey);
     edit(next => {
       const existing = next[column];
@@ -353,7 +353,7 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
       <span className="text-[8px] font-black uppercase tracking-[.14em] text-slate-500">Value</span>
       {([[1, '\u{1D160}', 'eighth'], [2, '\u{1D15F}', 'quarter'], [3, '\u{1D15F}.', 'dotted quarter'], [4, '\u{1D15E}', 'half'], [6, '\u{1D15E}.', 'dotted half'], [8, '\u{1D15D}', 'whole']] as Array<[number, string, string]>).map(([hold, glyph, name]) =>
         <button key={hold} onClick={() => setBrush(hold)} title={`${name} — new notes last this long; double-click an existing note to re-value it`}
-          className={`min-w-[26px] rounded border px-1.5 py-0.5 text-[13px] leading-none ${brush === hold ? 'border-sky-300/60 bg-sky-300/15 text-sky-100' : 'border-white/12 text-slate-400 hover:bg-white/[.06]'}`}
+          className={`min-w-[34px] rounded border px-2 py-1 text-[16px] leading-none ${brush === hold ? 'border-sky-300/60 bg-sky-300/15 text-sky-100' : 'border-white/12 text-slate-400 hover:bg-white/[.06]'}`}
           style={{ fontFamily: "'Segoe UI Symbol','Noto Music',serif" }}>{glyph}</button>)}
       <span className="text-[9px] text-slate-500">click places this value · double-click a note re-values it</span>
     </div>
@@ -366,18 +366,18 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
     {[-2, -1, 0, 1, 2].map(line => <line key={line} x1={8} x2={partWidth(columns) - 6} y1={mid + line * 2 * STEP} y2={mid + line * 2 * STEP} stroke="#ffffff50" strokeWidth={1} />)}
     {reference?.map((voice, index) => {
       const { step } = midiStep(voice.midi, bass);
-      const clamped = Math.max(-13, Math.min(13, step));
+      const clamped = Math.max(-11, Math.min(11, step));
       const y = mid - clamped * STEP;
       return <g key={`ref-${index}`} pointerEvents="none">
         {Array.from({ length: voice.endEighth - voice.startEighth }, (_, offset) => {
           const column = voice.startEighth + offset;
           if (column >= columns) return null;
           return <line key={column} x1={PART_LEFT + column * PART_CELL + 5} x2={PART_LEFT + (column + 1) * PART_CELL - 5}
-            y1={y} y2={y} stroke={VOICE_COLOURS[voice.part]} strokeWidth={2.2} strokeLinecap="round" opacity={0.22} />;
+            y1={y} y2={y} stroke={VOICE_COLOURS[voice.part]} strokeWidth={3} strokeLinecap="round" opacity={0.22} />;
         })}
       </g>;
     })}
-    <text x={10} y={bass ? mid + 2 : mid + 2 * STEP * 2 - 2} fontSize={bass ? 26 : 32} fill="#ffffffd8" fontFamily="'Segoe UI Symbol','Noto Music',serif">{bass ? '\u{1D122}' : '\u{1D11E}'}</text>
+    <text x={10} y={bass ? mid + 2 : mid + 2 * STEP * 2 - 2} fontSize={bass ? 33 : 41} fill="#ffffffd8" fontFamily="'Segoe UI Symbol','Noto Music',serif">{bass ? '\u{1D122}' : '\u{1D11E}'}</text>
     <text x={8} y={FX_Y + 8} fontSize={8} fontWeight={700} fill="#64748b">fx</text>
     <line x1={PART_LEFT} x2={partWidth(columns) - 6} y1={FX_Y - 8} y2={FX_Y - 8} stroke="#ffffff18" strokeWidth={1} />
     {stacks.map(stack => {
@@ -399,7 +399,7 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
           const nx = PART_LEFT + (stack.column + pieceEighth) * PART_CELL + PART_CELL / 2;
           const hollow = symbol.value >= 2;
           const whole = symbol.value >= 4;
-          const stemTop = topY - 18;
+          const stemTop = topY - 24;
           return <g key={index}>
             {stack.midis.map(midi => {
               const { step, sharp } = midiStep(midi, bass);
@@ -409,7 +409,7 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
               return <g key={midi}>
                 {ledgers.map(line => <line key={line} x1={px - 8} x2={px + 8} y1={mid - line * STEP} y2={mid - line * STEP} stroke="#ffffff45" strokeWidth={1} />)}
                 {index === 0 && sharp && <text x={px - 14} y={y + 4} fontSize={11} fill="#93c5fd">♯</text>}
-                <ellipse cx={px} cy={y} rx={4.6} ry={3.4} transform={`rotate(-14 ${px} ${y})`}
+                <ellipse cx={px} cy={y} rx={5.8} ry={4.3} transform={`rotate(-14 ${px} ${y})`}
                   fill={hollow ? 'transparent' : '#93c5fd'} stroke="#93c5fd" strokeWidth={hollow ? 1.5 : 1} />
               </g>;
             })}
@@ -422,7 +422,7 @@ export function InstrumentStaffEditor({ value, onChange, columns, perBar, refere
         })}
         {stack.slideTo !== undefined && stack.midis.length === 1 && <text x={x + 7} y={topY - 6} fontSize={9} fontWeight={700} fill="#7dd3fc">{stack.slideTo > stack.midis[0] ? '↗' : '↘'}</text>}
         {(stack.accent || stack.staccato) && <text x={x} y={FX_Y + 8} fontSize={stack.accent ? 10 : 13} fontWeight={800} textAnchor="middle" fill="#fbbf24">{stack.accent ? '>' : '·'}</text>}
-        <text x={x} y={height - 6} fontSize={7.5} textAnchor="middle" fill="#64748b">{stack.symbol ?? (stack.midis.length > 2 ? midiToken(stack.midis[0]) + '+' + (stack.midis.length - 1) : stack.midis.map(midiToken).join(','))}</text>
+        <text x={x} y={height - 7} fontSize={9.5} textAnchor="middle" fill="#64748b">{stack.symbol ?? (stack.midis.length > 2 ? midiToken(stack.midis[0]) + '+' + (stack.midis.length - 1) : stack.midis.map(midiToken).join(','))}</text>
       </g>;
     })}
     </svg>
@@ -458,7 +458,7 @@ export function DrumGridEditor({ value, onChange, columns, perBar, hoverColumn, 
   hoverColumn?: number | null; onHoverColumn?: (column: number | null) => void;
 }) {
   const lanes = useMemo(() => parseDrumCells(value), [value]);
-  const ROW = 16;
+  const ROW = 22;
   const height = 8 + DRUM_LANES.length * ROW + 4;
 
   function cycle(letter: string, column: number) {
@@ -480,15 +480,15 @@ export function DrumGridEditor({ value, onChange, columns, perBar, hoverColumn, 
       const y = 8 + row * ROW;
       const cells = lanes.get(letter) ?? [];
       return <g key={letter}>
-        <text x={6} y={y + 10} fontSize={8.5} fontWeight={700} fill="#fca5a5cc">{letter}</text>
-        <text x={16} y={y + 10} fontSize={7} fill="#64748b">{name}</text>
+        <text x={6} y={y + 13} fontSize={10.5} fontWeight={700} fill="#fca5a5cc">{letter}</text>
+        <text x={18} y={y + 13} fontSize={8.5} fill="#64748b">{name}</text>
         <line x1={PART_LEFT} x2={partWidth(columns) - 6} y1={y + ROW - 2} y2={y + ROW - 2} stroke="#ffffff10" strokeWidth={1} />
         {Array.from({ length: columns }, (_, column) => {
           const mark = cells[column] && cells[column] !== '.' ? cells[column] : '-';
           const cx = PART_LEFT + column * PART_CELL + PART_CELL / 2;
           return <g key={column} onClick={() => cycle(letter, column)} style={{ cursor: 'pointer' }}>
             <rect x={PART_LEFT + column * PART_CELL + 1} y={y} width={PART_CELL - 2} height={ROW - 3} fill="transparent" />
-            {mark !== '-' && <circle cx={cx} cy={y + 6} r={mark === 'X' || mark === 'O' ? 4.8 : 3.3}
+            {mark !== '-' && <circle cx={cx} cy={y + 8} r={mark === 'X' || mark === 'O' ? 6.2 : 4.4}
               fill={mark === 'X' || mark === 'O' ? '#fb7185' : '#fca5a5'} opacity={0.95} />}
           </g>;
         })}
