@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RenditionRail } from './RenditionBuilder';
 import { ScoreView, type ScoreBar } from './ScoreView';
-import { AlignedVoicesOverview, DrumGridEditor, InstrumentStaffEditor, PART_CELL, PART_LEFT, buildPartText, drumLengthEighths, midiToken, partLengthEighths, type PartCell } from './PartStaffEditor';
+import { AlignedVoicesOverview, DrumGridEditor, InstrumentStaffEditor, PART_CELL, PART_LEFT, buildPartText, drumLengthEighths, midiToken, parsePartCells, partLengthEighths, type PartCell } from './PartStaffEditor';
 import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
 import { compileRendition, deriveSections, type RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
@@ -972,7 +972,17 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     pushHistory();
     setNotes(current => current.map(note => note.start >= entryBar.start - .005 ? { ...note, start: note.start + length, end: note.end + length } : note));
     setTimedLyrics(current => current.map(line => line.start >= entryBar.start - .005 ? { ...line, start: line.start + length, end: line.end + length } : line));
-    setEditorNotice(`An empty bar was inserted at bar ${entryBar.number + 1}; everything after it moved one bar later. Undo reverses it.`);
+    // The HARMONY and the CLIPS live on the same timeline as the notes —
+    // they move together or the song falls apart.
+    setTrackSettingsDirty(current => ({
+      ...current,
+      chord_symbols: (current.chord_symbols ?? []).map(chord => chord.at >= entryBar.start - .005 ? { ...chord, at: roundPrecise(chord.at + length) } : chord),
+      band_tracks: current.band_tracks?.map(track => ({
+        ...track,
+        clips: track.clips.map(clip => clip.start >= entryBar.start - .005 ? { ...clip, start: roundPrecise(clip.start + length) } : clip),
+      })),
+    }));
+    setEditorNotice(`An empty bar was inserted at bar ${entryBar.number + 1}; everything after it — notes, chords and clips — moved one bar later. Undo reverses the notes; chords and clips follow the settings.`);
   }
   function deleteBarAtCaret() {
     if (!entryBar) return;
@@ -985,7 +995,19 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setTimedLyrics(current => current
       .filter(line => !(line.start >= entryBar.start - .005 && line.end <= entryBar.end + .005))
       .map(line => line.start >= entryBar.end - .005 ? { ...line, start: line.start - length, end: line.end - length } : line));
-    setEditorNotice(`Bar ${entryBar.number + 1} removed${removed ? ` with its ${removed} note${removed === 1 ? '' : 's'}` : ''}; later bars moved up. Undo reverses it.`);
+    setTrackSettingsDirty(current => ({
+      ...current,
+      chord_symbols: (current.chord_symbols ?? [])
+        .filter(chord => !(chord.at >= entryBar.start - .005 && chord.at < entryBar.end - .005))
+        .map(chord => chord.at >= entryBar.end - .005 ? { ...chord, at: roundPrecise(chord.at - length) } : chord),
+      band_tracks: current.band_tracks?.map(track => ({
+        ...track,
+        clips: track.clips
+          .filter(clip => !(clip.start >= entryBar.start - .005 && clip.start < entryBar.end - .005))
+          .map(clip => clip.start >= entryBar.end - .005 ? { ...clip, start: roundPrecise(clip.start - length) } : clip),
+      })).filter(track => track.clips.length > 0),
+    }));
+    setEditorNotice(`Bar ${entryBar.number + 1} removed${removed ? ` with its ${removed} note${removed === 1 ? '' : 's'}` : ''}; later bars — notes, chords and clips — moved up. Undo reverses the notes; chords and clips follow the settings.`);
   }
   function nudgeSelectedPitch(delta: number) {
     const target = notes.find(note => note.id === selectedId);
@@ -1343,6 +1365,66 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const clipTarget = bandWrite && typeof bandWrite.target === 'object' && 'clipId' in bandWrite.target ? bandWrite.target : null;
   const partImportRef = useRef<HTMLInputElement | null>(null);
   const [importingPart, setImportingPart] = useState(false);
+  // ---- the MIDI keyboard, DAW-style step entry: play a note or a chord
+  // on a connected keyboard and it lands on the staff at the brush length,
+  // column after column. Notes arriving within 90ms group into one stack.
+  const [studioBrush, setStudioBrush] = useState(2);
+  const studioBrushRef = useRef(2);
+  useEffect(() => { studioBrushRef.current = studioBrush; }, [studioBrush]);
+  const [midiArmed, setMidiArmed] = useState(false);
+  const midiAccessRef = useRef<{ inputs: Map<string, { onmidimessage: ((message: { data: Uint8Array }) => void) | null }>; onstatechange: (() => void) | null } | null>(null);
+  const midiChordRef = useRef<{ midis: number[]; timer: number | null }>({ midis: [], timer: null });
+  function commitMidiStep(midis: number[]) {
+    setDraftInstrumentTab(current => {
+      const cells = parsePartCells(current);
+      while (cells.length && !cells[cells.length - 1]) cells.pop();
+      const start = cells.length;
+      if (start >= 64) return current;
+      const hold = Math.max(1, Math.min(studioBrushRef.current, 64 - start));
+      cells.push({ midis: [...midis].sort((a, b) => a - b), hold });
+      for (let extra = 1; extra < hold; extra++) cells.push(null);
+      return buildPartText(cells);
+    });
+  }
+  function handleMidiMessage(message: { data: Uint8Array }) {
+    const [status, note, velocity] = message.data;
+    if ((status & 0xf0) !== 0x90 || !velocity) return;   // note-on only
+    const chord = midiChordRef.current;
+    chord.midis.push(note);
+    if (chord.timer) window.clearTimeout(chord.timer);
+    chord.timer = window.setTimeout(() => {
+      const midis = [...new Set(chord.midis)];
+      chord.midis = [];
+      chord.timer = null;
+      commitMidiStep(midis);
+    }, 90);
+  }
+  function detachMidi() {
+    const access = midiAccessRef.current;
+    if (access) { for (const input of access.inputs.values()) input.onmidimessage = null; access.onstatechange = null; }
+    setMidiArmed(false);
+  }
+  async function toggleMidiInput() {
+    if (midiArmed) { detachMidi(); setEditorNotice('🎹 MIDI input off.'); return; }
+    const request = (navigator as Navigator & { requestMIDIAccess?: () => Promise<unknown> }).requestMIDIAccess;
+    if (!request) { setEditorNotice('This browser has no Web MIDI — Chrome or Edge can talk to your keyboard.'); return; }
+    try {
+      const access = await request.call(navigator) as NonNullable<typeof midiAccessRef.current>;
+      midiAccessRef.current = access;
+      const attach = () => { for (const input of access.inputs.values()) input.onmidimessage = handleMidiMessage; };
+      attach();
+      access.onstatechange = attach;
+      const count = [...access.inputs.values()].length;
+      setMidiArmed(true);
+      setEditorNotice(count
+        ? `🎹 MIDI armed (${count} device${count === 1 ? '' : 's'}). Play a note or a chord — it lands at the palette's value, step by step. Pick a longer value for longer notes; rests via the staff.`
+        : '🎹 MIDI armed — no keyboard detected yet. Plug it in and play; it will be picked up automatically.');
+    } catch {
+      setEditorNotice('The browser refused MIDI access — allow it in the site permissions and try again.');
+    }
+  }
+  useEffect(() => { if (!bandWrite) detachMidi(); /* the studio closing disarms the keyboard */ // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bandWrite]);
   /** Bring outside music INTO the part: a MIDI file, a MusicXML sheet, or
    *  an audio recording (transcribed offline by the same detector that
    *  turns sung takes into notes). Whatever arrives is quantized onto the
@@ -2408,7 +2490,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                     hoverColumn={studioHover} onHoverColumn={setStudioHover} /></div>
                 <div className="border-t border-sky-300/15"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-sky-200">🎸 Your instrument — the exact part, editable</span>
                   <InstrumentStaffEditor value={draftInstrumentTab} onChange={setDraftInstrumentTab} columns={studioColumns} perBar={bandWrite.perBar}
-                    reference={studioReference} hoverColumn={studioHover} onHoverColumn={setStudioHover} /></div>
+                    reference={studioReference} hoverColumn={studioHover} onHoverColumn={setStudioHover}
+                    brushValue={studioBrush} onBrushChange={setStudioBrush} /></div>
                 {!clipTarget && <div className="border-t border-rose-300/15"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-rose-200">🥁 Your drums — tap the grid</span>
                   <DrumGridEditor value={draftDrumTab} onChange={setDraftDrumTab} columns={studioColumns} perBar={bandWrite.perBar}
                     hoverColumn={studioHover} onHoverColumn={setStudioHover} /></div>}
@@ -2438,6 +2521,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               <div className="flex flex-wrap gap-2">
                 <input ref={partImportRef} type="file" className="hidden" accept=".mid,.midi,.xml,.musicxml,.mxl,audio/*"
                   onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importPartFile(file); }} />
+                <button onClick={() => void toggleMidiInput()} aria-pressed={midiArmed}
+                  title="Connect a MIDI keyboard (Chrome/Edge): play a note or chord and it lands on the staff at the palette's value, step by step — DAW-style entry."
+                  className={`rounded-lg border px-3 py-2 font-semibold ${midiArmed ? 'border-emerald-300/50 bg-emerald-300/15 text-emerald-100' : 'border-white/15 text-slate-300'}`}>{midiArmed ? '🎹 MIDI on' : '🎹 MIDI keyboard'}</button>
                 <button onClick={() => partImportRef.current?.click()} disabled={importingPart}
                   title="Bring outside music into this part: a MIDI file, a MusicXML sheet, or an audio recording (your voice or an instrument — it is transcribed to notes). Quantized to the eighth grid, then edit it like anything else."
                   className="rounded-lg border border-amber-300/35 bg-amber-300/[.08] px-3 py-2 font-semibold text-amber-100 disabled:opacity-50">{importingPart ? 'Reading…' : '📥 Import MIDI / sheet / recording'}</button>
