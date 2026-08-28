@@ -1209,6 +1209,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   // The alignment rail: whichever section the cursor is over, one glowing
   // column runs through voices, staff and drums at that eighth.
   const [studioHover, setStudioHover] = useState<number | null>(null);
+  const [studioFull, setStudioFull] = useState(false);
   /** Print what the band ACTUALLY plays in a window into editable tab text —
    *  how the studio opens a preset pattern as its exact notes. */
   function materializeInstrumentTab(events: BandEvent[], from: number, eighthLen: number, columns: number): string {
@@ -2349,7 +2350,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         </div>}
         {bandWrite && <div className="fixed inset-0 z-[85] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => { stopAudition(); setBandWrite(null); }}>
           <div role="dialog" aria-label="Part studio" onClick={event => event.stopPropagation()}
-            className="flex max-h-[92vh] w-full flex-col gap-3 overflow-auto rounded-2xl border border-sky-300/25 bg-[#0a0e20] p-5 shadow-[0_30px_90px_#000d,0_0_40px_#38bdf822]" style={{ maxWidth: 900 }}>
+            className={`flex w-full flex-col gap-3 overflow-auto rounded-2xl border border-sky-300/25 bg-[#0a0e20] p-5 shadow-[0_30px_90px_#000d,0_0_40px_#38bdf822] ${studioFull ? 'h-[calc(100vh-16px)] max-h-none' : 'max-h-[92vh]'}`}
+            style={{ maxWidth: studioFull ? 'calc(100vw - 16px)' : 'min(1200px, 96vw)' }}>
             <div className="flex items-center justify-between">
               <p className="text-sm font-black text-sky-100">✍ Part studio — {clipTarget ? `🎼 ${(trackSettings.band_tracks ?? []).find(t => t.id === clipTarget.trackId)?.name ?? 'clip'} · from bar ${bandWrite.barNumber}` : bandWrite.target === 'default' ? 'from the top of the song' : `from bar ${bandWrite.barNumber}`}</p>
               <div className="flex items-center gap-2">
@@ -2362,6 +2364,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   </select></label>}
                 <button onClick={() => setPatternBars(current => current + 1)} disabled={studioColumns >= 64}
                   title="Extend the pattern by one bar — all three sections grow together" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300 disabled:opacity-30">＋ bar</button>
+                <button onClick={() => setStudioFull(current => !current)} aria-pressed={studioFull}
+                  title={studioFull ? 'Back to the windowed studio' : 'Fill the screen with the studio'}
+                  className={`rounded-lg border px-2.5 py-1 text-xs ${studioFull ? 'border-sky-300/50 bg-sky-300/15 text-sky-100' : 'border-white/15 text-slate-300'}`}>⛶</button>
                 <button onClick={() => { stopAudition(); setBandWrite(null); }} aria-label="Close part studio" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300">✕</button>
               </div>
             </div>
@@ -2539,6 +2544,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onBandDrop={handleBandChipDrop}
                 clipMarkers={(trackSettings.band_tracks ?? []).flatMap(track => track.clips.map(clip => ({ at: clip.start, label: `🎼 ${track.name}`, trackId: track.id, clipId: clip.id })))}
                 onClipEdit={openClipWrite}
+                showLeadIn
                 onDeselect={() => { setSelectedId(null); setSelectedIds([]); setEditorNotice(null); }}
                 onEraseNote={removeNote}
                 onDragCommit={(id, changes) => update(id, changes)}
