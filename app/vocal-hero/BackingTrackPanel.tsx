@@ -67,6 +67,9 @@ export function BackingTrackPanel({ url, kind, fileName, settings, setSettings, 
     graph.gain.gain.value = settings.volume;
     graph.filter.type = settings.effect === 'warm' ? 'lowpass' : 'highshelf';
     graph.filter.frequency.value = settings.effect === 'warm' ? 2400 : 2600;
+    // Lowpass Q is in dB and the default is a +1dB bump AT the cutoff — a
+    // small honk right where 'warm' is meant to soften. −3dB rolls clean.
+    graph.filter.Q.value = -3;
     graph.filter.gain.value = settings.effect === 'bright' ? 8 : 0;
     void graph.context.resume();
   }

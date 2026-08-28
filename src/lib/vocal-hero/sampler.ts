@@ -41,8 +41,13 @@ const SETS: Record<'piano' | 'guitar', SampleSet> = {
 };
 
 const fetched = new Map<string, Promise<ArrayBuffer | null>>();
-const decodedBuffers = new WeakMap<AudioContext, Map<string, AudioBuffer>>();
-const decodingNow = new WeakMap<AudioContext, Map<string, Promise<void>>>();
+// One decode for the whole session: an AudioBuffer is not tied to the
+// context that decoded it, so every AudioContext the app opens — and the
+// editor opens a fresh one per play — shares these. Before this was
+// per-context, every single play re-decoded all 34 files and the first
+// notes of every preview lost the race to synthesis.
+const decoded = new Map<string, AudioBuffer>();
+const decodingNow = new Map<string, Promise<void>>();
 
 function sampleKey(set: SampleSet, name: string): string { return `${set.folder}/${name}`; }
 
@@ -64,12 +69,8 @@ export const preloadInstruments = preloadPiano;
 
 function ensureDecoded(context: AudioContext, set: SampleSet, name: string): Promise<void> {
   const key = sampleKey(set, name);
-  let buffers = decodedBuffers.get(context);
-  if (!buffers) { buffers = new Map(); decodedBuffers.set(context, buffers); }
-  if (buffers.has(key)) return Promise.resolve();
-  let busy = decodingNow.get(context);
-  if (!busy) { busy = new Map(); decodingNow.set(context, busy); }
-  const pending = busy.get(key);
+  if (decoded.has(key)) return Promise.resolve();
+  const pending = decodingNow.get(key);
   if (pending) return pending;
   const job = (async () => {
     const raw = await fetchSample(set, name);
@@ -77,10 +78,10 @@ function ensureDecoded(context: AudioContext, set: SampleSet, name: string): Pro
     try {
       // decodeAudioData detaches its input — decode a copy, keep the original.
       const buffer = await context.decodeAudioData(raw.slice(0));
-      buffers.set(key, buffer);
+      decoded.set(key, buffer);
     } catch { /* an undecodable sample keeps the synth fallback */ }
   })();
-  busy.set(key, job);
+  decodingNow.set(key, job);
   return job;
 }
 
@@ -109,7 +110,12 @@ function nearestAnchor(set: SampleSet, midi: number): { name: string; midi: numb
 
 function playSampled(context: AudioContext, set: SampleSet, midi: number, startAt: number, length: number, peak: number, releaseTail: number, glideTo?: number): boolean {
   const anchor = nearestAnchor(set, midi);
-  const buffer = decodedBuffers.get(context)?.get(sampleKey(set, anchor.name));
+  // Beyond the recorded range the shift stops being a shift and becomes a
+  // smear (a low piano slowed 7 semitones) or a chipmunk (a tab note above
+  // the guitar's top string sped ×2.2). The synthesized voice handles any
+  // pitch — let it, past ±3 semitones from the nearest recording.
+  if (Math.abs(midi - anchor.midi) > 3) return false;
+  const buffer = decoded.get(sampleKey(set, anchor.name));
   if (!buffer) { void ensureDecoded(context, set, anchor.name); return false; }
   const source = context.createBufferSource();
   source.buffer = buffer;
@@ -141,9 +147,13 @@ export function playPiano(context: AudioContext, midi: number, startAt: number, 
 }
 
 /** The guitar. Sampled when ready, Karplus–Strong until then; slides bend
- *  the recording itself. */
+ *  the recording itself. The VSCO2 recordings run hot next to the
+ *  Salamander piano — ×2.6 (not the piano's ×4.2) lands the same written
+ *  level at the same loudness on either instrument, and within a whisker
+ *  of the synthesized string, so the engine switching mid-song is a change
+ *  of tone, not a jump in volume. */
 export function playGuitar(context: AudioContext, midi: number, startAt: number, length: number, level = 0.05, glideTo?: number): void {
-  if (!playSampled(context, SETS.guitar, midi, startAt, length, Math.min(0.9, level * 4.6), 0.3, glideTo)) {
+  if (!playSampled(context, SETS.guitar, midi, startAt, length, Math.min(0.9, level * 2.6), 0.3, glideTo)) {
     playGuitarPluck(context, midi, startAt, length, level, glideTo);
   }
 }

@@ -197,8 +197,8 @@ export function playGuitarPluck(context: AudioContext, midi: number, startAt: nu
   feedback.gain.setValueAtTime(Math.min(0.96, Math.pow(0.001, period / ring)), startAt);
   feedback.gain.setValueAtTime(0, startAt + ring + 0.35);
   const out = context.createGain();
-  out.gain.setValueAtTime(level * 2.4, startAt);
-  out.gain.setValueAtTime(level * 2.4, startAt + Math.max(0.08, Math.min(length, ring)));
+  out.gain.setValueAtTime(level * 3, startAt);
+  out.gain.setValueAtTime(level * 3, startAt + Math.max(0.08, Math.min(length, ring)));
   out.gain.exponentialRampToValueAtTime(0.0001, startAt + Math.max(0.08, Math.min(length, ring)) + 0.3);
   burst.connect(string);
   string.connect(damping);
