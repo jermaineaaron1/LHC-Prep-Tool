@@ -21,6 +21,7 @@ import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, spli
 import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vocal-hero/performMarks';
 import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
+import { preloadPiano, warmPiano } from '@/lib/vocal-hero/sampler';
 import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
@@ -1125,6 +1126,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   }
   // ---- audition + part studio: hear one band instruction, or write it.
   const auditionContextRef = useRef<AudioContext | null>(null);
+  useEffect(() => { preloadPiano(); }, []);
   function bandBarsForBuild() {
     return musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length) }));
   }
@@ -1149,6 +1151,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     if (!slice.length) return null;
     const context = new AudioContext();
     auditionContextRef.current = context;
+    warmPiano(context);
     void context.resume();
     const start = context.currentTime + 0.06;
     for (const event of slice) playBandEvent(context, event, start + event.at - from);
@@ -2016,6 +2019,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     if (preview.length) {
       const context = new AudioContext();
       audioContextRef.current = context;
+      warmPiano(context);
       void context.resume();
       preview.forEach(note => {
         const audibleStart = Math.max(note.start, first);

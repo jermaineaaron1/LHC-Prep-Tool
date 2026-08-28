@@ -17,8 +17,9 @@ import { interpretMarks } from './performMarks';
 import type { BandClip, BandTimbre, BandTrack, SongNote } from './types';
 import {
   playBassTone, playCajonBass, playCajonSlap, playCajonTick, playGuitarPluck,
-  playHat, playKick, playPianoNote, playSnare, playStrum, playTom,
+  playHat, playKick, playSnare, playStrum, playTom,
 } from './voiceSynth';
+import { playPiano, warmPiano } from './sampler';
 
 export type { BandClip, BandTimbre, BandTrack };
 
@@ -629,11 +630,11 @@ export function playBandEvent(context: AudioContext, event: BandEvent, when: num
     case 'strum-down': playStrum(context, event.midis ?? [], when, 'down', event.sustain ?? 1, level); break;
     case 'strum-up': playStrum(context, event.midis ?? [], when, 'up', event.sustain ?? 0.8, level); break;
     case 'pluck':
-      if (event.timbre === 'piano') (event.midis ?? []).forEach((midi, index) => playPianoNote(context, midi, when + index * 0.005, event.sustain ?? 0.9, level));
+      if (event.timbre === 'piano') (event.midis ?? []).forEach((midi, index) => playPiano(context, midi, when + index * 0.005, event.sustain ?? 0.9, level));
       else if (event.timbre === 'bass') (event.midis ?? []).forEach(midi => playBassTone(context, midi, when, event.sustain ?? 0.9, level));
       else (event.midis ?? []).forEach(midi => playGuitarPluck(context, midi, when, event.sustain ?? 0.9, level, event.slideTo));
       break;
-    case 'keys': (event.midis ?? []).forEach((midi, index) => playPianoNote(context, midi, when + index * 0.006, event.sustain ?? 1.2, level)); break;
+    case 'keys': (event.midis ?? []).forEach((midi, index) => playPiano(context, midi, when + index * 0.006, event.sustain ?? 1.2, level)); break;
     case 'bass': (event.midis ?? []).forEach(midi => playBassTone(context, midi, when, event.sustain ?? 0.8, level)); break;
     case 'kick': playKick(context, when, level); break;
     case 'snare': playSnare(context, when, level); break;
@@ -658,6 +659,8 @@ export class BandPlayer {
   constructor(context: AudioContext, events: BandEvent[]) {
     this.context = context;
     this.events = events;
+    // decode the piano for this clock before its first note needs it
+    warmPiano(context);
   }
 
   update(songElapsed: number, rate = 1): void {
