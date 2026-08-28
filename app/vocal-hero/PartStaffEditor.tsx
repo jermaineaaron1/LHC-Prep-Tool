@@ -33,7 +33,8 @@ const PC_SHARP = [false, true, false, true, false, false, true, false, true, fal
 const VOICE_COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
 const VOICE_LABELS = ['S', 'A', 'T', 'B'];
 
-interface Cell { midis: number[]; hold: number; slideTo?: number; accent?: boolean; staccato?: boolean; symbol?: string }
+export interface PartCell { midis: number[]; hold: number; slideTo?: number; accent?: boolean; staccato?: boolean; symbol?: string }
+type Cell = PartCell;
 
 function tokenMidi(token: string): number | null {
   const match = token.toLowerCase().match(/^([a-g])([#b]?)(-?\d)$/);

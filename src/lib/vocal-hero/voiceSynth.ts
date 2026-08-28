@@ -163,6 +163,96 @@ export function playVoiceTone(
   };
 }
 
+/** A REAL plucked string: Karplus–Strong. A burst of noise excites a tuned
+ *  delay-line loop whose damping filter eats the highs the way a vibrating
+ *  string does — the classic algorithm, far closer to a guitar than any
+ *  oscillator. `glideTo` bends the string by retuning the loop. */
+export function playGuitarPluck(context: AudioContext, midi: number, startAt: number, length: number, level = 0.05, glideTo?: number): void {
+  const frequency = 440 * Math.pow(2, (midi - 69) / 12);
+  const period = 1 / frequency;
+  const ring = Math.max(0.35, Math.min(2.4, length * 1.15));
+  const burstSamples = Math.max(4, Math.round(context.sampleRate * period));
+  const buffer = context.createBuffer(1, burstSamples, context.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let index = 0; index < burstSamples; index++) data[index] = (Math.random() * 2 - 1) * (1 - 0.35 * (index / burstSamples));
+  const burst = context.createBufferSource();
+  burst.buffer = buffer;
+  const string = context.createDelay(1);
+  string.delayTime.value = period;
+  if (glideTo !== undefined) {
+    const target = 1 / (440 * Math.pow(2, (glideTo - 69) / 12));
+    string.delayTime.setValueAtTime(period, startAt + Math.min(0.1, length * 0.25));
+    string.delayTime.linearRampToValueAtTime(target, startAt + Math.max(0.22, length * 0.9));
+  }
+  const damping = context.createBiquadFilter();
+  damping.type = 'lowpass';
+  damping.frequency.value = Math.min(8500, 1600 + frequency * 5);
+  const feedback = context.createGain();
+  feedback.gain.setValueAtTime(Math.pow(0.001, period / ring), startAt);
+  feedback.gain.setValueAtTime(0, startAt + ring + 0.35);
+  const out = context.createGain();
+  out.gain.setValueAtTime(level * 2.4, startAt);
+  out.gain.setValueAtTime(level * 2.4, startAt + Math.max(0.08, Math.min(length, ring)));
+  out.gain.exponentialRampToValueAtTime(0.0001, startAt + Math.max(0.08, Math.min(length, ring)) + 0.3);
+  burst.connect(string);
+  string.connect(damping);
+  damping.connect(feedback);
+  feedback.connect(string);
+  damping.connect(out);
+  out.connect(mixBus(context));
+  burst.start(startAt);
+  burst.stop(startAt + burstSamples / context.sampleRate + 0.01);
+  // the loop never empties on its own — cut it loose once it is silent
+  const untilMs = Math.max(80, (startAt + ring + 0.8 - context.currentTime) * 1000);
+  setTimeout(() => { try { feedback.disconnect(); damping.disconnect(); string.disconnect(); out.disconnect(); } catch { /* context closed */ } }, untilMs);
+}
+
+/** A piano tone: stretched partials with per-partial decay, a felt-hammer
+ *  thump at the onset, and a two-stage release — additive, not sampled,
+ *  but it reads as a piano where the old triangle read as a toy. */
+export function playPianoNote(context: AudioContext, midi: number, startAt: number, length: number, level = 0.06): void {
+  const fundamental = 440 * Math.pow(2, (midi - 69) / 12);
+  const hold = Math.max(0.25, length);
+  const out = context.createGain();
+  out.gain.setValueAtTime(0.0001, startAt);
+  out.gain.exponentialRampToValueAtTime(level, startAt + 0.006);
+  out.gain.setTargetAtTime(level * 0.35, startAt + 0.01, 0.35);
+  out.gain.setValueAtTime(level * 0.35 + 0.0001, startAt + hold);
+  out.gain.exponentialRampToValueAtTime(0.0001, startAt + hold + 0.3);
+  out.connect(mixBus(context));
+  const PARTIALS: Array<[number, number]> = [[1, 1], [2, 0.34], [3, 0.16], [4, 0.07], [5, 0.035]];
+  const oscillators: OscillatorNode[] = [];
+  for (const [n, amplitude] of PARTIALS) {
+    const partial = context.createOscillator();
+    partial.type = 'sine';
+    partial.frequency.value = fundamental * n * (1 + 0.0007 * n * n);   // string stiffness stretch
+    const weight = context.createGain();
+    weight.gain.setValueAtTime(amplitude, startAt);
+    weight.gain.setTargetAtTime(amplitude * 0.12, startAt + 0.02, 0.9 / n);   // highs die first
+    partial.connect(weight);
+    weight.connect(out);
+    oscillators.push(partial);
+  }
+  // the hammer: a felt thump, 7ms of band-passed noise
+  const thumpSamples = Math.round(context.sampleRate * 0.007);
+  const thump = context.createBuffer(1, thumpSamples, context.sampleRate);
+  const thumpData = thump.getChannelData(0);
+  for (let index = 0; index < thumpSamples; index++) thumpData[index] = (Math.random() * 2 - 1) * (1 - index / thumpSamples);
+  const hammer = context.createBufferSource();
+  hammer.buffer = thump;
+  const hammerBand = context.createBiquadFilter();
+  hammerBand.type = 'bandpass';
+  hammerBand.frequency.value = Math.min(3400, fundamental * 3.5);
+  hammerBand.Q.value = 0.8;
+  const hammerGain = context.createGain();
+  hammerGain.gain.value = level * 3.2;
+  hammer.connect(hammerBand);
+  hammerBand.connect(hammerGain);
+  hammerGain.connect(mixBus(context));
+  oscillators.forEach(node => { node.start(startAt); node.stop(startAt + hold + 0.4); });
+  hammer.start(startAt);
+}
+
 /** A plucked chord tone — the accompaniment's guitar/piano middle ground.
  *  `glideTo` slides the pitch into a target note over the pluck's ring —
  *  the written tab's e3>g3. */
@@ -202,13 +292,13 @@ export function playPluck(context: AudioContext, midi: number, startAt: number, 
   [oscillator, bright].forEach(node => { node.start(startAt); node.stop(startAt + Math.max(0.3, length) + 0.1); });
 }
 
-/** A strummed chord: the pluck rolled across the strings. Down begins on
- *  the low strings; up answers lighter from the top three. */
+/** A strummed chord: real Karplus–Strong strings rolled in sequence. Down
+ *  begins on the low strings; up answers lighter from the top three. */
 export function playStrum(context: AudioContext, midis: number[], startAt: number, direction: 'down' | 'up', sustain: number, level = 0.05): void {
   const strings = direction === 'down' ? midis : [...midis].slice(-3).reverse();
   const gap = direction === 'down' ? 0.014 : 0.01;
   const each = direction === 'down' ? level : level * 0.6;
-  strings.forEach((midi, index) => playPluck(context, midi, startAt + index * gap, sustain, each));
+  strings.forEach((midi, index) => playGuitarPluck(context, midi, startAt + index * gap, sustain, each));
 }
 
 // ── the kit ────────────────────────────────────────────────────────────────

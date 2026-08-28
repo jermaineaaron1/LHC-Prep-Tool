@@ -88,7 +88,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -128,6 +128,10 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   /** Double-clicking a directive (or the popover's Write button) opens the
    *  part studio: the SATB overview plus the written-out line editor. */
   onBandWrite?: (target: { noteId: string } | 'default') => void;
+  /** Free clips on the instrument tracks: a green 🎼 marker prints at each
+   *  clip's start; clicking one opens it in the Part studio. */
+  clipMarkers?: Array<{ at: number; label: string; trackId: string; clipId: string }>;
+  onClipEdit?: (trackId: string, clipId: string) => void;
   /** Double-clicking a SELECTED notehead calls this — the escape hatch that
    *  turns the value palette back into "set the next entry" instead of
    *  "re-value the selection". */
@@ -363,7 +367,17 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       onLeave={() => { if (ghostRef.current) ghostRef.current.style.display = 'none'; }}
       onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={onEraseNote} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
-    {(layout.bandTexts.length > 0 || (onBandEdit && bandDefaults)) && <svg className="absolute left-4 top-4 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
+    {(layout.bandTexts.length > 0 || (onBandEdit && bandDefaults) || (clipMarkers?.length ?? 0) > 0) && <svg className="absolute left-4 top-4 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
+      {clipMarkers?.map((marker, index) => {
+        const position = layout.timeToXY(marker.at);
+        if (!position) return null;
+        return <text key={`clip-${index}`} x={position.x + 12} y={position.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 16}
+          fontSize={10} fontWeight={800} fill="#86efac"
+          className={onClipEdit ? 'hover:fill-white' : undefined} style={onClipEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
+          onClick={onClipEdit ? () => onClipEdit(marker.trackId, marker.clipId) : undefined}>
+          {onClipEdit && <title>A free clip on the {marker.label.replace('🎼 ', '')} track — click to open and edit exactly what it plays</title>}
+          {marker.label}</text>;
+      })}
       {onBandEdit && bandDefaults && <text x={14} y={12 + STAFF_MIDS[3] + 2 * GAP + 16} fontSize={10} fontStyle="italic" fontWeight={700}
         fill="#fca5a5cc" className="hover:fill-white" style={{ pointerEvents: 'auto', cursor: 'pointer' }}
         onClick={() => { setBandEdit({ target: 'default', x: 30, system: 0 }); onBandAudition?.('default'); }}

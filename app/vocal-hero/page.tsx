@@ -68,14 +68,15 @@ const END_TAIL_SEC = 2.5;
  *  broadened) beats the singers see. */
 function bandEventsForSong(song: Song, transpose = 0) {
   const settings = song.backing_track_settings;
-  const accompaniment = settings?.accompaniment ?? { guitar: 'gtr-folk', drums: 'off' };
+  const accompaniment = settings?.accompaniment ?? { guitar: 'off', drums: 'off' };
   const chords = settings?.chord_symbols ?? [];
   const written = playableNotes(song);
   if (!written.length) return [];
   const marked = written.some(note => note.marks?.band);
   const guitarActive = (accompaniment.guitar !== 'off' && chords.length > 0) || marked;
   const drumsActive = accompaniment.drums !== 'off' || marked;
-  if (!guitarActive && !drumsActive) return [];
+  const tracksActive = (settings?.band_tracks ?? []).some(track => !track.muted && track.clips.length > 0);
+  if (!guitarActive && !drumsActive && !tracksActive) return [];
   const lastEnd = written.reduce((latest, note) => Math.max(latest, note.end), 0);
   const beat = 60 / Math.max(20, song.bpm || 90);
   const barLen = beat * Math.max(1, song.time_sig || 4);
@@ -89,6 +90,7 @@ function bandEventsForSong(song: Song, transpose = 0) {
     warp: table ? time => tableWarp(table, time) : undefined,
     effectiveVelocity: interpretMarks(written).velocity,
     customTabs: { instrument: accompaniment.instrument_tab, drums: accompaniment.drum_tab },
+    tracks: settings?.band_tracks,
   });
 }
 

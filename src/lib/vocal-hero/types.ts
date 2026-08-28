@@ -37,6 +37,10 @@ export interface SongNote {
   marks?: NoteMarks;
 }
 
+export type BandTimbre = 'guitar' | 'piano' | 'bass';
+export interface BandClip { id: string; start: number; tab: string }
+export interface BandTrack { id: string; name: string; timbre: BandTimbre; clips: BandClip[]; muted?: boolean }
+
 export type DynamicMark = 'pp' | 'p' | 'mp' | 'mf' | 'f' | 'ff';
 
 export interface NoteMarks {
@@ -126,6 +130,11 @@ export interface BackingTrackSettings {
    *  (in the editor preview, in practice, and in the room during a round),
    *  plus the written-out tabs behind the 'custom' styles. */
   accompaniment?: { guitar: string; drums: string; instrument_tab?: string; drum_tab?: string };
+  /** DAW-style instrument tracks: clips of written music placed FREELY on
+   * the song, independent of the style-instruction system. A clip's tab is
+   * the same written language the Part studio edits (stacks, [Em7], ~, -,
+   * slides, ! and .); it plays once from its start — clips do not loop. */
+  band_tracks?: BandTrack[];
   volume: number;
   speed: number;
   /** Seconds to nudge the backing track relative to arrangement time. */

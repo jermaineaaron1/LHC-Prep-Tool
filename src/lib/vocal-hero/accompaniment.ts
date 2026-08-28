@@ -14,11 +14,13 @@
 
 import { parseChord } from './chords';
 import { interpretMarks } from './performMarks';
-import type { SongNote } from './types';
+import type { BandClip, BandTimbre, BandTrack, SongNote } from './types';
 import {
-  playBassTone, playCajonBass, playCajonSlap, playCajonTick,
-  playHat, playKeyTone, playKick, playPluck, playSnare, playStrum, playTom,
+  playBassTone, playCajonBass, playCajonSlap, playCajonTick, playGuitarPluck,
+  playHat, playKick, playPianoNote, playSnare, playStrum, playTom,
 } from './voiceSynth';
+
+export type { BandClip, BandTimbre, BandTrack };
 
 export interface BandBar { start: number; end: number; beatCount: number }
 export interface ChordAt { at: number; symbol: string }
@@ -75,6 +77,9 @@ export interface BandEvent {
   /** Slide target (midi): the pluck bends into this pitch as it rings —
    *  written in the tab as e3>g3. */
   slideTo?: number;
+  /** Which instrument voice renders this event: real plucked strings,
+   *  the piano, or the bass. Unset falls back to the kind's default. */
+  timbre?: BandTimbre;
 }
 
 type PatternStep = { beat: number; kind: BandEventKind; degree?: number; octave?: number; level?: number; sustain?: number };
@@ -352,6 +357,10 @@ export function buildBandEvents(options: {
   effectiveVelocity?: Map<string, number>;
   /** The written-out lines behind the 'custom' styles. */
   customTabs?: { instrument?: string; drums?: string };
+  /** DAW-style instrument tracks: clips of written music placed freely on
+   *  the song. Each clip plays ONCE from its start in its track's timbre —
+   *  clips do not loop and are independent of the style instructions. */
+  tracks?: BandTrack[];
   /** ±8ms seeded jitter so the band breathes instead of sounding quantized.
    *  On by default; pass false for grid-exact output (tests, exports). */
   humanize?: boolean;
@@ -469,6 +478,7 @@ export function buildBandEvents(options: {
           at: warp(time), kind: step.kind, midis,
           sustain: sustainWarped(time, writtenSustain),
           level: step.level, gain,
+          timbre: instrument.startsWith('pno') ? 'piano' : 'guitar',
         });
       }
       if (instrument === 'gtr-solo') solowalk = (solowalk + 1) % 3;
@@ -520,6 +530,7 @@ export function buildBandEvents(options: {
         events.push({
           id: `m-${note.id}`,
           at: warp(note.start), kind, midis: [note.midi + transpose],
+          timbre: instrument === 'melody-pno' ? 'piano' : 'guitar',
           sustain: sustainWarped(note.start, Math.max(0.2, note.end - note.start)),
           level: 0.045, gain,
         });
@@ -553,6 +564,35 @@ export function buildBandEvents(options: {
     }
     instrumentEighth += bar.beatCount * 2;
     drumEighth += bar.beatCount * 2;
+  }
+  // ---- instrument TRACKS: clips of written music placed freely, each
+  // playing once from its start in its track's timbre. Independent of the
+  // style instructions above — the DAW layer over the band.
+  for (const track of options.tracks ?? []) {
+    if (track.muted) continue;
+    for (const clip of track.clips) {
+      const parsedClip = parseInstrumentTab(clip.tab);
+      if (!parsedClip) continue;
+      const clipBar = bars.find(bar => clip.start >= bar.start - 0.01 && clip.start < bar.end) ?? bars[0];
+      const eighthLen = clipBar ? (clipBar.end - clipBar.start) / (clipBar.beatCount * 2) : 0.25;
+      const sustainWarped = (time: number, written: number) => Math.max(0.2, warp(time + written) - warp(time));
+      for (const note of parsedClip.notes) {
+        const time = clip.start + note.eighth * eighthLen;
+        if (time >= until) continue;
+        const gainBar = bars.find(bar => time >= bar.start && time < bar.end) ?? clipBar;
+        events.push({
+          id: `t-${track.id}-${clip.id}-${note.eighth}`,
+          at: warp(time),
+          kind: track.timbre === 'bass' ? 'bass' : track.timbre === 'piano' ? 'keys' : 'pluck',
+          timbre: track.timbre,
+          midis: (note.midis ?? [note.midi]).map(midi => midi + transpose),
+          sustain: sustainWarped(time, note.holdEighths * eighthLen * (note.staccato ? 0.4 : 1.05)),
+          level: (note.accent ? 1.5 : 1) * (track.timbre === 'bass' ? 0.09 : 0.055),
+          gain: gainBar ? loudness(gainBar) : 1,
+          ...(note.slideTo !== undefined && track.timbre === 'guitar' ? { slideTo: note.slideTo + transpose } : {}),
+        });
+      }
+    }
   }
   // ±8ms of seeded humanity (drums tighter at ±5ms): enough that the strums
   // stop sounding quantized, never enough to read as a timing mistake. The
@@ -588,8 +628,12 @@ export function playBandEvent(context: AudioContext, event: BandEvent, when: num
   switch (event.kind) {
     case 'strum-down': playStrum(context, event.midis ?? [], when, 'down', event.sustain ?? 1, level); break;
     case 'strum-up': playStrum(context, event.midis ?? [], when, 'up', event.sustain ?? 0.8, level); break;
-    case 'pluck': (event.midis ?? []).forEach(midi => playPluck(context, midi, when, event.sustain ?? 0.9, level, event.slideTo)); break;
-    case 'keys': (event.midis ?? []).forEach((midi, index) => playKeyTone(context, midi, when + index * 0.006, event.sustain ?? 1.2, level)); break;
+    case 'pluck':
+      if (event.timbre === 'piano') (event.midis ?? []).forEach((midi, index) => playPianoNote(context, midi, when + index * 0.005, event.sustain ?? 0.9, level));
+      else if (event.timbre === 'bass') (event.midis ?? []).forEach(midi => playBassTone(context, midi, when, event.sustain ?? 0.9, level));
+      else (event.midis ?? []).forEach(midi => playGuitarPluck(context, midi, when, event.sustain ?? 0.9, level, event.slideTo));
+      break;
+    case 'keys': (event.midis ?? []).forEach((midi, index) => playPianoNote(context, midi, when + index * 0.006, event.sustain ?? 1.2, level)); break;
     case 'bass': (event.midis ?? []).forEach(midi => playBassTone(context, midi, when, event.sustain ?? 0.8, level)); break;
     case 'kick': playKick(context, when, level); break;
     case 'snare': playSnare(context, when, level); break;

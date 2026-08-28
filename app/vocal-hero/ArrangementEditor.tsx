@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RenditionRail } from './RenditionBuilder';
 import { ScoreView, type ScoreBar } from './ScoreView';
-import { AlignedVoicesOverview, DrumGridEditor, InstrumentStaffEditor, PART_CELL, PART_LEFT, drumLengthEighths, midiToken, partLengthEighths } from './PartStaffEditor';
+import { AlignedVoicesOverview, DrumGridEditor, InstrumentStaffEditor, PART_CELL, PART_LEFT, buildPartText, drumLengthEighths, midiToken, partLengthEighths, type PartCell } from './PartStaffEditor';
 import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
 import { compileRendition, deriveSections, type RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
@@ -21,7 +21,7 @@ import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, spli
 import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vocal-hero/performMarks';
 import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
-import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
+import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
@@ -438,7 +438,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [showLyricLine, setShowLyricLine] = useState(false);
   const [showHarmony, setShowHarmony] = useState(false);
   const [trackSettings, setTrackSettings] = useState<BackingTrackSettings>({ ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) });
-  const accompaniment = trackSettings.accompaniment ?? { guitar: 'gtr-folk', drums: 'off' };
+  const accompaniment = trackSettings.accompaniment ?? { guitar: 'off', drums: 'off' };
   const [musicalTimeline, setMusicalTimeline] = useState<MusicalTimelineSettings>(() => normaliseMusicalTimeline(song, { ...DEFAULT_TRACK_SETTINGS, ...(song.backing_track_settings ?? {}) }));
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -481,17 +481,19 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const laneBandEvents = useMemo(() => {
     const lastSound = notes.reduce((latest, note) => Math.max(latest, note.end), 0);
     if (!lastSound) return undefined;
-    if (accompaniment.guitar === 'off' && accompaniment.drums === 'off' && !notes.some(note => note.marks?.band)) return undefined;
+    const anyClips = (trackSettings.band_tracks ?? []).some(track => !track.muted && track.clips.length > 0);
+    if (accompaniment.guitar === 'off' && accompaniment.drums === 'off' && !notes.some(note => note.marks?.band) && !anyClips) return undefined;
     const bandBars = musicalBars.map(bar => ({ start: bar.start, end: bar.end, beatCount: Math.max(1, bar.beats.length) }));
     return buildBandEvents({
       bars: bandBars, chords: trackSettings.chord_symbols ?? [], notes,
       defaults: { instrument: accompaniment.guitar as InstrumentStyleId, drums: accompaniment.drums as DrumStyleId },
       until: lastSound + 0.05,
       customTabs: { instrument: accompaniment.instrument_tab, drums: accompaniment.drum_tab },
+      tracks: trackSettings.band_tracks,
       humanize: false, countIn: false,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, musicalBars, trackSettings.chord_symbols, accompaniment.guitar, accompaniment.drums, accompaniment.instrument_tab, accompaniment.drum_tab]);
+  }, [notes, musicalBars, trackSettings.chord_symbols, trackSettings.band_tracks, accompaniment.guitar, accompaniment.drums, accompaniment.instrument_tab, accompaniment.drum_tab]);
   // Rendition: compiled from the SOURCE arrangement, never from its own
   // output — the source tracks the live notes until a compiled rendition is
   // loaded into the editor, then freezes on the pre-load arrangement.
@@ -1077,7 +1079,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     if (target === 'default') {
       const mapped = value === 'stop' ? 'off' : value;
       setTrackSettingsDirty(current => ({ ...current, accompaniment: {
-        guitar: field === 'instrument' ? mapped : current.accompaniment?.guitar ?? 'gtr-folk',
+        guitar: field === 'instrument' ? mapped : current.accompaniment?.guitar ?? 'off',
         drums: field === 'drums' ? mapped : current.accompaniment?.drums ?? 'off',
         instrument_tab: current.accompaniment?.instrument_tab, drum_tab: current.accompaniment?.drum_tab,
       } }));
@@ -1196,7 +1198,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       ? `▶ Auditioning the band from bar ${(bar.number ?? 0) + 1} — double-click the instruction to write the part yourself.`
       : 'The band is silent here — chord styles need chord symbols to play.');
   }
-  const [bandWrite, setBandWrite] = useState<{ target: { noteId: string } | 'default'; barNumber: number; from: number; barLen: number; perBar: number; anchorTime: number } | null>(null);
+  const [bandWrite, setBandWrite] = useState<{ target: { noteId: string } | { trackId: string; clipId: string } | 'default'; barNumber: number; from: number; barLen: number; perBar: number; anchorTime: number } | null>(null);
   /** How many bars the part applies for — null means until the next
    *  instruction. Saving with a number stamps a closing instruction that
    *  restores what played before, so the part covers EXACTLY those bars. */
@@ -1295,12 +1297,109 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       endEighth: Math.min(studioColumns, Math.ceil((note.end - bandWrite.from) / eighthLen - 0.001)),
     })).filter(reference => reference.endEighth > reference.startEighth);
   }, [bandWrite, notes, studioColumns]);
-  // The studio's preview: the DRAFT tabs playing everywhere (band marks
-  // stripped), so the writer sees and hears the whole line against SATB.
+  /** Open the studio on a CLIP: the DAW path. The drafts hold the clip's
+   *  written music; drums and Applies-for do not apply — a clip has its
+   *  own length and its track's timbre. */
+  function openClipWrite(trackId: string, clipId: string, presetBars?: number) {
+    stopAudition();
+    const track = (trackSettings.band_tracks ?? []).find(item => item.id === trackId);
+    const clip = track?.clips.find(item => item.id === clipId);
+    if (!track || !clip) return;
+    const bar = musicalBars.find(item => clip.start + 0.01 >= item.start && clip.start + 0.01 < item.end) ?? musicalBars[0];
+    const perBar = Math.max(2, (bar?.beats.length ?? 2) * 2);
+    setDraftInstrumentTab(clip.tab);
+    setDraftDrumTab('');
+    const contentBars = Math.ceil(Math.max(partLengthEighths(clip.tab), 1) / perBar);
+    setPatternBars(Math.min(8, Math.max(2, presetBars ?? contentBars)));
+    setStudioHover(null);
+    setApplyBars(null);
+    setBandWrite({ target: { trackId, clipId }, barNumber: (bar?.number ?? 0) + 1, from: clip.start, barLen: bar ? bar.end - bar.start : 2, perBar, anchorTime: clip.start });
+  }
+  const clipTarget = bandWrite && typeof bandWrite.target === 'object' && 'clipId' in bandWrite.target ? bandWrite.target : null;
+  const partImportRef = useRef<HTMLInputElement | null>(null);
+  const [importingPart, setImportingPart] = useState(false);
+  /** Bring outside music INTO the part: a MIDI file, a MusicXML sheet, or
+   *  an audio recording (transcribed offline by the same detector that
+   *  turns sung takes into notes). Whatever arrives is quantized onto the
+   *  studio's eighth grid and written into the draft. */
+  async function importPartFile(file: File) {
+    if (!bandWrite) return;
+    setImportingPart(true);
+    try {
+      const name = file.name.toLowerCase();
+      let imported: Array<{ start: number; end: number; midi: number }> = [];
+      let source = '';
+      if (name.endsWith('.mid') || name.endsWith('.midi')) {
+        imported = parseMidiNotes(await file.arrayBuffer());
+        source = 'MIDI';
+      } else if (name.endsWith('.xml') || name.endsWith('.musicxml') || name.endsWith('.mxl')) {
+        imported = parseMusicXml(await readMusicXmlFile(file)).notes;
+        source = 'MusicXML';
+      } else {
+        const context = new AudioContext();
+        const decoded = await context.decodeAudioData(await file.arrayBuffer());
+        await context.close();
+        const result = await detectVocalNotes(decoded, { part: 0, timelineOffset: 0, minMidi: 30, maxMidi: 96 });
+        imported = result.notes;
+        source = `the recording (${Math.round(result.diagnostics.averageConfidence * 100)}% pitch confidence)`;
+      }
+      if (!imported.length) { setEditorNotice('Nothing usable came out of that file — no notes were found.'); return; }
+      const eighthLen = bandWrite.barLen / bandWrite.perBar;
+      const anchor = Math.min(...imported.map(note => note.start));
+      const cells: (PartCell | null)[] = Array.from({ length: 64 }, () => null);
+      let clipped = 0;
+      for (const note of imported) {
+        const column = Math.round((note.start - anchor) / eighthLen);
+        if (column < 0 || column >= 64) { clipped += 1; continue; }
+        const hold = Math.max(1, Math.round((note.end - note.start) / eighthLen));
+        const cell = cells[column] ?? { midis: [], hold: 1 };
+        if (!cell.midis.includes(note.midi)) cell.midis.push(note.midi);
+        cell.midis.sort((a, b) => a - b);
+        cell.hold = Math.max(cell.hold, Math.min(hold, 64 - column));
+        cells[column] = cell;
+      }
+      // A hold must never swallow a later note (imports at a different
+      // tempo than the song can land notes inside earlier holds) — the
+      // earlier note is truncated, the newcomer survives.
+      let previousColumn = -1;
+      for (let column = 0; column < cells.length; column++) {
+        if (!cells[column]) continue;
+        if (previousColumn >= 0) {
+          const previous = cells[previousColumn]!;
+          if (previousColumn + previous.hold > column) previous.hold = column - previousColumn;
+        }
+        previousColumn = column;
+      }
+      const text = buildPartText(cells);
+      if (!text.trim()) { setEditorNotice('The file’s notes did not fit the grid.'); return; }
+      setDraftInstrumentTab(text);
+      setPatternBars(Math.min(8, Math.max(2, Math.ceil(partLengthEighths(text) / bandWrite.perBar))));
+      setEditorNotice(`\u{1F4E5} ${imported.length - clipped} notes imported from ${source}${clipped ? ` (${clipped} beyond the 8-bar window were left out)` : ''} — quantized to the eighth grid, on the staff and ready to reshape.`);
+    } catch (error) {
+      setEditorNotice(`That file could not be read: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setImportingPart(false);
+    }
+  }
+  // The studio's preview: the DRAFT playing. In clip mode the draft is the
+  // clip ALONE (its track's timbre, once, from its start); otherwise the
+  // draft tabs play everywhere with band marks stripped, so the writer
+  // hears the whole line against SATB.
   const draftBandEvents = useMemo(() => {
     if (!bandWrite) return undefined;
     const lastSound = notes.reduce((latest, note) => Math.max(latest, note.end), 0);
     if (!lastSound) return undefined;
+    if (clipTarget) {
+      const track = (trackSettings.band_tracks ?? []).find(item => item.id === clipTarget.trackId);
+      if (!track) return undefined;
+      return buildBandEvents({
+        bars: bandBarsForBuild(), chords: trackSettings.chord_symbols ?? [], notes,
+        defaults: { instrument: 'off', drums: 'off' },
+        until: lastSound + 0.05,
+        tracks: [{ ...track, clips: [{ id: clipTarget.clipId, start: bandWrite.from, tab: draftInstrumentTab }] }],
+        humanize: false, countIn: false,
+      });
+    }
     return buildBandEvents({
       bars: bandBarsForBuild(), chords: trackSettings.chord_symbols ?? [],
       notes: notes.map(note => note.marks?.band ? { ...note, marks: { ...note.marks, band: undefined } } : note),
@@ -1313,7 +1412,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       humanize: false, countIn: false,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bandWrite, draftInstrumentTab, draftDrumTab, musicalBars, notes, trackSettings.chord_symbols, accompaniment.guitar, accompaniment.drums]);
+  }, [bandWrite, clipTarget, draftInstrumentTab, draftDrumTab, musicalBars, notes, trackSettings.chord_symbols, trackSettings.band_tracks, accompaniment.guitar, accompaniment.drums]);
   /** The instruction that ENDS a limited span: restores what played before
    *  the anchor (or the given override), on the first note at the boundary.
    *  Null when a later instruction already takes over inside the span. */
@@ -1339,6 +1438,30 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   function handleBandChipDrop(startBar: number, endBar: number, payload: { field: string; style: string }) {
     const bar = musicalBars.find(item => item.number === startBar);
     if (!bar) return;
+    if (payload.field === 'clip') {
+      // The DAW path: a free clip on its instrument's track, opened in the
+      // studio ready to be written. No carrier note needed — clips live on
+      // the song itself.
+      const timbre = payload.style as BandTimbre;
+      const trackId = `trk-${timbre}`;
+      const clipId = `clip-${crypto.randomUUID().slice(0, 8)}`;
+      setTrackSettingsDirty(current => {
+        const tracks = (current.band_tracks ?? []).map(track => track.id === trackId ? { ...track, clips: [...track.clips] } : track);
+        let track = tracks.find(item => item.id === trackId);
+        if (!track) { track = { id: trackId, name: timbre, timbre, clips: [] }; tracks.push(track); }
+        track.clips.push({ id: clipId, start: bar.start, tab: '' });
+        return { ...current, band_tracks: tracks };
+      });
+      stopAudition();
+      setDraftInstrumentTab('');
+      setDraftDrumTab('');
+      const perBar = Math.max(2, (bar.beats.length ?? 2) * 2);
+      setPatternBars(Math.min(8, Math.max(2, endBar - startBar + 1)));
+      setStudioHover(null);
+      setApplyBars(null);
+      setBandWrite({ target: { trackId, clipId }, barNumber: startBar + 1, from: bar.start, barLen: bar.end - bar.start, perBar, anchorTime: bar.start });
+      return;
+    }
     const carrier = notes.filter(note => note.start >= bar.start - 0.02 && note.start < bar.end - 0.01).sort((a, b) => a.start - b.start)[0]
       ?? notes.filter(note => note.start >= bar.start - 0.02).sort((a, b) => a.start - b.start)[0];
     if (!carrier) { setEditorNotice('No note there to carry the instruction — drop it on a bar with singing.'); return; }
@@ -1377,16 +1500,36 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     // A part limited to N bars gets a CLOSING instruction at its boundary
     // that restores whatever played before it — unless a later instruction
     // already takes over inside the span.
+    // Clips carry their own length — save the tab and be done.
+    if (typeof bandWrite.target === 'object' && 'clipId' in bandWrite.target) {
+      const { trackId, clipId } = bandWrite.target;
+      setTrackSettingsDirty(current => {
+        const tracks = (current.band_tracks ?? [])
+          .map(track => track.id !== trackId ? track : {
+            ...track,
+            clips: instrument
+              ? track.clips.map(clip => clip.id === clipId ? { ...clip, tab: instrument } : clip)
+              : track.clips.filter(clip => clip.id !== clipId),
+          })
+          .filter(track => track.clips.length > 0);
+        return { ...current, band_tracks: tracks.length ? tracks : undefined };
+      });
+      setBandWrite(null);
+      setEditorNotice(instrument
+        ? `\u{1F3BC} The clip is saved — it plays once from bar ${bandWrite.barNumber} in its track's voice. Save keeps it with the song.`
+        : 'The empty clip was removed.');
+      return;
+    }
     const closing = applyBars
       ? closingFor(bandWrite.anchorTime, bandWrite.from + applyBars * bandWrite.barLen,
-        bandWrite.target !== 'default' ? bandWrite.target.noteId : null,
+        typeof bandWrite.target === 'object' && 'noteId' in bandWrite.target ? bandWrite.target.noteId : null,
         bandWrite.target === 'default' ? { instrument: 'stop', drums: 'stop' } : undefined)
       : null;
     if (bandWrite.target === 'default') {
       // The song-wide part: lives on the accompaniment settings.
       setTrackSettingsDirty(current => {
         const acc = {
-          guitar: current.accompaniment?.guitar ?? 'gtr-folk', drums: current.accompaniment?.drums ?? 'off',
+          guitar: current.accompaniment?.guitar ?? 'off', drums: current.accompaniment?.drums ?? 'off',
           instrument_tab: instrument || undefined, drum_tab: drums || undefined,
         };
         if (instrument) acc.guitar = 'custom';
@@ -1401,7 +1544,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       // A section's part: lives ON ITS INSTRUCTION, so every section keeps
       // its own written music — editing one never rewrites another.
       // Empty drafts CLEAR the instruction's stored part.
-      const noteId = bandWrite.target.noteId;
+      const noteId = (bandWrite.target as { noteId: string }).noteId;
       pushHistory();
       setNotes(current => current.map(note => {
         if (note.id === noteId) {
@@ -1808,6 +1951,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           warp: w,
           effectiveVelocity: performed.velocity,
           customTabs: { instrument: accompaniment.instrument_tab, drums: accompaniment.drum_tab },
+          tracks: trackSettings.band_tracks,
         });
         const windowFrom = w(first) - .01, windowTo = w(end);
         for (const event of events) {
@@ -2109,7 +2253,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           <button onClick={() => setPreviewVoices(current => !current)} aria-pressed={previewVoices}
             title={previewVoices ? 'The preview sings: vowels from the lyrics, vibrato and all. Tap for piano.' : 'The preview plays piano. Tap to hear it sung.'}
             className={`rounded-lg border px-2.5 py-2 ${previewVoices ? 'border-emerald-300/50 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-slate-300'}`}>{previewVoices ? '\ud83c\udfa4' : '\ud83c\udfb9'}</button>
-          <button onClick={() => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: (current.accompaniment?.guitar ?? 'gtr-folk'), drums: (current.accompaniment?.drums ?? 'off') === 'off' ? 'drum-kit' : 'off' } }))} aria-pressed={accompaniment.drums !== 'off'}
+          <button onClick={() => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: (current.accompaniment?.guitar ?? 'off'), drums: (current.accompaniment?.drums ?? 'off') === 'off' ? 'drum-kit' : 'off' } }))} aria-pressed={accompaniment.drums !== 'off'}
             title="Drums on or off for THIS SONG — saved with it, heard in preview, practice and rounds. Pick the style (kit or cajon) under the three-dots menu."
             className={`rounded-lg border px-2.5 py-2 ${accompaniment.drums !== 'off' ? 'border-amber-300/50 bg-amber-300/10 text-amber-100' : 'border-white/15 text-slate-300'}`}>{'\ud83e\udd41'}</button>
           <button onClick={() => setMoreOpen(open => !open)} aria-expanded={moreOpen} title="Import, backing track, recording, zoom and more"
@@ -2143,7 +2287,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   {INSTRUMENT_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
                 </select></label>
               <label className="flex items-center gap-1.5 text-slate-400">Drums
-                <select aria-label="Drum style" value={accompaniment.drums} onChange={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { ...(current.accompaniment ?? { guitar: 'gtr-folk' }), guitar: current.accompaniment?.guitar ?? 'gtr-folk', drums: event.target.value } }))}
+                <select aria-label="Drum style" value={accompaniment.drums} onChange={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { ...(current.accompaniment ?? { guitar: 'gtr-folk' }), guitar: current.accompaniment?.guitar ?? 'off', drums: event.target.value } }))}
                   className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] text-white">
                   {DRUM_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
                 </select></label>
@@ -2158,7 +2302,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             {accompaniment.drums === 'custom' && <div>
               <p className="mb-1 text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Your drum tab — one column per eighth, looped. Lanes: K kick · S snare · H hat · T/t toms · B/P/c cajon. x or o hits, X/O accents, - rests</p>
               <textarea aria-label="Custom drum tab" rows={4} defaultValue={accompaniment.drum_tab ?? ''} placeholder={'K: o---o---\nS: --o---o-\nH: x-x-x-x-'}
-                onBlur={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: current.accompaniment?.guitar ?? 'gtr-folk', drums: 'custom', instrument_tab: current.accompaniment?.instrument_tab, drum_tab: event.target.value } }))}
+                onBlur={event => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: current.accompaniment?.guitar ?? 'off', drums: 'custom', instrument_tab: current.accompaniment?.instrument_tab, drum_tab: event.target.value } }))}
                 className="w-full rounded-lg border border-white/15 bg-black/30 px-2 py-1.5 font-mono text-[11px] text-white" /></div>}
             <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Song key</p>
             <div className="flex flex-wrap items-center gap-2">
@@ -2207,15 +2351,15 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           <div role="dialog" aria-label="Part studio" onClick={event => event.stopPropagation()}
             className="flex max-h-[92vh] w-full flex-col gap-3 overflow-auto rounded-2xl border border-sky-300/25 bg-[#0a0e20] p-5 shadow-[0_30px_90px_#000d,0_0_40px_#38bdf822]" style={{ maxWidth: 900 }}>
             <div className="flex items-center justify-between">
-              <p className="text-sm font-black text-sky-100">✍ Part studio — {bandWrite.target === 'default' ? 'from the top of the song' : `from bar ${bandWrite.barNumber}`}</p>
+              <p className="text-sm font-black text-sky-100">✍ Part studio — {clipTarget ? `🎼 ${(trackSettings.band_tracks ?? []).find(t => t.id === clipTarget.trackId)?.name ?? 'clip'} · from bar ${bandWrite.barNumber}` : bandWrite.target === 'default' ? 'from the top of the song' : `from bar ${bandWrite.barNumber}`}</p>
               <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-slate-400"
+                {!clipTarget && <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-slate-400"
                   title="How long this part governs the band. 'until changed' plays until the next instruction; N bars stamps a closing instruction at the boundary that brings the previous sound back — and the window below always shows every bar of the span.">Applies for
                   <select value={applyBars ?? 0} onChange={event => setApplyBars(Number(event.target.value) || null)}
                     className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] normal-case tracking-normal text-white">
                     <option value={0}>until changed</option>
                     {[1, 2, 3, 4, 6, 8].filter(n => bandWrite && n * bandWrite.perBar <= 64).map(n => <option key={n} value={n}>{n} bar{n > 1 ? 's' : ''}</option>)}
-                  </select></label>
+                  </select></label>}
                 <button onClick={() => setPatternBars(current => current + 1)} disabled={studioColumns >= 64}
                   title="Extend the pattern by one bar — all three sections grow together" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300 disabled:opacity-30">＋ bar</button>
                 <button onClick={() => { stopAudition(); setBandWrite(null); }} aria-label="Close part studio" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300">✕</button>
@@ -2232,9 +2376,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 <div className="border-t border-sky-300/15"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-sky-200">🎸 Your instrument — the exact part, editable</span>
                   <InstrumentStaffEditor value={draftInstrumentTab} onChange={setDraftInstrumentTab} columns={studioColumns} perBar={bandWrite.perBar}
                     reference={studioReference} hoverColumn={studioHover} onHoverColumn={setStudioHover} /></div>
-                <div className="border-t border-rose-300/15"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-rose-200">🥁 Your drums — tap the grid</span>
+                {!clipTarget && <div className="border-t border-rose-300/15"><span className="pl-2 text-[9px] font-black uppercase tracking-[.16em] text-rose-200">🥁 Your drums — tap the grid</span>
                   <DrumGridEditor value={draftDrumTab} onChange={setDraftDrumTab} columns={studioColumns} perBar={bandWrite.perBar}
-                    hoverColumn={studioHover} onHoverColumn={setStudioHover} /></div>
+                    hoverColumn={studioHover} onHoverColumn={setStudioHover} /></div>}
               </div>
             </div>
             <details className="text-[11px] text-slate-300">
@@ -2259,6 +2403,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             <div className="flex items-center justify-between gap-2 text-[11px]">
               <span className="font-mono text-slate-500">count the eighths: {Array.from({ length: Math.max(1, scoreBars[0]?.numerator ?? 4) }, (_, i) => `${i + 1} &`).join(' ')} | (one bar)</span>
               <div className="flex flex-wrap gap-2">
+                <input ref={partImportRef} type="file" className="hidden" accept=".mid,.midi,.xml,.musicxml,.mxl,audio/*"
+                  onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importPartFile(file); }} />
+                <button onClick={() => partImportRef.current?.click()} disabled={importingPart}
+                  title="Bring outside music into this part: a MIDI file, a MusicXML sheet, or an audio recording (your voice or an instrument — it is transcribed to notes). Quantized to the eighth grid, then edit it like anything else."
+                  className="rounded-lg border border-amber-300/35 bg-amber-300/[.08] px-3 py-2 font-semibold text-amber-100 disabled:opacity-50">{importingPart ? 'Reading…' : '📥 Import MIDI / sheet / recording'}</button>
                 <button onClick={() => {
                   if (auditionRun) { stopAudition(); return; }
                   const seconds = studioColumns * (bandWrite.barLen / bandWrite.perBar) + 0.01;
@@ -2275,8 +2424,23 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   setAuditionRun({ context: run.context, startAt: run.start, seconds });
                 }}
                   title="Hear the part together with the choir's voices, across the whole window — the needle rides the ruler" className={`rounded-lg border px-3 py-2 font-semibold ${auditionRun ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-fuchsia-300/40 bg-fuchsia-300/10 text-fuchsia-100'}`}>{auditionRun ? '■ Stop' : '▶ With the voices'}</button>
-                {bandWrite.target !== 'default' && <button onClick={() => { const target = bandWrite.target; stopAudition(); setBandWrite(null); applyBandAt(target, 'remove', ''); setEditorNotice('The instruction and its written part are removed — the previous sound plays on through here.'); }}
-                  title="Delete this instruction and its written part; the previous sound continues through these bars" className="rounded-lg border border-rose-300/35 px-3 py-2 font-semibold text-rose-200">🗑 Remove</button>}
+                {bandWrite.target !== 'default' && <button onClick={() => {
+                  const target = bandWrite.target;
+                  stopAudition(); setBandWrite(null);
+                  if (typeof target === 'object' && 'clipId' in target) {
+                    setTrackSettingsDirty(current => {
+                      const tracks = (current.band_tracks ?? [])
+                        .map(track => track.id !== target.trackId ? track : { ...track, clips: track.clips.filter(clip => clip.id !== target.clipId) })
+                        .filter(track => track.clips.length > 0);
+                      return { ...current, band_tracks: tracks.length ? tracks : undefined };
+                    });
+                    setEditorNotice('The clip is removed.');
+                  } else {
+                    applyBandAt(target as { noteId: string }, 'remove', '');
+                    setEditorNotice('The instruction and its written part are removed — the previous sound plays on through here.');
+                  }
+                }}
+                  title="Delete this clip or instruction; the surrounding sound continues" className="rounded-lg border border-rose-300/35 px-3 py-2 font-semibold text-rose-200">🗑 Remove</button>}
                 <button onClick={() => { stopAudition(); setBandWrite(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-slate-300">Cancel</button>
                 <button onClick={saveBandWrite} className="rounded-lg bg-[linear-gradient(120deg,#38bdf8,#a78bfa)] px-4 py-2 font-black text-[#08101d]">Use this part</button>
               </div>
@@ -2345,6 +2509,12 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'stop', style: 'stop' })); event.dataTransfer.effectAllowed = 'copy'; }}
                 title="Drop to silence the whole band from that bar (until the next instruction)"
                 className="cursor-grab select-none rounded-lg border border-white/15 px-2 py-1 text-slate-300 active:cursor-grabbing">🚫 Stop band</span>
+              <span className="mx-1 h-4 w-px bg-white/15" />
+              {(['guitar', 'piano', 'bass'] as const).map(timbre =>
+                <span key={timbre} draggable
+                  onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'clip', style: timbre })); event.dataTransfer.effectAllowed = 'copy'; }}
+                  title={`A free ${timbre} clip — drop it ANYWHERE (even empty bars; drag across bars for its length) and write exactly what it plays. It sounds once in a real ${timbre} voice, independent of the style instructions.`}
+                  className="cursor-grab select-none rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 font-semibold text-emerald-100 active:cursor-grabbing">🎼 {timbre === 'guitar' ? '🎸' : timbre === 'piano' ? '🎹' : '🎻'} {timbre} clip</span>)}
             </div>}
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <ScoreView notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
@@ -2367,6 +2537,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onBandAudition={auditionBandAt}
                 onBandWrite={openBandWrite}
                 onBandDrop={handleBandChipDrop}
+                clipMarkers={(trackSettings.band_tracks ?? []).flatMap(track => track.clips.map(clip => ({ at: clip.start, label: `🎼 ${track.name}`, trackId: track.id, clipId: clip.id })))}
+                onClipEdit={openClipWrite}
                 onDeselect={() => { setSelectedId(null); setSelectedIds([]); setEditorNotice(null); }}
                 onEraseNote={removeNote}
                 onDragCommit={(id, changes) => update(id, changes)}
