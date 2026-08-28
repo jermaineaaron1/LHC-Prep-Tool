@@ -374,7 +374,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       {clipMarkers?.map((marker, index) => {
         const position = layout.timeToXY(marker.at);
         if (!position) return null;
-        return <text key={`clip-${index}`} x={position.x + 12} y={position.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 16}
+        return <text key={`clip-${index}`} x={position.x + 12} y={position.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 74}
           fontSize={10} fontWeight={800} fill="#86efac"
           className={onClipEdit ? 'hover:fill-white' : undefined} style={onClipEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
           onClick={onClipEdit ? () => onClipEdit(marker.trackId, marker.clipId) : undefined}>
