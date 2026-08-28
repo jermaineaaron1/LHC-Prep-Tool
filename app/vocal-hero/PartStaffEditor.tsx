@@ -245,17 +245,22 @@ export function AlignedVoicesOverview({ notes, chords, from, eighthLen, columns,
   </svg>;
 }
 
-export function InstrumentStaffEditor({ value, onChange, columns, perBar, reference, hoverColumn, onHoverColumn }: {
+export function InstrumentStaffEditor({ value, onChange, columns, perBar, reference, hoverColumn, onHoverColumn, brushValue, onBrushChange }: {
   value: string; onChange: (next: string) => void; columns: number; perBar: number;
   /** The SATB notes in this window, drawn as faint coloured dashes so the
    *  part is written against the voices' own pitches. */
   reference?: StudioReferenceNote[];
   hoverColumn?: number | null; onHoverColumn?: (column: number | null) => void;
+  /** Controlled value brush (eighths) — the studio owns it so MIDI
+   *  step-entry can share the same length. */
+  brushValue?: number; onBrushChange?: (hold: number) => void;
 }) {
   const cells = useMemo(() => parsePartCells(value), [value]);
   // The value brush: how long the next placed note lasts, in eighths.
   // Double-clicking an existing note re-values it to the brush.
-  const [brush, setBrush] = React.useState(2);
+  const [ownBrush, setOwnBrush] = React.useState(2);
+  const brush = brushValue ?? ownBrush;
+  const setBrush = onBrushChange ?? setOwnBrush;
   const stacks = cells.map((cell, column) => cell ? { ...cell, column } : null).filter(Boolean) as Array<Cell & { column: number }>;
   const allMidis = stacks.flatMap(stack => stack.midis);
   const bass = allMidis.length ? [...allMidis].sort((a, b) => a - b)[Math.floor(allMidis.length / 2)] < 57 : false;
