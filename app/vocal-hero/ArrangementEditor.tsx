@@ -1210,6 +1210,30 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   // column runs through voices, staff and drums at that eighth.
   const [studioHover, setStudioHover] = useState<number | null>(null);
   const [studioFull, setStudioFull] = useState(false);
+  const studioPanelRef = useRef<HTMLDivElement | null>(null);
+  /** ⛶ = REAL browser fullscreen: the studio takes the whole monitor via
+   *  the Fullscreen API, not just the page. If the browser refuses (older
+   *  engines, embeds without the permission), the in-page expansion still
+   *  applies, so the button always does something. */
+  function toggleStudioFullscreen() {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+      setStudioFull(false);
+      return;
+    }
+    setStudioFull(true);
+    void studioPanelRef.current?.requestFullscreen?.().catch(() => undefined);
+  }
+  useEffect(() => {
+    const sync = () => { if (!document.fullscreenElement) setStudioFull(current => current && false); };
+    document.addEventListener('fullscreenchange', sync);
+    return () => document.removeEventListener('fullscreenchange', sync);
+  }, []);
+  useEffect(() => {
+    // Closing the studio always leaves fullscreen with it.
+    if (!bandWrite && document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    if (!bandWrite) setStudioFull(false);
+  }, [bandWrite]);
   /** Print what the band ACTUALLY plays in a window into editable tab text —
    *  how the studio opens a preset pattern as its exact notes. */
   function materializeInstrumentTab(events: BandEvent[], from: number, eighthLen: number, columns: number): string {
@@ -2349,9 +2373,13 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           </div>
         </div>}
         {bandWrite && <div className="fixed inset-0 z-[85] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={() => { stopAudition(); setBandWrite(null); }}>
-          <div role="dialog" aria-label="Part studio" onClick={event => event.stopPropagation()}
-            className={`flex w-full flex-col gap-3 overflow-auto rounded-2xl border border-sky-300/25 bg-[#0a0e20] p-5 shadow-[0_30px_90px_#000d,0_0_40px_#38bdf822] ${studioFull ? 'h-[calc(100vh-16px)] max-h-none' : 'max-h-[92vh]'}`}
-            style={{ maxWidth: studioFull ? 'calc(100vw - 16px)' : 'min(1200px, 96vw)' }}>
+          <div ref={studioPanelRef} role="dialog" aria-label="Part studio" onClick={event => event.stopPropagation()}
+            className={`flex w-full flex-col gap-3 overflow-auto border border-sky-300/25 bg-[#0a0e20] p-5 shadow-[0_30px_90px_#000d,0_0_40px_#38bdf822] ${studioFull ? 'h-screen max-h-none rounded-none' : 'max-h-[92vh] rounded-2xl'}`}
+            style={{ maxWidth: studioFull ? '100vw' : 'min(1200px, 96vw)' }}>
+            {studioFull && editorNotice && <div className="flex items-center gap-3 rounded-xl border border-amber-300/25 bg-[#1c1608] px-3 py-2 text-xs text-amber-100">
+              <span className="flex-1">{editorNotice}</span>
+              <button onClick={() => setEditorNotice(null)} aria-label="Dismiss studio notice" className="rounded border border-amber-200/25 px-2 py-0.5">Close</button>
+            </div>}
             <div className="flex items-center justify-between">
               <p className="text-sm font-black text-sky-100">✍ Part studio — {clipTarget ? `🎼 ${(trackSettings.band_tracks ?? []).find(t => t.id === clipTarget.trackId)?.name ?? 'clip'} · from bar ${bandWrite.barNumber}` : bandWrite.target === 'default' ? 'from the top of the song' : `from bar ${bandWrite.barNumber}`}</p>
               <div className="flex items-center gap-2">
@@ -2364,8 +2392,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   </select></label>}
                 <button onClick={() => setPatternBars(current => current + 1)} disabled={studioColumns >= 64}
                   title="Extend the pattern by one bar — all three sections grow together" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300 disabled:opacity-30">＋ bar</button>
-                <button onClick={() => setStudioFull(current => !current)} aria-pressed={studioFull}
-                  title={studioFull ? 'Back to the windowed studio' : 'Fill the screen with the studio'}
+                <button onClick={toggleStudioFullscreen} aria-pressed={studioFull}
+                  title={studioFull ? 'Leave fullscreen (Esc works too)' : 'True fullscreen — the studio takes the whole screen'}
                   className={`rounded-lg border px-2.5 py-1 text-xs ${studioFull ? 'border-sky-300/50 bg-sky-300/15 text-sky-100' : 'border-white/15 text-slate-300'}`}>⛶</button>
                 <button onClick={() => { stopAudition(); setBandWrite(null); }} aria-label="Close part studio" className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-300">✕</button>
               </div>
