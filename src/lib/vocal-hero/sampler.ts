@@ -42,7 +42,7 @@ const SETS: Record<'piano' | 'guitar', SampleSet> = {
 
 const fetched = new Map<string, Promise<ArrayBuffer | null>>();
 const decodedBuffers = new WeakMap<AudioContext, Map<string, AudioBuffer>>();
-const decodingNow = new WeakMap<AudioContext, Set<string>>();
+const decodingNow = new WeakMap<AudioContext, Map<string, Promise<void>>>();
 
 function sampleKey(set: SampleSet, name: string): string { return `${set.folder}/${name}`; }
 
@@ -62,22 +62,26 @@ export function preloadPiano(): void {
 }
 export const preloadInstruments = preloadPiano;
 
-async function ensureDecoded(context: AudioContext, set: SampleSet, name: string): Promise<void> {
+function ensureDecoded(context: AudioContext, set: SampleSet, name: string): Promise<void> {
   const key = sampleKey(set, name);
   let buffers = decodedBuffers.get(context);
   if (!buffers) { buffers = new Map(); decodedBuffers.set(context, buffers); }
-  if (buffers.has(key)) return;
+  if (buffers.has(key)) return Promise.resolve();
   let busy = decodingNow.get(context);
-  if (!busy) { busy = new Set(); decodingNow.set(context, busy); }
-  if (busy.has(key)) return;
-  busy.add(key);
-  const raw = await fetchSample(set, name);
-  if (!raw) return;
-  try {
-    // decodeAudioData detaches its input — decode a copy, keep the original.
-    const buffer = await context.decodeAudioData(raw.slice(0));
-    buffers.set(key, buffer);
-  } catch { /* an undecodable sample keeps the synth fallback */ }
+  if (!busy) { busy = new Map(); decodingNow.set(context, busy); }
+  const pending = busy.get(key);
+  if (pending) return pending;
+  const job = (async () => {
+    const raw = await fetchSample(set, name);
+    if (!raw) return;
+    try {
+      // decodeAudioData detaches its input — decode a copy, keep the original.
+      const buffer = await context.decodeAudioData(raw.slice(0));
+      buffers.set(key, buffer);
+    } catch { /* an undecodable sample keeps the synth fallback */ }
+  })();
+  busy.set(key, job);
+  return job;
 }
 
 /** Decode every anchor for this context ahead of playback. Idempotent. */
@@ -85,6 +89,17 @@ export function warmPiano(context: AudioContext): void {
   for (const set of Object.values(SETS)) for (const anchor of set.anchors) void ensureDecoded(context, set, anchor.name);
 }
 export const warmInstruments = warmPiano;
+
+/** Resolves once every sample is decoded for this context (failures count as
+ *  done — a missing file must never hold playback hostage). Preview code
+ *  AWAITS this before scheduling: scheduling picks sample-or-synth at call
+ *  time, so scheduling a whole preview the same tick the context was born
+ *  meant the samples always lost the race and the whole band fell back. */
+export function samplesReady(context: AudioContext): Promise<void> {
+  const jobs: Array<Promise<void>> = [];
+  for (const set of Object.values(SETS)) for (const anchor of set.anchors) jobs.push(ensureDecoded(context, set, anchor.name));
+  return Promise.all(jobs).then(() => undefined);
+}
 
 function nearestAnchor(set: SampleSet, midi: number): { name: string; midi: number } {
   let best = set.anchors[0];

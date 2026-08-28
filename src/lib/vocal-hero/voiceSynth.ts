@@ -187,8 +187,14 @@ export function playGuitarPluck(context: AudioContext, midi: number, startAt: nu
   const damping = context.createBiquadFilter();
   damping.type = 'lowpass';
   damping.frequency.value = Math.min(8500, 1600 + frequency * 5);
+  // For lowpass biquads, Q is in DECIBELS, and the default (+1dB) puts a
+  // resonant bump at the cutoff. Bump × feedback > 1 turned this string
+  // into a runaway oscillator: every pluck BLOOMED into a scream within a
+  // second. −3dB keeps the response at or below unity everywhere, so the
+  // loop can only decay — measured stable across the whole fretboard.
+  damping.Q.value = -3;
   const feedback = context.createGain();
-  feedback.gain.setValueAtTime(Math.pow(0.001, period / ring), startAt);
+  feedback.gain.setValueAtTime(Math.min(0.96, Math.pow(0.001, period / ring)), startAt);
   feedback.gain.setValueAtTime(0, startAt + ring + 0.35);
   const out = context.createGain();
   out.gain.setValueAtTime(level * 2.4, startAt);

@@ -21,7 +21,7 @@ import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, spli
 import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vocal-hero/performMarks';
 import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
-import { preloadPiano, warmPiano } from '@/lib/vocal-hero/sampler';
+import { preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
 import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
@@ -1145,7 +1145,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     }
     return bar;
   }
-  function playAudition(events: BandEvent[], from: number, seconds: number): { context: AudioContext; start: number } | null {
+  async function playAudition(events: BandEvent[], from: number, seconds: number): Promise<{ context: AudioContext; start: number } | null> {
     void auditionContextRef.current?.close().catch(() => undefined);
     const slice = events.filter(event => event.at >= from - 0.01 && event.at < from + seconds);
     if (!slice.length) return null;
@@ -1153,14 +1153,21 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     auditionContextRef.current = context;
     warmPiano(context);
     void context.resume();
+    // Scheduling picks sample-or-synth at CALL time, so scheduling in the
+    // same tick the context was born always lost the race and the whole
+    // audition fell back to synthesis. Wait for the decode (capped, so a
+    // missing file can never hold the preview hostage) — the real piano
+    // and guitar recordings are what plays.
+    await Promise.race([samplesReady(context), new Promise(resolve => setTimeout(resolve, 1500))]);
+    if (auditionContextRef.current !== context || context.state === 'closed') return null;
     const start = context.currentTime + 0.06;
     for (const event of slice) playBandEvent(context, event, start + event.at - from);
     return { context, start };
   }
   /** The studio's second preview: the part TOGETHER with the singing —
    *  every voice sounding in the window joins the band. */
-  function playAuditionWithVoices(events: BandEvent[], from: number, seconds: number): { context: AudioContext; start: number } | null {
-    const running = playAudition(events, from, seconds) ?? (() => {
+  async function playAuditionWithVoices(events: BandEvent[], from: number, seconds: number): Promise<{ context: AudioContext; start: number } | null> {
+    const running = (await playAudition(events, from, seconds)) ?? (() => {
       const context = new AudioContext();
       auditionContextRef.current = context;
       void context.resume();
@@ -1215,10 +1222,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auditionRun]);
-  function auditionBandAt(target: { noteId: string } | 'default') {
+  async function auditionBandAt(target: { noteId: string } | 'default') {
     const bar = anchorBarOf(target);
     if (!bar || !laneBandEvents) { setEditorNotice('Nothing for the band to play yet — give it chord symbols, a melody style, or a written part.'); return; }
-    const played = playAudition(laneBandEvents, bar.start, 4 * (bar.end - bar.start) + 0.01);
+    const played = await playAudition(laneBandEvents, bar.start, 4 * (bar.end - bar.start) + 0.01);
     setEditorNotice(played
       ? `▶ Auditioning the band from bar ${(bar.number ?? 0) + 1} — double-click the instruction to write the part yourself.`
       : 'The band is silent here — chord styles need chord symbols to play.');
@@ -2000,7 +2007,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const end = forceAll || playScope === 'all' ? activePerformance.end : playScope === 'range' ? Math.min(activePerformance.end, playRange.end) : Math.max(start, ...ordered.map(note => note.end));
     return { ordered, start, end };
   }
-  function startPlaybackAt(requestedTime: number, forceAll = false) {
+  async function startPlaybackAt(requestedTime: number, forceAll = false) {
     haltPlaybackEngine();
     const { ordered, start, end } = playbackSelection(forceAll);
     if ((!ordered.length && !mediaUrl) || end <= start) return;
@@ -2021,6 +2028,12 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       audioContextRef.current = context;
       warmPiano(context);
       void context.resume();
+      // Wait (briefly, capped) for the sampled piano and guitar to decode
+      // before scheduling: scheduling picks sample-or-synth at call time,
+      // so the old same-tick scheduling meant the preview NEVER used the
+      // real recordings — every play fell back to synthesis.
+      await Promise.race([samplesReady(context), new Promise(resolve => setTimeout(resolve, 1500))]);
+      if (audioContextRef.current !== context || context.state === 'closed') return;
       preview.forEach(note => {
         const audibleStart = Math.max(note.start, first);
         const at = (w(audibleStart) - w(first)) / transportRate;
@@ -2090,14 +2103,14 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     tick();
     playbackTimerRef.current = setTimeout(() => finishPlayback(end), Math.max(.1, (w(end) - w(first)) / transportRate) * 1000 + 80);
   }
-  function playFromCursor() { startPlaybackAt(playheadRef.current); }
-  function playFromStart() { const selection = playbackSelection(); startPlaybackAt(selection.start); }
+  function playFromCursor() { void startPlaybackAt(playheadRef.current); }
+  function playFromStart() { const selection = playbackSelection(); void startPlaybackAt(selection.start); }
   function seekTransport(time: number, forceAll = false) {
     const wasPlaying = transportRunningRef.current;
     haltPlaybackEngine();
     const next = setTransportPosition(time);
     setIsPaused(false);
-    if (wasPlaying) startPlaybackAt(next, forceAll);
+    if (wasPlaying) void startPlaybackAt(next, forceAll);
   }
   function seekFromTimeline(time: number) { clearPlaybackSelections(); seekTransport(time, true); }
   function skipTransport(seconds: number) { seekTransport(playheadRef.current + seconds); }
@@ -2531,18 +2544,18 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 <button onClick={() => partImportRef.current?.click()} disabled={importingPart}
                   title="Bring outside music into this part: a MIDI file, a MusicXML sheet, or an audio recording (your voice or an instrument — it is transcribed to notes). Quantized to the eighth grid, then edit it like anything else."
                   className="rounded-lg border border-amber-300/35 bg-amber-300/[.08] px-3 py-2 font-semibold text-amber-100 disabled:opacity-50">{importingPart ? 'Reading…' : '📥 Import MIDI / sheet / recording'}</button>
-                <button onClick={() => {
+                <button onClick={async () => {
                   if (auditionRun) { stopAudition(); return; }
                   const seconds = studioColumns * (bandWrite.barLen / bandWrite.perBar) + 0.01;
-                  const run = draftBandEvents ? playAudition(draftBandEvents, bandWrite.from, seconds) : null;
+                  const run = draftBandEvents ? await playAudition(draftBandEvents, bandWrite.from, seconds) : null;
                   if (!run) { setEditorNotice('Nothing to audition yet — write a note or two first.'); return; }
                   setAuditionRun({ context: run.context, startAt: run.start, seconds });
                 }}
                   title="Hear ONLY the instrument and drum part, across the whole window — the needle rides the ruler" className={`rounded-lg border px-3 py-2 font-semibold ${auditionRun ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-emerald-300/40 bg-emerald-300/10 text-emerald-100'}`}>{auditionRun ? '■ Stop' : '▶ Part alone'}</button>
-                <button onClick={() => {
+                <button onClick={async () => {
                   if (auditionRun) { stopAudition(); return; }
                   const seconds = studioColumns * (bandWrite.barLen / bandWrite.perBar) + 0.01;
-                  const run = draftBandEvents ? playAuditionWithVoices(draftBandEvents, bandWrite.from, seconds) : null;
+                  const run = draftBandEvents ? await playAuditionWithVoices(draftBandEvents, bandWrite.from, seconds) : null;
                   if (!run) { setEditorNotice('Nothing sounds in this window yet.'); return; }
                   setAuditionRun({ context: run.context, startAt: run.start, seconds });
                 }}
@@ -2692,7 +2705,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 compiled={compiledRendition}
                 getPlayhead={() => playheadRef.current}
                 isPlaying={isPlaying}
-                onPlayFrom={time => startPlaybackAt(time)}
+                onPlayFrom={time => void startPlaybackAt(time)}
                 onPause={pausePlayback}
                 onStop={stopPlayback}
                 onLoadIntoEditor={applyRendition}
