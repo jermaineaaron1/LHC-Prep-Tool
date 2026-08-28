@@ -88,7 +88,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit, showLeadIn }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -132,6 +132,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
    *  clip's start; clicking one opens it in the Part studio. */
   clipMarkers?: Array<{ at: number; label: string; trackId: string; clipId: string }>;
   onClipEdit?: (trackId: string, clipId: string) => void;
+  /** Render the silent lead-in bars instead of opening at the first note —
+   *  the editor's mode, so instrumental intros have somewhere to live. */
+  showLeadIn?: boolean;
   /** Double-clicking a SELECTED notehead calls this — the escape hatch that
    *  turns the value palette back into "set the next entry" instead of
    *  "re-value the selection". */
@@ -145,7 +148,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
    *  wears its honest accidentals. */
   signature?: number;
 }) {
-  const layout = useMemo(() => buildLayout(notes, bars, signature, chords), [notes, bars, signature, chords]);
+  const layout = useMemo(() => buildLayout(notes, bars, signature, chords, showLeadIn), [notes, bars, signature, chords, showLeadIn]);
   // The band lane, printed: every event at its exact written position.
   // Strums are arrows (soft upstrokes dimmed), arpeggio/bass notes are
   // NAMED so the picking pattern reads like a tab, block chords are ▪,
@@ -383,7 +386,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         onClick={() => { setBandEdit({ target: 'default', x: 30, system: 0 }); onBandAudition?.('default'); }}
         onDoubleClick={() => { setBandEdit(null); onBandWrite?.('default'); }}>
         <title>The band from the top of the song — click to hear and change it; double-click to write the part</title>
-        {shortStyle(bandDefaults.instrument)} · {shortStyle(bandDefaults.drums)}</text>}
+        {bandDefaults.instrument === 'off' && bandDefaults.drums === 'off'
+          ? '🎷 no band — click to add'
+          : `${shortStyle(bandDefaults.instrument)} · ${shortStyle(bandDefaults.drums)}`}</text>}
       {layout.bandTexts.map((text, i) => <text key={`band-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 16}
         fontSize={10} fontStyle="italic" fontWeight={700} fill="#fca5a5cc"
         className={onBandEdit ? 'hover:fill-white' : undefined} style={onBandEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
@@ -646,12 +651,15 @@ function CursorLayer({ layout, getPlayhead }: { layout: Layout; getPlayhead: () 
 
 type Layout = ReturnType<typeof buildLayout>;
 
-function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?: number, chords?: Array<{ at: number; symbol: string }>) {
+function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?: number, chords?: Array<{ at: number; symbol: string }>, showLeadIn?: boolean) {
   // The page opens where the music does: whole bars of lead-in silence are
   // dropped, not shifted — shifting the grid under the notes broke any bar
   // list whose lengths vary (a rendition with a broader pass), and it made
   // the printed bar numbers disagree with the entry caret's.
-  const offset = notes.length ? Math.min(...notes.map(note => note.start)) : 0;
+  // The EDITOR shows the lead-in instead (showLeadIn): those bars are where
+  // instrumental intros live — clips can be dropped on them and the count-in
+  // is visible — so hiding them would hide the intro workflow itself.
+  const offset = showLeadIn ? 0 : notes.length ? Math.min(...notes.map(note => note.start)) : 0;
   const bars = rawBars.filter(bar => bar.end > offset + 0.01);
   const signature = signatureOverride ?? inferKeySignature(notes.map(note => note.midi));
   const mark = signature > 0 ? '♯' : '♭';
