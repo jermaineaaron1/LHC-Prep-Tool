@@ -516,7 +516,7 @@ export function buildBandEvents(options: {
           const written = note.holdEighths * eighthLen * (note.staccato ? 0.4 : 1.05);
           events.push({
             id: `c-${bar.start.toFixed(3)}-${cell}`,
-            at: warp(time), kind: 'pluck', midis: (note.midis ?? [note.midi]).map(midi => midi + transpose),
+            at: warp(time), kind: 'pluck', timbre: 'guitar', midis: (note.midis ?? [note.midi]).map(midi => midi + transpose),
             sustain: sustainWarped(time, written),
             level: note.accent ? 0.078 : 0.05, gain,
             ...(note.slideTo !== undefined ? { slideTo: note.slideTo + transpose } : {}),
