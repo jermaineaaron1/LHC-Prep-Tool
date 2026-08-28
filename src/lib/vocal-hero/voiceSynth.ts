@@ -310,50 +310,108 @@ function noiseBuffer(context: AudioContext): AudioBuffer {
   return buffer;
 }
 
+/** The kick, in three layers a real drum has: the SUB (a pitch-diving sine
+ *  with a slight overshoot), the BEATER CLICK (3ms of high-passed noise),
+ *  and the shell KNOCK (a short low-mid triangle). */
 export function playKick(context: AudioContext, startAt: number, level = 0.16): void {
-  const oscillator = context.createOscillator();
-  oscillator.frequency.setValueAtTime(130, startAt);
-  oscillator.frequency.exponentialRampToValueAtTime(42, startAt + 0.09);
-  const gain = context.createGain();
-  gain.gain.setValueAtTime(level, startAt);
-  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.24);
-  oscillator.connect(gain);
-  gain.connect(mixBus(context));
-  oscillator.start(startAt);
-  oscillator.stop(startAt + 0.3);
+  const sub = context.createOscillator();
+  sub.frequency.setValueAtTime(118, startAt);
+  sub.frequency.exponentialRampToValueAtTime(44, startAt + 0.085);
+  const subGain = context.createGain();
+  subGain.gain.setValueAtTime(level, startAt);
+  subGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.34);
+  sub.connect(subGain);
+  subGain.connect(mixBus(context));
+  const knock = context.createOscillator();
+  knock.type = 'triangle';
+  knock.frequency.value = 178;
+  const knockGain = context.createGain();
+  knockGain.gain.setValueAtTime(level * 0.55, startAt);
+  knockGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.045);
+  knock.connect(knockGain);
+  knockGain.connect(mixBus(context));
+  const click = context.createBufferSource();
+  click.buffer = noiseBuffer(context);
+  const clickHigh = context.createBiquadFilter();
+  clickHigh.type = 'highpass';
+  clickHigh.frequency.value = 3200;
+  const clickGain = context.createGain();
+  clickGain.gain.setValueAtTime(level * 0.8, startAt);
+  clickGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.012);
+  click.connect(clickHigh);
+  clickHigh.connect(clickGain);
+  clickGain.connect(mixBus(context));
+  sub.start(startAt); sub.stop(startAt + 0.4);
+  knock.start(startAt); knock.stop(startAt + 0.07);
+  click.start(startAt); click.stop(startAt + 0.03);
 }
 
+/** The snare: a tuned SHELL (two detuned triangles), the SNAPPY (bright
+ *  high-passed noise with a fast fall), and the wire BED (band-passed
+ *  noise around 1.1kHz) — the three sounds a snare actually makes. */
 export function playSnare(context: AudioContext, startAt: number, level = 0.09): void {
-  const source = context.createBufferSource();
-  source.buffer = noiseBuffer(context);
+  for (const [frequency, amount, decay] of [[185, 0.5, 0.07], [330, 0.28, 0.05]] as Array<[number, number, number]>) {
+    const shell = context.createOscillator();
+    shell.type = 'triangle';
+    shell.frequency.value = frequency;
+    const shellGain = context.createGain();
+    shellGain.gain.setValueAtTime(level * amount, startAt);
+    shellGain.gain.exponentialRampToValueAtTime(0.0001, startAt + decay);
+    shell.connect(shellGain);
+    shellGain.connect(mixBus(context));
+    shell.start(startAt); shell.stop(startAt + decay + 0.03);
+  }
+  const snappy = context.createBufferSource();
+  snappy.buffer = noiseBuffer(context);
+  const snappyHigh = context.createBiquadFilter();
+  snappyHigh.type = 'highpass';
+  snappyHigh.frequency.value = 2600;
+  const snappyGain = context.createGain();
+  snappyGain.gain.setValueAtTime(level * 0.95, startAt);
+  snappyGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.15);
+  snappy.connect(snappyHigh);
+  snappyHigh.connect(snappyGain);
+  snappyGain.connect(mixBus(context));
+  snappy.start(startAt); snappy.stop(startAt + 0.19);
+  const bed = context.createBufferSource();
+  bed.buffer = noiseBuffer(context);
+  const bedBand = context.createBiquadFilter();
+  bedBand.type = 'bandpass';
+  bedBand.frequency.value = 1100;
+  bedBand.Q.value = 0.9;
+  const bedGain = context.createGain();
+  bedGain.gain.setValueAtTime(level * 0.6, startAt);
+  bedGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.09);
+  bed.connect(bedBand);
+  bedBand.connect(bedGain);
+  bedGain.connect(mixBus(context));
+  bed.start(startAt); bed.stop(startAt + 0.12);
+}
+
+/** The hi-hat: six square oscillators at the classic inharmonic ratios,
+ *  band-passed high and shaped with a 35ms bite — metal, not static. */
+export function playHat(context: AudioContext, startAt: number, level = 0.035): void {
   const band = context.createBiquadFilter();
   band.type = 'bandpass';
-  band.frequency.value = 1800;
-  band.Q.value = 0.8;
-  const gain = context.createGain();
-  gain.gain.setValueAtTime(level, startAt);
-  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.16);
-  source.connect(band);
-  band.connect(gain);
-  gain.connect(mixBus(context));
-  source.start(startAt);
-  source.stop(startAt + 0.2);
-}
-
-export function playHat(context: AudioContext, startAt: number, level = 0.035): void {
-  const source = context.createBufferSource();
-  source.buffer = noiseBuffer(context);
+  band.frequency.value = 10000;
+  band.Q.value = 0.9;
   const high = context.createBiquadFilter();
   high.type = 'highpass';
-  high.frequency.value = 6500;
+  high.frequency.value = 7200;
   const gain = context.createGain();
   gain.gain.setValueAtTime(level, startAt);
-  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.05);
-  source.connect(high);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.035);
+  band.connect(high);
   high.connect(gain);
   gain.connect(mixBus(context));
-  source.start(startAt);
-  source.stop(startAt + 0.08);
+  for (const frequency of [526, 800, 842, 948, 1174, 1690]) {
+    const metal = context.createOscillator();
+    metal.type = 'square';
+    metal.frequency.value = frequency;
+    metal.connect(band);
+    metal.start(startAt);
+    metal.stop(startAt + 0.06);
+  }
 }
 
 // ── the cajon ──────────────────────────────────────────────────────────────
@@ -429,17 +487,41 @@ export function playKeyTone(context: AudioContext, midi: number, startAt: number
 }
 
 /** Toms, for written-out drum tabs: pitched skins between kick and snare. */
+/** A tom with a head and a stick: the diving fundamental, a second
+ *  harmonic for the head's ring, and a short attack of filtered noise. */
 export function playTom(context: AudioContext, startAt: number, high: boolean, level = 0.11): void {
-  const oscillator = context.createOscillator();
-  oscillator.frequency.setValueAtTime(high ? 220 : 150, startAt);
-  oscillator.frequency.exponentialRampToValueAtTime(high ? 150 : 95, startAt + 0.1);
-  const gain = context.createGain();
-  gain.gain.setValueAtTime(level, startAt);
-  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.28);
-  oscillator.connect(gain);
-  gain.connect(mixBus(context));
-  oscillator.start(startAt);
-  oscillator.stop(startAt + 0.32);
+  const fundamental = context.createOscillator();
+  fundamental.frequency.setValueAtTime(high ? 224 : 152, startAt);
+  fundamental.frequency.exponentialRampToValueAtTime(high ? 148 : 92, startAt + 0.11);
+  const fundamentalGain = context.createGain();
+  fundamentalGain.gain.setValueAtTime(level, startAt);
+  fundamentalGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.32);
+  fundamental.connect(fundamentalGain);
+  fundamentalGain.connect(mixBus(context));
+  const ring = context.createOscillator();
+  ring.type = 'triangle';
+  ring.frequency.setValueAtTime((high ? 224 : 152) * 1.9, startAt);
+  ring.frequency.exponentialRampToValueAtTime((high ? 148 : 92) * 1.9, startAt + 0.11);
+  const ringGain = context.createGain();
+  ringGain.gain.setValueAtTime(level * 0.3, startAt);
+  ringGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.14);
+  ring.connect(ringGain);
+  ringGain.connect(mixBus(context));
+  const stick = context.createBufferSource();
+  stick.buffer = noiseBuffer(context);
+  const stickBand = context.createBiquadFilter();
+  stickBand.type = 'bandpass';
+  stickBand.frequency.value = 2100;
+  stickBand.Q.value = 1;
+  const stickGain = context.createGain();
+  stickGain.gain.setValueAtTime(level * 0.5, startAt);
+  stickGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.02);
+  stick.connect(stickBand);
+  stickBand.connect(stickGain);
+  stickGain.connect(mixBus(context));
+  fundamental.start(startAt); fundamental.stop(startAt + 0.36);
+  ring.start(startAt); ring.stop(startAt + 0.18);
+  stick.start(startAt); stick.stop(startAt + 0.04);
 }
 
 /** An upright-ish bass: warm fundamental, a whisper of octave, long body. */

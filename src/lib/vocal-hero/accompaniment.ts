@@ -16,10 +16,10 @@ import { parseChord } from './chords';
 import { interpretMarks } from './performMarks';
 import type { BandClip, BandTimbre, BandTrack, SongNote } from './types';
 import {
-  playBassTone, playCajonBass, playCajonSlap, playCajonTick, playGuitarPluck,
-  playHat, playKick, playSnare, playStrum, playTom,
+  playBassTone, playCajonBass, playCajonSlap, playCajonTick,
+  playHat, playKick, playSnare, playTom,
 } from './voiceSynth';
-import { playPiano, warmPiano } from './sampler';
+import { playGuitar, playPiano, warmPiano } from './sampler';
 
 export type { BandClip, BandTimbre, BandTrack };
 
@@ -627,12 +627,12 @@ const BASE_LEVEL: Record<BandEventKind, number> = {
 export function playBandEvent(context: AudioContext, event: BandEvent, when: number): void {
   const level = (event.level ?? BASE_LEVEL[event.kind]) * (event.gain ?? 1);
   switch (event.kind) {
-    case 'strum-down': playStrum(context, event.midis ?? [], when, 'down', event.sustain ?? 1, level); break;
-    case 'strum-up': playStrum(context, event.midis ?? [], when, 'up', event.sustain ?? 0.8, level); break;
+    case 'strum-down': (event.midis ?? []).forEach((midi, index) => playGuitar(context, midi, when + index * 0.014, event.sustain ?? 1, level)); break;
+    case 'strum-up': [...(event.midis ?? [])].slice(-3).reverse().forEach((midi, index) => playGuitar(context, midi, when + index * 0.01, event.sustain ?? 0.8, level * 0.6)); break;
     case 'pluck':
       if (event.timbre === 'piano') (event.midis ?? []).forEach((midi, index) => playPiano(context, midi, when + index * 0.005, event.sustain ?? 0.9, level));
       else if (event.timbre === 'bass') (event.midis ?? []).forEach(midi => playBassTone(context, midi, when, event.sustain ?? 0.9, level));
-      else (event.midis ?? []).forEach(midi => playGuitarPluck(context, midi, when, event.sustain ?? 0.9, level, event.slideTo));
+      else (event.midis ?? []).forEach(midi => playGuitar(context, midi, when, event.sustain ?? 0.9, level, event.slideTo));
       break;
     case 'keys': (event.midis ?? []).forEach((midi, index) => playPiano(context, midi, when + index * 0.006, event.sustain ?? 1.2, level)); break;
     case 'bass': (event.midis ?? []).forEach(midi => playBassTone(context, midi, when, event.sustain ?? 0.8, level)); break;
