@@ -2921,6 +2921,11 @@
       width: 100%; padding: 10px 14px; border: 1.5px solid #d1d5db;
       border-radius: 8px; font-size: 14px; font-family: 'Poppins',sans-serif;
       box-sizing: border-box; outline: none; transition: border-color 0.2s;
+      /* Masked WITHOUT type=password: a password input makes Chrome offer to
+         save "credentials" (pairing it with whatever text field was typed
+         last, e.g. a presentation title). CSS masking keeps the secrecy and
+         Chrome sees no password form at all. */
+      -webkit-text-security: disc; text-security: disc;
     }
     .pic-phone-input:focus { border-color: #14b8a6; }
     .pic-login-error {
@@ -6020,10 +6025,29 @@
         <aside id="lpRail" aria-label="Plan with this song">
           <section class="lp-rail-card">
             <h4><i class="fa-regular fa-calendar" aria-hidden="true"></i> Plan with this song</h4>
-            <label class="lp-rail-label" for="lpRailOrder">Service / Order</label>
-            <select id="lpRailOrder" class="lp-rail-select"></select>
-            <label class="lp-rail-label" for="lpRailSongbook">Songbook</label>
-            <select id="lpRailSongbook" class="lp-rail-select"></select>
+            <div id="lpPlanStep0">
+              <p class="lp-rail-hint">Where should this song go?</p>
+              <div class="lp-rail-actions" style="margin-bottom:9px;">
+                <button type="button" class="lp-rail-btn primary" onclick="lpPlanChoose('order')">
+                  <i class="fa-regular fa-calendar" aria-hidden="true"></i> Service Order
+                </button>
+                <button type="button" class="lp-rail-btn" onclick="lpPlanChoose('songbook')">
+                  <i class="fa-solid fa-book-open" aria-hidden="true"></i> Songbook
+                </button>
+              </div>
+            </div>
+            <div id="lpPlanStep1" style="display:none;">
+              <button type="button" class="lp-rail-back" onclick="lpPlanBack()"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i> Back</button>
+              <p class="lp-rail-hint" id="lpPlanStep1Hint">New or existing?</p>
+              <div class="lp-rail-actions" style="margin-bottom:9px;">
+                <button type="button" class="lp-rail-btn primary" onclick="lpPlanGo('existing')">
+                  <i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i> Add to existing
+                </button>
+                <button type="button" class="lp-rail-btn" onclick="lpPlanGo('new')">
+                  <i class="fa-solid fa-plus" aria-hidden="true"></i> Create new
+                </button>
+              </div>
+            </div>
             <div class="lp-rail-2col">
               <div>
                 <span class="lp-rail-label">Key</span>
@@ -6033,14 +6057,6 @@
                 <label class="lp-rail-label" for="lpRailTranspose">Transpose</label>
                 <select id="lpRailTranspose" class="lp-rail-select"></select>
               </div>
-            </div>
-            <div class="lp-rail-actions">
-              <button type="button" class="lp-rail-btn primary" onclick="lpRailAddToOrder()">
-                <i class="fa-solid fa-plus" aria-hidden="true"></i> Add to order
-              </button>
-              <button type="button" class="lp-rail-btn" onclick="lpRailAddToSongbook()">
-                <i class="fa-solid fa-book-open" aria-hidden="true"></i> Add to songbook
-              </button>
             </div>
           </section>
           <section class="lp-rail-card" id="lpUsageCard">
@@ -19423,8 +19439,9 @@ window.loadEditSongData = function(song) {
 
     var orderSel = document.getElementById('atoOrder');
     var orders = STATE.orders || [];
+    // Blank first: the order is a deliberate choice, never a silent default.
     orderSel.innerHTML = orders.length
-      ? orders.map(function(o) {
+      ? '<option value="">Choose a service or order…</option>' + orders.map(function(o) {
           return '<option value="' + escapeHtml(o.id) + '">' + escapeHtml(o.title || o.serviceDate || 'Service Order') + '</option>';
         }).join('')
       : '<option value="">No orders yet</option>';
@@ -19531,23 +19548,11 @@ window.loadEditSongData = function(song) {
   // Defined in this scope on purpose: the two add functions read the
   // module-private _sbPickerSongId, so the rail sets it the same way the picker
   // does instead of forking a second, untested add path.
-  var _lpRailSongbooks = [];
-
   function _lpRenderRail(song) {
     var rail = document.getElementById('lpRail');
     if (!rail || !song) return;
 
-    var orderSel = document.getElementById('lpRailOrder');
-    if (orderSel) {
-      var orders = STATE.orders || [];
-      orderSel.innerHTML = orders.length
-        ? orders.map(function(o) {
-            return '<option value="' + escapeHtml(o.id) + '">' +
-              escapeHtml(o.title || o.serviceDate || 'Service Order') + '</option>';
-          }).join('')
-        : '<option value="">No orders yet</option>';
-      orderSel.disabled = !orders.length;
-    }
+    _lpPlanReset();
 
     var keyEl = document.getElementById('lpRailKey');
     if (keyEl) keyEl.textContent = song.key ? song.key + ' (Original)' : 'Not set';
@@ -19564,28 +19569,53 @@ window.loadEditSongData = function(song) {
     }
 
     _lpRenderRailResources(song);
+  }
 
-    // Songbooks load asynchronously; show honest progress rather than an empty
-    // control that looks like "no songbooks exist".
-    var sbSel = document.getElementById('lpRailSongbook');
-    if (sbSel) {
-      sbSel.innerHTML = '<option value="">Loading songbooks…</option>';
-      sbSel.disabled = true;
-      SBQ_SONGBOOKS.loadAll().then(function(list) {
-        _lpRailSongbooks = list || [];
-        if (document.getElementById('lpRailSongbook') !== sbSel) return;
-        sbSel.innerHTML = _lpRailSongbooks.length
-          ? _lpRailSongbooks.map(function(sb) {
-              return '<option value="' + escapeHtml(sb.id) + '">' + escapeHtml(sb.name || 'Untitled Songbook') + '</option>';
-            }).join('')
-          : '<option value="">No songbooks yet</option>';
-        sbSel.disabled = !_lpRailSongbooks.length;
-      }).catch(function() {
-        sbSel.innerHTML = '<option value="">Songbooks unavailable</option>';
-        sbSel.disabled = true;
-      });
+  // The guided plan flow: destination first, then new-or-existing. The final
+  // step is the existing Add-to dialogs, so every real write stays on the one
+  // tested path.
+  var _lpPlanKind = null;
+  function _lpPlanReset() {
+    _lpPlanKind = null;
+    var s0 = document.getElementById('lpPlanStep0'), s1 = document.getElementById('lpPlanStep1');
+    if (s0) s0.style.display = '';
+    if (s1) s1.style.display = 'none';
+  }
+  function lpPlanChoose(kind) {
+    _lpPlanKind = kind;
+    var s0 = document.getElementById('lpPlanStep0'), s1 = document.getElementById('lpPlanStep1');
+    if (s0) s0.style.display = 'none';
+    if (s1) s1.style.display = '';
+    var hint = document.getElementById('lpPlanStep1Hint');
+    if (hint) hint.textContent = kind === 'order' ? 'Service order — new or existing?' : 'Songbook — new or existing?';
+  }
+  function lpPlanBack() { _lpPlanReset(); }
+  function lpPlanGo(mode) {
+    var song = STATE.lyricsCurrentSong;
+    var kind = _lpPlanKind;
+    _lpPlanReset();
+    if (!song || !kind) return;
+    if (kind === 'songbook') {
+      openAddToSongbookModal(song.id);
+      if (typeof atbSwitchTab === 'function') atbSwitchTab(mode === 'new' ? 'new' : 'existing');
+    } else if (mode === 'existing') {
+      openAddToOrderModal(song.id);
+    } else {
+      // A new order opens in the order editor; remember the song so the
+      // created-toast can point the way to adding it there.
+      window._lpPendingOrderSongTitle = song.title || '';
+      if (typeof setActiveView === 'function') setActiveView('worshipOrderView');
+      var d = new Date();
+      var dateInput = document.getElementById('orderDate');
+      var titleInput = document.getElementById('orderTitle');
+      if (dateInput) dateInput.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      if (titleInput) titleInput.value = typeof generateOrderTitle === 'function' ? generateOrderTitle(d) : '';
+      if (typeof openModal === 'function') openModal('createOrderModal');
     }
   }
+  window.lpPlanChoose = lpPlanChoose;
+  window.lpPlanBack = lpPlanBack;
+  window.lpPlanGo = lpPlanGo;
 
   function _lpRenderRailResources(song) {
     var box = document.getElementById('lpRailResources');
@@ -19630,9 +19660,6 @@ window.loadEditSongData = function(song) {
     var song = STATE.lyricsCurrentSong;
     if (!song) return;
     openAddToOrderModal(song.id);
-    var sel = document.getElementById('lpRailOrder');
-    var target = document.getElementById('atoOrder');
-    if (sel && sel.value && target) { target.value = sel.value; _atoOnOrderChange(); }
   }
   window.lpRailAddToOrder = lpRailAddToOrder;
 
@@ -27988,6 +28015,10 @@ var WO = (function() {
           }
 
           showToast('Order created!', 'success');
+          if (window._lpPendingOrderSongTitle) {
+            showToast('Now add “' + window._lpPendingOrderSongTitle + '” to it with + Add Song', 'info');
+            window._lpPendingOrderSongTitle = '';
+          }
         }
       }).catch(function(err) {
         console.error('Failed to save new order:', err);
@@ -41823,6 +41854,16 @@ var WO = (function() {
         '<button type="button" class="sbst-dot" data-sbst="color" data-color="#2563eb" title="Blue" style="background:#2563eb;"></button>' +
         '<button type="button" class="sbst-dot" data-sbst="color" data-color="#7c3aed" title="Purple" style="background:#7c3aed;"></button>' +
       '</span>' +
+      '<span class="sbst-sep"></span>' +
+      '<span class="sbst-label" title="Highlight the selected text">HL</span>' +
+      '<span class="sbst-colors">' +
+        '<button type="button" class="sbst-dot" data-sbst="hl" data-color="#fde047" title="Highlight yellow" style="background:#fde047;"></button>' +
+        '<button type="button" class="sbst-dot" data-sbst="hl" data-color="#bef264" title="Highlight lime" style="background:#bef264;"></button>' +
+        '<button type="button" class="sbst-dot" data-sbst="hl" data-color="#67e8f9" title="Highlight cyan" style="background:#67e8f9;"></button>' +
+        '<button type="button" class="sbst-dot" data-sbst="hl" data-color="#f9a8d4" title="Highlight pink" style="background:#f9a8d4;"></button>' +
+        '<button type="button" class="sbst-dot" data-sbst="hl" data-color="#fdba74" title="Highlight orange" style="background:#fdba74;"></button>' +
+        '<button type="button" class="sbst-dot" data-sbst="hl" data-color="" title="Remove highlight" style="background:linear-gradient(135deg,#fff 44%,#ef4444 46%,#ef4444 54%,#fff 56%);"></button>' +
+      '</span>' +
       '<button type="button" title="Clear formatting" data-sbst="clear">&#10005;</button>' +
       '<span class="sbst-sep"></span>' +
       '<span class="sbst-label">KEY</span>' +
@@ -41845,6 +41886,7 @@ var WO = (function() {
       else if (act === 'bigger') sbFmtSize(1);
       else if (act === 'smaller') sbFmtSize(-1);
       else if (act === 'color') sbFmtSelection('color', b.getAttribute('data-color'), false);
+      else if (act === 'hl') sbFmtSelection('hl', b.getAttribute('data-color') || null, false);
       else if (act === 'clear') sbFmtSelection(null, null, false);
     });
     document.body.appendChild(bar);
@@ -41948,6 +41990,8 @@ var WO = (function() {
     if (f.size) s += 'font-size:' + f.size + ';';
     if (f.color) s += 'color:' + f.color + ';';
     if (f.family) s += 'font-family:' + f.family + ';';
+    // clone keeps a wrapped highlight painted on every line, like a real marker
+    if (f.hl) s += 'background:' + f.hl + ';border-radius:3px;-webkit-box-decoration-break:clone;box-decoration-break:clone;';
     return s;
   }
 
@@ -79588,7 +79632,7 @@ function filterLiturgyItems() {
     </div>
     <div class="pic-modal-body">
       <label style="font-size:13px;color:#374151;font-weight:600;display:block;margin-bottom:6px;">Password</label>
-      <input id="picPhoneInput" type="password" placeholder="" class="pic-phone-input" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
+      <input id="picPhoneInput" type="text" placeholder="" class="pic-phone-input" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"
         onkeydown="if(event.key==='Enter')RosterEngine.submitPicLogin()" />
       <div id="picLoginError" class="pic-login-error" style="display:none;"></div>
       <button class="pic-submit-btn" id="picSubmitBtn" onclick="RosterEngine.submitPicLogin()">
@@ -88645,6 +88689,13 @@ window.LHC_Install = (function() {
   .lp-rail-select:focus-visible { outline:3px solid rgba(76,110,245,.35); outline-offset:1px; }
   .lp-rail-select:disabled { background:var(--sf-surface-2,#eff2fa); color:var(--sf-muted,#5f6b91); }
   .lp-rail-2col { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .lp-rail-hint { margin:0 0 7px; color:var(--sf-muted,#5f6b91); font-size:.72rem; font-weight:650; }
+  .lp-rail-back {
+    display:inline-flex; align-items:center; gap:5px; margin:0 0 6px; padding:2px 4px;
+    border:0; background:none; cursor:pointer; color:var(--sf-blue-deep,#3b5bdb);
+    font-size:.68rem; font-weight:750; font-family:inherit;
+  }
+  .lp-rail-back:hover { text-decoration:underline; }
   .lp-rail-static {
     min-height:36px; display:flex; align-items:center; padding:0 8px; margin-bottom:9px;
     border:1px solid var(--sf-line,#e3e8f4); border-radius:9px;
