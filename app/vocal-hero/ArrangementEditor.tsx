@@ -983,7 +983,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         clips: track.clips.map(clip => clip.start >= entryBar.start - .005 ? { ...clip, start: roundPrecise(clip.start + length) } : clip),
       })),
     }));
-    setEditorNotice(`An empty bar was inserted at bar ${entryBar.number + 1}; everything after it — notes, chords and clips — moved one bar later. Undo reverses the notes; chords and clips follow the settings.`);
+    setEditorNotice(`An empty bar was inserted at bar ${entryBar.number}; everything after it — notes, chords and clips — moved one bar later. Undo reverses the notes; chords and clips follow the settings.`);
   }
   function deleteBarAtCaret() {
     if (!entryBar) return;
@@ -1008,7 +1008,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           .map(clip => clip.start >= entryBar.end - .005 ? { ...clip, start: roundPrecise(clip.start - length) } : clip),
       })).filter(track => track.clips.length > 0),
     }));
-    setEditorNotice(`Bar ${entryBar.number + 1} removed${removed ? ` with its ${removed} note${removed === 1 ? '' : 's'}` : ''}; later bars — notes, chords and clips — moved up. Undo reverses the notes; chords and clips follow the settings.`);
+    setEditorNotice(`Bar ${entryBar.number} removed${removed ? ` with its ${removed} note${removed === 1 ? '' : 's'}` : ''}; later bars — notes, chords and clips — moved up. Undo reverses the notes; chords and clips follow the settings.`);
   }
   function nudgeSelectedPitch(delta: number) {
     const target = notes.find(note => note.id === selectedId);
@@ -1227,7 +1227,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     if (!bar || !laneBandEvents) { setEditorNotice('Nothing for the band to play yet — give it chord symbols, a melody style, or a written part.'); return; }
     const played = await playAudition(laneBandEvents, bar.start, 4 * (bar.end - bar.start) + 0.01);
     setEditorNotice(played
-      ? `▶ Auditioning the band from bar ${(bar.number ?? 0) + 1} — double-click the instruction to write the part yourself.`
+      ? `▶ Auditioning the band from bar ${bar.number ?? '?'} — double-click the instruction to write the part yourself.`
       : 'The band is silent here — chord styles need chord symbols to play.');
   }
   const [bandWrite, setBandWrite] = useState<{ target: { noteId: string } | { trackId: string; clipId: string } | 'default'; barNumber: number; from: number; barLen: number; perBar: number; anchorTime: number } | null>(null);
@@ -1277,7 +1277,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       const existing = cells[cell] === '-' ? [] : cells[cell].split(',');
       cells[cell] = [...new Set([...existing, ...event.midis.map(midiToken)])].join(',');
     }
-    while (cells.length && cells[cells.length - 1] === '-') cells.pop();
+    // No trailing trim: the loop is the tab's length, and a loop shorter
+    // than the window would displace every repeat off the barline.
     return cells.some(cell => cell !== '-') ? cells.join(' ') : '';
   }
   const DRUM_KIND_LANE: Record<string, string> = { kick: 'K', snare: 'S', hat: 'H', 'tom-high': 'T', 'tom-low': 't', 'cajon-bass': 'B', 'cajon-slap': 'P', 'cajon-tick': 'c' };
@@ -1291,10 +1292,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       if (!lanes.has(lane)) lanes.set(lane, Array.from({ length: columns }, () => '-'));
       lanes.get(lane)![cell] = 'o';
     }
-    return [...lanes.entries()].map(([lane, cells]) => {
-      while (cells.length && cells[cells.length - 1] === '-') cells.pop();
-      return `${lane}: ${cells.join('')}`;
-    }).join('\n');
+    // Every lane keeps the full window: parseDrumTab loops at the LONGEST
+    // lane, so ragged per-lane trims changed the loop length away from the
+    // musical window and every repeat displaced off the barline.
+    return [...lanes.entries()].map(([lane, cells]) => `${lane}: ${cells.join('')}`).join('\n');
   }
   function openBandWrite(target: { noteId: string } | 'default') {
     stopAudition();
@@ -1328,7 +1329,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setPatternBars(Math.min(4, Math.max(2, contentBars)));
     setStudioHover(null);
     setApplyBars(null);
-    setBandWrite({ target, barNumber: (bar?.number ?? 0) + 1, from, barLen: bar ? bar.end - bar.start : 2, perBar, anchorTime });
+    setBandWrite({ target, barNumber: bar?.number ?? 1, from, barLen: bar ? bar.end - bar.start : 2, perBar, anchorTime });
     const materialized = (!own?.instrument_tab && region.instrument !== 'custom' && region.instrument !== 'off')
       || (!own?.drum_tab && region.drums !== 'custom' && region.drums !== 'off');
     if (materialized) setEditorNotice('The part below is EXACTLY what the band plays here, printed as editable notes — reshape it and press Use this part to make it this section’s own.');
@@ -1370,7 +1371,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setPatternBars(Math.min(8, Math.max(2, presetBars ?? contentBars)));
     setStudioHover(null);
     setApplyBars(null);
-    setBandWrite({ target: { trackId, clipId }, barNumber: (bar?.number ?? 0) + 1, from: clip.start, barLen: bar ? bar.end - bar.start : 2, perBar, anchorTime: clip.start });
+    setBandWrite({ target: { trackId, clipId }, barNumber: bar?.number ?? 1, from: clip.start, barLen: bar ? bar.end - bar.start : 2, perBar, anchorTime: clip.start });
   }
   const clipTarget = bandWrite && typeof bandWrite.target === 'object' && 'clipId' in bandWrite.target ? bandWrite.target : null;
   const partImportRef = useRef<HTMLInputElement | null>(null);
@@ -1576,7 +1577,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       setPatternBars(Math.min(8, Math.max(2, endBar - startBar + 1)));
       setStudioHover(null);
       setApplyBars(null);
-      setBandWrite({ target: { trackId, clipId }, barNumber: startBar + 1, from: bar.start, barLen: bar.end - bar.start, perBar, anchorTime: bar.start });
+      setBandWrite({ target: { trackId, clipId }, barNumber: startBar, from: bar.start, barLen: bar.end - bar.start, perBar, anchorTime: bar.start });
       return;
     }
     const carrier = notes.filter(note => note.start >= bar.start - 0.02 && note.start < bar.end - 0.01).sort((a, b) => a.start - b.start)[0]
@@ -1604,7 +1605,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       if (closing && note.id === closing.carrierId) return { ...note, marks: { ...(note.marks ?? {}), band: closing.band } };
       return note;
     }));
-    const effective = carrier.start - bar.start > 0.03 ? startBar + 2 : startBar + 1;
+    const effective = carrier.start - bar.start > 0.03 ? startBar + 1 : startBar;
     setEditorNotice(endBar > startBar
       ? `Dropped: plays bars ${effective}–${endBar + 1}, then the previous sound resumes${closing ? '' : ' (a later instruction takes over)'} . Undo removes it.`
       : `Dropped: plays from bar ${effective} until the next instruction. Undo removes it.`);
@@ -2612,7 +2613,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               onTempo={applyTempoToSelection}
               chord={(trackSettings.chord_symbols ?? []).find(chord => selectedNotes[0] && Math.abs(chord.at - selectedNotes[0].start) <= 0.05)?.symbol ?? ''}
               onChord={setChordAtSelection}
-              bandBarNumber={selectedNotes[0] ? (musicalBars.find(bar => selectedNotes[0].start + 0.01 >= bar.start && selectedNotes[0].start + 0.01 < bar.end)?.number ?? 0) + 1 : undefined}
+              bandBarNumber={selectedNotes[0] ? musicalBars.find(bar => selectedNotes[0].start + 0.01 >= bar.start && selectedNotes[0].start + 0.01 < bar.end)?.number : undefined}
               onBand={applyBandToSelection}
               onClear={clearMarksOnSelection} />}
             <div className="mb-2 flex items-center gap-1 text-xs">
@@ -2620,8 +2621,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               <button onClick={() => switchView('grid')} className={`border px-3 py-1.5 ${noteView === 'grid' ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/12 text-slate-400'}`} title="The piano-roll grid — for drawing and dragging notes">▦ Grid</button>
               <button onClick={() => switchView('rendition')} className={`rounded-r-lg border px-3 py-1.5 ${noteView === 'rendition' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="Shape the performance: stack passes of the song, choose who sings each one, and hear the result">⟳ Rendition</button>
               {noteView === 'score' && <>
-                <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number + 1 : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
-                <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number + 1 : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
+                <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
+                <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
                 <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly where the ghost head shows — what follows slides right, and overflow ties into a freshly inserted bar · drop a note onto another to swap them · with a note selected, the value buttons (or keys 3–7 and .) change its length — double-click the note to deselect it first if you only want to pick the next entry's value · right-click removes a note, leaving its rest · Ctrl+Z undo, Ctrl+Y redo · Double-click a word to edit lyrics: Tab = next word, Enter = done · the faint dashed boxes above the top staff take chord symbols — click one and type (Tab = next beat, empty = clear) · the 🎸/🥁 lane under the bass staff prints every hit the band will actually play, beat by beat — click any band instruction on that line (or the label at its head) to change or remove it right there.</span>
               </>}
             </div>
