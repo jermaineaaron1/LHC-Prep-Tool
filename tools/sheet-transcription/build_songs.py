@@ -218,15 +218,16 @@ U = [('E4',0.5,'Sing'),('E4',0.5,'we'),('F#4',0.5,'now'),('G4',0.5,'of'),
      ('B4',0.5,'Christ'),('B4',0.5,'mas,'),('A4',0.5,'sing'),('G4',0.5,'we'),
      ('F#4',0.5,'now'),('G4',0.5,'No'),('E4',1,'el!'),
      ('E4',2,'')]
-# SATB on the hymnal page's own chord symbols (Em, A/E, B/D#, B), with the
-# melody as soprano. Voiced for the cadences: E-pedal bars, V6/5 -> i at each
-# phrase end, half cadence on B at the refrain's midpoint.
-phrA_A = [('B3',2,None),('E4',1,None),('C#4',1,None),('B3',1,None),('B3',1,None),('B3',2,None)]
-phrA_T = [('G3',2,None),('G3',1,None),('A3',1,None),('F#3',1,None),('G3',1,None),('G3',2,None)]
-phrA_B = [('E3',2,None),('E3',1,None),('E3',1,None),('D#3',1,None),('E3',1,None),('E3',2,None)]
-ref_A  = [('B3',1,None),('E4',1,None),('D#4',2,None),('B3',1,None),('D#4',1,None),('D#4',2,None)]
-ref_T  = [('G3',1,None),('G3',1,None),('B3',2,None),('G3',1,None),('B3',1,None),('B3',2,None)]
-ref_B  = [('E3',1,None),('C3',1,None),('D#3',2,None),('E3',1,None),('B2',1,None),('B2',2,None)]
+# SATB from the full page 193 scan (Aug 2026 revision): the verse walks
+# Em - A/E (the dorian C#) - Em - A - B - Em, the refrain opens on B/D# and
+# half-cadences on B so the next verse re-enters on Em. Replaced the earlier
+# chord-symbol-only voicing after the user provided the whole page.
+phrA_A = [('B3',1,None),('C#4',1,None),('E4',1,None),('E4',1,None),('D#4',1,None),('B3',1,None),('B3',2,None)]
+phrA_T = [('G3',1,None),('A3',1,None),('G3',1,None),('C#4',1,None),('B3',1,None),('G3',1,None),('G3',2,None)]
+phrA_B = [('E3',1,None),('E3',1,None),('E3',1,None),('A2',1,None),('B2',1,None),('E3',1,None),('E3',2,None)]
+ref_A  = [('F#4',1,None),('E4',1,None),('E4',1,None),('D#4',1,None),('E4',1,None),('D#4',1,None),('D#4',2,None)]
+ref_T  = [('B3',1,None),('G3',1,None),('G3',1,None),('B3',1,None),('G3',1,None),('B3',1,None),('B3',2,None)]
+ref_B  = [('D#3',1,None),('E3',1,None),('E3',1,None),('B2',1,None),('E3',1,None),('B2',1,None),('B2',2,None)]
 A_line = phrA_A + phrA_A + ref_A + phrA_A
 T_line = phrA_T + phrA_T + ref_T + phrA_T
 B_line = phrA_B + phrA_B + ref_B + phrA_B
@@ -234,7 +235,7 @@ sing_notes, sing_len = build('sing-we-now', {0: U, 1: A_line, 2: T_line, 3: B_li
 sing = {
     'title': 'Sing We Now of Christmas',
     'artist': 'French carol, 15th c. (NOEL NOUVELET)',
-    'arranged_by': 'Melody from the provided hymnal page (No. 193); SATB voiced on its chord symbols (Em, A/E, B/D#, B) — check bars 9-12 against your book',
+    'arranged_by': 'Melody note-for-note from hymnal page 193 (NOEL NOUVELET); alto, tenor and bass rebuilt from the same page’s harmony — Em with the dorian A/E colour, B/D♯ opening the refrain, half cadence on B',
     'tags': 'carol, christmas, public domain, SATB',
     'bpm': 92, 'time_sig': 2, 'duration': math.ceil(sing_len + 1),
     'notes': sing_notes,
