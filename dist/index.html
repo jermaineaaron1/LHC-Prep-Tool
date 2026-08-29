@@ -40322,7 +40322,6 @@ var WO = (function() {
     var nameEl = $('sbOrderNameDisplay');
     if (nameEl) nameEl.textContent = orderTitle || 'Worship Songbook';
     function _sbCalcFitZoom() {
-      if (window.innerWidth <= 820) return 1;
       var body = document.getElementById('sbBody');
       var bw = (body && body.clientWidth > 0) ? body.clientWidth : window.innerWidth;
       var pad = 48;
@@ -40341,6 +40340,16 @@ var WO = (function() {
     // already visible and measurements were accurate).
     modal.style.display = 'flex';
     sbZoom = _sbCalcFitZoom();
+    // Standalone open needs the same refit-on-resize as openSongbook —
+    // rotation on a phone changes the fit factor.
+    if (_sbResizeHandler) window.removeEventListener('resize', _sbResizeHandler);
+    _sbResizeHandler = function() {
+      var fsOverlay = document.getElementById('sbFsOverlay');
+      if (fsOverlay && fsOverlay.style.display !== 'none') return;
+      sbZoom = _sbCalcFitZoom();
+      sbApplyZoom();
+    };
+    window.addEventListener('resize', _sbResizeHandler);
     renderSongbookLive();
     sbLoadFontSettings();
     var goBtn = document.getElementById('sbGoToOrderBtn');
@@ -40357,7 +40366,6 @@ var WO = (function() {
     // Reset zoom — 100% when page fits the screen, fit zoom when it doesn't.
     // Recalculates automatically on resize / orientation change.
     function _sbCalcFitZoom() {
-      if (window.innerWidth <= 820) return 1;
       // body.clientWidth is 0 while the modal is still display:none, so always
       // fall back to window.innerWidth in that case (modal covers the full window).
       var body = document.getElementById('sbBody');
@@ -41562,20 +41570,9 @@ var WO = (function() {
     var body = document.getElementById('sbBody');
     if (!wrap) return;
 
-    // Phones use a native reflowed page rather than shrinking the 794px A4 canvas.
-    if (window.innerWidth <= 820) {
-      sbZoom = 1;
-      wrap.style.transform = 'none';
-      wrap.style.marginBottom = '';
-      wrap.style.transformOrigin = 'top center';
-      wrap.style.alignItems = 'stretch';
-      if (body) { body.style.alignItems = 'stretch'; body.scrollLeft = 0; }
-      var mobileSpacer = document.getElementById('sbHorzSpacer');
-      if (mobileSpacer) mobileSpacer.style.display = 'none';
-      var mobileLabel = document.getElementById('sbZoomLabel');
-      if (mobileLabel) mobileLabel.textContent = '100%';
-      return;
-    }
+    // Phones render the SAME 794px page as desktop, scaled to fit — same
+    // fonts, same wraps, so annotations drawn on any device land on the
+    // same words on every other device.
 
     // A4 page width in CSS px (≈ 210 mm at 96 dpi)
     var PAGE_W  = 794;
@@ -41633,6 +41630,24 @@ var WO = (function() {
 
     var lbl = document.getElementById('sbZoomLabel');
     if (lbl) lbl.textContent = Math.round(sbZoom * 100) + '%';
+
+    // Phones: the page shrinks to fit, but the control bar above each song
+    // must stay finger-sized — counter-scale it back to full visual width.
+    var inv = (window.innerWidth <= 820 && sbZoom < 1) ? 1 / sbZoom : 1;
+    document.querySelectorAll('#songbookLiveModal .sb-page-controls-bar').forEach(function(cbar) {
+      if (inv > 1.02) {
+        cbar.style.position = 'relative';
+        cbar.style.zIndex = '45';
+        cbar.style.transform = 'scale(' + inv.toFixed(4) + ')';
+        cbar.style.transformOrigin = 'top left';
+        cbar.style.width = (100 / inv).toFixed(3) + '%';
+        cbar.style.marginBottom = Math.round(cbar.offsetHeight * (inv - 1)) + 'px';
+      } else {
+        cbar.style.position = ''; cbar.style.zIndex = '';
+        cbar.style.transform = ''; cbar.style.transformOrigin = '';
+        cbar.style.width = ''; cbar.style.marginBottom = '';
+      }
+    });
     sbUpdateFontPct();
   }
 
@@ -78101,29 +78116,8 @@ function filterLiturgyItems() {
   #songbookLiveModal .wo-lyrics-chord-line { font-family:"Courier New",monospace; font-weight:700; color:#1e40af; font-size:14px; margin:1em 0 0; }
   #songbookLiveModal .wo-lyrics-lyric-line { color:#334155; margin:0 0 0.5em; }
   #songbookLiveModal .wo-lyrics-empty-line { height:2.2em; }
-  /* Mobile: UltimateGuitar-style chart - dark monospace, tight spacing */
-  @media (max-width: 820px) {
-    #songbookLiveModal .sb-page-lyrics {
-      font-family: "Courier New", Courier, monospace !important;
-      font-size: 0.95rem !important;
-      line-height: 1.5 !important;
-      color: #111827 !important;
-      padding: 14px 14px 26px !important;
-    }
-    #songbookLiveModal .sb-page-lyrics .wo-lyrics-lyric-line {
-      color: #111827 !important;
-      font-weight: 500 !important;
-      margin: 0 !important;
-    }
-    #songbookLiveModal .sb-page-lyrics .wo-lyrics-chord-line {
-      color: #0f766e !important;
-      font-weight: 700 !important;
-      font-size: 0.95rem !important;
-      margin: 0.55em 0 0 !important;
-    }
-    #songbookLiveModal .sb-page-lyrics .wo-lyrics-empty-line { height: 1.15em !important; }
-    #songbookLiveModal .sb-page-lyrics .wo-lyrics-section-header { margin: 0.8em 0 0.25em !important; }
-  }
+  /* Phones show the SAME page as desktop, scaled to fit — no separate
+     mobile chart styling, so fonts, wraps and drawn annotations match. */
   #songbookLiveModal .wo-lyrics-section-header { margin:2em 0 1em; }
   .sb-page-lyrics:focus { background:#fefffe; }
   .sb-page-lyrics[contenteditable="false"] {
@@ -79468,7 +79462,7 @@ function filterLiturgyItems() {
 #songbookLiveModal .sb-page-controls-bar{position:sticky;top:8px;z-index:45;background:linear-gradient(105deg,#101f35,#17364b);border:1px solid rgba(94,234,212,.24);border-bottom:2px solid #2dd4bf;border-radius:13px 13px 0 0;box-shadow:0 8px 25px rgba(2,8,23,.32)}#songbookLiveModal .sb-song-page{background-color:var(--sb-ivory);background-image:linear-gradient(90deg,rgba(184,146,74,.08) 1px,transparent 1px),linear-gradient(rgba(39,91,111,.035) 1px,transparent 1px);background-size:28px 100%,100% 28px;border:1px solid #e5dcc7;border-top:0;box-shadow:inset 42px 0 34px -38px rgba(82,62,25,.28),0 18px 45px rgba(0,0,0,.26)}#songbookLiveModal .sb-song-page:before{content:"";position:absolute;z-index:8;left:-16px;top:18px;bottom:18px;width:27px;pointer-events:none;background:radial-gradient(circle at 13px 8px,#26394a 0 3px,#92a0a7 3.5px 5px,transparent 5.5px) 0 0/27px 30px repeat-y}#songbookLiveModal .sb-page-title{font-family:'Playfair Display',Georgia,serif;color:#17243a;font-size:1.48rem}#songbookLiveModal .wo-lyrics-chord-line{color:#087d78;font-size:15px}#songbookLiveModal .wo-lyrics-section-header{color:#7f5d20;background:linear-gradient(90deg,rgba(212,168,83,.18),transparent);border-left:3px solid var(--sb-gold);padding:5px 10px}
 .sb-rail-kicker{color:#5eead4;font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:.13em}.sb-rail-title{color:#f8fafc;font:700 1rem 'Playfair Display',Georgia,serif;margin:7px 0 12px}.sb-rail-progress{height:5px;border-radius:4px;background:#20344d;overflow:hidden}.sb-rail-progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,#14b8a6,#67e8f9)}.sb-rail-count{margin:7px 0 18px;color:#8293a9;font-size:.68rem}.sb-dock-player{overflow:hidden;border:1px solid rgba(148,163,184,.17);border-radius:13px;background:#0c1c31}.sb-dock-empty{min-height:160px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:18px;color:#71839a;text-align:center;font-size:.7rem}.sb-dock-player-head{display:flex;justify-content:space-between;padding:9px;color:#e2e8f0;font-size:.69rem}.sb-dock-video{aspect-ratio:16/9;background:#000}.sb-dock-video iframe{width:100%;height:100%;border:0}.sb-dock-jump{width:100%;padding:9px;border:0;background:transparent;color:#5eead4}.sb-empty-notebook{width:min(680px,92%);margin:auto;border:1px dashed rgba(94,234,212,.22);border-radius:18px;background:rgba(255,255,255,.025)}#songbookLiveModal .sb-empty-notebook p{color:#a9b8ca!important}
 .sb-fullscreen-exit{position:fixed;z-index:3210;top:18px;right:22px;display:flex;gap:8px;padding:10px 15px;border:1px solid rgba(255,255,255,.25);border-radius:24px;background:rgba(7,20,39,.88);color:#fff;opacity:0;pointer-events:none;transition:.18s}.sb-live-fullscreen.sb-live-fs-exit-shown .sb-fullscreen-exit{opacity:1;pointer-events:auto}#songbookLiveModal.sb-live-fullscreen .sb-header,#songbookLiveModal.sb-live-fullscreen .sb-view-strip,#songbookLiveModal.sb-live-fullscreen .sb-notebook-nav,#songbookLiveModal.sb-live-fullscreen .sb-notebook-rail,#songbookLiveModal.sb-live-fullscreen .sb-page-controls-bar,#songbookLiveModal.sb-live-fullscreen .sb-page-break{display:none!important}#songbookLiveModal.sb-live-fullscreen .sb-workspace{display:block;background:#06101e}#songbookLiveModal.sb-live-fullscreen .sb-notebook-stage{height:100%}#songbookLiveModal.sb-live-fullscreen .sb-body{height:100%;padding:22px 24px 70px}
-@media(max-width:1450px){.sb-workspace{grid-template-columns:175px minmax(0,1fr)}.sb-notebook-rail{display:none}#songbookLiveModal .sb-tool-btn span{display:none}}@media(max-width:820px){#songbookLiveModal .sb-header{min-height:56px;padding:6px 9px}.sb-view-strip{padding:5px 8px;overflow-x:auto}.sb-workspace{display:block}.sb-notebook-nav{display:none}#songbookLiveModal .sb-body{padding:14px 18px 58px 25px}.sb-autoscroll-control span{display:none}}@media(max-width:520px){#songbookLiveModal .sb-header-brand i{display:none}#songbookLiveModal .sb-tool-btn{min-height:38px;min-width:36px;padding:6px 8px}.sb-view-tabs button{font-size:0}.sb-view-tabs button i{font-size:.78rem}#songbookLiveModal .sb-page-lyrics--two-col{column-count:1}}@media(hover:none){#songbookLiveModal.sb-live-fullscreen .sb-fullscreen-exit{opacity:1!important;pointer-events:auto!important;transform:none!important}#songbookLiveModal .sb-page-lyrics .wo-lyrics-chord-line{font-size:.68em;line-height:1.3;margin-top:.3em}#songbookLiveModal .sb-page-lyrics .wo-lyrics-lyric-line{margin-bottom:.35em;font-size:.92em}#songbookLiveModal .sb-page-lyrics .wo-lyrics-section-label{font-size:.7em;margin-bottom:.3em}#songbookLiveModal .sb-page-lyrics{line-height:1.55;padding:12px 12px 24px!important}#songbookLiveModal .sb-page-title{font-size:1rem!important;margin-bottom:6px!important}}
+@media(max-width:1450px){.sb-workspace{grid-template-columns:175px minmax(0,1fr)}.sb-notebook-rail{display:none}#songbookLiveModal .sb-tool-btn span{display:none}}@media(max-width:820px){#songbookLiveModal .sb-header{min-height:56px;padding:6px 9px}.sb-view-strip{padding:5px 8px;overflow-x:auto}.sb-workspace{display:block}.sb-notebook-nav{display:none}#songbookLiveModal .sb-body{padding:14px 18px 58px 25px}.sb-autoscroll-control span{display:none}}@media(max-width:520px){#songbookLiveModal .sb-header-brand i{display:none}#songbookLiveModal .sb-tool-btn{min-height:38px;min-width:36px;padding:6px 8px}.sb-view-tabs button{font-size:0}.sb-view-tabs button i{font-size:.78rem}}@media(hover:none){#songbookLiveModal.sb-live-fullscreen .sb-fullscreen-exit{opacity:1!important;pointer-events:auto!important;transform:none!important}}
 </style>
 
 <style id="sb-songbook-polish-css">
@@ -79477,7 +79471,7 @@ function filterLiturgyItems() {
   #songbookLiveModal .sb-header-toolbar>.sb-tool-group:first-child{padding:6px;gap:4px;border-radius:14px;background:linear-gradient(180deg,#315b6d,#254859);border:1px solid rgba(153,246,228,.24);box-shadow:inset 0 1px rgba(255,255,255,.12),0 7px 18px rgba(0,0,0,.22)}#songbookLiveModal .sb-header-toolbar>.sb-tool-group:first-child .sb-tool-btn{min-width:42px;height:42px;background:rgba(5,21,35,.28);border:1px solid rgba(255,255,255,.08);color:#d8e7ed}#songbookLiveModal #sbDrawToggle{min-width:116px;background:#f8fafc;color:#123047;border-color:white}#songbookLiveModal #sbDrawToggle.active{background:linear-gradient(135deg,#2dd4bf,#14b8a6);color:#042f2e}#songbookLiveModal #sbEraseToggle{min-width:100px;background:#f8fafc;color:#334155}#songbookLiveModal #sbEraseToggle.active{background:#fecaca;color:#991b1b}#songbookLiveModal .sb-draw-extras{padding:3px 7px;border-radius:10px;background:rgba(2,13,24,.28)}#songbookLiveModal .sb-color-swatches{display:flex;gap:5px;align-items:center}#songbookLiveModal .sb-color-btn{width:25px;height:25px;border:2px solid rgba(255,255,255,.38);border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.35)}#songbookLiveModal .sb-color-btn.active{outline:2px solid white;outline-offset:2px;box-shadow:0 0 0 4px rgba(45,212,191,.2)}#songbookLiveModal .sb-thickness-btns{display:flex;background:rgba(255,255,255,.1);border-radius:9px;padding:2px}#songbookLiveModal .sb-thick-btn{width:34px;height:32px;border:0;border-radius:7px;background:transparent;color:white}#songbookLiveModal .sb-thick-btn.active{background:#e2f7f3;color:#12384a;box-shadow:0 1px 5px rgba(0,0,0,.25)}
   #songbookLiveModal .sb-view-strip{padding:7px 22px;background:linear-gradient(90deg,#0b1b30,#102841)}#songbookLiveModal .sb-view-tabs{padding:3px;border-radius:22px;background:rgba(2,12,24,.38)}#songbookLiveModal .sb-workspace{grid-template-columns:225px minmax(0,1fr) 360px;background:radial-gradient(circle at 47% 0,#254963,#142b43 38%,#09182b 78%)}#songbookLiveModal .sb-notebook-nav{padding:22px 12px;background:linear-gradient(180deg,rgba(5,20,38,.96),rgba(6,25,43,.9))}#songbookLiveModal .sb-nav-item{min-height:48px;padding:9px 10px;border-radius:12px;font-size:.76rem}#songbookLiveModal .sb-nav-item.active{box-shadow:inset 3px 0 #2dd4bf}#songbookLiveModal .sb-body{padding:38px 42px 110px 62px}#songbookLiveModal .sb-song-unit{filter:drop-shadow(0 28px 38px rgba(0,0,0,.34))}#songbookLiveModal .sb-page-controls-bar{top:12px;min-height:72px;padding:10px 16px;border-radius:15px 15px 0 0;background:linear-gradient(115deg,#132a43,#17455a)}#songbookLiveModal .sb-song-page{background-color:var(--sb-paper);background-size:32px 100%,100% 32px;border-color:#eee3cc;box-shadow:inset 48px 0 40px -43px rgba(80,57,18,.28),0 18px 46px rgba(0,0,0,.32)}#songbookLiveModal .sb-song-page::before{left:-18px;width:31px;background:radial-gradient(circle at 15px 9px,#13273a 0 3px,#b7c1c5 3.5px 5.5px,transparent 6px) 0 0/31px 31px repeat-y}#songbookLiveModal .sb-page-header{min-height:72px;padding:15px 38px 15px 50px;background:linear-gradient(180deg,#fffef9,#fbf7ed)}#songbookLiveModal .sb-page-title{font-size:1.62rem;color:#11243a}#songbookLiveModal .wo-lyrics-chord-line{color:#047d76!important;font-size:15px!important}#songbookLiveModal .wo-lyrics-lyric-line{color:#24334a!important}
   #songbookLiveModal .sb-notebook-rail{padding:22px 18px;background:linear-gradient(180deg,#071b31,#09243a 62%,#081a2c);border-left:1px solid rgba(94,234,212,.18);box-shadow:-12px 0 30px rgba(0,0,0,.13)}#songbookLiveModal .sb-rail-title{font-size:1.25rem;margin:9px 0 14px}#songbookLiveModal .sb-dock-player,#songbookLiveModal .sb-dock-empty{min-height:255px}#songbookLiveModal .sb-dock-player{border-radius:16px;border-color:rgba(94,234,212,.22);background:linear-gradient(145deg,#0b2238,#0b1b2d)}#songbookLiveModal .sb-dock-empty{padding:28px}#songbookLiveModal .sb-dock-empty i{font-size:2rem;color:#3a7189}#songbookLiveModal .sb-dock-empty b{font-size:.86rem;color:#d0e2ed}
-  @media(min-width:1321px) and (max-width:1600px){#songbookLiveModal .sb-workspace{grid-template-columns:190px minmax(0,1fr) 290px}#songbookLiveModal .sb-notebook-rail{display:block!important;padding:18px 13px}#songbookLiveModal .sb-body{padding-left:45px;padding-right:25px}}@media(max-width:1320px){#songbookLiveModal .sb-workspace{grid-template-columns:175px minmax(0,1fr)}#songbookLiveModal .sb-notebook-rail{display:none!important}}@media(max-width:820px){#songbookLiveModal .sb-header{display:flex;min-height:58px}#songbookLiveModal .sb-body{padding:15px 17px 65px 27px}#songbookLiveModal .sb-page-header{min-height:58px;padding:10px 15px 10px 34px}#songbookLiveModal .sb-page-title{font-size:1.28rem}}
+  @media(min-width:1321px) and (max-width:1600px){#songbookLiveModal .sb-workspace{grid-template-columns:190px minmax(0,1fr) 290px}#songbookLiveModal .sb-notebook-rail{display:block!important;padding:18px 13px}#songbookLiveModal .sb-body{padding-left:45px;padding-right:25px}}@media(max-width:1320px){#songbookLiveModal .sb-workspace{grid-template-columns:175px minmax(0,1fr)}#songbookLiveModal .sb-notebook-rail{display:none!important}}@media(max-width:820px){#songbookLiveModal .sb-header{display:flex;min-height:58px}#songbookLiveModal .sb-body{padding:15px 17px 65px 27px}}
 </style>
 
 <style id="sb-structural-makeover-css">
@@ -79595,27 +79589,16 @@ function filterLiturgyItems() {
 
     #songbookLiveModal .sb-workspace { display:block; flex:1; min-height:0; width:100%; overflow:hidden; }
     #songbookLiveModal .sb-notebook-stage { display:flex; width:100%; height:100%; min-height:0; overflow:hidden; }
-    #songbookLiveModal .sb-body { display:flex; width:100%; height:100%; min-height:0; box-sizing:border-box; padding:10px 9px 88px !important; overflow-y:auto !important; overflow-x:hidden !important; align-items:stretch !important; touch-action:pan-y; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; }
-    #songbookLiveModal #sbZoomWrap { width:100% !important; min-width:0; align-items:stretch !important; transform:none !important; margin-bottom:0 !important; }
-    #songbookLiveModal .sb-index-page,#songbookLiveModal .sb-song-unit,#songbookLiveModal .sb-page-controls-bar,#songbookLiveModal .sb-song-page { width:100% !important; min-width:0 !important; max-width:none !important; box-sizing:border-box; }
-    #songbookLiveModal .sb-song-unit { align-items:stretch; margin-top:14px; filter:none; }
+    #songbookLiveModal .sb-body { display:flex; width:100%; height:100%; min-height:0; box-sizing:border-box; padding:10px 9px 88px !important; overflow-y:auto !important; overflow-x:auto !important; touch-action:pan-y; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; }
+    #songbookLiveModal .sb-song-unit { margin-top:14px; filter:none; }
     #songbookLiveModal .sb-page-controls-bar { min-height:0; padding:8px; gap:5px; border-radius:10px 10px 0 0; overflow:hidden; }
     #songbookLiveModal .sb-ctrl-drag { min-width:0; max-width:none; flex:1 1 150px; }
     #songbookLiveModal .sb-ctrl-title { font-size:.74rem; white-space:normal; line-height:1.2; }
     #songbookLiveModal .sb-ctrl-artist { font-size:.58rem; }
-    #songbookLiveModal .sb-page-header-btns { width:100%; flex-wrap:nowrap; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; }
-    #songbookLiveModal .sb-page-header-btns::-webkit-scrollbar { display:none; }
-    #songbookLiveModal .sb-song-page::before { display:none; }
-    #songbookLiveModal .sb-page-header { min-height:54px; padding:10px 12px; gap:9px; }
-    #songbookLiveModal .sb-page-title { font-size:1.16rem; line-height:1.2; }
-    /* !important on family/weight: sbApplyAppearance() injects a
-       #sb-appear-dyn-css <style> tag later in <head> that otherwise wins on
-       source order for this same selector -- this is a fixed mobile
-       default, not a user preference, so it must beat that injection. */
-    #songbookLiveModal .sb-page-lyrics { min-height:180px; padding:22px 17px 38px !important; font-size:1.08rem !important; line-height:1.75 !important; overflow-wrap:anywhere; font-family:"Comic Sans MS","Comic Sans",cursive !important; font-weight:700 !important; }
-    #songbookLiveModal .wo-lyrics-chord-line { font-size:.82rem !important; }
-    #songbookLiveModal .sb-page-lyrics--two-col { column-count:1 !important; }
-    #songbookLiveModal #sbHorzSpacer { display:none !important; }
+    /* The page itself keeps its DESKTOP layout, fonts and sizes — it is the
+       794px A4 sheet scaled to fit the phone, so what you drew and how it
+       wraps is identical on every device. Only the modal chrome above is
+       restyled for small screens. */
   }
 </style>
 
