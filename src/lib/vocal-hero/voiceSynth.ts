@@ -74,13 +74,97 @@ const VOWELS: Record<string, [number, number, number]> = {
 // brighter, basses darker.
 const REGISTER_SCALE = [1.1, 1.05, 0.95, 0.88];
 
-export function vowelOf(lyric: string | undefined): [number, number, number] {
+/** How a singer READS a syllable: the leading consonants, the sung vowel
+ *  (the FIRST vowel cluster, with the common English digraphs and the
+ *  silent final e — 'grace' sings "ay", not the last letter's "eh"), and
+ *  the closing consonants that seal the note. */
+const NUCLEUS_MAP: Record<string, string> = {
+  ee: 'i', ea: 'i', ie: 'i', ei: 'e', ai: 'e', ay: 'e', ey: 'e',
+  oo: 'u', ou: 'a', ow: 'a', oa: 'o', au: 'o', aw: 'o', oy: 'o', oi: 'o', ue: 'u', ui: 'u',
+};
+function syllableOf(lyric: string | undefined): { onset: string; vowel: [number, number, number]; coda: string } | null {
   const letters = (lyric ?? '').toLowerCase().replace(/[^a-z]/g, '');
-  for (let index = letters.length - 1; index >= 0; index--) {
-    const letter = letters[index] === 'y' ? 'i' : letters[index];
-    if (VOWELS[letter]) return VOWELS[letter];
+  if (!letters) return null;
+  const isVowel = (c: string) => 'aeiou'.includes(c);
+  let i = 0;
+  while (i < letters.length && !isVowel(letters[i]) && !(letters[i] === 'y' && i > 0)) i++;
+  const onset = letters.slice(0, i);
+  let j = i;
+  while (j < letters.length && (isVowel(letters[j]) || letters[j] === 'y')) j++;
+  const nucleus = letters.slice(i, j) || 'a';
+  let coda = letters.slice(j).replace(/e$/, '');
+  if (!coda && letters.endsWith('e') && nucleus.length > 1) coda = '';
+  const mapped = NUCLEUS_MAP[nucleus.slice(0, 2)] ?? (nucleus[0] === 'y' ? 'i' : nucleus[0]);
+  return { onset, vowel: VOWELS[mapped] ?? VOWELS.a, coda };
+}
+
+export function vowelOf(lyric: string | undefined): [number, number, number] {
+  return syllableOf(lyric)?.vowel ?? VOWELS.a;
+}
+
+/** A held note with no lyric of its own continues its line's last vowel —
+ *  the melisma every hymn is full of. */
+const lastVowelByPart: Record<number, [number, number, number]> = {};
+
+/** One consonant, painted in sound: a burst for plosives, shaped noise for
+ *  fricatives, a low murmur for nasals. `level` is the vowel's own gain. */
+function playConsonant(context: AudioContext, letter: string, at: number, level: number): void {
+  const make = (seconds: number, gain: number, shape: (nodeIn: AudioNode) => AudioNode) => {
+    const samples = Math.max(8, Math.round(context.sampleRate * seconds));
+    const buffer = context.createBuffer(1, samples, context.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let index = 0; index < samples; index++) data[index] = (Math.random() * 2 - 1) * (1 - index / samples);
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    const out = context.createGain();
+    out.gain.setValueAtTime(gain, at);
+    out.gain.exponentialRampToValueAtTime(0.0001, at + seconds + 0.02);
+    shape(source).connect(out);
+    out.connect(mixBus(context));
+    source.start(at);
+    source.stop(at + seconds + 0.03);
+  };
+  const band = (frequency: number, q: number) => (nodeIn: AudioNode) => {
+    const filter = context.createBiquadFilter();
+    filter.type = 'bandpass'; filter.frequency.value = frequency; filter.Q.value = q;
+    nodeIn.connect(filter); return filter;
+  };
+  const high = (frequency: number) => (nodeIn: AudioNode) => {
+    const filter = context.createBiquadFilter();
+    filter.type = 'highpass'; filter.frequency.value = frequency; filter.Q.value = -3;
+    nodeIn.connect(filter); return filter;
+  };
+  switch (letter) {
+    case 'p': case 'b': make(0.012, level * (letter === 'b' ? 0.5 : 0.8), band(700, 1.2)); break;
+    case 't': case 'd': make(0.012, level * (letter === 'd' ? 0.5 : 0.8), band(4200, 1.2)); break;
+    case 'k': case 'g': case 'c': case 'q': make(0.014, level * 0.7, band(1900, 1.2)); break;
+    case 's': case 'z': case 'x': make(0.07, level * 0.45, high(5200)); break;
+    case 'f': case 'v': make(0.06, level * 0.3, high(3400)); break;
+    case 'j': make(0.05, level * 0.5, band(2800, 1.5)); break;
+    case 'h': make(0.06, level * 0.35, band(1400, 0.6)); break;
+    case 'm': case 'n': {
+      // the hummed doorway into the vowel
+      const murmur = context.createOscillator();
+      murmur.type = 'triangle'; murmur.frequency.value = 210;
+      const out = context.createGain();
+      out.gain.setValueAtTime(0.0001, at);
+      out.gain.exponentialRampToValueAtTime(level * 0.55, at + 0.02);
+      out.gain.exponentialRampToValueAtTime(0.0001, at + 0.09);
+      murmur.connect(out); out.connect(mixBus(context));
+      murmur.start(at); murmur.stop(at + 0.1);
+      break;
+    }
+    default: break;
   }
-  return VOWELS.a;
+}
+
+/** 'sh'/'ch'/'th' digraphs read as one sound; otherwise the cluster's most
+ *  audible letter carries the onset. */
+function onsetLetter(onset: string): string {
+  if (/^(sh|ch)/.test(onset)) return 'j';
+  if (/^th/.test(onset)) return 'f';
+  if (/^wh/.test(onset)) return 'h';
+  return onset[0] ?? '';
 }
 
 /** A sung note. Returns a stop function, like the piano tone does.
@@ -97,15 +181,38 @@ export function playVoiceTone(
   const gainLevel = Math.max(0.02, Math.min(0.11, note.velocity / 1250));
   const audible = Math.max(0.06, length);
   const releaseAt = startAt + audible;
-  const scale = REGISTER_SCALE[note.part >= 0 && note.part <= 3 ? note.part : 0];
-  const formants = vowelOf(note.lyric).map(f => f * scale);
+  const partKey = note.part >= 0 && note.part <= 3 ? note.part : 0;
+  // The demo singer READS the word: leading consonant, sung vowel, closing
+  // consonant. A note without its own lyric carries the previous vowel on —
+  // the melisma — instead of defaulting to "ah".
+  const syllable = syllableOf(note.lyric);
+  if (syllable) lastVowelByPart[partKey] = syllable.vowel;
+  const baseVowel = syllable ? syllable.vowel : (lastVowelByPart[partKey] ?? VOWELS.a);
+  const scale = REGISTER_SCALE[partKey];
+  const formants = baseVowel.map(f => f * scale);
+  const onset = syllable ? onsetLetter(syllable.onset) : '';
+  // consonants take real time: nasals hum, sibilants hiss, then the vowel opens
+  const opensAt = startAt + (onset ? ('mn'.includes(onset) ? 0.05 : 'szfvjhx'.includes(onset) ? 0.045 : 0.02) : 0);
+  // the whole section pronounces, but the soprano leads the diction —
+  // four full-strength s-hisses at once read as static, not singing
+  const diction = partKey === 0 ? 1 : 0.55;
+  if (onset && audible > 0.07) playConsonant(context, onset, startAt, gainLevel * diction);
 
   const master = context.createGain();
   master.gain.setValueAtTime(0.0001, startAt);
-  master.gain.exponentialRampToValueAtTime(gainLevel, startAt + Math.min(0.08, audible * 0.3));
+  master.gain.setValueAtTime(0.0001, Math.min(opensAt, releaseAt - 0.03));
+  master.gain.exponentialRampToValueAtTime(gainLevel, Math.min(opensAt + Math.min(0.08, audible * 0.3), releaseAt));
   master.gain.setValueAtTime(gainLevel, Math.max(startAt, releaseAt - 0.1));
   master.gain.exponentialRampToValueAtTime(0.0001, releaseAt + 0.12);
   master.connect(mixBus(context));
+
+  // the closing consonant seals the note: sing -> the hummed "ng",
+  // grace -> the "s", night -> the "t"
+  const coda = syllable?.coda ?? '';
+  if (audible > 0.12 && coda) {
+    const codaLetter = /(ng|[mn])/.test(coda) ? 'm' : /[szx]/.test(coda) ? 's' : (coda.match(/[tdkpbg]/)?.[0] ?? '');
+    if (codaLetter) playConsonant(context, codaLetter, releaseAt - ('m' === codaLetter ? 0.04 : 0.005), gainLevel * 0.7 * diction);
+  }
 
   // gentle top-end rolloff so the saws read as breath, not buzz
   const shelf = context.createBiquadFilter();
@@ -128,6 +235,23 @@ export function playVoiceTone(
     band.connect(weight);
     weight.connect(shelf);
   });
+
+  // a whisper of breath through the same formants — air in the tone, so the
+  // saws read as a voice rather than a synth
+  const breath = context.createBufferSource();
+  breath.buffer = noiseBuffer(context);
+  breath.loop = true;
+  const breathShape = context.createBiquadFilter();
+  breathShape.type = 'lowpass';
+  breathShape.frequency.value = 3200;
+  breathShape.Q.value = -3;
+  const breathGain = context.createGain();
+  breathGain.gain.value = 0.08;
+  breath.connect(breathShape);
+  breathShape.connect(breathGain);
+  breathGain.connect(source);
+  breath.start(startAt);
+  breath.stop(releaseAt + 0.2);
 
   const oscillators = [0, 7].map(cents => {
     const oscillator = context.createOscillator();

@@ -678,11 +678,26 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
     if (!carriers.length) continue;
     lyricNeed.set(bar.number, carriers.reduce((sum, note) => sum + Math.max(16, note.lyric!.trim().length * 5.6 + 8), 0));
   }
+  // ...and for their NOTES: a bar carrying a sixteenth figure needs room for
+  // every head, or the turn prints as a pile-up with its neighbours.
+  const noteNeed = new Map<number, number>();
+  for (const bar of bars) {
+    const onsetsByPart = new Map<number, Set<number>>();
+    for (const note of notes) {
+      if (note.start < bar.start - 0.001 || note.start >= bar.end - 0.001) continue;
+      if (!onsetsByPart.has(note.part)) onsetsByPart.set(note.part, new Set());
+      onsetsByPart.get(note.part)!.add(Math.round(note.start * 96));
+    }
+    let busiest = 0;
+    for (const set of onsetsByPart.values()) busiest = Math.max(busiest, set.size);
+    if (busiest > 2) noteNeed.set(bar.number, busiest * 30 + 12);
+  }
   const placed: PlacedBar[] = [];
   let system = 0, x = MARGIN_LEFT;
   for (const bar of bars) {
     const natural = bar.beatCount * BEAT_W;
-    const width = Math.max(natural, Math.min(natural * 2.4, lyricNeed.get(bar.number) ?? 0)) + BAR_PAD;
+    const need = Math.max(lyricNeed.get(bar.number) ?? 0, noteNeed.get(bar.number) ?? 0);
+    const width = Math.max(natural, Math.min(natural * 2.4, need)) + BAR_PAD;
     if (x + width > MARGIN_LEFT + usable && x > MARGIN_LEFT) { system += 1; x = MARGIN_LEFT; }
     placed.push({ ...bar, system, x, width });
     x += width;
@@ -922,6 +937,16 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
   for (const chord of chords ?? []) {
     const position = timeToXY(chord.at);
     if (position) chordTexts.push({ x: position.x, system: position.system, label: chord.symbol });
+  }
+  // Neighbouring symbols keep clear of each other — half-beat changes like
+  // Em/B then B printed as one smear. Later labels slide right just enough
+  // (they are centre-anchored, so the gap is the two half-widths plus air).
+  chordTexts.sort((a, b) => a.system - b.system || a.x - b.x);
+  for (let i = 1; i < chordTexts.length; i++) {
+    const prev = chordTexts[i - 1], cur = chordTexts[i];
+    if (cur.system !== prev.system) continue;
+    const minGap = (prev.label.length + cur.label.length) * 3.6 + 6;
+    if (cur.x - prev.x < minGap) cur.x = prev.x + minGap;
   }
   // One chord landing slot floats over every beat — the lead sheet's empty
   // spaces made clickable. Each slot OWNS the half-beat around it, so a
