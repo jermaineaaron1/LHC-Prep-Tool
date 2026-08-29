@@ -22,6 +22,7 @@ import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vo
 import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
 import { preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
+import { downloadSingerVoice, playSingerBuffers, prepareSingerBuffers, singerVoiceReady } from '@/lib/vocal-hero/singer';
 import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
@@ -410,7 +411,21 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [stepCaret, setStepCaret] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   // The preview SINGS by default; the piano remains one tap away.
-  const [previewVoices, setPreviewVoices] = useState(true);
+  const [previewVoice, setPreviewVoice] = useState<'choir' | 'singer' | 'piano'>('choir');
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('vh_preview_voice');
+      if (saved === 'choir' || saved === 'singer' || saved === 'piano') setPreviewVoice(saved);
+    } catch { /* storage unavailable */ }
+  }, []);
+  function cyclePreviewVoice() {
+    setPreviewVoice(current => {
+      const next = current === 'choir' ? 'singer' : current === 'singer' ? 'piano' : 'choir';
+      try { window.localStorage.setItem('vh_preview_voice', next); } catch { /* fine */ }
+      return next;
+    });
+  }
+  const previewVoices = previewVoice !== 'piano';
   const [closePrompt, setClosePrompt] = useState(false);
   // The rendition always compiles from the SOURCE arrangement, never from its
   // own output — otherwise hear-and-return would stack passes of passes. The
@@ -2035,6 +2050,41 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       // real recordings — every play fell back to synthesis.
       await Promise.race([samplesReady(context), new Promise(resolve => setTimeout(resolve, 1500))]);
       if (audioContextRef.current !== context || context.state === 'closed') return;
+      // One timing rule for every renderer, so the AI singer, the choir and
+      // the piano land on identical clocks.
+      const timingOf = (note: SongNote) => {
+        const audibleStart = Math.max(note.start, first);
+        const at = (w(audibleStart) - w(first)) / transportRate;
+        const hold = performed.holds.find(item => table && Math.abs(item.at - note.end) < 0.12);
+        let length = Math.max(.07, (hold && table ? tableWarp(table, hold.at) : w(Math.min(note.end, end))) - w(audibleStart));
+        if (!hold && note.marks?.staccato) length = Math.max(.05, length * 0.5);
+        else if (!hold && performed.legato.has(note.id)) length = Math.max(length, w(performed.nextStart.get(note.id) ?? note.end) - w(audibleStart));
+        else if (!hold && note.marks?.tenuto) length *= 1.04;
+        return { at, length };
+      };
+      // The AI singer PREPARES before anything is scheduled, so the words,
+      // the choir and the band all start on the same clock.
+      let singerPrepared: Array<{ at: number; buffer: AudioBuffer } | null> | null = null;
+      if (previewVoice === 'singer') {
+        try {
+          if (!(await singerVoiceReady())) {
+            setEditorNotice('Downloading the demo singer\u2019s voice \u2014 one time, kept on this device\u2026');
+            await downloadSingerVoice(pct => setEditorNotice(`Downloading the demo singer\u2019s voice\u2026 ${pct}%`));
+          }
+          const line = preview
+            .filter(note => note.part === 0 || note.part === -1)
+            .sort((a, b) => a.start - b.start)
+            .map(note => {
+              const { at, length } = timingOf(note);
+              return { midi: note.midi, at, seconds: length / transportRate, lyric: note.lyric ?? '' };
+            });
+          singerPrepared = await prepareSingerBuffers(context, line, message => setEditorNotice(message));
+          if (audioContextRef.current !== context || (context.state as string) === 'closed') return;
+        } catch {
+          singerPrepared = null;
+          setEditorNotice('The demo singer could not start \u2014 the choir sings this pass.');
+        }
+      }
       preview.forEach(note => {
         const audibleStart = Math.max(note.start, first);
         const at = (w(audibleStart) - w(first)) / transportRate;
@@ -2054,9 +2104,15 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         const slideTarget = note.marks?.slide
           ? activePerformance.notes.filter(item => item.part === note.part && item.id !== note.id && item.start >= note.end - 0.05).sort((a, b) => a.start - b.start)[0]?.midi
           : undefined;
-        if (previewVoices) playVoiceTone(context, played, context.currentTime + at, length / transportRate, slideTarget);
-        else playPianoTone(context, played, context.currentTime + at, length / transportRate);
+        if (singerPrepared && (note.part === 0 || note.part === -1)) return;   // the AI voice carries the melody
+        const toned = singerPrepared ? { ...played, velocity: Math.round(played.velocity * 0.55) } : played;
+        if (previewVoices) playVoiceTone(context, toned, context.currentTime + at, length / transportRate, slideTarget);
+        else playPianoTone(context, toned, context.currentTime + at, length / transportRate);
       });
+      if (singerPrepared) {
+        const base = context.currentTime;
+        playSingerBuffers(context, singerPrepared.map(item => item && { at: base + item.at, buffer: item.buffer }));
+      }
       // ---- the band: the SAVED guitar and drum styles, on the same warped
       // clock as the voices — what plays here is what the room will hear.
       // Like practice and the round: a real backing track fills the space,
@@ -2375,9 +2431,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       </aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
         {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="relative flex items-center gap-1.5">
-          <button onClick={() => setPreviewVoices(current => !current)} aria-pressed={previewVoices}
-            title={previewVoices ? 'The preview sings: vowels from the lyrics, vibrato and all. Tap for piano.' : 'The preview plays piano. Tap to hear it sung.'}
-            className={`rounded-lg border px-2.5 py-2 ${previewVoices ? 'border-emerald-300/50 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-slate-300'}`}>{previewVoices ? '\ud83c\udfa4' : '\ud83c\udfb9'}</button>
+          <button onClick={cyclePreviewVoice} aria-pressed={previewVoice !== 'piano'}
+            title={previewVoice === 'choir' ? 'Preview voice: synth choir. Tap for the AI demo singer (pronounces the actual lyrics; one-time voice download).'
+              : previewVoice === 'singer' ? 'Preview voice: AI demo singer \u2014 sings the actual words on the melody, choir beneath. Tap for piano.'
+              : 'Preview voice: piano. Tap for the synth choir.'}
+            className={`rounded-lg border px-2.5 py-2 ${previewVoice !== 'piano' ? 'border-emerald-300/50 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-slate-300'}`}>{previewVoice === 'choir' ? '\ud83c\udfa4' : previewVoice === 'singer' ? '\ud83d\udde3\ufe0f' : '\ud83c\udfb9'}</button>
           <button onClick={() => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: (current.accompaniment?.guitar ?? 'off'), drums: (current.accompaniment?.drums ?? 'off') === 'off' ? 'drum-kit' : 'off' } }))} aria-pressed={accompaniment.drums !== 'off'}
             title="Drums on or off for THIS SONG — saved with it, heard in preview, practice and rounds. Pick the style (kit or cajon) under the three-dots menu."
             className={`rounded-lg border px-2.5 py-2 ${accompaniment.drums !== 'off' ? 'border-amber-300/50 bg-amber-300/10 text-amber-100' : 'border-white/15 text-slate-300'}`}>{'\ud83e\udd41'}</button>
