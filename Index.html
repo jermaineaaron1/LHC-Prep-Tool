@@ -10468,8 +10468,18 @@ I once was lost but now am found"
 
         <!-- Media tab -->
         <div id="sbMediaPanel" class="sb-panel-body" style="display:none;">
-          <div class="sb-panel-section">
+          <div class="sb-panel-section" id="sbRecSection">
             <div class="sb-panel-label">Recordings <span id="sbRecCount" class="sb-rec-count"></span></div>
+            <select id="sbRecCategory" class="sb-rec-cat-select" title="What this take is — stamped on the recording">
+              <option value="general">General recording</option>
+              <option value="instrumental">Instrumental only</option>
+              <option value="harmony-2nds">Harmony &middot; 2nds</option>
+              <option value="harmony-3rds">Harmony &middot; 3rds</option>
+              <option value="soprano">Soprano</option>
+              <option value="alto">Alto</option>
+              <option value="tenor">Tenor</option>
+              <option value="bass">Bass</option>
+            </select>
             <div id="sbRecStatus" class="sb-panel-info" style="display:none;"></div>
             <div id="sbRecActivity" class="sb-rec-activity" style="display:none;">
               <div class="sb-rec-bars">
@@ -41287,6 +41297,7 @@ var WO = (function() {
       html += '</div>'; // .sb-page-header-btns
       // Action buttons at end of controls bar
       html += '<div style="display:flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0;">';
+      html += '<button class="sb-attach-btn" onclick="WO.sbOpenRecordings(\'' + sid + '\')" title="Practice recordings — record and play back reference takes"><i class="fa-solid fa-microphone"></i></button>';
       html += '<button class="sb-attach-btn" onclick="WO.sbAddSongLink(\'' + sid + '\')" title="Add YouTube or website link"><i class="fa-solid fa-link"></i></button>';
       html += '<button class="sb-attach-btn sb-edit-lyrics-btn" onclick="WO.sbOpenLyricsEditor(\'' + sid + '\')" title="Edit Lyrics"><i class="fa-solid fa-pen-to-square"></i> Edit</button>';
       html += '<button class="sb-attach-btn" onclick="WO.sbAttachFile(\'' + sid + '\')" title="Attach image or document"><i class="fa-solid fa-paperclip"></i></button>';
@@ -43234,12 +43245,17 @@ var WO = (function() {
     var listEl = document.getElementById('sbRecList'); var existing = listEl ? listEl.querySelectorAll('.sb-rec-item').length : 0;
     if (existing >= 10) { sbShowRecStatus('Max 10 recordings per song', 'error'); return; }
     var orderId = currentOrderData ? currentOrderData.id : null;
-    var storagePath = 'recordings/' + (orderId || 'standalone') + '/' + songId + '/' + Date.now() + '.webm';
+    var catSel = document.getElementById('sbRecCategory');
+    var recCat = (catSel && catSel.value) || 'general';
+    // The 'songbook-recordings' bucket was never given anon policies (every
+    // upload died on RLS) — practice takes live in the app's working bucket
+    // under their own prefix instead.
+    var storagePath = 'practice-recordings/' + songId + '/' + recCat + '__' + Date.now() + '.webm';
     var sup = window._supabase || null; if (!sup) { sbShowRecStatus('Storage unavailable', 'error'); return; }
-    sup.storage.from('songbook-recordings').upload(storagePath, blob, { contentType: blob.type || 'audio/webm', upsert: false })
+    sup.storage.from(LHC_SUPABASE_BUCKET).upload(storagePath, blob, { contentType: blob.type || 'audio/webm', upsert: false })
       .then(function(res) {
         if (res.error) { sbShowRecStatus('Upload failed: ' + res.error.message, 'error'); return; }
-        return sup.from('song_recordings').insert({ song_id: songId, order_id: orderId || null, name: 'Recording ' + (existing + 1), storage_path: storagePath, duration_sec: durationSec });
+        return sup.from('song_recordings').insert({ song_id: songId, order_id: orderId || null, name: _sbRecCatLabel(recCat) + ' take ' + (existing + 1), storage_path: storagePath, duration_sec: durationSec });
       }).then(function(res2) {
         if (!res2) return;
         if (res2.error) { sbShowRecStatus('DB error: ' + res2.error.message, 'error'); return; }
@@ -43250,22 +43266,55 @@ var WO = (function() {
     if (!songId) return; _sbRecCurrentSongId = songId;
     var sup = window._supabase || null; if (!sup) return;
     var orderId = currentOrderData ? currentOrderData.id : null;
+    // Per SONG, across every service and songbook — these takes are the
+    // reference for how the song goes, wherever it appears.
     var q = sup.from('song_recordings').select('*').eq('song_id', songId).order('created_at', { ascending: false });
-    if (orderId) q = q.eq('order_id', orderId);
     q.then(function(res) { if (!res.error) sbRenderRecordings(songId, res.data || []); });
   }
   function _sbFmtDur(sec) { sec = Math.round(sec||0); var m=Math.floor(sec/60),s=sec%60; return m+':'+(s<10?'0':'')+s; }
+  var _SB_REC_CATS = { general: 'General', instrumental: 'Instrumental', 'harmony-2nds': 'Harmony \u00b7 2nds', 'harmony-3rds': 'Harmony \u00b7 3rds', soprano: 'Soprano', alto: 'Alto', tenor: 'Tenor', bass: 'Bass' };
+  function _sbRecCatLabel(cat) { return _SB_REC_CATS[cat] || 'General'; }
+  function _sbRecCatOf(storagePath) {
+    var match = /\/([a-z0-9-]+)__\d+\.webm$/.exec(storagePath || '');
+    return match && _SB_REC_CATS[match[1]] ? match[1] : 'general';
+  }
+  // The recordings section travels: it lives in the desktop rail, and the
+  // 🎙 button on any song's control bar summons it into a bottom sheet —
+  // the ONE element is reparented, never duplicated, so its logic stays put.
+  function sbOpenRecordings(sid) {
+    _sbRecCurrentSongId = String(sid).split('--')[0];
+    var host = document.getElementById('sbRecSheetHost');
+    var section = document.getElementById('sbRecSection');
+    if (host && section && section.parentNode !== host) host.appendChild(section);
+    var title = document.getElementById('sbRecSheetSong');
+    var song = (typeof songOrderSections !== 'undefined' ? songOrderSections : []).find(function(item) { return item && String(item.id).split('--')[0] === _sbRecCurrentSongId; });
+    if (title) title.textContent = song ? (song.title || '') : '';
+    var sheet = document.getElementById('sbRecSheet');
+    if (sheet) sheet.style.display = 'block';
+    sbLoadRecordings(_sbRecCurrentSongId);
+  }
+  function sbCloseRecordings() {
+    if (_sbRecording) _sbStopRecording();
+    var sheet = document.getElementById('sbRecSheet');
+    if (sheet) sheet.style.display = 'none';
+    var section = document.getElementById('sbRecSection');
+    var homePanel = document.getElementById('sbMediaPanel');
+    if (section && homePanel && section.parentNode !== homePanel) homePanel.insertBefore(section, homePanel.firstChild);
+  }
   function sbRenderRecordings(songId, recs) {
     var listEl = document.getElementById('sbRecList'); var cntEl = document.getElementById('sbRecCount');
     if (!listEl) return; if (cntEl) cntEl.textContent = recs.length ? '('+recs.length+'/10)' : '';
     if (!recs.length) { listEl.innerHTML = '<div class="sb-panel-info" style="text-align:left;">No recordings yet</div>'; return; }
     listEl.innerHTML = recs.map(function(r) {
+      var cat = _sbRecCatOf(r.storage_path);
       return '<div class="sb-rec-item" id="sbRecItem-'+r.id+'">' +
         '<div class="sb-rec-item-head">' +
           '<div class="sb-rec-item-name" id="sbRecName-'+r.id+'" ondblclick="WO.sbRenameRecording(\''+r.id+'\')">'+escapeHtml(r.name||'Recording')+'</div>' +
+          '<span class="sb-rec-cat sb-rec-cat--'+cat+'">'+_sbRecCatLabel(cat)+'</span>' +
           '<span class="sb-rec-item-dur">'+_sbFmtDur(r.duration_sec)+'</span>' +
           '<div class="sb-rec-item-btns">' +
             '<button class="sb-rec-item-btn" id="sbRecPlay-'+r.id+'" onclick="WO.sbPlayRecording(\''+r.id+'\',\''+escapeHtml(r.storage_path)+'\')" title="Play"><i class="fa-solid fa-play"></i></button>' +
+            '<button class="sb-rec-item-btn" onclick="WO.sbRenameRecording(\''+r.id+'\')" title="Rename"><i class="fa-solid fa-pen"></i></button>' +
             '<button class="sb-rec-item-btn" onclick="WO.sbDeleteRecording(\''+r.id+'\',\''+escapeHtml(r.storage_path)+'\')" title="Delete" style="color:#fca5a5;"><i class="fa-solid fa-trash"></i></button>' +
           '</div></div></div>';
     }).join('');
@@ -43279,8 +43328,9 @@ var WO = (function() {
     _sbPlayingId = id;
     var btn = document.getElementById('sbRecPlay-'+id); if (btn) { btn.classList.add('playing'); btn.innerHTML = '<i class="fa-solid fa-stop"></i>'; }
     var sup = window._supabase || null; if (!sup) return;
-    sup.storage.from('songbook-recordings').createSignedUrl(storagePath, 3600).then(function(res) {
-      if (res.error || !res.data) return;
+    var pub = sup.storage.from(LHC_SUPABASE_BUCKET).getPublicUrl(storagePath);
+    Promise.resolve({ data: { signedUrl: pub.data.publicUrl } }).then(function(res) {
+      if (!res.data) return;
       _sbPlayingAudio = new Audio(res.data.signedUrl);
       _sbPlayingAudio.onended = function() { var b = document.getElementById('sbRecPlay-'+id); if (b) { b.classList.remove('playing'); b.innerHTML = '<i class="fa-solid fa-play"></i>'; } _sbPlayingId = null; _sbPlayingAudio = null; };
       _sbPlayingAudio.play();
@@ -43289,7 +43339,7 @@ var WO = (function() {
   function sbDeleteRecording(id, storagePath) {
     if (!confirm('Delete this recording?')) return;
     var sup = window._supabase || null; if (!sup) return;
-    Promise.all([sup.from('song_recordings').delete().eq('id', id), sup.storage.from('songbook-recordings').remove([storagePath])]).then(function() { var item = document.getElementById('sbRecItem-'+id); if (item) item.remove(); sbLoadRecordings(_sbRecCurrentSongId); });
+    Promise.all([sup.from('song_recordings').delete().eq('id', id), sup.storage.from(LHC_SUPABASE_BUCKET).remove([storagePath])]).then(function() { var item = document.getElementById('sbRecItem-'+id); if (item) item.remove(); sbLoadRecordings(_sbRecCurrentSongId); });
   }
   function sbRenameRecording(id) {
     var nameEl = document.getElementById('sbRecName-'+id); if (!nameEl) return;
@@ -66303,6 +66353,8 @@ var WO = (function() {
     sbApplyAppearance: sbApplyAppearance,
     // Media / recordings tab
     sbToggleRecording: sbToggleRecording,
+    sbOpenRecordings: sbOpenRecordings,
+    sbCloseRecordings: sbCloseRecordings,
     sbLoadRecordings: sbLoadRecordings,
     sbPlayRecording: sbPlayRecording,
     sbDeleteRecording: sbDeleteRecording,
@@ -77864,6 +77916,20 @@ function filterLiturgyItems() {
   .sb-rec-bar:nth-child(5){height:6px;animation-delay:0.05s;}
   @keyframes sb-bar-anim { 0%,100%{transform:scaleY(0.4)} 50%{transform:scaleY(1)} }
   .sb-rec-timer { font-size:0.82rem; font-weight:700; color:#fca5a5; font-variant-numeric:tabular-nums; }
+  .sb-rec-cat-select {
+    width:100%; margin:0 0 8px; padding:6px 8px; border-radius:8px;
+    background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2);
+    color:#e2e8f0; font-size:.72rem; font-family:inherit;
+  }
+  .sb-rec-cat-select option { background:#0e2033; color:#e2e8f0; }
+  .sb-rec-cat {
+    flex:none; padding:1px 7px; border-radius:9px; font-size:.56rem; font-weight:800;
+    letter-spacing:.04em; text-transform:uppercase;
+    background:rgba(94,234,212,0.14); color:#7de8d8; border:1px solid rgba(94,234,212,0.3);
+  }
+  .sb-rec-cat--instrumental { background:rgba(251,191,36,0.14); color:#fbbf24; border-color:rgba(251,191,36,0.3); }
+  .sb-rec-cat--soprano, .sb-rec-cat--alto { background:rgba(244,114,182,0.14); color:#f9a8d4; border-color:rgba(244,114,182,0.3); }
+  .sb-rec-cat--tenor, .sb-rec-cat--bass { background:rgba(96,165,250,0.14); color:#93c5fd; border-color:rgba(96,165,250,0.3); }
   .sb-rec-list { display:flex; flex-direction:column; gap:6px; margin-top:4px; }
   .sb-rec-item { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); border-radius:8px; overflow:hidden; }
   .sb-rec-item-head { display:flex; align-items:center; gap:6px; padding:8px 10px; }
@@ -79631,8 +79697,32 @@ function filterLiturgyItems() {
        794px A4 sheet scaled to fit the phone, so what you drew and how it
        wraps is identical on every device. Only the modal chrome above is
        restyled for small screens. */
+    /* The song control bar is counter-scaled to stay finger-sized, so its
+       DESKTOP type reads huge on a phone. Compact everything so the whole
+       row of tools fits without wrapping into a wall. */
+    #songbookLiveModal .sb-page-controls-bar { padding:6px 8px !important; gap:4px !important; min-height:0 !important; }
+    #songbookLiveModal .sb-page-controls-bar button { font-size:.6rem !important; padding:3px 7px !important; min-height:28px !important; min-width:28px !important; border-radius:7px !important; }
+    #songbookLiveModal .sb-page-controls-bar button i { font-size:.62rem !important; }
+    #songbookLiveModal .sb-page-controls-bar .sb-ctrl-title { font-size:.7rem !important; line-height:1.2 !important; }
+    #songbookLiveModal .sb-page-controls-bar .sb-ctrl-artist { font-size:.54rem !important; }
+    #songbookLiveModal .sb-page-header-btns { gap:3px !important; }
   }
 </style>
+
+<!-- ===== PRACTICE RECORDINGS SHEET (hosts the rail's recordings section) ===== -->
+<div id="sbRecSheet" style="display:none;position:fixed;inset:0;z-index:3400;background:rgba(2,10,22,0.6);" onclick="if(event.target===this)WO.sbCloseRecordings()">
+  <div style="position:absolute;left:0;right:0;bottom:0;max-height:78vh;overflow-y:auto;background:#0e2033;border-radius:16px 16px 0 0;border-top:1px solid rgba(94,234,212,.3);padding:14px 16px 22px;box-shadow:0 -12px 40px rgba(0,0,0,.5);">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <i class="fa-solid fa-microphone" style="color:#5eead4;"></i>
+      <div style="flex:1;min-width:0;">
+        <div style="color:#e2f4f1;font-weight:800;font-size:.85rem;">Practice recordings</div>
+        <div id="sbRecSheetSong" style="color:#8fb3c7;font-size:.68rem;"></div>
+      </div>
+      <button onclick="WO.sbCloseRecordings()" style="background:rgba(255,255,255,.12);border:0;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div id="sbRecSheetHost"></div>
+  </div>
+</div>
 
 <!-- ===== PIC LOGIN MODAL ===== -->
 <div id="picLoginModal" class="pic-modal-backdrop" style="display:none;" onclick="if(event.target===this)RosterEngine.closePicLoginModal()">
