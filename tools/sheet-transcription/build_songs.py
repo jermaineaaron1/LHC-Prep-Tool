@@ -201,41 +201,52 @@ hark = {
 }
 
 # ---------------------------------------------------------------- SING WE NOW OF CHRISTMAS
-# NOEL NOUVELET, E minor, 2/4, unison melody from the hymnal page (No. 193).
-U = [('E4',0.5,'Sing'),('E4',0.5,'we'),('F#4',0.5,'now'),('G4',0.5,'of'),
-     ('B4',0.5,'Christ'),('B4',0.5,'mas,'),('A4',0.5,'No'),('G4',0.5,'el,'),
-     ('F#4',0.5,'sing'),('G4',0.5,'we'),('E4',1,'here!'),
-     ('E4',2,''),
-     ('E4',0.5,'Hear'),('E4',0.5,'our'),('F#4',0.5,'grate'),('G4',0.5,'ful'),
-     ('B4',0.5,'prais'),('B4',0.5,'es'),('A4',0.5,'to'),('G4',0.5,'the'),
-     ('F#4',0.5,'Babe'),('G4',0.5,'so'),('E4',1,'dear.'),
-     ('E4',2,''),
-     ('B4',0.5,'Sing'),('B4',0.5,'we'),('A4',0.5,'No'),('G4',0.5,'el,'),
-     ('F#4',0.5,'the'),('G4',0.5,'King'),('A4',0.5,'is'),('F#4',0.5,'born,'),
-     ('G4',1,'No'),('F#4',1,'el!'),
-     ('F#4',2,''),
-     ('E4',0.5,'Sing'),('E4',0.5,'we'),('F#4',0.5,'now'),('G4',0.5,'of'),
-     ('B4',0.5,'Christ'),('B4',0.5,'mas,'),('A4',0.5,'sing'),('G4',0.5,'we'),
-     ('F#4',0.5,'now'),('G4',0.5,'No'),('E4',1,'el!'),
-     ('E4',2,'')]
-# SATB from the full page 193 scan (Aug 2026 revision): the verse walks
-# Em - A/E (the dorian C#) - Em - A - B - Em, the refrain opens on B/D# and
-# half-cadences on B so the next verse re-enters on Em. Replaced the earlier
-# chord-symbol-only voicing after the user provided the whole page.
-phrA_A = [('B3',1,None),('C#4',1,None),('E4',1,None),('E4',1,None),('D#4',1,None),('B3',1,None),('B3',2,None)]
-phrA_T = [('G3',1,None),('A3',1,None),('G3',1,None),('C#4',1,None),('B3',1,None),('G3',1,None),('G3',2,None)]
-phrA_B = [('E3',1,None),('E3',1,None),('E3',1,None),('A2',1,None),('B2',1,None),('E3',1,None),('E3',2,None)]
-ref_A  = [('F#4',1,None),('E4',1,None),('E4',1,None),('D#4',1,None),('E4',1,None),('D#4',1,None),('D#4',2,None)]
-ref_T  = [('B3',1,None),('G3',1,None),('G3',1,None),('B3',1,None),('G3',1,None),('B3',1,None),('B3',2,None)]
-ref_B  = [('D#3',1,None),('E3',1,None),('E3',1,None),('B2',1,None),('E3',1,None),('B2',1,None),('B2',2,None)]
-A_line = phrA_A + phrA_A + ref_A + phrA_A
-T_line = phrA_T + phrA_T + ref_T + phrA_T
-B_line = phrA_B + phrA_B + ref_B + phrA_B
-sing_notes, sing_len = build('sing-we-now', {0: U, 1: A_line, 2: T_line, 3: B_line}, 92)
+# NOEL NOUVELET, E minor (dorian), 2/4, from the page-193 scan read at 4x
+# through omr.py (PNG variant) + annotated zoom passes. The AUTHENTIC tune:
+# eighth-note pickup, the leap to B4, the raised sixth C#5 under A/E, the
+# A4->B4 sixteenth turn, and the low answering refrain. Accompaniment from
+# the page's own lines (bass staff walks, treble second voice).
+def _verse_S(w):
+    return [('E4',.5,w[0]),
+            ('E4',.5,w[1]),('B4',.5,w[2]),('C#5',.5,w[3]),('A4',.5,w[4]),
+            ('B4',1,w[5]),('G4',1,w[6]),
+            ('A4',.5,w[7]),('A4',.25,''),('B4',.25,''),('G4',.5,w[8]),('F#4',.5,w[9]),
+            ('E4',1.5,w[10])]   # written a half; released at the printed eighth rest
+_R_S = [('G4',1,'Sing'),('F#4',.5,'we'),('E4',.5,'No'),
+        ('F#4',1.5,'el,'),('G4',.5,'the'),
+        ('G4',.5,'King'),('G4',.5,'is'),('F#4',.5,'born,'),('E4',.5,'No'),
+        ('F#4',1.5,'el!')]
+_F_S = [('E4',.5,'Sing'),
+        ('E4',.5,'we'),('B4',.5,'now'),('C#5',.5,'of'),('A4',.5,'Christ'),
+        ('B4',1,'mas,'),('G4',1,'sing'),
+        ('A4',.5,'we'),('D5',.25,'now'),('B4',.25,''),('G4',.5,'No'),('F#4',.5,'el!'),
+        ('E4',2,'')]
+U = (_verse_S(['Sing','we','now','of','Christ','mas,','No','el,','sing','we','here!'])
+     + _verse_S(['Hear','our','grate','ful','prais','es','to','the','Babe','so','dear.'])
+     + _R_S + _F_S)
+_rest = (None,.5,None)
+_AV = [('E4',2,None),('D4',2,None),('C#4',1,None),('B3',1,None),('B3',2,None)]
+_TV = [('E3',.5,None),('G3',.5,None),('A3',.5,None),('C#4',.5,None),('B3',2,None),
+       ('A3',1,None),('D#3',1,None),('G3',2,None)]
+_BV = [('E3',2,None),('G3',1,None),('E3',1,None),
+       ('A2',.5,None),('E3',.5,None),('B2',1,None),('E3',2,None)]
+_AR = [('B3',1,None),('B3',1,None),('B3',1.5,None),('B3',.5,None),('B3',2,None),('D#4',2,None)]
+_TR = [('E3',2,None),('D#3',2,None),('E3',2,None),('F#3',2,None)]
+_BR = [('E3',.5,None),('F#3',.5,None),('G3',.5,None),('E3',.5,None),('B2',2,None),
+       ('E3',1,None),('F#3',.5,None),('G3',.5,None),('B2',2,None)]
+A_line = [_rest] + _AV + _AV + _AR + _AV
+T_line = [_rest] + _TV + _TV + _TR + _TV
+B_line = [_rest] + _BV + _BV + _BR + _BV
+sing_notes, sing_len = build('sing-we-now', {0: U, 1: A_line, 2: T_line, 3: B_line}, 92, lead=2.283)
+# the four voices release together on the soprano's final note
+_send = max(n['end'] for n in sing_notes if n['part'] == 0)
+for _p in (1, 2, 3):
+    _ln = max((n for n in sing_notes if n['part'] == _p), key=lambda n: n['start'])
+    _ln['end'] = _send
 sing = {
     'title': 'Sing We Now of Christmas',
     'artist': 'French carol, 15th c. (NOEL NOUVELET)',
-    'arranged_by': 'Melody note-for-note from hymnal page 193 (NOEL NOUVELET); alto, tenor and bass rebuilt from the same page’s harmony — Em with the dorian A/E colour, B/D♯ opening the refrain, half cadence on B',
+    'arranged_by': 'Re-transcribed note-for-note from the page-193 scan at 4x zoom via the optical reader: the authentic tune with the page own accompaniment lines',
     'tags': 'carol, christmas, public domain, SATB',
     'bpm': 92, 'time_sig': 2, 'duration': math.ceil(sing_len + 1),
     'notes': sing_notes,
