@@ -43220,8 +43220,18 @@ var WO = (function() {
     var curPage = document.querySelector('#sbBody .sb-song-page');
     if (curPage) { var pid = (curPage.id || '').replace(/^sbPage-/, ''); if (pid) _sbRecCurrentSongId = pid.split('--')[0]; }
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
-      var mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
-      _sbMediaRecorder = new MediaRecorder(stream, { mimeType: mimeType }); _sbRecChunks = [];
+      var mimeType = '';
+      ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].some(function(candidate) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(candidate)) { mimeType = candidate; return true; }
+        return false;
+      });
+      try {
+        _sbMediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
+      } catch (recErr) {
+        _sbMediaRecorder = new MediaRecorder(stream);   // the browser's own default
+      }
+      mimeType = _sbMediaRecorder.mimeType || mimeType || 'audio/webm';
+      _sbRecChunks = [];
       _sbMediaRecorder.ondataavailable = function(e) { if (e.data.size) _sbRecChunks.push(e.data); };
       _sbMediaRecorder.onstop = function() { stream.getTracks().forEach(function(t) { t.stop(); }); _sbSaveRecording(new Blob(_sbRecChunks, { type: mimeType }), _sbRecElapsed); };
       _sbMediaRecorder.start(250); _sbRecording = true; _sbRecElapsed = 0;
@@ -43250,7 +43260,9 @@ var WO = (function() {
     // The 'songbook-recordings' bucket was never given anon policies (every
     // upload died on RLS) — practice takes live in the app's working bucket
     // under their own prefix instead.
-    var storagePath = 'practice-recordings/' + songId + '/' + recCat + '__' + Date.now() + '.webm';
+    var recType = (blob.type || 'audio/webm').toLowerCase();
+    var recExt = recType.indexOf('mp4') !== -1 ? 'm4a' : recType.indexOf('ogg') !== -1 ? 'ogg' : 'webm';
+    var storagePath = 'practice-recordings/' + songId + '/' + recCat + '__' + Date.now() + '.' + recExt;
     var sup = window._supabase || null; if (!sup) { sbShowRecStatus('Storage unavailable', 'error'); return; }
     sup.storage.from(LHC_SUPABASE_BUCKET).upload(storagePath, blob, { contentType: blob.type || 'audio/webm', upsert: false })
       .then(function(res) {
@@ -43275,7 +43287,7 @@ var WO = (function() {
   var _SB_REC_CATS = { general: 'General', instrumental: 'Instrumental', 'harmony-2nds': 'Harmony \u00b7 2nds', 'harmony-3rds': 'Harmony \u00b7 3rds', soprano: 'Soprano', alto: 'Alto', tenor: 'Tenor', bass: 'Bass' };
   function _sbRecCatLabel(cat) { return _SB_REC_CATS[cat] || 'General'; }
   function _sbRecCatOf(storagePath) {
-    var match = /\/([a-z0-9-]+)__\d+\.webm$/.exec(storagePath || '');
+    var match = /\/([a-z0-9-]+)__\d+\.[a-z0-9]+$/.exec(storagePath || '');
     return match && _SB_REC_CATS[match[1]] ? match[1] : 'general';
   }
   // The recordings section travels: it lives in the desktop rail, and the

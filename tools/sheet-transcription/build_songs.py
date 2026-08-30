@@ -238,6 +238,13 @@ A_line = [_rest] + _AV + _AV + _AR + _AV
 T_line = [_rest] + _TV + _TV + _TR + _TV
 B_line = [_rest] + _BV + _BV + _BR + _BV
 sing_notes, sing_len = build('sing-we-now', {0: U, 1: A_line, 2: T_line, 3: B_line}, 92, lead=2.283)
+# every voice carries its words: a harmony note takes the syllable the
+# soprano sings at its onset, hymnal-style
+_sop_ly = sorted([n for n in sing_notes if n['part'] == 0 and n['lyric']], key=lambda n: n['start'])
+for _n in sing_notes:
+    if _n['part'] == 0 or _n['lyric']: continue
+    for _s0 in _sop_ly:
+        if abs(_s0['start'] - _n['start']) < 0.05: _n['lyric'] = _s0['lyric']; break
 # the four voices release together on the soprano's final note
 _send = max(n['end'] for n in sing_notes if n['part'] == 0)
 for _p in (1, 2, 3):
