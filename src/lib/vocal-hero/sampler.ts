@@ -22,11 +22,12 @@
 // decodes are per-AudioContext, and until an anchor is decoded the
 // synthesized voice stands in — the band is never silent while it warms.
 
-import { mixBus, playBassTone, playGuitarPluck, playHat, playKick, playPianoNote, playSnare, playTom } from './voiceSynth';
+import { mixBus, playBassTone, playGuitarPluck, playHat, playKick, playPianoNote, playSnare, playTom, playVoiceTone } from './voiceSynth';
+import type { SongNote } from './types';
 
 interface SampleSet { folder: string; anchors: Array<{ name: string; midi: number }>; normalize?: boolean }
 
-const SETS: Record<'piano' | 'guitar' | 'bass' | 'egtr' | 'strings' | 'pad' | 'brass', SampleSet> = {
+const SETS: Record<'piano' | 'guitar' | 'bass' | 'egtr' | 'strings' | 'pad' | 'brass' | 'choir', SampleSet> = {
   piano: {
     folder: 'piano',
     anchors: [
@@ -91,6 +92,18 @@ const SETS: Record<'piano' | 'guitar' | 'bass' | 'egtr' | 'strings' | 'pad' | 'b
       { name: 'A2', midi: 45 }, { name: 'C3', midi: 48 }, { name: 'Eb3', midi: 51 }, { name: 'Gb3', midi: 54 },
       { name: 'A3', midi: 57 }, { name: 'C4', midi: 60 }, { name: 'Eb4', midi: 63 }, { name: 'Gb4', midi: 66 },
       { name: 'A4', midi: 69 }, { name: 'C5', midi: 72 },
+    ],
+  },
+  // Real recorded choir "aah" sustains — human voices for every part, from
+  // the bass's low E to above the soprano's top line.
+  choir: {
+    folder: 'choir',
+    normalize: true,
+    anchors: [
+      { name: 'E2', midi: 40 }, { name: 'G2', midi: 43 }, { name: 'Bb2', midi: 46 }, { name: 'Db3', midi: 49 },
+      { name: 'E3', midi: 52 }, { name: 'G3', midi: 55 }, { name: 'Bb3', midi: 58 }, { name: 'Db4', midi: 61 },
+      { name: 'E4', midi: 64 }, { name: 'G4', midi: 67 }, { name: 'B4', midi: 71 }, { name: 'D5', midi: 74 },
+      { name: 'F5', midi: 77 }, { name: 'Ab5', midi: 80 }, { name: 'C6', midi: 84 },
     ],
   },
 };
@@ -253,6 +266,62 @@ export function playEnsemble(context: AudioContext, kind: 'strings' | 'pad' | 'b
   if (!playSampled(context, SETS[kind], midi, startAt, length, Math.min(0.9, level * gain), 0.5)) {
     playPianoNote(context, midi, startAt, length, level * 0.6);
   }
+}
+
+const CHOIR_GAIN = 0.7;
+
+/** The sung preview voice: a REAL recorded choir "aah" at the note's pitch,
+ *  with the formant synth standing in while the recording warms. Drop-in for
+ *  playVoiceTone — same signature, same velocity-to-level law, and the
+ *  returned stopper silences the voice early (the note audition needs it). */
+export function playVoice(context: AudioContext, note: SongNote, startAt: number, length: number, glideTo?: number): () => void {
+  const anchor = nearestAnchor(SETS.choir, note.midi);
+  if (Math.abs(note.midi - anchor.midi) > 3) return playVoiceTone(context, note, startAt, length, glideTo);
+  const key = sampleKey(SETS.choir, anchor.name);
+  const buffer = decoded.get(key);
+  if (!buffer) { void ensureDecoded(context, SETS.choir, anchor.name); return playVoiceTone(context, note, startAt, length, glideTo); }
+  const level = Math.max(0.02, Math.min(0.11, note.velocity / 1250));
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  const rate = Math.pow(2, (note.midi - anchor.midi) / 12);
+  source.playbackRate.value = rate;
+  if (glideTo !== undefined) {
+    // The sung portamento bends the RECORDING, like the guitar's slide.
+    const targetRate = Math.pow(2, (glideTo - anchor.midi) / 12);
+    source.playbackRate.setValueAtTime(rate, startAt + Math.min(0.1, length * 0.25));
+    source.playbackRate.linearRampToValueAtTime(targetRate, startAt + Math.max(0.22, length * 0.9));
+  }
+  const gain = context.createGain();
+  const peak = Math.min(0.9, level * CHOIR_GAIN) * (makeup.get(key) ?? 1);
+  const hold = Math.max(0.25, length);
+  gain.gain.setValueAtTime(peak, startAt);
+  gain.gain.setValueAtTime(peak, startAt + hold);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + hold + 0.3);
+  source.connect(gain);
+  gain.connect(mixBus(context));
+  source.start(startAt);
+  source.stop(startAt + hold + 0.45);
+  return () => {
+    const now = context.currentTime;
+    try {
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+      source.stop(now + 0.1);
+    } catch { /* already stopped */ }
+  };
+}
+
+/** The raw material for a choir note, for callers that run their own audio
+ *  graph (the round guide has its own master level and reset semantics).
+ *  Null while the nearest recording is still warming. */
+export function choirVoiceFor(context: AudioContext, midi: number): { buffer: AudioBuffer; playbackRate: number; makeup: number } | null {
+  const anchor = nearestAnchor(SETS.choir, midi);
+  if (Math.abs(midi - anchor.midi) > 3) return null;
+  const key = sampleKey(SETS.choir, anchor.name);
+  const buffer = decoded.get(key);
+  if (!buffer) { void ensureDecoded(context, SETS.choir, anchor.name); return null; }
+  return { buffer, playbackRate: Math.pow(2, (midi - anchor.midi) / 12), makeup: makeup.get(key) ?? 1 };
 }
 
 /** The upright bass. Sampled when ready, the sine-and-triangle synth until
