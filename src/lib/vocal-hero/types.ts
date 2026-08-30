@@ -123,7 +123,14 @@ export type RhythmicNoteValue =
   | 'thirty-second' | 'dotted-thirty-second' | 'double-dotted-thirty-second' | 'thirty-second-triplet'
   | 'sixty-fourth' | 'dotted-sixty-fourth' | 'double-dotted-sixty-fourth' | 'sixty-fourth-triplet';
 
+/** A real singer's recorded take, attached to one voice: it plays as that
+ *  part's sung guide in the preview. `start` is the timeline second the take
+ *  begins at (where the playhead stood when recording started). */
+export interface VocalTake { id: string; part: number; url: string; start: number; gain?: number; active?: boolean; label?: string }
+
 export interface BackingTrackSettings {
+  /** Real sung takes by the church's own singers, one voice each. */
+  vocal_takes?: VocalTake[];
   /** Guitar/piano chord symbols over the score, in song time. */
   chord_symbols?: Array<{ at: number; symbol: string }>;
   /** The band: which instrument and drum/cajon styles play under this song
