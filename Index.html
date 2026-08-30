@@ -81032,6 +81032,59 @@ function filterLiturgyItems() {
       if (this._mobileScheduleView === 'month') this.renderMobileMonthView();
     },
 
+    _cellByKey: function(key) {
+      return document.querySelector('.roster-table td[data-key="' + String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
+    },
+
+    // Shown when a confirm would sign off a cell the roster is flagging as a
+    // double-booking. Reached from all three confirm paths, since they share
+    // confirmPendingCells().
+    _showConfirmClashPrompt: function(cellKeys, scopeLabel, clashes) {
+      var self = this;
+      var existing = document.getElementById('rosterConfirmClashModal');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+      var listHtml = clashes.map(function(c) {
+        return '<li style="margin-bottom:5px;"><strong>' + self.escapeHtml(c.name || '(blank)') + '</strong> &mdash; ' +
+          self.escapeHtml(self._roleWord(c.roleId)) + ' on <strong>' + self.escapeHtml(c.date) + '</strong></li>';
+      }).join('');
+      var n = clashes.length;
+      var overlay = document.createElement('div');
+      overlay.id = 'rosterConfirmClashModal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
+      overlay.innerHTML =
+        '<div style="background:#fff;max-width:440px;width:92%;max-height:82vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
+          '<div style="background:linear-gradient(135deg,#b45309,#f59e0b);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;">' +
+            '<i class="fa-solid fa-triangle-exclamation" style="font-size:1.3rem;"></i>' +
+            '<div style="font-weight:700;font-size:1.05rem;">Clash in what you are confirming</div>' +
+          '</div>' +
+          '<div style="padding:16px 20px 8px;flex:1;overflow-y:auto;">' +
+            '<p style="margin:0 0 10px;font-size:0.88rem;color:#1f2933;line-height:1.55;">' +
+              (n === 1 ? 'One assignment here is' : n + ' assignments here are') +
+              ' also on another duty the same day:</p>' +
+            '<ul style="margin:0 0 12px;padding-left:20px;font-size:0.86rem;color:#374151;">' + listHtml + '</ul>' +
+            '<p style="margin:0;font-size:0.85rem;color:#92400e;line-height:1.5;">Confirming notifies their calendars. Fix the clash first if it was not intended &mdash; the clashing cells are outlined in red on the roster.</p>' +
+          '</div>' +
+          '<div style="display:flex;padding:14px 20px;border-top:1px solid #f1f5f9;justify-content:flex-end;gap:10px;flex-shrink:0;">' +
+            '<button id="rosterCcFixBtn" style="padding:8px 16px;border-radius:8px;border:1px solid #d1d5db;background:#fff;color:#4b5563;font-weight:600;font-size:0.85rem;cursor:pointer;">Fix these first</button>' +
+            '<button id="rosterCcGoBtn" style="padding:8px 16px;border-radius:8px;border:none;background:#b45309;color:#fff;font-weight:600;font-size:0.85rem;cursor:pointer;">Confirm anyway</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      var close = function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+      overlay.querySelector('#rosterCcFixBtn').onclick = function() {
+        close();
+        var first = self._cellByKey(cellKeys.filter(function(k) {
+          var td = self._cellByKey(k); return td && td.classList.contains('roster-clash-cell');
+        })[0]);
+        if (first && first.scrollIntoView) first.scrollIntoView({ block: 'center', inline: 'center' });
+      };
+      overlay.querySelector('#rosterCcGoBtn').onclick = function() {
+        close();
+        self.confirmPendingCells(cellKeys, scopeLabel, true);
+      };
+    },
+
     // Plain-text role name for prose. ROLES labels carry a leading emoji for
     // the duty column itself, which reads badly in a tooltip or a toast.
     _roleWord: function(roleId) {
@@ -85133,11 +85186,32 @@ function filterLiturgyItems() {
     // rosterEdits/saveChanges pipeline, then notifies calendars for
     // exactly the cells that just became confirmed -- the one point where
     // an auto-suggested assignment actually reaches the assignee.
-    confirmPendingCells: function(cellKeys, scopeLabel) {
+    confirmPendingCells: function(cellKeys, scopeLabel, force) {
       var self = this;
       if (!STATE.picMode) return;
       cellKeys = (cellKeys || []).filter(function(key) { return STATE.rosterPendingCells.has(key); });
       if (!cellKeys.length) { this.showToast('No pending cells to confirm', 'warning'); return; }
+
+      // Confirming is the moment an assignment reaches someone's calendar, so
+      // it is the last chance to notice a double-booking. checkClashes() has
+      // already marked every clashing cell in the table; read that rather than
+      // recomputing, so this always agrees with what the roster is showing.
+      //
+      // Warn rather than refuse: _clashIsExcepted covers the double-ups we
+      // know are legitimate, but not every real-world one (a small church
+      // genuinely does run short some weeks), and a hard block with no way
+      // past would strand the PIC. Confirming is undoable; being unable to
+      // confirm is not.
+      if (!force) {
+        var clashes = [];
+        cellKeys.forEach(function(key) {
+          var td = self._cellByKey(key);
+          if (!td || !td.classList.contains('roster-clash-cell')) return;
+          var v = td.querySelector('.roster-cell-value');
+          clashes.push({ name: v ? v.textContent.trim() : '', date: td.getAttribute('data-date') || '', roleId: key.split('__')[0] });
+        });
+        if (clashes.length) { this._showConfirmClashPrompt(cellKeys, scopeLabel, clashes); return; }
+      }
 
       var calendarCells = [];
       cellKeys.forEach(function(key) {
@@ -85966,7 +86040,7 @@ function filterLiturgyItems() {
     // pending indicator it had gets dropped -- this puts the class/icon
     // back in sync with STATE.rosterPendingCells afterward.
     _refreshCellPendingVisual: function(key) {
-      var td = document.querySelector('.roster-table td[data-key="' + key.replace(/\\/g,'\\\\').replace(/"/g,'\\"') + '"]');
+      var td = this._cellByKey(key);
       if (!td) return;
       var isPending = STATE.rosterPendingCells.has(key);
       td.classList.toggle('roster-cell-pending', isPending);
