@@ -2521,7 +2521,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         <button onClick={selectAllVoices} className="mt-2 w-full rounded-lg border border-white/12 px-3 py-2 text-[11px] text-slate-300">🔊 All voices audible</button>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
-        {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="relative flex items-center gap-1.5">
+        {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="relative flex max-w-full flex-wrap items-center gap-1.5 sm:max-w-none sm:flex-nowrap">
           <button onClick={cyclePreviewVoice} aria-pressed={previewVoice !== 'piano'}
             title={previewVoice === 'choir' ? 'Preview voice: recorded choir — real human voices singing every part on “ah”. Tap for the AI demo choir (pronounces the actual lyrics; one-time voice download).'
               : previewVoice === 'singer' ? 'Preview voice: AI demo choir \u2014 every part sings its own words: female voice on soprano and alto, male on tenor and bass. Tap for piano.'
@@ -3308,7 +3308,7 @@ function EditorToolbar({ extras, tool, setTool, drawNoteValue, onDrawNoteValueCh
   const status = playScope === 'range' ? `Range ${playRange.start.toFixed(2)}s–${playRange.end.toFixed(2)}s` : playScope === 'note' ? `${selectedCount || 1} selected note${selectedCount === 1 ? '' : 's'}` : playParts.every(Boolean) ? 'All voices' : VOICES.filter((_, index) => playParts[index]).join(' + ');
   const formatTime = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds)) % 60).padStart(2, '0')}`;
   return <div className="border-b border-white/10 bg-[#0a0c20] text-xs">
-    <div className="flex h-14 items-center gap-1.5 overflow-x-auto px-3 [&>*]:shrink-0">
+    <div className="flex min-h-14 flex-wrap items-center gap-1.5 px-3 py-1.5 sm:h-14 sm:flex-nowrap sm:overflow-x-auto sm:py-0 [&>*]:shrink-0">
       <span className="flex overflow-hidden rounded-lg border border-white/12">
         {(['select', 'erase'] as EditorTool[]).map(value => <button key={value} onClick={() => setTool(value)}
           className={`px-3 py-2 capitalize ${tool === value ? 'bg-fuchsia-500/25 text-fuchsia-100' : 'text-slate-300 hover:bg-white/[.06]'}`}>{value}</button>)}
@@ -3323,7 +3323,7 @@ function EditorToolbar({ extras, tool, setTool, drawNoteValue, onDrawNoteValueCh
       <button onClick={onAlignToMelody} title="Snap Alto, Tenor and Bass onto the Soprano's rhythm" className="rounded-lg border border-cyan-300/30 bg-cyan-300/[.07] px-3 py-2 text-cyan-100">Align</button>
       <span className="ml-2 hidden whitespace-nowrap text-[10px] text-slate-500 lg:block">{status}</span>
       {playScope !== 'all' && <button onClick={onClearSelection} className="rounded-md border border-white/10 px-2 py-1.5 text-slate-300">Clear</button>}
-      <span className="ml-auto flex items-center gap-1.5">
+      <span className="flex max-w-full flex-wrap items-center gap-1.5 sm:ml-auto sm:max-w-none sm:flex-nowrap">
         <button onClick={onPlayFromStart} title="Play from the beginning" className="rounded-lg border border-white/15 px-2.5 py-2">⏮</button>
         <button onClick={() => onSkip(-5)} title="Back five seconds" className="rounded-lg border border-white/10 px-2.5 py-2">−5s</button>
         <button onClick={isPlaying ? onPause : onPlay} title={isPlaying ? 'Pause' : 'Play from the cursor'}
@@ -3342,13 +3342,13 @@ function EditorToolbar({ extras, tool, setTool, drawNoteValue, onDrawNoteValueCh
 
 function TimelineFocusToolbar({ tool, setTool, drawNoteValue, onDrawNoteValueChange, selected, bars, onLyricChange, onTrack, onExit, onPlay, onPause, onStop, isPlaying, isPaused, playhead, zoom, setZoom, onSave, saving }: { tool: EditorTool; setTool: (tool: EditorTool) => void; drawNoteValue: RhythmicNoteValue; onDrawNoteValueChange: (value: RhythmicNoteValue) => void; selected: SongNote | null; bars: MusicalBar[]; onLyricChange: (value: string) => void; onTrack: () => void; onExit: () => void; onPlay: () => void; onPause: () => void; onStop: () => void; isPlaying: boolean; isPaused: boolean; playhead: number | null; zoom: number; setZoom: (value: number) => void; onSave: () => void; saving: boolean }) {
   const placement = selected ? beatPositionAt(bars, selected.start) : null;
-  return <div className="sticky top-0 z-[70] flex min-h-16 items-center gap-2 overflow-x-auto border-b border-fuchsia-300/25 bg-[#070a19]/95 px-3 py-2 text-xs shadow-[0_14px_40px_#000b,0_0_30px_#a855f722] backdrop-blur-xl">
+  return <div className="sticky top-0 z-[70] flex min-h-16 flex-wrap items-center gap-2 sm:flex-nowrap sm:overflow-x-auto border-b border-fuchsia-300/25 bg-[#070a19]/95 px-3 py-2 text-xs shadow-[0_14px_40px_#000b,0_0_30px_#a855f722] backdrop-blur-xl">
     <button onClick={onExit} title="Return to the complete editor without discarding unsaved work" className="rounded-lg border border-white/15 bg-white/[.04] px-3 py-2 font-semibold">← Exit timeline</button>
     <span className="h-8 w-px shrink-0 bg-white/10" />
     {(['select', 'erase'] as EditorTool[]).map(value => <button key={value} onClick={() => setTool(value)} className={`rounded-lg border px-3 py-2 capitalize ${tool === value ? 'border-fuchsia-300/60 bg-fuchsia-400/15 text-fuchsia-100' : 'border-white/10 text-slate-300'}`}>{value}</button>)}
     <DrawNoteValuePicker value={drawNoteValue} onChange={onDrawNoteValueChange} />
-    <div className="flex shrink-0 items-center gap-2 rounded-xl border border-cyan-300/20 bg-cyan-300/[.06] px-3 py-2"><span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">Placement</span>{placement ? <><b className="text-cyan-100">{placement.bar}.{placement.beat}</b><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${beatOffsetLabel(placement.fraction) === 'ON BEAT' ? 'bg-emerald-300/15 text-emerald-200' : 'bg-amber-300/15 text-amber-200'}`}>{beatOffsetLabel(placement.fraction)}</span></> : <span className="text-slate-500">Select a note</span>}</div>
-    <label className="flex min-w-64 shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2"><span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">Note lyric</span><input value={selected?.lyric ?? ''} onChange={event => onLyricChange(event.target.value)} disabled={!selected} placeholder="Select one note" className="min-w-0 flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-slate-600 disabled:opacity-50" /></label>
+    <div className="hidden shrink-0 items-center gap-2 rounded-xl border border-cyan-300/20 bg-cyan-300/[.06] px-3 py-2 sm:flex"><span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">Placement</span>{placement ? <><b className="text-cyan-100">{placement.bar}.{placement.beat}</b><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${beatOffsetLabel(placement.fraction) === 'ON BEAT' ? 'bg-emerald-300/15 text-emerald-200' : 'bg-amber-300/15 text-amber-200'}`}>{beatOffsetLabel(placement.fraction)}</span></> : <span className="text-slate-500">Select a note</span>}</div>
+    <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 sm:min-w-64 sm:flex-none sm:shrink-0"><span className="text-[9px] font-bold uppercase tracking-[.14em] text-slate-500">Note lyric</span><input value={selected?.lyric ?? ''} onChange={event => onLyricChange(event.target.value)} disabled={!selected} placeholder="Select one note" className="min-w-0 flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-slate-600 disabled:opacity-50" /></label>
     <button onClick={onTrack} className="rounded-lg border border-cyan-300/35 bg-cyan-300/10 px-3 py-2 text-cyan-100">Track</button>
     <button onClick={isPlaying ? onPause : onPlay} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-400/10 px-3 py-2 font-semibold text-fuchsia-100">{isPlaying ? 'Pause' : isPaused ? 'Resume' : 'Play'}</button><button onClick={onStop} className="rounded-lg border border-cyan-300/30 px-3 py-2 text-cyan-100">Stop</button><span className="font-mono text-cyan-200">{formatClock(playhead ?? 0)}</span>
     <label className="ml-auto flex shrink-0 items-center gap-2 text-slate-400">Zoom <b className="text-fuchsia-200">{Math.round((zoom / 16) * 10) / 10}x</b><input aria-label="Timeline zoom" type="range" min="16" max="160" step="2" value={zoom} onChange={event => setZoom(Number(event.target.value))} className="w-24 accent-fuchsia-400" /></label>
