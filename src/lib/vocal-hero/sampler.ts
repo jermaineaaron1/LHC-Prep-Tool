@@ -26,7 +26,7 @@ import { mixBus, playBassTone, playGuitarPluck, playHat, playKick, playPianoNote
 
 interface SampleSet { folder: string; anchors: Array<{ name: string; midi: number }>; normalize?: boolean }
 
-const SETS: Record<'piano' | 'guitar' | 'bass', SampleSet> = {
+const SETS: Record<'piano' | 'guitar' | 'bass' | 'egtr' | 'strings' | 'pad' | 'brass', SampleSet> = {
   piano: {
     folder: 'piano',
     anchors: [
@@ -53,6 +53,44 @@ const SETS: Record<'piano' | 'guitar' | 'bass', SampleSet> = {
       { name: 'E1', midi: 28 }, { name: 'G1', midi: 31 }, { name: 'Bb1', midi: 34 }, { name: 'Db2', midi: 37 },
       { name: 'E2', midi: 40 }, { name: 'G2', midi: 43 }, { name: 'Bb2', midi: 46 }, { name: 'Db3', midi: 49 },
       { name: 'E3', midi: 52 }, { name: 'G3', midi: 55 },
+    ],
+  },
+  egtr: {
+    folder: 'egtr',
+    normalize: true,
+    anchors: [
+      { name: 'E2', midi: 40 }, { name: 'G2', midi: 43 }, { name: 'Bb2', midi: 46 }, { name: 'Db3', midi: 49 },
+      { name: 'E3', midi: 52 }, { name: 'G3', midi: 55 }, { name: 'Bb3', midi: 58 }, { name: 'Db4', midi: 61 },
+      { name: 'E4', midi: 64 }, { name: 'G4', midi: 67 }, { name: 'B4', midi: 71 }, { name: 'D5', midi: 74 },
+    ],
+  },
+  strings: {
+    folder: 'strings',
+    normalize: true,
+    anchors: [
+      { name: 'C3', midi: 48 }, { name: 'Eb3', midi: 51 }, { name: 'Gb3', midi: 54 }, { name: 'A3', midi: 57 },
+      { name: 'C4', midi: 60 }, { name: 'Eb4', midi: 63 }, { name: 'Gb4', midi: 66 }, { name: 'A4', midi: 69 },
+      { name: 'C5', midi: 72 }, { name: 'Eb5', midi: 75 }, { name: 'Gb5', midi: 78 }, { name: 'A5', midi: 81 },
+      { name: 'C6', midi: 84 },
+    ],
+  },
+  pad: {
+    folder: 'pad',
+    normalize: true,
+    anchors: [
+      { name: 'C3', midi: 48 }, { name: 'Eb3', midi: 51 }, { name: 'Gb3', midi: 54 }, { name: 'A3', midi: 57 },
+      { name: 'C4', midi: 60 }, { name: 'Eb4', midi: 63 }, { name: 'Gb4', midi: 66 }, { name: 'A4', midi: 69 },
+      { name: 'C5', midi: 72 }, { name: 'Eb5', midi: 75 }, { name: 'Gb5', midi: 78 }, { name: 'A5', midi: 81 },
+      { name: 'C6', midi: 84 },
+    ],
+  },
+  brass: {
+    folder: 'brass',
+    normalize: true,
+    anchors: [
+      { name: 'A2', midi: 45 }, { name: 'C3', midi: 48 }, { name: 'Eb3', midi: 51 }, { name: 'Gb3', midi: 54 },
+      { name: 'A3', midi: 57 }, { name: 'C4', midi: 60 }, { name: 'Eb4', midi: 63 }, { name: 'Gb4', midi: 66 },
+      { name: 'A4', midi: 69 }, { name: 'C5', midi: 72 },
     ],
   },
 };
@@ -195,6 +233,25 @@ export function playPiano(context: AudioContext, midi: number, startAt: number, 
 export function playGuitar(context: AudioContext, midi: number, startAt: number, length: number, level = 0.05, glideTo?: number): void {
   if (!playSampled(context, SETS.guitar, midi, startAt, length, Math.min(0.9, level * 2.6), 0.3, glideTo)) {
     playGuitarPluck(context, midi, startAt, length, level, glideTo);
+  }
+}
+
+/** The clean electric guitar. Sampled when ready, the acoustic pluck synth
+ *  stands in while it warms; slides bend the recording like the acoustic. */
+export function playElectric(context: AudioContext, midi: number, startAt: number, length: number, level = 0.05, glideTo?: number): void {
+  if (!playSampled(context, SETS.egtr, midi, startAt, length, Math.min(0.9, level * 1.8), 0.35, glideTo)) {
+    playGuitarPluck(context, midi, startAt, length, level, glideTo);
+  }
+}
+
+/** The sustained section voices — string ensemble, warm pad, brass section.
+ *  Real recorded sustains; a quiet piano stands in while they warm so the
+ *  band is never silent. Multipliers are lab-calibrated against the piano's
+ *  loudness at the same written level. */
+export function playEnsemble(context: AudioContext, kind: 'strings' | 'pad' | 'brass', midi: number, startAt: number, length: number, level = 0.05): void {
+  const gain = kind === 'brass' ? 0.85 : kind === 'strings' ? 0.7 : 0.35;
+  if (!playSampled(context, SETS[kind], midi, startAt, length, Math.min(0.9, level * gain), 0.5)) {
+    playPianoNote(context, midi, startAt, length, level * 0.6);
   }
 }
 

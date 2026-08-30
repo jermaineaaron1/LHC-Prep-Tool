@@ -37,7 +37,7 @@ export interface SongNote {
   marks?: NoteMarks;
 }
 
-export type BandTimbre = 'guitar' | 'piano' | 'bass';
+export type BandTimbre = 'guitar' | 'piano' | 'bass' | 'egtr' | 'strings' | 'pad' | 'brass';
 export interface BandClip { id: string; start: number; tab: string }
 export interface BandTrack { id: string; name: string; timbre: BandTimbre; clips: BandClip[]; muted?: boolean }
 

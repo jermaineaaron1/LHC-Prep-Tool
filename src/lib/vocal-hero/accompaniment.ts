@@ -16,7 +16,7 @@ import { parseChord } from './chords';
 import { interpretMarks } from './performMarks';
 import type { BandClip, BandTimbre, BandTrack, SongNote } from './types';
 import { playCajonBass, playCajonSlap, playCajonTick } from './voiceSynth';
-import { playBass, playDrum, playGuitar, playPiano, warmPiano } from './sampler';
+import { playBass, playDrum, playElectric, playEnsemble, playGuitar, playPiano, warmPiano } from './sampler';
 
 export type { BandClip, BandTimbre, BandTrack };
 
@@ -26,7 +26,9 @@ export interface ChordAt { at: number; symbol: string }
 export type InstrumentStyleId =
   | 'off'
   | 'gtr-down' | 'gtr-folk' | 'gtr-8ths' | 'gtr-arp' | 'gtr-travis' | 'gtr-solo'
+  | 'egtr-8ths' | 'egtr-arp'
   | 'pno-chords' | 'pno-arp'
+  | 'str-held' | 'pad-held' | 'brs-held'
   | 'bass-walk'
   | 'melody-gtr' | 'melody-pno'
   | 'custom';
@@ -40,8 +42,13 @@ export const INSTRUMENT_STYLES: Array<{ id: InstrumentStyleId; label: string }> 
   { id: 'gtr-arp', label: '🎸 Guitar · fingerpicked arpeggio' },
   { id: 'gtr-travis', label: '🎸 Guitar · Travis picking' },
   { id: 'gtr-solo', label: '🎸 Guitar · solo line over the changes' },
+  { id: 'egtr-8ths', label: '⚡ Electric · clean eighths' },
+  { id: 'egtr-arp', label: '⚡ Electric · picked arpeggio' },
   { id: 'pno-chords', label: '🎹 Piano · held chords' },
   { id: 'pno-arp', label: '🎹 Piano · flowing arpeggio' },
+  { id: 'str-held', label: '🎻 Strings · sustained' },
+  { id: 'pad-held', label: '🌫️ Pad · warm sustain' },
+  { id: 'brs-held', label: '🎺 Brass · section swells' },
   { id: 'bass-walk', label: '🎸 Bass · walking line' },
   { id: 'melody-gtr', label: '🎸 Guitar · double the melody' },
   { id: 'melody-pno', label: '🎹 Piano · double the melody' },
@@ -121,7 +128,33 @@ const INSTRUMENT_PATTERNS: Partial<Record<InstrumentStyleId, PatternStep[]>> = {
     { beat: 2, kind: 'keys', degree: 0, octave: 1 }, { beat: 2.5, kind: 'keys', degree: 2 },
     { beat: 3, kind: 'keys', degree: 1 }, { beat: 3.5, kind: 'keys', degree: 0 },
   ],
+  // Electric: the clean-eighths bed and the picked figure that answers it.
+  'egtr-8ths': [0, 1, 2, 3].flatMap(beat => [
+    { beat, kind: 'strum-down' as const }, { beat: beat + 0.5, kind: 'strum-up' as const, level: 0.03 },
+  ]),
+  'egtr-arp': [
+    { beat: 0, kind: 'pluck', degree: -1 }, { beat: 0.5, kind: 'pluck', degree: 0 },
+    { beat: 1, kind: 'pluck', degree: 1 }, { beat: 1.5, kind: 'pluck', degree: 2 },
+    { beat: 2, kind: 'pluck', degree: 1 }, { beat: 2.5, kind: 'pluck', degree: 2, octave: 1 },
+    { beat: 3, kind: 'pluck', degree: 1 }, { beat: 3.5, kind: 'pluck', degree: 0 },
+  ],
+  // The section voices hold the harmony down and release where it changes
+  // (the 'keys' chord-change release applies to them too).
+  'str-held': [{ beat: 0, kind: 'keys', sustain: 4 }],
+  'pad-held': [{ beat: 0, kind: 'keys', sustain: 4, level: 0.045 }],
+  'brs-held': [
+    { beat: 0, kind: 'keys', sustain: 4 }, { beat: 2, kind: 'keys', level: 0.03, sustain: 2 },
+  ],
 };
+
+/** Which instrument voice a style speaks with. */
+const styleTimbre = (id: InstrumentStyleId): BandTimbre =>
+  id.startsWith('pno') ? 'piano'
+    : id.startsWith('egtr') ? 'egtr'
+    : id.startsWith('str') ? 'strings'
+    : id.startsWith('pad') ? 'pad'
+    : id.startsWith('brs') ? 'brass'
+    : 'guitar';
 
 const DRUM_PATTERNS: Partial<Record<DrumStyleId, PatternStep[]>> = {
   'drum-kit': [
@@ -463,7 +496,12 @@ export function buildBandEvents(options: {
         if (step.degree !== undefined) {
           const degree = step.degree === -1 ? -1 : (step.degree + (instrument === 'gtr-solo' ? solowalk : 0)) % upper.length;
           midis = [degree === -1 ? tones.bass : upper[degree] + 12 * (step.octave ?? 0)];
-        } else midis = tones.midis;
+        } else {
+          // The section voices (strings, pad, brass) leave the root to the
+          // bass instrument — doubling it down there just muddies the floor.
+          const timbre = styleTimbre(instrument);
+          midis = timbre === 'strings' || timbre === 'pad' || timbre === 'brass' ? tones.midis.slice(1) : tones.midis;
+        }
         let writtenSustain = (step.sustain ?? (step.kind === 'pluck' || step.kind === 'keys' ? 1.6 : 1.9)) * beatLen;
         // A held chord must not smear into the NEXT harmony: block chords
         // release where the chord symbol changes.
@@ -476,7 +514,7 @@ export function buildBandEvents(options: {
           at: warp(time), kind: step.kind, midis,
           sustain: sustainWarped(time, writtenSustain),
           level: step.level, gain,
-          timbre: instrument.startsWith('pno') ? 'piano' : 'guitar',
+          timbre: styleTimbre(instrument),
         });
       }
       if (instrument === 'gtr-solo') solowalk = (solowalk + 1) % 3;
@@ -623,15 +661,23 @@ const BASE_LEVEL: Record<BandEventKind, number> = {
 
 export function playBandEvent(context: AudioContext, event: BandEvent, when: number): void {
   const level = (event.level ?? BASE_LEVEL[event.kind]) * (event.gain ?? 1);
+  // One strummed/plucked string voice per event: the clean electric when the
+  // style asks for it, the acoustic otherwise.
+  const string = event.timbre === 'egtr' ? playElectric : playGuitar;
   switch (event.kind) {
-    case 'strum-down': (event.midis ?? []).forEach((midi, index) => playGuitar(context, midi, when + index * 0.014, event.sustain ?? 1, level)); break;
-    case 'strum-up': [...(event.midis ?? [])].slice(-3).reverse().forEach((midi, index) => playGuitar(context, midi, when + index * 0.01, event.sustain ?? 0.8, level * 0.6)); break;
+    case 'strum-down': (event.midis ?? []).forEach((midi, index) => string(context, midi, when + index * 0.014, event.sustain ?? 1, level)); break;
+    case 'strum-up': [...(event.midis ?? [])].slice(-3).reverse().forEach((midi, index) => string(context, midi, when + index * 0.01, event.sustain ?? 0.8, level * 0.6)); break;
     case 'pluck':
       if (event.timbre === 'piano') (event.midis ?? []).forEach((midi, index) => playPiano(context, midi, when + index * 0.005, event.sustain ?? 0.9, level));
       else if (event.timbre === 'bass') (event.midis ?? []).forEach(midi => playBass(context, midi, when, event.sustain ?? 0.9, level));
-      else (event.midis ?? []).forEach(midi => playGuitar(context, midi, when, event.sustain ?? 0.9, level, event.slideTo));
+      else (event.midis ?? []).forEach(midi => string(context, midi, when, event.sustain ?? 0.9, level, event.slideTo));
       break;
-    case 'keys': (event.midis ?? []).forEach((midi, index) => playPiano(context, midi, when + index * 0.006, event.sustain ?? 1.2, level)); break;
+    case 'keys':
+      if (event.timbre === 'strings' || event.timbre === 'pad' || event.timbre === 'brass') {
+        const kind = event.timbre;
+        (event.midis ?? []).forEach((midi, index) => playEnsemble(context, kind, midi, when + index * 0.008, event.sustain ?? 1.2, level));
+      } else (event.midis ?? []).forEach((midi, index) => playPiano(context, midi, when + index * 0.006, event.sustain ?? 1.2, level));
+      break;
     case 'bass': (event.midis ?? []).forEach(midi => playBass(context, midi, when, event.sustain ?? 0.8, level)); break;
     case 'kick': playDrum(context, 'kick', when, level); break;
     case 'snare': playDrum(context, 'snare', when, level); break;
