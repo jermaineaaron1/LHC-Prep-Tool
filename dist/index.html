@@ -2596,6 +2596,10 @@
     .enabler-status-suspended   { background: #fef3c7; color: #92400e; }
     .enabler-status-inactive    { background: #f1f5f9; color: #475569; }
     .enabler-status-newly_joined{ background: #ede9fe; color: #5b21b6; }
+    /* Occasional = a real, active member who is simply not in the regular
+       rotation (most often a Pastor). Auto-Suggest never picks them; a PIC
+       still can, by hand, any time. */
+    .enabler-status-occasional  { background: #eef2ff; color: #3730a3; }
     .enabler-role-chip {
       display: inline-flex; align-items: center;
       background: #f0fdfa; color: #0d9488; border: 1px solid #99f6e4;
@@ -2676,6 +2680,33 @@
     }
     .roster-dropdown-search:focus { background-color: #fff; border-bottom-color: #4a6da7; }
     .roster-name-panel { font-family: 'Poppins', sans-serif; }
+    /* The name picker's WIDTH lives here rather than in its inline cssText so
+       the phone rule at the bottom of this block can widen it. At the old
+       252px the row's right-hand column -- the "Away" badge, the availability
+       button and the remove button -- had nowhere to go on a phone and sat
+       past the edge of the screen. */
+    .roster-name-picker { min-width: 252px; max-width: 330px; }
+    /* Picker header: says which duty and date is being edited, and gives an
+       unambiguous way out. On a phone the panel covers most of the table, so
+       "what am I editing / how do I close this" is not otherwise answerable. */
+    .roster-np-head { display: flex; align-items: center; gap: 8px; padding: 9px 10px; background: linear-gradient(180deg,#f8fafc,#eef7f5); border-bottom: 1px solid #e3ece9; }
+    .roster-np-head-text { flex: 1; min-width: 0; }
+    .roster-np-head-role { display: block; font-size: 12px; font-weight: 700; color: #0f3d34; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .roster-np-head-date { display: block; font-size: 10px; font-weight: 600; color: #6b8079; }
+    .roster-np-close { width: 30px; height: 30px; flex: 0 0 auto; border: 1px solid #dbe6e2; background: #fff; color: #52706a; border-radius: 8px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+    .roster-np-close:hover { background: #f1f5f4; color: #0f3d34; }
+    /* Per-row controls are sized by class, not inline style, so the phone rule
+       below can grow them from a 20px target to a thumb-sized one. */
+    .roster-np-btn { width: 22px; height: 22px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 11px; flex-shrink: 0; }
+    .roster-np-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
+    .roster-np-tag.away        { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+    .roster-np-tag.occasional  { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
+    .roster-np-tag.inactive    { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+    .roster-np-tag.suspended   { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    @media (max-width: 768px) {
+      .roster-name-picker { width: calc(100vw - 16px); min-width: 0; max-width: 420px; }
+      .roster-np-btn { width: 34px; height: 34px; font-size: 13px; }
+    }
     .roster-dropdown-search { padding: 12px 12px 12px 34px !important; font-size: 14px !important; background-color: #f8fafc !important; border-bottom: 1px solid #eef2f7 !important; }
     .roster-dropdown-search:focus { background-color: #fff !important; border-bottom-color: #14b8a6 !important; }
     .roster-name-warn { padding: 11px 12px; border-top: 1px solid #fde68a; background: #fffbeb; font-size: 12px; color: #92400e; line-height: 1.45; }
@@ -3503,16 +3534,23 @@
         box-shadow: inset 0 1px 0 rgba(255,255,255,.24), inset 0 -2px 0 rgba(0,0,0,.12), 0 5px 10px rgba(8,123,99,.22);
       }
 
-      .rmp-cmdbar { padding: 8px 10px; display: flex; align-items: center; gap: 8px; background: linear-gradient(180deg,#f9fbfa,#e9f0ec); box-shadow: inset 0 1px 0 #fff; }
-      .rmp-cmd-scroll { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-      .rmp-cmd-scroll::-webkit-scrollbar { display: none; }
+      /* Wraps onto a second row instead of scrolling -- see the markup note.
+         Save is pushed to the end of the last row by margin-left:auto so it
+         still reads as the one committing action. */
+      .rmp-cmdbar { padding: 7px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; background: linear-gradient(180deg,#f9fbfa,#e9f0ec); box-shadow: inset 0 1px 0 #fff; }
       .rmp-chip {
-        flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 8px 10px; border-radius: 9px;
-        font-size: 10px; font-weight: 800; color: #315348; white-space: nowrap; cursor: pointer;
+        flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; padding: 7px 8px; border-radius: 9px;
+        font-size: 9.5px; font-weight: 800; color: #315348; white-space: nowrap; cursor: pointer;
         border: 1px solid #bdcec6;
         background: linear-gradient(180deg,#ffffff,#eaf1ed);
         box-shadow: inset 0 1px 0 #fff, 0 3px 6px rgba(26,63,49,.11);
       }
+      .rmp-chip i { font-size: 11px; }
+      /* The PIC chip is the one label that grows without bound: logged in it
+         used to read "Aaron Jayaraj (Logout)", which on its own was wider than
+         three other buttons put together. It now shows a first name, and the
+         open padlock plus the green Active treatment carry the rest. */
+      #rmpPicLabel { max-width: 86px; overflow: hidden; text-overflow: ellipsis; }
       .rmp-chip.hidden { display: none !important; }
       .rmp-chip-pic { color: #fff; border-color: #235a92; background: linear-gradient(145deg,#2c69a9,#3b82c4); box-shadow: inset 0 1px 0 rgba(255,255,255,.24), inset 0 -2px 0 rgba(0,0,0,.1), 0 4px 8px rgba(43,103,165,.22); }
       .rmp-chip-pic.pic-active { background: linear-gradient(145deg,#1d8a4c,#25b868); border-color: #146336; }
@@ -3527,7 +3565,7 @@
       #rosterMobilePremium .rmp-tools-sheet button.pic-only { display: none !important; }
       body.pic-mode #rosterMobilePremium .rmp-tools-sheet.open button.pic-only { display: flex !important; }
       .rmp-save-btn {
-        flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 9px; font-size: 10px; font-weight: 800; color: #fff;
+        flex: 0 0 auto; margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px; border-radius: 9px; font-size: 9.5px; font-weight: 800; color: #fff;
         border: 1px solid #075b4a;
         background: linear-gradient(145deg,#08745e,#0a9878);
         box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -2px 0 rgba(0,0,0,.12), 0 5px 10px rgba(8,123,99,.23);
@@ -4484,8 +4522,15 @@
         display: flex !important;
         align-items: center;
         gap: 6px;
-        font-size: 0.88rem;
+        font-size: 0.8rem;
+        /* One line, always. As a wrapping flex line this was breaking after
+           every word -- "LHC / Worship / Prep" stacked three deep. */
+        white-space: nowrap;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
+      .lhc-brand-tail { display: none; }
 
       /* Top bar church icon badge */
       .lhc-topnav-brand::before {
@@ -5553,7 +5598,11 @@
           <button class="lhc-sidebar-toggle" id="sidebarToggleBtn" onclick="toggleSidebar()" title="Toggle Sidebar">
             <i class="fa-solid fa-bars"></i>
           </button>
-          <span class="lhc-topnav-brand font-cinzel">LHC Worship Prep</span>
+          <!-- "Prep" is dropped on phones (see .lhc-brand-tail): between the
+               menu button and four circular actions the brand has ~110px, and
+               the full name in Cinzel needs ~130px, so it was wrapping onto
+               three lines and eating a third of the screen above the fold. -->
+          <span class="lhc-topnav-brand font-cinzel">LHC Worship<span class="lhc-brand-tail"> Prep</span></span>
         </div>
         <nav class="lhc-topnav-links">
           <button class="lhc-topnav-btn active" id="topNavHome" onclick="setActiveView('homeView')">
@@ -6147,16 +6196,21 @@
             <button type="button" class="rmp-tab" id="rmpTabMonth" aria-pressed="false" onclick="RosterEngine.setMobileScheduleView('month')">Service Cards</button>
           </div>
 
+          <!-- Command bar. These chips WRAP rather than scroll sideways: as a
+               single scrolling strip roughly 200px of buttons sat off the
+               right-hand edge with nothing to say they were there, so Undo,
+               Redo, Enablers and Save were simply undiscoverable on a phone.
+               Labels are one short word each -- the icon carries the meaning,
+               the word disambiguates it -- and the full sentence lives in
+               title/aria-label for anyone who needs it. -->
           <div class="rmp-cmdbar">
-            <div class="rmp-cmd-scroll">
-              <span class="rmp-chip rmp-chip-pic" id="rmpPicChip" onclick="RosterEngine.showPicLoginModal()" title="PIC Login"><i class="fa-solid fa-lock" id="rmpPicIcon"></i><span id="rmpPicLabel">PIC Login</span></span>
-              <span class="rmp-chip rmp-chip-gold pic-only" id="rmpAutoSuggestChip" onclick="RosterEngine.confirmAutoSuggestPrompt()" title="Auto Suggest for the whole month"><i class="fa-solid fa-wand-magic-sparkles"></i>Auto Suggest</span>
-              <span class="rmp-chip" id="rmpUndoChip" onclick="RosterEngine.undo()" title="Undo last change"><i class="fa-solid fa-rotate-left"></i>Undo</span>
-              <span class="rmp-chip" id="rmpRedoChip" onclick="RosterEngine.redo()" title="Redo"><i class="fa-solid fa-rotate-right"></i>Redo</span>
-              <span class="rmp-chip" id="rmpEnablersChip" onclick="RosterEngine._enablersActiveTab='all';RosterEngine.openEnablersModal()" title="Enablers"><i class="fa-solid fa-people-group"></i>Enablers</span>
-              <span class="rmp-chip rmp-chip-tools" id="rmpToolsChip" onclick="document.getElementById('rmpToolsSheet').classList.toggle('open')" title="More tools"><i class="fa-solid fa-ellipsis"></i>Tools</span>
-            </div>
-            <button type="button" class="rmp-save-btn pic-only" id="rmpSaveBtn" onclick="RosterEngine.saveChanges()" title="Save changes"><i class="fa-solid fa-floppy-disk"></i>Save</button>
+            <span class="rmp-chip rmp-chip-pic" id="rmpPicChip" role="button" tabindex="0" onclick="RosterEngine.showPicLoginModal()" title="PIC Login" aria-label="PIC Login"><i class="fa-solid fa-lock" id="rmpPicIcon"></i><span id="rmpPicLabel">PIC</span></span>
+            <span class="rmp-chip rmp-chip-gold pic-only" id="rmpAutoSuggestChip" role="button" tabindex="0" onclick="RosterEngine.confirmAutoSuggestPrompt()" title="Auto Suggest names for the whole month" aria-label="Auto Suggest names for the whole month"><i class="fa-solid fa-wand-magic-sparkles"></i>Suggest</span>
+            <span class="rmp-chip" id="rmpUndoChip" role="button" tabindex="0" onclick="RosterEngine.undo()" title="Undo last change" aria-label="Undo last change"><i class="fa-solid fa-rotate-left"></i>Undo</span>
+            <span class="rmp-chip" id="rmpRedoChip" role="button" tabindex="0" onclick="RosterEngine.redo()" title="Redo last undone change" aria-label="Redo last undone change"><i class="fa-solid fa-rotate-right"></i>Redo</span>
+            <span class="rmp-chip" id="rmpEnablersChip" role="button" tabindex="0" onclick="RosterEngine._enablersActiveTab='all';RosterEngine.openEnablersModal()" title="Enablers - the people on the roster" aria-label="Enablers - the people on the roster"><i class="fa-solid fa-people-group"></i>Team</span>
+            <span class="rmp-chip rmp-chip-tools" id="rmpToolsChip" role="button" tabindex="0" onclick="document.getElementById('rmpToolsSheet').classList.toggle('open')" title="More tools - calendar, export, share" aria-label="More tools - calendar, export, share"><i class="fa-solid fa-ellipsis"></i>More</span>
+            <button type="button" class="rmp-save-btn pic-only" id="rmpSaveBtn" onclick="RosterEngine.saveChanges()" title="Save changes" aria-label="Save changes"><i class="fa-solid fa-floppy-disk"></i>Save</button>
           </div>
           <div class="rmp-tools-sheet" id="rmpToolsSheet">
             <button type="button" onclick="RosterEngine.openEnablersCalendar()"><i class="fa-solid fa-calendar-check"></i><span>Calendar</span></button>
@@ -80457,6 +80511,37 @@ function filterLiturgyItems() {
     return ROSTER_MEMBER_STATUS[name] || { status: 'active', note: '', joinedDate: '' };
   }
 
+  // ── Who Auto-Suggest is allowed to roster ─────────────────────────────────
+  // Until now Auto-Suggest only ever consulted the date-range unavailability
+  // list, so a member's STATUS was decoration: someone marked Inactive or
+  // Suspended could still be auto-rostered. These three statuses now exclude a
+  // person from every automatic pick, while leaving them fully selectable by
+  // hand -- the PIC stays in charge, the algorithm just stops guessing.
+  //
+  //   occasional  a real, active member who serves now and then rather than on
+  //               a rotation (typically a Pastor). The reason this exists: a
+  //               date range can say "away until the 30th", but it cannot say
+  //               "available, just not on the roster", and faking that with a
+  //               rolling unavailability both misstates the reason and has to
+  //               be renewed forever.
+  //   inactive    resigned / no longer serving.
+  //   suspended   stood down for a period.
+  var AUTOSUGGEST_SKIP_STATUS = { occasional: 1, inactive: 1, suspended: 1 };
+
+  function isAutoSuggestExcluded(name) {
+    return !!AUTOSUGGEST_SKIP_STATUS[(getMemberStatus(name) || {}).status];
+  }
+
+  // Badge shown beside a name wherever it is picked, so the exclusion is
+  // visible to whoever is filling the cell instead of only inside Enablers.
+  function _rotationTagFor(name) {
+    var st = (getMemberStatus(name) || {}).status;
+    if (st === 'occasional') return { cls: 'occasional', label: 'Occasional', title: name + ' serves by invitation. Auto-Suggest never picks them; assign by hand when they are able.' };
+    if (st === 'inactive')   return { cls: 'inactive',   label: 'Inactive',   title: name + ' is marked inactive / resigned. Auto-Suggest skips them.' };
+    if (st === 'suspended')  return { cls: 'suspended',  label: 'Stood down', title: name + ' is temporarily suspended. Auto-Suggest skips them.' };
+    return null;
+  }
+
   function _loadMemberMetaFromCloud() {
     if (typeof SBQ_ROSTER === 'undefined' || !SBQ_ROSTER.getMemberMeta) return;
     SBQ_ROSTER.getMemberMeta().then(function(data) {
@@ -81872,21 +81957,79 @@ function filterLiturgyItems() {
       // Current search term for filtering
       var searchTerm = '';
 
+      // Place a floating panel next to the cell, inside the viewport.
+      //
+      // Both panels below used to position themselves from a hardcoded GUESS
+      // at their own width -- 240px for a picker whose min-width is 252px and
+      // whose max-width is larger still. The guess is what pushed the picker's
+      // right-hand column (the "Away" badge, the availability button and the
+      // remove button) off the side of a phone screen: the clamp reserved
+      // 244px of room for a box that never fit in it. A panel's width here is
+      // content-driven, so the only reliable number is the measured one, which
+      // means this has to run AFTER the panel is in the DOM.
+      var fitPanel = function(panel, rect) {
+        var M = 8; // keep this much clear of every viewport edge
+        var vw = window.innerWidth, vh = window.innerHeight;
+        var pw = panel.offsetWidth, ph = panel.offsetHeight;
+        var left = rect.left;
+        if (left + pw > vw - M) left = vw - M - pw;
+        if (left < M) left = M;
+        var top = rect.bottom + 2;               // preferred: just below the cell
+        if (top + ph > vh - M) {
+          var above = rect.top - ph - 2;         // second choice: just above it
+          if (above >= M) top = above;
+        }
+        // Final clamp, and NOT optional. The roster table scrolls inside the
+        // page, so an off-screen cell can put BOTH candidates off-screen too
+        // (its own rect is already past the bottom edge) -- without this the
+        // panel opens somewhere nobody can see. Math.max on the upper bound
+        // keeps the clamp sane when the panel is taller than the viewport.
+        top = Math.min(Math.max(M, top), Math.max(M, vh - M - ph));
+        panel.style.left = left + 'px';
+        panel.style.top = top + 'px';
+      };
+
       // Build the custom dropdown panel as a floating overlay on body
       var buildDropdownPanel = function(keepSearch) {
         var prevSearch = keepSearch ? searchTerm : '';
         removeFloatingPanel();
         var rect = td.getBoundingClientRect();
         floatingPanel = document.createElement('div');
-        floatingPanel.className = 'roster-name-panel';
-        floatingPanel.style.cssText = 'position:fixed;min-width:252px;max-width:330px;background:#fff;border:1px solid rgba(13,78,67,0.12);border-radius:16px;box-shadow:0 22px 55px rgba(13,78,67,0.22), 0 4px 14px rgba(0,0,0,0.10);z-index:10000;overflow:hidden;display:flex;flex-direction:column;';
-        var top = rect.bottom + 2;
-        var left = rect.left;
-        if (top + 340 > window.innerHeight) top = Math.max(4, rect.top - 340);
-        if (left + 240 > window.innerWidth) left = Math.max(4, window.innerWidth - 244);
-        floatingPanel.style.top = top + 'px';
-        floatingPanel.style.left = left + 'px';
+        // Width comes from .roster-name-picker (per-breakpoint), position from
+        // fitPanel() once it has been measured in the DOM.
+        floatingPanel.className = 'roster-name-panel roster-name-picker';
+        floatingPanel.style.cssText = 'position:fixed;top:-9999px;left:-9999px;background:#fff;border:1px solid rgba(13,78,67,0.12);border-radius:16px;box-shadow:0 22px 55px rgba(13,78,67,0.22), 0 4px 14px rgba(0,0,0,0.10);z-index:10000;overflow:hidden;display:flex;flex-direction:column;';
         var panel = floatingPanel;
+
+        // ── Header: which duty, which date, and a way out ──
+        var headEl = document.createElement('div');
+        headEl.className = 'roster-np-head';
+        var headText = document.createElement('div');
+        headText.className = 'roster-np-head-text';
+        var headRole = document.createElement('span');
+        headRole.className = 'roster-np-head-role';
+        // ROLES labels carry a leading emoji for the table's own header
+        // column; strip it here so the picker reads as plain text.
+        var headRoleId = td.getAttribute('data-role') || '';
+        var headRoleDef = self.ROLES.filter(function(r) { return r.id === headRoleId; })[0];
+        headRole.textContent = headRoleDef
+          ? String(headRoleDef.label).replace(/^[^A-Za-z0-9]+/, '').trim()
+          : 'Assign name';
+        var headDate = document.createElement('span');
+        headDate.className = 'roster-np-head-date';
+        headDate.textContent = (td.getAttribute('data-date') || '') + (STATE.rosterYear ? ' ' + STATE.rosterYear : '');
+        headText.appendChild(headRole);
+        headText.appendChild(headDate);
+        var headClose = document.createElement('button');
+        headClose.type = 'button';
+        headClose.className = 'roster-np-close';
+        headClose.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+        headClose.title = 'Close without changing this cell';
+        headClose.setAttribute('aria-label', 'Close without changing this cell');
+        headClose.onclick = function(e) { e.stopPropagation(); cancelSelect(); };
+        headEl.appendChild(headText);
+        headEl.appendChild(headClose);
+        panel.appendChild(headEl);
 
         // ── Search input at top ──
         var searchInput = document.createElement('input');
@@ -81958,19 +82101,34 @@ function filterLiturgyItems() {
 
             if (isUnavail) {
               var badge = document.createElement('span');
-              badge.style.cssText = 'font-size:10px;color:#f97316;font-weight:600;white-space:nowrap;flex-shrink:0;';
+              badge.className = 'roster-np-tag away';
               badge.title = 'Unavailable: ' + (unavailInfo.reason || 'No reason given') + ' (' + unavailInfo.startDate + ' - ' + unavailInfo.endDate + ')';
               badge.textContent = String.fromCodePoint(0x26A0) + ' Away';
               nameRow.appendChild(badge);
             }
 
+            // Rotation / membership badge. This is the visible half of the
+            // Occasional feature: anyone Auto-Suggest will not pick says so
+            // here, in the one place a PIC is already looking when they fill
+            // a cell, rather than only inside the Enablers modal.
+            var rotTag = _rotationTagFor(name);
+            if (rotTag) {
+              var rotBadge = document.createElement('span');
+              rotBadge.className = 'roster-np-tag ' + rotTag.cls;
+              rotBadge.textContent = rotTag.label;
+              rotBadge.title = rotTag.title;
+              nameRow.appendChild(rotBadge);
+            }
+
             // Unavailability management button
             var unavailBtn = document.createElement('button');
+            unavailBtn.className = 'roster-np-btn';
             unavailBtn.innerHTML = '<i class="fa-solid fa-calendar-xmark"></i>';
-            unavailBtn.title = isUnavail ? 'Manage unavailability for ' + name : 'Mark ' + name + ' as unavailable';
-            unavailBtn.style.cssText = 'width:20px;height:20px;border:none;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:4px;font-size:10px;flex-shrink:0;color:' + (isUnavail ? '#f97316' : '#cbd5e1') + ';';
+            unavailBtn.title = isUnavail ? 'Availability & rotation for ' + name : 'Availability & rotation for ' + name;
+            unavailBtn.setAttribute('aria-label', 'Availability and rotation for ' + name);
+            unavailBtn.style.cssText = 'color:' + (isUnavail ? '#f97316' : '#94a3b8') + ';';
             unavailBtn.onmouseenter = function() { unavailBtn.style.background = '#fff7ed'; unavailBtn.style.color = '#f97316'; };
-            unavailBtn.onmouseleave = function() { unavailBtn.style.background = 'transparent'; unavailBtn.style.color = isUnavail ? '#f97316' : '#cbd5e1'; };
+            unavailBtn.onmouseleave = function() { unavailBtn.style.background = 'transparent'; unavailBtn.style.color = isUnavail ? '#f97316' : '#94a3b8'; };
             unavailBtn.onclick = function(e) {
               e.stopPropagation();
               showUnavailabilityPanel(name);
@@ -81979,11 +82137,13 @@ function filterLiturgyItems() {
 
             // Delete from list button
             var delBtn = document.createElement('button');
+            delBtn.className = 'roster-np-btn';
             delBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
             delBtn.title = 'Remove "' + name + '" from list';
-            delBtn.style.cssText = 'width:20px;height:20px;border:none;background:transparent;color:#cbd5e1;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:4px;font-size:11px;flex-shrink:0;';
+            delBtn.setAttribute('aria-label', 'Remove ' + name + ' from this duty\'s list');
+            delBtn.style.cssText = 'color:#94a3b8;';
             delBtn.onmouseenter = function() { delBtn.style.background = '#fee2e2'; delBtn.style.color = '#ef4444'; };
-            delBtn.onmouseleave = function() { delBtn.style.background = 'transparent'; delBtn.style.color = '#cbd5e1'; };
+            delBtn.onmouseleave = function() { delBtn.style.background = 'transparent'; delBtn.style.color = '#94a3b8'; };
             delBtn.onclick = function(e) {
               e.stopPropagation();
               removeNameFromRole(category, name);
@@ -82124,6 +82284,7 @@ function filterLiturgyItems() {
         panel.appendChild(addRow);
 
         document.body.appendChild(floatingPanel);
+        fitPanel(floatingPanel, rect);
         // Focus search input immediately
         // Only auto-focus on desktop — on mobile this triggers the keyboard
         // immediately, which obscures the name list before the user can scroll it.
@@ -82140,13 +82301,7 @@ function filterLiturgyItems() {
         var rect = td.getBoundingClientRect();
         floatingPanel = document.createElement('div');
         floatingPanel.className = 'roster-name-panel';
-        floatingPanel.style.cssText = 'position:fixed;width:290px;background:#fff;border:2px solid #f97316;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:10000;padding:0;overflow:hidden;';
-        var top = rect.bottom + 2;
-        var left = rect.left;
-        if (top + 360 > window.innerHeight) top = Math.max(4, rect.top - 360);
-        if (left + 290 > window.innerWidth) left = Math.max(4, window.innerWidth - 294);
-        floatingPanel.style.top = top + 'px';
-        floatingPanel.style.left = left + 'px';
+        floatingPanel.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:290px;max-width:calc(100vw - 16px);background:#fff;border:2px solid #f97316;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:10000;padding:0;overflow:hidden;';
         var panel = floatingPanel;
 
         // Header
@@ -82159,7 +82314,7 @@ function filterLiturgyItems() {
         backBtn.onclick = function(e) { e.stopPropagation(); buildDropdownPanel(true); };
         var headerTitle = document.createElement('span');
         headerTitle.style.cssText = 'font-size:13px;font-weight:600;color:#9a3412;flex:1;';
-        headerTitle.textContent = 'Unavailability: ' + name;
+        headerTitle.textContent = 'Availability: ' + name;
         header.appendChild(backBtn);
         header.appendChild(headerTitle);
         panel.appendChild(header);
@@ -82171,6 +82326,65 @@ function filterLiturgyItems() {
         var refreshBody = function() {
           body.innerHTML = '';
           var periods = ROSTER_UNAVAILABILITY[name] || [];
+
+          // ── Rotation: regular vs occasional ──
+          // A date range answers "away until when". It cannot answer "serves
+          // now and then, whenever asked" -- which is how most Pastors sit on
+          // this roster -- and rolling that up as an open-ended unavailability
+          // would both lie about the reason and need re-entering every year.
+          // This is the switch for that case, put here because this panel is
+          // already one tap from the name in the picker.
+          var rotMeta = getMemberStatus(name) || {};
+          var isOccasional = rotMeta.status === 'occasional';
+          var rotTitle = document.createElement('div');
+          rotTitle.style.cssText = 'font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.05em;margin-bottom:6px;';
+          rotTitle.textContent = 'Rotation';
+          body.appendChild(rotTitle);
+
+          var rotWrap = document.createElement('div');
+          rotWrap.style.cssText = 'display:flex;gap:6px;margin-bottom:8px;';
+          [
+            { val: 'active',     label: 'Regular',    hint: 'Auto-Suggest may roster ' + name + ' as usual.' },
+            { val: 'occasional', label: 'Occasional', hint: 'Auto-Suggest will never pick ' + name + '. You can still assign them by hand any time.' }
+          ].forEach(function(opt) {
+            var on = (opt.val === 'occasional') === isOccasional;
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = opt.label;
+            b.title = opt.hint;
+            b.style.cssText = 'flex:1;padding:7px 6px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;' +
+              (on ? 'border:1px solid #4338ca;background:#eef2ff;color:#3730a3;' : 'border:1px solid #e5e7eb;background:#fff;color:#6b7280;');
+            b.onclick = function(e) {
+              e.stopPropagation();
+              if (on) return;
+              var m = getMemberStatus(name) || {};
+              // Only ever moves between these two. Someone marked Inactive or
+              // Suspended keeps that status -- this switch must not quietly
+              // reinstate a person who was stood down for another reason.
+              if (m.status && m.status !== 'active' && m.status !== 'occasional' && m.status !== 'newly_joined') {
+                self.showToast(name + ' is marked "' + ((self._statusMeta().labels[m.status]) || m.status) + '" -- change that in Enablers first.', 'warning');
+                return;
+              }
+              setMemberStatus(name, opt.val, m.note || '', m.joinedDate || '');
+              self.showToast(opt.val === 'occasional'
+                ? name + ' is now Occasional -- Auto-Suggest will skip them.'
+                : name + ' is back in the regular rotation.', 'success');
+              refreshBody();
+            };
+            rotWrap.appendChild(b);
+          });
+          body.appendChild(rotWrap);
+
+          var rotHint = document.createElement('div');
+          rotHint.style.cssText = 'font-size:11px;color:#6b7280;line-height:1.45;margin-bottom:10px;';
+          rotHint.textContent = isOccasional
+            ? 'Auto-Suggest skips ' + name + '. Assign them by hand whenever they are able to serve.'
+            : 'Auto-Suggest rosters ' + name + ' in the normal rotation.';
+          body.appendChild(rotHint);
+
+          var rotDiv = document.createElement('div');
+          rotDiv.style.cssText = 'border-top:1px solid #e5e7eb;margin:0 0 8px;';
+          body.appendChild(rotDiv);
 
           // Existing periods
           if (periods.length) {
@@ -82261,6 +82475,7 @@ function filterLiturgyItems() {
         refreshBody();
 
         document.body.appendChild(floatingPanel);
+        fitPanel(floatingPanel, rect);
         // Close on outside click reuses existing handler
       };
 
@@ -82312,8 +82527,8 @@ function filterLiturgyItems() {
     },
     _statusMeta: function() {
       return {
-        labels:{active:'Active',unavailable:'Currently Unavailable',suspended:'Temporarily Suspended',inactive:'Inactive / Resigned',newly_joined:'Newly Joined'},
-        icons:{active:'fa-circle-check',unavailable:'fa-calendar-xmark',suspended:'fa-circle-pause',inactive:'fa-circle-xmark',newly_joined:'fa-star'},
+        labels:{active:'Active',unavailable:'Currently Unavailable',suspended:'Temporarily Suspended',inactive:'Inactive / Resigned',newly_joined:'Newly Joined',occasional:'Occasional / By invitation'},
+        icons:{active:'fa-circle-check',unavailable:'fa-calendar-xmark',suspended:'fa-circle-pause',inactive:'fa-circle-xmark',newly_joined:'fa-star',occasional:'fa-user-clock'},
         cats:{preacher:'Preacher',liturgist:'Liturgist',usher:'Usher',reader:'Reader',communion:'Communion',altar:'Altar Guild',pianist:'Pianist',guitarist:'Guitarist',bassist:'Bassist',drummer:'Drummer',singer:'Singer',lcd:'LCD Operator',pa:'PA System',livestream:'Live Streaming',tech:'Tech',sundayschool:'Sunday School Teacher',flowerarrangement:'Flower Arrangement',general:'General'}
       };
     },
@@ -83235,8 +83450,13 @@ function filterLiturgyItems() {
       html += '<div id="enEditPanel_status">';
       html += '<div style="margin-bottom:8px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Status</label>';
       html += '<select id="enInd_status" onchange="RosterEngine._toggleEnablerStatusFields()" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;">';
-      ['active','newly_joined','suspended','inactive'].forEach(function(s){html+='<option value="'+s+'"'+(meta.status===s?' selected':'')+'>'+(sm.labels[s]||s)+'</option>';});
+      ['active','occasional','newly_joined','suspended','inactive'].forEach(function(s){html+='<option value="'+s+'"'+(meta.status===s?' selected':'')+'>'+(sm.labels[s]||s)+'</option>';});
       html += '</select></div>';
+      // Spelled out because the consequence is invisible otherwise -- the only
+      // way to tell Auto-Suggest is skipping someone is that it stops picking
+      // them. See AUTOSUGGEST_SKIP_STATUS.
+      html += '<div id="enInd_occNote" style="margin:-4px 0 8px;padding:7px 9px;border:1px solid #c7d2fe;border-radius:7px;background:#eef2ff;font-size:11px;line-height:1.45;color:#3730a3;'+(meta.status!=='occasional'?'display:none;':'')+'">';
+      html += '<i class="fa-solid fa-user-clock" style="margin-right:5px;"></i>Auto-Suggest will never roster '+self.escapeHtml(selectedName)+'. They stay fully selectable by hand, and show an <b>Occasional</b> badge wherever names are picked.</div>';
       html += '<div id="enInd_joinedRow" style="margin-bottom:8px;'+(meta.status!=='newly_joined'?'display:none;':'')+'">';
       html += '<label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Joined (month/year)</label>';
       html += '<input id="enInd_joined" type="month" value="'+(meta.joinedDate||'')+'" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;width:100%;box-sizing:border-box;"></div>';
@@ -83606,9 +83826,11 @@ function filterLiturgyItems() {
       var jr = document.getElementById('enInd_joinedRow');
       var sr = document.getElementById('enInd_suspRow');
       var ir = document.getElementById('enInd_inactRow');
+      var oc = document.getElementById('enInd_occNote');
       if(jr) jr.style.display = val==='newly_joined'?'':'none';
       if(sr) sr.style.display = val==='suspended'?'':'none';
       if(ir) ir.style.display = val==='inactive'?'':'none';
+      if(oc) oc.style.display = val==='occasional'?'':'none';
     },
 
     // Replaced by _renderEnablersAll/_renderEnablersDuty/_renderEnablersIndividual above
@@ -84266,6 +84488,11 @@ function filterLiturgyItems() {
               // comment above.
               if (role.id !== 'flowerarrangement' && assignedToday[_afKey(name)]) return false;
               if (isPersonUnavailable(name, dateStr, STATE.rosterYear, category)) return false;
+              // Occasional / inactive / suspended -- a hard exclusion, not a
+              // ranking penalty. These people are still fully selectable by
+              // hand; the point is that the algorithm never volunteers them.
+              // See AUTOSUGGEST_SKIP_STATUS.
+              if (isAutoSuggestExcluded(name)) return false;
               return true;
             });
 
@@ -85747,17 +85974,28 @@ function filterLiturgyItems() {
         if (lbl) lbl.textContent = STATE.picName + ' (Logout)';
         if (icon) { icon.className = 'fa-solid fa-lock-open'; }
         if (btn) btn.classList.add('pic-active');
-        if (rmpLbl) rmpLbl.textContent = STATE.picName + ' (Logout)';
+        // Mobile chip: first name only. The full "<name> (Logout)" is kept in
+        // the tooltip/aria-label -- as a visible label it was wider than three
+        // of the other buttons combined, which is what pushed them off-screen.
+        if (rmpLbl) rmpLbl.textContent = String(STATE.picName || '').trim().split(/\s+/)[0] || 'PIC';
         if (rmpIcon) rmpIcon.className = 'fa-solid fa-lock-open';
-        if (rmpChip) rmpChip.classList.add('pic-active');
+        if (rmpChip) {
+          rmpChip.classList.add('pic-active');
+          rmpChip.title = 'Signed in as ' + STATE.picName + ' - tap to log out';
+          rmpChip.setAttribute('aria-label', 'Signed in as ' + STATE.picName + '. Tap to log out.');
+        }
         document.body.classList.add('pic-mode');
       } else {
         if (lbl) lbl.textContent = 'PIC Login';
         if (icon) { icon.className = 'fa-solid fa-lock'; }
         if (btn) btn.classList.remove('pic-active');
-        if (rmpLbl) rmpLbl.textContent = 'PIC Login';
+        if (rmpLbl) rmpLbl.textContent = 'PIC';
         if (rmpIcon) rmpIcon.className = 'fa-solid fa-lock';
-        if (rmpChip) rmpChip.classList.remove('pic-active');
+        if (rmpChip) {
+          rmpChip.classList.remove('pic-active');
+          rmpChip.title = 'PIC Login';
+          rmpChip.setAttribute('aria-label', 'PIC Login');
+        }
         document.body.classList.remove('pic-mode');
       }
       // The whole-month view bakes STATE.picMode into whether each duty slot's
