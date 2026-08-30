@@ -15,11 +15,8 @@
 import { parseChord } from './chords';
 import { interpretMarks } from './performMarks';
 import type { BandClip, BandTimbre, BandTrack, SongNote } from './types';
-import {
-  playBassTone, playCajonBass, playCajonSlap, playCajonTick,
-  playHat, playKick, playSnare, playTom,
-} from './voiceSynth';
-import { playGuitar, playPiano, warmPiano } from './sampler';
+import { playCajonBass, playCajonSlap, playCajonTick } from './voiceSynth';
+import { playBass, playDrum, playGuitar, playPiano, warmPiano } from './sampler';
 
 export type { BandClip, BandTimbre, BandTrack };
 
@@ -631,16 +628,16 @@ export function playBandEvent(context: AudioContext, event: BandEvent, when: num
     case 'strum-up': [...(event.midis ?? [])].slice(-3).reverse().forEach((midi, index) => playGuitar(context, midi, when + index * 0.01, event.sustain ?? 0.8, level * 0.6)); break;
     case 'pluck':
       if (event.timbre === 'piano') (event.midis ?? []).forEach((midi, index) => playPiano(context, midi, when + index * 0.005, event.sustain ?? 0.9, level));
-      else if (event.timbre === 'bass') (event.midis ?? []).forEach(midi => playBassTone(context, midi, when, event.sustain ?? 0.9, level));
+      else if (event.timbre === 'bass') (event.midis ?? []).forEach(midi => playBass(context, midi, when, event.sustain ?? 0.9, level));
       else (event.midis ?? []).forEach(midi => playGuitar(context, midi, when, event.sustain ?? 0.9, level, event.slideTo));
       break;
     case 'keys': (event.midis ?? []).forEach((midi, index) => playPiano(context, midi, when + index * 0.006, event.sustain ?? 1.2, level)); break;
-    case 'bass': (event.midis ?? []).forEach(midi => playBassTone(context, midi, when, event.sustain ?? 0.8, level)); break;
-    case 'kick': playKick(context, when, level); break;
-    case 'snare': playSnare(context, when, level); break;
-    case 'hat': playHat(context, when, level); break;
-    case 'tom-low': playTom(context, when, false, level); break;
-    case 'tom-high': playTom(context, when, true, level); break;
+    case 'bass': (event.midis ?? []).forEach(midi => playBass(context, midi, when, event.sustain ?? 0.8, level)); break;
+    case 'kick': playDrum(context, 'kick', when, level); break;
+    case 'snare': playDrum(context, 'snare', when, level); break;
+    case 'hat': playDrum(context, 'hat', when, level); break;
+    case 'tom-low': playDrum(context, 'tom-low', when, level); break;
+    case 'tom-high': playDrum(context, 'tom-high', when, level); break;
     case 'cajon-bass': playCajonBass(context, when, level); break;
     case 'cajon-slap': playCajonSlap(context, when, level); break;
     case 'cajon-tick': playCajonTick(context, when, level); break;
