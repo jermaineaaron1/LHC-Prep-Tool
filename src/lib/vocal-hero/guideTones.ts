@@ -89,6 +89,9 @@ export class GuidePlayer {
         const source = this.context.createBufferSource();
         source.buffer = choir.buffer;
         source.playbackRate.value = choir.playbackRate;
+        // A held note outlasts the 3.13s recording; loop its sustain so the
+        // guide keeps singing instead of dropping out mid-note.
+        choir.applyLoop(source);
         const level = NOTE_GAIN * CHOIR_GUIDE_GAIN * choir.makeup;
         gain.gain.setValueAtTime(0.0001, at);
         gain.gain.exponentialRampToValueAtTime(level, at + 0.02);

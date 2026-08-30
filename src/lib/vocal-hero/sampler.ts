@@ -25,7 +25,21 @@
 import { mixBus, playBassTone, playGuitarPluck, playHat, playKick, playPianoNote, playSnare, playTom, playVoiceTone } from './voiceSynth';
 import type { SongNote } from './types';
 
-interface SampleSet { folder: string; anchors: Array<{ name: string; midi: number }>; normalize?: boolean }
+interface SampleSet { folder: string; anchors: Array<{ name: string; midi: number }>; normalize?: boolean; sustain?: boolean }
+
+/** The FluidR3 sustained voices are 3.13s recordings chopped off at full
+ *  volume - no decay at all. Played straight, any note longer than the
+ *  recording fell silent partway and the abrupt end clicked. Marking a set
+ *  `sustain` loops its steady middle instead, so a held note rings for as
+ *  long as it is written. */
+function holdSustain(source: AudioBufferSourceNode, buffer: AudioBuffer): void {
+  const end = Math.max(0.2, buffer.duration - 0.06);
+  const start = Math.min(end - 0.15, Math.max(0.35, buffer.duration * 0.28));
+  if (end - start < 0.12) return;   // too short to loop cleanly; leave it alone
+  source.loop = true;
+  source.loopStart = start;
+  source.loopEnd = end;
+}
 
 const SETS: Record<'piano' | 'guitar' | 'bass' | 'egtr' | 'strings' | 'pad' | 'brass' | 'choir', SampleSet> = {
   piano: {
@@ -68,6 +82,7 @@ const SETS: Record<'piano' | 'guitar' | 'bass' | 'egtr' | 'strings' | 'pad' | 'b
   strings: {
     folder: 'strings',
     normalize: true,
+    sustain: true,
     anchors: [
       { name: 'C3', midi: 48 }, { name: 'Eb3', midi: 51 }, { name: 'Gb3', midi: 54 }, { name: 'A3', midi: 57 },
       { name: 'C4', midi: 60 }, { name: 'Eb4', midi: 63 }, { name: 'Gb4', midi: 66 }, { name: 'A4', midi: 69 },
@@ -78,6 +93,7 @@ const SETS: Record<'piano' | 'guitar' | 'bass' | 'egtr' | 'strings' | 'pad' | 'b
   pad: {
     folder: 'pad',
     normalize: true,
+    sustain: true,
     anchors: [
       { name: 'C3', midi: 48 }, { name: 'Eb3', midi: 51 }, { name: 'Gb3', midi: 54 }, { name: 'A3', midi: 57 },
       { name: 'C4', midi: 60 }, { name: 'Eb4', midi: 63 }, { name: 'Gb4', midi: 66 }, { name: 'A4', midi: 69 },
@@ -88,6 +104,7 @@ const SETS: Record<'piano' | 'guitar' | 'bass' | 'egtr' | 'strings' | 'pad' | 'b
   brass: {
     folder: 'brass',
     normalize: true,
+    sustain: true,
     anchors: [
       { name: 'A2', midi: 45 }, { name: 'C3', midi: 48 }, { name: 'Eb3', midi: 51 }, { name: 'Gb3', midi: 54 },
       { name: 'A3', midi: 57 }, { name: 'C4', midi: 60 }, { name: 'Eb4', midi: 63 }, { name: 'Gb4', midi: 66 },
@@ -99,6 +116,7 @@ const SETS: Record<'piano' | 'guitar' | 'bass' | 'egtr' | 'strings' | 'pad' | 'b
   choir: {
     folder: 'choir',
     normalize: true,
+    sustain: true,
     anchors: [
       { name: 'E2', midi: 40 }, { name: 'G2', midi: 43 }, { name: 'Bb2', midi: 46 }, { name: 'Db3', midi: 49 },
       { name: 'E3', midi: 52 }, { name: 'G3', midi: 55 }, { name: 'Bb3', midi: 58 }, { name: 'Db4', midi: 61 },
@@ -212,6 +230,13 @@ function playSampled(context: AudioContext, set: SampleSet, midi: number, startA
   source.buffer = buffer;
   const rate = Math.pow(2, (midi - anchor.midi) / 12);
   source.playbackRate.value = rate;
+  if (set.sustain) holdSustain(source, buffer);
+  else {
+    // A decaying recording still runs out; hold no longer than it actually
+    // plays for at this pitch, so the note fades instead of stopping dead.
+    const playable = buffer.duration / rate;
+    length = Math.min(length, Math.max(0.08, playable - releaseTail - 0.02));
+  }
   if (glideTo !== undefined) {
     // A slide bends the RECORDING: ramp the playback rate to the target.
     const targetRate = Math.pow(2, (glideTo - anchor.midi) / 12);
@@ -285,6 +310,7 @@ export function playVoice(context: AudioContext, note: SongNote, startAt: number
   source.buffer = buffer;
   const rate = Math.pow(2, (note.midi - anchor.midi) / 12);
   source.playbackRate.value = rate;
+  holdSustain(source, buffer);
   if (glideTo !== undefined) {
     // The sung portamento bends the RECORDING, like the guitar's slide.
     const targetRate = Math.pow(2, (glideTo - anchor.midi) / 12);
@@ -315,13 +341,13 @@ export function playVoice(context: AudioContext, note: SongNote, startAt: number
 /** The raw material for a choir note, for callers that run their own audio
  *  graph (the round guide has its own master level and reset semantics).
  *  Null while the nearest recording is still warming. */
-export function choirVoiceFor(context: AudioContext, midi: number): { buffer: AudioBuffer; playbackRate: number; makeup: number } | null {
+export function choirVoiceFor(context: AudioContext, midi: number): { buffer: AudioBuffer; playbackRate: number; makeup: number; applyLoop: (source: AudioBufferSourceNode) => void } | null {
   const anchor = nearestAnchor(SETS.choir, midi);
   if (Math.abs(midi - anchor.midi) > 3) return null;
   const key = sampleKey(SETS.choir, anchor.name);
   const buffer = decoded.get(key);
   if (!buffer) { void ensureDecoded(context, SETS.choir, anchor.name); return null; }
-  return { buffer, playbackRate: Math.pow(2, (midi - anchor.midi) / 12), makeup: makeup.get(key) ?? 1 };
+  return { buffer, playbackRate: Math.pow(2, (midi - anchor.midi) / 12), makeup: makeup.get(key) ?? 1, applyLoop: source => holdSustain(source, buffer) };
 }
 
 /** The upright bass. Sampled when ready, the sine-and-triangle synth until
