@@ -6233,12 +6233,12 @@
                the word disambiguates it -- and the full sentence lives in
                title/aria-label for anyone who needs it. -->
           <div class="rmp-cmdbar">
-            <span class="rmp-chip rmp-chip-pic" id="rmpPicChip" role="button" tabindex="0" onclick="RosterEngine.showPicLoginModal()" title="PIC Login" aria-label="PIC Login"><i class="fa-solid fa-lock" id="rmpPicIcon"></i><span id="rmpPicLabel">PIC</span></span>
-            <span class="rmp-chip rmp-chip-gold pic-only" id="rmpAutoSuggestChip" role="button" tabindex="0" onclick="RosterEngine.confirmAutoSuggestPrompt()" title="Auto Suggest names for the whole month" aria-label="Auto Suggest names for the whole month"><i class="fa-solid fa-wand-magic-sparkles"></i>Suggest</span>
-            <span class="rmp-chip" id="rmpUndoChip" role="button" tabindex="0" onclick="RosterEngine.undo()" title="Undo last change" aria-label="Undo last change"><i class="fa-solid fa-rotate-left"></i>Undo</span>
-            <span class="rmp-chip" id="rmpRedoChip" role="button" tabindex="0" onclick="RosterEngine.redo()" title="Redo last undone change" aria-label="Redo last undone change"><i class="fa-solid fa-rotate-right"></i>Redo</span>
-            <span class="rmp-chip" id="rmpEnablersChip" role="button" tabindex="0" onclick="RosterEngine._enablersActiveTab='all';RosterEngine.openEnablersModal()" title="Enablers - the people on the roster" aria-label="Enablers - the people on the roster"><i class="fa-solid fa-people-group"></i>Team</span>
-            <span class="rmp-chip rmp-chip-tools" id="rmpToolsChip" role="button" tabindex="0" onclick="document.getElementById('rmpToolsSheet').classList.toggle('open')" title="More tools - calendar, export, share" aria-label="More tools - calendar, export, share"><i class="fa-solid fa-ellipsis"></i>More</span>
+            <span class="rmp-chip rmp-chip-pic" id="rmpPicChip" role="button" tabindex="0" onkeydown="RosterEngine.chipKey(event)" onclick="RosterEngine.showPicLoginModal()" title="PIC Login" aria-label="PIC Login"><i class="fa-solid fa-lock" id="rmpPicIcon"></i><span id="rmpPicLabel">PIC</span></span>
+            <span class="rmp-chip rmp-chip-gold pic-only" id="rmpAutoSuggestChip" role="button" tabindex="0" onkeydown="RosterEngine.chipKey(event)" onclick="RosterEngine.confirmAutoSuggestPrompt()" title="Auto Suggest names for the whole month" aria-label="Auto Suggest names for the whole month"><i class="fa-solid fa-wand-magic-sparkles"></i>Suggest</span>
+            <span class="rmp-chip" id="rmpUndoChip" role="button" tabindex="0" onkeydown="RosterEngine.chipKey(event)" onclick="RosterEngine.undo()" title="Undo last change" aria-label="Undo last change"><i class="fa-solid fa-rotate-left"></i>Undo</span>
+            <span class="rmp-chip" id="rmpRedoChip" role="button" tabindex="0" onkeydown="RosterEngine.chipKey(event)" onclick="RosterEngine.redo()" title="Redo last undone change" aria-label="Redo last undone change"><i class="fa-solid fa-rotate-right"></i>Redo</span>
+            <span class="rmp-chip" id="rmpEnablersChip" role="button" tabindex="0" onkeydown="RosterEngine.chipKey(event)" onclick="RosterEngine._enablersActiveTab='all';RosterEngine.openEnablersModal()" title="Enablers - the people on the roster" aria-label="Enablers - the people on the roster"><i class="fa-solid fa-people-group"></i>Team</span>
+            <span class="rmp-chip rmp-chip-tools" id="rmpToolsChip" role="button" tabindex="0" onkeydown="RosterEngine.chipKey(event)" onclick="document.getElementById('rmpToolsSheet').classList.toggle('open')" title="More tools - calendar, export, share" aria-label="More tools - calendar, export, share"><i class="fa-solid fa-ellipsis"></i>More</span>
             <button type="button" class="rmp-save-btn pic-only" id="rmpSaveBtn" onclick="RosterEngine.saveChanges()" title="Save changes" aria-label="Save changes"><i class="fa-solid fa-floppy-disk"></i>Save</button>
           </div>
           <div class="rmp-tools-sheet" id="rmpToolsSheet">
@@ -80557,14 +80557,37 @@ function filterLiturgyItems() {
   //   suspended   stood down for a period.
   var AUTOSUGGEST_SKIP_STATUS = { occasional: 1, inactive: 1, suspended: 1 };
 
-  function isAutoSuggestExcluded(name) {
-    return !!AUTOSUGGEST_SKIP_STATUS[(getMemberStatus(name) || {}).status];
+  // A suspension records an end month, and nothing ever read it back. That was
+  // harmless while status was decoration, but a silent trap once status
+  // excludes people: a suspension that lapsed last March would keep someone
+  // out of every automatic pick indefinitely, with no sign of it anywhere,
+  // until somebody remembered to set them back to Active by hand. Judged
+  // against the month being rostered rather than today, so filling April
+  // correctly includes someone whose suspension ran to March.
+  function _suspensionLapsed(meta, year, month) {
+    if (!meta || meta.status !== 'suspended' || !meta.suspendedTo) return false;
+    if (year === undefined || year === null) return false;
+    var m = /^(\d{4})-(\d{1,2})$/.exec(String(meta.suspendedTo));
+    if (!m) return false;
+    var endY = parseInt(m[1], 10), endM = parseInt(m[2], 10) - 1;
+    return year > endY || (year === endY && month > endM);
+  }
+
+  function isAutoSuggestExcluded(name, year, month) {
+    var meta = getMemberStatus(name) || {};
+    if (!AUTOSUGGEST_SKIP_STATUS[meta.status]) return false;
+    return !_suspensionLapsed(meta, year, month);
   }
 
   // Badge shown beside a name wherever it is picked, so the exclusion is
   // visible to whoever is filling the cell instead of only inside Enablers.
-  function _rotationTagFor(name) {
-    var st = (getMemberStatus(name) || {}).status;
+  // Takes the same year/month as isAutoSuggestExcluded so a lapsed suspension
+  // stops being badged at the moment it stops being skipped -- a badge that
+  // outlived the rule it describes would be worse than no badge.
+  function _rotationTagFor(name, year, month) {
+    var _meta = getMemberStatus(name) || {};
+    var st = _meta.status;
+    if (st === 'suspended' && _suspensionLapsed(_meta, year, month)) return null;
     if (st === 'occasional') return { cls: 'occasional', label: 'Occasional', title: name + ' serves by invitation. Auto-Suggest never picks them; assign by hand when they are able.' };
     if (st === 'inactive')   return { cls: 'inactive',   label: 'Inactive',   title: name + ' is marked inactive / resigned. Auto-Suggest skips them.' };
     if (st === 'suspended')  return { cls: 'suspended',  label: 'Stood down', title: name + ' is temporarily suspended. Auto-Suggest skips them.' };
@@ -81030,6 +81053,17 @@ function filterLiturgyItems() {
       this._updateConfirmPendingButton();
       this._syncMobilePremiumHeader();
       if (this._mobileScheduleView === 'month') this.renderMobileMonthView();
+    },
+
+    // role="button" on a <span> makes it focusable and announces it as a
+    // button, but gives it none of a button's keyboard behaviour: Enter and
+    // Space have to be wired by hand, or the chip is a control that a keyboard
+    // user can reach, is told is a button, and cannot press.
+    chipKey: function(e) {
+      if (!e || (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar')) return;
+      e.preventDefault();
+      var el = e.currentTarget || e.target;
+      if (el && el.click) el.click();
     },
 
     _cellByKey: function(key) {
@@ -82295,7 +82329,7 @@ function filterLiturgyItems() {
             // Occasional feature: anyone Auto-Suggest will not pick says so
             // here, in the one place a PIC is already looking when they fill
             // a cell, rather than only inside the Enablers modal.
-            var rotTag = _rotationTagFor(name);
+            var rotTag = _rotationTagFor(name, cellYear, STATE.rosterMonth);
             if (rotTag) {
               var rotBadge = document.createElement('span');
               rotBadge.className = 'roster-np-tag ' + rotTag.cls;
@@ -84676,7 +84710,7 @@ function filterLiturgyItems() {
               // ranking penalty. These people are still fully selectable by
               // hand; the point is that the algorithm never volunteers them.
               // See AUTOSUGGEST_SKIP_STATUS.
-              if (isAutoSuggestExcluded(name)) return false;
+              if (isAutoSuggestExcluded(name, STATE.rosterYear, STATE.rosterMonth)) return false;
               return true;
             });
 
@@ -85340,6 +85374,10 @@ function filterLiturgyItems() {
 
       tableClone.querySelectorAll('.roster-cell-dropdown-icon').forEach(function(el) { el.remove(); });
       tableClone.querySelectorAll('.roster-share-btn').forEach(function(el) { el.remove(); });
+      // The per-duty confirm is an interactive control for the PIC; it has no
+      // business in a printed roster or the PDF sent round on WhatsApp, where
+      // it rendered as the duty name with "Confirm 5" stuck to it.
+      tableClone.querySelectorAll('.roster-row-confirm').forEach(function(el) { el.remove(); });
 
       var PRINT_COLORS = {Green:'rgba(34,197,94,0.22)',Purple:'rgba(168,85,247,0.22)',White:'#f1f5f9',Red:'rgba(239,68,68,0.22)',Gold:'rgba(234,179,8,0.22)',Blue:'rgba(59,130,246,0.22)',Rose:'rgba(244,114,182,0.22)'};
       var PRINT_TEXT   = {Green:'#065f46',Purple:'#4c1d95',White:'#1e293b',Red:'#7f1d1d',Gold:'#713f12',Blue:'#1e3a8a',Rose:'#831843'};
