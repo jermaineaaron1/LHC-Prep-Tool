@@ -1,6 +1,7 @@
 'use client';
 
 import type { SongNote } from './types';
+import { choirVoiceFor, warmInstruments } from './sampler';
 
 const KEY = 'vh_guide_audio';
 
@@ -28,8 +29,11 @@ export function rememberGuideAudio(on: boolean): void {
 const LOOKAHEAD = 0.4;
 /** Per-note level. Four parts can sound at once, so this leaves headroom. */
 const NOTE_GAIN = 0.085;
+/** Choir-vs-triangle loudness trim, lab-calibrated so the guide switching
+ *  from the warm-up beep to the recorded voice never jumps the level. */
+const CHOIR_GUIDE_GAIN = 3.1;
 
-interface Voice { oscillator: OscillatorNode; gain: GainNode; endsAt: number }
+interface Voice { node: OscillatorNode | AudioBufferSourceNode; gain: GainNode; endsAt: number }
 
 /**
  * Sounds a song's written notes in time with the round.
@@ -52,6 +56,9 @@ export class GuidePlayer {
     this.master = context.createGain();
     this.master.gain.value = level;
     this.master.connect(context.destination);
+    // Start decoding the recorded choir now, so the guide sings from the
+    // first phrase instead of switching voices mid-round.
+    warmInstruments(context);
   }
 
   /**
@@ -72,20 +79,36 @@ export class GuidePlayer {
 
       const at = now + Math.max(0, delay);
       const until = at + Math.max(0.12, note.end - note.start - 0.03);
-      const oscillator = this.context.createOscillator();
       const gain = this.context.createGain();
-      // Triangle rather than sine: it carries over a room and a piano-ish edge
-      // makes the pitch easier to match than a pure tone.
-      oscillator.type = 'triangle';
-      oscillator.frequency.value = 440 * Math.pow(2, (note.midi - 69) / 12);
-      gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.exponentialRampToValueAtTime(NOTE_GAIN, at + 0.02);
-      gain.gain.setValueAtTime(NOTE_GAIN, Math.max(at + 0.03, until - 0.06));
-      gain.gain.exponentialRampToValueAtTime(0.0001, until);
-      oscillator.connect(gain).connect(this.master);
-      oscillator.start(at);
-      oscillator.stop(until + 0.02);
-      this.voices.push({ oscillator, gain, endsAt: until });
+      // A REAL voice when the recording is ready: the guide sings the part
+      // on "ah" instead of beeping it. The triangle stays as the warm-up
+      // stand-in — it carries over a room and its edge is easy to pitch to.
+      const choir = choirVoiceFor(this.context, note.midi);
+      let node: OscillatorNode | AudioBufferSourceNode;
+      if (choir) {
+        const source = this.context.createBufferSource();
+        source.buffer = choir.buffer;
+        source.playbackRate.value = choir.playbackRate;
+        const level = NOTE_GAIN * CHOIR_GUIDE_GAIN * choir.makeup;
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(level, at + 0.02);
+        gain.gain.setValueAtTime(level, Math.max(at + 0.03, until - 0.06));
+        gain.gain.exponentialRampToValueAtTime(0.0001, until);
+        node = source;
+      } else {
+        const oscillator = this.context.createOscillator();
+        oscillator.type = 'triangle';
+        oscillator.frequency.value = 440 * Math.pow(2, (note.midi - 69) / 12);
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(NOTE_GAIN, at + 0.02);
+        gain.gain.setValueAtTime(NOTE_GAIN, Math.max(at + 0.03, until - 0.06));
+        gain.gain.exponentialRampToValueAtTime(0.0001, until);
+        node = oscillator;
+      }
+      node.connect(gain).connect(this.master);
+      node.start(at);
+      node.stop(until + 0.02);
+      this.voices.push({ node, gain, endsAt: until });
     }
     // Forget voices that have finished, so a long song does not accumulate them.
     if (this.voices.length > 64) this.voices = this.voices.filter(v => v.endsAt > now);
@@ -102,7 +125,7 @@ export class GuidePlayer {
         voice.gain.gain.cancelScheduledValues(now);
         voice.gain.gain.setValueAtTime(Math.max(voice.gain.gain.value, 0.0001), now);
         voice.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
-        voice.oscillator.stop(now + 0.06);
+        voice.node.stop(now + 0.06);
       } catch { /* already stopped */ }
     }
     this.voices = [];

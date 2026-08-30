@@ -20,8 +20,8 @@ import { DEFAULT_TARGETS_PER_PHRASE } from '@/lib/vocal-hero/liveCues';
 import { HARMONY_INTERVALS, harmoniseInto, resolveOverlapsPreservingRhythm, splitIntoSyllables, spreadLyricsAcrossNotes, alignToMelodyRhythm } from '@/lib/vocal-hero/arrange';
 import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vocal-hero/performMarks';
 import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
-import { playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
-import { preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
+
+import { playVoice, preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
 import { downloadSingerVoice, playSingerBuffers, prepareSingerBuffers, singerVoiceReady, voiceKindForPart } from '@/lib/vocal-hero/singer';
 import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
@@ -847,7 +847,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const play = (context: AudioContext) => {
       if (generation !== noteAuditionGenerationRef.current) return;
       noteAuditionStopRef.current = previewVoices
-        ? playVoiceTone(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start))
+        ? playVoice(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start))
         : playPianoTone(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start), 0);
     };
     let context = noteAuditionContextRef.current;
@@ -1193,7 +1193,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     for (const note of sounding) {
       const at = Math.max(0, note.start - from);
       const length = Math.min(note.end, until) - Math.max(note.start, from);
-      if (length > 0.04) playVoiceTone(running.context, note, running.start + at, length);
+      if (length > 0.04) playVoice(running.context, note, running.start + at, length);
     }
     return sounding.length > 0 || events.length > 0 ? running : null;
   }
@@ -2115,7 +2115,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           : undefined;
         if (singerPreparedByPart && singerPreparedByPart.has(note.part === -1 ? 0 : note.part)) return;   // the AI choir carries this part
         const toned = singerPreparedByPart ? { ...played, velocity: Math.round(played.velocity * 0.55) } : played;
-        if (previewVoices) playVoiceTone(context, toned, context.currentTime + at, length / transportRate, slideTarget);
+        if (previewVoices) playVoice(context, toned, context.currentTime + at, length / transportRate, slideTarget);
         else playPianoTone(context, toned, context.currentTime + at, length / transportRate);
       });
       if (singerPreparedByPart) {
@@ -2443,7 +2443,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
         {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="relative flex items-center gap-1.5">
           <button onClick={cyclePreviewVoice} aria-pressed={previewVoice !== 'piano'}
-            title={previewVoice === 'choir' ? 'Preview voice: synth choir. Tap for the AI demo choir (sings the actual lyrics in every part; one-time voice download).'
+            title={previewVoice === 'choir' ? 'Preview voice: recorded choir — real human voices singing every part on “ah”. Tap for the AI demo choir (pronounces the actual lyrics; one-time voice download).'
               : previewVoice === 'singer' ? 'Preview voice: AI demo choir \u2014 every part sings its own words: female voice on soprano and alto, male on tenor and bass. Tap for piano.'
               : 'Preview voice: piano. Tap for the synth choir.'}
             className={`rounded-lg border px-2.5 py-2 ${previewVoice !== 'piano' ? 'border-emerald-300/50 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-slate-300'}`}>{previewVoice === 'choir' ? '\ud83c\udfa4' : previewVoice === 'singer' ? '\ud83d\udde3\ufe0f' : '\ud83c\udfb9'}</button>
