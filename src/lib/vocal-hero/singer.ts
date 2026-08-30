@@ -39,7 +39,7 @@ export async function downloadSingerVoice(onProgress?: (pct: number) => void): P
 
 // ── syllable analysis ──────────────────────────────────────────────────────
 
-interface Syllable {
+export interface Syllable {
   data: Float32Array;
   sampleRate: number;
   /** median voiced pitch of the spoken word, Hz */
@@ -81,7 +81,7 @@ function estimateF0(data: Float32Array, sampleRate: number, from: number, to: nu
   return estimates[Math.floor(estimates.length / 2)];
 }
 
-function analyzeSyllable(data: Float32Array, sampleRate: number): Syllable {
+export function analyzeSyllable(data: Float32Array, sampleRate: number): Syllable {
   const frame = Math.floor(sampleRate * 0.01);
   const frames: number[] = [];
   for (let start = 0; start < data.length; start += frame) frames.push(frameRms(data, start, frame));
@@ -100,14 +100,36 @@ function analyzeSyllable(data: Float32Array, sampleRate: number): Syllable {
 
 const midiHz = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12);
 
-/** Granular overlap-add: reads grains from the (looped) voiced core at the
- *  pitch ratio, lays them down at the original rate — the word keeps its
- *  identity while landing on the written note for exactly its duration.
- *  `withAttack` keeps the spoken consonant head unshifted; a melisma skips
- *  it and just carries the vowel. */
-function renderSyllableAtPitch(syllable: Syllable, midi: number, seconds: number, withAttack: boolean): Float32Array {
+/** f0 at one spot, for the per-grain pitch track. */
+function localF0(data: Float32Array, sampleRate: number, center: number, fallback: number): number {
+  const minLag = Math.floor(sampleRate / 400);
+  const maxLag = Math.floor(sampleRate / 70);
+  const win = Math.min(1024, maxLag * 2);
+  if (center + win + maxLag >= data.length || center < 0) return fallback;
+  let bestLag = 0, best = 0;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let corr = 0, norm = 0;
+    for (let index = 0; index < win; index += 2) {
+      corr += data[center + index] * data[center + index + lag];
+      norm += data[center + index] * data[center + index];
+    }
+    const score = norm > 1e-6 ? corr / norm : 0;
+    if (score > best) { best = score; bestLag = lag; }
+  }
+  return bestLag > 0 && best > 0.3 ? sampleRate / bestLag : fallback;
+}
+
+/** Granular overlap-add: reads grains from the (looped) voiced core, each
+ *  grain retuned by ITS OWN measured pitch — speech falls in pitch as it
+ *  speaks, and correcting per grain is what turns intonation into a held
+ *  note instead of a wobble. A slow vibrato blooms after the onset, grain
+ *  levels are evened toward the vowel's median, and the word's CLOSING
+ *  consonant is carried across from the source so 'grace' keeps its s.
+ *  `withAttack` keeps the spoken onset; a melisma skips it. `withCoda`
+ *  marks the last note of the word. */
+export function renderSyllableAtPitch(syllable: Syllable, midi: number, seconds: number, withAttack: boolean, withCoda = true): Float32Array {
   const { data, sampleRate, f0, voicedStart, voicedEnd } = syllable;
-  const ratio = Math.max(0.35, Math.min(3.2, midiHz(midi) / f0));
+  const targetHz = midiHz(midi);
   const total = Math.max(16, Math.round(seconds * sampleRate));
   const out = new Float32Array(total);
 
@@ -115,35 +137,61 @@ function renderSyllableAtPitch(syllable: Syllable, midi: number, seconds: number
   const headLen = withAttack ? Math.min(voicedStart, Math.floor(sampleRate * 0.11), total) : 0;
   for (let index = 0; index < headLen; index++) out[index] = data[index];
 
+  // the word's ending, reserved at the tail of the note
+  const codaSrcLen = withCoda ? Math.min(data.length - voicedEnd, Math.floor(sampleRate * 0.18)) : 0;
+  const codaLen = Math.min(codaSrcLen, Math.floor(total * 0.35));
+
   const grain = Math.floor(sampleRate * 0.05);
-  const hop = Math.floor(grain / 2);
+  const hop = Math.floor(grain / 4);              // 75% overlap reads far smoother
+  const overlapGain = 2 / 3;                       // Hann at 75% overlap sums to ~1.5
   const bodyIn = Math.max(grain * 2 + 2, voicedEnd - voicedStart);
-  // steady loop point inside the vowel: middle 60% ping-pongs so the tail's
-  // fade never enters a held note
   const loopFrom = voicedStart + Math.floor(bodyIn * 0.15);
   const loopTo = Math.max(loopFrom + grain + 2, voicedStart + Math.floor(bodyIn * 0.8));
   const loopSpan = loopTo - loopFrom;
 
+  // even out grain loudness toward the vowel's own median
+  const midRms = frameRms(data, loopFrom, Math.min(loopSpan, Math.floor(sampleRate * 0.08))) || 0.05;
+
   const bodyOutStart = headLen;
-  const bodyOutLen = total - bodyOutStart;
-  const grains = Math.ceil(bodyOutLen / hop) + 1;
+  const bodyOutEnd = total - codaLen;
+  const grains = Math.max(1, Math.ceil((bodyOutEnd - bodyOutStart) / hop) + 1);
   for (let g = 0; g < grains; g++) {
     const outPos = bodyOutStart + g * hop;
-    // walk the source forward, ping-ponging inside the vowel loop
-    const travel = g * hop * 0.55;   // saunter, so long notes do not race to the tail
+    if (outPos >= bodyOutEnd) break;
+    const travel = g * hop * 0.55;
     const cycle = Math.floor(travel / loopSpan);
     const within = travel % loopSpan;
     const inCenter = cycle % 2 === 0 ? loopFrom + within : loopTo - within;
+    // per-grain pitch: correct THIS grain's spoken pitch to the note, with a
+    // vibrato that arrives after a quarter second the way a singer's does
+    const tSec = (outPos - bodyOutStart) / sampleRate;
+    const vibratoDepth = Math.min(1, Math.max(0, (tSec - 0.22) / 0.3)) * 18; // cents
+    const vibrato = Math.pow(2, (vibratoDepth * Math.sin(2 * Math.PI * 5.3 * tSec)) / 1200);
+    const grainF0 = localF0(data, sampleRate, Math.floor(inCenter - grain / 2), f0);
+    const ratio = Math.max(0.4, Math.min(2.8, (targetHz * vibrato) / grainF0));
+    // gentle level evening
+    const grainRms = frameRms(data, Math.floor(inCenter - grain / 2), grain) || midRms;
+    const even = Math.max(0.6, Math.min(1.8, midRms / grainRms));
     for (let index = 0; index < grain; index++) {
       const outIndex = outPos + index;
-      if (outIndex >= total) break;
+      if (outIndex >= bodyOutEnd) break;
       const src = inCenter + (index - grain / 2) * ratio;
       const s0 = Math.floor(src);
       if (s0 < 0 || s0 + 1 >= data.length) continue;
       const frac = src - s0;
       const sample = data[s0] * (1 - frac) + data[s0 + 1] * frac;
       const hann = 0.5 - 0.5 * Math.cos((2 * Math.PI * index) / grain);
-      out[outIndex] += sample * hann;
+      out[outIndex] += sample * hann * overlapGain * even;
+    }
+  }
+
+  // the closing consonant, unshifted, crossfaded in over 20ms
+  if (codaLen > 0) {
+    const fade = Math.min(Math.floor(sampleRate * 0.02), codaLen);
+    for (let index = 0; index < codaLen; index++) {
+      const outIndex = bodyOutEnd + index;
+      const mix = index < fade ? index / fade : 1;
+      out[outIndex] = out[outIndex] * (1 - mix) + data[voicedEnd + index] * mix;
     }
   }
 
@@ -199,12 +247,16 @@ export async function prepareSingerBuffers(
   }));
   const out: Array<{ at: number; buffer: AudioBuffer } | null> = [];
   let carried: Syllable | null = null;
-  for (const note of line) {
+  for (let index = 0; index < line.length; index++) {
+    const note = line[index];
     const word = note.lyric.replace(/[^a-zA-Z']/g, '');
     const syllable: Syllable | null = word ? await speakWord(word) : carried;
     if (word && syllable) carried = syllable;
     if (!syllable) { out.push(null); continue; }
-    const rendered = renderSyllableAtPitch(syllable, note.midi, note.seconds, Boolean(word));
+    // the closing consonant belongs to the LAST note of the word: a melisma
+    // in the middle keeps the vowel open
+    const nextWord = index + 1 < line.length ? line[index + 1].lyric.replace(/[^a-zA-Z']/g, '') : 'end';
+    const rendered = renderSyllableAtPitch(syllable, note.midi, note.seconds, Boolean(word), Boolean(nextWord));
     const buffer = context.createBuffer(1, rendered.length, syllable.sampleRate);
     buffer.copyToChannel(rendered as Float32Array<ArrayBuffer>, 0);
     out.push({ at: note.at, buffer });
