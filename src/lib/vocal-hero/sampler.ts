@@ -8,17 +8,25 @@
 //   (CC0/public domain, via the tonejs-instruments collection), anchored
 //   every minor third E2–D5. Slides bend the RECORDING by ramping its
 //   playback rate — a genuine finger slide on a real string.
+// - BASS: a 10-note subset of the FluidR3 upright bass (MIT, per-note files
+//   via gleitz/midi-js-soundfonts), anchored every minor third E1–G3.
+// - DRUMS: FluidR3 kit one-shots (kick, snare, closed hat, two toms) from
+//   the same soundfont's percussion bank.
+//
+// FluidR3's files are mastered far quieter than the Salamander/VSCO2 ones
+// (the hat peaks near -34 dBFS), so those sets carry `normalize`: at decode
+// time the true peak is measured once and a makeup gain rides every play.
 //
 // Pitch-shifting never exceeds a semitone either way, which keeps it
 // inaudible. Loading is fully asynchronous: fetches are shared module-wide,
 // decodes are per-AudioContext, and until an anchor is decoded the
 // synthesized voice stands in — the band is never silent while it warms.
 
-import { mixBus, playGuitarPluck, playPianoNote } from './voiceSynth';
+import { mixBus, playBassTone, playGuitarPluck, playHat, playKick, playPianoNote, playSnare, playTom } from './voiceSynth';
 
-interface SampleSet { folder: string; anchors: Array<{ name: string; midi: number }> }
+interface SampleSet { folder: string; anchors: Array<{ name: string; midi: number }>; normalize?: boolean }
 
-const SETS: Record<'piano' | 'guitar', SampleSet> = {
+const SETS: Record<'piano' | 'guitar' | 'bass', SampleSet> = {
   piano: {
     folder: 'piano',
     anchors: [
@@ -38,7 +46,22 @@ const SETS: Record<'piano' | 'guitar', SampleSet> = {
       { name: 'E4', midi: 64 }, { name: 'G4', midi: 67 }, { name: 'B4', midi: 71 }, { name: 'D5', midi: 74 },
     ],
   },
+  bass: {
+    folder: 'bass',
+    normalize: true,
+    anchors: [
+      { name: 'E1', midi: 28 }, { name: 'G1', midi: 31 }, { name: 'Bb1', midi: 34 }, { name: 'Db2', midi: 37 },
+      { name: 'E2', midi: 40 }, { name: 'G2', midi: 43 }, { name: 'Bb2', midi: 46 }, { name: 'Db3', midi: 49 },
+      { name: 'E3', midi: 52 }, { name: 'G3', midi: 55 },
+    ],
+  },
 };
+
+// The kit is one-shots, not pitches: each strike plays its recording
+// through at its natural length.
+const DRUM_SET: SampleSet = { folder: 'drums', normalize: true, anchors: [] };
+const DRUM_FILES = { kick: 'C2', snare: 'D2', hat: 'Gb2', 'tom-low': 'A2', 'tom-high': 'D3' } as const;
+export type SampledDrum = keyof typeof DRUM_FILES;
 
 const fetched = new Map<string, Promise<ArrayBuffer | null>>();
 // One decode for the whole session: an AudioBuffer is not tied to the
@@ -48,6 +71,9 @@ const fetched = new Map<string, Promise<ArrayBuffer | null>>();
 // notes of every preview lost the race to synthesis.
 const decoded = new Map<string, AudioBuffer>();
 const decodingNow = new Map<string, Promise<void>>();
+// Decode-time makeup gain for `normalize` sets: 1.0 would leave FluidR3's
+// quiet masters inaudible next to the piano.
+const makeup = new Map<string, number>();
 
 function sampleKey(set: SampleSet, name: string): string { return `${set.folder}/${name}`; }
 
@@ -64,6 +90,7 @@ function fetchSample(set: SampleSet, name: string): Promise<ArrayBuffer | null> 
 /** Start every download early — call on editor/game mount. Idempotent. */
 export function preloadPiano(): void {
   for (const set of Object.values(SETS)) for (const anchor of set.anchors) void fetchSample(set, anchor.name);
+  for (const name of Object.values(DRUM_FILES)) void fetchSample(DRUM_SET, name);
 }
 export const preloadInstruments = preloadPiano;
 
@@ -79,6 +106,12 @@ function ensureDecoded(context: AudioContext, set: SampleSet, name: string): Pro
       // decodeAudioData detaches its input — decode a copy, keep the original.
       const buffer = await context.decodeAudioData(raw.slice(0));
       decoded.set(key, buffer);
+      if (set.normalize) {
+        let peak = 0;
+        const data = buffer.getChannelData(0);
+        for (let index = 0; index < data.length; index++) { const amp = Math.abs(data[index]); if (amp > peak) peak = amp; }
+        makeup.set(key, Math.min(10, 0.9 / Math.max(0.02, peak)));
+      }
     } catch { /* an undecodable sample keeps the synth fallback */ }
   })();
   decodingNow.set(key, job);
@@ -88,6 +121,7 @@ function ensureDecoded(context: AudioContext, set: SampleSet, name: string): Pro
 /** Decode every anchor for this context ahead of playback. Idempotent. */
 export function warmPiano(context: AudioContext): void {
   for (const set of Object.values(SETS)) for (const anchor of set.anchors) void ensureDecoded(context, set, anchor.name);
+  for (const name of Object.values(DRUM_FILES)) void ensureDecoded(context, DRUM_SET, name);
 }
 export const warmInstruments = warmPiano;
 
@@ -99,6 +133,7 @@ export const warmInstruments = warmPiano;
 export function samplesReady(context: AudioContext): Promise<void> {
   const jobs: Array<Promise<void>> = [];
   for (const set of Object.values(SETS)) for (const anchor of set.anchors) jobs.push(ensureDecoded(context, set, anchor.name));
+  for (const name of Object.values(DRUM_FILES)) jobs.push(ensureDecoded(context, DRUM_SET, name));
   return Promise.all(jobs).then(() => undefined);
 }
 
@@ -115,8 +150,13 @@ function playSampled(context: AudioContext, set: SampleSet, midi: number, startA
   // the guitar's top string sped ×2.2). The synthesized voice handles any
   // pitch — let it, past ±3 semitones from the nearest recording.
   if (Math.abs(midi - anchor.midi) > 3) return false;
-  const buffer = decoded.get(sampleKey(set, anchor.name));
+  const key = sampleKey(set, anchor.name);
+  const buffer = decoded.get(key);
   if (!buffer) { void ensureDecoded(context, set, anchor.name); return false; }
+  // The musical level is already capped below 1 by the caller; the makeup
+  // then lifts the quiet master to that intended amplitude. Clamping AFTER
+  // the makeup would silently undo the lift itself.
+  if (set.normalize) peak = peak * (makeup.get(key) ?? 1);
   const source = context.createBufferSource();
   source.buffer = buffer;
   const rate = Math.pow(2, (midi - anchor.midi) / 12);
@@ -156,4 +196,39 @@ export function playGuitar(context: AudioContext, midi: number, startAt: number,
   if (!playSampled(context, SETS.guitar, midi, startAt, length, Math.min(0.9, level * 2.6), 0.3, glideTo)) {
     playGuitarPluck(context, midi, startAt, length, level, glideTo);
   }
+}
+
+/** The upright bass. Sampled when ready, the sine-and-triangle synth until
+ *  then. The multiplier is calibrated so the recording lands at the same
+ *  loudness the synth did for the same written level. */
+export function playBass(context: AudioContext, midi: number, startAt: number, length: number, level = 0.09): void {
+  if (!playSampled(context, SETS.bass, midi, startAt, length, Math.min(0.9, level * 2.8), 0.25)) {
+    playBassTone(context, midi, startAt, length, level);
+  }
+}
+
+const DRUM_SYNTH: Record<SampledDrum, (context: AudioContext, startAt: number, level: number) => void> = {
+  kick: playKick,
+  snare: playSnare,
+  hat: playHat,
+  'tom-low': (context, startAt, level) => playTom(context, startAt, false, level),
+  'tom-high': (context, startAt, level) => playTom(context, startAt, true, level),
+};
+// Per-strike calibration: each one-shot lands at the loudness its synthesized
+// stand-in had for the same written level, so the kit switching engines
+// mid-song never changes the mix.
+const DRUM_GAIN: Record<SampledDrum, number> = { kick: 1.13, snare: 0.92, hat: 1.77, 'tom-low': 1.27, 'tom-high': 1.4 };
+
+/** One kit strike. The recording plays through at its natural length. */
+export function playDrum(context: AudioContext, kind: SampledDrum, startAt: number, level: number): void {
+  const key = sampleKey(DRUM_SET, DRUM_FILES[kind]);
+  const buffer = decoded.get(key);
+  if (!buffer) { void ensureDecoded(context, DRUM_SET, DRUM_FILES[kind]); DRUM_SYNTH[kind](context, startAt, level); return; }
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  const gain = context.createGain();
+  gain.gain.value = Math.min(1, level * DRUM_GAIN[kind]) * (makeup.get(key) ?? 1);
+  source.connect(gain);
+  gain.connect(mixBus(context));
+  source.start(startAt);
 }
