@@ -2254,7 +2254,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         recorderRef.current = null;
       };
       recorderRef.current = recorder;
-      recorder.start();
+      // Chunked delivery (1 s slices): a take can run for HOURS without the
+      // browser holding one giant buffer hostage until stop.
+      recorder.start(1000);
       setRecording(true);
     } catch (error) { setRecordError(error instanceof Error ? error.message : 'Unable to access the microphone.'); setRecording(false); }
   }
