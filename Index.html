@@ -80603,7 +80603,13 @@ function filterLiturgyItems() {
   // bare slash would invent a person called "Rev Devasadan Consecrating)".
   // Anything else -- "A/B", a name that merely contains a slash -- is left
   // alone as a single name, which is the safe way to be wrong.
-  var _PAIR_SEP = / +\/ +/;
+  //
+  // " & " and " and " are accepted too, because that is how the roster
+  // actually got written before there was a control for it: "Esther & Yee
+  // Ching" on Pianist, "Eva and Charrise" on Liturgist. Every form demands a
+  // space on BOTH sides, so a surname like "Anand" is untouched, and the
+  // picker only ever WRITES the canonical " / ".
+  var _PAIR_SEP = / +\/ +| +& +| +and +/i;
 
   function splitCellPeople(value) {
     if (!value || typeof value !== 'string') return [];

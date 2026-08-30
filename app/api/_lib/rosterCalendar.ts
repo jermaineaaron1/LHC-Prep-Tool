@@ -216,7 +216,7 @@ export async function lookupMember(sb: SupabaseClient, name: string): Promise<{ 
 export function splitCellPeople(value: string): string[] {
   const v = (value || '').trim();
   if (!v || v === '-' || v === '__BLANK__' || v.toUpperCase() === 'TBD') return [];
-  return v.split(/ +\/ +/).map((s) => s.trim()).filter(Boolean);
+  return v.split(/ +\/ +| +& +| +and +/i).map((s) => s.trim()).filter(Boolean);
 }
 
 // Both halves of a pairing are on duty, so both get the invite. A single name
