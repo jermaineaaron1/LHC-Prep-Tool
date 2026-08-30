@@ -33,12 +33,16 @@ const BAR_PAD = 16;
 const MARGIN_LEFT = 78;
 const SYSTEM_W = 1120;
 const STAFF_MIDS = [56, 132, 208, 284];
-const LYRIC_Y = 96;
+// Every voice gets a lyric row under its own staff, choral-score style —
+// the bass row sits a touch higher so it clears the band lanes below it.
+const LYRIC_YS = [96, 172, 248, 320];
 const SYSTEM_H = 374;
 // The band lane: two thin rows under the bass staff where the rhythm
 // section's ACTUAL events print — what the ear will hear, on paper.
-const LANE_INSTRUMENT_Y = 330;
-const LANE_DRUM_Y = 344;
+// The whole strip sits below the bass voice's lyric row.
+const BAND_TEXT_Y = 328;
+const LANE_INSTRUMENT_Y = 352;
+const LANE_DRUM_Y = 364;
 const VOICE_COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
 
 type StaffClef = 'treble' | 'treble8' | 'bass';
@@ -223,7 +227,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   const [drag, setDrag] = useState<DragPreview>(null);
   // Inline lyric editing: double-click a word under the melody (or the empty
   // spot where one belongs), type, Tab to the next note, Enter to finish.
-  const [lyricEdit, setLyricEdit] = useState<{ id: string; x: number; system: number; value: string } | null>(null);
+  const [lyricEdit, setLyricEdit] = useState<{ id: string; x: number; system: number; staff: number; value: string } | null>(null);
   // Inline chord entry: every beat has a landing slot above the top staff.
   // Click one, type, Enter to finish — Tab hops to the next beat like a
   // lead sheet being filled in left to right.
@@ -248,20 +252,23 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     if (!step) { setChordEdit(null); return; }
     startChordEdit(chordEdit.index + step);
   }
-  const melodyAnchors = useMemo(() => layout.glyphs
-    .filter(g => g.staff === 0 && (g.part === 0 || g.part === -1))
+  // Every staff's notes anchor its lyric row — words live under the voice
+  // that sings them, so each part is edited beneath its own staff.
+  const lyricAnchors = useMemo(() => layout.glyphs
     .filter((g, i, all) => all.findIndex(o => o.id === g.id) === i)
     .sort((a, b) => a.system - b.system || a.x - b.x), [layout]);
-  function startLyricEdit(anchor: { id: string; x: number; system: number }) {
+  function startLyricEdit(anchor: { id: string; x: number; system: number; staff: number }) {
     const note = notes.find(n => n.id === anchor.id);
-    setLyricEdit({ id: anchor.id, x: anchor.x, system: anchor.system, value: note?.lyric ?? '' });
+    setLyricEdit({ id: anchor.id, x: anchor.x, system: anchor.system, staff: anchor.staff, value: note?.lyric ?? '' });
   }
   function commitLyric(advance: boolean) {
     if (!lyricEdit) return;
     onLyricChange(lyricEdit.id, lyricEdit.value.trim());
     if (!advance) { setLyricEdit(null); return; }
-    const index = melodyAnchors.findIndex(a => a.id === lyricEdit.id);
-    const next = melodyAnchors[index + 1];
+    // Tab walks along the SAME voice's words, not down into the next staff.
+    const sameStaff = lyricAnchors.filter(a => a.staff === lyricEdit.staff);
+    const index = sameStaff.findIndex(a => a.id === lyricEdit.id);
+    const next = sameStaff[index + 1];
     if (next) startLyricEdit(next); else setLyricEdit(null);
   }
   function lyricBandDoubleClick(event: React.MouseEvent<SVGSVGElement>) {
@@ -270,8 +277,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     const y = event.clientY - bounds.top;
     const system = Math.floor((y - 12) / SYSTEM_H);
     const yIn = y - 12 - system * SYSTEM_H;
-    if (yIn < STAFF_MIDS[0] + 5 * GAP || yIn > LYRIC_Y + 12) return;
-    const candidates = melodyAnchors.filter(a => a.system === system);
+    const staff = LYRIC_YS.findIndex(rowY => yIn >= rowY - 5 && yIn <= rowY + 12);
+    if (staff < 0) return;
+    const candidates = lyricAnchors.filter(a => a.system === system && a.staff === staff);
     if (!candidates.length) return;
     const nearest = candidates.reduce((best, a) => Math.abs(a.x - x) < Math.abs(best.x - x) ? a : best, candidates[0]);
     if (Math.abs(nearest.x - x) > 40) return;
@@ -381,7 +389,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
           {onClipEdit && <title>A free clip on the {marker.label.replace('🎼 ', '')} track — click to open and edit exactly what it plays</title>}
           {marker.label}</text>;
       })}
-      {onBandEdit && bandDefaults && <text x={14} y={12 + STAFF_MIDS[3] + 2 * GAP + 16} fontSize={10} fontStyle="italic" fontWeight={700}
+      {onBandEdit && bandDefaults && <text x={14} y={12 + BAND_TEXT_Y} fontSize={10} fontStyle="italic" fontWeight={700}
         fill="#fca5a5cc" className="hover:fill-white" style={{ pointerEvents: 'auto', cursor: 'pointer' }}
         onClick={() => { setBandEdit({ target: 'default', x: 30, system: 0 }); onBandAudition?.('default'); }}
         onDoubleClick={() => { setBandEdit(null); onBandWrite?.('default'); }}>
@@ -389,7 +397,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         {bandDefaults.instrument === 'off' && bandDefaults.drums === 'off'
           ? '🎷 no band — click to add'
           : `${shortStyle(bandDefaults.instrument)} · ${shortStyle(bandDefaults.drums)}`}</text>}
-      {layout.bandTexts.map((text, i) => <text key={`band-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 16}
+      {layout.bandTexts.map((text, i) => <text key={`band-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + BAND_TEXT_Y}
         fontSize={10} fontStyle="italic" fontWeight={700} fill="#fca5a5cc"
         className={onBandEdit ? 'hover:fill-white' : undefined} style={onBandEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
         onClick={onBandEdit ? () => { setBandEdit({ target: { noteId: text.noteId }, x: text.x, system: text.system }); onBandAudition?.({ noteId: text.noteId }); } : undefined}
@@ -444,7 +452,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       onBlur={() => commitLyric(false)}
       aria-label="Lyric for the selected note"
       className="absolute z-20 w-24 rounded border border-fuchsia-300/60 bg-[#100a1f] px-1.5 py-0.5 text-center text-xs text-white shadow-[0_0_18px_#ec489944]"
-      style={{ left: lyricEdit.x + 12 + 16 - 48, top: lyricEdit.system * SYSTEM_H + 12 + LYRIC_Y + 16 - 12 }} />}
+      style={{ left: lyricEdit.x + 12 + 16 - 48, top: lyricEdit.system * SYSTEM_H + 12 + LYRIC_YS[lyricEdit.staff] + 16 - 12 }} />}
     {chordEdit && <input autoFocus value={chordEdit.value} placeholder="C, G7…"
       onFocus={event => event.target.select()}
       onChange={event => setChordEdit(current => current && { ...current, value: event.target.value })}
@@ -463,7 +471,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         ? { instrument: bandDefaults?.instrument ?? 'off', drums: bandDefaults?.drums ?? 'off' }
         : (notes.find(note => note.id === (bandEdit.target as { noteId: string }).noteId)?.marks?.band ?? {});
       return <div className="absolute z-30 w-60 rounded-xl border border-rose-300/40 bg-[#160a14] p-2 text-[10px] text-slate-200 shadow-[0_0_28px_#f43f5e40]"
-        style={{ left: Math.max(4, Math.min(bandEdit.x + 12 + 16 - 120, SYSTEM_W - 230)), top: bandEdit.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 2 * GAP + 22 + 16 }}
+        style={{ left: Math.max(4, Math.min(bandEdit.x + 12 + 16 - 120, SYSTEM_W - 230)), top: bandEdit.system * SYSTEM_H + 12 + BAND_TEXT_Y + 22 }}
         onKeyDown={event => { if (event.key === 'Escape') setBandEdit(null); }}>
         <div className="mb-1.5 flex items-center justify-between">
           <b className="text-[9px] font-black uppercase tracking-[.16em] text-rose-200">{isDefault ? 'Band · from the top' : 'Band · from this bar'}</b>
@@ -620,7 +628,7 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
         {glyph.marks?.dynamic && <text x={gx} y={mid - 2 * GAP - 3} fontSize={12} fontStyle="italic" fontWeight={800} textAnchor="middle" fill="#fbbf24" fontFamily="Georgia,'Times New Roman',serif">{glyph.marks.dynamic}</text>}
         {glyph.tieFrom && glyph.tieFrom.x < glyph.x && !dragging &&
           <path d={`M ${glyph.tieFrom.x + 5} ${glyph.tieFrom.y + 6} Q ${(glyph.tieFrom.x + glyph.x) / 2} ${glyph.tieFrom.y + 12}, ${glyph.x - 5} ${glyph.y + 6}`} stroke={colour} strokeWidth={1.1} fill="none" />}
-        {glyph.lyric && <text x={glyph.x} y={LYRIC_Y} fontSize={10.5} fill={isSelected ? '#ec4899' : '#cbd5e1'} textAnchor="middle">{glyph.lyric}</text>}
+        {glyph.lyric && <text x={glyph.x} y={LYRIC_YS[glyph.staff]} fontSize={10.5} fill={isSelected ? '#ec4899' : '#cbd5e1'} textAnchor="middle">{glyph.lyric}</text>}
       </g>;
     })}
   </svg>;
@@ -673,10 +681,17 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
   // colliding, instead of every bar getting the same beats-times-pixels.
   const lyricNeed = new Map<number, number>();
   for (const bar of bars) {
-    const carriers = notes.filter(note => (note.part === 0 || note.part === -1)
-      && (note.lyric ?? '').trim() && note.start >= bar.start - 0.001 && note.start < bar.end - 0.001);
-    if (!carriers.length) continue;
-    lyricNeed.set(bar.number, carriers.reduce((sum, note) => sum + Math.max(16, note.lyric!.trim().length * 5.6 + 8), 0));
+    // Each staff prints its own lyric row, so the bar must fit its WIDEST
+    // row — rows on different staves never collide with each other.
+    const rowWidths = new Map<number, number>();
+    for (const note of notes) {
+      if (!(note.lyric ?? '').trim() || note.start < bar.start - 0.001 || note.start >= bar.end - 0.001) continue;
+      const staff = staffOfPart(note.part);
+      rowWidths.set(staff, (rowWidths.get(staff) ?? 0) + Math.max(16, note.lyric!.trim().length * 5.6 + 8));
+    }
+    let widest = 0;
+    for (const width of rowWidths.values()) widest = Math.max(widest, width);
+    if (widest) lyricNeed.set(bar.number, widest);
   }
   // ...and for their NOTES: a bar carrying a sixteenth figure needs room for
   // every head, or the turn prints as a pile-up with its neighbours.
@@ -771,7 +786,7 @@ function buildLayout(notes: SongNote[], rawBars: ScoreBar[], signatureOverride?:
           })() : undefined,
           tieFrom: previous ?? undefined,
           mark: first ? accidentalMark(pitch, signature, state) : null,
-          lyric: first && (note.part === 0 || note.part === -1) ? note.lyric ?? '' : '',
+          lyric: first ? note.lyric ?? '' : '',
           staff, system: position.system,
           barNumber: bar.number, beat: Math.floor((symbolTime - bar.start) / beatLen + 1e-6),
         });
