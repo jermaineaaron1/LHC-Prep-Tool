@@ -2388,6 +2388,35 @@
     #worshipRosterView .roster-status-pill.hidden { display: none !important; }
     #worshipRosterView .roster-status-pill.pic-only { display: none; }
     body.pic-mode #worshipRosterView .roster-status-pill.pic-only { display: inline-flex; }
+
+    /* Per-duty confirm, in the duty column. Only a PIC can confirm, and the
+       button is only rendered while the row has pending cells, so between the
+       two rules it appears exactly when it is usable. */
+    #worshipRosterView .roster-row-confirm.pic-only { display: none; }
+    body.pic-mode #worshipRosterView .roster-row-confirm.pic-only { display: inline-flex; }
+    #worshipRosterView .roster-row-confirm {
+      align-items: center; gap: 5px; margin-left: 8px; padding: 3px 8px;
+      border: 1px solid #7dd3c8; border-radius: 999px;
+      background: #ecfdf5; color: #0f766e;
+      font-family: inherit; font-size: 0.66rem; font-weight: 700;
+      line-height: 1.4; white-space: nowrap; cursor: pointer; vertical-align: middle;
+    }
+    #worshipRosterView .roster-row-confirm:hover { background: #0d9488; border-color: #0d9488; color: #fff; }
+    #worshipRosterView .roster-row-confirm:focus-visible { outline: 2px solid #0d9488; outline-offset: 2px; }
+    #worshipRosterView .roster-row-confirm .rrc-count {
+      min-width: 15px; padding: 0 4px; border-radius: 999px;
+      background: #0d9488; color: #fff; font-size: 0.6rem; text-align: center;
+    }
+    #worshipRosterView .roster-row-confirm:hover .rrc-count { background: rgba(255,255,255,.24); }
+    @media (max-width: 768px) {
+      /* The duty column is only ~95px wide on a phone, so the button drops
+         under the label and sheds the word -- the tick, the count and the
+         tooltip still say what it does. */
+      #worshipRosterView .roster-row-confirm { margin-left: 0; margin-top: 4px; padding: 4px 9px; min-height: 32px; }
+      #worshipRosterView .roster-row-confirm .rrc-word { display: none; }
+      #worshipRosterView .roster-row-confirm i { font-size: 0.85rem; }
+      #worshipRosterView .roster-row-confirm .rrc-count { font-size: 0.68rem; }
+    }
     /* A generic, unscoped .roster-nav-btn rule elsewhere in the file (for an
        unrelated small sidebar pagination button) collides with this class
        name and, appearing later in the cascade, was winning once this
@@ -80942,7 +80971,16 @@ function filterLiturgyItems() {
         } else {
           var rowClass = role.type === 'liturgical' ? 'roster-liturgical-row' : (role.type === 'scripture' ? 'roster-scripture-row' : (role.type === 'service-type' ? 'roster-servicetype-row' : ''));
           var dutyTdClass = role.wideCol ? ' class="roster-duty-wide"' : '';
-          bodyHtml += '<tr class="' + rowClass + '"><td' + dutyTdClass + '>' + (role.labelHtml || self.escapeHtml(role.label)) + '</td>';
+          // Sign off one duty for the whole month from its own row -- see
+          // _rowConfirmHtml. Only duty rows can hold pending cells, and the
+          // button only exists while this role actually has some.
+          var rowPending = 0;
+          if (role.type === 'role') {
+            serviceDays.forEach(function(day) {
+              if (STATE.rosterPendingCells.has(role.id + '__' + day.dateStr.replace(/\s/g, '_'))) rowPending++;
+            });
+          }
+          bodyHtml += '<tr class="' + rowClass + '"><td' + dutyTdClass + '>' + (role.labelHtml || self.escapeHtml(role.label)) + self._rowConfirmHtml(role.id, rowPending) + '</td>';
           serviceDays.forEach(function(day, idx) {
             var cellKey = role.id + '__' + day.dateStr.replace(/\s/g, '_');
             var savedValue = STATE.rosterEdits.get(cellKey);
@@ -80994,7 +81032,77 @@ function filterLiturgyItems() {
       if (this._mobileScheduleView === 'month') this.renderMobileMonthView();
     },
 
+    // Plain-text role name for prose. ROLES labels carry a leading emoji for
+    // the duty column itself, which reads badly in a tooltip or a toast.
+    _roleWord: function(roleId) {
+      var role = this.ROLES.filter(function(r) { return r.id === roleId; })[0];
+      return role ? String(role.label).replace(/^[^A-Za-z0-9]+/, '').trim() : roleId;
+    },
+
+    // Per-duty confirm button, rendered into the duty column.
+    //
+    // The month-wide Confirm Pending dialog is a checklist of every role at
+    // once, which is the wrong shape for the common case: you have just gone
+    // down the Liturgist row fixing Auto-Suggest's picks and want to sign off
+    // Liturgist, now, without opening a modal and hunting for it in a list.
+    // Returns '' when the role has nothing pending, so the button only exists
+    // while it has something to do.
+    _rowConfirmHtml: function(roleId, count) {
+      if (!count) return '';
+      var word = this._roleWord(roleId);
+      var noun = count === 1 ? 'assignment' : 'assignments';
+      var label = 'Confirm ' + count + ' pending ' + word + ' ' + noun + ' this month';
+      return '<button type="button" class="roster-row-confirm pic-only" data-role-confirm="' + this.escapeHtml(roleId) + '"' +
+        ' onclick="event.stopPropagation();RosterEngine.confirmRolePending(\'' + this.escapeHtml(roleId) + '\')"' +
+        ' title="' + this.escapeHtml(label) + '" aria-label="' + this.escapeHtml(label) + '">' +
+        '<i class="fa-solid fa-circle-check"></i><span class="rrc-word">Confirm</span>' +
+        '<span class="rrc-count">' + count + '</span></button>';
+    },
+
+    // Confirms every pending cell of ONE duty across the current month.
+    confirmRolePending: function(roleId) {
+      if (!STATE.picMode) return;
+      var keys = [];
+      STATE.rosterPendingCells.forEach(function(key) {
+        if (key.split('__')[0] === roleId) keys.push(key);
+      });
+      this.confirmPendingCells(keys, this._roleWord(roleId));
+    },
+
+    // Keeps the row buttons in step without a full re-render, so confirming
+    // one duty (or editing a cell) does not rebuild the whole table.
+    _updateRowConfirmButtons: function() {
+      var self = this;
+      var tbody = document.getElementById('rosterTbody');
+      if (!tbody) return;
+      var countByRole = {};
+      STATE.rosterPendingCells.forEach(function(key) {
+        var roleId = key.split('__')[0];
+        countByRole[roleId] = (countByRole[roleId] || 0) + 1;
+      });
+      tbody.querySelectorAll('tr').forEach(function(tr) {
+        var dutyCell = tr.querySelector('td');
+        var anyRoleCell = tr.querySelector('td[data-role]');
+        if (!dutyCell || !anyRoleCell || dutyCell === anyRoleCell) return;
+        var roleId = anyRoleCell.getAttribute('data-role');
+        var count = countByRole[roleId] || 0;
+        var existing = dutyCell.querySelector('.roster-row-confirm');
+        if (!count) { if (existing) existing.remove(); return; }
+        if (existing) {
+          var countEl = existing.querySelector('.rrc-count');
+          if (countEl) countEl.textContent = count;
+          var noun = count === 1 ? 'assignment' : 'assignments';
+          var label = 'Confirm ' + count + ' pending ' + self._roleWord(roleId) + ' ' + noun + ' this month';
+          existing.title = label;
+          existing.setAttribute('aria-label', label);
+        } else {
+          dutyCell.insertAdjacentHTML('beforeend', self._rowConfirmHtml(roleId, count));
+        }
+      });
+    },
+
     _updateConfirmPendingButton: function() {
+      this._updateRowConfirmButtons();
       var btn = document.getElementById('rosterConfirmPendingBtn');
       var countEl = document.getElementById('rosterPendingCount');
       var count = STATE.rosterPendingCells.size;
@@ -81790,7 +81898,13 @@ function filterLiturgyItems() {
         var textSpan = td.querySelector('.liturgical-text');
         currentValue = textSpan ? textSpan.textContent : '';
       } else {
-        currentValue = td.textContent.trim();
+        // Read the value span, not the whole <td>. The cell also holds the
+        // pending hourglass, and td.textContent glues it onto the name --
+        // so opening the picker on an auto-suggested cell offered a bogus
+        // extra option ("Alison Phan" with an hourglass stuck to it), which
+        // could then be picked and saved as a person's name.
+        var cellValueSpan = td.querySelector('.roster-cell-value');
+        currentValue = (cellValueSpan ? cellValueSpan.textContent : td.textContent).trim();
         if (currentValue === 'TBD' || currentValue === '-') currentValue = '';
       }
       var originalHtml = td.innerHTML;
@@ -81876,11 +81990,19 @@ function filterLiturgyItems() {
         removeFloatingPanel();
         var oldVal = STATE.rosterEdits.get(key);
         var timestamp = new Date().toISOString();
-        // A manual pick is an implicit confirm -- a PIC directly choosing
-        // (or blanking) this cell means it's no longer "awaiting review,"
-        // whatever it was before.
+        // Correcting an auto-suggested pick REPLACES the suggestion; it does
+        // not approve it. Treating the edit as an implicit confirm (which is
+        // what this used to do) meant the very act of fixing a name pushed it
+        // to that person's calendar, before the PIC had reviewed the rest of
+        // the month -- and it silently emptied the Confirm Pending queue, so
+        // the roles you had touched dropped out of the review list.
+        //
+        // A cell that was NOT pending stays confirmed: editing an already
+        // approved assignment is not a reason to un-approve it. Blanking
+        // drops the flag either way -- there is nothing left to confirm.
         var wasPending = STATE.rosterPendingCells.has(key);
-        STATE.rosterPendingCells.delete(key);
+        var stayPending = wasPending && newValue !== '__BLANK__';
+        if (!stayPending) STATE.rosterPendingCells.delete(key);
         if (newValue === '__BLANK__') {
           STATE.rosterEdits.set(key, '__BLANK__');
           td.innerHTML = '<span class="roster-cell-value" style="color:#d1d5db;">-</span><span class="roster-cell-dropdown-icon" style="color:#9ca3af;"><i class="fa-solid fa-caret-down"></i></span>';
@@ -81895,10 +82017,13 @@ function filterLiturgyItems() {
           td.removeAttribute('data-blank');
           if (displayValue !== '-') td.classList.add('roster-cell-edited');
         }
+        // Both branches above rewrote innerHTML, dropping any pending icon --
+        // put the indicator back in step with STATE.
         td.classList.remove('roster-cell-pending');
         STATE.rosterCellTimestamps.set(key, timestamp);
         td.setAttribute('data-timestamp', timestamp);
-        _rPushUndo(key, oldVal, newValue, wasPending, false);
+        self._refreshCellPendingVisual(key);
+        _rPushUndo(key, oldVal, newValue, wasPending, stayPending);
 
         // Communion Assistant 1 mirrors the Liturgist (see the cascade in
         // runAutoSuggest) -- keep it in sync on a manual pick or clear too,
@@ -81923,10 +82048,16 @@ function filterLiturgyItems() {
             var c1IsPending = STATE.rosterPendingCells.has(c1Key);
             if ((c1IsBlank || c1IsPending || c1Val === oldVal) && c1Val !== newValue) {
               var c1NewVal = newValue === '__BLANK__' ? '__BLANK__' : (newValue || '-');
-              _rPushUndo(c1Key, c1Val, c1NewVal, c1IsPending, false);
+              // Same rule as the Liturgist cell that drives it: a mirrored
+              // value inherits the Liturgist's pending state rather than
+              // confirming itself. Confirming the Liturgist confirms this too,
+              // because both keys are in the pending set the button reads.
+              var c1StayPending = c1NewVal !== '__BLANK__' && (c1IsPending || stayPending);
+              _rPushUndo(c1Key, c1Val, c1NewVal, c1IsPending, c1StayPending);
               STATE.rosterEdits.set(c1Key, c1NewVal);
               STATE.rosterCellTimestamps.set(c1Key, timestamp);
-              STATE.rosterPendingCells.delete(c1Key);
+              if (c1StayPending) STATE.rosterPendingCells.add(c1Key);
+              else STATE.rosterPendingCells.delete(c1Key);
               cascadeFired = true;
             }
           }
