@@ -2480,7 +2480,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       setSavingRendition(false);
     }
   }
-  return <div ref={editorRootRef} data-timeline-focus={timelineFocus ? 'true' : 'false'} className="vh-editor-scrollbars fixed inset-0 z-50 overflow-hidden bg-[#020510] text-slate-100">
+  return <div ref={editorRootRef} data-timeline-focus={timelineFocus ? 'true' : 'false'} className="vh-editor-scrollbars fixed inset-0 z-50 flex flex-col overflow-hidden bg-[#020510] text-slate-100">
     <audio ref={backingMediaRef} src={mediaUrl || undefined} preload="auto" className="hidden" onLoadedMetadata={event => { const media_duration = event.currentTarget.duration; if (Number.isFinite(media_duration)) setTrackSettings(current => current.media_duration === media_duration ? current : { ...current, media_duration }); }} onTimeUpdate={enforceBackingEdits} />
     <header className={`${timelineFocus ? 'hidden' : 'flex'} min-h-14 flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-white/10 bg-[#070a1b] px-4 py-1.5`}>
       <Brand />
@@ -2497,7 +2497,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         <button onClick={() => void closeOrExitFullscreen()} title={isFullscreen ? 'Exit full screen without closing the editor' : 'Close the song editor'} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button>
       </div>
     </header>
-    <div className={`flex ${timelineFocus ? 'h-screen min-h-0' : 'h-[calc(100vh-64px)] min-h-[620px]'} overflow-auto`}>
+    <div className={`flex ${timelineFocus ? 'h-screen min-h-0' : 'min-h-0 flex-1'} overflow-auto`}>
       <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#070b1e] p-3 lg:block">
         <p className="text-[10px] font-black uppercase tracking-[.18em] text-slate-500">Voices</p>
         <div className="mt-2 space-y-2">{VOICES.map((voice, index) => {
@@ -3067,13 +3067,13 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
     {tempoButton('atempo', 'a tempo', 'A tempo — return to the written speed from the first selected note')}
     {tempoButton('allegro', 'Allegro', 'Allegro — brisk (about 5/4 of the written speed) from the first selected note')}
     <span className="h-5 w-px bg-white/10" />
-    <span className="flex items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/[.06] px-2 py-1"
+    <span className="flex max-w-full flex-wrap items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/[.06] px-2 py-1"
       title="The band, from this note's bar onward. Whatever you pick here plays until a later note changes it or says Stop — it is one rhythm section for the whole choir, not per voice. The lane under the bass staff shows exactly what it plays.">
       <span className="text-[9px] font-black uppercase tracking-[.14em] text-rose-200/90">Band from bar {bandBarNumber ?? '?'}</span>
-      <label className="flex items-center gap-1">
+      <label className="flex min-w-0 items-center gap-1">
         <span className="text-[10px]">🎸</span>
         <select value={bandMark?.instrument ?? ''} onChange={event => onBand('instrument', event.target.value)}
-          className="max-w-36 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
+          className="min-w-0 max-w-36 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
           <option value="">(keep playing)</option>
           {INSTRUMENT_STYLES.filter(style => style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
           <option value="stop">🚫 Stop the instrument</option>
@@ -3082,7 +3082,7 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
       <label className="flex items-center gap-1">
         <span className="text-[10px]">🥁</span>
         <select value={bandMark?.drums ?? ''} onChange={event => onBand('drums', event.target.value)}
-          className="max-w-36 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
+          className="min-w-0 max-w-36 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
           <option value="">(keep playing)</option>
           {DRUM_STYLES.filter(style => style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
           <option value="stop">🚫 Stop the drums</option>
