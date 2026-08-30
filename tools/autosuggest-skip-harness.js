@@ -220,6 +220,17 @@ console.log('\nScenario 2c - mentor / trainee cells');
   // "with", and a looser rule would invent "Rev Devasadan Consecrating)".
   check('"(W/ ...)" is never split',      S('Rev Benedict Muthusamy\\n(W/ Rev Devasadan Consecrating)').length, 1);
   check('a bare A/B is never split',      S('A/B'), ['A/B']);
+  // The roster was written by hand long before there was a control for it,
+  // so these two forms are real: "Esther & Yee Ching" on Pianist and
+  // "Eva and Charrise" on Liturgist.
+  check('ampersand splits',               S('Esther Lee & Yee Ching'), ['Esther Lee', 'Yee Ching']);
+  check('the word and splits',            S('Eva Muthusamy and Charrise Goh'), ['Eva Muthusamy', 'Charrise Goh']);
+  check('capital AND splits',             S('A AND B'), ['A', 'B']);
+  // ...but only with a space each side, so ordinary names survive.
+  check('"Anand" is one name',            S('Anand Kumar'), ['Anand Kumar']);
+  check('"Alexander" is one name',        S('Alexander Tan'), ['Alexander Tan']);
+  check('"A&B" unspaced is one name',     S('A&B'), ['A&B']);
+  check('a three-way split still yields 3', S('A / B & C').length, 3);
   check('extra spaces still split',       S('A  /  B'), ['A', 'B']);
   check('primary of a pair',              api.cellPrimary('A / B'), 'A');
   check('trainee of a pair',              api.cellTrainee('A / B'), 'B');
