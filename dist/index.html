@@ -2727,6 +2727,18 @@
     /* Per-row controls are sized by class, not inline style, so the phone rule
        below can grow them from a 20px target to a thumb-sized one. */
     .roster-np-btn { width: 22px; height: 22px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 11px; flex-shrink: 0; }
+    /* Mentor / trainee bar. Pairing is a real thing this church does -- a new
+       LCD operator or pianist is brought in beside someone experienced -- and
+       it used to be expressed by typing "A / B" into the cell, which made the
+       pair look like one person named "A / B" to every other system. */
+    .roster-np-pair { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #e3ece9; background: #f7fbfa; font-size: 11px; color: #415c55; }
+    .roster-np-pair-label { flex: 1; min-width: 0; line-height: 1.35; }
+    .roster-np-pair-label b { color: #0f3d34; }
+    .roster-np-pair-btn { flex: 0 0 auto; border: 1px solid #bcd9d1; background: #fff; color: #0f766e; border-radius: 8px; padding: 5px 9px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .roster-np-pair-btn:hover { background: #0d9488; border-color: #0d9488; color: #fff; }
+    .roster-np-pair.is-choosing { background: #fff7ed; border-bottom-color: #fed7aa; color: #9a3412; }
+    .roster-np-pair.is-choosing .roster-np-pair-btn { border-color: #fdba74; color: #9a3412; }
+    .roster-np-pair.is-choosing .roster-np-pair-btn:hover { background: #ea7317; border-color: #ea7317; color: #fff; }
     .roster-np-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
     .roster-np-tag.away        { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
     .roster-np-tag.occasional  { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
@@ -2735,6 +2747,7 @@
     @media (max-width: 768px) {
       .roster-name-picker { width: calc(100vw - 16px); min-width: 0; max-width: 420px; }
       .roster-np-btn { width: 34px; height: 34px; font-size: 13px; }
+      .roster-np-pair-btn { padding: 8px 11px; font-size: 12px; }
     }
     .roster-dropdown-search { padding: 12px 12px 12px 34px !important; font-size: 14px !important; background-color: #f8fafc !important; border-bottom: 1px solid #eef2f7 !important; }
     .roster-dropdown-search:focus { background-color: #fff !important; border-bottom-color: #14b8a6 !important; }
@@ -80576,6 +80589,42 @@ function filterLiturgyItems() {
     return year > endY || (year === endY && month > endM);
   }
 
+  // -- Mentor / trainee pairings -------------------------------------------
+  // A duty cell can name two people: someone established plus someone being
+  // shown the ropes, written "Mentor / Trainee". Every system that reasons
+  // about PEOPLE -- clash detection, the monthly fairness cap, availability,
+  // member status, serving counts -- has to see both, or the trainee is
+  // invisible to all of them and the mentor counts as a different person from
+  // themselves.
+  //
+  // The separator is a slash with a space on BOTH sides, and that precision
+  // matters: a real Preacher entry reads "Rev Benedict Muthusamy\n(W/ Rev
+  // Devasadan Consecrating)", where the slash means "with". Splitting on a
+  // bare slash would invent a person called "Rev Devasadan Consecrating)".
+  // Anything else -- "A/B", a name that merely contains a slash -- is left
+  // alone as a single name, which is the safe way to be wrong.
+  var _PAIR_SEP = / +\/ +/;
+
+  function splitCellPeople(value) {
+    if (!value || typeof value !== 'string') return [];
+    var v = value.trim();
+    if (!v || v === '-' || v === '__BLANK__' || v.toUpperCase() === 'TBD') return [];
+    return v.split(_PAIR_SEP).map(function(s) { return s.trim(); }).filter(Boolean);
+  }
+  function cellPrimary(value) { return splitCellPeople(value)[0] || ''; }
+  function cellTrainee(value) { return splitCellPeople(value)[1] || ''; }
+  // Clamps to at most TWO people, taking only the first name from each side.
+  // Without this, choosing a leftover composite entry (the old "A / B" pseudo
+  // person that used to sit in the name list) as the trainee produced a
+  // three-name cell -- observed in testing as "Isaac Soo / Beatrice Tye /
+  // Vincent Jayaraj". A duty has a lead and at most one person learning it.
+  function joinCellPeople(primary, trainee) {
+    var lead = cellPrimary(primary) || (primary || '').trim();
+    var second = cellPrimary(trainee) || (trainee || '').trim();
+    if (!second || _nameNorm(second) === _nameNorm(lead)) return lead;
+    return lead + ' / ' + second;
+  }
+
   function isAutoSuggestExcluded(name, year, month) {
     var meta = getMemberStatus(name) || {};
     if (!AUTOSUGGEST_SKIP_STATUS[meta.status]) return false;
@@ -82177,6 +82226,9 @@ function filterLiturgyItems() {
 
       // Current search term for filtering
       var searchTerm = '';
+      // While true the picker is choosing the SECOND person for this cell
+      // (the one being trained) rather than replacing the first.
+      var pairMode = false;
 
       // Place a floating panel next to the cell, inside the viewport.
       //
@@ -82252,6 +82304,43 @@ function filterLiturgyItems() {
         headEl.appendChild(headClose);
         panel.appendChild(headEl);
 
+        // -- Mentor / trainee bar --
+        // Pairing someone new with someone experienced is how this church
+        // brings people into LCD and the instruments. Doing it through a
+        // control instead of by typing "A / B" is what lets clash detection,
+        // the monthly cap and availability see two people rather than one
+        // oddly-named one.
+        var pairPrimary = cellPrimary(currentValue);
+        var pairTrainee = cellTrainee(currentValue);
+        if (pairPrimary) {
+          var pairEl = document.createElement('div');
+          pairEl.className = 'roster-np-pair' + (pairMode ? ' is-choosing' : '');
+          var pairLabel = document.createElement('div');
+          pairLabel.className = 'roster-np-pair-label';
+          var pairBtn = document.createElement('button');
+          pairBtn.type = 'button';
+          pairBtn.className = 'roster-np-pair-btn';
+          if (pairMode) {
+            pairLabel.innerHTML = 'Pick who is being trained alongside <b>' + self.escapeHtml(pairPrimary) + '</b>';
+            pairBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>Cancel';
+            pairBtn.title = 'Stop adding a second person';
+            pairBtn.onclick = function(e) { e.stopPropagation(); pairMode = false; buildDropdownPanel(false); };
+          } else if (pairTrainee) {
+            pairLabel.innerHTML = '<b>' + self.escapeHtml(pairTrainee) + '</b> is training alongside <b>' + self.escapeHtml(pairPrimary) + '</b>';
+            pairBtn.innerHTML = '<i class="fa-solid fa-user-minus"></i>Remove';
+            pairBtn.title = 'Remove ' + pairTrainee + ', leaving ' + pairPrimary + ' on this duty alone';
+            pairBtn.onclick = function(e) { e.stopPropagation(); saveSelect(pairPrimary); };
+          } else {
+            pairLabel.innerHTML = '<b>' + self.escapeHtml(pairPrimary) + '</b> is on this duty';
+            pairBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i>Add trainee';
+            pairBtn.title = 'Add a second person to be trained alongside ' + pairPrimary;
+            pairBtn.onclick = function(e) { e.stopPropagation(); pairMode = true; buildDropdownPanel(false); };
+          }
+          pairEl.appendChild(pairLabel);
+          pairEl.appendChild(pairBtn);
+          panel.appendChild(pairEl);
+        }
+
         // ── Search input at top ──
         var searchInput = document.createElement('input');
         searchInput.type = 'text';
@@ -82288,10 +82377,14 @@ function filterLiturgyItems() {
 
           // Name list - shared across numbered sibling roles (e.g. usher1/usher2)
           var currentNames = (ROSTER_NAME_OPTIONS[category] || ROSTER_NAME_OPTIONS.general || []).slice();
-          if (currentValue && !currentNames.includes(currentValue) && !deletedNames[currentValue]) {
-            currentNames.push(currentValue);
-            currentNames.sort();
-          }
+          // Offer the people IN the cell, not the cell's raw text. Pushing the
+          // raw text is how "Beatrice Tye / Vincent Jayaraj" became an entry in
+          // the name list -- a person who does not exist, with their own member
+          // record, invisible to clash detection under either real name.
+          splitCellPeople(currentValue).forEach(function(person) {
+            if (!currentNames.includes(person) && !deletedNames[person]) currentNames.push(person);
+          });
+          currentNames.sort();
           var filtered = filter
             ? currentNames.filter(function(n) { return n.toLowerCase().indexOf(filter.toLowerCase()) !== -1; })
             : currentNames;
@@ -82303,8 +82396,9 @@ function filterLiturgyItems() {
             listArea.appendChild(noMatch);
           }
 
+          var _lead = cellPrimary(currentValue), _second = cellTrainee(currentValue);
           filtered.forEach(function(name) {
-            var isSelected = name === currentValue;
+            var isSelected = pairMode ? (name === _second) : (name === _lead);
             var unavailInfo = getUnavailabilityInfo(name, cellDate, cellYear, getRoleCategory(td.getAttribute('data-role') || ''));
             var isUnavail = !!unavailInfo;
 
@@ -82377,7 +82471,22 @@ function filterLiturgyItems() {
             if (!isUnavail) {
               nameRow.onmouseenter = function() { if (!isSelected) nameRow.style.background = '#f0fdfa'; };
               nameRow.onmouseleave = function() { if (!isSelected) nameRow.style.background = isSelected ? '#eff6ff' : ''; };
-              nameRow.onclick = function(e) { e.stopPropagation(); saveSelect(name); };
+              nameRow.onclick = function(e) {
+                e.stopPropagation();
+                // In trainee mode the pick joins the person already there; a
+                // normal pick replaces the cell outright, which is exactly what
+                // it has always done.
+                if (pairMode) {
+                  var lead = cellPrimary(currentValue);
+                  if (!lead || _nameNorm(lead) === _nameNorm(name)) {
+                    self.showToast('Pick someone other than ' + (lead || 'the person already on this duty') + '.', 'warning');
+                    return;
+                  }
+                  saveSelect(joinCellPeople(lead, name));
+                  return;
+                }
+                saveSelect(name);
+              };
               // Double-click to rename
               nameRow.ondblclick = function(e) {
                 e.stopPropagation(); e.preventDefault();
@@ -82740,7 +82849,11 @@ function filterLiturgyItems() {
     },
     _enablersFreqFor: function(name) {
       var target = _nameNorm(name);
-      var rows=(this._enablersFreqCache||[]).filter(function(r){return _nameNorm(r.value||'')===target;});
+      // A mentor/trainee cell counts for BOTH of them, so someone's serving
+      // history is not silently short by every duty they shared.
+      var rows=(this._enablersFreqCache||[]).filter(function(r){
+        return splitCellPeople(r.value||'').some(function(p){ return _nameNorm(p)===target; });
+      });
       var nowM=new Date().getMonth(), nowQ=Math.floor(nowM/3), mo={}, roles={};
       rows.forEach(function(r){mo[r.month]=(mo[r.month]||0)+1; roles[r.role_id]=(roles[r.role_id]||0)+1;});
       var q=0; for(var m2=nowQ*3;m2<nowQ*3+3;m2++)q+=mo[m2]||0;
@@ -84104,9 +84217,13 @@ function filterLiturgyItems() {
         var dateStr = td.getAttribute('data-date') || '';
         td.classList.remove('roster-unavailable-cell');
         if (val && val !== '-' && val !== 'TBD' && dateStr) {
-          if (isPersonUnavailable(val, dateStr, STATE.rosterYear, getRoleCategory(td.getAttribute('data-role') || ''))) {
-            td.classList.add('roster-unavailable-cell');
-          }
+          // Either half of a mentor/trainee pair being away makes the cell a
+          // problem, so the flag is per-person rather than per-cell.
+          var cat = getRoleCategory(td.getAttribute('data-role') || '');
+          var anyAway = splitCellPeople(val).some(function(person) {
+            return isPersonUnavailable(person, dateStr, STATE.rosterYear, cat);
+          });
+          if (anyAway) td.classList.add('roster-unavailable-cell');
         }
       });
     },
@@ -84231,12 +84348,16 @@ function filterLiturgyItems() {
         if (!val || val === '-' || val === 'TBD') return;
 
         if (!dateValues[dateStr]) dateValues[dateStr] = [];
-        dateValues[dateStr].push({ name: val, td: td, roleId: roleId });
-
-        // Track frequency: how many unique dates this person appears in
-        var nameLower = val.toLowerCase();
-        if (!nameFrequency[nameLower]) nameFrequency[nameLower] = new Set();
-        nameFrequency[nameLower].add(dateStr);
+        // A mentor/trainee cell contributes BOTH people, each pointing at the
+        // same <td>. Without this a trainee could be double-booked with no
+        // warning, and their mentor would not clash with their own name
+        // written plainly in another duty.
+        splitCellPeople(val).forEach(function(person) {
+          dateValues[dateStr].push({ name: person, td: td, roleId: roleId });
+          var nameLower = person.toLowerCase();
+          if (!nameFrequency[nameLower]) nameFrequency[nameLower] = new Set();
+          nameFrequency[nameLower].add(dateStr);
+        });
       });
 
       // 2. Clear all previous clash/frequency highlighting
@@ -84287,8 +84408,9 @@ function filterLiturgyItems() {
               var changedDate = changedTd.getAttribute('data-date');
               if (changedDate === dateStr) {
                 var changedVal = changedTd.querySelector('.roster-cell-value');
-                var changedName = changedVal ? changedVal.textContent.trim().toLowerCase() : '';
-                if (changedName === key) {
+                var changedPeople = splitCellPeople(changedVal ? changedVal.textContent : '')
+                  .map(function(p) { return p.toLowerCase(); });
+                if (changedPeople.indexOf(key) !== -1) {
                   clashFound = true;
                   clashName = otherEntries[0].name;
                   clashDate = dateStr;
@@ -84579,10 +84701,15 @@ function filterLiturgyItems() {
       STATE.rosterEdits.forEach(function(value, key) {
         var roleId = key.split('__')[0];
         if (!roleIdSet[roleId] || !value || value === '__BLANK__' || typeof value === 'object') return;
-        var k = _afKey(value);
-        monthCount[k] = (monthCount[k] || 0) + 1;
-        if (!perRoleMonthCount[roleId]) perRoleMonthCount[roleId] = {};
-        perRoleMonthCount[roleId][k] = (perRoleMonthCount[roleId][k] || 0) + 1;
+        // Both halves of a mentor/trainee cell carry the load, so both count
+        // towards the 2-a-month cap. Counting the pair as one person let each
+        // of them quietly serve twice as a pair AND twice alone.
+        splitCellPeople(value).forEach(function(person) {
+          var k = _afKey(person);
+          monthCount[k] = (monthCount[k] || 0) + 1;
+          if (!perRoleMonthCount[roleId]) perRoleMonthCount[roleId] = {};
+          perRoleMonthCount[roleId][k] = (perRoleMonthCount[roleId][k] || 0) + 1;
+        });
       });
 
       if (!previewOnly) this.showLoader(true);
@@ -84596,21 +84723,27 @@ function filterLiturgyItems() {
         var lastServedMonth = {};
         rows.forEach(function(row) {
           if (!roleIdSet[row.role_id] || row.month === STATE.rosterMonth || !row.value) return;
-          var k = _afKey(row.value);
-          if (lastServedMonth[k] === undefined || row.month > lastServedMonth[k]) {
-            lastServedMonth[k] = row.month;
-          }
+          splitCellPeople(row.value).forEach(function(person) {
+            var k = _afKey(person);
+            if (lastServedMonth[k] === undefined || row.month > lastServedMonth[k]) {
+              lastServedMonth[k] = row.month;
+            }
+          });
         });
 
         // Who did each role on the LAST service day of the PREVIOUS month --
         // feeds the back-to-back guard below so the first Sunday of this
         // month doesn't repeat the same person as the last Sunday of last
         // month, even though that's a different auto-suggest run.
-        var crossMonthPrevKey = {}; // roleId -> _afKey(value)
+        // roleId -> { personKey: true }. A map rather than a single key because
+        // a mentor/trainee cell puts TWO people on that duty last time, and
+        // the back-to-back guard should hold for each of them.
+        var crossMonthPrevKey = {};
         if (lastServiceDayOfPrevMonth) {
           prevMonthRows.forEach(function(row) {
             if (row.date === lastServiceDayOfPrevMonth && roleIdSet[row.roleId] && row.value && row.value !== '__BLANK__' && typeof row.value !== 'object') {
-              crossMonthPrevKey[row.roleId] = _afKey(row.value);
+              var m = crossMonthPrevKey[row.roleId] = crossMonthPrevKey[row.roleId] || {};
+              splitCellPeople(row.value).forEach(function(person) { m[_afKey(person)] = true; });
             }
           });
         }
@@ -84636,7 +84769,9 @@ function filterLiturgyItems() {
           allRoleDefs.forEach(function(role) {
             if (role.id === 'flowerarrangement') return;
             var v = STATE.rosterEdits.get(role.id + '__' + dateKeySuffix);
-            if (v && v !== '__BLANK__' && typeof v !== 'object') assignedToday[_afKey(v)] = true;
+            if (v && v !== '__BLANK__' && typeof v !== 'object') {
+              splitCellPeople(v).forEach(function(person) { assignedToday[_afKey(person)] = true; });
+            }
           });
 
           var prevDay = dateIdx > 0 ? datesToFill[dateIdx - 1] : null;
@@ -84695,12 +84830,14 @@ function filterLiturgyItems() {
             // month -- so a month-by-month run doesn't repeat the same
             // person across the month boundary just because that boundary
             // falls outside "this run."
-            var backToBackKey = null;
+            var backToBackKeys = {};
             if (prevDay) {
               var prevVal = STATE.rosterEdits.get(role.id + '__' + prevDay.dateStr.replace(/\s/g, '_'));
-              if (prevVal && prevVal !== '__BLANK__' && typeof prevVal !== 'object') backToBackKey = _afKey(prevVal);
+              if (prevVal && prevVal !== '__BLANK__' && typeof prevVal !== 'object') {
+                splitCellPeople(prevVal).forEach(function(person) { backToBackKeys[_afKey(person)] = true; });
+              }
             } else if (dateStr === firstServiceDayOfMonth && crossMonthPrevKey[role.id]) {
-              backToBackKey = crossMonthPrevKey[role.id];
+              backToBackKeys = crossMonthPrevKey[role.id];
             }
 
             var candidates = pool.filter(function(name) {
@@ -84744,7 +84881,7 @@ function filterLiturgyItems() {
               var k = _afKey(name);
               var tier = (curatedSet && !curatedSet[k]) ? 1 : 0;
               if (role.id === 'liturgist') return tier;
-              return tier * 10 + ((monthCount[k] || 0) >= 2 ? 1 : 0) + (k === backToBackKey ? 1 : 0);
+              return tier * 10 + ((monthCount[k] || 0) >= 2 ? 1 : 0) + (backToBackKeys[k] ? 1 : 0);
             }
             var roleCounts = perRoleMonthCount[role.id] || {};
             candidates.sort(function(a, b) {
@@ -84780,7 +84917,7 @@ function filterLiturgyItems() {
             var warning = '';
             if (role.id !== 'liturgist') {
               if (winnerMonthCount >= 2) warning = 'Already serving 2+ times this month (soft cap relaxed -- no one fresher was available)';
-              else if (winnerKey === backToBackKey) warning = 'Also did this duty last time (repeat unavoidable -- no one else was available)';
+              else if (backToBackKeys[winnerKey]) warning = 'Also did this duty last time (repeat unavoidable -- no one else was available)';
             }
 
             // Bookkeeping (monthCount/perRoleMonthCount/assignedToday) always

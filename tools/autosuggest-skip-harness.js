@@ -94,7 +94,7 @@ function extractCandidateFilter() {
 // ── 1. The predicate itself ────────────────────────────────────────────────
 console.log('Extracted from ' + path.basename(INDEX) + ':');
 
-const fnNames = ['getMemberStatus', '_suspensionLapsed', 'isAutoSuggestExcluded', '_rotationTagFor'];
+const fnNames = ['getMemberStatus', '_suspensionLapsed', 'isAutoSuggestExcluded', '_rotationTagFor', 'splitCellPeople', 'cellPrimary', 'cellTrainee', 'joinCellPeople'];
 if (EXPECT_BROKEN) {
   const missing = fnNames.filter(n => !new RegExp('^  function ' + n + '\\s*\\(', 'm').test(src));
   console.log('  (pre-fix source: missing ' + (missing.join(', ') || 'nothing') + ')');
@@ -112,15 +112,17 @@ if (EXPECT_BROKEN) {
 const fns = {};
 for (const n of fnNames) fns[n] = extractFn(n);
 const skipMap = extractVar('AUTOSUGGEST_SKIP_STATUS');
+const pairSep = extractVar('_PAIR_SEP');
 const filter = extractCandidateFilter();
 for (const n of fnNames) console.log('  ' + n + ' @ line ' + fns[n].line);
 console.log('  AUTOSUGGEST_SKIP_STATUS @ line ' + skipMap.line);
 console.log('  runAutoSuggest candidate filter @ line ' + filter.line);
 
 function makePredicates(statusByName) {
-  const env = { ROSTER_MEMBER_STATUS: statusByName, Object, JSON };
-  const body = skipMap.text + '\n' + fnNames.map(n => fns[n].text).join('\n\n') +
-    '\n; return { getMemberStatus, _suspensionLapsed, isAutoSuggestExcluded, _rotationTagFor, AUTOSUGGEST_SKIP_STATUS };';
+  const env = { ROSTER_MEMBER_STATUS: statusByName, Object, JSON,
+    _nameNorm: (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase() };
+  const body = skipMap.text + '\n' + pairSep.text + '\n' + fnNames.map(n => fns[n].text).join('\n\n') +
+    '\n; return { getMemberStatus, _suspensionLapsed, isAutoSuggestExcluded, _rotationTagFor, splitCellPeople, cellPrimary, cellTrainee, joinCellPeople, AUTOSUGGEST_SKIP_STATUS };';
   const keys = Object.keys(env);
   return new Function(...keys, body)(...keys.map(k => env[k]));
 }
@@ -199,6 +201,36 @@ console.log('\nScenario 2b - a suspension that has run out');
   check('badge inside the window', (api._rotationTagFor('Ends3', 2026, 1) || {}).label, 'Stood down');
   check('badge lapses with the rule', api._rotationTagFor('Ends3', 2026, 3), null);
   check('open-ended stays badged', (api._rotationTagFor('OpenEnded', 2099, 0) || {}).label, 'Stood down');
+}
+
+console.log('\nScenario 2c - mentor / trainee cells');
+{
+  const api = makePredicates({});
+  const S = api.splitCellPeople;
+  // Two people share a duty when someone is being brought into it. Every
+  // person-aware rule -- clashes, the monthly cap, availability, status,
+  // serving counts -- reads this, so the split has to be exactly right.
+  check('a pair splits into two people', S('Beatrice Tye / Vincent Jayaraj'), ['Beatrice Tye', 'Vincent Jayaraj']);
+  check('a lone name stays one',         S('Bruce Kong'), ['Bruce Kong']);
+  check('blank cell yields nobody',      S('-'), []);
+  check('__BLANK__ yields nobody',       S('__BLANK__'), []);
+  check('TBD yields nobody',             S('TBD'), []);
+  check('empty yields nobody',           S(''), []);
+  // The separator needs a space on BOTH sides. This real Preacher entry means
+  // "with", and a looser rule would invent "Rev Devasadan Consecrating)".
+  check('"(W/ ...)" is never split',      S('Rev Benedict Muthusamy\\n(W/ Rev Devasadan Consecrating)').length, 1);
+  check('a bare A/B is never split',      S('A/B'), ['A/B']);
+  check('extra spaces still split',       S('A  /  B'), ['A', 'B']);
+  check('primary of a pair',              api.cellPrimary('A / B'), 'A');
+  check('trainee of a pair',              api.cellTrainee('A / B'), 'B');
+  check('trainee of a lone name is empty',api.cellTrainee('A'), '');
+  // Joining clamps to two: picking a leftover composite as the trainee once
+  // produced a three-name cell in testing.
+  check('join makes a pair',              api.joinCellPeople('A', 'B'), 'A / B');
+  check('join with no trainee',           api.joinCellPeople('A', ''), 'A');
+  check('join refuses to duplicate',      api.joinCellPeople('A', 'A'), 'A');
+  check('join clamps a composite trainee',api.joinCellPeople('A', 'B / C'), 'A / B');
+  check('join clamps a composite lead',   api.joinCellPeople('A / B', 'C'), 'A / C');
 }
 
 // ── 3. The filter as runAutoSuggest actually runs it ───────────────────────

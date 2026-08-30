@@ -207,6 +207,34 @@ export async function lookupMember(sb: SupabaseClient, name: string): Promise<{ 
   return { found: true, email: data.email || null };
 }
 
+// A duty cell can name two people -- someone experienced plus the person they
+// are training -- written "Mentor / Trainee". Mirrors splitCellPeople() in
+// Index.html, including the deliberately strict separator: a slash with a
+// space on BOTH sides. A real Preacher entry reads "Rev Benedict Muthusamy
+// (W/ Rev Devasadan Consecrating)", where the slash means "with"; splitting a
+// bare slash would invite a nonexistent "Rev Devasadan Consecrating)".
+export function splitCellPeople(value: string): string[] {
+  const v = (value || '').trim();
+  if (!v || v === '-' || v === '__BLANK__' || v.toUpperCase() === 'TBD') return [];
+  return v.split(/ +\/ +/).map((s) => s.trim()).filter(Boolean);
+}
+
+// Both halves of a pairing are on duty, so both get the invite. A single name
+// takes exactly the path it always did.
+export async function lookupMembers(
+  sb: SupabaseClient,
+  value: string
+): Promise<{ found: boolean; emails: string[] }> {
+  const people = splitCellPeople(value);
+  if (!people.length) return { found: false, emails: [] };
+  const results = await Promise.all(people.map((p) => lookupMember(sb, p)));
+  const emails: string[] = [];
+  for (const r of results) {
+    if (r.email && !emails.includes(r.email)) emails.push(r.email);
+  }
+  return { found: results.some((r) => r.found), emails };
+}
+
 export interface SyncCellKey {
   roleId: string;
   serviceDate: string;
@@ -288,9 +316,11 @@ export async function syncCell(
       return { key: keyStr, action: 'noop' };
     }
 
-    const member = await lookupMember(sb, rosterValue);
-    const email = member.email;
-    const syncStatus = email ? 'synced' : member.found ? 'no_email' : 'name_not_found';
+    const member = await lookupMembers(sb, rosterValue);
+    // One column holds the attendees, so a pairing is recorded as a joined
+    // list; it is only ever compared as a whole for change detection.
+    const email = member.emails.length ? member.emails.join(', ') : null;
+    const syncStatus = member.emails.length ? 'synced' : member.found ? 'no_email' : 'name_not_found';
 
     const unchanged =
       mapRow &&
@@ -311,7 +341,7 @@ export async function syncCell(
       return { key: keyStr, action: 'error', error: 'Could not parse service_date' };
     }
 
-    const attendees = email ? [{ email }] : [];
+    const attendees = member.emails.map((e) => ({ email: e }));
     const reminders = { useDefault: false, overrides: [{ method: 'popup', minutes: 24 * 60 }] };
     const eventBody = {
       summary: fields.summary,
