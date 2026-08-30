@@ -86474,7 +86474,18 @@ function filterLiturgyItems() {
       if (actEl) {
         var editBtn = '<button class="cell-dd-action pic-only" id="cellDdEdit"><i class="fa-solid fa-pen fa-fw"></i> Edit</button>';
         var clearBtn = '<button class="cell-dd-action danger pic-only" id="cellDdClear"><i class="fa-solid fa-eraser fa-fw"></i> Clear</button>';
-        var confirmBtn = '<button class="cell-dd-action confirm" id="cellDdConfirm"><i class="fa-solid fa-check fa-fw"></i> Confirm my duty</button>';
+        // Confirm is only meaningful for a PIC, on a cell that is actually
+        // awaiting review -- so it is built only then, exactly as the desktop
+        // context menu has always gated its own "Confirm This Assignment".
+        // It used to be rendered unconditionally for everyone and confirmed
+        // nothing: a green outline lost on the next render and a "Duty
+        // confirmed!" toast, while the pending flag, the save and the calendar
+        // went untouched.
+        var ddKey = td.getAttribute('data-key');
+        var ddPending = !!(ddKey && STATE.rosterPendingCells.has(ddKey));
+        var confirmBtn = (STATE.picMode && ddPending)
+          ? '<button class="cell-dd-action confirm" id="cellDdConfirm"><i class="fa-solid fa-circle-check fa-fw"></i> Confirm this assignment</button>'
+          : '';
         actEl.innerHTML = editBtn + clearBtn + confirmBtn;
         var eb = document.getElementById('cellDdEdit');
         var cb = document.getElementById('cellDdClear');
@@ -86493,10 +86504,12 @@ function filterLiturgyItems() {
           self.clearCell(td);
         };
         if (cfb) cfb.onclick = function() {
-          var key = td.getAttribute('data-key');
-          if (key) { td.setAttribute('data-confirmed', '1'); td.style.outline = '2px solid #059669'; }
-          self.showToast('Duty confirmed!', 'success');
           self.closeCellDropdown();
+          // The one real confirm path, shared with the row button, the
+          // month-wide dialog and the desktop context menu: runs the clash
+          // check, clears the pending flag with an undo entry, saves, and
+          // notifies that person's calendar.
+          self.confirmPendingCells([ddKey], null);
         };
       }
 
