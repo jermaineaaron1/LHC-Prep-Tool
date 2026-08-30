@@ -11,7 +11,15 @@
 import { mixBus } from './voiceSynth';
 import type { SongNote } from './types';
 
-export const SINGER_VOICE = 'en_US-hfc_female-medium' as const;
+/** A mixed demo choir: a female voice carries soprano and alto, a male
+ *  voice tenor and bass — both from the same recording family so they
+ *  blend like siblings. */
+export const SINGER_VOICES = {
+  female: 'en_US-hfc_female-medium',
+  male: 'en_US-hfc_male-medium',
+} as const;
+export type SingerVoiceKind = keyof typeof SINGER_VOICES;
+export const voiceKindForPart = (part: number): SingerVoiceKind => (part <= 1 ? 'female' : 'male');
 
 type Vits = typeof import('@diffusionstudio/vits-web');
 let vitsModule: Promise<Vits> | null = null;
@@ -20,21 +28,25 @@ function engine(): Promise<Vits> {
   return vitsModule;
 }
 
-/** Is the voice already in browser storage? (No download prompt needed.) */
-export async function singerVoiceReady(): Promise<boolean> {
+/** Are these voices already in browser storage? (No download needed.) */
+export async function singerVoiceReady(kinds: SingerVoiceKind[]): Promise<boolean> {
   try {
     const tts = await engine();
     const list = await tts.stored();
-    return list.includes(SINGER_VOICE);
+    return kinds.every(kind => list.includes(SINGER_VOICES[kind]));
   } catch { return false; }
 }
 
-/** Fetch the voice model into OPFS, reporting 0..100. */
-export async function downloadSingerVoice(onProgress?: (pct: number) => void): Promise<void> {
+/** Fetch the voice models into OPFS, reporting per-voice 0..100. */
+export async function downloadSingerVoice(kinds: SingerVoiceKind[], onProgress?: (label: string, pct: number) => void): Promise<void> {
   const tts = await engine();
-  await tts.download(SINGER_VOICE, (progress: { loaded: number; total: number }) => {
-    if (onProgress && progress.total > 0) onProgress(Math.round((progress.loaded / progress.total) * 100));
-  });
+  const stored = await tts.stored();
+  for (const kind of kinds) {
+    if (stored.includes(SINGER_VOICES[kind])) continue;
+    await tts.download(SINGER_VOICES[kind], (progress: { loaded: number; total: number }) => {
+      if (onProgress && progress.total > 0) onProgress(kind, Math.round((progress.loaded / progress.total) * 100));
+    });
+  }
 }
 
 // ── syllable analysis ──────────────────────────────────────────────────────
@@ -58,6 +70,26 @@ function frameRms(data: Float32Array, start: number, length: number): number {
 }
 
 /** Median autocorrelation pitch over the voiced middle of the clip. */
+/** Autocorrelation loves picking DOUBLE the period (an octave low), which
+ *  spaces the pitch marks two glottal pulses apart and roughens the voice.
+ *  If half or a third of the winning lag scores nearly as well, the shorter
+ *  lag is the true period — take it. */
+function preferShortLag(data: Float32Array, center: number, win: number, minLag: number, bestLag: number, best: number): number {
+  if (bestLag <= 0 || best <= 0) return bestLag;
+  for (const divisor of [3, 2]) {
+    const lag = Math.round(bestLag / divisor);
+    if (lag < minLag) continue;
+    let corr = 0, norm = 0;
+    for (let index = 0; index < win; index += 2) {
+      corr += data[center + index] * data[center + index + lag];
+      norm += data[center + index] * data[center + index];
+    }
+    const score = norm > 1e-6 ? corr / norm : 0;
+    if (score > best * 0.9) return lag;
+  }
+  return bestLag;
+}
+
 function estimateF0(data: Float32Array, sampleRate: number, from: number, to: number): number {
   const minLag = Math.floor(sampleRate / 400);
   const maxLag = Math.floor(sampleRate / 70);
@@ -74,6 +106,7 @@ function estimateF0(data: Float32Array, sampleRate: number, from: number, to: nu
       const score = norm > 1e-6 ? corr / norm : 0;
       if (score > best) { best = score; bestLag = lag; }
     }
+    bestLag = preferShortLag(data, center, win, minLag, bestLag, best);
     if (bestLag > 0 && best > 0.35) estimates.push(sampleRate / bestLag);
   }
   if (!estimates.length) return 190;
@@ -116,17 +149,44 @@ function localF0(data: Float32Array, sampleRate: number, center: number, fallbac
     const score = norm > 1e-6 ? corr / norm : 0;
     if (score > best) { best = score; bestLag = lag; }
   }
+  bestLag = preferShortLag(data, center, win, minLag, bestLag, best);
   return bestLag > 0 && best > 0.3 ? sampleRate / bestLag : fallback;
 }
 
-/** Granular overlap-add: reads grains from the (looped) voiced core, each
- *  grain retuned by ITS OWN measured pitch — speech falls in pitch as it
- *  speaks, and correcting per grain is what turns intonation into a held
- *  note instead of a wobble. A slow vibrato blooms after the onset, grain
- *  levels are evened toward the vowel's median, and the word's CLOSING
- *  consonant is carried across from the source so 'grace' keeps its s.
- *  `withAttack` keeps the spoken onset; a melisma skips it. `withCoda`
- *  marks the last note of the word. */
+/** Glottal pitch marks across the voiced region — one per period, sitting
+ *  on the waveform's local peak so every grain is cut at the same phase. */
+function pitchMarks(data: Float32Array, sampleRate: number, from: number, to: number, fallback: number): number[] {
+  const marks: number[] = [];
+  let period = sampleRate / localF0(data, sampleRate, from, fallback);
+  let best = from, bestValue = -1;
+  for (let index = from; index < Math.min(to, from + Math.ceil(period)); index++) {
+    const amp = Math.abs(data[index]);
+    if (amp > bestValue) { bestValue = amp; best = index; }
+  }
+  marks.push(best);
+  while (marks[marks.length - 1] + period * 1.6 < to) {
+    const last = marks[marks.length - 1];
+    period = sampleRate / localF0(data, sampleRate, last, fallback);
+    const center = last + period;
+    const win = Math.max(2, Math.floor(period * 0.3));
+    let mark = Math.round(center), markValue = -1;
+    for (let index = Math.max(last + 2, Math.floor(center - win)); index < Math.min(to, Math.ceil(center + win)); index++) {
+      const amp = Math.abs(data[index]);
+      if (amp > markValue) { markValue = amp; mark = index; }
+    }
+    marks.push(mark);
+  }
+  return marks;
+}
+
+/** TD-PSOLA: period-length grains are cut at the pitch marks and laid back
+ *  down at the TARGET pitch's spacing — never resampled, so the voice's
+ *  formants (the shape of the throat) stay exactly where the speaker put
+ *  them. That is the difference between a chipmunked shift and the same
+ *  person singing the note. A slow vibrato blooms after the onset, grain
+ *  levels even toward the vowel's median, and the word's CLOSING consonant
+ *  is carried across so 'grace' keeps its s. `withAttack` keeps the spoken
+ *  onset; a melisma skips it. `withCoda` marks the word's last note. */
 export function renderSyllableAtPitch(syllable: Syllable, midi: number, seconds: number, withAttack: boolean, withCoda = true): Float32Array {
   const { data, sampleRate, f0, voicedStart, voicedEnd } = syllable;
   const targetHz = midiHz(midi);
@@ -141,47 +201,56 @@ export function renderSyllableAtPitch(syllable: Syllable, midi: number, seconds:
   const codaSrcLen = withCoda ? Math.min(data.length - voicedEnd, Math.floor(sampleRate * 0.18)) : 0;
   const codaLen = Math.min(codaSrcLen, Math.floor(total * 0.35));
 
-  const grain = Math.floor(sampleRate * 0.05);
-  const hop = Math.floor(grain / 4);              // 75% overlap reads far smoother
-  const overlapGain = 2 / 3;                       // Hann at 75% overlap sums to ~1.5
-  const bodyIn = Math.max(grain * 2 + 2, voicedEnd - voicedStart);
-  const loopFrom = voicedStart + Math.floor(bodyIn * 0.15);
-  const loopTo = Math.max(loopFrom + grain + 2, voicedStart + Math.floor(bodyIn * 0.8));
-  const loopSpan = loopTo - loopFrom;
-
-  // even out grain loudness toward the vowel's own median
-  const midRms = frameRms(data, loopFrom, Math.min(loopSpan, Math.floor(sampleRate * 0.08))) || 0.05;
-
   const bodyOutStart = headLen;
   const bodyOutEnd = total - codaLen;
-  const grains = Math.max(1, Math.ceil((bodyOutEnd - bodyOutStart) / hop) + 1);
-  for (let g = 0; g < grains; g++) {
-    const outPos = bodyOutStart + g * hop;
-    if (outPos >= bodyOutEnd) break;
-    const travel = g * hop * 0.55;
-    const cycle = Math.floor(travel / loopSpan);
-    const within = travel % loopSpan;
-    const inCenter = cycle % 2 === 0 ? loopFrom + within : loopTo - within;
-    // per-grain pitch: correct THIS grain's spoken pitch to the note, with a
-    // vibrato that arrives after a quarter second the way a singer's does
-    const tSec = (outPos - bodyOutStart) / sampleRate;
-    const vibratoDepth = Math.min(1, Math.max(0, (tSec - 0.22) / 0.3)) * 18; // cents
-    const vibrato = Math.pow(2, (vibratoDepth * Math.sin(2 * Math.PI * 5.3 * tSec)) / 1200);
-    const grainF0 = localF0(data, sampleRate, Math.floor(inCenter - grain / 2), f0);
-    const ratio = Math.max(0.4, Math.min(2.8, (targetHz * vibrato) / grainF0));
-    // gentle level evening
-    const grainRms = frameRms(data, Math.floor(inCenter - grain / 2), grain) || midRms;
-    const even = Math.max(0.6, Math.min(1.8, midRms / grainRms));
-    for (let index = 0; index < grain; index++) {
-      const outIndex = outPos + index;
-      if (outIndex >= bodyOutEnd) break;
-      const src = inCenter + (index - grain / 2) * ratio;
-      const s0 = Math.floor(src);
-      if (s0 < 0 || s0 + 1 >= data.length) continue;
-      const frac = src - s0;
-      const sample = data[s0] * (1 - frac) + data[s0 + 1] * frac;
-      const hann = 0.5 - 0.5 * Math.cos((2 * Math.PI * index) / grain);
-      out[outIndex] += sample * hann * overlapGain * even;
+  const marks = pitchMarks(data, sampleRate, voicedStart, voicedEnd, f0);
+  const midRms = frameRms(data, voicedStart + Math.floor((voicedEnd - voicedStart) * 0.2),
+    Math.min(voicedEnd - voicedStart, Math.floor(sampleRate * 0.08))) || 0.05;
+
+  if (marks.length >= 4) {
+    // loop inside the vowel's steady middle, in MARK space
+    const markFrom = Math.floor(marks.length * 0.15);
+    const markTo = Math.max(markFrom + 2, Math.floor(marks.length * 0.8));
+    const markSpan = markTo - markFrom;
+    const sourcePeriod = sampleRate / f0;
+    let outCursor = bodyOutStart;
+    let travel = 0;   // in source marks; saunters so long notes do not race
+    while (outCursor < bodyOutEnd) {
+      const tSec = (outCursor - bodyOutStart) / sampleRate;
+      const vibratoDepth = Math.min(1, Math.max(0, (tSec - 0.22) / 0.3)) * 16;   // cents
+      const vibrato = Math.pow(2, (vibratoDepth * Math.sin(2 * Math.PI * 5.3 * tSec)) / 1200);
+      const targetPeriod = sampleRate / (targetHz * vibrato);
+      const cycle = Math.floor(travel / markSpan);
+      const within = travel % markSpan;
+      const markIndex = Math.max(0, Math.min(marks.length - 1,
+        Math.floor(markFrom + (cycle % 2 === 0 ? within : markSpan - within))));
+      const mark = marks[markIndex];
+      const prev = marks[Math.max(0, markIndex - 1)];
+      const next = marks[Math.min(marks.length - 1, markIndex + 1)];
+      const half = Math.max(8, Math.min(Math.floor(sampleRate * 0.02),
+        Math.floor(Math.max(mark - prev, next - mark))));
+      const grainRms = frameRms(data, mark - half, half * 2) || midRms;
+      const even = Math.max(0.6, Math.min(1.8, midRms / grainRms));
+      // grains repeat at the target period; amplitude compensates for how
+      // densely they overlap so pitch does not change loudness
+      const grainGain = Math.max(0.35, Math.min(1.2, (0.95 * targetPeriod) / half)) * even;
+      const center = Math.round(outCursor);
+      for (let k = -half; k < half; k++) {
+        const outIndex = center + k;
+        if (outIndex < 0 || outIndex >= bodyOutEnd) continue;
+        const sourceIndex = mark + k;
+        if (sourceIndex < 0 || sourceIndex >= data.length) continue;
+        const hann = 0.5 + 0.5 * Math.cos((Math.PI * k) / half);
+        out[outIndex] += data[sourceIndex] * hann * grainGain;
+      }
+      outCursor += targetPeriod;
+      travel += 0.55 * (targetPeriod / Math.max(8, sourcePeriod));
+    }
+  } else {
+    // too little voiced material to mark — copy what there is
+    for (let index = bodyOutStart; index < bodyOutEnd; index++) {
+      const sourceIndex = voicedStart + ((index - bodyOutStart) % Math.max(1, voicedEnd - voicedStart));
+      out[index] = data[sourceIndex] ?? 0;
     }
   }
 
@@ -213,13 +282,13 @@ export function renderSyllableAtPitch(syllable: Syllable, midi: number, seconds:
 
 const syllableCache = new Map<string, Promise<Syllable | null>>();
 
-function speakWord(word: string): Promise<Syllable | null> {
-  const key = word.toLowerCase();
+function speakWord(word: string, kind: SingerVoiceKind): Promise<Syllable | null> {
+  const key = kind + ':' + word.toLowerCase();
   if (!syllableCache.has(key)) {
     syllableCache.set(key, (async () => {
       try {
         const tts = await engine();
-        const blob = await tts.predict({ text: word, voiceId: SINGER_VOICE });
+        const blob = await tts.predict({ text: word, voiceId: SINGER_VOICES[kind] });
         const raw = await blob.arrayBuffer();
         // decode with a throwaway offline context — sample-accurate and quiet
         const scratch = new OfflineAudioContext(1, 8, 22050);
@@ -236,21 +305,21 @@ export interface SingerLine { midi: number; at: number; seconds: number; lyric: 
 /** Build one AudioBuffer per note, the words pronounced and retuned. Notes
  *  without a lyric carry the previous word's vowel on (the melisma). */
 export async function prepareSingerBuffers(
-  context: AudioContext, line: SingerLine[], onStatus?: (message: string) => void,
+  context: AudioContext, line: SingerLine[], kind: SingerVoiceKind = 'female', onStatus?: (message: string) => void,
 ): Promise<Array<{ at: number; buffer: AudioBuffer } | null>> {
   const words = [...new Set(line.map(note => note.lyric.replace(/[^a-zA-Z']/g, '')).filter(Boolean))];
   let done = 0;
   await Promise.all(words.map(async word => {
-    await speakWord(word);
+    await speakWord(word, kind);
     done++;
-    onStatus?.(`Preparing the demo singer… ${done}/${words.length} words`);
+    onStatus?.(`Preparing the ${kind} voice… ${done}/${words.length} words`);
   }));
   const out: Array<{ at: number; buffer: AudioBuffer } | null> = [];
   let carried: Syllable | null = null;
   for (let index = 0; index < line.length; index++) {
     const note = line[index];
     const word = note.lyric.replace(/[^a-zA-Z']/g, '');
-    const syllable: Syllable | null = word ? await speakWord(word) : carried;
+    const syllable: Syllable | null = word ? await speakWord(word, kind) : carried;
     if (word && syllable) carried = syllable;
     if (!syllable) { out.push(null); continue; }
     // the closing consonant belongs to the LAST note of the word: a melisma

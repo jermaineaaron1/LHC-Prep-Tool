@@ -22,7 +22,7 @@ import { buildWarpTable, interpretMarks, tableUnwarp, tableWarp } from '@/lib/vo
 import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoiceTone } from '@/lib/vocal-hero/voiceSynth';
 import { preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
-import { downloadSingerVoice, playSingerBuffers, prepareSingerBuffers, singerVoiceReady } from '@/lib/vocal-hero/singer';
+import { downloadSingerVoice, playSingerBuffers, prepareSingerBuffers, singerVoiceReady, voiceKindForPart } from '@/lib/vocal-hero/singer';
 import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
@@ -2062,27 +2062,36 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         else if (!hold && note.marks?.tenuto) length *= 1.04;
         return { at, length };
       };
-      // The AI singer PREPARES before anything is scheduled, so the words,
-      // the choir and the band all start on the same clock.
-      let singerPrepared: Array<{ at: number; buffer: AudioBuffer } | null> | null = null;
+      // The AI CHOIR prepares before anything is scheduled, so the words,
+      // the band and any synth voices all start on the same clock. Every
+      // part that carries lyrics is sung \u2014 female voice on soprano and
+      // alto, male on tenor and bass; parts without words stay synth.
+      let singerPreparedByPart: Map<number, Array<{ at: number; buffer: AudioBuffer } | null>> | null = null;
       if (previewVoice === 'singer') {
         try {
-          if (!(await singerVoiceReady())) {
-            setEditorNotice('Downloading the demo singer\u2019s voice \u2014 one time, kept on this device\u2026');
-            await downloadSingerVoice(pct => setEditorNotice(`Downloading the demo singer\u2019s voice\u2026 ${pct}%`));
+          const partOf = (note: SongNote) => (note.part === -1 ? 0 : note.part);
+          const partsWithWords = [0, 1, 2, 3].filter(p => preview.some(note => partOf(note) === p && (note.lyric ?? '').trim()));
+          const kinds = [...new Set(partsWithWords.map(p => voiceKindForPart(p)))];
+          if (partsWithWords.length && !(await singerVoiceReady(kinds))) {
+            setEditorNotice('Downloading the demo choir\u2019s voices \u2014 one time, kept on this device\u2026');
+            await downloadSingerVoice(kinds, (label, pct) => setEditorNotice(`Downloading the ${label} voice\u2026 ${pct}%`));
           }
-          const line = preview
-            .filter(note => note.part === 0 || note.part === -1)
-            .sort((a, b) => a.start - b.start)
-            .map(note => {
-              const { at, length } = timingOf(note);
-              return { midi: note.midi, at, seconds: length / transportRate, lyric: note.lyric ?? '' };
-            });
-          singerPrepared = await prepareSingerBuffers(context, line, message => setEditorNotice(message));
+          const byPart = new Map<number, Array<{ at: number; buffer: AudioBuffer } | null>>();
+          for (const p of partsWithWords) {
+            const line = preview
+              .filter(note => partOf(note) === p)
+              .sort((a, b) => a.start - b.start)
+              .map(note => {
+                const { at, length } = timingOf(note);
+                return { midi: note.midi, at, seconds: length / transportRate, lyric: note.lyric ?? '' };
+              });
+            byPart.set(p, await prepareSingerBuffers(context, line, voiceKindForPart(p), message => setEditorNotice(message)));
+          }
           if (audioContextRef.current !== context || (context.state as string) === 'closed') return;
+          singerPreparedByPart = byPart.size ? byPart : null;
         } catch {
-          singerPrepared = null;
-          setEditorNotice('The demo singer could not start \u2014 the choir sings this pass.');
+          singerPreparedByPart = null;
+          setEditorNotice('The demo choir could not start \u2014 the synth choir sings this pass.');
         }
       }
       preview.forEach(note => {
@@ -2104,14 +2113,16 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         const slideTarget = note.marks?.slide
           ? activePerformance.notes.filter(item => item.part === note.part && item.id !== note.id && item.start >= note.end - 0.05).sort((a, b) => a.start - b.start)[0]?.midi
           : undefined;
-        if (singerPrepared && (note.part === 0 || note.part === -1)) return;   // the AI voice carries the melody
-        const toned = singerPrepared ? { ...played, velocity: Math.round(played.velocity * 0.55) } : played;
+        if (singerPreparedByPart && singerPreparedByPart.has(note.part === -1 ? 0 : note.part)) return;   // the AI choir carries this part
+        const toned = singerPreparedByPart ? { ...played, velocity: Math.round(played.velocity * 0.55) } : played;
         if (previewVoices) playVoiceTone(context, toned, context.currentTime + at, length / transportRate, slideTarget);
         else playPianoTone(context, toned, context.currentTime + at, length / transportRate);
       });
-      if (singerPrepared) {
+      if (singerPreparedByPart) {
         const base = context.currentTime;
-        playSingerBuffers(context, singerPrepared.map(item => item && { at: base + item.at, buffer: item.buffer }));
+        for (const [p, prepared] of singerPreparedByPart) {
+          playSingerBuffers(context, prepared.map(item => item && { at: base + item.at, buffer: item.buffer }), p === 0 ? 0.9 : 0.55);
+        }
       }
       // ---- the band: the SAVED guitar and drum styles, on the same warped
       // clock as the voices — what plays here is what the room will hear.
@@ -2432,8 +2443,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
         {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="relative flex items-center gap-1.5">
           <button onClick={cyclePreviewVoice} aria-pressed={previewVoice !== 'piano'}
-            title={previewVoice === 'choir' ? 'Preview voice: synth choir. Tap for the AI demo singer (pronounces the actual lyrics; one-time voice download).'
-              : previewVoice === 'singer' ? 'Preview voice: AI demo singer \u2014 sings the actual words on the melody, choir beneath. Tap for piano.'
+            title={previewVoice === 'choir' ? 'Preview voice: synth choir. Tap for the AI demo choir (sings the actual lyrics in every part; one-time voice download).'
+              : previewVoice === 'singer' ? 'Preview voice: AI demo choir \u2014 every part sings its own words: female voice on soprano and alto, male on tenor and bass. Tap for piano.'
               : 'Preview voice: piano. Tap for the synth choir.'}
             className={`rounded-lg border px-2.5 py-2 ${previewVoice !== 'piano' ? 'border-emerald-300/50 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-slate-300'}`}>{previewVoice === 'choir' ? '\ud83c\udfa4' : previewVoice === 'singer' ? '\ud83d\udde3\ufe0f' : '\ud83c\udfb9'}</button>
           <button onClick={() => setTrackSettingsDirty(current => ({ ...current, accompaniment: { guitar: (current.accompaniment?.guitar ?? 'off'), drums: (current.accompaniment?.drums ?? 'off') === 'off' ? 'drum-kit' : 'off' } }))} aria-pressed={accompaniment.drums !== 'off'}
