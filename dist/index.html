@@ -12560,6 +12560,10 @@ window.lyricsPreviewToggleInlineEdit = lyricsPreviewToggleInlineEdit;
 // True only while the inline editor is open AND its text differs from the
 // snapshot taken when it opened.
 function lyricsPreviewHasUnsavedEdits() {
+  // beforeunload can fire before the app's IIFE has exported STATE to the
+  // window; with no state there are no edits to lose, so say so quietly
+  // instead of throwing a ReferenceError mid-navigation.
+  if (typeof window.STATE === 'undefined') return false;
   if (!STATE.lyricsPreviewEditMode) return false;
   var ta = document.getElementById('lyricsPreviewEditTextarea');
   if (!ta || STATE._lpEditBaseline == null) return false;
