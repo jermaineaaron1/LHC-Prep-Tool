@@ -8,7 +8,8 @@ import { AlignedVoicesOverview, DrumGridEditor, InstrumentStaffEditor, PART_CELL
 import { inferKeySignature, signatureAlteration, snapBeats } from '@/lib/vocal-hero/notation';
 import { compileRendition, deriveSections, type RenditionCard } from '@/lib/vocal-hero/rendition';
 import { createSongStub, updateSong } from '@/lib/vocal-hero/supabaseClient';
-import type { BackingTrackClip, BackingTrackSettings, DynamicMark, MusicalTimelineSettings, NoteMarks, RhythmicNoteValue, Song, SongNote, TempoMarkKind, TimedLyricSection } from '@/lib/vocal-hero/types';
+import type { BackingTrackClip, BackingTrackSettings, DynamicMark, MusicalTimelineSettings, NoteMarks, RhythmicNoteValue, Song, SongNote, TempoMarkKind, TimedLyricSection, VocalTake } from '@/lib/vocal-hero/types';
+import { mixBus } from '@/lib/vocal-hero/voiceSynth';
 import { playableNotes } from '@/lib/vocal-hero/songData';
 import { assignMidiParts, DEFAULT_SATB_MIDI_RANGES, midiSourceKey, normaliseSatbMidiRanges, parseMidiNotes, type ImportedMidiNote, type SatbMidiRanges } from '@/lib/vocal-hero/midi';
 import { assignXmlParts, parseMusicXml, readMusicXmlFile, type MusicXmlImport } from '@/lib/vocal-hero/musicxml';
@@ -77,6 +78,23 @@ function pitchRangeForPart(part: number, notes: SongNote[] = []) {
   return { min: Math.max(0, min), max: Math.min(127, max), natural };
 }
 type EditableSong = Pick<Song, 'id' | 'title' | 'notes' | 'timed_lyrics' | 'backing_media_url' | 'backing_media_kind' | 'backing_track_settings'>;
+
+// One decode per session for each sung take, shared across every play's
+// AudioContext (an AudioBuffer is not tied to the context that decoded it).
+const takeBufferCache = new Map<string, Promise<AudioBuffer | null>>();
+function loadTakeBuffer(url: string): Promise<AudioBuffer | null> {
+  if (!takeBufferCache.has(url)) {
+    takeBufferCache.set(url, (async () => {
+      try {
+        const raw = await fetch(url).then(response => response.ok ? response.arrayBuffer() : null);
+        if (!raw) return null;
+        const scratch = new OfflineAudioContext(1, 8, 44100);
+        return await scratch.decodeAudioData(raw);
+      } catch { return null; }
+    })());
+  }
+  return takeBufferCache.get(url)!;
+}
 type EditorTool = 'select' | 'draw' | 'erase';
 type PlaybackScope = 'all' | 'range' | 'note';
 type ArrangementSnapshot = { title: string; notes: SongNote[]; timedLyrics: TimedLyricSection[]; chordSymbols: Array<{ at: number; symbol: string }>; karaokeLyrics: BackingTrackSettings['karaoke_lyrics']; musicalTimeline: MusicalTimelineSettings; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
@@ -390,6 +408,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [playhead, setPlayhead] = useState<number | null>(0);
   const [collapsedVoices, setCollapsedVoices] = useState([false, false, false, false]);
   const [recording, setRecording] = useState(false);
+  const [uploadingTake, setUploadingTake] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [recordingTake, setRecordingTake] = useState<Blob | null>(null);
   const [transcribingTake, setTranscribingTake] = useState(false);
@@ -2062,6 +2081,20 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         else if (!hold && note.marks?.tenuto) length *= 1.04;
         return { at, length };
       };
+      // REAL singers first: a part with an active sung take is carried by
+      // the recording — the church's own voice — and the choir and the AI
+      // both stay away from it.
+      const activeTakes = (trackSettings.vocal_takes ?? []).filter(take => take.active !== false);
+      let sungTakes: Array<{ take: VocalTake; buffer: AudioBuffer }> = [];
+      if (activeTakes.length) {
+        const firstLoad = activeTakes.some(take => !takeBufferCache.has(take.url));
+        if (firstLoad) setEditorNotice('Loading the sung guides…');
+        const loaded = await Promise.all(activeTakes.map(async take => ({ take, buffer: await loadTakeBuffer(take.url) })));
+        if (audioContextRef.current !== context || (context.state as string) === 'closed') return;
+        sungTakes = loaded.filter((item): item is { take: VocalTake; buffer: AudioBuffer } => item.buffer !== null);
+        if (firstLoad) setEditorNotice(sungTakes.length ? null : 'The sung guides could not load — the choir sings this pass.');
+      }
+      const partsSung = new Set(sungTakes.map(item => Math.max(0, Math.min(3, item.take.part))));
       // The AI CHOIR prepares before anything is scheduled, so the words,
       // the band and any synth voices all start on the same clock. Every
       // part that carries lyrics is sung \u2014 female voice on soprano and
@@ -2070,7 +2103,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       if (previewVoice === 'singer') {
         try {
           const partOf = (note: SongNote) => (note.part === -1 ? 0 : note.part);
-          const partsWithWords = [0, 1, 2, 3].filter(p => preview.some(note => partOf(note) === p && (note.lyric ?? '').trim()));
+          const partsWithWords = [0, 1, 2, 3].filter(p => !partsSung.has(p) && preview.some(note => partOf(note) === p && (note.lyric ?? '').trim()));
           const kinds = [...new Set(partsWithWords.map(p => voiceKindForPart(p)))];
           if (partsWithWords.length && !(await singerVoiceReady(kinds))) {
             setEditorNotice('Downloading the demo choir\u2019s voices \u2014 one time, kept on this device\u2026');
@@ -2113,6 +2146,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         const slideTarget = note.marks?.slide
           ? activePerformance.notes.filter(item => item.part === note.part && item.id !== note.id && item.start >= note.end - 0.05).sort((a, b) => a.start - b.start)[0]?.midi
           : undefined;
+        if (partsSung.has(note.part === -1 ? 0 : note.part)) return;   // a real singer carries this part
         if (singerPreparedByPart && singerPreparedByPart.has(note.part === -1 ? 0 : note.part)) return;   // the AI choir carries this part
         const toned = singerPreparedByPart ? { ...played, velocity: Math.round(played.velocity * 0.55) } : played;
         if (previewVoices) playVoice(context, toned, context.currentTime + at, length / transportRate, slideTarget);
@@ -2123,6 +2157,20 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         for (const [p, prepared] of singerPreparedByPart) {
           playSingerBuffers(context, prepared.map(item => item && { at: base + item.at, buffer: item.buffer }), p === 0 ? 0.9 : 0.55);
         }
+      }
+      // The sung takes play as recorded: real time, no warp — a recording
+      // cannot wait or bend any more than the backing track can.
+      for (const { take, buffer } of sungTakes) {
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.playbackRate.value = transportRate;
+        const gainNode = context.createGain();
+        gainNode.gain.value = take.gain ?? 0.9;
+        source.connect(gainNode);
+        gainNode.connect(mixBus(context));
+        const lead = (take.start - first) / transportRate;
+        if (lead >= 0) source.start(context.currentTime + lead);
+        else if (-lead < buffer.duration) source.start(context.currentTime, -lead);
       }
       // ---- the band: the SAVED guitar and drum styles, on the same warped
       // clock as the voices — what plays here is what the room will hear.
@@ -2211,6 +2259,36 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     } catch (error) { setRecordError(error instanceof Error ? error.message : 'Unable to access the microphone.'); setRecording(false); }
   }
   function playRecordedTake() { if (recordingUrl) void new Audio(recordingUrl).play(); }
+  /** The take stays AUDIO: the singer's own voice becomes that part's sung
+   *  guide in the preview, aligned where the playhead stood when recording
+   *  began. Upload rides the same signed-URL route as the backing track. */
+  async function keepRecordedTake() {
+    if (!recordingTake || uploadingTake) return;
+    setRecordError(null);
+    setUploadingTake(true);
+    try {
+      const extension = (recordingTake.type.split(';')[0].split('/')[1] || 'webm').replace(/[^a-z0-9]/gi, '');
+      const fileName = `sung-take-${VOICES[recordingPart].toLowerCase()}-${Date.now()}.${extension}`;
+      const prepared = await fetch('/api/vocal-hero/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ songId: song.id, fileName, contentType: recordingTake.type || 'audio/webm', size: recordingTake.size }) });
+      const payload = await prepared.json() as { bucket?: string; path?: string; token?: string; publicUrl?: string; error?: string };
+      if (!prepared.ok || !payload.bucket || !payload.path || !payload.token || !payload.publicUrl) throw new Error(payload.error || 'Unable to prepare the take upload.');
+      const { error } = await supabase.storage.from(payload.bucket).uploadToSignedUrl(payload.path, payload.token, recordingTake);
+      if (error) throw new Error(error.message);
+      const url = payload.publicUrl;
+      setTrackSettingsDirty(current => ({
+        ...current,
+        vocal_takes: [
+          ...(current.vocal_takes ?? []),
+          { id: crypto.randomUUID(), part: recordingPart, url, start: recordingTimelineOffset, active: true },
+        ],
+      }));
+      setEditorNotice(`${VOICES[recordingPart]} sung guide saved — the preview now plays this real voice for that part. Press Save to keep it with the song.`);
+    } catch (error) {
+      setRecordError(error instanceof Error ? error.message : 'Unable to save the sung take.');
+    } finally {
+      setUploadingTake(false);
+    }
+  }
   async function convertRecordedTake() {
     if (!recordingTake || transcribingTake) return;
     setRecordError(null);
@@ -2471,8 +2549,26 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Timing
                   <select aria-label="Transcription timing treatment" value={transcriptionSnap ? 'grid' : 'exact'} onChange={event => setTranscriptionSnap(event.target.value === 'grid')} className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] text-white"><option value="grid">Snap to grid</option><option value="exact">As sung</option></select></label>
                 <button onClick={() => void convertRecordedTake()} disabled={transcribingTake} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100 disabled:opacity-40">{transcribingTake ? 'Detecting…' : 'Take → notes'}</button>
+                <button onClick={() => void keepRecordedTake()} disabled={uploadingTake}
+                  title="Keep the take as AUDIO: this real voice sings its part in the preview, aligned where the playhead stood when recording began."
+                  className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 font-semibold text-emerald-100 disabled:opacity-40">{uploadingTake ? 'Saving…' : 'Keep as sung guide'}</button>
               </>}
             </div>
+            {(trackSettings.vocal_takes ?? []).length > 0 && <>
+              <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Sung guides — real voices in the preview</p>
+              <div className="space-y-1">
+                {(trackSettings.vocal_takes ?? []).map(take => <div key={take.id} className="flex items-center gap-2 text-[11px]">
+                  <label className="flex flex-1 items-center gap-1.5 text-slate-300">
+                    <input type="checkbox" checked={take.active !== false}
+                      onChange={event => setTrackSettingsDirty(current => ({ ...current, vocal_takes: (current.vocal_takes ?? []).map(item => item.id === take.id ? { ...item, active: event.target.checked } : item) }))} />
+                    {VOICES[Math.max(0, Math.min(3, take.part))]} · from {formatClock(take.start)}
+                  </label>
+                  <button onClick={() => void new Audio(take.url).play()} className="rounded border border-white/15 px-2 py-0.5 text-emerald-200">▸</button>
+                  <button onClick={() => setTrackSettingsDirty(current => ({ ...current, vocal_takes: (current.vocal_takes ?? []).filter(item => item.id !== take.id) }))}
+                    title="Remove this sung guide from the song" className="rounded border border-white/15 px-2 py-0.5 text-rose-300">✕</button>
+                </div>)}
+              </div>
+            </>}
             <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">The band — saved with the song; heard in preview, practice and rounds</p>
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-1.5 text-slate-400">Instrument
