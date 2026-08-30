@@ -24,7 +24,8 @@ export type ScoreTool = 'select' | 'draw' | 'erase';
 /** A band style id compressed for print: "🎸 folk · 🥁 straight". */
 const shortStyle = (value: string) => value === 'stop' || value === 'off' ? 'tacet'
   : value.replace('melody-gtr', '🎸 melody').replace('melody-pno', '🎹 melody').replace('bass-walk', '🎸 walking bass')
-    .replace('gtr-', '🎸 ').replace('pno-', '🎹 ').replace('drum-', '🥁 ').replace('cajon-', '🪘 ').replace('custom', '✍ custom');
+    .replace('str-held', '🎻 strings').replace('pad-held', '🌫 pad').replace('brs-held', '🎺 brass')
+    .replace('egtr-', '⚡ ').replace('gtr-', '🎸 ').replace('pno-', '🎹 ').replace('drum-', '🥁 ').replace('cajon-', '🪘 ').replace('custom', '✍ custom');
 
 const GAP = 7;
 const STEP = GAP / 2;
