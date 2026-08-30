@@ -94,7 +94,7 @@ function extractCandidateFilter() {
 // ── 1. The predicate itself ────────────────────────────────────────────────
 console.log('Extracted from ' + path.basename(INDEX) + ':');
 
-const fnNames = ['getMemberStatus', 'isAutoSuggestExcluded', '_rotationTagFor'];
+const fnNames = ['getMemberStatus', '_suspensionLapsed', 'isAutoSuggestExcluded', '_rotationTagFor'];
 if (EXPECT_BROKEN) {
   const missing = fnNames.filter(n => !new RegExp('^  function ' + n + '\\s*\\(', 'm').test(src));
   console.log('  (pre-fix source: missing ' + (missing.join(', ') || 'nothing') + ')');
@@ -120,7 +120,7 @@ console.log('  runAutoSuggest candidate filter @ line ' + filter.line);
 function makePredicates(statusByName) {
   const env = { ROSTER_MEMBER_STATUS: statusByName, Object, JSON };
   const body = skipMap.text + '\n' + fnNames.map(n => fns[n].text).join('\n\n') +
-    '\n; return { getMemberStatus, isAutoSuggestExcluded, _rotationTagFor, AUTOSUGGEST_SKIP_STATUS };';
+    '\n; return { getMemberStatus, _suspensionLapsed, isAutoSuggestExcluded, _rotationTagFor, AUTOSUGGEST_SKIP_STATUS };';
   const keys = Object.keys(env);
   return new Function(...keys, body)(...keys.map(k => env[k]));
 }
@@ -166,6 +166,39 @@ console.log('\nScenario 2 - the badge that makes the exclusion visible');
     return probe._rotationTagFor('X') === null;
   });
   check('every skipped status carries a badge', unlabelled, []);
+}
+
+console.log('\nScenario 2b - a suspension that has run out');
+{
+  // Enablers writes the suspension end month as "YYYY-MM", and nothing read
+  // it back until status started excluding people. Left unread, a suspension
+  // that lapsed months ago would keep someone out of every automatic pick
+  // indefinitely -- silently, since the only symptom is a name that quietly
+  // stops appearing. Judged against the month being ROSTERED, not today, so
+  // filling April includes someone whose suspension ran to March.
+  const api = makePredicates({
+    Ends3:     { status: 'suspended',  suspendedTo: '2026-03' },
+    OpenEnded: { status: 'suspended' },
+    Junk:      { status: 'suspended',  suspendedTo: 'not-a-month' },
+    Gone:      { status: 'inactive',   suspendedTo: '2020-01' },
+    Occ:       { status: 'occasional', suspendedTo: '2020-01' }
+  });
+  check('inside the window   -> skipped', api.isAutoSuggestExcluded('Ends3', 2026, 1), true);
+  check('final month itself  -> skipped', api.isAutoSuggestExcluded('Ends3', 2026, 2), true);
+  check('the month after     -> allowed', api.isAutoSuggestExcluded('Ends3', 2026, 3), false);
+  check('the following year  -> allowed', api.isAutoSuggestExcluded('Ends3', 2027, 0), false);
+  check('an earlier year     -> skipped', api.isAutoSuggestExcluded('Ends3', 2025, 11), true);
+  check('no end date         -> skipped', api.isAutoSuggestExcluded('OpenEnded', 2099, 0), true);
+  check('unparseable date    -> skipped', api.isAutoSuggestExcluded('Junk', 2099, 0), true);
+  check('no month supplied   -> skipped', api.isAutoSuggestExcluded('Ends3'), true);
+  // The end date belongs to suspension alone; it must not readmit anyone else.
+  check('inactive ignores suspendedTo',   api.isAutoSuggestExcluded('Gone', 2099, 0), true);
+  check('occasional ignores suspendedTo', api.isAutoSuggestExcluded('Occ', 2099, 0), true);
+  // A badge that outlives the rule is worse than no badge: it would say
+  // "Stood down" about someone Auto-Suggest is already rostering again.
+  check('badge inside the window', (api._rotationTagFor('Ends3', 2026, 1) || {}).label, 'Stood down');
+  check('badge lapses with the rule', api._rotationTagFor('Ends3', 2026, 3), null);
+  check('open-ended stays badged', (api._rotationTagFor('OpenEnded', 2099, 0) || {}).label, 'Stood down');
 }
 
 // ── 3. The filter as runAutoSuggest actually runs it ───────────────────────
