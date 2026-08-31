@@ -80730,6 +80730,22 @@ function filterLiturgyItems() {
     }, 3000);
   }
 
+  // The other way a roster edit could disappear: close the tab inside that
+  // 3-second window and the save never happens. Nothing can be awaited during
+  // unload, so the honest move is to let the browser ask. pagehide covers iOS
+  // Safari, where beforeunload is unreliable -- it cannot prompt, but a
+  // best-effort save is better than certain loss.
+  window.addEventListener('beforeunload', function(e) {
+    if (!STATE.rosterHasUnsaved || !STATE.rosterEdits.size) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
+  window.addEventListener('pagehide', function() {
+    if (STATE.rosterHasUnsaved && STATE.rosterEdits.size && window.RosterEngine) {
+      try { window.RosterEngine.saveChanges(true); } catch (err) {}
+    }
+  });
+
   // Roster emoji lookup — avoids literal multi-byte chars that clasp corrupts on Windows
   var _re = {
     cal:    String.fromCodePoint(0x1F4C5),
@@ -80982,8 +80998,16 @@ function filterLiturgyItems() {
       }
       html += '</select>';
       monthTitle.innerHTML = html;
-      document.getElementById('rosterMonthDropdown').onchange = function() { STATE.rosterMonth = parseInt(this.value); self.onMonthYearChange(); };
-      document.getElementById('rosterYearDropdown').onchange = function() { STATE.rosterYear = parseInt(this.value); self.onMonthYearChange(); };
+      // Same flush-before-switch rule as the arrows -- the month dropdowns
+      // were another way to walk away from unsaved edits.
+      document.getElementById('rosterMonthDropdown').onchange = function() {
+        var v = parseInt(this.value);
+        self._flushThenSwitch(function() { STATE.rosterMonth = v; });
+      };
+      document.getElementById('rosterYearDropdown').onchange = function() {
+        var v = parseInt(this.value);
+        self._flushThenSwitch(function() { STATE.rosterYear = v; });
+      };
     },
 
     onMonthYearChange: function() {
@@ -80994,6 +81018,11 @@ function filterLiturgyItems() {
       if (STATE.rosterOriginalValues) STATE.rosterOriginalValues.clear();
       STATE.rosterCellTimestamps.clear();
       STATE.rosterPendingCells.clear();
+      // The edits are gone either way at this point; leaving the flag set kept
+      // "Unsaved changes" on screen for a month that has none, and armed a
+      // pointless auto-save of freshly-loaded data.
+      clearTimeout(_rAutoSaveTimer);
+      this.clearUnsaved();
       this.showLoader(true);
       this.loadRosterData().then(function() { self.render(); }).catch(function(err) { console.error('Failed:', err); self.render(); }).finally(function() { self.showLoader(false); });
     },
@@ -82023,15 +82052,39 @@ function filterLiturgyItems() {
       }
     },
 
+    // Leaving a month throws away STATE.rosterEdits (see onMonthYearChange),
+    // and auto-save is on a 3-second debounce -- so an edit made and a month
+    // flipped in the same breath simply vanished. No error, no warning, and
+    // the stale timer then fired a save of the month you had just ARRIVED at,
+    // which looked like a successful save of nothing.
+    //
+    // Every month/year switch now flushes first. The flush has to finish
+    // BEFORE the month is changed, not inside onMonthYearChange: saveChanges
+    // stamps whatever STATE.rosterMonth says at the moment it runs, so
+    // flushing afterwards would file the old month's edits under the new one.
+    // If the save fails we stay put rather than switching, because switching
+    // is what destroys the edits.
+    _flushThenSwitch: function(mutate) {
+      var self = this;
+      var go = function() { mutate(); self.onMonthYearChange(); };
+      if (!STATE.rosterHasUnsaved || !STATE.rosterEdits.size) { go(); return; }
+      clearTimeout(_rAutoSaveTimer);
+      this.saveChanges(true).then(go, function(err) {
+        console.error('[roster] flush before month switch failed:', err);
+        self.showToast('Could not save your changes, so this month is staying open. Try Save again.', 'error');
+      });
+    },
+
     changeMonth: function(direction) {
-      STATE.rosterMonth += direction;
-      if (STATE.rosterMonth > 11) { STATE.rosterMonth = 0; STATE.rosterYear++; }
-      else if (STATE.rosterMonth < 0) { STATE.rosterMonth = 11; STATE.rosterYear--; }
-      var monthDD = document.getElementById('rosterMonthDropdown');
-      var yearDD = document.getElementById('rosterYearDropdown');
-      if (monthDD) monthDD.value = STATE.rosterMonth;
-      if (yearDD) yearDD.value = STATE.rosterYear;
-      this.onMonthYearChange();
+      this._flushThenSwitch(function() {
+        STATE.rosterMonth += direction;
+        if (STATE.rosterMonth > 11) { STATE.rosterMonth = 0; STATE.rosterYear++; }
+        else if (STATE.rosterMonth < 0) { STATE.rosterMonth = 11; STATE.rosterYear--; }
+        var monthDD = document.getElementById('rosterMonthDropdown');
+        var yearDD = document.getElementById('rosterYearDropdown');
+        if (monthDD) monthDD.value = STATE.rosterMonth;
+        if (yearDD) yearDD.value = STATE.rosterYear;
+      });
     },
 
     editCell: function(td) {
