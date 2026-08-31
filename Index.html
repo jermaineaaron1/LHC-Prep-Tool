@@ -25604,23 +25604,62 @@ var SBQ_ROSTER = {
   },
 
   // Log roster changes to roster_changes table
-  logChanges: function(changes) {
+  // The log now records WHO and WHICH MONTH.
+  //
+  // Without an author, "someone else changed this" is all the roster can ever
+  // say, and two PICs working the same Sunday cannot tell whose call was whose.
+  // month/year were columns that nothing ever filled, which made the history
+  // impossible to query by month -- a real obstacle when reconstructing the
+  // eight duties lost on 31 Aug.
+  //
+  // changed_by is sent optimistically and dropped on retry if the column is not
+  // there yet, so this works before and after the migration is applied
+  // (migrations/2026-08-31_add_roster_changes_author.sql). Losing the author is
+  // survivable; losing the log entry is not.
+  logChanges: function(changes, who, month, year) {
     var sb = SBQ_ROSTER._sb();
     if (!sb || !changes || !changes.length) return Promise.resolve();
     var now = new Date().toISOString();
-    var rows = changes.map(function(c) {
+    var base = changes.map(function(c) {
       return {
         role_id:      c.roleId,
         service_date: c.date,
         old_value:    c.oldValue || '',
         new_value:    c.newValue || '',
+        month:        (month === undefined ? null : month),
+        year:         (year === undefined ? null : year),
         changed_at:   now
       };
     });
-    return sb.from('roster_changes').insert(rows)
-      .then(function(r) {
-        if (r.error) console.warn('roster_changes log error:', r.error.message);
+    var withAuthor = base.map(function(r) {
+      var o = {}; for (var k in r) o[k] = r[k];
+      o.changed_by = who || '';
+      return o;
+    });
+    return sb.from('roster_changes').insert(withAuthor).then(function(r) {
+      if (!r.error) return;
+      return sb.from('roster_changes').insert(base).then(function(r2) {
+        if (r2.error) console.warn('roster_changes log error:', r2.error.message);
       });
+    });
+  },
+
+  // Recent history for ONE cell, newest first -- who set what, and when.
+  // Scoped to the last hour: this exists to explain a collision that is
+  // happening right now, not to be a full audit trail.
+  getCellHistory: function(roleId, date) {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.resolve([]);
+    var since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    return sb.from('roster_changes').select('*')
+      .eq('role_id', roleId).eq('service_date', date).gte('changed_at', since)
+      .order('changed_at', { ascending: false }).limit(8)
+      .then(function(r) {
+        if (r.error) return [];
+        return (r.data || []).map(function(row) {
+          return { who: row.changed_by || '', value: row.new_value, at: row.changed_at };
+        });
+      }).catch(function() { return []; });
   },
 
   // Add a name suggestion for a category
@@ -81370,10 +81409,20 @@ function filterLiturgyItems() {
           var theirs = self._norm4(server[key]);
           var mine = self._norm4(e.value);
           // Someone else moved it, and not to the same value we were writing.
-          if (theirs !== loaded && theirs !== mine) conflicts.push({ key: key, edit: e, mine: mine, theirs: theirs, loaded: loaded });
-          else safe.push(e);
+          if (theirs !== loaded && theirs !== mine) {
+            conflicts.push({ key: key, edit: e, mine: mine, theirs: theirs, loaded: loaded,
+              mineAt: STATE.rosterCellTimestamps.get(key) || new Date().toISOString(), history: [] });
+          } else safe.push(e);
         });
-        return { conflicts: conflicts, safe: safe };
+        if (!conflicts.length) return { conflicts: conflicts, safe: safe };
+        // Who changed each contested cell, and when. Answering "someone else
+        // edited this" with a name and a time is the difference between a
+        // decision and a guess.
+        return Promise.all(conflicts.map(function(c) {
+          return SBQ_ROSTER.getCellHistory(c.edit.roleId, c.edit.date)
+            .then(function(h) { c.history = h || []; })
+            .catch(function() { c.history = []; });
+        })).then(function() { return { conflicts: conflicts, safe: safe }; });
       }).catch(function(err) {
         // A failed read must not block saving -- fall back to the old
         // behaviour rather than stranding the PIC with unsaved work.
@@ -81386,17 +81435,43 @@ function filterLiturgyItems() {
       var self = this;
       var existing = document.getElementById('rosterConflictModal');
       if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      var when = function(iso) {
+        try {
+          var t = new Date(iso), s = Math.round((Date.now() - t.getTime()) / 1000);
+          if (s < 60) return 'just now';
+          if (s < 3600) return Math.round(s / 60) + ' min ago';
+          return t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch (e) { return ''; }
+      };
       var rowsHtml = conflicts.map(function(c, i) {
         var role = self._roleWord(c.edit.roleId);
+        // Who has touched this cell recently, newest first. Entries written
+        // before the author column existed read as "someone" rather than a
+        // made-up name.
+        var hist = (c.history || []).map(function(h) {
+          return '<div style="display:flex;gap:6px;font-size:0.72rem;color:#6b7280;padding:1px 0;">' +
+            '<span style="min-width:60px;color:#9ca3af;">' + self.escapeHtml(when(h.at)) + '</span>' +
+            '<span><b style="color:#4b5563;">' + self.escapeHtml(h.who || 'someone') + '</b> set ' +
+            self.escapeHtml(h.value || '(blank)') + '</span></div>';
+        }).join('');
+        // Default to whichever edit actually happened LAST -- theirs on the
+        // server or yours in front of you.
+        var theirsAt = (c.history && c.history.length) ? c.history[0].at : null;
+        var mineIsNewer = !theirsAt || (new Date(c.mineAt).getTime() >= new Date(theirsAt).getTime());
+        var theirWho = (c.history && c.history.length && c.history[0].who) ? c.history[0].who : 'someone else';
         return '<div style="padding:10px 0;border-bottom:1px solid #f1f5f9;">' +
-          '<div style="font-size:0.8rem;font-weight:700;color:#1f2933;margin-bottom:6px;">' +
+          '<div style="font-size:0.8rem;font-weight:700;color:#1f2933;margin-bottom:4px;">' +
             self.escapeHtml(role) + ' &middot; ' + self.escapeHtml(c.edit.date) + '</div>' +
-          '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:0.82rem;color:#374151;">' +
-            '<input type="radio" name="rc' + i + '" value="theirs" checked>' +
-            '<span>Keep <b>' + self.escapeHtml(c.theirs || '(blank)') + '</b> <span style="color:#6b7280;">- saved by someone else</span></span></label>' +
-          '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:0.82rem;color:#374151;">' +
-            '<input type="radio" name="rc' + i + '" value="mine">' +
-            '<span>Use <b>' + self.escapeHtml(c.mine || '(blank)') + '</b> <span style="color:#6b7280;">- your change</span></span></label>' +
+          (hist ? '<div style="margin:0 0 7px;padding:6px 8px;background:#f8fafc;border-radius:7px;">' + hist + '</div>' : '') +
+          '<label style="display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font-size:0.82rem;color:#374151;">' +
+            '<input type="radio" name="rc' + i + '" value="mine"' + (mineIsNewer ? ' checked' : '') + '>' +
+            '<span>Use <b>' + self.escapeHtml(c.mine || '(blank)') + '</b> <span style="color:#6b7280;">- yours, ' +
+              self.escapeHtml(when(c.mineAt)) + (mineIsNewer ? ' (latest)' : '') + '</span></span></label>' +
+          '<label style="display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font-size:0.82rem;color:#374151;">' +
+            '<input type="radio" name="rc' + i + '" value="theirs"' + (mineIsNewer ? '' : ' checked') + '>' +
+            '<span>Keep <b>' + self.escapeHtml(c.theirs || '(blank)') + '</b> <span style="color:#6b7280;">- ' +
+              self.escapeHtml(theirWho) + (theirsAt ? ', ' + self.escapeHtml(when(theirsAt)) : '') +
+              (mineIsNewer ? '' : ' (latest)') + '</span></span></label>' +
         '</div>';
       }).join('');
       var overlay = document.createElement('div');
@@ -81411,7 +81486,7 @@ function filterLiturgyItems() {
           '<div style="padding:14px 20px 4px;flex:1;overflow-y:auto;">' +
             '<p style="margin:0 0 8px;font-size:0.85rem;color:#1f2933;line-height:1.5;">' +
               (conflicts.length === 1 ? 'This duty was' : 'These ' + conflicts.length + ' duties were') +
-              ' changed by someone else while you were working. Nothing has been overwritten - choose which to keep.</p>' +
+              ' changed by someone else while you were working. Nothing has been overwritten - the most recent edit is preselected below.</p>' +
             rowsHtml +
           '</div>' +
           '<div style="display:flex;padding:12px 20px;border-top:1px solid #f1f5f9;justify-content:space-between;gap:10px;flex-shrink:0;align-items:center;">' +
@@ -85038,7 +85113,7 @@ function filterLiturgyItems() {
         var syncStatus = document.getElementById('rosterSyncStatus');
         if (syncStatus) syncStatus.textContent = 'Last synced: ' + new Date().toLocaleTimeString();
         // Log changes to roster_changes then immediately refresh sidebar
-        SBQ_ROSTER.logChanges(changeLogs).then(function() {
+        SBQ_ROSTER.logChanges(changeLogs, STATE.picName, STATE.rosterMonth, STATE.rosterYear).then(function() {
           if (typeof loadRosterUpdates === 'function') loadRosterUpdates();
         });
         // Push only the cells that actually changed to Google Calendar right
