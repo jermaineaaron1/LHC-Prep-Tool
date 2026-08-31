@@ -2389,6 +2389,27 @@
     #worshipRosterView .roster-status-pill.pic-only { display: none; }
     body.pic-mode #worshipRosterView .roster-status-pill.pic-only { display: inline-flex; }
 
+    /* Per-CELL confirm. A pending cell carries its own tick, so approving one
+       assignment is a single tap on the thing you just changed -- no menu, no
+       row button, no month-wide dialog. PIC-only, and only rendered while the
+       cell is actually pending. */
+    #worshipRosterView .roster-cell-confirm.pic-only { display: none; }
+    body.pic-mode #worshipRosterView .roster-cell-confirm.pic-only { display: inline-flex; }
+    #worshipRosterView .roster-cell-confirm {
+      align-items: center; justify-content: center;
+      width: 20px; height: 20px; margin-left: 4px; padding: 0;
+      border: 1px solid #7dd3c8; border-radius: 6px;
+      background: #ecfdf5; color: #0f766e;
+      font-size: 10px; line-height: 1; cursor: pointer; vertical-align: middle;
+    }
+    #worshipRosterView .roster-cell-confirm:hover { background: #0d9488; border-color: #0d9488; color: #fff; }
+    #worshipRosterView .roster-cell-confirm:focus-visible { outline: 2px solid #0d9488; outline-offset: 1px; }
+    /* The cell you just edited: a soft ring, so Enter has a visible target. */
+    #worshipRosterView td.roster-cell-just-edited { box-shadow: inset 0 0 0 2px rgba(13,148,136,.55); }
+    @media (max-width: 768px) {
+      #worshipRosterView .roster-cell-confirm { width: 26px; height: 26px; font-size: 12px; }
+    }
+
     /* Per-duty confirm, in the duty column. Only a PIC can confirm, and the
        button is only rendered while the row has pending cells, so between the
        two rules it appears exactly when it is usable. */
@@ -25731,6 +25752,72 @@ var SBQ_ROSTER = {
   // an explicit per-field picker when both spellings had different saved
   // contact info) -- this function never guesses or auto-resolves a
   // phone/email conflict itself.
+  // Rename one person everywhere, keeping who they are.
+  //
+  // This is NOT mergeNames: that folds two people into one and deliberately
+  // re-decides the survivor's phone/email. A rename is the same person spelled
+  // correctly, so every field of their member record travels with them.
+  //
+  // It also has to reach INSIDE shared cells. "Kim Chon / Someone" does not
+  // match `.eq('value', 'Kim Chon')`, so a plain equality update would rename
+  // the person everywhere except the duties they share -- the exact places a
+  // half-renamed person is hardest to spot.
+  renameMember: function(oldName, newName) {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    var errors = [];
+    var SEP = / +\/ +| +& +| +and +/i;
+    var norm = function(s) { return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+    var target = norm(oldName);
+
+    // 1. roster cells -- whole-cell matches and shared cells alike
+    return sb.from('roster').select('id,value').ilike('value', '%' + oldName + '%')
+      .then(function(r) {
+        if (r.error) { errors.push('roster read: ' + r.error.message); return; }
+        var updates = [];
+        (r.data || []).forEach(function(row) {
+          var people = String(row.value || '').split(SEP).map(function(s) { return s.trim(); }).filter(Boolean);
+          if (!people.some(function(p) { return norm(p) === target; })) return;
+          var rebuilt = people.map(function(p) { return norm(p) === target ? newName : p; }).join(' / ');
+          if (rebuilt !== row.value) updates.push({ id: row.id, value: rebuilt });
+        });
+        return Promise.all(updates.map(function(u) {
+          return sb.from('roster').update({ value: u.value }).eq('id', u.id)
+            .then(function(x) { if (x.error) errors.push('roster ' + u.id + ': ' + x.error.message); });
+        })).then(function() { return updates.length; });
+      })
+      .then(function(cellsChanged) {
+        // 2. every duty list the old spelling appears in
+        return sb.from('roster_names').select('category').eq('name', oldName).then(function(r) {
+          if (r.error) { errors.push('roster_names read: ' + r.error.message); return cellsChanged; }
+          var cats = (r.data || []).map(function(x) { return x.category; });
+          return Promise.all(cats.map(function(cat) {
+            return sb.from('roster_names').upsert({ category: cat, name: newName }, { onConflict: 'category,name' })
+              .then(function() { return sb.from('roster_names').delete().eq('category', cat).eq('name', oldName); })
+              .then(function(x) { if (x && x.error) errors.push('roster_names ' + cat + ': ' + x.error.message); });
+          })).then(function() { return cellsChanged; });
+        });
+      })
+      .then(function(cellsChanged) {
+        // 3. the member record, carried over whole
+        return sb.from('roster_member_meta').select('*').eq('name', oldName).maybeSingle().then(function(r) {
+          if (r.error || !r.data) return cellsChanged;
+          var row = r.data; row.name = newName; row.updated_at = new Date().toISOString();
+          return sb.from('roster_member_meta').upsert(row, { onConflict: 'name' })
+            .then(function(x) { if (x.error) { errors.push('member record: ' + x.error.message); return; }
+              return sb.from('roster_member_meta').delete().eq('name', oldName); })
+            .then(function() { return cellsChanged; });
+        });
+      })
+      .then(function(cellsChanged) {
+        // 4. any away periods they have booked
+        return sb.from('roster_unavailability').update({ name: newName }).eq('name', oldName)
+          .then(function(x) { if (x.error) errors.push('unavailability: ' + x.error.message); })
+          .catch(function(e) { errors.push('unavailability: ' + e.message); })
+          .then(function() { return { success: errors.length === 0, errors: errors, cellsChanged: cellsChanged || 0 }; });
+      });
+  },
+
   mergeNames: function(oldName, newName, resolvedPhone, resolvedEmail) {
     var sb = SBQ_ROSTER._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
@@ -81118,9 +81205,10 @@ function filterLiturgyItems() {
               var isPending = isRoleCell && STATE.rosterPendingCells.has(cellKey);
               var cellClass = (hasValue ? 'roster-cell-edited' : '') + (isRoleCell ? ' roster-role-cell' : '') + (isPending ? ' roster-cell-pending' : '');
               var dropdownIcon = isRoleCell ? '<span class="roster-cell-dropdown-icon"' + (isBlankCell ? ' style="color:#9ca3af;"' : '') + '><i class="fa-solid fa-caret-down"></i></span>' : '';
-              var pendingIcon = isPending ? '<span class="roster-cell-pending-icon" title="Auto-suggested — awaiting PIC confirmation">⏳</span>' : '';
+              var pendingIcon = isPending ? '<span class="roster-cell-pending-icon" title="Awaiting confirmation — nothing has reached a calendar yet">⏳</span>' : '';
+              var confirmTick = isPending ? self._cellConfirmHtml(cellKey) : '';
               var blankStyle = isBlankCell ? ' style="background:#4b5563;"' : '';
-              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + cellClass + '"' + blankStyle + '><span class="roster-cell-value"' + (isBlankCell ? ' style="color:#d1d5db;"' : '') + '>' + self.escapeHtml(value) + '</span>' + pendingIcon + dropdownIcon + '</td>';
+              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + cellClass + '"' + blankStyle + '><span class="roster-cell-value"' + (isBlankCell ? ' style="color:#d1d5db;"' : '') + '>' + self.escapeHtml(value) + '</span>' + pendingIcon + confirmTick + dropdownIcon + '</td>';
             }
           });
           bodyHtml += '</tr>';
@@ -81128,6 +81216,8 @@ function filterLiturgyItems() {
       });
       tbody.innerHTML = bodyHtml;
       this.bindCellEvents();
+      this._bindCellConfirmClicks();
+      this._bindConfirmHotkey();
 
       if (typeof this.applyMobileVisibility === 'function') this.applyMobileVisibility(serviceDays);     // Run anti-clashing detection on render
       this.checkClashes(null);
@@ -81151,6 +81241,73 @@ function filterLiturgyItems() {
       e.preventDefault();
       var el = e.currentTarget || e.target;
       if (el && el.click) el.click();
+    },
+
+    // The tick that lives inside a pending cell.
+    // The tick that lives inside a pending cell. No inline onclick: the tick is
+    // inserted from two places (render's HTML string and _refreshCellPendingVisual's
+    // DOM path), so one delegated listener on the tbody covers both and there is
+    // no cell key to escape into an attribute.
+    _cellConfirmHtml: function(cellKey) {
+      var label = 'Confirm this assignment and notify their calendar';
+      return '<button type="button" class="roster-cell-confirm pic-only"' +
+        ' data-confirm-key="' + this.escapeHtml(cellKey) + '"' +
+        ' title="' + label + '" aria-label="' + label + '"><i class="fa-solid fa-check"></i></button>';
+    },
+
+    _bindCellConfirmClicks: function() {
+      if (this._cellConfirmBound) return;
+      var tbody = document.getElementById('rosterTbody');
+      if (!tbody) return;
+      this._cellConfirmBound = true;
+      var self = this;
+      tbody.addEventListener('click', function(e) {
+        var btn = e.target && e.target.closest ? e.target.closest('.roster-cell-confirm') : null;
+        if (!btn) return;
+        e.stopPropagation();
+        e.preventDefault();
+        var key = btn.getAttribute('data-confirm-key');
+        if (key) self.confirmCellByKey(key);
+      });
+    },
+
+    confirmCellByKey: function(cellKey) {
+      if (!STATE.picMode) return;
+      this._justEditedKey = null;
+      this._markJustEdited(null);
+      this.confirmPendingCells([cellKey], null);
+    },
+
+    // Ring on the cell just changed, so Enter has a target you can see.
+    _markJustEdited: function(key) {
+      var tbody = document.getElementById('rosterTbody');
+      if (tbody) tbody.querySelectorAll('td.roster-cell-just-edited')
+        .forEach(function(td) { td.classList.remove('roster-cell-just-edited'); });
+      if (!key) return;
+      var td = this._cellByKey(key);
+      if (td) td.classList.add('roster-cell-just-edited');
+    },
+
+    // Enter confirms the cell you just changed. Deliberately narrow: it only
+    // ever acts on THAT one cell, it forgets it the moment anything else
+    // happens, and it stands down while a field has focus so typing a name
+    // never doubles as approving it.
+    _bindConfirmHotkey: function() {
+      if (this._confirmHotkeyBound) return;
+      this._confirmHotkeyBound = true;
+      var self = this;
+      document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+        if (!STATE.picMode || !self._justEditedKey) return;
+        var t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+        if (document.querySelector('.roster-name-panel')) return;   // picker still open
+        var view = document.getElementById('worshipRosterView');
+        if (!view || view.classList.contains('hidden') || view.offsetParent === null) return;
+        if (!STATE.rosterPendingCells.has(self._justEditedKey)) { self._justEditedKey = null; return; }
+        e.preventDefault();
+        self.confirmCellByKey(self._justEditedKey);
+      });
     },
 
     _cellByKey: function(key) {
@@ -82227,6 +82384,10 @@ function filterLiturgyItems() {
         STATE.rosterCellTimestamps.set(key, timestamp);
         td.setAttribute('data-timestamp', timestamp);
         self._refreshCellPendingVisual(key);
+        // Enter now confirms this cell -- see _bindConfirmHotkey.
+        self._justEditedKey = stayPending ? key : null;
+        self._markJustEdited(self._justEditedKey);
+        self._bindConfirmHotkey();
         _rPushUndo(key, oldVal, newValue, wasPending, stayPending);
 
         // Communion Assistant 1 mirrors the Liturgist (see the cascade in
@@ -82516,6 +82677,22 @@ function filterLiturgyItems() {
             };
             nameRow.appendChild(unavailBtn);
 
+            // Rename. The rename has always existed, but only as a double-click
+            // on the row -- undiscoverable, and on a phone not reachable at all.
+            var renameBtn = document.createElement('button');
+            renameBtn.className = 'roster-np-btn';
+            renameBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+            renameBtn.title = 'Correct the spelling of "' + name + '" everywhere';
+            renameBtn.setAttribute('aria-label', 'Rename ' + name);
+            renameBtn.style.color = '#cbd5e1';
+            renameBtn.onmouseenter = function() { renameBtn.style.background = '#eef2ff'; renameBtn.style.color = '#4f46e5'; };
+            renameBtn.onmouseleave = function() { renameBtn.style.background = 'transparent'; renameBtn.style.color = '#cbd5e1'; };
+            renameBtn.onclick = function(e) {
+              e.stopPropagation();
+              if (nameRow.ondblclick) nameRow.ondblclick(e);
+            };
+            nameRow.appendChild(renameBtn);
+
             // Delete from list button
             var delBtn = document.createElement('button');
             delBtn.className = 'roster-np-btn';
@@ -82534,6 +82711,74 @@ function filterLiturgyItems() {
             };
             nameRow.appendChild(delBtn);
 
+            // Renaming is assigned outside the availability branch on purpose:
+            // it used to live inside it, so someone marked away could not be
+            // renamed at all -- and the pencil beside their name would have done
+            // nothing at all when clicked.
+              // Double-click to rename
+              nameRow.ondblclick = function(e) {
+                e.stopPropagation(); e.preventDefault();
+                var editInput = document.createElement('input');
+                editInput.type = 'text'; editInput.value = name;
+                editInput.style.cssText = 'flex:1;padding:3px 6px;border:1px solid #4a6da7;border-radius:4px;font-size:13px;outline:none;min-width:0;';
+                nameRow.innerHTML = ''; nameRow.style.cursor = 'default';
+                nameRow.onclick = null; nameRow.ondblclick = null;
+                nameRow.appendChild(editInput);
+                var editSaveBtn = document.createElement('button');
+                editSaveBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                editSaveBtn.style.cssText = 'width:24px;height:24px;border:none;background:#4a6da7;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:4px;font-size:11px;flex-shrink:0;margin-left:4px;';
+                nameRow.appendChild(editSaveBtn);
+                editInput.focus(); editInput.select();
+                var confirmEdit = function() {
+                  var newName = editInput.value.trim();
+                  if (!newName || newName === name) { buildDropdownPanel(true); return; }
+                  // What this USED to do: removeNameFromRole + addNameToRole.
+                  // removeNameFromRole calls cascadeBlankName, which blanks every
+                  // roster cell holding that name -- so "renaming" someone quietly
+                  // erased them from every duty they had, past and future, and only
+                  // fixed the spelling in the one list you were looking at.
+                  //
+                  // renameMember carries the person across instead: their duties
+                  // (including ones they share), every duty list they are on, their
+                  // member record whole, and their away periods.
+                  self.showToast('Renaming "' + name + '" to "' + newName + '"...', 'info');
+                  SBQ_ROSTER.renameMember(name, newName).then(function(res) {
+                    // keep the in-memory lists in step so the picker and the table
+                    // agree with the database without a reload
+                    Object.keys(ROSTER_NAME_OPTIONS).forEach(function(cat) {
+                      var list = ROSTER_NAME_OPTIONS[cat] || [];
+                      var i = list.indexOf(name);
+                      if (i !== -1) { list.splice(i, 1); if (!list.includes(newName)) list.push(newName); list.sort(); }
+                    });
+                    if (ROSTER_MEMBER_STATUS[name]) {
+                      ROSTER_MEMBER_STATUS[newName] = ROSTER_MEMBER_STATUS[name];
+                      delete ROSTER_MEMBER_STATUS[name]; saveMemberStatus();
+                    }
+                    if (ROSTER_UNAVAILABILITY[name]) {
+                      ROSTER_UNAVAILABILITY[newName] = ROSTER_UNAVAILABILITY[name];
+                      delete ROSTER_UNAVAILABILITY[name]; saveUnavailability();
+                    }
+                    if (res && res.success === false) {
+                      self.showToast('Renamed, but some records did not update: ' + (res.errors || []).join('; '), 'warning');
+                    } else {
+                      self.showToast('Renamed "' + name + '" to "' + newName + '" in ' +
+                        (res && res.cellsChanged ? res.cellsChanged + ' duty cell' + (res.cellsChanged === 1 ? '' : 's') : 'the name lists'), 'success');
+                    }
+                    cancelSelect();
+                    self.onMonthYearChange();   // reload this month so the table shows the new spelling
+                  }).catch(function(err) {
+                    self.showToast('Rename failed: ' + err.message, 'error');
+                    buildDropdownPanel(true);
+                  });
+                };
+                editSaveBtn.onclick = function(ev) { ev.stopPropagation(); confirmEdit(); };
+                editInput.onkeydown = function(ev) {
+                  ev.stopPropagation();
+                  if (ev.key === 'Enter') { ev.preventDefault(); confirmEdit(); }
+                  if (ev.key === 'Escape') { ev.preventDefault(); buildDropdownPanel(true); }
+                };
+                editInput.onclick = function(ev) { ev.stopPropagation(); };
+              };
             if (!isUnavail) {
               nameRow.onmouseenter = function() { if (!isSelected) nameRow.style.background = '#f0fdfa'; };
               nameRow.onmouseleave = function() { if (!isSelected) nameRow.style.background = isSelected ? '#eff6ff' : ''; };
@@ -82552,36 +82797,6 @@ function filterLiturgyItems() {
                   return;
                 }
                 saveSelect(name);
-              };
-              // Double-click to rename
-              nameRow.ondblclick = function(e) {
-                e.stopPropagation(); e.preventDefault();
-                var editInput = document.createElement('input');
-                editInput.type = 'text'; editInput.value = name;
-                editInput.style.cssText = 'flex:1;padding:3px 6px;border:1px solid #4a6da7;border-radius:4px;font-size:13px;outline:none;min-width:0;';
-                nameRow.innerHTML = ''; nameRow.style.cursor = 'default';
-                nameRow.onclick = null; nameRow.ondblclick = null;
-                nameRow.appendChild(editInput);
-                var editSaveBtn = document.createElement('button');
-                editSaveBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
-                editSaveBtn.style.cssText = 'width:24px;height:24px;border:none;background:#4a6da7;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:4px;font-size:11px;flex-shrink:0;margin-left:4px;';
-                nameRow.appendChild(editSaveBtn);
-                editInput.focus(); editInput.select();
-                var confirmEdit = function() {
-                  var newName = editInput.value.trim();
-                  if (newName && newName !== name) {
-                    removeNameFromRole(category, name); addNameToRole(category, newName);
-                    self.showToast('Renamed "' + name + '" to "' + newName + '"', 'success');
-                  }
-                  buildDropdownPanel(true);
-                };
-                editSaveBtn.onclick = function(ev) { ev.stopPropagation(); confirmEdit(); };
-                editInput.onkeydown = function(ev) {
-                  ev.stopPropagation();
-                  if (ev.key === 'Enter') { ev.preventDefault(); confirmEdit(); }
-                  if (ev.key === 'Escape') { ev.preventDefault(); buildDropdownPanel(true); }
-                };
-                editInput.onclick = function(ev) { ev.stopPropagation(); };
               };
             } else {
               // Unavailable — click shows info
@@ -86288,6 +86503,17 @@ function filterLiturgyItems() {
       if (!td) return;
       var isPending = STATE.rosterPendingCells.has(key);
       td.classList.toggle('roster-cell-pending', isPending);
+      // the in-cell tick follows the same flag
+      var tick = td.querySelector('.roster-cell-confirm');
+      if (isPending && !tick) {
+        var caret = td.querySelector('.roster-cell-dropdown-icon');
+        var holder = document.createElement('span');
+        holder.innerHTML = this._cellConfirmHtml(key);
+        var btn = holder.firstChild;
+        if (caret) td.insertBefore(btn, caret); else td.appendChild(btn);
+      } else if (!isPending && tick) {
+        tick.remove();
+      }
       var existingIcon = td.querySelector('.roster-cell-pending-icon');
       if (isPending && !existingIcon) {
         var icon = document.createElement('span');
