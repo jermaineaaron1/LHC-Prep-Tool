@@ -2856,15 +2856,15 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   title="Drop on a note to silence the whole band from that bar (until the next instruction)"
                   className="cursor-grab select-none rounded-lg border border-white/15 px-2.5 py-1 font-semibold text-slate-300 active:cursor-grabbing">🚫 Clear</span>
                 <button type="button" onClick={() => setSuggestOpen(open => !open)} aria-expanded={suggestOpen}
-                  title="Arrange the whole song in a style \u2014 the band grows and settles across the song instead of strumming one pattern throughout"
-                  className={`rounded-lg border px-2.5 py-1 font-semibold ${suggestOpen ? 'border-amber-300/60 bg-amber-300/15 text-amber-50' : 'border-amber-300/30 bg-amber-300/[.07] text-amber-100'}`}>\u2728 Suggest\u2026</button>
+                  title="Arrange the whole song in a style — the band grows and settles across the song instead of strumming one pattern throughout"
+                  className={`rounded-lg border px-2.5 py-1 font-semibold ${suggestOpen ? 'border-amber-300/60 bg-amber-300/15 text-amber-50' : 'border-amber-300/30 bg-amber-300/[.07] text-amber-100'}`}>✨ Suggest…</button>
                 <span draggable
                   onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'custom', style: 'custom' })); event.dataTransfer.effectAllowed = 'copy'; }}
                   title="Drop to open the Part studio for that spot — drag across bars first and the part applies to exactly that range"
                   className="cursor-grab select-none rounded-lg border border-fuchsia-300/30 bg-fuchsia-300/10 px-2.5 py-1 font-semibold text-fuchsia-100 active:cursor-grabbing">✍ Custom part</span>
               </div>
               {suggestOpen && <div className="mt-2 border-t border-white/[.07] pt-2">
-                <p className="mb-1.5 text-[10px] text-slate-400">Pick a feel and the whole song is arranged for you \u2014 it replaces the band instructions already written, and Ctrl+Z undoes it.</p>
+                <p className="mb-1.5 text-[10px] text-slate-400">Pick a feel and the whole song is arranged for you — it replaces the band instructions already written, and Ctrl+Z undoes it.</p>
                 <div className="flex flex-wrap gap-1.5">
                   {ARRANGEMENT_STYLES.map(style =>
                     <button key={style.id} type="button" onClick={() => applySuggestedArrangement(style.id)} title={style.blurb}
