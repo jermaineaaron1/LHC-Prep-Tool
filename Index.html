@@ -81315,6 +81315,106 @@ function filterLiturgyItems() {
       });
     },
 
+    // -- Same-cell conflicts -------------------------------------------------
+    // Saving only what changed stopped people clobbering each OTHER'S duties.
+    // It does not help when two people edit the SAME duty: both diffs are real,
+    // and the later save still silently wins.
+    //
+    // So before writing, re-read those cells and compare the server against the
+    // snapshot we loaded. If the server has moved underneath us, someone else
+    // got there first and the roster asks instead of picking a winner.
+    _norm4: function(v) {
+      if (v === undefined || v === null) return '';
+      if (typeof v === 'object') return v.day || JSON.stringify(v);
+      var s = String(v);
+      try { var o = JSON.parse(s); if (o && o.day) return o.day; } catch (e) {}
+      return s;
+    },
+
+    _findConflicts: function(changedEdits) {
+      var self = this;
+      return SBQ_ROSTER.getData(STATE.rosterMonth, STATE.rosterYear).then(function(entries) {
+        var server = {};
+        (entries || []).forEach(function(e) {
+          if (!e.roleId || !e.date) return;
+          server[e.roleId + '__' + e.date.replace(/\s/g, '_')] = e.value;
+        });
+        var conflicts = [], safe = [];
+        changedEdits.forEach(function(e) {
+          var key = e.roleId + '__' + e.date.replace(/\s/g, '_');
+          var loaded = self._norm4(STATE.rosterOriginalValues ? STATE.rosterOriginalValues.get(key) : undefined);
+          var theirs = self._norm4(server[key]);
+          var mine = self._norm4(e.value);
+          // Someone else moved it, and not to the same value we were writing.
+          if (theirs !== loaded && theirs !== mine) conflicts.push({ key: key, edit: e, mine: mine, theirs: theirs, loaded: loaded });
+          else safe.push(e);
+        });
+        return { conflicts: conflicts, safe: safe };
+      }).catch(function(err) {
+        // A failed read must not block saving -- fall back to the old
+        // behaviour rather than stranding the PIC with unsaved work.
+        console.warn('[roster] conflict check failed, saving without it:', err);
+        return { conflicts: [], safe: changedEdits };
+      });
+    },
+
+    _showConflictModal: function(conflicts, onResolved) {
+      var self = this;
+      var existing = document.getElementById('rosterConflictModal');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      var rowsHtml = conflicts.map(function(c, i) {
+        var role = self._roleWord(c.edit.roleId);
+        return '<div style="padding:10px 0;border-bottom:1px solid #f1f5f9;">' +
+          '<div style="font-size:0.8rem;font-weight:700;color:#1f2933;margin-bottom:6px;">' +
+            self.escapeHtml(role) + ' &middot; ' + self.escapeHtml(c.edit.date) + '</div>' +
+          '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:0.82rem;color:#374151;">' +
+            '<input type="radio" name="rc' + i + '" value="theirs" checked>' +
+            '<span>Keep <b>' + self.escapeHtml(c.theirs || '(blank)') + '</b> <span style="color:#6b7280;">- saved by someone else</span></span></label>' +
+          '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:0.82rem;color:#374151;">' +
+            '<input type="radio" name="rc' + i + '" value="mine">' +
+            '<span>Use <b>' + self.escapeHtml(c.mine || '(blank)') + '</b> <span style="color:#6b7280;">- your change</span></span></label>' +
+        '</div>';
+      }).join('');
+      var overlay = document.createElement('div');
+      overlay.id = 'rosterConflictModal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100001;display:flex;align-items:center;justify-content:center;font-family:"Poppins",Arial,sans-serif;';
+      overlay.innerHTML =
+        '<div style="background:#fff;max-width:460px;width:92%;max-height:82vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
+          '<div style="background:linear-gradient(135deg,#b45309,#f59e0b);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;">' +
+            '<i class="fa-solid fa-code-branch" style="font-size:1.2rem;"></i>' +
+            '<div style="font-weight:700;font-size:1.02rem;">Someone else edited the same duty</div>' +
+          '</div>' +
+          '<div style="padding:14px 20px 4px;flex:1;overflow-y:auto;">' +
+            '<p style="margin:0 0 8px;font-size:0.85rem;color:#1f2933;line-height:1.5;">' +
+              (conflicts.length === 1 ? 'This duty was' : 'These ' + conflicts.length + ' duties were') +
+              ' changed by someone else while you were working. Nothing has been overwritten - choose which to keep.</p>' +
+            rowsHtml +
+          '</div>' +
+          '<div style="display:flex;padding:12px 20px;border-top:1px solid #f1f5f9;justify-content:space-between;gap:10px;flex-shrink:0;align-items:center;">' +
+            '<button id="rcAllMine" style="background:none;border:none;color:#0d9488;font-size:0.78rem;font-weight:700;cursor:pointer;padding:0;">Use all of mine</button>' +
+            '<button id="rcApply" style="padding:8px 16px;border-radius:8px;border:none;background:#b45309;color:#fff;font-weight:600;font-size:0.85rem;cursor:pointer;">Apply</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      var close = function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+      overlay.querySelector('#rcAllMine').onclick = function() {
+        overlay.querySelectorAll('input[value="mine"]').forEach(function(r) { r.checked = true; });
+      };
+      overlay.querySelector('#rcApply').onclick = function() {
+        var keepMine = [];
+        conflicts.forEach(function(c, i) {
+          var sel = overlay.querySelector('input[name="rc' + i + '"]:checked');
+          if (sel && sel.value === 'mine') { keepMine.push(c); return; }
+          // taking theirs: adopt it locally so this browser stops trying to
+          // write the losing value on every future save
+          STATE.rosterEdits.set(c.key, c.theirs === '' ? '__BLANK__' : c.theirs);
+          if (STATE.rosterOriginalValues) STATE.rosterOriginalValues.set(c.key, c.theirs === '' ? '__BLANK__' : c.theirs);
+        });
+        close();
+        onResolved(keepMine.map(function(c) { return c.edit; }));
+      };
+    },
+
     _cellByKey: function(key) {
       return document.querySelector('.roster-table td[data-key="' + String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"]');
     },
@@ -84879,7 +84979,31 @@ function filterLiturgyItems() {
       }
 
       this.showLoader(true);
-      return SBQ_ROSTER.saveEdits(changedEdits).then(function() {
+      // Ask the server what those cells look like NOW before writing over them.
+      return this._findConflicts(changedEdits).then(function(res) {
+        if (!res.conflicts.length) return res.safe;
+        // Write everything uncontested straight away, so resolving a conflict
+        // on one duty never holds the rest of the save hostage.
+        var proceed = function(alsoWrite) {
+          var all = res.safe.concat(alsoWrite || []);
+          if (!all.length) { self.render(); return []; }
+          return all;
+        };
+        return new Promise(function(resolve) {
+          self._showConflictModal(res.conflicts, function(keepMine) {
+            resolve(proceed(keepMine));
+          });
+        });
+      }).then(function(toWrite) {
+        if (!toWrite.length) {
+          self.showLoader(false);
+          self.clearUnsaved();
+          self.render();
+          return Promise.reject({ __handled: true });
+        }
+        changedEdits = toWrite;
+        return SBQ_ROSTER.saveEdits(toWrite);
+      }).then(function() {
         if (silent) {
           _rShowAutoSave('<i class="fa-solid fa-circle-check"></i> Auto-saved', false);
         } else {
@@ -84918,7 +85042,14 @@ function filterLiturgyItems() {
         }
         // Refresh home dashboard
         if (typeof loadDashboardData === 'function') loadDashboardData();
-      }).catch(function(err) { console.error('Save error:', err); if (silent) { _rShowAutoSave('<i class="fa-solid fa-triangle-exclamation"></i> Auto-save failed', true); } else { self.showToast('Failed to save changes', 'error'); } }).finally(function() { self.showLoader(false); });
+      }).catch(function(err) {
+        // A conflict the user has already resolved is not a failure -- every
+        // choice was applied, there was simply nothing left to upload.
+        if (err && err.__handled) return;
+        console.error('Save error:', err);
+        if (silent) { _rShowAutoSave('<i class="fa-solid fa-triangle-exclamation"></i> Auto-save failed', true); }
+        else { self.showToast('Failed to save changes', 'error'); }
+      }).finally(function() { self.showLoader(false); });
     },
 
     // ── Auto-Suggest: fills every blank, applicable role cell for the
