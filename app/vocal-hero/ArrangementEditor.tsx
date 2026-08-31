@@ -25,7 +25,7 @@ import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoice, preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
 import { downloadSingerVoice, playSingerBuffers, prepareSingerBuffers, singerVoiceReady, voiceKindForPart } from '@/lib/vocal-hero/singer';
 import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
-import { ARRANGEMENT_STYLES, buildArrangement } from '@/lib/vocal-hero/arrangements';
+import { ARRANGE_ENERGIES, ARRANGE_INSTRUMENTS, ARRANGE_PERCUSSION, ARRANGEMENT_STYLES, buildArrangement, buildFromInstruments, type ArrangeEnergy } from '@/lib/vocal-hero/arrangements';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
@@ -450,6 +450,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   // instrument family now, one open at a time.
   const [bandFamily, setBandFamily] = useState<BandFamilyId | null>(null);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const [myInstruments, setMyInstruments] = useState<string[]>([]);
+  const [myPercussion, setMyPercussion] = useState<string | null>(null);
+  const [myEnergy, setMyEnergy] = useState<ArrangeEnergy>('building');
   const openFamily = BAND_FAMILIES.find(family => family.id === bandFamily) ?? null;
   // The preview SINGS by default; the piano remains one tap away.
   const [previewVoice, setPreviewVoice] = useState<'choir' | 'singer' | 'piano'>('choir');
@@ -1157,7 +1160,16 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   function applySuggestedArrangement(styleId: string) {
     const style = ARRANGEMENT_STYLES.find(item => item.id === styleId);
     if (!style) return;
-    const plan = buildArrangement(style, notes);
+    applyArrangementStyle(style);
+  }
+  /** Arrange from the instruments the user ticked, in the energy they chose. */
+  function applyMyInstruments() {
+    const style = buildFromInstruments(myInstruments, myPercussion, myEnergy);
+    if (!style) { setEditorNotice('Pick at least one instrument (or a percussion) to arrange with.'); return; }
+    applyArrangementStyle(style);
+  }
+  function applyArrangementStyle(style: { id: string; label: string; blurb: string; textures: Array<{ instrument: string; drums: string }> }) {
+    const plan = buildArrangement(style as Parameters<typeof buildArrangement>[0], notes);
     pushHistory();
     setTrackSettingsDirty(current => ({ ...current, accompaniment: {
       guitar: plan.opening.instrument,
@@ -2865,6 +2877,33 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               </div>
               {suggestOpen && <div className="mt-2 border-t border-white/[.07] pt-2">
                 <p className="mb-1.5 text-[10px] text-slate-400">Pick a feel and the whole song is arranged for you — it replaces the band instructions already written, and Ctrl+Z undoes it.</p>
+                <div className="mb-2 rounded-lg border border-white/10 bg-black/20 p-2">
+                  <p className="mb-1.5 text-[10px] font-black uppercase tracking-[.14em] text-slate-400">Arrange with my instruments</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ARRANGE_INSTRUMENTS.map(option => {
+                      const on = myInstruments.includes(option.id);
+                      return <button key={option.id} type="button" aria-pressed={on}
+                        onClick={() => setMyInstruments(current => on ? current.filter(id => id !== option.id) : [...current, option.id])}
+                        className={`rounded-lg border px-2 py-1 ${on ? 'border-sky-300/60 bg-sky-300/15 text-sky-50' : 'border-white/15 text-slate-300'}`}>{option.label}</button>;
+                    })}
+                    <span className="mx-0.5 h-5 w-px bg-white/15" />
+                    {ARRANGE_PERCUSSION.map(option => {
+                      const on = myPercussion === option.id;
+                      return <button key={option.id} type="button" aria-pressed={on}
+                        onClick={() => setMyPercussion(current => current === option.id ? null : option.id)}
+                        className={`rounded-lg border px-2 py-1 ${on ? 'border-rose-300/60 bg-rose-300/15 text-rose-50' : 'border-white/15 text-slate-300'}`}>{option.label}</button>;
+                    })}
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {ARRANGE_ENERGIES.map(option =>
+                      <button key={option.id} type="button" aria-pressed={myEnergy === option.id} title={option.blurb}
+                        onClick={() => setMyEnergy(option.id)}
+                        className={`rounded-lg border px-2 py-1 ${myEnergy === option.id ? 'border-amber-300/60 bg-amber-300/15 text-amber-50' : 'border-white/15 text-slate-300'}`}>{option.label}</button>)}
+                    <button type="button" onClick={applyMyInstruments} disabled={!myInstruments.length && !myPercussion}
+                      className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-2.5 py-1 font-semibold text-emerald-100 disabled:opacity-40">Arrange with these</button>
+                  </div>
+                </div>
+                <p className="mb-1.5 text-[10px] font-black uppercase tracking-[.14em] text-slate-400">Or start from a feel</p>
                 <div className="flex flex-wrap gap-1.5">
                   {ARRANGEMENT_STYLES.map(style =>
                     <button key={style.id} type="button" onClick={() => applySuggestedArrangement(style.id)} title={style.blurb}
