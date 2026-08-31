@@ -529,6 +529,8 @@ export function inferChordsFromVoices(
   }
 
   const scale = scaleOf(notes);
+  const voices = new Set(notes.map(note => (note.part === -1 ? 0 : note.part))).size;
+  const melodyOnly = voices < 2;
   const out: InferredChord[] = [];
   let previous = '';
   for (const span of windows) {
@@ -538,11 +540,17 @@ export function inferChordsFromVoices(
     const weight = new Array(12).fill(0);
     let lowest = Number.POSITIVE_INFINITY;
     let lowestPc = -1;
+    let onBeatPc = -1;
+    let onBeatAt = Number.POSITIVE_INFINITY;
     for (const note of sounding) {
       const held = Math.min(note.end, span.end) - Math.max(note.start, span.start);
       if (held <= 0) continue;
       const pc = ((note.midi % 12) + 12) % 12;
-      weight[pc] += held;
+      // On the beat is where the harmony shows itself; what follows inside
+      // the window is as likely to be a passing note.
+      const onBeat = note.start <= span.start + 0.02;
+      weight[pc] += held * (melodyOnly && onBeat ? 2.5 : 1);
+      if (note.start < onBeatAt) { onBeatAt = note.start; onBeatPc = pc; }
       if (note.midi < lowest) { lowest = note.midi; lowestPc = pc; }
     }
     const total = weight.reduce((sum, value) => sum + value, 0);
@@ -551,6 +559,8 @@ export function inferChordsFromVoices(
     let best = { score: -Infinity, symbol: '' };
     for (let root = 0; root < 12; root++) {
       for (const shape of SHAPES) {
+        // Nothing but a tune to go on: harmonise it plainly and in key.
+        if (melodyOnly && (!shape.plain || !shape.degrees.every(degree => scale.has((root + degree) % 12)))) continue;
         const inChord = new Set(shape.degrees.map(degree => (root + degree) % 12));
         let explained = 0;
         let stray = 0;
@@ -562,13 +572,17 @@ export function inferChordsFromVoices(
         // The bass names the chord; a plain triad is what a hymn is built
         // from; and a fourth note must explain a good deal more to be worth
         // naming, or every passing tone turns the song into sevenths.
-        const bassBonus = lowestPc === root ? total * 0.35 : 0;
+        const bassBonus = melodyOnly ? 0 : (lowestPc === root ? total * 0.35 : 0);
+        // The note on the beat is the one the harmony has to fit.
+        const onBeatBonus = melodyOnly && onBeatPc >= 0
+          ? (onBeatPc === root ? total * 0.3 : inChord.has(onBeatPc) ? total * 0.18 : -total * 0.35)
+          : 0;
         const plainBonus = shape.plain ? total * 0.16 : 0;
         const extension = Math.max(0, shape.degrees.length - 3) * total * 0.26;
         const rare = shape.rare ? total * 0.14 : 0;
         const thin = shape.degrees.length < 3 ? total * 0.12 : 0;
         const outOfKey = shape.degrees.filter(degree => !scale.has((root + degree) % 12)).length;
-        const score = explained - stray * 1.15 + bassBonus + plainBonus - extension - rare - thin - outOfKey * total * 0.14;
+        const score = explained - stray * 1.15 + bassBonus + onBeatBonus + plainBonus - extension - rare - thin - outOfKey * total * 0.14;
         if (score > best.score) best = { score, symbol: PITCH_NAMES[root] + shape.suffix };
       }
     }
