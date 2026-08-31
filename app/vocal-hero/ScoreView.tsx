@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { NoteMarks, SongNote } from '@/lib/vocal-hero/types';
 import { DRUM_STYLES, INSTRUMENT_STYLES, type BandEvent } from '@/lib/vocal-hero/accompaniment';
 import { accidentalMark, durationToSymbols, inferKeySignature, signatureAlteration, spellPitch, staffStep, type Accidental } from '@/lib/vocal-hero/notation';
@@ -192,6 +192,20 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   // head of the line) and a popover with the instrument/drum pickers opens
   // right there.
   const [bandEdit, setBandEdit] = useState<{ target: { noteId: string } | 'default'; x: number; system: number } | null>(null);
+  // A band instruction answers to both clicks: one opens the little chooser,
+  // two go straight to writing the part. The single-click action waits a beat
+  // so the chooser never flashes open on its way to the part studio.
+  const bandClickTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (bandClickTimer.current) window.clearTimeout(bandClickTimer.current); }, []);
+  function bandTap(open: () => void) {
+    if (bandClickTimer.current) window.clearTimeout(bandClickTimer.current);
+    bandClickTimer.current = window.setTimeout(() => { bandClickTimer.current = null; open(); }, 240);
+  }
+  function bandDoubleTap(write: () => void) {
+    if (bandClickTimer.current) { window.clearTimeout(bandClickTimer.current); bandClickTimer.current = null; }
+    setBandEdit(null);
+    write();
+  }
   // A band chip being dragged over the score: the painted bar range.
   const [dropRange, setDropRange] = useState<{ anchor: number; current: number } | null>(null);
   function barUnderDrag(event: React.DragEvent<HTMLDivElement>): number | null {
@@ -392,18 +406,18 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       })}
       {onBandEdit && bandDefaults && <text x={14} y={12 + BAND_TEXT_Y} fontSize={10} fontStyle="italic" fontWeight={700}
         fill="#fca5a5cc" className="hover:fill-white" style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-        onClick={() => { setBandEdit({ target: 'default', x: 30, system: 0 }); onBandAudition?.('default'); }}
-        onDoubleClick={() => { setBandEdit(null); onBandWrite?.('default'); }}>
-        <title>The band from the top of the song — click to hear and change it; double-click to write the part</title>
+        onClick={() => bandTap(() => { setBandEdit({ target: 'default', x: 30, system: 0 }); onBandAudition?.('default'); })}
+        onDoubleClick={() => bandDoubleTap(() => onBandWrite?.('default'))}>
+        <title>The band from the top of the song — click to hear and change it; double-click to write the part note by note</title>
         {bandDefaults.instrument === 'off' && bandDefaults.drums === 'off'
           ? '🎷 no band — click to add'
           : `${shortStyle(bandDefaults.instrument)} · ${shortStyle(bandDefaults.drums)}`}</text>}
       {layout.bandTexts.map((text, i) => <text key={`band-${i}`} x={text.x + 12} y={text.system * SYSTEM_H + 12 + BAND_TEXT_Y}
         fontSize={10} fontStyle="italic" fontWeight={700} fill="#fca5a5cc"
         className={onBandEdit ? 'hover:fill-white' : undefined} style={onBandEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
-        onClick={onBandEdit ? () => { setBandEdit({ target: { noteId: text.noteId }, x: text.x, system: text.system }); onBandAudition?.({ noteId: text.noteId }); } : undefined}
-        onDoubleClick={onBandWrite ? () => { setBandEdit(null); onBandWrite({ noteId: text.noteId }); } : undefined}>
-        {onBandEdit && <title>Band instruction from this bar — click to hear and change it; double-click to write the part</title>}
+        onClick={onBandEdit ? () => bandTap(() => { setBandEdit({ target: { noteId: text.noteId }, x: text.x, system: text.system }); onBandAudition?.({ noteId: text.noteId }); }) : undefined}
+        onDoubleClick={onBandWrite ? () => bandDoubleTap(() => onBandWrite({ noteId: text.noteId })) : undefined}>
+        {onBandEdit && <title>Band instruction from this bar — click to hear and change it; double-click to write the part note by note</title>}
         {text.label}</text>)}
     </svg>}
     {dropRange && <svg className="pointer-events-none absolute left-4 top-4 z-20" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
