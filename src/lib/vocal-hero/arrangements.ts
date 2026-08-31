@@ -176,3 +176,95 @@ export function buildArrangement(style: ArrangementStyle, notes: SongNote[]): Ar
   }
   return { opening, changes };
 }
+
+// ── arranging from the instruments YOU pick ────────────────────────────────
+//
+// The styles above are recipes someone else wrote. This builds one from the
+// players actually in the room: choose the instruments, choose how much
+// energy the song wants, and each instrument is voiced from its sparsest
+// pattern to its fullest across the song.
+
+export interface InstrumentOption {
+  id: string;
+  label: string;
+  /** Patterns for this instrument, sparsest first. */
+  ladder: InstrumentStyleId[];
+}
+
+export interface PercussionOption {
+  id: string;
+  label: string;
+  ladder: DrumStyleId[];
+}
+
+export const ARRANGE_INSTRUMENTS: InstrumentOption[] = [
+  { id: 'acoustic', label: '\ud83c\udfb8 Acoustic guitar', ladder: ['gtr-arp', 'gtr-travis', 'gtr-folk', 'gtr-down', 'gtr-8ths'] },
+  { id: 'electric', label: '\u26a1 Electric guitar', ladder: ['egtr-arp', 'egtr-arp', 'egtr-8ths', 'egtr-8ths'] },
+  { id: 'piano', label: '\ud83c\udfb9 Piano', ladder: ['pno-arp', 'pno-arp', 'pno-chords', 'pno-chords'] },
+  { id: 'bass', label: '\ud83c\udfb8 Bass', ladder: ['bass-walk'] },
+  { id: 'strings', label: '\ud83c\udfbb Strings', ladder: ['str-held'] },
+  { id: 'pad', label: '\ud83c\udf2b\ufe0f Pad', ladder: ['pad-held'] },
+  { id: 'brass', label: '\ud83c\udfba Brass', ladder: ['brs-held'] },
+];
+
+export const ARRANGE_PERCUSSION: PercussionOption[] = [
+  { id: 'kit', label: '\ud83e\udd41 Drum kit', ladder: ['drum-kit', 'drum-kit', 'drum-drive', 'drum-drive'] },
+  { id: 'cajon', label: '\ud83e\ude98 Cajon', ladder: ['cajon-sway', 'cajon-groove', 'cajon-groove', 'cajon-groove'] },
+];
+
+export type ArrangeEnergy = 'gentle' | 'building' | 'driving';
+
+export const ARRANGE_ENERGIES: Array<{ id: ArrangeEnergy; label: string; blurb: string }> = [
+  { id: 'gentle', label: 'Gentle', blurb: 'Stays sparse, percussion only near the end.' },
+  { id: 'building', label: 'Building', blurb: 'Opens quietly and grows through the song.' },
+  { id: 'driving', label: 'Driving', blurb: 'Full from early on and stays there.' },
+];
+
+const SECTIONS = 4;
+
+/**
+ * Compose an arrangement from chosen instruments.
+ *
+ * Each section takes its instrument from the picks in turn, so everyone gets
+ * played rather than one instrument holding the whole song. How far up that
+ * instrument's ladder the section reaches — and whether percussion has come
+ * in yet — is what the energy setting decides.
+ */
+export function buildFromInstruments(
+  instrumentIds: string[],
+  percussionId: string | null,
+  energy: ArrangeEnergy,
+): ArrangementStyle | null {
+  const picks = ARRANGE_INSTRUMENTS.filter(item => instrumentIds.includes(item.id));
+  const drums = ARRANGE_PERCUSSION.find(item => item.id === percussionId) ?? null;
+  if (!picks.length && !drums) return null;
+
+  // How full each section is (0 = sparsest), and where percussion starts.
+  const shape: Record<ArrangeEnergy, { rung: number[]; drumsFrom: number }> = {
+    gentle: { rung: [0, 0, 1, 0], drumsFrom: 2 },
+    building: { rung: [0, 1, 2, 1], drumsFrom: 1 },
+    driving: { rung: [1, 2, 3, 2], drumsFrom: 0 },
+  };
+  const plan = shape[energy];
+
+  const textures: ArrangementTexture[] = [];
+  for (let section = 0; section < SECTIONS; section++) {
+    const pick = picks.length ? picks[section % picks.length] : null;
+    const rung = Math.min(plan.rung[section], (pick?.ladder.length ?? 1) - 1);
+    const instrument: ArrangementTexture['instrument'] = pick ? pick.ladder[Math.max(0, rung)] : 'off';
+    const drumRung = Math.min(plan.rung[section], (drums?.ladder.length ?? 1) - 1);
+    const percussion: ArrangementTexture['drums'] = drums && section >= plan.drumsFrom
+      ? drums.ladder[Math.max(0, drumRung)]
+      : 'off';
+    textures.push({ instrument, drums: percussion });
+  }
+
+  const names = [...picks.map(item => item.label), ...(drums ? [drums.label] : [])]
+    .map(label => label.replace(/^[^A-Za-z]+/, ''));
+  return {
+    id: 'custom',
+    label: names.length > 2 ? `${names.slice(0, 2).join(', ')} +${names.length - 2}` : names.join(' & '),
+    blurb: `Your instruments, ${energy}.`,
+    textures,
+  };
+}
