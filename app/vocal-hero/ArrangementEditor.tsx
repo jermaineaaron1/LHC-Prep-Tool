@@ -25,6 +25,7 @@ import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoice, preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
 import { downloadSingerVoice, playSingerBuffers, prepareSingerBuffers, singerVoiceReady, voiceKindForPart } from '@/lib/vocal-hero/singer';
 import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
+import { ARRANGEMENT_STYLES, buildArrangement } from '@/lib/vocal-hero/arrangements';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
@@ -97,7 +98,7 @@ function loadTakeBuffer(url: string): Promise<AudioBuffer | null> {
 }
 type EditorTool = 'select' | 'draw' | 'erase';
 type PlaybackScope = 'all' | 'range' | 'note';
-type ArrangementSnapshot = { title: string; notes: SongNote[]; timedLyrics: TimedLyricSection[]; chordSymbols: Array<{ at: number; symbol: string }>; karaokeLyrics: BackingTrackSettings['karaoke_lyrics']; musicalTimeline: MusicalTimelineSettings; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
+type ArrangementSnapshot = { title: string; notes: SongNote[]; accompaniment: BackingTrackSettings['accompaniment']; timedLyrics: TimedLyricSection[]; chordSymbols: Array<{ at: number; symbol: string }>; karaokeLyrics: BackingTrackSettings['karaoke_lyrics']; musicalTimeline: MusicalTimelineSettings; selectedId: string | null; selectedIds: string[]; selectedPart: number; playScope: PlaybackScope; playParts: boolean[]; playRange: { start: number; end: number } };
 type MidiPreview = { fileName: string; notes: ImportedMidiNote[] };
 const DEFAULT_TRACK_SETTINGS: BackingTrackSettings = { volume: 1, speed: 1, timeline_offset: 0, trim_start: 0, trim_end: null, loop_start: 0, loop_end: null, loop_enabled: false, skip_regions: [], split_markers: [], media_duration: null, effect: 'none' };
 
@@ -448,6 +449,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   // The band chips used to be one long wall of styles. They live under their
   // instrument family now, one open at a time.
   const [bandFamily, setBandFamily] = useState<BandFamilyId | null>(null);
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const openFamily = BAND_FAMILIES.find(family => family.id === bandFamily) ?? null;
   // The preview SINGS by default; the piano remains one tap away.
   const [previewVoice, setPreviewVoice] = useState<'choir' | 'singer' | 'piano'>('choir');
@@ -833,9 +835,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setEditorNotice(`Copied ${result.copied} note${result.copied === 1 ? '' : 's'} into ${VOICES[toPart]}${result.replaced ? `, replacing ${result.replaced}` : ''}. Chromatic copy — check it against the key by ear.`);
   }
 
-  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), timedLyrics: timedLyrics.map(section => ({ ...section })), chordSymbols: (trackSettings.chord_symbols ?? []).map(chord => ({ ...chord })), karaokeLyrics: trackSettings.karaoke_lyrics ? { ...trackSettings.karaoke_lyrics } : undefined, musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: musicalTimeline.snap_division, snap_value: musicalTimeline.snap_value }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
+  function makeSnapshot(): ArrangementSnapshot { return { title, notes: notes.map(note => ({ ...note })), accompaniment: trackSettings.accompaniment ? { ...trackSettings.accompaniment } : undefined, timedLyrics: timedLyrics.map(section => ({ ...section })), chordSymbols: (trackSettings.chord_symbols ?? []).map(chord => ({ ...chord })), karaokeLyrics: trackSettings.karaoke_lyrics ? { ...trackSettings.karaoke_lyrics } : undefined, musicalTimeline: { tempo_changes: musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: musicalTimeline.snap_division, snap_value: musicalTimeline.snap_value }, selectedId, selectedIds: [...selectedIds], selectedPart, playScope, playParts: [...playParts], playRange: { ...playRange } }; }
   function pushHistory() { dirtyRef.current = true; const snapshot = makeSnapshot(); setHistory(current => ({ past: [...current.past, snapshot].slice(-100), future: [] })); }
-  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setTimedLyrics(snapshot.timedLyrics.map(section => ({ ...section }))); setTrackSettings(current => ({ ...current, chord_symbols: snapshot.chordSymbols.map(chord => ({ ...chord })), karaoke_lyrics: snapshot.karaokeLyrics ? { ...snapshot.karaokeLyrics } : undefined })); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, snap_value: snapshot.musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
+  function restoreSnapshot(snapshot: ArrangementSnapshot) { setTitle(snapshot.title); setNotes(snapshot.notes.map(note => ({ ...note }))); setTimedLyrics(snapshot.timedLyrics.map(section => ({ ...section }))); setTrackSettings(current => ({ ...current, chord_symbols: snapshot.chordSymbols.map(chord => ({ ...chord })), karaoke_lyrics: snapshot.karaokeLyrics ? { ...snapshot.karaokeLyrics } : undefined, accompaniment: snapshot.accompaniment ? { ...snapshot.accompaniment } : undefined })); setMusicalTimeline({ tempo_changes: snapshot.musicalTimeline.tempo_changes.map(item => ({ ...item })), meter_changes: snapshot.musicalTimeline.meter_changes.map(item => ({ ...item })), key_changes: snapshot.musicalTimeline.key_changes.map(item => ({ ...item })), snap_division: snapshot.musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION, snap_value: snapshot.musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE }); setSelectedId(snapshot.selectedId); setSelectedIds([...snapshot.selectedIds]); setSelectedPart(snapshot.selectedPart); setPlayScope(snapshot.playScope); setPlayParts([...snapshot.playParts]); setPlayRange({ ...snapshot.playRange }); }
   function undo() { const previous = history.past.at(-1); if (!previous) return; dirtyRef.current = true; const current = makeSnapshot(); restoreSnapshot(previous); setHistory({ past: history.past.slice(0, -1), future: [current, ...history.future] }); }
   function redo() { const next = history.future[0]; if (!next) return; dirtyRef.current = true; const current = makeSnapshot(); restoreSnapshot(next); setHistory({ past: [...history.past, current].slice(-100), future: history.future.slice(1) }); }
   function update(id: string, values: Partial<SongNote>, quiet = false) {
@@ -1148,6 +1150,33 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       return { ...current, chord_symbols: next };
     });
     setEditorNotice(null);
+  }
+  /** Lay a suggested arrangement over the whole song. Every existing band
+   *  instruction is replaced, so the result is the style as written rather
+   *  than a collision with what was there; one Ctrl+Z puts it all back. */
+  function applySuggestedArrangement(styleId: string) {
+    const style = ARRANGEMENT_STYLES.find(item => item.id === styleId);
+    if (!style) return;
+    const plan = buildArrangement(style, notes);
+    pushHistory();
+    setTrackSettingsDirty(current => ({ ...current, accompaniment: {
+      guitar: plan.opening.instrument,
+      drums: plan.opening.drums,
+      instrument_tab: current.accompaniment?.instrument_tab,
+      drum_tab: current.accompaniment?.drum_tab,
+    } }));
+    const byNote = new Map(plan.changes.map(change => [change.noteId, change.texture]));
+    setNotes(current => current.map(note => {
+      const texture = byNote.get(note.id);
+      const hadBand = note.marks?.band !== undefined;
+      if (!texture && !hadBand) return note;
+      const marks = { ...(note.marks ?? {}) };
+      if (texture) marks.band = { instrument: texture.instrument, drums: texture.drums };
+      else delete marks.band;
+      return { ...note, marks: Object.keys(marks).length ? marks : undefined };
+    }));
+    setSuggestOpen(false);
+    setEditorNotice(`Arranged as \u201c${style.label}\u201d \u2014 the band opens with ${plan.opening.instrument === 'off' ? 'nothing' : (INSTRUMENT_STYLES.find(item => item.id === plan.opening.instrument)?.label ?? plan.opening.instrument)} and changes ${plan.changes.length} time${plan.changes.length === 1 ? '' : 's'} through the song. Every change sits on a note, so nudge any of them \u2014 or Ctrl+Z to undo the lot.`);
   }
   function applyBandAt(target: { noteId: string } | 'default', field: 'instrument' | 'drums' | 'remove', value: string) {
     // The score's band directives land here: clicking one opens a popover
@@ -2826,11 +2855,25 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'stop', style: 'stop' })); event.dataTransfer.effectAllowed = 'copy'; }}
                   title="Drop on a note to silence the whole band from that bar (until the next instruction)"
                   className="cursor-grab select-none rounded-lg border border-white/15 px-2.5 py-1 font-semibold text-slate-300 active:cursor-grabbing">🚫 Clear</span>
+                <button type="button" onClick={() => setSuggestOpen(open => !open)} aria-expanded={suggestOpen}
+                  title="Arrange the whole song in a style \u2014 the band grows and settles across the song instead of strumming one pattern throughout"
+                  className={`rounded-lg border px-2.5 py-1 font-semibold ${suggestOpen ? 'border-amber-300/60 bg-amber-300/15 text-amber-50' : 'border-amber-300/30 bg-amber-300/[.07] text-amber-100'}`}>\u2728 Suggest\u2026</button>
                 <span draggable
                   onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'custom', style: 'custom' })); event.dataTransfer.effectAllowed = 'copy'; }}
                   title="Drop to open the Part studio for that spot — drag across bars first and the part applies to exactly that range"
                   className="cursor-grab select-none rounded-lg border border-fuchsia-300/30 bg-fuchsia-300/10 px-2.5 py-1 font-semibold text-fuchsia-100 active:cursor-grabbing">✍ Custom part</span>
               </div>
+              {suggestOpen && <div className="mt-2 border-t border-white/[.07] pt-2">
+                <p className="mb-1.5 text-[10px] text-slate-400">Pick a feel and the whole song is arranged for you \u2014 it replaces the band instructions already written, and Ctrl+Z undoes it.</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {ARRANGEMENT_STYLES.map(style =>
+                    <button key={style.id} type="button" onClick={() => applySuggestedArrangement(style.id)} title={style.blurb}
+                      className="max-w-full rounded-lg border border-amber-300/25 bg-amber-300/[.06] px-2 py-1 text-left text-amber-50 hover:border-amber-300/60">
+                      <b className="block">{style.label}</b>
+                      <span className="block text-[9px] leading-snug text-amber-100/60">{style.blurb}</span>
+                    </button>)}
+                </div>
+              </div>}
               {openFamily && <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-white/[.07] pt-2">
                 {INSTRUMENT_STYLES.filter(style => openFamily.instruments.includes(style.id)).map(style =>
                   <span key={style.id} draggable
@@ -3097,28 +3140,28 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
     {tempoButton('allegro', 'Allegro', 'Allegro — brisk (about 5/4 of the written speed) from the first selected note')}
     <span className="h-5 w-px bg-white/10" />
     <span className="flex max-w-full flex-wrap items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/[.06] px-2 py-1"
-      title="The band, from this note's bar onward. Whatever you pick here plays until a later note changes it or says Stop — it is one rhythm section for the whole choir, not per voice. The lane under the bass staff shows exactly what it plays.">
-      <span className="text-[9px] font-black uppercase tracking-[.14em] text-rose-200/90">Band from bar {bandBarNumber ?? '?'}</span>
-      <label className="flex min-w-0 items-center gap-1">
-        <span className="text-[10px]">🎸</span>
+      title="Sets what the band plays from this note's bar onward. Whatever you pick here keeps playing until a later note changes it or says Stop — it is one rhythm section for the whole choir, not per voice. The lane under the bass staff shows exactly what it plays.">
+      <span className="text-[9px] font-black uppercase tracking-[.14em] text-rose-200/90">From bar {bandBarNumber ?? '?'} the band plays</span>
+      <label className="flex min-w-0 items-center gap-1" title="The instrument part from this bar on. Leave it unchanged to keep whatever the band was already playing.">
+        <span className="text-[9px] uppercase tracking-[.1em] text-slate-400">🎸 Instrument</span>
         <select value={bandMark?.instrument ?? ''} onChange={event => onBand('instrument', event.target.value)}
           className="min-w-0 max-w-36 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
-          <option value="">(keep playing)</option>
+          <option value="">— unchanged —</option>
           {INSTRUMENT_STYLES.filter(style => style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
           <option value="stop">🚫 Stop the instrument</option>
         </select>
       </label>
-      <label className="flex items-center gap-1">
-        <span className="text-[10px]">🥁</span>
+      <label className="flex items-center gap-1" title="The drum part from this bar on. Leave it unchanged to keep whatever the band was already playing.">
+        <span className="text-[9px] uppercase tracking-[.1em] text-slate-400">🥁 Drums</span>
         <select value={bandMark?.drums ?? ''} onChange={event => onBand('drums', event.target.value)}
           className="min-w-0 max-w-36 rounded border border-white/15 bg-black/30 px-1 py-1 text-[10px] text-white">
-          <option value="">(keep playing)</option>
+          <option value="">— unchanged —</option>
           {DRUM_STYLES.filter(style => style.id !== 'off').map(style => <option key={style.id} value={style.id}>{style.label}</option>)}
           <option value="stop">🚫 Stop the drums</option>
         </select>
       </label>
     </span>
-    <button onClick={onClear} title="Remove every marking from the selection" className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">✕ Clear</button>
+    <button onClick={onClear} title="Remove every marking from the selected notes — dynamics, articulation, chord, tempo and band instruction alike" className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">✕ Clear all marks</button>
   </div>;
 }
 
