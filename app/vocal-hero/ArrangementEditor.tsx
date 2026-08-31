@@ -386,6 +386,22 @@ function latchAndResolveNotes(input: SongNote[], bars: MusicalBar[], division: N
   });
   return input.map(note => adjusted.get(note.id) ?? note);
 }
+type BandFamilyId = 'piano' | 'guitar' | 'drums' | 'synths';
+/** The chip's own words: the leading emoji goes, and the family name goes
+ *  only when the drawer already says it — so Piano holds "held chords"
+ *  while Synths still spells out "Strings sustained". */
+function bandChipLabel(label: string, familyWord?: string): string {
+  let text = label.replace(/^[^A-Za-z]+/, '');
+  if (familyWord && text.startsWith(familyWord + ' · ')) text = text.slice(familyWord.length + 3);
+  return text.replace(/\s*·\s*/, ' ').replace(/\s*\(.*\)/, '').trim();
+}
+const BAND_FAMILIES: Array<{ id: BandFamilyId; label: string; title: string; word?: string; instruments: InstrumentStyleId[]; drums?: DrumStyleId[]; clips?: BandTimbre[] }> = [
+  { id: 'piano', label: '\ud83c\udfb9 Piano', title: 'Piano parts and a free piano clip', word: 'Piano', instruments: ['pno-chords', 'pno-arp', 'melody-pno'], clips: ['piano'] },
+  { id: 'guitar', label: '\ud83c\udfb8 Guitar', title: 'Acoustic and electric guitar, the bass line, and free guitar or bass clips', word: 'Guitar', instruments: ['gtr-down', 'gtr-folk', 'gtr-8ths', 'gtr-arp', 'gtr-travis', 'gtr-solo', 'egtr-8ths', 'egtr-arp', 'melody-gtr', 'bass-walk'], clips: ['guitar', 'bass'] },
+  { id: 'drums', label: '\ud83e\udd41 Drums', title: 'Kit and cajon grooves', instruments: [], drums: ['drum-kit', 'drum-drive', 'cajon-groove', 'cajon-sway'] },
+  { id: 'synths', label: '\ud83c\udfbb Synths', title: 'Sustained section voices: strings, pad and brass', instruments: ['str-held', 'pad-held', 'brs-held'] },
+];
+
 export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { song: Song; onClose: () => void; onSave: (values: EditableSong) => Promise<void>; onSongCreated?: () => void; }) {
   const [title, setTitle] = useState(song.title);
   const [notes, setNotes] = useState<SongNote[]>(() => playableNotes(song));
@@ -429,6 +445,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [stepInput, setStepInput] = useState(false);
   const [stepCaret, setStepCaret] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  // The band chips used to be one long wall of styles. They live under their
+  // instrument family now, one open at a time.
+  const [bandFamily, setBandFamily] = useState<BandFamilyId | null>(null);
+  const openFamily = BAND_FAMILIES.find(family => family.id === bandFamily) ?? null;
   // The preview SINGS by default; the piano remains one tap away.
   const [previewVoice, setPreviewVoice] = useState<'choir' | 'singer' | 'piano'>('choir');
   useEffect(() => {
@@ -2790,35 +2810,44 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
                 <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
-                <span className="ml-2 text-[10px] text-slate-500">Click empty staff space to write a note exactly where the ghost head shows — what follows slides right, and overflow ties into a freshly inserted bar · drop a note onto another to swap them · with a note selected, the value buttons (or keys 3–7 and .) change its length — double-click the note to deselect it first if you only want to pick the next entry's value · right-click removes a note, leaving its rest · Ctrl+Z undo, Ctrl+Y redo · Double-click a word to edit lyrics: Tab = next word, Enter = done · the faint dashed boxes above the top staff take chord symbols — click one and type (Tab = next beat, empty = clear) · the 🎸/🥁 lane under the bass staff prints every hit the band will actually play, beat by beat — click any band instruction on that line (or the label at its head) to change or remove it right there.</span>
               </>}
             </div>
-            {noteView === 'score' && <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-white/10 bg-[#0a0d1f] px-3 py-2 text-[10px]">
-              <span className="font-black uppercase tracking-[.16em] text-slate-500" title="Grab a chip and drop it on a note — the band plays that style from its bar. Drag ACROSS several bars before releasing to limit it to exactly that range (the previous sound resumes after).">Drag onto the score ➜</span>
-              {INSTRUMENT_STYLES.filter(style => style.id !== 'off' && style.id !== 'custom').map(style =>
-                <span key={style.id} draggable
-                  onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'instrument', style: style.id })); event.dataTransfer.effectAllowed = 'copy'; }}
-                  title={`${style.label} — drop on a note; drag across bars to limit the span`}
-                  className="cursor-grab select-none rounded-lg border border-sky-300/25 bg-sky-300/[.07] px-2 py-1 text-sky-100 active:cursor-grabbing">{style.label.replace(/(Guitar|Piano|Bass) · /, '').replace(/\s*\(.*\)/, '')}</span>)}
-              {DRUM_STYLES.filter(style => style.id !== 'off' && style.id !== 'custom').map(style =>
-                <span key={style.id} draggable
-                  onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'drums', style: style.id })); event.dataTransfer.effectAllowed = 'copy'; }}
-                  title={`${style.label} — drop on a note; drag across bars to limit the span`}
-                  className="cursor-grab select-none rounded-lg border border-rose-300/25 bg-rose-300/[.07] px-2 py-1 text-rose-100 active:cursor-grabbing">{style.label.replace(/(Kit|Cajon) · /, '$1 ').replace(/\s*\(.*\)/, '')}</span>)}
-              <span draggable
-                onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'custom', style: 'custom' })); event.dataTransfer.effectAllowed = 'copy'; }}
-                title="Drop to open the Part studio for that spot — drag across bars first and the part applies to exactly that range"
-                className="cursor-grab select-none rounded-lg border border-fuchsia-300/30 bg-fuchsia-300/10 px-2 py-1 font-semibold text-fuchsia-100 active:cursor-grabbing">✍ Custom part</span>
-              <span draggable
-                onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'stop', style: 'stop' })); event.dataTransfer.effectAllowed = 'copy'; }}
-                title="Drop to silence the whole band from that bar (until the next instruction)"
-                className="cursor-grab select-none rounded-lg border border-white/15 px-2 py-1 text-slate-300 active:cursor-grabbing">🚫 Stop band</span>
-              <span className="mx-1 h-4 w-px bg-white/15" />
-              {(['guitar', 'piano', 'bass'] as const).map(timbre =>
-                <span key={timbre} draggable
-                  onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'clip', style: timbre })); event.dataTransfer.effectAllowed = 'copy'; }}
-                  title={`A free ${timbre} clip — drop it ANYWHERE (even empty bars; drag across bars for its length) and write exactly what it plays. It sounds once in a real ${timbre} voice, independent of the style instructions.`}
-                  className="cursor-grab select-none rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 font-semibold text-emerald-100 active:cursor-grabbing">🎼 {timbre === 'guitar' ? '🎸' : timbre === 'piano' ? '🎹' : '🎻'} {timbre} clip</span>)}
+            {noteView === 'score' && <div className="mb-2 rounded-xl border border-white/10 bg-[#0a0d1f] px-3 py-2 text-[10px]">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-black uppercase tracking-[.16em] text-slate-500" title="Open a family, then drag a chip onto a note — the band plays that style from its bar. Drag ACROSS several bars before releasing to limit it to exactly that range (the previous sound resumes after).">Band</span>
+                {BAND_FAMILIES.map(family =>
+                  <button key={family.id} type="button" onClick={() => setBandFamily(current => current === family.id ? null : family.id)}
+                    aria-expanded={bandFamily === family.id}
+                    title={`${family.title} \u2014 tap to open`}
+                    className={`rounded-lg border px-2.5 py-1 font-semibold ${bandFamily === family.id ? 'border-sky-300/60 bg-sky-300/15 text-sky-50' : 'border-white/15 text-slate-300'}`}>
+                    {family.label} <span className="text-slate-500">{bandFamily === family.id ? '\u25b4' : '\u25be'}</span>
+                  </button>)}
+                <span draggable
+                  onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'stop', style: 'stop' })); event.dataTransfer.effectAllowed = 'copy'; }}
+                  title="Drop on a note to silence the whole band from that bar (until the next instruction)"
+                  className="cursor-grab select-none rounded-lg border border-white/15 px-2.5 py-1 font-semibold text-slate-300 active:cursor-grabbing">🚫 Clear</span>
+                <span draggable
+                  onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'custom', style: 'custom' })); event.dataTransfer.effectAllowed = 'copy'; }}
+                  title="Drop to open the Part studio for that spot — drag across bars first and the part applies to exactly that range"
+                  className="cursor-grab select-none rounded-lg border border-fuchsia-300/30 bg-fuchsia-300/10 px-2.5 py-1 font-semibold text-fuchsia-100 active:cursor-grabbing">✍ Custom part</span>
+              </div>
+              {openFamily && <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-white/[.07] pt-2">
+                {INSTRUMENT_STYLES.filter(style => openFamily.instruments.includes(style.id)).map(style =>
+                  <span key={style.id} draggable
+                    onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'instrument', style: style.id })); event.dataTransfer.effectAllowed = 'copy'; }}
+                    title={`${style.label} \u2014 drop on a note; drag across bars to limit the span`}
+                    className="cursor-grab select-none rounded-lg border border-sky-300/25 bg-sky-300/[.07] px-2 py-1 text-sky-100 active:cursor-grabbing">{bandChipLabel(style.label, openFamily.word)}</span>)}
+                {DRUM_STYLES.filter(style => (openFamily.drums ?? []).includes(style.id)).map(style =>
+                  <span key={style.id} draggable
+                    onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'drums', style: style.id })); event.dataTransfer.effectAllowed = 'copy'; }}
+                    title={`${style.label} \u2014 drop on a note; drag across bars to limit the span`}
+                    className="cursor-grab select-none rounded-lg border border-rose-300/25 bg-rose-300/[.07] px-2 py-1 text-rose-100 active:cursor-grabbing">{bandChipLabel(style.label)}</span>)}
+                {(openFamily.clips ?? []).map(timbre =>
+                  <span key={timbre} draggable
+                    onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'clip', style: timbre })); event.dataTransfer.effectAllowed = 'copy'; }}
+                    title={`A free ${timbre} clip \u2014 drop it ANYWHERE (even empty bars; drag across bars for its length) and write exactly what it plays. It sounds once in a real ${timbre} voice, independent of the style instructions.`}
+                    className="cursor-grab select-none rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 font-semibold text-emerald-100 active:cursor-grabbing">🎼 {timbre} clip</span>)}
+              </div>}
             </div>}
             {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <ScoreView notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
