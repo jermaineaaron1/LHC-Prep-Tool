@@ -459,3 +459,121 @@ export function buildVocalShaping(energy: ArrangeEnergy, notes: SongNote[]): Voc
     return { noteId: phrase.leadNoteId, dynamic: rung.mark, velocity: rung.velocity };
   });
 }
+
+// ── the harmony the choir is already singing ───────────────────────────────
+//
+// The chord-playing styles (every guitar and piano pattern) build their notes
+// from the song's chord symbols. A song with none - which is most hymns as
+// transcribed - hears drums and nothing else, however carefully it was
+// arranged. But an SATB score already CONTAINS its harmony: four parts
+// sounding together spell the chord. This reads it back out.
+
+const PITCH_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+
+/** Chord shapes worth naming. `plain` marks the everyday triads a hymn is
+ *  actually built from; anything richer has to earn its place. */
+const SHAPES: Array<{ suffix: string; degrees: number[]; plain?: boolean }> = [
+  { suffix: '', degrees: [0, 4, 7], plain: true },
+  { suffix: 'm', degrees: [0, 3, 7], plain: true },
+  { suffix: '7', degrees: [0, 4, 7, 10] },
+  { suffix: 'maj7', degrees: [0, 4, 7, 11] },
+  { suffix: 'm7', degrees: [0, 3, 7, 10] },
+  { suffix: 'dim', degrees: [0, 3, 6] },
+  { suffix: 'sus4', degrees: [0, 5, 7] },
+  { suffix: '5', degrees: [0, 7] },
+];
+
+export interface InferredChord { at: number; symbol: string }
+
+const MAJOR_STEPS = [0, 2, 4, 5, 7, 9, 11];
+const MINOR_STEPS = [0, 2, 3, 5, 7, 8, 10];
+
+/** The scale the song mostly lives in, so a chord built from notes outside it
+ *  has to be clearly right before it is named. */
+function scaleOf(notes: SongNote[]): Set<number> {
+  const weight = new Array(12).fill(0);
+  for (const note of notes) weight[((note.midi % 12) + 12) % 12] += Math.max(0.05, note.end - note.start);
+  let best = { fit: -1, steps: MAJOR_STEPS, tonic: 0 };
+  for (let tonic = 0; tonic < 12; tonic++) {
+    for (const steps of [MAJOR_STEPS, MINOR_STEPS]) {
+      const inScale = new Set(steps.map(step => (tonic + step) % 12));
+      let fit = 0;
+      for (let pc = 0; pc < 12; pc++) fit += inScale.has(pc) ? weight[pc] : -weight[pc] * 1.2;
+      if (fit > best.fit) best = { fit, steps, tonic };
+    }
+  }
+  return new Set(best.steps.map(step => (best.tonic + step) % 12));
+}
+
+/**
+ * Read a chord per bar from what the voices actually sing.
+ *
+ * Each pitch class is weighted by how long it sounds in the bar, the lowest
+ * voice is given extra weight because the bass is what names a chord, and
+ * every shape is scored on what it explains minus what it leaves out. Bars
+ * that keep the previous chord are not re-stated.
+ */
+export function inferChordsFromVoices(
+  notes: SongNote[],
+  bars: Array<{ start: number; end: number }>,
+): InferredChord[] {
+  // Hymns commonly change harmony inside the bar, so read each half-bar; a
+  // half that agrees with the one before simply is not re-stated.
+  const windows: Array<{ start: number; end: number }> = [];
+  for (const bar of bars) {
+    const length = bar.end - bar.start;
+    if (length > 1.2) {
+      const middle = bar.start + length / 2;
+      windows.push({ start: bar.start, end: middle }, { start: middle, end: bar.end });
+    } else windows.push({ start: bar.start, end: bar.end });
+  }
+
+  const scale = scaleOf(notes);
+  const out: InferredChord[] = [];
+  let previous = '';
+  for (const span of windows) {
+    const sounding = notes.filter(note => note.start < span.end - 0.001 && note.end > span.start + 0.001);
+    if (sounding.length < 2) continue;
+
+    const weight = new Array(12).fill(0);
+    let lowest = Number.POSITIVE_INFINITY;
+    let lowestPc = -1;
+    for (const note of sounding) {
+      const held = Math.min(note.end, span.end) - Math.max(note.start, span.start);
+      if (held <= 0) continue;
+      const pc = ((note.midi % 12) + 12) % 12;
+      weight[pc] += held;
+      if (note.midi < lowest) { lowest = note.midi; lowestPc = pc; }
+    }
+    const total = weight.reduce((sum, value) => sum + value, 0);
+    if (total <= 0) continue;
+
+    let best = { score: -Infinity, symbol: '' };
+    for (let root = 0; root < 12; root++) {
+      for (const shape of SHAPES) {
+        const inChord = new Set(shape.degrees.map(degree => (root + degree) % 12));
+        let explained = 0;
+        let stray = 0;
+        for (let pc = 0; pc < 12; pc++) {
+          if (weight[pc] <= 0) continue;
+          if (inChord.has(pc)) explained += weight[pc];
+          else stray += weight[pc];
+        }
+        // The bass names the chord; a plain triad is what a hymn is built
+        // from; and a fourth note must explain a good deal more to be worth
+        // naming, or every passing tone turns the song into sevenths.
+        const bassBonus = lowestPc === root ? total * 0.35 : 0;
+        const plainBonus = shape.plain ? total * 0.1 : 0;
+        const extension = Math.max(0, shape.degrees.length - 3) * total * 0.22;
+        const thin = shape.degrees.length < 3 ? total * 0.12 : 0;
+        const outOfKey = shape.degrees.filter(degree => !scale.has((root + degree) % 12)).length;
+        const score = explained - stray * 1.15 + bassBonus + plainBonus - extension - thin - outOfKey * total * 0.14;
+        if (score > best.score) best = { score, symbol: PITCH_NAMES[root] + shape.suffix };
+      }
+    }
+    if (!best.symbol || best.symbol === previous) continue;
+    previous = best.symbol;
+    out.push({ at: span.start, symbol: best.symbol });
+  }
+  return out;
+}

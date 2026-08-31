@@ -25,7 +25,7 @@ import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoice, preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
 import { downloadSingerVoice, playSingerBuffers, prepareSingerBuffers, singerVoiceReady, voiceKindForPart } from '@/lib/vocal-hero/singer';
 import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
-import { ARRANGE_ENERGIES, ARRANGE_INSTRUMENTS, ARRANGE_PERCUSSION, ARRANGEMENT_STYLES, buildArrangement, buildArrangementFollowingVoices, buildFromInstruments, buildVocalShaping, type ArrangeEnergy } from '@/lib/vocal-hero/arrangements';
+import { ARRANGE_ENERGIES, ARRANGE_INSTRUMENTS, ARRANGE_PERCUSSION, ARRANGEMENT_STYLES, buildArrangement, buildArrangementFollowingVoices, buildFromInstruments, buildVocalShaping, inferChordsFromVoices, type ArrangeEnergy } from '@/lib/vocal-hero/arrangements';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
@@ -1174,7 +1174,15 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     const recipe = style as Parameters<typeof buildArrangement>[0];
     const plan = followVoices ? buildArrangementFollowingVoices(recipe, notes) : buildArrangement(recipe, notes);
     const shaping = shapeVoices ? buildVocalShaping(recipe.energy ?? myEnergy, notes) : [];
+    // Guitar and piano voice themselves from the song's chord symbols, so a
+    // song without any hears drums alone however carefully it is arranged.
+    // The choir is already singing the harmony - read it out of them.
+    const existingChords = trackSettings.chord_symbols ?? [];
+    const inferred = existingChords.length < 2
+      ? inferChordsFromVoices(notes, musicalBars.map(bar => ({ start: bar.start, end: bar.end })))
+      : [];
     pushHistory();
+    if (inferred.length) setTrackSettingsDirty(current => ({ ...current, chord_symbols: inferred }));
     setTrackSettingsDirty(current => ({ ...current, accompaniment: {
       guitar: plan.opening.instrument,
       drums: plan.opening.drums,
@@ -1213,7 +1221,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       return { ...note, velocity, marks: Object.keys(marks).length ? marks : undefined };
     }));
     setSuggestOpen(false);
-    setEditorNotice(`Arranged as \u201c${style.label}\u201d \u2014 the band opens with ${plan.opening.instrument === 'off' ? 'nothing' : (INSTRUMENT_STYLES.find(item => item.id === plan.opening.instrument)?.label ?? plan.opening.instrument)} and changes ${plan.changes.length} time${plan.changes.length === 1 ? '' : 's'}, ${followVoices ? 'following the voices' : 'evenly across the song'}.${shaping.length ? ` The choir's dynamics were written to match (${shaping.length} phrase${shaping.length === 1 ? '' : 's'}; loudness only — no notes or words changed).` : ''} Every change sits on a note, so nudge any of them \u2014 or Ctrl+Z to undo the lot.`);
+    setEditorNotice(`${inferred.length ? `Read ${inferred.length} chord${inferred.length === 1 ? '' : 's'} out of the voices first, so the guitar and piano have something to play - edit any of them above the top staff. ` : ''}Arranged as \u201c${style.label}\u201d \u2014 the band opens with ${plan.opening.instrument === 'off' ? 'nothing' : (INSTRUMENT_STYLES.find(item => item.id === plan.opening.instrument)?.label ?? plan.opening.instrument)} and changes ${plan.changes.length} time${plan.changes.length === 1 ? '' : 's'}, ${followVoices ? 'following the voices' : 'evenly across the song'}.${shaping.length ? ` The choir's dynamics were written to match (${shaping.length} phrase${shaping.length === 1 ? '' : 's'}; loudness only — no notes or words changed).` : ''} Every change sits on a note, so nudge any of them \u2014 or Ctrl+Z to undo the lot.`);
   }
   function applyBandAt(target: { noteId: string } | 'default', field: 'instrument' | 'drums' | 'remove', value: string) {
     // The score's band directives land here: clicking one opens a popover
