@@ -472,15 +472,15 @@ const PITCH_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb',
 
 /** Chord shapes worth naming. `plain` marks the everyday triads a hymn is
  *  actually built from; anything richer has to earn its place. */
-const SHAPES: Array<{ suffix: string; degrees: number[]; plain?: boolean }> = [
+const SHAPES: Array<{ suffix: string; degrees: number[]; plain?: boolean; rare?: boolean }> = [
   { suffix: '', degrees: [0, 4, 7], plain: true },
   { suffix: 'm', degrees: [0, 3, 7], plain: true },
   { suffix: '7', degrees: [0, 4, 7, 10] },
   { suffix: 'maj7', degrees: [0, 4, 7, 11] },
   { suffix: 'm7', degrees: [0, 3, 7, 10] },
-  { suffix: 'dim', degrees: [0, 3, 6] },
-  { suffix: 'sus4', degrees: [0, 5, 7] },
-  { suffix: '5', degrees: [0, 7] },
+  { suffix: 'dim', degrees: [0, 3, 6], rare: true },
+  { suffix: 'sus4', degrees: [0, 5, 7], rare: true },
+  { suffix: '5', degrees: [0, 7], rare: true },
 ];
 
 export interface InferredChord { at: number; symbol: string }
@@ -563,11 +563,12 @@ export function inferChordsFromVoices(
         // from; and a fourth note must explain a good deal more to be worth
         // naming, or every passing tone turns the song into sevenths.
         const bassBonus = lowestPc === root ? total * 0.35 : 0;
-        const plainBonus = shape.plain ? total * 0.1 : 0;
-        const extension = Math.max(0, shape.degrees.length - 3) * total * 0.22;
+        const plainBonus = shape.plain ? total * 0.16 : 0;
+        const extension = Math.max(0, shape.degrees.length - 3) * total * 0.26;
+        const rare = shape.rare ? total * 0.14 : 0;
         const thin = shape.degrees.length < 3 ? total * 0.12 : 0;
         const outOfKey = shape.degrees.filter(degree => !scale.has((root + degree) % 12)).length;
-        const score = explained - stray * 1.15 + bassBonus + plainBonus - extension - thin - outOfKey * total * 0.14;
+        const score = explained - stray * 1.15 + bassBonus + plainBonus - extension - rare - thin - outOfKey * total * 0.14;
         if (score > best.score) best = { score, symbol: PITCH_NAMES[root] + shape.suffix };
       }
     }
