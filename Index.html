@@ -2286,6 +2286,23 @@
       background: #fee2e2 !important;
       border: 1px solid #fca5a5 !important;
     }
+    /* Same person on two duties in ONE service where the combination is an
+       allowed one (Reader + Singer, Preacher + Pianist, and the rest of
+       CLASH_EXCEPTION_PAIRS). It is not a scheduling error -- they can do
+       both -- but a PIC scanning the month still needs to SEE that someone is
+       carrying two jobs that Sunday, which is why it is red rather than
+       quiet. The dashed border is what separates it from a true clash. */
+    /* Scoped to the view so it outranks .roster-frequent-cell, which is
+       defined later and would otherwise repaint these cells yellow -- being
+       on two duties this Sunday matters more than being on duty often.
+       Deliberately no ::after badge: that pseudo-element already carries the
+       "cell has a value" tick (.roster-cell-edited::after), and a second one
+       would silently replace it. The dashed border and the tooltip carry the
+       meaning instead. */
+    #worshipRosterView .roster-double-duty-cell {
+      background: #fee2e2 !important;
+      border: 1px dashed #ef4444 !important;
+    }
     /* Frequency warning: person on duty >3 dates */
     .roster-frequent-cell {
       background: #fefce8 !important;
@@ -84847,7 +84864,7 @@ function filterLiturgyItems() {
 
       // 2. Clear all previous clash/frequency highlighting
       allCells.forEach(function(td) {
-        td.classList.remove('roster-clash-cell', 'roster-frequent-cell', 'roster-multi-duty-ok-cell');
+        td.classList.remove('roster-clash-cell', 'roster-frequent-cell', 'roster-multi-duty-ok-cell', 'roster-double-duty-cell');
         td.style.removeProperty('--clash-bg');
       });
 
@@ -84883,7 +84900,20 @@ function filterLiturgyItems() {
             if (otherEntries.length < 2) return; // nothing left to clash-check
 
             var roleIds = otherEntries.map(function(e) { return e.roleId; });
-            if (self._clashIsExcepted(roleIds)) return;
+            if (self._clashIsExcepted(roleIds)) {
+              // An allowed pairing is still one person doing two jobs in one
+              // service. It used to vanish from the roster entirely -- no
+              // mark at all -- so the only way to notice was to read every
+              // row and remember the names. Flag it red, but never raise the
+              // blocking modal: nothing here needs fixing, it needs seeing.
+              var pairLabel = otherEntries.map(function(e) { return self._roleWord(e.roleId); }).join(' + ');
+              otherEntries.forEach(function(entry) {
+                entry.td.classList.add('roster-double-duty-cell');
+                entry.td.title = entry.name + ' is on two duties this service (' + pairLabel +
+                  '). Allowed, but worth a look.';
+              });
+              return;
+            }
             // Duplicate found — highlight all
             otherEntries.forEach(function(entry) {
               entry.td.classList.add('roster-clash-cell');
