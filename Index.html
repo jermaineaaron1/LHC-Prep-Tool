@@ -80013,7 +80013,7 @@ function filterLiturgyItems() {
   var _picSession = (function(){try{return JSON.parse(sessionStorage.getItem('lhc_pic_session')||'null');}catch(e){return null;}}());
   var STATE = { rosterMonth: new Date().getMonth(), rosterYear: new Date().getFullYear(), rosterEdits: new Map(), rosterOriginalValues: new Map(), rosterHasUnsaved: false, rosterFilter: 'all', rosterCellTimestamps: new Map(),
     picMode: !!(_picSession && _picSession.phone), picName: (_picSession && _picSession.name) || '', picPhone: (_picSession && _picSession.phone) || '',
-    rosterMobileOffset: 0, rosterPendingCells: new Set() };
+    rosterMobileOffset: 0, rosterPendingCells: new Set(), rosterOriginalPending: new Map() };
 
   // "Fun Facts" emoji set — used by both the Enablers individual-profile editor
   // and the printed/shared profile PDF.
@@ -81066,6 +81066,10 @@ function filterLiturgyItems() {
           }
           if (entry.timestamp) STATE.rosterCellTimestamps.set(key, entry.timestamp);
           if (entry.pending) STATE.rosterPendingCells.add(key);
+          // The pending flag is snapshotted too, because a save must upload a
+          // cell whose VALUE is unchanged but which has just been confirmed --
+          // otherwise a value-only diff would silently drop every confirm.
+          STATE.rosterOriginalPending.set(key, !!entry.pending);
         });
       }).catch(function(err) { console.error('Error loading roster data:', err); });
     },
@@ -81105,6 +81109,7 @@ function filterLiturgyItems() {
       if (STATE.rosterOriginalValues) STATE.rosterOriginalValues.clear();
       STATE.rosterCellTimestamps.clear();
       STATE.rosterPendingCells.clear();
+      STATE.rosterOriginalPending.clear();
       // The edits are gone either way at this point; leaving the flag set kept
       // "Unsaved changes" on screen for a month that has none, and armed a
       // pointless auto-save of freshly-loaded data.
@@ -84846,8 +84851,35 @@ function filterLiturgyItems() {
         return val !== orig;
       });
 
+      // Upload ONLY what changed.
+      //
+      // Every save used to re-upload the entire month from this browser's
+      // memory. With two people in the same month that is a silent revert: the
+      // second person to save writes their whole stale snapshot over the first
+      // person's work, no error, nothing to notice. It cost this roster eight
+      // September duties on 31 Aug, recovered from the change log.
+      //
+      // The diff is against rosterOriginalValues (what the server gave us, kept
+      // current after each save) and rosterOriginalPending -- a confirm changes
+      // only the pending flag, so a value-only diff would drop it.
+      var changedEdits = edits.filter(function(e) {
+        var key = e.roleId + '__' + e.date.replace(/\s/g, '_');
+        var origRaw = STATE.rosterOriginalValues ? STATE.rosterOriginalValues.get(key) : undefined;
+        var orig = (origRaw && typeof origRaw === 'object') ? (origRaw.day || JSON.stringify(origRaw)) : (origRaw === undefined ? undefined : String(origRaw));
+        var val = (e.value && typeof e.value === 'object') ? (e.value.day || JSON.stringify(e.value)) : String(e.value);
+        if (orig === undefined || val !== orig) return true;
+        return !!STATE.rosterOriginalPending.get(key) !== !!e.pending;
+      });
+
+      if (!changedEdits.length) {
+        if (silent) _rShowAutoSave('<i class="fa-solid fa-circle-check"></i> Saved', false);
+        else this.showToast('Nothing has changed since the last save', 'info');
+        this.clearUnsaved();
+        return Promise.resolve();
+      }
+
       this.showLoader(true);
-      return SBQ_ROSTER.saveEdits(edits).then(function() {
+      return SBQ_ROSTER.saveEdits(changedEdits).then(function() {
         if (silent) {
           _rShowAutoSave('<i class="fa-solid fa-circle-check"></i> Auto-saved', false);
         } else {
@@ -84878,9 +84910,10 @@ function filterLiturgyItems() {
         }
         // Update snapshot so next save compares correctly
         if (STATE.rosterOriginalValues) {
-          edits.forEach(function(e) {
+          changedEdits.forEach(function(e) {
             var key = e.roleId + '__' + e.date.replace(/\s/g, '_');
             STATE.rosterOriginalValues.set(key, e.value);
+            STATE.rosterOriginalPending.set(key, !!e.pending);
           });
         }
         // Refresh home dashboard
