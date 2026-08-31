@@ -81942,6 +81942,11 @@ function filterLiturgyItems() {
                     STATE.rosterCellTimestamps.set(key, new Date().toISOString());
                     self._contextCell.setAttribute('data-timestamp', new Date().toISOString());
                     self._contextCell.classList.add('roster-cell-edited');
+                    // Restoring an old value is still putting a name in a cell,
+                    // so it waits for Confirm like any other manual assignment.
+                    if (val && val !== '__BLANK__') STATE.rosterPendingCells.add(key);
+                    self._refreshCellPendingVisual(key);
+                    self._updateConfirmPendingButton();
                     self.markUnsaved();
                     menu.classList.remove('show');
                   }
@@ -82135,19 +82140,20 @@ function filterLiturgyItems() {
         removeFloatingPanel();
         var oldVal = STATE.rosterEdits.get(key);
         var timestamp = new Date().toISOString();
-        // Correcting an auto-suggested pick REPLACES the suggestion; it does
-        // not approve it. Treating the edit as an implicit confirm (which is
-        // what this used to do) meant the very act of fixing a name pushed it
-        // to that person's calendar, before the PIC had reviewed the rest of
-        // the month -- and it silently emptied the Confirm Pending queue, so
-        // the roles you had touched dropped out of the review list.
+        // NOTHING reaches anyone's Google Calendar on the strength of a single
+        // edit. Every assignment made by hand lands pending -- yellow, with the
+        // hourglass -- and waits for an explicit Confirm, exactly like an
+        // Auto-Suggest pick. Putting a name in a cell and telling that person
+        // they are on duty are two different decisions, and the roster is
+        // usually mid-thought when the first one happens.
         //
-        // A cell that was NOT pending stays confirmed: editing an already
-        // approved assignment is not a reason to un-approve it. Blanking
-        // drops the flag either way -- there is nothing left to confirm.
+        // Clearing is the exception and stays immediate: a removal should
+        // reach the calendar promptly so nobody turns up for a duty that is no
+        // longer theirs, and a blank cell has nothing to confirm anyway.
         var wasPending = STATE.rosterPendingCells.has(key);
-        var stayPending = wasPending && newValue !== '__BLANK__';
-        if (!stayPending) STATE.rosterPendingCells.delete(key);
+        var stayPending = newValue !== '__BLANK__';
+        if (stayPending) STATE.rosterPendingCells.add(key);
+        else STATE.rosterPendingCells.delete(key);
         if (newValue === '__BLANK__') {
           STATE.rosterEdits.set(key, '__BLANK__');
           td.innerHTML = '<span class="roster-cell-value" style="color:#d1d5db;">-</span><span class="roster-cell-dropdown-icon" style="color:#9ca3af;"><i class="fa-solid fa-caret-down"></i></span>';
@@ -82194,10 +82200,8 @@ function filterLiturgyItems() {
             if ((c1IsBlank || c1IsPending || c1Val === oldVal) && c1Val !== newValue) {
               var c1NewVal = newValue === '__BLANK__' ? '__BLANK__' : (newValue || '-');
               // Same rule as the Liturgist cell that drives it: a mirrored
-              // value inherits the Liturgist's pending state rather than
-              // confirming itself. Confirming the Liturgist confirms this too,
-              // because both keys are in the pending set the button reads.
-              var c1StayPending = c1NewVal !== '__BLANK__' && (c1IsPending || stayPending);
+              // value waits for the same Confirm rather than approving itself.
+              var c1StayPending = c1NewVal !== '__BLANK__';
               _rPushUndo(c1Key, c1Val, c1NewVal, c1IsPending, c1StayPending);
               STATE.rosterEdits.set(c1Key, c1NewVal);
               STATE.rosterCellTimestamps.set(c1Key, timestamp);
@@ -82310,7 +82314,10 @@ function filterLiturgyItems() {
         headEl.appendChild(headClose);
         panel.appendChild(headEl);
 
-        // -- Mentor / trainee bar --
+        // -- Assisting bar --
+        // "Assisting", not "training": an understudy IS learning, but what she
+        // is doing on the day is assisting the person on duty. The user's word,
+        // and the better one -- it describes the service, not the intent.
         // Pairing someone new with someone experienced is how this church
         // brings people into LCD and the instruments. Doing it through a
         // control instead of by typing "A / B" is what lets clash detection,
@@ -82327,19 +82334,19 @@ function filterLiturgyItems() {
           pairBtn.type = 'button';
           pairBtn.className = 'roster-np-pair-btn';
           if (pairMode) {
-            pairLabel.innerHTML = 'Pick who is being trained alongside <b>' + self.escapeHtml(pairPrimary) + '</b>';
+            pairLabel.innerHTML = 'Pick who is assisting <b>' + self.escapeHtml(pairPrimary) + '</b>';
             pairBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>Cancel';
             pairBtn.title = 'Stop adding a second person';
             pairBtn.onclick = function(e) { e.stopPropagation(); pairMode = false; buildDropdownPanel(false); };
           } else if (pairTrainee) {
-            pairLabel.innerHTML = '<b>' + self.escapeHtml(pairTrainee) + '</b> is training alongside <b>' + self.escapeHtml(pairPrimary) + '</b>';
+            pairLabel.innerHTML = '<b>' + self.escapeHtml(pairTrainee) + '</b> is assisting <b>' + self.escapeHtml(pairPrimary) + '</b>';
             pairBtn.innerHTML = '<i class="fa-solid fa-user-minus"></i>Remove';
             pairBtn.title = 'Remove ' + pairTrainee + ', leaving ' + pairPrimary + ' on this duty alone';
             pairBtn.onclick = function(e) { e.stopPropagation(); saveSelect(pairPrimary); };
           } else {
             pairLabel.innerHTML = '<b>' + self.escapeHtml(pairPrimary) + '</b> is on this duty';
-            pairBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i>Add trainee';
-            pairBtn.title = 'Add a second person to be trained alongside ' + pairPrimary;
+            pairBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i>Add assistant';
+            pairBtn.title = 'Add someone to assist ' + pairPrimary + ' on this duty';
             pairBtn.onclick = function(e) { e.stopPropagation(); pairMode = true; buildDropdownPanel(false); };
           }
           pairEl.appendChild(pairLabel);
@@ -86603,6 +86610,8 @@ function filterLiturgyItems() {
                   STATE.rosterCellTimestamps.set(key, new Date().toISOString());
                   self._ddCell.setAttribute('data-timestamp', new Date().toISOString());
                   self._ddCell.classList.add('roster-cell-edited');
+                  // Same rule as every other manual assignment: pending first.
+                  if (val && val !== '__BLANK__') STATE.rosterPendingCells.add(key);
                   self.markUnsaved();
                   self.render();
                 }
