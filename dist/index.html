@@ -80810,12 +80810,36 @@ function filterLiturgyItems() {
     if (!isErr) el._t = setTimeout(function() { el.classList.add('hidden'); }, 4000);
   }
 
-  function _rTriggerAutoSave() {
+  function _rTriggerAutoSave(delay) {
     clearTimeout(_rAutoSaveTimer);
     _rAutoSaveTimer = setTimeout(function() {
       if (STATE.rosterHasUnsaved && window.RosterEngine) window.RosterEngine.saveChanges(true);
-    }, 3000);
+    }, delay || 3000);
   }
+
+  // A draft -- an auto-suggested pick or a half-finished edit -- is worth
+  // exactly as much as a confirmed one until someone decides otherwise, and it
+  // only ever got ONE chance to reach the server. If that single attempt failed
+  // (a dropped connection, a phone waking from sleep) nothing ever tried again:
+  // the unsaved flag stayed set, but no timer was armed to act on it, so the
+  // work sat in one browser until that tab was closed.
+  //
+  // Two safety nets. A failed auto-save re-arms itself, backing off so a
+  // genuinely offline phone is not hammered. And a slow heartbeat catches any
+  // unsaved state whose timer was lost some other way -- cheap, because a save
+  // with nothing changed now sends nothing.
+  var _rRetryDelay = 0;
+  function _rAutoSaveFailed() {
+    _rRetryDelay = _rRetryDelay ? Math.min(_rRetryDelay * 2, 60000) : 8000;
+    _rTriggerAutoSave(_rRetryDelay);
+  }
+  function _rAutoSaveWorked() { _rRetryDelay = 0; }
+
+  setInterval(function() {
+    if (!STATE.rosterHasUnsaved || !STATE.rosterEdits.size) return;
+    if (!window.RosterEngine || !document.getElementById('rosterTbody')) return;
+    window.RosterEngine.saveChanges(true);
+  }, 30000);
 
   // The other way a roster edit could disappear: close the tab inside that
   // 3-second window and the save never happens. Nothing can be awaited during
@@ -85004,6 +85028,7 @@ function filterLiturgyItems() {
         changedEdits = toWrite;
         return SBQ_ROSTER.saveEdits(toWrite);
       }).then(function() {
+        _rAutoSaveWorked();
         if (silent) {
           _rShowAutoSave('<i class="fa-solid fa-circle-check"></i> Auto-saved', false);
         } else {
@@ -85047,8 +85072,11 @@ function filterLiturgyItems() {
         // choice was applied, there was simply nothing left to upload.
         if (err && err.__handled) return;
         console.error('Save error:', err);
-        if (silent) { _rShowAutoSave('<i class="fa-solid fa-triangle-exclamation"></i> Auto-save failed', true); }
-        else { self.showToast('Failed to save changes', 'error'); }
+        // The work is still unsaved, so arm another attempt rather than
+        // leaving the draft stranded in this browser.
+        _rAutoSaveFailed();
+        if (silent) { _rShowAutoSave('<i class="fa-solid fa-triangle-exclamation"></i> Auto-save failed - retrying', true); }
+        else { self.showToast('Could not save - will keep trying', 'error'); }
       }).finally(function() { self.showLoader(false); });
     },
 
