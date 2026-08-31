@@ -25,7 +25,7 @@ import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 import { playVoice, preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
 import { downloadSingerVoice, playSingerBuffers, prepareSingerBuffers, singerVoiceReady, voiceKindForPart } from '@/lib/vocal-hero/singer';
 import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
-import { ARRANGE_ENERGIES, ARRANGE_INSTRUMENTS, ARRANGE_PERCUSSION, ARRANGEMENT_STYLES, buildArrangement, buildFromInstruments, type ArrangeEnergy } from '@/lib/vocal-hero/arrangements';
+import { ARRANGE_ENERGIES, ARRANGE_INSTRUMENTS, ARRANGE_PERCUSSION, ARRANGEMENT_STYLES, buildArrangement, buildArrangementFollowingVoices, buildFromInstruments, buildVocalShaping, type ArrangeEnergy } from '@/lib/vocal-hero/arrangements';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
@@ -453,6 +453,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const [myInstruments, setMyInstruments] = useState<string[]>([]);
   const [myPercussion, setMyPercussion] = useState<string | null>(null);
   const [myEnergy, setMyEnergy] = useState<ArrangeEnergy>('building');
+  const [followVoices, setFollowVoices] = useState(true);
+  const [shapeVoices, setShapeVoices] = useState(false);
   const openFamily = BAND_FAMILIES.find(family => family.id === bandFamily) ?? null;
   // The preview SINGS by default; the piano remains one tap away.
   const [previewVoice, setPreviewVoice] = useState<'choir' | 'singer' | 'piano'>('choir');
@@ -1169,7 +1171,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     applyArrangementStyle(style);
   }
   function applyArrangementStyle(style: { id: string; label: string; blurb: string; textures: Array<{ instrument: string; drums: string }> }) {
-    const plan = buildArrangement(style as Parameters<typeof buildArrangement>[0], notes);
+    const recipe = style as Parameters<typeof buildArrangement>[0];
+    const plan = followVoices ? buildArrangementFollowingVoices(recipe, notes) : buildArrangement(recipe, notes);
+    const shaping = shapeVoices ? buildVocalShaping(recipe.energy ?? myEnergy, notes) : [];
     pushHistory();
     setTrackSettingsDirty(current => ({ ...current, accompaniment: {
       guitar: plan.opening.instrument,
@@ -1178,17 +1182,38 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       drum_tab: current.accompaniment?.drum_tab,
     } }));
     const byNote = new Map(plan.changes.map(change => [change.noteId, change.texture]));
+    // The choir's dynamics, when asked for: a mark at each phrase head and the
+    // matching velocity across the notes of that phrase, in EVERY voice, so
+    // the parts stay balanced with each other.
+    const shapeAt = [...shaping].sort((a, b) => a.noteId.localeCompare(b.noteId));
+    const phraseHeads = new Map(shaping.map(item => [item.noteId, item]));
+    const shapeSpans = shaping.length ? (() => {
+      const heads = shaping
+        .map(item => ({ item, note: notes.find(note => note.id === item.noteId) }))
+        .filter((entry): entry is { item: typeof shaping[number]; note: SongNote } => !!entry.note)
+        .sort((a, b) => a.note.start - b.note.start);
+      return heads.map((entry, index) => ({
+        from: entry.note.start,
+        to: index + 1 < heads.length ? heads[index + 1].note.start : Number.POSITIVE_INFINITY,
+        velocity: entry.item.velocity,
+      }));
+    })() : [];
+    void shapeAt;
     setNotes(current => current.map(note => {
       const texture = byNote.get(note.id);
       const hadBand = note.marks?.band !== undefined;
-      if (!texture && !hadBand) return note;
+      const head = phraseHeads.get(note.id);
+      const span = shapeSpans.find(item => note.start >= item.from - 0.001 && note.start < item.to - 0.001);
+      if (!texture && !hadBand && !head && !span) return note;
       const marks = { ...(note.marks ?? {}) };
       if (texture) marks.band = { instrument: texture.instrument, drums: texture.drums };
-      else delete marks.band;
-      return { ...note, marks: Object.keys(marks).length ? marks : undefined };
+      else if (hadBand) delete marks.band;
+      if (head) marks.dynamic = head.dynamic;
+      const velocity = span ? span.velocity : note.velocity;
+      return { ...note, velocity, marks: Object.keys(marks).length ? marks : undefined };
     }));
     setSuggestOpen(false);
-    setEditorNotice(`Arranged as \u201c${style.label}\u201d \u2014 the band opens with ${plan.opening.instrument === 'off' ? 'nothing' : (INSTRUMENT_STYLES.find(item => item.id === plan.opening.instrument)?.label ?? plan.opening.instrument)} and changes ${plan.changes.length} time${plan.changes.length === 1 ? '' : 's'} through the song. Every change sits on a note, so nudge any of them \u2014 or Ctrl+Z to undo the lot.`);
+    setEditorNotice(`Arranged as \u201c${style.label}\u201d \u2014 the band opens with ${plan.opening.instrument === 'off' ? 'nothing' : (INSTRUMENT_STYLES.find(item => item.id === plan.opening.instrument)?.label ?? plan.opening.instrument)} and changes ${plan.changes.length} time${plan.changes.length === 1 ? '' : 's'}, ${followVoices ? 'following the voices' : 'evenly across the song'}.${shaping.length ? ` The choir's dynamics were written to match (${shaping.length} phrase${shaping.length === 1 ? '' : 's'}; loudness only — no notes or words changed).` : ''} Every change sits on a note, so nudge any of them \u2014 or Ctrl+Z to undo the lot.`);
   }
   function applyBandAt(target: { noteId: string } | 'default', field: 'instrument' | 'drums' | 'remove', value: string) {
     // The score's band directives land here: clicking one opens a popover
@@ -2877,6 +2902,14 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               </div>
               {suggestOpen && <div className="mt-2 border-t border-white/[.07] pt-2">
                 <p className="mb-1.5 text-[10px] text-slate-400">Pick a feel and the whole song is arranged for you — it replaces the band instructions already written, and Ctrl+Z undoes it.</p>
+                <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-lg border border-cyan-300/20 bg-cyan-300/[.05] p-2">
+                  <button type="button" aria-pressed={followVoices} onClick={() => setFollowVoices(on => !on)}
+                    title="Place the band's changes where the choir breathes, and pick each phrase's texture from how full that phrase is — how many parts are singing, and how loudly. Off, the song is simply divided evenly."
+                    className={`rounded-lg border px-2 py-1 ${followVoices ? 'border-cyan-300/60 bg-cyan-300/15 text-cyan-50' : 'border-white/15 text-slate-300'}`}>{followVoices ? '\u2713 ' : ''}Band follows the voices</button>
+                  <button type="button" aria-pressed={shapeVoices} onClick={() => setShapeVoices(on => !on)}
+                    title="Also write the choir's dynamics to match the arrangement. Loudness only — pitches, rhythms and words are never rewritten."
+                    className={`rounded-lg border px-2 py-1 ${shapeVoices ? 'border-fuchsia-300/60 bg-fuchsia-300/15 text-fuchsia-50' : 'border-white/15 text-slate-300'}`}>{shapeVoices ? '\u2713 ' : ''}Shape the voices to match</button>
+                </div>
                 <div className="mb-2 rounded-lg border border-white/10 bg-black/20 p-2">
                   <p className="mb-1.5 text-[10px] font-black uppercase tracking-[.14em] text-slate-400">Arrange with my instruments</p>
                   <div className="flex flex-wrap gap-1.5">
