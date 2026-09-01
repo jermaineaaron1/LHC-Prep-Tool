@@ -135,7 +135,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   onBandWrite?: (target: { noteId: string } | 'default') => void;
   /** Free clips on the instrument tracks: a green 🎼 marker prints at each
    *  clip's start; clicking one opens it in the Part studio. */
-  clipMarkers?: Array<{ at: number; label: string; trackId: string; clipId: string }>;
+  clipMarkers?: Array<{ at: number; label: string; trackId: string; clipId: string; endAt?: number }>;
   onClipEdit?: (trackId: string, clipId: string) => void;
   /** Render the silent lead-in bars instead of opening at the first note —
    *  the editor's mode, so instrumental intros have somewhere to live. */
@@ -397,6 +397,32 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       {clipMarkers?.map((marker, index) => {
         const position = layout.timeToXY(marker.at);
         if (!position) return null;
+        // A recording covers the staff for as long as it lasts, so it is
+        // drawn as a band from where it starts to where it ends - across
+        // system breaks if it runs that long.
+        if (marker.endAt !== undefined && marker.endAt > marker.at) {
+          const finish = layout.timeToXY(marker.endAt) ?? { system: position.system, x: layout.systemWidth(position.system) };
+          const y = (system: number) => system * SYSTEM_H + 12 + STAFF_MIDS[3] + 64;
+          const rows: Array<{ system: number; from: number; to: number }> = [];
+          for (let system = position.system; system <= finish.system; system++) {
+            rows.push({
+              system,
+              from: system === position.system ? position.x : MARGIN_LEFT,
+              to: system === finish.system ? finish.x : layout.systemWidth(system),
+            });
+          }
+          return <g key={`clip-${index}`}
+            className={onClipEdit ? 'hover:opacity-90' : undefined}
+            style={onClipEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
+            onClick={onClipEdit ? () => onClipEdit(marker.trackId, marker.clipId) : undefined}>
+            {onClipEdit && <title>{marker.label} — click to move, crop or remove it</title>}
+            {rows.map(row => <g key={row.system}>
+              <rect x={row.from + 12} y={y(row.system)} width={Math.max(6, row.to - row.from)} height={15} rx={4}
+                fill="#34d39922" stroke="#34d399aa" strokeWidth={1.1} />
+              {row.system === position.system && <text x={row.from + 17} y={y(row.system) + 11} fontSize={9} fontWeight={800} fill="#86efac">{marker.label}</text>}
+            </g>)}
+          </g>;
+        }
         return <text key={`clip-${index}`} x={position.x + 12} y={position.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 74}
           fontSize={10} fontWeight={800} fill="#86efac"
           className={onClipEdit ? 'hover:fill-white' : undefined} style={onClipEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
