@@ -37,13 +37,16 @@ const STAFF_MIDS = [56, 132, 208, 284];
 // Every voice gets a lyric row under its own staff, choral-score style —
 // the bass row sits a touch higher so it clears the band lanes below it.
 const LYRIC_YS = [96, 172, 248, 320];
-const SYSTEM_H = 374;
+const SYSTEM_H = 400;
 // The band lane: two thin rows under the bass staff where the rhythm
 // section's ACTUAL events print — what the ear will hear, on paper.
 // The whole strip sits below the bass voice's lyric row.
 const BAND_TEXT_Y = 328;
 const LANE_INSTRUMENT_Y = 352;
 const LANE_DRUM_Y = 364;
+/** Recordings have their own row beneath the band lanes, so a clip never
+ *  sits on top of an instrument instruction. */
+const CLIP_ROW_Y = 376;
 const VOICE_COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
 
 type StaffClef = 'treble' | 'treble8' | 'bass';
@@ -93,7 +96,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit, showLeadIn }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit, onClipDrag, showLeadIn }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -136,6 +139,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   /** Free clips on the instrument tracks: a green 🎼 marker prints at each
    *  clip's start; clicking one opens it in the Part studio. */
   clipMarkers?: Array<{ at: number; label: string; trackId: string; clipId: string; endAt?: number }>;
+  /** Dragging a recording: the body moves it, either end crops it. Deltas
+   *  arrive in seconds, so the caller does not need the score's geometry. */
+  onClipDrag?: (trackId: string, clipId: string, change: 'move' | 'crop-start' | 'crop-end', seconds: number) => void;
   onClipEdit?: (trackId: string, clipId: string) => void;
   /** Render the silent lead-in bars instead of opening at the first note —
    *  the editor's mode, so instrumental intros have somewhere to live. */
@@ -200,6 +206,41 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   function bandTap(open: () => void) {
     if (bandClickTimer.current) window.clearTimeout(bandClickTimer.current);
     bandClickTimer.current = window.setTimeout(() => { bandClickTimer.current = null; open(); }, 240);
+  }
+  // Dragging a recording along the staff: the pointer's own x is turned back
+  // into song time, so a clip follows the cursor at whatever the bars happen
+  // to be spaced at, and the same gesture crops when it starts on an edge.
+  const clipDragRef = useRef<{ trackId: string; clipId: string; mode: 'move' | 'crop-start' | 'crop-end'; last: number } | null>(null);
+  function timeAtPointer(event: React.PointerEvent<SVGElement>): number | null {
+    const svg = event.currentTarget.ownerSVGElement ?? (event.currentTarget as unknown as SVGSVGElement);
+    const bounds = svg.getBoundingClientRect();
+    const x = event.clientX - bounds.left - 12;
+    const y = event.clientY - bounds.top - 12;
+    const system = Math.max(0, Math.floor(y / SYSTEM_H));
+    return layout.xyToTime(system, x);
+  }
+  function clipPointerDown(event: React.PointerEvent<SVGRectElement>, marker: { trackId: string; clipId: string }, mode: 'move' | 'crop-start' | 'crop-end') {
+    if (!onClipDrag) return;
+    const at = timeAtPointer(event);
+    if (at === null) return;
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    clipDragRef.current = { ...marker, mode, last: at };
+  }
+  function clipPointerMove(event: React.PointerEvent<SVGRectElement>) {
+    const drag = clipDragRef.current;
+    if (!drag || !onClipDrag) return;
+    const at = timeAtPointer(event);
+    if (at === null) return;
+    const delta = at - drag.last;
+    if (Math.abs(delta) < 0.01) return;   // ignore jitter, and keep re-renders sane
+    drag.last = at;
+    onClipDrag(drag.trackId, drag.clipId, drag.mode, delta);
+  }
+  function clipPointerUp(event: React.PointerEvent<SVGRectElement>) {
+    if (!clipDragRef.current) return;
+    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* already released */ }
+    clipDragRef.current = null;
   }
   function bandDoubleTap(write: () => void) {
     if (bandClickTimer.current) { window.clearTimeout(bandClickTimer.current); bandClickTimer.current = null; }
@@ -402,7 +443,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         // system breaks if it runs that long.
         if (marker.endAt !== undefined && marker.endAt > marker.at) {
           const finish = layout.timeToXY(marker.endAt) ?? { system: position.system, x: layout.systemWidth(position.system) };
-          const y = (system: number) => system * SYSTEM_H + 12 + STAFF_MIDS[3] + 64;
+          const y = (system: number) => system * SYSTEM_H + 12 + CLIP_ROW_Y;
           const rows: Array<{ system: number; from: number; to: number }> = [];
           for (let system = position.system; system <= finish.system; system++) {
             rows.push({
@@ -416,11 +457,36 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
             style={onClipEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
             onClick={onClipEdit ? () => onClipEdit(marker.trackId, marker.clipId) : undefined}>
             {onClipEdit && <title>{marker.label} — click to move, crop or remove it</title>}
-            {rows.map(row => <g key={row.system}>
-              <rect x={row.from + 12} y={y(row.system)} width={Math.max(6, row.to - row.from)} height={15} rx={4}
-                fill="#34d39922" stroke="#34d399aa" strokeWidth={1.1} />
-              {row.system === position.system && <text x={row.from + 17} y={y(row.system) + 11} fontSize={9} fontWeight={800} fill="#86efac">{marker.label}</text>}
-            </g>)}
+            {rows.map(row => {
+              const width = Math.max(6, row.to - row.from);
+              const first = row.system === position.system;
+              const last = row.system === finish.system;
+              return <g key={row.system}>
+                <rect x={row.from + 12} y={y(row.system)} width={width} height={15} rx={4}
+                  fill="#34d39922" stroke="#34d399aa" strokeWidth={1.1}
+                  style={onClipDrag ? { cursor: 'grab' } : undefined}
+                  onPointerDown={event => clipPointerDown(event, marker, 'move')}
+                  onPointerMove={clipPointerMove}
+                  onPointerUp={clipPointerUp}
+                  onPointerCancel={clipPointerUp} />
+                {/* the ends crop: grab either edge and drag it in or out */}
+                {first && <rect x={row.from + 12} y={y(row.system)} width={7} height={15} rx={3}
+                  fill="#34d399" fillOpacity={0.55}
+                  style={onClipDrag ? { cursor: 'ew-resize' } : undefined}
+                  onPointerDown={event => clipPointerDown(event, marker, 'crop-start')}
+                  onPointerMove={clipPointerMove}
+                  onPointerUp={clipPointerUp}
+                  onPointerCancel={clipPointerUp} />}
+                {last && <rect x={row.from + 12 + width - 7} y={y(row.system)} width={7} height={15} rx={3}
+                  fill="#34d399" fillOpacity={0.55}
+                  style={onClipDrag ? { cursor: 'ew-resize' } : undefined}
+                  onPointerDown={event => clipPointerDown(event, marker, 'crop-end')}
+                  onPointerMove={clipPointerMove}
+                  onPointerUp={clipPointerUp}
+                  onPointerCancel={clipPointerUp} />}
+                {first && <text x={row.from + 23} y={y(row.system) + 11} fontSize={9} fontWeight={800} fill="#86efac" style={{ pointerEvents: 'none' }}>{marker.label}</text>}
+              </g>;
+            })}
           </g>;
         }
         return <text key={`clip-${index}`} x={position.x + 12} y={position.system * SYSTEM_H + 12 + STAFF_MIDS[3] + 74}
