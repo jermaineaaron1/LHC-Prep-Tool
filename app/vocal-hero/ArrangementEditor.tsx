@@ -2472,6 +2472,18 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       setUploadingClip(false);
     }
   }
+  /** The nearest beat to a moment, for placing a recording against the music. */
+  function snapToBeat(time: number): number {
+    let best = time, bestGap = Number.POSITIVE_INFINITY;
+    for (const bar of musicalBars) {
+      if (bar.end < time - 4 || bar.start > time + 4) continue;
+      for (const beat of bar.beats) {
+        const gap = Math.abs(beat.start - time);
+        if (gap < bestGap) { bestGap = gap; best = beat.start; }
+      }
+    }
+    return bestGap === Number.POSITIVE_INFINITY ? time : best;
+  }
   /** Move, crop or remove one placed recording. */
   function updateAudioClip(trackId: string, clipId: string, change: 'move' | 'crop-start' | 'crop-end' | 'remove', amount = 0) {
     setTrackSettingsDirty(current => {
@@ -2481,7 +2493,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           ? track.clips.filter(clip => clip.id !== clipId)
           : track.clips.map(clip => {
             if (clip.id !== clipId || !clip.audio) return clip;
-            if (change === 'move') return { ...clip, start: Math.max(0, clip.start + amount) };
+            // A dragged recording lands ON a beat, so it lines up with the
+            // music instead of floating between it.
+            if (change === 'move') return { ...clip, start: snapToBeat(Math.max(0, clip.start + amount)) };
             const audio = { ...clip.audio };
             if (change === 'crop-start') audio.source_start = Math.max(0, Math.min(audio.source_end - 0.1, audio.source_start + amount));
             if (change === 'crop-end') audio.source_end = Math.max(audio.source_start + 0.1, audio.source_end + amount);
@@ -2969,7 +2983,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             <section className="w-full max-w-2xl rounded-2xl border border-emerald-300/30 bg-[#081420] p-3 text-xs shadow-[0_20px_60px_#000b]">
               <div className="flex flex-wrap items-center gap-2">
                 <b className="text-emerald-100">🎙 {clip.audio.name}</b>
-                <span className="text-slate-400">{length.toFixed(1)}s \u00b7 from bar {bar?.number ?? '?'}</span>
+                <span className="text-slate-400">{length.toFixed(1)}s · from bar {bar?.number ?? '?'}</span>
                 <button type="button" onClick={() => { stopClipPreview(); setAudioClipEdit(null); }} className="ml-auto rounded-lg border border-white/15 px-2 py-1 text-slate-300">Done</button>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-3">
