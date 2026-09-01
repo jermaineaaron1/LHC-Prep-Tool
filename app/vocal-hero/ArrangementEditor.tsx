@@ -2698,19 +2698,19 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   }
   return <div ref={editorRootRef} data-timeline-focus={timelineFocus ? 'true' : 'false'} className="vh-editor-scrollbars fixed inset-0 z-50 flex flex-col overflow-hidden bg-[#020510] text-slate-100">
     <audio ref={backingMediaRef} src={mediaUrl || undefined} preload="auto" className="hidden" onLoadedMetadata={event => { const media_duration = event.currentTarget.duration; if (Number.isFinite(media_duration)) setTrackSettings(current => current.media_duration === media_duration ? current : { ...current, media_duration }); }} onTimeUpdate={enforceBackingEdits} />
-    <header className={`${timelineFocus ? 'hidden' : 'flex'} min-h-14 flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-white/10 bg-[#070a1b] px-4 py-1.5`}>
-      <Brand />
+    <header className={`${timelineFocus ? 'hidden' : 'flex'} min-h-11 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-white/10 bg-[#070a1b] px-3 py-1.5 sm:min-h-14 sm:gap-x-4 sm:px-4`}>
+      <span className="hidden sm:block"><Brand /></span>
       <span className="hidden text-[10px] font-black uppercase tracking-[.2em] text-fuchsia-300 sm:block">Song Editor</span>
       <span className="flex min-w-0 items-center gap-2">
-        <input value={title} onChange={event => { dirtyRef.current = true; setTitle(event.target.value); }} aria-label="Song title" className="w-64 max-w-[38vw] truncate border-0 bg-transparent text-sm font-semibold text-white outline-none" />
+        <input value={title} onChange={event => { dirtyRef.current = true; setTitle(event.target.value); }} aria-label="Song title" className="w-64 max-w-[34vw] truncate border-0 bg-transparent text-sm font-semibold text-white outline-none sm:max-w-[38vw]" />
         <span aria-hidden="true" className="text-fuchsia-300">✎</span>
       </span>
       <span className={`hidden rounded-full px-2.5 py-1 text-[10px] font-bold md:block ${dirtyRef.current ? 'border border-amber-300/30 bg-amber-300/10 text-amber-200' : 'border border-emerald-300/25 bg-emerald-300/[.07] text-emerald-300'}`}>{dirtyRef.current ? '● Unsaved changes' : '✓ Saved'}</span>
       <div className="ml-auto flex items-center gap-2">
         <button onClick={() => void save()} disabled={saving} className="rounded-lg bg-[linear-gradient(120deg,#d946ef,#22d3ee)] px-4 py-2 text-xs font-black text-[#08101d] disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
-        <button onClick={() => switchView(noteView === 'rendition' ? 'score' : 'rendition')} aria-pressed={noteView === 'rendition'} title="Shape the performance: passes, keys, tempos — over the live score" className={`rounded-lg border px-3 py-2 text-xs font-semibold ${noteView === 'rendition' ? 'border-cyan-300/70 bg-cyan-300/20 text-cyan-50' : 'border-cyan-300/35 bg-cyan-300/[.07] text-cyan-100'}`}>⟳ Rendition</button>
+        <button onClick={() => switchView(noteView === 'rendition' ? 'score' : 'rendition')} aria-pressed={noteView === 'rendition'} title="Shape the performance: passes, keys, tempos — over the live score" className={`rounded-lg border px-3 py-2 text-xs font-semibold ${noteView === 'rendition' ? 'border-cyan-300/70 bg-cyan-300/20 text-cyan-50' : 'border-cyan-300/35 bg-cyan-300/[.07] text-cyan-100'}`}>⟳<span className="hidden sm:inline"> Rendition</span></button>
         <button onClick={() => void toggleFullscreen()} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'} className="rounded-lg border border-white/15 px-3 py-2 text-xs">{isFullscreen ? '⊙' : '⛶'}</button>
-        <button onClick={() => void closeOrExitFullscreen()} title={isFullscreen ? 'Exit full screen without closing the editor' : 'Close the song editor'} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button>
+        <button onClick={() => void closeOrExitFullscreen()} title={isFullscreen ? 'Exit full screen without closing the editor' : 'Close the song editor'} className="rounded-lg border border-white/15 px-3 py-2 text-xs"><span className="sm:hidden">✕</span><span className="hidden sm:inline">Close</span></button>
       </div>
     </header>
     <div className={`flex ${timelineFocus ? 'h-screen min-h-0' : 'min-h-0 flex-1'} overflow-auto`}>
@@ -3022,7 +3022,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           </div>;
         })()}
         <div className="flex min-h-0 flex-1">
-          <section className={`min-w-0 flex-1 overflow-auto ${timelineFocus ? 'p-1' : 'p-3'}`}>
+          <section className={`flex min-w-0 flex-1 flex-col overflow-auto [&>*]:shrink-0 ${timelineFocus ? 'p-1' : 'p-3'}`}>
             {!timelineFocus && noteView !== 'rendition' && <><details className="mb-2 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
               <summary className="cursor-pointer select-none font-semibold text-slate-300">Grid, tempo map &amp; drawn length <span className="ml-2 text-[10px] text-slate-500">{cursorMusicalState.numerator}/{cursorMusicalState.denominator} · {cursorMusicalState.bpm} bpm · {cursorMusicalState.tonic} {cursorMusicalState.mode}</span></summary>
               <div className="pt-2"><MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onSnapDivision={changeSnapDivision} onNoteValue={changeNoteValue} onLatchAll={latchAllToNoteValue} onRemove={removeMusicalEvent} /></div>
@@ -3151,7 +3151,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                     className="cursor-grab select-none rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 font-semibold text-emerald-100 active:cursor-grabbing">🎼 {timbre} clip</span>)}
               </div>}
             </div>}
-            {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
+            {noteView === 'score' && <div className="order-first overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <ScoreView notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
                 onSelectNote={(id, part, additive) => {
                   setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]);
@@ -3190,7 +3190,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onDragCommit={(id, changes) => update(id, changes)}
                 onLyricChange={(id, lyric) => update(id, { lyric }, true)} />
             </div>}
-            {noteView === 'grid' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
+            {noteView === 'grid' && <div className="order-first overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <div style={{ width: timelineWidth + TIMELINE_LABEL_WIDTH }}>
                 <div className="sticky top-0 z-40 bg-[#050716] shadow-[0_12px_28px_#02030ccc]">
                   <div onClick={event => { const bounds = event.currentTarget.getBoundingClientRect(); seekFromTimeline((event.clientX - bounds.left - TIMELINE_LABEL_WIDTH) / zoom); }} className="relative flex h-12 cursor-pointer border-b border-cyan-200/15 bg-[linear-gradient(180deg,#141936,#090d21)]" title="Click to move the playhead">
@@ -3222,7 +3222,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onNotice={setEditorNotice}
                 saving={savingRendition} />
               {compiledRendition.notes.length > 0
-                ? <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: 'max(360px, calc(100vh - 470px))' }}>
+                ? <div className="order-first overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: 'max(360px, calc(100vh - 470px))' }}>
                   <ScoreView notes={compiledRendition.notes} bars={compiledRendition.bars} getPlayhead={() => playheadRef.current} selectedIds={[]} tool="select"
                     signature={renditionSignature}
                     onSelectNote={() => {}} onAddNote={() => {}} onEraseNote={() => {}} onDragCommit={() => {}} onLyricChange={() => {}} />
