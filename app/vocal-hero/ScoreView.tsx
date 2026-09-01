@@ -456,7 +456,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
             className={onClipEdit ? 'hover:opacity-90' : undefined}
             style={onClipEdit ? { pointerEvents: 'auto', cursor: 'pointer' } : undefined}
             onClick={onClipEdit ? () => onClipEdit(marker.trackId, marker.clipId) : undefined}>
-            {onClipEdit && <title>{marker.label} — click to move, crop or remove it</title>}
+            {onClipEdit && <title>{marker.label} — drag to move it along the music (it lands on a beat) · drag either end to crop · click for the panel</title>}
             {rows.map(row => {
               const width = Math.max(6, row.to - row.from);
               const first = row.system === position.system;
@@ -484,7 +484,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
                   onPointerMove={clipPointerMove}
                   onPointerUp={clipPointerUp}
                   onPointerCancel={clipPointerUp} />}
-                {first && <text x={row.from + 25} y={y(row.system) + 12} fontSize={9} fontWeight={800} fill="#86efac" style={{ pointerEvents: 'none' }}>{marker.label}</text>}
+                {/* the grip: the clip is a thing you pull, not a caption */}
+                {first && <text x={row.from + 25} y={y(row.system) + 12} fontSize={10} fill="#86efac" fillOpacity={0.75} style={{ pointerEvents: 'none' }}>⠿</text>}
+                {first && <text x={row.from + 38} y={y(row.system) + 12} fontSize={9} fontWeight={800} fill="#86efac" style={{ pointerEvents: 'none' }}>{marker.label}</text>}
               </g>;
             })}
           </g>;
