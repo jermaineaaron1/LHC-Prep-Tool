@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RenditionRail } from './RenditionBuilder';
 import { ScoreView, type ScoreBar } from './ScoreView';
@@ -531,6 +531,17 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const audioClipInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingClip, setUploadingClip] = useState(false);
   const [audioClipEdit, setAudioClipEdit] = useState<{ trackId: string; clipId: string } | null>(null);
+  const clipPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const clipPreviewTimer = useRef<number | null>(null);
+  const [clipPreviewing, setClipPreviewing] = useState(false);
+  /** Stop the crop preview: on the button, on Remove, on Done, on unmount. */
+  const stopClipPreview = useCallback(() => {
+    if (clipPreviewTimer.current) { window.clearTimeout(clipPreviewTimer.current); clipPreviewTimer.current = null; }
+    const player = clipPreviewRef.current;
+    if (player) { player.pause(); clipPreviewRef.current = null; }
+    setClipPreviewing(false);
+  }, []);
+  useEffect(() => stopClipPreview, [stopClipPreview]);
   const musicalLatchSignatureRef = useRef('');
   const selected = notes.find(note => note.id === selectedId) ?? null;
   const backingTimelineEnd = trackSettings.clips?.length ? Math.max(...trackSettings.clips.map(clip => clip.timeline_start + (clip.source_end - clip.source_start))) : trackSettings.timeline_offset + Math.max(0, (trackSettings.trim_end ?? trackSettings.media_duration ?? 0) - trackSettings.trim_start);
@@ -2480,7 +2491,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       }).filter(track => track.clips.length > 0);
       return { ...current, band_tracks: tracks.length ? tracks : undefined };
     });
-    if (change === 'remove') setAudioClipEdit(null);
+    if (change === 'remove') { stopClipPreview(); setAudioClipEdit(null); }
   }
   async function convertRecordedTake() {
     if (!recordingTake || transcribingTake) return;
@@ -2959,7 +2970,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               <div className="flex flex-wrap items-center gap-2">
                 <b className="text-emerald-100">🎙 {clip.audio.name}</b>
                 <span className="text-slate-400">{length.toFixed(1)}s \u00b7 from bar {bar?.number ?? '?'}</span>
-                <button type="button" onClick={() => setAudioClipEdit(null)} className="ml-auto rounded-lg border border-white/15 px-2 py-1 text-slate-300">Done</button>
+                <button type="button" onClick={() => { stopClipPreview(); setAudioClipEdit(null); }} className="ml-auto rounded-lg border border-white/15 px-2 py-1 text-slate-300">Done</button>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <span className="flex items-center gap-1"><span className="text-[10px] uppercase tracking-[.12em] text-slate-500">Move</span>
@@ -2978,8 +2989,18 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   <b className="w-12 text-center font-mono text-emerald-100">{clip.audio.source_end.toFixed(2)}s</b>
                   {step('+', 'Let it run longer', () => nudge('crop-end', 0.25))}
                 </span>
-                <button type="button" onClick={() => { const el = new Audio(clip.audio!.url); el.currentTime = clip.audio!.source_start; void el.play(); window.setTimeout(() => el.pause(), Math.max(200, length * 1000)); }}
-                  className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-2.5 py-1 font-semibold text-emerald-100">▶ Hear the crop</button>
+                <button type="button" onClick={() => {
+                  if (clipPreviewing) { stopClipPreview(); return; }
+                  stopClipPreview();
+                  const player = new Audio(clip.audio!.url);
+                  player.currentTime = clip.audio!.source_start;
+                  clipPreviewRef.current = player;
+                  setClipPreviewing(true);
+                  player.onended = () => stopClipPreview();
+                  void player.play();
+                  clipPreviewTimer.current = window.setTimeout(stopClipPreview, Math.max(200, length * 1000));
+                }}
+                  className={`rounded-lg border px-2.5 py-1 font-semibold ${clipPreviewing ? 'border-cyan-300/60 bg-cyan-300/15 text-cyan-50' : 'border-emerald-300/40 bg-emerald-300/10 text-emerald-100'}`}>{clipPreviewing ? '■ Stop' : '▶ Hear the crop'}</button>
                 <button type="button" onClick={() => updateAudioClip(audioClipEdit.trackId, audioClipEdit.clipId, 'remove')}
                   className="rounded-lg border border-rose-300/35 px-2.5 py-1 font-semibold text-rose-200">Remove</button>
               </div>
@@ -3143,6 +3164,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   trackId: track.id, clipId: clip.id,
                   ...(clip.audio ? { endAt: clip.start + Math.max(0.05, clip.audio.source_end - clip.audio.source_start) } : {}),
                 })))}
+                onClipDrag={(trackId, clipId, change, seconds) => updateAudioClip(trackId, clipId, change, seconds)}
                 onClipEdit={(trackId, clipId) => {
                   const clip = (trackSettings.band_tracks ?? []).find(track => track.id === trackId)?.clips.find(item => item.id === clipId);
                   if (clip?.audio) setAudioClipEdit({ trackId, clipId });
