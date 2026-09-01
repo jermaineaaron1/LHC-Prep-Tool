@@ -3174,7 +3174,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                     className="cursor-grab select-none rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 font-semibold text-emerald-100 active:cursor-grabbing">🎼 {timbre} clip</span>)}
               </div>}
             </div>}
-            {noteView === 'score' && <div className="order-first overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
+            {noteView === 'score' && <div className="order-[-1] overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <ScoreView zoom={scoreZoom} notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
                 onSelectNote={(id, part, additive) => {
                   setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]);
@@ -3213,7 +3213,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onDragCommit={(id, changes) => update(id, changes)}
                 onLyricChange={(id, lyric) => update(id, { lyric }, true)} />
             </div>}
-            {noteView === 'grid' && <div className="order-first overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
+            {noteView === 'grid' && <div className="order-[-1] overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <div style={{ width: timelineWidth + TIMELINE_LABEL_WIDTH }}>
                 <div className="sticky top-0 z-40 bg-[#050716] shadow-[0_12px_28px_#02030ccc]">
                   <div onClick={event => { const bounds = event.currentTarget.getBoundingClientRect(); seekFromTimeline((event.clientX - bounds.left - TIMELINE_LABEL_WIDTH) / zoom); }} className="relative flex h-12 cursor-pointer border-b border-cyan-200/15 bg-[linear-gradient(180deg,#141936,#090d21)]" title="Click to move the playhead">
@@ -3245,7 +3245,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onNotice={setEditorNotice}
                 saving={savingRendition} />
               {compiledRendition.notes.length > 0
-                ? <div className="order-first overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: 'max(360px, calc(100vh - 470px))' }}>
+                ? <div className="order-[-1] overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: 'max(360px, calc(100vh - 470px))' }}>
                   <ScoreView zoom={scoreZoom} notes={compiledRendition.notes} bars={compiledRendition.bars} getPlayhead={() => playheadRef.current} selectedIds={[]} tool="select"
                     signature={renditionSignature}
                     onSelectNote={() => {}} onAddNote={() => {}} onEraseNote={() => {}} onDragCommit={() => {}} onLyricChange={() => {}} />
@@ -3403,7 +3403,7 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
     ? list[0].marks?.slur === 'start' && list[list.length - 1].marks?.slur === 'end'
     : list[0].marks?.hairpin === kind && list[list.length - 1].marks?.hairpin === 'end');
   const toggleClass = (on: boolean) => `rounded-lg border px-2.5 py-1.5 ${on ? 'border-amber-300/60 bg-amber-300/15 text-amber-100' : 'border-white/12 text-slate-300 hover:bg-white/[.06]'}`;
-  return <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-amber-300/20 bg-[#0a0d1f] px-3 py-2 text-xs">
+  return <div className="order-[-2] mb-2 flex flex-nowrap items-center gap-x-3 gap-y-2 overflow-x-auto rounded-xl border border-amber-300/20 bg-[#0a0d1f] px-3 py-2 text-xs [&>*]:shrink-0 sm:order-none sm:flex-wrap sm:overflow-visible">
     <span className="text-[9px] font-black uppercase tracking-[.18em] text-amber-200/80">Expression · {selection.length} note{selection.length === 1 ? '' : 's'}</span>
     <span className="flex overflow-hidden rounded-lg border border-white/12">
       {DYNAMICS.map(dynamic => <button key={dynamic} onClick={() => onDynamic(activeDynamic === dynamic ? null : dynamic)}
@@ -3431,7 +3431,7 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
     {tempoButton('atempo', 'a tempo', 'A tempo — return to the written speed from the first selected note')}
     {tempoButton('allegro', 'Allegro', 'Allegro — brisk (about 5/4 of the written speed) from the first selected note')}
     <span className="h-5 w-px bg-white/10" />
-    <span className="flex max-w-full flex-wrap items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/[.06] px-2 py-1"
+    <span className="flex flex-nowrap items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/[.06] px-2 py-1 sm:max-w-full sm:flex-wrap"
       title="Sets what the band plays from this note's bar onward. Whatever you pick here keeps playing until a later note changes it or says Stop — it is one rhythm section for the whole choir, not per voice. The lane under the bass staff shows exactly what it plays.">
       <span className="text-[9px] font-black uppercase tracking-[.14em] text-rose-200/90">From bar {bandBarNumber ?? '?'} the band plays</span>
       <label className="flex min-w-0 items-center gap-1" title="The instrument part from this bar on. Leave it unchanged to keep whatever the band was already playing.">
