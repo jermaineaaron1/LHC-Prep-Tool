@@ -741,7 +741,13 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
       return <g key={`${glyph.id}-${glyph.x}`} data-glyph transform={`translate(12 ${top})`}
         onPointerDown={event => onGlyphDown(event, glyph)}
         onContextMenu={event => { event.preventDefault(); event.stopPropagation(); onGlyphContext(glyph.id); }}
-        style={{ cursor: tool === 'erase' ? 'not-allowed' : 'pointer' }}>
+        // A finger starting on a notehead is DRAGGING it, not panning the
+        // score. Without this the browser claims the gesture as a scroll --
+        // it owns the decision at touchstart, and the score scrolls both ways
+        // -- so the pointer stream was cancelled before a note ever moved and
+        // dragging was simply a desktop-only feature. The catch area is 9px
+        // around the head, so panning from anywhere else still works.
+        style={{ cursor: tool === 'erase' ? 'not-allowed' : 'pointer', touchAction: 'none' }}>
         {ledger.map(step => <line key={step} x1={gx - 8} x2={gx + 8} y1={mid - step * STEP} y2={mid - step * STEP} stroke="#ffffff55" strokeWidth={1} />)}
         {glyph.mark && !dragging && <text x={gx - 15} y={gy + 4.5} fontSize={13} fill={colour}>{glyph.mark}</text>}
         {/* An invisible catch area: the printed head is ~5px, far too small a
