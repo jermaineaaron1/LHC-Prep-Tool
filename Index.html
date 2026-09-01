@@ -1924,7 +1924,24 @@
       /* Long song titles must not run under the fullscreen/close icons --
          same fix already applied for the mobile bottom-sheet layout, needed
          here too since the workspace panel can be narrower than the modal. */
-      #sfWorkspacePanel #lyricsPreviewHeaderPanel .flex.items-center.justify-between > div:first-child {
+      /* The title row only. This used to read .flex.items-center.justify-between,
+         which also matched the toolbar -- the toolbar has those same utility
+         classes -- so the Lyrics/Chords/YouTube group was given flex: 1 0%, sized
+         from free space rather than its contents, and squeezed until YouTube
+         overlapped Edit by six pixels. A selector describing what an element
+         looks like will eventually match something else that looks like it. */
+      /* Toolbar groups size to their buttons and wrap when the row runs out,
+         rather than shrinking until the buttons overlap each other. */
+      #sfWorkspacePanel #lyricsPreviewToolbar { justify-content: flex-start; gap: 6px; row-gap: 8px; }
+      #sfWorkspacePanel #lyricsPreviewToolbar > div { flex: 0 0 auto; min-width: 0; }
+      /* Eleven buttons wanted 1182px of a 1179px row -- three pixels over, so the
+         last one wrapped to a line of its own. Trimming the side padding from 16px
+         to 12px buys 88px, which puts the row comfortably on one line rather than
+         balanced on the edge of wrapping. It still wraps when the window is genuinely
+         too narrow; that is the safety net, not the plan. */
+      #sfWorkspacePanel #lyricsPreviewToolbar .lhc-pill-button { padding-left: 12px; padding-right: 12px; }
+
+      #sfWorkspacePanel #lyricsPreviewHeaderPanel #lpSongHeader > div:first-child {
         flex: 1;
         min-width: 0;
       }
@@ -3943,7 +3960,7 @@
       /* Compact header panel */
       #lyricsPreviewHeaderPanel { padding: 10px 14px !important; }
       /* Fix: long song titles must not push the close button off-screen */
-      #lyricsPreviewHeaderPanel .flex.items-center.justify-between > div:first-child { flex: 1; min-width: 0; overflow: hidden; }
+      #lyricsPreviewHeaderPanel #lpSongHeader > div:first-child { flex: 1; min-width: 0; overflow: hidden; }
       #lyricsPreviewTitle { font-size: 1rem !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #lyricsPreviewArtist { font-size: 0.72rem !important; margin-top: 2px !important; }
       /* Toolbar: TWO stacked rows -- tabs on the first line, actions parked on
@@ -6141,6 +6158,11 @@
       <!-- Chunk 2b: chord sheet and contextual rail sit side by side on wide
            desktop; below 1080px the rail stacks under the sheet. -->
       <div id="lpBody">
+        <!-- Shown only in fullscreen, where the header carrying the real title is
+             hidden. In the flow rather than floating: a fixed bar would need a
+             guessed height reserved beneath it, and would cover the first line
+             the moment a long title wrapped onto a second. -->
+        <h2 id="lpFullscreenTitle" class="font-cinzel font-bold" aria-hidden="true"></h2>
         <div id="lyricsPreviewContent" class="flex-1 overflow-y-auto p-5" style="min-height: 300px;">
           <!-- Lyrics content rendered here -->
         </div>
@@ -14191,6 +14213,10 @@ window.setLyricsPreviewSong = function(song) {
   currentTransposeValue = 0;
   
   document.getElementById('lyricsPreviewTitle').textContent = song.title || '';
+  // The fullscreen copy, set from the same value at the same moment so it can
+  // never show the song before last.
+  var _fsTitle = document.getElementById('lpFullscreenTitle');
+  if (_fsTitle) _fsTitle.textContent = song.title || '';
   document.getElementById('lyricsPreviewArtist').textContent = song.artist || '';
   
   var lastEdited = document.getElementById('lyricsPreviewLastEdited');
@@ -88590,7 +88616,11 @@ window.LHC_Install = (function() {
       border:0;border-radius:0;background:#fff;box-shadow:none;
     }
     #sfWorkspacePanel #lyricsPreviewHeaderPanel { padding:12px 14px;background:linear-gradient(160deg,#fdfdff,#f2f5fc);border:0;border-bottom:1px solid var(--sf-line);color:var(--sf-ink); }
-    #sfWorkspacePanel #lyricsPreviewTitle { color:var(--sf-navy);font-size:1.45rem; }
+    /* Both titles read this, so changing the size changes both. The fullscreen
+       one exists to match the panel exactly -- it was asked for at this size
+       specifically -- and two hardcoded values would not stay equal. */
+    #sfWorkspacePanel { --lp-title-size: 1.45rem; }
+    #sfWorkspacePanel #lyricsPreviewTitle { color:var(--sf-navy);font-size:var(--lp-title-size); }
     #sfWorkspacePanel #lyricsPreviewArtist { color:var(--sf-muted); }
     #sfWorkspacePanel #lyricsPreviewToolbar { border-top:1px solid var(--sf-line);padding-top:7px; }
     #sfWorkspacePanel #lyricsPreviewToolbar .lhc-pill-button { background:#fff !important;border-color:var(--sf-line-2) !important;color:var(--sf-ink) !important; }
@@ -89166,12 +89196,32 @@ window.LHC_Install = (function() {
   .lp-lyrics-only #lyricsPreviewHeaderPanel {
     padding: 0 !important; border-bottom: 0 !important;
   }
-  .lp-lyrics-only #lpBody { height: 100%; }
+  /* Fullscreen keeps the title. Everything else goes -- breadcrumb, artist,
+     badges, controls, rail -- but a screen of lyrics with nothing saying which
+     song it is helps nobody at the back of the hall.
+
+     The body becomes a column: the title takes the height it needs, however
+     long it is, and the lyrics take the rest. No reserved space to guess at. */
+  #lpFullscreenTitle { display: none; }
+  .lp-lyrics-only #lpBody {
+    display: flex; flex-direction: column;
+    height: 100dvh; min-height: 100dvh;
+  }
+  .lp-lyrics-only #lpFullscreenTitle {
+    display: block; flex: 0 0 auto;
+    margin: 0; padding: 14px 16px 8px;
+    font-size: var(--lp-title-size, 1.45rem);
+    line-height: 1.25; color: var(--sf-navy, #0f1c3f);
+    border-bottom: 1px solid var(--sf-line, #e3e8f4);
+  }
   .lp-lyrics-only #lyricsPreviewContent {
     margin: 0 !important;
     border: 0 !important; border-radius: 0 !important;
-    height: 100dvh !important; max-height: 100dvh !important;
-    min-height: 100dvh !important;
+    /* Was a hard 100dvh, which with a title above it pushed the last lines off
+       the bottom. As a flex child it takes whatever the title leaves. */
+    flex: 1 1 auto;
+    height: auto !important; max-height: none !important;
+    min-height: 0 !important;
     padding: 14px 16px 64px !important;
   }
   /* Sits above the lyrics, clear of the last line thanks to the padding. */
