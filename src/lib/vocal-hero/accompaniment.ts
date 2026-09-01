@@ -15,7 +15,7 @@
 import { parseChord } from './chords';
 import { interpretMarks } from './performMarks';
 import type { BandClip, BandTimbre, BandTrack, SongNote } from './types';
-import { playCajonBass, playCajonSlap, playCajonTick } from './voiceSynth';
+import { mixBus, playCajonBass, playCajonSlap, playCajonTick } from './voiceSynth';
 import { playBass, playDrum, playElectric, playEnsemble, playGuitar, playPiano, warmPiano } from './sampler';
 
 export type { BandClip, BandTimbre, BandTrack };
@@ -65,6 +65,7 @@ export const DRUM_STYLES: Array<{ id: DrumStyleId; label: string }> = [
 ];
 
 export type BandEventKind =
+  | 'audio'
   | 'strum-down' | 'strum-up' | 'pluck' | 'keys' | 'bass'
   | 'kick' | 'snare' | 'hat' | 'tom-low' | 'tom-high'
   | 'cajon-bass' | 'cajon-slap' | 'cajon-tick';
@@ -85,6 +86,8 @@ export interface BandEvent {
   /** Which instrument voice renders this event: real plucked strings,
    *  the piano, or the bass. Unset falls back to the kind's default. */
   timbre?: BandTimbre;
+  /** For 'audio': the recording to play and the crop taken from it. */
+  audio?: { url: string; sourceStart: number; sourceEnd: number };
 }
 
 type PatternStep = { beat: number; kind: BandEventKind; degree?: number; octave?: number; level?: number; sustain?: number };
@@ -607,6 +610,20 @@ export function buildBandEvents(options: {
   for (const track of options.tracks ?? []) {
     if (track.muted) continue;
     for (const clip of track.clips) {
+      if (clip.audio) {
+        // The recording lands where it was placed and runs for its crop -
+        // the staff it covers is simply how long that crop lasts.
+        if (clip.start < until) {
+          events.push({
+            id: `a-${track.id}-${clip.id}`,
+            at: warp(clip.start),
+            kind: 'audio',
+            audio: { url: clip.audio.url, sourceStart: clip.audio.source_start, sourceEnd: clip.audio.source_end },
+            gain: 1,
+          });
+        }
+        continue;
+      }
       const parsedClip = parseInstrumentTab(clip.tab);
       if (!parsedClip) continue;
       const clipBar = bars.find(bar => clip.start >= bar.start - 0.01 && clip.start < bar.end) ?? bars[0];
@@ -654,12 +671,59 @@ export function buildBandEvents(options: {
 }
 
 const BASE_LEVEL: Record<BandEventKind, number> = {
+  audio: 1,
   'strum-down': 0.045, 'strum-up': 0.04, pluck: 0.05, keys: 0.05, bass: 0.09,
   kick: 0.16, snare: 0.09, hat: 0.035, 'tom-low': 0.11, 'tom-high': 0.1,
   'cajon-bass': 0.13, 'cajon-slap': 0.07, 'cajon-tick': 0.025,
 };
 
+// Clip recordings are fetched and decoded once per session, like the
+// sampled instruments: an AudioBuffer does not belong to the context that
+// decoded it, so every play shares one decode.
+const clipAudio = new Map<string, AudioBuffer>();
+const clipAudioLoading = new Map<string, Promise<void>>();
+
+/** Fetch and decode a clip's recording. Safe to call repeatedly. */
+export function preloadClipAudio(context: BaseAudioContext, url: string): Promise<void> {
+  if (clipAudio.has(url)) return Promise.resolve();
+  const pending = clipAudioLoading.get(url);
+  if (pending) return pending;
+  const job = (async () => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return;
+      const raw = await response.arrayBuffer();
+      clipAudio.set(url, await context.decodeAudioData(raw));
+    } catch { /* an unreadable clip stays silent rather than breaking playback */ }
+  })();
+  clipAudioLoading.set(url, job);
+  return job;
+}
+
+/** True once the recording is ready to be scheduled sample-accurately. */
+export function clipAudioReady(url: string): boolean { return clipAudio.has(url); }
+
+function playAudioClip(context: AudioContext, audio: { url: string; sourceStart: number; sourceEnd: number }, when: number, gain: number): void {
+  const buffer = clipAudio.get(audio.url);
+  // Not decoded yet: start fetching and stay silent this pass rather than
+  // entering late and out of time.
+  if (!buffer) { void preloadClipAudio(context, audio.url); return; }
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  const from = Math.max(0, Math.min(audio.sourceStart, buffer.duration));
+  const length = Math.max(0.02, Math.min(audio.sourceEnd, buffer.duration) - from);
+  const level = context.createGain();
+  level.gain.value = gain;
+  source.connect(level);
+  level.connect(mixBus(context));
+  source.start(when, from, length);
+}
+
 export function playBandEvent(context: AudioContext, event: BandEvent, when: number): void {
+  if (event.kind === 'audio') {
+    if (event.audio) playAudioClip(context, event.audio, when, event.gain ?? 1);
+    return;
+  }
   const level = (event.level ?? BASE_LEVEL[event.kind]) * (event.gain ?? 1);
   // One strummed/plucked string voice per event: the clean electric when the
   // style asks for it, the acoustic otherwise.

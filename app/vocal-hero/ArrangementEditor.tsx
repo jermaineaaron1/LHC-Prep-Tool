@@ -24,7 +24,7 @@ import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 
 import { playVoice, preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
 import { downloadSingerVoice, playSingerBuffers, prepareSingerBuffers, singerVoiceReady, voiceKindForPart } from '@/lib/vocal-hero/singer';
-import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
+import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, preloadClipAudio, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
 import { ARRANGE_ENERGIES, ARRANGE_INSTRUMENTS, ARRANGE_PERCUSSION, ARRANGEMENT_STYLES, buildArrangement, buildArrangementFollowingVoices, buildFromInstruments, buildVocalShaping, inferChordsFromVoices, type ArrangeEnergy } from '@/lib/vocal-hero/arrangements';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
@@ -528,6 +528,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const midiInputRef = useRef<HTMLInputElement | null>(null);
   const xmlInputRef = useRef<HTMLInputElement | null>(null);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const audioClipInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingClip, setUploadingClip] = useState(false);
+  const [audioClipEdit, setAudioClipEdit] = useState<{ trackId: string; clipId: string } | null>(null);
   const musicalLatchSignatureRef = useRef('');
   const selected = notes.find(note => note.id === selectedId) ?? null;
   const backingTimelineEnd = trackSettings.clips?.length ? Math.max(...trackSettings.clips.map(clip => clip.timeline_start + (clip.source_end - clip.source_start))) : trackSettings.timeline_offset + Math.max(0, (trackSettings.trim_end ?? trackSettings.media_duration ?? 0) - trackSettings.trim_start);
@@ -1631,6 +1634,14 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   // clip ALONE (its track's timbre, once, from its start); otherwise the
   // draft tabs play everywhere with band marks stripped, so the writer
   // hears the whole line against SATB.
+  // Recordings are decoded ahead of playback; a clip that is not ready yet
+  // stays silent for that pass rather than entering late.
+  useEffect(() => {
+    const urls = (trackSettings.band_tracks ?? []).flatMap(track => track.clips.map(clip => clip.audio?.url).filter(Boolean) as string[]);
+    if (!urls.length) return;
+    const context = new AudioContext();
+    void Promise.all(urls.map(url => preloadClipAudio(context, url))).finally(() => { void context.close(); });
+  }, [trackSettings.band_tracks]);
   const draftBandEvents = useMemo(() => {
     if (!bandWrite) return undefined;
     const lastSound = notes.reduce((latest, note) => Math.max(latest, note.end), 0);
@@ -2404,6 +2415,73 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       setUploadingTake(false);
     }
   }
+  /** A recording of your own playing, placed on the score as a clip: it
+   *  starts where the caret is and covers however long the crop lasts. The
+   *  band keeps playing around it - this is one more part, not a backing
+   *  track that stands the band down. */
+  async function addAudioClip(file: File) {
+    if (uploadingClip) return;
+    setUploadingClip(true);
+    try {
+      const bar = entryBar ?? musicalBars[0];
+      if (!bar) throw new Error('This song has no bars to place a clip on yet.');
+      // Read its length before uploading, so the clip knows what it covers.
+      const probe = new AudioContext();
+      let duration = 0;
+      try {
+        const decoded = await probe.decodeAudioData(await file.arrayBuffer());
+        duration = decoded.duration;
+      } finally { void probe.close(); }
+      if (!duration) throw new Error('That file could not be read as audio.');
+      const safeName = file.name.replace(/[^a-z0-9._-]/gi, '-');
+      const prepared = await fetch('/api/vocal-hero/media', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ songId: song.id, fileName: `clip-${Date.now()}-${safeName}`, contentType: file.type || 'audio/mpeg', size: file.size }),
+      });
+      const payload = await prepared.json() as { bucket?: string; path?: string; token?: string; publicUrl?: string; error?: string };
+      if (!prepared.ok || !payload.bucket || !payload.path || !payload.token || !payload.publicUrl) throw new Error(payload.error || 'Unable to prepare the upload.');
+      const { error } = await supabase.storage.from(payload.bucket).uploadToSignedUrl(payload.path, payload.token, file);
+      if (error) throw new Error(error.message);
+      const clip = {
+        id: `clip-${crypto.randomUUID().slice(0, 8)}`,
+        start: bar.start, tab: '',
+        audio: { url: payload.publicUrl, name: file.name, source_start: 0, source_end: duration },
+      };
+      setTrackSettingsDirty(current => {
+        const tracks = (current.band_tracks ?? []).map(track => ({ ...track, clips: [...track.clips] }));
+        let track = tracks.find(item => item.id === 'trk-audio');
+        if (!track) { track = { id: 'trk-audio', name: 'Recordings', timbre: 'guitar' as BandTimbre, clips: [] }; tracks.push(track); }
+        track.clips.push(clip);
+        return { ...current, band_tracks: tracks };
+      });
+      setEditorNotice(`\ud83c\udf99 ${file.name} placed at bar ${bar.number} \u2014 ${duration.toFixed(1)}s of audio. Drag its bar on the score to move it, or click it to crop. Save keeps it with the song.`);
+    } catch (problem) {
+      setEditorNotice(problem instanceof Error ? problem.message : 'Could not add that recording.');
+    } finally {
+      setUploadingClip(false);
+    }
+  }
+  /** Move, crop or remove one placed recording. */
+  function updateAudioClip(trackId: string, clipId: string, change: 'move' | 'crop-start' | 'crop-end' | 'remove', amount = 0) {
+    setTrackSettingsDirty(current => {
+      const tracks = (current.band_tracks ?? []).map(track => {
+        if (track.id !== trackId) return track;
+        const clips = change === 'remove'
+          ? track.clips.filter(clip => clip.id !== clipId)
+          : track.clips.map(clip => {
+            if (clip.id !== clipId || !clip.audio) return clip;
+            if (change === 'move') return { ...clip, start: Math.max(0, clip.start + amount) };
+            const audio = { ...clip.audio };
+            if (change === 'crop-start') audio.source_start = Math.max(0, Math.min(audio.source_end - 0.1, audio.source_start + amount));
+            if (change === 'crop-end') audio.source_end = Math.max(audio.source_start + 0.1, audio.source_end + amount);
+            return { ...clip, audio };
+          });
+        return { ...track, clips };
+      }).filter(track => track.clips.length > 0);
+      return { ...current, band_tracks: tracks.length ? tracks : undefined };
+    });
+    if (change === 'remove') setAudioClipEdit(null);
+  }
   async function convertRecordedTake() {
     if (!recordingTake || transcribingTake) return;
     setRecordError(null);
@@ -2726,6 +2804,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           </div>}
         </span>} tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onTypeLyrics={() => setShowLyricLine(true)} onHarmonise={() => setShowHarmony(true)} onAlignToMelody={alignHarmonyToMelody} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onConvertTake={() => void convertRecordedTake()} convertingTake={transcribingTake} recordingPart={recordingPart} onRecordingPartChange={part => { setRecordingPart(part); setTranscriptionDiagnostics(null); setRecordError(null); }} transcriptionSnap={transcriptionSnap} onTranscriptionSnapChange={setTranscriptionSnap} onSave={() => void save()} saving={saving} />}
         {timelineFocus && <TimelineFocusToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} selected={selected} bars={musicalBars} onLyricChange={lyric => selected && update(selected.id, { lyric })} onTrack={() => setShowBackingEditor(true)} onExit={() => void exitTimelineFocus()} onPlay={playFromCursor} onPause={pausePlayback} onStop={stopPlayback} isPlaying={isPlaying} isPaused={isPaused} playhead={playhead} zoom={zoom} setZoom={setZoom} onSave={() => void save()} saving={saving} />}
+        <input ref={audioClipInputRef} className="hidden" type="file" accept="audio/*"
+          onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void addAudioClip(file); }} />
         <input ref={xmlInputRef} className="hidden" type="file" accept=".musicxml,.xml,.mxl" onChange={openMusicXml} /><input ref={midiInputRef} className="hidden" type="file" accept=".mid,.midi,audio/midi" onChange={openMidi} /><input ref={mediaInputRef} className="hidden" type="file" accept="audio/*,video/*" onChange={uploadBackingTrack} />
         {recordError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">Microphone: {recordError}</div>}
         {transcriptionDiagnostics && !recordError && <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-cyan-300/15 bg-cyan-300/[.05] px-4 py-2 text-[11px] text-cyan-100">
@@ -2864,6 +2944,48 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             </div>
           </div>
         </div>}
+        {audioClipEdit && (() => {
+          const track = (trackSettings.band_tracks ?? []).find(item => item.id === audioClipEdit.trackId);
+          const clip = track?.clips.find(item => item.id === audioClipEdit.clipId);
+          if (!clip?.audio) return null;
+          const bar = musicalBars.find(item => clip.start >= item.start - 0.01 && clip.start < item.end);
+          const barLen = bar ? bar.end - bar.start : 2;
+          const length = clip.audio.source_end - clip.audio.source_start;
+          const nudge = (change: 'move' | 'crop-start' | 'crop-end', amount: number) => updateAudioClip(audioClipEdit.trackId, audioClipEdit.clipId, change, amount);
+          const step = (label: string, title: string, onClick: () => void) =>
+            <button key={label} type="button" onClick={onClick} title={title} className="rounded-lg border border-white/15 px-2 py-1 text-slate-200">{label}</button>;
+          return <div className="absolute inset-x-0 top-0 z-50 grid place-items-center p-3">
+            <section className="w-full max-w-2xl rounded-2xl border border-emerald-300/30 bg-[#081420] p-3 text-xs shadow-[0_20px_60px_#000b]">
+              <div className="flex flex-wrap items-center gap-2">
+                <b className="text-emerald-100">🎙 {clip.audio.name}</b>
+                <span className="text-slate-400">{length.toFixed(1)}s \u00b7 from bar {bar?.number ?? '?'}</span>
+                <button type="button" onClick={() => setAudioClipEdit(null)} className="ml-auto rounded-lg border border-white/15 px-2 py-1 text-slate-300">Done</button>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <span className="flex items-center gap-1"><span className="text-[10px] uppercase tracking-[.12em] text-slate-500">Move</span>
+                  {step('\u2190 bar', 'Move a bar earlier', () => nudge('move', -barLen))}
+                  {step('\u2190', 'Nudge a beat earlier', () => nudge('move', -barLen / Math.max(1, bar?.beats.length ?? 4)))}
+                  {step('\u2192', 'Nudge a beat later', () => nudge('move', barLen / Math.max(1, bar?.beats.length ?? 4)))}
+                  {step('bar \u2192', 'Move a bar later', () => nudge('move', barLen))}
+                </span>
+                <span className="flex items-center gap-1"><span className="text-[10px] uppercase tracking-[.12em] text-slate-500">Crop in</span>
+                  {step('\u2212', 'Take less off the front', () => nudge('crop-start', -0.25))}
+                  <b className="w-12 text-center font-mono text-emerald-100">{clip.audio.source_start.toFixed(2)}s</b>
+                  {step('+', 'Take more off the front', () => nudge('crop-start', 0.25))}
+                </span>
+                <span className="flex items-center gap-1"><span className="text-[10px] uppercase tracking-[.12em] text-slate-500">Crop out</span>
+                  {step('\u2212', 'End it sooner', () => nudge('crop-end', -0.25))}
+                  <b className="w-12 text-center font-mono text-emerald-100">{clip.audio.source_end.toFixed(2)}s</b>
+                  {step('+', 'Let it run longer', () => nudge('crop-end', 0.25))}
+                </span>
+                <button type="button" onClick={() => { const el = new Audio(clip.audio!.url); el.currentTime = clip.audio!.source_start; void el.play(); window.setTimeout(() => el.pause(), Math.max(200, length * 1000)); }}
+                  className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-2.5 py-1 font-semibold text-emerald-100">▶ Hear the crop</button>
+                <button type="button" onClick={() => updateAudioClip(audioClipEdit.trackId, audioClipEdit.clipId, 'remove')}
+                  className="rounded-lg border border-rose-300/35 px-2.5 py-1 font-semibold text-rose-200">Remove</button>
+              </div>
+            </section>
+          </div>;
+        })()}
         <div className="flex min-h-0 flex-1">
           <section className={`min-w-0 flex-1 overflow-auto ${timelineFocus ? 'p-1' : 'p-3'}`}>
             {!timelineFocus && noteView !== 'rendition' && <><details className="mb-2 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
@@ -2922,6 +3044,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 <button type="button" onClick={() => setSuggestOpen(open => !open)} aria-expanded={suggestOpen}
                   title="Arrange the whole song in a style — the band grows and settles across the song instead of strumming one pattern throughout"
                   className={`rounded-lg border px-2.5 py-1 font-semibold ${suggestOpen ? 'border-amber-300/60 bg-amber-300/15 text-amber-50' : 'border-amber-300/30 bg-amber-300/[.07] text-amber-100'}`}>✨ Suggest…</button>
+                <button type="button" onClick={() => audioClipInputRef.current?.click()} disabled={uploadingClip}
+                  title="Place one of YOUR recordings on the score: it starts at the caret's bar and covers however long it lasts. The band keeps playing around it."
+                  className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-2.5 py-1 font-semibold text-emerald-100 disabled:opacity-40">{uploadingClip ? 'Uploading\u2026' : '\ud83c\udf99 My recording'}</button>
                 <span draggable
                   onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'custom', style: 'custom' })); event.dataTransfer.effectAllowed = 'copy'; }}
                   title="Drop to open the Part studio for that spot — drag across bars first and the part applies to exactly that range"
@@ -3012,8 +3137,17 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onBandAudition={auditionBandAt}
                 onBandWrite={openBandWrite}
                 onBandDrop={handleBandChipDrop}
-                clipMarkers={(trackSettings.band_tracks ?? []).flatMap(track => track.clips.map(clip => ({ at: clip.start, label: `🎼 ${track.name}`, trackId: track.id, clipId: clip.id })))}
-                onClipEdit={openClipWrite}
+                clipMarkers={(trackSettings.band_tracks ?? []).flatMap(track => track.clips.map(clip => ({
+                  at: clip.start,
+                  label: clip.audio ? `\ud83c\udf99 ${clip.audio.name}` : `\ud83c\udfbc ${track.name}`,
+                  trackId: track.id, clipId: clip.id,
+                  ...(clip.audio ? { endAt: clip.start + Math.max(0.05, clip.audio.source_end - clip.audio.source_start) } : {}),
+                })))}
+                onClipEdit={(trackId, clipId) => {
+                  const clip = (trackSettings.band_tracks ?? []).find(track => track.id === trackId)?.clips.find(item => item.id === clipId);
+                  if (clip?.audio) setAudioClipEdit({ trackId, clipId });
+                  else openClipWrite(trackId, clipId);
+                }}
                 showLeadIn
                 onDeselect={() => { setSelectedId(null); setSelectedIds([]); setEditorNotice(null); }}
                 onEraseNote={removeNote}
