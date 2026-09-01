@@ -366,6 +366,16 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     startLyricEdit(nearest);
   }
   const dragRef = useRef<{ id: string; note: SongNote; step: number; clef: StaffClef; originX: number; originY: number; secondsPerPx: number; moved: boolean } | null>(null);
+  // Which kind of pointer is on the note right now. A long-press on a phone
+  // raises the very same contextmenu event a right-click does, so a finger
+  // resting on a note deleted it -- and touch is now the main way in, since
+  // dragging notes by finger works. Deleting stays a mouse shortcut: touch
+  // has the Erase tool and the toolbar's ✕, both of which say what they do.
+  const lastPointerTypeRef = useRef<string>('mouse');
+  function eraseFromContextMenu(id: string) {
+    if (lastPointerTypeRef.current !== 'mouse') return;
+    onEraseNote(id);
+  }
   // The ghost head: a faint notehead that rides the cursor over empty staff
   // space, already snapped to where a click would land — so "the note goes
   // exactly where I aim" is visible before the click. Imperative (a ref, no
@@ -393,6 +403,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   }
 
   function beginDrag(event: React.PointerEvent, glyph: Glyph) {
+    lastPointerTypeRef.current = event.pointerType || 'mouse';
     if (tool === 'erase') { onEraseNote(glyph.id); return; }
     // Ctrl/Cmd/Shift-click builds a selection — slurs and hairpins span it.
     onSelectNote(glyph.id, glyph.part, event.ctrlKey || event.metaKey || event.shiftKey);
@@ -462,7 +473,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       onGlyphDown={beginDrag} onGlyphDoubleClick={glyph => { if (selectedIds.includes(glyph.id)) onDeselect?.(); }}
       onMove={event => { moveDrag(event); updateGhost(event); }} onUp={endDrag}
       onLeave={() => { if (ghostRef.current) ghostRef.current.style.display = 'none'; }}
-      onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={onEraseNote} />
+      onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={eraseFromContextMenu} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
     {(layout.bandTexts.length > 0 || (onBandEdit && bandDefaults) || (clipMarkers?.length ?? 0) > 0) && <svg className="absolute left-0 top-0 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
       {clipMarkers?.map((marker, index) => {
