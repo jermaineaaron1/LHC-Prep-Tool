@@ -28,6 +28,17 @@ import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandE
 import { ARRANGE_ENERGIES, ARRANGE_INSTRUMENTS, ARRANGE_PERCUSSION, ARRANGEMENT_STYLES, buildArrangement, buildArrangementFollowingVoices, buildFromInstruments, buildVocalShaping, inferChordsFromVoices, type ArrangeEnergy } from '@/lib/vocal-hero/arrangements';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
 
+// Engraving sizes for the score view. 0 is "fit a system across the screen",
+// which ScoreView measures for itself. A phone opens at half size: a system is
+// 1144px wide written out, so at 100% a 350px screen sees a bar and a half.
+const SCORE_ZOOMS = [
+  { value: 0, label: 'Fit', title: 'Shrink a whole system onto the screen \u2014 an overview, too small to write on' },
+  { value: .5, label: '50%', title: 'Half size \u2014 twice the music on screen' },
+  { value: .75, label: '75%', title: 'Three-quarter size' },
+  { value: 1, label: '100%', title: 'Written size' },
+  { value: 1.5, label: '150%', title: 'Half again \u2014 easier to hit a notehead with a finger' },
+];
+
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#ffae42', '#4ca0ff', '#43e2bb'];
 const TIMELINE_LABEL_WIDTH = 124;
@@ -414,6 +425,13 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   // A 36px/second starting scale keeps individual lyric targets readable; 160px/second
   // gives arrangers up to ten times the former default width for detailed editing.
   const [zoom, setZoom] = useState(36);
+  // The engraved score's own scale, unrelated to the piano roll's `zoom` above.
+  const [scoreZoom, setScoreZoom] = useState(1);
+  useEffect(() => {
+    // A phone at written size reads about a bar and a half of a system, so it
+    // starts at half. Anything wider keeps what was always there.
+    if (window.matchMedia('(max-width: 639px)').matches) setScoreZoom(.5);
+  }, []);
   const [saving, setSaving] = useState(false);
   const [tool, setTool] = useState<EditorTool>('select');
   const [playScope, setPlayScope] = useState<PlaybackScope>('all');
@@ -3053,10 +3071,15 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               bandBarNumber={selectedNotes[0] ? musicalBars.find(bar => selectedNotes[0].start + 0.01 >= bar.start && selectedNotes[0].start + 0.01 < bar.end)?.number : undefined}
               onBand={applyBandToSelection}
               onClear={clearMarksOnSelection} />}
-            <div className="mb-2 flex items-center gap-1 text-xs">
+            <div className="mb-2 flex flex-wrap items-center gap-1 text-xs">
               <button onClick={() => switchView('score')} className={`rounded-l-lg border px-3 py-1.5 ${noteView === 'score' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="The arrangement as an engraved open score — one staff per voice">𝄞 Score</button>
               <button onClick={() => switchView('grid')} className={`border px-3 py-1.5 ${noteView === 'grid' ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/12 text-slate-400'}`} title="The piano-roll grid — for drawing and dragging notes">▦ Grid</button>
               <button onClick={() => switchView('rendition')} className={`rounded-r-lg border px-3 py-1.5 ${noteView === 'rendition' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="Shape the performance: stack passes of the song, choose who sings each one, and hear the result">⟳ Rendition</button>
+              {noteView !== 'grid' && <span className="ml-auto flex items-center gap-0.5 rounded-lg border border-white/12 px-1 py-0.5">
+                <span className="px-0.5 text-[9px] font-black uppercase tracking-[.12em] text-slate-500">Size</span>
+                {SCORE_ZOOMS.map(option => <button key={option.value} onClick={() => setScoreZoom(option.value)} title={option.title}
+                  className={`rounded px-1.5 py-1 text-[10px] font-bold ${scoreZoom === option.value ? 'bg-cyan-300/20 text-cyan-100' : 'text-slate-400'}`}>{option.label}</button>)}
+              </span>}
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
                 <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
@@ -3152,7 +3175,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               </div>}
             </div>}
             {noteView === 'score' && <div className="order-first overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
-              <ScoreView notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
+              <ScoreView zoom={scoreZoom} notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
                 onSelectNote={(id, part, additive) => {
                   setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]);
                   setSelectedId(id);
@@ -3223,7 +3246,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 saving={savingRendition} />
               {compiledRendition.notes.length > 0
                 ? <div className="order-first overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: 'max(360px, calc(100vh - 470px))' }}>
-                  <ScoreView notes={compiledRendition.notes} bars={compiledRendition.bars} getPlayhead={() => playheadRef.current} selectedIds={[]} tool="select"
+                  <ScoreView zoom={scoreZoom} notes={compiledRendition.notes} bars={compiledRendition.bars} getPlayhead={() => playheadRef.current} selectedIds={[]} tool="select"
                     signature={renditionSignature}
                     onSelectNote={() => {}} onAddNote={() => {}} onEraseNote={() => {}} onDragCommit={() => {}} onLyricChange={() => {}} />
                 </div>

@@ -96,7 +96,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit, onClipDrag, showLeadIn }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit, onClipDrag, showLeadIn, zoom = 1 }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -154,12 +154,36 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
    *  note (snapped, clamped into its bar, moved past any blocking note) —
    *  drives the ghost head under the cursor. */
   resolveAdd?: (time: number, part: number) => number;
+  /** How large to draw the engraving, 1 being written size. 0 means "fit a
+   *  system across whatever width this has" -- an overview, measured here
+   *  because only this component knows how wide its own scroller is.
+   *
+   *  The scale is a CSS transform on one wrapper, so the engraving itself is
+   *  laid out once at its natural size and never re-measured: ScoreBody stays
+   *  memoised and zooming costs nothing. The price is that every pointer
+   *  reading arrives in SCALED pixels, so each conversion below divides by it
+   *  -- miss one and notes would move by the wrong interval under the cursor. */
+  zoom?: number;
   /** Spell in this key instead of inferring one — a compiled rendition with
    *  a lifted last verse stays spelled in the song's own key, and the lift
    *  wears its honest accidentals. */
   signature?: number;
 }) {
   const layout = useMemo(() => buildLayout(notes, bars, signature, chords, showLeadIn), [notes, bars, signature, chords, showLeadIn]);
+  // Fit is a measurement, not a constant: it is whatever puts one system
+  // across the scroller as it stands now.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [fitScale, setFitScale] = useState(1);
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const measure = () => setFitScale(Math.max(.2, Math.min(1, (box.clientWidth - 32) / (SYSTEM_W + 24))));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, []);
+  const scale = zoom > 0 ? zoom : fitScale;
   // The band lane, printed: every event at its exact written position.
   // Strums are arrows (soft upstrokes dimmed), arpeggio/bass notes are
   // NAMED so the picking pattern reads like a tab, block chords are ▪,
@@ -214,8 +238,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   function timeAtPointer(event: React.PointerEvent<SVGElement>): number | null {
     const svg = event.currentTarget.ownerSVGElement ?? (event.currentTarget as unknown as SVGSVGElement);
     const bounds = svg.getBoundingClientRect();
-    const x = event.clientX - bounds.left - 12;
-    const y = event.clientY - bounds.top - 12;
+    const x = (event.clientX - bounds.left) / scale - 12;
+    const y = (event.clientY - bounds.top) / scale - 12;
     const system = Math.max(0, Math.floor(y / SYSTEM_H));
     return layout.xyToTime(system, x);
   }
@@ -252,8 +276,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   function barUnderDrag(event: React.DragEvent<HTMLDivElement>): number | null {
     const container = event.currentTarget;
     const bounds = container.getBoundingClientRect();
-    const x = event.clientX - bounds.left + container.scrollLeft - 16 - 12;
-    const y = event.clientY - bounds.top + container.scrollTop - 16;
+    const x = (event.clientX - bounds.left + container.scrollLeft - 16) / scale - 12;
+    const y = (event.clientY - bounds.top + container.scrollTop - 16) / scale;
     const system = Math.floor((y - 12) / SYSTEM_H);
     const time = layout.xyToTime(system, x);
     if (time === null) return null;
@@ -329,8 +353,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   }
   function lyricBandDoubleClick(event: React.MouseEvent<SVGSVGElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - bounds.left - 12;
-    const y = event.clientY - bounds.top;
+    const x = (event.clientX - bounds.left) / scale - 12;
+    const y = (event.clientY - bounds.top) / scale;
     const system = Math.floor((y - 12) / SYSTEM_H);
     const yIn = y - 12 - system * SYSTEM_H;
     const staff = LYRIC_YS.findIndex(rowY => yIn >= rowY - 5 && yIn <= rowY + 12);
@@ -353,8 +377,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     const hide = () => { ghost.style.display = 'none'; };
     if (dragRef.current || tool === 'erase' || (event.target as Element).closest('[data-glyph]')) return hide();
     const bounds = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - bounds.left - 12;
-    const y = event.clientY - bounds.top;
+    const x = (event.clientX - bounds.left) / scale - 12;
+    const y = (event.clientY - bounds.top) / scale;
     const system = Math.floor((y - 12) / SYSTEM_H);
     const yIn = y - 12 - system * SYSTEM_H;
     const staff = STAFF_MIDS.findIndex(mid => yIn > mid - 5 * GAP && yIn < mid + 5 * GAP);
@@ -365,7 +389,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     if (!landed) return hide();
     const step = Math.round((STAFF_MIDS[staff] - yIn) / STEP);
     ghost.style.display = 'block';
-    ghost.style.transform = `translate(${landed.x + 12 + 16 - 5}px, ${landed.system * SYSTEM_H + 12 + (STAFF_MIDS[staff] - step * STEP) + 16 - 4}px)`;
+    ghost.style.transform = `translate(${landed.x + 12 - 5}px, ${landed.system * SYSTEM_H + 12 + (STAFF_MIDS[staff] - step * STEP) - 4}px)`;
   }
 
   function beginDrag(event: React.PointerEvent, glyph: Glyph) {
@@ -385,8 +409,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   function moveDrag(event: React.PointerEvent) {
     const active = dragRef.current;
     if (!active) return;
-    const dSteps = Math.round((active.originY - event.clientY) / STEP);
-    const dx = event.clientX - active.originX;
+    const dSteps = Math.round((active.originY - event.clientY) / (STEP * scale));
+    const dx = (event.clientX - active.originX) / scale;
     if (!active.moved && Math.abs(dSteps) < 1 && Math.abs(dx) < 4) return;
     active.moved = true;
     setDrag({ id: active.id, dSteps, dx });
@@ -409,8 +433,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     if ((event.target as Element).closest('[data-glyph]')) return;
     if (tool === 'erase') return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - bounds.left - 12;
-    const y = event.clientY - bounds.top;
+    const x = (event.clientX - bounds.left) / scale - 12;
+    const y = (event.clientY - bounds.top) / scale;
     const system = Math.floor((y - 12) / SYSTEM_H);
     const yIn = y - 12 - system * SYSTEM_H;
     const staff = STAFF_MIDS.findIndex(mid => yIn > mid - 5 * GAP && yIn < mid + 5 * GAP);
@@ -421,20 +445,26 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     onAddNote(staff, time, stepToMidi(step, STAFF_CLEFS[staff], layout.signature));
   }
 
-  return <div className="vh-editor-scrollbars relative h-full overflow-auto px-4 py-4"
+  return <div ref={scrollRef} className="vh-editor-scrollbars relative h-full overflow-auto px-4 py-4"
     onDragOver={onBandDrop ? handleBandDragOver : undefined}
     onDrop={onBandDrop ? handleBandDrop : undefined}
     onDragLeave={onBandDrop ? event => {
       const bounds = event.currentTarget.getBoundingClientRect();
       if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) setDropRange(null);
     } : undefined}>
+    {/* Two boxes: the outer one reserves the space the drawing takes up once
+        scaled, so the scrollbars are honest; the inner one is the score's own
+        coordinate system, and everything inside it is positioned in score
+        units at every zoom. */}
+    <div style={{ width: (SYSTEM_W + 24) * scale, height: (layout.systems * SYSTEM_H + 24) * scale }}>
+    <div className="relative" style={{ width: SYSTEM_W + 24, height: layout.systems * SYSTEM_H + 24, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
     <ScoreBody layout={layout} selectedIds={selectedIds} drag={drag} tool={tool}
       onGlyphDown={beginDrag} onGlyphDoubleClick={glyph => { if (selectedIds.includes(glyph.id)) onDeselect?.(); }}
       onMove={event => { moveDrag(event); updateGhost(event); }} onUp={endDrag}
       onLeave={() => { if (ghostRef.current) ghostRef.current.style.display = 'none'; }}
       onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={onEraseNote} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
-    {(layout.bandTexts.length > 0 || (onBandEdit && bandDefaults) || (clipMarkers?.length ?? 0) > 0) && <svg className="absolute left-4 top-4 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
+    {(layout.bandTexts.length > 0 || (onBandEdit && bandDefaults) || (clipMarkers?.length ?? 0) > 0) && <svg className="absolute left-0 top-0 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
       {clipMarkers?.map((marker, index) => {
         const position = layout.timeToXY(marker.at);
         if (!position) return null;
@@ -514,13 +544,13 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         {onBandEdit && <title>Band instruction from this bar — click to hear and change it; double-click to write the part note by note</title>}
         {text.label}</text>)}
     </svg>}
-    {dropRange && <svg className="pointer-events-none absolute left-4 top-4 z-20" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
+    {dropRange && <svg className="pointer-events-none absolute left-0 top-0 z-20" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
       {layout.placedBars.filter(bar => bar.number >= Math.min(dropRange.anchor, dropRange.current) && bar.number <= Math.max(dropRange.anchor, dropRange.current)).map(bar =>
         <rect key={bar.number} x={bar.x + 12} y={bar.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 26}
           width={bar.width} height={STAFF_MIDS[3] - STAFF_MIDS[0] + 4 * GAP + 46} rx={6}
           fill="#fbbf2415" stroke="#fbbf24" strokeWidth={1.2} strokeDasharray="5 4" />)}
     </svg>}
-    {laneMarks.length > 0 && <svg className="pointer-events-none absolute left-4 top-4" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
+    {laneMarks.length > 0 && <svg className="pointer-events-none absolute left-0 top-0" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
       {laneSystems.map(system => <g key={system} fontSize={8}>
         <text x={2} y={system * SYSTEM_H + 12 + LANE_INSTRUMENT_Y} fill="#93c5fd" opacity={0.5}>🎸</text>
         <text x={2} y={system * SYSTEM_H + 12 + LANE_DRUM_Y} fill="#fca5a5" opacity={0.5}>🥁</text>
@@ -529,7 +559,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         fontSize={mark.label.length > 1 ? 7.5 : 9.5} textAnchor="middle" fontWeight={700}
         fill={mark.drum ? '#fca5a5' : '#93c5fd'} opacity={mark.dim ? 0.4 : 0.85}>{mark.label}</text>)}
     </svg>}
-    {onChordEdit && <svg className="absolute left-4 top-4 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
+    {onChordEdit && <svg className="absolute left-0 top-0 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
       {layout.chordSlots.map((slot, index) => {
         const filled = chordInSlot(slot);
         const fx = filled ? (layout.timeToXY(filled.at)?.x ?? slot.x) : slot.x;
@@ -561,7 +591,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       onBlur={() => commitLyric(false)}
       aria-label="Lyric for the selected note"
       className="absolute z-20 w-24 rounded border border-fuchsia-300/60 bg-[#100a1f] px-1.5 py-0.5 text-center text-xs text-white shadow-[0_0_18px_#ec489944]"
-      style={{ left: lyricEdit.x + 12 + 16 - 48, top: lyricEdit.system * SYSTEM_H + 12 + LYRIC_YS[lyricEdit.staff] + 16 - 12 }} />}
+      style={{ left: lyricEdit.x + 12 - 48, top: lyricEdit.system * SYSTEM_H + 12 + LYRIC_YS[lyricEdit.staff] - 12 }} />}
     {chordEdit && <input autoFocus value={chordEdit.value} placeholder="C, G7…"
       onFocus={event => event.target.select()}
       onChange={event => setChordEdit(current => current && { ...current, value: event.target.value })}
@@ -573,14 +603,14 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       onBlur={() => commitChord(0)}
       aria-label="Chord on this beat"
       className="absolute z-20 w-16 rounded border border-amber-300/70 bg-[#1a1206] px-1.5 py-0.5 text-center text-xs font-bold text-amber-100 shadow-[0_0_18px_#f59e0b44] placeholder:font-normal placeholder:text-amber-200/30"
-      style={{ left: chordEdit.x + 12 + 16 - 32, top: chordEdit.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24 + 16 - 20 }} />}
+      style={{ left: chordEdit.x + 12 - 32, top: chordEdit.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24 - 20 }} />}
     {bandEdit && onBandEdit && (() => {
       const isDefault = bandEdit.target === 'default';
       const current = isDefault
         ? { instrument: bandDefaults?.instrument ?? 'off', drums: bandDefaults?.drums ?? 'off' }
         : (notes.find(note => note.id === (bandEdit.target as { noteId: string }).noteId)?.marks?.band ?? {});
       return <div className="absolute z-30 w-60 rounded-xl border border-rose-300/40 bg-[#160a14] p-2 text-[10px] text-slate-200 shadow-[0_0_28px_#f43f5e40]"
-        style={{ left: Math.max(4, Math.min(bandEdit.x + 12 + 16 - 120, SYSTEM_W - 230)), top: bandEdit.system * SYSTEM_H + 12 + BAND_TEXT_Y + 22 }}
+        style={{ left: Math.max(4, Math.min(bandEdit.x + 12 - 120, SYSTEM_W - 230)), top: bandEdit.system * SYSTEM_H + 12 + BAND_TEXT_Y + 22 }}
         onKeyDown={event => { if (event.key === 'Escape') setBandEdit(null); }}>
         <div className="mb-1.5 flex items-center justify-between">
           <b className="text-[9px] font-black uppercase tracking-[.16em] text-rose-200">{isDefault ? 'Band · from the top' : 'Band · from this bar'}</b>
@@ -607,6 +637,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         <button onClick={() => setBandEdit(null)} className="mt-1.5 w-full rounded border border-emerald-300/30 px-2 py-1 text-emerald-200 hover:bg-emerald-300/10">Done</button>
       </div>;
     })()}
+    </div>
+    </div>
   </div>;
 }
 
@@ -754,7 +786,7 @@ function CursorLayer({ layout, getPlayhead }: { layout: Layout; getPlayhead: () 
         const at = time !== null ? layout.timeToXY(time) : null;
         if (at) {
           line.style.display = 'block';
-          line.style.transform = `translate(${at.x + 12 + 16}px, ${at.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 3 * GAP + 16}px)`;
+          line.style.transform = `translate(${at.x + 12}px, ${at.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 3 * GAP}px)`;
         } else line.style.display = 'none';
       }
       frame = requestAnimationFrame(tick);
