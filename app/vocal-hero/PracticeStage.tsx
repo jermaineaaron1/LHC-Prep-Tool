@@ -264,6 +264,16 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
 
   const target = myNotes.find(note => position >= note.start && position < note.end) ?? null;
   const feedback = livePitchFeedback(target?.midi ?? null, pitch);
+  // Portrait shows this inside the lane header. The words have to survive a
+  // 130px gap between two note names, so they are the short form of the same
+  // verdict the panel spells out on a wide screen.
+  const laneReadout = {
+    detected: feedback.detected, target: feedback.target,
+    hint: feedback.state === 'correct' ? '● on pitch' : feedback.state === 'high' ? '↓ lower'
+      : feedback.state === 'low' ? '↑ higher' : feedback.state === 'octave' ? '8ve out'
+      : feedback.state === 'silent' ? 'sing it' : 'wait',
+    tone: (feedback.state === 'correct' ? 'good' : feedback.state === 'high' || feedback.state === 'low' || feedback.state === 'octave' ? 'warn' : 'idle') as 'good' | 'warn' | 'idle',
+  };
   const colour = guide ? '#ff60bc' : COLOURS[part];
   const pct = duration > 0 ? Math.min(100, Math.max(0, (position / duration) * 100)) : 0;
 
@@ -271,12 +281,12 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
     <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 sm:gap-3">
       <div>
         <p className="hidden text-[10px] font-black uppercase tracking-[.22em] text-emerald-300 sm:block">Practice · nothing is scored</p>
-        <h1 className="max-w-[55vw] truncate text-sm font-semibold sm:max-w-none sm:text-xl">{song.title}</h1>
+        <h1 className="max-w-[40vw] truncate text-sm font-semibold sm:max-w-none sm:text-xl">{song.title}</h1>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button onClick={() => setGuideAudio(!guideAudio)} className={`vh-outline-button ${guideAudio ? 'border-emerald-300/40 text-emerald-100' : 'text-slate-400'}`}>{guideAudio ? '♪ Guide on' : '♪ Guide off'}</button>
-        <button onClick={() => setBandAudio(!bandAudio)} title="The song's saved guitar and drum accompaniment" className={`vh-outline-button ${bandAudio ? 'border-amber-300/40 text-amber-100' : 'text-slate-400'}`}>{bandAudio ? '♬ Band on' : '♬ Band off'}</button>
-        <button onClick={onExit} className="vh-outline-button">← Back to library</button>
+        <button onClick={() => setGuideAudio(!guideAudio)} className={`vh-outline-button ${guideAudio ? 'border-emerald-300/40 text-emerald-100' : 'text-slate-400'}`}>♪ Guide<span className="hidden sm:inline">{guideAudio ? ' on' : ' off'}</span></button>
+        <button onClick={() => setBandAudio(!bandAudio)} title="The song's saved guitar and drum accompaniment" className={`vh-outline-button ${bandAudio ? 'border-amber-300/40 text-amber-100' : 'text-slate-400'}`}>♬ Band<span className="hidden sm:inline">{bandAudio ? ' on' : ' off'}</span></button>
+        <button onClick={onExit} className="vh-outline-button" title="Back to library">←<span className="hidden sm:inline"> Back to library</span></button>
       </div>
     </div>
 
@@ -287,7 +297,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
     </div>}
 
     <div className="mt-1 shrink-0 sm:mt-4"><KaraokeLyrics song={song} notes={allNotes} partIndex={lanePart} elapsed={position} compact={narrow} /></div>
-    <div className="mt-1 min-h-[120px] flex-1 sm:mt-4 sm:min-h-0 sm:flex-none"><CanvasLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} notes={allNotes} getPosition={() => positionRef.current} getPitchHz={() => pitchValueRef.current} getLevel={() => levelRef.current} trail={trailRef.current} lookAheadSeconds={7} height={280} fill={narrow} /></div>
+    <div className="mt-1 min-h-[120px] flex-1 sm:mt-4 sm:min-h-0 sm:flex-none"><CanvasLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} notes={allNotes} getPosition={() => positionRef.current} getPitchHz={() => pitchValueRef.current} getLevel={() => levelRef.current} trail={trailRef.current} lookAheadSeconds={7} height={280} fill={narrow} readout={narrow ? laneReadout : null} /></div>
 
     {/* The scrubber doubles as the loop display: a singer should be able to see
         the region they are repeating, not just be inside it. */}
@@ -299,8 +309,11 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
         <input type="range" min={0} max={Math.max(0.1, duration)} step={0.05} value={position}
           onChange={event => seekTo(Number(event.target.value))}
           aria-label="Seek" className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-2 text-[9px] text-slate-500 sm:hidden">
+          <span>{position.toFixed(1)}s</span>{loop && <span className="text-emerald-300">loop {loop.start.toFixed(1)}–{loop.end.toFixed(1)}s</span>}<span>{duration.toFixed(0)}s</span>
+        </div>
       </div>
-      <div className="mt-1 flex justify-between text-[10px] text-slate-500"><span>{position.toFixed(1)}s</span>{loop && <span className="text-emerald-300">looping {loop.start.toFixed(1)}–{loop.end.toFixed(1)}s</span>}<span>{duration.toFixed(0)}s</span></div>
+      <div className="mt-1 hidden justify-between text-[10px] text-slate-500 sm:flex"><span>{position.toFixed(1)}s</span>{loop && <span className="text-emerald-300">looping {loop.start.toFixed(1)}–{loop.end.toFixed(1)}s</span>}<span>{duration.toFixed(0)}s</span></div>
     </div>
 
     <div className="mt-2 flex shrink-0 flex-wrap items-center gap-2 sm:mt-4 sm:gap-3">
@@ -308,8 +321,9 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
       <button onClick={() => seekTo(Math.max(0, positionRef.current - 4))} className="vh-outline-button">↺ <span className="hidden sm:inline">Back </span>4s</button>
       <button onClick={loopThisPhrase} className="vh-outline-button border-emerald-300/40 text-emerald-100">⟲ Loop<span className="hidden sm:inline"> this phrase</span></button>
       {loop && <button onClick={() => applyLoop(null)} className="vh-outline-button">Clear loop</button>}
-      <button onClick={() => setShowTools(!showTools)} className="vh-outline-button sm:hidden">⚙ {showTools ? 'Hide' : 'Speed & key'}</button><span className="text-xs text-slate-500">{mic === 'ready' ? '● mic live' : mic === 'blocked' ? '● mic blocked' : mic === 'checking' ? '● checking mic' : '○ mic starts with play'}</span>{mic === 'blocked' && micReason && <p className="mt-2 rounded-xl border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-100">{micReason === 'insecure' ? 'This page is not on HTTPS, so the browser will not hand out a microphone.' : micReason === 'unsupported' ? (standalone ? 'This installed app window offers no microphone API. Open the app in your browser instead.' : 'This browser offers no microphone API.') : micReason === 'notfound' ? 'No microphone was offered by this device.' : micReason === 'busy' ? 'Another app is holding the microphone — close any call or recorder and press play again.' : standalone ? 'The installed app was refused the microphone. It keeps a separate permission from your browser, so allowing it in Chrome does not cover this window.' : 'Permission was refused. Allow the microphone for this site, then reload.'}</p>}
-    </div>
+      <button onClick={() => setShowTools(!showTools)} className="vh-outline-button sm:hidden">⚙ {showTools ? 'Hide' : 'Tools'}</button><span className="text-xs text-slate-500"><span className="sm:hidden">{mic === 'ready' ? '● live' : mic === 'blocked' ? '● blocked' : mic === 'checking' ? '● …' : '○ mic'}</span><span className="hidden sm:inline">{mic === 'ready' ? '● mic live' : mic === 'blocked' ? '● mic blocked' : mic === 'checking' ? '● checking mic' : '○ mic starts with play'}</span></span>    </div>
+
+    {mic === 'blocked' && micReason && <p className="mt-2 shrink-0 rounded-xl border border-amber-400/30 bg-amber-950/30 px-3 py-1.5 text-[11px] leading-snug text-amber-100">{micReason === 'insecure' ? 'This page is not on HTTPS, so the browser will not hand out a microphone.' : micReason === 'unsupported' ? (standalone ? 'This installed app window offers no microphone API. Open the app in your browser instead.' : 'This browser offers no microphone API.') : micReason === 'notfound' ? 'No microphone was offered by this device.' : micReason === 'busy' ? 'Another app is holding the microphone — close any call or recorder and press play again.' : standalone ? 'The installed app was refused the microphone. It keeps a separate permission from your browser, so allowing it in Chrome does not cover this window.' : 'Permission was refused. Allow the microphone for this site, then reload.'}</p>}
 
     <div className={(showTools ? 'grid' : 'hidden') + ' mt-2 shrink-0 grid-cols-1 gap-2 sm:mt-4 sm:grid sm:grid-cols-2 sm:gap-4'}>
       <div className="vh-panel p-4">
@@ -330,7 +344,9 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
       </div>
     </div>
 
-    <section className="vh-panel mt-2 flex shrink-0 items-center justify-between p-2 sm:mt-4 sm:p-4">
+    {/* Wide screens keep the full readout. Portrait reads it off the lane
+        header instead -- this panel is what a short screen used to cut off. */}
+    <section className="vh-panel mt-2 hidden shrink-0 items-center justify-between p-2 sm:mt-4 sm:flex sm:p-4">
       <div><p className="text-[10px] uppercase tracking-wider text-slate-500">You sang</p><b className="text-lg text-cyan-200 sm:text-3xl">{feedback.detected}</b></div>
       <div className="px-2 text-center"><p className={`text-sm font-black ${feedback.state === 'correct' ? 'text-emerald-300' : feedback.state === 'high' || feedback.state === 'low' || feedback.state === 'octave' ? 'text-amber-300' : 'text-slate-400'}`}>{feedback.label}</p><small className="hidden text-[10px] text-slate-500 sm:block">{feedback.difference}</small></div>
       <div className="text-right"><p className="text-[10px] uppercase tracking-wider text-slate-500">Target</p><b className="text-lg text-white sm:text-3xl">{feedback.target}</b></div>
