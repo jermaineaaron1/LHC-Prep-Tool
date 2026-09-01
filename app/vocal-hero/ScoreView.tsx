@@ -37,7 +37,7 @@ const STAFF_MIDS = [56, 132, 208, 284];
 // Every voice gets a lyric row under its own staff, choral-score style —
 // the bass row sits a touch higher so it clears the band lanes below it.
 const LYRIC_YS = [96, 172, 248, 320];
-const SYSTEM_H = 400;
+const SYSTEM_H = 416;
 // The band lane: two thin rows under the bass staff where the rhythm
 // section's ACTUAL events print — what the ear will hear, on paper.
 // The whole strip sits below the bass voice's lyric row.
@@ -46,7 +46,7 @@ const LANE_INSTRUMENT_Y = 352;
 const LANE_DRUM_Y = 364;
 /** Recordings have their own row beneath the band lanes, so a clip never
  *  sits on top of an instrument instruction. */
-const CLIP_ROW_Y = 376;
+const CLIP_ROW_Y = 390;
 const VOICE_COLOURS = ['#ff60bc', '#a965ff', '#22d3ee', '#ffbd45'];
 
 type StaffClef = 'treble' | 'treble8' | 'bass';
@@ -462,29 +462,29 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
               const first = row.system === position.system;
               const last = row.system === finish.system;
               return <g key={row.system}>
-                <rect x={row.from + 12} y={y(row.system)} width={width} height={15} rx={4}
+                <rect x={row.from + 12} y={y(row.system)} width={width} height={16} rx={4}
                   fill="#34d39922" stroke="#34d399aa" strokeWidth={1.1}
-                  style={onClipDrag ? { cursor: 'grab' } : undefined}
+                  style={onClipDrag ? { pointerEvents: 'auto', cursor: 'grab', touchAction: 'none' } : { pointerEvents: 'auto' }}
                   onPointerDown={event => clipPointerDown(event, marker, 'move')}
                   onPointerMove={clipPointerMove}
                   onPointerUp={clipPointerUp}
                   onPointerCancel={clipPointerUp} />
                 {/* the ends crop: grab either edge and drag it in or out */}
-                {first && <rect x={row.from + 12} y={y(row.system)} width={7} height={15} rx={3}
+                {first && <rect x={row.from + 12} y={y(row.system)} width={9} height={16} rx={3}
                   fill="#34d399" fillOpacity={0.55}
-                  style={onClipDrag ? { cursor: 'ew-resize' } : undefined}
+                  style={onClipDrag ? { pointerEvents: 'auto', cursor: 'ew-resize', touchAction: 'none' } : undefined}
                   onPointerDown={event => clipPointerDown(event, marker, 'crop-start')}
                   onPointerMove={clipPointerMove}
                   onPointerUp={clipPointerUp}
                   onPointerCancel={clipPointerUp} />}
-                {last && <rect x={row.from + 12 + width - 7} y={y(row.system)} width={7} height={15} rx={3}
+                {last && <rect x={row.from + 12 + width - 9} y={y(row.system)} width={9} height={16} rx={3}
                   fill="#34d399" fillOpacity={0.55}
-                  style={onClipDrag ? { cursor: 'ew-resize' } : undefined}
+                  style={onClipDrag ? { pointerEvents: 'auto', cursor: 'ew-resize', touchAction: 'none' } : undefined}
                   onPointerDown={event => clipPointerDown(event, marker, 'crop-end')}
                   onPointerMove={clipPointerMove}
                   onPointerUp={clipPointerUp}
                   onPointerCancel={clipPointerUp} />}
-                {first && <text x={row.from + 23} y={y(row.system) + 11} fontSize={9} fontWeight={800} fill="#86efac" style={{ pointerEvents: 'none' }}>{marker.label}</text>}
+                {first && <text x={row.from + 25} y={y(row.system) + 12} fontSize={9} fontWeight={800} fill="#86efac" style={{ pointerEvents: 'none' }}>{marker.label}</text>}
               </g>;
             })}
           </g>;
