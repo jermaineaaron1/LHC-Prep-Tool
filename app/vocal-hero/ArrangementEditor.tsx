@@ -1646,12 +1646,31 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         humanize: false, countIn: false,
       });
     }
+    // A written part LOOPS from wherever its instruction begins. Auditioning
+    // it as the song-wide default started that loop at bar 1, so by the
+    // studio's own window the pattern had rotated - a 32-cell part opened on
+    // cell 26, and the notes just drawn were heard several beats late, or as
+    // somebody else's chord. The draft is now hung on the SAME note that will
+    // carry it once saved, so the phase resets exactly where the window does
+    // and the audition is what the score will play.
+    const anchorId = typeof bandWrite.target === 'object' && 'noteId' in bandWrite.target ? bandWrite.target.noteId : null;
+    const draftInstrument = draftInstrumentTab.trim();
+    const draftDrums = draftDrumTab.trim();
+    const draftNotes = notes.map(note => {
+      if (note.id === anchorId) {
+        const band: NonNullable<NoteMarks['band']> = {};
+        if (draftInstrument) { band.instrument = 'custom'; band.instrument_tab = draftInstrument; }
+        if (draftDrums) { band.drums = 'custom'; band.drum_tab = draftDrums; }
+        return { ...note, marks: { ...(note.marks ?? {}), band: band.instrument || band.drums ? band : undefined } };
+      }
+      return note.marks?.band ? { ...note, marks: { ...note.marks, band: undefined } } : note;
+    });
     return buildBandEvents({
       bars: bandBarsForBuild(), chords: trackSettings.chord_symbols ?? [],
-      notes: notes.map(note => note.marks?.band ? { ...note, marks: { ...note.marks, band: undefined } } : note),
+      notes: draftNotes,
       defaults: {
-        instrument: (draftInstrumentTab.trim() ? 'custom' : accompaniment.guitar) as InstrumentStyleId,
-        drums: (draftDrumTab.trim() ? 'custom' : accompaniment.drums) as DrumStyleId,
+        instrument: (!anchorId && draftInstrument ? 'custom' : accompaniment.guitar) as InstrumentStyleId,
+        drums: (!anchorId && draftDrums ? 'custom' : accompaniment.drums) as DrumStyleId,
       },
       until: lastSound + 0.05,
       customTabs: { instrument: draftInstrumentTab, drums: draftDrumTab },
