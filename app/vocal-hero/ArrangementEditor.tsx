@@ -2755,7 +2755,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         <button onClick={selectAllVoices} className="mt-2 w-full rounded-lg border border-white/12 px-3 py-2 text-[11px] text-slate-300">🔊 All voices audible</button>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
-        {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="relative flex max-w-full flex-wrap items-center gap-1.5 sm:max-w-none sm:flex-nowrap">
+        {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="flex max-w-full flex-wrap items-center gap-1.5 sm:relative sm:max-w-none sm:flex-nowrap">
           <button onClick={cyclePreviewVoice} aria-pressed={previewVoice !== 'piano'}
             title={previewVoice === 'choir' ? 'Preview voice: recorded choir — real human voices singing every part on “ah”. Tap for the AI demo choir (pronounces the actual lyrics; one-time voice download).'
               : previewVoice === 'singer' ? 'Preview voice: AI demo choir \u2014 every part sings its own words: female voice on soprano and alto, male on tenor and bass. Tap for piano.'
@@ -2766,7 +2766,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             className={`rounded-lg border px-2.5 py-2 ${accompaniment.drums !== 'off' ? 'border-amber-300/50 bg-amber-300/10 text-amber-100' : 'border-white/15 text-slate-300'}`}>{'\ud83e\udd41'}</button>
           <button onClick={() => setMoreOpen(open => !open)} aria-expanded={moreOpen} title="Import, backing track, recording, zoom and more"
             className={`rounded-lg border px-3 py-2 font-bold ${moreOpen ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/15 text-slate-200'}`}>⋯</button>
-          {moreOpen && <div className="absolute right-0 top-11 z-[75] max-h-[calc(100vh-140px)] w-80 space-y-3 overflow-y-auto rounded-2xl border border-white/12 bg-[#0a0e22f8] p-3 text-xs shadow-[0_24px_70px_#000d] backdrop-blur">
+          {moreOpen && <div className="absolute right-2 top-full z-[75] mt-1 max-h-[55vh] w-[calc(100vw-1rem)] max-w-80 space-y-3 overflow-y-auto rounded-2xl border border-white/12 bg-[#0a0e22f8] p-3 text-xs shadow-[0_24px_70px_#000d] backdrop-blur sm:right-0 sm:top-11 sm:mt-0 sm:max-h-[calc(100vh-140px)] sm:w-80">
             <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Bring music in</p>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => { setMoreOpen(false); xmlInputRef.current?.click(); }} title="MusicXML keeps voices and lyrics, so nothing has to be guessed" className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 font-semibold text-emerald-100">Import MusicXML</button>
@@ -3211,6 +3211,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onDeselect={() => { setSelectedId(null); setSelectedIds([]); setEditorNotice(null); }}
                 onEraseNote={removeNote}
                 onDragCommit={(id, changes) => update(id, changes)}
+                snapTime={time => snapTimeToGrid(musicalBars, time, musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION)}
                 onLyricChange={(id, lyric) => update(id, { lyric }, true)} />
             </div>}
             {noteView === 'grid' && <div className="order-[-1] overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
@@ -3672,7 +3673,7 @@ function EditorToolbar({ extras, tool, setTool, drawNoteValue, onDrawNoteValueCh
   const status = playScope === 'range' ? `Range ${playRange.start.toFixed(2)}s–${playRange.end.toFixed(2)}s` : playScope === 'note' ? `${selectedCount || 1} selected note${selectedCount === 1 ? '' : 's'}` : playParts.every(Boolean) ? 'All voices' : VOICES.filter((_, index) => playParts[index]).join(' + ');
   const formatTime = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds)) % 60).padStart(2, '0')}`;
   return <div className="border-b border-white/10 bg-[#0a0c20] text-xs">
-    <div className="flex min-h-14 flex-wrap items-center gap-1.5 px-3 py-1.5 sm:h-14 sm:flex-nowrap sm:overflow-x-auto sm:py-0 [&>*]:shrink-0">
+    <div className="relative flex min-h-14 flex-wrap items-center gap-1.5 px-3 py-1.5 sm:h-14 sm:flex-nowrap sm:overflow-x-auto sm:py-0 [&>*]:shrink-0">
       <span className="flex overflow-hidden rounded-lg border border-white/12">
         {(['select', 'erase'] as EditorTool[]).map(value => <button key={value} onClick={() => setTool(value)}
           className={`px-3 py-2 capitalize ${tool === value ? 'bg-fuchsia-500/25 text-fuchsia-100' : 'text-slate-300 hover:bg-white/[.06]'}`}>{value}</button>)}
