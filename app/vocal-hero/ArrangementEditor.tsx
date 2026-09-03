@@ -1035,6 +1035,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setSelectedPart(part); setSelectedId(id); setSelectedIds([id]);
     setEditorNotice(flowed.shiftBy > 0 ? 'A fresh bar was inserted to hold the overflow — everything after it kept its place. Undo reverses it.' : null);
     auditionNote(candidate);
+    return id;
   }
   function insertStepPitch(letter: string) {
     const PC: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
@@ -3222,8 +3223,9 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onAddNote={(part, time, midi) => {
                   // Open score: the staff clicked IS the voice entered.
                   const landing = resolveScoreAdd(time, part);
-                  addNote(part, landing.start, midi, landing.end, '');
+                  return addNote(part, landing.start, midi, landing.end, '');
                 }}
+                onAuditionNote={id => { const note = notes.find(item => item.id === id); if (note) auditionNote(note); }}
                 resolveAdd={(time, part) => resolveScoreAdd(time, part).start}
                 chords={trackSettings.chord_symbols}
                 onChordEdit={setChordAtTime}
