@@ -30,9 +30,10 @@ const shortStyle = (value: string) => value === 'stop' || value === 'off' ? 'tac
 
 const GAP = 7;
 const STEP = GAP / 2;
-/** How long a finger must rest on a note before the score locks around it.
- *  Long enough that scrolling past a note never picks it up by accident. */
-const HOLD_MS = 2000;
+/** How long a finger must rest before the score gives way -- on a note, to
+ *  pick it up; on empty staff, to write one. Nothing on the score is created,
+ *  moved or destroyed by a tap: a tap only ever auditions. */
+const HOLD_MS = 3000;
 const BEAT_W = 36;
 const BAR_PAD = 16;
 const MARGIN_LEFT = 78;
@@ -100,13 +101,19 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; ids: string[]; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit, onClipDrag, showLeadIn, zoom = 1, snapTime }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, onAuditionNote, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit, onClipDrag, showLeadIn, zoom = 1, snapTime }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
   onSelectNote: (id: string, part: number, additive?: boolean) => void;
   /** part comes from the staff that was clicked — the staff IS the voice. */
-  onAddNote: (part: number, time: number, midi: number) => void;
+  /** Returns the new note's id, so a note written by a fingertip can be put
+   *  straight into positioning mode without a second gesture. */
+  onAddNote: (part: number, time: number, midi: number) => string | void;
+  /** Sound a note without changing it. A single tap does this and nothing
+   *  else -- the surest way to know which note you are about to edit is to
+   *  hear it. */
+  onAuditionNote?: (id: string) => void;
   onEraseNote: (id: string) => void;
   onDragCommit: (id: string, changes: { midi: number; start: number; end: number }) => void;
   onLyricChange: (id: string, lyric: string) => void;
@@ -481,13 +488,17 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     const bar = layout.barAt(note?.start ?? 0);
     if (!note || !bar) return;
     const touch = event.pointerType === 'touch' || event.pointerType === 'pen';
+    // A note already lifted -- held a moment ago, or just written by a hold on
+    // empty staff -- is draggable at once. Asking for a second three-second
+    // hold to nudge the note you are already holding would be absurd.
+    const alreadyLifted = Boolean(touchEdit && touchEdit.ids.includes(glyph.id));
     dragRef.current = {
       id: glyph.id, note, step: glyph.step, clef: STAFF_CLEFS[glyph.staff],
       originX: event.clientX, originY: event.clientY,
       secondsPerPx: (bar.end - bar.start) / (bar.width - BAR_PAD), moved: false,
-      touch, held: false, gx: glyph.x, gsystem: glyph.system, gstaff: glyph.staff,
+      touch, held: alreadyLifted, gx: glyph.x, gsystem: glyph.system, gstaff: glyph.staff,
     };
-    if (touch) {
+    if (touch && !alreadyLifted) {
       if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
       holdTimerRef.current = window.setTimeout(() => {
         holdTimerRef.current = null;
@@ -504,6 +515,19 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   function moveDrag(event: React.PointerEvent) {
     const active = dragRef.current;
     if (!active) return;
+    if (active.touch && !active.held) {
+      // Before the hold completes, the finger is not dragging anything. Only a
+      // real journey abandons the hold -- a hand resting for three seconds is
+      // never perfectly still, and cancelling on a two-pixel wobble would make
+      // the gesture impossible to perform.
+      const travelled = Math.hypot(event.clientX - active.originX, event.clientY - active.originY);
+      if (travelled > 12 && holdTimerRef.current) {
+        window.clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+        active.moved = true;
+      }
+      return;
+    }
     const dSteps = Math.round((active.originY - event.clientY) / (STEP * scale));
     let dx = (event.clientX - active.originX) / scale;
     if (!active.moved && Math.abs(dSteps) < 1 && Math.abs(dx) < 4) return;
@@ -523,11 +547,14 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     if (holdTimerRef.current) { window.clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
     if (!active) { setDrag(null); return; }
     if (active.touch) {
-      // Held or moved, the note is now hovering and the bar does the asking.
-      // The preview deliberately survives the release -- that IS the answer to
-      // "where did it land". A plain tap keeps its old meaning: select.
-      if (active.moved || active.held) { if (!touchEdit) liftNote(active); return; }
+      // Held: the note is hovering and the bar does the asking. The preview
+      // deliberately survives the release -- that IS the answer to "where did
+      // it land".
+      if (active.held) { if (!touchEdit) liftNote(active); return; }
       setDrag(null);
+      // A plain tap changes nothing. It sounds the note, which is how you find
+      // out whether it is the one you meant before spending three seconds on it.
+      if (!active.moved) onAuditionNote?.(active.id);
       return;
     }
     setDrag(null);
@@ -549,11 +576,6 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   // touch-down only AIMS -- the ghost and its pitch name appear under the
   // finger and follow it, and the note is written on release.
   const placeRef = useRef<{ staff: number; time: number; midi: number } | null>(null);
-  // A touch that wrote a note on release is followed by a click, and the click
-  // handler would write a second one on top of it. lastPointerType is no help:
-  // it only ever sees pointers that land on a NOTE, and this gesture lands on
-  // empty staff. So the write itself says "the click after me is mine".
-  const wroteOnReleaseRef = useRef(0);
   const aimRef = useRef<HTMLDivElement | null>(null);
   function aimAt(event: React.PointerEvent): { staff: number; time: number; midi: number } | null {
     const bounds = (event.currentTarget as Element).getBoundingClientRect();
@@ -579,28 +601,88 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     chip.style.left = Math.max(4, 16 + (landed.x + 12) * scale - 16) + 'px';
     chip.style.top = (16 + (landed.system * SYSTEM_H + 12 + STAFF_MIDS[aim.staff] - 6 * GAP) * scale) + 'px';
   }
+  const placeHoldRef = useRef<number | null>(null);
+  const placeOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const placeDownRef = useRef(false);
+  // A note written by a hold has to be lifted into positioning mode, but it
+  // does not exist until the parent re-renders with it. So the id is parked
+  // here and the effect below picks it up the moment its glyph is engraved.
+  const pendingLiftRef = useRef<string | null>(null);
+  useEffect(() => { if (placeHoldRef.current) window.clearTimeout(placeHoldRef.current); }, []);
+
   function placePointerDown(event: React.PointerEvent) {
+    lastPointerTypeRef.current = event.pointerType || 'mouse';
     if (locked || tool === 'erase') return;
     if (event.pointerType === 'mouse') return;                       // the mouse still clicks
     if ((event.target as Element).closest('[data-glyph]')) return;   // that is a note, not empty staff
     const aim = aimAt(event);
     placeRef.current = aim;
+    placeOriginRef.current = { x: event.clientX, y: event.clientY };
+    placeDownRef.current = true;
     showAim(aim);
+    if (placeHoldRef.current) window.clearTimeout(placeHoldRef.current);
+    if (!aim) return;
+    placeHoldRef.current = window.setTimeout(() => {
+      placeHoldRef.current = null;
+      const held = placeRef.current;
+      placeRef.current = null;
+      showAim(null);
+      if (!held) return;
+      try { navigator.vibrate?.(18); } catch { /* not every phone buzzes */ }
+      const id = onAddNote(held.staff, held.time, held.midi);
+      // Straight into positioning: the note is written, and the tick is what
+      // says it belongs there.
+      if (typeof id === 'string') pendingLiftRef.current = id;
+    }, HOLD_MS);
   }
   function placePointerMove(event: React.PointerEvent) {
     if (!placeRef.current) return;
+    const origin = placeOriginRef.current;
+    if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 12) {
+      // The finger has gone travelling: this is a scroll, not a placement.
+      if (placeHoldRef.current) { window.clearTimeout(placeHoldRef.current); placeHoldRef.current = null; }
+      placeRef.current = null;
+      showAim(null);
+      return;
+    }
     const aim = aimAt(event);
     if (aim) placeRef.current = aim;
     showAim(placeRef.current);
   }
   function placePointerUp() {
-    const aim = placeRef.current;
+    if (placeHoldRef.current) { window.clearTimeout(placeHoldRef.current); placeHoldRef.current = null; }
     placeRef.current = null;
+    placeOriginRef.current = null;
+    placeDownRef.current = false;
     showAim(null);
-    if (!aim) return;
-    wroteOnReleaseRef.current = Date.now() + 600;
-    onAddNote(aim.staff, aim.time, aim.midi);
+    // A tap writes nothing. Only the hold does.
   }
+
+  useEffect(() => {
+    const id = pendingLiftRef.current;
+    if (!id) return;
+    const glyph = layout.glyphs.find(item => item.id === id);
+    const note = notes.find(item => item.id === id);
+    if (!glyph || !note) return;                       // engraved on a later render
+    const bar = layout.barAt(note.start);
+    pendingLiftRef.current = null;
+    if (!bar) return;
+    const secondsPerPx = (bar.end - bar.start) / (bar.width - BAR_PAD);
+    setTouchEdit({
+      ids: [id], id, note, step: glyph.step, clef: STAFF_CLEFS[glyph.staff],
+      secondsPerPx, x: glyph.x, system: glyph.system, staff: glyph.staff,
+    });
+    // Still holding? Then the finger that wrote this note is already carrying
+    // it, and lifting to press it again would be a pointless ceremony.
+    if (placeDownRef.current && placeOriginRef.current) {
+      dragRef.current = {
+        id, note, step: glyph.step, clef: STAFF_CLEFS[glyph.staff],
+        originX: placeOriginRef.current.x, originY: placeOriginRef.current.y,
+        secondsPerPx, moved: false, touch: true, held: true,
+        gx: glyph.x, gsystem: glyph.system, gstaff: glyph.staff,
+      };
+    }
+  }, [layout, notes]);
 
   function staffClick(event: React.MouseEvent<SVGSVGElement>) {
     // One mode: empty staff space enters a note; heads handle themselves.
@@ -609,8 +691,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     // Locked, the staff answers nothing: the tick and the cross are the only
     // ways out, so a stray tap cannot lose the edit.
     if (locked) return;
-    // The touch path already wrote this note on release.
-    if (Date.now() < wroteOnReleaseRef.current) { wroteOnReleaseRef.current = 0; return; }
+    // Touch writes only by holding, never by tapping -- and a tap still
+    // raises a click, which would otherwise write the note the tap refused to.
+    if (lastPointerTypeRef.current !== 'mouse') return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const x = (event.clientX - bounds.left) / scale - 12;
     const y = (event.clientY - bounds.top) / scale;
