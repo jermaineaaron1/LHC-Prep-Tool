@@ -466,6 +466,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   /** One step back: the position before the last drag, then the one before
    *  that, and so on down to where the note began. With nothing left to undo
    *  it lets the note go, which is what the button used to do outright. */
+  /** Nothing has been moved since the note was picked up. The stack is the
+   *  record of that: it gains an entry the moment any drag begins to travel. */
+  const untouched = () => !editHistory.length && !(drag && (drag.dSteps !== 0 || drag.dx !== 0));
   function stepBack() {
     if (!touchEdit) return;
     if (!editHistory.length) { closeTouchEdit(); return; }
@@ -646,7 +649,11 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     stopHoldRing();
     lastPointerRef.current = null;
     if (holdTimerRef.current) { window.clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
-    if (!active) { setDrag(null); return; }
+    // No drag was running -- this is a tap somewhere else on the score. The
+    // hovering position belongs to the EDIT, not to the gesture that just
+    // ended, so it survives: tapping empty space (or a second note) must not
+    // silently put a moved note back where it started.
+    if (!active) { if (!touchEdit) setDrag(null); return; }
     if (active.touch) {
       // Held: the note is hovering and the bar does the asking. The preview
       // deliberately survives the release -- that IS the answer to "where did
@@ -728,11 +735,14 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
    *  by proximity instead of by hit-test asks the question that was actually
    *  intended: which note is this person pointing at? */
   function glyphNear(event: React.PointerEvent, withinCssPx: number): Glyph | null {
+    return glyphNearPoint(event.clientX, event.clientY, withinCssPx);
+  }
+  function glyphNearPoint(clientX: number, clientY: number, withinCssPx: number): Glyph | null {
     const svgEl = scrollRef.current?.querySelector('svg.select-none');
     if (!svgEl) return null;
     const bounds = svgEl.getBoundingClientRect();
-    const px = (event.clientX - bounds.left) / scale;
-    const py = (event.clientY - bounds.top) / scale;
+    const px = (clientX - bounds.left) / scale;
+    const py = (clientY - bounds.top) / scale;
     const reach = withinCssPx / scale;
     let best: Glyph | null = null, bestGap = Number.POSITIVE_INFINITY;
     for (const glyph of layout.glyphs) {
@@ -753,7 +763,12 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       // be read as the note it was aiming for. This is what made picking a
       // second note work at all on a phone.
       const near = glyphNear(event, 30);
-      if (near) toggleHeld(near);
+      if (near) { toggleHeld(near); return; }
+      // Clear of every note, with nothing moved yet: this is somebody changing
+      // their mind about the note they picked up, not abandoning an edit. Let
+      // it go rather than making them find the arrow. Once something HAS been
+      // moved the lock stands, because a stray tap must never lose the work.
+      if (untouched()) closeTouchEdit();
       return;
     }
     if (tool === 'erase') return;
@@ -840,9 +855,12 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     // One mode: empty staff space enters a note; heads handle themselves.
     if ((event.target as Element).closest('[data-glyph]')) return;
     if (tool === 'erase') return;
-    // Locked, the staff answers nothing: the tick and the cross are the only
-    // ways out, so a stray tap cannot lose the edit.
-    if (locked) return;
+    // Locked, the staff writes nothing. A click well clear of every note lets
+    // an untouched edit go; once something has been moved, only the buttons do.
+    if (locked) {
+      if (untouched() && !glyphNearPoint(event.clientX, event.clientY, 30)) closeTouchEdit();
+      return;
+    }
     // Touch writes only by holding, never by tapping -- and a tap still
     // raises a click, which would otherwise write the note the tap refused to.
     if (lastPointerTypeRef.current !== 'mouse') return;
