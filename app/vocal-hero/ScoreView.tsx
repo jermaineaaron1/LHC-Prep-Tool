@@ -432,6 +432,11 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   // notehead on the way and starts editing something else -- and at 50% zoom
   // "something else" is four pixels from what you meant.
   const locked = touchEdit !== null;
+  // Every position the held note has rested at, oldest first, with the
+  // original at the bottom. Reverting used to throw away the whole edit and
+  // return to where the note started, which is no help after four careful
+  // nudges -- you wanted the last one back, not all of them.
+  const [editHistory, setEditHistory] = useState<Array<{ dSteps: number; dx: number }>>([]);
   useEffect(() => () => { if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current); }, []);
   /** Put the held note where it can be seen, and keep it under the finger.
    *  Scrolling moves the score out from under the hand, so the drag's origin
@@ -453,11 +458,23 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     box.scrollTop = top;
     if (active) { active.originX -= movedLeft; active.originY -= movedTop; }
   }
-  const liftNote = (active: NonNullable<typeof dragRef.current>) => setTouchEdit({
+  const liftNote = (active: NonNullable<typeof dragRef.current>) => (setEditHistory([]), setTouchEdit({
     ids: [active.id], id: active.id, note: active.note, step: active.step, clef: active.clef,
     secondsPerPx: active.secondsPerPx, x: active.gx, system: active.gsystem, staff: active.gstaff,
-  });
-  function closeTouchEdit() { setDrag(null); setTouchEdit(null); }
+  }));
+  function closeTouchEdit() { setDrag(null); setTouchEdit(null); setEditHistory([]); }
+  /** One step back: the position before the last drag, then the one before
+   *  that, and so on down to where the note began. With nothing left to undo
+   *  it lets the note go, which is what the button used to do outright. */
+  function stepBack() {
+    if (!touchEdit) return;
+    if (!editHistory.length) { closeTouchEdit(); return; }
+    const previous = editHistory[editHistory.length - 1];
+    setEditHistory(current => current.slice(0, -1));
+    if (previous.dSteps === 0 && previous.dx === 0) setDrag(null);
+    else setDrag({ id: touchEdit.id, ids: touchEdit.ids, dSteps: previous.dSteps, dx: previous.dx });
+    lastStepsRef.current = previous.dSteps;
+  }
   function commitTouchEdit() {
     if (!touchEdit) return;
     const preview = drag && drag.ids.includes(touchEdit.id) ? drag : null;
@@ -598,6 +615,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     const stepDelta = Math.round((active.originY - event.clientY) / (STEP * scale));
     const pxDelta = (event.clientX - active.originX) / scale;
     if (!active.moved && Math.abs(stepDelta) < 1 && Math.abs(pxDelta) < 4) return;
+    // This drag is under way: record where the note stood before it, so the
+    // revert button has somewhere to go back TO.
+    if (!active.moved) setEditHistory(current => [...current, { dSteps: active.baseSteps, dx: active.baseDx }]);
     const dSteps = active.baseSteps + stepDelta;
     // Up and down only. A hand moving 3.5px per semitone cannot help drifting
     // sideways too, and sideways is the note's PLACE IN THE BAR -- a thing
@@ -755,6 +775,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     pendingLiftRef.current = null;
     if (!bar) return;
     const secondsPerPx = (bar.end - bar.start) / (bar.width - BAR_PAD);
+    setEditHistory([]);
     setTouchEdit({
       ids: [id], id, note, step: glyph.step, clef: STAFF_CLEFS[glyph.staff],
       secondsPerPx, x: glyph.x, system: glyph.system, staff: glyph.staff,
@@ -964,8 +985,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         {onAuditionNotes && <button type="button" onClick={() => onAuditionNotes(touchEdit.ids)}
           title={count > 1 ? `Hear these ${count} notes together` : 'Hear this note'}
           className="rounded-lg border border-cyan-300/45 bg-cyan-300/10 px-2.5 py-1.5 text-xs text-cyan-100">▶</button>}
-        <button type="button" onClick={closeTouchEdit} title="Revert to the original position"
-          className="rounded-lg border border-white/20 px-2.5 py-1.5 text-xs text-slate-200">↩</button>
+        <button type="button" onClick={stepBack}
+          title={editHistory.length ? `Undo the last move (${editHistory.length} to go back through)` : 'Leave it where it was'}
+          className={'rounded-lg border px-2.5 py-1.5 text-xs ' + (editHistory.length ? 'border-amber-300/50 bg-amber-300/10 text-amber-100' : 'border-white/20 text-slate-200')}>↩</button>
         <button type="button" onClick={deleteTouchEdit} title={count > 1 ? `Delete these ${count} notes` : 'Delete this note'}
           className="rounded-lg border border-rose-300/60 bg-rose-400/20 px-2.5 py-1.5 text-xs font-bold text-rose-100">✕</button>
       </div>;
