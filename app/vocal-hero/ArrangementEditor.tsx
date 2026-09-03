@@ -2448,12 +2448,14 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
    *  starts where the caret is and covers however long the crop lasts. The
    *  band keeps playing around it - this is one more part, not a backing
    *  track that stands the band down. */
-  async function addAudioClip(file: File) {
+  async function addAudioClip(file: File, at?: number) {
     if (uploadingClip) return;
     setUploadingClip(true);
     try {
       const bar = entryBar ?? musicalBars[0];
       if (!bar) throw new Error('This song has no bars to place a clip on yet.');
+      const start = at === undefined ? bar.start : snapToBeat(Math.max(0, at));
+      const landedBar = musicalBars.find(item => start >= item.start && start < item.end) ?? bar;
       // Read its length before uploading, so the clip knows what it covers.
       const probe = new AudioContext();
       let duration = 0;
@@ -2473,7 +2475,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       if (error) throw new Error(error.message);
       const clip = {
         id: `clip-${crypto.randomUUID().slice(0, 8)}`,
-        start: bar.start, tab: '',
+        start, tab: '',
         audio: { url: payload.publicUrl, name: file.name, source_start: 0, source_end: duration },
       };
       setTrackSettingsDirty(current => {
@@ -2483,7 +2485,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         track.clips.push(clip);
         return { ...current, band_tracks: tracks };
       });
-      setEditorNotice(`\ud83c\udf99 ${file.name} placed at bar ${bar.number} \u2014 ${duration.toFixed(1)}s of audio. Drag its bar on the score to move it, or click it to crop. Save keeps it with the song.`);
+      setEditorNotice(`\ud83c\udf99 ${file.name} placed at bar ${landedBar.number} \u2014 ${duration.toFixed(1)}s of audio. Drag its bar on the score to move it, or click it to crop. Save keeps it with the song.`);
     } catch (problem) {
       setEditorNotice(problem instanceof Error ? problem.message : 'Could not add that recording.');
     } finally {
@@ -2534,10 +2536,36 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       const decoded = await context.decodeAudioData(await recordingTake.arrayBuffer());
       await context.close();
       const range = pitchRangeForPart(recordingPart, notes);
-      const result = await detectVocalNotes(decoded, { part: recordingPart, timelineOffset: recordingTimelineOffset, minMidi: range.min, maxMidi: range.max });
+      let result = await detectVocalNotes(decoded, { part: recordingPart, timelineOffset: recordingTimelineOffset, minMidi: range.min, maxMidi: range.max });
+      let octaveShift = 0;
+      if (!result.notes.length) {
+        // The detector only ever looks at the part's range plus eight
+        // semitones, and an octave is twelve -- so a man humming a soprano
+        // line was never going to be found, however clean the recording. Look
+        // an octave out either way before giving up, and write whatever turns
+        // up into the part where it belongs.
+        for (const shift of [-12, 12, -24, 24]) {
+          const alt = await detectVocalNotes(decoded, { part: recordingPart, timelineOffset: recordingTimelineOffset, minMidi: range.min + shift, maxMidi: range.max + shift });
+          if (!alt.notes.length) continue;
+          result = { ...alt, notes: alt.notes.map(note => ({ ...note, midi: note.midi - shift })) };
+          octaveShift = shift;
+          break;
+        }
+      }
       const detected = result.notes;
       setTranscriptionDiagnostics(result.diagnostics);
-      if (!detected.length) throw new Error(`No stable pitches were detected inside the ${VOICES[recordingPart]} range (${midiNoteName(range.min)}–${midiNoteName(range.max)}). Choose the correct destination voice or record a clean, unaccompanied solo closer to the microphone.`);
+      if (!detected.length) {
+        // "No stable pitches" reads as "your microphone is broken", when the
+        // truth is usually one of three quite different things -- and the
+        // diagnostics already know which one it was.
+        const heard = result.diagnostics.voicedFrames;
+        const why = heard === 0
+          ? 'nothing voiced was heard at all — check the microphone is picking you up, and sing closer to it'
+          : result.diagnostics.rejectedOutOfRangeFrames > heard / 2
+            ? `${heard} voiced frames were heard, but most sat outside ${VOICES[recordingPart]} (${midiNoteName(range.min)}–${midiNoteName(range.max)}) even after looking an octave either way — pick the voice you actually sang`
+            : `${heard} voiced frames were heard, but none held still long enough to be a note — sustain each pitch, unaccompanied`;
+        throw new Error(`Nothing could be transcribed: ${why}.`);
+      }
       const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
       const accepted: SongNote[] = [];
       let skipped = 0;
@@ -2554,8 +2582,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       setSelectedPart(recordingPart);
       setTool('select');
       const pitchSpan = result.diagnostics.lowestMidi === null || result.diagnostics.highestMidi === null ? '' : ` Pitch range ${midiNoteName(result.diagnostics.lowestMidi)}–${midiNoteName(result.diagnostics.highestMidi)}.`;
+      const octaveNote = octaveShift === 0 ? ''
+        : ` Heard ${Math.abs(octaveShift) / 12 === 1 ? 'an octave' : Math.abs(octaveShift) / 12 + ' octaves'} ${octaveShift < 0 ? 'below' : 'above'} ${VOICES[recordingPart]} and written into the part.`;
       const rejected = result.diagnostics.rejectedOutOfRangeFrames ? ` ${result.diagnostics.rejectedOutOfRangeFrames} out-of-range analysis frames were rejected instead of being clamped to a false boundary note.` : '';
-      setEditorNotice(`Converted ${accepted.length} editable ${VOICES[recordingPart]} note${accepted.length === 1 ? '' : 's'} at ${formatClock(recordingTimelineOffset)} using ${transcriptionSnap ? 'grid-snapped' : 'measured performance'} timing. YIN analysis resolution ${result.diagnostics.timingResolutionMs.toFixed(1)} ms; mean confidence ${Math.round(result.diagnostics.averageConfidence * 100)}%; ${result.diagnostics.expressiveNotes} note${result.diagnostics.expressiveNotes === 1 ? '' : 's'} captured with pitch movement or vibrato.${pitchSpan}${rejected}${skipped ? ` ${skipped} overlapping detection${skipped === 1 ? ' was' : 's were'} skipped.` : ''} Add lyrics, audition the expressive notes against the take, then Save.`);
+      setEditorNotice(`Converted ${accepted.length} editable ${VOICES[recordingPart]} note${accepted.length === 1 ? '' : 's'} at ${formatClock(recordingTimelineOffset)} using ${transcriptionSnap ? 'grid-snapped' : 'measured performance'} timing. YIN analysis resolution ${result.diagnostics.timingResolutionMs.toFixed(1)} ms; mean confidence ${Math.round(result.diagnostics.averageConfidence * 100)}%; ${result.diagnostics.expressiveNotes} note${result.diagnostics.expressiveNotes === 1 ? '' : 's'} captured with pitch movement or vibrato.${pitchSpan}${octaveNote}${rejected}${skipped ? ` ${skipped} overlapping detection${skipped === 1 ? ' was' : 's were'} skipped.` : ''} Add lyrics, audition the expressive notes against the take, then Save.`);
     } catch (error) {
       setRecordError(error instanceof Error ? error.message : 'Unable to convert this vocal take into notes.');
     } finally {
@@ -2785,6 +2815,14 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Timing
                   <select aria-label="Transcription timing treatment" value={transcriptionSnap ? 'grid' : 'exact'} onChange={event => setTranscriptionSnap(event.target.value === 'grid')} className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] text-white"><option value="grid">Snap to grid</option><option value="exact">As sung</option></select></label>
                 <button onClick={() => void convertRecordedTake()} disabled={transcribingTake} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100 disabled:opacity-40">{transcribingTake ? 'Detecting…' : 'Take → notes'}</button>
+                <button onClick={() => {
+                  if (!recordingTake) return;
+                  const extension = (recordingTake.type.split(';')[0].split('/')[1] || 'webm').replace(/[^a-z0-9]/gi, '');
+                  const named = new File([recordingTake], `mic-take-${Date.now()}.${extension}`, { type: recordingTake.type || 'audio/webm' });
+                  void addAudioClip(named, recordingTimelineOffset);
+                }} disabled={uploadingClip}
+                  title="Put this take on the score as a recording clip — its own row under the staves, draggable onto any beat and croppable from either end, exactly like an uploaded file."
+                  className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100 disabled:opacity-40">{uploadingClip ? 'Placing…' : '🎙 Place on the staff'}</button>
                 <button onClick={() => void keepRecordedTake()} disabled={uploadingTake}
                   title="Keep the take as AUDIO: this real voice sings its part in the preview, aligned where the playhead stood when recording began."
                   className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 font-semibold text-emerald-100 disabled:opacity-40">{uploadingTake ? 'Saving…' : 'Keep as sung guide'}</button>
