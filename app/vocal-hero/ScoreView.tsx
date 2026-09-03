@@ -722,11 +722,41 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   const pendingLiftRef = useRef<string | null>(null);
   useEffect(() => { if (placeHoldRef.current) window.clearTimeout(placeHoldRef.current); }, []);
 
+  /** The note nearest the finger, if one is close enough to have been meant.
+   *  A notehead's own catch area is a few pixels across at 50% zoom and a
+   *  fingertip is forty, so "tap the next note" was a game of darts. Aiming
+   *  by proximity instead of by hit-test asks the question that was actually
+   *  intended: which note is this person pointing at? */
+  function glyphNear(event: React.PointerEvent, withinCssPx: number): Glyph | null {
+    const svgEl = scrollRef.current?.querySelector('svg.select-none');
+    if (!svgEl) return null;
+    const bounds = svgEl.getBoundingClientRect();
+    const px = (event.clientX - bounds.left) / scale;
+    const py = (event.clientY - bounds.top) / scale;
+    const reach = withinCssPx / scale;
+    let best: Glyph | null = null, bestGap = Number.POSITIVE_INFINITY;
+    for (const glyph of layout.glyphs) {
+      const gx = glyph.x + 12;
+      const gy = glyph.system * SYSTEM_H + 12 + glyph.y;
+      const gap = Math.hypot(px - gx, py - gy);
+      if (gap < bestGap) { bestGap = gap; best = glyph; }
+    }
+    return bestGap <= reach ? best : null;
+  }
+
   function placePointerDown(event: React.PointerEvent) {
     lastPointerTypeRef.current = event.pointerType || 'mouse';
-    if (locked || tool === 'erase') return;
     if (event.pointerType === 'mouse') return;                       // the mouse still clicks
-    if ((event.target as Element).closest('[data-glyph]')) return;   // that is a note, not empty staff
+    if ((event.target as Element).closest('[data-glyph]')) return;   // the note handled it itself
+    if (locked) {
+      // Held, the staff does nothing -- so a tap that MISSED a note can safely
+      // be read as the note it was aiming for. This is what made picking a
+      // second note work at all on a phone.
+      const near = glyphNear(event, 30);
+      if (near) toggleHeld(near);
+      return;
+    }
+    if (tool === 'erase') return;
     const aim = aimAt(event);
     placeRef.current = aim;
     placeOriginRef.current = { x: event.clientX, y: event.clientY };
@@ -849,7 +879,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         units at every zoom. */}
     <div style={{ width: (SYSTEM_W + 24) * scale, height: (layout.systems * SYSTEM_H + 24) * scale }}>
     <div className="relative" style={{ width: SYSTEM_W + 24, height: layout.systems * SYSTEM_H + 24, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
-    <ScoreBody layout={layout} selectedIds={selectedIds} heldIds={touchEdit?.ids} drag={drag} tool={tool}
+    <ScoreBody layout={layout} selectedIds={selectedIds} heldIds={touchEdit?.ids} drag={drag} tool={tool} scale={scale}
       onGlyphDown={beginDrag} onGlyphDoubleClick={glyph => { if (selectedIds.includes(glyph.id)) onDeselect?.(); }}
       onDown={placePointerDown}
       onMove={event => { moveDrag(event); placePointerMove(event); updateGhost(event); }}
@@ -1064,8 +1094,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   </div>;
 }
 
-const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, heldIds, drag, tool, onGlyphDown, onGlyphDoubleClick, onDown, onMove, onUp, onLeave, onStaffClick, onDoubleClick, onGlyphContext }: {
-  layout: Layout; selectedIds: string[]; heldIds?: string[]; drag: DragPreview; tool: ScoreTool;
+const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, heldIds, drag, tool, scale, onGlyphDown, onGlyphDoubleClick, onDown, onMove, onUp, onLeave, onStaffClick, onDoubleClick, onGlyphContext }: {
+  layout: Layout; selectedIds: string[]; heldIds?: string[]; drag: DragPreview; tool: ScoreTool; scale: number;
   onGlyphDown: (event: React.PointerEvent, glyph: Glyph) => void;
   onGlyphDoubleClick: (glyph: Glyph) => void;
   onDown: (event: React.PointerEvent) => void;
@@ -1080,6 +1110,11 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, heldIds, 
   // The notes this edit is about. Everything else on the staff is scenery
   // until the tick.
   const held = new Set(heldIds ?? []);
+  // The catch area is a fixed size ON SCREEN, not on the page. At 50% a
+  // 9-unit circle is four and a half pixels of glass; zooming in used to be
+  // the only way to hit anything, and this is what makes zooming in help for
+  // the right reason -- the notes get further apart, not merely bigger.
+  const catchRadius = Math.max(9, 14 / Math.max(.05, scale));
   return <svg width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} className="select-none"
     onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onLeave} onClick={onStaffClick} onDoubleClick={onDoubleClick}
     style={{ cursor: tool === 'erase' ? 'not-allowed' : 'crosshair' }}>
@@ -1185,7 +1220,7 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, heldIds, 
             and writing a new one instead. Double-click sits on the HEAD, not
             the whole group, so double-clicking the lyric word below still
             opens the lyric editor. */}
-        <circle cx={gx} cy={gy} r={9} fill="transparent" stroke="none"
+        <circle cx={gx} cy={gy} r={catchRadius} fill="transparent" stroke="none"
           onDoubleClick={event => { event.stopPropagation(); onGlyphDoubleClick(glyph); }} />
         <ellipse onDoubleClick={event => { event.stopPropagation(); onGlyphDoubleClick(glyph); }}
           cx={gx} cy={gy} rx={4.8} ry={3.5} transform={`rotate(-14 ${gx} ${gy})`}
