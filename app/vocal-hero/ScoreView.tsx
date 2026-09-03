@@ -33,7 +33,7 @@ const STEP = GAP / 2;
 /** How long a finger must rest before the score gives way -- on a note, to
  *  pick it up; on empty staff, to write one. Nothing on the score is created,
  *  moved or destroyed by a tap: a tap only ever auditions. */
-const HOLD_MS = 3000;
+const HOLD_MS = 2000;
 const BEAT_W = 36;
 const BAR_PAD = 16;
 const MARGIN_LEFT = 78;
@@ -651,7 +651,18 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       // Held: the note is hovering and the bar does the asking. The preview
       // deliberately survives the release -- that IS the answer to "where did
       // it land".
-      if (active.held) { if (!touchEdit) liftNote(active); return; }
+      if (active.held) {
+        // A held note TAPPED rather than dragged leaves the picked set -- the
+        // same tap that added it takes it away again. The first note stays:
+        // emptying the set would leave the bar asking about nothing.
+        if (!active.moved && touchEdit && touchEdit.ids.length > 1 && touchEdit.ids.includes(active.id)) {
+          setTouchEdit(current => current && { ...current, ids: current.ids.filter(id => id !== active.id) });
+          onSelectNote(active.id, active.note.part, true);
+          return;
+        }
+        if (!touchEdit) liftNote(active);
+        return;
+      }
       setDrag(null);
       // A plain tap changes nothing. It sounds the note, which is how you find
       // out whether it is the one you meant before spending three seconds on it.
