@@ -394,6 +394,33 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   // which is how deleting works now that a long press must not delete on its
   // own.
   const holdTimerRef = useRef<number | null>(null);
+  // Where the finger is right now, so a hold that completes can start its drag
+  // from where the hand actually is rather than from where it first landed.
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  // Three seconds is a long time to press something and be told nothing. The
+  // ring closes over exactly the hold, so a finger that is being heard looks
+  // different from one that is not -- and a hold that gets cancelled is seen
+  // to be cancelled instead of just never happening.
+  const holdRingRef = useRef<HTMLDivElement | null>(null);
+  const holdAnimationRef = useRef<Animation | null>(null);
+  function startHoldRing(event: React.PointerEvent) {
+    const ring = holdRingRef.current, box = scrollRef.current;
+    if (!ring || !box) return;
+    const bounds = box.getBoundingClientRect();
+    ring.style.left = (event.clientX - bounds.left + box.scrollLeft) + 'px';
+    ring.style.top = (event.clientY - bounds.top + box.scrollTop) + 'px';
+    ring.style.display = 'block';
+    holdAnimationRef.current?.cancel();
+    holdAnimationRef.current = ring.animate?.(
+      [{ transform: 'translate(-50%,-50%) scale(.35)', opacity: .95 },
+       { transform: 'translate(-50%,-50%) scale(1)', opacity: .25 }],
+      { duration: HOLD_MS, easing: 'linear', fill: 'forwards' }) ?? null;
+  }
+  function stopHoldRing() {
+    holdAnimationRef.current?.cancel();
+    holdAnimationRef.current = null;
+    if (holdRingRef.current) holdRingRef.current.style.display = 'none';
+  }
   const [touchEdit, setTouchEdit] = useState<{ ids: string[]; id: string; note: SongNote; step: number; clef: StaffClef; secondsPerPx: number; x: number; system: number; staff: number } | null>(null);
   // While a note is held, the score is locked: nothing else on it answers a
   // tap. Without that, the finger that reaches for the tick brushes a
@@ -499,12 +526,20 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       touch, held: alreadyLifted, gx: glyph.x, gsystem: glyph.system, gstaff: glyph.staff,
     };
     if (touch && !alreadyLifted) {
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+      startHoldRing(event);
       if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current);
       holdTimerRef.current = window.setTimeout(() => {
         holdTimerRef.current = null;
         const active = dragRef.current;
         if (!active || active.id !== glyph.id || active.moved) return;
         active.held = true;
+        stopHoldRing();
+        // The hand has drifted during three seconds of pressing -- everybody's
+        // does. Start the drag from where the finger IS, or the note leaps by
+        // the accumulated drift the instant it is picked up.
+        const now = lastPointerRef.current;
+        if (now) { active.originX = now.x; active.originY = now.y; }
         // A note that has been picked up should feel picked up.
         try { navigator.vibrate?.(18); } catch { /* not every phone buzzes */ }
         liftNote(active);
@@ -516,16 +551,14 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     const active = dragRef.current;
     if (!active) return;
     if (active.touch && !active.held) {
-      // Before the hold completes, the finger is not dragging anything. Only a
-      // real journey abandons the hold -- a hand resting for three seconds is
-      // never perfectly still, and cancelling on a two-pixel wobble would make
-      // the gesture impossible to perform.
-      const travelled = Math.hypot(event.clientX - active.originX, event.clientY - active.originY);
-      if (travelled > 12 && holdTimerRef.current) {
-        window.clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = null;
-        active.moved = true;
-      }
+      // Before the hold completes the finger is not dragging anything, and
+      // nothing it does cancels the hold. A fingertip covers a notehead
+      // several times over and a hand pressing for three seconds wanders;
+      // cancelling on that wander was the hold "not being recognised". The
+      // note owns this gesture outright -- touch-action on the glyph means it
+      // cannot scroll the score either way -- so the only thing that ends it
+      // is lifting off.
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
       return;
     }
     const dSteps = Math.round((active.originY - event.clientY) / (STEP * scale));
@@ -544,6 +577,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   function endDrag() {
     const active = dragRef.current;
     dragRef.current = null;
+    stopHoldRing();
+    lastPointerRef.current = null;
     if (holdTimerRef.current) { window.clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
     if (!active) { setDrag(null); return; }
     if (active.touch) {
@@ -620,10 +655,12 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     placeOriginRef.current = { x: event.clientX, y: event.clientY };
     placeDownRef.current = true;
     showAim(aim);
+    if (aim) startHoldRing(event);
     if (placeHoldRef.current) window.clearTimeout(placeHoldRef.current);
     if (!aim) return;
     placeHoldRef.current = window.setTimeout(() => {
       placeHoldRef.current = null;
+      stopHoldRing();
       const held = placeRef.current;
       placeRef.current = null;
       showAim(null);
@@ -638,10 +675,13 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   function placePointerMove(event: React.PointerEvent) {
     if (!placeRef.current) return;
     const origin = placeOriginRef.current;
-    if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 12) {
-      // The finger has gone travelling: this is a scroll, not a placement.
+    // Empty staff CAN be scrolled, so a genuine journey still means "I am
+    // moving the page, not choosing a spot" -- but the bar is set where a
+    // scroll lives, well clear of the drift of a hand holding still.
+    if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 34) {
       if (placeHoldRef.current) { window.clearTimeout(placeHoldRef.current); placeHoldRef.current = null; }
       placeRef.current = null;
+      stopHoldRing();
       showAim(null);
       return;
     }
@@ -650,6 +690,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     showAim(placeRef.current);
   }
   function placePointerUp() {
+    stopHoldRing();
     if (placeHoldRef.current) { window.clearTimeout(placeHoldRef.current); placeHoldRef.current = null; }
     placeRef.current = null;
     placeOriginRef.current = null;
@@ -708,6 +749,11 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   }
 
   return <div ref={scrollRef} className="vh-editor-scrollbars relative h-full overflow-auto px-4 py-4"
+    // Android raises its own long-press callout at about half a second, which
+    // cancels the pointer stream the hold is counting on. This is the score,
+    // not a web page to select text out of.
+    style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+    onContextMenu={event => { if (lastPointerTypeRef.current !== 'mouse') event.preventDefault(); }}
     onDragOver={onBandDrop ? handleBandDragOver : undefined}
     onDrop={onBandDrop ? handleBandDrop : undefined}
     onDragLeave={onBandDrop ? event => {
@@ -842,6 +888,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         </g>;
       })}
     </svg>}
+    <div ref={holdRingRef} className="pointer-events-none absolute z-30 hidden h-14 w-14 rounded-full border-[3px] border-cyan-300/80 bg-cyan-300/10 shadow-[0_0_18px_#22d3ee66]" style={{ transform: 'translate(-50%,-50%)' }} />
     <div ref={aimRef} className="pointer-events-none absolute z-40 hidden rounded-md border border-cyan-300/60 bg-[#04121ff2] px-1.5 py-0.5 font-mono text-[11px] font-bold text-cyan-100 shadow-[0_6px_18px_#000b]" />
     <div ref={ghostRef} className="pointer-events-none absolute left-0 top-0 z-10 hidden">
       <div className="h-2 w-2.5 rounded-[50%] border border-cyan-300/90 bg-cyan-300/25" style={{ transform: 'rotate(-14deg)' }} />
