@@ -101,7 +101,7 @@ type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; do
 
 export type DragPreview = { id: string; ids: string[]; dSteps: number; dx: number } | null;
 
-export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, onAuditionNote, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit, onClipDrag, showLeadIn, zoom = 1, snapTime }: {
+export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, onAuditionNote, onAuditionNotes, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit, onClipDrag, showLeadIn, zoom = 1, snapTime }: {
   notes: SongNote[]; bars: ScoreBar[];
   getPlayhead: () => number | null;
   selectedIds: string[]; tool: ScoreTool;
@@ -114,6 +114,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
    *  else -- the surest way to know which note you are about to edit is to
    *  hear it. */
   onAuditionNote?: (id: string) => void;
+  /** Sound every held note at once, so a chord under the finger can be
+   *  checked as a chord before it is committed. */
+  onAuditionNotes?: (ids: string[]) => void;
   onEraseNote: (id: string) => void;
   onDragCommit: (id: string, changes: { midi: number; start: number; end: number }) => void;
   onLyricChange: (id: string, lyric: string) => void;
@@ -596,7 +599,10 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     const pxDelta = (event.clientX - active.originX) / scale;
     if (!active.moved && Math.abs(stepDelta) < 1 && Math.abs(pxDelta) < 4) return;
     const dSteps = active.baseSteps + stepDelta;
-    let dx = active.baseDx + pxDelta;
+    // Up and down only. A hand moving 3.5px per semitone cannot help drifting
+    // sideways too, and sideways is the note's PLACE IN THE BAR -- a thing
+    // nobody nudges by accident and lives with. The mouse keeps both axes.
+    let dx = active.touch ? 0 : active.baseDx + pxDelta;
     // Once it is travelling it is a drag, not a hold -- but a note already
     // lifted stays lifted, and the bar follows it.
     if (holdTimerRef.current) { window.clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
@@ -811,7 +817,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         units at every zoom. */}
     <div style={{ width: (SYSTEM_W + 24) * scale, height: (layout.systems * SYSTEM_H + 24) * scale }}>
     <div className="relative" style={{ width: SYSTEM_W + 24, height: layout.systems * SYSTEM_H + 24, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
-    <ScoreBody layout={layout} selectedIds={selectedIds} drag={drag} tool={tool}
+    <ScoreBody layout={layout} selectedIds={selectedIds} heldIds={touchEdit?.ids} drag={drag} tool={tool}
       onGlyphDown={beginDrag} onGlyphDoubleClick={glyph => { if (selectedIds.includes(glyph.id)) onDeselect?.(); }}
       onDown={placePointerDown}
       onMove={event => { moveDrag(event); placePointerMove(event); updateGhost(event); }}
@@ -955,8 +961,11 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         <button type="button" onClick={commitTouchEdit}
           title={moved ? 'Keep it here' : count > 1 ? 'Done — leave them as they are' : 'Leave it where it is'}
           className="rounded-lg border border-emerald-300/50 bg-emerald-300/15 px-2.5 py-1.5 text-xs font-bold text-emerald-100">✓</button>
-        <button type="button" onClick={closeTouchEdit} title="Put it back"
-          className="rounded-lg border border-white/20 px-2.5 py-1.5 text-xs text-slate-200">↺</button>
+        {onAuditionNotes && <button type="button" onClick={() => onAuditionNotes(touchEdit.ids)}
+          title={count > 1 ? `Hear these ${count} notes together` : 'Hear this note'}
+          className="rounded-lg border border-cyan-300/45 bg-cyan-300/10 px-2.5 py-1.5 text-xs text-cyan-100">▶</button>}
+        <button type="button" onClick={closeTouchEdit} title="Revert to the original position"
+          className="rounded-lg border border-white/20 px-2.5 py-1.5 text-xs text-slate-200">↩</button>
         <button type="button" onClick={deleteTouchEdit} title={count > 1 ? `Delete these ${count} notes` : 'Delete this note'}
           className="rounded-lg border border-rose-300/60 bg-rose-400/20 px-2.5 py-1.5 text-xs font-bold text-rose-100">✕</button>
       </div>;
@@ -1022,8 +1031,8 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   </div>;
 }
 
-const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, tool, onGlyphDown, onGlyphDoubleClick, onDown, onMove, onUp, onLeave, onStaffClick, onDoubleClick, onGlyphContext }: {
-  layout: Layout; selectedIds: string[]; drag: DragPreview; tool: ScoreTool;
+const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, heldIds, drag, tool, onGlyphDown, onGlyphDoubleClick, onDown, onMove, onUp, onLeave, onStaffClick, onDoubleClick, onGlyphContext }: {
+  layout: Layout; selectedIds: string[]; heldIds?: string[]; drag: DragPreview; tool: ScoreTool;
   onGlyphDown: (event: React.PointerEvent, glyph: Glyph) => void;
   onGlyphDoubleClick: (glyph: Glyph) => void;
   onDown: (event: React.PointerEvent) => void;
@@ -1035,6 +1044,9 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
   onGlyphContext: (id: string) => void;
 }) {
   const selected = new Set(selectedIds);
+  // The notes this edit is about. Everything else on the staff is scenery
+  // until the tick.
+  const held = new Set(heldIds ?? []);
   return <svg width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} className="select-none"
     onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onLeave} onClick={onStaffClick} onDoubleClick={onDoubleClick}
     style={{ cursor: tool === 'erase' ? 'not-allowed' : 'crosshair' }}>
@@ -1131,6 +1143,7 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
         // dragging was simply a desktop-only feature. The catch area is 9px
         // around the head, so panning from anywhere else still works.
         style={{ cursor: tool === 'erase' ? 'not-allowed' : 'pointer', touchAction: 'none' }}>
+        {held.has(glyph.id) && <circle cx={gx} cy={gy} r={10.5} fill="none" stroke="#22d3ee" strokeWidth={1.8} opacity={.95} />}
         {dragging && <line x1={-12} x2={SYSTEM_W} y1={gy} y2={gy} stroke="#22d3ee" strokeWidth={1} strokeDasharray="5 4" opacity={.6} />}
         {ledger.map(step => <line key={step} x1={gx - 8} x2={gx + 8} y1={mid - step * STEP} y2={mid - step * STEP} stroke="#ffffff55" strokeWidth={1} />)}
         {glyph.mark && !dragging && <text x={gx - 15} y={gy + 4.5} fontSize={13} fill={colour}>{glyph.mark}</text>}
