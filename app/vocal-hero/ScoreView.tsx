@@ -381,7 +381,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     if (Math.abs(nearest.x - x) > 40) return;
     startLyricEdit(nearest);
   }
-  const dragRef = useRef<{ id: string; note: SongNote; step: number; clef: StaffClef; originX: number; originY: number; secondsPerPx: number; moved: boolean; touch: boolean; held: boolean; gx: number; gsystem: number; gstaff: number } | null>(null);
+  const dragRef = useRef<{ id: string; note: SongNote; step: number; clef: StaffClef; originX: number; originY: number; secondsPerPx: number; moved: boolean; touch: boolean; held: boolean; gx: number; gsystem: number; gstaff: number; baseSteps: number; baseDx: number } | null>(null);
+  /** The last pitch the drag passed through, so each new one can be felt. */
+  const lastStepsRef = useRef(0);
   // Touch note editing.
   //
   // A mouse commits a drag on release, and that is right: the cursor is one
@@ -428,6 +430,26 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   // "something else" is four pixels from what you meant.
   const locked = touchEdit !== null;
   useEffect(() => () => { if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current); }, []);
+  /** Put the held note where it can be seen, and keep it under the finger.
+   *  Scrolling moves the score out from under the hand, so the drag's origin
+   *  travels with it -- otherwise the note jumps by exactly the scroll. */
+  function focusHeld(gx: number, gsystem: number, gstaff: number, active?: typeof dragRef.current) {
+    const box = scrollRef.current;
+    if (!box) return;
+    const x = 16 + (gx + 12) * scale;
+    const y = 16 + (gsystem * SYSTEM_H + 12 + STAFF_MIDS[gstaff]) * scale;
+    const padX = 70, padY = 90;
+    let left = box.scrollLeft, top = box.scrollTop;
+    if (x < left + padX) left = Math.max(0, x - padX);
+    else if (x > left + box.clientWidth - padX) left = x - box.clientWidth + padX;
+    if (y < top + padY) top = Math.max(0, y - padY);
+    else if (y > top + box.clientHeight - padY) top = y - box.clientHeight + padY;
+    const movedLeft = left - box.scrollLeft, movedTop = top - box.scrollTop;
+    if (!movedLeft && !movedTop) return;                      // already in view
+    box.scrollLeft = left;
+    box.scrollTop = top;
+    if (active) { active.originX -= movedLeft; active.originY -= movedTop; }
+  }
   const liftNote = (active: NonNullable<typeof dragRef.current>) => setTouchEdit({
     ids: [active.id], id: active.id, note: active.note, step: active.step, clef: active.clef,
     secondsPerPx: active.secondsPerPx, x: active.gx, system: active.gsystem, staff: active.gstaff,
@@ -519,12 +541,20 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     // empty staff -- is draggable at once. Asking for a second three-second
     // hold to nudge the note you are already holding would be absurd.
     const alreadyLifted = Boolean(touchEdit && touchEdit.ids.includes(glyph.id));
+    // Picking up a note that is ALREADY hovering must continue from where it
+    // hovers, not from where it was written. Without this every fresh grab
+    // snapped the note home and started again, so it could only ever be moved
+    // once -- which is no use at all when the whole point is to try a pitch,
+    // look at it, and try another before committing.
+    const carried = alreadyLifted && drag && drag.ids.includes(glyph.id) ? drag : null;
     dragRef.current = {
       id: glyph.id, note, step: glyph.step, clef: STAFF_CLEFS[glyph.staff],
       originX: event.clientX, originY: event.clientY,
       secondsPerPx: (bar.end - bar.start) / (bar.width - BAR_PAD), moved: false,
       touch, held: alreadyLifted, gx: glyph.x, gsystem: glyph.system, gstaff: glyph.staff,
+      baseSteps: carried ? carried.dSteps : 0, baseDx: carried ? carried.dx : 0,
     };
+    lastStepsRef.current = carried ? carried.dSteps : 0;
     if (touch && !alreadyLifted) {
       lastPointerRef.current = { x: event.clientX, y: event.clientY };
       startHoldRing(event);
@@ -542,6 +572,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         if (now) { active.originX = now.x; active.originY = now.y; }
         // A note that has been picked up should feel picked up.
         try { navigator.vibrate?.(18); } catch { /* not every phone buzzes */ }
+        focusHeld(active.gx, active.gsystem, active.gstaff, active);
         liftNote(active);
       }, HOLD_MS);
     }
@@ -561,9 +592,11 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       lastPointerRef.current = { x: event.clientX, y: event.clientY };
       return;
     }
-    const dSteps = Math.round((active.originY - event.clientY) / (STEP * scale));
-    let dx = (event.clientX - active.originX) / scale;
-    if (!active.moved && Math.abs(dSteps) < 1 && Math.abs(dx) < 4) return;
+    const stepDelta = Math.round((active.originY - event.clientY) / (STEP * scale));
+    const pxDelta = (event.clientX - active.originX) / scale;
+    if (!active.moved && Math.abs(stepDelta) < 1 && Math.abs(pxDelta) < 4) return;
+    const dSteps = active.baseSteps + stepDelta;
+    let dx = active.baseDx + pxDelta;
     // Once it is travelling it is a drag, not a hold -- but a note already
     // lifted stays lifted, and the bar follows it.
     if (holdTimerRef.current) { window.clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
@@ -571,6 +604,13 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     if (active.touch && snapTime) {
       const landed = snapTime(Math.max(0, active.note.start + dx * active.secondsPerPx));
       dx = (landed - active.note.start) / active.secondsPerPx;
+    }
+    // Every line and space it passes gets a tick, so the landing is felt as
+    // well as seen: a pitch chosen by fingertip on a four-pixel staff needs
+    // more than a picture to be sure of.
+    if (dSteps !== lastStepsRef.current) {
+      lastStepsRef.current = dSteps;
+      try { navigator.vibrate?.(5); } catch { /* not every phone buzzes */ }
     }
     setDrag({ id: active.id, ids: touchEdit && touchEdit.ids.includes(active.id) ? touchEdit.ids : [active.id], dSteps, dx });
   }
@@ -721,8 +761,11 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         originX: placeOriginRef.current.x, originY: placeOriginRef.current.y,
         secondsPerPx, moved: false, touch: true, held: true,
         gx: glyph.x, gsystem: glyph.system, gstaff: glyph.staff,
+        baseSteps: 0, baseDx: 0,
       };
+      lastStepsRef.current = 0;
     }
+    focusHeld(glyph.x, glyph.system, glyph.staff, dragRef.current);
   }, [layout, notes]);
 
   function staffClick(event: React.MouseEvent<SVGSVGElement>) {
@@ -752,7 +795,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     // Android raises its own long-press callout at about half a second, which
     // cancels the pointer stream the hold is counting on. This is the score,
     // not a web page to select text out of.
-    style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+    // Held, the score itself stops moving: a finger dragging a note must not
+    // also be panning the page it is drawn on.
+    style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none', touchAction: locked ? 'none' : undefined }}
     onContextMenu={event => { if (lastPointerTypeRef.current !== 'mouse') event.preventDefault(); }}
     onDragOver={onBandDrop ? handleBandDragOver : undefined}
     onDrop={onBandDrop ? handleBandDrop : undefined}
@@ -1073,6 +1118,8 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
       const stemEndY = glyph.beam && !dragging ? glyph.beam.y : gy + (stemUp ? -26 : 26);
       const mid = STAFF_MIDS[glyph.staff];
       const ledger: number[] = [];
+      // Where it will land, drawn right across the system: the eye needs a
+      // line to read the pitch against, not a floating head.
       for (let line = 6; line <= Math.abs(previewStep); line += 2) ledger.push(previewStep > 0 ? line : -line);
       return <g key={`${glyph.id}-${glyph.x}`} data-glyph transform={`translate(12 ${top})`}
         onPointerDown={event => onGlyphDown(event, glyph)}
@@ -1084,6 +1131,7 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
         // dragging was simply a desktop-only feature. The catch area is 9px
         // around the head, so panning from anywhere else still works.
         style={{ cursor: tool === 'erase' ? 'not-allowed' : 'pointer', touchAction: 'none' }}>
+        {dragging && <line x1={-12} x2={SYSTEM_W} y1={gy} y2={gy} stroke="#22d3ee" strokeWidth={1} strokeDasharray="5 4" opacity={.6} />}
         {ledger.map(step => <line key={step} x1={gx - 8} x2={gx + 8} y1={mid - step * STEP} y2={mid - step * STEP} stroke="#ffffff55" strokeWidth={1} />)}
         {glyph.mark && !dragging && <text x={gx - 15} y={gy + 4.5} fontSize={13} fill={colour}>{glyph.mark}</text>}
         {/* An invisible catch area: the printed head is ~5px, far too small a
