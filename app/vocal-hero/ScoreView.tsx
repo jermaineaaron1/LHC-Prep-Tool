@@ -34,6 +34,10 @@ const STEP = GAP / 2;
  *  pick it up; on empty staff, to write one. Nothing on the score is created,
  *  moved or destroyed by a tap: a tap only ever auditions. */
 const HOLD_MS = 2000;
+/** A notehead's reach, in pixels of glass at any zoom. Big enough to be hit
+ *  by a thumb, small enough that the space between two staves is genuinely
+ *  space -- which is what makes "tap away to leave" mean anything. */
+const TOUCH_TARGET_PX = 18;
 const BEAT_W = 36;
 const BAR_PAD = 16;
 const MARGIN_LEFT = 78;
@@ -548,7 +552,15 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     ghost.style.transform = `translate(${landed.x + 12 - 5}px, ${landed.system * SYSTEM_H + 12 + (STAFF_MIDS[staff] - step * STEP) - 4}px)`;
   }
 
-  function beginDrag(event: React.PointerEvent, glyph: Glyph) {
+  function beginDrag(event: React.PointerEvent, glyphHit: Glyph) {
+    // Catch circles of neighbouring notes overlap, and the hit test hands back
+    // whichever happened to be drawn last. Ask which is CLOSEST instead.
+    const byFinger = event.pointerType === 'touch' || event.pointerType === 'pen';
+    // Out of the head's reach: this touch landed on a stem, a ledger line or a
+    // lyric, and belongs to the staff rather than to this note. Leave it.
+    const nearest = byFinger ? glyphNear(event, TOUCH_TARGET_PX) : null;
+    if (byFinger && !nearest) return;
+    const glyph = nearest ?? glyphHit;
     lastPointerTypeRef.current = event.pointerType || 'mouse';
     if (tool === 'erase') { onEraseNote(glyph.id); return; }
     // Locked: a tap on any OTHER note adds it to the held set instead of
@@ -754,23 +766,29 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     return bestGap <= reach ? best : null;
   }
 
+  /** Every touch anywhere on the score, whichever layer it lands on. The
+   *  engraving is not one surface: chord slots, band directives and the lane
+   *  marks each live in their own svg stacked over the staves, and a tap on
+   *  one of those never reached the staff's own handler -- which is why
+   *  tapping the blank strip above the top stave, chord-slot territory, did
+   *  nothing at all. The container sees every layer.
+   *
+   *  Clear of every notehead with nothing moved yet, a tap means "never
+   *  mind": the note is let go rather than sending somebody hunting for the
+   *  arrow. Once something HAS been moved the lock stands, because a stray
+   *  tap must never lose work. */
+  function scorePointerDown(event: React.PointerEvent) {
+    if (!locked || event.pointerType === 'mouse') return;
+    if (glyphNearPoint(event.clientX, event.clientY, TOUCH_TARGET_PX)) return;
+    if (untouched()) closeTouchEdit();
+  }
   function placePointerDown(event: React.PointerEvent) {
     lastPointerTypeRef.current = event.pointerType || 'mouse';
     if (event.pointerType === 'mouse') return;                       // the mouse still clicks
-    if ((event.target as Element).closest('[data-glyph]')) return;   // the note handled it itself
-    if (locked) {
-      // Held, the staff does nothing -- so a tap that MISSED a note can safely
-      // be read as the note it was aiming for. This is what made picking a
-      // second note work at all on a phone.
-      const near = glyphNear(event, 30);
-      if (near) { toggleHeld(near); return; }
-      // Clear of every note, with nothing moved yet: this is somebody changing
-      // their mind about the note they picked up, not abandoning an edit. Let
-      // it go rather than making them find the arrow. Once something HAS been
-      // moved the lock stands, because a stray tap must never lose the work.
-      if (untouched()) closeTouchEdit();
-      return;
-    }
+    // Same question beginDrag asked: is a notehead within reach? If so it has
+    // already dealt with this touch.
+    if (glyphNearPoint(event.clientX, event.clientY, TOUCH_TARGET_PX)) return;
+    if (locked) return;                    // scorePointerDown answers for this
     if (tool === 'erase') return;
     const aim = aimAt(event);
     placeRef.current = aim;
@@ -858,7 +876,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     // Locked, the staff writes nothing. A click well clear of every note lets
     // an untouched edit go; once something has been moved, only the buttons do.
     if (locked) {
-      if (untouched() && !glyphNearPoint(event.clientX, event.clientY, 30)) closeTouchEdit();
+      if (untouched() && !glyphNearPoint(event.clientX, event.clientY, TOUCH_TARGET_PX)) closeTouchEdit();
       return;
     }
     // Touch writes only by holding, never by tapping -- and a tap still
@@ -884,6 +902,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     // Held, the score itself stops moving: a finger dragging a note must not
     // also be panning the page it is drawn on.
     style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none', touchAction: locked ? 'none' : undefined }}
+    onPointerDown={scorePointerDown}
     onContextMenu={event => { if (lastPointerTypeRef.current !== 'mouse') event.preventDefault(); }}
     onDragOver={onBandDrop ? handleBandDragOver : undefined}
     onDrop={onBandDrop ? handleBandDrop : undefined}
@@ -1132,7 +1151,7 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, heldIds, 
   // 9-unit circle is four and a half pixels of glass; zooming in used to be
   // the only way to hit anything, and this is what makes zooming in help for
   // the right reason -- the notes get further apart, not merely bigger.
-  const catchRadius = Math.max(9, 14 / Math.max(.05, scale));
+  const catchRadius = Math.max(9, TOUCH_TARGET_PX / Math.max(.05, scale));
   return <svg width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} className="select-none"
     onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onLeave} onClick={onStaffClick} onDoubleClick={onDoubleClick}
     style={{ cursor: tool === 'erase' ? 'not-allowed' : 'crosshair' }}>
