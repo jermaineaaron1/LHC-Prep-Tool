@@ -936,6 +936,27 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     if (context.state === 'suspended') void context.resume().then(() => play(context)).catch(() => undefined);
     else play(context);
   }
+  /** Every picked note at once -- a chord has to be heard as a chord. */
+  function auditionNotes(list: SongNote[]) {
+    if (!list.length) return;
+    if (list.length === 1) { auditionNote(list[0]); return; }
+    stopNoteAudition();
+    const generation = noteAuditionGenerationRef.current;
+    const play = (context: AudioContext) => {
+      if (generation !== noteAuditionGenerationRef.current) return;
+      const stops = list.map(note => previewVoices
+        ? playVoice(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start))
+        : playPianoTone(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start), 0));
+      noteAuditionStopRef.current = () => { for (const stop of stops) stop?.(); };
+    };
+    let context = noteAuditionContextRef.current;
+    if (!context || context.state === 'closed') {
+      context = new AudioContext({ latencyHint: 'interactive' });
+      noteAuditionContextRef.current = context;
+    }
+    if (context.state === 'suspended') void context.resume().then(() => play(context)).catch(() => undefined);
+    else play(context);
+  }
   /** Make [start, end) free in one voice, the way a pencil frees paper: the
    *  note sounding at `start` is cut off there, notes fully inside the span
    *  go, and a note the span cuts into keeps its tail. Anything left shorter
@@ -2514,9 +2535,11 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           ? track.clips.filter(clip => clip.id !== clipId)
           : track.clips.map(clip => {
             if (clip.id !== clipId || !clip.audio) return clip;
-            // A dragged recording lands ON a beat, so it lines up with the
-            // music instead of floating between it.
-            if (change === 'move') return { ...clip, start: snapToBeat(Math.max(0, clip.start + amount)) };
+            // Free positioning: a recording is a performance, not a written
+            // rhythm, and the moment it should start is frequently between two
+            // beats -- a pickup breath, a guitar scrape before the downbeat.
+            // Snapping it to the nearest beat took that choice away.
+            if (change === 'move') return { ...clip, start: Math.max(0, clip.start + amount) };
             const audio = { ...clip.audio };
             if (change === 'crop-start') audio.source_start = Math.max(0, Math.min(audio.source_end - 0.1, audio.source_start + amount));
             if (change === 'crop-end') audio.source_end = Math.max(audio.source_start + 0.1, audio.source_end + amount);
@@ -3226,6 +3249,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                   return addNote(part, landing.start, midi, landing.end, '');
                 }}
                 onAuditionNote={id => { const note = notes.find(item => item.id === id); if (note) auditionNote(note); }}
+                onAuditionNotes={ids => auditionNotes(notes.filter(item => ids.includes(item.id)))}
                 resolveAdd={(time, part) => resolveScoreAdd(time, part).start}
                 chords={trackSettings.chord_symbols}
                 onChordEdit={setChordAtTime}
