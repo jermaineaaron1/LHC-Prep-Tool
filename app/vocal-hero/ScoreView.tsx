@@ -30,6 +30,9 @@ const shortStyle = (value: string) => value === 'stop' || value === 'off' ? 'tac
 
 const GAP = 7;
 const STEP = GAP / 2;
+/** How long a finger must rest on a note before the score locks around it.
+ *  Long enough that scrolling past a note never picks it up by accident. */
+const HOLD_MS = 2000;
 const BEAT_W = 36;
 const BAR_PAD = 16;
 const MARGIN_LEFT = 78;
@@ -95,7 +98,7 @@ type Glyph = {
 
 type Beam = { system: number; x1: number; x2: number; y: number; up: boolean; double: boolean; triplet: boolean };
 
-export type DragPreview = { id: string; dSteps: number; dx: number } | null;
+export type DragPreview = { id: string; ids: string[]; dSteps: number; dx: number } | null;
 
 export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelectNote, onAddNote, onEraseNote, onDragCommit, onLyricChange, chords, onChordEdit, onDeselect, resolveAdd, signature, bandEvents, onBandEdit, bandDefaults, onBandAudition, onBandWrite, onBandDrop, clipMarkers, onClipEdit, onClipDrag, showLeadIn, zoom = 1, snapTime }: {
   notes: SongNote[]; bars: ScoreBar[];
@@ -357,6 +360,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     if (next) startLyricEdit(next); else setLyricEdit(null);
   }
   function lyricBandDoubleClick(event: React.MouseEvent<SVGSVGElement>) {
+    if (locked) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const x = (event.clientX - bounds.left) / scale - 12;
     const y = (event.clientY - bounds.top) / scale;
@@ -383,27 +387,51 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   // which is how deleting works now that a long press must not delete on its
   // own.
   const holdTimerRef = useRef<number | null>(null);
-  const [touchEdit, setTouchEdit] = useState<{ id: string; note: SongNote; step: number; clef: StaffClef; secondsPerPx: number; x: number; system: number; staff: number } | null>(null);
+  const [touchEdit, setTouchEdit] = useState<{ ids: string[]; id: string; note: SongNote; step: number; clef: StaffClef; secondsPerPx: number; x: number; system: number; staff: number } | null>(null);
+  // While a note is held, the score is locked: nothing else on it answers a
+  // tap. Without that, the finger that reaches for the tick brushes a
+  // notehead on the way and starts editing something else -- and at 50% zoom
+  // "something else" is four pixels from what you meant.
+  const locked = touchEdit !== null;
   useEffect(() => () => { if (holdTimerRef.current) window.clearTimeout(holdTimerRef.current); }, []);
   const liftNote = (active: NonNullable<typeof dragRef.current>) => setTouchEdit({
-    id: active.id, note: active.note, step: active.step, clef: active.clef,
+    ids: [active.id], id: active.id, note: active.note, step: active.step, clef: active.clef,
     secondsPerPx: active.secondsPerPx, x: active.gx, system: active.gsystem, staff: active.gstaff,
   });
   function closeTouchEdit() { setDrag(null); setTouchEdit(null); }
   function commitTouchEdit() {
     if (!touchEdit) return;
-    const preview = drag && drag.id === touchEdit.id ? drag : null;
+    const preview = drag && drag.ids.includes(touchEdit.id) ? drag : null;
     if (preview && (preview.dSteps !== 0 || preview.dx !== 0)) {
-      const midi = preview.dSteps === 0 ? touchEdit.note.midi : stepToMidi(touchEdit.step + preview.dSteps, touchEdit.clef, layout.signature);
-      const start = Math.max(0, touchEdit.note.start + preview.dx * touchEdit.secondsPerPx);
-      onDragCommit(touchEdit.id, { midi, start, end: start + (touchEdit.note.end - touchEdit.note.start) });
+      // Every held note travels the same interval and the same distance, so a
+      // chord or a phrase keeps its shape.
+      for (const id of touchEdit.ids) {
+        const note = notes.find(item => item.id === id);
+        const glyph = layout.glyphs.find(item => item.id === id);
+        if (!note || !glyph) continue;
+        const midi = preview.dSteps === 0 ? note.midi
+          : stepToMidi(glyph.step + preview.dSteps, STAFF_CLEFS[glyph.staff], layout.signature);
+        const start = Math.max(0, note.start + preview.dx * touchEdit.secondsPerPx);
+        onDragCommit(id, { midi, start, end: start + (note.end - note.start) });
+      }
     }
     closeTouchEdit();
   }
   function deleteTouchEdit() {
-    const id = touchEdit?.id;
+    const ids = touchEdit?.ids ?? [];
     closeTouchEdit();
-    if (id) onEraseNote(id);
+    for (const id of ids) onEraseNote(id);
+  }
+  /** A second note tapped while one is held joins it rather than replacing it. */
+  function toggleHeld(glyph: Glyph) {
+    setTouchEdit(current => {
+      if (!current) return current;
+      const has = current.ids.includes(glyph.id);
+      if (has && current.ids.length === 1) return current;      // never empty the set
+      const ids = has ? current.ids.filter(id => id !== glyph.id) : [...current.ids, glyph.id];
+      return { ...current, ids };
+    });
+    onSelectNote(glyph.id, glyph.part, true);
   }
   // Which kind of pointer is on the note right now. A long-press on a phone
   // raises the very same contextmenu event a right-click does, so a finger
@@ -444,14 +472,14 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   function beginDrag(event: React.PointerEvent, glyph: Glyph) {
     lastPointerTypeRef.current = event.pointerType || 'mouse';
     if (tool === 'erase') { onEraseNote(glyph.id); return; }
+    // Locked: a tap on any OTHER note adds it to the held set instead of
+    // starting a fresh edit. The held notes themselves stay draggable.
+    if (locked && touchEdit && !touchEdit.ids.includes(glyph.id)) { toggleHeld(glyph); return; }
     // Ctrl/Cmd/Shift-click builds a selection — slurs and hairpins span it.
     onSelectNote(glyph.id, glyph.part, event.ctrlKey || event.metaKey || event.shiftKey);
     const note = notes.find(item => item.id === glyph.id);
     const bar = layout.barAt(note?.start ?? 0);
     if (!note || !bar) return;
-    // A fresh grab supersedes whatever was hovering: the note under the finger
-    // is the one being edited.
-    if (touchEdit) closeTouchEdit();
     const touch = event.pointerType === 'touch' || event.pointerType === 'pen';
     dragRef.current = {
       id: glyph.id, note, step: glyph.step, clef: STAFF_CLEFS[glyph.staff],
@@ -467,9 +495,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         if (!active || active.id !== glyph.id || active.moved) return;
         active.held = true;
         // A note that has been picked up should feel picked up.
-        try { navigator.vibrate?.(12); } catch { /* not every phone buzzes */ }
+        try { navigator.vibrate?.(18); } catch { /* not every phone buzzes */ }
         liftNote(active);
-      }, 420);
+      }, HOLD_MS);
     }
     try { (event.target as Element).setPointerCapture?.(event.pointerId); } catch { /* synthetic pointers have no capture */ }
   }
@@ -487,7 +515,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       const landed = snapTime(Math.max(0, active.note.start + dx * active.secondsPerPx));
       dx = (landed - active.note.start) / active.secondsPerPx;
     }
-    setDrag({ id: active.id, dSteps, dx });
+    setDrag({ id: active.id, ids: touchEdit && touchEdit.ids.includes(active.id) ? touchEdit.ids : [active.id], dSteps, dx });
   }
   function endDrag() {
     const active = dragRef.current;
@@ -504,7 +532,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     }
     setDrag(null);
     if (!active.moved) return;
-    const preview = drag && drag.id === active.id ? drag : null;
+    const preview = drag && drag.ids.includes(active.id) ? drag : null;
     if (!preview) return;
     const midi = preview.dSteps === 0 ? active.note.midi : stepToMidi(active.step + preview.dSteps, active.clef, layout.signature);
     const dTime = preview.dx * active.secondsPerPx;
@@ -512,13 +540,77 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     onDragCommit(active.id, { midi, start, end: start + (active.note.end - active.note.start) });
   }
 
+  // Writing a note with a fingertip.
+  //
+  // A mouse hovers, so the ghost head shows where the note will land BEFORE
+  // the click. A finger has no hover: the first the phone hears is the tap
+  // that writes, and at 50% zoom a staff step is under two pixels, so a note
+  // aimed at A4 lands wherever the fingertip's centre happened to be. So the
+  // touch-down only AIMS -- the ghost and its pitch name appear under the
+  // finger and follow it, and the note is written on release.
+  const placeRef = useRef<{ staff: number; time: number; midi: number } | null>(null);
+  // A touch that wrote a note on release is followed by a click, and the click
+  // handler would write a second one on top of it. lastPointerType is no help:
+  // it only ever sees pointers that land on a NOTE, and this gesture lands on
+  // empty staff. So the write itself says "the click after me is mine".
+  const wroteOnReleaseRef = useRef(0);
+  const aimRef = useRef<HTMLDivElement | null>(null);
+  function aimAt(event: React.PointerEvent): { staff: number; time: number; midi: number } | null {
+    const bounds = (event.currentTarget as Element).getBoundingClientRect();
+    const x = (event.clientX - bounds.left) / scale - 12;
+    const y = (event.clientY - bounds.top) / scale;
+    const system = Math.floor((y - 12) / SYSTEM_H);
+    const yIn = y - 12 - system * SYSTEM_H;
+    const staff = STAFF_MIDS.findIndex(mid => yIn > mid - 5 * GAP && yIn < mid + 5 * GAP);
+    if (staff < 0) return null;
+    const time = layout.xyToTime(system, x);
+    if (time === null) return null;
+    const step = Math.round((STAFF_MIDS[staff] - yIn) / STEP);
+    return { staff, time, midi: stepToMidi(step, STAFF_CLEFS[staff], layout.signature) };
+  }
+  function showAim(aim: { staff: number; time: number; midi: number } | null) {
+    const chip = aimRef.current;
+    if (!chip) return;
+    if (!aim) { chip.style.display = 'none'; return; }
+    const landed = layout.timeToXY(resolveAdd ? resolveAdd(aim.time, aim.staff) : aim.time);
+    if (!landed) { chip.style.display = 'none'; return; }
+    chip.style.display = 'block';
+    chip.textContent = midiNoteName(aim.midi);
+    chip.style.left = Math.max(4, 16 + (landed.x + 12) * scale - 16) + 'px';
+    chip.style.top = (16 + (landed.system * SYSTEM_H + 12 + STAFF_MIDS[aim.staff] - 6 * GAP) * scale) + 'px';
+  }
+  function placePointerDown(event: React.PointerEvent) {
+    if (locked || tool === 'erase') return;
+    if (event.pointerType === 'mouse') return;                       // the mouse still clicks
+    if ((event.target as Element).closest('[data-glyph]')) return;   // that is a note, not empty staff
+    const aim = aimAt(event);
+    placeRef.current = aim;
+    showAim(aim);
+  }
+  function placePointerMove(event: React.PointerEvent) {
+    if (!placeRef.current) return;
+    const aim = aimAt(event);
+    if (aim) placeRef.current = aim;
+    showAim(placeRef.current);
+  }
+  function placePointerUp() {
+    const aim = placeRef.current;
+    placeRef.current = null;
+    showAim(null);
+    if (!aim) return;
+    wroteOnReleaseRef.current = Date.now() + 600;
+    onAddNote(aim.staff, aim.time, aim.midi);
+  }
+
   function staffClick(event: React.MouseEvent<SVGSVGElement>) {
     // One mode: empty staff space enters a note; heads handle themselves.
     if ((event.target as Element).closest('[data-glyph]')) return;
     if (tool === 'erase') return;
-    // With a note hovering, a tap on the staff means "never mind" -- writing a
-    // second note while the first is still mid-air is nobody's intention.
-    if (touchEdit) { closeTouchEdit(); return; }
+    // Locked, the staff answers nothing: the tick and the cross are the only
+    // ways out, so a stray tap cannot lose the edit.
+    if (locked) return;
+    // The touch path already wrote this note on release.
+    if (Date.now() < wroteOnReleaseRef.current) { wroteOnReleaseRef.current = 0; return; }
     const bounds = event.currentTarget.getBoundingClientRect();
     const x = (event.clientX - bounds.left) / scale - 12;
     const y = (event.clientY - bounds.top) / scale;
@@ -547,7 +639,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     <div className="relative" style={{ width: SYSTEM_W + 24, height: layout.systems * SYSTEM_H + 24, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
     <ScoreBody layout={layout} selectedIds={selectedIds} drag={drag} tool={tool}
       onGlyphDown={beginDrag} onGlyphDoubleClick={glyph => { if (selectedIds.includes(glyph.id)) onDeselect?.(); }}
-      onMove={event => { moveDrag(event); updateGhost(event); }} onUp={endDrag}
+      onDown={placePointerDown}
+      onMove={event => { moveDrag(event); placePointerMove(event); updateGhost(event); }}
+      onUp={event => { endDrag(); placePointerUp(); void event; }}
       onLeave={() => { if (ghostRef.current) ghostRef.current.style.display = 'none'; }}
       onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={eraseFromContextMenu} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
@@ -654,7 +748,7 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         const baseline = slot.system * SYSTEM_H + 12 + STAFF_MIDS[0] - 2 * GAP - 24;
         // The whole beat cell is the click target; the drawn box stays small.
         return <g key={index} className="group" style={{ pointerEvents: 'auto', cursor: 'text' }}
-          onClick={event => { event.stopPropagation(); startChordEdit(index); }}>
+          onClick={event => { event.stopPropagation(); if (!locked) startChordEdit(index); }}>
           <title>{filled ? `${filled.symbol} — click to change or clear` : 'Click to write a chord on this beat'}</title>
           <rect x={slot.x + 12 - 17} y={baseline - 16} width={34} height={22} fill="transparent" />
           {filled
@@ -665,13 +759,15 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         </g>;
       })}
     </svg>}
+    <div ref={aimRef} className="pointer-events-none absolute z-40 hidden rounded-md border border-cyan-300/60 bg-[#04121ff2] px-1.5 py-0.5 font-mono text-[11px] font-bold text-cyan-100 shadow-[0_6px_18px_#000b]" />
     <div ref={ghostRef} className="pointer-events-none absolute left-0 top-0 z-10 hidden">
       <div className="h-2 w-2.5 rounded-[50%] border border-cyan-300/90 bg-cyan-300/25" style={{ transform: 'rotate(-14deg)' }} />
     </div>
     {touchEdit && (() => {
       const preview = drag && drag.id === touchEdit.id ? drag : null;
       const moved = Boolean(preview && (preview.dSteps !== 0 || preview.dx !== 0));
-      const name = midiNoteName(preview && preview.dSteps !== 0
+      const count = touchEdit.ids.length;
+      const name = count > 1 ? count + ' notes' : midiNoteName(preview && preview.dSteps !== 0
         ? stepToMidi(touchEdit.step + preview.dSteps, touchEdit.clef, layout.signature)
         : touchEdit.note.midi);
       // Positioned in SCALED pixels, outside the box that scales, so the
@@ -682,11 +778,11 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
         style={{ left: Math.max(4, left - 74), top }}>
         <b className="px-1 font-mono text-[11px] text-cyan-200">{name}</b>
         <button type="button" onClick={commitTouchEdit}
-          title={moved ? 'Keep it here' : 'Leave it where it is'}
+          title={moved ? 'Keep it here' : count > 1 ? 'Done — leave them as they are' : 'Leave it where it is'}
           className="rounded-lg border border-emerald-300/50 bg-emerald-300/15 px-2.5 py-1.5 text-xs font-bold text-emerald-100">✓</button>
         <button type="button" onClick={closeTouchEdit} title="Put it back"
           className="rounded-lg border border-white/20 px-2.5 py-1.5 text-xs text-slate-200">↺</button>
-        <button type="button" onClick={deleteTouchEdit} title="Delete this note"
+        <button type="button" onClick={deleteTouchEdit} title={count > 1 ? `Delete these ${count} notes` : 'Delete this note'}
           className="rounded-lg border border-rose-300/60 bg-rose-400/20 px-2.5 py-1.5 text-xs font-bold text-rose-100">✕</button>
       </div>;
     })()}
@@ -751,12 +847,13 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   </div>;
 }
 
-const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, tool, onGlyphDown, onGlyphDoubleClick, onMove, onUp, onLeave, onStaffClick, onDoubleClick, onGlyphContext }: {
+const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, tool, onGlyphDown, onGlyphDoubleClick, onDown, onMove, onUp, onLeave, onStaffClick, onDoubleClick, onGlyphContext }: {
   layout: Layout; selectedIds: string[]; drag: DragPreview; tool: ScoreTool;
   onGlyphDown: (event: React.PointerEvent, glyph: Glyph) => void;
   onGlyphDoubleClick: (glyph: Glyph) => void;
+  onDown: (event: React.PointerEvent) => void;
   onMove: (event: React.PointerEvent) => void;
-  onUp: () => void;
+  onUp: (event: React.PointerEvent) => void;
   onLeave: () => void;
   onStaffClick: (event: React.MouseEvent<SVGSVGElement>) => void;
   onDoubleClick: (event: React.MouseEvent<SVGSVGElement>) => void;
@@ -764,7 +861,7 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
 }) {
   const selected = new Set(selectedIds);
   return <svg width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} className="select-none"
-    onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onLeave} onClick={onStaffClick} onDoubleClick={onDoubleClick}
+    onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onLeave} onClick={onStaffClick} onDoubleClick={onDoubleClick}
     style={{ cursor: tool === 'erase' ? 'not-allowed' : 'crosshair' }}>
     {Array.from({ length: layout.systems }, (_, system) => {
       const top = system * SYSTEM_H;
@@ -833,7 +930,7 @@ const ScoreBody = React.memo(function ScoreBody({ layout, selectedIds, drag, too
     {layout.glyphs.map(glyph => {
       const top = glyph.system * SYSTEM_H + 12;
       const isSelected = selected.has(glyph.id);
-      const dragging = drag && drag.id === glyph.id ? drag : null;
+      const dragging = drag && drag.ids.includes(glyph.id) ? drag : null;
       const colour = dragging ? '#22d3ee' : isSelected ? '#ec4899' : '#ffffff';
       const gy = glyph.y - (dragging ? dragging.dSteps * STEP : 0);
       const gx = glyph.x + (dragging ? dragging.dx : 0);
