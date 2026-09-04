@@ -3472,7 +3472,19 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
     ? list[0].marks?.slur === 'start' && list[list.length - 1].marks?.slur === 'end'
     : list[0].marks?.hairpin === kind && list[list.length - 1].marks?.hairpin === 'end');
   const toggleClass = (on: boolean) => `rounded-lg border px-2.5 py-1.5 ${on ? 'border-amber-300/60 bg-amber-300/15 text-amber-100' : 'border-white/12 text-slate-300 hover:bg-white/[.06]'}`;
-  return <div className="order-[-2] mb-2 flex flex-nowrap items-center gap-x-3 gap-y-2 overflow-x-auto rounded-xl border border-amber-300/20 bg-[#0a0d1f] px-3 py-2 text-xs [&>*]:shrink-0 sm:order-none sm:flex-wrap sm:overflow-visible">
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const fadeRef = useRef<HTMLDivElement | null>(null);
+  // Imperative on purpose: this fires on every scroll frame, and the bar has
+  // no business re-rendering forty buttons to dim eight pixels of gradient.
+  const showMore = () => {
+    const rail = railRef.current, fade = fadeRef.current;
+    if (!rail || !fade) return;
+    const remaining = rail.scrollWidth - rail.clientWidth - rail.scrollLeft;
+    fade.style.opacity = remaining > 8 ? '1' : '0';
+  };
+  useEffect(showMore);
+  return <div className="relative order-[-2] mb-2 sm:order-none">
+    <div ref={railRef} onScroll={showMore} className="flex flex-nowrap items-center gap-x-3 gap-y-2 overflow-x-auto rounded-xl border border-amber-300/20 bg-[#0a0d1f] px-3 py-2 text-xs [&>*]:shrink-0 sm:flex-wrap sm:overflow-visible">
     <span className="text-[9px] font-black uppercase tracking-[.18em] text-amber-200/80">Expression · {selection.length} note{selection.length === 1 ? '' : 's'}</span>
     <span className="flex overflow-hidden rounded-lg border border-white/12">
       {DYNAMICS.map(dynamic => <button key={dynamic} onClick={() => onDynamic(activeDynamic === dynamic ? null : dynamic)}
@@ -3523,6 +3535,8 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
       </label>
     </span>
     <button onClick={onClear} title="Remove every marking from the selected notes — dynamics, articulation, chord, tempo and band instruction alike" className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">✕ Clear all marks</button>
+    </div>
+    <div ref={fadeRef} aria-hidden className="pointer-events-none absolute inset-y-0 right-0 flex w-14 items-center justify-end rounded-r-xl bg-[linear-gradient(to_left,#0a0d1f_38%,#0a0d1fcc_66%,transparent)] pr-1.5 text-amber-200/70 transition-opacity sm:hidden">›</div>
   </div>;
 }
 
