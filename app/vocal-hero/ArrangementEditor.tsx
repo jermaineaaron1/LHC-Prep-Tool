@@ -2410,7 +2410,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setRecordError(null);
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') throw new Error('Recording is not supported in this browser.');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 } });
       const recorder = new MediaRecorder(stream);
       setRecordingPart(Math.max(0, Math.min(3, selectedPart)));
       setRecordingTimelineOffset(Math.max(0, playheadRef.current));
