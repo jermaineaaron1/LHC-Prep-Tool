@@ -2535,11 +2535,12 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           ? track.clips.filter(clip => clip.id !== clipId)
           : track.clips.map(clip => {
             if (clip.id !== clipId || !clip.audio) return clip;
-            // Free positioning: a recording is a performance, not a written
-            // rhythm, and the moment it should start is frequently between two
-            // beats -- a pickup breath, a guitar scrape before the downbeat.
-            // Snapping it to the nearest beat took that choice away.
-            if (change === 'move') return { ...clip, start: Math.max(0, clip.start + amount) };
+            // Back onto the beat. Free placement sounded right in principle --
+            // a performance starts where it starts -- but a clip dragged by
+            // fingertip has no pitch to read it against, so "between beats two
+            // and three" is indistinguishable from "wrong". The guide lines
+            // that appear while it travels show exactly what it will land on.
+            if (change === 'move') return { ...clip, start: snapToBeat(Math.max(0, clip.start + amount)) };
             const audio = { ...clip.audio };
             if (change === 'crop-start') audio.source_start = Math.max(0, Math.min(audio.source_end - 0.1, audio.source_start + amount));
             if (change === 'crop-end') audio.source_end = Math.max(audio.source_start + 0.1, audio.source_end + amount);
