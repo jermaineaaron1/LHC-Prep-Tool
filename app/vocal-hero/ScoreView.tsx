@@ -256,7 +256,13 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
   // Dragging a recording along the staff: the pointer's own x is turned back
   // into song time, so a clip follows the cursor at whatever the bars happen
   // to be spaced at, and the same gesture crops when it starts on an edge.
-  const clipDragRef = useRef<{ trackId: string; clipId: string; mode: 'move' | 'crop-start' | 'crop-end'; last: number } | null>(null);
+  const clipDragRef = useRef<{ trackId: string; clipId: string; mode: 'move' | 'crop-start' | 'crop-end'; last: number; armed: boolean } | null>(null);
+  const clipHoldRef = useRef<number | null>(null);
+  // Beats drawn under the recording while it is being moved. A clip has no
+  // pitch to read it against -- the whole question is WHEN it starts -- so
+  // the beats it can land on are shown while it travels, and only then.
+  const [clipGuides, setClipGuides] = useState(false);
+  useEffect(() => () => { if (clipHoldRef.current) window.clearTimeout(clipHoldRef.current); }, []);
   function timeAtPointer(event: React.PointerEvent<SVGElement>): number | null {
     const svg = event.currentTarget.ownerSVGElement ?? (event.currentTarget as unknown as SVGSVGElement);
     const bounds = svg.getBoundingClientRect();
@@ -270,12 +276,32 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     const at = timeAtPointer(event);
     if (at === null) return;
     event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    clipDragRef.current = { ...marker, mode, last: at };
+    // Capture is a nicety -- it keeps the drag alive if the finger slides off
+    // the clip -- but it throws for a pointer the browser does not know, and
+    // an unguarded throw here abandoned the whole gesture before it began.
+    try { event.currentTarget.setPointerCapture?.(event.pointerId); } catch { /* no capture available */ }
+    // A finger has to mean it, exactly as it does on a notehead: press and
+    // wait, and the clip is yours. A mouse can simply drag -- a cursor cannot
+    // brush a clip by accident while reading the score.
+    const touch = event.pointerType === 'touch' || event.pointerType === 'pen';
+    clipDragRef.current = { ...marker, mode, last: at, armed: !touch };
+    if (!touch) { setClipGuides(true); return; }
+    startHoldRing(event);
+    if (clipHoldRef.current) window.clearTimeout(clipHoldRef.current);
+    clipHoldRef.current = window.setTimeout(() => {
+      clipHoldRef.current = null;
+      const drag = clipDragRef.current;
+      if (!drag) return;
+      drag.armed = true;
+      stopHoldRing();
+      try { navigator.vibrate?.(18); } catch { /* not every phone buzzes */ }
+      setClipGuides(true);
+    }, HOLD_MS);
   }
   function clipPointerMove(event: React.PointerEvent<SVGRectElement>) {
     const drag = clipDragRef.current;
     if (!drag || !onClipDrag) return;
+    if (!drag.armed) return;                    // still counting out the hold
     const at = timeAtPointer(event);
     if (at === null) return;
     const delta = at - drag.last;
@@ -284,6 +310,9 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
     onClipDrag(drag.trackId, drag.clipId, drag.mode, delta);
   }
   function clipPointerUp(event: React.PointerEvent<SVGRectElement>) {
+    if (clipHoldRef.current) { window.clearTimeout(clipHoldRef.current); clipHoldRef.current = null; }
+    stopHoldRing();
+    setClipGuides(false);
     if (!clipDragRef.current) return;
     try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* already released */ }
     clipDragRef.current = null;
@@ -924,6 +953,22 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       onLeave={() => { if (ghostRef.current) ghostRef.current.style.display = 'none'; }}
       onStaffClick={staffClick} onDoubleClick={lyricBandDoubleClick} onGlyphContext={eraseFromContextMenu} />
     <CursorLayer layout={layout} getPlayhead={getPlayhead} />
+    {clipGuides && <svg className="pointer-events-none absolute left-0 top-0 z-[9]" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} aria-hidden>
+      {layout.placedBars.map(bar => {
+        const beats = Math.max(1, bar.beatCount);
+        const top = bar.system * SYSTEM_H + 12 + BAND_TEXT_Y - 8;
+        return <g key={`guide-${bar.number}`}>
+          {Array.from({ length: beats }, (_, beat) => {
+            const bx = bar.x + 12 + (beat / beats) * bar.width;
+            const downbeat = beat === 0;
+            return <line key={beat} x1={bx} x2={bx} y1={top} y2={top + (CLIP_ROW_Y - BAND_TEXT_Y) + 28}
+              stroke={downbeat ? '#67e8f9' : '#67e8f9'} strokeWidth={downbeat ? 1.4 : .8}
+              strokeDasharray={downbeat ? undefined : '3 4'} opacity={downbeat ? .75 : .4} />;
+          })}
+          <text x={bar.x + 14} y={bar.system * SYSTEM_H + 12 + CLIP_ROW_Y + 30} fontSize={8} fill="#67e8f9" opacity={.7}>{bar.number}</text>
+        </g>;
+      })}
+    </svg>}
     {(layout.bandTexts.length > 0 || (onBandEdit && bandDefaults) || (clipMarkers?.length ?? 0) > 0) && <svg className="absolute left-0 top-0 z-10" width={SYSTEM_W + 24} height={layout.systems * SYSTEM_H + 24} style={{ pointerEvents: 'none' }} aria-hidden>
       {clipMarkers?.map((marker, index) => {
         const position = layout.timeToXY(marker.at);
