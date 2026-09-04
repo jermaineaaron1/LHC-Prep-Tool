@@ -3140,7 +3140,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               {noteView !== 'grid' && <span className="ml-auto flex items-center gap-0.5 rounded-lg border border-white/12 px-1 py-0.5">
                 <span className="px-0.5 text-[9px] font-black uppercase tracking-[.12em] text-slate-500">Size</span>
                 {SCORE_ZOOMS.map(option => <button key={option.value} onClick={() => setScoreZoom(option.value)} title={option.title}
-                  className={`rounded px-1.5 py-1 text-[10px] font-bold ${scoreZoom === option.value ? 'bg-cyan-300/20 text-cyan-100' : 'text-slate-400'}`}>{option.label}</button>)}
+                  className={`rounded px-2.5 py-2 text-[11px] font-bold sm:px-1.5 sm:py-1 sm:text-[10px] ${scoreZoom === option.value ? 'bg-cyan-300/20 text-cyan-100' : 'text-slate-400'}`}>{option.label}</button>)}
               </span>}
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
@@ -3164,9 +3164,13 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 <button type="button" onClick={() => setSuggestOpen(open => !open)} aria-expanded={suggestOpen}
                   title="Arrange the whole song in a style — the band grows and settles across the song instead of strumming one pattern throughout"
                   className={`rounded-lg border px-2.5 py-1 font-semibold ${suggestOpen ? 'border-amber-300/60 bg-amber-300/15 text-amber-50' : 'border-amber-300/30 bg-amber-300/[.07] text-amber-100'}`}>✨ Suggest…</button>
+                <button type="button" onClick={() => void toggleRecording()}
+                  title={recording ? 'Stop recording. The take can then go on the score as a clip, become a sung guide, or be turned into notes.'
+                    : 'Record yourself now, straight onto this score. The take can then be placed as a clip, kept as a sung guide, or transcribed into notes.'}
+                  className={`rounded-lg border px-2.5 py-1 font-semibold ${recording ? 'border-rose-300 bg-rose-500/25 text-rose-50' : 'border-rose-300/40 bg-rose-400/10 text-rose-200'}`}>{recording ? '\u25a0 Stop' : '\ud83c\udf99 Record'}</button>
                 <button type="button" onClick={() => audioClipInputRef.current?.click()} disabled={uploadingClip}
-                  title="Place one of YOUR recordings on the score: it starts at the caret's bar and covers however long it lasts. The band keeps playing around it."
-                  className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-2.5 py-1 font-semibold text-emerald-100 disabled:opacity-40">{uploadingClip ? 'Uploading\u2026' : '\ud83c\udf99 My recording'}</button>
+                  title="Put an audio FILE from this device on the score: it starts at the caret's bar and covers however long it lasts. The band keeps playing around it."
+                  className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-2.5 py-1 font-semibold text-emerald-100 disabled:opacity-40">{uploadingClip ? 'Uploading\u2026' : '\ud83d\udcce Audio file'}</button>
                 <span draggable
                   onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'custom', style: 'custom' })); event.dataTransfer.effectAllowed = 'copy'; }}
                   title="Drop to open the Part studio for that spot — drag across bars first and the part applies to exactly that range"
