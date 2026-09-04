@@ -997,6 +997,14 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
               const first = row.system === position.system;
               const last = row.system === finish.system;
               return <g key={row.system}>
+                {onClipDrag && <rect x={row.from + 12} y={y(row.system) + 8 - Math.max(11, TOUCH_TARGET_PX / Math.max(.05, scale))}
+                  width={width} height={Math.max(22, (TOUCH_TARGET_PX * 2) / Math.max(.05, scale))} fill="transparent"
+                  style={{ pointerEvents: 'auto', cursor: 'grab', touchAction: 'none' }}
+                  onPointerDown={event => clipPointerDown(event, marker, 'move')}
+                  onPointerMove={clipPointerMove}
+                  onPointerUp={clipPointerUp}
+                  onPointerCancel={clipPointerUp}
+                  onClick={event => { event.stopPropagation(); onClipEdit?.(marker.trackId, marker.clipId); }} />}
                 <rect x={row.from + 12} y={y(row.system)} width={width} height={16} rx={4}
                   fill="#34d39922" stroke="#34d399aa" strokeWidth={1.1}
                   style={onClipDrag ? { pointerEvents: 'auto', cursor: 'grab', touchAction: 'none' } : { pointerEvents: 'auto' }}
@@ -1098,7 +1106,11 @@ export function ScoreView({ notes, bars, getPlayhead, selectedIds, tool, onSelec
       // Positioned in SCALED pixels, outside the box that scales, so the
       // buttons stay thumb-sized at 50% where the notes are 4px across.
       const left = 16 + (touchEdit.x + 12) * scale;
-      const top = 16 + (touchEdit.system * SYSTEM_H + 12 + STAFF_MIDS[touchEdit.staff] + 5.5 * GAP) * scale;
+      // ABOVE the staff, not across it. Sitting below put the row of buttons
+      // over the next voice's music and the lyrics -- you could not see the
+      // thing you were deciding about. Clamped to the top of the score so a
+      // note on the first staff still gets its buttons.
+      const top = Math.max(4, 16 + (touchEdit.system * SYSTEM_H + 12 + STAFF_MIDS[touchEdit.staff] - 5 * GAP) * scale - 42);
       return <div className="absolute z-40 flex items-center gap-1 rounded-xl border border-cyan-300/45 bg-[#060c1af5] px-1.5 py-1 shadow-[0_12px_34px_#000c]"
         style={{ left: Math.max(4, left - 74), top }}>
         <b className="px-1 font-mono text-[11px] text-cyan-200">{name}</b>

@@ -15,7 +15,7 @@
 import { parseChord } from './chords';
 import { interpretMarks } from './performMarks';
 import type { BandClip, BandTimbre, BandTrack, SongNote } from './types';
-import { mixBus, playCajonBass, playCajonSlap, playCajonTick } from './voiceSynth';
+import { clipBus, mixBus, playCajonBass, playCajonSlap, playCajonTick } from './voiceSynth';
 import { playBass, playDrum, playElectric, playEnsemble, playGuitar, playPiano, warmPiano } from './sampler';
 
 export type { BandClip, BandTimbre, BandTrack };
@@ -715,7 +715,7 @@ function playAudioClip(context: AudioContext, audio: { url: string; sourceStart:
   const level = context.createGain();
   level.gain.value = gain;
   source.connect(level);
-  level.connect(mixBus(context));
+  level.connect(clipBus(context));
   source.start(when, from, length);
 }
 
