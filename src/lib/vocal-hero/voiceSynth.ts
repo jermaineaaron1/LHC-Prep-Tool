@@ -61,6 +61,29 @@ export function mixBus(context: AudioContext): AudioNode {
   return input;
 }
 
+/** Where a RECORDING goes. Not the band's glue bus: a take already carries
+ *  the room it was sung in, and laying a 1.1-second convolution over it -- on
+ *  top of a compressor tuned to make synthesised notes sit together -- smears
+ *  a performance that was already whole. Just headroom and a limiter with a
+ *  slow enough attack to leave transients alone. */
+const clipBusCache = new WeakMap<BaseAudioContext, AudioNode>();
+export function clipBus(context: AudioContext): AudioNode {
+  const cached = clipBusCache.get(context);
+  if (cached) return cached;
+  const input = context.createGain();
+  input.gain.value = 0.82;                       // room to sum with the band
+  const guard = context.createDynamicsCompressor();
+  guard.threshold.value = -3;                    // a ceiling, not a sound
+  guard.knee.value = 3;
+  guard.ratio.value = 12;
+  guard.attack.value = 0.02;
+  guard.release.value = 0.25;
+  input.connect(guard);
+  guard.connect(context.destination);
+  clipBusCache.set(context, input);
+  return input;
+}
+
 // F1/F2/F3 in Hz for the sung vowels, mid register.
 const VOWELS: Record<string, [number, number, number]> = {
   a: [700, 1220, 2600],

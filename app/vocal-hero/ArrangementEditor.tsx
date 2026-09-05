@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { RenditionRail } from './RenditionBuilder';
 import { ScoreView, type ScoreBar } from './ScoreView';
@@ -24,9 +24,20 @@ import { parseChord, transposeChordSymbol } from '@/lib/vocal-hero/chords';
 
 import { playVoice, preloadPiano, samplesReady, warmPiano } from '@/lib/vocal-hero/sampler';
 import { downloadSingerVoice, playSingerBuffers, prepareSingerBuffers, singerVoiceReady, voiceKindForPart } from '@/lib/vocal-hero/singer';
-import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
+import { bandRegions, buildBandEvents, DRUM_STYLES, INSTRUMENT_STYLES, playBandEvent, preloadClipAudio, type BandEvent, type BandTimbre, type DrumStyleId, type InstrumentStyleId } from '@/lib/vocal-hero/accompaniment';
 import { ARRANGE_ENERGIES, ARRANGE_INSTRUMENTS, ARRANGE_PERCUSSION, ARRANGEMENT_STYLES, buildArrangement, buildArrangementFollowingVoices, buildFromInstruments, buildVocalShaping, inferChordsFromVoices, type ArrangeEnergy } from '@/lib/vocal-hero/arrangements';
 import { GROOVE_VIBES, planGroove } from '@/lib/vocal-hero/groove';
+
+// Engraving sizes for the score view. 0 is "fit a system across the screen",
+// which ScoreView measures for itself. A phone opens at half size: a system is
+// 1144px wide written out, so at 100% a 350px screen sees a bar and a half.
+const SCORE_ZOOMS = [
+  { value: 0, label: 'Fit', title: 'Shrink a whole system onto the screen \u2014 an overview, too small to write on' },
+  { value: .5, label: '50%', title: 'Half size \u2014 twice the music on screen' },
+  { value: .75, label: '75%', title: 'Three-quarter size' },
+  { value: 1, label: '100%', title: 'Written size' },
+  { value: 1.5, label: '150%', title: 'Half again \u2014 easier to hit a notehead with a finger' },
+];
 
 const VOICES = ['Soprano', 'Alto', 'Tenor', 'Bass'];
 const COLOURS = ['#ff60bc', '#ffae42', '#4ca0ff', '#43e2bb'];
@@ -414,6 +425,13 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   // A 36px/second starting scale keeps individual lyric targets readable; 160px/second
   // gives arrangers up to ten times the former default width for detailed editing.
   const [zoom, setZoom] = useState(36);
+  // The engraved score's own scale, unrelated to the piano roll's `zoom` above.
+  const [scoreZoom, setScoreZoom] = useState(1);
+  useEffect(() => {
+    // A phone at written size reads about a bar and a half of a system, so it
+    // starts at half. Anything wider keeps what was always there.
+    if (window.matchMedia('(max-width: 639px)').matches) setScoreZoom(.5);
+  }, []);
   const [saving, setSaving] = useState(false);
   const [tool, setTool] = useState<EditorTool>('select');
   const [playScope, setPlayScope] = useState<PlaybackScope>('all');
@@ -528,6 +546,20 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   const midiInputRef = useRef<HTMLInputElement | null>(null);
   const xmlInputRef = useRef<HTMLInputElement | null>(null);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const audioClipInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingClip, setUploadingClip] = useState(false);
+  const [audioClipEdit, setAudioClipEdit] = useState<{ trackId: string; clipId: string } | null>(null);
+  const clipPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const clipPreviewTimer = useRef<number | null>(null);
+  const [clipPreviewing, setClipPreviewing] = useState(false);
+  /** Stop the crop preview: on the button, on Remove, on Done, on unmount. */
+  const stopClipPreview = useCallback(() => {
+    if (clipPreviewTimer.current) { window.clearTimeout(clipPreviewTimer.current); clipPreviewTimer.current = null; }
+    const player = clipPreviewRef.current;
+    if (player) { player.pause(); clipPreviewRef.current = null; }
+    setClipPreviewing(false);
+  }, []);
+  useEffect(() => stopClipPreview, [stopClipPreview]);
   const musicalLatchSignatureRef = useRef('');
   const selected = notes.find(note => note.id === selectedId) ?? null;
   const backingTimelineEnd = trackSettings.clips?.length ? Math.max(...trackSettings.clips.map(clip => clip.timeline_start + (clip.source_end - clip.source_start))) : trackSettings.timeline_offset + Math.max(0, (trackSettings.trim_end ?? trackSettings.media_duration ?? 0) - trackSettings.trim_start);
@@ -904,6 +936,27 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     if (context.state === 'suspended') void context.resume().then(() => play(context)).catch(() => undefined);
     else play(context);
   }
+  /** Every picked note at once -- a chord has to be heard as a chord. */
+  function auditionNotes(list: SongNote[]) {
+    if (!list.length) return;
+    if (list.length === 1) { auditionNote(list[0]); return; }
+    stopNoteAudition();
+    const generation = noteAuditionGenerationRef.current;
+    const play = (context: AudioContext) => {
+      if (generation !== noteAuditionGenerationRef.current) return;
+      const stops = list.map(note => previewVoices
+        ? playVoice(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start))
+        : playPianoTone(context, note, context.currentTime + .012, Math.max(.04, note.end - note.start), 0));
+      noteAuditionStopRef.current = () => { for (const stop of stops) stop?.(); };
+    };
+    let context = noteAuditionContextRef.current;
+    if (!context || context.state === 'closed') {
+      context = new AudioContext({ latencyHint: 'interactive' });
+      noteAuditionContextRef.current = context;
+    }
+    if (context.state === 'suspended') void context.resume().then(() => play(context)).catch(() => undefined);
+    else play(context);
+  }
   /** Make [start, end) free in one voice, the way a pencil frees paper: the
    *  note sounding at `start` is cut off there, notes fully inside the span
    *  go, and a note the span cuts into keeps its tail. Anything left shorter
@@ -1003,6 +1056,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setSelectedPart(part); setSelectedId(id); setSelectedIds([id]);
     setEditorNotice(flowed.shiftBy > 0 ? 'A fresh bar was inserted to hold the overflow — everything after it kept its place. Undo reverses it.' : null);
     auditionNote(candidate);
+    return id;
   }
   function insertStepPitch(letter: string) {
     const PC: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
@@ -1631,6 +1685,14 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   // clip ALONE (its track's timbre, once, from its start); otherwise the
   // draft tabs play everywhere with band marks stripped, so the writer
   // hears the whole line against SATB.
+  // Recordings are decoded ahead of playback; a clip that is not ready yet
+  // stays silent for that pass rather than entering late.
+  useEffect(() => {
+    const urls = (trackSettings.band_tracks ?? []).flatMap(track => track.clips.map(clip => clip.audio?.url).filter(Boolean) as string[]);
+    if (!urls.length) return;
+    const context = new AudioContext();
+    void Promise.all(urls.map(url => preloadClipAudio(context, url))).finally(() => { void context.close(); });
+  }, [trackSettings.band_tracks]);
   const draftBandEvents = useMemo(() => {
     if (!bandWrite) return undefined;
     const lastSound = notes.reduce((latest, note) => Math.max(latest, note.end), 0);
@@ -1646,12 +1708,31 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         humanize: false, countIn: false,
       });
     }
+    // A written part LOOPS from wherever its instruction begins. Auditioning
+    // it as the song-wide default started that loop at bar 1, so by the
+    // studio's own window the pattern had rotated - a 32-cell part opened on
+    // cell 26, and the notes just drawn were heard several beats late, or as
+    // somebody else's chord. The draft is now hung on the SAME note that will
+    // carry it once saved, so the phase resets exactly where the window does
+    // and the audition is what the score will play.
+    const anchorId = typeof bandWrite.target === 'object' && 'noteId' in bandWrite.target ? bandWrite.target.noteId : null;
+    const draftInstrument = draftInstrumentTab.trim();
+    const draftDrums = draftDrumTab.trim();
+    const draftNotes = notes.map(note => {
+      if (note.id === anchorId) {
+        const band: NonNullable<NoteMarks['band']> = {};
+        if (draftInstrument) { band.instrument = 'custom'; band.instrument_tab = draftInstrument; }
+        if (draftDrums) { band.drums = 'custom'; band.drum_tab = draftDrums; }
+        return { ...note, marks: { ...(note.marks ?? {}), band: band.instrument || band.drums ? band : undefined } };
+      }
+      return note.marks?.band ? { ...note, marks: { ...note.marks, band: undefined } } : note;
+    });
     return buildBandEvents({
       bars: bandBarsForBuild(), chords: trackSettings.chord_symbols ?? [],
-      notes: notes.map(note => note.marks?.band ? { ...note, marks: { ...note.marks, band: undefined } } : note),
+      notes: draftNotes,
       defaults: {
-        instrument: (draftInstrumentTab.trim() ? 'custom' : accompaniment.guitar) as InstrumentStyleId,
-        drums: (draftDrumTab.trim() ? 'custom' : accompaniment.drums) as DrumStyleId,
+        instrument: (!anchorId && draftInstrument ? 'custom' : accompaniment.guitar) as InstrumentStyleId,
+        drums: (!anchorId && draftDrums ? 'custom' : accompaniment.drums) as DrumStyleId,
       },
       until: lastSound + 0.05,
       customTabs: { instrument: draftInstrumentTab, drums: draftDrumTab },
@@ -2329,7 +2410,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
     setRecordError(null);
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') throw new Error('Recording is not supported in this browser.');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 } });
       const recorder = new MediaRecorder(stream);
       setRecordingPart(Math.max(0, Math.min(3, selectedPart)));
       setRecordingTimelineOffset(Math.max(0, playheadRef.current));
@@ -2385,6 +2466,92 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       setUploadingTake(false);
     }
   }
+  /** A recording of your own playing, placed on the score as a clip: it
+   *  starts where the caret is and covers however long the crop lasts. The
+   *  band keeps playing around it - this is one more part, not a backing
+   *  track that stands the band down. */
+  async function addAudioClip(file: File, at?: number) {
+    if (uploadingClip) return;
+    setUploadingClip(true);
+    try {
+      const bar = entryBar ?? musicalBars[0];
+      if (!bar) throw new Error('This song has no bars to place a clip on yet.');
+      const start = at === undefined ? bar.start : snapToBeat(Math.max(0, at));
+      const landedBar = musicalBars.find(item => start >= item.start && start < item.end) ?? bar;
+      // Read its length before uploading, so the clip knows what it covers.
+      const probe = new AudioContext();
+      let duration = 0;
+      try {
+        const decoded = await probe.decodeAudioData(await file.arrayBuffer());
+        duration = decoded.duration;
+      } finally { void probe.close(); }
+      if (!duration) throw new Error('That file could not be read as audio.');
+      const safeName = file.name.replace(/[^a-z0-9._-]/gi, '-');
+      const prepared = await fetch('/api/vocal-hero/media', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ songId: song.id, fileName: `clip-${Date.now()}-${safeName}`, contentType: file.type || 'audio/mpeg', size: file.size }),
+      });
+      const payload = await prepared.json() as { bucket?: string; path?: string; token?: string; publicUrl?: string; error?: string };
+      if (!prepared.ok || !payload.bucket || !payload.path || !payload.token || !payload.publicUrl) throw new Error(payload.error || 'Unable to prepare the upload.');
+      const { error } = await supabase.storage.from(payload.bucket).uploadToSignedUrl(payload.path, payload.token, file);
+      if (error) throw new Error(error.message);
+      const clip = {
+        id: `clip-${crypto.randomUUID().slice(0, 8)}`,
+        start, tab: '',
+        audio: { url: payload.publicUrl, name: file.name, source_start: 0, source_end: duration },
+      };
+      setTrackSettingsDirty(current => {
+        const tracks = (current.band_tracks ?? []).map(track => ({ ...track, clips: [...track.clips] }));
+        let track = tracks.find(item => item.id === 'trk-audio');
+        if (!track) { track = { id: 'trk-audio', name: 'Recordings', timbre: 'guitar' as BandTimbre, clips: [] }; tracks.push(track); }
+        track.clips.push(clip);
+        return { ...current, band_tracks: tracks };
+      });
+      setEditorNotice(`\ud83c\udf99 ${file.name} placed at bar ${landedBar.number} \u2014 ${duration.toFixed(1)}s of audio. Drag its bar on the score to move it, or click it to crop. Save keeps it with the song.`);
+    } catch (problem) {
+      setEditorNotice(problem instanceof Error ? problem.message : 'Could not add that recording.');
+    } finally {
+      setUploadingClip(false);
+    }
+  }
+  /** The nearest beat to a moment, for placing a recording against the music. */
+  function snapToBeat(time: number): number {
+    let best = time, bestGap = Number.POSITIVE_INFINITY;
+    for (const bar of musicalBars) {
+      if (bar.end < time - 4 || bar.start > time + 4) continue;
+      for (const beat of bar.beats) {
+        const gap = Math.abs(beat.start - time);
+        if (gap < bestGap) { bestGap = gap; best = beat.start; }
+      }
+    }
+    return bestGap === Number.POSITIVE_INFINITY ? time : best;
+  }
+  /** Move, crop or remove one placed recording. */
+  function updateAudioClip(trackId: string, clipId: string, change: 'move' | 'crop-start' | 'crop-end' | 'remove', amount = 0) {
+    setTrackSettingsDirty(current => {
+      const tracks = (current.band_tracks ?? []).map(track => {
+        if (track.id !== trackId) return track;
+        const clips = change === 'remove'
+          ? track.clips.filter(clip => clip.id !== clipId)
+          : track.clips.map(clip => {
+            if (clip.id !== clipId || !clip.audio) return clip;
+            // Back onto the beat. Free placement sounded right in principle --
+            // a performance starts where it starts -- but a clip dragged by
+            // fingertip has no pitch to read it against, so "between beats two
+            // and three" is indistinguishable from "wrong". The guide lines
+            // that appear while it travels show exactly what it will land on.
+            if (change === 'move') return { ...clip, start: snapToBeat(Math.max(0, clip.start + amount)) };
+            const audio = { ...clip.audio };
+            if (change === 'crop-start') audio.source_start = Math.max(0, Math.min(audio.source_end - 0.1, audio.source_start + amount));
+            if (change === 'crop-end') audio.source_end = Math.max(audio.source_start + 0.1, audio.source_end + amount);
+            return { ...clip, audio };
+          });
+        return { ...track, clips };
+      }).filter(track => track.clips.length > 0);
+      return { ...current, band_tracks: tracks.length ? tracks : undefined };
+    });
+    if (change === 'remove') { stopClipPreview(); setAudioClipEdit(null); }
+  }
   async function convertRecordedTake() {
     if (!recordingTake || transcribingTake) return;
     setRecordError(null);
@@ -2394,10 +2561,36 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       const decoded = await context.decodeAudioData(await recordingTake.arrayBuffer());
       await context.close();
       const range = pitchRangeForPart(recordingPart, notes);
-      const result = await detectVocalNotes(decoded, { part: recordingPart, timelineOffset: recordingTimelineOffset, minMidi: range.min, maxMidi: range.max });
+      let result = await detectVocalNotes(decoded, { part: recordingPart, timelineOffset: recordingTimelineOffset, minMidi: range.min, maxMidi: range.max });
+      let octaveShift = 0;
+      if (!result.notes.length) {
+        // The detector only ever looks at the part's range plus eight
+        // semitones, and an octave is twelve -- so a man humming a soprano
+        // line was never going to be found, however clean the recording. Look
+        // an octave out either way before giving up, and write whatever turns
+        // up into the part where it belongs.
+        for (const shift of [-12, 12, -24, 24]) {
+          const alt = await detectVocalNotes(decoded, { part: recordingPart, timelineOffset: recordingTimelineOffset, minMidi: range.min + shift, maxMidi: range.max + shift });
+          if (!alt.notes.length) continue;
+          result = { ...alt, notes: alt.notes.map(note => ({ ...note, midi: note.midi - shift })) };
+          octaveShift = shift;
+          break;
+        }
+      }
       const detected = result.notes;
       setTranscriptionDiagnostics(result.diagnostics);
-      if (!detected.length) throw new Error(`No stable pitches were detected inside the ${VOICES[recordingPart]} range (${midiNoteName(range.min)}–${midiNoteName(range.max)}). Choose the correct destination voice or record a clean, unaccompanied solo closer to the microphone.`);
+      if (!detected.length) {
+        // "No stable pitches" reads as "your microphone is broken", when the
+        // truth is usually one of three quite different things -- and the
+        // diagnostics already know which one it was.
+        const heard = result.diagnostics.voicedFrames;
+        const why = heard === 0
+          ? 'nothing voiced was heard at all — check the microphone is picking you up, and sing closer to it'
+          : result.diagnostics.rejectedOutOfRangeFrames > heard / 2
+            ? `${heard} voiced frames were heard, but most sat outside ${VOICES[recordingPart]} (${midiNoteName(range.min)}–${midiNoteName(range.max)}) even after looking an octave either way — pick the voice you actually sang`
+            : `${heard} voiced frames were heard, but none held still long enough to be a note — sustain each pitch, unaccompanied`;
+        throw new Error(`Nothing could be transcribed: ${why}.`);
+      }
       const division = musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION;
       const accepted: SongNote[] = [];
       let skipped = 0;
@@ -2414,8 +2607,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
       setSelectedPart(recordingPart);
       setTool('select');
       const pitchSpan = result.diagnostics.lowestMidi === null || result.diagnostics.highestMidi === null ? '' : ` Pitch range ${midiNoteName(result.diagnostics.lowestMidi)}–${midiNoteName(result.diagnostics.highestMidi)}.`;
+      const octaveNote = octaveShift === 0 ? ''
+        : ` Heard ${Math.abs(octaveShift) / 12 === 1 ? 'an octave' : Math.abs(octaveShift) / 12 + ' octaves'} ${octaveShift < 0 ? 'below' : 'above'} ${VOICES[recordingPart]} and written into the part.`;
       const rejected = result.diagnostics.rejectedOutOfRangeFrames ? ` ${result.diagnostics.rejectedOutOfRangeFrames} out-of-range analysis frames were rejected instead of being clamped to a false boundary note.` : '';
-      setEditorNotice(`Converted ${accepted.length} editable ${VOICES[recordingPart]} note${accepted.length === 1 ? '' : 's'} at ${formatClock(recordingTimelineOffset)} using ${transcriptionSnap ? 'grid-snapped' : 'measured performance'} timing. YIN analysis resolution ${result.diagnostics.timingResolutionMs.toFixed(1)} ms; mean confidence ${Math.round(result.diagnostics.averageConfidence * 100)}%; ${result.diagnostics.expressiveNotes} note${result.diagnostics.expressiveNotes === 1 ? '' : 's'} captured with pitch movement or vibrato.${pitchSpan}${rejected}${skipped ? ` ${skipped} overlapping detection${skipped === 1 ? ' was' : 's were'} skipped.` : ''} Add lyrics, audition the expressive notes against the take, then Save.`);
+      setEditorNotice(`Converted ${accepted.length} editable ${VOICES[recordingPart]} note${accepted.length === 1 ? '' : 's'} at ${formatClock(recordingTimelineOffset)} using ${transcriptionSnap ? 'grid-snapped' : 'measured performance'} timing. YIN analysis resolution ${result.diagnostics.timingResolutionMs.toFixed(1)} ms; mean confidence ${Math.round(result.diagnostics.averageConfidence * 100)}%; ${result.diagnostics.expressiveNotes} note${result.diagnostics.expressiveNotes === 1 ? '' : 's'} captured with pitch movement or vibrato.${pitchSpan}${octaveNote}${rejected}${skipped ? ` ${skipped} overlapping detection${skipped === 1 ? ' was' : 's were'} skipped.` : ''} Add lyrics, audition the expressive notes against the take, then Save.`);
     } catch (error) {
       setRecordError(error instanceof Error ? error.message : 'Unable to convert this vocal take into notes.');
     } finally {
@@ -2576,19 +2771,19 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
   }
   return <div ref={editorRootRef} data-timeline-focus={timelineFocus ? 'true' : 'false'} className="vh-editor-scrollbars fixed inset-0 z-50 flex flex-col overflow-hidden bg-[#020510] text-slate-100">
     <audio ref={backingMediaRef} src={mediaUrl || undefined} preload="auto" className="hidden" onLoadedMetadata={event => { const media_duration = event.currentTarget.duration; if (Number.isFinite(media_duration)) setTrackSettings(current => current.media_duration === media_duration ? current : { ...current, media_duration }); }} onTimeUpdate={enforceBackingEdits} />
-    <header className={`${timelineFocus ? 'hidden' : 'flex'} min-h-14 flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-white/10 bg-[#070a1b] px-4 py-1.5`}>
-      <Brand />
+    <header className={`${timelineFocus ? 'hidden' : 'flex'} min-h-11 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-white/10 bg-[#070a1b] px-3 py-1.5 sm:min-h-14 sm:gap-x-4 sm:px-4`}>
+      <span className="hidden sm:block"><Brand /></span>
       <span className="hidden text-[10px] font-black uppercase tracking-[.2em] text-fuchsia-300 sm:block">Song Editor</span>
       <span className="flex min-w-0 items-center gap-2">
-        <input value={title} onChange={event => { dirtyRef.current = true; setTitle(event.target.value); }} aria-label="Song title" className="w-64 max-w-[38vw] truncate border-0 bg-transparent text-sm font-semibold text-white outline-none" />
+        <input value={title} onChange={event => { dirtyRef.current = true; setTitle(event.target.value); }} aria-label="Song title" className="w-64 max-w-[34vw] truncate border-0 bg-transparent text-sm font-semibold text-white outline-none sm:max-w-[38vw]" />
         <span aria-hidden="true" className="text-fuchsia-300">✎</span>
       </span>
       <span className={`hidden rounded-full px-2.5 py-1 text-[10px] font-bold md:block ${dirtyRef.current ? 'border border-amber-300/30 bg-amber-300/10 text-amber-200' : 'border border-emerald-300/25 bg-emerald-300/[.07] text-emerald-300'}`}>{dirtyRef.current ? '● Unsaved changes' : '✓ Saved'}</span>
       <div className="ml-auto flex items-center gap-2">
         <button onClick={() => void save()} disabled={saving} className="rounded-lg bg-[linear-gradient(120deg,#d946ef,#22d3ee)] px-4 py-2 text-xs font-black text-[#08101d] disabled:opacity-50">{saving ? 'Saving…' : 'Save'}</button>
-        <button onClick={() => switchView(noteView === 'rendition' ? 'score' : 'rendition')} aria-pressed={noteView === 'rendition'} title="Shape the performance: passes, keys, tempos — over the live score" className={`rounded-lg border px-3 py-2 text-xs font-semibold ${noteView === 'rendition' ? 'border-cyan-300/70 bg-cyan-300/20 text-cyan-50' : 'border-cyan-300/35 bg-cyan-300/[.07] text-cyan-100'}`}>⟳ Rendition</button>
+        <button onClick={() => switchView(noteView === 'rendition' ? 'score' : 'rendition')} aria-pressed={noteView === 'rendition'} title="Shape the performance: passes, keys, tempos — over the live score" className={`rounded-lg border px-3 py-2 text-xs font-semibold ${noteView === 'rendition' ? 'border-cyan-300/70 bg-cyan-300/20 text-cyan-50' : 'border-cyan-300/35 bg-cyan-300/[.07] text-cyan-100'}`}>⟳<span className="hidden sm:inline"> Rendition</span></button>
         <button onClick={() => void toggleFullscreen()} aria-pressed={isFullscreen} title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'} className="rounded-lg border border-white/15 px-3 py-2 text-xs">{isFullscreen ? '⊙' : '⛶'}</button>
-        <button onClick={() => void closeOrExitFullscreen()} title={isFullscreen ? 'Exit full screen without closing the editor' : 'Close the song editor'} className="rounded-lg border border-white/15 px-3 py-2 text-xs">Close</button>
+        <button onClick={() => void closeOrExitFullscreen()} title={isFullscreen ? 'Exit full screen without closing the editor' : 'Close the song editor'} className="rounded-lg border border-white/15 px-3 py-2 text-xs"><span className="sm:hidden">✕</span><span className="hidden sm:inline">Close</span></button>
       </div>
     </header>
     <div className={`flex ${timelineFocus ? 'h-screen min-h-0' : 'min-h-0 flex-1'} overflow-auto`}>
@@ -2615,7 +2810,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
         <button onClick={selectAllVoices} className="mt-2 w-full rounded-lg border border-white/12 px-3 py-2 text-[11px] text-slate-300">🔊 All voices audible</button>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_0%,#28135055,transparent_30%),#080b1c]">
-        {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="relative flex max-w-full flex-wrap items-center gap-1.5 sm:max-w-none sm:flex-nowrap">
+        {!timelineFocus && noteView !== 'rendition' && <EditorToolbar extras={<span className="flex max-w-full flex-wrap items-center gap-1.5 sm:relative sm:max-w-none sm:flex-nowrap">
           <button onClick={cyclePreviewVoice} aria-pressed={previewVoice !== 'piano'}
             title={previewVoice === 'choir' ? 'Preview voice: recorded choir — real human voices singing every part on “ah”. Tap for the AI demo choir (pronounces the actual lyrics; one-time voice download).'
               : previewVoice === 'singer' ? 'Preview voice: AI demo choir \u2014 every part sings its own words: female voice on soprano and alto, male on tenor and bass. Tap for piano.'
@@ -2626,7 +2821,7 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             className={`rounded-lg border px-2.5 py-2 ${accompaniment.drums !== 'off' ? 'border-amber-300/50 bg-amber-300/10 text-amber-100' : 'border-white/15 text-slate-300'}`}>{'\ud83e\udd41'}</button>
           <button onClick={() => setMoreOpen(open => !open)} aria-expanded={moreOpen} title="Import, backing track, recording, zoom and more"
             className={`rounded-lg border px-3 py-2 font-bold ${moreOpen ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/15 text-slate-200'}`}>⋯</button>
-          {moreOpen && <div className="absolute right-0 top-11 z-[75] max-h-[calc(100vh-140px)] w-80 space-y-3 overflow-y-auto rounded-2xl border border-white/12 bg-[#0a0e22f8] p-3 text-xs shadow-[0_24px_70px_#000d] backdrop-blur">
+          {moreOpen && <div className="absolute right-2 top-full z-[75] mt-1 max-h-[55vh] w-[calc(100vw-1rem)] max-w-80 space-y-3 overflow-y-auto rounded-2xl border border-white/12 bg-[#0a0e22f8] p-3 text-xs shadow-[0_24px_70px_#000d] backdrop-blur sm:right-0 sm:top-11 sm:mt-0 sm:max-h-[calc(100vh-140px)] sm:w-80">
             <p className="text-[9px] font-black uppercase tracking-[.2em] text-slate-500">Bring music in</p>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => { setMoreOpen(false); xmlInputRef.current?.click(); }} title="MusicXML keeps voices and lyrics, so nothing has to be guessed" className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 font-semibold text-emerald-100">Import MusicXML</button>
@@ -2645,6 +2840,14 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">Timing
                   <select aria-label="Transcription timing treatment" value={transcriptionSnap ? 'grid' : 'exact'} onChange={event => setTranscriptionSnap(event.target.value === 'grid')} className="rounded border border-white/15 bg-black/30 px-1.5 py-1 text-[11px] text-white"><option value="grid">Snap to grid</option><option value="exact">As sung</option></select></label>
                 <button onClick={() => void convertRecordedTake()} disabled={transcribingTake} className="rounded-lg border border-fuchsia-300/40 bg-fuchsia-300/10 px-3 py-2 font-semibold text-fuchsia-100 disabled:opacity-40">{transcribingTake ? 'Detecting…' : 'Take → notes'}</button>
+                <button onClick={() => {
+                  if (!recordingTake) return;
+                  const extension = (recordingTake.type.split(';')[0].split('/')[1] || 'webm').replace(/[^a-z0-9]/gi, '');
+                  const named = new File([recordingTake], `mic-take-${Date.now()}.${extension}`, { type: recordingTake.type || 'audio/webm' });
+                  void addAudioClip(named, recordingTimelineOffset);
+                }} disabled={uploadingClip}
+                  title="Put this take on the score as a recording clip — its own row under the staves, draggable onto any beat and croppable from either end, exactly like an uploaded file."
+                  className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-semibold text-cyan-100 disabled:opacity-40">{uploadingClip ? 'Placing…' : '🎙 Place on the staff'}</button>
                 <button onClick={() => void keepRecordedTake()} disabled={uploadingTake}
                   title="Keep the take as AUDIO: this real voice sings its part in the preview, aligned where the playhead stood when recording began."
                   className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 font-semibold text-emerald-100 disabled:opacity-40">{uploadingTake ? 'Saving…' : 'Keep as sung guide'}</button>
@@ -2707,6 +2910,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
           </div>}
         </span>} tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} playScope={playScope} playParts={playParts} onPlayAll={selectAllVoices} onPlayPart={selectPlayPart} playRange={playRange} playhead={playhead} onClearSelection={selectAllVoices} selectedCount={selectedIds.length} onRemove={removeSelected} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onUndo={undo} onRedo={redo} zoom={zoom} setZoom={setZoom} onDuplicate={duplicateSelected} onCopy={copySelectedNotes} onPaste={pasteCopiedNotes} clipboardCount={noteClipboard.length} onTypeLyrics={() => setShowLyricLine(true)} onHarmonise={() => setShowHarmony(true)} onAlignToMelody={alignHarmonyToMelody} onPlay={playFromCursor} onPlayFromStart={playFromStart} onPause={pausePlayback} onStop={stopPlayback} onSkip={skipTransport} isPlaying={isPlaying} isPaused={isPaused} onRecord={() => void toggleRecording()} recording={recording} onPlayTake={playRecordedTake} hasTake={Boolean(recordingUrl)} onConvertTake={() => void convertRecordedTake()} convertingTake={transcribingTake} recordingPart={recordingPart} onRecordingPartChange={part => { setRecordingPart(part); setTranscriptionDiagnostics(null); setRecordError(null); }} transcriptionSnap={transcriptionSnap} onTranscriptionSnapChange={setTranscriptionSnap} onSave={() => void save()} saving={saving} />}
         {timelineFocus && <TimelineFocusToolbar tool={tool} setTool={setTool} drawNoteValue={musicalTimeline.snap_value ?? DEFAULT_NOTE_VALUE} onDrawNoteValueChange={changeNoteValue} selected={selected} bars={musicalBars} onLyricChange={lyric => selected && update(selected.id, { lyric })} onTrack={() => setShowBackingEditor(true)} onExit={() => void exitTimelineFocus()} onPlay={playFromCursor} onPause={pausePlayback} onStop={stopPlayback} isPlaying={isPlaying} isPaused={isPaused} playhead={playhead} zoom={zoom} setZoom={setZoom} onSave={() => void save()} saving={saving} />}
+        <input ref={audioClipInputRef} className="hidden" type="file" accept="audio/*"
+          onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void addAudioClip(file); }} />
         <input ref={xmlInputRef} className="hidden" type="file" accept=".musicxml,.xml,.mxl" onChange={openMusicXml} /><input ref={midiInputRef} className="hidden" type="file" accept=".mid,.midi,audio/midi" onChange={openMidi} /><input ref={mediaInputRef} className="hidden" type="file" accept="audio/*,video/*" onChange={uploadBackingTrack} />
         {recordError && <div className="border-b border-rose-300/20 bg-rose-400/10 px-4 py-2 text-xs text-rose-200">Microphone: {recordError}</div>}
         {transcriptionDiagnostics && !recordError && <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-cyan-300/15 bg-cyan-300/[.05] px-4 py-2 text-[11px] text-cyan-100">
@@ -2845,8 +3050,60 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
             </div>
           </div>
         </div>}
+        {audioClipEdit && (() => {
+          const track = (trackSettings.band_tracks ?? []).find(item => item.id === audioClipEdit.trackId);
+          const clip = track?.clips.find(item => item.id === audioClipEdit.clipId);
+          if (!clip?.audio) return null;
+          const bar = musicalBars.find(item => clip.start >= item.start - 0.01 && clip.start < item.end);
+          const barLen = bar ? bar.end - bar.start : 2;
+          const length = clip.audio.source_end - clip.audio.source_start;
+          const nudge = (change: 'move' | 'crop-start' | 'crop-end', amount: number) => updateAudioClip(audioClipEdit.trackId, audioClipEdit.clipId, change, amount);
+          const step = (label: string, title: string, onClick: () => void) =>
+            <button key={label} type="button" onClick={onClick} title={title} className="rounded-lg border border-white/15 px-2 py-1 text-slate-200">{label}</button>;
+          return <div className="absolute inset-x-0 top-0 z-50 grid place-items-center p-3">
+            <section className="w-full max-w-2xl rounded-2xl border border-emerald-300/30 bg-[#081420] p-3 text-xs shadow-[0_20px_60px_#000b]">
+              <div className="flex flex-wrap items-center gap-2">
+                <b className="text-emerald-100">🎙 {clip.audio.name}</b>
+                <span className="text-slate-400">{length.toFixed(1)}s · from bar {bar?.number ?? '?'}</span>
+                <button type="button" onClick={() => { stopClipPreview(); setAudioClipEdit(null); }} className="ml-auto rounded-lg border border-white/15 px-2 py-1 text-slate-300">Done</button>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <span className="flex items-center gap-1"><span className="text-[10px] uppercase tracking-[.12em] text-slate-500">Move</span>
+                  {step('\u2190 bar', 'Move a bar earlier', () => nudge('move', -barLen))}
+                  {step('\u2190', 'Nudge a beat earlier', () => nudge('move', -barLen / Math.max(1, bar?.beats.length ?? 4)))}
+                  {step('\u2192', 'Nudge a beat later', () => nudge('move', barLen / Math.max(1, bar?.beats.length ?? 4)))}
+                  {step('bar \u2192', 'Move a bar later', () => nudge('move', barLen))}
+                </span>
+                <span className="flex items-center gap-1"><span className="text-[10px] uppercase tracking-[.12em] text-slate-500">Crop in</span>
+                  {step('\u2212', 'Take less off the front', () => nudge('crop-start', -0.25))}
+                  <b className="w-12 text-center font-mono text-emerald-100">{clip.audio.source_start.toFixed(2)}s</b>
+                  {step('+', 'Take more off the front', () => nudge('crop-start', 0.25))}
+                </span>
+                <span className="flex items-center gap-1"><span className="text-[10px] uppercase tracking-[.12em] text-slate-500">Crop out</span>
+                  {step('\u2212', 'End it sooner', () => nudge('crop-end', -0.25))}
+                  <b className="w-12 text-center font-mono text-emerald-100">{clip.audio.source_end.toFixed(2)}s</b>
+                  {step('+', 'Let it run longer', () => nudge('crop-end', 0.25))}
+                </span>
+                <button type="button" onClick={() => {
+                  if (clipPreviewing) { stopClipPreview(); return; }
+                  stopClipPreview();
+                  const player = new Audio(clip.audio!.url);
+                  player.currentTime = clip.audio!.source_start;
+                  clipPreviewRef.current = player;
+                  setClipPreviewing(true);
+                  player.onended = () => stopClipPreview();
+                  void player.play();
+                  clipPreviewTimer.current = window.setTimeout(stopClipPreview, Math.max(200, length * 1000));
+                }}
+                  className={`rounded-lg border px-2.5 py-1 font-semibold ${clipPreviewing ? 'border-cyan-300/60 bg-cyan-300/15 text-cyan-50' : 'border-emerald-300/40 bg-emerald-300/10 text-emerald-100'}`}>{clipPreviewing ? '■ Stop' : '▶ Hear the crop'}</button>
+                <button type="button" onClick={() => updateAudioClip(audioClipEdit.trackId, audioClipEdit.clipId, 'remove')}
+                  className="rounded-lg border border-rose-300/35 px-2.5 py-1 font-semibold text-rose-200">Remove</button>
+              </div>
+            </section>
+          </div>;
+        })()}
         <div className="flex min-h-0 flex-1">
-          <section className={`min-w-0 flex-1 overflow-auto ${timelineFocus ? 'p-1' : 'p-3'}`}>
+          <section className={`flex min-w-0 flex-1 flex-col overflow-auto [&>*]:shrink-0 ${timelineFocus ? 'p-1' : 'p-3'}`}>
             {!timelineFocus && noteView !== 'rendition' && <><details className="mb-2 rounded-xl border border-white/10 bg-[#070a18] px-3 py-2 text-xs">
               <summary className="cursor-pointer select-none font-semibold text-slate-300">Grid, tempo map &amp; drawn length <span className="ml-2 text-[10px] text-slate-500">{cursorMusicalState.numerator}/{cursorMusicalState.denominator} · {cursorMusicalState.bpm} bpm · {cursorMusicalState.tonic} {cursorMusicalState.mode}</span></summary>
               <div className="pt-2"><MusicalTimelineControls timeline={musicalTimeline} cursor={playhead ?? 0} state={cursorMusicalState} onTempo={bpm => upsertMusicalEvent('tempo', { bpm })} onMeter={(numerator, denominator) => upsertMusicalEvent('meter', { numerator, denominator })} onKey={(tonic, mode) => upsertMusicalEvent('key', { tonic, mode })} onSnapDivision={changeSnapDivision} onNoteValue={changeNoteValue} onLatchAll={latchAllToNoteValue} onRemove={removeMusicalEvent} /></div>
@@ -2877,10 +3134,15 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
               bandBarNumber={selectedNotes[0] ? musicalBars.find(bar => selectedNotes[0].start + 0.01 >= bar.start && selectedNotes[0].start + 0.01 < bar.end)?.number : undefined}
               onBand={applyBandToSelection}
               onClear={clearMarksOnSelection} />}
-            <div className="mb-2 flex items-center gap-1 text-xs">
+            <div className="mb-2 flex flex-wrap items-center gap-1 text-xs">
               <button onClick={() => switchView('score')} className={`rounded-l-lg border px-3 py-1.5 ${noteView === 'score' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="The arrangement as an engraved open score — one staff per voice">𝄞 Score</button>
               <button onClick={() => switchView('grid')} className={`border px-3 py-1.5 ${noteView === 'grid' ? 'border-fuchsia-300/50 bg-fuchsia-300/15 text-fuchsia-100' : 'border-white/12 text-slate-400'}`} title="The piano-roll grid — for drawing and dragging notes">▦ Grid</button>
               <button onClick={() => switchView('rendition')} className={`rounded-r-lg border px-3 py-1.5 ${noteView === 'rendition' ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/12 text-slate-400'}`} title="Shape the performance: stack passes of the song, choose who sings each one, and hear the result">⟳ Rendition</button>
+              {noteView !== 'grid' && <span className="ml-auto flex items-center gap-0.5 rounded-lg border border-white/12 px-1 py-0.5">
+                <span className="px-0.5 text-[9px] font-black uppercase tracking-[.12em] text-slate-500">Size</span>
+                {SCORE_ZOOMS.map(option => <button key={option.value} onClick={() => setScoreZoom(option.value)} title={option.title}
+                  className={`rounded px-2.5 py-2 text-[11px] font-bold sm:px-1.5 sm:py-1 sm:text-[10px] ${scoreZoom === option.value ? 'bg-cyan-300/20 text-cyan-100' : 'text-slate-400'}`}>{option.label}</button>)}
+              </span>}
               {noteView === 'score' && <>
                 <button onClick={insertBarAtCaret} title={`Insert an empty bar at bar ${entryBar ? entryBar.number : '?'} (the palette's entry bar); everything after moves later`} className="ml-2 rounded-lg border border-white/15 px-2.5 py-1.5 text-slate-300">＋ bar</button>
                 <button onClick={deleteBarAtCaret} title={`Remove bar ${entryBar ? entryBar.number : '?'} and its notes; later bars move up`} className="rounded-lg border border-rose-300/25 px-2.5 py-1.5 text-rose-200">− bar</button>
@@ -2903,6 +3165,13 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 <button type="button" onClick={() => setSuggestOpen(open => !open)} aria-expanded={suggestOpen}
                   title="Arrange the whole song in a style — the band grows and settles across the song instead of strumming one pattern throughout"
                   className={`rounded-lg border px-2.5 py-1 font-semibold ${suggestOpen ? 'border-amber-300/60 bg-amber-300/15 text-amber-50' : 'border-amber-300/30 bg-amber-300/[.07] text-amber-100'}`}>✨ Suggest…</button>
+                <button type="button" onClick={() => void toggleRecording()}
+                  title={recording ? 'Stop recording. The take can then go on the score as a clip, become a sung guide, or be turned into notes.'
+                    : 'Record yourself now, straight onto this score. The take can then be placed as a clip, kept as a sung guide, or transcribed into notes.'}
+                  className={`rounded-lg border px-2.5 py-1 font-semibold ${recording ? 'border-rose-300 bg-rose-500/25 text-rose-50' : 'border-rose-300/40 bg-rose-400/10 text-rose-200'}`}>{recording ? '\u25a0 Stop' : '\ud83c\udf99 Record'}</button>
+                <button type="button" onClick={() => audioClipInputRef.current?.click()} disabled={uploadingClip}
+                  title="Put an audio FILE from this device on the score: it starts at the caret's bar and covers however long it lasts. The band keeps playing around it."
+                  className="rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-2.5 py-1 font-semibold text-emerald-100 disabled:opacity-40">{uploadingClip ? 'Uploading\u2026' : '\ud83d\udcce Audio file'}</button>
                 <span draggable
                   onDragStart={event => { event.dataTransfer.setData('application/x-vh-band', JSON.stringify({ field: 'custom', style: 'custom' })); event.dataTransfer.effectAllowed = 'copy'; }}
                   title="Drop to open the Part studio for that spot — drag across bars first and the part applies to exactly that range"
@@ -2972,8 +3241,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                     className="cursor-grab select-none rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 font-semibold text-emerald-100 active:cursor-grabbing">🎼 {timbre} clip</span>)}
               </div>}
             </div>}
-            {noteView === 'score' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
-              <ScoreView notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
+            {noteView === 'score' && <div className="order-[-1] overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
+              <ScoreView zoom={scoreZoom} notes={notes} bars={scoreBars} getPlayhead={() => playheadRef.current} selectedIds={selectedIds} tool={tool}
                 onSelectNote={(id, part, additive) => {
                   setSelectedIds(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]);
                   setSelectedId(id);
@@ -2982,8 +3251,10 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onAddNote={(part, time, midi) => {
                   // Open score: the staff clicked IS the voice entered.
                   const landing = resolveScoreAdd(time, part);
-                  addNote(part, landing.start, midi, landing.end, '');
+                  return addNote(part, landing.start, midi, landing.end, '');
                 }}
+                onAuditionNote={id => { const note = notes.find(item => item.id === id); if (note) auditionNote(note); }}
+                onAuditionNotes={ids => auditionNotes(notes.filter(item => ids.includes(item.id)))}
                 resolveAdd={(time, part) => resolveScoreAdd(time, part).start}
                 chords={trackSettings.chord_symbols}
                 onChordEdit={setChordAtTime}
@@ -2993,15 +3264,26 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onBandAudition={auditionBandAt}
                 onBandWrite={openBandWrite}
                 onBandDrop={handleBandChipDrop}
-                clipMarkers={(trackSettings.band_tracks ?? []).flatMap(track => track.clips.map(clip => ({ at: clip.start, label: `🎼 ${track.name}`, trackId: track.id, clipId: clip.id })))}
-                onClipEdit={openClipWrite}
+                clipMarkers={(trackSettings.band_tracks ?? []).flatMap(track => track.clips.map(clip => ({
+                  at: clip.start,
+                  label: clip.audio ? `\ud83c\udf99 ${clip.audio.name}` : `\ud83c\udfbc ${track.name}`,
+                  trackId: track.id, clipId: clip.id,
+                  ...(clip.audio ? { endAt: clip.start + Math.max(0.05, clip.audio.source_end - clip.audio.source_start) } : {}),
+                })))}
+                onClipDrag={(trackId, clipId, change, seconds) => updateAudioClip(trackId, clipId, change, seconds)}
+                onClipEdit={(trackId, clipId) => {
+                  const clip = (trackSettings.band_tracks ?? []).find(track => track.id === trackId)?.clips.find(item => item.id === clipId);
+                  if (clip?.audio) setAudioClipEdit({ trackId, clipId });
+                  else openClipWrite(trackId, clipId);
+                }}
                 showLeadIn
                 onDeselect={() => { setSelectedId(null); setSelectedIds([]); setEditorNotice(null); }}
                 onEraseNote={removeNote}
                 onDragCommit={(id, changes) => update(id, changes)}
+                snapTime={time => snapTimeToGrid(musicalBars, time, musicalTimeline.snap_division ?? DEFAULT_SNAP_DIVISION)}
                 onLyricChange={(id, lyric) => update(id, { lyric }, true)} />
             </div>}
-            {noteView === 'grid' && <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
+            {noteView === 'grid' && <div className="order-[-1] overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: timelineFocus ? 'calc(100vh - 76px)' : 'max(420px, calc(100vh - 290px))' }}>
               <div style={{ width: timelineWidth + TIMELINE_LABEL_WIDTH }}>
                 <div className="sticky top-0 z-40 bg-[#050716] shadow-[0_12px_28px_#02030ccc]">
                   <div onClick={event => { const bounds = event.currentTarget.getBoundingClientRect(); seekFromTimeline((event.clientX - bounds.left - TIMELINE_LABEL_WIDTH) / zoom); }} className="relative flex h-12 cursor-pointer border-b border-cyan-200/15 bg-[linear-gradient(180deg,#141936,#090d21)]" title="Click to move the playhead">
@@ -3033,8 +3315,8 @@ export function ArrangementEditor({ song, onClose, onSave, onSongCreated }: { so
                 onNotice={setEditorNotice}
                 saving={savingRendition} />
               {compiledRendition.notes.length > 0
-                ? <div className="overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915]" style={{ maxHeight: 'max(360px, calc(100vh - 470px))' }}>
-                  <ScoreView notes={compiledRendition.notes} bars={compiledRendition.bars} getPlayhead={() => playheadRef.current} selectedIds={[]} tool="select"
+                ? <div className="order-[-1] overflow-auto rounded-xl border border-[#7650d8]/40 bg-[#050716] shadow-[0_18px_55px_#0008,0_0_30px_#6d28d915] sm:order-none" style={{ maxHeight: 'max(360px, calc(100vh - 470px))' }}>
+                  <ScoreView zoom={scoreZoom} notes={compiledRendition.notes} bars={compiledRendition.bars} getPlayhead={() => playheadRef.current} selectedIds={[]} tool="select"
                     signature={renditionSignature}
                     onSelectNote={() => {}} onAddNote={() => {}} onEraseNote={() => {}} onDragCommit={() => {}} onLyricChange={() => {}} />
                 </div>
@@ -3191,7 +3473,7 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
     ? list[0].marks?.slur === 'start' && list[list.length - 1].marks?.slur === 'end'
     : list[0].marks?.hairpin === kind && list[list.length - 1].marks?.hairpin === 'end');
   const toggleClass = (on: boolean) => `rounded-lg border px-2.5 py-1.5 ${on ? 'border-amber-300/60 bg-amber-300/15 text-amber-100' : 'border-white/12 text-slate-300 hover:bg-white/[.06]'}`;
-  return <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-amber-300/20 bg-[#0a0d1f] px-3 py-2 text-xs">
+  return <div className="order-[-2] mb-2 flex flex-nowrap items-center gap-x-3 gap-y-2 overflow-x-auto rounded-xl border border-amber-300/20 bg-[#0a0d1f] px-3 py-2 text-xs [&>*]:shrink-0 sm:order-none sm:flex-wrap sm:overflow-visible">
     <span className="text-[9px] font-black uppercase tracking-[.18em] text-amber-200/80">Expression · {selection.length} note{selection.length === 1 ? '' : 's'}</span>
     <span className="flex overflow-hidden rounded-lg border border-white/12">
       {DYNAMICS.map(dynamic => <button key={dynamic} onClick={() => onDynamic(activeDynamic === dynamic ? null : dynamic)}
@@ -3219,7 +3501,7 @@ function ExpressionBar({ selection, onDynamic, onToggle, onSpan, onTempo, chord,
     {tempoButton('atempo', 'a tempo', 'A tempo — return to the written speed from the first selected note')}
     {tempoButton('allegro', 'Allegro', 'Allegro — brisk (about 5/4 of the written speed) from the first selected note')}
     <span className="h-5 w-px bg-white/10" />
-    <span className="flex max-w-full flex-wrap items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/[.06] px-2 py-1"
+    <span className="flex flex-nowrap items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/[.06] px-2 py-1 sm:max-w-full sm:flex-wrap"
       title="Sets what the band plays from this note's bar onward. Whatever you pick here keeps playing until a later note changes it or says Stop — it is one rhythm section for the whole choir, not per voice. The lane under the bass staff shows exactly what it plays.">
       <span className="text-[9px] font-black uppercase tracking-[.14em] text-rose-200/90">From bar {bandBarNumber ?? '?'} the band plays</span>
       <label className="flex min-w-0 items-center gap-1" title="The instrument part from this bar on. Leave it unchanged to keep whatever the band was already playing.">
@@ -3460,7 +3742,7 @@ function EditorToolbar({ extras, tool, setTool, drawNoteValue, onDrawNoteValueCh
   const status = playScope === 'range' ? `Range ${playRange.start.toFixed(2)}s–${playRange.end.toFixed(2)}s` : playScope === 'note' ? `${selectedCount || 1} selected note${selectedCount === 1 ? '' : 's'}` : playParts.every(Boolean) ? 'All voices' : VOICES.filter((_, index) => playParts[index]).join(' + ');
   const formatTime = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds)) % 60).padStart(2, '0')}`;
   return <div className="border-b border-white/10 bg-[#0a0c20] text-xs">
-    <div className="flex min-h-14 flex-wrap items-center gap-1.5 px-3 py-1.5 sm:h-14 sm:flex-nowrap sm:overflow-x-auto sm:py-0 [&>*]:shrink-0">
+    <div className="relative flex min-h-14 flex-wrap items-center gap-1.5 px-3 py-1.5 sm:h-14 sm:flex-nowrap sm:overflow-x-auto sm:py-0 [&>*]:shrink-0">
       <span className="flex overflow-hidden rounded-lg border border-white/12">
         {(['select', 'erase'] as EditorTool[]).map(value => <button key={value} onClick={() => setTool(value)}
           className={`px-3 py-2 capitalize ${tool === value ? 'bg-fuchsia-500/25 text-fuchsia-100' : 'text-slate-300 hover:bg-white/[.06]'}`}>{value}</button>)}

@@ -38,7 +38,17 @@ export interface SongNote {
 }
 
 export type BandTimbre = 'guitar' | 'piano' | 'bass' | 'egtr' | 'strings' | 'pad' | 'brass';
-export interface BandClip { id: string; start: number; tab: string }
+/** A recording placed on the score: the file, the crop taken from it, and
+ *  how long that crop lasts. A clip carrying this plays the audio itself
+ *  rather than the written notes in `tab`. */
+export interface BandClipAudio {
+  url: string;
+  name: string;
+  /** In and out points within the uploaded file, in seconds. */
+  source_start: number;
+  source_end: number;
+}
+export interface BandClip { id: string; start: number; tab: string; audio?: BandClipAudio }
 export interface BandTrack { id: string; name: string; timbre: BandTimbre; clips: BandClip[]; muted?: boolean }
 
 export type DynamicMark = 'pp' | 'p' | 'mp' | 'mf' | 'f' | 'ff';
