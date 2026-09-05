@@ -88694,6 +88694,56 @@ window.LHC_Install = (function() {
       border-color:var(--sf-blue);outline:none;box-shadow:0 0 0 3px rgba(76,110,245,.18),0 6px 16px rgba(15,28,63,.08);
     }
     #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-input.form-select:active { transform:translateY(1px); }
+
+    /* ---- Room for the songs -------------------------------------------------
+       Measured on a 375x812 phone: the first song row began at y=628, so the
+       catalogue opened with no song fully on screen -- a page of controls for a
+       library you could not see. Everything below is chrome above the list,
+       trimmed rather than removed: every filter still shows, the search still
+       leads, the counts still read.
+
+       The rules sit here, at this selector depth, because the block above wins
+       on specificity -- an earlier attempt one block up was silently overridden
+       and changed nothing.
+
+       Tap targets are deliberately untouched: filters stay 40px, the action
+       buttons 38px. Height is bought from padding and captions, not from the
+       size of the things you press. ------------------------------------------ */
+
+    /* The caption beside its value rather than stacked above it: 62px a filter
+       becomes 40, and "THEME  All" reads the same as it did in two lines. */
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .sf-primary-filter {
+      display:flex; align-items:center; gap:7px; min-width:0;
+    }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-label {
+      display:block; margin:0; flex:0 0 auto; white-space:nowrap; line-height:1;
+    }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .sf-primary-filter > div {
+      flex:1 1 auto; min-width:0;
+    }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-input.form-select,
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid select.form-input {
+      min-height:40px; height:40px; display:flex; align-items:center;
+    }
+    #songFinderView #sfMobilePrioritySlot { margin-top:3px; padding-top:3px; }
+
+    /* Padding, everywhere it stacks up between the tabs and the first song. */
+    #songFinderView #sfSearchCard { padding:8px !important; }
+    #songFinderView #sfCommandHeader { padding:6px; }
+    #songFinderView #sfCommandActions { padding-top:4px; }
+    #songFinderView #sfFilterBar { padding:4px 8px; }
+    #songFinderView #sfFilterBar #sfResultsRow { padding-bottom:2px; }
+
+    /* Onboarding copy that costs a song on every visit, forever. */
+    #songFinderView .sf-search-field .sf-search-foot { display:none; }
+
+    /* "Catalogue / Browse songs / Select to open", above a list of songs, under
+       a tab already labelled Songs. The heading stays; the restatements go. */
+    #songFinderView .sf-catalog-head { padding:4px 10px; }
+    #songFinderView .sf-catalog-head .sf-eyebrow,
+    #songFinderView .sf-catalog-head .sf-catalog-hint { display:none; }
+    #songFinderView .sf-catalog-head h4 { font-size:.82rem; margin:0; }
+
     #songFinderView #sfMobilePrioritySlot #filterScriptureChips { display:none !important; }
     #songFinderView #sfMobilePrioritySlot #sfMobileFiltersBtn {
       display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;margin:5px 0 0 auto;padding:0 10px;
