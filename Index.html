@@ -2055,18 +2055,32 @@
     }
 
     /* ==================== SEARCH SUGGESTIONS ==================== */
+    /* The suggestion list sits IN the flow, pushing the filters down, rather
+       than floating over them.
+
+       Floating did not work here and could not be made to. It hung inside a
+       wrapper carrying z-index:1, which caps everything inside it at that
+       level however high the list itself asks for -- and #sfMobilePrioritySlot
+       is also z-index:1 and comes later in the document, so the filters painted
+       over the suggestions. Typing "a" put four filter dropdowns straight
+       through the middle of the results.
+
+       Raising the wrapper would have fixed the painting and left the second
+       fault untouched: #sfSearchCard is overflow:hidden, so the list was also
+       being cut off 36px short of its own last row. In the flow, the card grows
+       to fit and there is nothing to overlap and nothing to clip.
+
+       The list is capped and scrolls internally, so a long match list moves the
+       filters down by a screenful at most, and putting them back is a matter of
+       clearing the box. */
     #searchSuggestions {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      right: 0;
-      margin-top: 4px;
+      position: static;
+      margin-top: 6px;
       background: white;
       border: 1px solid #e2e8f0;
       border-radius: 12px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-      z-index: 100;
-      max-height: 300px;
+      box-shadow: 0 6px 18px rgba(15,28,63,0.08);
+      max-height: 260px;
       overflow-y: auto;
       display: none;
     }
@@ -5893,9 +5907,14 @@
               <button id="clearSearchBtn" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 hidden" title="Clear search">
                 <i class="fa-solid fa-xmark"></i>
               </button>
-              <!-- Search Suggestions Dropdown -->
-              <div id="searchSuggestions"></div>
             </div>
+            <!-- Suggestions sit OUTSIDE the input row on purpose. Inside it, the
+                 row is the positioning context for the magnifier and the clear
+                 button, which are centred with top:50% -- so once the list was in
+                 the flow and the row grew to 314px, both icons drifted down into
+                 the middle of the results. Out here the row stays input-height and
+                 the list still pushes the filters down. -->
+            <div id="searchSuggestions"></div>
             <div class="sf-search-foot">
               <span><i class="fa-solid fa-wand-magic-sparkles"></i> Try “Advent”, “Psalm 23” or an artist name</span>
               <span class="sf-key-hint">/ to focus</span>
@@ -8677,6 +8696,30 @@
   }
   .asm-footer.has-delete { justify-content: space-between; }
   /* Field spacing inside sections */
+  /* Field height is set by what is pointing at it, not by how wide the window
+     is. A narrow browser window is not a phone: it has a mouse, and a mouse can
+     hit a 30px box exactly as well as a 45px one. A finger cannot, so touch
+     keeps the taller control however narrow the viewport gets.
+
+     This is why the earlier width-based pass could not go further: shrinking at
+     narrow widths would have taken the phone down with it. */
+  .asm-content .form-input,
+  .asm-content select.form-input,
+  .asm-content textarea.form-input {
+    min-height: 34px; padding-top: 6px; padding-bottom: 6px;
+  }
+  .asm-content .form-label { margin-bottom: 2px; }
+
+  @media (pointer: fine) {
+    .asm-content .form-input,
+    .asm-content select.form-input,
+    .asm-content textarea.form-input {
+      min-height: 30px !important; padding-top: 4px !important; padding-bottom: 4px !important;
+    }
+    .asm-content .form-label { margin-bottom: 1px; font-size: 10px; }
+    .asm-content .asm-field { margin-bottom: 5px; }
+    .asm-content .asm-section { padding: 8px 10px; }
+  }
   .asm-field { margin-bottom: 8px; }
   .asm-field:last-child { margin-bottom: 0; }
 
@@ -88742,14 +88785,18 @@ window.LHC_Install = (function() {
     #songFinderView #sfMobilePrioritySlot #sfFilterGrid select.form-input {
       min-height:40px; height:40px; display:flex; align-items:center;
     }
-    #songFinderView #sfMobilePrioritySlot { margin-top:3px; padding-top:3px; }
+    #songFinderView #sfMobilePrioritySlot { margin-top:2px; padding-top:2px; }
 
-    /* Padding, everywhere it stacks up between the tabs and the first song. */
-    #songFinderView #sfSearchCard { padding:8px !important; }
-    #songFinderView #sfCommandHeader { padding:6px; }
-    #songFinderView #sfCommandActions { padding-top:4px; }
-    #songFinderView #sfFilterBar { padding:4px 8px; }
-    #songFinderView #sfFilterBar #sfResultsRow { padding-bottom:2px; }
+    /* Padding, everywhere it stacks up between the tabs and the first song.
+       Trimmed twice: the second pass took another ten pixels out of the search
+       block, mostly from the gaps around the filter grid and the search field
+       rather than from anything you touch. */
+    #songFinderView #sfSearchCard { padding:5px !important; }
+    #songFinderView #sfCommandHeader { padding:4px; }
+    #songFinderView #sfCommandActions { padding-top:2px; }
+    #songFinderView #sfFilterBar { padding:2px 8px; }
+    #songFinderView #sfFilterBar #sfResultsRow { padding-bottom:1px; }
+    #songFinderView #sfCommandHeader > .sf-search-field { margin-top:0; }
 
     /* Onboarding copy that costs a song on every visit, forever. */
     #songFinderView .sf-search-field .sf-search-foot { display:none; }
