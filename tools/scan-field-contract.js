@@ -128,7 +128,23 @@ else {
   }
 }
 
-// ── 3. the setter that does the mapping still exists ───────────────────────
+// ── 3. the edit form loads its key through the matcher, not by assignment ──
+// The edit form had its own copy of the original bug: it assigned song.key
+// straight into a <select>, so a key the options did not match left the field
+// blank -- and saving then wrote that blank back over a real key. A song could
+// lose its key by being opened and saved without being touched.
+console.log('');
+console.log('the edit form loads its key by meaning');
+if (/\$\('editSongKey'\)\.value = song\.key/.test(HTML))
+  fail('#editSongKey is assigned song.key directly again -- a key the options do not match will be blanked on save');
+else if (!/_asmSetKeyField\(song\.key, 'editSongKey'\)/.test(HTML))
+  fail('the edit form no longer loads its key through _asmSetKeyField');
+else pass('#editSongKey is filled through the matcher');
+if (!/key: \$\('editSongKey'\)\.value \|\| _asmEditingKey/.test(HTML))
+  fail('saveEditSong can write an empty key over a real one');
+else pass('a save keeps the key it could not display');
+
+// ── 4. the setter that does the mapping still exists ───────────────────────
 console.log('');
 console.log('the key setter is still wired up');
 if (!/function _asmSetKeyField\(/.test(HTML)) fail('_asmSetKeyField is gone');

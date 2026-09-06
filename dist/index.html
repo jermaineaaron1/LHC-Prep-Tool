@@ -14452,8 +14452,15 @@ function _asmClearScanBanner() {
 // hymnal, and it failed invisibly: the banner counted the key as filled and
 // the field got the violet from-the-scan edge, while the dropdown said
 // nothing. A song would have been saved with no key at all.
-function _asmSetKeyField(value) {
-  var el = document.getElementById('newSongKey');
+// The key the edit form was opened with, so a save cannot replace a real key
+// with an empty one when the dropdown failed to display it.
+var _asmEditingKey = '';
+
+// Matches a key to one of a dropdown's options by note rather than by
+// spelling. Used by both forms: the scan fills the add form through it, and
+// the edit form loads an existing song through it.
+function _asmSetKeyField(value, elId) {
+  var el = document.getElementById(elId || 'newSongKey');
   if (!el || value === null || value === undefined || value === '') return false;
   var norm = function(s) {
     return String(s).replace(/\u266f/g, '#').replace(/\u266d/g, 'b')
@@ -21062,7 +21069,14 @@ window.loadEditSongData = function(song) {
     $('editSongId').value = song.id;
     $('editSongTitle').value = song.title || '';
     $('editSongArtist').value = song.artist || '';
-    $('editSongKey').value = song.key || '';
+    // Not a plain assignment. #editSongKey is a <select>, so a value matching
+    // no option leaves it blank -- and the save then writes that blank back
+    // over the key. A stored 'Ab' against options spelled 'G#' would erase the
+    // key of any song merely opened and saved. Same matcher the scan uses.
+    $('editSongKey').value = '';
+    _asmSetKeyField(song.key, 'editSongKey');
+    // Kept so the save can tell "no key" from "a key I could not display".
+    _asmEditingKey = String(song.key || '');
     $('editSongTempo').value = song.tempo || '';
     $('editSongTheme').value = song.theme || '';
     // Migration-backed fields. bpm uses '' rather than 0 for unset.
@@ -21162,7 +21176,10 @@ window.loadEditSongData = function(song) {
       artist: $('editSongArtist').value || '',
       category: $('editSongCategory').value || '',
       era: ($('editSongEra') ? $('editSongEra').value : '') || '',
-      key: $('editSongKey').value || '',
+      // If the dropdown never showed the key, the song keeps the one it had.
+      // Writing the empty string here is how a key is lost by opening a song
+      // and pressing save without touching it.
+      key: $('editSongKey').value || _asmEditingKey || '',
       tempo: $('editSongTempo').value || '',
       theme: $('editSongTheme').value || '',
       season: $('editSongSeason').value || '',
