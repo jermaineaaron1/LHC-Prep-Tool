@@ -8720,21 +8720,6 @@
     .asm-content .asm-field { margin-bottom: 5px; }
     .asm-content .asm-section { padding: 8px 10px; }
   }
-  .asm-optional { margin-top: 8px; border-top: 1px dashed var(--sf-line, #e3e8f4); padding-top: 6px; }
-  .asm-optional > summary {
-    cursor: pointer; list-style: none; user-select: none;
-    font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
-    color: var(--sf-muted, #5f6b91); padding: 4px 2px;
-  }
-  .asm-optional > summary::-webkit-details-marker { display: none; }
-  .asm-optional > summary::before { content: "\25b8"; display: inline-block; margin-right: 6px; transition: transform .15s ease; }
-  .asm-optional[open] > summary::before { transform: rotate(90deg); }
-  .asm-optional > summary:hover { color: var(--sf-navy, #0f1c3f); }
-  /* A closed <details> hides its content by default -- unless the content sets
-     its own display, which .asm-grid-2 does. Without this the fields stayed laid
-     out at 77px while the fold reported itself closed: invisible, but occupying
-     space and able to sit over whatever came next. */
-  .asm-optional:not([open]) > .asm-grid-2 { display: none !important; }
   .asm-field { margin-bottom: 8px; }
   .asm-field:last-child { margin-bottom: 0; }
 
@@ -9075,29 +9060,6 @@
                 <input id="newSongArtist" class="form-input" placeholder="Artist or composer name" autocomplete="off">
               </div>
             </div>
-            <!-- Folded away, not deleted. Nothing in the library uses these three
-                 -- 0 of 59 songs carry an alternate title, copyright or CCLI number
-                 -- so they were taking prime space in the first thing you see for a
-                 case that has never once arisen. Removing them outright would have
-                 cost more than it saved: the scanner reads all three off a sheet,
-                 and a printed CCLI number with nowhere to go is a reading thrown
-                 away. Collapsed, the form is as short as if they were gone; opened,
-                 nothing has been lost. It springs open by itself when any of them
-                 has a value, so a scan never hides what it found. -->
-            <details class="asm-optional" id="newSongOptionalDetails">
-              <summary>Alternate title, copyright and CCLI</summary>
-              <div class="asm-grid-2" style="margin-top:8px;">
-              <div>
-                <label class="form-label" for="newSongAlternateTitle">Alternate Title</label>
-                <input id="newSongAlternateTitle" class="form-input" placeholder="Optional alternate or short title" autocomplete="off">
-                </div>
-              <div>
-                <label class="form-label" for="newSongCopyright">Copyright / CCLI</label>
-                <input id="newSongCopyright" class="form-input" placeholder="e.g. Public Domain" autocomplete="off">
-                <input id="newSongCcli" class="form-input" style="margin-top:6px;" placeholder="CCLI Song # (optional)" autocomplete="off">
-                </div>
-              </div>
-            </details>
           </div>
 
           <!-- § Musical + Liturgical — two cards side by side on desktop -->
@@ -9550,29 +9512,6 @@
                 <input id="editSongArtist" class="form-input" placeholder="Artist or composer name" autocomplete="off">
               </div>
             </div>
-            <!-- Folded away, not deleted. Nothing in the library uses these three
-                 -- 0 of 59 songs carry an alternate title, copyright or CCLI number
-                 -- so they were taking prime space in the first thing you see for a
-                 case that has never once arisen. Removing them outright would have
-                 cost more than it saved: the scanner reads all three off a sheet,
-                 and a printed CCLI number with nowhere to go is a reading thrown
-                 away. Collapsed, the form is as short as if they were gone; opened,
-                 nothing has been lost. It springs open by itself when any of them
-                 has a value, so a scan never hides what it found. -->
-            <details class="asm-optional" id="editSongOptionalDetails">
-              <summary>Alternate title, copyright and CCLI</summary>
-              <div class="asm-grid-2" style="margin-top:8px;">
-              <div>
-                <label class="form-label" for="editSongAlternateTitle">Alternate Title</label>
-                <input id="editSongAlternateTitle" class="form-input" placeholder="Optional alternate or short title" autocomplete="off">
-                </div>
-              <div>
-                <label class="form-label" for="editSongCopyright">Copyright / CCLI</label>
-                <input id="editSongCopyright" class="form-input" placeholder="e.g. Public Domain" autocomplete="off">
-                <input id="editSongCcli" class="form-input" style="margin-top:6px;" placeholder="CCLI Song # (optional)" autocomplete="off">
-                </div>
-              </div>
-            </details>
           </div>
 
           <!-- § Musical + Liturgical -->
@@ -14492,24 +14431,6 @@ function _asmSetChordNote(d) {
   el.innerHTML = html;
 }
 
-// A folded section must never hide a value. Called after a scan fills the
-// form and after an existing song is loaded for editing: if any of the three
-// optional fields has something in it, the section is already open.
-function _asmSyncOptional(mode) {
-  var box = document.getElementById(mode + 'SongOptionalDetails');
-  if (!box) return;
-  // Closed unless this song needs it. The element is reused between songs, so
-  // without resetting, one song with a CCLI number left the fold open for every
-  // song opened afterwards.
-  box.open = false;
-  var ids = [mode + 'SongAlternateTitle', mode + 'SongCopyright', mode + 'SongCcli'];
-  var filled = ids.some(function(id) {
-    var el = document.getElementById(id);
-    return el && String(el.value || '').trim() !== '';
-  });
-  if (filled) box.open = true;
-}
-
 function _asmClearScanBanner() {
   var b = document.getElementById('asmScanBanner');
   if (b) { b.style.display = 'none'; b.innerHTML = ''; }
@@ -14627,8 +14548,7 @@ function _asmRecordCorrection(saved) {
     if (Date.now() - last.at > 2 * 60 * 60 * 1000) { window._asmLastScan = null; return; }
 
     var fields = ['title', 'artist', 'key', 'tempo', 'category', 'season', 'theme',
-                  'scripture', 'alternateTitle', 'copyright', 'ccliNumber',
-                  'timeSignature', 'bpm', 'lyrics'];
+                  'scripture', 'timeSignature', 'bpm', 'lyrics'];
     var savedSubset = {};
     fields.forEach(function(f) { savedSubset[f] = saved[f] === undefined ? null : saved[f]; });
 
@@ -14669,10 +14589,6 @@ function _asmApplyScan(d) {
   if (_asmSetScanned('newSongScripture', d.scripture)) filled.push('scripture');
   // Printed on most worship sheets and previously ignored, even though the
   // form and the database have had fields for them all along.
-  if (_asmSetScanned('newSongAlternateTitle', d.alternateTitle)) filled.push('alternate title');
-  if (_asmSetScanned('newSongCopyright', d.copyright)) filled.push('copyright');
-  if (_asmSetScanned('newSongCcli', d.ccli)) filled.push('CCLI number');
-  _asmSyncOptional('new');
   if (_asmSetScanned('newSongTimeSignature', d.timeSignature)) filled.push('time signature');
   if (_asmSetScanned('newSongBpm', d.bpm)) filled.push('BPM');
   if (d.themes && d.themes.length && typeof setThemeSelection === 'function') {
@@ -18218,11 +18134,9 @@ window.loadEditSongData = function(song) {
       lastUsed: s.lastUsed || '',
       dateAdded: s.dateAdded || '',
       lastEdited: s.lastEdited || '',
-      // Fields backed by the 2026-08-17 migration. bpm stays a number or ''
-      // so an unset value never renders as 0.
-      alternateTitle: String(s.alternateTitle || '').trim(),
-      copyright: String(s.copyright || '').trim(),
-      ccliNumber: String(s.ccliNumber || '').trim(),
+      // bpm stays a number or '' so an unset value never renders as 0.
+      // Alternate title, copyright and CCLI were removed from the form; the
+      // columns remain in the database, untouched, holding nothing.
       timeSignature: String(s.timeSignature || '').trim(),
       bpm: (s.bpm == null || s.bpm === '') ? '' : (parseInt(s.bpm, 10) || ''),
       serviceSuitability: Array.isArray(s.serviceSuitability) ? s.serviceSuitability : [],
@@ -21152,9 +21066,6 @@ window.loadEditSongData = function(song) {
     $('editSongTempo').value = song.tempo || '';
     $('editSongTheme').value = song.theme || '';
     // Migration-backed fields. bpm uses '' rather than 0 for unset.
-    $('editSongAlternateTitle').value = song.alternateTitle || '';
-    $('editSongCopyright').value = song.copyright || '';
-    $('editSongCcli').value = song.ccliNumber || '';
     $('editSongTimeSignature').value = song.timeSignature || '';
     $('editSongBpm').value = (song.bpm == null || song.bpm === '') ? '' : song.bpm;
     _asmSetSuitability('editSongSuitability', song.serviceSuitability);
@@ -21198,7 +21109,6 @@ window.loadEditSongData = function(song) {
     // Load data into new modal structure (YouTube, attachments, lyrics)
     if (typeof window.loadEditSongData === 'function') {
       window.loadEditSongData(song);
-      if (typeof _asmSyncOptional === 'function') _asmSyncOptional('edit');
     }
 
     openModal('editSongModal');
@@ -21244,9 +21154,6 @@ window.loadEditSongData = function(song) {
       id: songId,
       title: title,
       // Fields backed by the 2026-08-17 migration.
-      alternateTitle: _asmVal('editSongAlternateTitle'),
-      copyright: _asmVal('editSongCopyright'),
-      ccliNumber: _asmVal('editSongCcli'),
       timeSignature: _asmVal('editSongTimeSignature'),
       bpm: _asmVal('editSongBpm'),
       serviceSuitability: _asmSuitability('editSongSuitability'),
@@ -22407,9 +22314,6 @@ window.loadEditSongData = function(song) {
     var songData = {
       title: title,
       // Fields backed by the 2026-08-17 migration.
-      alternateTitle: _asmVal('newSongAlternateTitle'),
-      copyright: _asmVal('newSongCopyright'),
-      ccliNumber: _asmVal('newSongCcli'),
       timeSignature: _asmVal('newSongTimeSignature'),
       bpm: _asmVal('newSongBpm'),
       serviceSuitability: _asmSuitability('newSongSuitability'),
@@ -23659,7 +23563,7 @@ window.loadEditSongData = function(song) {
       // cleared before, which left the main ones carrying over.
       ['newSongTitle','newSongArtist','newSongKey','newSongTempo','newSongCategory',
        'newSongSeason','newSongEra','newSongLyricsData',
-       'newSongAlternateTitle','newSongCopyright','newSongCcli','newSongTimeSignature','newSongBpm']
+       'newSongTimeSignature','newSongBpm']
         .forEach(function(id) { var e = $(id); if (e) e.value = ''; });
       if (typeof updateNewSongLyricsSummary === 'function') updateNewSongLyricsSummary();
       // Media, attachments and lyrics belong to the song being added, not the
@@ -25454,9 +25358,6 @@ function songToRow(song) {
     // Columns added by 2026-08-17_song_finder_redesign_fields. bpm is the one
     // numeric field, so an empty box must become null rather than 0 -- 0 BPM
     // would read as a real (and wrong) tempo.
-    alternate_title:     song.alternateTitle || '',
-    copyright:           song.copyright      || '',
-    ccli_number:         song.ccliNumber     || '',
     time_signature:      song.timeSignature  || '',
     bpm:                 (song.bpm === '' || song.bpm == null) ? null : (parseInt(song.bpm, 10) || null),
     service_suitability: Array.isArray(song.serviceSuitability) ? song.serviceSuitability : [],
@@ -25491,9 +25392,6 @@ function normalizeSongFromSupabase(row) {
     // actually ships. bpm in particular must become '' and not stay null, or
     // the number input renders "null"; the jsonb fields must be real
     // array/object defaults for rows written before the migration.
-    alternateTitle:     row.alternate_title || '',
-    copyright:          row.copyright       || '',
-    ccliNumber:         row.ccli_number     || '',
     timeSignature:      row.time_signature  || '',
     bpm:                (row.bpm == null || row.bpm === '') ? '' : row.bpm,
     serviceSuitability: Array.isArray(row.service_suitability) ? row.service_suitability : [],
