@@ -59,9 +59,6 @@ const RESPONSE_SCHEMA = {
     season: { type: Type.STRING, nullable: true, description: 'Liturgical season, chosen from the allowed seasons list, or null. Only when the text clearly belongs to that season.' },
     themes: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Up to three themes, each chosen from the allowed themes list. Empty array if none clearly apply.' },
     scripture: { type: Type.STRING, nullable: true, description: 'Any scripture reference printed on the sheet, e.g. "Psalm 23". Null if absent.' },
-    alternateTitle: { type: Type.STRING, nullable: true, description: 'A second title in brackets or on the line below. Null if there is only one title.' },
-    copyright: { type: Type.STRING, nullable: true, description: 'The copyright line as printed, e.g. "(c) 1998 Thankyou Music". Usually small print at the foot of the page. Null if absent.' },
-    ccli: { type: Type.STRING, nullable: true, description: 'The CCLI SONG number only, digits alone, from text like "CCLI Song #1234567". Not the licence number. Null if absent.' },
     timeSignature: { type: Type.STRING, nullable: true, description: 'Time signature as printed, e.g. "4/4", "3/4", "6/8". On a score it follows the clef and key signature. Null if absent.' },
     bpm: { type: Type.INTEGER, nullable: true, description: 'Beats per minute only if a number is printed. Null if none is printed -- never estimate one.' },
     capo: { type: Type.STRING, nullable: true, description: 'Any capo instruction as printed, e.g. "Capo 3". Null if absent.' },
@@ -73,7 +70,7 @@ const RESPONSE_SCHEMA = {
     confidence: { type: Type.STRING, description: 'One of "high", "medium", "low" -- how legible the sheet was overall.' },
     notes: { type: Type.STRING, nullable: true, description: 'One short sentence for the reviewer about anything unclear, cut off, or guessed. Null if the read was clean.' },
   },
-  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'alternateTitle', 'copyright', 'ccli', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'chordsSuggested', 'hasMusicNotation', 'versesOnPage', 'confidence', 'notes'],
+  required: ['title', 'artist', 'key', 'tempo', 'style', 'season', 'themes', 'scripture', 'timeSignature', 'bpm', 'capo', 'lyrics', 'chordsFound', 'chordsSuggested', 'hasMusicNotation', 'versesOnPage', 'confidence', 'notes'],
 };
 
 // The client hands this route a URL and the server fetches it, so without a
@@ -812,8 +809,6 @@ export async function POST(req: NextRequest) {
       'and a syllable split is not one. When in doubt, join.',
       '',
       'ALSO ON THE PAGE, and easy to miss:',
-      '  * The copyright line in small print at the foot, and a CCLI song number',
-      '    ("CCLI Song #1234567"). Take the SONG number, not the licence number.',
       '  * A time signature after the clef, and a printed tempo such as 72 bpm.',
       '    Only report a BPM that is actually printed -- never estimate one.',
       '  * A capo instruction, and any second title in brackets or underneath.',
@@ -1146,10 +1141,6 @@ export async function POST(req: NextRequest) {
       season: pick(result.season, v.seasons),
       themes,
       scripture: typeof result.scripture === 'string' ? result.scripture.trim() : null,
-      alternateTitle: typeof result.alternateTitle === 'string' ? result.alternateTitle.trim() : null,
-      copyright: typeof result.copyright === 'string' ? result.copyright.trim() : null,
-      // Digits only: sheets print "CCLI Song #1234567" and the field wants the number.
-      ccli: typeof result.ccli === 'string' ? (result.ccli.replace(/\D+/g, '') || null) : null,
       timeSignature: typeof result.timeSignature === 'string' ? result.timeSignature.trim() : null,
       // A printed tempo, never an estimated one; anything outside a plausible
       // range is a misread rather than a marking.
