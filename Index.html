@@ -8720,6 +8720,21 @@
     .asm-content .asm-field { margin-bottom: 5px; }
     .asm-content .asm-section { padding: 8px 10px; }
   }
+  .asm-optional { margin-top: 8px; border-top: 1px dashed var(--sf-line, #e3e8f4); padding-top: 6px; }
+  .asm-optional > summary {
+    cursor: pointer; list-style: none; user-select: none;
+    font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--sf-muted, #5f6b91); padding: 4px 2px;
+  }
+  .asm-optional > summary::-webkit-details-marker { display: none; }
+  .asm-optional > summary::before { content: "\25b8"; display: inline-block; margin-right: 6px; transition: transform .15s ease; }
+  .asm-optional[open] > summary::before { transform: rotate(90deg); }
+  .asm-optional > summary:hover { color: var(--sf-navy, #0f1c3f); }
+  /* A closed <details> hides its content by default -- unless the content sets
+     its own display, which .asm-grid-2 does. Without this the fields stayed laid
+     out at 77px while the fold reported itself closed: invisible, but occupying
+     space and able to sit over whatever came next. */
+  .asm-optional:not([open]) > .asm-grid-2 { display: none !important; }
   .asm-field { margin-bottom: 8px; }
   .asm-field:last-child { margin-bottom: 0; }
 
@@ -9060,17 +9075,29 @@
                 <input id="newSongArtist" class="form-input" placeholder="Artist or composer name" autocomplete="off">
               </div>
             </div>
-            <div class="asm-grid-2" style="margin-top:10px;">
+            <!-- Folded away, not deleted. Nothing in the library uses these three
+                 -- 0 of 59 songs carry an alternate title, copyright or CCLI number
+                 -- so they were taking prime space in the first thing you see for a
+                 case that has never once arisen. Removing them outright would have
+                 cost more than it saved: the scanner reads all three off a sheet,
+                 and a printed CCLI number with nowhere to go is a reading thrown
+                 away. Collapsed, the form is as short as if they were gone; opened,
+                 nothing has been lost. It springs open by itself when any of them
+                 has a value, so a scan never hides what it found. -->
+            <details class="asm-optional" id="newSongOptionalDetails">
+              <summary>Alternate title, copyright and CCLI</summary>
+              <div class="asm-grid-2" style="margin-top:8px;">
               <div>
                 <label class="form-label" for="newSongAlternateTitle">Alternate Title</label>
                 <input id="newSongAlternateTitle" class="form-input" placeholder="Optional alternate or short title" autocomplete="off">
-              </div>
+                </div>
               <div>
                 <label class="form-label" for="newSongCopyright">Copyright / CCLI</label>
                 <input id="newSongCopyright" class="form-input" placeholder="e.g. Public Domain" autocomplete="off">
                 <input id="newSongCcli" class="form-input" style="margin-top:6px;" placeholder="CCLI Song # (optional)" autocomplete="off">
+                </div>
               </div>
-            </div>
+            </details>
           </div>
 
           <!-- § Musical + Liturgical — two cards side by side on desktop -->
@@ -9523,17 +9550,29 @@
                 <input id="editSongArtist" class="form-input" placeholder="Artist or composer name" autocomplete="off">
               </div>
             </div>
-            <div class="asm-grid-2" style="margin-top:10px;">
+            <!-- Folded away, not deleted. Nothing in the library uses these three
+                 -- 0 of 59 songs carry an alternate title, copyright or CCLI number
+                 -- so they were taking prime space in the first thing you see for a
+                 case that has never once arisen. Removing them outright would have
+                 cost more than it saved: the scanner reads all three off a sheet,
+                 and a printed CCLI number with nowhere to go is a reading thrown
+                 away. Collapsed, the form is as short as if they were gone; opened,
+                 nothing has been lost. It springs open by itself when any of them
+                 has a value, so a scan never hides what it found. -->
+            <details class="asm-optional" id="editSongOptionalDetails">
+              <summary>Alternate title, copyright and CCLI</summary>
+              <div class="asm-grid-2" style="margin-top:8px;">
               <div>
                 <label class="form-label" for="editSongAlternateTitle">Alternate Title</label>
                 <input id="editSongAlternateTitle" class="form-input" placeholder="Optional alternate or short title" autocomplete="off">
-              </div>
+                </div>
               <div>
                 <label class="form-label" for="editSongCopyright">Copyright / CCLI</label>
                 <input id="editSongCopyright" class="form-input" placeholder="e.g. Public Domain" autocomplete="off">
                 <input id="editSongCcli" class="form-input" style="margin-top:6px;" placeholder="CCLI Song # (optional)" autocomplete="off">
+                </div>
               </div>
-            </div>
+            </details>
           </div>
 
           <!-- § Musical + Liturgical -->
@@ -14453,6 +14492,24 @@ function _asmSetChordNote(d) {
   el.innerHTML = html;
 }
 
+// A folded section must never hide a value. Called after a scan fills the
+// form and after an existing song is loaded for editing: if any of the three
+// optional fields has something in it, the section is already open.
+function _asmSyncOptional(mode) {
+  var box = document.getElementById(mode + 'SongOptionalDetails');
+  if (!box) return;
+  // Closed unless this song needs it. The element is reused between songs, so
+  // without resetting, one song with a CCLI number left the fold open for every
+  // song opened afterwards.
+  box.open = false;
+  var ids = [mode + 'SongAlternateTitle', mode + 'SongCopyright', mode + 'SongCcli'];
+  var filled = ids.some(function(id) {
+    var el = document.getElementById(id);
+    return el && String(el.value || '').trim() !== '';
+  });
+  if (filled) box.open = true;
+}
+
 function _asmClearScanBanner() {
   var b = document.getElementById('asmScanBanner');
   if (b) { b.style.display = 'none'; b.innerHTML = ''; }
@@ -14615,6 +14672,7 @@ function _asmApplyScan(d) {
   if (_asmSetScanned('newSongAlternateTitle', d.alternateTitle)) filled.push('alternate title');
   if (_asmSetScanned('newSongCopyright', d.copyright)) filled.push('copyright');
   if (_asmSetScanned('newSongCcli', d.ccli)) filled.push('CCLI number');
+  _asmSyncOptional('new');
   if (_asmSetScanned('newSongTimeSignature', d.timeSignature)) filled.push('time signature');
   if (_asmSetScanned('newSongBpm', d.bpm)) filled.push('BPM');
   if (d.themes && d.themes.length && typeof setThemeSelection === 'function') {
@@ -21140,6 +21198,7 @@ window.loadEditSongData = function(song) {
     // Load data into new modal structure (YouTube, attachments, lyrics)
     if (typeof window.loadEditSongData === 'function') {
       window.loadEditSongData(song);
+      if (typeof _asmSyncOptional === 'function') _asmSyncOptional('edit');
     }
 
     openModal('editSongModal');
