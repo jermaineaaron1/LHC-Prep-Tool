@@ -82010,7 +82010,17 @@ function filterLiturgyItems() {
       // We only set width to match the real table's full scrollable width.
       var cloneTable = document.createElement('table');
       cloneTable.className = 'roster-table roster-sticky-clone-table';
-      cloneTable.appendChild(thead.cloneNode(true));
+      // cloneNode copies ids, and this copy is appended to the document next to
+      // the original -- so the header row's id would exist twice on the page.
+      // getElementById happens to keep working (it returns the first match, and
+      // the real table comes first in the document), but any
+      // querySelectorAll('#rosterThead ...') silently collects both tables and
+      // measures the wrong columns. The clone is decorative; nothing addresses
+      // it by id, so it should not carry any.
+      var headClone = thead.cloneNode(true);
+      if (headClone.id) headClone.removeAttribute('id');
+      headClone.querySelectorAll('[id]').forEach(function(el) { el.removeAttribute('id'); });
+      cloneTable.appendChild(headClone);
       clone.appendChild(cloneTable);
       document.body.appendChild(clone);
 
