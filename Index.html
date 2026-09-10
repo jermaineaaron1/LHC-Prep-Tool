@@ -2337,10 +2337,9 @@
     /* Scoped to the view so it outranks .roster-frequent-cell, which is
        defined later and would otherwise repaint these cells yellow -- being
        on two duties this Sunday matters more than being on duty often.
-       Deliberately no ::after badge: that pseudo-element already carries the
-       "cell has a value" tick (.roster-cell-edited::after), and a second one
-       would silently replace it. The dashed border and the tooltip carry the
-       meaning instead. */
+       Deliberately no ::after badge: a corner mark on a cell reads as a status
+       stamp, and the one this view used to carry was removed for saying nothing.
+       The dashed border and the tooltip carry the meaning instead. */
     #worshipRosterView .roster-double-duty-cell {
       background: #fee2e2 !important;
       border: 1px dashed #ef4444 !important;
@@ -2919,23 +2918,12 @@
     .altar-color-dot:hover { transform: scale(1.15); }
 
     /* ==================== CELL EDITING ==================== */
+    /* No corner tick. It used to mark "this cell has a value", which on a
+       filled roster is almost every cell, so it marked nothing and stole
+       room from the name. The class stays: it is the hook the cell-state
+       code toggles, and it establishes the containing block for the pending
+       hourglass and the dropdown caret. */
     .roster-cell-edited { position: relative; }
-    .roster-cell-edited::after {
-      content: '✓';
-      position: absolute;
-      top: 4px;
-      right: 4px;
-      color: #059669;
-      font-size: 10px;
-      background: white;
-      border-radius: 50%;
-      width: 16px;
-      height: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
     /* Auto-Suggest pending cells -- awaiting PIC confirmation, no calendar push yet */
     .roster-cell-pending { background: #fef9c3 !important; }
     .roster-cell-pending .roster-cell-value { color: #713f12 !important; font-weight: 600; }
@@ -79842,10 +79830,6 @@ function filterLiturgyItems() {
       font-size: 9px !important;
     }
 
-    /* Hide edit indicators in print */
-    .roster-cell-edited::after {
-      display: none !important;
-    }
 
     /* Ensure date chips are visible */
     .roster-date-chip {
@@ -87106,11 +87090,29 @@ function filterLiturgyItems() {
       // scrolls, leaving a column half cut off). A manual rAF-driven
       // scroll doesn't depend on the browser's native implementation, so
       // it always actually lands on the target.
+      // Where a gesture starts from. snapMobileToNearest measures the swipe
+      // against this, so every scroll we perform ourselves -- Prev/Next, and
+      // the post-render restore -- has to move it too, or the next swipe is
+      // measured from a page the table has already left.
+      this._snapAnchorScroll = left;
       if (smooth) {
         this._animateScrollLeft(wrapper, left, 280);
       } else {
         wrapper.scrollLeft = left;
       }
+    },
+
+    // The scroll position that would put column `o` flush against the sticky
+    // labels column -- clamped to what the wrapper can actually reach.
+    // The clamp is the point: the last page's ideal position is normally past
+    // the end of the scroll range, and judging it by that unreachable ideal is
+    // what used to make the far right impossible to settle on.
+    _mobileScrollTargetFor: function(thead, wrapper, firstThRect, o) {
+      var th = thead.querySelector('th[data-col-idx="' + o + '"]');
+      if (!th) return null;
+      var maxScroll = Math.max(0, wrapper.scrollWidth - wrapper.clientWidth);
+      var ideal = wrapper.scrollLeft + (th.getBoundingClientRect().left - firstThRect.right);
+      return Math.min(maxScroll, Math.max(0, ideal));
     },
 
     // Minimal eased scrollLeft animation -- see scrollToMobileOffset for why
@@ -87160,7 +87162,6 @@ function filterLiturgyItems() {
       // -- see its comment for why offsetLeft isn't trustworthy here.
       var firstThRect = firstTh.getBoundingClientRect();
       var maxOffset = Math.max(0, days.length - 2);
-      var best = STATE.rosterMobileOffset, bestDist = Infinity;
       // Candidates are every even step from 0, PLUS maxOffset itself. For an
       // odd-length month (e.g. 5 dates -> maxOffset=3), stepping by 2 from 0
       // never lands on 3, so the final "page" -- the one that fully reveals
@@ -87171,15 +87172,61 @@ function filterLiturgyItems() {
       var candidates = [];
       for (var o = 0; o <= maxOffset; o += 2) candidates.push(o);
       if (candidates[candidates.length - 1] !== maxOffset) candidates.push(maxOffset);
+      // Judge each page by the scroll position it can ACTUALLY reach, never by
+      // where its column would ideally sit. Measured against the ideal, the last
+      // page of a 4-date month scored 34px away even with the table pinned hard
+      // against its right edge, while page 0 could always be hit exactly -- so
+      // an honest distance was being compared against one that could never
+      // reach zero. The result: a swipe that stopped anywhere in the first 58%
+      // of the scroll range was thrown all the way back to the start, which is
+      // why reaching the last date took three or four tries.
+      var self = this;
+      var pages = [];
       candidates.forEach(function(o) {
-        var th = thead.querySelector('th[data-col-idx="' + o + '"]');
-        if (!th) return;
-        var dist = Math.abs(th.getBoundingClientRect().left - firstThRect.right);
-        if (dist < bestDist) { bestDist = dist; best = o; }
+        var target = self._mobileScrollTargetFor(thead, wrapper, firstThRect, o);
+        if (target !== null) pages.push({ offset: o, target: target });
       });
-      STATE.rosterMobileOffset = best;
+      if (!pages.length) return;
+
+      var here = wrapper.scrollLeft;
+      var anchor = (typeof this._snapAnchorScroll === 'number') ? this._snapAnchorScroll : here;
+      var moved = here - anchor;
+      var best = null;
+
+      // A deliberate flick should turn the page, not just be tidied up. A month
+      // with four dates has only two pages inside ~200px of travel, so without
+      // this a perfectly normal swipe still lands nearer the page it came from
+      // and gets undone. A third of the way across commits to the next page.
+      if (Math.abs(moved) > 6) {
+        var forward = moved > 0;
+        var ahead = pages.filter(function(p) {
+          return forward ? p.target > anchor + 1 : p.target < anchor - 1;
+        });
+        if (ahead.length) {
+          var next = ahead.reduce(function(a, b) {
+            return Math.abs(b.target - anchor) < Math.abs(a.target - anchor) ? b : a;
+          });
+          var span = Math.abs(next.target - anchor);
+          if (span > 0 && Math.abs(moved) >= span * 0.33) best = next;
+        }
+      }
+
+      // A nudge, or a swipe that did not clear the threshold: settle on whatever
+      // page sits closest to where the scroll actually stopped. '<=' so that when
+      // two pages clamp to the same position -- both pinned against the right
+      // edge -- the later one wins, since its dates are the ones on screen.
+      if (!best) {
+        var bestDist = Infinity;
+        pages.forEach(function(p) {
+          var d = Math.abs(p.target - here);
+          if (d <= bestDist) { bestDist = d; best = p; }
+        });
+      }
+
+      STATE.rosterMobileOffset = best.offset;
+      this._snapAnchorScroll = best.target;
       this.updateMobileNav(days);
-      if (bestDist > 4) this.scrollToMobileOffset(true);
+      if (Math.abs(best.target - here) > 4) this.scrollToMobileOffset(true);
     },
 
     // ================================================================
