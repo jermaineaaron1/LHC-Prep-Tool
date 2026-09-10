@@ -82021,6 +82021,9 @@ function filterLiturgyItems() {
       if (headClone.id) headClone.removeAttribute('id');
       headClone.querySelectorAll('[id]').forEach(function(el) { el.removeAttribute('id'); });
       cloneTable.appendChild(headClone);
+      // Handlers do not survive cloneNode. This clone is rebuilt on every
+      // render, so its chips are bound on every build.
+      self._bindDateLinks(headClone);
       clone.appendChild(cloneTable);
       document.body.appendChild(clone);
 
@@ -82176,15 +82179,27 @@ function filterLiturgyItems() {
           btn.onclick = function(e) { e.stopPropagation(); self.shareWeekly(btn.getAttribute('data-date'), btn.getAttribute('data-name')); };
         });
         // Bind date link clicks to open/create worship orders
-        thead.querySelectorAll('.roster-date-link').forEach(function(link) {
-          link.onclick = function(e) {
-            e.stopPropagation();
-            var dateStr = link.getAttribute('data-date');
-            var dateName = link.getAttribute('data-name');
-            self.openOrCreateOrder(dateStr, dateName);
-          };
-        });
+        self._bindDateLinks(thead);
       }
+    },
+
+    // A date chip opens, or creates, that Sunday's Worship Order. Bound through
+    // one method taking the header to bind, because there are two headers
+    // carrying these chips: the real one, and the floating copy the sticky
+    // header is made of. cloneNode copies markup but not handlers assigned as
+    // properties, so the copy used to show a pointer cursor, take the click and
+    // do nothing -- a dead control wherever the roster was scrolled far enough
+    // down to reveal it. Binding both from here is what stops the two headers
+    // drifting apart again.
+    _bindDateLinks: function(root) {
+      if (!root) return;
+      var self = this;
+      root.querySelectorAll('.roster-date-link').forEach(function(link) {
+        link.onclick = function(e) {
+          e.stopPropagation();
+          self.openOrCreateOrder(link.getAttribute('data-date'), link.getAttribute('data-name'));
+        };
+      });
     },
 
     openOrCreateOrder: function(dateStr, dateName) {
