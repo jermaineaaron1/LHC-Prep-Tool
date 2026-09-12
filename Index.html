@@ -881,6 +881,12 @@
       grid-template-columns: 3fr 2fr;
       gap: 16px;
     }
+    /* A grid item defaults to min-width:auto, so it refuses to shrink below the
+       width of its own content -- which let the roster card render 396px wide
+       inside the 355px column it was given, putting the second Sunday's share
+       button off the right of the screen. min-width:0 hands the decision back
+       to the track; the card already clips what will not fit. */
+    .home-content-grid > * { min-width: 0; }
     .home-stack { display: flex; flex-direction: column; gap: 6px; }
 
     /* Upcoming Services Roster Table — Redesigned per 229, darkened per 241 */
@@ -971,6 +977,29 @@
       color: #475569 !important;
       font-weight: 400 !important;
     }
+    /* ---- The panel on a phone ---------------------------------------------
+       Measured at 375px: the card rendered 397px wide inside a 355px column,
+       so its right edge -- the second Sunday's share button among it -- was
+       clipped off the screen. Cause: the fixed 130px on the first column
+       fights the percentage colgroup the renderer writes, and under
+       table-layout:fixed the two together add up to more than the table has.
+       Letting the colgroup alone decide is what makes it fit.
+
+       The two header buttons stack rather than sit side by side. A date
+       column is about 115px wide here, which "View Order" plus a share button
+       cannot share without one of them being cut; stacked, both stay whole and
+       both stay pressable. ------------------------------------------------- */
+    @media (max-width: 768px) {
+      .home-roster-table th:first-child,
+      .home-roster-table td:first-child { width: auto; max-width: none; }
+      .home-roster-table th { padding: 9px 6px 8px; font-size: 1.04rem; }
+      .home-roster-table td { padding: 6px 7px; font-size: 0.8rem; }
+      .home-roster-table td:first-child { font-size: 0.71rem; white-space: normal; }
+      .home-roster-table .home-service-liturgical { font-size: 0.6rem; }
+      .home-service-actions { flex-direction: column; align-items: stretch; gap: 4px; }
+      .home-order-link { justify-content: center; padding: 5px 6px; font-size: 0.62rem; }
+      .home-upcoming.lhc-card { padding: 12px !important; }
+    }
     .home-altar-dot {
       display: inline-block;
       width: 12px;
@@ -987,6 +1016,43 @@
       display: block;
       margin-top: 2px;
     }
+    /* Which Sunday this column is. Two dates side by side say nothing about
+       how near they are; "This Sunday" over the first one and "Next Sunday"
+       over the second is the whole point of the panel, so it is stated rather
+       than left to be worked out from the numbers. The near one is lit, the
+       far one is muted -- the ranking reads before the words do. */
+    .home-service-eyebrow {
+      display: block;
+      font-family: "Poppins", sans-serif;
+      font-size: 0.56rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #7dd3fc;
+      margin-bottom: 4px;
+      white-space: nowrap;
+    }
+    .home-service-eyebrow.is-later { color: #8595ad; }
+    /* A quiet wash behind the nearer Sunday, so the eye lands on the service
+       being prepared for rather than on whichever column it happens to hit. */
+    .home-roster-table th:nth-child(2),
+    .home-roster-table td:nth-child(2) { background: rgba(125,211,252,0.055); }
+    /* Says what the panel is showing, in the header, without a sentence. */
+    .home-upcoming-pill {
+      margin-left: auto;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: rgba(107,154,196,0.20);
+      border: 1px solid rgba(148,183,214,0.28);
+      color: #cfe3f5;
+      font-family: "Poppins", sans-serif;
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .home-upcoming-pill:empty { display: none; }
     .home-service-actions {
       display: flex;
       align-items: center;
@@ -4178,6 +4244,53 @@
       .file-open-action { padding: 8px 10px; gap: 10px; }
     }
 
+    /* ==================== HOME NAV CARDS ON A PHONE ====================
+       Measured on a 375x812 phone: the five cards ran 518px tall and the
+       Upcoming Services panel began at y=744 -- exactly the fold, since the
+       bottom nav takes the last 68px. The roster for the next two Sundays,
+       the one thing on this page that changes week to week, was never once
+       visible on opening the app.
+
+       Height comes out of the decoration, not the tap target: every card is
+       still a whole-card button well over 44px. The 60px icon medallion is
+       the single biggest saving and the least missed.
+
+       This block sits after the 400px one deliberately -- that block also
+       sets card padding, and being later here is what lets these values win
+       at every phone width rather than only above 400px.
+       ------------------------------------------------------------------ */
+    @media (max-width: 768px) {
+      .home-nav-grid { gap: 7px; margin-bottom: 10px; }
+      .home-nav-card { padding: 9px 7px; gap: 2px; border-radius: 14px; }
+      .home-nav-icon {
+        width: 38px; height: 38px; margin-bottom: 1px; font-size: 1.05rem;
+      }
+      .home-nav-card i { font-size: 1.05rem; }
+      .home-nav-label { font-size: 0.78rem; letter-spacing: 0.02em; line-height: 1.2; }
+      .home-nav-desc { font-size: 0.63rem; line-height: 1.25; }
+      .home-nav-stat { margin-top: 2px; padding: 1px 8px; font-size: 0.58rem; }
+
+      /* Five cards in a two-column grid leave the fifth alone beside a hole.
+         Given the whole row to itself it can lie down -- icon beside the
+         words instead of above them -- which fills the gap and costs half
+         the height of the row it used to need. */
+      .home-nav-grid .home-nav-practice {
+        grid-column: 1 / -1;
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 10px;
+        padding: 7px 12px;
+        text-align: left;
+      }
+      .home-nav-grid .home-nav-practice .home-nav-icon { margin-bottom: 0; flex: 0 0 auto; }
+      /* The label and the description share the middle; the stat pill is
+         pushed to the far end so the row reads left to right. */
+      .home-nav-grid .home-nav-practice .home-nav-label { flex: 0 0 auto; }
+      .home-nav-grid .home-nav-practice .home-nav-desc { flex: 1 1 auto; }
+      .home-nav-grid .home-nav-practice .home-nav-stat { margin-top: 0; flex: 0 0 auto; }
+    }
+
     /* ==================== PHASE 3: NOTIFICATION BELL ==================== */
     .lhc-notif-bell {
       position: relative;
@@ -5813,6 +5926,11 @@
             <div class="flex items-center gap-2 mb-3">
               <i class="fa-solid fa-church" style="color:var(--brand);"></i>
               <h3 class="font-cinzel" style="font-size:0.9rem;font-weight:700;color:#1e293b;">Upcoming Services</h3>
+              <!-- Filled by renderHomeUpcomingServices with what is actually on
+                   show, e.g. "Next 2 Sundays". Empty until then, and hidden
+                   while empty, so it never flashes a promise the table cannot
+                   keep. -->
+              <span class="home-upcoming-pill" id="homeUpcomingPill"></span>
             </div>
             <div id="homeUpcomingServices">
               <div style="font-size:0.85rem;color:#94a3b8;text-align:center;padding:24px 0;">Loading services...</div>
@@ -22720,6 +22838,29 @@ window.loadEditSongData = function(song) {
       return;
     }
 
+    // How near each service is, said in words. Worked out from the date rather
+    // than from the column number, so a month whose next service is a Thursday
+    // feast day is not announced as a Sunday.
+    var nearnessLabel = function(day, idx) {
+      var d = day && day.date;
+      if (!(d instanceof Date) || isNaN(d)) return idx === 0 ? "Next service" : "Then";
+      var days = Math.round((d - today) / 86400000);
+      if (days === 0) return "Today";
+      if (d.getDay() !== 0) return idx === 0 ? "Next service" : "Then";
+      if (days <= 7) return "This Sunday";
+      if (days <= 14) return "Next Sunday";
+      return "In " + Math.floor(days / 7) + " weeks";
+    };
+
+    // The pill in the card header, describing what the table below is showing.
+    var pill = $("homeUpcomingPill");
+    if (pill) {
+      var allSunday = upcoming.every(function(d) { return d.date instanceof Date && d.date.getDay() === 0; });
+      pill.textContent = upcoming.length > 1
+        ? "Next " + upcoming.length + (allSunday ? " Sundays" : " services")
+        : (allSunday ? "Next Sunday" : "Next service");
+    }
+
     // Find matching orders for each service date
     var ordersByDate = {};
     var normDate = function(s) { return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
@@ -22806,12 +22947,15 @@ window.loadEditSongData = function(song) {
       for (var ci = 0; ci < upcoming.length; ci++) { html += '<col style="width:' + datePct + '%;min-width:0;">'; }
       html += '</colgroup>';
       html += '<thead><tr><th>Role</th>';
-      upcoming.forEach(function(day) {
+      upcoming.forEach(function(day, dayIdx) {
         var altarColor = colorMap[day.color] || '#94a3b8';
         var altarBorder = day.color === 'White' ? 'border:1px solid #cbd5e1;' : '';
         var matchedOrder = ordersByDate[day.dateStr] || ordersByDate[day.dateStr.toLowerCase()] || ordersByDate[normDate(day.dateStr)];
         // th: force wrapping so long liturgical names never push column wider
         html += '<th style="white-space:normal;word-break:break-word;overflow-wrap:break-word;">';
+        // Named before it is dated: "This Sunday" tells you what the column is
+        // for; "Sep 13" only tells you when it is.
+        html += '<span class="home-service-eyebrow' + (dayIdx > 0 ? ' is-later' : '') + '">' + escapeHtml(nearnessLabel(day, dayIdx)) + '</span>';
         html += '<span class="home-altar-dot" style="background:' + altarColor + ';' + altarBorder + '"></span>';
         html += escapeHtml(day.dateStr);
         if (day.name) html += '<span class="home-service-liturgical">' + escapeHtml(day.name) + '</span>';
@@ -88545,10 +88689,25 @@ window.LHC_Install = (function() {
     overflow:hidden;
     padding: clamp(12px,2.1vw,28px);
     border-bottom:1px solid var(--sf-line);
+    /* A violet panel rather than a white one with a rumour of violet in the
+       corner. The base carries the colour and the two washes give it depth;
+       held light enough that --sf-navy body copy still clears AA against the
+       darkest corner, and the white search field and pill buttons sitting on
+       top gain the separation they never had against near-white.
+
+       The two muted tokens are re-pointed for this panel only. They were
+       chosen against a near-white surface, and measured on the violet they
+       fell to 3.73:1 for the filter captions and 4.03:1 for the eyebrow --
+       under the 4.5:1 the token block above states it holds them to. Same
+       hues, taken darker until they clear it against the deepest corner of
+       this background; everywhere else in the view keeps the originals. */
+    --sf-muted:#454f73;
+    --sf-soft:#4c567c;
+    --sf-blue-deep:#2f49b4;
     background:
-      radial-gradient(circle at 84% -34%,rgba(112,72,232,.13),transparent 46%),
-      radial-gradient(circle at 12% 120%,rgba(76,110,245,.10),transparent 44%),
-      linear-gradient(160deg,#fdfdff,#f5f7fe 62%,#eef2fb);
+      radial-gradient(circle at 84% -34%,rgba(98,58,220,.30),transparent 52%),
+      radial-gradient(circle at 12% 120%,rgba(76,110,245,.18),transparent 48%),
+      linear-gradient(160deg,#efeafd,#e6dffa 58%,#ddd5f6);
   }
   #songFinderView #sfCommandHeader::before {
     content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
@@ -90333,6 +90492,34 @@ window.LHC_Install = (function() {
   @media (prefers-reduced-motion:reduce) {
     #songFinderView .song-list-item,#songFinderView .lhc-pill-button,#songFinderView .sf-action-icon { transition:none !important; }
     #songFinderView .song-list-item.sf-suggestion-target { animation:none !important; }
+  }
+
+  /* ==================== SEARCH BLOCK, THREE PIXELS SHORTER ==============
+     Every control in the search card comes down 3px, as asked. It has to be
+     stated once here, at the end, because the heights are set piecemeal
+     across four earlier mobile blocks (1079px, 768px, 640px and the trim
+     pass); editing them separately drifts, and whichever sits last wins
+     anyway.
+
+     Worth knowing what this spends: the trim pass above deliberately held
+     filters at 40px and buttons at 38px, already under the 44px that iOS
+     asks for. At 37 and 35 they are smaller again. Legible and pressable,
+     but this is the floor -- a further pass should take height from padding
+     and captions, not from the things you tap.
+     ------------------------------------------------------------------- */
+  @media (max-width:768px) {
+    #songFinderView #sfCommandHeader #searchInput { height:43px; }
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid .form-input.form-select,
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid select.form-input {
+      min-height:37px; height:37px;
+    }
+    #songFinderView #sfCommandHeader .lhc-pill-button { min-height:35px; }
+    #songFinderView #sfMobilePrioritySlot #sfMobileFiltersBtn { min-height:35px; margin-top:3px; }
+    /* The gaps between them come down with the controls, so the block reads
+       tighter rather than looking like short controls in a roomy panel. */
+    #songFinderView #sfMobilePrioritySlot #sfFilterGrid { gap:4px; }
+    #songFinderView #sfStatsMobileSlot { margin-top:3px; }
+    #songFinderView #sfStatsMobileSlot .sf-library-metrics > div { padding:4px 7px; }
   }
 </style>
 
