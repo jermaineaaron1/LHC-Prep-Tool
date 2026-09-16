@@ -91,11 +91,12 @@ async function fetchEsvPassage(reference: string): Promise<Passage | Failure> {
     '&include-headings=false' +
     '&include-footnotes=false' +
     '&include-verse-numbers=true' +
-    // Crossway's API terms require the ESV text to carry its attribution.
-    // This is the API's own mechanism for it -- a short "(ESV)" after the
-    // passage -- and it was explicitly switched off. Turned on before the ESV
-    // is actually served to anyone.
-    '&include-short-copyright=true' +
+    // Off, because the attribution is already on screen. Every passage renders
+    // under a line reading "English Standard Version (ESV)" -- the translation
+    // field this route returns -- so appending "(ESV)" to the text as well put it
+    // on the same slide twice, the second time in the middle of the reading.
+    // Turning this on was mine, and it was the wrong place to satisfy attribution.
+    '&include-short-copyright=false' +
     '&include-passage-references=false';
 
   let res: Response;
