@@ -11685,11 +11685,10 @@ function _msChange(changedCb, cbClass) {
     window.LHC_STATE.filters.tempos = selected;
     var d = document.getElementById('filterTempoDisplay');
     if (d) d.textContent = selected.length === 0 ? 'All' : selected.length <= 2 ? selected.join(', ') : selected.slice(0,2).join(', ') + ' +' + (selected.length-2) + ' more';
-  } else if (cbClass === 'filter-scripture-cb') {
-    window.LHC_STATE.filters.scriptures = selected;
-    var d = document.getElementById('filterScriptureDisplay');
-    if (d) d.textContent = selected.length === 0 ? 'All' : selected.length <= 2 ? selected.join(', ') : selected.slice(0,2).join(', ') + ' +' + (selected.length-2) + ' more';
   }
+  // No filter-scripture-cb branch: the only thing that ever produced checkboxes
+  // of that class was populateScriptureFilterDropdown, removed above. The Bible
+  // picker sets filters.scriptures itself.
   window.LHC_STATE.renderSongs && window.LHC_STATE.renderSongs(true);
 }
 
@@ -11810,20 +11809,14 @@ function populateSeasonFilterDropdown(seasons) {
   dd.innerHTML = _buildMultiSelectHtml(seasons, selected, 'All Seasons', 'filter-season-cb');
 }
 
-// ============ Scripture Filter Multi-Select ============
-function toggleFilterScriptureDropdown() {
-  _sfToggleFilterMenu('filterScriptureDisplay', 'filterScriptureDropdown', 230);
-}
-function populateScriptureFilterDropdown(refs) {
-  var dd = document.getElementById('filterScriptureDropdown');
-  if (!dd) return;
-  var selected = (window.LHC_STATE && window.LHC_STATE.filters.scriptures) || [];
-  if (!refs || refs.length === 0) {
-    dd.innerHTML = '<div style="padding:8px 12px;font-size:0.8rem;color:#94a3b8;">No scripture references in library</div>';
-    return;
-  }
-  dd.innerHTML = _buildMultiSelectHtml(refs, selected, 'All Scripture', 'filter-scripture-cb');
-}
+// The Scripture filter has no dropdown. Its pill runs openBiblePickerModal()
+// and the modal writes LHC_STATE.filters.scriptures directly, so the pair of
+// functions that used to sit here -- toggleFilterScriptureDropdown and
+// populateScriptureFilterDropdown -- addressed #filterScriptureDropdown, an
+// element the markup does not contain, and nothing ever called either of them.
+// The registry entry in SF_FILTER_MENUS is NOT dead and stays: it is what gives
+// the pill its aria-expanded="false", which is correct for a control that opens
+// a dialog.
 
 // ============================================================
 // STYLE FILTER — Hymn / Contemporary custom dropdown
