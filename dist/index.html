@@ -23398,6 +23398,11 @@ window.loadEditSongData = function(song) {
 
           if (window.WO && window.WO.loadOrder) window.WO.loadOrder(orderId);
           setActiveView('worshipOrderView');
+          // A new order for a dated service starts with that date's readings
+          // already in place. It waits for the section to render on its own.
+          if (window.WO && window.WO.fillReadingsFromRoster) {
+            window.WO.fillReadingsFromRoster({ dateStr: serviceDate, year: (parsedDate ? parsedDate.getFullYear() : null) });
+          }
         } else {
           showToast('Failed to create order', 'error');
           if (btnElement) {
@@ -58813,6 +58818,189 @@ var WO = (function() {
     if (_lcdSelectFirstSlide()) _lcdFirstSlideFor = id;
   }
 
+  // ---- The readings are already on the roster ----------------------------
+  // Every service date on the roster carries its four readings. Typing them
+  // into the order a second time is transcription, and transcription is how
+  // "Philippians 3:4b-14" quietly becomes "Philippians 3:4-14".
+  //
+  // Nothing here overwrites: a reading that has been inserted is no longer a
+  // .wo-content-box -- insertScriptureIntoBox replaces the slot with a banner
+  // and its slides -- so only an empty slot can be found, and only an empty
+  // slot is ever filled. Removing a reading and pulling again refills just
+  // that one.
+  var READING_ROLES = [
+    { role: 'reading1', label: 'First Reading' },
+    { role: 'psalm',    label: 'Psalm' },
+    { role: 'reading2', label: 'Second Reading' },
+    { role: 'gospel',   label: 'Gospel Reading' }
+  ];
+
+  // Slot labels are not consistent between orders -- "Gospel" in one and
+  // "Gospel Reading" in the next, "1st Reading" in an older one -- so a slot is
+  // matched by what it says rather than against a fixed string.
+  function _roleForSlotLabel(label) {
+    var s = String(label || '').toLowerCase();
+    if (/psalm/.test(s)) return 'psalm';
+    if (/gospel/.test(s)) return 'gospel';
+    if (/second|2nd/.test(s)) return 'reading2';
+    if (/first|1st/.test(s)) return 'reading1';
+    return '';
+  }
+
+  function _scriptureSectionId() {
+    var root = document.getElementById('woWorshipOrder');
+    if (!root) return '';
+    var sections = root.querySelectorAll('.wo-worship-section');
+    for (var i = 0; i < sections.length; i++) {
+      var titleEl = sections[i].querySelector('.wo-section-title');
+      if (titleEl && /scripture/i.test(titleEl.textContent || '')) return sections[i].id;
+    }
+    return '';
+  }
+
+  // The section is not in the DOM the moment loadOrder is called, so this waits
+  // for it to arrive rather than betting on a fixed delay.
+  function _whenScriptureSectionReady(tries) {
+    var left = (tries == null) ? 40 : tries;
+    return new Promise(function(resolve) {
+      (function poll(n) {
+        var id = _scriptureSectionId();
+        if (id || n <= 0) return resolve(id);
+        setTimeout(function() { poll(n - 1); }, 150);
+      })(left);
+    });
+  }
+
+  var _RFR_MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  function _monthFromDateStr(s) {
+    var m = String(s || '').match(/([A-Za-z]{3})/);
+    return m ? _RFR_MONTHS.indexOf(m[1].toLowerCase()) : -1;
+  }
+
+  // An order stores "Sep 27" and no year. The title usually carries one
+  // ("Service - 27 Sep 2026"); failing that, the roster the user is looking at
+  // is the roster they mean.
+  function _yearForOrder(order) {
+    var m = String((order && order.title) || '').match(/\b(20\d{2})\b/);
+    if (m) return parseInt(m[1], 10);
+    if (typeof STATE !== 'undefined' && STATE && STATE.rosterYear) return STATE.rosterYear;
+    return new Date().getFullYear();
+  }
+
+  function _emptySlotFor(sectionId, role) {
+    var container = document.getElementById(sectionId + '-boxes');
+    if (!container) return null;
+    var boxes = container.querySelectorAll('.wo-content-box[data-subsection-type="scripture"]');
+    for (var i = 0; i < boxes.length; i++) {
+      if (_roleForSlotLabel(boxes[i].getAttribute('data-sub-label')) === role) return boxes[i];
+    }
+    return null;
+  }
+
+  function fillReadingsFromRoster(opts) {
+    opts = opts || {};
+    var quiet = !!opts.quiet;
+    var order = currentOrderData || {};
+    var say = function(msg, kind) { if (!quiet && typeof showToast === 'function') showToast(msg, kind || 'info'); };
+    var dateStr = String(opts.dateStr || order.serviceDate || '').trim();
+    var year = opts.year || _yearForOrder(order);
+    var month = _monthFromDateStr(dateStr);
+
+    if (!dateStr || month < 0) {
+      say('This order has no service date to match against the roster.', 'error');
+      return Promise.resolve(0);
+    }
+    if (typeof SBQ_ROSTER === 'undefined' || !SBQ_ROSTER.getData) {
+      say('The roster is not available right now.', 'error');
+      return Promise.resolve(0);
+    }
+    if (typeof LiturgyModule === 'undefined' || !LiturgyModule.fetchPassage) {
+      say('The passage service is not available right now.', 'error');
+      return Promise.resolve(0);
+    }
+
+    return _whenScriptureSectionReady().then(function(sectionId) {
+      if (!sectionId) {
+        say('This order has no Scripture Readings section.', 'error');
+        return 0;
+      }
+      return SBQ_ROSTER.getData(month, year).then(function(rows) {
+        var norm = function(s) { return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+        var byRole = {};
+        (rows || []).forEach(function(r) {
+          if (norm(r.date) !== norm(dateStr)) return;
+          var v = String(r.value || '').trim();
+          if (!v || v === '-' || v === 'TBD' || v === '__BLANK__') return;
+          byRole[r.roleId] = v;
+        });
+
+        var wanted = READING_ROLES.filter(function(s) { return byRole[s.role]; });
+        if (!wanted.length) {
+          say('The roster has no readings for ' + dateStr + ' ' + year + '.', 'info');
+          return 0;
+        }
+
+        // Slots have to exist before they can be filled. Only built when the
+        // section holds no readings at all, so this never adds a second set
+        // beside readings that are already there.
+        var container = document.getElementById(sectionId + '-boxes');
+        var hasSlots = container && container.querySelector('.wo-content-box[data-subsection-type="scripture"]');
+        var hasReadings = container && container.querySelector('.wo-song-banner.scripture-banner');
+        if (!hasSlots && !hasReadings && typeof addScriptureReadingsTemplate === 'function') {
+          addScriptureReadingsTemplate(sectionId);
+        }
+
+        var filled = [], already = [], failed = [];
+
+        // One at a time. The passage service rate-limits, and fetching four at
+        // once is how four readings become two readings and two errors.
+        function step(i) {
+          if (i >= wanted.length) return filled.length;
+          var want = wanted[i];
+          var ref = byRole[want.role];
+          var slot = _emptySlotFor(sectionId, want.role);
+          if (!slot) { already.push(want.label); return step(i + 1); }
+
+          return LiturgyModule.fetchPassage(ref, 'esv').then(function(p) {
+            if (!p || p.error || !p.text) { failed.push(ref); return step(i + 1); }
+            // The Psalm becomes the L:/C: responsive reading, the Gospel gets its
+            // response, and both happen inside insertScriptureIntoBox off the
+            // slot's own sub-label -- nothing about that changes here.
+            insertScriptureIntoBox(slot, {
+              title: p.reference || ref,
+              content: p.text,
+              singAlleluia: want.role === 'gospel' && getOrderType() === 'traditional'
+            });
+            filled.push(want.label);
+            return new Promise(function(res) { setTimeout(res, 350); }).then(function() { return step(i + 1); });
+          });
+        }
+
+        return Promise.resolve(step(0)).then(function() {
+          if (filled.length) {
+            say('Inserted ' + filled.length + ' reading' + (filled.length === 1 ? '' : 's') +
+              ' from the roster: ' + filled.join(', ') + '.', 'success');
+          } else if (already.length && !failed.length) {
+            say('Those readings are already in this order.', 'info');
+          }
+          if (failed.length) {
+            say('Could not look up: ' + failed.join(', ') + '. Check the reference on the roster.', 'error');
+          }
+          return filled.length;
+        });
+      });
+    }).catch(function(err) {
+      console.error('fillReadingsFromRoster failed', err);
+      say('Could not read the roster for this date.', 'error');
+      return 0;
+    });
+  }
+
+  // The section menu entry, which hands the section id every action gets.
+  function insertReadingsFromRoster() {
+    return fillReadingsFromRoster({});
+  }
+
   // A scripture banner names its passage -- "Matthew 14:16-19" -- so it should
   // be able to show it. Same gesture as the roster: double-click, or double-tap
   // on a phone, with a button on the banner for anyone who would never guess.
@@ -59572,6 +59760,9 @@ var WO = (function() {
     ];
     if (isScripture) {
       items.splice(3, 0, { icon: 'fa-book-open', label: 'Insert readings template', fn: 'addScriptureReadingsTemplate' });
+      // Above the empty-slot version, because filling them from the roster is
+      // what someone actually wants nine times out of ten.
+      items.splice(3, 0, { icon: 'fa-table-list', label: 'Insert readings from roster', fn: 'insertReadingsFromRoster' });
     }
     var esc = String(sectionId).replace(/'/g, "\\'");
     menu.innerHTML = items.map(function(it) {
@@ -66861,6 +67052,8 @@ var WO = (function() {
     openBiblePickerForSection: openBiblePickerForSection,
     insertScriptureIntoBox: insertScriptureIntoBox,
     openScriptureReader: openScriptureReader,
+    fillReadingsFromRoster: fillReadingsFromRoster,
+    insertReadingsFromRoster: insertReadingsFromRoster,
     addScriptureToSection: addScriptureToSection,
     removeScriptureKeepSlot: removeScriptureKeepSlot,
     // Song → Service Order sync (334/335)
@@ -73393,6 +73586,10 @@ var LiturgyModule = (function() {
     openBibleAt: openBibleAt,
     bbNormaliseReference: bbNormaliseReference,
     bbLooksLikeReference: bbLooksLikeReference,
+    // Promise-returning, and normalised on the way in. Worship Orders pulls
+    // readings straight off the roster, where references are written by hand
+    // ("Isaiah 5: 1 - 7"), so it needs the same cleaning the browser gets.
+    fetchPassage: _fetchBiblePassagePromise,
     closeBibleBrowser: closeBibleBrowser,
     onBBBookChange: onBBBookChange,
     onBBChapterChange: onBBChapterChange,
@@ -82802,6 +82999,11 @@ function filterLiturgyItems() {
             // Small delay to ensure the view is rendered before loading the order
             setTimeout(function() {
               if (window.WO && window.WO.loadOrder) window.WO.loadOrder(result.id);
+              // Created from the roster, so the readings for this date are right
+              // there -- put them in rather than making someone copy them across.
+              if (window.WO && window.WO.fillReadingsFromRoster) {
+                window.WO.fillReadingsFromRoster({ dateStr: shortDate, year: STATE.rosterYear });
+              }
             }, 150);
           } else {
             self.showToast('Failed to create order', 'error');
