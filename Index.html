@@ -58966,8 +58966,16 @@ var WO = (function() {
             // The Psalm becomes the L:/C: responsive reading, the Gospel gets its
             // response, and both happen inside insertScriptureIntoBox off the
             // slot's own sub-label -- nothing about that changes here.
+            // What the slide is titled. The passage service's canonical form is
+            // tidier for a single range -- "Psalm 25:1-10", with a proper en dash --
+            // but it expands a multi-range citation into "Ezekiel 18:1-4; Ezekiel
+            // 18:25-32", repeating the book name across a projection slide. Where it
+            // does that, the roster's own wording is both shorter and what the
+            // bulletin says, so that is what goes on the slide.
+            var canonical = String((p && p.reference) || '').trim();
+            var slideTitle = (canonical && canonical.indexOf(';') === -1) ? canonical : ref;
             insertScriptureIntoBox(slot, {
-              title: p.reference || ref,
+              title: slideTitle,
               content: p.text,
               singAlleluia: want.role === 'gospel' && getOrderType() === 'traditional'
             });
