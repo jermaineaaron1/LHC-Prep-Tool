@@ -60514,6 +60514,23 @@ var WO = (function() {
   }
 
   function selectSlideBox(box) {
+    // Some callers hand over a wrapper rather than a slide. The scripture
+    // banner passes this.nextElementSibling, which is the
+    // .wo-scripture-slides-group -- the group, not the first slide in it. The
+    // class then landed on the wrapper, nothing styles
+    // .wo-scripture-slides-group.selected, and so clicking a scripture banner
+    // appeared to do nothing at all while a song banner selected its slide.
+    //
+    // Resolved here rather than in the two places that write a banner: those
+    // two are byte-identical copies of each other, and saved orders already
+    // carry the old inline handler in their markup. One resolution covers the
+    // copies, the saved orders, and any caller that makes the same mistake next.
+    if (box && box.classList && box.querySelector &&
+        !box.classList.contains('wo-slide-box') &&
+        !box.classList.contains('wo-liturgy-box')) {
+      var inner = box.querySelector('.wo-slide-box');
+      if (inner) box = inner;
+    }
     // If currently editing another box, save it first
     if (editingSlideBox && editingSlideBox !== box) {
       saveSlideEdit(editingSlideBox);
