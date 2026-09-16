@@ -973,6 +973,44 @@
       text-align: left !important;
       background: rgba(255,255,255,0.03);
     }
+    /* A scripture cell that holds a reference opens the passage, so it has to
+       look like it does something. The dotted rule under it is the same hint a
+       glossary term carries -- present, but not competing with the roster's own
+       colour coding the way a link colour would. */
+    #worshipRosterView td.roster-scripture-ref { cursor: pointer; }
+    #worshipRosterView td.roster-scripture-ref .roster-cell-value {
+      border-bottom: 1px dotted rgba(37,99,235,0.45);
+    }
+    #worshipRosterView td.roster-scripture-ref:hover .roster-cell-value {
+      border-bottom-style: solid;
+      border-bottom-color: #2563eb;
+    }
+    /* Said when the text on screen is not the translation that was asked for.
+       Amber rather than red: the passage is there and readable, it is simply
+       not the version requested. */
+    .bible-passage-note {
+      margin: 6px 0 10px;
+      padding: 7px 10px;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      background: #fffbeb;
+      color: #92400e;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+    .bible-passage-note i { margin-right: 6px; }
+    /* Which service and which slot the open passage came from. */
+    .bb-read-context {
+      margin-left: 8px;
+      font-family: "Poppins", sans-serif;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      opacity: 0.72;
+      white-space: nowrap;
+    }
+
     .home-roster-tbd {
       color: #475569 !important;
       font-weight: 400 !important;
@@ -70337,6 +70375,38 @@ var LiturgyModule = (function() {
     }, 200);
   }
 
+  // Open the Bible straight at one passage, to be read and nothing else.
+  // Used by the roster: a scripture cell says "Isaiah 5: 1 - 7" and this turns
+  // that into the text of it. The save footer is hidden rather than relabelled
+  // -- there is nothing to save a reading into from a duty roster -- and the
+  // translation picker re-reads the same passage instead of clearing it, which
+  // is the one control a reader actually wants.
+  function openBibleAt(reference, opts) {
+    var ref = String(reference || '').trim();
+    if (!ref) return;
+    openBibleBrowser('read');
+    var modal = document.getElementById('bibleBrowserModal');
+    if (!modal) return;
+
+    var footer = modal.querySelector('.bible-browser-footer');
+    if (footer) footer.style.display = 'none';
+
+    var heading = modal.querySelector('.modal-header h2');
+    if (heading) {
+      var where = (opts && opts.context) ? String(opts.context) : '';
+      heading.innerHTML = '<i class="fa-solid fa-book-bible mr-2"></i> ' + escapeHtml(ref) +
+        (where ? ' <span class="bb-read-context">' + escapeHtml(where) + '</span>' : '');
+    }
+
+    var quick = document.getElementById('bbQuickRef');
+    if (quick) quick.value = ref;
+
+    var transSel = document.getElementById('bbTranslation');
+    var translation = transSel ? transSel.value : 'esv';
+    bbDoFetch(ref, translation);
+    if (transSel) transSel.onchange = function() { bbDoFetch(ref, transSel.value); };
+  }
+
   function closeBibleBrowser() {
     var modal = document.getElementById('bibleBrowserModal');
     if (modal) modal.classList.remove('show');
@@ -70438,7 +70508,32 @@ var LiturgyModule = (function() {
     bbDoFetch(quickRef.value.trim(), translation);
   }
 
+  // Lectionary references are written for people, not for an API. The roster
+  // holds "Isaiah 5: 1 - 7", "Psalm 80: 7 -19" and "Philippians 3:4b-14";
+  // bible-api.com rejects all three. Measured against every reference in the
+  // roster, 3 of 36 failed before this and none after.
+  //
+  // Partial-verse letters are dropped rather than honoured -- "4b" means the
+  // back half of verse 4, which the API has no way to express. A whole verse
+  // of extra context is a better answer than an error.
+  //
+  // Applied here rather than at the call sites so every caller gets it: the
+  // quick-reference box, the lectionary import and the roster all hand this
+  // function human-written references.
+  function bbNormaliseReference(raw) {
+    var s = String(raw == null ? '' : raw).trim();
+    if (!s) return '';
+    s = s.replace(/[\u2010-\u2015\u2212]/g, '-');   // en/em dash, minus sign
+    s = s.replace(/\s*:\s*/g, ':');                  // "5 : 1"  -> "5:1"
+    s = s.replace(/\s*-\s*/g, '-');                  // "1 - 7"  -> "1-7"
+    s = s.replace(/(\d)[a-cA-C]\b/g, '$1');          // "4b"     -> "4"
+    s = s.replace(/\s*,\s*/g, ',');                  // ", 25"   -> ",25"
+    return s.replace(/\s+/g, ' ').trim();
+  }
+
   function bbDoFetch(reference, translation) {
+    // Look it up normalised; show the reader what they actually asked for.
+    var lookup = bbNormaliseReference(reference) || reference;
     var preview = document.getElementById('bbPassagePreview');
     if (preview) preview.innerHTML = '<div class="bible-passage-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading ' + escapeHtml(reference) + '...</div>';
     var btn = document.getElementById('bbPrimaryBtn');
@@ -70457,8 +70552,16 @@ var LiturgyModule = (function() {
         // Format verse numbers as superscripts
         var text = (result.text || '').replace(/\[(\d+)\]/g, '<sup class="bible-verse-num">$1</sup>');
         if (preview) {
+          // A note means the reader asked for one translation and is being
+          // shown another. It gets its own line: it used to be appended to the
+          // translation name, which read as though the version were called
+          // "World English Bible - WEB (set ESV_API_KEY in Vercel env vars)".
+          var note = result.note
+            ? '<div class="bible-passage-note"><i class="fa-solid fa-circle-info"></i> ' + escapeHtml(result.note) + '</div>'
+            : '';
           preview.innerHTML = '<div class="bible-passage-reference">' + escapeHtml(result.reference || reference) + '</div>' +
             '<div class="bible-passage-translation">' + escapeHtml(result.translation || 'KJV') + '</div>' +
+            note +
             '<div class="bible-passage-text">' + text + '</div>';
         }
         if (btn) btn.disabled = false;
@@ -70466,7 +70569,7 @@ var LiturgyModule = (function() {
       .withFailureHandler(function(e) {
         if (preview) preview.innerHTML = '<div class="bible-passage-error">Error: ' + escapeHtml(String(e)) + '</div>';
       })
-      .fetchBiblePassage(reference, translation);
+      .fetchBiblePassage(lookup, translation);
   }
 
   function bbPrimaryAction() {
@@ -71135,11 +71238,14 @@ var LiturgyModule = (function() {
   }
 
   function _fetchBiblePassagePromise(reference, translation) {
+    // Same cleaning as the browser: these come off a printed lectionary and
+    // arrive shaped for a reader, not for an API.
+    var lookup = bbNormaliseReference(reference) || reference;
     return new Promise(function(resolve) {
       google.script.run
         .withSuccessHandler(function(result) { resolve(result); })
         .withFailureHandler(function(err) { resolve({ error: String(err) }); })
-        .fetchBiblePassage(reference, translation);
+        .fetchBiblePassage(lookup, translation);
     });
   }
 
@@ -73154,6 +73260,8 @@ var LiturgyModule = (function() {
     removeItemFromFolder: removeItemFromFolder,
     // Bible Browser
     openBibleBrowser: openBibleBrowser,
+    openBibleAt: openBibleAt,
+    bbNormaliseReference: bbNormaliseReference,
     closeBibleBrowser: closeBibleBrowser,
     onBBBookChange: onBBBookChange,
     onBBChapterChange: onBBChapterChange,
@@ -81135,18 +81243,18 @@ function filterLiturgyItems() {
     ROLES: [
       {type:'service-type',id:'service_type',label:'🎼 Service Type',group:'all'},
       {type:'liturgical',id:'liturgical',label:_re.cal+' Liturgical Day',group:'all'},
-      {type:'role',id:'preacher',label:_re.church+' Preacher',group:'all'},
+      {type:'role',id:'preacher',label:_re.church+' Preacher',group:'worship'},
       {type:'role',id:'liturgist',label:_re.dove+' Liturgist',group:'worship'},
       {type:'header',id:'h_enablers',label:_re.church+' WORSHIP ENABLERS',cls:'',group:'all'},
       {type:'role',id:'usher1',label:_re.door+' Usher 1',group:'all'},
       {type:'role',id:'usher2',label:_re.door+' Usher 2',group:'all'},
       {type:'role',id:'reader1',label:_re.book+' Reader 1',group:'all'},
       {type:'role',id:'reader2',label:_re.book+' Reader 2',group:'all'},
-      {type:'header',id:'h_scripture',label:_re.book+' SCRIPTURE READINGS',cls:'scripture-section',group:'all'},
-      {type:'scripture',id:'reading1',label:_re.scroll+' 1st Reading',group:'all'},
-      {type:'scripture',id:'psalm',label:_re.note+' Psalm',group:'all'},
-      {type:'scripture',id:'reading2',label:_re.scroll+' 2nd Reading',group:'all'},
-      {type:'scripture',id:'gospel',label:_re.cross+' Gospel',group:'all'},
+      {type:'header',id:'h_scripture',label:_re.book+' SCRIPTURE READINGS',cls:'scripture-section',group:'worship'},
+      {type:'scripture',id:'reading1',label:_re.scroll+' 1st Reading',group:'worship'},
+      {type:'scripture',id:'psalm',label:_re.note+' Psalm',group:'worship'},
+      {type:'scripture',id:'reading2',label:_re.scroll+' 2nd Reading',group:'worship'},
+      {type:'scripture',id:'gospel',label:_re.cross+' Gospel',group:'worship'},
       {type:'header',id:'h_communion',label:_re.bread+' HOLY COMMUNION',cls:'communion-section',group:'all'},
       {type:'role',id:'communion1',label:_re.bread+' Communion Assistant 1',labelHtml:_re.bread+' Communion<br>Assistant 1',wideCol:true,group:'all'},
       {type:'role',id:'communion2',label:_re.bread+' Communion Assistant 2',labelHtml:_re.bread+' Communion<br>Assistant 2',wideCol:true,group:'all'},
@@ -81476,12 +81584,18 @@ function filterLiturgyItems() {
               var hasValue = !isBlankCell && value && value !== '-';
               var isRoleCell = role.type === 'role';
               var isPending = isRoleCell && STATE.rosterPendingCells.has(cellKey);
-              var cellClass = (hasValue ? 'roster-cell-edited' : '') + (isRoleCell ? ' roster-role-cell' : '') + (isPending ? ' roster-cell-pending' : '');
+              // A scripture cell holding an actual reference is readable: it
+              // carries the reference on the element so the dblclick handler,
+              // the touch handler and the options menu all read the same one
+              // source rather than re-scraping the cell text.
+              var readableRef = (role.type === 'scripture' && hasValue) ? String(value) : '';
+              var cellClass = (hasValue ? 'roster-cell-edited' : '') + (isRoleCell ? ' roster-role-cell' : '') + (isPending ? ' roster-cell-pending' : '') + (readableRef ? ' roster-scripture-ref' : '');
               var dropdownIcon = isRoleCell ? '<span class="roster-cell-dropdown-icon"' + (isBlankCell ? ' style="color:#9ca3af;"' : '') + '><i class="fa-solid fa-caret-down"></i></span>' : '';
               var pendingIcon = isPending ? '<span class="roster-cell-pending-icon" title="Awaiting confirmation — nothing has reached a calendar yet">⏳</span>' : '';
               var confirmTick = isPending ? self._cellConfirmHtml(cellKey) : '';
               var blankStyle = isBlankCell ? ' style="background:#4b5563;"' : '';
-              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + cellClass + '"' + blankStyle + '><span class="roster-cell-value"' + (isBlankCell ? ' style="color:#d1d5db;"' : '') + '>' + self.escapeHtml(value) + '</span>' + pendingIcon + confirmTick + dropdownIcon + '</td>';
+              var refAttr = readableRef ? ' data-ref="' + self.escapeHtml(readableRef) + '" title="Double-click to read this passage"' : '';
+              bodyHtml += '<td data-key="' + self.escapeHtml(cellKey) + '" data-role="' + role.id + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-timestamp="' + self.escapeHtml(timestamp) + '" class="' + cellClass + '"' + refAttr + blankStyle + '><span class="roster-cell-value"' + (isBlankCell ? ' style="color:#d1d5db;"' : '') + '>' + self.escapeHtml(value) + '</span>' + pendingIcon + confirmTick + dropdownIcon + '</td>';
             }
           });
           bodyHtml += '</tr>';
@@ -82291,8 +82405,17 @@ function filterLiturgyItems() {
       tbody.querySelectorAll('td[data-key]').forEach(function(td) {
         var isServiceTypeCell = td.closest('tr') && td.closest('tr').classList.contains('roster-servicetype-row');
         if (isServiceTypeCell) return; // Toggle buttons are the whole interaction surface -- no dblclick text-edit or options menu
-        // Double-click still edits (PIC only in practice via UI)
-        td.ondblclick = function() { if (STATE.picMode) self.editCell(td); };
+        // On a scripture cell a double-click reads the passage instead of
+        // editing it -- reading is what nearly everyone opens the roster for,
+        // and editing a reference stays one tap away under the cell's own
+        // options menu, where a PIC already finds Edit and Clear.
+        if (td.hasAttribute('data-ref')) {
+          td.ondblclick = function(e) { if (e) e.preventDefault(); self.openScripture(td); };
+          self._bindScriptureTap(td);
+        } else {
+          // Double-click still edits (PIC only in practice via UI)
+          td.ondblclick = function() { if (STATE.picMode) self.editCell(td); };
+        }
         // Right-click opens same dropdown
         td.oncontextmenu = function(e) { e.preventDefault(); };
         // Add dropdown icon button if not already present
@@ -82325,6 +82448,46 @@ function filterLiturgyItems() {
         // Bind date link clicks to open/create worship orders
         self._bindDateLinks(thead);
       }
+    },
+
+    // Open the Bible at whatever reference this cell is carrying.
+    openScripture: function(td) {
+      var ref = td && td.getAttribute && td.getAttribute('data-ref');
+      if (!ref) return;
+      if (typeof LiturgyModule === 'undefined' || !LiturgyModule.openBibleAt) {
+        if (typeof showToast === 'function') showToast('Bible browser is not available', 'error');
+        return;
+      }
+      // "Sep 13 - Gospel" above the passage, so a reading opened from a wall of
+      // dates still says which service and which slot it belongs to.
+      var row = td.closest('tr');
+      var labelCell = row ? row.querySelector('td:first-child') : null;
+      var label = labelCell ? labelCell.textContent.replace(/\s+/g, ' ').trim() : '';
+      var date = td.getAttribute('data-date') || '';
+      var context = [date, label].filter(function(x) { return !!x; }).join(' \u00b7 ');
+      LiturgyModule.openBibleAt(ref, { context: context });
+    },
+
+    // Double-tap, for the phones this roster is mostly read on. dblclick is not
+    // dependable on touch -- the browser would rather treat two taps as a zoom --
+    // so the second tap is caught here and the zoom cancelled with it. Taps on
+    // the cell's options button are left alone: that button is its own control.
+    _bindScriptureTap: function(td) {
+      var self = this;
+      if (td._scriptureTapBound) return;
+      td._scriptureTapBound = true;
+      td.addEventListener('touchend', function(e) {
+        if (e.target && e.target.closest && e.target.closest('.roster-cell-dropdown-icon')) return;
+        var now = Date.now();
+        if (self._scriptureTapCell === td && (now - self._scriptureTapTime) < 400) {
+          e.preventDefault();
+          self._scriptureTapCell = null;
+          self.openScripture(td);
+        } else {
+          self._scriptureTapCell = td;
+          self._scriptureTapTime = now;
+        }
+      }, { passive: false });
     },
 
     // A date chip opens, or creates, that Sunday's Worship Order. Bound through
@@ -82733,9 +82896,25 @@ function filterLiturgyItems() {
             td.innerHTML = '<span class="altar-color-dot" style="background:' + colorHex + ';' + borderStyle + '" title="Click to change color"></span><span class="liturgical-text">' + self.escapeHtml(newValue || self.getDefaultDayText(STATE.rosterMonth, 0)) + '</span>';
             _rPushUndo(key, oldVal, newLitVal);
           } else {
+            // The scripture branch -- this else only runs for a scripture row,
+            // since the enclosing if already required liturgical or scripture.
             var newTextVal = newValue || '-';
             STATE.rosterEdits.set(key, newTextVal);
-            td.textContent = newTextVal;
+            // Rebuilt rather than dropped in as raw text. textContent alone
+            // wiped the value span the cell is laid out around, and left
+            // data-ref holding the reference the cell used to have -- so after
+            // a PIC corrected a reading, double-clicking it opened the passage
+            // it had just been changed away from.
+            td.innerHTML = '<span class="roster-cell-value">' + self.escapeHtml(newTextVal) + '</span>';
+            if (newValue) {
+              td.setAttribute('data-ref', newTextVal);
+              td.setAttribute('title', 'Double-click to read this passage');
+              td.classList.add('roster-scripture-ref');
+            } else {
+              td.removeAttribute('data-ref');
+              td.removeAttribute('title');
+              td.classList.remove('roster-scripture-ref');
+            }
             _rPushUndo(key, oldVal, newTextVal);
           }
           STATE.rosterCellTimestamps.set(key, timestamp);
@@ -87490,7 +87669,16 @@ function filterLiturgyItems() {
         var confirmBtn = (STATE.picMode && ddPending)
           ? '<button class="cell-dd-action confirm" id="cellDdConfirm"><i class="fa-solid fa-circle-check fa-fw"></i> Confirm this assignment</button>'
           : '';
-        actEl.innerHTML = editBtn + clearBtn + confirmBtn;
+        // Reading is for everyone, so this one is not pic-only. It is also the
+        // discoverable route to the passage -- a double-click is not something
+        // anyone finds without being told.
+        var ddRef = td.getAttribute && td.getAttribute('data-ref');
+        var readBtn = ddRef
+          ? '<button class="cell-dd-action" id="cellDdRead"><i class="fa-solid fa-book-bible fa-fw"></i> Read passage</button>'
+          : '';
+        actEl.innerHTML = readBtn + editBtn + clearBtn + confirmBtn;
+        var rb = document.getElementById('cellDdRead');
+        if (rb) rb.onclick = function() { self.closeCellDropdown(); self.openScripture(td); };
         var eb = document.getElementById('cellDdEdit');
         var cb = document.getElementById('cellDdClear');
         var cfb = document.getElementById('cellDdConfirm');
