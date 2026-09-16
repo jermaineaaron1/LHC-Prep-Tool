@@ -6025,7 +6025,14 @@
               <button class="lhc-pill-button" id="allSongsBtn" onclick="showAllSongs()" title="Show all songs A–Z">
                 <i class="fa-solid fa-list mr-1"></i> All Songs
               </button>
-              <button class="lhc-pill-button" id="clearSongsBtn" onclick="clearSongSearch()" title="Clear search and filters" style="background:#f1f5f9;border-color:#cbd5e1;color:#64748b;">
+              <!-- _sfClearAndShowAll, not clearSongSearch: clearing lands on the
+                   library the way a fresh page load does. clearSongSearch on its
+                   own ends at the "start typing to search" prompt, so clearing a
+                   filter to get back to all 63 songs showed none of them, which
+                   reads as the library having emptied. The same function already
+                   backs the "Clear search and filters" button in the no-match
+                   state, for the same reason. -->
+              <button class="lhc-pill-button" id="clearSongsBtn" onclick="_sfClearAndShowAll()" title="Clear search and filters, and show the whole library" style="background:#f1f5f9;border-color:#cbd5e1;color:#64748b;">
                 <i class="fa-solid fa-xmark mr-1"></i> Clear all
               </button>
               <button class="lhc-pill-button" id="openAddSongBtn" style="background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: white; border-color: transparent;">
@@ -18694,17 +18701,50 @@ window.loadEditSongData = function(song) {
       return;
     }
 
-    var songsToShow = filtered.slice(0, 50);
+    // The cap used to be a flat 50 while updateResultCounts above reported the
+    // uncapped total, so the header said "63 results" over a list of 50 with no
+    // load-more and nothing to say 13 were missing. Searching "a" in a 63-song
+    // library hid 10,000 Reasons, Living Hope and eleven others -- reachable
+    // only by pressing All Songs, which renders through a different, uncapped
+    // path.
+    //
+    // A cap is still worth keeping: renderSongListItem builds a good deal of
+    // markup per song and a library is only going to grow. So it rises to a
+    // number no real library hits by accident, and when it does bite it says so
+    // and offers the rest, rather than quietly trimming the answer.
+    var RENDER_CAP = 300;
+    var capped = filtered.length > RENDER_CAP;
+    var songsToShow = capped ? filtered.slice(0, RENDER_CAP) : filtered;
     var html = '';
     songsToShow.forEach(function(song) {
       html += renderSongListItem(song);
     });
+    if (capped) {
+      html += '<div class="sf-cap-notice">' +
+        '<span>Showing ' + RENDER_CAP + ' of ' + filtered.length + ' matches.</span>' +
+        '<button type="button" class="sf-state-btn" onclick="_sfRenderAllMatches()">Show all ' + filtered.length + '</button>' +
+        '</div>';
+    }
     if (container) {
       container.innerHTML = html;
       bindSongItemEvents();
       _staggerListItems(container, '.song-list-item, .all-songs-row');
     }
   }
+
+  // Render every match, cap and all. Only reachable from the notice the cap
+  // itself puts on screen, so the guard stays in place for the default path.
+  function _sfRenderAllMatches() {
+    var container = $('songListContainer');
+    if (!container) return;
+    var filtered = applyFiltersAndSort();
+    var html = '';
+    filtered.forEach(function(song) { html += renderSongListItem(song); });
+    container.innerHTML = html;
+    bindSongItemEvents();
+    _staggerListItems(container, '.song-list-item, .all-songs-row');
+  }
+  window._sfRenderAllMatches = _sfRenderAllMatches;
 
   function showAllSongs() {
     if (typeof closeLyricsPreviewModal === 'function') closeLyricsPreviewModal();
@@ -89827,6 +89867,14 @@ window.LHC_Install = (function() {
 
   #songFinderView #sfFilterBar { padding:8px 12px 10px;background:linear-gradient(180deg,#fff,var(--sf-surface)); }
   #songFinderView #sfResultsRow { padding-bottom:5px;margin-bottom:5px;border-bottom:1px solid var(--sf-line); }
+  /* Shown only when the render cap actually trims something, which a library
+     has to pass 300 matches to do. */
+  #songFinderView .sf-cap-notice {
+    display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+    margin:10px 4px 4px; padding:10px 12px;
+    border:1px dashed var(--sf-line-2); border-radius:12px;
+    background:var(--sf-tint); color:var(--sf-ink); font-size:.78rem;
+  }
   #songFinderView #sfFilterGrid { gap:5px;margin-bottom:0; }
   #songFinderView #sfFilterGrid .form-label { font-size:.65rem;letter-spacing:.09em;text-transform:uppercase;color:var(--sf-muted);margin:0 0 3px 3px; }
   #songFinderView #sfFilterBar .form-input.form-select,
