@@ -985,6 +985,20 @@
       border-bottom-style: solid;
       border-bottom-color: #2563eb;
     }
+    /* Said when the text on screen is not the translation that was asked for.
+       Amber rather than red: the passage is there and readable, it is simply
+       not the version requested. */
+    .bible-passage-note {
+      margin: 6px 0 10px;
+      padding: 7px 10px;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      background: #fffbeb;
+      color: #92400e;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+    .bible-passage-note i { margin-right: 6px; }
     /* Which service and which slot the open passage came from. */
     .bb-read-context {
       margin-left: 8px;
@@ -70538,8 +70552,16 @@ var LiturgyModule = (function() {
         // Format verse numbers as superscripts
         var text = (result.text || '').replace(/\[(\d+)\]/g, '<sup class="bible-verse-num">$1</sup>');
         if (preview) {
+          // A note means the reader asked for one translation and is being
+          // shown another. It gets its own line: it used to be appended to the
+          // translation name, which read as though the version were called
+          // "World English Bible - WEB (set ESV_API_KEY in Vercel env vars)".
+          var note = result.note
+            ? '<div class="bible-passage-note"><i class="fa-solid fa-circle-info"></i> ' + escapeHtml(result.note) + '</div>'
+            : '';
           preview.innerHTML = '<div class="bible-passage-reference">' + escapeHtml(result.reference || reference) + '</div>' +
             '<div class="bible-passage-translation">' + escapeHtml(result.translation || 'KJV') + '</div>' +
+            note +
             '<div class="bible-passage-text">' + text + '</div>';
         }
         if (btn) btn.disabled = false;
