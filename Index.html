@@ -25430,16 +25430,18 @@ var SBQ = {
 
   // Load all orders (metadata only, sorted newest first)
   loadOrders: function() {
-    var sb = SBQ._sb();
-    if (!sb) return Promise.reject(new Error('Supabase not ready'));
-    return sb.from('orders')
-      .select('id,title,type,service_date,created_date,last_edited,created_by')
-      .order('last_edited', { ascending: false })
-      .then(function(r) {
-        if (r.error) throw new Error(r.error.message);
-        // Filter out phantom entries created by the standalone-songbook bug (id starts with 'standalone_')
-        return (r.data || []).filter(function(row) { return !/^standalone_/.test(row.id); }).map(SBQ._orderFromRow);
-      });
+    return _sbOnce('orders:list', function() {
+      var sb = SBQ._sb();
+      if (!sb) return Promise.reject(new Error('Supabase not ready'));
+      return sb.from('orders')
+        .select('id,title,type,service_date,created_date,last_edited,created_by')
+        .order('last_edited', { ascending: false })
+        .then(function(r) {
+          if (r.error) throw new Error(r.error.message);
+          // Filter out phantom entries created by the standalone-songbook bug (id starts with 'standalone_')
+          return (r.data || []).filter(function(row) { return !/^standalone_/.test(row.id); }).map(SBQ._orderFromRow);
+        });
+    });
   },
 
   // Load a single order with all its items
@@ -25880,33 +25882,37 @@ var SBQ_ROSTER = {
 
   // Load all roster entries for a given month/year
   getData: function(month, year) {
-    var sb = SBQ_ROSTER._sb();
-    if (!sb) return Promise.reject(new Error('Supabase not ready'));
-    var _MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    function _normSvcDate(s) {
-      if (!s) return '';
-      if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
-        var d = new Date(s);
-        if (!isNaN(d)) return _MO[d.getUTCMonth()] + ' ' + d.getUTCDate();
+    // Keyed by month+year: the four startup callers all ask for the same two
+    // months, so they collapse onto two requests instead of eight.
+    return _sbOnce('roster:' + month + ':' + year, function() {
+      var sb = SBQ_ROSTER._sb();
+      if (!sb) return Promise.reject(new Error('Supabase not ready'));
+      var _MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      function _normSvcDate(s) {
+        if (!s) return '';
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+          var d = new Date(s);
+          if (!isNaN(d)) return _MO[d.getUTCMonth()] + ' ' + d.getUTCDate();
+        }
+        return s;
       }
-      return s;
-    }
-    return sb.from('roster').select('*').eq('month', month).eq('year', year)
-      .then(function(r) {
-        if (r.error) throw new Error(r.error.message);
-        console.log('[SBQ_ROSTER] getData(' + month + ',' + year + ') →', (r.data||[]).length, 'rows');
-        return (r.data || []).map(function(row) {
-          return {
-            roleId:    row.role_id,
-            date:      _normSvcDate(row.service_date),
-            value:     row.value || '',
-            month:     row.month,
-            year:      row.year,
-            timestamp: row.updated_at || '',
-            pending:   !!row.pending_confirmation
-          };
+      return sb.from('roster').select('*').eq('month', month).eq('year', year)
+        .then(function(r) {
+          if (r.error) throw new Error(r.error.message);
+          console.log('[SBQ_ROSTER] getData(' + month + ',' + year + ') →', (r.data||[]).length, 'rows');
+          return (r.data || []).map(function(row) {
+            return {
+              roleId:    row.role_id,
+              date:      _normSvcDate(row.service_date),
+              value:     row.value || '',
+              month:     row.month,
+              year:      row.year,
+              timestamp: row.updated_at || '',
+              pending:   !!row.pending_confirmation
+            };
+          });
         });
-      });
+    });
   },
 
   // Upsert roster edits
@@ -26963,6 +26969,63 @@ var SBQ_SB_ENTRIES = {
 };
 window.SBQ_SB_ENTRIES = SBQ_SB_ENTRIES;
 
+// Identical reads that overlap in time share one request.
+//
+// Measured on a single load of the Songs page, in production: 26 REST calls
+// for 14 distinct queries. The two roster month queries each went out FOUR
+// times -- 108 rows apiece, eight requests, on a page that does not show the
+// roster -- because renderHomeUpcomingServices fires a pair of them and has
+// four call sites that all run during startup. Orders and songbooks went out
+// four times each for the same reason. All eight roster calls landed within
+// ~110ms of one another, which is what makes this the right shape of fix: they
+// are not retries, they are the same question asked four times at once.
+//
+// In-flight ONLY, deliberately. Nothing is kept once the response lands, so
+// there is no window in which a write can be missed: callers who ask at the
+// same moment get the answer each of them would have got anyway, and a caller
+// who asks a second later still goes to the network. A TTL cache would be
+// faster still and would need invalidating on every write to these tables --
+// a correctness problem in exchange for milliseconds.
+var _sbInflight = {};
+var _sbBootCache = {};
+
+// The boot cache is live only until the first user interaction, and that is what
+// makes it safe rather than merely fast. Sharing an in-flight request is always
+// correct; reusing a SETTLED response is only correct while nothing can have
+// been written since, and nothing can have been written before the user has
+// touched the page. After the first pointer or key event it is dropped and this
+// degrades to in-flight sharing alone.
+//
+// It is needed because the second wave of startup reads begins 150-195ms AFTER
+// the first has already returned -- too late for in-flight sharing to catch,
+// early enough that nobody has done anything yet.
+var _sbBooting = true;
+function _sbEndBoot() { _sbBooting = false; _sbBootCache = {}; }
+['pointerdown', 'keydown', 'touchstart'].forEach(function(ev) {
+  window.addEventListener(ev, _sbEndBoot, { once: true, capture: true });
+});
+// A belt-and-braces expiry, for a tab left untouched on a slow connection.
+setTimeout(_sbEndBoot, 15000);
+
+function _sbOnce(key, run) {
+  // Copied per caller. Without this every caller shares one array, and a single
+  // in-place sort or splice by any of them would reorder what the others got.
+  var copy = function(v) { return Array.isArray(v) ? v.slice() : v; };
+
+  if (_sbBooting && _sbBootCache[key]) return Promise.resolve(copy(_sbBootCache[key]));
+  if (_sbInflight[key]) return _sbInflight[key].then(copy);
+
+  var p;
+  try { p = run(); } catch (e) { return Promise.reject(e); }
+  if (!p || typeof p.then !== 'function') return p;
+  _sbInflight[key] = p;
+  // Cleared on both settle paths. The handler here consumes nothing: the
+  // caller still receives the original promise, rejection intact.
+  var clear = function() { delete _sbInflight[key]; };
+  p.then(function(v) { if (_sbBooting) _sbBootCache[key] = v; clear(); }, clear);
+  return p.then(copy);
+}
+
 var SBQ_SONGBOOKS = {
   _sb: function() { return getSupabaseClient(); },
   _tableExists: null, // null=unknown, true=ok, false=missing
@@ -26984,19 +27047,21 @@ var SBQ_SONGBOOKS = {
   },
 
   loadAll: function() {
-    var sb = SBQ_SONGBOOKS._sb();
-    if (!sb) return Promise.resolve([]);
-    return sb.from('songbooks')
-      .select('*')
-      .order('created_date', { ascending: false })
-      .then(function(r) {
-        if (r.error) {
-          SBQ_SONGBOOKS._tableExists = false;
-          throw new Error(r.error.message);
-        }
-        SBQ_SONGBOOKS._tableExists = true;
-        return (r.data || []).map(SBQ_SONGBOOKS._fromRow);
-      });
+    return _sbOnce('songbooks:list', function() {
+      var sb = SBQ_SONGBOOKS._sb();
+      if (!sb) return Promise.resolve([]);
+      return sb.from('songbooks')
+        .select('*')
+        .order('created_date', { ascending: false })
+        .then(function(r) {
+          if (r.error) {
+            SBQ_SONGBOOKS._tableExists = false;
+            throw new Error(r.error.message);
+          }
+          SBQ_SONGBOOKS._tableExists = true;
+          return (r.data || []).map(SBQ_SONGBOOKS._fromRow);
+        });
+    });
   },
 
   save: function(sbObj) {
