@@ -91,7 +91,11 @@ async function fetchEsvPassage(reference: string): Promise<Passage | Failure> {
     '&include-headings=false' +
     '&include-footnotes=false' +
     '&include-verse-numbers=true' +
-    '&include-short-copyright=false' +
+    // Crossway's API terms require the ESV text to carry its attribution.
+    // This is the API's own mechanism for it -- a short "(ESV)" after the
+    // passage -- and it was explicitly switched off. Turned on before the ESV
+    // is actually served to anyone.
+    '&include-short-copyright=true' +
     '&include-passage-references=false';
 
   let res: Response;
