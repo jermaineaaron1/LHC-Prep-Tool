@@ -58813,9 +58813,106 @@ var WO = (function() {
     if (_lcdSelectFirstSlide()) _lcdFirstSlideFor = id;
   }
 
+  // A scripture banner names its passage -- "Matthew 14:16-19" -- so it should
+  // be able to show it. Same gesture as the roster: double-click, or double-tap
+  // on a phone, with a button on the banner for anyone who would never guess.
+  //
+  // The slides underneath keep their own double-click, which edits. That is the
+  // same split the roster makes for a PIC: where the job is authoring, the
+  // gesture stays with authoring, and reading gets its own control.
+  function openScriptureReader(elOrRef) {
+    var banner = null, ref = '';
+    if (typeof elOrRef === 'string') {
+      ref = elOrRef;
+    } else if (elOrRef && elOrRef.closest) {
+      banner = elOrRef.closest('.scripture-banner');
+      ref = banner ? (banner.getAttribute('data-scripture-title') || '') : '';
+    }
+    if (!ref) return;
+    if (typeof LiturgyModule === 'undefined' || !LiturgyModule.openBibleAt) {
+      if (typeof showToast === 'function') showToast('Bible browser is not available', 'error');
+      return;
+    }
+    var sub = banner ? (banner.getAttribute('data-sub-label') || '') : '';
+    LiturgyModule.openBibleAt(ref, { context: sub });
+  }
+
+  // Gestures are delegated from the document rather than bound per banner.
+  // Banners are written out by two different functions and rebuilt whenever a
+  // saved order is restored; a per-element binding would miss whichever path
+  // was added last -- which is exactly how the sticky roster header ended up
+  // with controls that looked live and did nothing.
+  var _woScriptureTapEl = null, _woScriptureTapAt = 0;
+  function _readableBannerFrom(target) {
+    if (!target || !target.closest) return null;
+    var b = target.closest('.scripture-banner');
+    if (!b) return null;
+    var ref = b.getAttribute('data-scripture-title') || '';
+    var ok = (typeof LiturgyModule !== 'undefined' && LiturgyModule.bbLooksLikeReference)
+      ? LiturgyModule.bbLooksLikeReference(ref) : false;
+    return ok ? b : null;
+  }
+  function _bindScriptureBannerGestures() {
+    if (document._woScriptureGesturesBound) return;
+    document._woScriptureGesturesBound = true;
+    document.addEventListener('dblclick', function(e) {
+      var b = _readableBannerFrom(e.target);
+      if (!b) return;
+      e.preventDefault();
+      openScriptureReader(b);
+    });
+    // The banner carries buttons of its own; a tap on one of those is that
+    // button being pressed, not half of a double-tap.
+    document.addEventListener('touchend', function(e) {
+      var b = _readableBannerFrom(e.target);
+      if (!b) return;
+      if (e.target.closest('button')) return;
+      var now = Date.now();
+      if (_woScriptureTapEl === b && (now - _woScriptureTapAt) < 400) {
+        e.preventDefault();
+        _woScriptureTapEl = null;
+        openScriptureReader(b);
+      } else {
+        _woScriptureTapEl = b;
+        _woScriptureTapAt = now;
+      }
+    }, { passive: false });
+  }
+
+  // Adds the read button and the tooltip to whatever banners are on screen.
+  // Done by adopting the rendered banner rather than by editing the two places
+  // that write one, so orders saved before any of this existed get the button
+  // too -- their markup is not going to change retrospectively.
+  function _upgradeScriptureBanners(root) {
+    _bindScriptureBannerGestures();
+    var scope = root || document;
+    scope.querySelectorAll('.wo-song-banner.scripture-banner').forEach(function(b) {
+      var ref = b.getAttribute('data-scripture-title') || '';
+      var readable = (typeof LiturgyModule !== 'undefined' && LiturgyModule.bbLooksLikeReference)
+        ? LiturgyModule.bbLooksLikeReference(ref) : false;
+      b.classList.toggle('is-readable', !!readable);
+      if (!readable) return;
+      b.setAttribute('title', 'Double-click to read this passage');
+      if (b.querySelector('.wo-scripture-read-btn')) return;
+      var btn = document.createElement('button');
+      btn.className = 'wo-scripture-read-btn';
+      btn.type = 'button';
+      btn.title = 'Read this passage';
+      btn.setAttribute('aria-label', 'Read ' + ref);
+      btn.innerHTML = '<i class="fa-solid fa-book-open"></i>';
+      btn.onclick = function(e) { e.stopPropagation(); openScriptureReader(b); };
+      // Ahead of the remove button, so the destructive one stays on the end.
+      var removeBtn = b.querySelector('button');
+      if (removeBtn) b.insertBefore(btn, removeBtn); else b.appendChild(btn);
+    });
+  }
+
   function _lcdRenderCompactRail() {
     var root = document.getElementById('woWorshipOrder');
     if (!root) return;
+    // Runs from every path that changes order content, which is what makes it
+    // the one reliable place to catch every banner however it got there.
+    _upgradeScriptureBanners(root);
     var sections = Array.from(root.querySelectorAll('.wo-worship-section'));
     if (!sections.length) return;
 
@@ -66746,6 +66843,7 @@ var WO = (function() {
     // Bible picker for scripture readings
     openBiblePickerForSection: openBiblePickerForSection,
     insertScriptureIntoBox: insertScriptureIntoBox,
+    openScriptureReader: openScriptureReader,
     addScriptureToSection: addScriptureToSection,
     removeScriptureKeepSlot: removeScriptureKeepSlot,
     // Song → Service Order sync (334/335)
@@ -70535,6 +70633,17 @@ var LiturgyModule = (function() {
     return s.replace(/\s+/g, ' ').trim();
   }
 
+  // Is this a reference, or a heading? Scripture groups in a service order
+  // carry titles like "Response" and "Gospel Response" beside real references,
+  // and a liturgical response has no passage to open. A book name -- numbered
+  // or not -- followed by a chapter number is the whole test: "Psalm 23" and
+  // "1 Thessalonians 1:1-10" pass, "Gospel Response" has no number and does not.
+  function bbLooksLikeReference(raw) {
+    var v = bbNormaliseReference(raw);
+    if (!v) return false;
+    return /^(\d\s*)?[A-Za-z][A-Za-z.]*(\s+[A-Za-z][A-Za-z.]*)*\s*\d/.test(v);
+  }
+
   function bbDoFetch(reference, translation) {
     // Look it up normalised; show the reader what they actually asked for.
     var lookup = bbNormaliseReference(reference) || reference;
@@ -73266,6 +73375,7 @@ var LiturgyModule = (function() {
     openBibleBrowser: openBibleBrowser,
     openBibleAt: openBibleAt,
     bbNormaliseReference: bbNormaliseReference,
+    bbLooksLikeReference: bbLooksLikeReference,
     closeBibleBrowser: closeBibleBrowser,
     onBBBookChange: onBBBookChange,
     onBBChapterChange: onBBChapterChange,
@@ -79958,6 +80068,34 @@ function filterLiturgyItems() {
   /* Scripture slides in WO */
   .wo-scripture-slides-group { display: flex; flex-direction: column; gap: 0; }
   .scripture-banner { background: linear-gradient(135deg, #1e40af, #3b82f6) !important; }
+  /* Reads the passage the banner names. Sits beside the remove button and
+     borrows its shape, so the pair reads as one set of banner controls --
+     44px on touch, where the banner is also a double-tap target and the two
+     must not be mistaken for each other. */
+  .wo-scripture-read-btn {
+    width: 24px; height: 24px; margin-right: 6px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    border: none; border-radius: 50%;
+    background: rgba(255,255,255,0.2); color: #fff;
+    font-size: 0.75rem; cursor: pointer;
+  }
+  .wo-scripture-read-btn:hover { background: rgba(255,255,255,0.38); }
+  .wo-scripture-read-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+  @media (pointer: coarse) {
+    .wo-scripture-read-btn { width: 34px; height: 34px; font-size: 0.9rem; }
+  }
+  /* On a phone the order column is barely 120px wide, so a banner laid out as
+     "title ... buttons" on one row has nowhere to put them and stacks them one
+     above the other down the side. Given a line of its own the reference reads
+     properly and the two controls sit together underneath it. */
+  @media (max-width: 768px) {
+    .wo-song-banner.scripture-banner {
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-start !important;
+    }
+    .wo-song-banner.scripture-banner > span:first-child { flex: 1 1 100%; }
+  }
 
   /* Liturgy Upload Button Style */
   .liturgy-action-btn.upload { background: linear-gradient(135deg, #059669, #10b981); border-color: transparent; color: white; }
