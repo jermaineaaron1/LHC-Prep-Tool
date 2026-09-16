@@ -25956,11 +25956,22 @@ var SBQ_ROSTER = {
   saveUnavailabilityPeriod: function(name, startDate, endDate, reason, duty) {
     var sb = SBQ_ROSTER._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    // The conflict target is name+dates, NOT name+dates+duty. Targeting duty as
+    // well needs a four-column unique constraint that does not exist, so that
+    // upsert always failed and fell through to the branch below -- which drops
+    // duty entirely. The scope was accepted in the form, saved as nothing, and
+    // came back as "away from everything", because _dutyScopeMatches treats a
+    // missing duty as 'all'. Someone who said "no music in March" was quietly
+    // taken off preaching, reading and ushering too.
+    //
+    // Keeping the existing three-column target means one period per person per
+    // date range, which is the shape the table already enforced anyway.
     return sb.from('roster_unavailability')
-      .upsert({ name: name, start_date: startDate, end_date: endDate, reason: reason || '', duty: duty || 'all' }, { onConflict: 'name,start_date,end_date,duty' })
+      .upsert({ name: name, start_date: startDate, end_date: endDate, reason: reason || '', duty: duty || 'all' }, { onConflict: 'name,start_date,end_date' })
       .then(function(r) {
         if (r.error) {
-          // Fallback for before the `duty` migration is applied: save without duty.
+          // Before the duty migration lands, save the period without its scope
+          // rather than losing the period as well.
           return sb.from('roster_unavailability')
             .upsert({ name: name, start_date: startDate, end_date: endDate, reason: reason || '' }, { onConflict: 'name,start_date,end_date' })
             .then(function(r2) { if (r2.error) throw new Error(r2.error.message); return { success: true }; });
