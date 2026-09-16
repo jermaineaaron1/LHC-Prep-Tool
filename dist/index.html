@@ -59187,6 +59187,7 @@ var WO = (function() {
     // the one reliable place to catch every banner however it got there.
     _upgradeScriptureBanners(root);
     _lcdSyncMobileEditBtn();
+    _lcdWatchSelectedRow();
     var sections = Array.from(root.querySelectorAll('.wo-worship-section'));
     if (!sections.length) return;
 
@@ -60852,6 +60853,8 @@ var WO = (function() {
     currentSectionId = sectionId;
     // Choosing a slide is what arms the phone's Edit button, so it re-reads here.
     if (typeof _lcdSyncMobileEditBtn === 'function') _lcdSyncMobileEditBtn();
+    // The rail row is brought into view by _lcdWatchSelectedRow, which watches for
+    // the .selected class rather than hooking here -- see that function for why.
 
     // Golden outline on the section badge that is currently projecting
     var parentSectionId = (sectionId || '').match(/wo-section-\d+/);
@@ -62051,7 +62054,8 @@ var WO = (function() {
     }
     btn.classList.toggle('is-idle', !secId);
     btn.innerHTML = secId
-      ? '<i class="fa-solid fa-pen-to-square"></i> Edit ' + escapeHtml(name || 'this section')
+      ? '<i class="fa-solid fa-pen-to-square"></i> Edit ' + escapeHtml(name || 'this section') +
+        ' <span class="lcd-edit-hint">(Open to see overview)</span>'
       : '<i class="fa-solid fa-hand-pointer"></i> Tap a slide below to edit';
     btn.title = secId ? ('Edit every slide in ' + (name || 'this section')) : 'Choose a slide from the schedule below, then edit its section';
   }
@@ -63036,7 +63040,7 @@ var WO = (function() {
         _activatePptContainer(startItem, entryIdx);
       } else {
         selectSlideBox(startItem);
-        startItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        // Revealing is the rail watcher's job now -- see _lcdWatchSelectedRow.
       }
       return;
     }
@@ -63055,10 +63059,106 @@ var WO = (function() {
       activeNavigationMode = 'slides';
       document.querySelectorAll('.wo-slides-container.ppt-active, .wo-local-slides.ppt-active').forEach(function(c) { c.classList.remove('ppt-active'); });
       selectSlideBox(nextItem);
-      nextItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      // Revealing is the rail watcher's job now -- see _lcdWatchSelectedRow.
     }
   }
 
+  // Bring the newly selected row up to just under the projection panel rather
+  // than doing the least scrolling that gets it on screen.
+  //
+  // scrollIntoView({block:'nearest'}) moves as little as it can, and on a phone
+  // the panel is pinned across the top ~440px -- so "as little as it can" parks
+  // the card at the very bottom of the screen. The operator then watches the
+  // output at one end and reads what is coming at the other. Scrolling the card
+  // up to meet the panel puts the two things being used next to each other.
+  // The nearest ancestor that actually scrolls, or null when it is the window.
+  function _scrollParentOf(el) {
+    var node = el && el.parentElement;
+    while (node && node !== document.documentElement) {
+      var c = getComputedStyle(node);
+      if ((c.overflowY === 'auto' || c.overflowY === 'scroll') && node.scrollHeight > node.clientHeight + 4) return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  // Bring a rail row up to just under the projection panel.
+  //
+  // Not hooked into the navigation functions. There are at least five of them --
+  // regular slides, liturgy, liturgy-in-section, local PPT, iframe PPT -- each
+  // ending in its own scrollIntoView on a .wo-slide-box that LCD mode has hidden,
+  // so every one of those scrolls a 0x0 element and moves nothing. Hooking
+  // selectSlideBox covered some of them and not others; the reliable signal is the
+  // rail marking a row .selected, whichever path did it. So that is what is
+  // watched.
+  function _lcdRevealRow(row) {
+    if (!row) return;
+    var panel = document.querySelector('#worshipOrderView.lcd-mode .wo-preview-panel');
+    var panelUp = !!(panel && panel.getBoundingClientRect().height);
+    if (!panelUp || window.innerWidth > 768) { row.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+
+    var r = row.getBoundingClientRect();
+    var underPanel = panel.getBoundingClientRect().bottom;
+    // Already fully in the band between the panel and the bottom of the screen:
+    // leave it. This is also what stops a row the operator just tapped from
+    // jumping under their finger.
+    if (r.top >= underPanel && r.bottom <= window.innerHeight) return;
+    var delta = r.top - (underPanel + 10);
+    if (Math.abs(delta) < 6) return;
+    // Two traps here, both confirmed by measurement:
+    //
+    // The window does NOT scroll on this page. #worshipOrderView is overflow-y:auto
+    // and carries the whole order, so window.scrollBy moves nothing at all.
+    //
+    // And behavior:'smooth' silently no-ops on that container -- a plain scrollTop
+    // assignment moves it, behavior:'auto' moves it, behavior:'smooth' leaves it
+    // exactly where it was. The roster hit the same thing on its own wrapper and
+    // answered it the same way (see _animateScrollLeft): drive the scroll rather
+    // than ask the browser to.
+    var scroller = _scrollParentOf(row);
+    if (!scroller) { window.scrollBy({ top: delta, behavior: 'smooth' }); return; }
+    _lcdAnimateScrollTop(scroller, scroller.scrollTop + delta, 260);
+  }
+
+  // Stepped with setTimeout rather than requestAnimationFrame: rAF is suspended
+  // whenever the document is not compositing, which would strand the scroll
+  // partway -- exactly the failure this function exists to avoid.
+  function _lcdAnimateScrollTop(el, target, duration) {
+    var start = el.scrollTop;
+    var max = el.scrollHeight - el.clientHeight;
+    target = Math.max(0, Math.min(max, target));
+    var delta = target - start;
+    if (Math.abs(delta) < 1) { el.scrollTop = target; return; }
+    var t0 = Date.now();
+    function ease(x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; }
+    (function step() {
+      var p = Math.min(1, (Date.now() - t0) / duration);
+      el.scrollTop = start + delta * ease(p);
+      if (p < 1) setTimeout(step, 16);
+    })();
+  }
+
+  function _lcdWatchSelectedRow() {
+    var rail = document.getElementById('lcdCompactRail');
+    if (!rail || rail._lcdSelWatch) return;
+    rail._lcdSelWatch = true;
+    // childList as well as attributes, and this is the part that matters: going
+    // FORWARD the rail toggles .selected on the existing row, but going BACK it
+    // rebuilds itself wholesale -- 18 rows removed, 18 added. An attribute-only
+    // observer saw every forward press and not one backward press.
+    //
+    // Debounced, because a rebuild arrives as a burst, and re-read from the DOM
+    // rather than from the mutation, since after a rebuild the row that matters is
+    // a different element than the one that changed.
+    var pending = null;
+    new MutationObserver(function() {
+      clearTimeout(pending);
+      pending = setTimeout(function() {
+        var row = rail.querySelector('.lcd-rail-slide-row.selected');
+        if (row) _lcdRevealRow(row);
+      }, 60);
+    }).observe(rail, { subtree: true, attributes: true, attributeFilter: ['class'], childList: true });
+  }
   function _pptSlideCount(container) {
     var sectionId = container && container.getAttribute('data-section');
     var data = sectionId && currentSermonSlides[sectionId];
@@ -76643,6 +76743,28 @@ function filterLiturgyItems() {
     box-shadow: 0 2px 10px rgba(193, 153, 63, 0.25);
   }
   .lcd-mobile-allslides-btn:active { transform: scale(0.98); }
+  /* Says what pressing it gets you -- the whole section laid out, not just the
+     one slide on screen. Quieter than the verb it follows, and allowed to wrap
+     onto its own line on a narrow phone rather than squeezing the section name. */
+  .lcd-edit-hint { font-size: .68rem; font-weight: 600; opacity: .82; }
+  .lcd-mobile-allslides-btn { flex-wrap: wrap; row-gap: 0; line-height: 1.25; padding: 4px 10px; }
+
+  /* ---- Inside an order, on a phone: 12px out of every gap ---------------- */
+  /* Measured at 375px: the blue header ran 422px and the mode landing under it
+     another 388 -- 810px, a whole screen, before a single section of the order.
+     Nothing here is smaller; the space between things is. */
+  @media (max-width: 768px) {
+    #worshipOrderView .wo-header { padding: 12px !important; }
+    #worshipOrderView .wo-order-selector { padding-top: 4px !important; }
+    #worshipOrderView .wo-order-controls { margin-bottom: 4px !important; gap: 6px !important; }
+    #worshipOrderView .wo-order-title { margin-bottom: 4px !important; }
+    #worshipOrderView .wo-order-buttons { gap: 6px !important; }
+    #worshipOrderView .wo-order-btn { padding: 6px 12px !important; }
+    #worshipOrderView .wo-mode-landing { padding: 20px 10px !important; }
+    #worshipOrderView .wo-mode-landing-eyebrow { margin-bottom: 8px !important; }
+    #worshipOrderView .wo-mode-landing-cards { gap: 8px !important; }
+    #worshipOrderView .wo-mode-card { padding: 10px 12px !important; gap: 8px !important; }
+  }
 
   /* ---- Phones (max 768px): the live output, then everything else --------- */
   /* This replaces a side-by-side layout that split a 355px phone into a 121px
@@ -76669,6 +76791,11 @@ function filterLiturgyItems() {
       gap: 10px !important;
     }
     #worshipOrderView.lcd-mode #lcdLibraryPanel { display: none !important; }
+    /* The scroll container's own 10px of top padding was a band the schedule ran
+       through above the pinned panel -- a sliver of the row behind it, which is what
+       made the panel look like it was missing its header. With the padding gone and
+       the panel pinned at 0 there is nothing between it and the nav bar. */
+    #worshipOrderView.lcd-mode { padding-top: 0 !important; }
 
     /* The schedule: second, and now the full width of the phone. The type
        sizes that were shrunk to fit a 115px column go back to normal -- there
@@ -76685,7 +76812,13 @@ function filterLiturgyItems() {
     #worshipOrderView.lcd-mode .wo-preview-panel {
       order: 1 !important;
       position: sticky !important;
-      top: 6px !important; right: auto !important; bottom: auto !important; left: auto !important;
+      /* 4px, measured, not guessed. The offset is relative to #worshipOrderView,
+         which is the scroll container and already starts at y=53 -- directly under
+         the sticky #topNavBar. Setting this to the nav's own height pushed the
+         panel 72px further down and opened a gap that two rail rows showed through,
+         above the panel, which is what made the header look lost. What actually
+         hid it was the z-index below; this just sits the panel under the bar. */
+      top: 0 !important; right: auto !important; bottom: auto !important; left: auto !important;
       align-self: stretch !important;
       transform: none !important;
       transition: none !important;
@@ -76695,7 +76828,9 @@ function filterLiturgyItems() {
       padding: 8px !important;
       border-top: none !important;
       border-radius: 12px !important;
-      z-index: 3 !important;
+      /* Above the schedule, below the nav bar at 100: schedule rows scrolling
+         past must go behind this panel, and this panel must go behind the nav. */
+      z-index: 20 !important;
     }
     #worshipOrderView.lcd-mode .lcd-lyrics-panel { display: none !important; }
     #worshipOrderView.lcd-mode .lcd-outputs-row { flex: 0 0 auto !important; height: auto !important; }
