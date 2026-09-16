@@ -27505,7 +27505,7 @@ var WO = (function() {
             '</div>'
           : '';
         actions = '<div class="wo-saved-order-actions">' +
-          (_woSelectMode ? '' : '<button class="wo-saved-order-btn open" onclick="event.stopPropagation(); WO.loadOrder(' + idx + ')"><i class="fa-solid fa-folder-open"></i> Open</button>' +
+          (_woSelectMode ? '' : '<button class="wo-saved-order-btn open" title="Open this order" aria-label="Open this order" onclick="event.stopPropagation(); WO.loadOrder(' + idx + ')"><i class="fa-solid fa-folder-open"></i> <span class="wo-btn-label">Open</span></button>' +
           '<button class="wo-saved-order-btn edit" onclick="event.stopPropagation(); WO.editOrderTitle(' + idx + ')"><i class="fa-solid fa-pen"></i></button>' +
           '<div class="wo-order-more-wrap"><button class="wo-saved-order-btn wo-order-more-btn" onclick="WO._woToggleMoreMenu(' + idx + ', event)"><i class="fa-solid fa-ellipsis"></i></button>' + moreMenu + '</div>') +
         '</div>';
@@ -27513,12 +27513,25 @@ var WO = (function() {
 
       var checkbox = (_woSelectMode && !ps) ? '<input type="checkbox" class="wo-saved-order-checkbox" data-idx="' + idx + '" onclick="event.stopPropagation()">' : '';
 
-      return '<div class="wo-saved-order-item' + rowExtra + '>' +
+      // data-order-idx: the open gesture is delegated from the list, so the card
+      // has to say which order it is rather than relying on a closure.
+      return '<div class="wo-saved-order-item' + rowExtra + ' data-order-idx="' + idx + '">' +
         checkbox +
-        '<div class="wo-order-card-icon ' + type + '"><i class="fa-solid ' + typeIcon + '"></i></div>' +
+        // The icon is the type on a phone, where the badge is hidden, so it says so.
+        '<div class="wo-order-card-icon ' + type + '" title="' + type + '" aria-label="' + type + ' order"><i class="fa-solid ' + typeIcon + '"></i></div>' +
         '<div class="wo-saved-order-info">' +
-          '<div class="wo-saved-order-title">' + escapeHtml(order.title || 'Untitled') + ' <span class="wo-order-badge ' + type + '">' + type + '</span> ' + cloudIcon + '</div>' +
-          '<div class="wo-saved-order-date">' + (dateStr || 'Order') + creatorStr + '</div>' +
+          // The title is its own element so it can be given the ellipsis on its
+          // own. Truncating the whole line took the type badge and the sync icon
+          // with it, which is why they were being pushed onto lines of their own.
+          '<div class="wo-saved-order-title">' +
+            '<span class="wo-order-title-text">' + escapeHtml(order.title || 'Untitled') + '</span>' +
+            '<span class="wo-order-badge ' + type + '">' + type + '</span>' +
+          '</div>' +
+          // The sync dot sits with the timestamp, not the title. It reports when
+          // this order last reached the cloud, which is the same thing the line it
+          // now shares says -- and on a phone it was the 16px that made the longest
+          // titles truncate by 11.
+          '<div class="wo-saved-order-date">' + cloudIcon + ' ' + (dateStr || 'Order') + creatorStr + '</div>' +
           statsHtml +
         '</div>' +
         actions +
@@ -27526,6 +27539,59 @@ var WO = (function() {
     }).join('');
 
     container.innerHTML = strip + html;
+    _bindOrderCardOpenGestures();
+  }
+
+  // Opening an order by double-clicking, or double-tapping, the card itself --
+  // the same gesture the roster and the service order use for their scripture.
+  // The Open button stays: the gesture is the shortcut, not the only way in.
+  //
+  // Delegated from the list rather than bound per card, because the list is
+  // re-rendered on every search keystroke, filter change and save.
+  var _woCardTapEl = null, _woCardTapAt = 0;
+  function _bindOrderCardOpenGestures() {
+    var host = document.getElementById('woSavedOrdersContainer');
+    if (!host || host._woOpenGesturesBound) return;
+    host._woOpenGesturesBound = true;
+
+    function cardFrom(target) {
+      if (!target || !target.closest) return null;
+      // Every control on the row is its own action, and a double-click on one of
+      // them is that action twice, not a request to open.
+      if (target.closest('button, input, a, .wo-order-more-menu')) return null;
+      var card = target.closest('.wo-saved-order-item');
+      if (!card) return null;
+      // Share mode already opens on a single tap, and select mode is selecting.
+      if (card.classList.contains('wo-share-target') || _woSelectMode) return null;
+      return card;
+    }
+
+    function openCard(card) {
+      var idx = card.getAttribute('data-order-idx');
+      if (idx === null || idx === '') return;
+      loadOrder(parseInt(idx, 10));
+    }
+
+    host.addEventListener('dblclick', function(e) {
+      var card = cardFrom(e.target);
+      if (!card) return;
+      e.preventDefault();
+      openCard(card);
+    });
+
+    host.addEventListener('touchend', function(e) {
+      var card = cardFrom(e.target);
+      if (!card) return;
+      var now = Date.now();
+      if (_woCardTapEl === card && (now - _woCardTapAt) < 400) {
+        e.preventDefault();
+        _woCardTapEl = null;
+        openCard(card);
+      } else {
+        _woCardTapEl = card;
+        _woCardTapAt = now;
+      }
+    }, { passive: false });
   }
 
   function cancelPendingShare() {
@@ -73816,11 +73882,68 @@ function filterLiturgyItems() {
   .wo-hero-create-btn small { font-size: .72rem; font-weight: 500; opacity: .85; }
   .wo-hero-art { flex: 0 0 auto; width: 92px; height: 92px; border-radius: 50%; background: linear-gradient(135deg,#bcd0f5,#e8f0fd); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(30,58,109,.08); }
   .wo-hero-art i { font-size: 2.1rem; color: #4a6da7; }
+  /* The title truncates on its own. Before this the badge and the sync icon
+     were part of the same text run, so a long title pushed them onto lines of
+     their own and a card ran to three. */
+  .wo-order-title-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wo-saved-order-title .wo-order-badge,
+  .wo-saved-order-title i { flex: 0 0 auto; }
+  .wo-saved-order-item { cursor: pointer; }
+
   @media (max-width: 640px) {
     .wo-hero { flex-direction: column; text-align: center; padding: 20px; }
     .wo-hero-text { text-align: center; }
     .wo-hero-create-btn span { align-items: center; text-align: center; }
     .wo-hero-art { display: none; }
+  }
+
+  /* ---- The Orders page on a phone --------------------------------------
+     Measured at 375px: the hero ran 285px and each order card 165px, so one
+     card and a header filled the screen. The cards were tall because the info
+     column was only 103px wide -- the three action buttons had the rest -- so
+     the title wrapped to three lines, the date to two and the counts to two.
+
+     Height comes out of wrapping and padding. The Open button keeps its label;
+     what it loses is the room it was taking from the title.
+     -------------------------------------------------------------------- */
+  @media (max-width: 768px) {
+    /* The hero, 20px shorter -- which is what was asked, so it is what it takes.
+       A first pass at this trimmed the padding, both margins, the button and every
+       font at once and took 73px out, which is a different instruction. These
+       three account for the 20: ~10 off the two-line heading, 6 and 4 off the two
+       margins under it. Nothing you press changes size. */
+    .wo-hero-title { font-size: 1.75rem; margin-bottom: 6px; }
+    .wo-hero-subtitle { margin-bottom: 12px; }
+    .wo-hero-eyebrow { margin-bottom: 8px; }
+
+    /* One line each, and the counts beside the date rather than under it. */
+    .wo-saved-order-item { padding: 8px 10px !important; gap: 9px !important; margin-bottom: 6px !important; align-items: center !important; }
+    .wo-order-card-icon { width: 34px !important; height: 34px !important; font-size: .85rem !important; }
+    /* Sized so the longest real title -- "Service - 30 Aug 2026" -- fits whole.
+       The sync dot shrinks with it: it is a status, not a word. */
+    .wo-saved-order-title { font-size: .78rem !important; gap: 4px; }
+    .wo-saved-order-title i { font-size: .6rem !important; }
+    .wo-saved-order-date { font-size: .66rem !important; margin-top: 1px; white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis; }
+    .wo-order-card-stats { margin-top: 2px; gap: 10px; font-size: .64rem; white-space: nowrap; }
+    /* The badge goes. It says "Traditional" beside an icon that is already a
+       church, in the colour that already means traditional -- and on a 113px
+       column it was taking so much of the row that "Service - Sep 6" truncated
+       to "S". The icon keeps the meaning and now carries the word as its
+       tooltip; the title gets the room. */
+    .wo-saved-order-item .wo-order-badge { display: none; }
+
+    /* The buttons keep their 34px target; they simply stop taking a third of
+       the row in padding. */
+    .wo-saved-order-actions { gap: 4px !important; flex: 0 0 auto; }
+    .wo-saved-order-btn { padding: 0 9px !important; min-height: 34px; font-size: .68rem !important; }
+    .wo-saved-order-btn.edit,
+    .wo-order-more-btn { padding: 0 8px !important; }
+    /* Open loses its word, not its button. The word cost 36px of a 315px row and
+       the title was truncating to "Service - Se..." to pay for it; the icon, the
+       tooltip and the aria-label all still say Open, and a double-tap on the card
+       does the same thing without aiming at anything. */
+    .wo-saved-order-btn.open .wo-btn-label { display: none; }
+    .wo-saved-order-btn.open { padding: 0 10px !important; }
   }
 
   /* ── Search + filter controls row ────────────────────────────────── */
@@ -77024,7 +77147,10 @@ function filterLiturgyItems() {
   .wo-saved-order-item:hover { border-color: #6366f1; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15); }
   .wo-saved-order-checkbox { width: 20px; height: 20px; accent-color: #6366f1; cursor: pointer; }
   .wo-saved-order-info { flex: 1; min-width: 0; }
-  .wo-saved-order-title { font-weight: 600; color: #1e293b; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  /* nowrap since the title got its own element: wrapping was here to let a long
+     title push the badge and the sync icon onto a line below, which is exactly
+     what made the cards three rows tall. The title now truncates instead. */
+  .wo-saved-order-title { font-weight: 600; color: #1e293b; font-size: 0.95rem; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; }
   .wo-saved-order-date { font-size: 0.8rem; color: #64748b; margin-top: 2px; }
   .wo-saved-order-actions { display: flex; gap: 6px; align-items: center; }
   .wo-saved-order-btn { padding: 6px 10px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.75rem; display: flex; align-items: center; gap: 4px; transition: all 0.2s; }
