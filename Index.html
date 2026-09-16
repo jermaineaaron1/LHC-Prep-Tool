@@ -8730,6 +8730,17 @@
   .theme-multiselect { position: relative; }
   .theme-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); z-index: 100; max-height: 280px; overflow-y: auto; margin-top: 4px; }
   .theme-dropdown.hidden { display: none; }
+  /* Portalled onto <body>: out of the search card, so out of its overflow
+     clipping and out of the stacking context that let Add Song paint over it. */
+  .theme-dropdown.sf-filter-portal {
+    position: fixed;
+    margin: 0;
+    border: 1px solid #cbd8e8;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 24px 70px rgba(4, 20, 34, .3);
+    overscroll-behavior: contain;
+  }
   #filterThemeDropdown.filter-theme-portal {
     display:flex;flex-direction:column;margin:0;border:1px solid #cbdbe5;border-radius:14px;
     background:#fff;box-shadow:0 24px 70px rgba(4,20,34,.3);color:#173047;
@@ -11627,6 +11638,14 @@ function updateFilterTheme(changedCb) {
 
 // ============ Generic multi-select helper ============
 function _buildMultiSelectHtml(items, selectedArr, allLabel, cbClass) {
+  // The "All ..." row is built below, so an item of the same name coming in
+  // with the data listed it twice -- one ticked, one not, both saying
+  // "All Seasons". Dropped here rather than at each caller, since every
+  // multi-select shares this builder.
+  var _allKey = String(allLabel || '').trim().toLowerCase();
+  items = (items || []).filter(function(it) {
+    return String(it == null ? '' : it).trim().toLowerCase() !== _allKey;
+  });
   var html = '<div style="padding:6px 10px;border-bottom:1px solid #e2e8f0;">' +
     '<label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;cursor:pointer;">' +
     '<input type="checkbox" class="' + cbClass + '-all" onchange="_msChange(this,\'' + cbClass + '\')" ' +
@@ -11676,9 +11695,7 @@ function _msChange(changedCb, cbClass) {
 
 // ============ Key Filter Multi-Select ============
 function toggleFilterKeyDropdown() {
-  var dd = document.getElementById('filterKeyDropdown');
-  if (dd) dd.classList.toggle('hidden');
-  _sfSyncFilterAria();
+  _sfToggleFilterMenu('filterKeyDisplay', 'filterKeyDropdown', 180);
 }
 function populateKeyFilterDropdown(keys) {
   var dd = document.getElementById('filterKeyDropdown');
@@ -11687,11 +11704,86 @@ function populateKeyFilterDropdown(keys) {
   dd.innerHTML = _buildMultiSelectHtml(keys, selected, 'All Keys', 'filter-key-cb');
 }
 
+// ============ Filter menus open on <body>, not where they live =========
+// A menu opened in place is a child of #sfCommandHeader, and that element does
+// two things to it:
+//
+//   overflow: hidden        -- it clips a decorative grid of its own, and it
+//                              clipped the menu with it, so anything past the
+//                              bottom of the search card was simply cut off.
+//   > * { z-index: 1 }      -- every direct child gets a stacking context, which
+//                              caps what is inside it. The menu asking for 100
+//                              did not matter; Add Song, a later sibling at the
+//                              same level, painted straight over it.
+//
+// Theme already escaped both by portalling itself onto <body>. The other five
+// did not, which is exactly why Season looked broken and Theme did not. This is
+// that same treatment, written once for all of them rather than a sixth copy.
+function _sfPortalPosition(displayId, ddId, minW) {
+  var dd = document.getElementById(ddId), anchor = document.getElementById(displayId);
+  if (!dd || !anchor || dd.classList.contains('hidden')) return;
+  var r = anchor.getBoundingClientRect();
+  var vw = window.innerWidth || document.documentElement.clientWidth;
+  var vh = window.innerHeight || document.documentElement.clientHeight;
+  var width = Math.min(Math.max(r.width, minW || 200), vw - 24);
+  var left = Math.max(12, Math.min(r.left, vw - width - 12));
+  var below = vh - r.bottom - 12;
+  var wanted = Math.min(340, Math.max(200, vh * 0.5));
+  var top = r.bottom + 6;
+  // Flip above the pill when there is more room up there than down.
+  if (below < 200 && r.top > below) top = Math.max(12, r.top - wanted - 6);
+  top = Math.max(12, Math.min(top, vh - Math.min(wanted, 160) - 12));
+  dd.style.position = 'fixed';
+  dd.style.left = left + 'px';
+  dd.style.right = 'auto';
+  dd.style.top = top + 'px';
+  dd.style.width = width + 'px';
+  dd.style.maxHeight = Math.min(wanted, vh - top - 12) + 'px';
+  dd.style.overflowY = 'auto';
+  dd.style.zIndex = '100050';
+}
+
+function _sfPortalOpen(displayId, ddId, minW) {
+  var dd = document.getElementById(ddId);
+  if (!dd) return;
+  // Remember where it belongs so closing can put it back.
+  if (!dd._sfHome) dd._sfHome = dd.parentElement;
+  document.body.appendChild(dd);
+  dd.classList.add('sf-filter-portal');
+  dd.classList.remove('hidden');
+  _sfPortalPosition(displayId, ddId, minW);
+}
+
+function _sfPortalClose(displayId, ddId) {
+  var dd = document.getElementById(ddId);
+  if (!dd) return;
+  dd.classList.add('hidden');
+  dd.classList.remove('sf-filter-portal');
+  ['position','left','right','top','bottom','width','maxHeight','overflow','overflowY','zIndex']
+    .forEach(function(p) { dd.style[p] = ''; });
+  if (dd._sfHome && dd.parentElement !== dd._sfHome) dd._sfHome.appendChild(dd);
+}
+
+function _sfToggleFilterMenu(displayId, ddId, minW) {
+  var dd = document.getElementById(ddId);
+  if (!dd) return;
+  if (dd.classList.contains('hidden')) _sfPortalOpen(displayId, ddId, minW);
+  else _sfPortalClose(displayId, ddId);
+  if (typeof _sfSyncFilterAria === 'function') _sfSyncFilterAria();
+}
+
+// Close every portalled menu and put it back where it came from.
+function _sfCloseAllPortalMenus(exceptDdId) {
+  document.querySelectorAll('.sf-filter-portal').forEach(function(dd) {
+    if (exceptDdId && dd.id === exceptDdId) return;
+    _sfPortalClose(null, dd.id);
+  });
+}
+window._sfCloseAllPortalMenus = _sfCloseAllPortalMenus;
+
 // ============ Season Filter Multi-Select (Songs page) ============
 function toggleFilterSeasonDropdown() {
-  var dd = document.getElementById('filterSeasonDropdown');
-  if (dd) dd.classList.toggle('hidden');
-  _sfSyncFilterAria();
+  _sfToggleFilterMenu('filterSeasonDisplay', 'filterSeasonDropdown', 200);
 }
 // ============ Feel (tempo) filter -- same control as Theme ============
 // Theme is a multi-select; Feel stays SINGLE-select, which is how it has
@@ -11699,9 +11791,7 @@ function toggleFilterSeasonDropdown() {
 // dropdown panel, the same open/close and Escape handling, so the row reads
 // as one family instead of one custom pill beside a native <select>.
 function toggleFilterTempoDropdown() {
-  var dd = document.getElementById('filterTempoDropdown');
-  if (dd) dd.classList.toggle('hidden');
-  _sfSyncFilterAria();
+  _sfToggleFilterMenu('filterTempoDisplay', 'filterTempoDropdown', 190);
 }
 window.toggleFilterTempoDropdown = toggleFilterTempoDropdown;
 
@@ -11722,8 +11812,7 @@ function populateSeasonFilterDropdown(seasons) {
 
 // ============ Scripture Filter Multi-Select ============
 function toggleFilterScriptureDropdown() {
-  var dd = document.getElementById('filterScriptureDropdown');
-  if (dd) dd.classList.toggle('hidden');
+  _sfToggleFilterMenu('filterScriptureDisplay', 'filterScriptureDropdown', 230);
 }
 function populateScriptureFilterDropdown(refs) {
   var dd = document.getElementById('filterScriptureDropdown');
@@ -11740,10 +11829,7 @@ function populateScriptureFilterDropdown(refs) {
 // STYLE FILTER — Hymn / Contemporary custom dropdown
 // ============================================================
 function toggleFilterStyleDropdown() {
-  var dd = document.getElementById('filterStyleDropdown');
-  if (!dd) return;
-  dd.classList.toggle('hidden');
-  _sfSyncFilterAria();
+  _sfToggleFilterMenu('filterStyleDisplay', 'filterStyleDropdown', 220);
 }
 
 function populateStyleFilterDropdown() {
@@ -12757,20 +12843,30 @@ function setThemeSelection(mode, themesStr) {
   updateThemeSelection(mode);
 }
 
-// Close theme dropdown when clicking outside
+// Close the filter menus when the click was genuinely outside them.
+//
+// .sf-filter-portal has to be in this test. A portalled menu is a child of
+// <body>, so it is no longer inside .theme-multiselect -- without this, ticking
+// a checkbox in an open menu would read as a click outside and shut the menu on
+// the first tick, which is the whole feature.
 document.addEventListener('click', function(e) {
-  if (!e.target.closest('.theme-multiselect') && !e.target.closest('#filterThemeDropdown')) {
-    closeFilterThemeDropdown();
-    document.querySelectorAll('.theme-dropdown').forEach(function(dd) {
-      dd.classList.add('hidden');
-    });
-    if (typeof _sfSyncFilterAria === 'function') _sfSyncFilterAria();
-  }
+  if (e.target.closest('.theme-multiselect') ||
+      e.target.closest('#filterThemeDropdown') ||
+      e.target.closest('.sf-filter-portal')) return;
+  closeFilterThemeDropdown();
+  if (typeof _sfCloseAllPortalMenus === 'function') _sfCloseAllPortalMenus();
+  document.querySelectorAll('.theme-dropdown').forEach(function(dd) {
+    dd.classList.add('hidden');
+  });
+  if (typeof _sfSyncFilterAria === 'function') _sfSyncFilterAria();
 });
 
 window.addEventListener('resize', function() {
   if (window.innerWidth > 768) closeFilterThemeDropdown();
   else _positionFilterThemeDropdown();
+  // A portalled menu is positioned in viewport coordinates, so a resize or an
+  // orientation change leaves it pointing at where its pill used to be.
+  if (typeof _sfCloseAllPortalMenus === 'function') _sfCloseAllPortalMenus();
 });
 
 // ============ Lyrics Preview Functions (Fixed) ============
