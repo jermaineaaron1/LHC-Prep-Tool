@@ -59175,6 +59175,7 @@ var WO = (function() {
     // Runs from every path that changes order content, which is what makes it
     // the one reliable place to catch every banner however it got there.
     _upgradeScriptureBanners(root);
+    _lcdSyncMobileEditBtn();
     var sections = Array.from(root.querySelectorAll('.wo-worship-section'));
     if (!sections.length) return;
 
@@ -60838,6 +60839,8 @@ var WO = (function() {
     var sectionId = box.getAttribute('data-section');
     var previousSectionId = currentSectionId;
     currentSectionId = sectionId;
+    // Choosing a slide is what arms the phone's Edit button, so it re-reads here.
+    if (typeof _lcdSyncMobileEditBtn === 'function') _lcdSyncMobileEditBtn();
 
     // Golden outline on the section badge that is currently projecting
     var parentSectionId = (sectionId || '').match(/wo-section-\d+/);
@@ -62013,6 +62016,35 @@ var WO = (function() {
   // The Slide Editor header's "All Slides" button. Resolves which section the
   // operator is working in from the selected slide, then hands off to
   // openSectionAllSlides -- which existed with no call site until now.
+  // Which section the mobile Edit button would open, if it were pressed now.
+  function _lcdEditTargetSectionId() {
+    return currentSectionId
+      || (selectedSlideBox && selectedSlideBox.getAttribute('data-section'))
+      || (_lcdActiveSlide && _lcdActiveSlide.getAttribute && _lcdActiveSlide.getAttribute('data-section'))
+      || '';
+  }
+
+  // The button names its target. lcdOpenSectionAllSlides needs a section and
+  // otherwise only warns -- which, on a phone where this is the entire way in
+  // to editing, reads as a button that does nothing. So it says either which
+  // section it has or that it wants one, and looks different in each state.
+  function _lcdSyncMobileEditBtn() {
+    var btn = document.querySelector('.lcd-mobile-allslides-btn');
+    if (!btn) return;
+    var secId = _lcdEditTargetSectionId();
+    var name = '';
+    if (secId) {
+      var sec = document.getElementById(secId);
+      var titleEl = sec && sec.querySelector('.wo-section-title');
+      if (titleEl) name = titleEl.textContent.replace(/\s+/g, ' ').replace(/^\d+\.\s*/, '').trim();
+    }
+    btn.classList.toggle('is-idle', !secId);
+    btn.innerHTML = secId
+      ? '<i class="fa-solid fa-pen-to-square"></i> Edit ' + escapeHtml(name || 'this section')
+      : '<i class="fa-solid fa-hand-pointer"></i> Tap a slide below to edit';
+    btn.title = secId ? ('Edit every slide in ' + (name || 'this section')) : 'Choose a slide from the schedule below, then edit its section';
+  }
+
   function lcdOpenSectionAllSlides() {
     var secId = currentSectionId
       || (selectedSlideBox && selectedSlideBox.getAttribute('data-section'))
@@ -76601,68 +76633,117 @@ function filterLiturgyItems() {
   }
   .lcd-mobile-allslides-btn:active { transform: scale(0.98); }
 
-  /* ---- Phones (max 768px): projection-first layout ----------------------- */
-  /* A phone cannot host the Slide Editor usefully, and the old full-screen
-     drawer hid the Program Output behind a FAB. LCD Projection instead shows
-     the Service Schedule and the Program Output side by side in flow, hides
-     the editor panel, Song Library, Media Tray, drawer and FAB, and offers
-     the All Slides modal (button above the output) as the editing surface.
+  /* ---- Phones (max 768px): the live output, then everything else --------- */
+  /* This replaces a side-by-side layout that split a 355px phone into a 121px
+     schedule and a 226px panel. The output ended up 210x118 at the BOTTOM of
+     that panel, under a topbar, a wrapped control row, the edit button and a
+     status line -- so the one thing an operator watches was the smallest thing
+     on screen, and the schedule it sat beside was too narrow to read.
+
+     Stacked instead, in the order the job is done: what is on the screen now,
+     then how to change it, then the controls, then the slides to choose from.
+     The output goes full width, which is what makes it big -- a 16:9 screen
+     takes its height from its width, so 355px wide is 200px tall against 118.
+     The panel stays sticky, so the output holds its place while the schedule
+     scrolls beneath it.
+
      Every selector carries the view id so these rules outrank the generic
      mobile drawer rules, which also use !important. Song Order keeps the
      drawer: .lcd-mode is only on while the projection workspace is up. */
   @media (max-width: 768px) {
     #worshipOrderView.lcd-mode .wo-main-content:not(.wo-song-order) {
       display: flex !important;
-      flex-direction: row !important;
-      align-items: flex-start !important;
-      gap: 8px !important;
+      flex-direction: column !important;
+      align-items: stretch !important;
+      gap: 10px !important;
     }
     #worshipOrderView.lcd-mode #lcdLibraryPanel { display: none !important; }
-    /* 34%, not 42%: the freed width goes to the preview panel, and since the
-       Program Output's 16:9 screen takes its height from its width, this is
-       what makes the output window taller on a phone. */
+
+    /* The schedule: second, and now the full width of the phone. The type
+       sizes that were shrunk to fit a 115px column go back to normal -- there
+       is no longer a 115px column. */
     #worshipOrderView.lcd-mode .wo-worship-order {
-      flex: 0 0 34% !important;
-      width: 34% !important; max-width: 34% !important; min-width: 0 !important;
-      padding: 6px !important;
+      order: 2 !important;
+      flex: 1 1 auto !important;
+      width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+      padding: 8px !important;
     }
-    /* The count pill and Expand Schedule button are desktop affordances --
-       there is no room to "expand" into on a phone. */
     #worshipOrderView.lcd-mode .lcd-schedule-header-right { display: none !important; }
-    /* Smaller schedule type so rows actually show their text in a ~115px
-       column, per the user's readability request. */
-    #worshipOrderView.lcd-mode .lcd-rail-item-title { font-size: 11px; }
-    #worshipOrderView.lcd-mode .lcd-rail-slide-preview { font-size: 9px; }
-    #worshipOrderView.lcd-mode .lcd-rail-slide-num { font-size: 8.5px; min-width: 22px; }
-    #worshipOrderView.lcd-mode .lcd-rail-section-header { font-size: 0.6rem; padding: 5px 6px; }
-    #worshipOrderView.lcd-mode .lcd-rail-slide-row { padding: 5px 6px; }
-    #worshipOrderView.lcd-mode .lcd-rail-add-section { height: 32px; font-size: 0.62rem; }
-    #worshipOrderView.lcd-mode .lcd-rail-addslide-row { padding: 4px 6px; font-size: 0.6rem; }
-    /* Sticky, not static: the schedule column runs thousands of pixels tall,
-       and the output should stay in view while it scrolls. top/right/bottom
-       are re-declared because the drawer rules pin all three edges. */
+
+    /* The panel: first, sticky, full width. */
     #worshipOrderView.lcd-mode .wo-preview-panel {
+      order: 1 !important;
       position: sticky !important;
-      top: 8px !important; right: auto !important; bottom: auto !important; left: auto !important;
-      align-self: flex-start !important;
+      top: 6px !important; right: auto !important; bottom: auto !important; left: auto !important;
+      align-self: stretch !important;
       transform: none !important;
       transition: none !important;
-      flex: 1 1 auto !important;
-      width: auto !important; min-width: 0 !important;
+      flex: 0 0 auto !important;
+      width: 100% !important; max-width: 100% !important; min-width: 0 !important;
       max-height: none !important;
       padding: 8px !important;
       border-top: none !important;
       border-radius: 12px !important;
-      z-index: auto !important;
+      z-index: 3 !important;
     }
     #worshipOrderView.lcd-mode .lcd-lyrics-panel { display: none !important; }
     #worshipOrderView.lcd-mode .lcd-outputs-row { flex: 0 0 auto !important; height: auto !important; }
-    /* The box's base min-width (220px) is wider than the whole phone column
-       and pushed the screen past the right edge of the viewport. */
-    #worshipOrderView.lcd-mode .lcd-program-box { min-width: 0 !important; }
     #worshipOrderView.lcd-mode .lcd-lower-row { display: none !important; }
     #worshipOrderView.lcd-mode .wo-preview-fab { display: none !important; }
-    #worshipOrderView.lcd-mode .lcd-mobile-allslides-btn { display: flex !important; }
+
+    /* Inside the panel, the running order of the job:
+         1 the status caption      -- what state the projector is in
+         2 THE OUTPUT              -- what is on the screen right now
+         3 the projector line      -- which projector, if any
+         4 Edit                    -- the way in to changing it
+         5 the controls            -- everything else */
+    #worshipOrderView.lcd-mode .lcd-program-box {
+      display: flex !important; flex-direction: column !important;
+      min-width: 0 !important; gap: 6px !important;
+    }
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-label { order: 1 !important; margin: 0 !important; }
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-screen { order: 2 !important; margin: 0 !important; }
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-status { order: 3 !important; }
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-mobile-allslides-btn { order: 4 !important; display: flex !important; margin: 2px 0 0 !important; }
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-controls-row { order: 5 !important; margin: 0 !important; }
+
+    /* Ten pixels off each of the buttons that had ten to give. The icon
+       buttons -- zoom, undo/redo, the slide arrows -- are already 28 and 30;
+       taking ten off those would leave 18px targets, so they stay. */
+    #worshipOrderView.lcd-mode .lcd-controls-row .wo-bg-btn:not(.lcd-hist-btn),
+    #worshipOrderView.lcd-mode .lcd-controls-row .wo-text-btn,
+    #worshipOrderView.lcd-mode .lcd-controls-row .wo-barrier-btn { height: 32px !important; font-size: .72rem !important; }
+    #worshipOrderView.lcd-mode .lcd-controls-row .wo-blank-btn { height: 32px !important; font-size: .72rem !important; }
+    #worshipOrderView.lcd-mode .lcd-controls-row .wo-live-present-btn { height: 34px !important; font-size: .78rem !important; }
+    #worshipOrderView.lcd-mode .lcd-controls-row { padding: 6px 8px !important; gap: 6px !important; }
+    #worshipOrderView.lcd-mode .lcd-topbar .lcd-song-order-btn,
+    #worshipOrderView.lcd-mode .lcd-topbar #lcdWorkspaceFsBtn { height: 30px !important; font-size: .72rem !important; padding: 0 10px !important; }
+    /* One row, not two. The heading and the two buttons came to 408px across a
+       339px panel, so Full Screen wrapped and the bar cost 75px before the output
+       even started. The heading gives up the width -- it is the least useful thing
+       in a panel that is visibly the projection panel. */
+    #worshipOrderView.lcd-mode .lcd-topbar { flex-wrap: nowrap !important; gap: 6px !important; align-items: center !important; }
+    #worshipOrderView.lcd-mode .lcd-topbar .wo-preview-title {
+      font-size: .78rem !important; letter-spacing: .02em !important;
+      min-width: 0 !important; flex: 1 1 auto !important;
+      overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important;
+    }
+    #worshipOrderView.lcd-mode .lcd-topbar .lcd-song-order-btn,
+    #worshipOrderView.lcd-mode .lcd-topbar #lcdWorkspaceFsBtn { flex: 0 0 auto !important; }
+
+    /* The way in to editing, directly under the output and named after what it
+       will open. It used to sit above the output saying "All Slides -- Edit
+       Content", and it warns and does nothing when no slide is chosen, which on
+       a phone reads as a dead button. Now it either names the section it has or
+       asks for one. */
+    #worshipOrderView.lcd-mode .lcd-mobile-allslides-btn { min-height: 34px !important; font-size: .8rem !important; }
+    #worshipOrderView.lcd-mode .lcd-mobile-allslides-btn.is-idle {
+      background: var(--lcd-navy-700, #223354) !important;
+      color: var(--lcd-ivory-200, #e8e0d0) !important;
+      border: 1px dashed var(--lcd-navy-line, #2a3a5c) !important;
+      font-weight: 600 !important;
+      box-shadow: none !important;
+    }
   }
   /* The canvas is the flexible item in the editor column: it takes whatever
      the toolbar and header leave and floors at a still-usable height, so the
