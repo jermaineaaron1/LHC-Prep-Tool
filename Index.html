@@ -6496,6 +6496,7 @@
             <button type="button" class="rmp-save-btn pic-only" id="rmpSaveBtn" onclick="RosterEngine.saveChanges()" title="Save changes" aria-label="Save changes"><i class="fa-solid fa-floppy-disk"></i>Save</button>
           </div>
           <div class="rmp-tools-sheet" id="rmpToolsSheet">
+            <button type="button" onclick="openAvailabilitySelfService()" title="Tell us the Sundays you cannot serve"><i class="fa-solid fa-calendar-xmark"></i><span>My Availability</span></button>
             <button type="button" onclick="RosterEngine.openEnablersCalendar()"><i class="fa-solid fa-calendar-check"></i><span>Calendar</span></button>
             <button type="button" onclick="RosterEngine.downloadCSV()"><i class="fa-solid fa-file-csv"></i><span>Export CSV</span></button>
             <button type="button" onclick="RosterEngine.downloadPDF()"><i class="fa-solid fa-file-pdf"></i><span>Print/PDF</span></button>
@@ -6559,6 +6560,7 @@
         <!-- Action nav (placed just before the table) -->
         <div class="roster-bottom-nav">
           <button class="roster-bottom-nav-btn" id="rosterEnablersBtn"><i class="fa-solid fa-people-group"></i><span>Enablers</span></button>
+          <button class="roster-bottom-nav-btn" id="rosterAvailabilityBtn" onclick="openAvailabilitySelfService()" title="Tell us the Sundays you cannot serve"><i class="fa-solid fa-calendar-xmark"></i><span>Availability</span></button>
           <button class="roster-bottom-nav-btn" id="rosterCalendarsBtn" onclick="RosterEngine.openEnablersCalendar()"><i class="fa-solid fa-calendar-check"></i><span>Calendar</span></button>
           <button class="roster-bottom-nav-btn roster-bottom-nav-export" id="rosterDownloadCSVBtn"><i class="fa-solid fa-file-csv"></i><span>Export</span></button>
           <button class="roster-bottom-nav-btn roster-bottom-nav-center" id="rosterPicLoginBtn" onclick="RosterEngine.showPicLoginModal()" title="PIC Login">
@@ -81554,6 +81556,11 @@ function filterLiturgyItems() {
   AVAIL_DUTY_GROUPS.forEach(function(g) { if (g.cats) g.cats.forEach(function(c) { _AVAIL_GROUP_CATS[c] = g.id; }); });
   function _availGroupLabel(id) { for (var i = 0; i < AVAIL_DUTY_GROUPS.length; i++) if (AVAIL_DUTY_GROUPS[i].id === id) return AVAIL_DUTY_GROUPS[i].label; return 'All duties'; }
   var _availName = '';
+  // Reached from the roster's More sheet rather than the ?view=availability
+  // link. The link is a page of its own -- you close the tab. Inside the app
+  // this overlay covers everything at z-index 200000, so without a way back
+  // out it is a trap: mark your dates, tap Done, and the app is gone.
+  var _availInApp = false;
 
   function _availAllNames() {
     var set = {};
@@ -81594,7 +81601,10 @@ function filterLiturgyItems() {
       '#availSelf{position:fixed;inset:0;z-index:200000;overflow:auto;background:linear-gradient(160deg,#f6f4ec,#eef1e8);font-family:Poppins,system-ui,sans-serif;color:#17271f;}' +
       '#availSelf .as-wrap{max-width:640px;margin:0 auto;padding:26px 20px 60px;}' +
       '#availSelf .as-head{background:linear-gradient(160deg,#1b5e43,#123c2c);color:#f3efe2;border-radius:16px;padding:24px 24px 22px;box-shadow:0 10px 30px rgba(0,0,0,.14);}' +
-      '#availSelf .as-head h1{font-family:Georgia,serif;font-size:1.55rem;margin:0 0 6px;font-weight:600;}' +
+      '#availSelf .as-head{position:relative;}' +
+      '#availSelf .as-head h1{font-family:Georgia,serif;font-size:1.55rem;margin:0 0 6px;font-weight:600;padding-right:38px;}' +
+      '#availSelf .as-x{position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#f3efe2;font-size:20px;line-height:1;cursor:pointer;font-family:inherit;}' +
+      '#availSelf .as-x:hover{background:rgba(255,255,255,.26);}' +
       '#availSelf .as-head p{margin:0;color:#dfe8de;font-size:.95rem;}' +
       '#availSelf .as-card{background:#fffefb;border:1px solid #e2ddcd;border-radius:14px;padding:18px 20px;margin-top:16px;box-shadow:0 6px 18px rgba(23,39,31,.05);}' +
       '#availSelf label{display:block;font-size:.78rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#6b7d73;margin:0 0 7px;}' +
@@ -81715,7 +81725,9 @@ function filterLiturgyItems() {
     var nameOpts = '<option value="">— choose your name —</option>' + names.map(function(n) { return '<option value="' + escapeHtmlModal(n) + '">' + escapeHtmlModal(n) + '</option>'; }).join('');
     ov.innerHTML =
       '<div class="as-wrap">' +
-        '<div class="as-head"><h1>Worship Availability</h1><p>Tell us the dates you <b>can’t</b> serve, so we don’t roster you on. Takes a minute.</p></div>' +
+        '<div class="as-head">' +
+          (_availInApp ? '<button class="as-x" id="availCloseBtn" aria-label="Close" title="Back to the roster">&times;</button>' : '') +
+          '<h1>Worship Availability</h1><p>Tell us the dates you <b>can’t</b> serve, so we don’t roster you on. Takes a minute.</p></div>' +
         '<div class="as-card"><label>Your name</label><select id="availNameSel">' + nameOpts + '</select>' +
           (names.length ? '' : '<p class="as-muted" style="margin-top:8px;">Loading names… if this stays empty, refresh the page.</p>') +
         '</div>' +
@@ -81725,8 +81737,17 @@ function filterLiturgyItems() {
     var sel = document.getElementById('availNameSel');
     if (_availName) sel.value = _availName;
     sel.addEventListener('change', function() { _availName = this.value; if (_availName) { _availRenderPicked(); } else { document.getElementById('availBody').innerHTML = ''; } });
+    var _availClose = function() { if (ov && ov.parentNode) ov.parentNode.removeChild(ov); };
+    var closeBtn = document.getElementById('availCloseBtn');
+    if (closeBtn) closeBtn.addEventListener('click', _availClose);
     document.getElementById('availDoneBtn').addEventListener('click', function() {
-      ov.innerHTML = '<div class="as-wrap"><div class="as-head"><h1>Thank you 🙌</h1><p>Your availability is saved. You can close this tab, or update it any time from the same link.</p></div></div>';
+      ov.innerHTML = '<div class="as-wrap"><div class="as-head"><h1>Thank you 🙌</h1><p>Your availability is saved. ' +
+        (_availInApp ? 'You can go back and change it any time.' : 'You can close this tab, or update it any time from the same link.') +
+        '</p></div>' +
+        (_availInApp ? '<button class="as-done" id="availBackBtn">Back to the roster</button>' : '') +
+        '</div>';
+      var backBtn = document.getElementById('availBackBtn');
+      if (backBtn) backBtn.addEventListener('click', _availClose);
     });
     if (_availName) _availRenderPicked();
     // names load async from Supabase; if empty, retry once they arrive
@@ -81736,7 +81757,7 @@ function filterLiturgyItems() {
       }).catch(function() {});
     } else if (typeof _loadUnavailabilityFromCloud === 'function') { _loadUnavailabilityFromCloud(); }
   }
-  window.openAvailabilitySelfService = _availOpen;
+  window.openAvailabilitySelfService = function() { _availInApp = true; _availOpen(); };
 
   // PIC: copy / WhatsApp-share the one member availability link.
   function shareAvailabilityLink() {
@@ -81751,7 +81772,7 @@ function filterLiturgyItems() {
   (function() {
     try {
       if (new URLSearchParams(window.location.search).get('view') === 'availability') {
-        var go = function() { _availOpen(); };
+        var go = function() { _availInApp = false; _availOpen(); };
         if (document.readyState === 'complete' || document.readyState === 'interactive') setTimeout(go, 400);
         else window.addEventListener('DOMContentLoaded', function() { setTimeout(go, 400); });
       }
