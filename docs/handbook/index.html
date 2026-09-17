@@ -218,10 +218,28 @@
   :focus-visible{outline:3px solid var(--point); outline-offset:3px}
   @media (prefers-reduced-motion:reduce){ *{animation:none !important; transition:none !important} }
   @media print{
-    body{background:#fff}
-    .mast{border-radius:0; -webkit-print-color-adjust:exact; print-color-adjust:exact}
-    .task{break-inside:avoid; box-shadow:none}
+    @page{size:A4; margin:13mm 11mm}
+    html,body{background:#fff}
+    /* Screenshots are the point of this handbook, and a browser drops every
+       background colour by default -- which takes the tap markers with it. */
+    *{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+    .wrap{max-width:none; padding-inline:0; padding-block:0 0}
+    .mast{border-radius:0; margin-bottom:6mm; padding-block:22px 20px; padding-inline:0}
+    .part{margin-top:9mm; break-after:avoid}
+    /* Not break-inside on .task: the tallest ones run past a page, and a card
+       that cannot fit anywhere just leaves a blank page behind it. */
+    .task{box-shadow:none; margin-top:5mm}
+    .task h3{break-after:avoid}
+    .snap,.ui,.tip,.key div,ol.do li,.linkbox{break-inside:avoid}
+    .snap,.ui,.linkbox{box-shadow:none}
+    /* A little narrower on paper: a 360px shot is three quarters of a page,
+       so two in a row strand a big empty gap wherever one will not fit. */
+    .snap,.ui{max-width:300px}
     .snap{cursor:auto}
+    .cap,.drawn{break-before:avoid}
+    dialog#zoom{display:none !important}
+    a{text-decoration:none}
+    footer{margin-top:8mm}
   }
 </style>
 
