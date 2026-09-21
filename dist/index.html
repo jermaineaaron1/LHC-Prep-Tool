@@ -28232,6 +28232,9 @@ var WO = (function() {
     $('woEditor').style.display = 'block';
     $('woCurrentOrderInfo').textContent = currentOrderData.title + ' - Created Today';
 
+    // No id until the first save, so the poll idles until there is something
+    // to poll; the create path sets the empty baseline when the id arrives.
+    _orderSyncStart();
     showOrderModeLanding();
   }
 
@@ -28524,6 +28527,166 @@ var WO = (function() {
     }
   }
 
+  // ── Order sync poll ──────────────────────────────────────────────────────
+  //
+  // The Songbook has had a 2-second poll for a long time; the Service Order
+  // never did. That was survivable while a save simply overwrote whatever it
+  // found, because there was nothing to miss -- one client's view won and the
+  // others were wrong in a way they could not see. Now that a save keeps items
+  // another device added, those items are real, stored, and absent from this
+  // screen until someone reloads. Keeping them and never mentioning them would
+  // be its own kind of lying.
+  //
+  // This deliberately does NOT re-render. Rebuilding the Service Order means
+  // going back through openOrderInEditor, which resets the view and would throw
+  // away a selected slide, a scroll position, or an editor someone has open --
+  // during a service, at the worst possible moment. So it watches, says what
+  // changed, and lets the operator choose when. Reloading returns them to the
+  // half of the order they were in rather than the mode-choice screen.
+  //
+  // Polling through SBQ.loadOrder also keeps the known-item set current, which
+  // is what lets the Service Order delete an item another device added: until
+  // this client has read that id, saveOrder correctly refuses to prune it.
+  var _orderSyncTimer      = null;
+  var _orderSyncSeen       = {};   // orderId -> { itemId: true } the screen reflects
+  var _orderSyncBusy       = false;
+  var _orderSyncPending    = null; // a difference seen once, waiting to be seen twice
+  var _orderSyncShown      = null; // the difference currently on the banner
+  var _orderSyncDismissed  = null; // one the operator has waved away
+  var _orderSyncResumeMode = null; // where to land after a reload we triggered
+  var ORDER_SYNC_MS = 4000;
+
+  function _orderSyncNote(orderId, ids) {
+    if (!orderId || !ids) return;
+    var set = {};
+    for (var i = 0; i < ids.length; i++) { if (ids[i]) set[ids[i]] = true; }
+    _orderSyncSeen[orderId] = set;
+    _orderSyncPending = null;
+    _orderSyncDismissed = null;
+    _orderSyncClearBanner();
+  }
+
+  function _orderSyncStart() {
+    _orderSyncStop();
+    _orderSyncTimer = setInterval(_orderSyncTick, ORDER_SYNC_MS);
+  }
+
+  // A hidden tab does not poll, so someone returning after a while is looking
+  // at whatever was true when they left. Check on the way back in rather than
+  // making them wait out the interval first.
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible' && _orderSyncTimer) _orderSyncTick();
+  });
+
+  function _orderSyncStop() {
+    if (_orderSyncTimer) { clearInterval(_orderSyncTimer); _orderSyncTimer = null; }
+    _orderSyncPending = null;
+    _orderSyncClearBanner();
+  }
+
+  function _orderSyncTick() {
+    if (_orderSyncBusy) return;
+    if (document.visibilityState !== 'visible') return;
+    var oid = currentOrderData && currentOrderData.id;
+    if (!oid) return;
+    // Only while the order editor is the thing on screen.
+    var view = document.getElementById('worshipOrderView');
+    if (!view || view.offsetParent === null) return;
+    // The Songbook runs its own 2-second sync over the same rows; two polls on
+    // one order is waste, and the Songbook applies changes rather than
+    // announcing them, which is the better behaviour where it can be had.
+    var sbModal = document.getElementById('songbookLiveModal');
+    if (sbModal && sbModal.style.display && sbModal.style.display !== 'none') return;
+
+    _orderSyncBusy = true;
+    SBQ.loadOrder(oid).then(function(res) {
+      _orderSyncBusy = false;
+      if (!res || !res.items) return;
+      if (!currentOrderData || currentOrderData.id !== oid) return;
+      var live = {};
+      res.items.forEach(function(it) { if (it && it.id) live[it.id] = true; });
+
+      var seen = _orderSyncSeen[oid];
+      // No baseline yet -- an order opened from cache carries no item list.
+      // Take this reading as the baseline rather than reporting every stored
+      // row as something another device just added.
+      if (!seen) { _orderSyncSeen[oid] = live; return; }
+
+      var added   = Object.keys(live).filter(function(k) { return !seen[k]; }).sort();
+      var removed = Object.keys(seen).filter(function(k) { return !live[k]; }).sort();
+      if (!added.length && !removed.length) {
+        _orderSyncPending = null;
+        _orderSyncDismissed = null;
+        _orderSyncClearBanner();
+        return;
+      }
+      var sig = added.join(',') + '|' + removed.join(',');
+      // Confirmed across two ticks. A save is upsert-then-prune, so a poll
+      // landing between the two sees rows that are about to go -- a difference
+      // that exists for well under a second and would otherwise flash a notice
+      // at somebody for no reason.
+      if (_orderSyncPending !== sig) { _orderSyncPending = sig; return; }
+      _orderSyncShowBanner(added.length, removed.length, sig);
+    }).catch(function() { _orderSyncBusy = false; });
+  }
+
+  function _orderSyncClearBanner() {
+    var el = document.getElementById('woSyncNotice');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    _orderSyncShown = null;
+  }
+
+  // True while the congregation can see the screen. The notice waits: it is
+  // a fixed bar across the top, and the one place it must never appear is over
+  // a projected slide mid-service. Nothing is lost by waiting -- the pending
+  // difference stays recorded and the banner goes up the moment the operator
+  // comes out of full screen.
+  function _orderSyncProjecting() {
+    if (document.fullscreenElement) return true;
+    var fs = document.getElementById('sbFsOverlay');
+    if (fs && fs.style.display && fs.style.display !== 'none') return true;
+    return false;
+  }
+
+  function _orderSyncShowBanner(added, removed, sig) {
+    if (sig === _orderSyncDismissed) return;
+    if (_orderSyncShown === sig) return;
+    if (_orderSyncProjecting()) return;
+    _orderSyncClearBanner();
+    _orderSyncShown = sig;
+
+    var parts = [];
+    if (added)   parts.push(added + (added === 1 ? ' item' : ' items') + ' added');
+    if (removed) parts.push(removed + (removed === 1 ? ' item' : ' items') + ' removed');
+    var bar = document.createElement('div');
+    bar.id = 'woSyncNotice';
+    bar.className = 'wo-sync-notice';
+    bar.innerHTML =
+      '<i class="fa-solid fa-rotate"></i>' +
+      '<span class="wo-sync-msg">Another device changed this order — ' +
+      parts.join(' and ') + '.</span>' +
+      '<button type="button" class="wo-sync-btn wo-sync-primary">Reload order</button>' +
+      '<button type="button" class="wo-sync-btn">Not now</button>';
+    var btns = bar.querySelectorAll('button');
+    btns[0].onclick = _orderSyncReload;
+    btns[1].onclick = function() { _orderSyncDismissed = sig; _orderSyncClearBanner(); };
+    document.body.appendChild(bar);
+  }
+
+  function _orderSyncReload() {
+    var oid = currentOrderData && currentOrderData.id;
+    if (!oid) return;
+    // Land back in the half of the order they were working in.
+    _orderSyncResumeMode = document.body.classList.contains('lcd-console-open') ? 'lcd'
+                         : (document.body.classList.contains('wo-mode-song') ? 'song' : null);
+    _orderSyncClearBanner();
+    _orderSyncPending = null;
+    _orderSyncDismissed = null;
+    delete _orderSyncSeen[oid];   // the reload re-seeds it
+    showToast('Reloading order…', 'info');
+    loadOrder(oid);
+  }
+
   function openOrderInEditor(order) {
     // Cancel ALL pending auto-save timers from the previous order before switching.
     clearTimeout(_autoSaveTimer);
@@ -28566,6 +28729,15 @@ var WO = (function() {
 
     currentOrderType = order.type || 'traditional';
     currentOrderData = order;
+    // Baseline for the sync poll. Only when the order really came with its
+    // item list -- a cached open has none, and an empty baseline would read
+    // every stored row as a change somebody else just made.
+    if (Array.isArray(order.allItems)) {
+      _orderSyncNote(order.id, order.allItems.map(function(it) { return it.id; }));
+    } else if (order.id) {
+      delete _orderSyncSeen[order.id];
+    }
+    _orderSyncStart();
     // Join this order's lock channel now, not at the first edit: a person has
     // to be able to see that a slide is taken before they try to open it.
     if (typeof _edEnsureChannel === 'function') _edEnsureChannel();
@@ -28745,6 +28917,14 @@ var WO = (function() {
 
     // Render the order structure - items are restored when switching to Service Order view
     showOrderModeLanding();
+    // A reload the sync notice asked for goes back where the operator was,
+    // rather than dropping them on a mode-choice screen they never asked to
+    // see. One-shot: any other route through here still lands on the landing.
+    if (_orderSyncResumeMode) {
+      var _resume = _orderSyncResumeMode;
+      _orderSyncResumeMode = null;
+      setTimeout(function() { if (typeof selectOrder === 'function') selectOrder(_resume); }, 60);
+    }
   }
 
   // Reconstruct order items in the DOM from saved data
@@ -28889,6 +29069,8 @@ var WO = (function() {
         if (result && result.success) {
           currentOrderData.id = result.id;
           currentOrderData.lastEdited = result.lastEdited;
+          // A newly created order stores no items, so that is the baseline.
+          _orderSyncNote(result.id, []);
 
           // Back-fill the ownership stamp for the just-created order (see
           // the matching block in saveCurrentOrder's .then()).
@@ -29500,6 +29682,11 @@ var WO = (function() {
           }
           currentOrderData.id = result.id;
           currentOrderData.lastEdited = result.lastEdited;
+          // What we just wrote is what the screen shows, so the poll starts
+          // comparing from here. Items the save deliberately kept because
+          // another device added them are NOT in this list, which is exactly
+          // what makes the next tick report them.
+          _orderSyncNote(result.id, (orderPayload.items || []).map(function(it) { return it.id; }));
 
           // Back-fill the ownership stamp: a brand-new order is initialized
           // before it has an id, so the stamp written by initializeService/
@@ -68210,6 +68397,11 @@ var WO = (function() {
     edRelease: edRelease,
     edIsLockedByOther: edIsLockedByOther,
     edRefreshLockUI: edRefreshLockUI,
+    _orderSyncTick: function() { return _orderSyncTick(); },
+    _orderSyncState: function() {
+      return { seen: _orderSyncSeen, pending: _orderSyncPending,
+               shown: _orderSyncShown, running: !!_orderSyncTimer };
+    },
     _edEnsureChannel: _edEnsureChannel,
     _edSlideKey: _edSlideKey,
     _edState: function() { return { me: _edClientId, mine: _edMyLocks, theirs: _edLocks, ready: _edLockReady }; },
@@ -80335,6 +80527,34 @@ function filterLiturgyItems() {
   .sb-conflict-btn:hover { background: #f8fafc; }
   .sb-conflict-btn.sb-conflict-primary { background: #dc2626; border-color: #dc2626; color: #fff; }
   .sb-conflict-btn.sb-conflict-primary:hover { background: #b91c1c; }
+  /* ── Order sync notice ──────────────────────────────────────────────── */
+  /* Nothing has gone wrong, so it is informational rather than red, and it
+     sits above the LCD console (which runs its own high stacking contexts)
+     without covering the schedule or the preview. */
+  .wo-sync-notice {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 100060;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 10px 14px;
+    background: #eff6ff; border: 1px solid #bfdbfe; border-left: 4px solid #2563eb;
+    border-radius: 10px; box-shadow: 0 10px 34px rgba(4,20,34,.22);
+    font-family: 'Poppins', sans-serif; font-size: 0.78rem; color: #1e3a8a;
+    animation: ed-lock-in 0.22s ease;
+  }
+  .wo-sync-notice i { color: #2563eb; }
+  .wo-sync-msg { flex: 1; min-width: 180px; line-height: 1.4; }
+  .wo-sync-btn {
+    border: 1px solid #cbd5e1; background: #fff; color: #334155;
+    border-radius: 8px; padding: 6px 12px; cursor: pointer;
+    font-family: inherit; font-size: 0.75rem; font-weight: 600;
+  }
+  .wo-sync-btn:hover { background: #f8fafc; }
+  .wo-sync-btn.wo-sync-primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .wo-sync-btn.wo-sync-primary:hover { background: #1d4ed8; }
+  @media (max-width: 560px) {
+    .wo-sync-notice { top: 8px; padding: 9px 11px; font-size: 0.73rem; }
+  }
   /* Compact page header title/artist — must match sp-title / sp-artist in book mode for identical rendering */
   .sb-page-title { font-size:1.35rem; font-weight:700; color:#1e293b; font-family:'Cinzel',Georgia,serif; line-height:1.2; }
   .sb-page-artist { font-size:0.82rem; color:#64748b; margin-top:2px; }
