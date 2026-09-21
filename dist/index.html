@@ -25635,12 +25635,19 @@ var SBQ = {
           return true;
         });
 
-        return sb.from('order_items').select('id').eq('order_id', id)
+        return sb.from('order_items').select('id,item_type').eq('order_id', id)
           .then(function(er) {
             if (er.error) sbqError(er.error, 'saveOrder/order_items-existing');
             var keep = {};
             rows.forEach(function(row) { keep[row.id] = true; });
             var seen = SBQ._knownItems[id];
+            // Which kinds this payload actually carries, and which the caller has
+            // said may be emptied. A stale row whose whole kind is missing from the
+            // payload is the signature of a collection that came back incomplete,
+            // not of an edit: real removals arrive with the caller's permission.
+            var _kindsInPayload = {};
+            rows.forEach(function(r) { _kindsInPayload[r.item_type] = true; });
+            var _mayClear = payload.allowClearTypes || {};
             var existsNow = {};
             (er.data || []).forEach(function(x) { existsNow[x.id] = true; });
 
@@ -25658,14 +25665,24 @@ var SBQ = {
             _echoCount = echoes.length;
 
             var stale = [], spared = [];
+            var _kindProtected = {};
             (er.data || []).forEach(function(x) {
               if (keep[x.id]) return;
+              if (!_kindsInPayload[x.item_type] && !_mayClear[x.item_type]) {
+                _kindProtected[x.item_type] = (_kindProtected[x.item_type] || 0) + 1;
+                return;
+              }
               // No record of ever having read this order: we have no way to tell
               // a deletion from someone else's addition, so behave as before and
               // prune. In practice every path reaches an order through loadOrder
               // first, so this is the shape of a bug, not a normal save.
               if (!seen || seen[x.id]) stale.push(x.id);
               else spared.push(x.id);
+            });
+            Object.keys(_kindProtected).forEach(function(k) {
+              console.warn('[SBQ.saveOrder] Kept ' + _kindProtected[k] + ' stored ' + k +
+                ' item(s): this payload carried none of that kind and nothing asked for it ' +
+                'to be cleared, so the collection is treated as incomplete rather than as a deletion.');
             });
             if (spared.length) {
               console.warn('[SBQ.saveOrder] Kept ' + spared.length + ' item(s) added by another device: ' +
@@ -29112,6 +29129,12 @@ var WO = (function() {
     loadOrder(oid);
   }
 
+  // Which kinds of item the operator has deliberately removed since the last
+  // successful save. A save may clear a whole category only if the person
+  // asked for that; losing every item of a type any other way is a collection
+  // failure, not an edit. Reset once the save that carries it succeeds.
+  var _woUserClearedTypes = {};
+
   // Handle for the deferred liturgy seeding below, so that opening another
   // order can cancel a wait that is no longer about it.
   var _woSeedRetryTimer = null;
@@ -30002,6 +30025,17 @@ var WO = (function() {
     // state alone must never be enough to authorise clearing the stored items.
     var _allowEmptyItems = (items.length === 0 && _serviceSectionsVisible &&
                             _domContentCount === 0 && _snapshotItemCount === 0);
+
+    // The same question asked per kind of item, because collection can lose a
+    // whole category while still returning something. An order that kept its
+    // one song and lost all twenty-three of its liturgy rows looked, to the
+    // whole-order test above, like a perfectly ordinary save -- and the prune
+    // deleted the liturgy as deliberately removed. Nothing about the payload
+    // distinguishes "the operator took these out" from "collection did not find
+    // them", so the answer has to come from what the operator actually did.
+    // _woUserClearedTypes is set by the remove buttons themselves.
+    var _allowClearTypes = {};
+    Object.keys(_woUserClearedTypes).forEach(function(k) { _allowClearTypes[k] = true; });
     // ────────────────────────────────────────────────────────────────────────
 
     if (!silent) {
@@ -30078,6 +30112,7 @@ var WO = (function() {
       // Without it SBQ.saveOrder keeps the stored items rather than clearing
       // them on an empty payload (see the guard there).
       allowEmptyItems: _allowEmptyItems,
+      allowClearTypes: _allowClearTypes,
       // Embed clearedSections, sectionLayout, and sectionBackgrounds inside template
       // so they survive Supabase round-trips without needing new DB columns.
       // sectionLayout captures every section's id/title/serviceSectionId so renames,
@@ -30172,6 +30207,9 @@ var WO = (function() {
           // the lock channel is keyed on it. Without this the order a team
           // builds together had no edit locks until somebody reopened it.
           if (typeof _edEnsureChannel === 'function') _edEnsureChannel();
+          // The removals this save carried are now stored; a later save should
+          // not inherit permission to clear a category on their account.
+          _woUserClearedTypes = {};
 
           // Back-fill the ownership stamp: a brand-new order is initialized
           // before it has an id, so the stamp written by initializeService/
@@ -57810,6 +57848,7 @@ var WO = (function() {
     // only re-pins boxes still present in the container.
     if (sectionId) _lcdRestoreSectionBgs(sectionId, _rmBgs);
     if (opts.remote) return;
+    _woUserClearedTypes.song = true;
     showToast('Song removed from section', 'success');
     autoSaveOrder();
   }
@@ -57864,6 +57903,7 @@ var WO = (function() {
       }
     }
     if (opts.remote) return;
+    _woUserClearedTypes.liturgy = true;
     showToast('Liturgy removed from section', 'success');
     autoSaveOrder();
   }

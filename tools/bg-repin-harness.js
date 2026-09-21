@@ -88,6 +88,10 @@ function makeEnv() {
     sectionBackgrounds: {},
     serviceSectionSongs: {},
     currentOrderData: { clearedSections: [] },
+    // Set by the remove buttons to record that the operator, rather than a
+    // failed collection, emptied a category. saveCurrentOrder reads it to
+    // decide whether a save may clear a whole item type.
+    _woUserClearedTypes: {},
     undoPushes: 0,
     saves: 0,
     toasts: [],
