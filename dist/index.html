@@ -25487,9 +25487,11 @@ var SBQ = {
       if (!or.data) throw new Error('Order not found: ' + id);
       var order = SBQ._orderFromRow(or.data);
       var items = (ir.data || []).map(SBQ._itemFromRow);
-      // Everything we just read is now something this client has seen, and so
-      // something it is entitled to delete on a later save.
-      SBQ._noteKnownItems(id, items.map(function(it) { return it.id; }));
+      // Note: reading an order does NOT make its items "known". Most callers
+      // here never draw a thing -- the sync poll, the Songbook poll, the
+      // add-to-order flows -- and an item this client has not drawn is not one
+      // it can have decided to delete. openOrderInEditor records them when the
+      // order reaches the screen, and the sync poll records the ones it draws.
       return { order: order, items: items, backgrounds: {}, sectionStates: {} };
     });
   },
@@ -25607,6 +25609,23 @@ var SBQ = {
         rows = rows.filter(function(row) {
           if (_seenRowIds[row.id]) { console.warn('[SBQ.saveOrder] Duplicate item id skipped:', row.id); return false; }
           _seenRowIds[row.id] = true;
+          return true;
+        });
+        // And by what the row IS, not just what it is called. One liturgy in one
+        // section is one row: the collection reads from the DOM and from
+        // serviceSectionItems, and those two can hold the same liturgy under
+        // different ids, which the check above cannot see. addLiturgyToSection
+        // already refuses to draw the same liturgy into a section twice, so
+        // nothing legitimate is collapsed here.
+        var _seenLiturgy = {};
+        rows = rows.filter(function(row) {
+          if (row.item_type !== 'liturgy' || !row.source_id) return true;
+          var k = row.source_id + '|' + row.section_id;
+          if (_seenLiturgy[k]) {
+            console.warn('[SBQ.saveOrder] Duplicate liturgy skipped:', k, 'as', row.id);
+            return false;
+          }
+          _seenLiturgy[k] = true;
           return true;
         });
 
@@ -29014,9 +29033,12 @@ var WO = (function() {
         // deferred stays as it was, so the next tick finds it again and
         // either applies it or -- if it is still blocked -- asks.
         var base = _orderSyncSeen[oid] || (_orderSyncSeen[oid] = {});
+        var drawn = [];
         applied.applied.forEach(function(k) {
-          if (live[k]) base[k] = live[k]; else delete base[k];
+          if (live[k]) { base[k] = live[k]; drawn.push(k); } else delete base[k];
         });
+        // Drawn on this screen, so from here on this client may delete them.
+        SBQ._noteKnownItems(oid, drawn);
         _orderSyncPending = null;
         _orderSyncDismissed = null;
         _orderSyncClearBanner();
@@ -29131,6 +29153,9 @@ var WO = (function() {
     // every stored row as a change somebody else just made.
     if (Array.isArray(order.allItems)) {
       _orderSyncNote(order.id, order.allItems);
+      // The same moment, from the same list: these are on screen now, so they
+      // are the ones a later save may prune.
+      SBQ._noteKnownItems(order.id, order.allItems.map(function(it) { return it.id; }));
     } else if (order.id) {
       delete _orderSyncSeen[order.id];
     }
@@ -29469,6 +29494,8 @@ var WO = (function() {
           currentOrderData.lastEdited = result.lastEdited;
           // A newly created order stores no items, so that is the baseline.
           _orderSyncNote(result.id, []);
+          if (typeof _edEnsureChannel === 'function') _edEnsureChannel();
+          if (typeof _orderSyncStart === 'function') _orderSyncStart();
 
           // Back-fill the ownership stamp for the just-created order (see
           // the matching block in saveCurrentOrder's .then()).
@@ -30103,6 +30130,10 @@ var WO = (function() {
           // another device added them are NOT in this list, which is exactly
           // what makes the next tick report them.
           _orderSyncNote(result.id, orderPayload.items || []);
+          // An order created in this session has only just acquired an id, and
+          // the lock channel is keyed on it. Without this the order a team
+          // builds together had no edit locks until somebody reopened it.
+          if (typeof _edEnsureChannel === 'function') _edEnsureChannel();
 
           // Back-fill the ownership stamp: a brand-new order is initialized
           // before it has an id, so the stamp written by initializeService/
@@ -47632,6 +47663,7 @@ var WO = (function() {
         song.annotations = inc.annotations;
         sbPaths[song.id] = inc.annotations.slice();
         sbRedrawSong(song.id);
+        p.label = p.label || 'drawing';
       }
 
       // ── Image annotations ────────────────────────────────────────────────────
@@ -47645,6 +47677,7 @@ var WO = (function() {
         sbRedrawImgAnnotations && Object.keys(sbImgPaths[song.id]).forEach(function(fi) {
           sbRedrawImgAnnotations(song.id, parseInt(fi));
         });
+        p.label = p.label || 'drawing';
       }
 
       // ── Text annotations ─────────────────────────────────────────────────────
@@ -47653,6 +47686,7 @@ var WO = (function() {
         song.textAnnotations = inc.textAnnotations;
         sbTextAnnots[song.id] = inc.textAnnotations.slice();
         p.textAnnots = true;
+        p.label = p.label || 'adding a note';
       }
 
       // ── Highlight annotations ────────────────────────────────────────────────
@@ -47661,6 +47695,7 @@ var WO = (function() {
         song.highlights = inc.highlights;
         _sbHighlights[song.id] = inc.highlights.slice();
         sbRenderHighlights(song.id);
+        p.label = p.label || 'highlighting';
       }
 
       // ── Rich lyrics ──────────────────────────────────────────────────────────
@@ -47683,6 +47718,7 @@ var WO = (function() {
         if (inc.richLyrics != null && inc.richLyrics !== song.richLyrics) {
           song.richLyrics = inc.richLyrics;
           p.lyrics = true;
+          p.label = p.label || 'editing';
         }
 
         // ── Transpose ──────────────────────────────────────────────────────────
@@ -47690,6 +47726,7 @@ var WO = (function() {
           song.transposeSteps = inc.transposeSteps;
           sbTransposeSteps[song.id] = inc.transposeSteps;
           p.lyrics = true;
+          p.label = p.label || 'transposing';
         }
       }
 
@@ -47698,6 +47735,7 @@ var WO = (function() {
         if (Date.now() - _sbLastColsToggleTs > 6000) {
           song.sbLyricsColumns = inc.sbLyricsColumns;
           p.cols = true;
+          p.label = p.label || 'changing layout';
         }
       }
 
@@ -47705,6 +47743,7 @@ var WO = (function() {
       if (inc.liturgistNotes != null && inc.liturgistNotes !== song.liturgistNotes) {
         song.liturgistNotes = inc.liturgistNotes;
         p.litNotes = true;
+        p.label = p.label || 'adding a note';
       }
 
       // ── Slides (stored data only) ────────────────────────────────────────────
@@ -47731,7 +47770,7 @@ var WO = (function() {
           JSON.stringify(inc.sbLinks) !== JSON.stringify(song.sbLinks || [])) {
         song.sbLinks = inc.sbLinks; mediaChanged = true;
       }
-      if (mediaChanged) p.media = true;
+      if (mediaChanged) { p.media = true; p.label = p.label || 'updating media'; }
     });
 
     _sbLastRealtimeBroadcastTs = Date.now();
@@ -47739,6 +47778,8 @@ var WO = (function() {
     // ── Apply surgical patches (Google-Docs style — no full re-render) ─────────
     Object.keys(patches).forEach(function(songId) {
       sbPatchSongDOM(songId, patches[songId]);
+      // Say who did what, whichever route the change came in by.
+      if (patches[songId].label) sbShowTypingIndicator(songId, patches[songId].label);
     });
   }
 
