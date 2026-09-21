@@ -25614,7 +25614,13 @@ var SBQ = {
         // And by what the row IS, not just what it is called. One liturgy in one
         // section is one row: the collection reads from the DOM and from
         // serviceSectionItems, and those two can hold the same liturgy under
-        // different ids, which the check above cannot see. addLiturgyToSection
+        // different ids, which the check above cannot see.
+        //
+        // The way they came to disagree has since been found and fixed at source:
+        // a liturgy-seeding retry in openOrderInEditor outlived the order that
+        // armed it and injected defaults into the next order opened. This stays
+        // as the backstop, because the guarantee belongs at the boundary rather
+        // than in every path that reaches it. addLiturgyToSection
         // already refuses to draw the same liturgy into a section twice, so
         // nothing legitimate is collapsed here.
         var _seenLiturgy = {};
@@ -29106,7 +29112,12 @@ var WO = (function() {
     loadOrder(oid);
   }
 
+  // Handle for the deferred liturgy seeding below, so that opening another
+  // order can cancel a wait that is no longer about it.
+  var _woSeedRetryTimer = null;
+
   function openOrderInEditor(order) {
+    if (_woSeedRetryTimer) { clearInterval(_woSeedRetryTimer); _woSeedRetryTimer = null; }
     // Cancel ALL pending auto-save timers from the previous order before switching.
     clearTimeout(_autoSaveTimer);
     if (typeof sbAutoSaveTimer !== 'undefined') clearTimeout(sbAutoSaveTimer);
@@ -29304,11 +29315,38 @@ var WO = (function() {
         });
       }
       _seed();
+      // The Liturgy library may still be loading, in which case _seed() above
+      // found nothing to seed and this waits for it -- for up to eight seconds.
+      //
+      // That wait used to be held in a local var with no handle anywhere else,
+      // so opening a different order did not cancel it. It fired later and ran
+      // _seed() with THIS order's guard -- the set of sections already holding
+      // liturgy -- while writing into window.serviceSectionItems, which by then
+      // belonged to whichever order had since been opened. That order got a full
+      // set of default liturgy entries on top of the ones it already had, and a
+      // save wrote every one of them twice.
+      //
+      // Reproduced by holding getAllItems() empty, opening one order, opening a
+      // second, then letting the library arrive: the second order's item list
+      // went from 9 entries to 23.
+      //
+      // It hid for a long time because it used to be harmless. Stored liturgy
+      // ids had the same shape as seeded ones, so the injected entries carried
+      // ids identical to the real rows and collapsed on save. Giving items a
+      // stable, order-scoped id stopped them colliding, which is what made a
+      // years-old race suddenly show up as duplicated content.
+      //
+      // Two guards, because either alone would do and neither costs anything:
+      // the handle is module-level so the next order open cancels it, and the
+      // callback checks it is still working for the order that armed it.
       if (LiturgyModule.getAllItems().length === 0) {
         var _att = 0;
-        var _t = setInterval(function() {
-          if (++_att > 10) { clearInterval(_t); return; }
-          if (LiturgyModule.getAllItems().length > 0) { clearInterval(_t); _seed(); }
+        var _seedOwner = currentOrderData;
+        _woSeedRetryTimer = setInterval(function() {
+          function _stop() { clearInterval(_woSeedRetryTimer); _woSeedRetryTimer = null; }
+          if (currentOrderData !== _seedOwner) { _stop(); return; }
+          if (++_att > 10) { _stop(); return; }
+          if (LiturgyModule.getAllItems().length > 0) { _stop(); _seed(); }
         }, 800);
       }
     })();
