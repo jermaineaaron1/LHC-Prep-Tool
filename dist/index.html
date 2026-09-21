@@ -25648,6 +25648,12 @@ var SBQ = {
             var _kindsInPayload = {};
             rows.forEach(function(r) { _kindsInPayload[r.item_type] = true; });
             var _mayClear = payload.allowClearTypes || {};
+            // allowEmptyItems is the caller stating that the order really is empty,
+            // established from the DOM, the snapshot and the collection all agreeing.
+            // That is a stronger claim than any per-kind permission and has to
+            // override the check below -- otherwise an empty payload trips the guard
+            // for every kind at once and a deliberate clear silently does nothing.
+            var _clearAll = !!payload.allowEmptyItems;
             var existsNow = {};
             (er.data || []).forEach(function(x) { existsNow[x.id] = true; });
 
@@ -25668,7 +25674,7 @@ var SBQ = {
             var _kindProtected = {};
             (er.data || []).forEach(function(x) {
               if (keep[x.id]) return;
-              if (!_kindsInPayload[x.item_type] && !_mayClear[x.item_type]) {
+              if (!_clearAll && !_kindsInPayload[x.item_type] && !_mayClear[x.item_type]) {
                 _kindProtected[x.item_type] = (_kindProtected[x.item_type] || 0) + 1;
                 return;
               }
