@@ -28344,153 +28344,7 @@ var WO = (function() {
               return (a.sortOrder || 0) - (b.sortOrder || 0);
             });
 
-            sortedItems.forEach(function(item) {
-              // 354A — Restore blank pages
-              if (item.itemType === 'blank') {
-                completeOrder.songs.push({
-                  id: item.id,
-                  itemType: 'blank',
-                  title: item.title || 'Notes',
-                  richContent: (item.content && item.content.richContent) || '',
-                  sbFiles: (item.content && item.content.sbFiles) || [],
-                  sbLinks: (item.content && item.content.sbLinks) || []
-                });
-                return;
-              }
-
-              if (item.itemType === 'song') {
-                var cust = item.customizations || {};
-                var customLyrics  = cust.customLyrics  || '';
-                var masterLyrics  = cust.masterLyrics
-                  || (item.content && item.content.masterLyrics)
-                  || (item.content && item.content.lyrics)
-                  || ''; // stored by saveOrderToSupabase or addSongToOrderFromFinder
-                var transposeSteps = cust.transposeSteps || 0;
-
-                // Fall back to STATE.songs if masterLyrics missing (old orders migrated from Sheets)
-                if (!masterLyrics && item.sourceId && window.STATE && Array.isArray(window.STATE.songs)) {
-                  var masterSong = window.STATE.songs.find(function(s) { return s.id === item.sourceId; });
-                  if (masterSong) masterLyrics = masterSong.lyrics || '';
-                }
-
-                var currentLyrics = customLyrics || masterLyrics;
-
-                var songEntry = {
-                  id: item.id,
-                  songId: item.sourceId,
-                  title: item.title || '',
-                  artist: (item.content ? item.content.artist : '') || '',
-                  lyrics: currentLyrics,
-                  masterLyrics: masterLyrics,
-                  customLyrics: customLyrics,
-                  transposeSteps: transposeSteps,
-                  annotations: cust.annotations || [],
-                  imgAnnotations: cust.imgAnnotations || {},
-                  serviceSections: cust.serviceSections || [],
-                  hasCustomLyrics: !!customLyrics,
-                  youtube: (item.content ? item.content.youtube : null) || [],
-                  attachments: (item.content ? item.content.attachments : null) || [],
-                  customYoutube: (item.content ? item.content.customYoutube : null) || [],
-                  customYoutubeMeta: (item.content ? item.content.customYoutubeMeta : null) || {},
-                  customDocs: (item.content ? item.content.customDocs : null) || [],
-                  sbFiles: (item.content ? item.content.sbFiles : null) || [],  // 354B
-                  sbLinks: (item.content ? item.content.sbLinks : null) || [],  // 669: restore website/snapshot links
-                  removedLibraryDocUrls: (item.content ? item.content.removedLibraryDocUrls : null) || [],
-                  removedLibraryYoutubeUrls: (item.content ? item.content.removedLibraryYoutubeUrls : null) || [],
-                  sbLyricsColumns: (item.content && item.content.sbLyricsColumns) || 1,
-                  textAnnotations: (item.content && item.content.textAnnotations) || [],
-                  slides: item.slides || [],
-                  savedSlides: item.slides || [],
-                  sectionId: item.sectionId,
-                  backgrounds: item.backgrounds || {},
-                  richLyrics: cust.customRichLyrics || null,  // 343: restore Songbook-edited rich lyrics
-                  masterRichLyrics: null,
-                  liturgistNotes: cust.liturgistNotes || ''  // 557: restore per-song liturgist notes
-                };
-                console.log('Loaded song:', songEntry.title, '| sectionId:', songEntry.sectionId, '| transposeSteps:', transposeSteps, '| hasCustomLyrics:', !!customLyrics, '| hasMasterLyrics:', !!masterLyrics);
-                completeOrder.songs.push(songEntry);
-
-                if (item.sectionId) {
-                  if (!completeOrder.serviceSectionSongs[item.sectionId]) {
-                    completeOrder.serviceSectionSongs[item.sectionId] = [];
-                  }
-                  completeOrder.serviceSectionSongs[item.sectionId].push(songEntry);
-                }
-              } else if (item.itemType === 'liturgy') {
-                var liturgyEntry = {
-                  id: item.id,
-                  type: 'liturgy',
-                  sourceId: item.sourceId,
-                  title: item.title || 'Liturgy',
-                  sectionId: item.sectionId,
-                  slides: item.slides || [],
-                  content: item.content || {}
-                };
-                if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
-                if (!completeOrder.serviceSectionItems[item.sectionId]) {
-                  completeOrder.serviceSectionItems[item.sectionId] = [];
-                }
-                completeOrder.serviceSectionItems[item.sectionId].push(liturgyEntry);
-              } else if (item.itemType === 'content') {
-                var contentEntry = {
-                  id: item.id,
-                  type: 'content',
-                  sectionId: item.sectionId,
-                  text: item.content ? item.content.text : '',
-                  slides: item.slides || []
-                };
-                if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
-                if (!completeOrder.serviceSectionItems[item.sectionId]) {
-                  completeOrder.serviceSectionItems[item.sectionId] = [];
-                }
-                completeOrder.serviceSectionItems[item.sectionId].push(contentEntry);
-              } else if (item.itemType === 'scripture') {
-                var scriptureEntry = {
-                  id: item.id,
-                  type: 'scripture',
-                  sourceId: item.sourceId || '',
-                  title: item.title || 'Scripture',
-                  sectionId: item.sectionId,
-                  slides: item.slides || [],
-                  content: item.content || {}
-                };
-                if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
-                if (!completeOrder.serviceSectionItems[item.sectionId]) {
-                  completeOrder.serviceSectionItems[item.sectionId] = [];
-                }
-                completeOrder.serviceSectionItems[item.sectionId].push(scriptureEntry);
-              } else if (item.itemType === 'slides') {
-                var slidesEntry = {
-                  id: item.id,
-                  type: 'slides',
-                  sourceId: item.sourceId || '',
-                  title: item.title || 'Presentation',
-                  sectionId: item.sectionId,
-                  slides: item.slides || [],
-                  content: item.content || {}
-                };
-                if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
-                if (!completeOrder.serviceSectionItems[item.sectionId]) {
-                  completeOrder.serviceSectionItems[item.sectionId] = [];
-                }
-                completeOrder.serviceSectionItems[item.sectionId].push(slidesEntry);
-              } else if (item.itemType === 'video') {
-                var videoEntry = {
-                  id: item.id,
-                  type: 'video',
-                  sourceId: item.sourceId || '',
-                  title: item.title || 'Video',
-                  sectionId: item.sectionId,
-                  slides: [],
-                  content: item.content || {}
-                };
-                if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
-                if (!completeOrder.serviceSectionItems[item.sectionId]) {
-                  completeOrder.serviceSectionItems[item.sectionId] = [];
-                }
-                completeOrder.serviceSectionItems[item.sectionId].push(videoEntry);
-              }
-            });
+            sortedItems.forEach(function(item) { _absorbOrderItem(item, completeOrder); });
 
             completeOrder.allItems = result.items || [];
             console.log('*** PROCESSED: songs=' + completeOrder.songs.length +
@@ -28527,6 +28381,322 @@ var WO = (function() {
     }
   }
 
+  // ── One stored item -> the in-memory entries it becomes ─────────────────
+  //
+  // Lifted out of loadOrder's item loop, unchanged, so that the incremental
+  // sync path can build an entry for a single item exactly the way a full load
+  // builds it for all of them. Two copies of this mapping would disagree within
+  // a release: it knows about blank pages, transposition, custom versus master
+  // lyrics, annotations, per-song media and five kinds of section item, and
+  // every one of those is a thing somebody adds later in one place only.
+  //
+  // `target` is anything with songs / serviceSectionSongs / serviceSectionItems
+  // to fill in -- the order being loaded, or a scratch object when patching.
+  function _absorbOrderItem(item, completeOrder) {
+    // 354A — Restore blank pages
+    if (item.itemType === 'blank') {
+      completeOrder.songs.push({
+        id: item.id,
+        itemType: 'blank',
+        title: item.title || 'Notes',
+        richContent: (item.content && item.content.richContent) || '',
+        sbFiles: (item.content && item.content.sbFiles) || [],
+        sbLinks: (item.content && item.content.sbLinks) || []
+      });
+      return;
+    }
+
+    if (item.itemType === 'song') {
+      var cust = item.customizations || {};
+      var customLyrics  = cust.customLyrics  || '';
+      var masterLyrics  = cust.masterLyrics
+        || (item.content && item.content.masterLyrics)
+        || (item.content && item.content.lyrics)
+        || ''; // stored by saveOrderToSupabase or addSongToOrderFromFinder
+      var transposeSteps = cust.transposeSteps || 0;
+
+      // Fall back to STATE.songs if masterLyrics missing (old orders migrated from Sheets)
+      if (!masterLyrics && item.sourceId && window.STATE && Array.isArray(window.STATE.songs)) {
+        var masterSong = window.STATE.songs.find(function(s) { return s.id === item.sourceId; });
+        if (masterSong) masterLyrics = masterSong.lyrics || '';
+      }
+
+      var currentLyrics = customLyrics || masterLyrics;
+
+      var songEntry = {
+        id: item.id,
+        songId: item.sourceId,
+        title: item.title || '',
+        artist: (item.content ? item.content.artist : '') || '',
+        lyrics: currentLyrics,
+        masterLyrics: masterLyrics,
+        customLyrics: customLyrics,
+        transposeSteps: transposeSteps,
+        annotations: cust.annotations || [],
+        imgAnnotations: cust.imgAnnotations || {},
+        serviceSections: cust.serviceSections || [],
+        hasCustomLyrics: !!customLyrics,
+        youtube: (item.content ? item.content.youtube : null) || [],
+        attachments: (item.content ? item.content.attachments : null) || [],
+        customYoutube: (item.content ? item.content.customYoutube : null) || [],
+        customYoutubeMeta: (item.content ? item.content.customYoutubeMeta : null) || {},
+        customDocs: (item.content ? item.content.customDocs : null) || [],
+        sbFiles: (item.content ? item.content.sbFiles : null) || [],  // 354B
+        sbLinks: (item.content ? item.content.sbLinks : null) || [],  // 669: restore website/snapshot links
+        removedLibraryDocUrls: (item.content ? item.content.removedLibraryDocUrls : null) || [],
+        removedLibraryYoutubeUrls: (item.content ? item.content.removedLibraryYoutubeUrls : null) || [],
+        sbLyricsColumns: (item.content && item.content.sbLyricsColumns) || 1,
+        textAnnotations: (item.content && item.content.textAnnotations) || [],
+        slides: item.slides || [],
+        savedSlides: item.slides || [],
+        sectionId: item.sectionId,
+        backgrounds: item.backgrounds || {},
+        richLyrics: cust.customRichLyrics || null,  // 343: restore Songbook-edited rich lyrics
+        masterRichLyrics: null,
+        liturgistNotes: cust.liturgistNotes || ''  // 557: restore per-song liturgist notes
+      };
+      console.log('Loaded song:', songEntry.title, '| sectionId:', songEntry.sectionId, '| transposeSteps:', transposeSteps, '| hasCustomLyrics:', !!customLyrics, '| hasMasterLyrics:', !!masterLyrics);
+      completeOrder.songs.push(songEntry);
+
+      if (item.sectionId) {
+        if (!completeOrder.serviceSectionSongs[item.sectionId]) {
+          completeOrder.serviceSectionSongs[item.sectionId] = [];
+        }
+        completeOrder.serviceSectionSongs[item.sectionId].push(songEntry);
+      }
+    } else if (item.itemType === 'liturgy') {
+      var liturgyEntry = {
+        id: item.id,
+        type: 'liturgy',
+        sourceId: item.sourceId,
+        title: item.title || 'Liturgy',
+        sectionId: item.sectionId,
+        slides: item.slides || [],
+        content: item.content || {}
+      };
+      if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
+      if (!completeOrder.serviceSectionItems[item.sectionId]) {
+        completeOrder.serviceSectionItems[item.sectionId] = [];
+      }
+      completeOrder.serviceSectionItems[item.sectionId].push(liturgyEntry);
+    } else if (item.itemType === 'content') {
+      var contentEntry = {
+        id: item.id,
+        type: 'content',
+        sectionId: item.sectionId,
+        text: item.content ? item.content.text : '',
+        slides: item.slides || []
+      };
+      if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
+      if (!completeOrder.serviceSectionItems[item.sectionId]) {
+        completeOrder.serviceSectionItems[item.sectionId] = [];
+      }
+      completeOrder.serviceSectionItems[item.sectionId].push(contentEntry);
+    } else if (item.itemType === 'scripture') {
+      var scriptureEntry = {
+        id: item.id,
+        type: 'scripture',
+        sourceId: item.sourceId || '',
+        title: item.title || 'Scripture',
+        sectionId: item.sectionId,
+        slides: item.slides || [],
+        content: item.content || {}
+      };
+      if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
+      if (!completeOrder.serviceSectionItems[item.sectionId]) {
+        completeOrder.serviceSectionItems[item.sectionId] = [];
+      }
+      completeOrder.serviceSectionItems[item.sectionId].push(scriptureEntry);
+    } else if (item.itemType === 'slides') {
+      var slidesEntry = {
+        id: item.id,
+        type: 'slides',
+        sourceId: item.sourceId || '',
+        title: item.title || 'Presentation',
+        sectionId: item.sectionId,
+        slides: item.slides || [],
+        content: item.content || {}
+      };
+      if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
+      if (!completeOrder.serviceSectionItems[item.sectionId]) {
+        completeOrder.serviceSectionItems[item.sectionId] = [];
+      }
+      completeOrder.serviceSectionItems[item.sectionId].push(slidesEntry);
+    } else if (item.itemType === 'video') {
+      var videoEntry = {
+        id: item.id,
+        type: 'video',
+        sourceId: item.sourceId || '',
+        title: item.title || 'Video',
+        sectionId: item.sectionId,
+        slides: [],
+        content: item.content || {}
+      };
+      if (!completeOrder.serviceSectionItems) completeOrder.serviceSectionItems = {};
+      if (!completeOrder.serviceSectionItems[item.sectionId]) {
+        completeOrder.serviceSectionItems[item.sectionId] = [];
+      }
+      completeOrder.serviceSectionItems[item.sectionId].push(videoEntry);
+    }
+  }
+  // ── Applying a remote change in place ────────────────────────────────────
+  //
+  // The notice was the honest thing to do while there was no way to add an item
+  // without rebuilding the whole order, and rebuilding means openOrderInEditor,
+  // which resets the view. Adding and removing one item at a time needs none of
+  // that: the app already inserts a song, a liturgy block or a content box into
+  // a section one at a time, because that is what happens when somebody adds one
+  // by hand. This drives the same functions with the same arguments.
+  //
+  // It applies only when applying is clearly safe, and otherwise declines and
+  // lets the notice stand. Declining costs a reload; guessing wrong costs
+  // somebody their place in a live service.
+
+  // Where an id lives right now, and what the DOM calls it. Liturgy blocks are
+  // keyed in the DOM by sourceId rather than by the order item id, so the two
+  // cannot be used interchangeably.
+  function _orderSyncLocate(id) {
+    var song = songOrderSections.find(function(s) { return s.id === id; });
+    if (song) return { kind: 'song', sectionId: song.sectionId, domKey: song.id };
+    var buckets = window.serviceSectionItems || {};
+    var found = null;
+    Object.keys(buckets).forEach(function(sec) {
+      (buckets[sec] || []).forEach(function(e) {
+        if (!found && e && e.id === id) {
+          found = { kind: e.type || 'content', sectionId: e.sectionId || sec,
+                    domKey: e.sourceId || e.id, entry: e, bucket: sec };
+        }
+      });
+    });
+    return found;
+  }
+
+  // Kinds this path can draw. Anything else declines the whole patch rather
+  // than applying half of it: a content box is rendered without an id, so there
+  // is no way to find it again to take it away, and the remaining kinds
+  // (scripture, slide decks, video) each have their own render path that this
+  // does not drive.
+  var _ORDER_SYNC_ADDABLE = { song: 1, liturgy: 1, content: 1 };
+  var _ORDER_SYNC_REMOVABLE = { song: 1, liturgy: 1 };
+
+  function _orderSyncCanPatch(addedItems, removals) {
+    // Not over a congregation.
+    if (_orderSyncProjecting()) return false;
+    // Not under an open editor. This is the disruption the whole design exists
+    // to avoid, and it is the one case where a reload prompt is the kinder act.
+    if (typeof editingSlideBox !== 'undefined' && editingSlideBox) return false;
+    if (typeof _lcdEditDirty !== 'undefined' && _lcdEditDirty) return false;
+    if (document.querySelector('.wo-slide-editor')) return false;
+    for (var a = 0; a < addedItems.length; a++) {
+      if (!_ORDER_SYNC_ADDABLE[addedItems[a].itemType]) return false;
+    }
+    // Not the slide somebody has selected. It is genuinely gone, but taking it
+    // out from under a cursor mid-service reads as the app losing their place.
+    var sel = document.querySelector('.wo-slide-box.selected');
+    var selKey = sel ? (sel.getAttribute('data-song-id') || sel.getAttribute('data-liturgy-id') || '') : '';
+    for (var r = 0; r < removals.length; r++) {
+      if (!removals[r] || !_ORDER_SYNC_REMOVABLE[removals[r].kind]) return false;
+      if (selKey && removals[r].domKey === selKey) return false;
+    }
+    return true;
+  }
+
+  function _orderSyncRemoveOne(loc) {
+    if (!loc || !loc.sectionId) return;
+    if (loc.kind === 'song') {
+      removeSongFromSection(null, loc.sectionId, loc.domKey, { remote: true });
+      songOrderSections = songOrderSections.filter(function(s) { return s.id !== loc.domKey; });
+    } else if (loc.kind === 'liturgy') {
+      removeLiturgyFromSection(null, loc.sectionId, loc.domKey, { remote: true });
+    }
+    var buckets = window.serviceSectionItems || {};
+    Object.keys(buckets).forEach(function(sec) {
+      if (!Array.isArray(buckets[sec])) return;
+      buckets[sec] = buckets[sec].filter(function(e) { return !e || e.id !== (loc.entry && loc.entry.id); });
+    });
+  }
+
+  function _orderSyncAddSectionItem(sectionId, entry) {
+    if (entry.type === 'liturgy') {
+      // Exactly what reconstructOrderItems builds for a stored liturgy row.
+      addLiturgyToSection(sectionId, {
+        id: entry.sourceId,
+        title: entry.title,
+        content: (entry.slides || []).map(function(s) { return s.content; })
+          .join('\n═══════════════════════════════════\n')
+      });
+      return;
+    }
+    if (entry.type === 'content' && entry.text) {
+      var container = $(sectionId + '-boxes');
+      if (!container) return;
+      var placeholder = container.querySelector('.wo-content-placeholder');
+      if (placeholder && placeholder.parentElement) placeholder.parentElement.remove();
+      container.insertAdjacentHTML('beforeend',
+        '<div class="wo-content-box has-content" data-section="' + sectionId +
+        '" ondblclick="WO.editContent(this)">' +
+        '<div class="wo-content-text">' + escapeHtml(entry.text) + '</div>' +
+        _mkCASBtn() +
+        '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)">' +
+        '<i class="fa-solid fa-times"></i></button></div>');
+    }
+  }
+
+  // Returns a short description when it applied, or null when it declined.
+  function _orderSyncApplyDelta(liveItems, addedIds, removedIds) {
+    var byId = {};
+    liveItems.forEach(function(it) { if (it && it.id) byId[it.id] = it; });
+    var addedItems = addedIds.map(function(id) { return byId[id]; }).filter(Boolean);
+    if (addedItems.length !== addedIds.length) return null;   // fetch and ids disagree
+    var removals = removedIds.map(_orderSyncLocate);
+    // An id we cannot find is already off this screen; nothing to undraw.
+    var toRemove = removals.filter(Boolean);
+    if (!_orderSyncCanPatch(addedItems, toRemove)) return null;
+
+    var scroller = document.getElementById('woWorshipOrder');
+    var keepTop = scroller ? scroller.scrollTop : null;
+    var outer = scroller && typeof _scrollParentOf === 'function' ? _scrollParentOf(scroller) : null;
+    var keepOuter = outer ? outer.scrollTop : null;
+
+    toRemove.forEach(_orderSyncRemoveOne);
+
+    // One stored row becomes its in-memory entries exactly as a full load would.
+    var scratch = { songs: [], serviceSectionSongs: {}, serviceSectionItems: {} };
+    addedItems.forEach(function(item) { _absorbOrderItem(item, scratch); });
+
+    scratch.songs.forEach(function(entry) {
+      if (!songOrderSections.some(function(s) { return s.id === entry.id; })) {
+        songOrderSections.push(entry);
+      }
+    });
+    Object.keys(scratch.serviceSectionSongs).forEach(function(sec) {
+      scratch.serviceSectionSongs[sec].forEach(function(entry) {
+        addSongToServiceSection(sec, entry, true);
+      });
+    });
+    if (!window.serviceSectionItems) window.serviceSectionItems = {};
+    Object.keys(scratch.serviceSectionItems).forEach(function(sec) {
+      scratch.serviceSectionItems[sec].forEach(function(entry) {
+        if (!window.serviceSectionItems[sec]) window.serviceSectionItems[sec] = [];
+        if (!window.serviceSectionItems[sec].some(function(e) { return e && e.id === entry.id; })) {
+          window.serviceSectionItems[sec].push(entry);
+        }
+        _orderSyncAddSectionItem(sec, entry);
+      });
+    });
+
+    // The rail is rebuilt from the DOM on every structural change already, so
+    // this is the same refresh a local edit causes.
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+    if (scroller && keepTop != null) scroller.scrollTop = keepTop;
+    if (outer && keepOuter != null) outer.scrollTop = keepOuter;
+    if (typeof edRefreshLockUI === 'function') edRefreshLockUI();
+
+    var parts = [];
+    if (addedItems.length) parts.push(addedItems.length + (addedItems.length === 1 ? ' item' : ' items') + ' added');
+    if (toRemove.length)   parts.push(toRemove.length + (toRemove.length === 1 ? ' item' : ' items') + ' removed');
+    return parts.join(' and ');
+  }
   // ── Order sync poll ──────────────────────────────────────────────────────
   //
   // The Songbook has had a 2-second poll for a long time; the Service Order
@@ -28626,6 +28796,20 @@ var WO = (function() {
       // that exists for well under a second and would otherwise flash a notice
       // at somebody for no reason.
       if (_orderSyncPending !== sig) { _orderSyncPending = sig; return; }
+
+      // Apply it in place if that is safe, and only ask otherwise.
+      var applied = null;
+      try {
+        applied = _orderSyncApplyDelta(res.items, added, removed);
+      } catch (e) {
+        console.warn('[OrderSync] In-place patch failed, falling back to the notice:', e);
+        applied = null;
+      }
+      if (applied) {
+        _orderSyncNote(oid, Object.keys(live));
+        showToast('Updated from another device — ' + applied, 'info');
+        return;
+      }
       _orderSyncShowBanner(added.length, removed.length, sig);
     }).catch(function() { _orderSyncBusy = false; });
   }
@@ -57258,10 +57442,19 @@ var WO = (function() {
   function sbDragOver(event) { event.preventDefault(); }
   function sbDrop(event) { event.preventDefault(); }
 
-  function removeSongFromSection(btn, sectionId, songId) {
-    event.stopPropagation();
-    var banner = btn.closest('.wo-song-banner');
+  // opts.remote: this removal came from another device, not from a click here.
+  // It does the same DOM and model work and none of the reporting -- no toast
+  // claiming the operator did it, and no save echoing a change that is already
+  // stored. btn may be null, since there was no button to press.
+  function removeSongFromSection(btn, sectionId, songId, opts) {
+    opts = opts || {};
+    if (!opts.remote && typeof event !== 'undefined' && event && event.stopPropagation) {
+      event.stopPropagation();
+    }
     var boxesContainer = $(sectionId + '-boxes');
+    var banner = btn ? btn.closest('.wo-song-banner')
+      : (boxesContainer && boxesContainer.querySelector(
+          '.wo-song-banner[data-song-id="' + songId + '"]'));
 
     _lcdPushUndo();
     // Removing a whole song drops several slides at once, renumbering every
@@ -57304,12 +57497,17 @@ var WO = (function() {
     // Entries whose slide is gone drop out naturally: _lcdRestoreSectionBgs
     // only re-pins boxes still present in the container.
     if (sectionId) _lcdRestoreSectionBgs(sectionId, _rmBgs);
+    if (opts.remote) return;
     showToast('Song removed from section', 'success');
     autoSaveOrder();
   }
 
   // Remove liturgy item from section (banner + all its slide boxes + add-slide row)
-  function removeLiturgyFromSection(btn, sectionId, liturgyId) {
+  // opts.remote as above. It also skips the clearedSections record: that is a
+  // note of what THIS operator decided, used to stop _seed() putting the
+  // default liturgy back. The device that actually deleted it wrote its own.
+  function removeLiturgyFromSection(btn, sectionId, liturgyId, opts) {
+    opts = opts || {};
     var boxesContainer = $(sectionId + '-boxes');
     if (!boxesContainer) return;
 
@@ -57344,7 +57542,7 @@ var WO = (function() {
     if (sectionId) _lcdRestoreSectionBgs(sectionId, _rmBgs);
     // Remember that this section had its liturgy explicitly cleared by the user,
     // so _seed() won't restore the default content on the next reload.
-    if (currentOrderData) {
+    if (currentOrderData && !opts.remote) {
       if (!Array.isArray(currentOrderData.clearedSections)) currentOrderData.clearedSections = [];
       var _alreadyCleared = currentOrderData.clearedSections.some(function(c) {
         return c.sectionId === sectionId && c.sourceId === liturgyId;
@@ -57353,6 +57551,7 @@ var WO = (function() {
         currentOrderData.clearedSections.push({ sectionId: sectionId, sourceId: liturgyId });
       }
     }
+    if (opts.remote) return;
     showToast('Liturgy removed from section', 'success');
     autoSaveOrder();
   }
@@ -68398,6 +68597,8 @@ var WO = (function() {
     edIsLockedByOther: edIsLockedByOther,
     edRefreshLockUI: edRefreshLockUI,
     _orderSyncTick: function() { return _orderSyncTick(); },
+    _orderSyncApplyDelta: function(a, b, c) { return _orderSyncApplyDelta(a, b, c); },
+    _orderSyncLocate: function(id) { return _orderSyncLocate(id); },
     _orderSyncState: function() {
       return { seen: _orderSyncSeen, pending: _orderSyncPending,
                shown: _orderSyncShown, running: !!_orderSyncTimer };
