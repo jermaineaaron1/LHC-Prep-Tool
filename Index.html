@@ -28450,6 +28450,9 @@ var WO = (function() {
 
     currentOrderType = order.type || 'traditional';
     currentOrderData = order;
+    // Join this order's lock channel now, not at the first edit: a person has
+    // to be able to see that a slide is taken before they try to open it.
+    if (typeof _edEnsureChannel === 'function') _edEnsureChannel();
     // Reload slide backgrounds from this order's scoped localStorage key.
     // Must happen after currentOrderData is set so _slideBgKey() returns the right key.
     if (typeof loadSlideBackgrounds === 'function') loadSlideBackgrounds();
@@ -41136,7 +41139,7 @@ var WO = (function() {
     sbLoadFontSettings();
     var goBtn = document.getElementById('sbGoToOrderBtn');
     if (goBtn) goBtn.style.display = 'none'; // standalone — no "Go to Order"
-    setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); sbJoinPresence(currentOrderData && currentOrderData.id); }, 2000);
+    setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); sbJoinPresence(currentOrderData && currentOrderData.id); _edEnsureChannel(); }, 2000);
   }
 
   function openSongbook() {
@@ -41227,7 +41230,7 @@ var WO = (function() {
       // Delay sync startup by 2s: lets the initial render settle and prevents the
       // fast-sync poll + Realtime subscription from competing with the initial Supabase
       // data load (which is especially important on slow/congested networks).
-      setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); sbJoinPresence(currentOrderData && currentOrderData.id); }, 2000);
+      setTimeout(function() { sbStartFastSync(); sbStartRealtimeSync(); sbJoinPresence(currentOrderData && currentOrderData.id); _edEnsureChannel(); }, 2000);
     }
 
     // Ensure occasion is populated before rendering so it always shows correctly
@@ -41275,7 +41278,7 @@ var WO = (function() {
     }
     if (_sbResizeHandler) { window.removeEventListener('resize', _sbResizeHandler); _sbResizeHandler = null; }
     clearTimeout(_sbPendingRemoteRenderTimer); _sbPendingRemoteRenderTimer = null;
-    clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null; // cancel pending 4s sync write
+    clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null; _sbSyncWritePending = false; // cancel pending 4s sync write
     sbStopFastSync();      // 349: stop BroadcastChannel + GAS polling
     sbStopRealtimeSync();  // disconnect Supabase Realtime broadcast channel
     // Presence-aware save on close: only the LAST user to close triggers a full save.
@@ -42241,6 +42244,9 @@ var WO = (function() {
     requestAnimationFrame(function() {
       requestAnimationFrame(function() {
         sbPaginateAll();
+        // Every page element here is new, so any lock mark that was on screen
+        // before the render went with the old one.
+        if (typeof edRefreshLockUI === 'function') edRefreshLockUI();
         // CSS class is already set in HTML for sbLyricsColumns===2; just ensure lyricsEl is visible
         songOrderSections.forEach(function(s) {
           if (s.sbLyricsColumns === 2) {
@@ -44412,6 +44418,21 @@ var WO = (function() {
     if (!targetWrap || !sbDrawCurrentSvg) return;
     evt.preventDefault();
 
+    // Strokes are whole-array replaced on the way out, so two people drawing
+    // on one page lose each other's strokes the same way two people typing
+    // lost each other's words. Claim the page for the stroke, and let it go
+    // 4s after the last one -- long enough to join up a scribble, short
+    // enough that nobody waits on a pen that has been put down.
+    if (sbDrawTargetSid) {
+      var _edBase = sbDrawTargetSid.indexOf('__sb__') !== -1
+        ? sbDrawTargetSid.split('__sb__')[0] : sbDrawTargetSid;
+      if (!edTryClaim('sb:' + _edBase, 'drawing on this page', 4000)) {
+        showToastWO('Someone else is editing this page. It unlocks when they finish.', 'warning');
+        return;
+      }
+      _edApplyLockUI();
+    }
+
     var pt = sbGetEventXY(evt);
     var lx = (pt.x - sbDrawOffsetX) / sbDrawWrapW;
     var ly = (pt.y - sbDrawOffsetY) / sbDrawWrapH;
@@ -46047,6 +46068,8 @@ var WO = (function() {
 
   var _sbCountdownInterval = null; // kept for cleanup compatibility
   var _sbSaveDeadline = 0;         // kept for cleanup compatibility
+  var _sbSyncWriteInFlight = false; // a sync write is on the wire right now
+  var _sbSyncWritePending  = false; // the 2s debounce is armed and will fire
 
   function sbAutoSave() {
     // ── Tier 1: Realtime broadcast (150ms) ────────────────────────────────
@@ -46062,20 +46085,25 @@ var WO = (function() {
     // the 2s poll on other devices picks up the change when Realtime is down.
     clearTimeout(_sbSyncWriteTimer);
     sbSetSaveStatus('syncing');
+    _sbSyncWritePending = true;
     _sbSyncWriteTimer = setTimeout(function() {
+      _sbSyncWritePending = false;
       if (!currentOrderData || !currentOrderData.id) { sbSetSaveStatus(null); return; }
       var snapshots = songOrderSections
         .filter(function(s) { return !!s.id; })
         .map(function(s, idx) { return sbBuildSongSnapshot(s, idx); });
+      _sbSyncWriteInFlight = true;
       SBQ.syncItems(currentOrderData.id, snapshots)
         .then(function() {
-          sbSetSaveStatus(null);
+          _sbSyncWriteInFlight = false;
+          sbSetSaveStatus('saved');
           // Advance the poll baseline past our own write so the next poll cycle
           // sees remoteTs ≤ _sbLastPollTs and skips re-applying our own data.
           // The +3000ms buffer covers server clock skew and network round-trip.
           _sbLastPollTs = Math.max(_sbLastPollTs, Date.now() + 3000);
         })
         .catch(function(e) {
+          _sbSyncWriteInFlight = false;
           console.warn('[SyncWrite] failed:', e);
           sbSetSaveStatus(null);
         });
@@ -46086,7 +46114,7 @@ var WO = (function() {
   // changes are ever lost, even without a periodic auto-save timer.
   function sbFlushSave() {
     clearTimeout(sbAutoSaveTimer); sbAutoSaveTimer = null;
-    clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null;
+    clearTimeout(_sbSyncWriteTimer); _sbSyncWriteTimer = null; _sbSyncWritePending = false;
     clearInterval(_sbCountdownInterval); _sbCountdownInterval = null;
     sbSetSaveStatus('saving');
     _sbLastPollTs = Date.now();
@@ -46283,7 +46311,7 @@ var WO = (function() {
         var p = msg.payload;
         if (!p || !p.songId) return;
         if (p.orderId !== (currentOrderData && currentOrderData.id)) return;
-        sbShowTypingIndicator(p.songId);
+        sbShowTypingIndicator(p.songId, p.label);
       })
       .subscribe(function(status, err) {
         if (status === 'SUBSCRIBED') {
@@ -46314,6 +46342,381 @@ var WO = (function() {
       if (sb) sb.removeChannel(sbRealtimeChannel);
       sbRealtimeChannel = null;
     }
+  }
+
+  // ── Edit locks: one editor at a time, per page and per slide ─────────────
+  //
+  // Measured on two production clients before this existed: A and B both edited
+  // the same song within ten seconds, both showed "Syncing" and then success,
+  // and the database kept A's text and dropped B's. B's screen went on showing
+  // an edit that no longer existed anywhere. Nothing warned either of them.
+  //
+  // Two correct decisions combined badly to cause that. sbApplyBroadcast will
+  // not overwrite a lyrics box while its owner is typing in it -- right, or
+  // keystrokes get reverted mid-word -- and the poll baseline is pushed past
+  // each client's own write so it never re-applies its own data. Together they
+  // mean two clients that have both written stop reconciling with each other,
+  // while the writes themselves are whole-snapshot and last-one-wins.
+  //
+  // Rather than merge concurrent edits, the editable unit is handed to one
+  // person at a time: a Songbook page (one song) or an LCD slide. Whoever
+  // starts editing holds it until they finish; everyone else sees it locked.
+  //
+  // Broadcast, not a table. A lock is worthless once it outlives the session
+  // holding it, so it belongs in the same ephemeral channel as the edits: no
+  // schema change, and nothing to clean up after a closed laptop. The cost is
+  // that a lock is advisory -- it holds among clients that can hear each other,
+  // which is the same set that could collide in the first place.
+  var _edLockChannel = null;
+  var _edLockOrderId = null;
+  var _edLockReady   = false;
+  var _edClientId    = 'ed_' + Math.random().toString(36).slice(2, 10) + '_' + Date.now();
+  var _edLocks       = {};   // key -> { owner, label, at }  -- held by OTHERS
+  var _edMyLocks     = {};   // key -> { at, label, autoMs } -- held by us
+  var _edTimers      = null;
+  var _edMarkedEls   = [];   // the elements currently wearing a lock mark
+
+  // A held lock is refreshed every 2.5s and considered dead after 8s. That gap
+  // is deliberate: a tab that is closed, crashed or backgrounded long enough
+  // for the browser to throttle its timers releases what it was holding, so a
+  // page can never be locked forever by someone who walked away mid-service.
+  var ED_LOCK_TTL  = 8000;
+  var ED_LOCK_PING = 2500;
+
+  function _edSend(event, payload) {
+    if (!_edLockChannel || !_edLockReady) return;
+    try {
+      _edLockChannel.send({ type: 'broadcast', event: event, payload: payload })
+        .catch(function() {});
+    } catch (e) {}
+  }
+
+  function _edEnsureChannel() {
+    var sb = SBQ._sb();
+    var oid = currentOrderData && currentOrderData.id;
+    if (!sb || !oid) return;
+    if (_edLockChannel && _edLockOrderId === oid) return;
+    _edTeardownLocks();
+    _edLockOrderId = oid;
+    _edLockChannel = sb
+      .channel('ed-lock-' + oid, { config: { broadcast: { self: false } } })
+      .on('broadcast', { event: 'ed_lock' },   function(m) { _edOnLock(m.payload); })
+      .on('broadcast', { event: 'ed_unlock' }, function(m) { _edOnUnlock(m.payload); })
+      .on('broadcast', { event: 'ed_query' },  function()  { _edAnnounceMine(); })
+      .subscribe(function(status) {
+        if (status === 'SUBSCRIBED') {
+          _edLockReady = true;
+          // Ask who already holds what, and re-assert anything we hold, so a
+          // client that joins mid-edit sees the locks instead of walking into
+          // one. Both directions matter: we may also be the one rejoining.
+          _edSend('ed_query', { from: _edClientId });
+          _edAnnounceMine();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          _edLockReady = false;
+        }
+      });
+
+    if (!_edTimers) {
+      _edTimers = setInterval(function() {
+        var now = Date.now();
+        var changed = false;
+        // Drop other people's locks we have stopped hearing about.
+        Object.keys(_edLocks).forEach(function(k) {
+          if (now - _edLocks[k].at > ED_LOCK_TTL) { delete _edLocks[k]; changed = true; }
+        });
+        // Let go of our own transient locks (a stroke, not a text cursor).
+        Object.keys(_edMyLocks).forEach(function(k) {
+          var m = _edMyLocks[k];
+          if (m.autoMs && now - m.at > m.autoMs) { edRelease(k); changed = true; }
+        });
+        _edAnnounceMine();
+        if (changed) _edApplyLockUI();
+      }, ED_LOCK_PING);
+    }
+  }
+
+  function _edTeardownLocks() {
+    Object.keys(_edMyLocks).forEach(function(k) {
+      _edSend('ed_unlock', { key: k, owner: _edClientId });
+    });
+    _edMyLocks = {};
+    _edLocks = {};
+    _edApplyLockUI();
+    _edLockReady = false;
+    if (_edTimers) { clearInterval(_edTimers); _edTimers = null; }
+    if (_edLockChannel) {
+      var sb = SBQ._sb();
+      if (sb) { try { sb.removeChannel(_edLockChannel); } catch (e) {} }
+      _edLockChannel = null;
+    }
+    _edLockOrderId = null;
+  }
+
+  function _edAnnounceMine() {
+    var now = Date.now();
+    Object.keys(_edMyLocks).forEach(function(k) {
+      _edSend('ed_lock', { key: k, owner: _edClientId,
+                           label: _edMyLocks[k].label || '', at: now });
+    });
+  }
+
+  function _edOnLock(p) {
+    if (!p || !p.key || !p.owner || p.owner === _edClientId) return;
+    // Both sides claimed at once. Neither broadcast can be said to have
+    // arrived first, so the tie is broken on a value both sides already
+    // agree on -- the lower client id keeps it. Each client runs the same
+    // comparison and reaches the opposite answer, so exactly one lets go.
+    if (_edMyLocks[p.key]) {
+      if (p.owner < _edClientId) {
+        edRelease(p.key);
+        showToastWO('Someone else started editing this first — your lock was released.', 'warning');
+      } else {
+        return; // we keep it; they will stand down when they hear our claim
+      }
+    }
+    _edLocks[p.key] = { owner: p.owner, label: p.label || '', at: Date.now() };
+    _edApplyLockUI();
+  }
+
+  function _edOnUnlock(p) {
+    if (!p || !p.key) return;
+    if (_edLocks[p.key] && (!p.owner || _edLocks[p.key].owner === p.owner)) {
+      delete _edLocks[p.key];
+      _edApplyLockUI();
+    }
+  }
+
+  function edIsLockedByOther(key) {
+    var h = _edLocks[key];
+    return !!(h && (Date.now() - h.at) < ED_LOCK_TTL);
+  }
+
+  // Returns false when someone else holds it -- the caller should not start
+  // editing. autoMs, when given, releases the lock that long after the last
+  // claim: right for a pen stroke, wrong for a text cursor.
+  function edTryClaim(key, label, autoMs) {
+    _edEnsureChannel();
+    if (edIsLockedByOther(key)) return false;
+    var mine = _edMyLocks[key];
+    _edMyLocks[key] = { at: Date.now(), label: label || '', autoMs: autoMs || 0 };
+    if (!mine) {
+      _edSend('ed_lock', { key: key, owner: _edClientId, label: label || '', at: Date.now() });
+    }
+    return true;
+  }
+
+  function edRelease(key) {
+    if (!_edMyLocks[key]) return;
+    delete _edMyLocks[key];
+    _edSend('ed_unlock', { key: key, owner: _edClientId });
+  }
+
+  function _edSlideKey(box) {
+    if (!box || !box.getAttribute) return '';
+    return 'lcd:' + (box.getAttribute('data-section')    || '') +
+           '|'    + (box.getAttribute('data-song-id')    || '') +
+           '|'    + (box.getAttribute('data-liturgy-id') || '') +
+           '|'    + (box.getAttribute('data-slide-idx')  || '0');
+  }
+
+  function _edLcdKeyFromActive(a) {
+    if (!a) return '';
+    return 'lcd:' + (a.sectionId || '') + '|' + (a.songId || '') +
+           '|'    + (a.liturgyId || '') + '|' + (a.slideIdx || '0');
+  }
+
+  function _edMark(el, locked, hostSel, text) {
+    if (!el) return;
+    if (!!el._edLocked === !!locked) return;
+    el._edLocked = !!locked;
+    el.classList.toggle('ed-locked', !!locked);
+    if (locked) {
+      var b = document.createElement('span');
+      b.className = 'ed-lock-badge';
+      b.innerHTML = '<i class="fa-solid fa-lock"></i><span>' + (text || 'Someone is editing') + '</span>';
+      var host = (hostSel && el.querySelector(hostSel)) || el;
+      host.appendChild(b);
+      el._edBadge = b;
+      if (_edMarkedEls.indexOf(el) === -1) _edMarkedEls.push(el);
+    } else {
+      if (el._edBadge && el._edBadge.parentNode) el._edBadge.parentNode.removeChild(el._edBadge);
+      el._edBadge = null;
+      var at = _edMarkedEls.indexOf(el);
+      if (at !== -1) _edMarkedEls.splice(at, 1);
+    }
+  }
+
+  function _edApplyLockUI() {
+    // Nothing held and nothing marked: the common case, so it costs no DOM work.
+    if (!_edMarkedEls.length && !Object.keys(_edLocks).length) return;
+
+    document.querySelectorAll('[id^="sbPage-"]').forEach(function(page) {
+      var sid = page.getAttribute('data-song-id') || page.id.slice(7);
+      var locked = edIsLockedByOther('sb:' + sid);
+      _edMark(page, locked, '.sb-page-header', 'Someone is editing this page');
+      // Take the caret away too, or the lock is only a picture of one.
+      var ly = document.getElementById('sbLyrics-' + sid);
+      if (!ly) return;
+      if (locked) {
+        if (ly.getAttribute('contenteditable') === 'true') {
+          ly.setAttribute('data-ed-ce', '1');
+          ly.setAttribute('contenteditable', 'false');
+          if (document.activeElement === ly) ly.blur();
+        }
+      } else if (ly.getAttribute('data-ed-ce') === '1') {
+        ly.removeAttribute('data-ed-ce');
+        ly.setAttribute('contenteditable', 'true');
+      }
+    });
+
+    document.querySelectorAll('.wo-slide-box').forEach(function(box) {
+      _edMark(box, edIsLockedByOther(_edSlideKey(box)), null, 'Someone is editing');
+    });
+
+    if (typeof _lcdRailRowMap !== 'undefined' && _lcdRailRowMap) {
+      document.querySelectorAll('.lcd-rail-slide-row').forEach(function(row) {
+        var entry = _lcdRailRowMap[row.id];
+        // An entry is either the slide box itself or a wrapper holding one.
+        var box = (entry && entry.nodeType === 1) ? entry : (entry && entry.box);
+        if (!box || box.nodeType !== 1) return;
+        _edMark(row, edIsLockedByOther(_edSlideKey(box)), null, 'Locked');
+      });
+    }
+  }
+
+  // A page re-render replaces the elements the marks were attached to, so the
+  // marks have to be laid on again. Cheap, and it keeps every render path from
+  // having to know locks exist.
+  //
+  // Previously-marked elements are unmarked rather than merely forgotten: after
+  // a re-render they are detached and it makes no difference, but when this is
+  // called without one they are still on screen, and dropping the reference
+  // would leave a badge nothing could ever clear.
+  function edRefreshLockUI() {
+    var prev = _edMarkedEls.slice();
+    _edMarkedEls.length = 0;
+    prev.forEach(function(el) {
+      el._edLocked = false;
+      el.classList.remove('ed-locked');
+      if (el._edBadge && el._edBadge.parentNode) el._edBadge.parentNode.removeChild(el._edBadge);
+      el._edBadge = null;
+    });
+    _edApplyLockUI();
+  }
+
+  // ── Songbook page locks: claim on focus, release on blur ─────────────────
+  document.addEventListener('focusin', function(e) {
+    var el = e.target;
+    if (!el || !el.id || el.id.indexOf('sbLyrics-') !== 0) return;
+    var sid = el.id.slice(9);
+    if (!edTryClaim('sb:' + sid, 'editing this page')) {
+      el.blur();
+      showToastWO('Someone else is editing this page. It unlocks when they finish.', 'warning');
+      return;
+    }
+    _edApplyLockUI();
+  });
+
+  document.addEventListener('focusout', function(e) {
+    var el = e.target;
+    if (!el || !el.id || el.id.indexOf('sbLyrics-') !== 0) return;
+    var sid = el.id.slice(9);
+    edRelease('sb:' + sid);
+    _sbReconcileAfterEdit(sid);
+  });
+
+  // Leaving the page at all gives everything back immediately, rather than
+  // making the next person wait out the 8s expiry.
+  window.addEventListener('beforeunload', function() {
+    Object.keys(_edMyLocks).forEach(function(k) {
+      _edSend('ed_unlock', { key: k, owner: _edClientId });
+    });
+  });
+
+  // ── Conflict notice: what to do when a write was overtaken anyway ────────
+  //
+  // Locks only hold among clients that can hear each other. An older tab, a
+  // dropped channel or a phone that went to sleep mid-edit can still produce
+  // the divergence measured above, so the losing side is told rather than left
+  // looking at text the server has already replaced. Neither button is taken
+  // automatically: the app cannot know which version was the intended one.
+  var _sbReconcileTimers = {};
+
+  function _sbReconcileAfterEdit(songId, tries) {
+    tries = tries || 0;
+    clearTimeout(_sbReconcileTimers[songId]);
+    _sbReconcileTimers[songId] = setTimeout(function() {
+      if (!currentOrderData || !currentOrderData.id) return;
+      // Our own write is debounced 2s and then has to land. Comparing before
+      // it does would flag every edit as a conflict with itself. Bounded, so a
+      // flag that somehow never clears costs one abandoned check rather than a
+      // timer that reschedules itself for the rest of the session.
+      if (_sbSyncWriteInFlight || _sbSyncWritePending) {
+        if (tries >= 6) return;
+        _sbReconcileAfterEdit(songId, tries + 1);
+        return;
+      }
+      var song = songOrderSections.find(function(s) { return s.id === songId; });
+      if (!song) return;
+      SBQ.loadOrder(currentOrderData.id).then(function(result) {
+        if (!result || !result.items) return;
+        var item = null;
+        for (var i = 0; i < result.items.length; i++) {
+          if (result.items[i].id === songId) { item = result.items[i]; break; }
+        }
+        if (!item) return;
+        var theirs = (item.customizations || {}).customRichLyrics;
+        if (theirs == null) return;
+        var mine = song.richLyrics != null ? song.richLyrics : null;
+        if (mine == null || theirs === mine) return;
+        _sbShowConflict(songId, mine, theirs);
+      }).catch(function() {});
+    }, 3500);
+  }
+
+  function _sbApplyLyricsVersion(songId, html) {
+    var song = songOrderSections.find(function(s) { return s.id === songId; });
+    if (!song) return;
+    song.richLyrics = html;
+    if (typeof sbExtractLyricsText === 'function') {
+      var el = document.getElementById('sbLyrics-' + songId);
+      if (el) song.lyrics = sbExtractLyricsText(el);
+    }
+    sbPatchSongDOM(songId, { lyrics: true });
+  }
+
+  function _sbShowConflict(songId, mine, theirs) {
+    var page = document.getElementById('sbPage-' + songId);
+    if (!page) return;
+    var old = document.getElementById('sbConflict-' + songId);
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+
+    var bar = document.createElement('div');
+    bar.id = 'sbConflict-' + songId;
+    bar.className = 'sb-conflict-bar';
+    bar.innerHTML =
+      '<i class="fa-solid fa-triangle-exclamation"></i>' +
+      '<span class="sb-conflict-msg">Another device changed this page while you were editing. ' +
+      'Only one version can be kept.</span>' +
+      '<button type="button" class="sb-conflict-btn sb-conflict-primary">Keep mine</button>' +
+      '<button type="button" class="sb-conflict-btn">Use theirs</button>';
+
+    var btns = bar.querySelectorAll('.sb-conflict-btn');
+    btns[0].onclick = function() {
+      _sbApplyLyricsVersion(songId, mine);
+      sbAutoSave();
+      if (bar.parentNode) bar.parentNode.removeChild(bar);
+      showToastWO('Your version was kept and sent to the other devices.', 'success');
+    };
+    btns[1].onclick = function() {
+      _sbApplyLyricsVersion(songId, theirs);
+      if (bar.parentNode) bar.parentNode.removeChild(bar);
+      showToastWO('Showing the other device\'s version.', 'success');
+    };
+
+    var header = page.querySelector('.sb-page-header');
+    if (header && header.parentNode) header.parentNode.insertBefore(bar, header.nextSibling);
+    else page.insertBefore(bar, page.firstChild);
   }
 
   // ── Presence: track who has this songbook open ─────────────────────────────
@@ -46422,6 +46825,37 @@ var WO = (function() {
     };
   }
 
+  // Which fields, in order of what a watcher most wants named. The first
+  // match wins, so a stroke plus a transpose in the same 150ms window
+  // reports as drawing rather than listing both.
+  var _SB_EDIT_KINDS = [
+    { k: 'draw',      label: 'drawing',        fields: ['annotations', 'imgAnnotations'] },
+    { k: 'highlight', label: 'highlighting',   fields: ['highlights'] },
+    { k: 'note',      label: 'adding a note',  fields: ['textAnnotations', 'liturgistNotes'] },
+    { k: 'lyrics',    label: 'editing',        fields: ['richLyrics', 'lyrics'] },
+    { k: 'transpose', label: 'transposing',    fields: ['transposeSteps'] },
+    { k: 'layout',    label: 'changing layout', fields: ['sbLyricsColumns', 'slides', 'savedSlides'] },
+    { k: 'media',     label: 'updating media', fields: ['customYoutube', 'customDocs', 'sbLinks'] }
+  ];
+
+  var _sbLastSentSnap = null; // songId -> JSON of the last snapshot broadcast
+
+  // Name the kind of edit by comparing one song snapshot with the previous
+  // one. Returns null when nothing a person would notice has changed.
+  function _sbEditKind(prevJson, snap) {
+    if (!prevJson) return null;
+    var prev;
+    try { prev = JSON.parse(prevJson); } catch (e) { return null; }
+    for (var i = 0; i < _SB_EDIT_KINDS.length; i++) {
+      var spec = _SB_EDIT_KINDS[i];
+      for (var f = 0; f < spec.fields.length; f++) {
+        var key = spec.fields[f];
+        if (JSON.stringify(prev[key]) !== JSON.stringify(snap[key])) return spec;
+      }
+    }
+    return null;
+  }
+
   // Send current song state to all connected devices via Supabase broadcast
   function sbBroadcastPatch() {
     if (!sbRealtimeReady || !sbRealtimeChannel || !currentOrderData) return;
@@ -46431,6 +46865,27 @@ var WO = (function() {
       event: 'sb_patch',
       payload: { orderId: currentOrderData.id, songs: songs }
     }).catch(function(e) { console.warn('[Realtime] Broadcast error:', e); });
+
+    // Announce what changed, and on which song. The first pass after a load
+    // only records the baseline -- without that guard, opening a songbook
+    // would light up an "editing" badge on every song at once.
+    var first = (_sbLastSentSnap === null);
+    if (first) _sbLastSentSnap = {};
+    songs.forEach(function(snap) {
+      if (!snap || !snap.id) return;
+      var json = JSON.stringify(snap);
+      if (!first) {
+        var spec = _sbEditKind(_sbLastSentSnap[snap.id], snap);
+        if (spec) {
+          sbRealtimeChannel.send({
+            type: 'broadcast', event: 'sb_typing',
+            payload: { orderId: currentOrderData.id, songId: snap.id,
+                       kind: spec.k, label: spec.label, deviceId: _edClientId }
+          }).catch(function() {});
+        }
+      }
+      _sbLastSentSnap[snap.id] = json;
+    });
   }
 
   // Receive and apply a complete broadcast patch from another device.
@@ -46606,7 +47061,7 @@ var WO = (function() {
     s2.addRange(r2);
   }
 
-  function sbShowTypingIndicator(songId) {
+  function sbShowTypingIndicator(songId, label) {
     var page = document.getElementById('sbPage-' + songId);
     if (!page) return;
     var ind = document.getElementById('sbTypingInd-' + songId);
@@ -46619,6 +47074,17 @@ var WO = (function() {
         '<span class="sb-typing-label">editing</span>';
       var top = page.querySelector('.sb-page-header');
       if (top) top.appendChild(ind);
+    }
+    // Re-label per event: the same badge reads "drawing" for a stroke and
+    // "transposing" for a key change, so a silent edit is no longer silent.
+    var lab = ind.querySelector('.sb-typing-label');
+    if (lab) lab.textContent = label || 'editing';
+    // Restart the entry animation so a fresh edit after a pause is visible
+    // rather than the badge simply staying put.
+    if (ind.style.display === 'none' || !ind.style.display) {
+      ind.style.animation = 'none';
+      void ind.offsetWidth;
+      ind.style.animation = '';
     }
     ind.style.display = 'inline-flex';
     clearTimeout(_sbTypingTimers[songId]);
@@ -47992,7 +48458,9 @@ var WO = (function() {
       if (sbRealtimeReady && sbRealtimeChannel && currentOrderData) {
         sbRealtimeChannel.send({
           type: 'broadcast', event: 'sb_typing',
-          payload: { orderId: currentOrderData.id, songId: songId, deviceId: _sbPresenceKey || 'anon' }
+          payload: { orderId: currentOrderData.id, songId: songId,
+                     kind: 'lyrics', label: 'editing',
+                     deviceId: _sbPresenceKey || 'anon' }
         }).catch(function() {});
       }
     }, 50);
@@ -56716,6 +57184,17 @@ var WO = (function() {
     // projection updates on that same pause (not per keystroke), so a slide
     // that is on-screen never flickers mid-word.
     if (_lcdActiveSlide) {
+      // Claimed on the first keystroke rather than on selection: the rail
+      // loads a slide every time the operator presses next, and locking a
+      // slide merely for being looked at would lock the whole service.
+      var _edKey = _edLcdKeyFromActive(_lcdActiveSlide);
+      if (_edKey && !edTryClaim(_edKey, 'editing this slide')) {
+        showToastWO('Someone else is editing this slide. It unlocks when they finish.', 'warning');
+        var _ed = _lcdEditorEl();
+        if (_ed) _ed.blur();
+        _edApplyLockUI();
+        return;
+      }
       if (!_lcdEditDirty) { _lcdPushUndo(); _lcdEditDirty = true; }
       clearTimeout(_lcdAutoApplyTimer);
       _lcdAutoApplyTimer = setTimeout(function() {
@@ -56732,6 +57211,9 @@ var WO = (function() {
   function _lcdFlushAutoApply() {
     if (_lcdAutoApplyTimer) { clearTimeout(_lcdAutoApplyTimer); _lcdAutoApplyTimer = null; }
     if (_lcdEditDirty) { _lcdEditDirty = false; _lcdCommitEditorToSlide(); }
+    // Committed or nothing to commit: either way this slide is finished with.
+    var _edKey = _edLcdKeyFromActive(_lcdActiveSlide);
+    if (_edKey) edRelease(_edKey);
   }
 
   // Drop a pending edit without committing (before delete/merge/split, which
@@ -59580,6 +60062,8 @@ var WO = (function() {
     if (_lcdActiveSlide && _lcdActiveSlide.songId) {
       _lcdUpdateLyricBanner(_lcdActiveSlide.songId, _lcdActiveSlide.slideIdx, false);
     }
+    // Every row here is newly built, so any lock mark went with the old ones.
+    if (typeof edRefreshLockUI === 'function') edRefreshLockUI();
   }
 
   // Static "Service Schedule" header sitting above the compact rail.
@@ -61459,6 +61943,17 @@ var WO = (function() {
   function editSlideBox(box, event) {
     event.stopPropagation();
     if (box.classList.contains('editing')) return;
+    // One editor per slide. Selecting and projecting stay free -- it is only
+    // opening the editor that takes the slide.
+    var _edKey = _edSlideKey(box);
+    if (_edKey) {
+      if (!edTryClaim(_edKey, 'editing this slide')) {
+        showToastWO('Someone else is editing this slide. It unlocks when they finish.', 'warning');
+        _edApplyLockUI();
+        return;
+      }
+      _edApplyLockUI();
+    }
     if (editingSlideBox && editingSlideBox !== box) { saveSlideEdit(editingSlideBox); }
 
     box.classList.add('editing');
@@ -61685,6 +62180,8 @@ var WO = (function() {
 
   function saveSlideEdit(box) {
     if (!box || !box.classList.contains('editing')) return;
+    var _edDone = _edSlideKey(box);
+    if (_edDone) edRelease(_edDone);
 
     var content = box.querySelector('.wo-slide-content');
     // Support both legacy textarea and new contenteditable editor
@@ -67593,6 +68090,13 @@ var WO = (function() {
     sbCloseDockPlayer: sbCloseDockPlayer,
     sbSnapZoomStep: sbSnapZoomStep,
     sbBroadcastPatch: sbBroadcastPatch,
+    edTryClaim: edTryClaim,
+    edRelease: edRelease,
+    edIsLockedByOther: edIsLockedByOther,
+    edRefreshLockUI: edRefreshLockUI,
+    _edEnsureChannel: _edEnsureChannel,
+    _edSlideKey: _edSlideKey,
+    _edState: function() { return { me: _edClientId, mine: _edMyLocks, theirs: _edLocks, ready: _edLockReady }; },
     sbApplyBroadcast: sbApplyBroadcast,
     sbPatchSongDOM: sbPatchSongDOM,
     sbRefresh: sbRefresh,
@@ -79649,6 +80153,72 @@ function filterLiturgyItems() {
   .sb-typing-dots span:nth-child(3) { animation-delay:0.4s; }
   @keyframes sb-typing-bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-4px)} }
   @keyframes sb-typing-fadein { from{opacity:0;transform:scale(0.85)} to{opacity:1;transform:scale(1)} }
+  /* ── Edit locks ─────────────────────────────────────────────────────── */
+  /* Amber, not red: the page is taken, not broken. The tint is kept light
+     enough to read lyrics through, since a locked page is still one people
+     need to follow during a service. */
+  .ed-locked { position: relative; }
+  .ed-locked::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: rgba(245,158,11,0.07);
+    border: 1px solid rgba(245,158,11,0.45);
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 3;
+    animation: ed-lock-in 0.22s ease;
+  }
+  .ed-lock-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600;
+    color: #92400e;
+    background: rgba(245,158,11,0.16);
+    border: 1px solid rgba(245,158,11,0.45);
+    border-radius: 20px;
+    padding: 3px 10px;
+    flex-shrink: 0;
+    pointer-events: none; user-select: none;
+    position: relative; z-index: 4;
+    animation: ed-lock-in 0.22s ease;
+  }
+  .ed-lock-badge i { font-size: 9px; }
+  /* A slide box has no header to sit in, so the badge floats on its corner. */
+  .wo-slide-box.ed-locked > .ed-lock-badge {
+    position: absolute; top: 6px; right: 6px;
+    background: rgba(245,158,11,0.95); color: #422006;
+    border-color: rgba(146,64,14,0.5);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  }
+  /* The rail is dark and its rows are short, so the badge shrinks and
+     brightens rather than borrowing the light-background styling. */
+  .lcd-rail-slide-row.ed-locked { position: relative; }
+  .lcd-rail-slide-row.ed-locked > .ed-lock-badge {
+    position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
+    font-size: 9px; padding: 2px 7px; gap: 4px;
+    background: rgba(245,158,11,0.95); color: #422006;
+    border-color: rgba(146,64,14,0.55);
+  }
+  .lcd-rail-slide-row.ed-locked::after { border-radius: 8px; }
+  @keyframes ed-lock-in { from{opacity:0;transform:scale(0.9)} to{opacity:1;transform:scale(1)} }
+  /* ── Conflict notice ────────────────────────────────────────────────── */
+  .sb-conflict-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin: 8px 0 12px; padding: 10px 14px;
+    background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626;
+    border-radius: 10px;
+    font-family: 'Poppins', sans-serif; font-size: 0.78rem; color: #7f1d1d;
+    animation: ed-lock-in 0.22s ease;
+  }
+  .sb-conflict-bar i { color: #dc2626; }
+  .sb-conflict-msg { flex: 1; min-width: 200px; line-height: 1.4; }
+  .sb-conflict-btn {
+    border: 1px solid #cbd5e1; background: #fff; color: #334155;
+    border-radius: 8px; padding: 6px 12px; cursor: pointer;
+    font-family: inherit; font-size: 0.75rem; font-weight: 600;
+  }
+  .sb-conflict-btn:hover { background: #f8fafc; }
+  .sb-conflict-btn.sb-conflict-primary { background: #dc2626; border-color: #dc2626; color: #fff; }
+  .sb-conflict-btn.sb-conflict-primary:hover { background: #b91c1c; }
   /* Compact page header title/artist — must match sp-title / sp-artist in book mode for identical rendering */
   .sb-page-title { font-size:1.35rem; font-weight:700; color:#1e293b; font-family:'Cinzel',Georgia,serif; line-height:1.2; }
   .sb-page-artist { font-size:0.82rem; color:#64748b; margin-top:2px; }
