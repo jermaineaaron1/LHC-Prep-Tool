@@ -28963,6 +28963,8 @@ var WO = (function() {
   var _orderSyncShown      = null; // the difference currently on the banner
   var _orderSyncDismissed  = null; // one the operator has waved away
   var _orderSyncResumeMode = null; // where to land after a reload we triggered
+  var _orderSyncBannerTarget = null; // the item the notice on screen is about
+  var _orderSyncResumeTarget = null; // ...carried through the reload it asks for
   var ORDER_SYNC_MS = 4000;
 
   function _orderSyncNote(orderId, items) {
@@ -29068,8 +29070,100 @@ var WO = (function() {
         if (applied.desc) showToast('Updated from another device — ' + applied.desc, 'info');
         return;
       }
-      _orderSyncShowBanner(added.length + edited.length + moved.length, removed.length, sig);
+      _orderSyncShowBanner(added.length + edited.length + moved.length, removed.length, sig,
+                           _orderSyncTargetFor(res.items, added, edited, moved));
     }).catch(function() { _orderSyncBusy = false; });
+  }
+
+  // Reloading to be told "1 item added" and then having to hunt for it is most
+  // of the work left undone. The notice already knows exactly which ids moved,
+  // so it can carry one through the reload and put that slide on screen.
+  //
+  // An edit is preferred over an addition, and an addition over a move: an edit
+  // is the one whose words changed, so it is the one worth reading. A removal
+  // is skipped -- there is nothing left to show.
+  //
+  // Liturgy slides are keyed in the DOM by sourceId rather than by the order
+  // item id, so the key has to be chosen per kind, not taken from id.
+  function _orderSyncTargetFor(liveItems, added, edited, moved) {
+    var pick = (edited && edited[0]) || (added && added[0]) || (moved && moved[0]) || null;
+    if (!pick) return null;
+    var it = null;
+    for (var i = 0; i < liveItems.length; i++) {
+      if (liveItems[i] && liveItems[i].id === pick) { it = liveItems[i]; break; }
+    }
+    if (!it) return null;
+    var key = (it.itemType === 'liturgy') ? (it.sourceId || it.id) : it.id;
+    return { key: String(key).replace(/["\\]/g, ''), title: it.title || '' };
+  }
+
+  // Which rail row stands for a given slide key, or null while the rail has
+  // not been built yet. _lcdRailRowMap holds the box each row was made from.
+  function _orderSyncRailRowFor(key) {
+    if (typeof _lcdRailRowMap === 'undefined' || !_lcdRailRowMap) return null;
+    var rows = document.querySelectorAll('.lcd-rail-slide-row');
+    for (var i = 0; i < rows.length; i++) {
+      var entry = _lcdRailRowMap[rows[i].id];
+      var box = (entry && entry.nodeType === 1) ? entry : (entry && entry.box);
+      if (!box || box.nodeType !== 1) continue;
+      var k = box.getAttribute('data-song-id') || box.getAttribute('data-liturgy-id') || '';
+      if (k === key) return rows[i].id;
+    }
+    return null;
+  }
+
+  // Put the slide on screen once the view it belongs to is back.
+  //
+  // In LCD this waits for the RAIL ROW rather than for the slide box. The box
+  // exists in the hidden DOM almost immediately, but the rail is rebuilt after
+  // selectOrder and re-asserts its own selection when it does -- so selecting
+  // off the box lands a moment too early and is silently undone. Measured: the
+  // reload arrived, drew the song and said so, and left the operator looking at
+  // slide 1.1. Waiting for the row and going through the rail's own click path
+  // means the selection is made by the thing that owns it.
+  function _orderSyncRevealTarget(target, tries) {
+    if (!target || !target.key) return;
+    tries = tries || 0;
+    var give_up = tries > 40;   // ~6s, then stop quietly
+
+    if (document.body.classList.contains('lcd-console-open')) {
+      var rowId = _orderSyncRailRowFor(target.key);
+      if (!rowId) {
+        if (give_up) return;
+        setTimeout(function() { _orderSyncRevealTarget(target, tries + 1); }, 150);
+        return;
+      }
+      if (typeof _lcdRailRowClick === 'function') _lcdRailRowClick(rowId);
+      var row = document.getElementById(rowId);
+      // On a phone this brings the card up under the projection panel rather
+      // than scrolling the panel away.
+      if (row && typeof _lcdRevealRow === 'function') _lcdRevealRow(row);
+      // One re-assert, in case a render that was already in flight lands on
+      // top of the selection we just made.
+      setTimeout(function() {
+        var sel = document.querySelector('.wo-slide-box.selected');
+        var k = sel ? (sel.getAttribute('data-song-id') || sel.getAttribute('data-liturgy-id') || '') : '';
+        if (k === target.key) return;
+        var again = _orderSyncRailRowFor(target.key);
+        if (again && typeof _lcdRailRowClick === 'function') {
+          _lcdRailRowClick(again);
+          var r2 = document.getElementById(again);
+          if (r2 && typeof _lcdRevealRow === 'function') _lcdRevealRow(r2);
+        }
+      }, 500);
+    } else {
+      var box = document.querySelector(
+        '.wo-slide-box[data-song-id="' + target.key + '"], ' +
+        '.wo-slide-box[data-liturgy-id="' + target.key + '"]');
+      if (!box) {
+        if (give_up) return;
+        setTimeout(function() { _orderSyncRevealTarget(target, tries + 1); }, 150);
+        return;
+      }
+      if (typeof selectSlideBox === 'function') selectSlideBox(box);
+      try { box.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    }
+    showToast(target.title ? ('Showing what changed — ' + target.title) : 'Showing what changed', 'info');
   }
 
   function _orderSyncClearBanner() {
@@ -29090,12 +29184,13 @@ var WO = (function() {
     return false;
   }
 
-  function _orderSyncShowBanner(added, removed, sig) {
+  function _orderSyncShowBanner(added, removed, sig, target) {
     if (sig === _orderSyncDismissed) return;
     if (_orderSyncShown === sig) return;
     if (_orderSyncProjecting()) return;
     _orderSyncClearBanner();
     _orderSyncShown = sig;
+    _orderSyncBannerTarget = target || null;
 
     var parts = [];
     if (added)   parts.push(added + (added === 1 ? ' item' : ' items') + ' added');
@@ -29121,6 +29216,7 @@ var WO = (function() {
     // Land back in the half of the order they were working in.
     _orderSyncResumeMode = document.body.classList.contains('lcd-console-open') ? 'lcd'
                          : (document.body.classList.contains('wo-mode-song') ? 'song' : null);
+    _orderSyncResumeTarget = _orderSyncBannerTarget;
     _orderSyncClearBanner();
     _orderSyncPending = null;
     _orderSyncDismissed = null;
@@ -29405,8 +29501,13 @@ var WO = (function() {
     // see. One-shot: any other route through here still lands on the landing.
     if (_orderSyncResumeMode) {
       var _resume = _orderSyncResumeMode;
+      var _target = _orderSyncResumeTarget;
       _orderSyncResumeMode = null;
-      setTimeout(function() { if (typeof selectOrder === 'function') selectOrder(_resume); }, 60);
+      _orderSyncResumeTarget = null;
+      setTimeout(function() {
+        if (typeof selectOrder === 'function') selectOrder(_resume);
+        if (_target) _orderSyncRevealTarget(_target);
+      }, 60);
     }
   }
 
