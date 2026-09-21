@@ -25502,7 +25502,7 @@ var SBQ = {
       .then(function(r) {
         if (r.error) sbqError(r.error, 'saveOrder/orders-upsert');
         var items = payload.items || [];
-        // The delete below is unconditional, so a payload that collected
+        // An empty payload prunes everything, so a payload that collected
         // nothing -- a mid-render race, a failed collection -- would erase an
         // order's stored content while the screen still looked correct, and
         // the loss would only surface on another device. Never clear rows on
@@ -25522,51 +25522,92 @@ var SBQ = {
               return sb.from('order_items').delete().eq('order_id', id).then(function() { return null; });
             });
         }
-        return sb.from('order_items').delete().eq('order_id', id)
-          .then(function(dr) {
-            if (dr.error) sbqError(dr.error, 'saveOrder/order_items-delete');
-            if (!items.length) return null;
-            var rows = items.map(function(item, idx) {
-              var row = {
-                id:             item.id || ('item_' + id + '_' + idx),
-                order_id:       id,
-                item_type:      item.itemType  || 'content',
-                section_id:     item.sectionId || '',
-                sort_order:     item.sortOrder !== undefined ? item.sortOrder : idx,
-                source_id:      item.sourceId  || '',
-                title:          item.title     || '',
-                content:        item.content   || {},
-                customizations: item.customizations || {},
-                slides:         item.slides    || [],
-                last_edited:    now
-              };
-              // backgrounds column: only include if the table has it
-              // (column added later — safe to omit if not yet migrated)
-              if (item.backgrounds && Object.keys(item.backgrounds).length > 0) {
-                row.backgrounds = item.backgrounds;
-              }
-              return row;
-            });
-            // Deduplicate rows by id — safety net against "ON CONFLICT DO UPDATE a second time"
-            var _seenRowIds = {};
-            rows = rows.filter(function(row) {
-              if (_seenRowIds[row.id]) { console.warn('[SBQ.saveOrder] Duplicate item id skipped:', row.id); return false; }
-              _seenRowIds[row.id] = true;
-              return true;
-            });
-            // Insert in batches of 50 to avoid Supabase payload limits
+        // Update the rows in place, then remove only the ones that are
+        // genuinely gone. This used to DELETE every row for the order and
+        // re-insert the lot, which had two costs beyond the obvious one.
+        //
+        // The order was empty in the database for the whole span between the
+        // delete and the last insert -- and the inserts go out in batches of
+        // 50, so a long order spent seconds in that state. Any other device
+        // polling in that window read an order with no items and rendered it,
+        // which is how a service order could blink empty on a second screen
+        // while someone was simply saving on the first.
+        //
+        // Worse, the delete committed on its own. A save interrupted after it
+        // -- a closed laptop, a dropped connection, a failed batch -- left the
+        // order truncated or completely empty, with no way back. Deleting last
+        // inverts that: an interrupted save now leaves too much rather than too
+        // little, and too much is recoverable.
+        //
+        // Pruning is still "anything not in this payload goes", because a row
+        // this client does not know about is indistinguishable from a slide it
+        // deliberately deleted. Sparing rows by comparing last_edited would mean
+        // trusting two clients' clocks against each other, and a skewed clock
+        // would silently resurrect deleted slides. The edit locks are what keep
+        // two people out of the same item; this only makes the write itself safe
+        // to interrupt.
+        var rows = items.map(function(item, idx) {
+          return {
+            id:             item.id || ('item_' + id + '_' + idx),
+            order_id:       id,
+            item_type:      item.itemType  || 'content',
+            section_id:     item.sectionId || '',
+            sort_order:     item.sortOrder !== undefined ? item.sortOrder : idx,
+            source_id:      item.sourceId  || '',
+            title:          item.title     || '',
+            content:        item.content   || {},
+            customizations: item.customizations || {},
+            slides:         item.slides    || [],
+            // Always sent, never omitted. Under delete-and-reinsert an item that
+            // had lost its backgrounds simply came back without the column set;
+            // an upsert leaves absent columns alone, so omitting it here would
+            // make clearing the last background impossible. Readers already
+            // normalise with `|| {}`, so {} and NULL are the same to them.
+            backgrounds:    item.backgrounds || {},
+            last_edited:    now
+          };
+        });
+        // Deduplicate rows by id — safety net against "ON CONFLICT DO UPDATE a second time"
+        var _seenRowIds = {};
+        rows = rows.filter(function(row) {
+          if (_seenRowIds[row.id]) { console.warn('[SBQ.saveOrder] Duplicate item id skipped:', row.id); return false; }
+          _seenRowIds[row.id] = true;
+          return true;
+        });
+
+        return sb.from('order_items').select('id').eq('order_id', id)
+          .then(function(er) {
+            if (er.error) sbqError(er.error, 'saveOrder/order_items-existing');
+            var keep = {};
+            rows.forEach(function(row) { keep[row.id] = true; });
+            var stale = (er.data || [])
+              .map(function(x) { return x.id; })
+              .filter(function(rowId) { return !keep[rowId]; });
+
+            // Batched to stay inside Supabase payload and URL limits.
             var batchSize = 50;
-            var batches = [];
-            for (var bi = 0; bi < rows.length; bi += batchSize) {
-              batches.push(rows.slice(bi, bi + batchSize));
+            var chain = Promise.resolve();
+            var bi;
+            for (bi = 0; bi < rows.length; bi += batchSize) {
+              chain = chain.then((function(batch) {
+                return function() {
+                  return sb.from('order_items').upsert(batch, { onConflict: 'id' }).then(function(ir) {
+                    if (ir.error) sbqError(ir.error, 'saveOrder/order_items-upsert');
+                  });
+                };
+              })(rows.slice(bi, bi + batchSize)));
             }
-            return batches.reduce(function(chain, batch) {
-              return chain.then(function() {
-                return sb.from('order_items').upsert(batch, { onConflict: 'id' }).then(function(ir) {
-                  if (ir.error) sbqError(ir.error, 'saveOrder/order_items-upsert');
-                });
-              });
-            }, Promise.resolve());
+            for (bi = 0; bi < stale.length; bi += batchSize) {
+              chain = chain.then((function(batch) {
+                return function() {
+                  return sb.from('order_items').delete().eq('order_id', id).in('id', batch)
+                    .then(function(dr) {
+                      if (dr.error) sbqError(dr.error, 'saveOrder/order_items-prune');
+                    });
+                };
+              })(stale.slice(bi, bi + batchSize)));
+            }
+            return chain.then(function() { return null; });
           });
       })
       .then(function(res) {
