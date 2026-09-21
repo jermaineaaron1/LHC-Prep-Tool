@@ -29759,6 +29759,24 @@ var WO = (function() {
     // empty content if a slide is still in edit mode when save is triggered.
     if (editingSlideBox) { saveSlideEdit(editingSlideBox); }
 
+    // Item ids are built from the order id (see _oidPfx below). An order made
+    // with createNewOrder has none until its first save returns, so that save
+    // wrote items with an empty prefix and the next one -- the first with an
+    // id in hand -- renamed every one of them. Same content, same order, every
+    // row with a new id, which reads on another device as the whole order
+    // being deleted and recreated. Minting it a moment before collecting means
+    // the first save already writes the ids every later save will use.
+    //
+    // Not in createNewOrder: an id there would exist for as long as somebody
+    // takes to build the order, and every guard that reads "no id yet" as
+    // "nothing stored" -- this poll, the Songbook's realtime and fast sync --
+    // would start reaching for a row that does not exist. Here the gap between
+    // the id existing and the row existing is the length of one save.
+    if (!currentOrderData.id) {
+      currentOrderData.id = 'order_' + Date.now();
+      console.log('[SaveGuard] Minted order id before first save:', currentOrderData.id);
+    }
+
     // Standalone songbooks — save song ID list + full item data (transpositions, custom lyrics, etc.)
     // Never write to the orders table or they'll appear as phantom blue orders.
     if (_sbStandaloneId) {
