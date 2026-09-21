@@ -28539,6 +28539,80 @@ var WO = (function() {
       completeOrder.serviceSectionItems[item.sectionId].push(videoEntry);
     }
   }
+  // ── What a stored item looks like on screen, in one short string ─────────
+  //
+  // Deliberately NOT a hash of the whole row. Two things would have made that
+  // useless. The save path strips base64 out of slide decks before writing, so
+  // what we send and what we read back differ for those rows, and every save
+  // would have reported itself as somebody else's edit. And annotations change
+  // constantly while a person draws, but they already travel over the Songbook's
+  // own realtime channel, so redrawing the item here would fight that.
+  //
+  // So it covers exactly what this screen renders and nothing else: the title,
+  // a content box's text, the lyrics in either form, the transposition, and the
+  // text of each slide. Those survive the round trip through the database
+  // unchanged, which is what makes a difference mean somebody edited something.
+  function _orderSyncHash(s) {
+    var h = 5381, i = s.length;
+    while (i) { h = (h * 33) ^ s.charCodeAt(--i); }
+    return (h >>> 0).toString(36);
+  }
+
+  function _orderSyncItemSig(it) {
+    var c = it.customizations || {};
+    var ct = it.content || {};
+    return _orderSyncHash(JSON.stringify([
+      it.title || '',
+      ct.text || '',
+      c.customRichLyrics || '',
+      c.customLyrics || '',
+      c.transposeSteps || 0,
+      (it.slides || []).map(function(s) { return (s && s.content) || ''; })
+    ]));
+  }
+
+  function _orderSyncFingerprint(items) {
+    var map = {};
+    (items || []).forEach(function(it) {
+      if (!it || !it.id) return;
+      map[it.id] = { sig: _orderSyncItemSig(it),
+                     sec: it.sectionId || '',
+                     sort: typeof it.sortOrder === 'number' ? it.sortOrder : 0 };
+    });
+    return map;
+  }
+
+  // The order each section should be in, by the key its nodes carry.
+  function _orderSyncSectionOrder(items) {
+    var bySec = {};
+    (items || []).slice().sort(function(a, b) {
+      return (a.sortOrder || 0) - (b.sortOrder || 0);
+    }).forEach(function(it) {
+      if (!it || !it.sectionId) return;
+      (bySec[it.sectionId] || (bySec[it.sectionId] = [])).push({
+        kind: it.itemType,
+        domKey: (it.itemType === 'liturgy') ? (it.sourceId || it.id) : it.id
+      });
+    });
+    return bySec;
+  }
+
+  // Re-appending each group in turn walks them to the end in the wanted order.
+  // Only run on sections where every node can be addressed, since anything this
+  // cannot move would be left stranded at the top.
+  function _orderSyncReorderSection(sectionId, wanted) {
+    var c = $(sectionId + '-boxes');
+    if (!c) return;
+    wanted.forEach(function(w) {
+      var nodes = c.querySelectorAll(
+        '[data-song-id="' + w.domKey + '"], [data-liturgy-id="' + w.domKey + '"], ' +
+        '[data-item-id="' + w.domKey + '"]');
+      // Document order is already banner, slides, add-slide row.
+      Array.prototype.forEach.call(nodes, function(n) {
+        if (n.parentNode === c) c.appendChild(n);
+      });
+    });
+  }
   // ── Applying a remote change in place ────────────────────────────────────
   //
   // The notice was the honest thing to do while there was no way to add an item
@@ -28568,6 +28642,14 @@ var WO = (function() {
         }
       });
     });
+    if (found && found.kind === 'content') {
+      // A content box only became addressable when this version rendered it.
+      // One drawn by an earlier session, or typed straight into a placeholder,
+      // carries no id, and there is no way to tell which box on screen it is.
+      found.node = document.querySelector(
+        '.wo-content-box[data-item-id="' + found.entry.id + '"]');
+      if (!found.node) found.unaddressable = true;
+    }
     return found;
   }
 
@@ -28577,28 +28659,32 @@ var WO = (function() {
   // (scripture, slide decks, video) each have their own render path that this
   // does not drive.
   var _ORDER_SYNC_ADDABLE = { song: 1, liturgy: 1, content: 1 };
-  var _ORDER_SYNC_REMOVABLE = { song: 1, liturgy: 1 };
+  var _ORDER_SYNC_REMOVABLE = { song: 1, liturgy: 1, content: 1 };
 
-  function _orderSyncCanPatch(addedItems, removals) {
-    // Not over a congregation.
-    if (_orderSyncProjecting()) return false;
-    // Not under an open editor. This is the disruption the whole design exists
-    // to avoid, and it is the one case where a reload prompt is the kinder act.
-    if (typeof editingSlideBox !== 'undefined' && editingSlideBox) return false;
-    if (typeof _lcdEditDirty !== 'undefined' && _lcdEditDirty) return false;
-    if (document.querySelector('.wo-slide-editor')) return false;
-    for (var a = 0; a < addedItems.length; a++) {
-      if (!_ORDER_SYNC_ADDABLE[addedItems[a].itemType]) return false;
-    }
-    // Not the slide somebody has selected. It is genuinely gone, but taking it
-    // out from under a cursor mid-service reads as the app losing their place.
+  // Conditions about the screen rather than any one item. While one of these
+  // holds, nothing is applied at all.
+  function _orderSyncScreenBusy() {
+    if (_orderSyncProjecting()) return true;
+    if (typeof editingSlideBox !== 'undefined' && editingSlideBox) return true;
+    if (typeof _lcdEditDirty !== 'undefined' && _lcdEditDirty) return true;
+    if (document.querySelector('.wo-slide-editor')) return true;
+    return false;
+  }
+
+  // The item whose slide the operator is looking at, by the key its nodes carry.
+  function _orderSyncSelectedKey() {
     var sel = document.querySelector('.wo-slide-box.selected');
-    var selKey = sel ? (sel.getAttribute('data-song-id') || sel.getAttribute('data-liturgy-id') || '') : '';
-    for (var r = 0; r < removals.length; r++) {
-      if (!removals[r] || !_ORDER_SYNC_REMOVABLE[removals[r].kind]) return false;
-      if (selKey && removals[r].domKey === selKey) return false;
-    }
-    return true;
+    if (!sel) return '';
+    return sel.getAttribute('data-song-id') || sel.getAttribute('data-liturgy-id') || '';
+  }
+
+  // A section can only be re-ordered when every node in it can be moved; one
+  // this cannot address would be stranded at the top, a worse lie than a
+  // stale order.
+  function _orderSyncSectionReorderable(sectionId) {
+    var c = $(sectionId + '-boxes');
+    if (!c) return false;
+    return !c.querySelectorAll('.wo-content-box.has-content:not([data-item-id])').length;
   }
 
   function _orderSyncRemoveOne(loc) {
@@ -28608,6 +28694,8 @@ var WO = (function() {
       songOrderSections = songOrderSections.filter(function(s) { return s.id !== loc.domKey; });
     } else if (loc.kind === 'liturgy') {
       removeLiturgyFromSection(null, loc.sectionId, loc.domKey, { remote: true });
+    } else if (loc.kind === 'content' && loc.node) {
+      if (loc.node.parentNode) loc.node.parentNode.removeChild(loc.node);
     }
     var buckets = window.serviceSectionItems || {};
     Object.keys(buckets).forEach(function(sec) {
@@ -28634,6 +28722,7 @@ var WO = (function() {
       if (placeholder && placeholder.parentElement) placeholder.parentElement.remove();
       container.insertAdjacentHTML('beforeend',
         '<div class="wo-content-box has-content" data-section="' + sectionId +
+        '" data-item-id="' + escapeHtml(entry.id || '') +
         '" ondblclick="WO.editContent(this)">' +
         '<div class="wo-content-text">' + escapeHtml(entry.text) + '</div>' +
         _mkCASBtn() +
@@ -28643,26 +28732,126 @@ var WO = (function() {
   }
 
   // Returns a short description when it applied, or null when it declined.
-  function _orderSyncApplyDelta(liveItems, addedIds, removedIds) {
+  //
+  // An item whose text changed, or that moved to another section, is taken off
+  // and put back from the stored row. That is the same pair of operations the
+  // app performs when somebody edits one by hand, rather than a second way to
+  // render the same thing. An item that only changed position is left alone
+  // and moved by the re-ordering pass, which is cheaper and does not disturb
+  // anything inside it.
+  function _orderSyncApplyDelta(liveItems, addedIds, removedIds, editedIds, movedIds) {
+    editedIds = editedIds || [];
+    movedIds  = movedIds  || [];
     var byId = {};
     liveItems.forEach(function(it) { if (it && it.id) byId[it.id] = it; });
-    var addedItems = addedIds.map(function(id) { return byId[id]; }).filter(Boolean);
-    if (addedItems.length !== addedIds.length) return null;   // fetch and ids disagree
-    var removals = removedIds.map(_orderSyncLocate);
-    // An id we cannot find is already off this screen; nothing to undraw.
-    var toRemove = removals.filter(Boolean);
-    if (!_orderSyncCanPatch(addedItems, toRemove)) return null;
+
+    // Redraw = edited, plus anything that changed section. A move within one
+    // section is only a position, and positions are handled at the end.
+    var redrawIds = editedIds.slice();
+    movedIds.forEach(function(id) {
+      var loc = _orderSyncLocate(id);
+      var it = byId[id];
+      if (loc && it && (loc.sectionId || '') !== (it.sectionId || '') && redrawIds.indexOf(id) === -1) {
+        redrawIds.push(id);
+      }
+    });
+
+    if (_orderSyncScreenBusy()) return null;
+    var selKey = _orderSyncSelectedKey();
+    var applied = [];    // ids this pass takes responsibility for
+    var deferredSections = {};
+
+    function defer(id, sectionIds) {
+      (sectionIds || []).forEach(function(s) { if (s) deferredSections[s] = true; });
+    }
+
+    // Additions this pass can draw.
+    var addedItems = [];
+    addedIds.forEach(function(id) {
+      var it = byId[id];
+      if (!it || !_ORDER_SYNC_ADDABLE[it.itemType]) { defer(id, [it && it.sectionId]); return; }
+      addedItems.push(it);
+      applied.push(id);
+    });
+
+    // Redraws this pass can take off and put back without moving the ground
+    // under the operator.
+    var redrawItems = [], redrawLocs = [];
+    redrawIds.forEach(function(id) {
+      var it = byId[id];
+      var loc = _orderSyncLocate(id);
+      if (!it || !_ORDER_SYNC_ADDABLE[it.itemType] ||
+          (loc && (!_ORDER_SYNC_REMOVABLE[loc.kind] || loc.unaddressable)) ||
+          (selKey && loc && loc.domKey === selKey)) {
+        defer(id, [it && it.sectionId, loc && loc.sectionId]);
+        return;
+      }
+      redrawItems.push(it);
+      if (loc) redrawLocs.push(loc);
+      applied.push(id);
+    });
+
+    // Removals this pass can undraw.
+    var toRemove = [];
+    removedIds.forEach(function(id) {
+      var loc = _orderSyncLocate(id);
+      // Already off this screen: nothing to undraw, and nothing to defer.
+      if (!loc) { applied.push(id); return; }
+      if (!_ORDER_SYNC_REMOVABLE[loc.kind] || loc.unaddressable ||
+          (selKey && loc.domKey === selKey)) {
+        defer(id, [loc.sectionId]);
+        return;
+      }
+      toRemove.push(loc);
+      applied.push(id);
+    });
+
+    // Which sections need their order restated afterwards. A section holding
+    // something this pass deferred is left alone: re-ordering it would place
+    // the deferred item by an order that does not describe it.
+    var wantOrder = _orderSyncSectionOrder(liveItems);
+    var touched = {};
+    [].concat(addedItems, redrawItems).forEach(function(it) {
+      if (it && it.sectionId) touched[it.sectionId] = true;
+    });
+    [].concat(toRemove, redrawLocs).forEach(function(l) {
+      if (l && l.sectionId) touched[l.sectionId] = true;
+    });
+    var pureMoves = [];
+    movedIds.forEach(function(id) {
+      if (redrawIds.indexOf(id) !== -1) return;
+      var it = byId[id];
+      var loc = _orderSyncLocate(id);
+      var secs = [it && it.sectionId, loc && loc.sectionId].filter(Boolean);
+      if (!secs.length) { defer(id, []); return; }
+      pureMoves.push({ id: id, secs: secs });
+      secs.forEach(function(s) { touched[s] = true; });
+    });
+
+    var reorderSections = Object.keys(touched).filter(function(s) {
+      return !deferredSections[s] && _orderSyncSectionReorderable(s);
+    });
+    // A move only counts as done if its section actually got re-ordered.
+    pureMoves.forEach(function(m) {
+      if (m.secs.every(function(s) { return reorderSections.indexOf(s) !== -1; })) {
+        applied.push(m.id);
+      }
+    });
+
+    if (!applied.length) return null;
 
     var scroller = document.getElementById('woWorshipOrder');
     var keepTop = scroller ? scroller.scrollTop : null;
     var outer = scroller && typeof _scrollParentOf === 'function' ? _scrollParentOf(scroller) : null;
     var keepOuter = outer ? outer.scrollTop : null;
 
-    toRemove.forEach(_orderSyncRemoveOne);
+    // Redrawn items come off first, then go back on with the rest of the
+    // additions -- one path in, not two.
+    toRemove.concat(redrawLocs).forEach(_orderSyncRemoveOne);
 
     // One stored row becomes its in-memory entries exactly as a full load would.
     var scratch = { songs: [], serviceSectionSongs: {}, serviceSectionItems: {} };
-    addedItems.forEach(function(item) { _absorbOrderItem(item, scratch); });
+    addedItems.concat(redrawItems).forEach(function(item) { _absorbOrderItem(item, scratch); });
 
     scratch.songs.forEach(function(entry) {
       if (!songOrderSections.some(function(s) { return s.id === entry.id; })) {
@@ -28685,6 +28874,11 @@ var WO = (function() {
       });
     });
 
+    // Positions last, once everything that belongs in a section is in it.
+    reorderSections.forEach(function(sec) {
+      if (wantOrder[sec]) _orderSyncReorderSection(sec, wantOrder[sec]);
+    });
+
     // The rail is rebuilt from the DOM on every structural change already, so
     // this is the same refresh a local edit causes.
     if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
@@ -28693,9 +28887,12 @@ var WO = (function() {
     if (typeof edRefreshLockUI === 'function') edRefreshLockUI();
 
     var parts = [];
-    if (addedItems.length) parts.push(addedItems.length + (addedItems.length === 1 ? ' item' : ' items') + ' added');
-    if (toRemove.length)   parts.push(toRemove.length + (toRemove.length === 1 ? ' item' : ' items') + ' removed');
-    return parts.join(' and ');
+    if (addedItems.length)  parts.push(addedItems.length + (addedItems.length === 1 ? ' item' : ' items') + ' added');
+    if (toRemove.length)    parts.push(toRemove.length + (toRemove.length === 1 ? ' item' : ' items') + ' removed');
+    if (redrawItems.length) parts.push(redrawItems.length + (redrawItems.length === 1 ? ' item' : ' items') + ' updated');
+    var movedDone = pureMoves.filter(function(m) { return applied.indexOf(m.id) !== -1; });
+    if (movedDone.length)   parts.push('reordered');
+    return { desc: parts.join(', '), applied: applied };
   }
   // ── Order sync poll ──────────────────────────────────────────────────────
   //
@@ -28726,11 +28923,9 @@ var WO = (function() {
   var _orderSyncResumeMode = null; // where to land after a reload we triggered
   var ORDER_SYNC_MS = 4000;
 
-  function _orderSyncNote(orderId, ids) {
-    if (!orderId || !ids) return;
-    var set = {};
-    for (var i = 0; i < ids.length; i++) { if (ids[i]) set[ids[i]] = true; }
-    _orderSyncSeen[orderId] = set;
+  function _orderSyncNote(orderId, items) {
+    if (!orderId || !items) return;
+    _orderSyncSeen[orderId] = _orderSyncFingerprint(items);
     _orderSyncPending = null;
     _orderSyncDismissed = null;
     _orderSyncClearBanner();
@@ -28773,8 +28968,7 @@ var WO = (function() {
       _orderSyncBusy = false;
       if (!res || !res.items) return;
       if (!currentOrderData || currentOrderData.id !== oid) return;
-      var live = {};
-      res.items.forEach(function(it) { if (it && it.id) live[it.id] = true; });
+      var live = _orderSyncFingerprint(res.items);
 
       var seen = _orderSyncSeen[oid];
       // No baseline yet -- an order opened from cache carries no item list.
@@ -28784,13 +28978,23 @@ var WO = (function() {
 
       var added   = Object.keys(live).filter(function(k) { return !seen[k]; }).sort();
       var removed = Object.keys(seen).filter(function(k) { return !live[k]; }).sort();
-      if (!added.length && !removed.length) {
+      // Edited in place, and moved -- the two differences that used to go
+      // unnoticed entirely because only the set of ids was compared.
+      var edited = [], moved = [];
+      Object.keys(live).forEach(function(k) {
+        if (!seen[k]) return;
+        if (live[k].sig !== seen[k].sig) edited.push(k);
+        else if (live[k].sec !== seen[k].sec || live[k].sort !== seen[k].sort) moved.push(k);
+      });
+      edited.sort(); moved.sort();
+      if (!added.length && !removed.length && !edited.length && !moved.length) {
         _orderSyncPending = null;
         _orderSyncDismissed = null;
         _orderSyncClearBanner();
         return;
       }
-      var sig = added.join(',') + '|' + removed.join(',');
+      var sig = added.join(',') + '|' + removed.join(',') +
+                '|' + edited.join(',') + '|' + moved.join(',');
       // Confirmed across two ticks. A save is upsert-then-prune, so a poll
       // landing between the two sees rows that are about to go -- a difference
       // that exists for well under a second and would otherwise flash a notice
@@ -28800,17 +29004,26 @@ var WO = (function() {
       // Apply it in place if that is safe, and only ask otherwise.
       var applied = null;
       try {
-        applied = _orderSyncApplyDelta(res.items, added, removed);
+        applied = _orderSyncApplyDelta(res.items, added, removed, edited, moved);
       } catch (e) {
         console.warn('[OrderSync] In-place patch failed, falling back to the notice:', e);
         applied = null;
       }
-      if (applied) {
-        _orderSyncNote(oid, Object.keys(live));
-        showToast('Updated from another device — ' + applied, 'info');
+      if (applied && applied.applied && applied.applied.length) {
+        // Only the items this pass actually drew move forward. Anything it
+        // deferred stays as it was, so the next tick finds it again and
+        // either applies it or -- if it is still blocked -- asks.
+        var base = _orderSyncSeen[oid] || (_orderSyncSeen[oid] = {});
+        applied.applied.forEach(function(k) {
+          if (live[k]) base[k] = live[k]; else delete base[k];
+        });
+        _orderSyncPending = null;
+        _orderSyncDismissed = null;
+        _orderSyncClearBanner();
+        if (applied.desc) showToast('Updated from another device — ' + applied.desc, 'info');
         return;
       }
-      _orderSyncShowBanner(added.length, removed.length, sig);
+      _orderSyncShowBanner(added.length + edited.length + moved.length, removed.length, sig);
     }).catch(function() { _orderSyncBusy = false; });
   }
 
@@ -28917,7 +29130,7 @@ var WO = (function() {
     // item list -- a cached open has none, and an empty baseline would read
     // every stored row as a change somebody else just made.
     if (Array.isArray(order.allItems)) {
-      _orderSyncNote(order.id, order.allItems.map(function(it) { return it.id; }));
+      _orderSyncNote(order.id, order.allItems);
     } else if (order.id) {
       delete _orderSyncSeen[order.id];
     }
@@ -29136,7 +29349,8 @@ var WO = (function() {
           var placeholder = container.querySelector('.wo-content-placeholder');
           if (placeholder) placeholder.parentElement.remove();
 
-          var boxHtml = '<div class="wo-content-box has-content" data-section="' + item.sectionId + '" ondblclick="WO.editContent(this)">' +
+          var boxHtml = '<div class="wo-content-box has-content" data-section="' + item.sectionId +
+            '" data-item-id="' + escapeHtml(item.id || '') + '" ondblclick="WO.editContent(this)">' +
             '<div class="wo-content-text">' + escapeHtml(item.content.text) + '</div>' +
             _mkCASBtn() +
             '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
@@ -29870,7 +30084,7 @@ var WO = (function() {
           // comparing from here. Items the save deliberately kept because
           // another device added them are NOT in this list, which is exactly
           // what makes the next tick report them.
-          _orderSyncNote(result.id, (orderPayload.items || []).map(function(it) { return it.id; }));
+          _orderSyncNote(result.id, orderPayload.items || []);
 
           // Back-fill the ownership stamp: a brand-new order is initialized
           // before it has an id, so the stamp written by initializeService/
@@ -33374,7 +33588,8 @@ var WO = (function() {
         } else if (item.itemType === 'content' && item.content && item.content.text) {
           var placeholder = container.querySelector('.wo-content-placeholder');
           if (placeholder) placeholder.parentElement.remove();
-          var boxHtml = '<div class="wo-content-box has-content" data-section="' + item.sectionId + '" ondblclick="WO.editContent(this)">' +
+          var boxHtml = '<div class="wo-content-box has-content" data-section="' + item.sectionId +
+            '" data-item-id="' + escapeHtml(item.id || '') + '" ondblclick="WO.editContent(this)">' +
             '<div class="wo-content-text">' + escapeHtml(item.content.text) + '</div>' +
             _mkCASBtn() +
             '<button class="wo-delete-btn" onclick="event.stopPropagation(); WO.deleteContent(this)"><i class="fa-solid fa-times"></i></button>' +
