@@ -25386,6 +25386,34 @@ function _sbLoadLayoutsFromSupabase(songIds, callback) {
 var SBQ = {
   _sb: function() { return getSupabaseClient(); },
 
+  // ── Which items this client has actually seen, per order ───────────────
+  //
+  // saveOrder prunes every row that is not in the payload it was handed.
+  // That is right for a slide the operator deleted and wrong for a slide
+  // somebody else added a moment ago, and from the payload alone the two are
+  // identical: both are "a row in the database that this client is not
+  // sending". The difference is entirely in the past. A row this client once
+  // loaded and is no longer sending, it dropped. A row it has never laid eyes
+  // on, it cannot have dropped -- somebody else put it there after we read.
+  //
+  // So the client keeps the ids it has seen. No timestamps: deciding this by
+  // comparing last_edited would mean trusting two machines' clocks against
+  // each other, and a phone running a few seconds fast would make a deleted
+  // slide immortal. Set membership needs no clock and cannot drift.
+  //
+  // Every read goes through loadOrder, including the Songbook's 2-second
+  // poll, so the set catches up on its own: an item another device added is
+  // unknown for at most one poll, and known from then on -- which is also
+  // exactly when it becomes deletable, since that is when it reaches the
+  // screen the operator is working from.
+  _knownItems: {},
+
+  _noteKnownItems: function(orderId, ids) {
+    if (!orderId || !ids) return;
+    var seen = SBQ._knownItems[orderId] || (SBQ._knownItems[orderId] = {});
+    for (var i = 0; i < ids.length; i++) { if (ids[i]) seen[ids[i]] = true; }
+  },
+
   // Map Supabase snake_case row → camelCase order object
   _orderFromRow: function(o) {
     var tpl = o.template || {};
@@ -25459,6 +25487,9 @@ var SBQ = {
       if (!or.data) throw new Error('Order not found: ' + id);
       var order = SBQ._orderFromRow(or.data);
       var items = (ir.data || []).map(SBQ._itemFromRow);
+      // Everything we just read is now something this client has seen, and so
+      // something it is entitled to delete on a later save.
+      SBQ._noteKnownItems(id, items.map(function(it) { return it.id; }));
       return { order: order, items: items, backgrounds: {}, sectionStates: {} };
     });
   },
@@ -25468,6 +25499,10 @@ var SBQ = {
     var sb = SBQ._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
     var now = new Date().toISOString();
+    // Filled in by the prune step; reported back so a caller can say that the
+    // order on screen is now behind what is stored.
+    var _sparedCount = 0;
+    var _echoCount = 0;
     var id = payload.id || ('order_' + Date.now());
     // Merge mediaLinks into template._inbox so they survive page-reload,
     // navigation away, and iOS Safari's aggressive localStorage eviction.
@@ -25580,9 +25615,38 @@ var SBQ = {
             if (er.error) sbqError(er.error, 'saveOrder/order_items-existing');
             var keep = {};
             rows.forEach(function(row) { keep[row.id] = true; });
-            var stale = (er.data || [])
-              .map(function(x) { return x.id; })
-              .filter(function(rowId) { return !keep[rowId]; });
+            var seen = SBQ._knownItems[id];
+            var existsNow = {};
+            (er.data || []).forEach(function(x) { existsNow[x.id] = true; });
+
+            // Do not re-create what somebody else deleted.
+            var echoes = [];
+            rows = rows.filter(function(row) {
+              if (existsNow[row.id]) return true;            // live row, we are updating it
+              if (seen && seen[row.id]) { echoes.push(row.id); return false; }
+              return true;                                   // genuinely new here
+            });
+            if (echoes.length) {
+              console.warn('[SBQ.saveOrder] Skipped ' + echoes.length + ' item(s) deleted on another device: ' +
+                echoes.join(', ') + ' — this client had them on screen but they are gone; re-inserting would undo the deletion.');
+            }
+            _echoCount = echoes.length;
+
+            var stale = [], spared = [];
+            (er.data || []).forEach(function(x) {
+              if (keep[x.id]) return;
+              // No record of ever having read this order: we have no way to tell
+              // a deletion from someone else's addition, so behave as before and
+              // prune. In practice every path reaches an order through loadOrder
+              // first, so this is the shape of a bug, not a normal save.
+              if (!seen || seen[x.id]) stale.push(x.id);
+              else spared.push(x.id);
+            });
+            if (spared.length) {
+              console.warn('[SBQ.saveOrder] Kept ' + spared.length + ' item(s) added by another device: ' +
+                spared.join(', ') + ' — this client had never read them, so they are not ours to delete.');
+            }
+            _sparedCount = spared.length;
 
             // Batched to stay inside Supabase payload and URL limits.
             var batchSize = 50;
@@ -25607,6 +25671,14 @@ var SBQ = {
                 };
               })(stale.slice(bi, bi + batchSize)));
             }
+            // Having deleted these, we no longer know them. That matters for
+            // undo: re-adding the same id later has to count as new content
+            // rather than as an echo of a deletion.
+            if (seen) stale.forEach(function(rowId) { delete seen[rowId]; });
+            // What we just wrote, we have now seen -- so a later save may
+            // delete it. Without this a brand-new order created in this
+            // session could never have an item removed again.
+            SBQ._noteKnownItems(id, rows.map(function(row) { return row.id; }));
             return chain.then(function() { return null; });
           });
       })
@@ -25614,7 +25686,8 @@ var SBQ = {
         if (res && res.__itemsPreserved) {
           return { success: true, id: id, lastEdited: now, itemsSaved: 0, itemsPreserved: res.__itemsPreserved };
         }
-        return { success: true, id: id, lastEdited: now, itemsSaved: (payload.items || []).length };
+        return { success: true, id: id, lastEdited: now, itemsSaved: (payload.items || []).length,
+                 itemsSpared: _sparedCount, itemsSkipped: _echoCount };
       });
   },
 
