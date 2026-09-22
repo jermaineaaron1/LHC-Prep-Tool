@@ -25428,6 +25428,32 @@ var SBQ = {
   // make every row look different.
   _lastWritten: {},
 
+  // Key order must not count.
+  //
+  // The two fingerprints being compared are built from different places: one
+  // from a row Postgres handed back, one from a row this client just built.
+  // Postgres stores jsonb with its keys normalised -- shortest first, then
+  // bytewise -- so a song's content comes back as artist, sbFiles, sbLinks,
+  // youtube, customDocs, ... whatever order it was written in. The client
+  // builds the same object in its own order. JSON.stringify respects both,
+  // and the two strings differ although not one value does.
+  //
+  // So every row with more than one key in an object looked changed on the
+  // first save after every load, and was rewritten for nothing -- measured as
+  // "4 of 13 changed" on an order nobody had touched, which is the very thing
+  // the change-only save exists to stop. It then settled, because the write
+  // records the client's own fingerprint, until the next load read the
+  // database again and the disagreement came back.
+  //
+  // Sorting object keys makes the hash depend on the data. Arrays are left
+  // alone: the order of slides is data.
+  _stableKeys: function(_k, v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return v;
+    var out = {}, keys = Object.keys(v).sort();
+    for (var i = 0; i < keys.length; i++) out[keys[i]] = v[keys[i]];
+    return out;
+  },
+
   _rowFingerprint: function(row) {
     var s = JSON.stringify([
       row.item_type || '', row.section_id || '',
@@ -25435,7 +25461,7 @@ var SBQ = {
       row.source_id || '', row.title || '',
       row.content || null, row.customizations || null,
       row.slides || null, row.backgrounds || null
-    ]);
+    ], SBQ._stableKeys);
     var h = 5381, i = s.length;
     while (i) { h = (h * 33) ^ s.charCodeAt(--i); }
     return (h >>> 0).toString(36);
