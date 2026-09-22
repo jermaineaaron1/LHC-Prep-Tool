@@ -3,10 +3,14 @@
 // points at.
 //
 // WHY
-// Measured on this project: 68 MB in the bucket, of which 57 MB was orphaned.
-// The cause is duplicate uploads -- the same Lectionary PDF stored five times,
-// one background image five times, twenty projection snapshots from a single
-// afternoon in April. Nothing links to them and nothing ever will.
+// Measured on this project: 867 MB in the bucket, of which 820 MB is orphaned.
+// The cause is that every upload is kept: the same sermon deck re-uploaded five
+// times is five 24 MB files, and only the last one is linked. 629 MB of it is
+// orders/presentations alone.
+//
+// (An earlier version of this comment said 68 MB, because an earlier version of
+// this tool only listed one level of the bucket. See listAll below -- the wrong
+// number was reported confidently, which is the failure worth remembering.)
 //
 // HOW IT DECIDES
 // It takes a fresh snapshot of every table, then asks of each stored file: does
@@ -37,8 +41,8 @@ const APPLY = argv.includes('--apply');
 const ONLY = (() => { const i = argv.indexOf('--folder'); return i !== -1 ? argv[i + 1] : null; })();
 
 const BUCKET = 'Liturgy Files';
-const FOLDERS = ['backgrounds', 'documents', 'lectionary-uploads', 'liturgy',
-                 'orders', 'snapshots', 'song-docs', 'song-scans', 'songbook'];
+
+
 
 function credentials() {
   let url = process.env.SUPABASE_URL, key = process.env.SUPABASE_ANON_KEY;
@@ -73,17 +77,36 @@ function referencedNames() {
   return blob;
 }
 
-async function listFolder(url, key, folder) {
-  const res = await fetch(`${url}/storage/v1/object/list/${encodeURIComponent(BUCKET)}`, {
-    method: 'POST',
-    headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prefix: folder + '/', limit: 1000 })
-  });
-  if (!res.ok) throw new Error(`${folder}: HTTP ${res.status} listing`);
-  return (await res.json()).map(o => ({
-    name: o.name, full: folder + '/' + o.name,
-    size: (o.metadata && o.metadata.size) || 0
-  })).filter(o => o.name);
+// Walk the bucket properly: recursing into sub-folders and paging every level.
+//
+// The first version of this listed one level and stopped, which reported 68 MB
+// for a bucket holding 867. Everything that mattered -- orders/presentations at
+// 629 MB, orders/videos, orders/documents -- sits two levels down, and a
+// one-level listing sees those only as zero-byte folder entries. It also capped
+// at 1000 objects with no second page, which is the same way a naive read of
+// roster_changes returned 1000 of 7432 rows. Both mistakes report a
+// comfortable, wrong, small number.
+async function listAll(url, key, prefix, out, depth) {
+  if (depth < 0) return out;
+  const headers = { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' };
+  for (let offset = 0; ; offset += 1000) {
+    const res = await fetch(`${url}/storage/v1/object/list/${encodeURIComponent(BUCKET)}`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ prefix, limit: 1000, offset, sortBy: { column: 'name', order: 'asc' } })
+    });
+    if (!res.ok) throw new Error(`${prefix || '(root)'}: HTTP ${res.status} listing`);
+    const page = await res.json();
+    if (!Array.isArray(page)) throw new Error(`${prefix || '(root)'}: unexpected listing response`);
+    for (const o of page) {
+      if (!o.name) continue;
+      const full = prefix + o.name;
+      // Supabase marks a folder by returning a row with no id.
+      if (o.id === null || o.id === undefined) await listAll(url, key, full + '/', out, depth - 1);
+      else out.push({ name: o.name, full, size: (o.metadata && o.metadata.size) || 0 });
+    }
+    if (page.length < 1000) break;
+  }
+  return out;
 }
 
 async function remove(url, key, paths) {
@@ -102,15 +125,13 @@ const MB = b => (b / 1048576).toFixed(2) + ' MB';
   freshSnapshot();
   const blob = referencedNames();
 
-  const folders = ONLY ? [ONLY] : FOLDERS;
+  const all = await listAll(url, key, ONLY ? ONLY.replace(/\/*$/, '/') : '', [], 8);
   const orphans = [];
   let keptBytes = 0, keptCount = 0;
 
-  for (const folder of folders) {
-    for (const f of await listFolder(url, key, folder)) {
-      if (blob.indexOf(f.name) !== -1) { keptCount++; keptBytes += f.size; }
-      else orphans.push(f);
-    }
+  for (const f of all) {
+    if (blob.indexOf(f.name) !== -1) { keptCount++; keptBytes += f.size; }
+    else orphans.push(f);
   }
 
   orphans.sort((a, b) => b.size - a.size);
