@@ -25875,44 +25875,110 @@ var SBQ = {
   // (item_type, source_id, sort_order, title) to avoid accidentally corrupting rows
   // that were already correctly saved by a full saveOrder(). Rows that do not yet
   // exist are skipped — save the order once first if you need the rows to exist.
+  //
+  // MERGED, NOT REPLACED.
+  //
+  // content and customizations are jsonb columns, and an upsert replaces a
+  // column whole. Building them here out of the five keys the Songbook owns
+  // therefore DELETED everything else in them: a song lost its artist, its
+  // YouTube links, its attachments and its master lyrics the moment the
+  // Songbook opened, and got them back only when it closed and a full save ran.
+  // Watched against the database: four fields gone at 06:58:35, back at
+  // 06:58:44 -- a nine-second hole. Close the app in that window, lose the
+  // network, let the phone sleep, and they are gone for good; another device
+  // polling in it reads a song with no links and can save that as the truth.
+  //
+  // So the keys the Songbook owns are merged into what is stored rather than
+  // written over it. That costs one select per sync, which is debounced, and
+  // it is what the comment above always claimed this function did.
+  //
+  // slides stays a whole replacement: the slides ARE the Songbook's data.
   syncItems: function(orderId, snapshots) {
     var sb = SBQ._sb();
     if (!sb || !orderId || !snapshots || !snapshots.length) return Promise.resolve();
     var now = new Date().toISOString();
-    var rows = snapshots
-      .filter(function(snap) { return !!snap.id; })
-      .map(function(snap) {
-        return {
-          id:             snap.id,
-          order_id:       orderId,
-          customizations: {
-            annotations:      snap.annotations     || [],
-            imgAnnotations:   snap.imgAnnotations   || {},
-            transposeSteps:   snap.transposeSteps   || 0,
-            liturgistNotes:   snap.liturgistNotes   || '',
-            customRichLyrics: snap.richLyrics != null ? snap.richLyrics : null
-          },
-          content: {
-            textAnnotations: snap.textAnnotations || [],
-            sbLyricsColumns: snap.sbLyricsColumns || 1,
-            customYoutube:   snap.customYoutube   || [],
-            customDocs:      snap.customDocs      || [],
-            sbLinks:         snap.sbLinks         || []
-          },
-          slides:      snap.slides || [],
-          last_edited: now
-        };
-      });
-    // Touch the order row's last_edited so the poll's timestamp check fires on other devices
-    return sb.from('orders')
-      .update({ last_edited: now })
-      .eq('id', orderId)
-      .then(function() {
-        if (!rows.length) return;
-        return sb.from('order_items')
-          .upsert(rows, { onConflict: 'id' })
-          .then(function(r) {
-            if (r.error) console.warn('[SyncItems] upsert error:', r.error.message);
+    var snaps = snapshots.filter(function(snap) { return !!snap.id; });
+    if (!snaps.length) return Promise.resolve();
+    var ids = snaps.map(function(s) { return s.id; });
+
+    // The whole row, not just the two columns being merged into: the
+    // fingerprint below is computed over the identity columns as well, and one
+    // built from a row missing them can never match the row a full save builds.
+    return sb.from('order_items')
+      .select('id,item_type,section_id,sort_order,source_id,title,content,customizations,slides,backgrounds')
+      .in('id', ids)
+      .then(function(cur) {
+        if (cur.error) {
+          console.warn('[SyncItems] could not read the rows to merge into:', cur.error.message);
+          return null;   // better to write nothing than to write over it
+        }
+        var stored = {};
+        (cur.data || []).forEach(function(r) { stored[r.id] = r; });
+
+        // A row that is not there yet is CREATED, thin -- that is how a
+        // standalone songbook's rows come into being, lazily, on its first sync.
+        // Dropping them here would mean a standalone songbook never saved at all.
+        // For a row that does exist, the five keys are merged into what is stored.
+        var rows = snaps
+          .map(function(snap) {
+            var base = stored[snap.id] || {};
+            return {
+              id:             snap.id,
+              order_id:       orderId,
+              customizations: Object.assign({}, base.customizations || {}, {
+                annotations:      snap.annotations     || [],
+                imgAnnotations:   snap.imgAnnotations   || {},
+                transposeSteps:   snap.transposeSteps   || 0,
+                liturgistNotes:   snap.liturgistNotes   || '',
+                customRichLyrics: snap.richLyrics != null ? snap.richLyrics : null
+              }),
+              content: Object.assign({}, base.content || {}, {
+                textAnnotations: snap.textAnnotations || [],
+                sbLyricsColumns: snap.sbLyricsColumns || 1,
+                customYoutube:   snap.customYoutube   || [],
+                customDocs:      snap.customDocs      || [],
+                sbLinks:         snap.sbLinks         || []
+              }),
+              slides:      snap.slides || [],
+              last_edited: now
+            };
+          });
+        // Rows whose merged result is what is already stored are not sent.
+        // The Songbook pushes a snapshot on a timer whether or not anything was
+        // typed, so simply opening it rewrote every song page -- identical bytes,
+        // a new last_edited, and every other device told the order had changed.
+        rows = rows.filter(function(row) {
+          var base = stored[row.id];
+          if (!base) return true;          // not stored yet: this write creates it
+          var wouldBe = Object.assign({}, base, {
+            content: row.content, customizations: row.customizations, slides: row.slides
+          });
+          return SBQ._rowFingerprint(wouldBe) !== SBQ._rowFingerprint(base);
+        });
+        if (!rows.length) return null;
+        // Touch the order row's last_edited so the poll's timestamp check fires
+        // on other devices.
+        return sb.from('orders').update({ last_edited: now }).eq('id', orderId)
+          .then(function() {
+            return sb.from('order_items').upsert(rows, { onConflict: 'id' })
+              .then(function(r) {
+                if (r.error) console.warn('[SyncItems] upsert error:', r.error.message);
+                // Record what the row now IS -- the stored row with these three
+                // columns replaced -- so a later full save can tell it has not
+                // changed since. Fingerprinting the payload alone would record a
+                // row with no item_type, section_id, sort_order, source_id or
+                // title, which never matches anything and made every Songbook
+                // visit report four changes it had not made.
+                if (!r.error && typeof SBQ._noteStored === 'function') {
+                  SBQ._noteStored(orderId, rows.map(function(row) {
+                    return Object.assign({}, stored[row.id] || { id: row.id }, {
+                      content: row.content,
+                      customizations: row.customizations,
+                      slides: row.slides
+                    });
+                  }));
+                }
+              });
           });
       })
       .catch(function(e) { console.warn('[SyncItems] failed:', e); });
