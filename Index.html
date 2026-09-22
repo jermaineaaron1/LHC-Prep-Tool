@@ -79017,7 +79017,16 @@ function filterLiturgyItems() {
       order: 2 !important; margin: 0 auto !important;
       flex: 0 1 100% !important;
       width: 100% !important;
-      max-width: min(100%, 28.4vh) !important;   /* 16vh x 16/9 */
+      /* The height cap, or 60% of the panel, whichever is larger -- and never
+         wider than the panel.
+
+         The height cap alone was written for a 375px phone, where 28.4vh is
+         most of the width anyway. These rules run up to 768px, and on a
+         tablet the same 28.4vh left the output as a small box on the left of
+         a 717px panel with 440px of empty navy beside it. The 60% term only
+         ever wins where there is width going spare, so the phone is
+         unchanged: 60% of 339 is 203, and the height cap of 231 still wins. */
+      max-width: min(100%, max(28.4vh, 60%)) !important;   /* 16vh x 16/9, or 60% */
       height: auto !important; min-height: 0 !important; max-height: none !important;
       aspect-ratio: 16 / 9 !important;
     }
@@ -79074,7 +79083,16 @@ function filterLiturgyItems() {
        So nothing wraps. The Songbook button is the only control with words in
        it, so it is the only one allowed to give up width; the icons keep
        every pixel they have, which at 20px is not many. */
-    #worshipOrderView.lcd-mode .lcd-controls-row { flex-wrap: nowrap !important; }
+    /* Left to right, with the spacer doing the splitting.
+
+       The row is justify-content: flex-end, which is invisible on a phone
+       because the seven controls fill it exactly. Give it a 717px tablet and
+       everything huddles against the right edge with 440px empty beside it.
+       Packing from the start puts zoom and Songbook where they belong and
+       leaves the spacer to push the two navigation arrows across. */
+    #worshipOrderView.lcd-mode .lcd-controls-row {
+      flex-wrap: nowrap !important; justify-content: flex-start !important;
+    }
     #worshipOrderView.lcd-mode .lcd-controls-row > * { flex: 0 0 auto !important; }
     #worshipOrderView.lcd-mode .lcd-controls-row .lcd-controls-spacer { flex: 1 1 0 !important; min-width: 0 !important; }
     #worshipOrderView.lcd-mode .lcd-controls-row #lcdProjVerBtn {
