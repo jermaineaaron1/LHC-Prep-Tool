@@ -29497,6 +29497,26 @@ var WO = (function() {
   // failure, not an edit. Reset once the save that carries it succeeds.
   var _woUserClearedTypes = {};
 
+  // Songs the operator has taken out of a section, by order-entry id.
+  //
+  // Removing a song used not to stick. It left the screen and said so, and
+  // the next save put it straight back: the collector reads the master song
+  // list first, finds no banner for the song in the DOM, and falls back to
+  // the section the last save recorded -- which is exactly the section it was
+  // just taken out of. Remove, save, reload, and there it is again.
+  //
+  // That fallback earns its place: it is what lets an order be saved from the
+  // Song Order tab, where the Service Order DOM does not exist at all and
+  // every song would otherwise lose its section. What it cannot do is tell
+  // "not drawn yet" from "taken out on purpose". This is that difference,
+  // written down.
+  //
+  // Liturgy has had the same thing for longer under the name clearedSections.
+  // A separate record rather than a shared one, because the liturgy seeders
+  // treat any entry for a section as "leave this whole section alone", and a
+  // song being removed says nothing about the liturgy beside it.
+  var _woSongsTakenOutOfSections = {};
+
   // Handle for the deferred liturgy seeding below, so that opening another
   // order can cancel a wait that is no longer about it.
   var _woSeedRetryTimer = null;
@@ -30826,7 +30846,11 @@ var WO = (function() {
           return item.id === songData.id && item.sectionId;
         });
         if (savedItem) {
-          actualSectionId = savedItem.sectionId;
+          // ...unless the operator took this song out of its section. Then the
+          // absence from the DOM is the point, not a gap to be filled in.
+          // The slides below are still worth keeping: the song stays in the
+          // order, it is only its place in the service that was given up.
+          if (!_woSongsTakenOutOfSections[songData.id]) actualSectionId = savedItem.sectionId;
           // Also grab saved slides if we don't have any
           if (!songData.savedSlides && savedItem.slides && savedItem.slides.length > 0) {
             songData.savedSlides = savedItem.slides;
@@ -57839,6 +57863,10 @@ var WO = (function() {
     var boxesContainer = $(sectionId + '-boxes');
     if (!boxesContainer) return;
 
+    // Placed in a section again -- by the operator, or by a load drawing the
+    // stored order -- so it is no longer a song that was taken out.
+    if (songSection && songSection.id) delete _woSongsTakenOutOfSections[songSection.id];
+
     // Check for duplicate song in this section
     if (!serviceSectionSongs[sectionId]) {
       serviceSectionSongs[sectionId] = [];
@@ -58476,6 +58504,31 @@ var WO = (function() {
     if (sectionId) _lcdRestoreSectionBgs(sectionId, _rmBgs);
     if (opts.remote) return;
     _woUserClearedTypes.song = true;
+    // So the save does not put it back (see _woSongsTakenOutOfSections).
+    //
+    // THREE places record that a song belongs to a section, and a removal that
+    // misses any one of them is undone:
+    //
+    //   sectionId          on the entry -- the collector's first question
+    //   allItems[].sectionId            -- what the last save stored, its second
+    //   serviceSections[]  on the entry -- what initializeServiceOrder draws from
+    //
+    // Clearing only the first two made the save correct and the screen wrong:
+    // the row went to section_id '' as it should, and the next load put the song
+    // straight back on screen from serviceSections, where the following save
+    // picked it up again.
+    if (songId) {
+      _woSongsTakenOutOfSections[songId] = true;
+      var _rmEntry = songOrderSections.find(function(s) { return s && s.id === songId; });
+      if (_rmEntry) {
+        if (_rmEntry.sectionId === sectionId || !sectionId) _rmEntry.sectionId = '';
+        if (Array.isArray(_rmEntry.serviceSections)) {
+          _rmEntry.serviceSections = _rmEntry.serviceSections.filter(function(ref) {
+            return ref !== sectionId;
+          });
+        }
+      }
+    }
     showToast('Song removed from section', 'success');
     autoSaveOrder();
   }
