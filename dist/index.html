@@ -29558,7 +29558,25 @@ var WO = (function() {
           if (item.itemType === 'liturgy' && item.sectionId) sectionsWithLiturgy[item.sectionId] = true;
         });
       }
+      // An order that already carries liturgy is not a new one, and its empty
+      // sections are empty because somebody emptied them.
+      //
+      // The per-section check above is not enough on its own. Removing a liturgy
+      // from a section leaves that section with none stored, which looks exactly
+      // like a section that was never filled -- so the next open seeded the
+      // library default straight back into it, and the next save from the Song
+      // Order side wrote it. That is how one liturgy comes to sit in an order
+      // twice: once where it was put, once where it was seeded back. Measured on
+      // a copy of a real order: delete the extra pair, reopen, save, and the pair
+      // is back.
+      //
+      // clearedSections exists to record exactly this, but only the Service Order
+      // view writes it -- the removal has to have happened there, with the DOM up.
+      // This covers the rest: seeding is for orders that have no liturgy at all,
+      // which is what "new" means here.
+      var _orderHasLiturgy = Object.keys(sectionsWithLiturgy).length > 0;
       function _seed() {
+        if (_orderHasLiturgy) return;
         var _cleared = currentOrderData && Array.isArray(currentOrderData.clearedSections)
           ? currentOrderData.clearedSections : [];
         str.forEach(function(section, idx) {
@@ -31110,11 +31128,30 @@ var WO = (function() {
     // Fallback: collect liturgy/content from in-memory serviceSectionItems
     // when Service Order DOM doesn't exist (e.g., saving from Song Order tab)
     if (sections.length === 0 && window.serviceSectionItems) {
+      // One liturgy in one section is one item, however many times
+      // serviceSectionItems happens to be holding it.
+      //
+      // It holds several: a save from this path logged the same liturgy being
+      // dropped as a duplicate four times over. The duplicates were caught
+      // downstream, so nothing wrong reached the database -- but they were
+      // caught AFTER sortOrder++ had counted each one. Every save therefore
+      // handed the same rows higher sort numbers than the last (8, then 56,
+      // then 120 for one liturgy), and a row whose sort_order changed is a row
+      // that differs from what is stored, so the save that skips unchanged
+      // rows had nothing it could skip. Ten of fifteen rows rewritten for a
+      // save that changed nothing.
+      //
+      // Refusing the duplicate here, before it is counted, is what makes the
+      // numbers stand still -- and a save that changes nothing write nothing.
+      var _emittedLiturgy = {};
       Object.keys(window.serviceSectionItems).forEach(function(sectionId) {
         var sectionItems = window.serviceSectionItems[sectionId];
         if (!Array.isArray(sectionItems)) return;
         sectionItems.forEach(function(item) {
           if (item.type === 'liturgy') {
+            var _litKey = (item.sourceId || item.id) + '|' + sectionId;
+            if (_emittedLiturgy[_litKey]) return;
+            _emittedLiturgy[_litKey] = true;
             var slides = [];
             if (item.slides && item.slides.length > 0) {
               slides = item.slides;
@@ -31126,7 +31163,19 @@ var WO = (function() {
               });
             }
             items.push({
-              id: 'liturgy_' + (item.sourceId || item.id) + '_' + sectionId,
+              // The same prefix the DOM collector uses. Without it the two
+              // collectors gave one liturgy two different ids -- prefixed when the
+              // Service Order was on screen, bare when it was not -- and a row
+              // saved under one id is not recognised as the row already stored
+              // under the other. Every save from this path therefore DELETED each
+              // liturgy row and INSERTED it again under the other name: measured,
+              // fifteen rows rewritten and nine liturgy rows re-created for a save
+              // that changed nothing. It is also how one liturgy comes to sit in
+              // an order twice.
+              //
+              // Rows stored under the bare id are replaced once, on the next save,
+              // and stay put from then on.
+              id: _oidPfx + 'liturgy_' + (item.sourceId || item.id) + '_' + sectionId,
               itemType: 'liturgy',
               sectionId: sectionId,
               sortOrder: sortOrder++,
@@ -34196,6 +34245,21 @@ var WO = (function() {
     }
 
     function _gapFillLiturgy() {
+      // Guard 0 -- an order that already carries liturgy is not a new one.
+      //
+      // The three guards below are all per-section, and a section a liturgy was
+      // REMOVED from looks identical to one that was never filled: no banner, no
+      // saved item. So the default went straight back in, and the next save
+      // wrote it -- which is how the same liturgy ends up in an order twice,
+      // once where it was put and once where it was gap-filled back.
+      //
+      // Guard 3 (clearedSections) is the intended answer, but it only records a
+      // removal made here, in the Service Order, and only survives while the
+      // order stays open. Gap-filling is for an order with no liturgy at all,
+      // which is what the three cases in the comment above are really about.
+      //
+      // The same rule is applied to the other seeding site, in openOrderInEditor.
+      if (Object.keys(_sectionsWithSavedLiturgy).length) return;
       structure.forEach(function(section, idx) {
         if (!section.liturgySectionId) return;
         var sectionId = 'wo-section-' + idx;
