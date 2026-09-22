@@ -25408,6 +25408,47 @@ var SBQ = {
   // screen the operator is working from.
   _knownItems: {},
 
+  // ── What is already stored, so a save can skip rewriting it ─────────────
+  //
+  // Editing one word in the Songbook used to rewrite every row in the order:
+  // each song's full lyrics, annotations and slides, measured at 43-65 KB for
+  // a normal order. The bytes are the least of it. Rewriting a row this client
+  // never touched is how another device's edit to that row gets overwritten --
+  // the payload carries whatever was on screen when the order was loaded, and
+  // sends it as though it were an edit.
+  //
+  // So each client remembers the fingerprint of every row it has definitely
+  // seen stored: from a load (the database said so) and after its own
+  // successful write (we put it there). A row whose fingerprint is unchanged
+  // is not sent. If another device changed it, our fingerprint is stale, we
+  // skip it, and their version survives -- which is the right outcome, since
+  // we did not change it either.
+  //
+  // last_edited is excluded: it changes on every write by definition and would
+  // make every row look different.
+  _lastWritten: {},
+
+  _rowFingerprint: function(row) {
+    var s = JSON.stringify([
+      row.item_type || '', row.section_id || '',
+      typeof row.sort_order === 'number' ? row.sort_order : 0,
+      row.source_id || '', row.title || '',
+      row.content || null, row.customizations || null,
+      row.slides || null, row.backgrounds || null
+    ]);
+    var h = 5381, i = s.length;
+    while (i) { h = (h * 33) ^ s.charCodeAt(--i); }
+    return (h >>> 0).toString(36);
+  },
+
+  _noteStored: function(orderId, rows) {
+    if (!orderId || !rows) return;
+    var m = SBQ._lastWritten[orderId] || (SBQ._lastWritten[orderId] = {});
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].id) m[rows[i].id] = SBQ._rowFingerprint(rows[i]);
+    }
+  },
+
   _noteKnownItems: function(orderId, ids) {
     if (!orderId || !ids) return;
     var seen = SBQ._knownItems[orderId] || (SBQ._knownItems[orderId] = {});
@@ -25486,6 +25527,10 @@ var SBQ = {
       if (or.error) throw new Error(or.error.message);
       if (!or.data) throw new Error('Order not found: ' + id);
       var order = SBQ._orderFromRow(or.data);
+      // Straight from the database, so these fingerprints are the truth about
+      // what is stored right now. Taken from the raw rows, before they are
+      // mapped to camelCase, so they are comparable with the rows a save builds.
+      SBQ._noteStored(id, ir.data || []);
       var items = (ir.data || []).map(SBQ._itemFromRow);
       // Note: reading an order does NOT make its items "known". Most callers
       // here never draw a thing -- the sync poll, the Songbook poll, the
@@ -25505,6 +25550,8 @@ var SBQ = {
     // order on screen is now behind what is stored.
     var _sparedCount = 0;
     var _echoCount = 0;
+    var _writtenCount = 0;    // rows actually sent
+    var _unchangedCount = 0;  // rows the database already holds as they are
     var id = payload.id || ('order_' + Date.now());
     // Merge mediaLinks into template._inbox so they survive page-reload,
     // navigation away, and iOS Safari's aggressive localStorage eviction.
@@ -25696,19 +25743,38 @@ var SBQ = {
             }
             _sparedCount = spared.length;
 
+            // Only rows that actually differ from what is stored. The id list
+            // above is still the complete one -- pruning has to see every item
+            // the order has, or an item left out would look deleted.
+            var storedFp = SBQ._lastWritten[id];
+            var toWrite = rows.filter(function(row) {
+              if (!storedFp) return true;                    // no record: write it
+              if (!existsNow[row.id]) return true;           // not in the database yet
+              var known = storedFp[row.id];
+              return !known || known !== SBQ._rowFingerprint(row);
+            });
+            _unchangedCount = rows.length - toWrite.length;
+            if (_unchangedCount) {
+              console.log('[SBQ.saveOrder] ' + toWrite.length + ' of ' + rows.length +
+                ' item(s) changed; the rest are already stored as they are.');
+            }
+
             // Batched to stay inside Supabase payload and URL limits.
             var batchSize = 50;
             var chain = Promise.resolve();
             var bi;
-            for (bi = 0; bi < rows.length; bi += batchSize) {
+            for (bi = 0; bi < toWrite.length; bi += batchSize) {
               chain = chain.then((function(batch) {
                 return function() {
                   return sb.from('order_items').upsert(batch, { onConflict: 'id' }).then(function(ir) {
                     if (ir.error) sbqError(ir.error, 'saveOrder/order_items-upsert');
+                    // Only once the write has landed.
+                    SBQ._noteStored(id, batch);
                   });
                 };
-              })(rows.slice(bi, bi + batchSize)));
+              })(toWrite.slice(bi, bi + batchSize)));
             }
+            _writtenCount = toWrite.length;
             for (bi = 0; bi < stale.length; bi += batchSize) {
               chain = chain.then((function(batch) {
                 return function() {
@@ -25735,7 +25801,8 @@ var SBQ = {
           return { success: true, id: id, lastEdited: now, itemsSaved: 0, itemsPreserved: res.__itemsPreserved };
         }
         return { success: true, id: id, lastEdited: now, itemsSaved: (payload.items || []).length,
-                 itemsSpared: _sparedCount, itemsSkipped: _echoCount };
+                 itemsSpared: _sparedCount, itemsSkipped: _echoCount,
+                 itemsWritten: _writtenCount, itemsUnchanged: _unchangedCount };
       });
   },
 
@@ -30423,11 +30490,24 @@ var WO = (function() {
             }
           }
 
+          // "Order saved! (25 items)" after changing one word read as though
+          // twenty-five things had been rewritten -- which, until the save
+          // started skipping unchanged rows, is exactly what happened. Report
+          // the change, and fall back to the total when the count is unknown.
           var itemCount = result.itemsSaved || items.length;
+          var _wrote = result.itemsWritten;
+          var _msg;
+          if (typeof _wrote === 'number') {
+            _msg = _wrote === 0 ? 'Saved — nothing had changed'
+                 : _wrote === 1 ? 'Saved 1 change'
+                 : 'Saved ' + _wrote + ' changes';
+          } else {
+            _msg = 'Order saved! (' + itemCount + ' items)';
+          }
           if (silent) {
             _soSetSaveStatus('saved');
           } else {
-            showToast('Order saved! (' + itemCount + ' items)', 'success');
+            showToast(_msg, 'success');
           }
           // broadcast to Songbook viewers on same browser for instant sync
           sbBroadcastChange();
