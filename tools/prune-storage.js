@@ -26,9 +26,14 @@
 //
 // USAGE
 //   node tools/prune-storage.js                 # list orphans, delete nothing
-//   node tools/prune-storage.js --folder snapshots
-//   node tools/prune-storage.js --apply         # delete them
-//   node tools/prune-storage.js --folder lectionary-uploads --apply
+//   node tools/prune-storage.js --folder orders/presentations
+//   node tools/prune-storage.js --archive ../lhc-archive --apply
+//   node tools/prune-storage.js --apply         # delete without keeping a copy
+//
+// --archive downloads each file before deleting it, and a file that fails to
+// download is NOT deleted. Archiving as a separate step beforehand would work
+// on its own list, and the two lists can drift between runs; doing it here
+// means what is deleted is exactly what was saved.
 
 const fs = require('fs');
 const path = require('path');
@@ -39,6 +44,7 @@ const BACKUPS = path.join(ROOT, 'backups');
 const argv = process.argv.slice(2);
 const APPLY = argv.includes('--apply');
 const ONLY = (() => { const i = argv.indexOf('--folder'); return i !== -1 ? argv[i + 1] : null; })();
+const ARCHIVE = (() => { const i = argv.indexOf('--archive'); return i !== -1 ? argv[i + 1] : null; })();
 
 const BUCKET = 'Liturgy Files';
 
@@ -148,9 +154,44 @@ const MB = b => (b / 1048576).toFixed(2) + ' MB';
     return;
   }
 
-  console.log(`\nDeleting ${orphans.length} file(s)...`);
-  for (let i = 0; i < orphans.length; i += 50) {
-    await remove(url, key, orphans.slice(i, i + 50).map(o => o.full));
+  // Only files that made it to disk may be deleted. A download that fails is a
+  // file we do not have a copy of, and deleting it would be the one outcome
+  // --archive exists to prevent.
+  let doomed = orphans;
+  if (ARCHIVE) {
+    const dir = path.resolve(ROOT, ARCHIVE);
+    console.log(`\nArchiving ${orphans.length} file(s) to ${dir} ...`);
+    fs.mkdirSync(dir, { recursive: true });
+    const saved = [], failed = [];
+    let done = 0;
+    for (const o of orphans) {
+      const encoded = o.full.split('/').map(encodeURIComponent).join('/');
+      const res = await fetch(
+        `${url}/storage/v1/object/${encodeURIComponent(BUCKET)}/${encoded}`,
+        { headers: { apikey: key, Authorization: 'Bearer ' + key } });
+      if (!res.ok) { failed.push(`${o.full} (HTTP ${res.status})`); continue; }
+      const buf = Buffer.from(await res.arrayBuffer());
+      const dest = path.join(dir, o.full);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, buf);
+      saved.push(o);
+      done++;
+      if (done % 25 === 0 || done === orphans.length) {
+        process.stdout.write(`  ${done}/${orphans.length}\r`);
+      }
+    }
+    fs.writeFileSync(path.join(dir, '_archived-manifest.json'),
+      JSON.stringify({ archivedAt: new Date().toISOString(), bucket: BUCKET,
+                       files: saved.map(s => ({ path: s.full, size: s.size })) }, null, 2) + '\n');
+    console.log(`\n  saved ${saved.length}, could not fetch ${failed.length}`);
+    failed.forEach(f => console.log('    skipped (will NOT be deleted): ' + f));
+    doomed = saved;
+    if (!doomed.length) { console.log('\nNothing was archived, so nothing will be deleted.'); return; }
   }
-  console.log(`Freed ${MB(total)}.`);
+
+  console.log(`\nDeleting ${doomed.length} file(s)...`);
+  for (let i = 0; i < doomed.length; i += 50) {
+    await remove(url, key, doomed.slice(i, i + 50).map(o => o.full));
+  }
+  console.log(`Freed ${MB(doomed.reduce((n, o) => n + o.size, 0))}.`);
 })().catch(e => { console.error('\n' + e.message); process.exit(1); });

@@ -37475,7 +37475,9 @@ var WO = (function() {
               });
             }
             if (_isPptx) {
-              _convertAndRenderPptx(sectionId, result.url, _capFileName);
+              // result.path travels with it so the upload can be deleted once
+              // Google has the deck -- see the cleanup in _onConverted.
+              _convertAndRenderPptx(sectionId, result.url, _capFileName, result.path);
             }
           } else if (_isPptx) {
             var loadEl = document.getElementById(sectionId + '-pptx-loading');
@@ -38095,13 +38097,13 @@ var WO = (function() {
 
   // Convert PPTX via GAS → get per-slide pageIds → show iframe with per-slide URL navigation.
   // Per-slide URLs let us navigate without any click inside the iframe.
-  function _convertAndRenderPptx(sectionId, supabaseUrl, fileName) {
+  function _convertAndRenderPptx(sectionId, supabaseUrl, fileName, storagePath) {
     var loadEl = document.getElementById(sectionId + '-pptx-loading');
     // Neither this stage nor the CloudConvert fallback can report progress --
     // both answer only when they have finished -- so both are shown as
     // indeterminate rather than given an invented percentage. A real page
     // count appears later, once pdf.js has the document and can count.
-    _lcdImportRetry[sectionId] = function() { _convertAndRenderPptx(sectionId, supabaseUrl, fileName); };
+    _lcdImportRetry[sectionId] = function() { _convertAndRenderPptx(sectionId, supabaseUrl, fileName, storagePath); };
     _lcdImportSet(sectionId, { file: fileName, stage: 'Converting to Google Slides\u2026' });
     if (loadEl) loadEl.setAttribute('data-legacy', '1');
 
@@ -38149,6 +38151,26 @@ var WO = (function() {
       if (!conv || conv.error) { _fallback('Conversion failed – showing in viewer.'); return; }
 
       var presentationId = conv.presentationId;
+
+      // Google now holds the deck and every slide is embedded by pageId, so the
+      // .pptx we uploaded a moment ago is never read again. Keeping it was the
+      // single biggest thing in storage: 49 files and 629 MB, none of them
+      // referenced by any order, because each re-upload of a sermon added
+      // another 24 MB copy beside the last. A deck is ~24 MB and the id that
+      // replaces it is forty characters.
+      //
+      // Only on the success path. If conversion failed, _fallback renders from
+      // the uploaded file itself and deleting it would break the one thing that
+      // still works.
+      if (storagePath) {
+        deleteFromSupabase(storagePath);
+        var _deck = currentSermonSlides[sectionId];
+        if (_deck && Array.isArray(_deck.supabaseFiles)) {
+          _deck.supabaseFiles = _deck.supabaseFiles.filter(function(f) {
+            return !f || f.path !== storagePath;
+          });
+        }
+      }
       var embedUrl = 'https://docs.google.com/presentation/d/' + presentationId + '/embed?rm=minimal&start=false&loop=false';
 
       var loadEl2 = document.getElementById(sectionId + '-pptx-loading');
