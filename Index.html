@@ -28686,13 +28686,44 @@ var WO = (function() {
     ]));
   }
 
+  // One hash per slide, kept beside the whole-item one.
+  //
+  // The item signature answers "did this change". It cannot answer "which
+  // slide", because it folds every slide into one number -- which is why a
+  // reload after a one-line Songbook edit put the operator at the top of the
+  // song and left them to find the line themselves. Comparing the arrays
+  // position by position gives the index of the first slide that differs.
+  function _orderSyncSlideSigs(it) {
+    return ((it && it.slides) || []).map(function(s) {
+      return _orderSyncHash((s && s.content) || '');
+    });
+  }
+
+  // Which slide of this item changed since the reading we hold, or null when
+  // that cannot be said -- no slides on either side, or the difference is in
+  // the item's own fields rather than in a slide. null means "show the item",
+  // which is what happened for everything before this.
+  function _orderSyncChangedSlide(seenEntry, it) {
+    var was = (seenEntry && seenEntry.slides) || null;
+    var now = _orderSyncSlideSigs(it);
+    if (!was || !was.length || !now.length) return null;
+    for (var i = 0; i < now.length; i++) {
+      if (was[i] !== now[i]) return i;
+    }
+    // Identical as far as the new list goes, but shorter: slides were removed,
+    // and the last one still standing is the edge of the change.
+    if (now.length < was.length) return now.length - 1;
+    return null;
+  }
+
   function _orderSyncFingerprint(items) {
     var map = {};
     (items || []).forEach(function(it) {
       if (!it || !it.id) return;
       map[it.id] = { sig: _orderSyncItemSig(it),
                      sec: it.sectionId || '',
-                     sort: typeof it.sortOrder === 'number' ? it.sortOrder : 0 };
+                     sort: typeof it.sortOrder === 'number' ? it.sortOrder : 0,
+                     slides: _orderSyncSlideSigs(it) };
     });
     return map;
   }
@@ -29143,8 +29174,8 @@ var WO = (function() {
         if (applied.desc) showToast('Updated from another device — ' + applied.desc, 'info');
         return;
       }
-      _orderSyncShowBanner(added.length + edited.length + moved.length, removed.length, sig,
-                           _orderSyncTargetFor(res.items, added, edited, moved));
+      _orderSyncShowBanner(added.length, edited.length, moved.length, removed.length, sig,
+                           _orderSyncTargetFor(res.items, added, edited, moved, seen));
     }).catch(function() { _orderSyncBusy = false; });
   }
 
@@ -29158,7 +29189,11 @@ var WO = (function() {
   //
   // Liturgy slides are keyed in the DOM by sourceId rather than by the order
   // item id, so the key has to be chosen per kind, not taken from id.
-  function _orderSyncTargetFor(liveItems, added, edited, moved) {
+  //
+  // `seen` is the reading the screen already reflects. It is what makes the
+  // slide index possible: without the previous hashes there is nothing to
+  // compare the current ones against.
+  function _orderSyncTargetFor(liveItems, added, edited, moved, seen) {
     var pick = (edited && edited[0]) || (added && added[0]) || (moved && moved[0]) || null;
     if (!pick) return null;
     var it = null;
@@ -29167,20 +29202,35 @@ var WO = (function() {
     }
     if (!it) return null;
     var key = (it.itemType === 'liturgy') ? (it.sourceId || it.id) : it.id;
-    return { key: String(key).replace(/["\\]/g, ''), title: it.title || '' };
+    // Only an edit can name a slide. An addition has no previous version to
+    // diff against, and a move changed position rather than words.
+    var slideIdx = null;
+    if (seen && edited && edited.length && edited[0] === pick) {
+      slideIdx = _orderSyncChangedSlide(seen[pick], it);
+    }
+    return { key: String(key).replace(/["\\]/g, ''), title: it.title || '',
+             slideIdx: slideIdx };
   }
 
   // Which rail row stands for a given slide key, or null while the rail has
   // not been built yet. _lcdRailRowMap holds the box each row was made from.
-  function _orderSyncRailRowFor(key) {
+  // With a slideIdx it is that exact slide or nothing; without one, the first
+  // row the item has. Returning the first row when the exact one is missing
+  // would look like success and land on the wrong slide, so the caller decides
+  // how long to wait for the right one before settling -- see
+  // _orderSyncRevealTarget.
+  function _orderSyncRailRowFor(key, slideIdx) {
     if (typeof _lcdRailRowMap === 'undefined' || !_lcdRailRowMap) return null;
     var rows = document.querySelectorAll('.lcd-rail-slide-row');
+    var want = (slideIdx === null || slideIdx === undefined) ? null : slideIdx;
     for (var i = 0; i < rows.length; i++) {
       var entry = _lcdRailRowMap[rows[i].id];
       var box = (entry && entry.nodeType === 1) ? entry : (entry && entry.box);
       if (!box || box.nodeType !== 1) continue;
       var k = box.getAttribute('data-song-id') || box.getAttribute('data-liturgy-id') || '';
-      if (k === key) return rows[i].id;
+      if (k !== key) continue;
+      if (want === null) return rows[i].id;
+      if ((parseInt(box.getAttribute('data-slide-idx') || '0', 10) || 0) === want) return rows[i].id;
     }
     return null;
   }
@@ -29199,8 +29249,15 @@ var WO = (function() {
     tries = tries || 0;
     var give_up = tries > 40;   // ~6s, then stop quietly
 
+    // Wait about a second and a half for the exact slide before settling for
+    // the item. The rail is built a section at a time, so asking for slide 7
+    // the instant the song appears finds only slide 1 -- and taking it would
+    // be the old behaviour wearing the new code.
+    var _settle = tries > 10;
+
     if (document.body.classList.contains('lcd-console-open')) {
-      var rowId = _orderSyncRailRowFor(target.key);
+      var rowId = _orderSyncRailRowFor(target.key, target.slideIdx);
+      if (!rowId && _settle) rowId = _orderSyncRailRowFor(target.key, null);
       if (!rowId) {
         if (give_up) return;
         setTimeout(function() { _orderSyncRevealTarget(target, tries + 1); }, 150);
@@ -29216,8 +29273,11 @@ var WO = (function() {
       setTimeout(function() {
         var sel = document.querySelector('.wo-slide-box.selected');
         var k = sel ? (sel.getAttribute('data-song-id') || sel.getAttribute('data-liturgy-id') || '') : '';
-        if (k === target.key) return;
-        var again = _orderSyncRailRowFor(target.key);
+        var si = sel ? (parseInt(sel.getAttribute('data-slide-idx') || '0', 10) || 0) : -1;
+        var want = (target.slideIdx === null || target.slideIdx === undefined) ? si : target.slideIdx;
+        if (k === target.key && si === want) return;
+        var again = _orderSyncRailRowFor(target.key, target.slideIdx) ||
+                    _orderSyncRailRowFor(target.key, null);
         if (again && typeof _lcdRailRowClick === 'function') {
           _lcdRailRowClick(again);
           var r2 = document.getElementById(again);
@@ -29225,9 +29285,16 @@ var WO = (function() {
         }
       }, 500);
     } else {
+      var _idxSel = (target.slideIdx === null || target.slideIdx === undefined)
+        ? '' : '[data-slide-idx="' + target.slideIdx + '"]';
       var box = document.querySelector(
-        '.wo-slide-box[data-song-id="' + target.key + '"], ' +
-        '.wo-slide-box[data-liturgy-id="' + target.key + '"]');
+        '.wo-slide-box[data-song-id="' + target.key + '"]' + _idxSel + ', ' +
+        '.wo-slide-box[data-liturgy-id="' + target.key + '"]' + _idxSel);
+      if (!box && _settle) {
+        box = document.querySelector(
+          '.wo-slide-box[data-song-id="' + target.key + '"], ' +
+          '.wo-slide-box[data-liturgy-id="' + target.key + '"]');
+      }
       if (!box) {
         if (give_up) return;
         setTimeout(function() { _orderSyncRevealTarget(target, tries + 1); }, 150);
@@ -29236,7 +29303,11 @@ var WO = (function() {
       if (typeof selectSlideBox === 'function') selectSlideBox(box);
       try { box.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
     }
-    showToast(target.title ? ('Showing what changed — ' + target.title) : 'Showing what changed', 'info');
+    var _what = target.title || '';
+    if (target.slideIdx !== null && target.slideIdx !== undefined) {
+      _what += (_what ? ', slide ' : 'Slide ') + (target.slideIdx + 1);
+    }
+    showToast(_what ? ('Showing what changed — ' + _what) : 'Showing what changed', 'info');
   }
 
   function _orderSyncClearBanner() {
@@ -29257,7 +29328,12 @@ var WO = (function() {
     return false;
   }
 
-  function _orderSyncShowBanner(added, removed, sig, target) {
+  // The four counts arrive separately because they are four different things.
+  // They used to be summed and the total announced as "added": editing one
+  // slide of one song produced "1 item added", which is wrong about what
+  // happened and wrong about what reloading will do. The caller has always
+  // known the difference -- it just was not asked for it.
+  function _orderSyncShowBanner(added, edited, moved, removed, sig, target) {
     if (sig === _orderSyncDismissed) return;
     if (_orderSyncShown === sig) return;
     if (_orderSyncProjecting()) return;
@@ -29266,15 +29342,23 @@ var WO = (function() {
     _orderSyncBannerTarget = target || null;
 
     var parts = [];
-    if (added)   parts.push(added + (added === 1 ? ' item' : ' items') + ' added');
-    if (removed) parts.push(removed + (removed === 1 ? ' item' : ' items') + ' removed');
+    function part(n, word) {
+      if (n) parts.push(n + (n === 1 ? ' item ' : ' items ') + word);
+    }
+    part(added, 'added');
+    part(edited, 'changed');
+    part(moved, 'moved');
+    part(removed, 'removed');
+    var what = parts.length > 1
+      ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1]
+      : (parts[0] || 'something changed');
     var bar = document.createElement('div');
     bar.id = 'woSyncNotice';
     bar.className = 'wo-sync-notice';
     bar.innerHTML =
       '<i class="fa-solid fa-rotate"></i>' +
       '<span class="wo-sync-msg">Another device changed this order — ' +
-      parts.join(' and ') + '.</span>' +
+      what + '.</span>' +
       '<button type="button" class="wo-sync-btn wo-sync-primary">Reload order</button>' +
       '<button type="button" class="wo-sync-btn">Not now</button>';
     var btns = bar.querySelectorAll('button');
@@ -31505,6 +31589,52 @@ var WO = (function() {
     document.body.classList.toggle('lcd-console-open', !!on);
     // The Program panel's ON AIR state is only sampled while it is on screen.
     _lcdStartStatusPolling(!!on);
+    _lcdSyncMobileButtonRow();
+  }
+
+  // ── Blank and Project move up beside the caption on a phone ─────────────
+  //
+  // On a phone the projection panel is pinned to the top of the screen and the
+  // schedule scrolls underneath it, so every pixel the panel spends is a slide
+  // the operator cannot see. The Program / Live caption is a short line of
+  // text followed by two badges -- OFFLINE, which the projector line beneath
+  // it already says in words, and AUTO LIVE, which never changes. That is a
+  // row of empty space in the shape of two buttons.
+  //
+  // So on a phone the badges stand down (CSS, above) and the two buttons that
+  // matter mid-service take the caption's spare width. CSS cannot do the move
+  // itself -- the buttons and the caption live in different parents -- so this
+  // is a real reparenting, and where each button came from is remembered so
+  // going back to a desktop width is a real move back rather than a guess.
+  var _lcdMovedBtns = null;
+
+  function _lcdSyncMobileButtonRow() {
+    var blank = document.getElementById('woBlankBtn');
+    var proj  = document.getElementById('woFullscreenBtn');
+    var label = document.querySelector('.lcd-program-box .lcd-program-label');
+    if (!blank || !proj || !label) return;
+    var wantMobile = window.innerWidth <= 768
+      && document.body.classList.contains('lcd-console-open');
+
+    if (wantMobile) {
+      if (!_lcdMovedBtns) {
+        _lcdMovedBtns = [blank, proj].map(function(el) {
+          return { el: el, parent: el.parentNode, next: el.nextSibling };
+        });
+      }
+      if (blank.parentNode !== label) label.appendChild(blank);
+      if (proj.parentNode !== label) label.appendChild(proj);
+      return;
+    }
+    if (!_lcdMovedBtns) return;
+    // Back to front, so the later button is already home when the earlier one
+    // asks to be put in front of it.
+    _lcdMovedBtns.slice().reverse().forEach(function(h) {
+      if (!h.parent) return;
+      if (h.next && h.next.parentNode === h.parent) h.parent.insertBefore(h.el, h.next);
+      else h.parent.appendChild(h.el);
+    });
+    _lcdMovedBtns = null;
   }
 
   function selectOrder(orderType) {
@@ -31582,8 +31712,38 @@ var WO = (function() {
       // Make the section itself the scroll container so the WO header can scroll away
       // while position:sticky on the preview panel works cleanly within it.
       var rect = section.getBoundingClientRect();
-      var availH = window.innerHeight - rect.top;
+      // The window itself must not scroll. #worshipOrderView is the scroll
+      // container and the projection panel is sticky to ITS top, so any
+      // scrolling of the window takes the container up -- and the top of the
+      // panel with it, behind the nav bar. Measured on a phone: 68px of window
+      // scroll, the panel arriving at y=-15, and its header cut off, which is
+      // exactly what it looked like.
+      //
+      // Those 68px are the body's own padding-bottom: the strip reserved for
+      // the fixed bottom nav. Sizing the section to the full remaining height
+      // and then adding that padding under it is 68px more page than screen.
+      // Read rather than hardcoded -- the bar is a phone-width thing, and at
+      // desktop widths the padding is 0 and this subtracts nothing.
+      var bottomPad = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+      // rect.top moves with the window scroll, and until the two lines below have
+      // run the window CAN scroll -- so on the first pass it read -15 instead of 53
+      // and sized the section 68px too tall, which kept the page scrollable and the
+      // problem alive. Add the scroll offset back: at rest the two agree, and
+      // mid-scroll this is still the distance from the top of the document.
+      var docTop = rect.top + (window.pageYOffset || window.scrollY || 0);
+      var availH = window.innerHeight - docTop - bottomPad;
       if (availH < 300) availH = 500;
+      // The other half of the same sum. #lhc-root asks for 100vh and the body
+      // then adds that same strip as padding underneath it, so the page is
+      // taller than the screen by exactly the strip -- on every phone view,
+      // whatever is in it. Here it matters, because those 68px of scroll take
+      // the panel with them. Give the root back the height the padding has
+      // already accounted for. Undone in _exitServiceOrderLayout.
+      // (.lhc-root is a class, not an id -- getElementById finds nothing.)
+      var lhcRoot = document.querySelector('.lhc-root');
+      if (lhcRoot) {
+        lhcRoot.style.minHeight = bottomPad ? ('calc(100vh - ' + bottomPad + 'px)') : '';
+      }
       section.style.height = availH + 'px';
       section.style.overflowY = 'auto';
       // Sticky preview panel inside the scroll container
@@ -31593,6 +31753,9 @@ var WO = (function() {
       pp.style.maxHeight = (availH - 16) + 'px';
       pp.style.overflowY = 'auto';
       _lcdSizeWorkspaceColumns();
+      // Rotating a phone, or a tablet crossing 768px, changes which side of
+      // that boundary the buttons belong on.
+      _lcdSyncMobileButtonRow();
     }
     // applyLayout only writes styles, so running it twice is a no-op. The
     // timeout is the safety net: rAF is throttled in background tabs, and
@@ -31769,6 +31932,8 @@ var WO = (function() {
     var pp = document.getElementById('woPreviewPanel');
     if (_serviceLayoutResizeHandler) { window.removeEventListener('resize', _serviceLayoutResizeHandler); _serviceLayoutResizeHandler = null; }
     if (section) { section.style.height = ''; section.style.overflowY = ''; }
+    var lhcRoot = document.querySelector('.lhc-root');
+    if (lhcRoot) lhcRoot.style.minHeight = '';
     if (pp) { pp.style.position = ''; pp.style.top = ''; pp.style.alignSelf = ''; pp.style.maxHeight = ''; pp.style.overflowY = ''; }
     ['lcdLibraryPanel', 'woWorshipOrder'].forEach(function(id) {
       var el = document.getElementById(id);
@@ -78601,25 +78766,120 @@ function filterLiturgyItems() {
       z-index: 20 !important;
     }
     #worshipOrderView.lcd-mode .lcd-lyrics-panel { display: none !important; }
-    #worshipOrderView.lcd-mode .lcd-outputs-row { flex: 0 0 auto !important; height: auto !important; }
+    /* min-height:0 undoes a 340px floor set for tablets further up
+       (max-width: 1119px). With the floor in place the row stayed 340px tall
+       however small its contents became, and align-content spread the five
+       rows apart to fill it -- so every pixel taken off the output came
+       straight back as white space. Measured: contents 298px, row 340px,
+       gaps drawn at 17px where the rule says 6.
+
+       flex-start says what to do with any slack that is left: put it at the
+       bottom, in one piece, rather than share it out between the rows. */
+    #worshipOrderView.lcd-mode .lcd-outputs-row {
+      flex: 0 0 auto !important; height: auto !important; min-height: 0 !important;
+    }
+    #worshipOrderView.lcd-mode .lcd-program-box { align-content: flex-start !important; }
     #worshipOrderView.lcd-mode .lcd-lower-row { display: none !important; }
     #worshipOrderView.lcd-mode .wo-preview-fab { display: none !important; }
 
     /* Inside the panel, the running order of the job:
-         1 the status caption      -- what state the projector is in
-         2 THE OUTPUT              -- what is on the screen right now
-         3 the projector line      -- which projector, if any
-         4 Edit                    -- the way in to changing it
-         5 the controls            -- everything else */
+         1 the caption + Blank + Project  -- what state it is in, and the two
+                                             actions that change it
+         2 THE OUTPUT                     -- what is on the screen right now
+         3 the projector line   \  sharing one row: both are short, and a row
+         4 Edit                 /   of this panel costs two slides below it
+         5 the controls                   -- zoom, history, navigation
+
+       A wrapping ROW, not a column. A column can only ever put one thing on
+       a line; the two short items at 3 and 4 fit beside each other, and the
+       row they save is the row the schedule gets. Everything meant to stand
+       alone says so with a 100% basis. */
     #worshipOrderView.lcd-mode .lcd-program-box {
-      display: flex !important; flex-direction: column !important;
+      display: flex !important; flex-direction: row !important;
+      flex-wrap: wrap !important; align-items: center !important;
       min-width: 0 !important; gap: 6px !important;
     }
-    #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-label { order: 1 !important; margin: 0 !important; }
-    #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-screen { order: 2 !important; margin: 0 !important; }
-    #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-status { order: 3 !important; }
-    #worshipOrderView.lcd-mode .lcd-program-box .lcd-mobile-allslides-btn { order: 4 !important; display: flex !important; margin: 2px 0 0 !important; }
-    #worshipOrderView.lcd-mode .lcd-program-box .lcd-controls-row { order: 5 !important; margin: 0 !important; }
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-label { order: 1 !important; margin: 0 !important; flex: 1 1 100% !important; }
+    /* Both bases are stated as percentages because a flex line is broken on
+       the items' base sizes, before any shrinking: two items that would fit
+       comfortably once shrunk still wrap if their natural widths do not fit,
+       and "Edit Invocation (Open to see overview)" is naturally very wide. */
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-status {
+      order: 3 !important; flex: 0 1 34% !important; min-width: 0 !important;
+      margin: 0 !important;
+      overflow: hidden !important; white-space: nowrap !important; text-overflow: ellipsis !important;
+    }
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-mobile-allslides-btn {
+      order: 4 !important; display: flex !important; margin: 0 !important;
+      flex: 1 1 62% !important; min-width: 0 !important;
+      overflow: hidden !important; white-space: nowrap !important;
+    }
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-controls-row { order: 5 !important; margin: 0 !important; flex: 1 1 100% !important; }
+
+    /* The output, deliberately no longer as wide as the phone.
+
+       Full width made it 200px tall on a 375px screen, and with the panel
+       pinned to the top that is 200px of schedule the operator cannot see.
+       The cap is written as a height (16vh) converted to the width that
+       produces it, because height is what is being rationed -- 16:9 means a
+       box takes its height from its width, so the width is where the cap has
+       to be applied. It stays exactly 16:9, and on a wide-enough screen the
+       100% term wins and nothing here has any effect.
+
+       Measured at 375x812, against a 691px column: the panel was 403px and the
+       schedule 356. The panel is now 325 and the schedule 366, so the slides
+       have more of the screen than the preview does, which is what was asked
+       for. The preview is 231px wide rather than the full 355 -- that is the
+       trade, and it is the right way round: on a phone the panel is pinned and
+       the operator's work is in the list underneath it. */
+    /* The words shrink with the box.
+
+       .wo-preview-inner is a flat 1.3rem everywhere, which fitted only because
+       the box was the width of the phone. At 231px the first line of the
+       Invocation was simply cut off the top -- a preview that no longer
+       previews. The text should be the fraction of the box it has always been:
+       20.8px in a 355px box, so 5.86%.
+
+       Said in viewport units, because the box is min(100%, 28.4vh) and this is
+       5.86% of each of those terms. Container query units would say it more
+       directly, and were tried: cqw resolves against the container's CONTENT
+       box, and this screen carries a fixed 30px of padding, so the fraction it
+       measures against changes with the box size -- it came out at 9.9px where
+       13.5 was wanted. A unit that is only proportional at one size is not the
+       unit for this. */
+    #worshipOrderView.lcd-mode .lcd-program-screen .wo-preview-inner {
+      font-size: min(5.31vw, 1.664vh) !important;
+      line-height: 1.5 !important; padding: 4px !important;
+    }
+
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-screen {
+      order: 2 !important; margin: 0 auto !important;
+      flex: 0 1 100% !important;
+      width: 100% !important;
+      max-width: min(100%, 28.4vh) !important;   /* 16vh x 16/9 */
+      height: auto !important; min-height: 0 !important; max-height: none !important;
+      aspect-ratio: 16 / 9 !important;
+    }
+
+    /* The caption is a row of controls now, not a line of text.
+
+       Blank and Project are moved into it by _lcdSyncMobileButtonRow -- the
+       markup has them in the controls row below, and no amount of CSS moves
+       a node between parents. What CSS does here is make the destination fit
+       them: the dot and "Program / Live" hold the left, the two buttons take
+       the right.
+
+       The two badges stand down. OFFLINE repeats the projector line directly
+       underneath it in plainer words, and AUTO LIVE is a fact about the app
+       that never changes -- neither earns a place on a screen this size. */
+    #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-label {
+      flex-wrap: nowrap !important; gap: 7px !important; min-height: 34px !important;
+    }
+    #worshipOrderView.lcd-mode .lcd-program-label #lcdOnAirPill,
+    #worshipOrderView.lcd-mode .lcd-program-label .lcd-autolive { display: none !important; }
+    #worshipOrderView.lcd-mode .lcd-program-label #woBlankBtn { margin-left: auto !important; }
+    #worshipOrderView.lcd-mode .lcd-program-label .wo-blank-btn,
+    #worshipOrderView.lcd-mode .lcd-program-label .wo-live-present-btn { flex: 0 0 auto !important; }
 
     /* Ten pixels off every button in the row, the icon ones included.
 
@@ -78630,8 +78890,8 @@ function filterLiturgyItems() {
     #worshipOrderView.lcd-mode .lcd-controls-row .wo-bg-btn:not(.lcd-hist-btn),
     #worshipOrderView.lcd-mode .lcd-controls-row .wo-text-btn,
     #worshipOrderView.lcd-mode .lcd-controls-row .wo-barrier-btn { height: 32px !important; font-size: .72rem !important; }
-    #worshipOrderView.lcd-mode .lcd-controls-row .wo-blank-btn { height: 32px !important; font-size: .72rem !important; }
-    #worshipOrderView.lcd-mode .lcd-controls-row .wo-live-present-btn { height: 34px !important; font-size: .78rem !important; }
+    #worshipOrderView.lcd-mode .wo-blank-btn { height: 32px !important; font-size: .72rem !important; }
+    #worshipOrderView.lcd-mode .wo-live-present-btn { height: 32px !important; font-size: .76rem !important; }
     #worshipOrderView.lcd-mode .lcd-controls-row .wo-preview-zoom-btn {
       width: 18px !important; height: 18px !important; font-size: .6rem !important; padding: 0 !important;
     }
@@ -78641,6 +78901,27 @@ function filterLiturgyItems() {
     /* The gap goes up as the buttons come down. At 18-20px wide, 6px between
        neighbours is what separates undo from redo under a thumb. */
     #worshipOrderView.lcd-mode .lcd-controls-row { padding: 6px 8px !important; gap: 9px !important; }
+
+    /* One row, always.
+
+       The seven controls measure 331px inside a 339px row -- eight pixels of
+       headroom, which a longer projection name spends immediately, and then
+       the row silently becomes two and the panel is 29px taller than the
+       layout it was measured for. Observed exactly that: a single nav arrow
+       alone on a second line.
+
+       So nothing wraps. The Songbook button is the only control with words in
+       it, so it is the only one allowed to give up width; the icons keep
+       every pixel they have, which at 20px is not many. */
+    #worshipOrderView.lcd-mode .lcd-controls-row { flex-wrap: nowrap !important; }
+    #worshipOrderView.lcd-mode .lcd-controls-row > * { flex: 0 0 auto !important; }
+    #worshipOrderView.lcd-mode .lcd-controls-row .lcd-controls-spacer { flex: 1 1 0 !important; min-width: 0 !important; }
+    #worshipOrderView.lcd-mode .lcd-controls-row #lcdProjVerBtn {
+      flex: 0 1 auto !important; min-width: 0 !important; overflow: hidden !important;
+    }
+    #worshipOrderView.lcd-mode .lcd-controls-row #lcdProjVerLabel {
+      overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important;
+    }
     #worshipOrderView.lcd-mode .lcd-controls-row .wo-preview-zoom-group { gap: 7px !important; }
     #worshipOrderView.lcd-mode .lcd-topbar .lcd-song-order-btn,
     #worshipOrderView.lcd-mode .lcd-topbar #lcdWorkspaceFsBtn { height: 30px !important; font-size: .72rem !important; padding: 0 10px !important; }
@@ -78648,7 +78929,10 @@ function filterLiturgyItems() {
        339px panel, so Full Screen wrapped and the bar cost 75px before the output
        even started. The heading gives up the width -- it is the least useful thing
        in a panel that is visibly the projection panel. */
-    #worshipOrderView.lcd-mode .lcd-topbar { flex-wrap: nowrap !important; gap: 6px !important; align-items: center !important; }
+    #worshipOrderView.lcd-mode .lcd-topbar {
+      flex-wrap: nowrap !important; gap: 6px !important; align-items: center !important;
+      margin-bottom: 6px !important;
+    }
     #worshipOrderView.lcd-mode .lcd-topbar .wo-preview-title {
       font-size: .78rem !important; letter-spacing: .02em !important;
       min-width: 0 !important; flex: 1 1 auto !important;
