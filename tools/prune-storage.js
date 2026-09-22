@@ -63,7 +63,12 @@ function referencedNames() {
   let blob = '';
   for (const f of fs.readdirSync(BACKUPS)) {
     if (f.startsWith('.')) continue;
-    blob += fs.readFileSync(path.join(BACKUPS, f), 'utf8');
+    const p = path.join(BACKUPS, f);
+    // Only the table snapshots. backups/ can also hold directories -- an
+    // archive of files pulled out before a prune, for one -- and reading a
+    // directory as text throws.
+    if (!fs.statSync(p).isFile() || !f.endsWith('.json')) continue;
+    blob += fs.readFileSync(p, 'utf8');
   }
   return blob;
 }
