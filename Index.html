@@ -25552,6 +25552,7 @@ var SBQ = {
     var _echoCount = 0;
     var _writtenCount = 0;    // rows actually sent
     var _unchangedCount = 0;  // rows the database already holds as they are
+    var _storedIds = null;    // the ids this order ends up with
     var id = payload.id || ('order_' + Date.now());
     // Merge mediaLinks into template._inbox so they survive page-reload,
     // navigation away, and iOS Safari's aggressive localStorage eviction.
@@ -25716,6 +25717,11 @@ var SBQ = {
                 echoes.join(', ') + ' — this client had them on screen but they are gone; re-inserting would undo the deletion.');
             }
             _echoCount = echoes.length;
+            // `rows` is final here: deduplicated by id, then by which liturgy in
+            // which section, then stripped of anything another device deleted.
+            // What the caller collected and what the order ends up holding are
+            // two different lists, and only this one is true.
+            _storedIds = rows.map(function(row) { return row.id; });
 
             var stale = [], spared = [];
             var _kindProtected = {};
@@ -25800,7 +25806,13 @@ var SBQ = {
         if (res && res.__itemsPreserved) {
           return { success: true, id: id, lastEdited: now, itemsSaved: 0, itemsPreserved: res.__itemsPreserved };
         }
-        return { success: true, id: id, lastEdited: now, itemsSaved: (payload.items || []).length,
+        return { success: true, id: id, lastEdited: now,
+                 // The number of rows the order now has, not the number the
+                 // caller handed over. Those differ by every duplicate the
+                 // filters above dropped -- measured at 22 collected for 13
+                 // stored, which is what the local cache was recording.
+                 itemsSaved: _storedIds ? _storedIds.length : (payload.items || []).length,
+                 itemIds: _storedIds,
                  itemsSpared: _sparedCount, itemsSkipped: _echoCount,
                  itemsWritten: _writtenCount, itemsUnchanged: _unchangedCount };
       });
@@ -28466,7 +28478,12 @@ var WO = (function() {
               ', sections=' + Object.keys(completeOrder.serviceSectionItems || {}).length);
 
             // Cache and open — no second Sheets fetch needed (lyrics are in Supabase)
-            savedOrders[idx] = completeOrder;
+            //
+            // A copy, so the cache keeps what the database just said. The object
+            // below this line becomes the live state: openOrderInEditor assigns
+            // its serviceSectionItems to window, seeds liturgy into it, and the
+            // editor edits it. Caching it directly meant caching all of that.
+            savedOrders[idx] = _orderCacheSnapshot(completeOrder);
             try {
               localStorage.setItem('lhc_worship_orders', JSON.stringify(savedOrders));
             } catch (e) { console.warn('Cache update failed:', e); }
@@ -30548,7 +30565,29 @@ var WO = (function() {
           window.serviceSectionItems = rebuiltSSI;
           currentOrderData.serviceSectionItems = rebuiltSSI;
 
-          // Save complete order with songs to localStorage for reliable loading
+          // Save complete order with songs to localStorage for reliable loading.
+          //
+          // Only the items the save settled on. `items` is what the collector
+          // produced, which holds the same liturgy more than once -- saveOrder
+          // drops the duplicates and tells us which ids survived. Caching the
+          // collected list instead meant the cache described an order that has
+          // never existed: 22 items for an order of 13. Opening from that cache
+          // starts the editor with the duplicates back.
+          // One entry per kept id. Membership alone is not enough: the collector
+          // emits the same liturgy several times under the SAME id, so a filter
+          // that only asks "is this id one of the kept ones" keeps all of the
+          // copies and the count does not move.
+          var _keptIds = result && Array.isArray(result.itemIds) ? result.itemIds : null;
+          var _cachedItems = items;
+          if (_keptIds) {
+            var _want = {}, _taken = {};
+            _keptIds.forEach(function(rid) { _want[rid] = true; });
+            _cachedItems = items.filter(function(it) {
+              if (!it || !_want[it.id] || _taken[it.id]) return false;
+              _taken[it.id] = true;
+              return true;
+            });
+          }
           var completeOrderForCache = {
             id: result.id,
             title: orderPayload.title,
@@ -30557,9 +30596,9 @@ var WO = (function() {
             template: orderPayload.template,
             createdDate: orderPayload.createdDate,
             lastEdited: result.lastEdited,
-            items: items,
+            items: _cachedItems,
             songs: songOrderSections.slice(), // Copy of current songs
-            allItems: items,
+            allItems: _cachedItems,
             serviceSectionItems: rebuiltSSI,
             // Include inbox items so the local cache can restore them correctly
             // without relying on a second Supabase fetch.
@@ -31284,14 +31323,46 @@ var WO = (function() {
   }
 
   // Update local cache for quick access
+  // ── The orders cache holds copies, not the working objects ─────────────
+  //
+  // savedOrders used to be handed the very objects the editor goes on to
+  // work with: completeOrder from a load, and after a save an object built
+  // around the same serviceSectionItems that is assigned to window. So the
+  // "cache" did not record what the database said. It drifted with the
+  // session, and every write of savedOrders to localStorage persisted that
+  // drift.
+  //
+  // Demonstrated: put a marker into window.serviceSectionItems and nothing
+  // else, save, and the marker is in localStorage under the order. Nothing
+  // put it there; it was already there, because the two were one object.
+  //
+  // That is how liturgy the app had seeded into a section -- ghosts, in a
+  // section the database had none for -- got into the cache, survived a
+  // reload, and came back as content when the order was next opened from it.
+  //
+  // A copy costs one more pass over an object that is JSON.stringified into
+  // localStorage on the next line anyway, and it makes the two agree: what
+  // is held in memory is now exactly what is persisted.
+  function _orderCacheSnapshot(order) {
+    try {
+      return JSON.parse(JSON.stringify(order));
+    } catch (e) {
+      // Something unserialisable, or out of memory. The old aliasing
+      // behaviour is still better than no cache at all.
+      console.warn('[OrderCache] could not snapshot; caching by reference:', e);
+      return order;
+    }
+  }
+
   function updateLocalOrderCache(order) {
     var existingIdx = order.id
       ? savedOrders.findIndex(function(o) { return o.id === order.id; })
       : savedOrders.findIndex(function(o) { return !o.id && o.createdDate && o.createdDate === order.createdDate; });
+    var snapshot = _orderCacheSnapshot(order);
     if (existingIdx >= 0) {
-      savedOrders[existingIdx] = order;
+      savedOrders[existingIdx] = snapshot;
     } else {
-      savedOrders.push(order);
+      savedOrders.push(snapshot);
     }
     // Keep localStorage as cache only
     try {
