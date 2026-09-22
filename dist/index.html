@@ -47861,6 +47861,9 @@ var WO = (function() {
     if (edIsLockedByOther(key)) return false;
     var mine = _edMyLocks[key];
     _edMyLocks[key] = { at: Date.now(), label: label || '', autoMs: autoMs || 0 };
+    // Draw our own frame straight away: nothing arrives over the channel to
+    // tell us about a lock we just took ourselves.
+    setTimeout(_edApplyLockUI, 0);
     if (!mine) {
       _edSend('ed_lock', { key: key, owner: _edClientId, label: label || '', at: Date.now() });
     }
@@ -47870,6 +47873,7 @@ var WO = (function() {
   function edRelease(key) {
     if (!_edMyLocks[key]) return;
     delete _edMyLocks[key];
+    setTimeout(_edApplyLockUI, 0);
     _edSend('ed_unlock', { key: key, owner: _edClientId });
   }
 
@@ -47887,35 +47891,54 @@ var WO = (function() {
            '|'    + (a.liturgyId || '') + '|' + (a.slideIdx || '0');
   }
 
-  function _edMark(el, locked, hostSel, text) {
+  // Who holds this one: 'mine', 'other', or nothing.
+  function _edStateFor(key) {
+    if (_edMyLocks[key]) return 'mine';
+    return edIsLockedByOther(key) ? 'other' : '';
+  }
+
+  // Three states, one mark. Green is this device, red is somebody else, and
+  // nothing is nothing -- an operator glancing at a phone across a platform
+  // should not have to read a word to know whether a slide is theirs to touch.
+  function _edMark(el, state, hostSel, text) {
     if (!el) return;
-    if (!!el._edLocked === !!locked) return;
-    el._edLocked = !!locked;
-    el.classList.toggle('ed-locked', !!locked);
-    if (locked) {
+    state = state || '';
+    if ((el._edState || '') === state) return;
+    el._edState = state;
+    el.classList.toggle('ed-locked', state === 'other');
+    el.classList.toggle('ed-editing', state === 'mine');
+    // The badge is rebuilt rather than edited: it changes word, icon and
+    // colour between the two states, and there is no third thing it keeps.
+    if (el._edBadge && el._edBadge.parentNode) el._edBadge.parentNode.removeChild(el._edBadge);
+    el._edBadge = null;
+    var at = _edMarkedEls.indexOf(el);
+    if (state) {
+      var mine = state === 'mine';
       var b = document.createElement('span');
-      b.className = 'ed-lock-badge';
-      b.innerHTML = '<i class="fa-solid fa-lock"></i><span>' + (text || 'Someone is editing') + '</span>';
+      b.className = 'ed-lock-badge' + (mine ? ' is-mine' : '');
+      b.innerHTML = '<i class="fa-solid fa-' + (mine ? 'pen' : 'lock') + '"></i><span>' +
+                    (text || (mine ? 'You are editing' : 'Someone is editing')) + '</span>';
       var host = (hostSel && el.querySelector(hostSel)) || el;
       host.appendChild(b);
       el._edBadge = b;
-      if (_edMarkedEls.indexOf(el) === -1) _edMarkedEls.push(el);
-    } else {
-      if (el._edBadge && el._edBadge.parentNode) el._edBadge.parentNode.removeChild(el._edBadge);
-      el._edBadge = null;
-      var at = _edMarkedEls.indexOf(el);
-      if (at !== -1) _edMarkedEls.splice(at, 1);
+      if (at === -1) _edMarkedEls.push(el);
+    } else if (at !== -1) {
+      _edMarkedEls.splice(at, 1);
     }
   }
 
   function _edApplyLockUI() {
-    // Nothing held and nothing marked: the common case, so it costs no DOM work.
-    if (!_edMarkedEls.length && !Object.keys(_edLocks).length) return;
+    // Nothing held by anybody and nothing marked: the common case, so it costs
+    // no DOM work. Our own locks count now -- they are drawn too.
+    if (!_edMarkedEls.length && !Object.keys(_edLocks).length &&
+        !Object.keys(_edMyLocks).length) return;
 
     document.querySelectorAll('[id^="sbPage-"]').forEach(function(page) {
       var sid = page.getAttribute('data-song-id') || page.id.slice(7);
-      var locked = edIsLockedByOther('sb:' + sid);
-      _edMark(page, locked, '.sb-page-header', 'Someone is editing this page');
+      var state = _edStateFor('sb:' + sid);
+      var locked = state === 'other';
+      _edMark(page, state, '.sb-page-header',
+              locked ? 'Someone is editing this page' : 'You are editing this page');
       // Take the caret away too, or the lock is only a picture of one.
       var ly = document.getElementById('sbLyrics-' + sid);
       if (!ly) return;
@@ -47932,7 +47955,8 @@ var WO = (function() {
     });
 
     document.querySelectorAll('.wo-slide-box').forEach(function(box) {
-      _edMark(box, edIsLockedByOther(_edSlideKey(box)), null, 'Someone is editing');
+      var st = _edStateFor(_edSlideKey(box));
+      _edMark(box, st, null, st === 'mine' ? 'You are editing' : 'Someone is editing');
     });
 
     if (typeof _lcdRailRowMap !== 'undefined' && _lcdRailRowMap) {
@@ -47941,7 +47965,8 @@ var WO = (function() {
         // An entry is either the slide box itself or a wrapper holding one.
         var box = (entry && entry.nodeType === 1) ? entry : (entry && entry.box);
         if (!box || box.nodeType !== 1) return;
-        _edMark(row, edIsLockedByOther(_edSlideKey(box)), null, 'Locked');
+        var rst = _edStateFor(_edSlideKey(box));
+        _edMark(row, rst, null, rst === 'mine' ? 'Editing' : 'Locked');
       });
     }
   }
@@ -47958,8 +47983,9 @@ var WO = (function() {
     var prev = _edMarkedEls.slice();
     _edMarkedEls.length = 0;
     prev.forEach(function(el) {
-      el._edLocked = false;
+      el._edState = '';
       el.classList.remove('ed-locked');
+      el.classList.remove('ed-editing');
       if (el._edBadge && el._edBadge.parentNode) el._edBadge.parentNode.removeChild(el._edBadge);
       el._edBadge = null;
     });
@@ -81686,27 +81712,43 @@ function filterLiturgyItems() {
   .sb-typing-dots span:nth-child(3) { animation-delay:0.4s; }
   @keyframes sb-typing-bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-4px)} }
   @keyframes sb-typing-fadein { from{opacity:0;transform:scale(0.85)} to{opacity:1;transform:scale(1)} }
-  /* ── Edit locks ─────────────────────────────────────────────────────── */
-  /* Amber, not red: the page is taken, not broken. The tint is kept light
-     enough to read lyrics through, since a locked page is still one people
-     need to follow during a service. */
-  .ed-locked { position: relative; }
-  .ed-locked::after {
+  /* ── Who has the pen ────────────────────────────────────────────────── */
+  /* Green is this device, red is somebody else. Three pixels, because the
+     question it answers -- may I touch this? -- gets asked from across a
+     platform at arm's length, and a hairline does not carry that far.
+
+     The tints stay at 7%: a page somebody else is editing is still one the
+     congregation may be reading from, and it has to stay legible through the
+     frame. The colour is in the border, which is where it can be seen without
+     costing contrast. */
+  .ed-locked, .ed-editing { position: relative; }
+  .ed-locked::after, .ed-editing::after {
     content: '';
-    position: absolute; inset: 0;
-    background: rgba(245,158,11,0.07);
-    border: 1px solid rgba(245,158,11,0.45);
+    /* Just outside the element's own edge, so the colour sits ON the border
+       rather than a pixel inside it. A selected rail row already carries a blue
+       border; at arm's length a green frame drawn within it just read as blue. */
+    position: absolute; inset: -2px;
     border-radius: inherit;
     pointer-events: none;
     z-index: 3;
     animation: ed-lock-in 0.22s ease;
   }
+  /* Somebody else has it: you cannot edit this one. */
+  .ed-locked::after {
+    background: rgba(220,38,38,0.07);
+    border: 3px solid rgba(220,38,38,0.85);
+  }
+  /* You have it. */
+  .ed-editing::after {
+    background: rgba(22,163,74,0.07);
+    border: 3px solid rgba(22,163,74,0.9);
+  }
   .ed-lock-badge {
     display: inline-flex; align-items: center; gap: 6px;
     font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600;
-    color: #92400e;
-    background: rgba(245,158,11,0.16);
-    border: 1px solid rgba(245,158,11,0.45);
+    color: #991b1b;
+    background: rgba(220,38,38,0.14);
+    border: 1px solid rgba(220,38,38,0.5);
     border-radius: 20px;
     padding: 3px 10px;
     flex-shrink: 0;
@@ -81715,23 +81757,44 @@ function filterLiturgyItems() {
     animation: ed-lock-in 0.22s ease;
   }
   .ed-lock-badge i { font-size: 9px; }
+  .ed-lock-badge.is-mine {
+    color: #14532d;
+    background: rgba(22,163,74,0.16);
+    border-color: rgba(22,163,74,0.55);
+  }
   /* A slide box has no header to sit in, so the badge floats on its corner. */
-  .wo-slide-box.ed-locked > .ed-lock-badge {
+  .wo-slide-box.ed-locked > .ed-lock-badge,
+  .wo-slide-box.ed-editing > .ed-lock-badge {
     position: absolute; top: 6px; right: 6px;
-    background: rgba(245,158,11,0.95); color: #422006;
-    border-color: rgba(146,64,14,0.5);
+    background: rgba(220,38,38,0.95); color: #fff1f2;
+    border-color: rgba(127,29,29,0.5);
     box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  }
+  .wo-slide-box.ed-editing > .ed-lock-badge {
+    background: rgba(22,163,74,0.95); color: #f0fdf4;
+    border-color: rgba(20,83,45,0.5);
   }
   /* The rail is dark and its rows are short, so the badge shrinks and
      brightens rather than borrowing the light-background styling. */
-  .lcd-rail-slide-row.ed-locked { position: relative; }
-  .lcd-rail-slide-row.ed-locked > .ed-lock-badge {
-    position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
+  .lcd-rail-slide-row.ed-locked,
+  .lcd-rail-slide-row.ed-editing { position: relative; }
+  /* Clear of the delete button, which lives 10px in and is 26px wide -- the
+     badge was landing right on top of it. */
+  .lcd-rail-slide-row.ed-locked > .ed-lock-badge,
+  .lcd-rail-slide-row.ed-editing > .ed-lock-badge {
+    position: absolute; top: 50%; right: 44px; transform: translateY(-50%);
     font-size: 9px; padding: 2px 7px; gap: 4px;
-    background: rgba(245,158,11,0.95); color: #422006;
-    border-color: rgba(146,64,14,0.55);
+    background: rgba(220,38,38,0.95); color: #fff1f2;
+    border-color: rgba(127,29,29,0.55);
   }
-  .lcd-rail-slide-row.ed-locked::after { border-radius: 8px; }
+  .lcd-rail-slide-row.ed-editing > .ed-lock-badge {
+    background: rgba(22,163,74,0.95); color: #f0fdf4;
+    border-color: rgba(20,83,45,0.55);
+  }
+  /* The rail is a tight list: a 3px frame on a 34px row eats the row. Two
+     there, still unmistakable against the dark. */
+  .lcd-rail-slide-row.ed-locked::after,
+  .lcd-rail-slide-row.ed-editing::after { border-radius: 8px; border-width: 2px; }
   @keyframes ed-lock-in { from{opacity:0;transform:scale(0.9)} to{opacity:1;transform:scale(1)} }
   /* ── Conflict notice ────────────────────────────────────────────────── */
   .sb-conflict-bar {
@@ -83303,7 +83366,25 @@ function filterLiturgyItems() {
     #songbookLiveModal .sb-header-toolbar { position:static; width:100%; max-width:100%; display:flex; align-items:center; justify-content:space-between; gap:4px; padding:0; margin:0; overflow:visible; }
     #songbookLiveModal .sb-header-toolbar>.sb-tool-group { position:static !important; transform:none !important; display:flex; align-items:center; gap:4px; padding:0; margin:0; border:0; flex:none; }
     #songbookLiveModal .sb-header-toolbar>.sb-tool-group:first-child>* { display:none !important; }
-    #songbookLiveModal .sb-header-toolbar #sbDrawToggle { display:inline-flex !important; width:38px !important; min-width:38px !important; }
+    /* Annotate, squared up like every other icon-only button.
+
+       A desktop rule gives #sbDrawToggle min-width:116px to make room for the
+       word "Annotate". On a phone the label is hidden, so those 116px hold a
+       13px pen icon pinned to the left edge and about a hundred pixels of
+       nothing -- which is what "the draw symbol is not showing" looks like.
+
+       The override meant to undo it was scoped to .sb-header-toolbar. The
+       button is in .sb-header-center, so it never matched a thing. Scoped to
+       the button itself now, wherever the header puts it, with the icon
+       centred the way its neighbours centre theirs.
+
+       #sbEraseToggle carries the same 100px reservation for the same reason. */
+    #songbookLiveModal #sbDrawToggle,
+    #songbookLiveModal #sbEraseToggle {
+      display: inline-flex !important;
+      width: 38px !important; min-width: 38px !important;
+      padding: 0 !important; justify-content: center !important;
+    }
     #songbookLiveModal #sbSaveStatus { display:none !important; }
     #songbookLiveModal .sb-header-toolbar .sb-tool-btn { width:38px; min-width:38px; height:38px; min-height:38px; padding:0; justify-content:center; border-radius:9px; }
     #songbookLiveModal .sb-header-toolbar .sb-tool-btn span { display:none; }
