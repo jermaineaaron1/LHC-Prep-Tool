@@ -88,6 +88,16 @@ function makeEnv() {
     sectionBackgrounds: {},
     serviceSectionSongs: {},
     currentOrderData: { clearedSections: [] },
+    // Set by the remove buttons to record that the operator, rather than a
+    // failed collection, emptied a category. saveCurrentOrder reads it to
+    // decide whether a save may clear a whole item type.
+    _woUserClearedTypes: {},
+    // Songs the operator took out of a section, so the next save does not
+    // restore them from the previously-saved section.
+    _woSongsTakenOutOfSections: {},
+    // The master song list the collector reads first. Removing a song from a
+    // section clears that entry's own sectionId as well as recording it above.
+    songOrderSections: [],
     undoPushes: 0,
     saves: 0,
     toasts: [],

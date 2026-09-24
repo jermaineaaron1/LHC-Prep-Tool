@@ -1,0 +1,85 @@
+# Nightly snapshot of the Supabase data into a SEPARATE PRIVATE repository.
+#
+# WHY IT PUSHES SOMEWHERE ELSE
+# This repository is public. The snapshot contains congregation contact details
+# -- roster_member_meta holds names, emails, phone numbers, notes and suspension
+# reasons, and pic_users holds names and phones. Committing that here would
+# publish it permanently: git history keeps it even after a delete, and public
+# repositories are indexed and scraped. So the data goes to a private repo and
+# `backups/` is in .gitignore here to make the mistake hard to make by hand.
+#
+# WHY A REPO AND NOT A CLOUD BACKUP
+# Supabase Pro includes daily backups kept 7 days; Point-in-Time Recovery is a
+# $100/month add-on. This costs nothing, keeps far more than 7 days, and lives
+# outside Supabase -- a backup inside the system it is backing up protects
+# against almost nothing. Each run overwrites the same files, so every commit
+# is a restore point and git stores only what changed.
+#
+# SETUP (once)
+#   1. Create a new PRIVATE repo, e.g. jermaineaaron1/LHC-Prep-Backups.
+#      Tick "Add a README" so it is not empty.
+#   2. Make a fine-grained personal access token with Contents: Read and write
+#      on THAT repo only. https://github.com/settings/personal-access-tokens
+#   3. In THIS repo: Settings -> Secrets and variables -> Actions -> New
+#      repository secret, named BACKUP_REPO_TOKEN, pasting the token.
+#   4. If you named the repo something else, change BACKUP_REPO below.
+#
+# Run it by hand the first time from the Actions tab to check the setup.
+
+name: Backup Supabase
+
+on:
+  schedule:
+    # 18:00 UTC = 02:00 Malaysia, after Saturday-night service prep is done.
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+env:
+  BACKUP_REPO: jermaineaaron1/LHC-Prep-Backups
+
+concurrency:
+  group: backup-supabase
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the app (for the exporter and the Supabase key)
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Export every table
+        # Fails the run on a short read rather than writing a truncated
+        # snapshot -- see the comment in tools/export-supabase.js.
+        run: node tools/export-supabase.js
+
+      - name: Push the snapshot to the private repo
+        env:
+          TOKEN: ${{ secrets.BACKUP_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "BACKUP_REPO_TOKEN is not set. See the setup notes at the top of this file."
+            exit 1
+          fi
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${BACKUP_REPO}.git" target
+          # Replace wholesale so a table dropped from the export list also
+          # disappears from the snapshot, rather than lingering forever.
+          rm -rf target/backups
+          cp -r backups target/backups
+          cd target
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A backups
+          if git diff --cached --quiet; then
+            echo "No changes since the last snapshot."
+            exit 0
+          fi
+          git commit -m "snapshot $(date -u +%Y-%m-%d)"
+          git push
+          echo "Pushed a new snapshot to ${BACKUP_REPO}."
