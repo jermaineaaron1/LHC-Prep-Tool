@@ -2455,13 +2455,20 @@
     /* Same person serving 2 duties same day where one is Flower
        Arrangement -- not a real clash (flowers are done the day before),
        but still worth flagging so it's visible at a glance. */
+    /* Two duties in one service at DIFFERENT points in the morning. Nothing
+       is wrong -- the point is that a PIC can see it without reading every
+       row and remembering names. Scoped like the red one so it outranks
+       .roster-frequent-cell: carrying two jobs this Sunday matters more than
+       being on duty often. A clock rather than a warning, because the mark
+       answers "when", which is the whole question. */
+    #worshipRosterView .roster-multi-duty-ok-cell,
     .roster-multi-duty-ok-cell {
       background: #eff6ff !important;
-      border: 1px solid #bfdbfe !important;
+      border: 1px dotted #60a5fa !important;
       position: relative;
     }
     .roster-multi-duty-ok-cell::after {
-      content: '\f0c1';
+      content: '\f017';
       font-family: 'Font Awesome 6 Free';
       font-weight: 900;
       position: absolute;
@@ -88515,6 +88522,84 @@ function filterLiturgyItems() {
 
     // ========== ANTI-CLASHING: Duplicate & Frequency Detection ==========
 
+    // ---------- WHEN EACH DUTY HAPPENS ----------
+    // One person on two duties in a service is only a problem if they would
+    // have to do both AT THE SAME MOMENT. A list of allowed pairs cannot say
+    // that: with 23 duties there are 253 pairs, the list was never going to be
+    // complete, and it never recorded WHY a pair was fine. So each duty
+    // declares which parts of the service it occupies, and an overlap is what
+    // makes a clash. Adding a duty means answering one question about it
+    // instead of comparing it against every duty that already exists.
+    SERVICE_SEGMENTS: [
+      { id: 'prep',      label: 'Before the service' },
+      { id: 'welcome',   label: 'Welcome & gathering' },
+      { id: 'word',      label: 'Readings & Gospel' },
+      { id: 'sermon',    label: 'Sermon' },
+      { id: 'music',     label: 'Hymns & worship songs' },
+      { id: 'communion', label: 'Holy Communion' },
+      { id: 'sending',   label: 'Sending & closing' }
+    ],
+
+    // Seeded so that every pairing the old CLASH_EXCEPTION_PAIRS list allowed
+    // still comes out clash-free -- nothing that was quiet yesterday turns red
+    // today. What changes is the other direction: pairs that used to go red
+    // purely because nobody had added them to the list (Usher + Reader, Usher
+    // + Singer) now read as two duties at different times, which is what they
+    // always were. PICs can change any of this; that is the point of modelling
+    // it rather than listing it.
+    //
+    // Keyed by _clashDutyCategory, so usher1/usher2 share one answer.
+    // An empty list means "never collides with anything": Flower Arrangement
+    // is done the day before the service.
+    DUTY_SEGMENTS_DEFAULT: {
+      preacher:          ['sermon'],
+      liturgist:         ['welcome', 'word', 'sending'],
+      usher:             ['welcome'],
+      reader:            ['word'],
+      communion:         ['communion'],
+      altar:             ['prep'],
+      pianist:           ['music'],
+      guitarist:         ['music'],
+      bassist:           ['music'],
+      drummer:           ['music'],
+      singer:            ['music'],
+      lcd:               ['welcome', 'word', 'sermon', 'music', 'communion', 'sending'],
+      pa:                ['welcome', 'word', 'sermon', 'music', 'sending'],
+      livestream:        ['welcome', 'word', 'sermon', 'music', 'sending'],
+      sundayschool:      ['word', 'sermon'],
+      flowerarrangement: [],
+      general:           []
+    },
+
+    // PIC overrides, once they have been set. Same shape as the defaults.
+    _dutySegmentOverrides: null,
+
+    _dutySegments: function(roleId) {
+      var cat = this._clashDutyCategory(roleId);
+      var o = this._dutySegmentOverrides;
+      if (o && Object.prototype.hasOwnProperty.call(o, cat)) return o[cat] || [];
+      return this.DUTY_SEGMENTS_DEFAULT[cat] || [];
+    },
+
+    _segmentLabel: function(id) {
+      var s = this.SERVICE_SEGMENTS.find(function(x) { return x.id === id; });
+      return s ? s.label : id;
+    },
+
+    // When does this duty happen, in words, for a tooltip.
+    _dutyWhen: function(roleId) {
+      var self = this;
+      var segs = this._dutySegments(roleId);
+      if (!segs.length) return 'not during the service';
+      return segs.map(function(s) { return self._segmentLabel(s); }).join(', ');
+    },
+
+    _dutiesOverlap: function(roleIdA, roleIdB) {
+      var a = this._dutySegments(roleIdA), b = this._dutySegments(roleIdB);
+      if (!a.length || !b.length) return false;
+      return a.some(function(s) { return b.indexOf(s) !== -1; });
+    },
+
     // Pairs of duty categories that are explicitly allowed to clash without warning.
     // Order doesn't matter — checked both ways.
     // Flower Arrangement is handled separately below (always excepted,
@@ -88670,37 +88755,57 @@ function filterLiturgyItems() {
         });
         Object.keys(nameCounts).forEach(function(key) {
           if (nameCounts[key].length > 1) {
-            // Flower Arrangement is done the day before the service, so it
-            // never actually conflicts with a same-day duty. Pull those
-            // entries out and flag them with a soft "serving twice, no
-            // clash" highlight BEFORE running clash detection on whatever
-            // duties are left -- otherwise a genuine clash between two
-            // OTHER duties (e.g. Usher + Reader) would be silently missed
-            // just because that same person also happens to be on Flower
-            // Arrangement that day.
-            var flowerEntries = nameCounts[key].filter(function(e) { return self._clashDutyCategory(e.roleId) === 'flowerarrangement'; });
-            var otherEntries = nameCounts[key].filter(function(e) { return self._clashDutyCategory(e.roleId) !== 'flowerarrangement'; });
-            if (flowerEntries.length) {
-              flowerEntries.forEach(function(entry) { entry.td.classList.add('roster-multi-duty-ok-cell'); });
-              if (otherEntries.length === 1) otherEntries[0].td.classList.add('roster-multi-duty-ok-cell');
+            // Three outcomes, not two. Someone on two duties in one service is
+            // either being asked to be in two places at once (red, and worth
+            // stopping for), or simply serving twice at different points in
+            // the morning (blue -- a PIC still wants to SEE it, but nothing is
+            // wrong). The old code could only say "allowed pair" or "clash",
+            // so Usher + Reader went red for no better reason than that nobody
+            // had added it to a list.
+            var allEntries = nameCounts[key];
+            var verdict = {};      // index -> 'clash' | 'allowed'
+            var clashPairLabels = [];
+            for (var ci = 0; ci < allEntries.length; ci++) {
+              for (var cj = ci + 1; cj < allEntries.length; cj++) {
+                if (!self._dutiesOverlap(allEntries[ci].roleId, allEntries[cj].roleId)) continue;
+                // Overlapping in time. The church may still have decided this
+                // particular pairing is workable -- that is what the exception
+                // list now means, and it is the only thing it still does.
+                if (self._clashIsExcepted([allEntries[ci].roleId, allEntries[cj].roleId])) {
+                  if (verdict[ci] !== 'clash') verdict[ci] = 'allowed';
+                  if (verdict[cj] !== 'clash') verdict[cj] = 'allowed';
+                } else {
+                  verdict[ci] = 'clash'; verdict[cj] = 'clash';
+                  clashPairLabels.push(self._roleWord(allEntries[ci].roleId) + ' + ' + self._roleWord(allEntries[cj].roleId));
+                }
+              }
             }
-            if (otherEntries.length < 2) return; // nothing left to clash-check
+            var otherEntries = allEntries.filter(function(e, i) { return verdict[i] === 'clash'; });
 
-            var roleIds = otherEntries.map(function(e) { return e.roleId; });
-            if (self._clashIsExcepted(roleIds)) {
-              // An allowed pairing is still one person doing two jobs in one
-              // service. It used to vanish from the roster entirely -- no
-              // mark at all -- so the only way to notice was to read every
-              // row and remember the names. Flag it red, but never raise the
-              // blocking modal: nothing here needs fixing, it needs seeing.
-              var pairLabel = otherEntries.map(function(e) { return self._roleWord(e.roleId); }).join(' + ');
-              otherEntries.forEach(function(entry) {
+            // Everything that is not a real clash gets the calm cue, with the
+            // times spelled out so a PIC can judge it without opening anything.
+            allEntries.forEach(function(entry, i) {
+              if (verdict[i] === 'clash') return;
+              var others = allEntries.filter(function(o, j) { return j !== i; });
+              var when = others.map(function(o) {
+                return self._roleWord(o.roleId) + ' (' + self._dutyWhen(o.roleId) + ')';
+              }).join(', ');
+              if (verdict[i] === 'allowed') {
                 entry.td.classList.add('roster-double-duty-cell');
-                entry.td.title = entry.name + ' is on two duties this service (' + pairLabel +
-                  '). Allowed, but worth a look.';
-              });
-              return;
-            }
+                entry.td.title = entry.name + ' is also on ' + when +
+                  ' -- the same part of the service, but allowed here. Worth a look.';
+              } else {
+                entry.td.classList.add('roster-multi-duty-ok-cell');
+                entry.td.title = entry.name + ' also serves as ' + when +
+                  '. Different points in the service, so both are doable.';
+              }
+            });
+
+            if (!otherEntries.length) return;   // nobody has to be in two places at once
+            otherEntries.forEach(function(entry) {
+              entry.td.title = entry.name + ' would have to be doing ' + clashPairLabels.join(' and ') +
+                ' at the same time.';
+            });
             // Duplicate found — highlight all
             otherEntries.forEach(function(entry) {
               entry.td.classList.add('roster-clash-cell');
