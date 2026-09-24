@@ -91,6 +91,24 @@ function extractCandidateFilter() {
   throw new Error('unbalanced brackets while extracting the candidate filter');
 }
 
+// Slice the `var assignedToday = {}; allRoleDefs.forEach(...)` seeding block.
+// The candidate filter only proves assignedToday is OBEYED. This proves it is
+// FILLED -- from every role on the date, not merely the ones being filled.
+function extractAssignedTodaySeed() {
+  const startIdx = lines.findIndex(l => /var assignedToday = \{\};/.test(l));
+  if (startIdx < 0) throw new Error('assignedToday seeding not found in ' + path.basename(INDEX));
+  let depth = 0, started = false, out = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    out.push(lines[i]);
+    for (const ch of lines[i]) {
+      if (ch === '(' || ch === '{') { depth++; started = true; }
+      else if (ch === ')' || ch === '}') depth--;
+    }
+    if (started && depth === 0 && i > startIdx) return { text: out.join('\n'), line: startIdx + 1 };
+  }
+  throw new Error('unbalanced brackets while extracting the assignedToday seeding');
+}
+
 // ── 1. The predicate itself ────────────────────────────────────────────────
 console.log('Extracted from ' + path.basename(INDEX) + ':');
 
@@ -114,9 +132,11 @@ for (const n of fnNames) fns[n] = extractFn(n);
 const skipMap = extractVar('AUTOSUGGEST_SKIP_STATUS');
 const pairSep = extractVar('_PAIR_SEP');
 const filter = extractCandidateFilter();
+const seed = extractAssignedTodaySeed();
 for (const n of fnNames) console.log('  ' + n + ' @ line ' + fns[n].line);
 console.log('  AUTOSUGGEST_SKIP_STATUS @ line ' + skipMap.line);
 console.log('  runAutoSuggest candidate filter @ line ' + filter.line);
+console.log('  assignedToday seeding @ line ' + seed.line);
 
 function makePredicates(statusByName) {
   const env = { ROSTER_MEMBER_STATUS: statusByName, Object, JSON,
@@ -293,6 +313,64 @@ function runFilter(opts) {
   // this is a hard exclusion, not a ranking penalty.
   check('a wholly excluded pool yields nobody',
     runFilter({ pool: ['Ps. Occasional', 'Rev. Inactive'], predicates }), []);
+}
+
+// ── 4. Same-service double-booking, end to end ────────────────────────────
+// Scenario 3 proves the filter obeys assignedToday. That is only half of it:
+// the map has to be FILLED from every role on the date, and topped up after
+// each pick, or Auto-Suggest would happily roster one person twice in one
+// service and leave the clash for a human to notice by eye.
+console.log('\nScenario 4 - Auto-Suggest cannot double-book one service');
+
+function seedAssignedToday(editsByRole, roleIds) {
+  const api = makePredicates({});
+  const env = {
+    allRoleDefs: roleIds.map(id => ({ id })),
+    dateKeySuffix: 'Dec_6',
+    STATE: { rosterEdits: new Map(Object.entries(editsByRole).map(([r, v]) => [r + '__Dec_6', v])) },
+    splitCellPeople: api.splitCellPeople,
+    _afKey: n => (n || '').trim().replace(/\s+/g, ' ').toLowerCase(),
+    Object, JSON, Map
+  };
+  const body = seed.text + '\n; return assignedToday;';
+  const keys = Object.keys(env);
+  return new Function(...keys, body)(...keys.map(k => env[k]));
+}
+
+{
+  const predicates = makePredicates({});
+  const pool = ['Ann Lee', 'Ben Ooi'];
+
+  const seeded = seedAssignedToday({ usher1: 'Ann Lee' }, ['usher1', 'singer1', 'reader1']);
+  check('a duty outside this run still blocks',
+    runFilter({ pool, predicates, roleId: 'singer1', assignedToday: seeded }), ['Ben Ooi']);
+
+  const pair = seedAssignedToday({ pianist: 'Ann Lee / Ben Ooi' }, ['pianist', 'singer1']);
+  check('both people in an "A / B" cell block',
+    runFilter({ pool, predicates, roleId: 'singer1', assignedToday: pair }), []);
+
+  // A stray second space must not make one person look like two -- the exact
+  // fault that hid Alison Phan on Usher 2 + Singer 1 from clash detection.
+  const spaced = seedAssignedToday({ usher1: 'Ann  Lee' }, ['usher1', 'singer1']);
+  check('a stray double space still blocks',
+    runFilter({ pool, predicates, roleId: 'singer1', assignedToday: spaced }), ['Ben Ooi']);
+
+  // Flower Arrangement is done the day before, so it seeds nobody.
+  const flower = seedAssignedToday({ flowerarrangement: 'Ann Lee' }, ['flowerarrangement', 'singer1']);
+  check('flower arrangement seeds nobody', Object.keys(flower), []);
+
+  // And the run tops the map up after each pick, so the second role in one
+  // run cannot reuse the first role's winner.
+  const running = seedAssignedToday({}, ['usher1', 'singer1']);
+  check('nothing assigned yet',
+    runFilter({ pool, predicates, roleId: 'usher1', assignedToday: running }), pool);
+  const recordsWinner = /if \(role\.id !== 'flowerarrangement'\) assignedToday\[winnerKey\] = true;/.test(src);
+  check('the run records its own winner in assignedToday', recordsWinner, true);
+  if (recordsWinner) {
+    running['ann lee'] = true;   // exactly what that line does
+    check('the next role in the same run cannot reuse the winner',
+      runFilter({ pool, predicates, roleId: 'singer1', assignedToday: running }), ['Ben Ooi']);
+  }
 }
 
 console.log('\n================================');
