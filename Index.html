@@ -81421,7 +81421,12 @@ function filterLiturgyItems() {
     // "add new name" dropdown's own similar-name warning, or the Enablers
     // Duplicates review tab) for a human to confirm.
     var norm = _nameNorm(name);
-    var canonical = name;
+    // Collapse the typist's whitespace before this becomes the stored spelling.
+    // "Alison  Phan" got into the usher list with a second space and was then
+    // handed back to every PIC who filled an usher cell, so the roster kept
+    // reproducing it -- and she read as a different person from the "Alison
+    // Phan" in the singer list.
+    var canonical = (name || '').trim().replace(/\s+/g, ' ');
     var existing = _allRosterNames().find(function(n) { return _nameNorm(n) === norm; });
     if (existing) canonical = existing;
 
@@ -86239,7 +86244,11 @@ function filterLiturgyItems() {
         // written plainly in another duty.
         splitCellPeople(val).forEach(function(person) {
           dateValues[dateStr].push({ name: person, td: td, roleId: roleId });
-          var nameLower = person.toLowerCase();
+          // _nameNorm, not toLowerCase: "Alison  Phan" (a stray second space,
+          // typed once and then offered back by the name list ever after) read
+          // as a different person from "Alison Phan", so the same woman on
+          // Usher 2 and Singer 1 in one service raised nothing at all.
+          var nameLower = _nameNorm(person);
           if (!nameFrequency[nameLower]) nameFrequency[nameLower] = new Set();
           nameFrequency[nameLower].add(dateStr);
         });
@@ -86260,7 +86269,7 @@ function filterLiturgyItems() {
         var entries = dateValues[dateStr];
         var nameCounts = {}; // lowercase name → [tds]
         entries.forEach(function(entry) {
-          var key = entry.name.toLowerCase();
+          var key = _nameNorm(entry.name);
           if (!nameCounts[key]) nameCounts[key] = [];
           nameCounts[key].push(entry);
         });
@@ -86307,7 +86316,7 @@ function filterLiturgyItems() {
               if (changedDate === dateStr) {
                 var changedVal = changedTd.querySelector('.roster-cell-value');
                 var changedPeople = splitCellPeople(changedVal ? changedVal.textContent : '')
-                  .map(function(p) { return p.toLowerCase(); });
+                  .map(function(p) { return _nameNorm(p); });
                 if (changedPeople.indexOf(key) !== -1) {
                   clashFound = true;
                   clashName = otherEntries[0].name;
@@ -86331,7 +86340,7 @@ function filterLiturgyItems() {
             if (row && (row.classList.contains('roster-liturgical-row') || row.classList.contains('roster-scripture-row'))) return;
             var valueSpan = td.querySelector('.roster-cell-value');
             var val = valueSpan ? valueSpan.textContent.trim() : '';
-            if (val.toLowerCase() === nameLower && !td.classList.contains('roster-clash-cell')) {
+            if (_nameNorm(val) === nameLower && !td.classList.contains('roster-clash-cell')) {
               td.classList.add('roster-frequent-cell');
             }
           });
@@ -86349,7 +86358,7 @@ function filterLiturgyItems() {
       } else if (changedTd) {
         // Check if the changed person has high frequency
         var changedVal = changedTd.querySelector('.roster-cell-value');
-        var changedName = changedVal ? changedVal.textContent.trim().toLowerCase() : '';
+        var changedName = changedVal ? _nameNorm(changedVal.textContent) : '';
         if (changedName && nameFrequency[changedName] && nameFrequency[changedName].size > 3) {
           self.showToast('"' + changedVal.textContent.trim() + '" is on duty for ' + nameFrequency[changedName].size + ' services this month. Consider spreading assignments more evenly.', 'info');
         }
