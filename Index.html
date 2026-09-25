@@ -49473,12 +49473,25 @@ var WO = (function() {
     _sbCaretAtBlockEnd(block);
   }
 
-  // Classify a direct child of the lyrics pad.
+  // What a direct child of the lyrics pad IS. Everything that is not one of
+  // the song's own lines has to be named here, because the fallback is
+  // 'lyric' and the reclassifier acts on whatever it is handed.
+  //
+  // The A4 page-break markers are the reason that matters. They are empty
+  // divs appended to the pad after every repagination, they look exactly
+  // like a blank line to anything that only reads textContent, and
+  // sbReclassifyLines duly renamed each one to wo-lyrics-empty-line. That
+  // turned a page marker into a blank line AT THE FOOT OF THE SONG,
+  // repagination appended a fresh marker, and the next keystroke converted
+  // that one too: a new blank line per keystroke, about 37px of page growth
+  // each, and the blank lines were real enough to be saved. Songs in the
+  // library had reached twenty of them.
   function _sbLineClass(div) {
     var c = div.classList;
     if (!c) return 'zone';
     if (c.contains('wo-lyrics-chord-pair')) return 'pair';
-    if (c.contains('wo-sb-chord-zone') || c.contains('sb-col-break-marker')) return 'zone';
+    if (c.contains('wo-sb-chord-zone') || c.contains('sb-col-break-marker') ||
+        c.contains('sb-a4-marker') || c.contains('sb-a4-guide')) return 'zone';
     if (c.contains('wo-lyrics-chord-line')) return 'chord';
     if (c.contains('wo-lyrics-section-header')) return 'section';
     if (c.contains('wo-lyrics-empty-line')) return 'empty';
@@ -49653,6 +49666,11 @@ var WO = (function() {
     });
     Array.from(el.children).forEach(function(div) {
       var k = _sbLineClass(div);
+      // Anything that is not a line of the song is left alone: a chord pair
+      // owns its own markup, and a zone (page-break markers, column guides)
+      // is furniture that happens to share the same parent. Classifying
+      // furniture by its text content turns an empty marker into a blank
+      // line -- see _sbLineClass.
       if (k === 'pair' || k === 'zone') return;
       var t = (div.textContent || '').replace(/\u00a0/g, ' ');
       var trimmed = t.trim();
@@ -49938,9 +49956,18 @@ var WO = (function() {
     // Caret position within the RAW (post-edit) flattened text
     var sel = window.getSelection();
     var caretRaw = rawText.length;
+    // Whether that is the real caret or just the fallback. It matters below:
+    // the end of the text is where the caret is ASSUMED to be when it cannot
+    // be found, and a decision that reads "the caret is at the end, so the
+    // operator must have meant the blank lines there" is a decision made on
+    // an assumption.
+    var _caretKnown = false;
     if (sel && sel.rangeCount) {
       var r = sel.getRangeAt(0);
-      if (el.contains(r.startContainer)) caretRaw = _sbRawCaretOffset(el, r.startContainer, r.startOffset);
+      if (el.contains(r.startContainer)) {
+        caretRaw = _sbRawCaretOffset(el, r.startContainer, r.startOffset);
+        _caretKnown = true;
+      }
     }
 
     // Common-prefix / common-suffix diff (single contiguous edit region -
@@ -49982,15 +50009,38 @@ var WO = (function() {
     var _sbRep = _sbCanonicalBackspaceRepair(oldText, p, insertedText, removedText);
     if (_sbRep) { newCanonical = _sbRep.text; newCaret = _sbRep.caret; }
 
-    // Blank lines at the very end are the pad's own droppings: each structural
-    // edit -- anywhere in the song, Enter or Backspace alike -- left one behind,
-    // and they piled up as blank paper at the foot of the page. They are only
-    // real when the caret is sitting in them, which is the one case the
-    // operator meant it: pressing Enter at the very end to add space.
-    var _trimmedTail = newCanonical.replace(new RegExp('[\n]+$'), '');
-    if (newCaret <= _trimmedTail.length) {
-      newCanonical = _trimmedTail;
-      newCaret = Math.min(newCaret, newCanonical.length);
+    // Blank lines at the foot of the song are clamped, not cut: whatever was
+    // there before the edit survives, and an edit that is not the operator
+    // typing newlines down there cannot add to it.
+    //
+    // The older rule was to throw the trailing blanks away unless the caret
+    // was sitting in them. That quietly destroyed deliberate space: add room
+    // at the bottom with Enter, then press Enter anywhere else in the song,
+    // and the room was gone. The caret is also not always findable --
+    // _sbHealChordFusion above can replace the node the selection was
+    // anchored in -- so "where the caret is" is a shaky thing to decide on.
+    // What the operator just DID is not shaky, so that is what is asked.
+    //
+    // The clamp measures against rawText, what the pad actually holds after
+    // the edit, rather than the reconstructed canonical: a blank line the
+    // operator has just deleted is gone from the pad, but the splice that
+    // rebuilds the canonical does not always carry the removal through to
+    // the tail, and clamping against that put the line back.
+    var _tailRe = new RegExp('[\n]+$');
+    function _tailLen(s) { var m = s.match(_tailRe); return m ? m[0].length : 0; }
+    var _meantTheBlanks = _caretKnown &&
+      insertedText.length > 0 &&
+      !(new RegExp('[^\n]')).test(insertedText) &&
+      caretRaw >= rawText.replace(_tailRe, '').length;
+    if (!_meantTheBlanks) {
+      var _allowed = Math.min(_tailLen(rawText), _tailLen(oldText));
+      var _body = newCanonical.replace(_tailRe, '');
+      var _kept = _body;
+      for (var _ti = 0; _ti < _allowed; _ti++) _kept += '\n';
+      if (_kept !== newCanonical) {
+        newCanonical = _kept;
+        newCaret = Math.min(newCaret, newCanonical.length);
+      }
     }
 
     el.innerHTML = formatLyricsWithHighlights(newCanonical);
