@@ -2432,23 +2432,7 @@
       background: #fee2e2 !important;
       border: 1px solid #fca5a5 !important;
     }
-    /* Same person on two duties in ONE service where the combination is an
-       allowed one (Reader + Singer, Preacher + Pianist, and the rest of
-       CLASH_EXCEPTION_PAIRS). It is not a scheduling error -- they can do
-       both -- but a PIC scanning the month still needs to SEE that someone is
-       carrying two jobs that Sunday, which is why it is red rather than
-       quiet. The dashed border is what separates it from a true clash. */
-    /* Scoped to the view so it outranks .roster-frequent-cell, which is
-       defined later and would otherwise repaint these cells yellow -- being
-       on two duties this Sunday matters more than being on duty often.
-       Deliberately no ::after badge: a corner mark on a cell reads as a status
-       stamp, and the one this view used to carry was removed for saying nothing.
-       The dashed border and the tooltip carry the meaning instead. */
-    #worshipRosterView .roster-double-duty-cell {
-      background: #fee2e2 !important;
-      border: 1px dashed #ef4444 !important;
-    }
-    /* Frequency warning: person on duty >3 dates */
+    /* Frequency warning: a person on duty on three or more dates this month. */
     .roster-frequent-cell {
       background: #fefce8 !important;
     }
@@ -2460,14 +2444,18 @@
        row and remembering names. Scoped like the red one so it outranks
        .roster-frequent-cell: carrying two jobs this Sunday matters more than
        being on duty often. A clock rather than a warning, because the mark
-       answers "when", which is the whole question. */
+       answers "when", which is the whole question.
+
+       Aqua rather than the blue it used to be, so it cannot be mistaken at a
+       glance for the red clash it sits next to -- the two carry opposite
+       meanings and were a hue apart. */
     #worshipRosterView .roster-multi-duty-ok-cell,
     .roster-multi-duty-ok-cell {
-      background: #eff6ff !important;
-      border: 1px dotted #60a5fa !important;
+      background: #ecfeff !important;
+      border: 1px dotted #22d3ee !important;
       position: relative;
     }
-    .roster-multi-duty-ok-cell::after {
+    .roster-multi-duty-ok-cell::before {
       content: '\f017';
       font-family: 'Font Awesome 6 Free';
       font-weight: 900;
@@ -2475,7 +2463,42 @@
       top: 2px;
       right: 3px;
       font-size: 8px;
-      color: #2563eb;
+      color: #0e7490;
+    }
+    /* The line joining one person's duties in a service. Two aqua cells in a
+       long column still leave a PIC hunting for the other one, and on a month
+       where several people double up, which cell pairs with which is guesswork.
+       Faint on purpose: it is an answer to a question already asked by the
+       colour, not a thing to look at. Never interactive -- it sits over the
+       cells so the line is not hidden by the opaque rows it crosses, and would
+       otherwise swallow the clicks that open a cell for editing. */
+    .roster-duty-links {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      overflow: visible;
+      /* Above ordinary cells so the line is visible across them, below the
+         sticky first column (z-index 5) so duty names stay readable. */
+      z-index: 4;
+    }
+    .roster-duty-links line {
+      stroke: rgba(8, 145, 178, 0.34);
+      stroke-width: 1.5;
+      stroke-linecap: round;
+    }
+    /* The column a line crosses is not all one colour -- the section bands
+       (WORSHIP ENABLERS, HOLY COMMUNION and the rest) are dark and full width,
+       and a faint aqua stroke vanishes against them, breaking the line exactly
+       where it needs to be followed. A paler, wider stroke underneath is
+       invisible on the white rows and gives the aqua one something to sit on
+       as it crosses a band. */
+    .roster-duty-links line.roster-duty-link-halo {
+      stroke: rgba(255, 255, 255, 0.5);
+      stroke-width: 4;
+    }
+    .roster-duty-links circle {
+      fill: rgba(8, 145, 178, 0.5);
     }
 
     /* ==================== ROSTER - GLASS COMMAND SKIN ==================== */
@@ -76288,6 +76311,9 @@ function filterLiturgyItems() {
   .roster-table-wrapper {
     touch-action: pan-x pan-y;
     transform-origin: top left;
+    /* Anchors .roster-duty-links. An absolutely positioned child of a scroll
+       container scrolls with its content, so the lines need no scroll handler. */
+    position: relative;
   }
 
   /* ==================== ROSTER STICKY HEADERS ==================== */
@@ -86549,6 +86575,11 @@ function filterLiturgyItems() {
         // Sync horizontal scroll — scrollLeft is in layout px, translateX is in clone's
         // unzoomed coordinate space, so divide by scale to get the right visual shift
         cloneTable.style.transform = 'translateX(-' + (wrapper.scrollLeft / scale) + 'px)';
+
+        // The duty lines are drawn from cell geometry, which this function exists
+        // to react to: it already runs on zoom and on resize, so it is the one
+        // place that knows the cells have moved.
+        self.redrawDutyLinks();
       }
 
       // Expose so setupPinchZoom can call it when zoom changes
@@ -89549,6 +89580,96 @@ function filterLiturgyItems() {
       overlay.querySelector('#rosterClashChangeBtn').onclick = function() { close(); if (opts.onChange) opts.onChange(); };
     },
 
+    // Join one person's duties in a service with a faint line, so which cell
+    // pairs with which is readable rather than deduced.
+    //
+    // Geometry is taken from getBoundingClientRect against the scroll
+    // container's content origin rather than offsetTop/offsetLeft: the table
+    // carries a pinch-zoom via style.zoom, which rects report and offsets do
+    // not, so offsets would drift apart from the cells as soon as anyone zoomed.
+    _drawDutyLinks: function(groups) {
+      var wrapper = document.querySelector('.roster-table-wrapper');
+      var table = document.getElementById('rosterTable');
+      var svg = wrapper ? wrapper.querySelector('.roster-duty-links') : null;
+      if (!wrapper || !table) return;
+      // Remember the last set so a resize or a zoom can redraw without asking
+      // the whole clash pass to run again.
+      this._dutyLinkGroups = groups || [];
+      if (!this._dutyLinkGroups.length) { if (svg) svg.innerHTML = ''; return; }
+
+      if (!svg) {
+        svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'roster-duty-links');
+        svg.setAttribute('aria-hidden', 'true');
+        wrapper.appendChild(svg);
+      }
+      this._ensureDutyLinkObserver();
+      var wrapRect = wrapper.getBoundingClientRect();
+      var originX = wrapRect.left - wrapper.scrollLeft;
+      var originY = wrapRect.top - wrapper.scrollTop;
+      var tableRect = table.getBoundingClientRect();
+      svg.setAttribute('width', Math.max(1, Math.round(tableRect.width)));
+      svg.setAttribute('height', Math.max(1, Math.round(tableRect.height)));
+
+      // Several people can double up on one date, and their lines share a
+      // column. Stagger them so two pairs do not read as one.
+      var perDate = {};
+      var parts = [];
+      this._dutyLinkGroups.forEach(function(g) {
+        var rects = g.tds.map(function(td) { return td.getBoundingClientRect(); })
+          .filter(function(r) { return r.width && r.height; });
+        if (rects.length < 2) return;
+        rects.sort(function(a, b) { return a.top - b.top; });
+        var idx = perDate[g.date] = (perDate[g.date] === undefined ? 0 : perDate[g.date] + 1);
+        var first = rects[0];
+        // Kept off the middle of the cell, where the name is, and never more
+        // than a third of the way in however narrow the column gets.
+        var x = Math.round(first.left - originX + Math.min(9 + idx * 5, first.width * 0.33));
+        var ys = rects.map(function(r) { return Math.round(r.top - originY + r.height / 2); });
+        var y1 = ys[0], y2 = ys[ys.length - 1];
+        // Halo first: SVG paints in document order, so it has to precede the
+        // line it sits behind.
+        parts.push('<line class="roster-duty-link-halo" x1="' + x + '" y1="' + y1 +
+                   '" x2="' + x + '" y2="' + y2 + '"/>');
+        parts.push('<line x1="' + x + '" y1="' + y1 + '" x2="' + x + '" y2="' + y2 + '"/>');
+        ys.forEach(function(y) {
+          parts.push('<circle cx="' + x + '" cy="' + y + '" r="2.5"/>');
+        });
+      });
+      svg.innerHTML = parts.join('');
+    },
+
+    // render() runs whenever the month or the data changes, including while the
+    // roster view is hidden -- and a hidden table measures zero, so there is
+    // nothing to draw at that moment and the lines would simply be missing when
+    // the PIC opened the page. Watching the table catches the moment it gains a
+    // size, and every other reflow too (a column widening, a font arriving),
+    // without having to find a hook for each one.
+    _ensureDutyLinkObserver: function() {
+      if (this._dutyLinkObserver || typeof ResizeObserver === 'undefined') return;
+      var table = document.getElementById('rosterTable');
+      if (!table) return;
+      var self = this, queued = false;
+      this._dutyLinkObserver = new ResizeObserver(function() {
+        // Coalesce: a reflow reports many entries, and redrawing per entry would
+        // rebuild the same lines several times for one layout change.
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(function() { queued = false; self.redrawDutyLinks(); });
+      });
+      this._dutyLinkObserver.observe(table);
+    },
+
+    // Cell geometry moves with the window and with pinch zoom, and neither
+    // changes who is on duty, so redraw from the remembered groups rather than
+    // re-running the clash pass. The observer above covers this too where it
+    // exists; this stays for the sticky-header path and for browsers without it.
+    redrawDutyLinks: function() {
+      if (this._dutyLinkGroups && this._dutyLinkGroups.length) {
+        this._drawDutyLinks(this._dutyLinkGroups);
+      }
+    },
+
     checkClashes: function(changedTd) {
       var self = this;
       var tbody = document.getElementById('rosterTbody');
@@ -89589,11 +89710,12 @@ function filterLiturgyItems() {
 
       // 2. Clear all previous clash/frequency highlighting
       allCells.forEach(function(td) {
-        td.classList.remove('roster-clash-cell', 'roster-frequent-cell', 'roster-multi-duty-ok-cell', 'roster-double-duty-cell');
+        td.classList.remove('roster-clash-cell', 'roster-frequent-cell', 'roster-multi-duty-ok-cell');
         td.style.removeProperty('--clash-bg');
       });
 
       // 3. Detect duplicates within each service date
+      var linkGroups = [];   // {date, tds} -- one person's allowed double duties
       var clashFound = false;
       var clashName = '';
       var clashDate = '';
@@ -89627,6 +89749,7 @@ function filterLiturgyItems() {
             // Doubling up where it is allowed is not a problem, but it is
             // still worth seeing without reading every row and remembering
             // names -- which was the only way to notice it before.
+            var linked = [];
             allEntries.forEach(function(entry, i) {
               if (isClash[i]) return;
               var others = allEntries.filter(function(o, j) { return j !== i; })
@@ -89634,7 +89757,13 @@ function filterLiturgyItems() {
               entry.td.classList.add('roster-multi-duty-ok-cell');
               entry.td.title = entry.name + ' is also on ' + others +
                 ' this service. One person can hold both.';
+              // One cell may carry two names ("A / B"), so the same <td> can be
+              // reached twice for one person only if their name is in it twice.
+              if (linked.indexOf(entry.td) === -1) linked.push(entry.td);
             });
+            // A line is only meaningful between two cells, and a mentor/trainee
+            // cell counted once is one cell.
+            if (linked.length > 1) linkGroups.push({ date: dateStr, tds: linked });
 
             if (!otherEntries.length) return;   // everyone doubling up is allowed to
             var refusalText = refusals.filter(function(r, i) { return refusals.indexOf(r) === i; }).join('; ');
@@ -89666,7 +89795,11 @@ function filterLiturgyItems() {
         });
       });
 
-      // 4. Detect frequency (>3 dates) — highlight faint yellow
+      // 4. Frequency: mark anyone on duty three or more times this month.
+      // The toast further down waits for four. That gap is on purpose -- the
+      // colour is there to be noticed while scanning, the toast interrupts, and
+      // interrupting a PIC at three is too eager -- but the two numbers have to
+      // be read together to make sense of either.
       Object.keys(nameFrequency).forEach(function(nameLower) {
         if (nameFrequency[nameLower].size > 2) {
           // Find all cells with this name and highlight
@@ -89682,6 +89815,8 @@ function filterLiturgyItems() {
         }
       });
 
+      self._drawDutyLinks(linkGroups);
+
       // 5. Sternly warn (blocking modal) for newly-introduced clashes that aren't excepted
       if (clashFound && changedTd) {
         self.showClashWarningModal({
@@ -89694,6 +89829,7 @@ function filterLiturgyItems() {
         // Check if the changed person has high frequency
         var changedVal = changedTd.querySelector('.roster-cell-value');
         var changedName = changedVal ? _nameNorm(changedVal.textContent) : '';
+        // Four, not the three that colours the cell -- see the note above.
         if (changedName && nameFrequency[changedName] && nameFrequency[changedName].size > 3) {
           self.showToast('"' + changedVal.textContent.trim() + '" is on duty for ' + nameFrequency[changedName].size + ' services this month. Consider spreading assignments more evenly.', 'info');
         }
