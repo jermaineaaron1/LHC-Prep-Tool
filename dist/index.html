@@ -2484,7 +2484,7 @@
     }
     .roster-duty-links line {
       stroke: rgba(8, 145, 178, 0.34);
-      stroke-width: 1.5;
+      stroke-width: 3.5;
       stroke-linecap: round;
     }
     /* The column a line crosses is not all one colour -- the section bands
@@ -2495,7 +2495,7 @@
        as it crosses a band. */
     .roster-duty-links line.roster-duty-link-halo {
       stroke: rgba(255, 255, 255, 0.5);
-      stroke-width: 4;
+      stroke-width: 6.5;
     }
     .roster-duty-links circle {
       fill: rgba(8, 145, 178, 0.5);
@@ -3921,12 +3921,16 @@
         background: #ecfeff; box-shadow: 0 0 0 1px #a5edf7; border-radius: 4px; padding: 0 3px;
       }
       .rmp-person-name.rmp-clash { color: #991b1b; text-decoration: underline wavy #ef4444; }
+      /* Only on cards that actually have trails, so an ordinary Sunday keeps
+         its full width for names. */
+      .rmp-service-ledger.has-duty-links .rmp-person,
+      .rmp-service-ledger.has-duty-links .rmp-shared-team { padding-left: 32px; }
       .rmp-service-ledger { position: relative; }
       .rmp-duty-links {
         position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; z-index: 2;
       }
-      .rmp-duty-links line { stroke: rgba(8,145,178,0.4); stroke-width: 1.5; stroke-linecap: round; }
-      .rmp-duty-links line.rmp-duty-link-halo { stroke: rgba(255,255,255,0.55); stroke-width: 3.5; }
+      .rmp-duty-links line { stroke: rgba(8,145,178,0.4); stroke-width: 3.5; stroke-linecap: round; }
+      .rmp-duty-links line.rmp-duty-link-halo { stroke: rgba(255,255,255,0.55); stroke-width: 6; }
       .rmp-duty-links circle { fill: rgba(8,145,178,0.55); }
 
       /* ---- WORSHIP ORDERS ---- */
@@ -89664,6 +89668,16 @@ function filterLiturgyItems() {
 
       // Several people can double up on one date, and their lines share a
       // column. Stagger them so two pairs do not read as one.
+      // How many lines share each column? Needed before any of them is placed,
+      // because they are spread as a set rather than each nudged along from the
+      // last -- see the note above.
+      var countPerDate = {};
+      this._dutyLinkGroups.forEach(function(g) {
+        countPerDate[g.date] = (countPerDate[g.date] || 0) + 1;
+      });
+
+      var INSET = 11;     // clear of the cell edge, still well left of the name
+      var GAP = 15;       // far enough apart to follow one without catching the other
       var perDate = {};
       var parts = [];
       this._dutyLinkGroups.forEach(function(g) {
@@ -89672,10 +89686,14 @@ function filterLiturgyItems() {
         if (rects.length < 2) return;
         rects.sort(function(a, b) { return a.top - b.top; });
         var idx = perDate[g.date] = (perDate[g.date] === undefined ? 0 : perDate[g.date] + 1);
+        var n = countPerDate[g.date] || 1;
         var first = rects[0];
-        // Kept off the middle of the cell, where the name is, and never more
-        // than a third of the way in however narrow the column gets.
-        var x = Math.round(first.left - originX + Math.min(9 + idx * 5, first.width * 0.33));
+        // Half the cell is the most these may take, so the lines stay off the
+        // name even when a Sunday has several people doubling up. Within that,
+        // the full gap unless the count will not allow it.
+        var room = Math.max(0, first.width * 0.5 - INSET);
+        var gap = n > 1 ? Math.min(GAP, room / (n - 1)) : 0;
+        var x = Math.round(first.left - originX + INSET + idx * gap);
         var ys = rects.map(function(r) { return Math.round(r.top - originY + r.height / 2); });
         var y1 = ys[0], y2 = ys[ys.length - 1];
         // Halo first: SVG paints in document order, so it has to precede the
@@ -89684,7 +89702,7 @@ function filterLiturgyItems() {
                    '" x2="' + x + '" y2="' + y2 + '"/>');
         parts.push('<line x1="' + x + '" y1="' + y1 + '" x2="' + x + '" y2="' + y2 + '"/>');
         ys.forEach(function(y) {
-          parts.push('<circle cx="' + x + '" cy="' + y + '" r="2.5"/>');
+          parts.push('<circle cx="' + x + '" cy="' + y + '" r="4.5"/>');
         });
       });
       svg.innerHTML = parts.join('');
@@ -89701,6 +89719,9 @@ function filterLiturgyItems() {
       Array.prototype.forEach.call(ledgers, function(card) {
         var svg = card.querySelector('.rmp-duty-links');
         var marked = card.querySelectorAll('[data-dlink]');
+        // Toggled BEFORE anything is measured: it changes the row padding, and
+        // measuring first would place the trails against the old layout.
+        card.classList.toggle('has-duty-links', marked.length > 0);
         if (!marked.length) { if (svg) svg.remove(); return; }
         if (!svg) {
           svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -89727,19 +89748,27 @@ function filterLiturgyItems() {
             left: col.getBoundingClientRect().left
           });
         });
+        // Counted before any is placed, so they can be spread as a set.
+        var drawable = Object.keys(byGroup).filter(function(g) {
+          return byGroup[g].filter(function(r) { return r.width && r.height; }).length > 1;
+        });
+        var M_INSET = 7, M_GAP = 13;
         var parts = [], idx = 0;
         Object.keys(byGroup).forEach(function(g) {
           var rects = byGroup[g].filter(function(r) { return r.width && r.height; });
           if (rects.length < 2) return;
           rects.sort(function(a, b) { return a.top - b.top; });
           // Just inside the name column, clear of the duty label to its left,
-          // and staggered so two people doubling up on one Sunday read as two.
-          var x = Math.round(rects[0].left - cardRect.left + 4 + idx * 4);
+          // and spread so two people doubling up on one Sunday read as two
+          // trails rather than one thick one.
+          var mRoom = Math.max(0, (cardRect.width - (rects[0].left - cardRect.left)) * 0.4 - M_INSET);
+          var mGap = drawable.length > 1 ? Math.min(M_GAP, mRoom / (drawable.length - 1)) : 0;
+          var x = Math.round(rects[0].left - cardRect.left + M_INSET + idx * mGap);
           var ys = rects.map(function(r) { return Math.round(r.top - cardRect.top + r.height / 2); });
           parts.push('<line class="rmp-duty-link-halo" x1="' + x + '" y1="' + ys[0] +
                      '" x2="' + x + '" y2="' + ys[ys.length - 1] + '"/>');
           parts.push('<line x1="' + x + '" y1="' + ys[0] + '" x2="' + x + '" y2="' + ys[ys.length - 1] + '"/>');
-          ys.forEach(function(y) { parts.push('<circle cx="' + x + '" cy="' + y + '" r="2"/>'); });
+          ys.forEach(function(y) { parts.push('<circle cx="' + x + '" cy="' + y + '" r="4"/>'); });
           idx++;
         });
         svg.innerHTML = parts.join('');
