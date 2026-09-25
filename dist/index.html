@@ -26495,7 +26495,10 @@ var SBQ_ROSTER = {
             serviceType: row.service_type || 'all',
             people: Array.isArray(row.people) ? row.people : null,
             monthlyCap: (row.monthly_cap === null || row.monthly_cap === undefined) ? null : Number(row.monthly_cap),
-            applies: (row.applies === null || row.applies === undefined) ? null : !!row.applies
+            applies: (row.applies === null || row.applies === undefined) ? null : !!row.applies,
+            // An empty array is not the same as null here: null means "use the
+            // built-in list", [] means "this duty pairs with nothing".
+            mayPairWith: Array.isArray(row.may_pair_with) ? row.may_pair_with : null
           };
         });
         return out;
@@ -26512,6 +26515,7 @@ var SBQ_ROSTER = {
     if ('people' in patch)     row.people = patch.people;
     if ('monthlyCap' in patch) row.monthly_cap = patch.monthlyCap;
     if ('applies' in patch)    row.applies = patch.applies;
+    if ('mayPairWith' in patch) row.may_pair_with = patch.mayPairWith;
     return sb.from('roster_duty_settings').upsert(row, { onConflict: 'role_id,service_type' })
       .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
   },
@@ -83895,7 +83899,10 @@ function filterLiturgyItems() {
     communion1: ['contemporary'], communion2: ['contemporary'], communion3: ['contemporary'],
     altar1: ['contemporary'], altar2: ['contemporary'],
     guitarist: ['traditional'], bassist: ['traditional'], drummer: ['traditional'],
-    singer3: ['traditional'], singer4: ['traditional'],
+    // Two singers on a Traditional Sunday, three on a Contemporary one.
+    // Singer 4 was only ruled out of Traditional, so Contemporary quietly
+    // had room for a fourth that nobody wanted rostered.
+    singer3: ['traditional'], singer4: ['traditional', 'contemporary'],
     ssteacher1: ['traditional'], ssteacher2: ['traditional'], ssteacher3: ['traditional']
   };
 
@@ -83949,12 +83956,31 @@ function filterLiturgyItems() {
     return out;
   }
 
+  // Clash rules are keyed by duty category and never vary by service type, so
+  // they live on the <category>__all row. RosterEngine reads
+  // _dutyPairingOverrides ahead of its built-in DUTY_PAIRING.
+  function _applyPairingOverrides() {
+    var out = null;
+    Object.keys(ROSTER_DUTY_SETTINGS).forEach(function(key) {
+      var row = ROSTER_DUTY_SETTINGS[key];
+      if (!row || !Array.isArray(row.mayPairWith)) return;
+      if ((row.serviceType || 'all') !== 'all') return;
+      if (!out) out = {};
+      out[row.roleId] = row.mayPairWith;
+    });
+    if (window.RosterEngine) RosterEngine._dutyPairingOverrides = out;
+    if (window.RosterEngine && RosterEngine.checkClashes) {
+      try { RosterEngine.checkClashes(); } catch (e) {}
+    }
+  }
+
   function _loadDutySettingsFromCloud() {
     if (typeof SBQ_ROSTER === 'undefined' || !SBQ_ROSTER.getDutySettings) return Promise.resolve();
     return SBQ_ROSTER.getDutySettings().then(function(data) {
       if (!data) return;
       ROSTER_DUTY_SETTINGS = data;
       localStorage.setItem('lhc_roster_duty_settings', JSON.stringify(data));
+      _applyPairingOverrides();
     }).catch(function(e) {
       // Before the migration lands this is a 404. The built-in behaviour is
       // the fallback, which is the same behaviour as before this feature.
@@ -84513,6 +84539,81 @@ function filterLiturgyItems() {
   // One rule row, keyed by what makes it unique rather than by its position in
   // a list -- the list is grouped and regrouped, and an index would delete the
   // wrong rule the moment the grouping changed.
+  // Which other duties one person may hold alongside this one. Keyed by duty
+  // CATEGORY, because usher1 and usher2 cannot sensibly disagree about it --
+  // so the field says which duty it is really editing.
+  function _dsClashHtml(roleId) {
+    var RE = window.RosterEngine;
+    if (!RE || !RE.DUTY_PAIRING) return '';
+    var cat = RE._clashDutyCategory(roleId);
+    if ((RE.DUTY_PAIRS_WITH_ANYTHING || []).indexOf(cat) !== -1) {
+      return '<div class="ds-field"><label>Doing two duties</label>' +
+        '<p class="ds-hint"><b>' + escapeHtmlModal(RE._catWord(cat)) + '</b> happens the day before the service, so it never collides with anything.</p></div>';
+    }
+    var current = RE._dutyPairing(cat) || [];
+    var cats = Object.keys(RE.DUTY_PAIRING).filter(function(c) {
+      return c !== cat && c !== 'general';
+    }).sort(function(a, b) { return RE._catWord(a).localeCompare(RE._catWord(b)); });
+    var row = _dsRow(cat, 'all');
+    var overridden = !!(row && Array.isArray(row.mayPairWith));
+
+    return '<div class="ds-field"><label>Doing two duties</label>' +
+      '<p class="ds-hint">Tick every duty one person may hold <b>as well as ' +
+        escapeHtmlModal(RE._catWord(cat)) + '</b> in the same service. Anything unticked shows red on the roster. Tick nothing to make it a duty on its own.</p>' +
+      '<div class="ds-people" id="dsClash">' +
+        cats.map(function(c) {
+          return '<label><input type="checkbox" value="' + escapeHtmlModal(c) + '"' +
+            (current.indexOf(c) !== -1 ? ' checked' : '') + '>' + escapeHtmlModal(RE._catWord(c)) + '</label>';
+        }).join('') +
+      '</div>' +
+      '<p class="ds-hint">' + (overridden
+        ? 'Changed from the built-in rule. <b>Use default</b> puts it back.'
+        : 'This is the built-in rule.') +
+        ' Applies to both service types, and to every ' + escapeHtmlModal(RE._catWord(cat)) + ' cell.</p>' +
+    '</div>';
+  }
+
+  // "Singer may also be a Communion Assistant" is one fact about two duties,
+  // and _dutiesMayPair asks both of them -- deliberately, so a half-entered
+  // rule cannot quietly allow something. That makes writing one side alone
+  // useless: tick Usher under Singer, save, and nothing changes, because
+  // Usher's own list still does not mention Singer. Nothing on screen would
+  // explain that. So an edit to one side writes the other.
+  function _dsApplyClashEdit(cat, picked) {
+    var RE = window.RosterEngine;
+    if (!RE) return Promise.resolve();
+    var sent = [];
+    var eff = function(c) { return (RE._dutyPairing(c) || []).slice(); };
+    var old = eff(cat);
+    var changes = {};
+    changes[cat] = picked.slice();
+    picked.filter(function(c) { return old.indexOf(c) === -1; })
+      .forEach(function(x) { var l = eff(x); if (l.indexOf(cat) === -1) l.push(cat); changes[x] = l; });
+    old.filter(function(c) { return picked.indexOf(c) === -1; })
+      .forEach(function(x) { changes[x] = eff(x).filter(function(c) { return c !== cat; }); });
+
+    Object.keys(changes).forEach(function(c) {
+      var builtIn = (RE.DUTY_PAIRING[c] || []).slice().sort().join(',');
+      var now = changes[c].slice().sort().join(',');
+      // Back to the built-in answer: drop the override, but only the override.
+      // Several duty categories share a name with a role id (pianist, lcd, pa),
+      // so deleting the whole <name>__all row would take that duty's people and
+      // cap with it.
+      var value = (now === builtIn) ? null : changes[c];
+      var key = c + '__all';
+      var row = ROSTER_DUTY_SETTINGS[key] ||
+        { roleId: c, serviceType: 'all', people: null, monthlyCap: null, applies: null };
+      row.mayPairWith = value;
+      ROSTER_DUTY_SETTINGS[key] = row;
+      if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveDutySetting) {
+        sent.push(SBQ_ROSTER.saveDutySetting(c, 'all', { mayPairWith: value }, null));
+      }
+    });
+    localStorage.setItem('lhc_roster_duty_settings', JSON.stringify(ROSTER_DUTY_SETTINGS));
+    _applyPairingOverrides();
+    return Promise.all(sent);
+  }
+
   function _dsRuleRow(r, showDuty) {
     return '<div class="ds-cond">' +
       '<span class="ds-cond-then">' + escapeHtmlModal(_dsDutyLabel(r.thenRole)) + '</span>' +
@@ -84590,11 +84691,12 @@ function filterLiturgyItems() {
       '<div id="dsRules">' + list + '</div>' +
       (people.length && duties.length
         ? '<div class="ds-addrule">' +
-            '<div class="ds-arow"><span>When</span>' +
-              '<select id="dsWhen">' + people.map(function(n) {
-                return '<option value="' + escapeHtmlModal(n) + '">' + escapeHtmlModal(n) + '</option>';
-              }).join('') + '</select>' +
-              '<span>is on this duty,</span></div>' +
+            '<div class="ds-arow"><span>When any of these is on this duty</span>' +
+              '<label class="ds-radio" style="margin:0"><input type="checkbox" id="dsMutual">' +
+              '<span>and they pair with each other</span></label></div>' +
+            '<div class="ds-people" id="dsWhen">' + people.map(function(n) {
+                return '<label><input type="checkbox" value="' + escapeHtmlModal(n) + '">' + escapeHtmlModal(n) + '</label>';
+              }).join('') + '</div>' +
             '<div class="ds-arow"><select id="dsThenRole">' + duties.map(function(r) {
                 return '<option value="' + escapeHtmlModal(r.id) + '">' + escapeHtmlModal(_dsDutyLabel(r.id)) + '</option>';
               }).join('') + '</select>' +
@@ -84623,6 +84725,11 @@ function filterLiturgyItems() {
         : '<span class="ds-hint">Nobody is on that duty&rsquo;s list yet.</span>';
     };
     if (thenRole) { thenRole.addEventListener('change', renderThen); renderThen(); }
+    var mutualBox = document.getElementById('dsMutual');
+    var dimThen = function() {
+      if (thenBox) thenBox.style.opacity = (mutualBox && mutualBox.checked) ? '.4' : '1';
+    };
+    if (mutualBox) { mutualBox.addEventListener('change', dimThen); dimThen(); }
     Array.prototype.forEach.call(pane.querySelectorAll('.ds-rule-x'), function(b) {
       b.addEventListener('click', function() {
         var rule = ROSTER_DUTY_PAIRINGS.filter(function(r) {
@@ -84646,39 +84753,65 @@ function filterLiturgyItems() {
     var add = document.getElementById('dsAddRule');
     if (add) add.addEventListener('click', function() {
       var note = document.getElementById('dsNote');
-      var who = (document.getElementById('dsWhen') || {}).value;
+      var whoBox = document.getElementById('dsWhen');
+      var whoList = Array.prototype.slice.call(whoBox.querySelectorAll('input:checked'))
+        .map(function(el) { return el.value; });
       var role = (thenRole || {}).value;
       var picked = Array.prototype.slice.call(thenBox.querySelectorAll('input:checked'))
         .map(function(el) { return el.value; });
-      if (!who || !role || !picked.length) {
-        if (note) note.textContent = 'Pick a person, a duty, and at least one name to pair them with.';
+      var mutual = !!(document.getElementById('dsMutual') || {}).checked;
+      if (!whoList.length || !role) {
+        if (note) note.textContent = 'Tick who this is about, and the duty it settles.';
         return;
       }
-      var rule = {
-        whenRole: _dsRole, whenPerson: who,
-        serviceType: (bothBox && bothBox.checked) ? 'all' : _dsTeam,
-        thenRole: role, thenPeople: picked,
-        strict: !!(strength && strength.value === 'strict')
-      };
+      // Pairing with each other is a SET, not a direction: "if Singer 1 is
+      // Alison, Cynthia or Gina then Singer 2 is one of the other two" is
+      // three rules, and typing it three times is how one gets forgotten.
+      if (mutual && whoList.length < 2) {
+        if (note) note.textContent = 'Pairing people with each other needs at least two of them ticked.';
+        return;
+      }
+      if (!mutual && !picked.length) {
+        if (note) note.textContent = 'Tick at least one name to pair them with.';
+        return;
+      }
+      var st = (bothBox && bothBox.checked) ? 'all' : _dsTeam;
+      var strictNow = !!(strength && strength.value === 'strict');
+      var made = whoList.map(function(person) {
+        var partners = (mutual ? whoList : picked).filter(function(o) {
+          return _nameNorm(o) !== _nameNorm(person);
+        });
+        return { whenRole: _dsRole, whenPerson: person, serviceType: st,
+                 thenRole: role, thenPeople: partners, strict: strictNow };
+      }).filter(function(r) { return r.thenPeople.length; });
+
+      if (!made.length) {
+        if (note) note.textContent = 'That would only pair somebody with themselves.';
+        return;
+      }
       // Re-adding the same when/then combination edits it rather than stacking
       // a second rule that would count twice in the preference sort.
-      ROSTER_DUTY_PAIRINGS = ROSTER_DUTY_PAIRINGS.filter(function(r) {
-        return !(r.whenRole === rule.whenRole && _nameNorm(r.whenPerson) === _nameNorm(rule.whenPerson) &&
-                 (r.serviceType || 'all') === rule.serviceType && r.thenRole === rule.thenRole);
+      made.forEach(function(rule) {
+        ROSTER_DUTY_PAIRINGS = ROSTER_DUTY_PAIRINGS.filter(function(r) {
+          return !(r.whenRole === rule.whenRole && _nameNorm(r.whenPerson) === _nameNorm(rule.whenPerson) &&
+                   (r.serviceType || 'all') === rule.serviceType && r.thenRole === rule.thenRole);
+        });
+        ROSTER_DUTY_PAIRINGS.push(rule);
       });
-      ROSTER_DUTY_PAIRINGS.push(rule);
       localStorage.setItem('lhc_roster_duty_pairings', JSON.stringify(ROSTER_DUTY_PAIRINGS));
       _dsRenderList(); _dsRenderPane();
-      if (note) note.textContent = 'Saving pairing...';
+      var n = made.length, word = n === 1 ? ' condition' : ' conditions';
+      if (note) note.textContent = 'Saving ' + n + word + '...';
       if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveDutyPairing) {
-        SBQ_ROSTER.saveDutyPairing(rule, null).then(function() {
-          var n2 = document.getElementById('dsNote');
-          if (n2) n2.textContent = 'Pairing saved. Every PIC sees this.';
-        }).catch(function(e) {
-          var n2 = document.getElementById('dsNote');
-          if (n2) n2.textContent = 'Pairing saved on this device only -- could not reach the server.';
-          console.warn('saveDutyPairing failed:', e);
-        });
+        Promise.all(made.map(function(rule) { return SBQ_ROSTER.saveDutyPairing(rule, null); }))
+          .then(function() {
+            var n2 = document.getElementById('dsNote');
+            if (n2) n2.textContent = n + word + ' saved. Every PIC sees this.';
+          }).catch(function(e) {
+            var n2 = document.getElementById('dsNote');
+            if (n2) n2.textContent = 'Saved on this device only -- could not reach the server.';
+            console.warn('saveDutyPairing failed:', e);
+          });
       }
     });
   }
@@ -84738,6 +84871,7 @@ function filterLiturgyItems() {
           (row.monthlyCap ? row.monthlyCap : '') + '" placeholder="2">' +
         '<p class="ds-hint">How often Auto-Suggest is willing to come back to the same person for this duty. Blank uses the built-in 2. It gives way when nobody fresher is free, and says so in the summary.</p>' +
       '</div>' +
+      _dsClashHtml(_dsRole) +
       _dsPairingHtml(_dsRole, _dsTeam);
 
     Array.prototype.forEach.call(pane.querySelectorAll('.ds-tabs button'), function(b) {
@@ -84780,6 +84914,20 @@ function filterLiturgyItems() {
       monthlyCap: cap,
       applies: !!(document.getElementById('dsApplies') || {}).checked
     };
+    // The clash rule is per duty category and applies to both service types,
+    // so it is written separately from this duty's row -- and on both sides.
+    var clashSave = null;
+    var clashBox = document.getElementById('dsClash');
+    var REs = window.RosterEngine;
+    if (clashBox && REs) {
+      var cat = REs._clashDutyCategory(_dsRole);
+      var pickedCats = Array.prototype.slice.call(clashBox.querySelectorAll('input:checked'))
+        .map(function(el) { return el.value; });
+      var builtInCats = (REs.DUTY_PAIRING[cat] || []).slice().sort().join(',');
+      if (pickedCats.slice().sort().join(',') !== builtInCats) {
+        clashSave = _dsApplyClashEdit(cat, pickedCats);
+      }
+    }
     ROSTER_DUTY_SETTINGS[_dsRole + '__' + _dsTeam] = {
       roleId: _dsRole, serviceType: _dsTeam,
       people: patch.people, monthlyCap: patch.monthlyCap, applies: patch.applies
@@ -84790,7 +84938,8 @@ function filterLiturgyItems() {
     var note = document.getElementById('dsNote');
     if (note) note.textContent = 'Saving...';
     if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveDutySetting) {
-      SBQ_ROSTER.saveDutySetting(_dsRole, _dsTeam, patch, null).then(function() {
+      Promise.all([SBQ_ROSTER.saveDutySetting(_dsRole, _dsTeam, patch, null),
+                   clashSave || Promise.resolve()]).then(function() {
         if (note) note.textContent = 'Saved. Every PIC sees this.';
       }).catch(function(e) {
         // It is kept locally either way so the edit is not lost, but say so:
@@ -84806,7 +84955,19 @@ function filterLiturgyItems() {
     if (!_dsRole) return;
     if (!confirm('Put ' + _dsDutyLabel(_dsRole) + ' (' + _dsTeam + ') back to the built-in behaviour?')) return;
     delete ROSTER_DUTY_SETTINGS[_dsRole + '__' + _dsTeam];
+    if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.deleteDutySetting) {
+      SBQ_ROSTER.deleteDutySetting(_dsRole, _dsTeam).catch(function(e) { console.warn('deleteDutySetting failed:', e); });
+    }
+    var RE0 = window.RosterEngine;
+    var cat0 = RE0 ? RE0._clashDutyCategory(_dsRole) : null;
+    var row0 = cat0 ? ROSTER_DUTY_SETTINGS[cat0 + '__all'] : null;
+    if (cat0 && row0 && Array.isArray(row0.mayPairWith)) {
+      // Putting this side back has to take the other side with it, or the two
+      // lists disagree and the pairing silently stops working.
+      _dsApplyClashEdit(cat0, (RE0.DUTY_PAIRING[cat0] || []).slice());
+    }
     localStorage.setItem('lhc_roster_duty_settings', JSON.stringify(ROSTER_DUTY_SETTINGS));
+    _applyPairingOverrides();
     _dsDirty = false;
     _dsRenderList(); _dsRenderPane();
     var note = document.getElementById('dsNote');

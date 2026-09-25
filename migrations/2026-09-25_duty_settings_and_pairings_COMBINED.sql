@@ -43,3 +43,9 @@ ALTER TABLE roster_duty_pairings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS roster_duty_pairings_all ON roster_duty_pairings;
 CREATE POLICY roster_duty_pairings_all ON roster_duty_pairings
   FOR ALL USING (true) WITH CHECK (true);
+
+-- Added 25 Sep, with the clash rules in the settings screen: which duties one
+-- person may hold together. Null means the built-in list; an empty array means
+-- this duty pairs with nothing.
+ALTER TABLE roster_duty_settings
+  ADD COLUMN IF NOT EXISTS may_pair_with JSONB;
