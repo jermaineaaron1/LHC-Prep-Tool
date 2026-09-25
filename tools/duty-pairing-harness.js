@@ -128,10 +128,16 @@ console.log('\nScenario 2 - the rules as the church gave them');
     check(solo[duty] + '. ' + duty + ' pairs with nothing else', allowed, []);
   }
 
-  // 5. Bible reader -- singer, altar guild, flower arrangement, and nothing else
+  // 5. Bible reader -- singer, altar guild, flower arrangement, live streaming
   const readerPairs = Object.keys(ID).filter(o => o !== 'reader' && mayPair('reader', o)).sort();
-  check('5. Reader pairs with exactly singer, altar, flowers',
-    readerPairs, ['altar', 'flowerarrangement', 'singer']);
+  check('5. Reader pairs with exactly singer, altar, flowers, live streaming',
+    readerPairs, ['altar', 'flowerarrangement', 'livestream', 'singer']);
+
+  // Live Streaming is otherwise a desk job like PA -- reading is its one
+  // exception, so it is worth pinning from both ends.
+  const lsPairs = Object.keys(ID).filter(o => o !== 'livestream' && mayPair('livestream', o)).sort();
+  check('Live Streaming pairs with exactly reader and flowers',
+    lsPairs, ['flowerarrangement', 'reader']);
 
   // 9. Communion Assistant -- liturgist, singer, flower arranger, usher
   const caPairs = Object.keys(ID).filter(o => o !== 'communion' && mayPair('communion', o)).sort();
