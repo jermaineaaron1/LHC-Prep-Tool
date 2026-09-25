@@ -91,22 +91,47 @@ function extractCandidateFilter() {
   throw new Error('unbalanced brackets while extracting the candidate filter');
 }
 
-// Slice the `var assignedToday = {}; allRoleDefs.forEach(...)` seeding block.
-// The candidate filter only proves assignedToday is OBEYED. This proves it is
-// FILLED -- from every role on the date, not merely the ones being filled.
-function extractAssignedTodaySeed() {
-  const startIdx = lines.findIndex(l => /var assignedToday = \{\};/.test(l));
-  if (startIdx < 0) throw new Error('assignedToday seeding not found in ' + path.basename(INDEX));
+// Slice the whole same-day block: the dutiesToday map, the two writers, and the
+// two predicates the candidate filter asks. The filter only proves the answer is
+// OBEYED; this proves the map is FILLED -- from every role on the date, not merely
+// the ones being filled -- and that the predicates read it correctly.
+//
+// Bracket counting cannot find the end of this any more: it is a map, two writers
+// and two predicates, so depth returns to zero several times before the part that
+// matters is in hand. The line that follows the block is a stable anchor instead,
+// and a missing anchor throws rather than silently slicing half a block.
+function extractDutiesTodayBlock() {
+  const startIdx = lines.findIndex(l => /var dutiesToday = \{\};/.test(l));
+  if (startIdx < 0) throw new Error('dutiesToday block not found in ' + path.basename(INDEX));
+  const endIdx = lines.findIndex((l, i) => i > startIdx && /var prevDay = dateIdx > 0/.test(l));
+  if (endIdx < 0) throw new Error('end of the dutiesToday block not found in ' + path.basename(INDEX));
+  return { text: lines.slice(startIdx, endIdx).join('\n'), line: startIdx + 1 };
+}
+
+// The filter now asks the real pairing rules whether two duties can be held at
+// once, so the harness needs the real answer, not a stand-in that would agree
+// with whatever the test expected. These are RosterEngine members, indented four.
+function extractEngineMember(name) {
+  const startIdx = lines.findIndex(l => new RegExp('^    ' + name + ':').test(l));
+  if (startIdx < 0) throw new Error('engine member not found in ' + path.basename(INDEX) + ': ' + name);
   let depth = 0, started = false, out = [];
   for (let i = startIdx; i < lines.length; i++) {
     out.push(lines[i]);
     for (const ch of lines[i]) {
-      if (ch === '(' || ch === '{') { depth++; started = true; }
-      else if (ch === ')' || ch === '}') depth--;
+      if (ch === '{' || ch === '[' || ch === '(') { depth++; started = true; }
+      else if (ch === '}' || ch === ']' || ch === ')') depth--;
     }
-    if (started && depth === 0 && i > startIdx) return { text: out.join('\n'), line: startIdx + 1 };
+    if (started && depth === 0) return { text: out.join('\n'), line: startIdx + 1 };
   }
-  throw new Error('unbalanced brackets while extracting the assignedToday seeding');
+  throw new Error('unbalanced brackets while extracting: ' + name);
+}
+
+// One object carrying the real pairing rules, for `self` inside the sliced block.
+function buildEngine() {
+  const members = ['DUTY_PAIRING', 'DUTY_PAIRS_WITH_ANYTHING', '_dutyPairingOverrides',
+                   '_clashDutyCategory', '_dutyPairing', '_dutiesMayPair'];
+  const body = 'return {\n' + members.map(m => extractEngineMember(m).text).join('\n') + "\n};";
+  return new Function(body)();
 }
 
 // Slice the block that turns a PIC's people list into a pool restriction.
@@ -127,6 +152,24 @@ function extractPoolRestriction() {
     if (started && depth === 0) return { text: out.join('\n'), line: startIdx + 1 };
   }
   throw new Error('unbalanced braces while extracting the pool restriction');
+}
+
+// Slice `function score(name) {...}` -- the comparator that decides who wins.
+// Permitting a second duty is only half of the rule; the other half is that it
+// must lose to everybody else, and that lives entirely in these weights.
+function extractScore() {
+  const startIdx = lines.findIndex(l => /^ +function score\(name\) \{/.test(l));
+  if (startIdx < 0) throw new Error('score() not found in ' + path.basename(INDEX));
+  let depth = 0, started = false, out = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    out.push(lines[i]);
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) return { text: out.join('\n'), line: startIdx + 1 };
+  }
+  throw new Error('unbalanced braces while extracting score()');
 }
 
 // The per-duty monthly limit, as the picker resolves it.
@@ -175,15 +218,18 @@ for (const n of fnNames) fns[n] = extractFn(n);
 const skipMap = extractVar('AUTOSUGGEST_SKIP_STATUS');
 const pairSep = extractVar('_PAIR_SEP');
 const filter = extractCandidateFilter();
-const seed = extractAssignedTodaySeed();
+const seed = extractDutiesTodayBlock();
+const engine = buildEngine();
 const poolRestrict = extractPoolRestriction();
 const capResolve = extractCapResolution();
+const scoreFn = extractScore();
 const pairApply = extractPairingApply();
 for (const n of fnNames) console.log('  ' + n + ' @ line ' + fns[n].line);
 console.log('  AUTOSUGGEST_SKIP_STATUS @ line ' + skipMap.line);
 console.log('  runAutoSuggest candidate filter @ line ' + filter.line);
-console.log('  assignedToday seeding @ line ' + seed.line);
+console.log('  same-day duties block @ line ' + seed.line);
 console.log('  pool restriction @ line ' + poolRestrict.line);
+console.log('  score() @ line ' + scoreFn.line);
 console.log('  monthly cap @ line ' + capResolve.line);
 console.log('  pairing rules @ line ' + pairApply.line);
 
@@ -320,7 +366,10 @@ function runFilter(opts) {
   const env = {
     pool: opts.pool,
     role: { id: opts.roleId || 'preacher' },
-    assignedToday: opts.assignedToday || {},
+    // The filter asks mayAlsoDo, which the same-day block above it defines.
+    // Tests pass the real one straight out of that block; the default is the
+    // answer it gives when nobody is serving yet.
+    mayAlsoDo: opts.mayAlsoDo || function() { return true; },
     dateStr: 'Aug 9',
     category: 'preacher',
     STATE: { rosterYear: 2026 },
@@ -346,16 +395,19 @@ function runFilter(opts) {
   check('only rosterable people survive the filter',
     runFilter({ pool, predicates }), ['Mrs. Regular', 'Ms. NoRecord']);
 
-  // The pre-existing rules must still hold alongside the new one.
-  check('already serving today is still excluded',
-    runFilter({ pool, predicates, assignedToday: { 'mrs. regular': true } }), ['Ms. NoRecord']);
+  // The pre-existing rules must still hold alongside the new one. Preacher is a
+  // duty on its own, so anyone already serving anything is still excluded from it
+  // -- asked through the real same-day block rather than a hand-made answer.
+  const onUsher = seedDutiesToday({ usher1: 'Mrs. Regular' }, ['usher1', 'preacher']);
+  check('already serving today is still excluded from a solo duty',
+    runFilter({ pool, predicates, mayAlsoDo: onUsher.mayAlsoDo }), ['Ms. NoRecord']);
   check('date-range unavailability is still excluded',
     runFilter({ pool, predicates, unavailable: { 'Ms. NoRecord': true } }), ['Mrs. Regular']);
 
   // Flower Arrangement happens the day before the service, so it alone ignores
-  // assignedToday -- but never the status exclusion.
-  check('flowerarrangement ignores assignedToday but not status',
-    runFilter({ pool, predicates, roleId: 'flowerarrangement', assignedToday: { 'mrs. regular': true } }),
+  // the same-day question entirely -- but never the status exclusion.
+  check('flowerarrangement ignores same-day duties but not status',
+    runFilter({ pool, predicates, roleId: 'flowerarrangement', mayAlsoDo: onUsher.mayAlsoDo }),
     ['Mrs. Regular', 'Ms. NoRecord']);
 
   // An all-excluded pool must come back empty rather than relaxing the rule:
@@ -365,23 +417,30 @@ function runFilter(opts) {
 }
 
 // ── 4. Same-service double-booking, end to end ────────────────────────────
-// Scenario 3 proves the filter obeys assignedToday. That is only half of it:
-// the map has to be FILLED from every role on the date, and topped up after
-// each pick, or Auto-Suggest would happily roster one person twice in one
-// service and leave the clash for a human to notice by eye.
-console.log('\nScenario 4 - Auto-Suggest cannot double-book one service');
+// Scenario 3 proves the filter obeys the answer. That is only half of it: the map
+// has to be FILLED from every role on the date, and topped up after each pick, or
+// Auto-Suggest would roster one person into two duties that collide and leave it
+// for a human to notice by eye.
+//
+// What counts as a collision is now the church's pairing rules rather than "busy".
+// A Reader may also sing, so Auto-Suggest may place that; an Usher may not also
+// sing, so it may not. The line that matters is that a REFUSAL is still absolute
+// -- an allowed double is merely ranked last, an impossible one is impossible.
+console.log('\nScenario 4 - Auto-Suggest can double up only where the duties permit it');
 
-function seedAssignedToday(editsByRole, roleIds) {
+function seedDutiesToday(editsByRole, roleIds) {
   const api = makePredicates({});
   const env = {
     allRoleDefs: roleIds.map(id => ({ id })),
+    self: engine,
     dateKeySuffix: 'Dec_6',
     STATE: { rosterEdits: new Map(Object.entries(editsByRole).map(([r, v]) => [r + '__Dec_6', v])) },
     splitCellPeople: api.splitCellPeople,
     _afKey: n => (n || '').trim().replace(/\s+/g, ' ').toLowerCase(),
     Object, JSON, Map
   };
-  const body = seed.text + '\n; return assignedToday;';
+  const body = seed.text +
+    '\n; return { dutiesToday: dutiesToday, mayAlsoDo: mayAlsoDo, alreadyServing: alreadyServing };';
   const keys = Object.keys(env);
   return new Function(...keys, body)(...keys.map(k => env[k]));
 }
@@ -390,35 +449,55 @@ function seedAssignedToday(editsByRole, roleIds) {
   const predicates = makePredicates({});
   const pool = ['Ann Lee', 'Ben Ooi'];
 
-  const seeded = seedAssignedToday({ usher1: 'Ann Lee' }, ['usher1', 'singer1', 'reader1']);
-  check('a duty outside this run still blocks',
-    runFilter({ pool, predicates, roleId: 'singer1', assignedToday: seeded }), ['Ben Ooi']);
+  // Usher does not pair with Singer, so this stays a refusal -- and it comes from
+  // a duty outside the roles being filled, which is the point of scanning them all.
+  const seeded = seedDutiesToday({ usher1: 'Ann Lee' }, ['usher1', 'singer1', 'reader1']);
+  check('the map records WHICH duty, not merely that somebody is busy',
+    seeded.dutiesToday, { 'ann lee': ['usher1'] });
+  check('a clashing duty outside this run still blocks',
+    runFilter({ pool, predicates, roleId: 'singer1', mayAlsoDo: seeded.mayAlsoDo }), ['Ben Ooi']);
 
-  const pair = seedAssignedToday({ pianist: 'Ann Lee / Ben Ooi' }, ['pianist', 'singer1']);
-  check('both people in an "A / B" cell block',
-    runFilter({ pool, predicates, roleId: 'singer1', assignedToday: pair }), []);
+  // Reader DOES pair with Singer, so the same person stays eligible. Scenario 8
+  // below checks they are nonetheless ranked last.
+  const readerFirst = seedDutiesToday({ reader1: 'Ann Lee' }, ['reader1', 'singer1']);
+  check('a duty that CAN be held alongside does not block',
+    runFilter({ pool, predicates, roleId: 'singer1', mayAlsoDo: readerFirst.mayAlsoDo }), pool);
+
+  // Every duty held has to permit it, not just one: Reader pairs with Singer and
+  // with Altar Guild, but Singer and Altar Guild clash with each other, so anyone
+  // already holding Reader AND Singer is not free for Altar Guild.
+  const two = seedDutiesToday({ reader1: 'Ann Lee', singer1: 'Ann Lee' }, ['reader1', 'singer1', 'altar1']);
+  check('a third duty is refused when only some of the pairs allow it',
+    runFilter({ pool, predicates, roleId: 'altar1', mayAlsoDo: two.mayAlsoDo }), ['Ben Ooi']);
+
+  const pair = seedDutiesToday({ pianist: 'Ann Lee / Ben Ooi' }, ['pianist', 'singer1']);
+  check('both people in an "A / B" cell are recorded',
+    pair.dutiesToday, { 'ann lee': ['pianist'], 'ben ooi': ['pianist'] });
+  check('...and Pianist is a duty on its own, so both are blocked',
+    runFilter({ pool, predicates, roleId: 'singer1', mayAlsoDo: pair.mayAlsoDo }), []);
 
   // A stray second space must not make one person look like two -- the exact
   // fault that hid Alison Phan on Usher 2 + Singer 1 from clash detection.
-  const spaced = seedAssignedToday({ usher1: 'Ann  Lee' }, ['usher1', 'singer1']);
+  const spaced = seedDutiesToday({ usher1: 'Ann  Lee' }, ['usher1', 'singer1']);
   check('a stray double space still blocks',
-    runFilter({ pool, predicates, roleId: 'singer1', assignedToday: spaced }), ['Ben Ooi']);
+    runFilter({ pool, predicates, roleId: 'singer1', mayAlsoDo: spaced.mayAlsoDo }), ['Ben Ooi']);
 
-  // Flower Arrangement is done the day before, so it seeds nobody.
-  const flower = seedAssignedToday({ flowerarrangement: 'Ann Lee' }, ['flowerarrangement', 'singer1']);
-  check('flower arrangement seeds nobody', Object.keys(flower), []);
+  // Flower Arrangement is done the day before, so it records nobody.
+  const flower = seedDutiesToday({ flowerarrangement: 'Ann Lee' }, ['flowerarrangement', 'singer1']);
+  check('flower arrangement records nobody', Object.keys(flower.dutiesToday), []);
 
-  // And the run tops the map up after each pick, so the second role in one
-  // run cannot reuse the first role's winner.
-  const running = seedAssignedToday({}, ['usher1', 'singer1']);
-  check('nothing assigned yet',
-    runFilter({ pool, predicates, roleId: 'usher1', assignedToday: running }), pool);
-  const recordsWinner = /if \(role\.id !== 'flowerarrangement'\) assignedToday\[winnerKey\] = true;/.test(src);
-  check('the run records its own winner in assignedToday', recordsWinner, true);
+  // And the run tops the map up after each pick, so the second role in one run
+  // sees what the first one did.
+  const running = seedDutiesToday({}, ['usher1', 'singer1']);
+  check('nothing assigned yet leaves everyone eligible',
+    runFilter({ pool, predicates, roleId: 'usher1', mayAlsoDo: running.mayAlsoDo }), pool);
+  const recordsWinner = /if \(role\.id !== 'flowerarrangement'\) markDuty\(winnerKey, role\.id\);/.test(src);
+  check('the run records its own winner, with the duty', recordsWinner, true);
   if (recordsWinner) {
-    running['ann lee'] = true;   // exactly what that line does
-    check('the next role in the same run cannot reuse the winner',
-      runFilter({ pool, predicates, roleId: 'singer1', assignedToday: running }), ['Ben Ooi']);
+    // Exactly what that line does, via the sliced writer rather than by hand.
+    running.dutiesToday['ann lee'] = ['usher1'];
+    check('the next role cannot reuse the winner where the duties clash',
+      runFilter({ pool, predicates, roleId: 'singer1', mayAlsoDo: running.mayAlsoDo }), ['Ben Ooi']);
   }
 }
 
@@ -661,6 +740,71 @@ function restrictThenPair(settings, rules, edits, pool, roleId, team) {
   const softOther = Object.assign({}, strictOther, { strict: false });
   check('a soft rule respects the approved list',
     restrictThenPair(approved, [softOther], edits, pool, 'drummer', 'traditional'), ['Edwin Nathaniel']);
+}
+
+// -- 8. Doubling up is the last resort, not merely a permitted one ----------
+// Scenario 4 proves an allowed second duty is not REFUSED. On its own that would
+// be a worse roster than before: the same few willing people would collect two
+// jobs each while everybody else stayed idle. The rule is that a double is
+// available and ranked below every other consideration put together, so it
+// happens only when nothing else fills the cell.
+console.log('\nScenario 8 - an allowed double loses to everybody');
+
+function scoreOf(name, opts) {
+  const o = opts || {};
+  const key = n => (n || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+  const env = {
+    role: { id: o.roleId || 'singer1' },
+    _afKey: key,
+    curatedSet: o.curatedSet || null,
+    pairPreferred: o.pairPreferred || null,
+    monthCount: o.monthCount || {},
+    monthlyCap: o.monthlyCap || 2,
+    backToBackKeys: o.backToBackKeys || {},
+    alreadyServing: k => !!(o.serving || {})[k],
+    Object, JSON
+  };
+  const body = scoreFn.text + '\n; return score(' + JSON.stringify(name) + ');';
+  const keys = Object.keys(env);
+  return new Function(...keys, body)(...keys.map(k => env[k]));
+}
+
+{
+  const curated = { 'ann lee': true, 'ben ooi': true };
+  const serving = { 'ann lee': true };
+
+  check('a fresh member of the duty team scores best',
+    scoreOf('Ann Lee', { curatedSet: curated }), 0);
+  check('serving already costs more than anything else can',
+    scoreOf('Ann Lee', { curatedSet: curated, serving: serving }) > 112, true);
+
+  // The decisive comparison: somebody a pairing rule asked for, who is already
+  // serving, against a stranger who is free. The stranger fills the cell.
+  const preferredButBusy = scoreOf('Ann Lee',
+    { curatedSet: curated, pairPreferred: { 'ann lee': true }, serving: serving });
+  const strangerButFree = scoreOf('Ms. Nobody',
+    { curatedSet: curated, pairPreferred: { 'ann lee': true } });
+  check('a free stranger beats a preferred person who is already serving',
+    strangerButFree < preferredButBusy, true);
+
+  // ...and it also beats somebody over their monthly limit, or repeating the
+  // duty they did last time, both of which are the milder soft penalties.
+  const overCap = scoreOf('Ben Ooi',
+    { curatedSet: curated, monthCount: { 'ben ooi': 4 }, monthlyCap: 2 });
+  const backToBack = scoreOf('Ben Ooi',
+    { curatedSet: curated, backToBackKeys: { 'ben ooi': true } });
+  check('an over-cap pick is still preferred to doubling up',
+    overCap < scoreOf('Ann Lee', { curatedSet: curated, serving: serving }), true);
+  check('so is a back-to-back repeat',
+    backToBack < scoreOf('Ann Lee', { curatedSet: curated, serving: serving }), true);
+
+  // Liturgist returns early, exempt from the cap and the back-to-back rule
+  // because Communion Assistant 1 mirrors it -- but not exempt from this.
+  check('Liturgist is exempt from the soft penalties',
+    scoreOf('Ben Ooi', { roleId: 'liturgist', curatedSet: curated,
+                         monthCount: { 'ben ooi': 9 }, backToBackKeys: { 'ben ooi': true } }), 0);
+  check('...but not from being already busy',
+    scoreOf('Ann Lee', { roleId: 'liturgist', curatedSet: curated, serving: serving }) > 112, true);
 }
 
 console.log('\n================================');

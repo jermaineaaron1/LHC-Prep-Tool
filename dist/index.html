@@ -84474,6 +84474,7 @@ function filterLiturgyItems() {
       '#dutySet .ds-cond-then{font-weight:500;flex:0 0 auto;min-width:104px;}' +
       '#dutySet .ds-cond-op{color:#6b7d73;flex:0 0 auto;}' +
       '#dutySet .ds-cond-who{flex:1;min-width:0;}' +
+      '#dutySet .ds-cond-warn{display:block;font-size:.76rem;color:#8a6d1f;margin-top:2px;cursor:help;}' +
       '#dutySet .ds-cond-role{font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7d73;margin:11px 0 5px;border-bottom:1px solid #eee8da;padding-bottom:3px;}' +
       '#dutySet .ds-addrule{border-top:1px solid #f0ece0;margin-top:9px;padding-top:9px;}' +
       '#dutySet .ds-arow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:.85rem;margin-bottom:7px;}' +
@@ -84629,13 +84630,30 @@ function filterLiturgyItems() {
     return Promise.all(sent);
   }
 
+  // Auto-Suggest settles duties in roster order. When the duty a rule DECIDES
+  // comes before the duty it WATCHES, the decision is made before the trigger
+  // exists, so the rule applies only if that trigger cell was filled in by hand
+  // beforehand. True of a real rule a PIC might want; worth saying out loud.
+  function _dsRuleNeedsTriggerFirst(whenRole, thenRole) {
+    var order = _dsDuties().map(function(x) { return x.id; });
+    var w = order.indexOf(whenRole), t = order.indexOf(thenRole);
+    return w !== -1 && t !== -1 && t < w;
+  }
+
   function _dsRuleRow(r, showDuty) {
+    var needsFirst = _dsRuleNeedsTriggerFirst(r.whenRole, r.thenRole);
     return '<div class="ds-cond">' +
       '<span class="ds-cond-then">' + escapeHtmlModal(_dsDutyLabel(r.thenRole)) + '</span>' +
       '<span class="ds-cond-op">' + (r.strict ? 'must be' : 'should be') + '</span>' +
       '<span class="ds-cond-who">' + escapeHtmlModal(r.thenPeople.join(' or ')) +
         ((r.serviceType || 'all') === 'all' ? ' <i>(both services)</i>'
-          : ' <i>(' + escapeHtmlModal(r.serviceType) + ' only)</i>') + '</span>' +
+          : ' <i>(' + escapeHtmlModal(r.serviceType) + ' only)</i>') +
+        (needsFirst ? '<span class="ds-cond-warn" title="Auto-Suggest fills ' +
+          escapeHtmlModal(_dsDutyLabel(r.thenRole)) + ' before it reaches ' +
+          escapeHtmlModal(_dsDutyLabel(r.whenRole)) + ', so this only takes effect if ' +
+          escapeHtmlModal(_dsDutyLabel(r.whenRole)) + ' is already filled in.">only if ' +
+          escapeHtmlModal(_dsDutyLabel(r.whenRole)) + ' is filled in first</span>' : '') +
+        '</span>' +
       '<button type="button" class="ds-rule-x" title="Remove this condition"' +
         ' data-when="' + escapeHtmlModal(r.whenRole) + '"' +
         ' data-person="' + escapeHtmlModal(r.whenPerson) + '"' +
@@ -84825,12 +84843,19 @@ function filterLiturgyItems() {
       localStorage.setItem('lhc_roster_duty_pairings', JSON.stringify(ROSTER_DUTY_PAIRINGS));
       _dsRenderList(); _dsRenderPane();
       var n = made.length, word = n === 1 ? ' condition' : ' conditions';
+      var needsFirst = _dsRuleNeedsTriggerFirst(_dsRole, role);
+      // A saved rule that quietly does nothing on a blank month is the surprise
+      // worth heading off at the moment of saving, not only in the list below.
+      var caveat = needsFirst
+        ? ' Auto-Suggest fills ' + _dsDutyLabel(role) + ' before ' + _dsDutyLabel(_dsRole) +
+          ', so this only applies when ' + _dsDutyLabel(_dsRole) + ' is filled in first.'
+        : '';
       if (note) note.textContent = 'Saving ' + n + word + '...';
       if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveDutyPairing) {
         Promise.all(made.map(function(rule) { return SBQ_ROSTER.saveDutyPairing(rule, null); }))
           .then(function() {
             var n2 = document.getElementById('dsNote');
-            if (n2) n2.textContent = n + word + ' saved. Every PIC sees this.';
+            if (n2) n2.textContent = n + word + ' saved. Every PIC sees this.' + caveat;
           }).catch(function(e) {
             var n2 = document.getElementById('dsNote');
             if (n2) n2.textContent = 'Saved on this device only -- could not reach the server.';
@@ -90037,22 +90062,40 @@ function filterLiturgyItems() {
           var team = dateTeam[dateStr];
           var dateKeySuffix = dateStr.replace(/\s/g, '_');
 
-          // Seed same-date clash tracking with whatever's already filled
-          // (manual entries + roles processed earlier in this same date).
-          // Scans EVERY role, not just the ones active this run, so a
-          // manually-entered duty outside today's selection still blocks a
-          // double-booking. Flower Arrangement is excluded entirely: it's
-          // done the day before the service, so it never actually
-          // conflicts with a same-day duty -- the same person can be
-          // picked for both without it counting as "already assigned today."
-          var assignedToday = {};
+          // Which duties each person already holds on this date -- manual
+          // entries plus roles processed earlier in this same run. Scans EVERY
+          // role, not just the ones active this run, so a manually-entered duty
+          // outside today's selection is still taken into account. Flower
+          // Arrangement is excluded entirely: it is done the day before the
+          // service, so it never competes with a same-day duty.
+          //
+          // This used to record only THAT somebody was busy, which meant the only
+          // question it could answer was "are they free?" -- and a no was always
+          // a veto, whatever the pairing rules said. Keeping the duties lets the
+          // real question be asked instead.
+          var dutiesToday = {};
+          var markDuty = function(key, roleId) {
+            (dutiesToday[key] = dutiesToday[key] || []).push(roleId);
+          };
           allRoleDefs.forEach(function(role) {
             if (role.id === 'flowerarrangement') return;
             var v = STATE.rosterEdits.get(role.id + '__' + dateKeySuffix);
             if (v && v !== '__BLANK__' && typeof v !== 'object') {
-              splitCellPeople(v).forEach(function(person) { assignedToday[_afKey(person)] = true; });
+              splitCellPeople(v).forEach(function(person) { markDuty(_afKey(person), role.id); });
             }
           });
+          // May this person take <roleId> as well as what they already hold
+          // today? EVERY duty they hold has to permit it, not just one: a Reader
+          // may sing and may be on Altar Guild, but Singer and Altar Guild clash,
+          // so somebody already doing the first two is not free for the third.
+          var mayAlsoDo = function(key, roleId) {
+            var held = dutiesToday[key];
+            if (!held || !held.length) return true;
+            return held.every(function(heldRole) { return self._dutiesMayPair(heldRole, roleId); });
+          };
+          var alreadyServing = function(key) {
+            return !!(dutiesToday[key] && dutiesToday[key].length);
+          };
 
           var prevDay = dateIdx > 0 ? datesToFill[dateIdx - 1] : null;
 
@@ -90072,14 +90115,14 @@ function filterLiturgyItems() {
               if (liturgistVal && liturgistVal !== '__BLANK__' && typeof liturgistVal !== 'object') {
                 if (previewOnly) {
                   previewList.push({ date: dateStr, roleId: role.id, roleLabel: role.label, name: liturgistVal, reason: 'Mirrors the Liturgist assigned to this service', warning: '' });
-                  assignedToday[_afKey(liturgistVal)] = true;
+                  markDuty(_afKey(liturgistVal), role.id);
                   return;
                 }
                 _rPushUndo(cellKey, existing, liturgistVal, false, true);
                 STATE.rosterEdits.set(cellKey, liturgistVal);
                 STATE.rosterPendingCells.add(cellKey);
                 STATE.rosterCellTimestamps.set(cellKey, new Date().toISOString());
-                assignedToday[_afKey(liturgistVal)] = true;
+                markDuty(_afKey(liturgistVal), role.id);
                 fills.push({ date: dateStr, roleLabel: role.label, name: liturgistVal });
               } else {
                 couldNotFill.push({ date: dateStr, roleLabel: role.label + ' (needs Liturgist assigned first)' });
@@ -90173,10 +90216,14 @@ function filterLiturgyItems() {
             }
 
             var candidates = pool.filter(function(name) {
-              // Flower Arrangement never counts as "already serving today"
-              // in either direction -- see the assignedToday seeding
-              // comment above.
-              if (role.id !== 'flowerarrangement' && assignedToday[_afKey(name)]) return false;
+              // Flower Arrangement never counts as "already serving today" in
+              // either direction -- see the dutiesToday seeding comment above.
+              //
+              // Otherwise: a second duty is refused only when the pairing rules
+              // say the two cannot genuinely be held at once. Where they can, the
+              // candidate stays eligible but score() puts them below everybody
+              // else, so it happens only if nothing else fills the cell.
+              if (role.id !== 'flowerarrangement' && !mayAlsoDo(_afKey(name), role.id)) return false;
               if (isPersonUnavailable(name, dateStr, STATE.rosterYear, category)) return false;
               // Occasional / inactive / suspended -- a hard exclusion, not a
               // ranking penalty. These people are still fully selectable by
@@ -90222,12 +90269,19 @@ function filterLiturgyItems() {
 
             function score(name) {
               var k = _afKey(name);
+              // Worth more than every other consideration put together: giving a
+              // Sunday to one more person beats loading a second duty onto
+              // somebody who is already serving, even a preferred somebody.
+              // Candidates only reach here if the pairing rules allow the
+              // combination, so this ranks a legitimate double, never risks one.
+              var doubleTier = alreadyServing(k) ? 1 : 0;
               var tier = (curatedSet && !curatedSet[k]) ? 1 : 0;
-              if (role.id === 'liturgist') return tier;
+              if (role.id === 'liturgist') return doubleTier * 1000 + tier;
               // A pairing outranks the team list: being the drummer who reads
               // this liturgist matters more than being on the standing band.
               var pairTier = (pairPreferred && !pairPreferred[k]) ? 1 : 0;
-              return pairTier * 100 + tier * 10 + ((monthCount[k] || 0) >= monthlyCap ? 1 : 0) + (backToBackKeys[k] ? 1 : 0);
+              return doubleTier * 1000 + pairTier * 100 + tier * 10 +
+                ((monthCount[k] || 0) >= monthlyCap ? 1 : 0) + (backToBackKeys[k] ? 1 : 0);
             }
             var roleCounts = perRoleMonthCount[role.id] || {};
             candidates.sort(function(a, b) {
@@ -90263,19 +90317,26 @@ function filterLiturgyItems() {
                           : (winnerTier === 0 && curatedSet ? 'On the ' + team + ' team roster' : 'Available this month')) +
               (winnerMonthCount === 0 ? ', not yet served this month' : ', served ' + winnerMonthCount + ' time' + (winnerMonthCount === 1 ? '' : 's') + ' this month');
             var warning = '';
-            if (role.id !== 'liturgist') {
+            // Read before the bookkeeping below records this role, so it names
+            // the OTHER duties they hold rather than including this one.
+            var alsoHolding = (dutiesToday[winnerKey] || []).slice();
+            if (alsoHolding.length && role.id !== 'flowerarrangement') {
+              // The most notable thing about a pick, so it outranks the other two.
+              warning = 'Also on ' + alsoHolding.map(function(r) { return self._roleWord(r); }).join(' and ') +
+                ' today -- the two can be held together, and nobody else was free';
+            } else if (role.id !== 'liturgist') {
               if (winnerMonthCount >= monthlyCap) warning = 'Already serving ' + monthlyCap + '+ times this month (limit relaxed -- no one fresher was available)';
               else if (backToBackKeys[winnerKey]) warning = 'Also did this duty last time (repeat unavoidable -- no one else was available)';
             }
 
-            // Bookkeeping (monthCount/perRoleMonthCount/assignedToday) always
+            // Bookkeeping (monthCount/perRoleMonthCount/dutiesToday) always
             // happens, preview or not -- later candidates in this same run
             // must see this pick either way for their own scoring to be
             // accurate in the preview.
             monthCount[winnerKey] = (monthCount[winnerKey] || 0) + 1;
             if (!perRoleMonthCount[role.id]) perRoleMonthCount[role.id] = {};
             perRoleMonthCount[role.id][winnerKey] = (perRoleMonthCount[role.id][winnerKey] || 0) + 1;
-            if (role.id !== 'flowerarrangement') assignedToday[winnerKey] = true;
+            if (role.id !== 'flowerarrangement') markDuty(winnerKey, role.id);
 
             if (previewOnly) {
               previewList.push({ date: dateStr, roleId: role.id, roleLabel: role.label, name: winner, reason: reason, warning: warning });

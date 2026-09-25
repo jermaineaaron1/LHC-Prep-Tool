@@ -293,16 +293,31 @@ check('a blank field still means "use the built-in 2"',
   /var blankCap = \(capRaw === '' \|\| capRaw === undefined \|\| capRaw === null\);/.test(src), true);
 
 // ---------------------------------------------------------------------------
-console.log('\n9. KNOWN GAP -- Auto-Suggest never places one person twice in a day');
-// The clash rules decide what shows RED. assignedToday decides what Auto-Suggest
-// will place, and it refuses a second duty outright -- so a PIC who allows a new
-// pairing changes the warning, not what Auto-Suggest does with it.
-check('the candidate filter blocks anyone already serving that day',
-  /if \(role\.id !== 'flowerarrangement' && assignedToday\[_afKey\(name\)\]\) return false;/.test(src), true);
-check('that filter never consults the pairing rules',
-  /assignedToday[\s\S]{0,200}?_dutiesMayPair/.test(src), false);
-check('the one exception is the Liturgist mirrored into Communion Assistant 1',
-  /communion1[\s\S]{0,600}?liturgistVal/.test(src), true);
+console.log('\n9. The clash rules govern Auto-Suggest, not just the warning');
+// They used to govern only what showed RED. Auto-Suggest asked a cruder question
+// -- is this person busy today? -- and treated any yes as a veto, so allowing
+// Singer to assist at Communion removed a warning and changed nothing about who
+// got rostered. The same-day map records the duties now, so the filter can ask
+// whether THESE two may be held together.
+//
+// tools/autosuggest-skip-harness.js scenarios 4 and 8 run the real filter and the
+// real comparator against the real pairing rules; these assert the wiring.
+check('the filter asks whether the duties may be held together',
+  /if \(role\.id !== 'flowerarrangement' && !mayAlsoDo\(_afKey\(name\), role\.id\)\) return false;/.test(src), true);
+check('...and that question is answered by the pairing rules',
+  /mayAlsoDo = function[\s\S]{0,400}?self\._dutiesMayPair\(heldRole, roleId\)/.test(src), true);
+check('EVERY duty held has to permit it, not merely one of them',
+  /held\.every\(function\(heldRole\)/.test(src), true);
+check('the crude "is anyone busy" veto is gone',
+  /assignedToday/.test(src), false);
+check('a permitted double is ranked below everything else, not preferred',
+  /doubleTier \* 1000 \+ pairTier \* 100 \+ tier \* 10/.test(src), true);
+check('...including for Liturgist, which is exempt from the milder penalties',
+  /if \(role\.id === 'liturgist'\) return doubleTier \* 1000 \+ tier;/.test(src), true);
+check('and the summary says so when it happens',
+  /the two can be held together, and nobody else was free/.test(src), true);
+check('the Liturgist mirrored into Communion Assistant 1 still records its duty',
+  /markDuty\(_afKey\(liturgistVal\), role\.id\);/.test(src), true);
 
 // ---------------------------------------------------------------------------
 console.log('\n10. Nothing claims a removal the server has not confirmed');
@@ -322,6 +337,29 @@ check('Use default waits for both halves of the revert',
   /Promise\.all\(sent\)\.then\(function\(\) \{/.test(src), true);
 check('...and does not announce the default before they land',
   /_dsRenderList\(\); _dsRenderPane\(\);[\s\S]{0,120}?textContent = 'Back to the default\.';/.test(src), false);
+
+// ---------------------------------------------------------------------------
+console.log('\n11. A rule that needs its trigger filled in first says so');
+// Auto-Suggest settles duties in roster order, so a rule whose target comes BEFORE
+// its trigger is decided before the trigger exists. It is not broken -- it applies
+// whenever that cell was filled in by hand first, which is how many months start --
+// but on a blank month it does nothing, and the screen gave no hint which of the
+// two a PIC was looking at. Refusing to save it would remove something that works,
+// so it is labelled instead, on the rule itself rather than once in a toast.
+check('the order test exists and is based on the roster order',
+  /function _dsRuleNeedsTriggerFirst\(whenRole, thenRole\)/.test(src), true);
+check('it compares positions in _dsDuties, which is ROLES in fill order',
+  /var order = _dsDuties\(\)\.map[\s\S]{0,120}?return w !== -1 && t !== -1 && t < w;/.test(src), true);
+check('every listed rule is labelled when it applies',
+  /var needsFirst = _dsRuleNeedsTriggerFirst\(r\.whenRole, r\.thenRole\);/.test(src), true);
+check('the label names the duty that has to be filled in first',
+  /only if ' \+\s*escapeHtmlModal\(_dsDutyLabel\(r\.whenRole\)\)\ \+ ' is filled in first/.test(src), true);
+check('the label has a style of its own rather than borrowing one',
+  /\.ds-cond-warn\{/.test(src), true);
+check('and saving one says it at that moment too',
+  /so this only applies when ' \+ _dsDutyLabel\(_dsRole\) \+ ' is filled in first\./.test(src), true);
+check('the caveat is appended to the success note, not to the failure one',
+  /word \+ ' saved\. Every PIC sees this\.' \+ caveat;/.test(src), true);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(32));
