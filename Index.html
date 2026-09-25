@@ -84497,6 +84497,12 @@ function filterLiturgyItems() {
       return !!(r && (r.people || r.monthlyCap || r.applies !== null));
     });
     if (settings) return true;
+    var RE = window.RosterEngine;
+    if (RE) {
+      var cat = RE._clashDutyCategory(roleId);
+      var catRow = cat ? ROSTER_DUTY_SETTINGS[cat + '__all'] : null;
+      if (catRow && Array.isArray(catRow.mayPairWith)) return true;
+    }
     return ROSTER_DUTY_PAIRINGS.some(function(r) { return r.whenRole === roleId; });
   }
 
@@ -84972,9 +84978,6 @@ function filterLiturgyItems() {
     _dsRenderList(); _dsRenderPane();
     var note = document.getElementById('dsNote');
     if (note) note.textContent = 'Back to the default.';
-    if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.deleteDutySetting) {
-      SBQ_ROSTER.deleteDutySetting(_dsRole, _dsTeam).catch(function(e) { console.warn('deleteDutySetting failed:', e); });
-    }
   }
 
   function openDutySettings() {
