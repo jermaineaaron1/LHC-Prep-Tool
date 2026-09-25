@@ -59,7 +59,7 @@ function extractMember(name) {
 
 const members = ['DUTY_PAIRING', 'DUTY_PAIRS_WITH_ANYTHING', 'DUTY_WORD', '_clashDutyCategory',
                  '_dutyPairing', '_isSoloDuty', '_dutiesMayPair', '_catWord',
-                 '_pairRefusalReason', '_roleWord'];
+                 '_pairRefusalReason', '_roleWord', '_serviceOverlaps'];
 console.log('Extracted from ' + path.basename(INDEX) + ':');
 const sliced = {};
 for (const m of members) {
@@ -72,12 +72,26 @@ const engineSrc = 'var RE = {\n' +
   '\n};\n; return RE;';
 const RE = new Function('Object', 'JSON', engineSrc)(Object, JSON);
 RE._dutyPairingOverrides = null;
-// _roleWord reads this.ROLES for the human label; stub the handful used here.
+// _roleWord reads this.ROLES for the human label, and _serviceOverlaps walks it
+// to find who is on duty -- so every entry carries the type it filters on, and
+// the list covers every duty these checks put somebody on. Order matters only in
+// that it is the order the real ROLES has, which is the order a card lists.
 RE.ROLES = [
-  { id: 'preacher', label: 'Preacher' }, { id: 'liturgist', label: 'Liturgist' },
-  { id: 'usher1', label: 'Usher 1' }, { id: 'usher2', label: 'Usher 2' },
-  { id: 'reader1', label: 'Reader 1' }, { id: 'altar1', label: 'Altar Guild 1' },
-  { id: 'communion2', label: 'Communion Assistant 2' }, { id: 'singer1', label: 'Singer 1' }
+  { type: 'role', id: 'preacher', label: 'Preacher' },
+  { type: 'role', id: 'liturgist', label: 'Liturgist' },
+  { type: 'role', id: 'usher1', label: 'Usher 1' },
+  { type: 'role', id: 'usher2', label: 'Usher 2' },
+  { type: 'role', id: 'reader1', label: 'Reader 1' },
+  { type: 'role', id: 'communion1', label: 'Communion Assistant 1' },
+  { type: 'role', id: 'communion2', label: 'Communion Assistant 2' },
+  { type: 'role', id: 'altar1', label: 'Altar Guild 1' },
+  { type: 'role', id: 'pianist', label: 'Pianist' },
+  { type: 'role', id: 'singer1', label: 'Singer 1' },
+  { type: 'role', id: 'lcd', label: 'LCD Operator' },
+  { type: 'role', id: 'pa', label: 'PA System' },
+  { type: 'role', id: 'flowerarrangement', label: 'Flower Arrangement' },
+  // A header, to prove the walk filters on type rather than taking every row.
+  { type: 'header', id: 'h_music', label: 'MUSIC MINISTRY' }
 ];
 
 const ID = {
@@ -178,6 +192,81 @@ console.log('\nScenario 5 - the refusal says which kind of no it is');
 }
 
 console.log('\n================================');
+// ---------------------------------------------------------------------------
+// The phone draws the same two facts from a different place.
+//
+// checkClashes reads the rendered table; the mobile month view has no table and
+// reads the roster data instead. Two readings of one Sunday is exactly how the
+// two views would come to disagree -- a PIC seeing aqua on a laptop and nothing
+// on a phone, with no way to tell which was right -- so _serviceOverlaps asks
+// _dutiesMayPair, and this runs it to prove the classification matches the rules
+// asserted above rather than merely looking like it does.
+console.log('\nWho doubles up in one service, read from the roster data');
+
+function overlaps(byRole) {
+  const edits = new Map();
+  Object.keys(byRole).forEach(r => edits.set(r + '__Dec_6', byRole[r]));
+  const env = {
+    STATE: { rosterEdits: edits },
+    splitCellPeople: v => String(v).split(' / ').map(s => s.trim()).filter(Boolean),
+    _nameNorm: s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(),
+    RE, Object, Map, JSON
+  };
+  const body = 'return RE._serviceOverlaps.call(RE, "Dec_6");';
+  const keys = Object.keys(env);
+  // _serviceOverlaps reads ROLES, splitCellPeople, _nameNorm and STATE off its
+  // own scope, so hand it exactly those and let the real method do the rest.
+  const g = new Function(...keys, 'globalThis.STATE = STATE; globalThis.splitCellPeople = splitCellPeople; globalThis._nameNorm = _nameNorm; ' + body);
+  return g(...keys.map(k => env[k]));
+}
+const kindOf = o => Object.keys(o.byRole).sort()
+  .map(r => r + '=' + o.byRole[r][0].kind).join(',');
+
+check('nobody doubling up produces nothing at all',
+  kindOf(overlaps({ preacher: 'Ann Lee', pianist: 'Ben Ooi' })), '');
+check('Liturgist and Communion Assistant is a legitimate double',
+  kindOf(overlaps({ liturgist: 'Ann Lee', communion1: 'Ann Lee' })),
+  'communion1=ok,liturgist=ok');
+check('Usher and Singer is not',
+  kindOf(overlaps({ usher1: 'Ann Lee', singer1: 'Ann Lee' })),
+  'singer1=clash,usher1=clash');
+check('two cells of the SAME duty are one person twice',
+  kindOf(overlaps({ usher1: 'Ann Lee', usher2: 'Ann Lee' })),
+  'usher1=clash,usher2=clash');
+check('Flower Arrangement collides with nothing',
+  kindOf(overlaps({ usher1: 'Ann Lee', flowerarrangement: 'Ann Lee' })),
+  'flowerarrangement=ok,usher1=ok');
+// The mixed case the table pass also handles: one duty clashes, another does
+// not, and they are marked differently rather than the whole person condemned.
+check('a third duty that clashes does not condemn the pair that does not',
+  kindOf(overlaps({ reader1: 'Ann Lee', singer1: 'Ann Lee', pianist: 'Ann Lee' })),
+  'pianist=clash,reader1=clash,singer1=clash');
+check('Reader and Singer alone is fine',
+  kindOf(overlaps({ reader1: 'Ann Lee', singer1: 'Ann Lee' })),
+  'reader1=ok,singer1=ok');
+check('a mentor/trainee cell counts both people',
+  kindOf(overlaps({ lcd: 'Ann Lee / Ben Ooi', pa: 'Ben Ooi' })),
+  'lcd=clash,pa=clash');
+check('a stray double space is still the same person',
+  kindOf(overlaps({ usher1: 'Ann  Lee', singer1: 'Ann Lee' })),
+  'singer1=clash,usher1=clash');
+check('a blanked cell is not an assignment',
+  kindOf(overlaps({ usher1: '__BLANK__', singer1: 'Ann Lee' })), '');
+check('only a pair with both ends gets a line',
+  overlaps({ liturgist: 'Ann Lee', communion1: 'Ann Lee' }).groups,
+  [['liturgist', 'communion1']]);
+check('...and a clashing pair gets none',
+  overlaps({ usher1: 'Ann Lee', singer1: 'Ann Lee' }).groups, []);
+// The leftover: Flower Arrangement pairs with both, but Usher and Singer clash
+// with each other, so exactly one duty comes through clean. It is marked -- the
+// person IS doubling up -- but a line needs two ends, and one would point at
+// nothing.
+check('one duty left over is marked but not joined to anything',
+  overlaps({ flowerarrangement: 'Ann Lee', usher1: 'Ann Lee', singer1: 'Ann Lee' }).groups, []);
+check('...and it is still marked as the legitimate one',
+  kindOf(overlaps({ flowerarrangement: 'Ann Lee', usher1: 'Ann Lee', singer1: 'Ann Lee' })),
+  'flowerarrangement=ok,singer1=clash,usher1=clash');
+
 const passed = results.filter(Boolean).length;
 console.log(passed + '/' + results.length + ' checks passed');
 process.exit(passed === results.length ? 0 : 1);

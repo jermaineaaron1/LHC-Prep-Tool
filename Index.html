@@ -3908,7 +3908,26 @@
         display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 6px; vertical-align: -3px;
         border-radius: 5px; border: 1px dashed #b6cabf; color: #7d938a; font-size: 10px; font-weight: 800; cursor: pointer;
       }
-      .rmp-month-legend { margin: 4px 4px 12px; display: flex; justify-content: center; gap: 14px; color: #60786e; font-size: 9px; font-weight: 700; }
+      .rmp-month-legend { margin: 4px 4px 12px; display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 14px; color: #60786e; font-size: 9px; font-weight: 700; }
+
+      /* Two duties one person may genuinely hold, and two they may not. Same
+         two meanings and the same two colours as the table, so a PIC who
+         learns them on a laptop reads them on a phone. The background is set
+         rather than only the text, because these rows already carry colour for
+         "awaiting confirmation" and a tinted name alone would not carry. */
+      .rmp-person.rmp-double-ok { background: linear-gradient(180deg,#ecfeff,#dff7fb); }
+      .rmp-person.rmp-clash { background: linear-gradient(180deg,#fee2e2,#fecaca); color: #991b1b; }
+      .rmp-person-name.rmp-double-ok {
+        background: #ecfeff; box-shadow: 0 0 0 1px #a5edf7; border-radius: 4px; padding: 0 3px;
+      }
+      .rmp-person-name.rmp-clash { color: #991b1b; text-decoration: underline wavy #ef4444; }
+      .rmp-service-ledger { position: relative; }
+      .rmp-duty-links {
+        position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; z-index: 2;
+      }
+      .rmp-duty-links line { stroke: rgba(8,145,178,0.4); stroke-width: 1.5; stroke-linecap: round; }
+      .rmp-duty-links line.rmp-duty-link-halo { stroke: rgba(255,255,255,0.55); stroke-width: 3.5; }
+      .rmp-duty-links circle { fill: rgba(8,145,178,0.55); }
 
       /* ---- WORSHIP ORDERS ---- */
       .wo-container { min-height: 400px; }
@@ -86308,8 +86327,35 @@ function filterLiturgyItems() {
       var groupLabels = this.MOBILE_MULTI_PERSON_LABELS;
       var readerPassage = this.MOBILE_READER_PASSAGE;
 
+      var anyDoubles = false;
       var ledgersHtml = serviceDays.map(function(day) {
         var dateKeySuffix = day.dateStr.replace(/\s/g, '_');
+        // The month view had neither mark. Adding only the benign one would
+        // have been worse than adding neither: a PIC would learn that aqua
+        // means "checked, and fine" and read its absence as the same.
+        var overlaps = self._serviceOverlaps(dateKeySuffix);
+        var groupOf = {};
+        overlaps.groups.forEach(function(g, gi) {
+          g.forEach(function(roleId) { groupOf[roleId] = gi; });
+        });
+        // Mark, and say what the other duty is -- the mark alone only poses
+        // the question it is meant to answer.
+        var markFor = function(roleId) {
+          var hits = overlaps.byRole[roleId];
+          if (!hits || !hits.length) return { cls: '', attrs: '' };
+          var hit = hits[0];
+          var others = hit.partners.map(function(r) { return self._roleWord(r); }).join(', ');
+          var title = hit.kind === 'clash'
+            ? hit.name + ' cannot hold this and ' + others + ' in one service.'
+            : hit.name + ' is also on ' + others + ' this service. One person can hold both.';
+          if (hit.kind === 'ok') anyDoubles = true;
+          return {
+            cls: hit.kind === 'clash' ? ' rmp-clash' : ' rmp-double-ok',
+            attrs: ' title="' + self.escapeHtml(title) + '"' +
+              (hit.kind === 'ok' && groupOf[roleId] !== undefined
+                ? ' data-dlink="' + groupOf[roleId] + '"' : '')
+          };
+        };
         var svcKey = 'service_type__' + dateKeySuffix;
         var svcVal = STATE.rosterEdits.get(svcKey);
         var hasSvcType = svcVal === 'Traditional' || svcVal === 'Contemporary';
@@ -86370,9 +86416,10 @@ function filterLiturgyItems() {
             // not shown.
             var dayEsc = self.escapeHtml(day.dateStr).replace(/'/g, "\\'");
             var namesHtml = row.slots.filter(function(slot) { return slot.value; }).map(function(slot) {
-              var cls = 'rmp-person-name' + (slot.pending ? ' pending' : '') + (STATE.picMode ? ' pic-tappable' : '');
+              var mk = markFor(slot.cellKey.split('__')[0]);
+              var cls = 'rmp-person-name' + (slot.pending ? ' pending' : '') + (STATE.picMode ? ' pic-tappable' : '') + mk.cls;
               var tap = STATE.picMode ? ' onclick="RosterEngine.jumpToDateAndEdit(\'' + dayEsc + '\',\'' + slot.cellKey.split('__')[0] + '\')"' : '';
-              return '<span class="' + cls + '"' + tap + '>' + self.escapeHtml(slot.value) + '</span>';
+              return '<span class="' + cls + '"' + tap + mk.attrs + '>' + self.escapeHtml(slot.value) + '</span>';
             }).join(', ');
             // A PIC still needs a way into an EMPTY slot, which plain commas
             // would otherwise hide completely, so those keep a small tap
@@ -86384,11 +86431,12 @@ function filterLiturgyItems() {
           }
           // A reading stacks under its reader rather than sitting off to the
           // right of it, so the pairing reads as one duty.
-          var pcls = 'rmp-person' + (row.value ? (row.pending ? ' pending' : '') : ' open') + (STATE.picMode ? ' pic-tappable' : '') + (row.passage ? ' stacked' : '');
+          var mk1 = row.value ? markFor(row.cellKey.split('__')[0]) : { cls: '', attrs: '' };
+          var pcls = 'rmp-person' + (row.value ? (row.pending ? ' pending' : '') : ' open') + (STATE.picMode ? ' pic-tappable' : '') + (row.passage ? ' stacked' : '') + mk1.cls;
           var ptap = STATE.picMode ? ' onclick="RosterEngine.jumpToDateAndEdit(\'' + self.escapeHtml(day.dateStr).replace(/'/g, "\\'") + '\',\'' + row.cellKey.split('__')[0] + '\')"' : '';
           var ptext = row.value ? self.escapeHtml(row.value) : '';
           var small = row.passage ? '<small class="rmp-passage">' + self.escapeHtml(row.passage) + '</small>' : (row.pending ? '<small>Auto Suggest</small>' : '');
-          return '<div class="rmp-duty-row"><div class="rmp-duty-label">' + row.label + '</div><div class="' + pcls + '"' + ptap + '>' + ptext + small + '</div></div>';
+          return '<div class="rmp-duty-row"><div class="rmp-duty-label">' + row.label + '</div><div class="' + pcls + '"' + ptap + mk1.attrs + '>' + ptext + small + '</div></div>';
         }).join('');
 
         var statusCls = filledCount === totalCount ? '' : ' gap';
@@ -86414,8 +86462,11 @@ function filterLiturgyItems() {
         '</div>';
       }).join('');
 
-      ledgersHtml += '<div class="rmp-month-legend"><span>Gold = awaiting confirmation</span><span>Tap a slot to edit</span></div>';
+      ledgersHtml += '<div class="rmp-month-legend"><span>Gold = awaiting confirmation</span>' +
+        (anyDoubles ? '<span>Aqua = two duties, no clash</span>' : '') +
+        '<span>Tap a slot to edit</span></div>';
       ledgersEl.innerHTML = ledgersHtml;
+      this._drawMobileDutyLinks();
 
       jumpEl.querySelectorAll('button[data-jump-idx]').forEach(function(btn) {
         btn.onclick = function() {
@@ -89639,6 +89690,77 @@ function filterLiturgyItems() {
       svg.innerHTML = parts.join('');
     },
 
+    // The same line as the table draws, inside a card. Each service is its own
+    // card, and a person's two duties are two rows of it, so the line lives in
+    // the card and needs no knowledge of the page scroll -- an absolutely
+    // positioned child of the card moves with it.
+    _drawMobileDutyLinks: function() {
+      var ledgers = document.querySelectorAll('#rmpServiceLedgers .rmp-service-ledger');
+      if (!ledgers.length) return;
+      this._ensureMobileDutyLinkObserver();
+      Array.prototype.forEach.call(ledgers, function(card) {
+        var svg = card.querySelector('.rmp-duty-links');
+        var marked = card.querySelectorAll('[data-dlink]');
+        if (!marked.length) { if (svg) svg.remove(); return; }
+        if (!svg) {
+          svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          svg.setAttribute('class', 'rmp-duty-links');
+          svg.setAttribute('aria-hidden', 'true');
+          card.appendChild(svg);
+        }
+        var cardRect = card.getBoundingClientRect();
+        if (!cardRect.width || !cardRect.height) { svg.innerHTML = ''; return; }
+        svg.setAttribute('width', Math.round(cardRect.width));
+        svg.setAttribute('height', Math.round(cardRect.height));
+
+        var byGroup = {};
+        Array.prototype.forEach.call(marked, function(el) {
+          var g = el.getAttribute('data-dlink');
+          // Vertical position from the marked name, horizontal from the column
+          // it sits in. A name in a shared duty ("Foo Ming Soon, Evon
+          // Nathaniel") starts partway along its row, and anchoring the line
+          // there ran it straight down through the names underneath.
+          var col = el.closest('.rmp-person, .rmp-shared-team') || el;
+          var r = el.getBoundingClientRect();
+          (byGroup[g] = byGroup[g] || []).push({
+            top: r.top, height: r.height, width: r.width,
+            left: col.getBoundingClientRect().left
+          });
+        });
+        var parts = [], idx = 0;
+        Object.keys(byGroup).forEach(function(g) {
+          var rects = byGroup[g].filter(function(r) { return r.width && r.height; });
+          if (rects.length < 2) return;
+          rects.sort(function(a, b) { return a.top - b.top; });
+          // Just inside the name column, clear of the duty label to its left,
+          // and staggered so two people doubling up on one Sunday read as two.
+          var x = Math.round(rects[0].left - cardRect.left + 4 + idx * 4);
+          var ys = rects.map(function(r) { return Math.round(r.top - cardRect.top + r.height / 2); });
+          parts.push('<line class="rmp-duty-link-halo" x1="' + x + '" y1="' + ys[0] +
+                     '" x2="' + x + '" y2="' + ys[ys.length - 1] + '"/>');
+          parts.push('<line x1="' + x + '" y1="' + ys[0] + '" x2="' + x + '" y2="' + ys[ys.length - 1] + '"/>');
+          ys.forEach(function(y) { parts.push('<circle cx="' + x + '" cy="' + y + '" r="2"/>'); });
+          idx++;
+        });
+        svg.innerHTML = parts.join('');
+      });
+    },
+
+    // The month view is built while it may still be display:none, and the cards
+    // reflow as the phone rotates, so the same watch the table gets.
+    _ensureMobileDutyLinkObserver: function() {
+      if (this._mobileDutyLinkObserver || typeof ResizeObserver === 'undefined') return;
+      var host = document.getElementById('rmpServiceLedgers');
+      if (!host) return;
+      var self = this, queued = false;
+      this._mobileDutyLinkObserver = new ResizeObserver(function() {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(function() { queued = false; self._drawMobileDutyLinks(); });
+      });
+      this._mobileDutyLinkObserver.observe(host);
+    },
+
     // render() runs whenever the month or the data changes, including while the
     // roster view is hidden -- and a hidden table measures zero, so there is
     // nothing to draw at that moment and the lines would simply be missing when
@@ -89668,6 +89790,53 @@ function filterLiturgyItems() {
       if (this._dutyLinkGroups && this._dutyLinkGroups.length) {
         this._drawDutyLinks(this._dutyLinkGroups);
       }
+    },
+
+    // Who is on more than one duty in this service, and may they be?
+    // Keyed by duty, because that is what both views draw; a duty cell holding
+    // a mentor and a trainee can have two people doubling up, so each duty
+    // carries a list rather than a single answer.
+    _serviceOverlaps: function(dateKeySuffix) {
+      var self = this;
+      var byPerson = {};
+      this.ROLES.forEach(function(role) {
+        if (role.type !== 'role') return;
+        var v = STATE.rosterEdits.get(role.id + '__' + dateKeySuffix);
+        if (!v || v === '__BLANK__' || typeof v === 'object') return;
+        splitCellPeople(v).forEach(function(person) {
+          var k = _nameNorm(person);
+          if (!k) return;
+          (byPerson[k] = byPerson[k] || []).push({ roleId: role.id, name: person });
+        });
+      });
+
+      var byRole = {}, groups = [];
+      Object.keys(byPerson).forEach(function(k) {
+        var es = byPerson[k];
+        if (es.length < 2) return;
+        // Same shape as the table pass: a duty is a clash if it collides with
+        // ANY of the others, and whatever is left over is a legitimate double.
+        var isClash = {};
+        for (var i = 0; i < es.length; i++) {
+          for (var j = i + 1; j < es.length; j++) {
+            if (self._dutiesMayPair(es[i].roleId, es[j].roleId)) continue;
+            isClash[i] = true; isClash[j] = true;
+          }
+        }
+        var ok = [];
+        es.forEach(function(e, i) {
+          var partners = es.filter(function(o, j) { return j !== i; })
+            .map(function(o) { return o.roleId; });
+          (byRole[e.roleId] = byRole[e.roleId] || []).push({
+            kind: isClash[i] ? 'clash' : 'ok', name: e.name, partners: partners
+          });
+          if (!isClash[i]) ok.push(e.roleId);
+        });
+        // A line wants two ends. One person left over because everybody else
+        // they were paired with clashed is still marked, just not joined.
+        if (ok.length > 1) groups.push(ok);
+      });
+      return { byRole: byRole, groups: groups };
     },
 
     checkClashes: function(changedTd) {

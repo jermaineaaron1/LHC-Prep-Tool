@@ -752,7 +752,7 @@ console.log('\nScenario 8 - an allowed double loses to everybody');
 
 function scoreOf(name, opts) {
   const o = opts || {};
-  const key = n => (n || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+  const key = n => (n || '').trim().replace(/\s+/g, ' ').toLowerCase();
   const env = {
     role: { id: o.roleId || 'singer1' },
     _afKey: key,
