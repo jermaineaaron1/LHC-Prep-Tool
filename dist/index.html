@@ -26524,6 +26524,52 @@ var SBQ_ROSTER = {
       .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
   },
 
+  // ---------- WHO GOES WITH WHOM ----------
+  getDutyPairings: function() {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('roster_duty_pairings').select('*').order('id')
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        return (r.data || []).map(function(row) {
+          return {
+            id: row.id,
+            whenRole: row.when_role,
+            whenPerson: row.when_person,
+            serviceType: row.service_type || 'all',
+            thenRole: row.then_role,
+            thenPeople: Array.isArray(row.then_people) ? row.then_people : [],
+            strict: !!row.strict
+          };
+        });
+      });
+  },
+
+  saveDutyPairing: function(rule, who) {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    var row = {
+      when_role: rule.whenRole, when_person: rule.whenPerson,
+      service_type: rule.serviceType || 'all', then_role: rule.thenRole,
+      then_people: rule.thenPeople || [], strict: !!rule.strict,
+      updated_at: new Date().toISOString(), updated_by: who || null
+    };
+    // Re-entering the same rule must edit it, not add a second copy that
+    // would count twice in the preference sort for no visible reason.
+    return sb.from('roster_duty_pairings')
+      .upsert(row, { onConflict: 'when_role,when_person,service_type,then_role' })
+      .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
+  },
+
+  deleteDutyPairing: function(rule) {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('roster_duty_pairings').delete()
+      .eq('when_role', rule.whenRole).eq('when_person', rule.whenPerson)
+      .eq('service_type', rule.serviceType || 'all').eq('then_role', rule.thenRole)
+      .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
+  },
+
   // Get all member metadata (status, joined date, etc.)
   getMemberMeta: function() {
     var sb = SBQ_ROSTER._sb();
@@ -83786,6 +83832,7 @@ function filterLiturgyItems() {
     _loadUnavailabilityFromCloud();
     _loadMemberMetaFromCloud();
     _loadDutySettingsFromCloud();
+    _loadDutyPairingsFromCloud();
   }
 
   function _loadUnavailabilityFromCloud() {
@@ -83861,6 +83908,46 @@ function filterLiturgyItems() {
     var stored = localStorage.getItem('lhc_roster_duty_settings');
     if (stored) { try { ROSTER_DUTY_SETTINGS = JSON.parse(stored); } catch (e) {} }
   })();
+
+  // Directional rules: when <person> is on <duty>, <other duty> should be one
+  // of <these people>. Held as a flat list rather than indexed, because there
+  // will be tens of them, not thousands, and a list is what the settings
+  // screen shows back.
+  var ROSTER_DUTY_PAIRINGS = [];
+  (function() {
+    var stored = localStorage.getItem('lhc_roster_duty_pairings');
+    if (stored) { try { ROSTER_DUTY_PAIRINGS = JSON.parse(stored) || []; } catch (e) {} }
+  })();
+
+  function _loadDutyPairingsFromCloud() {
+    if (typeof SBQ_ROSTER === 'undefined' || !SBQ_ROSTER.getDutyPairings) return Promise.resolve();
+    return SBQ_ROSTER.getDutyPairings().then(function(rows) {
+      if (!rows) return;
+      ROSTER_DUTY_PAIRINGS = rows;
+      localStorage.setItem('lhc_roster_duty_pairings', JSON.stringify(rows));
+    }).catch(function(e) { console.warn('Could not load duty pairings from Supabase:', e); });
+  }
+
+  // Which rules fire for the duty about to be filled? A rule fires when the
+  // duty it watches is already filled on this date with the person it names.
+  // Roles are processed in ROLES order, so Liturgist is settled before the
+  // band and Singer 1 before Singer 2 -- and a cell a PIC typed in by hand
+  // counts exactly the same, which is the common case.
+  function _firingPairings(roleId, team, dateKeySuffix) {
+    var out = [];
+    ROSTER_DUTY_PAIRINGS.forEach(function(rule) {
+      if (rule.thenRole !== roleId) return;
+      if (rule.serviceType && rule.serviceType !== 'all' && rule.serviceType !== team) return;
+      if (!rule.thenPeople || !rule.thenPeople.length) return;
+      var v = STATE.rosterEdits.get(rule.whenRole + '__' + dateKeySuffix);
+      if (!v || v === '__BLANK__' || typeof v === 'object') return;
+      var here = splitCellPeople(v).some(function(person) {
+        return _nameNorm(person) === _nameNorm(rule.whenPerson);
+      });
+      if (here) out.push(rule);
+    });
+    return out;
+  }
 
   function _loadDutySettingsFromCloud() {
     if (typeof SBQ_ROSTER === 'undefined' || !SBQ_ROSTER.getDutySettings) return Promise.resolve();
@@ -84343,6 +84430,12 @@ function filterLiturgyItems() {
       '#dutySet .ds-radio{display:flex;align-items:flex-start;gap:8px;font-size:.88rem;margin-bottom:6px;cursor:pointer;}' +
       '#dutySet .ds-people{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:4px 10px;margin-top:8px;max-height:210px;overflow-y:auto;border-top:1px solid #f0ece0;padding-top:8px;}' +
       '#dutySet .ds-people label{display:flex;align-items:center;gap:7px;font-size:.85rem;cursor:pointer;}' +
+      '#dutySet .ds-rule{display:flex;align-items:flex-start;gap:8px;font-size:.85rem;line-height:1.45;padding:7px 9px;background:#f6f4ec;border:1px solid #e6e2d6;border-radius:8px;margin-bottom:6px;}' +
+      '#dutySet .ds-rule span{flex:1;}' +
+      '#dutySet .ds-rule-x{border:0;background:none;color:#9a3b2f;font-size:1.05rem;line-height:1;cursor:pointer;padding:0 3px;flex:0 0 auto;}' +
+      '#dutySet .ds-addrule{border-top:1px solid #f0ece0;margin-top:9px;padding-top:9px;}' +
+      '#dutySet .ds-arow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:.85rem;margin-bottom:7px;}' +
+      '#dutySet .ds-arow select{padding:6px 8px;border:1px solid #d3ccb8;border-radius:7px;font:inherit;font-size:.85rem;background:#fff;max-width:190px;}' +
       '#dutySet .ds-num{width:92px;padding:7px 9px;border:1px solid #d3ccb8;border-radius:8px;font:inherit;font-size:.9rem;}' +
       '#dutySet .ds-foot{display:flex;align-items:center;gap:10px;padding:11px 16px;border-top:1px solid #e6e2d6;background:#faf9f4;}' +
       '#dutySet .ds-foot .grow{flex:1;font-size:.8rem;color:#6b7d73;}' +
@@ -84366,10 +84459,12 @@ function filterLiturgyItems() {
   }
   function _dsRow(roleId, team) { return ROSTER_DUTY_SETTINGS[roleId + '__' + team] || null; }
   function _dsHasAny(roleId) {
-    return ['traditional', 'contemporary', 'all'].some(function(t) {
+    var settings = ['traditional', 'contemporary', 'all'].some(function(t) {
       var r = _dsRow(roleId, t);
       return !!(r && (r.people || r.monthlyCap || r.applies !== null));
     });
+    if (settings) return true;
+    return ROSTER_DUTY_PAIRINGS.some(function(r) { return r.whenRole === roleId; });
   }
 
   function _dsRenderList() {
@@ -84387,6 +84482,127 @@ function filterLiturgyItems() {
         _dsRole = b.getAttribute('data-r'); _dsDirty = false;
         _dsRenderList(); _dsRenderPane();
       });
+    });
+  }
+
+
+  // ---------- PAIRINGS, IN THE SETTINGS SCREEN ----------
+  // Shown on the duty the rule WATCHES, not the one it affects: a PIC thinks
+  // "when Dorine leads...", so the rule lives under Liturgist. The duty it
+  // then constrains is a field inside the rule.
+  function _dsRulesFor(roleId, team) {
+    // A rule set for both services shows on both tabs, or it would look lost.
+    return ROSTER_DUTY_PAIRINGS.filter(function(r) {
+      var st = r.serviceType || 'all';
+      return r.whenRole === roleId && (st === team || st === 'all');
+    });
+  }
+
+  function _dsPairingHtml(roleId, team) {
+    var rules = _dsRulesFor(roleId, team);
+    var people = _dsPeopleFor(roleId);
+    var duties = _dsDuties().filter(function(r) { return r.id !== roleId; });
+    var list = rules.length
+      ? rules.map(function(r, i) {
+          return '<div class="ds-rule"><span>When <b>' + escapeHtmlModal(r.whenPerson) +
+            '</b> is on this duty, <b>' + escapeHtmlModal(_dsDutyLabel(r.thenRole)) + '</b> ' +
+            (r.strict ? 'must' : 'should') + ' be ' +
+            escapeHtmlModal(r.thenPeople.join(' or ')) +
+            ((r.serviceType || 'all') === 'all' ? ' <i>(both services)</i>' : '') + '</span>' +
+            '<button type="button" class="ds-rule-x" data-i="' + i + '" title="Remove this rule">&times;</button></div>';
+        }).join('')
+      : '<p class="ds-hint">No pairings yet.</p>';
+
+    return '<div class="ds-field"><label>Who goes with them</label>' +
+      '<div id="dsRules">' + list + '</div>' +
+      (people.length && duties.length
+        ? '<div class="ds-addrule">' +
+            '<div class="ds-arow"><span>When</span>' +
+              '<select id="dsWhen">' + people.map(function(n) {
+                return '<option value="' + escapeHtmlModal(n) + '">' + escapeHtmlModal(n) + '</option>';
+              }).join('') + '</select>' +
+              '<span>is on this duty,</span></div>' +
+            '<div class="ds-arow"><select id="dsThenRole">' + duties.map(function(r) {
+                return '<option value="' + escapeHtmlModal(r.id) + '">' + escapeHtmlModal(_dsDutyLabel(r.id)) + '</option>';
+              }).join('') + '</select>' +
+              '<select id="dsStrength"><option value="soft">should be</option><option value="strict">must be</option></select>' +
+              '<label class="ds-radio" style="margin:0"><input type="checkbox" id="dsBoth"><span>both services</span></label>' +
+              '<button type="button" class="ds-btn ghost" id="dsAddRule">Add</button></div>' +
+            '<div class="ds-people" id="dsThenPeople"></div>' +
+          '</div>'
+        : '<p class="ds-hint">Add names to this duty first, so there is somebody to build a rule around.</p>') +
+      '<p class="ds-hint"><b>Should be</b> means Auto-Suggest reaches for them first and falls back rather than leaving the cell blank. <b>Must be</b> means only them, and a blank cell if none are free.</p>' +
+      '</div>';
+  }
+
+  function _dsWirePairing(pane) {
+    var thenRole = document.getElementById('dsThenRole');
+    var thenBox = document.getElementById('dsThenPeople');
+    var strength = document.getElementById('dsStrength');
+    var bothBox = document.getElementById('dsBoth');
+    var renderThen = function() {
+      if (!thenRole || !thenBox) return;
+      var names = _dsPeopleFor(thenRole.value);
+      thenBox.innerHTML = names.length
+        ? names.map(function(n) {
+            return '<label><input type="checkbox" value="' + escapeHtmlModal(n) + '">' + escapeHtmlModal(n) + '</label>';
+          }).join('')
+        : '<span class="ds-hint">Nobody is on that duty&rsquo;s list yet.</span>';
+    };
+    if (thenRole) { thenRole.addEventListener('change', renderThen); renderThen(); }
+    Array.prototype.forEach.call(pane.querySelectorAll('.ds-rule-x'), function(b) {
+      b.addEventListener('click', function() {
+        var rules = _dsRulesFor(_dsRole, _dsTeam);
+        var rule = rules[parseInt(b.getAttribute('data-i'), 10)];
+        if (!rule) return;
+        ROSTER_DUTY_PAIRINGS = ROSTER_DUTY_PAIRINGS.filter(function(r) { return r !== rule; });
+        localStorage.setItem('lhc_roster_duty_pairings', JSON.stringify(ROSTER_DUTY_PAIRINGS));
+        _dsRenderList(); _dsRenderPane();
+        var note = document.getElementById('dsNote');
+        if (note) note.textContent = 'Pairing removed.';
+        if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.deleteDutyPairing) {
+          SBQ_ROSTER.deleteDutyPairing(rule).catch(function(e) { console.warn('deleteDutyPairing failed:', e); });
+        }
+      });
+    });
+
+    var add = document.getElementById('dsAddRule');
+    if (add) add.addEventListener('click', function() {
+      var note = document.getElementById('dsNote');
+      var who = (document.getElementById('dsWhen') || {}).value;
+      var role = (thenRole || {}).value;
+      var picked = Array.prototype.slice.call(thenBox.querySelectorAll('input:checked'))
+        .map(function(el) { return el.value; });
+      if (!who || !role || !picked.length) {
+        if (note) note.textContent = 'Pick a person, a duty, and at least one name to pair them with.';
+        return;
+      }
+      var rule = {
+        whenRole: _dsRole, whenPerson: who,
+        serviceType: (bothBox && bothBox.checked) ? 'all' : _dsTeam,
+        thenRole: role, thenPeople: picked,
+        strict: !!(strength && strength.value === 'strict')
+      };
+      // Re-adding the same when/then combination edits it rather than stacking
+      // a second rule that would count twice in the preference sort.
+      ROSTER_DUTY_PAIRINGS = ROSTER_DUTY_PAIRINGS.filter(function(r) {
+        return !(r.whenRole === rule.whenRole && _nameNorm(r.whenPerson) === _nameNorm(rule.whenPerson) &&
+                 (r.serviceType || 'all') === rule.serviceType && r.thenRole === rule.thenRole);
+      });
+      ROSTER_DUTY_PAIRINGS.push(rule);
+      localStorage.setItem('lhc_roster_duty_pairings', JSON.stringify(ROSTER_DUTY_PAIRINGS));
+      _dsRenderList(); _dsRenderPane();
+      if (note) note.textContent = 'Saving pairing...';
+      if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveDutyPairing) {
+        SBQ_ROSTER.saveDutyPairing(rule, null).then(function() {
+          var n2 = document.getElementById('dsNote');
+          if (n2) n2.textContent = 'Pairing saved. Every PIC sees this.';
+        }).catch(function(e) {
+          var n2 = document.getElementById('dsNote');
+          if (n2) n2.textContent = 'Pairing saved on this device only -- could not reach the server.';
+          console.warn('saveDutyPairing failed:', e);
+        });
+      }
     });
   }
 
@@ -84430,7 +84646,8 @@ function filterLiturgyItems() {
         '<input type="number" min="1" max="10" class="ds-num" id="dsCap" value="' +
           (row.monthlyCap ? row.monthlyCap : '') + '" placeholder="2">' +
         '<p class="ds-hint">How often Auto-Suggest is willing to come back to the same person for this duty. Blank uses the built-in 2. It gives way when nobody fresher is free, and says so in the summary.</p>' +
-      '</div>';
+      '</div>' +
+      _dsPairingHtml(_dsRole, _dsTeam);
 
     Array.prototype.forEach.call(pane.querySelectorAll('.ds-tabs button'), function(b) {
       b.addEventListener('click', function() {
@@ -84450,6 +84667,7 @@ function filterLiturgyItems() {
       el.addEventListener('change', dimPeople);
     });
     dimPeople();
+    _dsWirePairing(pane);
   }
 
   function _dsSave() {
@@ -89599,6 +89817,33 @@ function filterLiturgyItems() {
               });
             }
 
+            // Who goes with whom. A strict rule narrows the pool the same way
+            // a PIC's eligible list does; a soft one only says who to reach
+            // for first, so a Sunday is never left blank for the sake of a
+            // preference about company.
+            var firing = _firingPairings(role.id, team, dateKeySuffix);
+            var pairPreferred = null, pairReasons = [];
+            firing.forEach(function(rule) {
+              var keys = {};
+              rule.thenPeople.forEach(function(n) { keys[_afKey(n)] = true; });
+              pairReasons.push('with ' + rule.whenPerson + ' on ' + self._roleWord(rule.whenRole));
+              if (rule.strict) {
+                pool = pool.filter(function(n) { return keys[_afKey(n)]; });
+                rule.thenPeople.forEach(function(n) {
+                  if (!pool.some(function(x) { return _afKey(x) === _afKey(n); })) pool.push(n);
+                });
+              }
+              // Two soft rules on one duty both apply: someone named by both
+              // is the best answer, so preferences intersect rather than pile
+              // up. A candidate named by only one still beats the open pool.
+              if (!pairPreferred) { pairPreferred = keys; }
+              else {
+                var both = {};
+                Object.keys(pairPreferred).forEach(function(k) { if (keys[k]) both[k] = true; });
+                if (Object.keys(both).length) pairPreferred = both;
+              }
+            });
+
             // Curated-team membership for this role/team, if one is defined
             // (see TEAM_ROLE_CONFIG) -- used below to make sure a named team
             // member is always preferred over a general-dropdown fallback,
@@ -89678,7 +89923,10 @@ function filterLiturgyItems() {
               var k = _afKey(name);
               var tier = (curatedSet && !curatedSet[k]) ? 1 : 0;
               if (role.id === 'liturgist') return tier;
-              return tier * 10 + ((monthCount[k] || 0) >= monthlyCap ? 1 : 0) + (backToBackKeys[k] ? 1 : 0);
+              // A pairing outranks the team list: being the drummer who reads
+              // this liturgist matters more than being on the standing band.
+              var pairTier = (pairPreferred && !pairPreferred[k]) ? 1 : 0;
+              return pairTier * 100 + tier * 10 + ((monthCount[k] || 0) >= monthlyCap ? 1 : 0) + (backToBackKeys[k] ? 1 : 0);
             }
             var roleCounts = perRoleMonthCount[role.id] || {};
             candidates.sort(function(a, b) {
@@ -89709,7 +89957,9 @@ function filterLiturgyItems() {
             // always read off the real tier/monthCount/back-to-back state.
             var winnerTier = (curatedSet && !curatedSet[winnerKey]) ? 1 : 0;
             var winnerMonthCount = monthCount[winnerKey] || 0;
-            var reason = (winnerTier === 0 && curatedSet ? 'On the ' + team + ' team roster' : 'Available this month') +
+            var paired = !!(pairPreferred && pairPreferred[winnerKey]);
+            var reason = (paired ? 'Paired ' + pairReasons.join(' and ')
+                          : (winnerTier === 0 && curatedSet ? 'On the ' + team + ' team roster' : 'Available this month')) +
               (winnerMonthCount === 0 ? ', not yet served this month' : ', served ' + winnerMonthCount + ' time' + (winnerMonthCount === 1 ? '' : 's') + ' this month');
             var warning = '';
             if (role.id !== 'liturgist') {

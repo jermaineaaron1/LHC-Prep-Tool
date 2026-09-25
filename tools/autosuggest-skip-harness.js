@@ -136,6 +136,22 @@ function extractCapResolution() {
   return { text: lines[i].trim() + '\n' + lines[i + 1].trim(), line: i + 1 };
 }
 
+// Slice the block that applies pairing rules to the pool.
+function extractPairingApply() {
+  const startIdx = lines.findIndex(l => /var firing = _firingPairings\(/.test(l));
+  if (startIdx < 0) throw new Error('pairing block not found in ' + path.basename(INDEX));
+  let depth = 0, started = false, out = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    out.push(lines[i]);
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0 && /\}\);\s*$/.test(lines[i])) return { text: out.join('\n'), line: startIdx + 1 };
+  }
+  throw new Error('unbalanced braces while extracting the pairing block');
+}
+
 // ── 1. The predicate itself ────────────────────────────────────────────────
 console.log('Extracted from ' + path.basename(INDEX) + ':');
 
@@ -162,12 +178,14 @@ const filter = extractCandidateFilter();
 const seed = extractAssignedTodaySeed();
 const poolRestrict = extractPoolRestriction();
 const capResolve = extractCapResolution();
+const pairApply = extractPairingApply();
 for (const n of fnNames) console.log('  ' + n + ' @ line ' + fns[n].line);
 console.log('  AUTOSUGGEST_SKIP_STATUS @ line ' + skipMap.line);
 console.log('  runAutoSuggest candidate filter @ line ' + filter.line);
 console.log('  assignedToday seeding @ line ' + seed.line);
 console.log('  pool restriction @ line ' + poolRestrict.line);
 console.log('  monthly cap @ line ' + capResolve.line);
+console.log('  pairing rules @ line ' + pairApply.line);
 
 function makePredicates(statusByName) {
   const env = { ROSTER_MEMBER_STATUS: statusByName, Object, JSON,
@@ -476,6 +494,104 @@ function resolveCap(settings, roleId, team) {
     resolveCap({ 'pianist__traditional': { people: null, monthlyCap: 4, applies: null } }), 4);
   check('a nonsense cap falls back to 2',
     resolveCap({ 'pianist__traditional': { people: null, monthlyCap: 0, applies: null } }), 2);
+}
+
+// ── 6. Who goes with whom ─────────────────────────────────────────────────
+// A rule fires off a cell that is already filled -- usually by hand, sometimes
+// by an earlier role in the same run. The ways it can quietly not fire are the
+// interesting ones: the wrong service type, a name that differs by a space, or
+// a trigger person who is the second half of a mentor/trainee cell.
+console.log('\nScenario 6 - pairing rules');
+
+const fireFn = extractFn('_firingPairings');
+
+function firing(rules, edits, roleId, team) {
+  const api = makePredicates({});
+  const env = {
+    ROSTER_DUTY_PAIRINGS: rules,
+    STATE: { rosterEdits: new Map(Object.entries(edits).map(([r, v]) => [r + '__Dec_6', v])) },
+    splitCellPeople: api.splitCellPeople,
+    _nameNorm: s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(),
+    Object, JSON, Map
+  };
+  const body = fireFn.text + '\n; return _firingPairings(' +
+    JSON.stringify(roleId) + ', ' + JSON.stringify(team) + ', "Dec_6");';
+  const keys = Object.keys(env);
+  return new Function(...keys, body)(...keys.map(k => env[k]));
+}
+
+function applyPairing(rules, edits, pool, roleId, team) {
+  const api = makePredicates({});
+  const env = {
+    pool: pool.slice(),
+    role: { id: roleId },
+    team: team,
+    dateKeySuffix: 'Dec_6',
+    ROSTER_DUTY_PAIRINGS: rules,
+    STATE: { rosterEdits: new Map(Object.entries(edits).map(([r, v]) => [r + '__Dec_6', v])) },
+    splitCellPeople: api.splitCellPeople,
+    _nameNorm: s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(),
+    _afKey: n => (n || '').trim().replace(/\s+/g, ' ').toLowerCase(),
+    self: { _roleWord: r => r },
+    Object, JSON, Map
+  };
+  const body = fireFn.text + '\n' + pairApply.text +
+    '\n; return { pool: pool, preferred: pairPreferred ? Object.keys(pairPreferred).sort() : null };';
+  const keys = Object.keys(env);
+  return new Function(...keys, body)(...keys.map(k => env[k]));
+}
+
+{
+  const DORINE = { whenRole: 'liturgist', whenPerson: 'Dorine Nathaniel', serviceType: 'all',
+                   thenRole: 'drummer', thenPeople: ['Edwin Nathaniel', 'Luke Yong'], strict: false };
+  const ALISON = { whenRole: 'singer1', whenPerson: 'Alison Phan', serviceType: 'traditional',
+                   thenRole: 'singer2', thenPeople: ['Cynthia Lim', 'Gina Tai'], strict: false };
+
+  check('fires when the named person is on the watched duty',
+    firing([DORINE], { liturgist: 'Dorine Nathaniel' }, 'drummer', 'traditional').length, 1);
+  check('does not fire for somebody else on that duty',
+    firing([DORINE], { liturgist: 'Allan Yip' }, 'drummer', 'traditional').length, 0);
+  check('does not fire when the watched duty is empty',
+    firing([DORINE], {}, 'drummer', 'traditional').length, 0);
+  check('does not fire for a different duty',
+    firing([DORINE], { liturgist: 'Dorine Nathaniel' }, 'pianist', 'traditional').length, 0);
+
+  // Service type, from the second example: traditional Sundays only.
+  check('a traditional-only rule fires on a traditional Sunday',
+    firing([ALISON], { singer1: 'Alison Phan' }, 'singer2', 'traditional').length, 1);
+  check('a traditional-only rule stays quiet on a contemporary one',
+    firing([ALISON], { singer1: 'Alison Phan' }, 'singer2', 'contemporary').length, 0);
+
+  // The two ways a trigger can be present without matching a plain string.
+  check('a stray double space still triggers',
+    firing([DORINE], { liturgist: 'Dorine  Nathaniel' }, 'drummer', 'traditional').length, 1);
+  check('the trainee half of a paired cell still triggers',
+    firing([DORINE], { liturgist: 'Allan Yip / Dorine Nathaniel' }, 'drummer', 'traditional').length, 1);
+
+  const pool = ['Edwin Nathaniel', 'Gabriel Goh', 'Luke Yong'];
+
+  // Soft: prefer, never narrow. A blank drummer is worse than an unfamiliar one.
+  const soft = applyPairing([DORINE], { liturgist: 'Dorine Nathaniel' }, pool, 'drummer', 'traditional');
+  check('a soft rule leaves everyone eligible', soft.pool, pool);
+  check('a soft rule marks who to reach for first',
+    soft.preferred, ['edwin nathaniel', 'luke yong']);
+
+  // Strict: only them, and someone named but not in the pool is added rather
+  // than silently dropped.
+  const strictRule = Object.assign({}, DORINE, { strict: true });
+  const strict = applyPairing([strictRule], { liturgist: 'Dorine Nathaniel' }, pool, 'drummer', 'traditional');
+  check('a strict rule narrows the pool to the named people',
+    strict.pool.sort(), ['Edwin Nathaniel', 'Luke Yong']);
+
+  // Two rules on one duty: whoever satisfies both is the answer.
+  const other = { whenRole: 'pianist', whenPerson: 'Esther Lee', serviceType: 'all',
+                  thenRole: 'drummer', thenPeople: ['Luke Yong', 'Gabriel Goh'], strict: false };
+  const both = applyPairing([DORINE, other],
+    { liturgist: 'Dorine Nathaniel', pianist: 'Esther Lee' }, pool, 'drummer', 'traditional');
+  check('two soft rules intersect rather than pile up', both.preferred, ['luke yong']);
+
+  check('no rules means no preference',
+    applyPairing([], {}, pool, 'drummer', 'traditional').preferred, null);
 }
 
 console.log('\n================================');
