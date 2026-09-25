@@ -1,0 +1,289 @@
+'use strict';
+// Audit harness for the PIC settings screen and what Auto-Suggest does with it.
+//
+// WHY THIS EXISTS
+// The settings screen and Auto-Suggest meet through four small functions and one
+// mirrored variable, and each of them can fail quietly -- a setting that saves,
+// displays as saved, and changes nothing. That is the worst failure this feature
+// has, because a PIC has no way to tell it happened: the roster simply keeps
+// behaving the way it did before.
+//
+// So this pins down the seams rather than the rules (tools/duty-pairing-harness.js
+// covers the rules). Each block corresponds to a finding in the audit; the ones
+// marked KNOWN GAP assert the CURRENT behaviour, so that fixing one fails this
+// harness and the fix has to be deliberate rather than incidental.
+//
+// HOW IT WORKS
+// Reimplements nothing: slices the real functions out of Index.html and runs them
+// against stubs, and for call-graph claims asserts against the real source text.
+//
+// USAGE
+//   node tools/duty-settings-audit-harness.js                 # checks ../Index.html
+//   node tools/duty-settings-audit-harness.js path/to/file.html
+//
+// Exit code 0 = all checks passed, 1 = something failed.
+
+const fs = require('fs');
+const path = require('path');
+
+const INDEX = process.argv.slice(2).find(a => !a.startsWith('--')) ||
+              path.join(__dirname, '..', 'Index.html');
+if (!fs.existsSync(INDEX)) { console.error('No such file: ' + INDEX); process.exit(1); }
+
+const src = fs.readFileSync(INDEX, 'utf8');
+const lines = src.split(/\r?\n/);
+
+const results = [];
+function check(label, actual, expected) {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  results.push(ok);
+  console.log('  ' + (ok ? 'PASS' : 'FAIL') + '  ' + label +
+    (ok ? '' : '\n          got  ' + JSON.stringify(actual) + '\n          want ' + JSON.stringify(expected)));
+}
+
+// Slice a top-level `function name(` or `var name =` out of the roster IIFE.
+function extract(decl, name) {
+  const re = decl === 'function'
+    ? new RegExp('^  function ' + name + '\\s*\\(')
+    : new RegExp('^  var ' + name + '\\s*=');
+  const startIdx = lines.findIndex(l => re.test(l));
+  if (startIdx < 0) throw new Error('not found in ' + path.basename(INDEX) + ': ' + name);
+  let depth = 0, started = false, out = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    out.push(lines[i]);
+    for (const ch of lines[i]) {
+      if (ch === '{' || ch === '[' || ch === '(') { depth++; started = true; }
+      else if (ch === '}' || ch === ']' || ch === ')') depth--;
+    }
+    if (started && depth === 0) return { text: out.join('\n'), line: startIdx + 1 };
+  }
+  throw new Error('unbalanced brackets while extracting: ' + name);
+}
+
+const want = [
+  ['var', 'ROLE_NOT_APPLICABLE'],
+  ['function', '_applyPairingOverrides'],
+  ['function', '_dutySetting'],
+  ['function', '_dutySettingField'],
+  ['function', '_autoFillRoleApplies'],
+  ['function', '_firingPairings']
+];
+console.log('Extracted from ' + path.basename(INDEX) + ':');
+const sliced = {};
+for (const pair of want) {
+  sliced[pair[1]] = extract(pair[0], pair[1]);
+  console.log('  ' + pair[1] + ' @ line ' + sliced[pair[1]].line);
+}
+
+// Stubs: only what the sliced code actually reaches.
+const NORM = 'function _nameNorm(s) { return (s || 0 ? String(s) : \'\').trim().replace(/\\s+/g, \' \').toLowerCase(); }';
+const SPLIT = 'function splitCellPeople(v) { return String(v).split(\' / \').map(function(s) { return s.trim(); }).filter(Boolean); }';
+
+const harness = [
+  'var ROSTER_DUTY_SETTINGS = {};',
+  'var ROSTER_DUTY_PAIRINGS = [];',
+  'var STATE = { rosterEdits: new Map() };',
+  // The real function guards on window.RosterEngine and then assigns to the bare
+  // global. Same object in a browser, so the stub has to be one object too.
+  'var RosterEngine = { _dutyPairingOverrides: null, checkClashes: function() {} };',
+  'var window = { RosterEngine: RosterEngine };',
+  NORM,
+  SPLIT,
+  sliced.ROLE_NOT_APPLICABLE.text,
+  sliced._applyPairingOverrides.text,
+  sliced._dutySetting.text,
+  sliced._dutySettingField.text,
+  sliced._autoFillRoleApplies.text,
+  sliced._firingPairings.text,
+  'return {',
+  '  set: function(o) { ROSTER_DUTY_SETTINGS = o; },',
+  '  setPairings: function(a) { ROSTER_DUTY_PAIRINGS = a; },',
+  '  setEdits: function(m) { STATE.rosterEdits = m; },',
+  '  overrides: function() { return window.RosterEngine._dutyPairingOverrides; },',
+  '  resetOverrides: function() { window.RosterEngine._dutyPairingOverrides = null; },',
+  '  applyPairingOverrides: _applyPairingOverrides,',
+  '  dutySettingField: _dutySettingField,',
+  '  autoFillRoleApplies: _autoFillRoleApplies,',
+  '  firingPairings: _firingPairings',
+  '};'
+].join('\n');
+const A = new Function(harness)();
+
+// ---------------------------------------------------------------------------
+console.log('\n1. Singer counts -- two on Traditional, three on Contemporary');
+check('Singer 3 is skipped on Traditional',
+  A.autoFillRoleApplies('singer3', 'traditional'), false);
+check('Singer 3 runs on Contemporary',
+  A.autoFillRoleApplies('singer3', 'contemporary'), true);
+check('Singer 4 is skipped on Traditional',
+  A.autoFillRoleApplies('singer4', 'traditional'), false);
+check('Singer 4 is skipped on Contemporary too -- no silent fourth singer',
+  A.autoFillRoleApplies('singer4', 'contemporary'), false);
+check('Singers 1 and 2 run on both',
+  ['singer1', 'singer2'].map(function(r) {
+    return A.autoFillRoleApplies(r, 'traditional') && A.autoFillRoleApplies(r, 'contemporary');
+  }), [true, true]);
+
+// ---------------------------------------------------------------------------
+console.log('\n2. KNOWN GAP -- saving a duty pins "Runs on this service" for good');
+// _dsSave always writes applies as a boolean, never null, so a saved row outranks
+// ROLE_NOT_APPLICABLE from then on. The singer4 fix above would not reach a PIC
+// who had saved Singer 4 / Contemporary before it shipped.
+A.set({ 'singer4__contemporary': { roleId: 'singer4', serviceType: 'contemporary',
+        people: null, monthlyCap: null, applies: true } });
+check('a stale saved row re-enables a duty the code has since retired',
+  A.autoFillRoleApplies('singer4', 'contemporary'), true);
+A.set({ 'singer4__contemporary': { roleId: 'singer4', serviceType: 'contemporary',
+        people: null, monthlyCap: null, applies: null } });
+check('...whereas a null applies correctly defers to the built-in list',
+  A.autoFillRoleApplies('singer4', 'contemporary'), false);
+check('_dsSave writes applies as a boolean rather than leaving it null',
+  /applies: !!\(document\.getElementById\('dsApplies'\)/.test(src), true);
+A.set({});
+
+// ---------------------------------------------------------------------------
+console.log('\n3. Which row wins: the specific service type over "all"');
+A.set({
+  'pianist__all':         { roleId: 'pianist', serviceType: 'all',         people: ['Anyone'], monthlyCap: 5, applies: null },
+  'pianist__traditional': { roleId: 'pianist', serviceType: 'traditional', people: null,       monthlyCap: 3, applies: null }
+});
+check('a specific monthlyCap beats the all-services one',
+  A.dutySettingField('pianist', 'traditional', 'monthlyCap'), 3);
+check('a null field on the specific row falls through to all-services',
+  A.dutySettingField('pianist', 'traditional', 'people'), ['Anyone']);
+check('a service type with no specific row reads the all-services one',
+  A.dutySettingField('pianist', 'contemporary', 'monthlyCap'), 5);
+check('an unset duty reads as null, meaning built-in behaviour',
+  A.dutySettingField('usher1', 'traditional', 'monthlyCap'), null);
+A.set({});
+
+// ---------------------------------------------------------------------------
+console.log('\n4. Clash overrides are read off the <category>__all row only');
+A.set({ 'singer__all': { roleId: 'singer', serviceType: 'all', people: null,
+        monthlyCap: null, applies: null, mayPairWith: ['communion', 'reader', 'usher'] } });
+A.applyPairingOverrides();
+check('an all-services row becomes an override',
+  A.overrides(), { singer: ['communion', 'reader', 'usher'] });
+A.resetOverrides();
+
+A.set({ 'singer__traditional': { roleId: 'singer', serviceType: 'traditional', people: null,
+        monthlyCap: null, applies: null, mayPairWith: ['usher'] } });
+A.applyPairingOverrides();
+check('a per-service row is ignored -- clash rules do not vary by service type',
+  A.overrides(), null);
+A.resetOverrides();
+
+A.set({ 'singer__all': { roleId: 'singer', serviceType: 'all', people: null,
+        monthlyCap: null, applies: null, mayPairWith: null } });
+A.applyPairingOverrides();
+check('a null mayPairWith is not an override -- the built-in list stands',
+  A.overrides(), null);
+A.resetOverrides();
+
+A.set({ 'preacher__all': { roleId: 'preacher', serviceType: 'all', people: null,
+        monthlyCap: null, applies: null, mayPairWith: [] } });
+A.applyPairingOverrides();
+check('an EMPTY array IS an override -- "this duty pairs with nothing"',
+  A.overrides(), { preacher: [] });
+A.resetOverrides();
+A.set({});
+
+// ---------------------------------------------------------------------------
+console.log('\n5. KNOWN GAP -- the override is lost when the server is unreachable');
+// ROSTER_DUTY_SETTINGS is restored from localStorage at parse time, but the mirror
+// RosterEngine reads is only ever filled on a SUCCESSFUL cloud fetch. Offline, the
+// roster silently uses the built-in clash rules while the settings screen shows the
+// PIC's edit as saved. Every other setting survives, because Auto-Suggest reads
+// those straight off ROSTER_DUTY_SETTINGS.
+const initIIFE = (src.match(/var ROSTER_DUTY_SETTINGS = \{\};[\s\S]{0,400}?\}\)\(\);/) || [''])[0];
+check('the localStorage restore does not refresh the override mirror',
+  /_applyPairingOverrides\(\)/.test(initIIFE), false);
+check('the cloud-failure path does not refresh it either',
+  /Could not load duty settings from Supabase[\s\S]{0,300}?_applyPairingOverrides/.test(src), false);
+check('exactly three callers: the cloud success path, a clash edit, and a reset',
+  (src.match(/^\s*_applyPairingOverrides\(\);/gm) || []).length, 3);
+
+// ---------------------------------------------------------------------------
+console.log('\n6. Pairing rules fire off a cell that is already filled');
+const edits = new Map();
+edits.set('liturgist__Oct_4', 'Dorine Nathaniel');
+edits.set('singer1__Oct_4', 'Alison Phan');
+A.setEdits(edits);
+A.setPairings([
+  { whenRole: 'liturgist', whenPerson: 'Dorine Nathaniel', serviceType: 'all',
+    thenRole: 'pianist', thenPeople: ['Aaron Jayaraj'], strict: false },
+  { whenRole: 'singer1', whenPerson: 'Alison Phan', serviceType: 'traditional',
+    thenRole: 'singer2', thenPeople: ['Cynthia Chin', 'Gina Tai'], strict: false },
+  { whenRole: 'singer1', whenPerson: 'Gina Tai', serviceType: 'traditional',
+    thenRole: 'singer2', thenPeople: ['Alison Phan'], strict: false },
+  // Backwards: Preacher is filled long before Singer 1, so this can never fire.
+  { whenRole: 'singer1', whenPerson: 'Alison Phan', serviceType: 'all',
+    thenRole: 'preacher', thenPeople: ['Pastor Ashley'], strict: false }
+]);
+check('the Dorine rule fires for Pianist',
+  A.firingPairings('pianist', 'traditional', 'Oct_4').map(function(r) { return r.thenPeople; }),
+  [['Aaron Jayaraj']]);
+check('the co-singer rule fires for Singer 2',
+  A.firingPairings('singer2', 'traditional', 'Oct_4').map(function(r) { return r.thenPeople; }),
+  [['Cynthia Chin', 'Gina Tai']]);
+check('the rule naming somebody NOT in the cell stays out of it',
+  A.firingPairings('singer2', 'traditional', 'Oct_4').length, 1);
+check('the wrong service type does not fire',
+  A.firingPairings('singer2', 'contemporary', 'Oct_4').length, 0);
+check('a date with nothing filled fires nothing',
+  A.firingPairings('singer2', 'traditional', 'Oct_11').length, 0);
+A.setEdits(new Map([['singer1__Oct_18', 'Alison  Phan ']]));
+check('doubled whitespace in a cell still matches the rule',
+  A.firingPairings('singer2', 'traditional', 'Oct_18').length, 1);
+A.setEdits(new Map([['singer1__Oct_25', 'Jo Tan / Alison Phan']]));
+check('a mentor/trainee cell "A / B" matches on either name',
+  A.firingPairings('singer2', 'traditional', 'Oct_25').length, 1);
+A.setEdits(new Map([['singer1__Nov_1', '__BLANK__']]));
+check('a deliberately blanked cell fires nothing',
+  A.firingPairings('singer2', 'traditional', 'Nov_1').length, 0);
+
+// ---------------------------------------------------------------------------
+console.log('\n7. KNOWN GAP -- a backwards rule works or not depending on the month');
+// Duties fill in ROLES order, and the "then" dropdown offers every other duty, so
+// a PIC can save a rule whose target is settled BEFORE its trigger.
+//
+// Such a rule is not simply dead, which is what makes it worth a check: it fires
+// if and only if the trigger cell happens to be filled already. Run over a blank
+// month it does nothing; run over a month where somebody hand-typed Singer 1
+// first, it applies. Same rule, same screen, two behaviours.
+const roleOrder = (src.match(/\{type:'role',id:'([a-z0-9]+)'/g) || [])
+  .map(function(s) { return s.replace(/.*id:'/, '').replace(/'$/, ''); });
+check('ROLES settles Preacher before Singer 1',
+  roleOrder.indexOf('preacher') < roleOrder.indexOf('singer1'), true);
+check('the "then duty" dropdown offers every duty except the current one',
+  /var duties = _dsDuties\(\)\.filter\(function\(r\) \{ return r\.id !== roleId; \}\);/.test(src), true);
+A.setEdits(new Map());
+check('over a blank month the backwards rule does nothing',
+  A.firingPairings('preacher', 'traditional', 'Dec_6').length, 0);
+A.setEdits(new Map([['singer1__Dec_6', 'Alison Phan']]));
+check('over a month with Singer 1 already typed in, the same rule applies',
+  A.firingPairings('preacher', 'traditional', 'Dec_6').length, 1);
+
+// ---------------------------------------------------------------------------
+console.log('\n8. KNOWN GAP -- a monthly cap of 0 silently becomes 2');
+check('_dsSave falls back to 2 for any falsy parse, a typed 0 included',
+  /parseInt\(capRaw, 10\) \|\| 2/.test(src), true);
+check('which is why 0 comes out as 2',
+  Math.max(1, Math.min(10, parseInt('0', 10) || 2)), 2);
+
+// ---------------------------------------------------------------------------
+console.log('\n9. KNOWN GAP -- Auto-Suggest never places one person twice in a day');
+// The clash rules decide what shows RED. assignedToday decides what Auto-Suggest
+// will place, and it refuses a second duty outright -- so a PIC who allows a new
+// pairing changes the warning, not what Auto-Suggest does with it.
+check('the candidate filter blocks anyone already serving that day',
+  /if \(role\.id !== 'flowerarrangement' && assignedToday\[_afKey\(name\)\]\) return false;/.test(src), true);
+check('that filter never consults the pairing rules',
+  /assignedToday[\s\S]{0,200}?_dutiesMayPair/.test(src), false);
+check('the one exception is the Liturgist mirrored into Communion Assistant 1',
+  /communion1[\s\S]{0,600}?liturgistVal/.test(src), true);
+
+const passed = results.filter(Boolean).length;
+console.log('\n' + '='.repeat(32));
+console.log(passed + '/' + results.length + ' checks passed');
+process.exit(passed === results.length ? 0 : 1);

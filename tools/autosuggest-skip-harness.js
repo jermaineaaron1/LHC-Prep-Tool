@@ -594,6 +594,66 @@ function applyPairing(rules, edits, pool, roleId, team) {
     applyPairing([], {}, pool, 'drummer', 'traditional').preferred, null);
 }
 
+// ── 7. When two PIC settings disagree ─────────────────────────────────────
+// Both of these are things a PIC sets, and the screen describes each of them as
+// absolute: the approved list says Auto-Suggest can "never volunteer a name they
+// did not approve", and a strict rule says "only them". Put a name in one and not
+// the other and something has to give. This runs the two real blocks in the order
+// Auto-Suggest runs them, so whichever wins, it is on the record.
+console.log('\nScenario 7 - an approved list against a strict pairing rule');
+
+function restrictThenPair(settings, rules, edits, pool, roleId, team) {
+  const api = makePredicates({});
+  const env = {
+    pool: pool.slice(),
+    role: { id: roleId },
+    team: team,
+    dateKeySuffix: 'Dec_6',
+    ROSTER_DUTY_SETTINGS: settings,
+    ROSTER_DUTY_PAIRINGS: rules,
+    STATE: { rosterEdits: new Map(Object.entries(edits).map(([r, v]) => [r + '__Dec_6', v])) },
+    splitCellPeople: api.splitCellPeople,
+    _nameNorm: s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(),
+    _afKey: n => (n || '').trim().replace(/\s+/g, ' ').toLowerCase(),
+    self: { _roleWord: r => r },
+    Object, JSON, Map
+  };
+  const body = dutyFns.map(f => f.text).join('\n') + '\n' + fireFn.text + '\n' +
+    poolRestrict.text + '\n' + pairApply.text + '\n; return pool.slice().sort();';
+  const keys = Object.keys(env);
+  return new Function(...keys, body)(...keys.map(k => env[k]));
+}
+
+{
+  const pool = ['Edwin Nathaniel', 'Gabriel Goh', 'Luke Yong'];
+  // The PIC approved only Edwin for Drummer on a traditional Sunday.
+  const approved = { 'drummer__traditional': { people: ['Edwin Nathaniel'], monthlyCap: null, applies: null } };
+  const edits = { liturgist: 'Dorine Nathaniel' };
+
+  check('the approved list alone narrows to the approved name',
+    restrictThenPair(approved, [], edits, pool, 'drummer', 'traditional'), ['Edwin Nathaniel']);
+
+  // A strict rule naming somebody the PIC did NOT approve for this duty.
+  const strictOther = { whenRole: 'liturgist', whenPerson: 'Dorine Nathaniel', serviceType: 'all',
+                        thenRole: 'drummer', thenPeople: ['Luke Yong'], strict: true };
+  // KNOWN GAP: the strict block re-adds any named person missing from the pool,
+  // which at this point includes people the approved list just removed. So the
+  // pairing rule wins and Luke is rostered although he was never approved for
+  // Drummer -- with nothing on screen saying the two settings disagreed.
+  check('a strict rule re-admits a name the approved list had excluded',
+    restrictThenPair(approved, [strictOther], edits, pool, 'drummer', 'traditional'), ['Luke Yong']);
+
+  // The benign case, for contrast: the rule names somebody already approved.
+  const strictSame = Object.assign({}, strictOther, { thenPeople: ['Edwin Nathaniel'] });
+  check('a strict rule agreeing with the list changes nothing',
+    restrictThenPair(approved, [strictSame], edits, pool, 'drummer', 'traditional'), ['Edwin Nathaniel']);
+
+  // A SOFT rule must never widen the pool -- it only ranks.
+  const softOther = Object.assign({}, strictOther, { strict: false });
+  check('a soft rule respects the approved list',
+    restrictThenPair(approved, [softOther], edits, pool, 'drummer', 'traditional'), ['Edwin Nathaniel']);
+}
+
 console.log('\n================================');
 const passed = results.filter(Boolean).length;
 console.log(passed + '/' + results.length + ' checks passed');
