@@ -2500,6 +2500,9 @@
     .roster-duty-links circle {
       fill: rgba(8, 145, 178, 0.5);
     }
+    .roster-duty-links polygon {
+      fill: rgba(8, 145, 178, 0.62);
+    }
 
     /* ==================== ROSTER - GLASS COMMAND SKIN ==================== */
     #worshipRosterView {
@@ -3932,6 +3935,7 @@
       .rmp-duty-links line { stroke: rgba(8,145,178,0.4); stroke-width: 3.5; stroke-linecap: round; }
       .rmp-duty-links line.rmp-duty-link-halo { stroke: rgba(255,255,255,0.55); stroke-width: 6; }
       .rmp-duty-links circle { fill: rgba(8,145,178,0.55); }
+      .rmp-duty-links polygon { fill: rgba(8,145,178,0.65); }
 
       /* ---- WORSHIP ORDERS ---- */
       .wo-container { min-height: 400px; }
@@ -89701,8 +89705,17 @@ function filterLiturgyItems() {
         parts.push('<line class="roster-duty-link-halo" x1="' + x + '" y1="' + y1 +
                    '" x2="' + x + '" y2="' + y2 + '"/>');
         parts.push('<line x1="' + x + '" y1="' + y1 + '" x2="' + x + '" y2="' + y2 + '"/>');
-        ys.forEach(function(y) {
-          parts.push('<circle cx="' + x + '" cy="' + y + '" r="4.5"/>');
+        var AW = 5, AH = 9;   // half-width, and length from tip to base
+        ys.forEach(function(y, i) {
+          if (i === 0) {
+            parts.push('<polygon points="' + x + ',' + y + ' ' + (x - AW) + ',' + (y + AH) +
+                       ' ' + (x + AW) + ',' + (y + AH) + '"/>');
+          } else if (i === ys.length - 1) {
+            parts.push('<polygon points="' + x + ',' + y + ' ' + (x - AW) + ',' + (y - AH) +
+                       ' ' + (x + AW) + ',' + (y - AH) + '"/>');
+          } else {
+            parts.push('<circle cx="' + x + '" cy="' + y + '" r="4"/>');
+          }
         });
       });
       svg.innerHTML = parts.join('');
@@ -89768,7 +89781,18 @@ function filterLiturgyItems() {
           parts.push('<line class="rmp-duty-link-halo" x1="' + x + '" y1="' + ys[0] +
                      '" x2="' + x + '" y2="' + ys[ys.length - 1] + '"/>');
           parts.push('<line x1="' + x + '" y1="' + ys[0] + '" x2="' + x + '" y2="' + ys[ys.length - 1] + '"/>');
-          ys.forEach(function(y) { parts.push('<circle cx="' + x + '" cy="' + y + '" r="4"/>'); });
+          var mAW = 4.5, mAH = 8;
+          ys.forEach(function(y, i) {
+            if (i === 0) {
+              parts.push('<polygon points="' + x + ',' + y + ' ' + (x - mAW) + ',' + (y + mAH) +
+                         ' ' + (x + mAW) + ',' + (y + mAH) + '"/>');
+            } else if (i === ys.length - 1) {
+              parts.push('<polygon points="' + x + ',' + y + ' ' + (x - mAW) + ',' + (y - mAH) +
+                         ' ' + (x + mAW) + ',' + (y - mAH) + '"/>');
+            } else {
+              parts.push('<circle cx="' + x + '" cy="' + y + '" r="3.5"/>');
+            }
+          });
           idx++;
         });
         svg.innerHTML = parts.join('');
