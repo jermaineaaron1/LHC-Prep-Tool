@@ -9,9 +9,10 @@
 // behaving the way it did before.
 //
 // So this pins down the seams rather than the rules (tools/duty-pairing-harness.js
-// covers the rules). Each block corresponds to a finding in the audit; the ones
-// marked KNOWN GAP assert the CURRENT behaviour, so that fixing one fails this
-// harness and the fix has to be deliberate rather than incidental.
+// covers the rules). Each block corresponds to a finding in the audit. Most are now
+// fixed and asserted as fixed; the ones still marked KNOWN GAP assert how the code
+// behaves TODAY, so that changing one fails a check and the change has to be
+// deliberate rather than incidental.
 //
 // HOW IT WORKS
 // Reimplements nothing: slices the real functions out of Index.html and runs them
@@ -65,6 +66,7 @@ const want = [
   ['function', '_applyPairingOverrides'],
   ['function', '_dutySetting'],
   ['function', '_dutySettingField'],
+  ['function', '_builtInApplies'],
   ['function', '_autoFillRoleApplies'],
   ['function', '_firingPairings']
 ];
@@ -93,6 +95,7 @@ const harness = [
   sliced._applyPairingOverrides.text,
   sliced._dutySetting.text,
   sliced._dutySettingField.text,
+  sliced._builtInApplies.text,
   sliced._autoFillRoleApplies.text,
   sliced._firingPairings.text,
   'return {',
@@ -104,6 +107,7 @@ const harness = [
   '  applyPairingOverrides: _applyPairingOverrides,',
   '  dutySettingField: _dutySettingField,',
   '  autoFillRoleApplies: _autoFillRoleApplies,',
+  '  builtInApplies: _builtInApplies,',
   '  firingPairings: _firingPairings',
   '};'
 ].join('\n');
@@ -125,20 +129,26 @@ check('Singers 1 and 2 run on both',
   }), [true, true]);
 
 // ---------------------------------------------------------------------------
-console.log('\n2. KNOWN GAP -- saving a duty pins "Runs on this service" for good');
-// _dsSave always writes applies as a boolean, never null, so a saved row outranks
-// ROLE_NOT_APPLICABLE from then on. The singer4 fix above would not reach a PIC
-// who had saved Singer 4 / Contemporary before it shipped.
-A.set({ 'singer4__contemporary': { roleId: 'singer4', serviceType: 'contemporary',
-        people: null, monthlyCap: null, applies: true } });
-check('a stale saved row re-enables a duty the code has since retired',
+console.log('\n2. Saving a duty no longer pins "Runs on this service"');
+// applies used to be written as a boolean every time, so merely opening a duty
+// and saving it froze that answer and outranked ROLE_NOT_APPLICABLE from then on
+// -- the singer4 fix above would not have reached a PIC who had saved Singer 4 /
+// Contemporary first. Save now stores null while the box agrees with the built-in
+// list, so a later change to that list still reaches everybody.
+check('Save stores null while the box agrees with the built-in answer',
+  /applies: \(appliesNow === _builtInApplies\(_dsRole, _dsTeam\)\) \? null : appliesNow/.test(src), true);
+check('the built-in answer is read without consulting any saved row',
+  (function() {
+    A.set({ 'singer4__contemporary': { roleId: 'singer4', serviceType: 'contemporary',
+            people: null, monthlyCap: null, applies: true } });
+    return A.builtInApplies('singer4', 'contemporary');
+  })(), false);
+check('a deliberate override is still honoured -- it only exists on disagreement',
   A.autoFillRoleApplies('singer4', 'contemporary'), true);
 A.set({ 'singer4__contemporary': { roleId: 'singer4', serviceType: 'contemporary',
         people: null, monthlyCap: null, applies: null } });
-check('...whereas a null applies correctly defers to the built-in list',
+check('a null applies defers to the built-in list',
   A.autoFillRoleApplies('singer4', 'contemporary'), false);
-check('_dsSave writes applies as a boolean rather than leaving it null',
-  /applies: !!\(document\.getElementById\('dsApplies'\)/.test(src), true);
 A.set({});
 
 // ---------------------------------------------------------------------------
@@ -189,19 +199,20 @@ A.resetOverrides();
 A.set({});
 
 // ---------------------------------------------------------------------------
-console.log('\n5. KNOWN GAP -- the override is lost when the server is unreachable');
-// ROSTER_DUTY_SETTINGS is restored from localStorage at parse time, but the mirror
-// RosterEngine reads is only ever filled on a SUCCESSFUL cloud fetch. Offline, the
-// roster silently uses the built-in clash rules while the settings screen shows the
-// PIC's edit as saved. Every other setting survives, because Auto-Suggest reads
-// those straight off ROSTER_DUTY_SETTINGS.
-const initIIFE = (src.match(/var ROSTER_DUTY_SETTINGS = \{\};[\s\S]{0,400}?\}\)\(\);/) || [''])[0];
-check('the localStorage restore does not refresh the override mirror',
-  /_applyPairingOverrides\(\)/.test(initIIFE), false);
-check('the cloud-failure path does not refresh it either',
-  /Could not load duty settings from Supabase[\s\S]{0,300}?_applyPairingOverrides/.test(src), false);
-check('exactly three callers: the cloud success path, a clash edit, and a reset',
-  (src.match(/^\s*_applyPairingOverrides\(\);/gm) || []).length, 3);
+console.log('\n5. The override survives a server that cannot be reached');
+// ROSTER_DUTY_SETTINGS is restored from localStorage while the file parses, but
+// RosterEngine does not exist that early, so the mirror it reads cannot be filled
+// there. It used to be filled ONLY by a successful cloud fetch, which meant that
+// offline the roster quietly fell back to the built-in clash rules while the
+// settings screen still showed the PIC's rule as saved. It is applied during roster
+// init now, before the network is involved at all.
+const initFn = (src.match(/function loadRosterNamesFromCloud\(\) \{[\s\S]*?\n  \}/) || [''])[0];
+check('roster init puts the restored override into force',
+  /_applyPairingOverrides\(\);/.test(initFn), true);
+check('...and does so BEFORE asking the server for anything',
+  initFn.indexOf('_applyPairingOverrides();') < initFn.indexOf('_loadDutySettingsFromCloud();'), true);
+check('four callers now: init, the cloud success path, a clash edit, and a reset',
+  (src.match(/^\s*_applyPairingOverrides\(\);/gm) || []).length, 4);
 
 // ---------------------------------------------------------------------------
 console.log('\n6. Pairing rules fire off a cell that is already filled');
@@ -265,11 +276,21 @@ check('over a month with Singer 1 already typed in, the same rule applies',
   A.firingPairings('preacher', 'traditional', 'Dec_6').length, 1);
 
 // ---------------------------------------------------------------------------
-console.log('\n8. KNOWN GAP -- a monthly cap of 0 silently becomes 2');
-check('_dsSave falls back to 2 for any falsy parse, a typed 0 included',
-  /parseInt\(capRaw, 10\) \|\| 2/.test(src), true);
-check('which is why 0 comes out as 2',
-  Math.max(1, Math.min(10, parseInt('0', 10) || 2)), 2);
+console.log('\n8. A monthly cap outside 1-10 is refused, not silently changed');
+// A typed 0 used to come out as 2 (parseInt('0') is falsy) and a typed 40 as 10.
+// Silently altering a PIC's number is the same class of bug as ignoring it, so Save
+// now declines with a reason and leaves the field as they typed it.
+check('the silent clamp is gone',
+  /Math\.max\(1, Math\.min\(10, parseInt\(capRaw, 10\) \|\| 2\)\)/.test(src), false);
+check('the range guard is live, not merely present',
+  /if \(!blankCap && !\(cap >= 1 && cap <= 10\)\) \{/.test(src), true);
+check('out-of-range is refused with a reason',
+  /A monthly limit has to be a whole number from 1 to 10/.test(src), true);
+check('the guard admits 1 through 10 and nothing else',
+  [0, 1, 2, 10, 11, NaN].map(function(c) { return !!(c >= 1 && c <= 10); }),
+  [false, true, true, true, false, false]);
+check('a blank field still means "use the built-in 2"',
+  /var blankCap = \(capRaw === '' \|\| capRaw === undefined \|\| capRaw === null\);/.test(src), true);
 
 // ---------------------------------------------------------------------------
 console.log('\n9. KNOWN GAP -- Auto-Suggest never places one person twice in a day');
@@ -282,6 +303,25 @@ check('that filter never consults the pairing rules',
   /assignedToday[\s\S]{0,200}?_dutiesMayPair/.test(src), false);
 check('the one exception is the Liturgist mirrored into Communion Assistant 1',
   /communion1[\s\S]{0,600}?liturgistVal/.test(src), true);
+
+// ---------------------------------------------------------------------------
+console.log('\n10. Nothing claims a removal the server has not confirmed');
+// Both of these used to write their note before the request resolved, so a failed
+// delete read as success and the rule or setting came back on the next reload with
+// nothing having said so. Asserting the wording alone would not catch a relapse --
+// the fire-and-forget version says the same words -- so assert the waiting.
+check('removing a pairing waits for the server before saying it is done',
+  /deleteDutyPairing\(rule\)\.then\(function\(\) \{/.test(src), true);
+check('...and no longer fires the delete off without waiting',
+  /deleteDutyPairing\(rule\)\.catch\(/.test(src), false);
+check('...and says so plainly when it could not reach the server',
+  /Removed on this device only -- could not reach the server, so it will return/.test(src), true);
+check('the interim note does not read as finished',
+  /note\.textContent = 'Removing\.\.\.';/.test(src), true);
+check('Use default waits for both halves of the revert',
+  /Promise\.all\(sent\)\.then\(function\(\) \{/.test(src), true);
+check('...and does not announce the default before they land',
+  /_dsRenderList\(\); _dsRenderPane\(\);[\s\S]{0,120}?textContent = 'Back to the default\.';/.test(src), false);
 
 const passed = results.filter(Boolean).length;
 console.log('\n' + '='.repeat(32));

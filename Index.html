@@ -83835,6 +83835,10 @@ function filterLiturgyItems() {
     }
     _loadUnavailabilityFromCloud();
     _loadMemberMetaFromCloud();
+    // Put whatever localStorage restored into force NOW. The cloud load below
+    // refreshes it on success; if it fails, this is what keeps a saved clash
+    // rule working offline instead of quietly reverting to the built-in list.
+    _applyPairingOverrides();
     _loadDutySettingsFromCloud();
     _loadDutyPairingsFromCloud();
   }
@@ -84002,11 +84006,16 @@ function filterLiturgyItems() {
     return null;
   }
 
+  // Does this duty run on this service type, before any PIC has said otherwise?
+  function _builtInApplies(roleId, team) {
+    var na = ROLE_NOT_APPLICABLE[roleId];
+    return !na || na.indexOf(team) === -1;
+  }
+
   function _autoFillRoleApplies(roleId, team) {
     var set = _dutySettingField(roleId, team, 'applies');
     if (set !== null) return !!set;
-    var na = ROLE_NOT_APPLICABLE[roleId];
-    return !na || na.indexOf(team) === -1;
+    return _builtInApplies(roleId, team);
   }
 
   // Preferred-list-first, general-dropdown-fallback pool for one role/team.
@@ -84749,10 +84758,19 @@ function filterLiturgyItems() {
         localStorage.setItem('lhc_roster_duty_pairings', JSON.stringify(ROSTER_DUTY_PAIRINGS));
         _dsRenderList(); _dsRenderPane();
         var note = document.getElementById('dsNote');
-        if (note) note.textContent = 'Pairing removed.';
+        if (note) note.textContent = 'Removing...';
         if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.deleteDutyPairing) {
-          SBQ_ROSTER.deleteDutyPairing(rule).catch(function(e) { console.warn('deleteDutyPairing failed:', e); });
-        }
+          SBQ_ROSTER.deleteDutyPairing(rule).then(function() {
+            var n2 = document.getElementById('dsNote');
+            if (n2) n2.textContent = 'Pairing removed. Every PIC sees this.';
+          }).catch(function(e) {
+            // It is gone locally either way, but it will be back on the next
+            // reload, so this must not read as done.
+            var n2 = document.getElementById('dsNote');
+            if (n2) n2.textContent = 'Removed on this device only -- could not reach the server, so it will return on the next reload.';
+            console.warn('deleteDutyPairing failed:', e);
+          });
+        } else if (note) { note.textContent = 'Removed on this device only.'; }
       });
     });
 
@@ -84913,12 +84931,20 @@ function filterLiturgyItems() {
       return;
     }
     var capRaw = (document.getElementById('dsCap') || {}).value;
-    var cap = (capRaw === '' || capRaw === undefined) ? null
-      : Math.max(1, Math.min(10, parseInt(capRaw, 10) || 2));
+    var blankCap = (capRaw === '' || capRaw === undefined || capRaw === null);
+    var cap = blankCap ? null : parseInt(capRaw, 10);
+    if (!blankCap && !(cap >= 1 && cap <= 10)) {
+      var n1 = document.getElementById('dsNote');
+      if (n1) n1.textContent = 'A monthly limit has to be a whole number from 1 to 10. Leave it blank for the built-in 2.';
+      return;
+    }
+    // Store null when the box still agrees with the built-in list, so that
+    // saving a duty for some other reason does not freeze this answer.
+    var appliesNow = !!(document.getElementById('dsApplies') || {}).checked;
     var patch = {
       people: (only && only.checked) ? ticked : null,
       monthlyCap: cap,
-      applies: !!(document.getElementById('dsApplies') || {}).checked
+      applies: (appliesNow === _builtInApplies(_dsRole, _dsTeam)) ? null : appliesNow
     };
     // The clash rule is per duty category and applies to both service types,
     // so it is written separately from this duty's row -- and on both sides.
@@ -84961,8 +84987,9 @@ function filterLiturgyItems() {
     if (!_dsRole) return;
     if (!confirm('Put ' + _dsDutyLabel(_dsRole) + ' (' + _dsTeam + ') back to the built-in behaviour?')) return;
     delete ROSTER_DUTY_SETTINGS[_dsRole + '__' + _dsTeam];
+    var sent = [];
     if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.deleteDutySetting) {
-      SBQ_ROSTER.deleteDutySetting(_dsRole, _dsTeam).catch(function(e) { console.warn('deleteDutySetting failed:', e); });
+      sent.push(SBQ_ROSTER.deleteDutySetting(_dsRole, _dsTeam));
     }
     var RE0 = window.RosterEngine;
     var cat0 = RE0 ? RE0._clashDutyCategory(_dsRole) : null;
@@ -84970,14 +84997,22 @@ function filterLiturgyItems() {
     if (cat0 && row0 && Array.isArray(row0.mayPairWith)) {
       // Putting this side back has to take the other side with it, or the two
       // lists disagree and the pairing silently stops working.
-      _dsApplyClashEdit(cat0, (RE0.DUTY_PAIRING[cat0] || []).slice());
+      sent.push(_dsApplyClashEdit(cat0, (RE0.DUTY_PAIRING[cat0] || []).slice()));
     }
     localStorage.setItem('lhc_roster_duty_settings', JSON.stringify(ROSTER_DUTY_SETTINGS));
     _applyPairingOverrides();
     _dsDirty = false;
     _dsRenderList(); _dsRenderPane();
     var note = document.getElementById('dsNote');
-    if (note) note.textContent = 'Back to the default.';
+    if (note) note.textContent = 'Putting it back...';
+    Promise.all(sent).then(function() {
+      var n2 = document.getElementById('dsNote');
+      if (n2) n2.textContent = sent.length ? 'Back to the default. Every PIC sees this.' : 'Back to the default.';
+    }).catch(function(e) {
+      var n2 = document.getElementById('dsNote');
+      if (n2) n2.textContent = 'Back to the default on this device only -- could not reach the server.';
+      console.warn('reset failed:', e);
+    });
   }
 
   function openDutySettings() {
@@ -90061,8 +90096,9 @@ function filterLiturgyItems() {
             // for this duty. That is the difference between it and the
             // built-in TEAM_ROLE_CONFIG below, which only sorts the pool.
             var allowedPeople = _dutySettingField(role.id, team, 'people');
+            var allowedSet = null;
             if (allowedPeople && allowedPeople.length) {
-              var allowedSet = {};
+              allowedSet = {};
               allowedPeople.forEach(function(n) { allowedSet[_afKey(n)] = true; });
               pool = pool.filter(function(n) { return allowedSet[_afKey(n)]; });
               // A name on the PIC's list that is not in the duty's dropdown
@@ -90077,7 +90113,7 @@ function filterLiturgyItems() {
             // for first, so a Sunday is never left blank for the sake of a
             // preference about company.
             var firing = _firingPairings(role.id, team, dateKeySuffix);
-            var pairPreferred = null, pairReasons = [];
+            var pairPreferred = null, pairReasons = [], pairConflict = false;
             firing.forEach(function(rule) {
               var keys = {};
               rule.thenPeople.forEach(function(n) { keys[_afKey(n)] = true; });
@@ -90085,8 +90121,15 @@ function filterLiturgyItems() {
               if (rule.strict) {
                 pool = pool.filter(function(n) { return keys[_afKey(n)]; });
                 rule.thenPeople.forEach(function(n) {
+                  // Named but not on this duty's dropdown: still usable, so that
+                  // the rule is not silently a no-op. Named but NOT on the PIC's
+                  // approved list: not usable, because that list is a promise
+                  // that nobody unapproved gets volunteered, and a rule about
+                  // company cannot overrule it.
+                  if (allowedSet && !allowedSet[_afKey(n)]) return;
                   if (!pool.some(function(x) { return _afKey(x) === _afKey(n); })) pool.push(n);
                 });
+                if (allowedSet && !pool.length) pairConflict = true;
               }
               // Two soft rules on one duty both apply: someone named by both
               // is the best answer, so preferences intersect rather than pile
@@ -90144,7 +90187,10 @@ function filterLiturgyItems() {
             });
 
             if (!candidates.length) {
-              couldNotFill.push({ date: dateStr, roleLabel: role.label });
+              // Say WHICH two settings left this blank when that is the reason,
+              // because "could not fill" sends a PIC looking at availability.
+              couldNotFill.push({ date: dateStr, roleLabel: role.label +
+                (pairConflict ? ' (nobody is on both this duty\'s approved list and the pairing rule)' : '') });
               return;
             }
 

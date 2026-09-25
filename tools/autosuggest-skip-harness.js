@@ -533,6 +533,12 @@ function applyPairing(rules, edits, pool, roleId, team) {
     _nameNorm: s => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(),
     _afKey: n => (n || '').trim().replace(/\s+/g, ' ').toLowerCase(),
     self: { _roleWord: r => r },
+    // The pairing block reads these two out of the pool-restriction block above
+    // it in the real source. Scenario 6 runs the pairing block on its own, so it
+    // supplies the values that block leaves when no approved list is set.
+    // Scenario 7 runs both together and lets the real code set them.
+    allowedSet: null,
+    pairConflict: false,
     Object, JSON, Map
   };
   const body = fireFn.text + '\n' + pairApply.text +
@@ -636,12 +642,15 @@ function restrictThenPair(settings, rules, edits, pool, roleId, team) {
   // A strict rule naming somebody the PIC did NOT approve for this duty.
   const strictOther = { whenRole: 'liturgist', whenPerson: 'Dorine Nathaniel', serviceType: 'all',
                         thenRole: 'drummer', thenPeople: ['Luke Yong'], strict: true };
-  // KNOWN GAP: the strict block re-adds any named person missing from the pool,
-  // which at this point includes people the approved list just removed. So the
-  // pairing rule wins and Luke is rostered although he was never approved for
-  // Drummer -- with nothing on screen saying the two settings disagreed.
-  check('a strict rule re-admits a name the approved list had excluded',
-    restrictThenPair(approved, [strictOther], edits, pool, 'drummer', 'traditional'), ['Luke Yong']);
+  // The approved list is the stricter promise of the two -- the screen says
+  // Auto-Suggest can never volunteer somebody the PIC did not approve for this
+  // duty -- so a rule about who somebody serves WITH cannot widen it. Luke used
+  // to be re-admitted here and rostered anyway. Now nobody is placed, and the
+  // summary names the two settings that disagreed rather than picking one.
+  check('a strict rule cannot re-admit a name the approved list excluded',
+    restrictThenPair(approved, [strictOther], edits, pool, 'drummer', 'traditional'), []);
+  check('...and the summary says which two settings left the cell blank',
+    /nobody is on both this duty.{1,2}s approved list and the pairing rule/.test(src), true);
 
   // The benign case, for contrast: the rule names somebody already approved.
   const strictSame = Object.assign({}, strictOther, { thenPeople: ['Edwin Nathaniel'] });
