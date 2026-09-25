@@ -2555,6 +2555,11 @@
     #worshipRosterView .roster-status-pill.clear-services .dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.16); }
     #worshipRosterView .roster-status-pill.clear-services:hover { transform: translateY(-1px); filter: brightness(0.99); }
     #worshipRosterView .roster-status-pill.hidden { display: none !important; }
+    /* The action row under the roster has no pic-only rule of its own -- the
+       status-pill one above does not match a nav button, so a PIC-only button
+       there would sit in front of everybody. */
+    .roster-bottom-nav-btn.pic-only { display: none; }
+    body.pic-mode .roster-bottom-nav-btn.pic-only { display: flex; }
     #worshipRosterView .roster-status-pill.pic-only { display: none; }
     body.pic-mode #worshipRosterView .roster-status-pill.pic-only { display: inline-flex; }
 
@@ -6509,6 +6514,7 @@
             <button type="button" onclick="RosterEngine.downloadPDF()"><i class="fa-solid fa-file-pdf"></i><span>Print/PDF</span></button>
             <button type="button" onclick="RosterEngine.shareLiveLink()"><i class="fa-solid fa-link"></i><span>Share Live</span></button>
             <button type="button" onclick="RosterEngine.sharePDFViaWhatsApp()"><i class="fa-brands fa-whatsapp"></i><span>WhatsApp</span></button>
+            <button type="button" class="pic-only" onclick="openDutySettings()" title="Who Auto-Suggest may pick for each duty, and how often"><i class="fa-solid fa-sliders"></i><span>Duty Settings</span></button>
             <button type="button" class="pic-only" onclick="RosterEngine.confirmClearServicesPrompt()"><i class="fa-solid fa-eraser"></i><span>Clear Services</span></button>
             <button type="button" class="pic-only" id="rmpConfirmPendingToolBtn" onclick="RosterEngine.confirmPendingPrompt()"><i class="fa-solid fa-circle-check"></i><span>Confirm Pending (<span id="rmpPendingCount">0</span>)</span></button>
           </div>
@@ -6568,6 +6574,7 @@
         <div class="roster-bottom-nav">
           <button class="roster-bottom-nav-btn" id="rosterEnablersBtn"><i class="fa-solid fa-people-group"></i><span>Enablers</span></button>
           <button class="roster-bottom-nav-btn" id="rosterAvailabilityBtn" onclick="openAvailabilitySelfService()" title="Tell us the Sundays you cannot serve"><i class="fa-solid fa-calendar-xmark"></i><span>Availability</span></button>
+          <button class="roster-bottom-nav-btn pic-only" id="rosterDutySettingsBtn" onclick="openDutySettings()" title="Who Auto-Suggest may pick for each duty, and how often"><i class="fa-solid fa-sliders"></i><span>Duty Setup</span></button>
           <button class="roster-bottom-nav-btn" id="rosterCalendarsBtn" onclick="RosterEngine.openEnablersCalendar()"><i class="fa-solid fa-calendar-check"></i><span>Calendar</span></button>
           <button class="roster-bottom-nav-btn roster-bottom-nav-export" id="rosterDownloadCSVBtn"><i class="fa-solid fa-file-csv"></i><span>Export</span></button>
           <button class="roster-bottom-nav-btn roster-bottom-nav-center" id="rosterPicLoginBtn" onclick="RosterEngine.showPicLoginModal()" title="PIC Login">
@@ -26468,6 +26475,53 @@ var SBQ_ROSTER = {
       if (r.error) { return base().then(function(r2) { if (r2.error) throw new Error(r2.error.message); return { success: true }; }); }
       return { success: true };
     });
+  },
+
+  // ---------- PER-DUTY AUTO-SUGGEST SETTINGS ----------
+  // One row per duty per service type. Absent columns mean 'unchanged from
+  // the built-in behaviour', so an empty table behaves exactly as the
+  // hardcoded TEAM_ROLE_CONFIG / ROLE_NOT_APPLICABLE / soft cap did.
+  getDutySettings: function() {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('roster_duty_settings').select('*')
+      .then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        var out = {};
+        (r.data || []).forEach(function(row) {
+          var key = row.role_id + '__' + (row.service_type || 'all');
+          out[key] = {
+            roleId: row.role_id,
+            serviceType: row.service_type || 'all',
+            people: Array.isArray(row.people) ? row.people : null,
+            monthlyCap: (row.monthly_cap === null || row.monthly_cap === undefined) ? null : Number(row.monthly_cap),
+            applies: (row.applies === null || row.applies === undefined) ? null : !!row.applies
+          };
+        });
+        return out;
+      });
+  },
+
+  saveDutySetting: function(roleId, serviceType, patch, who) {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    var row = { role_id: roleId, service_type: serviceType || 'all', updated_at: new Date().toISOString(), updated_by: who || null };
+    // Only the keys the caller actually set are written. Spreading a whole
+    // settings object here would write null over a column another PIC had
+    // just filled in from the other tab.
+    if ('people' in patch)     row.people = patch.people;
+    if ('monthlyCap' in patch) row.monthly_cap = patch.monthlyCap;
+    if ('applies' in patch)    row.applies = patch.applies;
+    return sb.from('roster_duty_settings').upsert(row, { onConflict: 'role_id,service_type' })
+      .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
+  },
+
+  deleteDutySetting: function(roleId, serviceType) {
+    var sb = SBQ_ROSTER._sb();
+    if (!sb) return Promise.reject(new Error('Supabase not ready'));
+    return sb.from('roster_duty_settings').delete()
+      .eq('role_id', roleId).eq('service_type', serviceType || 'all')
+      .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
   },
 
   // Get all member metadata (status, joined date, etc.)
@@ -83731,6 +83785,7 @@ function filterLiturgyItems() {
     }
     _loadUnavailabilityFromCloud();
     _loadMemberMetaFromCloud();
+    _loadDutySettingsFromCloud();
   }
 
   function _loadUnavailabilityFromCloud() {
@@ -83797,7 +83852,46 @@ function filterLiturgyItems() {
     ssteacher1: ['traditional'], ssteacher2: ['traditional'], ssteacher3: ['traditional']
   };
 
+  // ---------- PER-DUTY SETTINGS, AS SET BY A PIC ----------
+  // Keyed roleId__serviceType. A missing key, or a null field within one,
+  // means "whatever the built-in behaviour was" -- so the three constants
+  // above stay the answer until somebody deliberately overrides one.
+  var ROSTER_DUTY_SETTINGS = {};
+  (function() {
+    var stored = localStorage.getItem('lhc_roster_duty_settings');
+    if (stored) { try { ROSTER_DUTY_SETTINGS = JSON.parse(stored); } catch (e) {} }
+  })();
+
+  function _loadDutySettingsFromCloud() {
+    if (typeof SBQ_ROSTER === 'undefined' || !SBQ_ROSTER.getDutySettings) return Promise.resolve();
+    return SBQ_ROSTER.getDutySettings().then(function(data) {
+      if (!data) return;
+      ROSTER_DUTY_SETTINGS = data;
+      localStorage.setItem('lhc_roster_duty_settings', JSON.stringify(data));
+    }).catch(function(e) {
+      // Before the migration lands this is a 404. The built-in behaviour is
+      // the fallback, which is the same behaviour as before this feature.
+      console.warn('Could not load duty settings from Supabase:', e);
+    });
+  }
+
+  // The specific service type wins; 'all' is the fallback for duties that do
+  // not vary between Traditional and Contemporary.
+  function _dutySetting(roleId, team) {
+    var specific = ROSTER_DUTY_SETTINGS[roleId + '__' + (team || 'all')];
+    var general  = ROSTER_DUTY_SETTINGS[roleId + '__all'];
+    return { specific: specific || null, general: general || null };
+  }
+  function _dutySettingField(roleId, team, field) {
+    var s = _dutySetting(roleId, team);
+    if (s.specific && s.specific[field] !== null && s.specific[field] !== undefined) return s.specific[field];
+    if (s.general && s.general[field] !== null && s.general[field] !== undefined) return s.general[field];
+    return null;
+  }
+
   function _autoFillRoleApplies(roleId, team) {
+    var set = _dutySettingField(roleId, team, 'applies');
+    if (set !== null) return !!set;
     var na = ROLE_NOT_APPLICABLE[roleId];
     return !na || na.indexOf(team) === -1;
   }
@@ -84209,6 +84303,245 @@ function filterLiturgyItems() {
       }).catch(function() {});
     } else if (typeof _loadUnavailabilityFromCloud === 'function') { _loadUnavailabilityFromCloud(); }
   }
+
+  // ========== PER-DUTY AUTO-SUGGEST SETTINGS (PIC) ==========
+  // Three answers used to live in the source: who Auto-Suggest may pick for a
+  // duty, whether that duty runs on this service type at all, and how often one
+  // person may be reused in a month. Changing any of them was a deploy. This is
+  // where a PIC changes them instead.
+  //
+  // Everything is per duty AND per service type, because that is how the
+  // answers actually differ: a Contemporary service has no Altar Guild, and the
+  // Traditional pianist list is not the Contemporary one.
+  var _dsRole = null, _dsTeam = 'traditional', _dsDirty = false;
+
+  function _dsEnsureStyle() {
+    if (document.getElementById('dutySetCss')) return;
+    var st = document.createElement('style');
+    st.id = 'dutySetCss';
+    st.textContent =
+      '#dutySet{position:fixed;inset:0;z-index:200000;background:rgba(8,20,16,.55);display:flex;align-items:center;justify-content:center;font-family:Poppins,system-ui,sans-serif;padding:16px;}' +
+      '#dutySet .ds-card{background:#fff;color:#17271f;border-radius:14px;width:100%;max-width:860px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35);}' +
+      '#dutySet .ds-head{background:linear-gradient(160deg,#1b5e43,#123c2c);color:#f3efe2;padding:14px 16px;display:flex;align-items:center;gap:10px;}' +
+      '#dutySet .ds-head h2{font-family:Georgia,serif;font-size:1.15rem;margin:0;font-weight:600;}' +
+      '#dutySet .ds-head p{margin:2px 0 0;font-size:.78rem;color:#cfe0d6;}' +
+      '#dutySet .ds-x{width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#f3efe2;font-size:18px;cursor:pointer;flex:0 0 auto;}' +
+      '#dutySet .ds-body{display:flex;min-height:0;flex:1;}' +
+      '#dutySet .ds-list{width:210px;flex:0 0 auto;border-right:1px solid #e6e2d6;overflow-y:auto;background:#faf9f4;}' +
+      '#dutySet .ds-list button{display:block;width:100%;text-align:left;padding:9px 12px;border:0;background:none;font:inherit;font-size:.86rem;color:#3a4a43;cursor:pointer;border-bottom:1px solid #f0ece0;}' +
+      '#dutySet .ds-list button:hover{background:#eef3ee;}' +
+      '#dutySet .ds-list button.on{background:#1b5e43;color:#fff;font-weight:500;}' +
+      '#dutySet .ds-dot{float:right;color:#b8912f;font-weight:700;}' +
+      '#dutySet .ds-list button.on .ds-dot{color:#ffd88a;}' +
+      '#dutySet .ds-pane{flex:1;min-width:0;overflow-y:auto;padding:14px 16px;}' +
+      '#dutySet .ds-tabs{display:flex;gap:6px;margin-bottom:12px;}' +
+      '#dutySet .ds-tabs button{flex:1;padding:8px;border:1px solid #d3ccb8;background:#f6f4ec;color:#40544a;border-radius:8px;font:inherit;font-size:.84rem;cursor:pointer;}' +
+      '#dutySet .ds-tabs button.on{background:#1b5e43;border-color:#1b5e43;color:#fff;}' +
+      '#dutySet .ds-field{border:1px solid #e6e2d6;border-radius:10px;padding:11px 12px;margin-bottom:10px;}' +
+      '#dutySet .ds-field > label:not(.ds-radio){display:block;font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#6b7d73;margin-bottom:6px;}' +
+      '#dutySet .ds-hint{font-size:.78rem;color:#6b7d73;line-height:1.45;margin:6px 0 0;}' +
+      '#dutySet .ds-radio{display:flex;align-items:flex-start;gap:8px;font-size:.88rem;margin-bottom:6px;cursor:pointer;}' +
+      '#dutySet .ds-people{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:4px 10px;margin-top:8px;max-height:210px;overflow-y:auto;border-top:1px solid #f0ece0;padding-top:8px;}' +
+      '#dutySet .ds-people label{display:flex;align-items:center;gap:7px;font-size:.85rem;cursor:pointer;}' +
+      '#dutySet .ds-num{width:92px;padding:7px 9px;border:1px solid #d3ccb8;border-radius:8px;font:inherit;font-size:.9rem;}' +
+      '#dutySet .ds-foot{display:flex;align-items:center;gap:10px;padding:11px 16px;border-top:1px solid #e6e2d6;background:#faf9f4;}' +
+      '#dutySet .ds-foot .grow{flex:1;font-size:.8rem;color:#6b7d73;}' +
+      '#dutySet .ds-btn{padding:9px 16px;border-radius:9px;border:0;font:inherit;font-size:.9rem;font-weight:600;cursor:pointer;background:#1b5e43;color:#fff;}' +
+      '#dutySet .ds-btn.ghost{background:#eef1e8;color:#1b5e43;border:1px solid #cbd8c9;}' +
+      '@media(max-width:700px){#dutySet .ds-body{flex-direction:column;}#dutySet .ds-list{width:auto;max-height:132px;border-right:0;border-bottom:1px solid #e6e2d6;}}';
+    document.head.appendChild(st);
+  }
+
+  function _dsDuties() {
+    return ((window.RosterEngine && RosterEngine.ROLES) || [])
+      .filter(function(r) { return r.type === 'role'; });
+  }
+  function _dsDutyLabel(roleId) {
+    return (window.RosterEngine && RosterEngine._roleWord) ? RosterEngine._roleWord(roleId) : roleId;
+  }
+  function _dsPeopleFor(roleId) {
+    var cat = getRoleCategory(roleId);
+    return (ROSTER_NAME_OPTIONS[cat] || []).slice()
+      .sort(function(a, b) { return a.localeCompare(b); });
+  }
+  function _dsRow(roleId, team) { return ROSTER_DUTY_SETTINGS[roleId + '__' + team] || null; }
+  function _dsHasAny(roleId) {
+    return ['traditional', 'contemporary', 'all'].some(function(t) {
+      var r = _dsRow(roleId, t);
+      return !!(r && (r.people || r.monthlyCap || r.applies !== null));
+    });
+  }
+
+  function _dsRenderList() {
+    var box = document.getElementById('dsList');
+    if (!box) return;
+    box.innerHTML = _dsDuties().map(function(r) {
+      return '<button type="button" data-r="' + escapeHtmlModal(r.id) + '"' +
+        (r.id === _dsRole ? ' class="on"' : '') + '>' + escapeHtmlModal(_dsDutyLabel(r.id)) +
+        (_dsHasAny(r.id) ? '<span class="ds-dot" title="Changed from the default">&bull;</span>' : '') +
+        '</button>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('button'), function(b) {
+      b.addEventListener('click', function() {
+        if (_dsDirty && !confirm('Discard the unsaved change to ' + _dsDutyLabel(_dsRole) + '?')) return;
+        _dsRole = b.getAttribute('data-r'); _dsDirty = false;
+        _dsRenderList(); _dsRenderPane();
+      });
+    });
+  }
+
+  function _dsRenderPane() {
+    var pane = document.getElementById('dsPane');
+    if (!pane || !_dsRole) return;
+    var row = _dsRow(_dsRole, _dsTeam) || {};
+    var people = _dsPeopleFor(_dsRole);
+    var restricted = !!(row.people && row.people.length);
+    var chosen = {};
+    (row.people || []).forEach(function(n) { chosen[_nameNorm(n)] = true; });
+    var appliesNow = (row.applies === null || row.applies === undefined)
+      ? _autoFillRoleApplies(_dsRole, _dsTeam) : !!row.applies;
+
+    var peopleHtml = people.length
+      ? people.map(function(n) {
+          return '<label><input type="checkbox" value="' + escapeHtmlModal(n) + '"' +
+            (chosen[_nameNorm(n)] ? ' checked' : '') + '>' + escapeHtmlModal(n) + '</label>';
+        }).join('')
+      : '<span class="ds-hint">Nobody is on this duty&rsquo;s list yet. Add names from a roster cell first.</span>';
+
+    pane.innerHTML =
+      '<div class="ds-tabs">' +
+        '<button type="button" data-t="traditional"' + (_dsTeam === 'traditional' ? ' class="on"' : '') + '>Traditional</button>' +
+        '<button type="button" data-t="contemporary"' + (_dsTeam === 'contemporary' ? ' class="on"' : '') + '>Contemporary</button>' +
+      '</div>' +
+      '<div class="ds-field"><label>Runs on this service</label>' +
+        '<label class="ds-radio"><input type="checkbox" id="dsApplies"' + (appliesNow ? ' checked' : '') + '>' +
+        '<span>' + escapeHtmlModal(_dsDutyLabel(_dsRole)) + ' is part of a ' + _dsTeam + ' service</span></label>' +
+        '<p class="ds-hint">Unticked, Auto-Suggest skips it on these dates and leaves the cell blank, rather than reporting it as one it could not fill.</p>' +
+      '</div>' +
+      '<div class="ds-field"><label>Who Auto-Suggest may pick</label>' +
+        '<label class="ds-radio"><input type="radio" name="dsWho" value="any"' + (restricted ? '' : ' checked') + '>' +
+          '<span>Anyone on the ' + escapeHtmlModal(getRoleCategory(_dsRole)) + ' list</span></label>' +
+        '<label class="ds-radio"><input type="radio" name="dsWho" value="only"' + (restricted ? ' checked' : '') + '>' +
+          '<span>Only the people I tick below</span></label>' +
+        '<p class="ds-hint">A ticked list is a restriction, not a preference: if none of them are free, the cell is left blank and reported, rather than filled with somebody you did not approve for this duty.</p>' +
+        '<div class="ds-people" id="dsPeople">' + peopleHtml + '</div>' +
+      '</div>' +
+      '<div class="ds-field"><label>Most times a month</label>' +
+        '<input type="number" min="1" max="10" class="ds-num" id="dsCap" value="' +
+          (row.monthlyCap ? row.monthlyCap : '') + '" placeholder="2">' +
+        '<p class="ds-hint">How often Auto-Suggest is willing to come back to the same person for this duty. Blank uses the built-in 2. It gives way when nobody fresher is free, and says so in the summary.</p>' +
+      '</div>';
+
+    Array.prototype.forEach.call(pane.querySelectorAll('.ds-tabs button'), function(b) {
+      b.addEventListener('click', function() {
+        if (_dsDirty && !confirm('Discard the unsaved change?')) return;
+        _dsTeam = b.getAttribute('data-t'); _dsDirty = false; _dsRenderPane();
+      });
+    });
+    Array.prototype.forEach.call(pane.querySelectorAll('input'), function(el) {
+      el.addEventListener('change', function() { _dsDirty = true; });
+    });
+    var dimPeople = function() {
+      var only = pane.querySelector('input[name="dsWho"][value="only"]');
+      var box = document.getElementById('dsPeople');
+      if (box) box.style.opacity = (only && only.checked) ? '1' : '.45';
+    };
+    Array.prototype.forEach.call(pane.querySelectorAll('input[name="dsWho"]'), function(el) {
+      el.addEventListener('change', dimPeople);
+    });
+    dimPeople();
+  }
+
+  function _dsSave() {
+    if (!_dsRole) return;
+    var pane = document.getElementById('dsPane');
+    var only = pane.querySelector('input[name="dsWho"][value="only"]');
+    var ticked = Array.prototype.slice.call(pane.querySelectorAll('#dsPeople input:checked'))
+      .map(function(el) { return el.value; });
+    if (only && only.checked && !ticked.length) {
+      var n0 = document.getElementById('dsNote');
+      if (n0) n0.textContent = 'Tick at least one person, or choose "Anyone on the list".';
+      return;
+    }
+    var capRaw = (document.getElementById('dsCap') || {}).value;
+    var cap = (capRaw === '' || capRaw === undefined) ? null
+      : Math.max(1, Math.min(10, parseInt(capRaw, 10) || 2));
+    var patch = {
+      people: (only && only.checked) ? ticked : null,
+      monthlyCap: cap,
+      applies: !!(document.getElementById('dsApplies') || {}).checked
+    };
+    ROSTER_DUTY_SETTINGS[_dsRole + '__' + _dsTeam] = {
+      roleId: _dsRole, serviceType: _dsTeam,
+      people: patch.people, monthlyCap: patch.monthlyCap, applies: patch.applies
+    };
+    localStorage.setItem('lhc_roster_duty_settings', JSON.stringify(ROSTER_DUTY_SETTINGS));
+    _dsDirty = false;
+    _dsRenderList();
+    var note = document.getElementById('dsNote');
+    if (note) note.textContent = 'Saving...';
+    if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveDutySetting) {
+      SBQ_ROSTER.saveDutySetting(_dsRole, _dsTeam, patch, null).then(function() {
+        if (note) note.textContent = 'Saved. Every PIC sees this.';
+      }).catch(function(e) {
+        // It is kept locally either way so the edit is not lost, but say so:
+        // "saved" on one laptop is not what a PIC setting a rule for the team
+        // is asking for, and silence here would read as success.
+        if (note) note.textContent = 'Saved on this device only -- could not reach the server.';
+        console.warn('saveDutySetting failed:', e);
+      });
+    } else if (note) { note.textContent = 'Saved on this device only.'; }
+  }
+
+  function _dsReset() {
+    if (!_dsRole) return;
+    if (!confirm('Put ' + _dsDutyLabel(_dsRole) + ' (' + _dsTeam + ') back to the built-in behaviour?')) return;
+    delete ROSTER_DUTY_SETTINGS[_dsRole + '__' + _dsTeam];
+    localStorage.setItem('lhc_roster_duty_settings', JSON.stringify(ROSTER_DUTY_SETTINGS));
+    _dsDirty = false;
+    _dsRenderList(); _dsRenderPane();
+    var note = document.getElementById('dsNote');
+    if (note) note.textContent = 'Back to the default.';
+    if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.deleteDutySetting) {
+      SBQ_ROSTER.deleteDutySetting(_dsRole, _dsTeam).catch(function(e) { console.warn('deleteDutySetting failed:', e); });
+    }
+  }
+
+  function openDutySettings() {
+    if (!document.body.classList.contains('pic-mode')) {
+      if (window.RosterEngine && RosterEngine.showToast) {
+        RosterEngine.showToast('Sign in as a PIC to change Auto-Suggest settings.', 'warning');
+      }
+      return;
+    }
+    _dsEnsureStyle();
+    var ov = document.getElementById('dutySet');
+    if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+    ov = document.createElement('div');
+    ov.id = 'dutySet';
+    ov.innerHTML =
+      '<div class="ds-card">' +
+        '<div class="ds-head"><div style="flex:1"><h2>Auto-Suggest settings</h2>' +
+          '<p>Per duty, per service type. Takes effect the next time you run Auto-Suggest.</p></div>' +
+          '<button class="ds-x" id="dsClose" aria-label="Close">&times;</button></div>' +
+        '<div class="ds-body"><div class="ds-list" id="dsList"></div><div class="ds-pane" id="dsPane"></div></div>' +
+        '<div class="ds-foot"><span class="grow" id="dsNote">A dot marks a duty you have changed.</span>' +
+          '<button class="ds-btn ghost" id="dsReset">Use default</button>' +
+          '<button class="ds-btn" id="dsSave">Save</button></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    if (!_dsRole) { var first = _dsDuties()[0]; _dsRole = first ? first.id : null; }
+    _dsRenderList(); _dsRenderPane();
+    document.getElementById('dsClose').addEventListener('click', function() {
+      if (_dsDirty && !confirm('Close without saving this change?')) return;
+      if (ov.parentNode) ov.parentNode.removeChild(ov);
+    });
+    document.getElementById('dsSave').addEventListener('click', _dsSave);
+    document.getElementById('dsReset').addEventListener('click', _dsReset);
+  }
+  window.openDutySettings = openDutySettings;
+
+
   window.openAvailabilitySelfService = function() { _availInApp = true; _availOpen(); };
 
   // PIC: copy / WhatsApp-share the one member availability link.
@@ -89249,6 +89582,23 @@ function filterLiturgyItems() {
             var category = getRoleCategory(role.id);
             var pool = _autoFillPoolForRole(role.id, category, team);
 
+            // A list a PIC set for this duty is a RESTRICTION, not a ranking:
+            // nobody outside it is eligible, and the cell is left blank and
+            // reported rather than filled with someone they did not approve
+            // for this duty. That is the difference between it and the
+            // built-in TEAM_ROLE_CONFIG below, which only sorts the pool.
+            var allowedPeople = _dutySettingField(role.id, team, 'people');
+            if (allowedPeople && allowedPeople.length) {
+              var allowedSet = {};
+              allowedPeople.forEach(function(n) { allowedSet[_afKey(n)] = true; });
+              pool = pool.filter(function(n) { return allowedSet[_afKey(n)]; });
+              // A name on the PIC's list that is not in the duty's dropdown
+              // would otherwise be silently unusable.
+              allowedPeople.forEach(function(n) {
+                if (!pool.some(function(p) { return _afKey(p) === _afKey(n); })) pool.push(n);
+              });
+            }
+
             // Curated-team membership for this role/team, if one is defined
             // (see TEAM_ROLE_CONFIG) -- used below to make sure a named team
             // member is always preferred over a general-dropdown fallback,
@@ -89316,11 +89666,19 @@ function filterLiturgyItems() {
             // would just needlessly leave both roles blank -- rotation
             // fairness still applies via the monthCount/lastServedMonth
             // tiebreakers below, just never as a hard block.
+            // How often this duty is willing to reuse someone in a month.
+            // Was the literal 2 below, in a comparator, which is a strange
+            // place for a rostering policy to live: Pianist and Usher are
+            // drawn from pools of very different sizes and had the same
+            // answer imposed on both.
+            var monthlyCap = _dutySettingField(role.id, team, 'monthlyCap');
+            if (monthlyCap === null || !(monthlyCap > 0)) monthlyCap = 2;
+
             function score(name) {
               var k = _afKey(name);
               var tier = (curatedSet && !curatedSet[k]) ? 1 : 0;
               if (role.id === 'liturgist') return tier;
-              return tier * 10 + ((monthCount[k] || 0) >= 2 ? 1 : 0) + (backToBackKeys[k] ? 1 : 0);
+              return tier * 10 + ((monthCount[k] || 0) >= monthlyCap ? 1 : 0) + (backToBackKeys[k] ? 1 : 0);
             }
             var roleCounts = perRoleMonthCount[role.id] || {};
             candidates.sort(function(a, b) {
@@ -89355,7 +89713,7 @@ function filterLiturgyItems() {
               (winnerMonthCount === 0 ? ', not yet served this month' : ', served ' + winnerMonthCount + ' time' + (winnerMonthCount === 1 ? '' : 's') + ' this month');
             var warning = '';
             if (role.id !== 'liturgist') {
-              if (winnerMonthCount >= 2) warning = 'Already serving 2+ times this month (soft cap relaxed -- no one fresher was available)';
+              if (winnerMonthCount >= monthlyCap) warning = 'Already serving ' + monthlyCap + '+ times this month (limit relaxed -- no one fresher was available)';
               else if (backToBackKeys[winnerKey]) warning = 'Also did this duty last time (repeat unavoidable -- no one else was available)';
             }
 

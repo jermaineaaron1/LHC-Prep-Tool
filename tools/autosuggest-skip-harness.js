@@ -109,6 +109,33 @@ function extractAssignedTodaySeed() {
   throw new Error('unbalanced brackets while extracting the assignedToday seeding');
 }
 
+// Slice the block that turns a PIC's people list into a pool restriction.
+// The setting is only worth anything if it actually narrows the pool, and a
+// restriction that is stored, shown ticked in the settings screen, and then
+// ignored by the picker is the failure nobody would see until a name they had
+// unticked turned up on a Sunday.
+function extractPoolRestriction() {
+  const startIdx = lines.findIndex(l => /var allowedPeople = _dutySettingField/.test(l));
+  if (startIdx < 0) throw new Error('pool restriction not found in ' + path.basename(INDEX));
+  let depth = 0, started = false, out = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    out.push(lines[i]);
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) return { text: out.join('\n'), line: startIdx + 1 };
+  }
+  throw new Error('unbalanced braces while extracting the pool restriction');
+}
+
+// The per-duty monthly limit, as the picker resolves it.
+function extractCapResolution() {
+  const i = lines.findIndex(l => /var monthlyCap = _dutySettingField/.test(l));
+  if (i < 0) throw new Error('monthly cap not found in ' + path.basename(INDEX));
+  return { text: lines[i].trim() + '\n' + lines[i + 1].trim(), line: i + 1 };
+}
+
 // ── 1. The predicate itself ────────────────────────────────────────────────
 console.log('Extracted from ' + path.basename(INDEX) + ':');
 
@@ -133,10 +160,14 @@ const skipMap = extractVar('AUTOSUGGEST_SKIP_STATUS');
 const pairSep = extractVar('_PAIR_SEP');
 const filter = extractCandidateFilter();
 const seed = extractAssignedTodaySeed();
+const poolRestrict = extractPoolRestriction();
+const capResolve = extractCapResolution();
 for (const n of fnNames) console.log('  ' + n + ' @ line ' + fns[n].line);
 console.log('  AUTOSUGGEST_SKIP_STATUS @ line ' + skipMap.line);
 console.log('  runAutoSuggest candidate filter @ line ' + filter.line);
 console.log('  assignedToday seeding @ line ' + seed.line);
+console.log('  pool restriction @ line ' + poolRestrict.line);
+console.log('  monthly cap @ line ' + capResolve.line);
 
 function makePredicates(statusByName) {
   const env = { ROSTER_MEMBER_STATUS: statusByName, Object, JSON,
@@ -371,6 +402,80 @@ function seedAssignedToday(editsByRole, roleIds) {
     check('the next role in the same run cannot reuse the winner',
       runFilter({ pool, predicates, roleId: 'singer1', assignedToday: running }), ['Ben Ooi']);
   }
+}
+
+// ── 5. A PIC's per-duty settings actually bite ────────────────────────────
+// TEAM_ROLE_CONFIG only ever SORTED the pool -- someone outside the list could
+// still be picked when the list was busy. A PIC's list is the opposite: a hard
+// restriction, chosen so Auto-Suggest can never volunteer a name they did not
+// approve for that duty. That difference has to be real in the picker, not
+// only in the settings screen.
+console.log('\nScenario 5 - per-duty settings from the settings screen');
+
+const dutyFns = ['_dutySetting', '_dutySettingField'].map(n => extractFn(n));
+
+function restrictPool(pool, settings, roleId, team) {
+  const env = {
+    pool: pool.slice(),
+    role: { id: roleId || 'pianist' },
+    team: team || 'traditional',
+    ROSTER_DUTY_SETTINGS: settings,
+    _afKey: n => (n || '').trim().replace(/\s+/g, ' ').toLowerCase(),
+    Object, JSON
+  };
+  const body = dutyFns.map(f => f.text).join('\n') + '\n' + poolRestrict.text + '\n; return pool;';
+  const keys = Object.keys(env);
+  return new Function(...keys, body)(...keys.map(k => env[k]));
+}
+
+function resolveCap(settings, roleId, team) {
+  const env = {
+    role: { id: roleId || 'pianist' },
+    team: team || 'traditional',
+    ROSTER_DUTY_SETTINGS: settings,
+    Object, JSON
+  };
+  const body = dutyFns.map(f => f.text).join('\n') + '\n' + capResolve.text + '\n; return monthlyCap;';
+  const keys = Object.keys(env);
+  return new Function(...keys, body)(...keys.map(k => env[k]));
+}
+
+{
+  const pool = ['Ann Lee', 'Ben Ooi', 'Cara Tan'];
+
+  check('no setting leaves the pool alone', restrictPool(pool, {}), pool);
+
+  const restricted = { 'pianist__traditional': { people: ['Ben Ooi'], monthlyCap: null, applies: null } };
+  check('a list is a restriction, not a preference',
+    restrictPool(pool, restricted), ['Ben Ooi']);
+
+  // The settings screen offers the duty's own name list, but a PIC can have
+  // approved somebody who is not on it yet; dropping them silently would make
+  // a ticked box do nothing.
+  const outsider = { 'pianist__traditional': { people: ['Dan Foo'], monthlyCap: null, applies: null } };
+  check('a name not in the dropdown is still usable',
+    restrictPool(pool, outsider), ['Dan Foo']);
+
+  // Whitespace again: the list is stored as typed, the pool comes from the
+  // roster, and _afKey is what keeps them the same person.
+  const spaced = { 'pianist__traditional': { people: ['Ben  Ooi'], monthlyCap: null, applies: null } };
+  check('a stray double space still matches', restrictPool(pool, spaced), ['Ben Ooi']);
+
+  // Service type: the specific row wins, the 'all' row is the fallback.
+  const perType = {
+    'pianist__all': { people: ['Ann Lee'], monthlyCap: null, applies: null },
+    'pianist__contemporary': { people: ['Cara Tan'], monthlyCap: null, applies: null }
+  };
+  check('the Traditional list falls back to the all-services row',
+    restrictPool(pool, perType, 'pianist', 'traditional'), ['Ann Lee']);
+  check('the Contemporary list wins where it is set',
+    restrictPool(pool, perType, 'pianist', 'contemporary'), ['Cara Tan']);
+
+  check('no cap set means the built-in 2', resolveCap({}), 2);
+  check('a cap of 4 is honoured',
+    resolveCap({ 'pianist__traditional': { people: null, monthlyCap: 4, applies: null } }), 4);
+  check('a nonsense cap falls back to 2',
+    resolveCap({ 'pianist__traditional': { people: null, monthlyCap: 0, applies: null } }), 2);
 }
 
 console.log('\n================================');
