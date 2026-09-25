@@ -84433,6 +84433,13 @@ function filterLiturgyItems() {
       '#dutySet .ds-rule{display:flex;align-items:flex-start;gap:8px;font-size:.85rem;line-height:1.45;padding:7px 9px;background:#f6f4ec;border:1px solid #e6e2d6;border-radius:8px;margin-bottom:6px;}' +
       '#dutySet .ds-rule span{flex:1;}' +
       '#dutySet .ds-rule-x{border:0;background:none;color:#9a3b2f;font-size:1.05rem;line-height:1;cursor:pointer;padding:0 3px;flex:0 0 auto;}' +
+      '#dutySet .ds-cond-group{margin-bottom:9px;}' +
+      '#dutySet .ds-cond-person{font-size:.86rem;font-weight:500;color:#1b5e43;margin-bottom:3px;}' +
+      '#dutySet .ds-cond{display:flex;align-items:baseline;gap:8px;font-size:.84rem;line-height:1.45;padding:5px 9px;background:#f6f4ec;border:1px solid #e6e2d6;border-radius:8px;margin-bottom:4px;}' +
+      '#dutySet .ds-cond-then{font-weight:500;flex:0 0 auto;min-width:104px;}' +
+      '#dutySet .ds-cond-op{color:#6b7d73;flex:0 0 auto;}' +
+      '#dutySet .ds-cond-who{flex:1;min-width:0;}' +
+      '#dutySet .ds-cond-role{font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7d73;margin:11px 0 5px;border-bottom:1px solid #eee8da;padding-bottom:3px;}' +
       '#dutySet .ds-addrule{border-top:1px solid #f0ece0;margin-top:9px;padding-top:9px;}' +
       '#dutySet .ds-arow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:.85rem;margin-bottom:7px;}' +
       '#dutySet .ds-arow select{padding:6px 8px;border:1px solid #d3ccb8;border-radius:7px;font:inherit;font-size:.85rem;background:#fff;max-width:190px;}' +
@@ -84470,7 +84477,12 @@ function filterLiturgyItems() {
   function _dsRenderList() {
     var box = document.getElementById('dsList');
     if (!box) return;
-    box.innerHTML = _dsDuties().map(function(r) {
+    box.innerHTML =
+      '<button type="button" data-r="__all__"' + (_dsRole === '__all__' ? ' class="on"' : '') +
+        ' style="font-weight:500">All conditions' +
+        (ROSTER_DUTY_PAIRINGS.length ? '<span class="ds-dot">' + ROSTER_DUTY_PAIRINGS.length + '</span>' : '') +
+      '</button>' +
+      _dsDuties().map(function(r) {
       return '<button type="button" data-r="' + escapeHtmlModal(r.id) + '"' +
         (r.id === _dsRole ? ' class="on"' : '') + '>' + escapeHtmlModal(_dsDutyLabel(r.id)) +
         (_dsHasAny(r.id) ? '<span class="ds-dot" title="Changed from the default">&bull;</span>' : '') +
@@ -84498,19 +84510,80 @@ function filterLiturgyItems() {
     });
   }
 
+  // One rule row, keyed by what makes it unique rather than by its position in
+  // a list -- the list is grouped and regrouped, and an index would delete the
+  // wrong rule the moment the grouping changed.
+  function _dsRuleRow(r, showDuty) {
+    return '<div class="ds-cond">' +
+      '<span class="ds-cond-then">' + escapeHtmlModal(_dsDutyLabel(r.thenRole)) + '</span>' +
+      '<span class="ds-cond-op">' + (r.strict ? 'must be' : 'should be') + '</span>' +
+      '<span class="ds-cond-who">' + escapeHtmlModal(r.thenPeople.join(' or ')) +
+        ((r.serviceType || 'all') === 'all' ? ' <i>(both services)</i>'
+          : ' <i>(' + escapeHtmlModal(r.serviceType) + ' only)</i>') + '</span>' +
+      '<button type="button" class="ds-rule-x" title="Remove this condition"' +
+        ' data-when="' + escapeHtmlModal(r.whenRole) + '"' +
+        ' data-person="' + escapeHtmlModal(r.whenPerson) + '"' +
+        ' data-st="' + escapeHtmlModal(r.serviceType || 'all') + '"' +
+        ' data-then="' + escapeHtmlModal(r.thenRole) + '">&times;</button>' +
+    '</div>';
+  }
+
+  // Grouped by the person who triggers them, because that is the question a
+  // PIC is holding: "if Dorine leads, who else does that settle?" A flat list
+  // makes them read the same opening clause once per rule and assemble the
+  // answer themselves.
+  function _dsGroupedRules(rules) {
+    var order = [], byPerson = {};
+    rules.forEach(function(r) {
+      var k = _nameNorm(r.whenPerson);
+      if (!byPerson[k]) { byPerson[k] = { person: r.whenPerson, rules: [] }; order.push(k); }
+      byPerson[k].rules.push(r);
+    });
+    order.sort(function(a, b) { return byPerson[a].person.localeCompare(byPerson[b].person); });
+    return order.map(function(k) { return byPerson[k]; });
+  }
+
+  function _dsConditionsHtml(rules) {
+    return _dsGroupedRules(rules).map(function(g) {
+      return '<div class="ds-cond-group"><div class="ds-cond-person">' +
+        escapeHtmlModal(g.person) + '</div>' +
+        g.rules.map(function(r) { return _dsRuleRow(r); }).join('') + '</div>';
+    }).join('');
+  }
+
+  // Every condition in one place, grouped by the duty that triggers it. This is
+  // the view for checking the whole set before a month is filled; the per-duty
+  // one is for editing.
+  function _dsAllPairingsHtml() {
+    if (!ROSTER_DUTY_PAIRINGS.length) {
+      return '<div class="ds-field"><label>All conditions</label>' +
+        '<p class="ds-hint">No pairings set yet. Pick a duty on the left and add one under <b>Who goes with them</b>.</p></div>';
+    }
+    var byRole = {}, order = [];
+    ROSTER_DUTY_PAIRINGS.forEach(function(r) {
+      if (!byRole[r.whenRole]) { byRole[r.whenRole] = []; order.push(r.whenRole); }
+      byRole[r.whenRole].push(r);
+    });
+    // Duty order, so the list reads down the roster rather than by entry date.
+    var roleOrder = _dsDuties().map(function(d) { return d.id; });
+    order.sort(function(a, b) { return roleOrder.indexOf(a) - roleOrder.indexOf(b); });
+
+    return '<div class="ds-field"><label>All conditions</label>' +
+      '<p class="ds-hint">Every pairing across every duty. Read each block as: when this person is on this duty, the rows below follow.</p>' +
+      order.map(function(roleId) {
+        return '<div class="ds-cond-role">' + escapeHtmlModal(_dsDutyLabel(roleId)) + '</div>' +
+          _dsConditionsHtml(byRole[roleId]);
+      }).join('') +
+      '</div>';
+  }
+
   function _dsPairingHtml(roleId, team) {
     var rules = _dsRulesFor(roleId, team);
     var people = _dsPeopleFor(roleId);
     var duties = _dsDuties().filter(function(r) { return r.id !== roleId; });
     var list = rules.length
-      ? rules.map(function(r, i) {
-          return '<div class="ds-rule"><span>When <b>' + escapeHtmlModal(r.whenPerson) +
-            '</b> is on this duty, <b>' + escapeHtmlModal(_dsDutyLabel(r.thenRole)) + '</b> ' +
-            (r.strict ? 'must' : 'should') + ' be ' +
-            escapeHtmlModal(r.thenPeople.join(' or ')) +
-            ((r.serviceType || 'all') === 'all' ? ' <i>(both services)</i>' : '') + '</span>' +
-            '<button type="button" class="ds-rule-x" data-i="' + i + '" title="Remove this rule">&times;</button></div>';
-        }).join('')
+      ? '<p class="ds-hint" style="margin:0 0 7px">When one of these people is on this duty, the rows under their name follow.</p>' +
+        _dsConditionsHtml(rules)
       : '<p class="ds-hint">No pairings yet.</p>';
 
     return '<div class="ds-field"><label>Who goes with them</label>' +
@@ -84552,8 +84625,12 @@ function filterLiturgyItems() {
     if (thenRole) { thenRole.addEventListener('change', renderThen); renderThen(); }
     Array.prototype.forEach.call(pane.querySelectorAll('.ds-rule-x'), function(b) {
       b.addEventListener('click', function() {
-        var rules = _dsRulesFor(_dsRole, _dsTeam);
-        var rule = rules[parseInt(b.getAttribute('data-i'), 10)];
+        var rule = ROSTER_DUTY_PAIRINGS.filter(function(r) {
+          return r.whenRole === b.getAttribute('data-when') &&
+                 r.whenPerson === b.getAttribute('data-person') &&
+                 (r.serviceType || 'all') === b.getAttribute('data-st') &&
+                 r.thenRole === b.getAttribute('data-then');
+        })[0];
         if (!rule) return;
         ROSTER_DUTY_PAIRINGS = ROSTER_DUTY_PAIRINGS.filter(function(r) { return r !== rule; });
         localStorage.setItem('lhc_roster_duty_pairings', JSON.stringify(ROSTER_DUTY_PAIRINGS));
@@ -84606,9 +84683,23 @@ function filterLiturgyItems() {
     });
   }
 
+  // Save and Use default act on one duty; there is no duty on the overview.
+  function _dsSyncFoot() {
+    var overview = _dsRole === '__all__';
+    var save = document.getElementById('dsSave'), reset = document.getElementById('dsReset');
+    if (save) save.style.display = overview ? 'none' : '';
+    if (reset) reset.style.display = overview ? 'none' : '';
+  }
+
   function _dsRenderPane() {
     var pane = document.getElementById('dsPane');
     if (!pane || !_dsRole) return;
+    _dsSyncFoot();
+    if (_dsRole === '__all__') {
+      pane.innerHTML = _dsAllPairingsHtml();
+      _dsWirePairing(pane);
+      return;
+    }
     var row = _dsRow(_dsRole, _dsTeam) || {};
     var people = _dsPeopleFor(_dsRole);
     var restricted = !!(row.people && row.people.length);
