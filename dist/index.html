@@ -68298,45 +68298,70 @@ var WO = (function() {
   }
 
   // Detect inline chord format: e.g. "G  Away in a C  manger"
-  // A chord token followed by exactly 1–2 spaces and then a lyric word — all on one line.
+  // A chord token followed by exactly 1-2 spaces and then a lyric word - all on one line.
+  //
+  // The hard part is not finding those. It is refusing the lines that only
+  // look like them. "A  mighty fortress is our God" opens with a word that is
+  // also a chord name, two spaces, then prose -- and so do "Am I not still
+  // the same", "E is the note", and a good share of every hymnal. Splitting
+  // those tore the first word off the line and called it a chord.
+  //
+  // So a lone chord at the very start of the line is not evidence. Either
+  // there are two or more of them, or one of them sits somewhere other than
+  // the first word -- which is what a real interleaved chart looks like and
+  // what an English sentence does not. A sheet written "G  Amazing grace"
+  // with a single leading chord now comes through as one line instead of
+  // two: nothing is lost, and nothing is invented.
   function sbIsInlineChordLine(line) {
     if (!line || !line.trim()) return false;
     if (sbIsChordLine(line)) return false; // already a pure chord line
-    // Must contain: chord-token + 1–2 spaces + a letter (start of lyric word)
-    var inlineRe = /(^|\s)([A-G][#b]?(?:m|M|maj|min|sus[24]?|add\d+|dim|aug|[2-9]|11|13|[b#][259]|m7b5|maj7|m7|7|9|6|°|ø)*(?:\/[A-G][#b]?)?) {1,2}[A-Za-z]/;
-    if (!inlineRe.test(line)) return false;
+    // chord-token + 1-2 spaces + the start of a lyric word. The letter is a
+    // lookahead so two chords separated by one word both match.
+    var inlineRe = /(^|\s)([A-G][#b]?(?:m|M|maj|min|sus[24]?|add\d+|dim|aug|[2-9]|11|13|[b#][259]|m7b5|maj7|m7|7|9|6|°|ø)*(?:\/[A-G][#b]?)?) {1,2}(?=[A-Za-z])/g;
+    var at = [], m;
+    while ((m = inlineRe.exec(line)) !== null) at.push(m.index + m[1].length);
+    if (!at.length) return false;
     // Must have at least one prose (lyric) word
     var tokens = line.trim().split(/\s+/);
-    return tokens.some(function(t) { return !_CHORD_TOKEN_RE.test(t) && /[a-z]/i.test(t); });
+    if (!tokens.some(function(t) { return !_CHORD_TOKEN_RE.test(t) && /[a-z]/i.test(t); })) return false;
+    // One chord, and it is the first word on the line: not enough.
+    return !(at.length === 1 && at[0] === line.search(/\S/));
   }
 
   // Split an inline chord line into separate chord and lyric strings.
-  // e.g. "G  Away in a C  manger" → { chords: "G  C", lyrics: "Away in a manger" }
+  // e.g. "G  Away in a C  manger" -> { chords: "G  C", lyrics: "Away in a manger" }
+  //
+  // The lyric is rebuilt by copying the line and leaving out only the chords
+  // and the gap each one owns. It used to be rebuilt from the word tokens
+  // alone -- the space runs were dropped at the top of the loop and never put
+  // back -- so every space in the line disappeared and "mighty fortress is
+  // our God" came out as "mightyfortressisourGod".
   function sbExtractInlineChords(line) {
     // Split preserving space runs so we can inspect gap width
     var parts = line.split(/( +)/);
     var chords = [];
-    var lyricTokens = [];
+    var lyric = '';
     var i = 0;
     while (i < parts.length) {
       var token = parts[i];
-      // Space run — skip; spacing is tracked via the chord extraction logic
-      if (/^ +$/.test(token)) { i++; continue; }
-      // Check if this word-token is a chord followed by exactly 1–2 spaces
+      // A space run between lyric words belongs to the lyric.
+      if (/^ +$/.test(token)) { lyric += token; i++; continue; }
+      // Check if this word-token is a chord followed by exactly 1-2 spaces
       if (_CHORD_TOKEN_RE.test(token.trim())) {
         var gap = (i + 1 < parts.length) ? parts[i + 1] : '';
         if (/^ {1,2}$/.test(gap)) {
           chords.push(token.trim());
-          i += 2; // skip token + gap
+          i += 2; // the chord and its gap leave together
           continue;
         }
       }
-      lyricTokens.push(token);
+      lyric += token;
       i++;
     }
     return {
       chords: chords.join('  '),
-      lyrics: lyricTokens.join('').replace(/\s+/g, ' ').trim()
+      // Runs left behind where a chord was lifted out collapse to one space.
+      lyrics: lyric.replace(/\s+/g, ' ').trim()
     };
   }
 
@@ -93638,6 +93663,39 @@ window.LHC_Install = (function() {
   #songbookLiveModal .sb-page-lyrics .wo-lyrics-lyric-line {
     margin-top: 0;
     margin-bottom: 0.8em;
+  }
+  /* A chord chart only lines up if both rows share one character cell.
+
+     Sheets copied from Ultimate Guitar and the like place their chords by
+     counting spaces: column 12 of the chord row is meant to sit over column 12
+     of the lyric. That only holds when both rows are the same monospace font at
+     the same size. The chord row was Courier at 0.82em and the lyric row was
+     Georgia at 1em, so the two grids disagreed and every chord slid a little
+     further from its syllable along the line -- measured at up to 19px, wider
+     than a character, by the end of a line.
+
+     The phone already does this (see the max-width:820px portrait block); this
+     is the same rule for every other screen. Scoped with :has() so it only
+     touches songs that actually carry chords -- a lyrics-only page keeps the
+     serif face the Appearance panel chose. Both sizes are given in em of the
+     pad, so they stay equal through the zoom control and the per-song
+     auto-shrink, which pins the two rows separately and in px.
+
+     Print, PDF and projection do not need it: they rebuild chords as anchored
+     chord pairs, which sit over the right syllable in any font.
+
+     The phone is excluded because it already has its own version of this rule
+     and picks a smaller 1rem for both rows on purpose: a phone is narrow enough
+     that chord rows wrap, and wrapping is what really destroys the alignment,
+     so it trades type size for fewer wrapped lines. Taking that size away from
+     it would undo the trade. */
+  @media (min-width: 821px), (orientation: landscape) {
+    #songbookLiveModal .sb-page-lyrics:has(.wo-lyrics-chord-line) .wo-lyrics-chord-line,
+    #songbookLiveModal .sb-page-lyrics:has(.wo-lyrics-chord-line) .wo-lyrics-lyric-line {
+      font-family: 'Courier New', ui-monospace, monospace !important;
+      font-size: 1em !important;
+      letter-spacing: 0 !important;
+    }
   }
   #songbookLiveModal .sb-page-lyrics::spelling-error,
   #songbookLiveModal .sb-page-lyrics *::spelling-error { text-decoration: none; }
