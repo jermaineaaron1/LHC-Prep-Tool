@@ -43012,9 +43012,41 @@ var WO = (function() {
     return rebuilt;
   }
 
+  // Page-break markers, column-break markers and the A4 guide lines are
+  // furniture: they share the lyrics pad with the song's own line divs, they
+  // are not part of the song, and two of the three carry text of their own.
+  // Anything that reads the pad AS TEXT has to step over them.
+  //
+  // It was not stepping over them. Saving ran every child through
+  // textContent, so each A4 marker wrote a blank line at the foot of the
+  // lyrics -- one per save, which is where the blank lines in the library
+  // came from -- and a column break wrote the literal words "Column Break"
+  // into the middle of the verse, where it stayed. Paste rebuilds the pad
+  // from the same text, so it turned a marker's phantom line into a real
+  // blank one.
+  //
+  // Chord zones are NOT furniture. They look like it -- empty, inserted by
+  // the app, contentEditable=false until touched -- but a tap makes one
+  // editable and the operator types the chords straight into it, so their
+  // text belongs to the song and is read like any other line.
+  function _sbIsPadFurniture(el) {
+    var c = el && el.classList;
+    return !!c && (c.contains('sb-a4-marker') || c.contains('sb-a4-guide') ||
+                   c.contains('sb-col-break-marker'));
+  }
+  // The pad children that are lines of the song, in order. Every reader of
+  // the pad has to agree on this list: the marker-placement code maps source
+  // line indices back onto these children, so a child counted by one and
+  // skipped by the other puts every page break on the wrong line.
+  function _sbPadLines(lyricsEl) {
+    return Array.prototype.filter.call(lyricsEl.children, function(c) {
+      return !_sbIsPadFurniture(c);
+    });
+  }
+
   function sbExtractLyricsText(lyricsEl) {
     if (!lyricsEl) return '';
-    return Array.from(lyricsEl.children).map(function(block) {
+    return _sbPadLines(lyricsEl).map(function(block) {
       if (!block.classList.contains('wo-lyrics-chord-pair')) return block.textContent || '';
       var lyric = '';
       var chord = '';
@@ -45125,8 +45157,8 @@ var WO = (function() {
 
       // Map each source-line index -> the live child holding it. A chord-pair child
       // spans TWO source lines (chord + lyric); every other child spans one, matching
-      // sbExtractLyricsText's line accounting exactly.
-      var _kids = Array.prototype.filter.call(lyricsEl.children, function(c) { return !c.classList.contains('sb-a4-marker'); });
+      // sbExtractLyricsText's line accounting exactly -- hence the shared _sbPadLines.
+      var _kids = _sbPadLines(lyricsEl);
       var _lineKid = [];
       _kids.forEach(function(kid, ki) {
         if (kid.classList.contains('wo-lyrics-chord-pair')) { _lineKid.push(ki); _lineKid.push(ki); }
@@ -50243,12 +50275,14 @@ var WO = (function() {
 
   // Full plain text of the lyrics element (pairs contribute 2 lines).
   function _sbDocText(lyricsEl) {
-    return Array.from(lyricsEl.children).map(_sbBlockPlainText).join('\n');
+    return _sbPadLines(lyricsEl).map(_sbBlockPlainText).join('\n');
   }
 
   // Plain-text offset of (node, offset) within the whole lyrics element.
+  // Walks the same list as _sbDocText -- the two are read against each other,
+  // so they must count the same children.
   function _sbDocOffsetAt(lyricsEl, node, offset) {
-    var blocks = Array.from(lyricsEl.children);
+    var blocks = _sbPadLines(lyricsEl);
     var cum = 0, i;
     if (node === lyricsEl) {
       for (i = 0; i < offset && i < blocks.length; i++) cum += _sbBlockPlainText(blocks[i]).length + 1;
@@ -51014,7 +51048,7 @@ var WO = (function() {
     var finalTop = parseFloat(d.marker.style.top) || 0;
     var lyricsEl = document.getElementById('sbLyrics-' + d.songId);
     if (lyricsEl) {
-      var kids = Array.prototype.filter.call(lyricsEl.children, function(c) { return !c.classList.contains('sb-a4-marker'); });
+      var kids = _sbPadLines(lyricsEl);
       // Seed the manual break list from what's currently shown, then edit this break.
       var arr = (_sbDisplayedStarts[d.songId] || []).slice();
       var lastKid = kids[kids.length - 1];
@@ -79404,6 +79438,19 @@ function filterLiturgyItems() {
     #worshipOrderView.lcd-mode .lcd-program-box .lcd-program-label {
       flex-wrap: nowrap !important; gap: 7px !important; min-height: 34px !important;
     }
+    /* ...and the box it sits in may not be wider than the phone.
+
+       .lcd-outputs-row lays its children out with align-items:flex-start, so in
+       its column direction a child takes its max-content width and is allowed
+       to overflow. The caption plus the two buttons want 400px; the panel on a
+       375px phone offers 339. The box took the 400, and Project -- the button
+       that actually puts a slide on the wall -- hung 43px off the right edge
+       of the screen with nothing to scroll it back into view.
+
+       Capping the box makes the caption give up the room instead, which is the
+       right order of priority: the two buttons stay whole, side by side, on one
+       line, and "Program / Live" gets what is left. */
+    #worshipOrderView.lcd-mode .lcd-outputs-row .lcd-program-box { max-width: 100% !important; }
     #worshipOrderView.lcd-mode .lcd-program-label #lcdOnAirPill,
     #worshipOrderView.lcd-mode .lcd-program-label .lcd-autolive { display: none !important; }
     #worshipOrderView.lcd-mode .lcd-program-label #woBlankBtn { margin-left: auto !important; }
@@ -81628,14 +81675,23 @@ function filterLiturgyItems() {
   .sb-header { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:linear-gradient(135deg,#1e3a8a,#2563eb); color:white; flex-shrink:0; gap:12px; flex-wrap:nowrap; position:relative; z-index:3000; min-height:52px; }
   .sb-header-center { display:flex; align-items:center; gap:6px; flex:1 1 auto; min-width:0; justify-content:center; flex-wrap:nowrap; }
   .sb-header-right { display:flex; align-items:center; gap:6px; flex:0 1 auto; min-width:0; flex-wrap:nowrap; }
-  /* Portrait-tablet "dead zone" (821-1024px): too wide for the mobile column
+  /* Portrait-tablet "dead zone" (821-999px): too wide for the mobile column
      header, but the desktop one-row header's brand + center + right groups
      don't all fit -- the right group overflows and its last button (Close)
      gets clipped off the right edge. Let the header wrap and drop the right
      group (Share/Playlist/Fullscreen/More/Save/Close) onto its own full-width
      row so every button, especially Close, stays reachable. Excluded in
-     fullscreen (its header is a slim auto-hiding bar). */
-  @media (min-width:821px) and (max-width:1024px) {
+     fullscreen (its header is a slim auto-hiding bar).
+
+     It has to STOP at 999. The desktop header below (sb-layout-and-chord-reflow-css,
+     min-width:1000px) forces the header flex-wrap:nowrap !important, and this
+     selector is the more specific one for .sb-header-right, so between 1000 and
+     1024 both applied at once: a right group with flex-basis 100% and no shrink,
+     on a row that could not wrap. It took the whole width, squeezed
+     .sb-header-center to nothing, and the Annotate button spilled out of its
+     zero-width box and sat on top of the songbook title. 1024x768 is iPad
+     landscape, so that was a real screen, not a corner. */
+  @media (min-width:821px) and (max-width:999px) {
     #songbookLiveModal:not(.sb-live-fullscreen) .sb-header { flex-wrap:wrap; }
     #songbookLiveModal:not(.sb-live-fullscreen) .sb-header-right {
       flex:1 0 100%; justify-content:flex-end; margin-top:4px; overflow-x:auto;

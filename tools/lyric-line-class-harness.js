@@ -3,17 +3,28 @@
 //
 // WHY THIS EXISTS
 // The pad's contenteditable holds the song's line divs AND furniture that
-// shares the same parent: A4 page-break markers, column guides, chord zones.
-// The markers are empty divs. sbReclassifyLines walks every child and names it
-// by its text content, so an empty marker classified as a line became
-// `wo-lyrics-empty-line` -- a real blank line at the foot of the song. The next
-// repagination appended a fresh marker, the next keystroke converted that one,
-// and the page grew by a line (~37px) per keystroke. The blank lines were real
-// enough to be saved: songs in the library had reached twenty of them.
+// shares the same parent: A4 page-break markers, column-break markers, A4
+// guides, chord zones. Three separate readers each decided for themselves
+// which children were lines, and each got it wrong in its own way.
 //
-// The whole defence is one list of class names in _sbLineClass. A class added
-// to the pad without being added to that list re-opens the bug silently -- the
-// screen still looks right for a keystroke or two -- so it needs a test.
+//   naming them     sbReclassifyLines named every child by its text content,
+//                   so an empty A4 marker became `wo-lyrics-empty-line` -- a
+//                   real blank line at the foot of the song. Repagination
+//                   appended a fresh marker, the next keystroke converted that
+//                   one, and the page grew a line (~37px) per keystroke.
+//   saving them     sbExtractLyricsText ran every child through textContent,
+//                   so each marker wrote a blank line at the foot and a column
+//                   break wrote the literal words "Column Break" into the
+//                   middle of the verse, where it stayed.
+//   pasting them    _sbDocText read the same phantom lines and paste rebuilt
+//                   the pad from that text, making the phantoms real.
+//
+// The whole defence is now one predicate, _sbIsPadFurniture, and one list,
+// _sbPadLines. A class added to the pad without being added to that list
+// re-opens all three quietly -- the screen still looks right for a keystroke
+// or two -- so it needs a test. The marker-placement code maps source line
+// indices back onto _sbPadLines as well, so a reader that disagrees with it
+// also puts every page break on the wrong line.
 //
 // HOW IT WORKS
 // It does not reimplement the functions. It slices their REAL source text out
@@ -25,8 +36,10 @@
 //   node tools/lyric-line-class-harness.js path/to/file.html
 //   node tools/lyric-line-class-harness.js <file> --expect-broken
 //
-// --expect-broken is the negative control: it asserts the fix is ABSENT and is
-// meant to be pointed at pre-fix source (`git show <rev>:Index.html > x`).
+// --expect-broken is the negative control: it asserts the rule is ABSENT and is
+// meant to be pointed at source from before any of it existed
+// (`git show eb423fe:Index.html > x`). Source with only part of the rule fails
+// both ways, which is the right answer for a half-applied fix.
 //
 // Exit code 0 = all checks passed, 1 = something failed.
 
@@ -60,12 +73,26 @@ function extractFn(name) {
   throw new Error('unbalanced braces while extracting: ' + name);
 }
 
-const NAMES = ['_sbLineClass', 'sbReclassifyLines'];
+const NAMES = ['_sbLineClass', 'sbReclassifyLines', '_sbIsPadFurniture', '_sbPadLines',
+               'sbExtractLyricsText', '_sbBlockPlainText', '_sbDocText'];
+// The two helpers that name the furniture did not exist before the fix. Their
+// absence IS the pre-fix state, so stand in for them with what the old code
+// effectively did -- treat every child as a line -- rather than failing to
+// build. Anywhere but --expect-broken, missing means broken.
+const OPTIONAL = { _sbIsPadFurniture: '  function _sbIsPadFurniture() { return false; }',
+                   _sbPadLines: '  function _sbPadLines(el) { return Array.prototype.slice.call(el.children); }' };
 const fns = {};
-for (const n of NAMES) fns[n] = extractFn(n);
+for (const n of NAMES) {
+  try {
+    fns[n] = extractFn(n);
+  } catch (e) {
+    if (!EXPECT_BROKEN || !OPTIONAL[n]) throw e;
+    fns[n] = { text: OPTIONAL[n], line: 0 };
+  }
+}
 
 console.log('Extracted from ' + path.basename(INDEX) + ':');
-for (const n of NAMES) console.log('  ' + n + ' @ line ' + fns[n].line);
+for (const n of NAMES) console.log('  ' + n + (fns[n].line ? ' @ line ' + fns[n].line : '  (absent - stood in for)'));
 
 // The reclassifier must leave furniture alone. Without this guard the list in
 // _sbLineClass would be decorative.
@@ -95,14 +122,15 @@ function makeEnv(pad) {
       getElementById: () => pad,
       createElement: tag => Div('', '')
     },
-    Array, Object, RegExp, String,
+    Array, Object, RegExp, String, Math,
     // A chord row is judged elsewhere; here anything that is only chord-ish
     // tokens counts, which is enough to tell a chord row from a lyric.
     isChordLineGlobal: t => /^[\s]*([A-G][#b♯♭]?(m|maj|min|sus|dim|aug|add)?\d*(\/[A-G][#b♯♭]?)?[\s]*)+$/.test(t || '') && /[A-G]/.test(t || ''),
     sbApplySectionBadges: undefined
   };
   const body = NAMES.map(n => fns[n].text).join('\n\n') +
-    '\n; return { _sbLineClass, sbReclassifyLines };';
+    '\n; return { _sbLineClass, sbReclassifyLines, _sbIsPadFurniture, _sbPadLines,' +
+    ' sbExtractLyricsText, _sbDocText };';
   const keys = Object.keys(env);
   return { env, api: new Function(...keys, body)(...keys.map(k => env[k])) };
 }
@@ -182,6 +210,72 @@ console.log('\nScenario 3 - a page marker mid-song is left alone too');
     check('the mid-song marker is untouched', kids[1].className, 'sb-a4-marker');
     check('the one real blank line is still one', kids.filter(k => k.className === 'wo-lyrics-empty-line').length, 1);
   }
+}
+
+// 4 - the save path. sbExtractLyricsText is what writes song.lyrics, seeds the
+//     canonical text, feeds pagination and feeds the printed page.
+console.log('\nScenario 4 - reading the pad as text steps over the furniture');
+{
+  const kids = [
+    Div('wo-lyrics-section-header verse', '[Verse 1]'),
+    Div('wo-lyrics-lyric-line', 'Amazing grace how sweet the sound'),
+    Div('sb-col-break-marker', 'Column Break✕'),
+    Div('wo-lyrics-lyric-line', 'That saved a wretch like me'),
+    Div('sb-a4-marker', '')
+  ];
+  const pad = { children: kids, childNodes: kids.slice(), insertBefore() {} };
+  const { api } = makeEnv(pad);
+  const lines = api.sbExtractLyricsText(pad).split('\n');
+
+  if (EXPECT_BROKEN) {
+    check('(pre-fix) the column break was saved as a line of the song',
+      lines.some(l => /Column Break/.test(l)), true);
+    check('(pre-fix) the page marker left a blank line at the foot',
+      lines[lines.length - 1], '');
+  } else {
+    check('the saved text is exactly the song',
+      lines, ['[Verse 1]', 'Amazing grace how sweet the sound', 'That saved a wretch like me']);
+    check('no "Column Break" in the saved lyrics', lines.some(l => /Column Break/.test(l)), false);
+    check('no blank line left at the foot', lines[lines.length - 1] === '', false);
+  }
+}
+
+// 5 - copy / cut / paste read the pad through _sbDocText, and paste rebuilds the
+//     pad from what it read, so a phantom line there becomes a real one.
+console.log('\nScenario 5 - the paste text matches the saved text');
+{
+  const kids = [
+    Div('wo-lyrics-lyric-line', 'Through many dangers'),
+    Div('sb-a4-marker', ''),
+    Div('wo-lyrics-empty-line', ''),
+    Div('wo-lyrics-lyric-line', 'I have already come')
+  ];
+  const pad = { children: kids, childNodes: kids.slice(), insertBefore() {} };
+  const { api } = makeEnv(pad);
+  const doc = api._sbDocText(pad).split('\n');
+
+  if (EXPECT_BROKEN) {
+    check('(pre-fix) the paste text carried the marker as a blank line', doc.length, 4);
+  } else {
+    check('the paste text is the three real lines', doc.length, 3);
+    check('the one real blank line is still one', doc.filter(l => l === '').length, 1);
+    check('paste and save read the pad the same way',
+      doc.join('|'), api.sbExtractLyricsText(pad).split('\n').join('|'));
+  }
+}
+
+// 6 - a chord zone looks like furniture and is not: a tap makes it editable and
+//     the operator types the chords straight into it.
+console.log('\nScenario 6 - a chord zone keeps its chords');
+{
+  const kids = [
+    Div('wo-lyrics-chord-line wo-sb-chord-zone', 'G      C      D'),
+    Div('wo-lyrics-lyric-line', 'Amazing grace')
+  ];
+  const pad = { children: kids, childNodes: kids.slice(), insertBefore() {} };
+  const { api } = makeEnv(pad);
+  check('a chord zone is not furniture', api._sbIsPadFurniture(kids[0]), false);
+  check('its chords are saved', api.sbExtractLyricsText(pad).split('\n')[0], 'G      C      D');
 }
 
 console.log('\n================================');
