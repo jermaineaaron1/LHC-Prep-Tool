@@ -63,9 +63,28 @@ function extractMethod(name) {
   throw new Error('unbalanced braces while extracting: ' + name);
 }
 
+// Slice a top-level `  function NAME(` out of the WO IIFE by brace balance.
+function extractFn(name) {
+  const startIdx = lines.findIndex(l => new RegExp('^  function ' + name + '\\s*\\(').test(l));
+  if (startIdx < 0) return null;
+  let depth = 0, started = false, out = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    out.push(lines[i]);
+    for (const ch of lines[i]) {
+      if (ch === '{') { depth++; started = true; }
+      else if (ch === '}') depth--;
+    }
+    if (started && depth === 0) return { text: out.join('\n'), line: startIdx + 1 };
+  }
+  return null;
+}
+
 const saveOrder = extractMethod('saveOrder');
+// The rescue did not exist before the fix, so its absence is the pre-fix state.
+const rescue = extractFn('_rescueDeletedOrderAsNew');
 console.log('Extracted from ' + path.basename(INDEX) + ':');
-console.log('  SBQ.saveOrder @ line ' + saveOrder.line + '\n');
+console.log('  SBQ.saveOrder @ line ' + saveOrder.line);
+console.log('  _rescueDeletedOrderAsNew ' + (rescue ? '@ line ' + rescue.line : '(absent)') + '\n');
 
 // A Supabase stand-in that records what was asked of it. `rowsMatched` decides
 // whether the orders table still holds the order.
@@ -186,6 +205,65 @@ const ordersOps = calls => calls.filter(c => c.table === 'orders').map(c => c.op
       check('no item rows are touched either',
         r.calls.filter(c => c.table === 'order_items' && c.op !== 'select').length, 0);
     }
+  }
+
+  // 5 - the rescue: the refused work filed as a new order.
+  //
+  //     Item ids carry the order id as a prefix for everything except songs,
+  //     which use their own. The rescue has to swap just that prefix, because
+  //     those are the ids the NEXT save of the new order will collect -- get it
+  //     wrong and that save reads as a wholesale delete and re-add.
+  console.log('\nScenario 5 - the refused work is filed as a new order');
+  if (!rescue) {
+    if (EXPECT_BROKEN) {
+      check('(pre-fix) there was nowhere for the work to go', true, true);
+    } else {
+      check('the rescue exists', false, true);
+    }
+  } else {
+    let sent = null;
+    const env = {
+      SBQ: { saveOrder(p) { sent = p; return Promise.resolve({ success: true, id: p.id, lastEdited: 'now' }); } },
+      showToast: () => {},
+      addToSavedOrders: () => {},
+      currentOrderData: { id: 'order_gone', title: 'Sunday' },
+      _orderSyncNote: () => {},
+      _edEnsureChannel: () => {},
+      _soSetSaveStatus: () => {},
+      localStorage: { getItem: () => null, removeItem: () => {}, setItem: () => {} },
+      Promise, Object, Date, JSON, console
+    };
+    const keys = Object.keys(env);
+    const body = 'var _deletedOrderTold = {}; var _rescueInFlight = false;\n' + rescue.text +
+      '\n; return _rescueDeletedOrderAsNew;';
+    const fn = new Function(...keys, body)(...keys.map(k => env[k]));
+
+    const GONE = 'order_gone';
+    const payload = {
+      id: GONE, title: 'Sunday', type: 'contemporary', serviceDate: 'Oct 4',
+      template: { name: 'contemporary' }, createdDate: 'then',
+      items: [
+        { id: GONE + '__liturgy_invocation_wo-section-0', itemType: 'liturgy', title: 'Invocation' },
+        { id: GONE + '__content_wo-section-1_2', itemType: 'content', title: 'Notice' },
+        { id: 'wo-song-123-abc', itemType: 'song', title: 'Amazing Grace' }
+      ]
+    };
+    await fn(payload, GONE);
+
+    check('a new order was written', !!sent && sent.id !== GONE, true);
+    check('and it declares itself new', sent && sent.isNewOrder, true);
+    check('the title says what happened', sent && /\(recovered\)$/.test(sent.title), true);
+    check('every item came across', sent && sent.items.length, 3);
+    check('prefixed ids move to the new order',
+      sent && sent.items.filter(i => i.id.indexOf(sent.id + '__') === 0).length, 2);
+    check('no id still names the deleted order',
+      sent && sent.items.filter(i => i.id.indexOf(GONE) >= 0).length, 0);
+    check('a song keeps its own id untouched',
+      sent && sent.items[2].id, 'wo-song-123-abc');
+    check('the suffix is not doubled on a second pass', (() => {
+      const t = sent.title;
+      return /\(recovered\)\s*\(recovered\)/.test(t);
+    })(), false);
   }
 
   console.log('\n================================');

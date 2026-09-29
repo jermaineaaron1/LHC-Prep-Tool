@@ -30085,6 +30085,80 @@ var WO = (function() {
     return savedOrders;
   }
 
+  // Somewhere to put the work when a save is refused because the order was
+  // deleted on another device.
+  //
+  // Refusing the save is right -- the order is gone, and writing it back
+  // would resurrect a service somebody deliberately removed. But the
+  // operator still has a screen full of edits and nowhere to put them, and
+  // "nothing was saved" is a poor place to leave somebody twenty minutes
+  // before a service. This takes what was collected and files it as a new
+  // order instead.
+  //
+  // Item ids carry the order id as a prefix (see _oidPfx in
+  // collectOrderItems) for everything except songs, which use their own.
+  // Swapping just that prefix means the rows written here are exactly the
+  // ids the NEXT save of this order will collect -- otherwise that save
+  // would see every id change and read as a wholesale delete and re-add.
+  // Orders we have already told the operator about, so a silent autosave
+  // loop cannot repeat itself every few seconds.
+  var _deletedOrderTold = {};
+  var _rescueInFlight = false;
+  function _rescueDeletedOrderAsNew(payload, goneId) {
+    if (_rescueInFlight) return Promise.resolve();
+    _rescueInFlight = true;
+    var newId = 'order_' + Date.now();
+    var pfx = goneId ? goneId + '__' : '';
+    var items = (payload.items || []).map(function(it) {
+      if (!pfx || !it || typeof it.id !== 'string' || it.id.indexOf(pfx) !== 0) return it;
+      var copy = Object.assign({}, it);
+      copy.id = newId + '__' + it.id.slice(pfx.length);
+      return copy;
+    });
+    var title = payload.title || 'Untitled Order';
+    if (!/\(recovered\)\s*$/i.test(title)) title = title + ' (recovered)';
+    var rescued = Object.assign({}, payload, {
+      id: newId,
+      // It really is a new order, so the save may build its row.
+      isNewOrder: true,
+      title: title,
+      items: items,
+      createdDate: new Date().toISOString()
+    });
+    showToast('Saving as a new order...', 'info');
+    return SBQ.saveOrder(rescued).then(function(r) {
+      if (!r || !r.success) {
+        showToast('Could not save as a new order. Your changes are still on screen.', 'error');
+        return;
+      }
+      // The screen is now looking at the new order, so every later save,
+      // lock and poll has to be pointed at it.
+      if (currentOrderData) {
+        currentOrderData.id = newId;
+        currentOrderData.title = title;
+        currentOrderData.createdDate = rescued.createdDate;
+        currentOrderData.lastEdited = r.lastEdited;
+      }
+      addToSavedOrders({ id: newId, title: title, type: rescued.type,
+        serviceDate: rescued.serviceDate, createdDate: rescued.createdDate });
+      // The journal was holding this work for an order that no longer
+      // exists. It has a home now.
+      try {
+        var j = JSON.parse(localStorage.getItem('lhc_pending_order_save') || 'null');
+        if (j && j.payload && j.payload.id === goneId) {
+          localStorage.removeItem('lhc_pending_order_save');
+        }
+      } catch (e) {}
+      if (typeof _orderSyncNote === 'function') _orderSyncNote(newId, items);
+      if (typeof _edEnsureChannel === 'function') _edEnsureChannel();
+      if (typeof _soSetSaveStatus === 'function') _soSetSaveStatus('saved');
+      showToast('Saved as "' + title + '". The old one stays deleted.', 'success', { duration: 7000 });
+    }).catch(function(e) {
+      console.error('[SaveGuard] could not file the rescued order:', e);
+      showToast('Could not save as a new order. Your changes are still on screen.', 'error');
+    }).then(function() { _rescueInFlight = false; });
+  }
+
   function addToSavedOrders(orderObj) {
     if (!orderObj) return;
     // Avoid duplicates
@@ -30977,8 +31051,17 @@ var WO = (function() {
           // Not a network blip, and trying again will not help. The edits are
           // still on screen and still in the crash journal.
           console.warn('[SaveGuard] refused to re-create deleted order', err.orderId);
-          if (!silent) {
-            showToast('This order was deleted somewhere else. Nothing was saved -- your changes are still on screen.', 'error');
+          // Said once per order even on a silent autosave. Staying quiet
+          // there would let somebody keep editing for an hour believing it
+          // was all being saved, which is the worst of the options.
+          var _gid = err.orderId || _savedOrderId;
+          if (!silent || !_deletedOrderTold[_gid]) {
+            _deletedOrderTold[_gid] = true;
+            showToast('This order was deleted somewhere else. Nothing was saved -- your changes are still on screen.', 'error', {
+              duration: 12000,
+              action: 'Save as a new order',
+              onAction: function() { _rescueDeletedOrderAsNew(orderPayload, _gid); }
+            });
           }
           _soSetSaveStatus('');
           return;
@@ -66372,9 +66455,15 @@ var WO = (function() {
     return '<div class="wo-slide-line">' + escapeHtml(clean) + '</div>';
   }
 
-  function showToastWO(msg, type) {
+  // Inside this module `showToast` is this function (see the alias below),
+  // so anything it drops is dropped for every toast the Worship Order
+  // raises. It used to take only the message and the type, which quietly
+  // swallowed the third argument -- the one carrying duration and the
+  // action button -- and a toast offering the operator a way out arrived
+  // as a plain sentence with no button on it.
+  function showToastWO(msg, type, opts) {
     // Delegate to global showToast for consistent rich formatting
-    if (window.showToast) { window.showToast(msg, type); return; }
+    if (window.showToast) { window.showToast(msg, type, opts); return; }
     var el = document.getElementById('toastNotification');
     if (el) {
       el.textContent = msg;
@@ -69375,6 +69464,7 @@ var WO = (function() {
     autoSaveOrder: autoSaveOrder,
     saveImmediately: saveImmediately,
     _replayPendingOrderSave: _replayPendingOrderSave,
+    _rescueDeletedOrderAsNew: _rescueDeletedOrderAsNew,
     saveOrderAs: saveOrderAs,
     closeSaveAsModal: closeSaveAsModal,
     confirmSaveAs: confirmSaveAs,
