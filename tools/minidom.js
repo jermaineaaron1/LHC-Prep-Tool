@@ -50,6 +50,44 @@ El.prototype.remove = function () {
   this.parentNode = null;
 };
 
+// Putting a detached node back where it came from is how the section undo
+// works, so the shim has to model the position, not just the membership.
+El.prototype.insertBefore = function (node, ref) {
+  node.parentNode = this;
+  var i = ref ? this.children.indexOf(ref) : -1;
+  if (i < 0) this.children.push(node);
+  else this.children.splice(i, 0, node);
+  return node;
+};
+
+Object.defineProperty(El.prototype, 'parentElement', {
+  get: function () { return this.parentNode; }
+});
+
+Object.defineProperty(El.prototype, 'nextElementSibling', {
+  get: function () {
+    if (!this.parentNode) return null;
+    var sibs = this.parentNode.children;
+    var i = sibs.indexOf(this);
+    return (i >= 0 && i + 1 < sibs.length) ? sibs[i + 1] : null;
+  }
+});
+
+// Real elements expose id as a property; code under test uses both forms.
+Object.defineProperty(El.prototype, 'id', {
+  get: function () { return this.getAttribute('id') || ''; },
+  set: function (v) { this.setAttribute('id', v); }
+});
+
+// Enough of textContent for the label lookups these paths do.
+Object.defineProperty(El.prototype, 'textContent', {
+  get: function () {
+    if (this._text != null) return this._text;
+    return this.children.map(function (c) { return c.textContent; }).join('');
+  },
+  set: function (v) { this._text = String(v); this.children = []; }
+});
+
 Object.defineProperty(El.prototype, 'isConnected', {
   get: function () {
     var n = this;

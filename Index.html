@@ -35096,11 +35096,41 @@ var WO = (function() {
     var titleEl = section.querySelector('.wo-section-badge-title');
     if (titleEl) sectionTitle = ' "' + titleEl.textContent.trim() + '"';
 
+    // Everything needed to put the section back, taken BEFORE it goes.
+    //
+    // Undo used to call initializeServiceOrder(), which rebuilds the service
+    // order from the saved state. By then the removal had already been saved
+    // -- autoSaveOrder() runs three lines above -- so what it rebuilt from was
+    // a state with the section already gone. It restored nothing and said
+    // "Restored" anyway. Measured: 19 sections, remove two, press Undo, reload
+    // from the backend, 17.
+    //
+    // The detached node is the whole trick. section.remove() takes it out of
+    // the document but the node itself survives in this closure with all its
+    // songs, boxes and slides intact, so putting it back is one insertBefore.
+    // Its position is remembered by the id of what followed it rather than an
+    // index, because anything the operator does in the four seconds between
+    // can move the others.
+    var _undo = {
+      id: sectionId,
+      node: section,
+      parent: section.parentElement,
+      beforeId: section.nextElementSibling ? section.nextElementSibling.id : null,
+      songs: serviceSectionSongs[sectionId],
+      hadSongs: Object.prototype.hasOwnProperty.call(serviceSectionSongs, sectionId),
+      bgs: (sectionBackgrounds && typeof sectionBackgrounds === 'object') ? sectionBackgrounds[sectionId] : undefined,
+      hadBgs: !!(sectionBackgrounds && typeof sectionBackgrounds === 'object' &&
+                 Object.prototype.hasOwnProperty.call(sectionBackgrounds, sectionId))
+    };
+
     // Actually remove the section
     delete serviceSectionSongs[sectionId];
     section.remove();
     updateSectionNumbers();
     _captureCurrentLayout(); // persist layout after removal
+    // The rail is drawn from the sections in the DOM, so it has to be told
+    // too -- on the way out and, below, on the way back in.
+    if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
     autoSaveOrder();
 
     // Undo toast — user has 4s to undo
@@ -35108,9 +35138,25 @@ var WO = (function() {
       action: 'Undo',
       duration: 4000,
       onAction: function() {
-        // Re-init the service order from current saved state to restore
-        initializeServiceOrder();
-        showToast('Restored', 'success');
+        if (!_undo.parent) return;
+        if (document.getElementById(_undo.id)) return;   // already back
+        var before = _undo.beforeId ? document.getElementById(_undo.beforeId) : null;
+        if (before && before.parentElement === _undo.parent) {
+          _undo.parent.insertBefore(_undo.node, before);
+        } else {
+          _undo.parent.appendChild(_undo.node);
+        }
+        if (_undo.hadSongs) serviceSectionSongs[_undo.id] = _undo.songs;
+        if (_undo.hadBgs && sectionBackgrounds && typeof sectionBackgrounds === 'object') {
+          sectionBackgrounds[_undo.id] = _undo.bgs;
+        }
+        updateSectionNumbers();
+        _captureCurrentLayout();
+        if (typeof _lcdRenderCompactRail === 'function') _lcdRenderCompactRail();
+        // Saved again, because the removal was saved: without this the
+        // section is back on screen and still gone everywhere else.
+        autoSaveOrder();
+        showToast('Section' + sectionTitle + ' restored', 'success');
       }
     });
   }
