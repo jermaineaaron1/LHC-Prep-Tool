@@ -25644,6 +25644,24 @@ var SBQ = {
     var _unchangedCount = 0;  // rows the database already holds as they are
     var _storedIds = null;    // the ids this order ends up with
     var id = payload.id || ('order_' + Date.now());
+    // Is this save meant to bring an order into being, or to write to one
+    // that is supposed to be there already?
+    //
+    // It matters because the row used to be written with an upsert, which
+    // cannot tell the difference. Delete an order on one device while
+    // somebody else has it open, and their next save put it straight back:
+    // the orders row returned carrying its title, template and backgrounds,
+    // with none of its items, because the item rows were gone and the save
+    // had nothing to re-create them from. A ghost service in the list that
+    // did not stay deleted. It happened even when the save reported
+    // "nothing had changed", because that counts item rows and the order
+    // row was written before any of that was worked out.
+    //
+    // Three callers create an order: two hand in no id at all, and the one
+    // that generates its own says so. Everything else is an edit to
+    // something that already exists, and an edit finding nothing to edit is
+    // news for the operator, not licence to build the row again.
+    var _isNewOrder = !payload.id || payload.isNewOrder === true;
     // Merge mediaLinks into template._inbox so they survive page-reload,
     // navigation away, and iOS Safari's aggressive localStorage eviction.
     // The _inbox key is namespaced to avoid collision with actual template settings.
@@ -25673,9 +25691,30 @@ var SBQ = {
       console.error('[SBQ.' + context + '] ' + msg + detail + hint + code);
       throw new Error(msg + detail + hint + code);
     }
-    return sb.from('orders').upsert(orderRow, { onConflict: 'id' })
-      .then(function(r) {
-        if (r.error) sbqError(r.error, 'saveOrder/orders-upsert');
+    // A create may build the row. An edit may only find it: update...eq(id)
+    // returns the rows it touched, so an empty result is the order telling us
+    // it is gone.
+    var _orderRowWritten = _isNewOrder
+      ? sb.from('orders').upsert(orderRow, { onConflict: 'id' }).then(function(r) {
+          if (r.error) sbqError(r.error, 'saveOrder/orders-upsert');
+          return true;
+        })
+      : sb.from('orders').update(orderRow).eq('id', id).select('id').then(function(r) {
+          if (r.error) sbqError(r.error, 'saveOrder/orders-update');
+          return !!(r.data && r.data.length);
+        });
+    return _orderRowWritten
+      .then(function(_found) {
+        if (!_found) {
+          // Nothing is written, here or below: the items belong to an order
+          // that no longer exists, and writing them would leave orphans.
+          // The crash journal is deliberately left alone by the caller on a
+          // rejection, so the operator's work is still on disk.
+          var _gone = new Error('That order no longer exists - it was deleted somewhere else.');
+          _gone.orderDeleted = true;
+          _gone.orderId = id;
+          throw _gone;
+        }
         var items = payload.items || [];
         // An empty payload prunes everything, so a payload that collected
         // nothing -- a mid-render race, a failed collection -- would erase an
@@ -30934,6 +30973,16 @@ var WO = (function() {
           }
         }
       }).catch(function(err) {
+        if (err && err.orderDeleted) {
+          // Not a network blip, and trying again will not help. The edits are
+          // still on screen and still in the crash journal.
+          console.warn('[SaveGuard] refused to re-create deleted order', err.orderId);
+          if (!silent) {
+            showToast('This order was deleted somewhere else. Nothing was saved -- your changes are still on screen.', 'error');
+          }
+          _soSetSaveStatus('');
+          return;
+        }
         console.error('Backend save failed:', err);
         if (!silent) showToast('Failed to save. Please try again.', 'error');
         _soSetSaveStatus('');
@@ -87042,6 +87091,10 @@ function filterLiturgyItems() {
         var now = new Date().toISOString();
         var payload = {
           id: orderId,
+          // This one makes up its own id rather than letting the save do it,
+          // so it has to say out loud that it means to create -- see
+          // _isNewOrder in SBQ.saveOrder.
+          isNewOrder: true,
           title: title,
           type: serviceType,
           serviceDate: shortDate,
