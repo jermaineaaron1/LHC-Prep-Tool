@@ -39867,6 +39867,32 @@ var WO = (function() {
       '    window.resizeTo(' + width + ', ' + height + ');' +
       '  } catch(e) {}' +
       '})();' +
+      // ...and then fills that screen on its own.
+      //
+      // The opener also asks, further down, passing { screen } so the right
+      // monitor is targeted. That request is made by the OPENER against THIS
+      // document, and the activation token belongs to the opener, so Chrome
+      // frequently refuses it -- silently, because the rejection is caught and
+      // dropped. That is how the projection window ended up sitting on the
+      // projector as a window with a title bar, waiting for somebody to press
+      // F11 in front of a congregation.
+      //
+      // A popup opened from a click carries that click with it, so asking
+      // from in here, for our own document, is the request most likely to be
+      // granted. Both are kept: whichever lands first, the other is a no-op,
+      // and the click-anywhere overlay is still there if neither does.
+      'window.__lhcGoFullscreen = function() {' +
+      '  if (document.fullscreenElement) return;' +
+      '  try {' +
+      '    var p = document.documentElement.requestFullscreen();' +
+      '    if (p && p.then) p.then(function() {' +
+      '      var ov = document.getElementById("fsOverlay");' +
+      '      if (ov && ov.parentNode) ov.parentNode.removeChild(ov);' +
+      '    }).catch(function(){});' +
+      '  } catch (e) {}' +
+      '};' +
+      'window.__lhcGoFullscreen();' +
+      'setTimeout(window.__lhcGoFullscreen, 120);' +
       // Global handler function callable from opener
       'window.handleProjectionData = function(data) {' +
       '  var content = document.getElementById("projContent");' +
@@ -66018,6 +66044,12 @@ var WO = (function() {
 
     // If we have cached multi-screen info, show the monitor picker
     if (_screenDetailsObj && _screenDetailsObj.screens && _screenDetailsObj.screens.length > 1) {
+      // ...unless there is only one screen it could mean. A laptop with a
+      // projector plugged into it has exactly one answer, and making the
+      // operator pick it every single time is a question with one button.
+      // Two or more external screens is a real choice and still asks.
+      var _ext = _lcdOnlyExternalScreen(_screenDetailsObj.screens);
+      if (_ext) { _projectOntoScreen(_ext); return; }
       _showMonitorPicker(_screenDetailsObj.screens, triggerEl);
       return;
     }
@@ -66124,6 +66156,39 @@ var WO = (function() {
     document.addEventListener('webkitfullscreenchange', _wofsOnFsChange);
   }
 
+  // The one screen this could mean, or nothing if it is a real choice.
+  function _lcdOnlyExternalScreen(screens) {
+    if (!screens || !screens.length) return null;
+    var ext = screens.filter(function(s) { return !s.isPrimary; });
+    return ext.length === 1 ? ext[0] : null;
+  }
+
+  // Put the projection window on a screen and let go of our own fullscreen.
+  // Lifted out of the picker so pressing Project with one projector attached
+  // and choosing that projector from the list end up in exactly the same
+  // place -- there is no second way to start projecting to keep in step.
+  function _projectOntoScreen(screen) {
+    // Opened FIRST, while the click's activation is still live -- a popup
+    // asked for after an await is blocked.
+    createProjectionWindow(screen.left, screen.top, screen.width, screen.height, screen);
+    if (!projectionWindow) return;
+    // Now let go of the operator's own fullscreen. While the opener holds it,
+    // Chrome will not give the popup fullscreen on the other monitor.
+    document.body.classList.remove('lcd-workspace-fullscreen');
+    if (document.fullscreenElement && document.exitFullscreen) {
+      try { var _x = document.exitFullscreen(); if (_x && _x.catch) _x.catch(function() {}); } catch (e) {}
+    }
+    _setupProjectionChannel();
+    _setGoLiveDot(true);
+    // The popup asks for fullscreen itself on load; ask again once the
+    // opener has stepped out of the way, for the case where it was refused
+    // the first time because we still held it.
+    setTimeout(function() {
+      try { if (projectionWindow && !projectionWindow.closed && projectionWindow.__lhcGoFullscreen) projectionWindow.__lhcGoFullscreen(); } catch (e) {}
+    }, 250);
+    showToast('Projecting full screen on ' + (screen.label || 'the external screen'), 'success');
+  }
+
   function _showMonitorPicker(screens, triggerEl) {
     var existing = $('woMonitorPickerModal');
     if (existing) existing.remove();
@@ -66174,25 +66239,7 @@ var WO = (function() {
         if (screen.isPrimary) {
           _doFullscreenOverlay();
         } else {
-          // Open dedicated projection window directly on the chosen monitor,
-          // passing the ScreenDetailed object so requestFullscreen({ screen }) can target it.
-          // Opened FIRST, while the click's activation is still live -- a popup
-          // asked for after an await is blocked.
-          createProjectionWindow(screen.left, screen.top, screen.width, screen.height, screen);
-          if (projectionWindow) {
-            // Now let go of the operator's own fullscreen. While the opener
-            // holds it, Chrome will not give the popup fullscreen on the other
-            // monitor -- which is how it ended up a plain window on the second
-            // screen. Released here, the popup's own "click to go fullscreen"
-            // prompt can also finish the job if the request above was refused.
-            document.body.classList.remove('lcd-workspace-fullscreen');
-            if (document.fullscreenElement && document.exitFullscreen) {
-              try { var _x = document.exitFullscreen(); if (_x && _x.catch) _x.catch(function() {}); } catch (e) {}
-            }
-            _setupProjectionChannel();
-            _setGoLiveDot(true);
-            showToast('Projecting on ' + (screen.label || 'external screen'), 'success');
-          }
+          _projectOntoScreen(screen);
         }
       });
     });
