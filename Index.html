@@ -23261,11 +23261,19 @@ window.loadEditSongData = function(song) {
         };
       });
 
-      // Bind WhatsApp share clicks
+      // Bind WhatsApp share clicks. The picture is the Roster's own service
+      // card, so the one shared from here and the one shared from the Roster
+      // are the same card -- see RosterEngine.shareServiceCardForDate.
       container.querySelectorAll('.home-wa-share-btn').forEach(function(btn) {
         btn.onclick = function(e) {
           e.preventDefault();
-          shareServiceGraphic(btn.dataset.date, btn.dataset.name, btn.dataset.color, rosterMap, rosterRows);
+          var d = btn.dataset.date;
+          var when = _homeServiceMonthYear(d);
+          if (window.RosterEngine && RosterEngine.shareServiceCardForDate) {
+            RosterEngine.shareServiceCardForDate(d, when.month, when.year);
+          } else {
+            shareServiceGraphic(d, btn.dataset.name, btn.dataset.color, rosterMap, rosterRows);
+          }
         };
       });
     };
@@ -23284,6 +23292,22 @@ window.loadEditSongData = function(song) {
         console.warn('Home roster: Supabase fetch failed, keeping initial data.', err);
       });
     }
+  }
+
+  // "Oct 4" on the Home page carries no year, and in late December the two
+  // services it lists straddle one. Read it against the dates the page is
+  // already showing rather than guessing from today.
+  function _homeServiceMonthYear(dateStr) {
+    var MON = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    var now = new Date();
+    var m = String(dateStr || '').trim().slice(0, 3).toLowerCase();
+    var idx = MON.indexOf(m);
+    if (idx < 0) return { month: now.getMonth(), year: now.getFullYear() };
+    var year = now.getFullYear();
+    // A month well behind us is next year's: the list only ever looks
+    // forward, so December showing "Jan 3" means January next year.
+    if (idx < now.getMonth() - 6) year++;
+    return { month: idx, year: year };
   }
 
   // --- WhatsApp Service Graphic Share ---
@@ -91874,10 +91898,12 @@ function filterLiturgyItems() {
     // card, not a redesigned graphic. Clones the LIVE card (current data,
     // current styling) rather than regenerating its content by hand, so it
     // can never drift from what's actually on screen.
+    // Returns its promise so a caller can wait for the picture to be handed
+    // over before putting the month back (see shareServiceCardForDate).
     shareServiceCardImage: function(dateStr) {
       var self = this;
       var card = document.querySelector('.rmp-service-ledger[data-date="' + dateStr.replace(/"/g, '\\"') + '"]');
-      if (!card) { this.showToast('Could not find that service card', 'error'); return; }
+      if (!card) { this.showToast('Could not find that service card', 'error'); return Promise.resolve(); }
 
       this.showToast('Generating picture...', 'info');
 
@@ -91900,7 +91926,7 @@ function filterLiturgyItems() {
         '<div class="rmp-share-stamp">Luther House Chapel &middot; ' + self.escapeHtml(stamp) + '</div></div>' +
         '</body></html>';
 
-      fetch('/api/render-roster-pdf', {
+      return fetch('/api/render-roster-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ html: fullHtml, format: 'png' })
@@ -91927,6 +91953,56 @@ function filterLiturgyItems() {
       }).catch(function(err) {
         console.error('Service card image render failed:', err);
         self.showToast('Failed to generate picture', 'error');
+      });
+    },
+
+    // Share the card for a date that may not be the month currently on
+    // screen -- which is what the Home page needs, since the two services it
+    // lists are often in next month.
+    //
+    // The Home page used to draw its own picture on a canvas
+    // (shareServiceGraphic). That was a second design of the same thing and it
+    // had drifted: long duty labels collided with the names beside them, and
+    // unfilled slots printed the literal word __BLANK__. Rather than repair a
+    // duplicate, this borrows the real card -- the one the Roster already
+    // renders and already knows how to photograph.
+    //
+    // The month has to be switched to build it, because the card is rendered
+    // from the roster STATE rather than from arguments. It is switched back
+    // when the picture has been handed over, not before, and the ledger is
+    // redrawn either way so the Roster view is never left showing a month
+    // nobody asked for. Nothing is written while switched: loadRosterData only
+    // reads, and its keys carry the date, so loading a second month adds to
+    // the map without disturbing the first.
+    shareServiceCardForDate: function(dateStr, monthIdx, year) {
+      var self = this;
+      var prevM = STATE.rosterMonth, prevY = STATE.rosterYear;
+      var moved = (monthIdx != null && year != null) &&
+                  (monthIdx !== prevM || year !== prevY);
+      var ready = Promise.resolve();
+      if (moved) {
+        STATE.rosterMonth = monthIdx;
+        STATE.rosterYear = year;
+        ready = this.loadRosterData();
+      }
+      return ready.then(function() {
+        // Draws into the Roster view's own container, which is off screen
+        // while the operator is looking at Home.
+        self.renderMobileMonthView();
+        var card = document.querySelector('.rmp-service-ledger[data-date="' + String(dateStr).replace(/"/g, '\\"') + '"]');
+        if (!card) {
+          self.showToast('No roster card for ' + dateStr + ' yet', 'warning');
+          return;
+        }
+        return self.shareServiceCardImage(dateStr);
+      }).catch(function(err) {
+        console.error('[Home share] could not build the service card:', err);
+        self.showToast('Could not build the service card', 'error');
+      }).then(function() {
+        if (!moved) return;
+        STATE.rosterMonth = prevM;
+        STATE.rosterYear = prevY;
+        try { self.renderMobileMonthView(); } catch (e) {}
       });
     },
 
