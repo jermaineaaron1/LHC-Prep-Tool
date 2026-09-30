@@ -3909,6 +3909,12 @@
       /* Reader rows stack: the name on top, its reading underneath. */
       .rmp-person.stacked { flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; }
       .rmp-person small.rmp-passage { color: #15513f; font-size: 10px; font-weight: 800; font-style: italic; }
+      /* Psalm and Gospel: a reference standing on its own, set like the
+         reading under a reader so the four readings read as one set. */
+      .rmp-scripture {
+        padding: 8px 10px; display: flex; align-items: center; color: #15513f; font-size: 11.5px; font-weight: 800; font-style: italic;
+        background: linear-gradient(180deg,#fff,#f8fbf9);
+      }
       /* Multi-person duties are a plain comma-separated line, styled to match
          the single-person cell exactly -- same padding, size and weight. */
       .rmp-shared-team {
@@ -86704,6 +86710,12 @@ function filterLiturgyItems() {
     },
     // Reader duty -> the scripture passage row conventionally paired with it.
     MOBILE_READER_PASSAGE: { reader1: 'reading1', reader2: 'reading2' },
+    // The Psalm and the Gospel have no reader assigned to them, so they were
+    // the only two scripture references the card never showed. They belong in
+    // the order the service takes them: first reading, psalm, second reading,
+    // gospel -- so each one is hung off the reader it follows rather than
+    // being bolted on at the end.
+    MOBILE_READER_FOLLOWUP: { reader1: 'psalm', reader2: 'gospel' },
 
     // Whole-month grouped view: every duty for a service date rendered
     // together, read from the exact same STATE.rosterEdits/ROLES the
@@ -86731,6 +86743,11 @@ function filterLiturgyItems() {
       var groups = this.MOBILE_MULTI_PERSON_GROUPS;
       var groupLabels = this.MOBILE_MULTI_PERSON_LABELS;
       var readerPassage = this.MOBILE_READER_PASSAGE;
+      var readerFollowup = this.MOBILE_READER_FOLLOWUP;
+      // Labels kept where every other scripture label lives, so the card and
+      // the roster table always say the same thing.
+      var scriptureLabels = {};
+      this.ROLES.forEach(function(r) { if (r.type === 'scripture') scriptureLabels[r.id] = r.label; });
 
       var anyDoubles = false;
       var ledgersHtml = serviceDays.map(function(day) {
@@ -86803,6 +86820,18 @@ function filterLiturgyItems() {
               kind: 'single', label: role.label + ' &middot; ' + (role.id === 'reader1' ? '1st Reading' : '2nd Reading'),
               value: rHasVal ? rv : null, pending: rHasVal && STATE.rosterPendingCells.has(rck), cellKey: rck, passage: passageText
             });
+            // The reading that follows this one and has nobody assigned to it.
+            // Deliberately outside the filled/open tally below: it is a
+            // reference, not a duty, and counting it would make the card
+            // report open slots nobody can fill.
+            var followId = readerFollowup[role.id];
+            if (followId) {
+              var fKey = followId + '__' + dateKeySuffix;
+              var fVal = STATE.rosterEdits.get(fKey);
+              if (fVal && fVal !== '__BLANK__' && typeof fVal !== 'object') {
+                rows.push({ kind: 'scripture', label: scriptureLabels[followId] || followId, value: fVal });
+              }
+            }
             return;
           }
           var ck2 = role.id + '__' + dateKeySuffix;
@@ -86814,6 +86843,12 @@ function filterLiturgyItems() {
         });
 
         var rowsHtml = rows.map(function(row) {
+          // A reference with no name against it: no tap target, no pending
+          // state, nothing to assign -- just the passage.
+          if (row.kind === 'scripture') {
+            return '<div class="rmp-duty-row"><div class="rmp-duty-label">' + row.label +
+              '</div><div class="rmp-scripture">' + self.escapeHtml(row.value) + '</div></div>';
+          }
           if (row.kind === 'group') {
             // Multi-person duties read as one comma-separated line, exactly
             // like a single-person duty -- the numbered boxes made these rows
@@ -92041,6 +92076,7 @@ function filterLiturgyItems() {
         '.rmp-person.pending { color:#78400d; background:linear-gradient(180deg,#fffbea,#fdf0c7); }',
         '.rmp-person.stacked { flex-direction:column; align-items:flex-start; justify-content:center; gap:3px; }',
         '.rmp-person small.rmp-passage { color:#15513f; font-size:30px; font-weight:800; font-style:italic; }',
+        '.rmp-scripture { padding:24px 30px; display:flex; align-items:center; color:#15513f; font-size:34.5px; font-weight:800; font-style:italic; background:linear-gradient(180deg,#fff,#f8fbf9); }',
         '.rmp-shared-team { padding:24px 30px; color:#253f36; font-size:36px; font-weight:700; line-height:1.45; background:linear-gradient(180deg,#fff,#f8fbf9); }',
         '.rmp-person-name.pending { color:#78400d; }',
         '.rmp-share-stamp { text-align:center; color:#6b8078; font-size:27px; font-weight:700; letter-spacing:.04em; margin-top:30px; text-transform:uppercase; }'
