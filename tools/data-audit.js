@@ -84,6 +84,53 @@ function longestBlankRun(text) {
 const BLANK_RUN_REPORT = 3;
 const BLANK_RUN_FAIL = 5;
 
+// One word, long, with TWO OR MORE different keys each held down.
+//
+// A single held key is how singing gets written -- 'Ohhhhhh', 'Whoaaaaaa',
+// 'Laaaaa', 'Hallelujaaaaaah' -- so one run is never enough on its own. Two
+// separate runs inside one unbroken word is not singing, it is somebody
+// leaning on the keyboard.
+//
+// Checked against all 6,161 lyric lines in the database before being used
+// here: two hits, both genuine leftovers from a bug repro, and nothing else.
+// The deliberate blind spot is a single held key ('uuuuuu'), which cannot be
+// told apart from singing and is not worth a false alarm on every chorus.
+function looksMashed(line) {
+  const s = String(line == null ? '' : line).trim();
+  if (s.length < 8) return false;
+  if (/\s/.test(s)) return false;
+  const runs = s.match(/([a-z])\1{3,}/gi) || [];
+  return new Set(runs.map(r => r[0].toLowerCase())).size >= 2;
+}
+
+// Everywhere a song's words are kept, as { where, title, text } -- the
+// stored lyrics AND the rendered slides.
+//
+// The slides were the gap. They were only ever checked for SHAPE, never
+// content, so a line of keyboard mash sat in slide 6 of 6 of a real order
+// -- the array the projector actually reads -- through two rounds of
+// cleaning the lyric fields beside it. What gets projected is the thing
+// that matters most, and it was the one thing nothing looked at.
+function everyStoredText(songs, items) {
+  const out = [];
+  songs.forEach(s => out.push({ where: 'songs.lyrics', title: s.title, id: s.id, text: s.lyrics }));
+  items.forEach(it => {
+    const c = it.customizations;
+    if (c && typeof c === 'object') {
+      ['lyrics', 'customLyrics', 'masterLyrics'].forEach(k => {
+        if (typeof c[k] === 'string') out.push({ where: 'order_items.' + k, title: it.title, id: it.id, text: c[k] });
+      });
+    }
+    if (Array.isArray(it.slides)) {
+      it.slides.forEach((s, i) => {
+        const text = (typeof s === 'string') ? s : (s && s.content);
+        if (typeof text === 'string') out.push({ where: 'slides[' + i + ']', title: it.title, id: it.id, text: text, slide: i });
+      });
+    }
+  });
+  return out;
+}
+
 function section(label) { console.log('\n== ' + label + ' ' + '='.repeat(Math.max(0, 62 - label.length))); }
 let problems = 0;
 function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (!ok) problems++; }
@@ -152,14 +199,8 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
     console.log('  ' + (bad ? 'BAD ' : 'note') + ' ' + where + ' ' + title + ' - ' + r.len +
       ' blank lines at line ' + r.at + ' of ' + r.of);
   };
-  songs.forEach(s => seenRun('songs.lyrics', s.title, s.lyrics));
-  items.forEach(it => {
-    const c = it.customizations;
-    if (!c || typeof c !== 'object') return;
-    ['lyrics', 'customLyrics', 'masterLyrics'].forEach(k => {
-      if (typeof c[k] === 'string') seenRun('order_items.' + k, it.title, c[k]);
-    });
-  });
+  const storedText = everyStoredText(songs, items);
+  storedText.forEach(f => seenRun(f.where, f.title, f.text));
   if (runsSeen) {
     console.log('  ' + runsSeen + ' field(s) with a run of ' + BLANK_RUN_REPORT + '-' +
       (BLANK_RUN_FAIL - 1) + ' blank lines (informational: wide, but plausible)');
@@ -187,6 +228,49 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
     if (it.backgrounds != null && typeof it.backgrounds !== 'object') { shapeBad++; console.log('  BAD  backgrounds not an object: ' + it.id); }
   });
   say(shapeBad === 0, shapeBad + ' item(s) with an unexpected slides/backgrounds shape');
+
+  section('typing left behind in stored text');
+  let mashed = 0;
+  storedText.forEach(f => {
+    String(f.text == null ? '' : f.text).split(/\r?\n/).forEach((line, n) => {
+      if (!looksMashed(line)) return;
+      mashed++;
+      console.log('  BAD  ' + f.where + ' ' + f.title + ' line ' + (n + 1) + ': ' + JSON.stringify(line.trim().slice(0, 48)));
+      console.log('       ' + f.id);
+    });
+  });
+  say(mashed === 0, mashed + ' line(s) of keyboard mash in stored text');
+
+  // A slide with nothing on it at all is broken. A slide with no words but a
+  // HEADER is usually deliberate -- 'Intro' before the band starts, or a card
+  // announcing that the song switches to another arrangement -- so the two are
+  // reported apart rather than lumped together.
+  //
+  // Measured 2026-10-01: both header-only slides in the database were of that
+  // deliberate kind, in orders that had already been used in a service. Worth
+  // listing, not worth failing over. (Open question for whoever reads this:
+  // the slide PREVIEW shows nothing for a header-only slide, so it is worth
+  // confirming such a slide projects the way it is meant to.)
+  section('slides with no words on them');
+  let blankSlides = 0, headerOnly = 0;
+  items.forEach(it => {
+    if (!Array.isArray(it.slides)) return;
+    it.slides.forEach((s, i) => {
+      const text = (typeof s === 'string') ? s : (s && s.content);
+      if (text != null && String(text).trim() !== '') return;
+      const header = (s && typeof s === 'object' && s.header) ? String(s.header).trim() : '';
+      if (header) {
+        headerOnly++;
+        console.log('  note ' + it.title + ' slide ' + i + ' is a header only: ' +
+          JSON.stringify(header.slice(0, 44)) + ' [' + it.id + ']');
+        return;
+      }
+      blankSlides++;
+      console.log('  BAD  ' + it.title + ' slide ' + i + ' has neither words nor a header [' + it.id + ']');
+    });
+  });
+  if (headerOnly) console.log('  ' + headerOnly + ' header-only slide(s) (informational: probably deliberate)');
+  say(blankSlides === 0, blankSlides + ' slide(s) with nothing on them at all');
 
   section('leftover test material');
   const testish = /zztest|\btest\b|asdf|qwerty|abcdef/i;
