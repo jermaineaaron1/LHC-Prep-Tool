@@ -86902,7 +86902,11 @@ function filterLiturgyItems() {
         var svcLabel = hasSvcType ? svcVal : 'Service Type not set';
         var subtitle = day.name ? (day.name + ' · ' + svcLabel) : svcLabel;
 
-        return '<div class="rmp-service-ledger" data-service-idx="' + serviceDays.indexOf(day) + '" data-date="' + self.escapeHtml(day.dateStr) + '">' +
+        // The filled/total tally is recorded on the card so that anything
+        // acting on the card later -- sharing it as a picture, say -- can tell
+        // a service that has been rostered from one that has not, without
+        // having to work it out again from the markup.
+        return '<div class="rmp-service-ledger" data-service-idx="' + serviceDays.indexOf(day) + '" data-date="' + self.escapeHtml(day.dateStr) + '" data-filled="' + filledCount + '" data-total="' + totalCount + '">' +
           '<div class="rmp-service-head"><div><b>' + self.escapeHtml(day.displayName) + '</b><span>' + self.escapeHtml(subtitle) + '</span></div>' +
           '<div class="rmp-service-head-right">' +
             '<div class="rmp-service-status' + statusCls + '">' + statusText + '</div>' +
@@ -91945,10 +91949,44 @@ function filterLiturgyItems() {
     // can never drift from what's actually on screen.
     // Returns its promise so a caller can wait for the picture to be handed
     // over before putting the month back (see shareServiceCardForDate).
+    // How many duties on a service card actually have somebody against them.
+    // Reads the tally the card was built with, which already leaves out the
+    // Psalm and the Gospel -- those are scripture references rather than
+    // duties, and counting them would make an otherwise empty card look as
+    // though somebody had been rostered.
+    //
+    // A card carrying no tally is reported as having something on it. Being
+    // permissive is the safer way to be wrong here: blocking a share the
+    // operator meant to make is worse than the thing this guards against,
+    // and every card the app builds carries the attribute.
+    _rmpCardFilledCount: function(card) {
+      if (!card) return 0;
+      var n = parseInt(card.getAttribute('data-filled'), 10);
+      return isNaN(n) ? 1 : n;
+    },
+
     shareServiceCardImage: function(dateStr) {
       var self = this;
       var card = document.querySelector('.rmp-service-ledger[data-date="' + dateStr.replace(/"/g, '\\"') + '"]');
       if (!card) { this.showToast('Could not find that service card', 'error'); return Promise.resolve(); }
+      // A month nobody has rostered yet still draws a full card: one row per
+      // duty, every one of them blank, under a badge reading "26 open". There
+      // was nothing stopping that being sent to the congregation, and the
+      // card the Home page shares is the same card, so it could go out from
+      // either page.
+      //
+      // Checked here rather than at the two callers because both of them --
+      // the Roster's own share button and the Home page's -- come through
+      // this one function, so there is no second way to send a card that
+      // would need keeping in step.
+      //
+      // Only a card with nothing at all on it is refused. A partly filled
+      // month is exactly the sort of thing worth sending round precisely
+      // because it still has gaps in it.
+      if (this._rmpCardFilledCount(card) === 0) {
+        this.showToast('Nothing to share yet: no duties filled in for ' + dateStr, 'warning');
+        return Promise.resolve();
+      }
 
       this.showToast('Generating picture...', 'info');
 

@@ -152,7 +152,9 @@ function makeDocument() {
     getElementById: function (id) {
       var hit = root._descendants().filter(function (n) { return n.getAttribute('id') === id; });
       return hit.length ? hit[0] : null;
-    }
+    },
+    querySelector: function (sel) { return root.querySelector(sel); },
+    querySelectorAll: function (sel) { return root.querySelectorAll(sel); }
   };
 }
 
