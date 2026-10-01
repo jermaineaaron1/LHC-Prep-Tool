@@ -86116,7 +86116,17 @@ function filterLiturgyItems() {
           }, 200);
         });
       }
+      // Which months have been fetched this session. Anything that needs the
+      // roster without the operator having opened it -- sharing a card from
+      // the Home page, say -- can ask rather than assume, and anything that
+      // already has it can leave it alone rather than re-fetching over the
+      // top of edits nobody has saved yet.
+      var _loadedStamp = STATE.rosterMonth + '-' + STATE.rosterYear;
       return SBQ_ROSTER.getData(STATE.rosterMonth, STATE.rosterYear).then(function(entries) {
+        self._rosterMonthsLoaded = self._rosterMonthsLoaded || {};
+        // Marked even when the month comes back empty: it was asked for, and
+        // asking again would not make it any less empty.
+        self._rosterMonthsLoaded[_loadedStamp] = true;
         if (!entries || !entries.length) return;
         entries.forEach(function(entry) {
           if (!entry.roleId || !entry.date) return;
@@ -92012,14 +92022,32 @@ function filterLiturgyItems() {
     shareServiceCardForDate: function(dateStr, monthIdx, year) {
       var self = this;
       var prevM = STATE.rosterMonth, prevY = STATE.rosterYear;
-      var moved = (monthIdx != null && year != null) &&
-                  (monthIdx !== prevM || year !== prevY);
-      var ready = Promise.resolve();
+      var targetM = (monthIdx == null) ? prevM : monthIdx;
+      var targetY = (year == null) ? prevY : year;
+      var moved = (targetM !== prevM || targetY !== prevY);
+
+      // Whether the month needs fetching, NOT whether it differs from the one
+      // on screen.
+      //
+      // Those two were treated as the same thing, and for one day they looked
+      // it: the Home page lists the next two Sundays, which in late September
+      // are in October, so the month always differed and the fetch always
+      // happened. On the first of October it stopped differing. Nothing was
+      // fetched, and because the operator had not opened the Roster there was
+      // nothing in memory either -- so the card came out with every row blank
+      // and a badge reading "26 open".
+      //
+      // Asking whether it has been loaded also keeps the share from fetching
+      // over the top of roster edits nobody has saved yet: a month the
+      // operator is editing was loaded when they opened it, so it is already
+      // marked and is left alone.
+      this._rosterMonthsLoaded = this._rosterMonthsLoaded || {};
+      var needLoad = !this._rosterMonthsLoaded[targetM + '-' + targetY];
       if (moved) {
-        STATE.rosterMonth = monthIdx;
-        STATE.rosterYear = year;
-        ready = this.loadRosterData();
+        STATE.rosterMonth = targetM;
+        STATE.rosterYear = targetY;
       }
+      var ready = needLoad ? this.loadRosterData() : Promise.resolve();
       return ready.then(function() {
         // Draws into the Roster view's own container, which is off screen
         // while the operator is looking at Home.
