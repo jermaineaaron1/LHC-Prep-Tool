@@ -4,51 +4,81 @@
 
 **LHC Worship Prep** is a comprehensive worship preparation web application for Luther House Chapel (a Lutheran church). It helps manage song libraries, worship rosters, and service planning.
 
-- **Version**: 2.8
-- **Stack**: Google Apps Script (backend) + HTML/CSS/JavaScript (frontend)
-- **Database**: Google Sheets
-- **Deployment**: Google Apps Script Web App
+- **Stack**: Single-file HTML/CSS/JavaScript frontend + Supabase (Postgres) + Next.js API routes
+- **Database**: Supabase
+- **Deployment**: Vercel, automatically on push to `master`
+
+> **The Google Apps Script backend is no longer live.** `server.gs` is still in
+> the repository, but the deployed app never calls it: `callGAS()` rejects
+> unless `google.script.run` exists, and on Vercel it never does. Treat
+> `server.gs`, `callGAS()` and anything mentioning Google Sheets as history,
+> not as the running system.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Google Apps Script                       │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────┐  │
-│  │  server.gs  │────│ Google      │────│  Web App (HTML) │  │
-│  │  (Backend)  │    │ Sheets DB   │    │  index.html     │  │
-│  └─────────────┘    └─────────────┘    └─────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+                    Vercel
+  +--------------------+        +----------------------+
+  |  dist/index.html   |        |  app/api/*           |
+  |  the whole app     |------->|  Next.js routes      |
+  |  (one file)        |        |  (PDF, Bible, ESV,   |
+  +--------------------+        |   calendar, slides)  |
+            |                   +----------------------+
+            |  supabase-js / REST          |
+            v                              v
+  +-------------------------------------------------+
+  |              Supabase (Postgres)                |
+  |   songs, orders, order_items, roster, ...       |
+  +-------------------------------------------------+
 ```
 
-### Google Sheets Structure
+The browser talks to Supabase directly with the anon key, which is embedded in
+the page. The `app/api/*` routes exist for the things a browser cannot do on
+its own -- server-side Chrome rendering, third-party APIs with secret keys,
+the calendar feed.
 
-| Sheet Name | Purpose |
-|------------|---------|
-| `Songs` | Song library with metadata, lyrics, attachments |
-| `Roster` | Monthly duty assignments |
-| `RosterChanges` | Change log for roster updates (v2.8) |
-| `RosterHistory` | Historical roster entries (v2.8) |
-| `Orders` | Worship order templates (future) |
+### Supabase Tables
+
+The ones worth knowing; there are around 29 in all.
+
+| Table | Purpose |
+|-------|---------|
+| `songs` | Song library: metadata, lyrics, youtube, attachments |
+| `orders` | Worship orders (service and song orders) |
+| `order_items` | Everything inside an order. `customizations` holds the lyric fields; `slides` holds what actually gets projected |
+| `roster` | Monthly duty assignments, one row per role per date |
+| `roster_changes` | Change log behind the sidebar updates and cell history |
+| `songbooks`, `songbook_entries` | Songbook documents and their pages |
+| `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
+| `projection_media`, `projection_settings` | Backgrounds and projection state |
+| `lectionary_readings` | Psalm / Gospel / reading references per date |
+
+Run `npm run audit` to check the live data for duplicates, orphans, damaged
+lyrics and slides with nothing on them.
 
 ## File Structure
 
 ```
 /
-├── index.html      # Complete frontend (~4000 lines)
-│   ├── Part 1-2: Layout, CSS, Sidebar, Main Views
-│   ├── Part 3: Modal styles, Add/Edit Song, Lyrics Editor
-│   ├── Part 4: Preview modals, Share/Help, Theme multi-select
-│   ├── Part 4.5: Context menu, roster history, updates rendering
-│   ├── Part 5: Main JS - Song Finder logic, CRUD operations
-│   └── Part 6: RosterEngine - roster table, editing, sharing
-│
-└── server.gs       # Backend API (~900 lines)
-    ├── doGet() - Serves web app
-    ├── Song CRUD - getSongs, createSong, updateSong, deleteSong
-    ├── Roster - getRosterData, saveRosterEdits, getRosterUpdates
-    └── Utilities - sheet helpers, date formatting
+|-- Index.html       # The entire app in one file (~96,000 lines)
+|                    # Edit THIS one, then copy it to dist/
+|-- dist/index.html  # What Vercel serves. Must stay byte-identical
+|-- app/api/*        # Next.js routes: render-roster-pdf, bible-passage,
+|                    # calendar, convert-pptx, parse-song-sheet, ...
+|-- tools/           # Test harnesses and the data audit
+|-- migrations/      # SQL for the Supabase schema
+|-- server.gs        # LEGACY Apps Script backend. Not called by the
+                     # deployed app. Kept for reference only.
 ```
+
+**`Index.html` and `dist/index.html` must always match.** After every edit:
+
+```bash
+cp Index.html dist/index.html
+```
+
+The file is CRLF throughout. Patch it with Python using `newline=''` rather
+than a bash heredoc, which quietly eats a level of backslashes.
 
 ## Main Features
 
@@ -112,21 +142,30 @@
    - Supporting CSS for styling and animations
 3. Added helper functions: `getTimeAgo()`, `escapeUpdateHtml()`
 
-**Note**: For real roster updates to appear, the `RosterChanges` sheet must exist. Run `setupRosterChangesSheet()` in Apps Script Editor to create it.
+**Note**: the change log now lives in the Supabase table `roster_changes`. The old `setupRosterChangesSheet()` instruction no longer applies.
 
 ## Key Functions Reference
 
-### Frontend (index.html)
+### Frontend (Index.html)
+
+These signatures were checked against the source, not remembered.
 
 ```javascript
 // View Management
 setActiveView(viewId)              // Switch between views
-renderSongs(hideEmptyState)        // Render song list
+renderSongs(forceShow)             // Render song list. NOTE: forceShow, not
+                                   // hideEmptyState -- the sense is inverted
 renderSongStats()                  // Render sidebar statistics
 
 // Song Operations
-openEditSongModal(songId)          // Open edit modal
-saveEditSong()                     // Save edited song
+openEditSongModal(song)            // Takes the song OBJECT, not an id.
+                                   // Passing an id opens an EMPTY form and
+                                   // says nothing -- every field comes out
+                                   // blank, because it reads song.id off a
+                                   // string.
+saveEditSong()                     // Save edited song. Sends the WHOLE row,
+                                   // lyrics included, carried through from
+                                   // the loaded song.
 saveNewSong()                      // Create new song
 deleteSong()                       // Delete song
 
@@ -134,15 +173,40 @@ deleteSong()                       // Delete song
 RosterEngine.init()                // Initialize roster view
 RosterEngine.render()              // Render roster table
 RosterEngine.editCell(td)          // Edit a cell
-RosterEngine.saveChanges()         // Save to backend
+RosterEngine.saveChanges(silent)   // Save; silent suppresses the toast
 
 // Utilities
-callGAS(functionName, args)        // Call backend function
-showToast(message, type)           // Show notification
-showLoader(visible)                // Show/hide loading indicator
+showToast(message, type, opts)     // opts carries the action button:
+                                   // { actionLabel, onAction }. Any wrapper
+                                   // around showToast MUST forward the third
+                                   // argument -- one that did not silently
+                                   // swallowed every Undo button it was given.
+showLoader(show)                   // Show/hide loading indicator
 ```
 
-### Backend (server.gs)
+### Data layer (Supabase, in Index.html)
+
+Every read and write goes through one of the `SBQ_*` modules.
+
+```javascript
+SBQ_SONGS.getAll()                       // Every song
+SBQ_SONGS.create(song)                   // Insert
+SBQ_SONGS.update(song)                   // FULL-ROW write. Anything missing
+                                         // from the object is blanked.
+SBQ_SONGS.updateFields(id, fields)       // Partial write -- use this one to
+                                         // change a single field.
+
+SBQ_ROSTER.getData(month, year)          // month is 0-indexed
+SBQ_ROSTER.saveEdits(editsArray)         // Save roster changes
+```
+
+Others follow the same shape: `SBQ_LITURGY`, `SBQ_SONGBOOKS`,
+`SBQ_SB_ENTRIES`, `SBQ_THEMES`, `SBQ_PROJECTION`, `SBQ_LECTIONARY`,
+`SBQ_OCC_DATA`, `SBQ_INBOX`.
+
+### Legacy backend (server.gs) -- NOT in use
+
+Listed only so it is recognised as dead on sight.
 
 ```javascript
 // Songs
@@ -237,19 +301,19 @@ font-family: "Poppins" (UI elements)
 
 ## Development Workflow
 
-### Testing Backend Functions
-In Google Apps Script Editor:
-```javascript
-// Test song retrieval
-testGetSongs()
+### Checks
 
-// Test roster data
-testGetRosterData()
-testRosterUpdates()
-
-// Setup required sheets
-setupRosterChangesSheet()
+```bash
+npm run check     # offline test harnesses -- run before every commit
+npm run audit     # reads the LIVE database and reports damaged data
 ```
+
+`npm run check` is offline and deterministic. `npm run audit` talks to
+production, which is why it is deliberately kept out of `check`.
+
+Harnesses in `tools/` slice the real function out of `Index.html` and run it
+against `tools/minidom.js`. Each takes `--expect-broken` as a negative control,
+so a new harness can be proved to fail on pre-fix source before it is trusted.
 
 ### Debugging Frontend
 1. Open web app URL
@@ -260,9 +324,14 @@ setupRosterChangesSheet()
 
 ### Making Changes
 
-1. **Backend changes**: Edit `server.gs` in Apps Script Editor, save, refresh web app
-2. **Frontend changes**: Edit `index.html` (named "Index" in Apps Script), save, refresh web app
-3. **After major changes**: May need to redeploy web app
+1. Edit `Index.html` (the real file, capital I).
+2. `cp Index.html dist/index.html` -- the two must stay byte-identical.
+3. `npm run check`.
+4. Commit and push. Vercel deploys from `master` on push.
+
+Schema changes go in `migrations/` and are applied in the Supabase SQL editor.
+A table created there gets RLS with no policy, so it reads as EMPTY through
+the anon key -- verify as `postgres`, not as the app.
 
 ## Future Development Plans
 
@@ -286,42 +355,48 @@ setupRosterChangesSheet()
    - Full-screen presentation mode for projection
    - Song queue management
 
-5. **Migration Plans**
-   - Move from Apps Script to standalone web app
-   - Add authentication/admin controls
-   - Public website with restricted editing
+5. **Migration** -- DONE
+   - ~~Move from Apps Script to standalone web app~~ now Supabase on Vercel
+   - Still open: authentication / admin controls, and a public site with
+     restricted editing. Today the anon key in the page is the only gate.
 
 ## Common Gotchas
 
 1. **Field name mismatch**: Backend returns `style`, frontend expects `category` - `normalizeSong()` should handle this but verify mapping
 
-2. **Date handling**: Dates come from Sheets as Date objects, need formatting to "Mon D" strings
+2. **Roster keys**: an edit is keyed `roleId__Oct_4` -- the date string with
+   spaces turned into underscores (`dateKeySuffix`). A deliberately empty cell
+   holds the sentinel `__BLANK__`, which is NOT the same as missing.
 
-3. **Sheet column order**: Code uses flexible column detection (`findColumn_`) but assumes certain columns exist
+3. **A month must be loaded before it can be read**: `STATE.rosterEdits` only
+   holds months that were actually fetched. Anything needing the roster
+   without the operator having opened it has to call `loadRosterData()` first
+   -- skipping that is what once produced a shared card with every row blank.
 
 4. **JSON in cells**: Multiple attachments/YouTube URLs stored as JSON strings in cells
 
-5. **CORS/Auth**: Web app must be deployed as "Execute as me, Anyone can access" for public use
+5. **The anon key is in the page**, so running the app locally writes to REAL production data. There is no separate dev database.
 
-6. **Apps Script limits**: 6-minute execution time, 50MB response size
+6. **Full-row writes**: `SBQ_SONGS.update()` sends the whole row. Use `updateFields()` for a partial save, or the columns left out are blanked.
 
 ## Quick Commands for Claude Code
 
 ```bash
-# View the files
-cat index.html
-cat server.gs
+# Find a function (never cat the whole file -- it is ~96,000 lines)
+grep -n "function renderSongs" Index.html
+sed -n '1200,1260p' Index.html
 
-# Search for specific functions
-grep -n "renderSongs" index.html
-grep -n "getRosterUpdates" server.gs
+# Check the two copies have not drifted apart
+cmp Index.html dist/index.html
 
-# Find TODO comments
-grep -n "TODO" index.html server.gs
+# Tests, then the live data
+npm run check
+npm run audit
 ```
 
 ## Contact & Resources
 
-- **Google Apps Script Dashboard**: https://script.google.com
-- **Spreadsheet**: Link to your Google Sheet (add here)
-- **Web App URL**: Your deployed web app URL (add here)
+- **Live app**: https://lhc-prep-tool.vercel.app
+- **Repository**: https://github.com/jermaineaaron1/LHC-Prep-Tool
+- **Database**: Supabase project dashboard (URL and anon key are in `Index.html`)
+- **Legacy Apps Script** (not in use): https://script.google.com
