@@ -188,16 +188,34 @@ showLoader(show)                   // Show/hide loading indicator
 
 Every read and write goes through one of the `SBQ_*` modules.
 
+**Pick the narrowest write that does the job.** `update()` sends the whole
+row, so any column missing from the object you hand it is blanked.
+
 ```javascript
+// SBQ_SONGS -- 10 methods; these are the ones worth knowing
 SBQ_SONGS.getAll()                       // Every song
 SBQ_SONGS.create(song)                   // Insert
-SBQ_SONGS.update(song)                   // FULL-ROW write. Anything missing
-                                         // from the object is blanked.
-SBQ_SONGS.updateFields(id, fields)       // Partial write -- use this one to
-                                         // change a single field.
+SBQ_SONGS.update(song)                   // FULL-ROW write. Columns missing
+                                         // from the object are BLANKED.
+                                         // Rarely what you want.
+SBQ_SONGS.updateFields(id, patch)        // Partial write -- the safe default
+SBQ_SONGS.updateLyrics(id, lyrics)       // Lyrics only, AND announces the
+                                         // change so open orders pick it up.
+                                         // Use this for lyrics, not update().
+SBQ_SONGS.updateDisplayStyle(id, style)  // Appearance only
+SBQ_SONGS.incrementUseCount(id)          // Bump use_count
+SBQ_SONGS.delete(id)                     // Note: .delete, a reserved word --
+                                         // call it as SBQ_SONGS.delete(id)
 
+// SBQ_ROSTER -- 29 methods. Beyond the two below there is a lot:
+// names, unavailability, duty settings, duty pairings, member metadata,
+// merges, frequency and per-person history. Read the module before adding
+// anything; most of what you want already exists.
 SBQ_ROSTER.getData(month, year)          // month is 0-indexed
-SBQ_ROSTER.saveEdits(editsArray)         // Save roster changes
+SBQ_ROSTER.saveEdits(edits)              // Save roster changes
+SBQ_ROSTER.getUpdates()                  // Recent changes for the sidebar
+SBQ_ROSTER.getCellHistory(roleId, date)  // Who changed one cell, and when
+SBQ_ROSTER.confirmPending(month, year)   // Confirm auto-suggested picks
 ```
 
 Others follow the same shape: `SBQ_LITURGY`, `SBQ_SONGBOOKS`,
