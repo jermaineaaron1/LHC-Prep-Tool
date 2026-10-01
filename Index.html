@@ -91769,7 +91769,10 @@ function filterLiturgyItems() {
     _rosterPrintCSS: function(scope) {
       return [
         scope + ' * { margin: 0; padding: 0; box-sizing: border-box; }',
-        scope + ' { font-family: Arial, sans-serif; background: white; }',
+        // Emoji font first: its unicode-range covers only the icons in the
+        // labels, so it can claim those and nothing else. On the live page,
+        // where no such font is loaded, the name simply falls through.
+        scope + ' { font-family: "Noto Color Emoji", Arial, sans-serif; background: white; }',
         scope + ' .print-header { text-align: center; margin-bottom: 12px; padding-bottom: 30px; border-bottom: 2px solid #333; }',
         scope + ' .print-title { font-size: 24px; font-weight: bold; color: #1f2937; margin-bottom: 4px; }',
         scope + ' .print-subtitle { font-size: 64px; font-weight: bold; color: #4b5563; line-height: 1.1; }',
@@ -91800,12 +91803,45 @@ function filterLiturgyItems() {
     // real print window AND for an isolated iframe snapshot (Share PDF), so
     // both paths render with identical, predictable table layout instead of
     // inheriting any of the live app's own page CSS/positioning.
+    // A stylesheet carrying exactly the emoji this document uses, and
+    // nothing else.
+    //
+    // Every duty label starts with an icon -- the church, the dove, the open
+    // book -- and all of them came out of the shared picture as empty boxes.
+    // The pictures are drawn by headless Chrome on the server, which has no
+    // emoji font installed, and nothing in the page asked for one. The
+    // operator never saw it: their own phone has the glyphs, so the card
+    // looked right on screen and only the copy sent to the congregation was
+    // broken.
+    //
+    // Asked for by "text=", which matters more than it looks. Requesting the
+    // family plainly returns ELEVEN @font-face rules, each covering a slice of
+    // the emoji block, and Chrome fetches those slices lazily -- some arrived
+    // before the page was photographed and some did not, so a few icons showed
+    // and the rest stayed boxes. Naming the characters returns ONE rule and one
+    // file: nothing to race.
+    //
+    // It is also what makes the font safe to put FIRST in the stack. The rule
+    // comes back with a unicode-range covering only these characters, so it
+    // cannot claim anything else. Put first without that, Noto Color Emoji
+    // takes the digits too -- it carries them for keycaps -- and every date and
+    // verse number on the roster comes out spaced like "Psalm 8 0 : 7 - 1 9".
+    _emojiFontLink: function(html) {
+      var found = String(html || '').match(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/gu);
+      if (!found || !found.length) return '';
+      var glyphs = Array.from(new Set(found)).join('');
+      return '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&text=' +
+        encodeURIComponent(glyphs) +
+        '&display=block">';
+    },
+
     _buildRosterPrintFullHtml: function(titleText, stamp, tableOuterHtml, extraCss) {
+      var bodyHtml = this._rosterPrintHeaderHtml(titleText, stamp) + tableOuterHtml;
       return '<!DOCTYPE html><html><head><title>LHC Roster - ' + titleText + '</title>' +
+        this._emojiFontLink(bodyHtml) +
         '<style>' + this._rosterPrintCSS('body') + (extraCss || '') + '</style>' +
         '</head><body style="padding:20px;">' +
-        this._rosterPrintHeaderHtml(titleText, stamp) +
-        tableOuterHtml +
+        bodyHtml +
         '</body></html>';
     },
 
@@ -92003,6 +92039,9 @@ function filterLiturgyItems() {
         '<!DOCTYPE html><html><head><meta charset="utf-8">' +
         '<link rel="preconnect" href="https://fonts.googleapis.com">' +
         '<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">' +
+        // Without this the duty icons photograph as empty boxes --
+        // see _emojiFontLink.
+        this._emojiFontLink(cardClone.outerHTML) +
         '<style>' + this._rmpCardShareCSS() + '</style>' +
         '</head><body>' +
         '<div class="rmp-share-frame">' + cardClone.outerHTML +
@@ -92125,7 +92164,7 @@ function filterLiturgyItems() {
     _rmpCardShareCSS: function() {
       return [
         '* { margin:0; padding:0; box-sizing:border-box; }',
-        'body { background:#eef3f0; font-family:"Poppins",Arial,sans-serif; padding:54px 42px; }',
+        'body { background:#eef3f0; font-family:"Noto Color Emoji","Poppins",Arial,sans-serif; padding:54px 42px; }',
         '.rmp-share-frame { width:1080px; margin:0 auto; }',
         '.rmp-service-ledger { margin-bottom:0; overflow:hidden; border:3px solid #bfd3ca; border-radius:42px; background:#fff; box-shadow:0 30px 66px rgba(22,62,47,.13), inset 0 3px 0 #fff; }',
         '.rmp-service-head { padding:30px 36px; display:flex; align-items:center; justify-content:space-between; gap:24px; color:#fff; background:linear-gradient(145deg,#086a56,#0a9072); box-shadow:inset 0 3px 0 rgba(255,255,255,.2), inset 0 -6px 0 rgba(0,0,0,.12); }',
