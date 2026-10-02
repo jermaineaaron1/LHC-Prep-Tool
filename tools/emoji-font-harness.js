@@ -131,16 +131,21 @@ if (!emojiFontLink) {
 }
 
 // ---------------------------------------------------------------------------
-console.log('\nboth shared pictures ask for it');
+// Only the roster PDF needs this now.
+//
+// The service card used to be drawn on the server too, and needed the font
+// for the same reason. It is now drawn on the operator's own device, which
+// already has the glyphs, so it neither builds server HTML nor requests a
+// webfont. The roster PDF is still server-drawn and still needs it.
+console.log('\nthe server-drawn picture asks for it');
 {
   const rosterUses = /_buildRosterPrintFullHtml:[\s\S]{0,600}?_emojiFontLink\(/.test(raw);
-  const cardUses = /Poppins:wght@400;600;700;800[\s\S]{0,400}?_emojiFontLink\(/.test(raw);
+  const cardBuildsServerHtml = /format: 'png'/.test(raw);
   if (EXPECT_BROKEN) {
     check('(pre-fix) the roster PDF asked for no emoji font', rosterUses, false);
-    check('(pre-fix) the service card asked for no emoji font', cardUses, false);
   } else {
     check('the roster PDF asks for it', rosterUses, true);
-    check('the service card asks for it', cardUses, true);
+    check('the card no longer builds server HTML at all', cardBuildsServerHtml, false);
   }
 }
 
