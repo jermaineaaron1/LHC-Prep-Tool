@@ -91928,7 +91928,9 @@ function filterLiturgyItems() {
           return new Promise(function(res) { setTimeout(res, 420); })
             .then(function() {
               return window.htmlToImage.toBlob(frame, {
-                pixelRatio: 2, backgroundColor: '#eef3f0'
+                // 1.5 gives ~1620px across, which is wider than WhatsApp keeps
+                // after its own compression, at roughly half the bytes of 2.
+                pixelRatio: 1.5, backgroundColor: '#eef3f0'
               });
             })
             .then(function(blob) {

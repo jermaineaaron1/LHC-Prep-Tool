@@ -150,7 +150,10 @@ const fakeCard = { outerHTML: '<div class="rmp-service-ledger">card</div>' };
       check('nothing is left on screen afterwards', env._attached.length, 0);
       check('the library is fetched lazily', /html-to-image/.test(env._scriptRequested || ''), true);
       check('the capture is pointed at the share frame', env._captureCalls[0].targetClass, 'rmp-share-frame');
-      check('it is captured at twice the size for a crisp picture', env._captureCalls[0].opts.pixelRatio, 2);
+      // 1.5 puts it at roughly 1620px across: wider than WhatsApp keeps after
+      // its own compression, at about half the bytes of 2, which matters on a
+      // phone sharing over mobile data.
+      check('it is captured at one and a half times the size', env._captureCalls[0].opts.pixelRatio, 1.5);
     }
 
     // The capture rejects -- the overlay must still come down.
