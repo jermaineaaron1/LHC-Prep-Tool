@@ -85578,6 +85578,8 @@ function filterLiturgyItems() {
       '#subSelf .sg-gcal:hover{background:#1666d0;}' +
       '#subSelf .sg-copy{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:12px;background:#eef1e8;color:#1b5e43;border:1px solid #cbd8c9;border-radius:11px;padding:13px;font-size:.98rem;font-weight:600;cursor:pointer;}' +
       '#subSelf .sg-note{display:flex;gap:9px;align-items:flex-start;background:#f0fdf4;border:1px solid #bbe6c9;border-radius:11px;padding:13px 15px;margin-top:16px;font-size:.9rem;color:#215e3f;}' +
+      '#subSelf .sg-warn{display:flex;gap:9px;align-items:flex-start;background:#fff8e6;border:1px solid #efd79b;border-radius:11px;padding:13px 15px;margin-top:16px;font-size:.9rem;color:#6b5312;line-height:1.5;}' +
+      '#subSelf .sg-warn b{color:#4a3a0b;}' +
       '#subSelf .sg-tip{margin-top:10px;font-size:.84rem;color:#6b7d73;line-height:1.5;text-align:center;}' +
       '#subSelf .sg-tip b{cursor:pointer;color:#1b5e43;text-decoration:underline;}' +
       '#subSelf .sg-fallback{margin-top:16px;}' +
@@ -85585,13 +85587,48 @@ function filterLiturgyItems() {
       '#subSelf .sg-fallback ol{margin:10px 0 0;padding-left:20px;font-size:.9rem;line-height:1.7;color:#40544a;}' +
       '#subSelf .sg-fallback b{color:#17271f;}' +
       '#subSelf .sg-linkbox{margin-top:12px;font-size:.75rem;color:#6b7d73;word-break:break-all;background:#f6f4ec;border:1px dashed #d3ccb8;border-radius:8px;padding:8px 10px;}' +
-      '@media(prefers-color-scheme:dark){#subSelf{background:linear-gradient(160deg,#0d1712,#111f18);color:#ecefe6;}#subSelf .sg-card{background:#14211a;border-color:#24352b;}#subSelf select{background:#0f1a14;color:#ecefe6;border-color:#31473a;}#subSelf .sg-copy{background:#182a21;color:#8fd6a8;border-color:#31473a;}#subSelf .sg-note{background:#14271c;border-color:#2b4a37;color:#a7e3bf;}#subSelf .sg-linkbox{background:#182a21;border-color:#31473a;color:#9db3a4;}#subSelf .sg-tip{color:#8fa396;}#subSelf .sg-tip b{color:#8fd6a8;}}';
+      '@media(prefers-color-scheme:dark){#subSelf .sg-warn{background:#2b2312;border-color:#5b4a1d;color:#f0dfae;}#subSelf .sg-warn b{color:#fdf1cf;}#subSelf{background:linear-gradient(160deg,#0d1712,#111f18);color:#ecefe6;}#subSelf .sg-card{background:#14211a;border-color:#24352b;}#subSelf select{background:#0f1a14;color:#ecefe6;border-color:#31473a;}#subSelf .sg-copy{background:#182a21;color:#8fd6a8;border-color:#31473a;}#subSelf .sg-note{background:#14271c;border-color:#2b4a37;color:#a7e3bf;}#subSelf .sg-linkbox{background:#182a21;border-color:#31473a;color:#9db3a4;}#subSelf .sg-tip{color:#8fa396;}#subSelf .sg-tip b{color:#8fd6a8;}}';
     document.head.appendChild(st);
   }
 
   function _subCopyFallback(text, done) {
     var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
     document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) {} document.body.removeChild(ta); if (done) done();
+  }
+
+  // Say so when the calendar somebody is about to add would be empty.
+  //
+  // The feed matches a member by their exact name, and the picker offers
+  // every name the roster has ever held -- including stale one-off spellings
+  // ("Aaron" sitting beside "Aaron Jayaraj", "Alison" beside "Alison Phan")
+  // and at least one group ("All Teachers"). Choose one of those and you get
+  // a perfectly valid calendar containing nothing at all, with no hint that
+  // anything went wrong. You would subscribe, see an empty calendar, and have
+  // no idea why.
+  //
+  // It asks the FEED rather than counting rows here, so the warning can never
+  // disagree with the thing they are about to subscribe to.
+  //
+  // It warns rather than blocks: a name with nothing on it today may be given
+  // a duty next week, and the subscription would pick that up by itself.
+  function _subWarnIfEmpty(name, ics) {
+    fetch(ics).then(function(r) {
+      return r.ok ? r.text() : '';
+    }).then(function(body) {
+      if (!body) return;
+      if ((body.match(/BEGIN:VEVENT/g) || []).length) return;
+      var slot = document.getElementById('subEmptyWarn');
+      if (!slot) return;
+      slot.innerHTML =
+        '<div class="sg-warn"><i class="fa-solid fa-circle-exclamation" style="margin-top:2px;"></i>' +
+        '<span>No upcoming duties found for <b>' + escapeHtmlModal(name) + '</b>. ' +
+        'Your name may be written differently on the roster &mdash; some people appear ' +
+        'under a shortened spelling. Go back and try the fuller version, or ask whoever ' +
+        'keeps the roster. You can still add the calendar now: it will fill in on its own ' +
+        'once you are given a duty.</span></div>';
+    }).catch(function() {
+      // Offline, or the feed is down. Say nothing rather than cry wolf.
+    });
   }
 
   function _subRenderGuide(ov) {
@@ -85601,6 +85638,7 @@ function filterLiturgyItems() {
     ov.innerHTML =
       '<div class="sg-wrap">' +
         '<div class="sg-head"><h1>Your worship duty calendar</h1><p>Hi ' + escapeHtmlModal(name) + ' &mdash; add your Luther House Chapel duties to your phone calendar in one tap.</p></div>' +
+        '<div id="subEmptyWarn"></div>' +
         '<div class="sg-card">' +
           '<a class="sg-gcal" href="' + gcal + '" target="_blank" rel="noopener"><i class="fa-brands fa-google"></i> Add to Google Calendar</a>' +
           '<div class="sg-tip">Google sometimes opens an empty box instead of filling it in. If that happens, tap <b id="subTipCopy">Copy calendar link</b> below, then paste it into that box and tap <b>Add calendar</b>.</div>' +
@@ -85615,6 +85653,8 @@ function filterLiturgyItems() {
           '</details>' +
         '</div>' +
       '</div>';
+    _subWarnIfEmpty(name, ics);
+
     var tipCp = document.getElementById('subTipCopy');
     if (tipCp) tipCp.addEventListener('click', function() { var b = document.getElementById('subCopyBtn'); if (b) b.click(); });
     var cp = document.getElementById('subCopyBtn');
