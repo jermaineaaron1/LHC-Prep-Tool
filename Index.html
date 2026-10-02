@@ -85779,6 +85779,21 @@ function filterLiturgyItems() {
   // picker only ever WRITES the canonical " / ".
   var _PAIR_SEP = / +\/ +| +& +| +and +/i;
 
+  // Roster values that name a GROUP rather than a person, and the
+  // roster_names category whose members they stand for.
+  //
+  // "All Teachers" means every Sunday School teacher on file, and is how a
+  // Sunday School slot is filled when they all serve together. A duty
+  // rostered that way is credited to each of them -- the same principle
+  // already applied to a mentor/trainee cell, which counts for both.
+  //
+  // Membership is read from roster_names rather than listed here, so it
+  // cannot go stale when somebody joins or leaves.
+  //
+  // Keep in step with GROUP_LABELS in app/api/calendar/route.ts, which puts
+  // the same duties into each member's calendar. The harness checks they match.
+  var ROSTER_GROUP_LABELS = { 'all teachers': 'sundayschool' };
+
   function splitCellPeople(value) {
     if (!value || typeof value !== 'string') return [];
     var v = value.trim();
@@ -88585,12 +88600,29 @@ function filterLiturgyItems() {
       if (ROSTER_UNAVAILABILITY[name] && ROSTER_UNAVAILABILITY[name].some(function(p){return today>=p.startDate&&today<=p.endDate;})) return 'unavailable';
       var m = getMemberStatus(name); return m.status||'active';
     },
+    // Which group labels credit this person, read from the categories they
+    // are registered under.
+    _enablersGroupLabelsFor: function(name) {
+      var cats = (this._enablersCatsCache || {})[_nameNorm(name)] || {};
+      return Object.keys(ROSTER_GROUP_LABELS).filter(function(label) {
+        return !!cats[ROSTER_GROUP_LABELS[label]];
+      });
+    },
+
     _enablersFreqFor: function(name) {
       var target = _nameNorm(name);
       // A mentor/trainee cell counts for BOTH of them, so someone's serving
       // history is not silently short by every duty they shared.
+      //
+      // So does a duty rostered to a group they belong to: "All Teachers"
+      // stands for every Sunday School teacher, and the credit belongs to
+      // each of them. Without this their history is short by exactly the
+      // Sundays the whole team served together.
+      var labels = this._enablersGroupLabelsFor(name);
       var rows=(this._enablersFreqCache||[]).filter(function(r){
-        return splitCellPeople(r.value||'').some(function(p){ return _nameNorm(p)===target; });
+        var v = r.value || '';
+        if (labels.length && labels.indexOf(String(v).trim().toLowerCase()) !== -1) return true;
+        return splitCellPeople(v).some(function(p){ return _nameNorm(p)===target; });
       });
       var nowM=new Date().getMonth(), nowQ=Math.floor(nowM/3), mo={}, roles={};
       rows.forEach(function(r){mo[r.month]=(mo[r.month]||0)+1; roles[r.role_id]=(roles[r.role_id]||0)+1;});
@@ -88704,11 +88736,20 @@ function filterLiturgyItems() {
         // Load roster duty data + member meta (phone/email) in parallel
         Promise.all([
           sb.from('roster').select('role_id, month, value, service_date').eq('year', year).neq('value', ''),
-          sb.from('roster_member_meta').select('name, status, phone, email, note, suspended_from, suspended_to')
+          sb.from('roster_member_meta').select('name, status, phone, email, note, suspended_from, suspended_to'),
+          // Which categories each person is registered under, so a duty
+          // rostered to a group can be credited to its members.
+          sb.from('roster_names').select('name, category')
         ]).then(function(results) {
           self._enablersFreqCache = (results[0].data) || [];
           var metaRows = (results[1].data) || [];
           metaRows.forEach(function(m) { if (m.name) self._enablersMetaCache[m.name] = m; });
+          self._enablersCatsCache = {};
+          ((results[2] && results[2].data) || []).forEach(function(n) {
+            if (!n.name || !n.category) return;
+            var k = _nameNorm(n.name);
+            (self._enablersCatsCache[k] = self._enablersCatsCache[k] || {})[n.category] = true;
+          });
           self._renderEnablersTab(self._enablersActiveTab || 'all');
         }).catch(function() {
           self._enablersFreqCache = [];

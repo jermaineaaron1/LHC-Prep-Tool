@@ -32,6 +32,24 @@ function dtstamp() {
     'T' + pad(now.getUTCHours()) + pad(now.getUTCMinutes()) + pad(now.getUTCSeconds()) + 'Z';
 }
 
+// A duty can be rostered to a GROUP rather than a person. "All Teachers"
+// means every Sunday School teacher on file, and is how a Sunday School slot
+// is filled when they all serve together.
+//
+// The feed matches a member by name, so without this a duty written that way
+// reached NOBODY's calendar: not the group, because no one is called that,
+// and not the individuals, because their names are not on the row. Measured
+// 2026-10-02: one such row existed and was already past, so nothing was
+// missing yet -- the next one would have failed the same silent way.
+//
+// The members of a group are whoever is registered under its category in
+// roster_names, so this needs no list of its own and cannot go stale when
+// somebody joins or leaves.
+//
+// Keep in step with ROSTER_GROUP_LABELS in Index.html, which credits the
+// same duties in the serving-frequency view. The harness checks they match.
+const GROUP_LABELS: Record<string, string> = { 'all teachers': 'sundayschool' };
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const name = (searchParams.get('name') || '').trim();
@@ -69,6 +87,29 @@ export async function GET(req: NextRequest) {
     return new NextResponse('Database error', { status: 500 });
   }
 
+  // ...and the duties rostered to a group this member belongs to.
+  //
+  // Deliberately a second read rather than a cleverer single one: the group
+  // a person belongs to lives in roster_names, not on the duty row, so there
+  // is nothing to join on. It costs one extra query for a member who is in no
+  // group at all, and that query is skipped entirely in that case.
+  const groupRows: Array<Record<string, unknown>> = [];
+  const { data: myCategories } = await sb
+    .from('roster_names')
+    .select('category')
+    .ilike('name', likePattern);
+  const mine = new Set((myCategories || []).map((c: { category: string }) => c.category));
+  const myLabels = Object.keys(GROUP_LABELS).filter((label) => mine.has(GROUP_LABELS[label]));
+  for (const label of myLabels) {
+    const { data: gRows } = await sb
+      .from('roster')
+      .select('role_id, service_date, month, year, value')
+      .ilike('value', label)
+      .gte('year', thisYear)
+      .limit(500);
+    for (const r of gRows || []) groupRows.push(r);
+  }
+
   const stamp = dtstamp();
   const lines: string[] = [
     'BEGIN:VCALENDAR',
@@ -98,7 +139,10 @@ export async function GET(req: NextRequest) {
 
   const seen = new Set<string>();
 
-  for (const row of data || []) {
+  // The member's own rows come first on purpose. A duty they are named for
+  // individually AND covered by a group is theirs specifically, and the UID
+  // dedupe below keeps whichever is seen first.
+  for (const row of [...(data || []), ...groupRows]) {
     const roleId = (row.role_id || '').toLowerCase();
     if (!roleId || roleId.startsWith('h_') || roleId === 'liturgical') continue;
 
@@ -122,6 +166,12 @@ export async function GET(req: NextRequest) {
     seen.add(uid);
 
     const roleName = ROLE_LABELS[roleId] ?? (roleId.charAt(0).toUpperCase() + roleId.slice(1));
+    // Worth saying: a duty that arrived through a group is shared, and the
+    // member should know they are not the only one expected.
+    const rowValue = String((row as { value?: string }).value || '').trim().toLowerCase();
+    const sharedNote = GROUP_LABELS[rowValue]
+      ? ` This duty is rostered to ${String((row as { value?: string }).value).trim()}, so it is shared.`
+      : '';
     const dateNum = `${rowYear}${monthNum}${pad(day)}`;
 
     lines.push(
@@ -131,7 +181,7 @@ export async function GET(req: NextRequest) {
       `DTSTART;TZID=Asia/Kuala_Lumpur:${dateNum}T090000`,
       `DTEND;TZID=Asia/Kuala_Lumpur:${dateNum}T120000`,
       `SUMMARY:${roleName} – LHC Worship`,
-      `DESCRIPTION:You are serving as ${roleName} at Luther House Chapel on ${dateStr} ${rowYear}.`,
+      `DESCRIPTION:You are serving as ${roleName} at Luther House Chapel on ${dateStr} ${rowYear}.${sharedNote}`,
       'LOCATION:Luther House Chapel',
       'STATUS:CONFIRMED',
       'BEGIN:VALARM',
