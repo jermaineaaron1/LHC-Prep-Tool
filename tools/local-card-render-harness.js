@@ -154,6 +154,12 @@ const fakeCard = { outerHTML: '<div class="rmp-service-ledger">card</div>' };
       // its own compression, at about half the bytes of 2, which matters on a
       // phone sharing over mobile data.
       check('it is captured at one and a half times the size', env._captureCalls[0].opts.pixelRatio, 1.5);
+      // The library otherwise inlines every stylesheet, fails on the
+      // cross-origin ones and logs a SecurityError per attempt. Pointless
+      // here: it rasterises in the browser that already has the fonts.
+      // Measured 5396ms -> 1324ms, byte-identical.
+      check('fonts are not inlined, the page already has them',
+        env._captureCalls[0].opts.skipFonts, true);
     }
 
     // The capture rejects -- the overlay must still come down.
@@ -207,6 +213,24 @@ const fakeCard = { outerHTML: '<div class="rmp-service-ledger">card</div>' };
       check('the card renders on the device', cardCallsLocal, true);
       check('no PNG is posted anywhere', cardFetchesPng, false);
       check('the roster PDF is untouched and still server-drawn', rosterStillFetches, true);
+    }
+  }
+
+  // A second tap during the few seconds a picture takes used to raise a
+  // second preview on top of the first. Both came down, so nothing was
+  // stranded, but two stacked full-screen panels is not what was asked for.
+  console.log('\nonly one picture is taken at a time');
+  {
+    const guards = /if \(this\._cardShotInFlight\) return Promise\.resolve\(\);/.test(raw);
+    const raises = /this\._cardShotInFlight = true;/.test(raw);
+    // Cleared on BOTH paths, or one failure locks the button for good.
+    const clears = (raw.match(/self\._cardShotInFlight = false;/g) || []).length;
+    if (EXPECT_BROKEN) {
+      check('(pre-change) a second tap started a second picture', guards, false);
+    } else {
+      check('a second tap while one is in flight is ignored', guards, true);
+      check('the flag goes up when a picture starts', raises, true);
+      check('and comes down on success AND on failure', clears, 2);
     }
   }
 
