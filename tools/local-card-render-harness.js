@@ -207,6 +207,21 @@ const fakeCard = { outerHTML: '<div class="rmp-service-ledger">card</div>' };
     }
   }
 
+  // The app's own stylesheet reaches the clone now that the picture is drawn
+  // on the page. The server's self-contained stylesheet never defined these,
+  // so they never used to show, and they must not start.
+  console.log('\nplanning marks stay out of the picture');
+  {
+    const finds = /querySelectorAll\('\.rmp-clash, \.rmp-double-ok'\)/.test(raw);
+    const removes = /classList\.remove\('rmp-clash', 'rmp-double-ok'\)/.test(raw);
+    if (EXPECT_BROKEN) {
+      check('(pre-change) nothing needed stripping', finds, false);
+    } else {
+      check('clash and double-duty marks are found', finds, true);
+      check('and taken off before the picture is taken', removes, true);
+    }
+  }
+
   console.log('\nthe badge fits at the smaller size');
   {
     const nowrap = /\.rmp-service-status \{ flex:0 0 auto; white-space:nowrap;/.test(raw);

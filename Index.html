@@ -92137,6 +92137,18 @@ function filterLiturgyItems() {
       var shareBtn = cardClone.querySelector('.rmp-card-share-btn');
       if (shareBtn) shareBtn.remove();
       cardClone.querySelectorAll('[onclick]').forEach(function(el) { el.removeAttribute('onclick'); });
+      // Clash and double-duty marks come off too. They are notes to whoever
+      // builds the roster, not to the congregation: a red "clash" highlight
+      // with a wavy underline, sent round in a card, reads as a mistake in
+      // the roster rather than a flag for the planner.
+      //
+      // They never used to show, because the picture was drawn on a server
+      // from a self-contained stylesheet that does not define them. Now that
+      // it is drawn on the page, the app's own stylesheet reaches the clone
+      // and they would, so they are taken off by hand.
+      cardClone.querySelectorAll('.rmp-clash, .rmp-double-ok').forEach(function(el) {
+        el.classList.remove('rmp-clash', 'rmp-double-ok');
+      });
 
       var titleText = this.MONTHS[STATE.rosterMonth] + ' ' + STATE.rosterYear;
       var stamp = this._rosterStampText();
