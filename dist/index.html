@@ -91835,6 +91835,39 @@ function filterLiturgyItems() {
         '&display=block">';
     },
 
+    // What to tell the operator when a picture or a PDF could not be made.
+    //
+    // The reason is already in hand: the render route passes the conversion
+    // service's own message straight through. It was being dropped for a flat
+    // "Failed to generate picture", which is the least useful thing that could
+    // be said about the two failures that actually happen, because neither is
+    // the operator's fault and both are fixable:
+    //
+    //   out of credits   the renderer is metered, and an afternoon of sharing
+    //                    can use up the allowance. It comes back on its own.
+    //   not configured   the key is missing from the deployment.
+    //
+    // Somebody standing in front of a congregation with a blank screen needs
+    // to know which of those it is, and whether waiting will help.
+    //
+    // Anything unrecognised keeps the plain wording. Inventing advice for a
+    // fault we have not seen would be worse than admitting we do not know it;
+    // the full text is on the console either way.
+    _renderFailureMessage: function(err, thing) {
+      var msg = String((err && err.message) || err || '');
+      if (/credit|quota|CREDITS_EXCEEDED/i.test(msg)) {
+        return 'Out of rendering credits, so the ' + thing + ' could not be made. ' +
+          'The allowance resets on its own, so try again later.';
+      }
+      if (/not configured|CLOUDCONVERT_API_KEY/i.test(msg)) {
+        return 'This server is not set up to make ' + thing + 's yet (the rendering key is missing).';
+      }
+      if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+        return 'Could not reach the rendering service. Check the connection and try again.';
+      }
+      return 'Failed to generate ' + thing;
+    },
+
     _buildRosterPrintFullHtml: function(titleText, stamp, tableOuterHtml, extraCss) {
       var bodyHtml = this._rosterPrintHeaderHtml(titleText, stamp) + tableOuterHtml;
       return '<!DOCTYPE html><html><head><title>LHC Roster - ' + titleText + '</title>' +
@@ -91937,7 +91970,7 @@ function filterLiturgyItems() {
         }
       }).catch(function(err) {
         console.error('Roster PDF render failed:', err);
-        self.showToast('Failed to generate PDF', 'error');
+        self.showToast(self._renderFailureMessage(err, 'PDF'), 'error');
       });
     },
 
@@ -92074,7 +92107,7 @@ function filterLiturgyItems() {
         }
       }).catch(function(err) {
         console.error('Service card image render failed:', err);
-        self.showToast('Failed to generate picture', 'error');
+        self.showToast(self._renderFailureMessage(err, 'picture'), 'error');
       });
     },
 
