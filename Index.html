@@ -26908,15 +26908,42 @@ var SBQ_ROSTER = {
       });
   },
 
-  // Get all roster data for a year (all people) — used by Enablers "All" tab frequency
+  // Every roster row for a year, all people, READ IN PAGES.
+  //
+  // PostgREST stops at 1000 rows and says nothing about it: no error, no
+  // flag, just a short answer. 2026 has 1047, so a single request quietly
+  // dropped 47 of them and two things downstream believed the short count:
+  //
+  //   the Enablers serving-frequency view, where 25 people had their duty
+  //   counts understated -- one of them by two;
+  //
+  //   runAutoSuggest, which picks who serves next FROM those counts. Its
+  //   whole purpose is spreading duties fairly, and it was deciding from an
+  //   incomplete history, so it could put somebody forward who had just
+  //   served and skip somebody who had not.
+  //
+  // Ordered by id so the pages cannot overlap or skip. The select is a
+  // superset of what every caller needs, so there is one read of this shape
+  // rather than two that drift.
   getAllForYear: function(year) {
     var sb = SBQ_ROSTER._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
-    return sb.from('roster').select('role_id, month, value').eq('year', year).neq('value', '')
-      .then(function(r) {
-        if (r.error) throw new Error(r.error.message);
-        return r.data || [];
-      });
+    var out = [];
+    var page = function(from) {
+      return sb.from('roster')
+        .select('role_id, month, value, service_date, year')
+        .eq('year', year).neq('value', '')
+        .order('id')
+        .range(from, from + 999)
+        .then(function(r) {
+          if (r.error) throw new Error(r.error.message);
+          var rows = r.data || [];
+          out = out.concat(rows);
+          // A short page is the last one. A full page might not be.
+          return rows.length < 1000 ? out : page(from + 1000);
+        });
+    };
+    return page(0);
   }
 };
 
@@ -88735,13 +88762,16 @@ function filterLiturgyItems() {
       if (sb) {
         // Load roster duty data + member meta (phone/email) in parallel
         Promise.all([
-          sb.from('roster').select('role_id, month, value, service_date').eq('year', year).neq('value', ''),
+          // Through SBQ_ROSTER, which reads the year in pages. This used to
+          // be its own single request and silently saw only the first 1000
+          // rows -- see getAllForYear.
+          SBQ_ROSTER.getAllForYear(year),
           sb.from('roster_member_meta').select('name, status, phone, email, note, suspended_from, suspended_to'),
           // Which categories each person is registered under, so a duty
           // rostered to a group can be credited to its members.
           sb.from('roster_names').select('name, category')
         ]).then(function(results) {
-          self._enablersFreqCache = (results[0].data) || [];
+          self._enablersFreqCache = results[0] || [];
           var metaRows = (results[1].data) || [];
           metaRows.forEach(function(m) { if (m.name) self._enablersMetaCache[m.name] = m; });
           self._enablersCatsCache = {};
