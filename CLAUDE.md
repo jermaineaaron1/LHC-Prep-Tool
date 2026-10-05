@@ -46,12 +46,12 @@ The ones worth knowing; there are around 29 in all.
 | `songs` | Song library: metadata, lyrics, youtube, attachments |
 | `orders` | Worship orders (service and song orders) |
 | `order_items` | Everything inside an order. `customizations` holds the lyric fields; `slides` holds what actually gets projected |
-| `roster` | Monthly duty assignments, one row per role per date |
+| `roster` | Monthly duty assignments, one row per role per date. **Also the readings**: role ids `reading1`, `psalm`, `reading2`, `gospel` |
 | `roster_changes` | Change log behind the sidebar updates and cell history |
 | `songbooks`, `songbook_entries` | Songbook documents and their pages |
 | `liturgy_items`, `liturgy_folders`, `liturgy_occasion_data` | Liturgy library, its folders, per-occasion notes |
 | `projection_media`, `projection_settings` | Backgrounds and projection state |
-| `lectionary_readings` | Psalm / Gospel / reading references per date |
+| `lectionary_readings` | Cached passage TEXT per date. NOT where the references live |
 
 Run `npm run audit` to check the live data for duplicates, orphans, damaged
 lyrics and slides with nothing on them.
@@ -216,6 +216,21 @@ SBQ_ROSTER.saveEdits(edits)              // Save roster changes
 SBQ_ROSTER.getUpdates()                  // Recent changes for the sidebar
 SBQ_ROSTER.getCellHistory(roleId, date)  // Who changed one cell, and when
 SBQ_ROSTER.confirmPending(month, year)   // Confirm auto-suggested picks
+```
+
+```javascript
+// SBQ_READINGS -- the lectionary readings. Inside the LiturgyModule IIFE.
+//
+// There is ONE store for readings and it is the `roster`: four role rows
+// per service date. `lectionary_readings` holds cached passage text, not
+// references -- it had a single row while the roster held 142 readings,
+// which is why the Liturgy page used to show four empty cards.
+SBQ_READINGS.getRange(fromIso, toIso)    // { iso: { role: reference } }
+SBQ_READINGS.getServiceMeta(from, to)    // { iso: { day, color, serviceType } }
+SBQ_READINGS.getServiceDates(year)       // every date the roster knows
+SBQ_READINGS.setReference(iso, slot, ref)// writes the roster + roster_changes
+SBQ_READINGS.isoToRoster(iso)            // -> { year, month, serviceDate }
+SBQ_READINGS.rosterToIso(svcDate, year)  // "Oct 4" + 2026 -> "2026-10-04"
 ```
 
 Others follow the same shape: `SBQ_LITURGY`, `SBQ_SONGBOOKS`,
@@ -393,9 +408,20 @@ the anon key -- verify as `postgres`, not as the app.
 
 4. **JSON in cells**: Multiple attachments/YouTube URLs stored as JSON strings in cells
 
-5. **The anon key is in the page**, so running the app locally writes to REAL production data. There is no separate dev database.
+5. **Readings are roster rows, not lectionary rows**: the Liturgy page is a
+   front end onto `roster` role ids `reading1`/`psalm`/`reading2`/`gospel`.
+   Writing one through `SBQ_READINGS.setReference` logs to `roster_changes`
+   like any other roster edit, because that is what it is.
 
-6. **Full-row writes**: `SBQ_SONGS.update()` sends the whole row. Use `updateFields()` for a partial save, or the columns left out are blanked.
+6. **Liturgy notes hide in unnamed folders**: `liturgy_occasion_data.data`
+   holds notes both at `planningNotes` and inside `folders.<id>.planningNotes`,
+   and those folder objects have NO name key. The Memories view reads both
+   and ignores the folder layer; anything else that reads notes must do the
+   same or it will silently show none.
+
+7. **The anon key is in the page**, so running the app locally writes to REAL production data. There is no separate dev database.
+
+8. **Full-row writes**: `SBQ_SONGS.update()` sends the whole row. Use `updateFields()` for a partial save, or the columns left out are blanked.
 
 ## Quick Commands for Claude Code
 
