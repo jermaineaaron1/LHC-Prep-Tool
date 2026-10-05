@@ -23245,7 +23245,9 @@ window.loadEditSongData = function(song) {
       var lookupKey = id + '__' + dateStr.trim();
       var value = rosterMap[lookupKey] || '';
       if (value && value !== 'TBD' && value !== '-') {
-        topRoles.push({ label: id === 'preacher' ? 'Preacher' : 'Liturgist', value: value });
+        var shown = (typeof window.LHC_addressedName === 'function')
+          ? window.LHC_addressedName(id, value) : value;
+        topRoles.push({ label: id === 'preacher' ? 'Preacher' : 'Liturgist', value: shown });
       }
     });
 
@@ -26731,6 +26733,7 @@ var SBQ_ROSTER = {
             suspendedFrom: row.suspended_from || '',
             suspendedTo: row.suspended_to || '',
             suspendedReason: row.suspended_reason || '',
+            addressAs: row.address_as || '',
             inactiveDate: row.inactive_date || '',
             team: row.team || ''
           };
@@ -26740,22 +26743,42 @@ var SBQ_ROSTER = {
   },
 
   // Save (upsert) member metadata
-  saveMemberMeta: function(name, status, note, joinedDate, suspendedFrom, suspendedTo, suspendedReason, inactiveDate, team) {
+  saveMemberMeta: function(name, status, note, joinedDate, suspendedFrom, suspendedTo, suspendedReason, inactiveDate, team, addressAs) {
     var sb = SBQ_ROSTER._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
-    return sb.from('roster_member_meta')
-      .upsert({
-        name: name,
-        status: status || 'active',
-        note: note || '',
-        joined_date: joinedDate || null,
-        suspended_from: suspendedFrom || null,
-        suspended_to: suspendedTo || null,
-        suspended_reason: suspendedReason || null,
-        inactive_date: inactiveDate || null,
-        team: team || null
-      }, { onConflict: 'name' })
-      .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
+    var row = {
+      name: name,
+      status: status || 'active',
+      note: note || '',
+      joined_date: joinedDate || null,
+      suspended_from: suspendedFrom || null,
+      suspended_to: suspendedTo || null,
+      suspended_reason: suspendedReason || null,
+      inactive_date: inactiveDate || null,
+      team: team || null,
+      address_as: addressAs || null
+    };
+    var put = function(payload) {
+      return Promise.resolve(sb.from('roster_member_meta').upsert(payload, { onConflict: 'name' }));
+    };
+    return put(row).then(function(r) {
+      if (!r.error) return { success: true };
+      // The address_as column is added by a migration that is run by hand.
+      // Until somebody runs it, PostgREST rejects the whole upsert for the
+      // one unknown column -- which would take every member save down with
+      // it, including status changes that have nothing to do with this.
+      // So an unknown column costs the form of address, not the save.
+      if (!/address_as|PGRST204|Could not find/i.test(r.error.message || '')) {
+        throw new Error(r.error.message);
+      }
+      console.warn('roster_member_meta.address_as is missing -- run ' +
+        'migrations/2026-10-05_add_address_as_to_member_meta.sql. Saving without it.');
+      delete row.address_as;
+      return put(row).then(function(r2) {
+        if (r2.error) throw new Error(r2.error.message);
+        return { success: true, addressAsSkipped: true };
+      });
+    });
   },
 
   // Cascade-blank all roster cells where value = name (across all months/years)
@@ -86734,16 +86757,54 @@ function filterLiturgyItems() {
   }
 
   function setMemberStatus(name, status, note, joinedDate) {
-    ROSTER_MEMBER_STATUS[name] = { status: status || 'active', note: note || '', joinedDate: joinedDate || '' };
+    // Carried forward rather than rebuilt. This function is called from the
+    // rotation switch, which knows about status and nothing else -- and the
+    // save below writes the WHOLE row, so anything dropped here is blanked
+    // in the database a moment later.
+    var prev = ROSTER_MEMBER_STATUS[name] || {};
+    ROSTER_MEMBER_STATUS[name] = {
+      status: status || 'active', note: note || '', joinedDate: joinedDate || '',
+      addressAs: prev.addressAs || ''
+    };
     saveMemberStatus();
     if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveMemberMeta) {
-      SBQ_ROSTER.saveMemberMeta(name, status, note, joinedDate).catch(function(e) { console.warn('Member meta sync error:', e); });
+      SBQ_ROSTER.saveMemberMeta(name, status, note, joinedDate,
+        prev.suspendedFrom || '', prev.suspendedTo || '', prev.suspendedReason || '',
+        prev.inactiveDate || '', prev.team || '', prev.addressAs || ''
+      ).catch(function(e) { console.warn('Member meta sync error:', e); });
     }
   }
 
   function getMemberStatus(name) {
     return ROSTER_MEMBER_STATUS[name] || { status: 'active', note: '', joinedDate: '' };
   }
+
+  // "Bro" and "Sis" belong to the PREACHING, not to the person.
+  //
+  // Alwyn Lau preaches and also plays the piano: Bro Alwyn Lau in the pulpit,
+  // Alwyn Lau at the keyboard. So the form of address is applied by role at
+  // the moment of display, and never stored in the name.
+  //
+  // Storing it in the name is what this roster used to do, and it is how one
+  // person becomes several. "Alwyn Lau" and "Bro Alwyn Lau" were two
+  // different people to the database until they were merged -- separate duty
+  // counts, invisible to each other in the statistics. Benedict Muthusamy had
+  // four spellings; Ashley Teter had four.
+  function addressedName(roleId, value) {
+    if (roleId !== 'preacher') return value;
+    var v = String(value == null ? '' : value).trim();
+    if (!v) return value;
+    // A cell can hold two names, or a note. Prefixing that would produce
+    // nonsense like "Bro Alison Phan / Maria Tan".
+    if (/[\/,&]|\n/.test(v)) return value;
+    var how = String((getMemberStatus(v) || {}).addressAs || '').trim();
+    if (!how) return value;
+    // Already titled -- ordained, or somebody typed one in by hand.
+    if (/^(bro|sis|rev|pastor|ps|bishop|dr|mr|mrs|ms)\b\.?/i.test(v)) return value;
+    return how + ' ' + v;
+  }
+  // The share card and the home service card live in other modules.
+  window.LHC_addressedName = addressedName;
 
   // ── Who Auto-Suggest is allowed to roster ─────────────────────────────────
   // Until now Auto-Suggest only ever consulted the date-range unavailability
@@ -87938,7 +87999,9 @@ function filterLiturgyItems() {
           var hasVal2 = v2 && v2 !== '__BLANK__' && typeof v2 !== 'object';
           totalCount++;
           if (hasVal2) filledCount++;
-          rows.push({ kind: 'single', label: role.label, value: hasVal2 ? v2 : null, pending: hasVal2 && STATE.rosterPendingCells.has(ck2), cellKey: ck2 });
+          rows.push({ kind: 'single', label: role.label,
+            value: hasVal2 ? addressedName(role.id, v2) : null,
+            pending: hasVal2 && STATE.rosterPendingCells.has(ck2), cellKey: ck2 });
         });
 
         var rowsHtml = rows.map(function(row) {
@@ -90633,6 +90696,13 @@ function filterLiturgyItems() {
       html += '<input id="enInd_inactDate" type="month" value="'+(meta.inactiveDate||'')+'" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;width:100%;box-sizing:border-box;"></div>';
       html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Note (optional)</label>';
       html += '<input id="enInd_note" type="text" value="'+self.escapeHtml(meta.note||'')+'" placeholder="Any notes..." style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;box-sizing:border-box;"></div>';
+      html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Address as (shown when preaching)</label>';
+      html += '<select id="enInd_addressAs" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;">';
+      [['','Not set'],['Bro','Bro'],['Sis','Sis']].forEach(function(a){
+        html += '<option value="'+a[0]+'"'+((meta.addressAs||'')===a[0]?' selected':'')+'>'+a[1]+'</option>';
+      });
+      html += '</select>';
+      html += '<div style="font-size:11px;color:#9ca3af;margin-top:3px;">For lay preachers. Shown only where this person is presented as the preacher, not in their other duties. Ordained ministers carry Rev / Pastor / Bishop in the name itself.</div></div>';
       html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Team (for Roster Auto-Suggest)</label>';
       html += '<select id="enInd_team" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;">';
       [['','Not set'],['traditional','Traditional'],['contemporary','Contemporary'],['both','Both']].forEach(function(t){
@@ -91005,6 +91075,7 @@ function filterLiturgyItems() {
       var inactEl     = document.getElementById('enInd_inactDate');
       var noteEl      = document.getElementById('enInd_note');
       var teamEl      = document.getElementById('enInd_team');
+      var addressEl   = document.getElementById('enInd_addressAs');
       if (!statusEl) return;
       var status          = statusEl.value;
       var note            = noteEl ? noteEl.value.trim() : '';
@@ -91014,7 +91085,9 @@ function filterLiturgyItems() {
       var suspendedReason = (suspRsnEl  && status==='suspended')  ? suspRsnEl.value.trim() : '';
       var inactiveDate    = (inactEl    && status==='inactive')   ? inactEl.value    : '';
       var team            = teamEl ? teamEl.value : '';
+      var addressAs       = addressEl ? addressEl.value : '';
       var meta = getMemberStatus(name) || {};
+      meta.addressAs       = addressAs;
       meta.status          = status;
       meta.note            = note;
       meta.joinedDate      = joinedDate;
@@ -93497,7 +93570,14 @@ function filterLiturgyItems() {
         return isTrulyEmpty(v) ? null : v;
       };
       // Returns a formatted duty line, or null if the cell has no real value
-      var LF = function(label, roleId) { var v = get(roleId); return v ? ('• *' + label + ':* ' + v) : null; };
+      var LF = function(label, roleId) {
+        var v = get(roleId);
+        if (!v) return null;
+        // Bro / Sis for a lay preacher, applied here rather than stored in
+        // the name -- the same person is plain in their other duties.
+        if (typeof window.LHC_addressedName === 'function') v = window.LHC_addressedName(roleId, v);
+        return '• *' + label + ':* ' + v;
+      };
 
       var div = String.fromCodePoint(0x2500).repeat(24);
 
