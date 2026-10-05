@@ -38,7 +38,7 @@
 -- key" trap that catches tables created in the SQL editor.
 --
 -- WHERE IT IS USED
--- Only where a PREACHER's name is presented to people -- the WhatsApp service
+-- Only where a PREACHER's name is presented to people -- the WhatsApp ser  vice
 -- share and the service card. Deliberately not in the roster grid, where the
 -- cell value is the stored name the picker matches against, and not for the
 -- same person in another role: Alwyn Lau preaches and also plays piano, and
