@@ -73,11 +73,25 @@ export async function GET(req: NextRequest) {
   // zero rows for whichever spelling a person's actual duty rows don't use).
   const likePattern = name.replace(/\s+/g, '%');
 
-  // Fetch this person's duties for this year and next (case-insensitive)
+  // Fetch this person's duties for this year and next (case-insensitive).
+  //
+  // Pending duties are left out. A name typed into a cell is pending until the
+  // PIC ticks Confirm, and the app is explicit that those are two different
+  // decisions -- putting someone's name down, and telling them they are on.
+  // This feed was doing the telling regardless: 110 cells were pending when
+  // this was written and every one of them was already in somebody's calendar,
+  // so a person being quietly considered as a replacement had been notified
+  // before anyone asked them.
+  //
+  // `not.is.true` rather than `eq.false` so a row whose flag is NULL still
+  // appears. There are none today, but a row inserted without the column set
+  // would otherwise vanish from the calendar silently -- and showing a duty
+  // that might be tentative is a far better failure than hiding a real one.
   const { data, error } = await sb
     .from('roster')
     .select('role_id, service_date, month, year, value')
     .ilike('value', likePattern)
+    .not('pending_confirmation', 'is', true)
     .gte('year', thisYear)
     .order('year')
     .order('month')
@@ -105,6 +119,7 @@ export async function GET(req: NextRequest) {
       .from('roster')
       .select('role_id, service_date, month, year, value')
       .ilike('value', label)
+      .not('pending_confirmation', 'is', true)
       .gte('year', thisYear)
       .limit(500);
     for (const r of gRows || []) groupRows.push(r);
