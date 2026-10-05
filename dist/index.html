@@ -25455,6 +25455,84 @@ function deleteFromSupabase(storagePath) {
   });
 }
 
+// Every Supabase Storage path mentioned in these rows.
+//
+// Matched on the stored FILE NAME, not the whole path. An upload is named
+// "<timestamp>_<safeName>" where safeName keeps only [a-zA-Z0-9._-], so the
+// name is unique and survives URL-encoding unchanged. The bucket has a space
+// in it ("Liturgy Files") and appears encoded in some places and plain in
+// others, which a whole-path comparison would trip over.
+function _storagePathsIn(rows) {
+  var found = {};
+  var s = JSON.stringify(rows || []);
+  var re = /\/storage\/v1\/object\/public\/[^"\'\\\s)]+/g;
+  var m;
+  while ((m = re.exec(s))) {
+    var p = decodeURIComponent(m[0].replace('/storage/v1/object/public/', ''));
+    if (p.indexOf(LHC_SUPABASE_BUCKET + '/') === 0) p = p.slice(LHC_SUPABASE_BUCKET.length + 1);
+    if (p) found[p] = true;
+  }
+  return Object.keys(found);
+}
+
+// Read a whole table in pages.
+//
+// A truncated read here would be wrong in the worst possible direction: a
+// reference sitting past row 1000 would look like no reference at all, and a
+// file still in use would be deleted.
+function _readAllRows(sb, table) {
+  var out = [];
+  var page = function(from) {
+    return sb.from(table).select('*').range(from, from + 999).then(function(r) {
+      if (r.error) throw new Error(table + ': ' + r.error.message);
+      var rows = r.data || [];
+      out = out.concat(rows);
+      return rows.length < 1000 ? out : page(from + 1000);
+    });
+  };
+  return page(0);
+}
+
+// Delete the uploads nothing anywhere still points at.
+//
+// Called AFTER the order and its items are gone, so the order's own
+// references no longer count. Anything shared is left exactly where it is: a
+// background in the library, a song document, a liturgy file, another
+// order's media.
+//
+// This errs entirely one way on purpose. A stale 24MB file is a nuisance;
+// deleting a background another service is about to project is not. So if
+// ANY table cannot be read, nothing is deleted at all -- a table we could
+// not check might be the one still referencing the file.
+function _deleteUnreferencedUploads(sb, paths) {
+  if (!sb || !paths || !paths.length) return Promise.resolve({ deleted: [], kept: [] });
+  var TABLES = [
+    'orders', 'order_items', 'songs', 'songbooks', 'song_layouts',
+    'liturgy_items', 'lhc_backgrounds', 'projection_versions',
+    'projection_settings', 'order_media_links', 'song_recordings'
+  ];
+  return Promise.all(TABLES.map(function(tbl) {
+    return _readAllRows(sb, tbl).catch(function(e) {
+      console.warn('Order cleanup: could not read ' + tbl + ':', e && e.message);
+      return null;
+    });
+  })).then(function(all) {
+    if (all.some(function(x) { return x === null; })) {
+      console.warn('Order cleanup: a table could not be read, so no upload was removed.');
+      return { deleted: [], kept: paths.slice() };
+    }
+    var haystack = JSON.stringify(all);
+    var deleted = [], kept = [];
+    paths.forEach(function(p) {
+      var fileName = String(p).split('/').pop();
+      if (!fileName || haystack.indexOf(fileName) !== -1) { kept.push(p); return; }
+      deleteFromSupabase(p);
+      deleted.push(p);
+    });
+    return { deleted: deleted, kept: kept };
+  });
+}
+
 // ── Song layout cloud sync (page breaks, font scale, fullscreen zoom) ──────
 // Upserts a song's layout into song_layouts table. Fire-and-forget; never blocks the UI.
 function _sbSyncLayoutToSupabase(songId, layout) {
@@ -25988,13 +26066,54 @@ var SBQ = {
   },
 
   // Delete an order and all its items
+  // Removing an order used to remove exactly two things: its items and the
+  // order row. Everything else it owned stayed.
+  //
+  // Measured 2026-10-05: 31 orphaned projection_settings rows from orders
+  // long gone, and uploads with nothing left pointing at them. A comment in
+  // the sermon-conversion code records where that ends up -- "the single
+  // biggest thing in storage: 49 files and 629 MB, none of them referenced by
+  // any order". That particular leak was plugged at the upload end; this is
+  // the other end of it.
   deleteOrder: function(id) {
     var sb = SBQ._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
-    return sb.from('order_items').delete().eq('order_id', id)
+    var owned = [];
+    // Read what the order points at BEFORE any of it is removed.
+    return Promise.all([
+      sb.from('orders').select('*').eq('id', id),
+      sb.from('order_items').select('*').eq('order_id', id)
+    ]).then(function(res) {
+      owned = _storagePathsIn([(res[0] && res[0].data) || [], (res[1] && res[1].data) || []]);
+      return sb.from('order_items').delete().eq('order_id', id);
+    })
       .then(function() { return sb.from('orders').delete().eq('id', id); })
       .then(function(r) {
         if (r.error) throw new Error(r.error.message);
+      })
+      .then(function() {
+        // The projection settings belonged to the order. owner_id IS the
+        // order id -- no prefix, checked against the live data.
+        return sb.from('projection_settings').delete().eq('owner_id', id)
+          .catch(function(e) { console.warn('Order ' + id + ': settings not cleared:', e && e.message); });
+      })
+      .then(function() {
+        // Best effort, and deliberately after the row deletes: the order is
+        // what the operator asked to remove, and a cleanup that fails must
+        // not report a failed delete, or they will try again on an order
+        // that is already gone.
+        return _deleteUnreferencedUploads(sb, owned).catch(function(e) {
+          console.warn('Order ' + id + ': uploads not cleaned up:', e && e.message);
+          return null;
+        });
+      })
+      .then(function(cleanup) {
+        if (cleanup && cleanup.deleted.length) {
+          console.log('Order ' + id + ': removed ' + cleanup.deleted.length + ' upload(s) nothing else was using');
+        }
+        if (cleanup && cleanup.kept.length) {
+          console.log('Order ' + id + ': left ' + cleanup.kept.length + ' upload(s) still in use elsewhere');
+        }
         return { success: true };
       });
   },
