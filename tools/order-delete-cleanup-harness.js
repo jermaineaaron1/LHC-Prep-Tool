@@ -115,8 +115,14 @@ function makeClient(tables, opts) {
             // order is gone, so a stub that only recorded the call would make
             // the order look like it still referenced its own file.
             tables[table] = (tables[table] || []).filter(r => r[col] !== val);
-            return Promise.resolve(
-              opts.failDeleteOn === table ? { error: { message: 'nope' } } : { error: null });
+            const result = opts.failDeleteOn === table
+              ? { error: { message: 'nope' } } : { error: null };
+            // supabase-js returns a THENABLE, not a Promise: .then exists,
+            // .catch does not. Returning a real Promise here made the stub more
+            // forgiving than the thing it stands for, and hid a TypeError that
+            // only showed up on the live site -- after the order row had already
+            // been deleted.
+            return { then: (res, rej) => Promise.resolve(result).then(res, rej) };
           };
           return d;
         };

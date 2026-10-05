@@ -26094,7 +26094,12 @@ var SBQ = {
       .then(function() {
         // The projection settings belonged to the order. owner_id IS the
         // order id -- no prefix, checked against the live data.
-        return sb.from('projection_settings').delete().eq('owner_id', id)
+        // Wrapped: supabase-js hands back a THENABLE, not a Promise. It has
+        // .then but no .catch, so attaching one directly throws a TypeError --
+        // which it did, on the live site, after the order row had already been
+        // deleted. The harness missed it because its stub returned a real
+        // Promise, which is more forgiving than the thing being stubbed.
+        return Promise.resolve(sb.from('projection_settings').delete().eq('owner_id', id))
           .catch(function(e) { console.warn('Order ' + id + ': settings not cleared:', e && e.message); });
       })
       .then(function() {
