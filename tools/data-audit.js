@@ -139,6 +139,7 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
   const orders = await all('orders', '*');
   const items = await all('order_items', '*');
   const songs = await all('songs', '*');
+  const roster = await all('roster', 'id, role_id, month, year, service_date, value');
 
   section('row counts');
   console.log('  orders ' + orders.length + '   order_items ' + items.length + '   songs ' + songs.length);
@@ -271,6 +272,98 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
   });
   if (headerOnly) console.log('  ' + headerOnly + ' header-only slide(s) (informational: probably deliberate)');
   say(blankSlides === 0, blankSlides + ' slide(s) with nothing on them at all');
+
+  // Two rows for one cell is invisible until it bites.
+  //
+  // The roster is keyed by service_date, which is free text. getData()
+  // normalises an ISO date into "Jan 4" on READ, so a row stored as
+  // "2026-01-04T08:00:00.000Z" and a row stored as "Jan 4" land on the same
+  // cell -- and with no ORDER BY, whichever Postgres returns last wins. The
+  // screen shows a different name depending on the day you look at it.
+  //
+  // Worse, nothing downstream deduplicates: getAllForYear returns the raw
+  // rows, so both are counted as duties. Six people had their 2026 duty
+  // count inflated by one, and those counts are what runAutoSuggest uses to
+  // share duties out fairly.
+  //
+  // Measured 2026-10-05: 6 such rows, all January 2026, all written within
+  // one millisecond of each other -- a bulk import, not anyone's editing.
+  // October 2026 onward was clean, and the fix for the January rows needs a
+  // human to say who actually led those services, so they are reported here
+  // rather than repaired. What this guards is everything AFTER them.
+  section('roster dates');
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const canonical = s => /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}$/.test(String(s).trim());
+  // The same normalisation the app does on read, so collisions are counted
+  // the way the roster screen actually sees them.
+  const normSvc = s => {
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      const d = new Date(s); if (!isNaN(d)) return MO[d.getUTCMonth()] + ' ' + d.getUTCDate();
+    }
+    return String(s).trim();
+  };
+
+  // Two January services arrived like this in a bulk import and were left
+  // alone deliberately: repairing them needs somebody to remember who led a
+  // service nine months ago, and the payoff is six duty counts off by one.
+  //
+  // They are listed here rather than ignored, but they do not fail the audit
+  // -- a check that is always red is a check nobody reads, and the whole
+  // point of this section is to catch the NEXT one. Anything outside these
+  // two dates, or a change in how many rows they hold, still fails.
+  const KNOWN_BAD_DATES = ['2026|Jan 4', '2026|Jan 11'];
+  const KNOWN_BAD_COUNT = 6;
+  const isKnown = r => KNOWN_BAD_DATES.indexOf(r.year + '|' + normSvc(r.service_date)) !== -1;
+
+  const oddDates = roster.filter(r => !canonical(r.service_date));
+  const oddNew = oddDates.filter(r => !isKnown(r));
+  const oddKnown = oddDates.length - oddNew.length;
+  say(oddNew.length === 0, oddNew.length + ' NEW roster row(s) whose service_date is not "MMM D"');
+  oddNew.slice(0, 12).forEach(r => console.log(
+    '       ' + r.year + '  ' + String(r.role_id).padEnd(12) + JSON.stringify(r.service_date) + '  ' + JSON.stringify(r.value)));
+  if (oddKnown) {
+    console.log('  note ' + oddKnown + ' known row(s) on 4 and 11 Jan 2026, left as they are by decision');
+  }
+  // If that number moves, something touched them and the decision no longer
+  // describes what is there.
+  say(oddKnown === KNOWN_BAD_COUNT || oddKnown === 0,
+    'the known January rows still number ' + KNOWN_BAD_COUNT + ' (found ' + oddKnown + ')');
+
+  const cells = {};
+  roster.forEach(r => {
+    const k = r.year + '|' + r.role_id + '|' + normSvc(r.service_date);
+    (cells[k] = cells[k] || []).push(r);
+  });
+  const dupCells = Object.keys(cells).filter(k => cells[k].length > 1);
+  // A cell holding two rows that say the same thing is still a duplicate for
+  // counting purposes, but it cannot make the screen flicker, so the two are
+  // reported apart.
+  const conflicting = dupCells.filter(k => new Set(cells[k].map(r => String(r.value))).size > 1);
+  const conflictNew = conflicting.filter(k => KNOWN_BAD_DATES.indexOf(k.split('|')[0] + '|' + k.split('|')[2]) === -1);
+  say(conflictNew.length === 0, conflictNew.length + ' NEW roster cell(s) holding CONFLICTING values (the screen picks one at random)');
+  conflicting.sort().forEach(k => {
+    const [y, role, date] = k.split('|');
+    const known = KNOWN_BAD_DATES.indexOf(y + '|' + date) !== -1;
+    console.log('  ' + (known ? 'note' : 'BAD ') + '   ' + y + ' ' + date.padEnd(8) + String(role).padEnd(12) +
+      cells[k].map(r => JSON.stringify(r.value)).join('  vs  ') + (known ? '   (known, left by decision)' : ''));
+  });
+  const identical = dupCells.length - conflicting.length;
+  if (identical) {
+    console.log('  note ' + identical + ' further cell(s) hold duplicate rows that agree -- harmless on screen,');
+    console.log('       but each is still counted twice in the serving-frequency totals.');
+  }
+
+  // The readings, which the Liturgy page both shows and writes.
+  const READING_ROLES = ['reading1', 'psalm', 'reading2', 'gospel'];
+  const readingRows = roster.filter(r => READING_ROLES.includes(r.role_id) && String(r.value || '').trim());
+  const badReadingDates = readingRows.filter(r => !canonical(r.service_date));
+  say(badReadingDates.length === 0, badReadingDates.length + ' reading row(s) on a non-canonical date');
+  const readingDates = {};
+  readingRows.forEach(r => { (readingDates[r.year + ' ' + normSvc(r.service_date)] = readingDates[r.year + ' ' + normSvc(r.service_date)] || {})[r.role_id] = r.value; });
+  console.log('  ' + readingRows.length + ' reading(s) over ' + Object.keys(readingDates).length + ' service date(s) (informational)');
+  const partial = Object.keys(readingDates).filter(d => Object.keys(readingDates[d]).length < 4);
+  console.log('  ' + partial.length + ' date(s) with fewer than all four readings (informational)');
 
   section('leftover test material');
   const testish = /zztest|\btest\b|asdf|qwerty|abcdef/i;
