@@ -5712,185 +5712,56 @@
       <!-- =============== LITURGY NAVIGATION (shown when on Liturgy view) =============== -->
       <div id="liturgyStatsSection" class="relative px-3 flex-1 overflow-y-auto flex flex-col" style="display: none;">
 
-        <!-- LIBRARY -->
+        <!-- The Liturgy page, five ways in.
+
+             It had twenty-one. Three of them -- Calendar, Team Planning,
+             Checklists -- all called selectOccasion(null), so they landed
+             back on the dashboard; and Slide Library filtered on a `slides`
+             column that is empty on all 75 rows, so it was always blank.
+             The rest were content types, which belong on the content, not in
+             the furniture: they are filter chips inside the Library now. -->
         <div class="lit-nav-group">
-          <div class="lit-nav-group-label">Library</div>
+          <div class="lit-nav-group-label">Liturgy</div>
           <div class="lit-occ-row">
             <button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">
               <span class="lit-nav-dot" style="background:#7c3aed;"></span>
-              <i class="fa-solid fa-gauge" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Dashboard</span>
+              <i class="fa-solid fa-book-bible" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Readings</span>
             </button>
           </div>
           <div class="lit-occ-row">
             <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()">
               <span class="lit-nav-dot" style="background:#4a6da7;"></span>
-              <i class="fa-solid fa-list-check" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>All Services</span>
+              <i class="fa-solid fa-church" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Services</span>
             </button>
           </div>
           <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="calendar" onclick="LiturgyModule.selectOccasion(null)">
-              <span class="lit-nav-dot" style="background:#0ea5e9;"></span>
-              <i class="fa-solid fa-calendar-days" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Calendar</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- RESOURCES -->
-        <div class="lit-nav-group">
-          <div class="lit-nav-group-label">Resources</div>
-          <div class="lit-occ-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-liturgies" onclick="LiturgyModule.selectGeneralFolder('gen-liturgies')">
+            <button class="lit-nav-occ-btn" data-libfilter="liturgies" onclick="LiturgyModule.openLibraryFilter('liturgies')">
               <span class="lit-nav-dot" style="background:#f59e0b;"></span>
               <i class="fa-solid fa-scroll" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
               <span>Liturgies</span>
             </button>
           </div>
           <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="scripture-readings" onclick="LiturgyModule.openLibraryFilter('scripture-readings')">
-              <span class="lit-nav-dot" style="background:#16a34a;"></span>
-              <i class="fa-solid fa-book-bible" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Scripture Readings</span>
+            <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()">
+              <span class="lit-nav-dot" style="background:#10b981;"></span>
+              <i class="fa-solid fa-camera-retro" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Memories</span>
             </button>
           </div>
           <div class="lit-occ-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-prayers" onclick="LiturgyModule.selectGeneralFolder('gen-prayers')">
-              <span class="lit-nav-dot" style="background:#7c3aed;"></span>
-              <i class="fa-solid fa-hands-praying" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Prayers &amp; Creeds</span>
+            <button class="lit-nav-occ-btn" data-libfilter="library" onclick="LiturgyModule.openLibraryFilter('library')">
+              <span class="lit-nav-dot" style="background:#6b7280;"></span>
+              <i class="fa-solid fa-folder-open" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Library</span>
             </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="meditations" onclick="LiturgyModule.openLibraryFilter('meditations')">
-              <span class="lit-nav-dot" style="background:#ec4899;"></span>
-              <i class="fa-solid fa-heart" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Reflections &amp; Meditations</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="exegesis" onclick="LiturgyModule.openLibraryFilter('exegesis')">
-              <span class="lit-nav-dot" style="background:#0891b2;"></span>
-              <i class="fa-solid fa-magnifying-glass" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Exegesis Library</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="slides" onclick="LiturgyModule.openLibraryFilter('slides')">
-              <span class="lit-nav-dot" style="background:#374151;"></span>
-              <i class="fa-solid fa-images" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Slide Library</span>
-            </button>
+            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general',null)" title="Add to the library">+</button>
           </div>
         </div>
 
-        <!-- PLANNING -->
+        <!-- Kept open: the hidden count spans below close this group. -->
         <div class="lit-nav-group">
-          <div class="lit-nav-group-label">Planning</div>
-          <div class="lit-occ-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-planning" onclick="LiturgyModule.selectGeneralFolder('gen-planning')">
-              <span class="lit-nav-dot" style="background:#ec4899;"></span>
-              <i class="fa-solid fa-clipboard-list" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Planning Tools</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="team-planning" onclick="LiturgyModule.selectOccasion(null)">
-              <span class="lit-nav-dot" style="background:#16a34a;"></span>
-              <i class="fa-solid fa-users" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Team Planning</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="checklists" onclick="LiturgyModule.selectOccasion(null)">
-              <span class="lit-nav-dot" style="background:#4a6da7;"></span>
-              <i class="fa-solid fa-square-check" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Checklists</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="decor" onclick="LiturgyModule.openLibraryFilter('decor')">
-              <span class="lit-nav-dot" style="background:#d97706;"></span>
-              <i class="fa-solid fa-palette" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Decor Ideas</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="presentation" onclick="LiturgyModule.openLibraryFilter('presentation')">
-              <span class="lit-nav-dot" style="background:#7c3aed;"></span>
-              <i class="fa-solid fa-display" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Presentation Ideas</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- FILES & LINKS -->
-        <div class="lit-nav-group">
-          <div class="lit-nav-group-label">Files &amp; Links</div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="links" onclick="LiturgyModule.openLibraryFilter('links')">
-              <span class="lit-nav-dot" style="background:#0ea5e9;"></span>
-              <i class="fa-solid fa-link" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Links &amp; Resources</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- GENERAL LIBRARY (6 fixed folders, separate from seasons) -->
-        <div class="lit-nav-group" style="border-top: 1px solid rgba(255,255,255,0.15); padding-top: 8px; margin-top: 4px;">
-          <div class="lit-nav-group-label" style="color: rgba(255,255,255,0.55); display:flex; align-items:center; justify-content:space-between;">
-            <span>── General Library ──</span>
-            <button class="lit-folder-plus-btn" style="opacity:1;width:16px;height:16px;font-size:0.65rem;" onclick="LiturgyModule.openQuickAddModal(null,null,'general',null)" title="Add to General Library">+</button>
-          </div>
-          <!-- Prayers -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-prayers" onclick="LiturgyModule.selectGeneralFolder('gen-prayers')">
-              <i class="fa-solid fa-hands-praying" style="color:#7c3aed;width:14px;font-size:0.75rem;"></i>
-              <span>Prayers</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-prayers')" title="Add to Prayers">+</button>
-          </div>
-          <!-- Announcements -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-announcements" onclick="LiturgyModule.selectGeneralFolder('gen-announcements')">
-              <i class="fa-solid fa-bullhorn" style="color:#0ea5e9;width:14px;font-size:0.75rem;"></i>
-              <span>Announcements</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-announcements')" title="Add to Announcements">+</button>
-          </div>
-          <!-- Liturgies -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-liturgies" onclick="LiturgyModule.selectGeneralFolder('gen-liturgies')">
-              <i class="fa-solid fa-scroll" style="color:#f59e0b;width:14px;font-size:0.75rem;"></i>
-              <span>Liturgies</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-liturgies')" title="Add to Liturgies">+</button>
-          </div>
-          <!-- Media / Memories -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-media" onclick="LiturgyModule.selectGeneralFolder('gen-media')">
-              <i class="fa-solid fa-photo-film" style="color:#10b981;width:14px;font-size:0.75rem;"></i>
-              <span>Media / Memories</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-media')" title="Add to Media/Memories">+</button>
-          </div>
-          <!-- Planning Notes -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-planning" onclick="LiturgyModule.selectGeneralFolder('gen-planning')">
-              <i class="fa-solid fa-clipboard-list" style="color:#ec4899;width:14px;font-size:0.75rem;"></i>
-              <span>Planning Notes</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-planning')" title="Add to Planning Notes">+</button>
-          </div>
-          <!-- Documents (all uploaded files) -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-other" onclick="LiturgyModule.selectGeneralFolder('gen-other')">
-              <i class="fa-solid fa-folder-open" style="color:#6b7280;width:14px;font-size:0.75rem;"></i>
-              <span>Documents</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-other')" title="Add Document">+</button>
-          </div>
           <!-- Hidden backward-compat spans for updateCategoryCounts() -->
           <span id="countAll" style="display:none;"></span>
           <span id="countPrayer" style="display:none;"></span>
@@ -8255,6 +8126,21 @@
           </div>
 
           <!-- ===== CONTENT LIBRARY PANEL ===== -->
+          <!-- ===== MEMORIES ===== -->
+          <div id="liturgyMemoriesPanel" style="display:none;">
+            <div class="lit-mem-header">
+              <div>
+                <h1 class="font-cinzel lit-mem-title">Memories</h1>
+                <p class="lit-mem-sub">What we did, and what we learned doing it</p>
+              </div>
+              <button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openMemoryEditor(null)">
+                <i class="fa-solid fa-plus mr-1"></i>Add a note
+              </button>
+            </div>
+            <div id="memoriesFilterRow" class="lit-occ-content-filter-row" style="padding:0 20px 12px;"></div>
+            <div id="memoriesBody" class="lit-mem-body"></div>
+          </div>
+
           <div id="liturgyLibraryPanel" style="display:none;">
             <div class="lit-library-header">
               <button class="lit-back-btn" onclick="LiturgyModule.selectOccasion(null)" style="background:#f3f4f6;color:#374151;border-color:#e5e7eb;">
@@ -70750,6 +70636,12 @@ var LiturgyModule = (function() {
   // pattern as season/favorites above. { mode:'category'|'tag'|'slides'|'external', value }
   var _libraryTagFilter = null;
   var LIBRARY_FILTER_MAP = {
+    'library':             { mode: 'all',        value: null, label: 'Library' },
+    // The liturgies that actually reach a projector. `projectable` is what
+    // the Worship Orders picker selects on, so this sidebar entry and that
+    // picker show the same 27 items -- which is the point: a liturgy you
+    // can find here is a liturgy you can put on the screen.
+    'liturgies':           { mode: 'projectable', value: null, label: 'Liturgies' },
     'scripture-readings': { mode: 'category', value: 'scripture', label: 'Scripture Readings' },
     'meditations':        { mode: 'tag',      value: 'content:meditations', label: 'Reflections & Meditations' },
     'exegesis':            { mode: 'tag',      value: 'exegesis', label: 'Exegesis Library' },
@@ -70802,8 +70694,26 @@ var LiturgyModule = (function() {
       return '<button type="button" class="lit-content-type-chip' + (active ? ' active' : '') + '" onclick="LiturgyModule.filterLibraryBySeason(\'' + s + '\')">' + SEASON_LABELS[s] + '</button>';
     }).join('');
     var favChip = '<button type="button" class="lit-content-type-chip lit-fav-chip' + (_libraryFavoritesOnly ? ' active' : '') + '" onclick="LiturgyModule.toggleLibraryFavoritesOnly()"><i class="fa-solid fa-star"></i> My Favorites</button>';
-    row.innerHTML = '<span class="lit-filter-row-label">Season:</span>' + seasonChips + '<span class="lit-filter-row-sep"></span>' + favChip;
+    // The content types that used to be their own sidebar rows. They are
+    // properties of an item, so they belong here beside the other filters
+    // rather than in the furniture.
+    var kindChips = LIBRARY_KIND_CHIPS.map(function(k) {
+      var def = LIBRARY_FILTER_MAP[k];
+      if (!def) return '';
+      var active = _libraryTagFilter && _libraryTagFilter.mode === def.mode && _libraryTagFilter.value === def.value;
+      return '<button type="button" class="lit-content-type-chip' + (active ? ' active' : '') +
+        '" onclick="LiturgyModule.openLibraryFilter(\'' + k + '\')">' + escapeHtml(def.label) + '</button>';
+    }).join('');
+    var allActive = !_libraryTagFilter || _libraryTagFilter.mode === 'all';
+    var allChip = '<button type="button" class="lit-content-type-chip' + (allActive ? ' active' : '') +
+      '" onclick="LiturgyModule.openLibraryFilter(\'library\')">All</button>';
+    row.innerHTML = '<span class="lit-filter-row-label">Show:</span>' + allChip + kindChips +
+      '<span class="lit-filter-row-sep"></span>' +
+      '<span class="lit-filter-row-label">Season:</span>' + seasonChips +
+      '<span class="lit-filter-row-sep"></span>' + favChip;
   }
+
+  var LIBRARY_KIND_CHIPS = ['liturgies', 'scripture-readings', 'meditations', 'exegesis', 'decor', 'presentation', 'links'];
   var liturgyFolders = {};
 
   // General Library — 6 fixed folders (separate from season storage)
@@ -71106,6 +71016,11 @@ var LiturgyModule = (function() {
       updateCategoryCounts();
       renderSidebarFolderTree();
       if (_currentOccasion) renderOccasionItems('');
+      // Memories lists the photographs and programmes too, and this is the
+      // load that brings them in -- it lands after the panel has painted, so
+      // without this the gallery stays empty until you navigate away and back.
+      var memPanel = document.getElementById('liturgyMemoriesPanel');
+      if (memPanel && memPanel.style.display !== 'none') renderMemories();
       console.log('LiturgyModule: loaded', liturgyItems.length, 'items from Supabase');
     }).catch(function(e) {
       console.warn('LiturgyModule: items load failed:', e);
@@ -71749,6 +71664,11 @@ var LiturgyModule = (function() {
       filtered = filtered.filter(function(item) {
         if (_libraryTagFilter.mode === 'category') return getCategoryForItem(item) === _libraryTagFilter.value;
         if (_libraryTagFilter.mode === 'tag') return (item.tags || []).indexOf(_libraryTagFilter.value) !== -1;
+        if (_libraryTagFilter.mode === 'all') return true;
+        if (_libraryTagFilter.mode === 'projectable') return !!item.projectable;
+        // Kept for the old Slide Library entry. The `slides` column is empty
+        // on every row, so this has always matched nothing -- use
+        // 'projectable' instead.
         if (_libraryTagFilter.mode === 'slides') return !!(item.slides && item.slides.length);
         if (_libraryTagFilter.mode === 'external') return item.storageProvider === 'external';
         return true;
@@ -74590,6 +74510,8 @@ var LiturgyModule = (function() {
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
+    var memPanel = document.getElementById('liturgyMemoriesPanel');
+    if (memPanel) memPanel.style.display = 'none';
     if (welcome)  welcome.style.display = '';
     if (occPanel) occPanel.style.display = 'none';
     if (libPanel) libPanel.style.display = 'none';
@@ -75321,6 +75243,8 @@ var LiturgyModule = (function() {
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
+    var memPanel = document.getElementById('liturgyMemoriesPanel');
+    if (memPanel) memPanel.style.display = 'none';
     if (!occasionId) {
       if (welcome)  welcome.style.display = '';
       if (occPanel) occPanel.style.display = 'none';
@@ -76851,6 +76775,8 @@ var LiturgyModule = (function() {
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
+    var memPanel = document.getElementById('liturgyMemoriesPanel');
+    if (memPanel) memPanel.style.display = 'none';
     if (welcome)  welcome.style.display = 'none';
     if (occPanel) occPanel.style.display = 'none';
     if (libPanel) libPanel.style.display = '';
@@ -76887,6 +76813,8 @@ var LiturgyModule = (function() {
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
+    var memPanel = document.getElementById('liturgyMemoriesPanel');
+    if (memPanel) memPanel.style.display = 'none';
     if (welcome)  welcome.style.display = 'none';
     if (occPanel) occPanel.style.display = 'none';
     if (libPanel) libPanel.style.display = '';
@@ -76895,6 +76823,359 @@ var LiturgyModule = (function() {
     renderLibraryFilterRow();
     renderItems();
     updateCategoryCounts();
+  }
+
+  /* ===== MEMORIES ────────────────────────────────────────────────────── */
+  //
+  // The planning notes were already here. Nine real ones, about real services
+  // -- which preachers took which of the seven last words, the year CCLC
+  // joined us, the Taize that opened Good Friday. They sat inside folders that
+  // carry no name field at all, and the occasion panel renders folders by
+  // name, so unnamed folders rendered as nothing and everything inside them
+  // was unreachable. Good Friday showed "No notes yet for this service" above
+  // six paragraphs about Good Friday.
+  //
+  // So this view does not render the folder layer. It reads every note out of
+  // every occasion, labels each with the service it belongs to and when it was
+  // written, and shows the newest first. The folders stay exactly where they
+  // are in storage -- a note is written back to the folder it came from -- but
+  // they stop being something anyone has to navigate.
+  var _memFilter = null;        // null = every service
+  var _memCache = null;         // the raw occasion data, as loaded
+  var _memEditing = null;       // { occasionId, folderId, noteId }, or null for a new one
+
+  function openMemories() {
+    _currentOccasion = null;
+    _currentGeneralFolder = null;
+    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-libfilter') === 'memories');
+    });
+    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) { btn.classList.remove('active'); });
+    var welcome  = document.getElementById('liturgyWelcome');
+    var occPanel = document.getElementById('liturgyOccasionPanel');
+    var libPanel = document.getElementById('liturgyLibraryPanel');
+    var memPanel = document.getElementById('liturgyMemoriesPanel');
+    if (welcome)  welcome.style.display = 'none';
+    if (occPanel) occPanel.style.display = 'none';
+    if (libPanel) libPanel.style.display = 'none';
+    if (memPanel) memPanel.style.display = '';
+    loadMemories();
+  }
+
+  // Supabase is the authority. localStorage is its synced mirror and is what
+  // the rest of this page reads, so a failed load still shows the notes rather
+  // than an empty screen that reads as "you never wrote any".
+  function _allOccasionData() {
+    if (typeof SBQ_OCC_DATA === 'undefined') return Promise.resolve(_localOccasionData());
+    return SBQ_OCC_DATA.loadAll().then(function(d) {
+      return (d && Object.keys(d).length) ? d : _localOccasionData();
+    }).catch(function(e) {
+      console.warn('Memories: cloud load failed, showing the local copy:', e && e.message);
+      return _localOccasionData();
+    });
+  }
+
+  function _localOccasionData() {
+    try { return JSON.parse(localStorage.getItem(OCCASION_DATA_KEY) || '{}'); }
+    catch (e) { return {}; }
+  }
+
+  // Every note in the building, wherever it was filed.
+  function _flattenMemories(all) {
+    var out = [];
+    var label = {};
+    OCCASIONS.forEach(function(o) { label[o.id] = o.label; });
+    Object.keys(all || {}).forEach(function(occId) {
+      var d = all[occId] || {};
+      var push = function(note, folderId) {
+        if (!note) return;
+        var text = (typeof note === 'string') ? note : (note.text || '');
+        // An empty sticky note is not a memory.
+        if (!String(text).trim()) return;
+        out.push({
+          id: (note && note.id) || '',
+          occasionId: occId,
+          occasionLabel: label[occId] || occId,
+          folderId: folderId || '',
+          text: String(text),
+          color: (note && note.color) || '#fef9c3',
+          when: (note && (note.modified || note.created)) || 0
+        });
+      };
+      (d.planningNotes || []).forEach(function(n) { push(n, ''); });
+      Object.keys(d.folders || {}).forEach(function(fid) {
+        ((d.folders[fid] || {}).planningNotes || []).forEach(function(n) { push(n, fid); });
+      });
+    });
+    return out.sort(function(a, b) { return b.when - a.when; });
+  }
+
+  // Photographs, programmes and anything else filed as media.
+  function _memoryMedia() {
+    // liturgyItems, not getAllItems() -- that one only exists on the module's
+    // public object, so inside here the name is undefined and a typeof guard
+    // on it quietly returns nothing at all.
+    return (liturgyItems || []).filter(function(i) {
+      return i.generalFolder === 'gen-media' || i.category === 'media';
+    });
+  }
+
+  function loadMemories() {
+    var body = document.getElementById('memoriesBody');
+    if (body && !_memCache) {
+      body.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Looking through the records…</p></div>';
+    }
+    return _allOccasionData().then(function(all) {
+      _memCache = all || {};
+      renderMemories();
+      return _memCache;
+    });
+  }
+
+  function filterMemories(occId) {
+    _memFilter = (_memFilter === occId) ? null : occId;
+    renderMemories();
+  }
+
+  function _memWhen(ms) {
+    if (!ms) return '';
+    var d = new Date(+ms);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function renderMemories() {
+    var body = document.getElementById('memoriesBody');
+    var filterRow = document.getElementById('memoriesFilterRow');
+    if (!body) return;
+    var notes = _flattenMemories(_memCache || {});
+    var media = _memoryMedia();
+
+    if (filterRow) {
+      // Only services that actually hold something get a chip. A filter that
+      // leads to an empty screen is not a filter, it is a dead end.
+      var counts = {};
+      var labels = {};
+      notes.forEach(function(n) {
+        counts[n.occasionId] = (counts[n.occasionId] || 0) + 1;
+        labels[n.occasionId] = n.occasionLabel;
+      });
+      var ids = Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; });
+      filterRow.innerHTML = ids.length
+        ? '<span class="lit-filter-row-label">Service:</span>' +
+          '<button type="button" class="lit-content-type-chip' + (_memFilter ? '' : ' active') +
+            '" onclick="LiturgyModule.filterMemories(null)">All · ' + notes.length + '</button>' +
+          ids.map(function(id) {
+            return '<button type="button" class="lit-content-type-chip' + (_memFilter === id ? ' active' : '') +
+              '" onclick="LiturgyModule.filterMemories(\'' + id + '\')">' +
+              escapeHtml(labels[id] || id) + ' · ' + counts[id] + '</button>';
+          }).join('')
+        : '';
+    }
+
+    var shown = _memFilter ? notes.filter(function(n) { return n.occasionId === _memFilter; }) : notes;
+
+    if (!shown.length && !media.length) {
+      body.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-camera-retro"></i>' +
+        '<p>Nothing recorded yet.</p>' +
+        '<p style="font-size:0.82rem;color:#9ca3af;">How a service went, and photographs of it, belong here.</p></div>';
+      return;
+    }
+
+    var html = '';
+
+    if (shown.length) {
+      html += '<div class="lit-mem-grid">' + shown.map(function(n) {
+        var when = _memWhen(n.when);
+        return '<article class="lit-mem-note" style="background:' + escapeHtml(n.color) + ';">' +
+            '<header class="lit-mem-note-head">' +
+              '<span class="lit-mem-note-occ">' + escapeHtml(n.occasionLabel) + '</span>' +
+              (when ? '<span class="lit-mem-note-when">' + escapeHtml(when) + '</span>' : '') +
+            '</header>' +
+            '<div class="lit-mem-note-text">' + escapeHtml(n.text) + '</div>' +
+            '<footer class="lit-mem-note-foot">' +
+              '<button type="button" class="lit-mem-note-btn" title="Edit this note" onclick="LiturgyModule.openMemoryEditor(' +
+                '\'' + n.occasionId + '\',\'' + n.folderId + '\',\'' + n.id + '\')">' +
+                '<i class="fa-solid fa-pen"></i> Edit</button>' +
+            '</footer>' +
+          '</article>';
+      }).join('') + '</div>';
+    } else {
+      html += '<div class="liturgy-empty-state" style="padding:20px;"><p>No notes for this service yet.</p></div>';
+    }
+
+    if (media.length && !_memFilter) {
+      html += '<h2 class="lit-occ-group-title" style="margin:26px 0 12px;">' +
+        '<i class="fa-solid fa-images mr-2" style="color:#10b981;"></i>Photographs &amp; programmes</h2>' +
+        '<div class="lit-mem-media-grid">' + media.map(function(m) {
+          var url = m.fileUrl || m.lyricsUrl || '';
+          var isImg = /\.(png|jpe?g|gif|webp|avif)(\?|$)/i.test(url);
+          return '<a class="lit-mem-media" href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' +
+              (isImg
+                ? '<img src="' + escapeHtml(url) + '" alt="" loading="lazy">'
+                : '<span class="lit-mem-media-icon"><i class="fa-solid fa-file-lines"></i></span>') +
+              '<span class="lit-mem-media-name">' + escapeHtml(m.title || m.fileName || 'Untitled') + '</span>' +
+            '</a>';
+        }).join('') + '</div>';
+    }
+
+    body.innerHTML = html;
+  }
+
+  // ---- Writing one back -----------------------------------------------
+  //
+  // A note is saved to exactly where it came from, folder and all. The folder
+  // layer is hidden, not removed: rewriting the storage would be a migration,
+  // and a migration that loses one paragraph about Good Friday 2024 is worse
+  // than a folder nobody can see.
+  function openMemoryEditor(occasionId, folderId, noteId) {
+    _memEditing = occasionId
+      ? { occasionId: occasionId, folderId: folderId || '', noteId: noteId || '' }
+      : null;
+    var existing = '';
+    if (_memEditing) {
+      var found = _flattenMemories(_memCache || {}).filter(function(n) {
+        return n.occasionId === _memEditing.occasionId &&
+               n.folderId === _memEditing.folderId &&
+               n.id === _memEditing.noteId;
+      })[0];
+      existing = found ? found.text : '';
+    }
+    var occOptions = OCCASIONS.map(function(o) {
+      var sel = (_memEditing && _memEditing.occasionId === o.id) ? ' selected' : '';
+      return '<option value="' + o.id + '"' + sel + '>' + escapeHtml(o.label) + '</option>';
+    }).join('');
+
+    var old = document.getElementById('memoryEditorModal');
+    if (old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="memoryEditorModal" class="modal show" onclick="if(event.target===this)LiturgyModule.closeMemoryEditor()">' +
+        '<div class="modal-content" style="max-width:560px;width:100%;">' +
+          '<div class="modal-header">' +
+            '<h2><i class="fa-solid fa-camera-retro mr-2"></i> ' + (_memEditing ? 'Edit note' : 'Add a note') + '</h2>' +
+            '<button class="modal-close" onclick="LiturgyModule.closeMemoryEditor()">&times;</button>' +
+          '</div>' +
+          '<div style="padding:20px 24px;">' +
+            '<label class="lit-mem-label">Service</label>' +
+            '<select id="memEditorOcc" class="liturgy-form-input" style="width:100%;margin-bottom:14px;"' +
+              (_memEditing ? ' disabled' : '') + '>' + occOptions + '</select>' +
+            '<label class="lit-mem-label">What happened, and what is worth remembering</label>' +
+            '<textarea id="memEditorText" class="liturgy-form-input" rows="8" style="width:100%;resize:vertical;">' +
+              escapeHtml(existing) + '</textarea>' +
+            '<div id="memEditorError" class="bible-passage-error" style="display:none;margin-top:12px;"></div>' +
+          '</div>' +
+          '<div class="bible-browser-actions" style="padding:0 24px 20px;">' +
+            (_memEditing
+              ? '<button class="modal-btn modal-btn-secondary" style="margin-right:auto;color:#dc2626;" onclick="LiturgyModule.deleteMemoryNote()">Delete</button>'
+              : '') +
+            '<button class="modal-btn modal-btn-secondary" onclick="LiturgyModule.closeMemoryEditor()">Cancel</button>' +
+            '<button class="modal-btn modal-btn-primary" id="memEditorSave" onclick="LiturgyModule.saveMemoryNote()">Save</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>');
+    var ta = document.getElementById('memEditorText');
+    if (ta) ta.focus();
+  }
+
+  function closeMemoryEditor() {
+    var m = document.getElementById('memoryEditorModal');
+    if (m) m.remove();
+    _memEditing = null;
+  }
+
+  // Finds the array a note lives in, so an edit goes back exactly where it
+  // came from rather than to a tidier place of this function's choosing.
+  function _memNoteHome(data, folderId) {
+    if (!folderId) {
+      if (!Array.isArray(data.planningNotes)) data.planningNotes = [];
+      return data.planningNotes;
+    }
+    if (!data.folders) data.folders = {};
+    if (!data.folders[folderId]) data.folders[folderId] = {};
+    var f = data.folders[folderId];
+    if (!Array.isArray(f.planningNotes)) f.planningNotes = [];
+    return f.planningNotes;
+  }
+
+  function saveMemoryNote() {
+    var errEl = document.getElementById('memEditorError');
+    var btn = document.getElementById('memEditorSave');
+    var text = (document.getElementById('memEditorText') || {}).value || '';
+    if (!String(text).trim()) {
+      if (errEl) { errEl.textContent = 'Write something first.'; errEl.style.display = 'block'; }
+      return;
+    }
+    var occId = _memEditing
+      ? _memEditing.occasionId
+      : ((document.getElementById('memEditorOcc') || {}).value || '');
+    if (!occId) {
+      if (errEl) { errEl.textContent = 'Choose which service this belongs to.'; errEl.style.display = 'block'; }
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving…'; }
+
+    // Re-read before writing. The whole occasion row is upserted, so writing
+    // from a stale copy would drop anything saved since this view loaded.
+    _allOccasionData().then(function(all) {
+      var data = all[occId] || {};
+      var home = _memNoteHome(data, _memEditing ? _memEditing.folderId : '');
+      var now = Date.now();
+      if (_memEditing && _memEditing.noteId) {
+        var hit = home.filter(function(n) { return n && n.id === _memEditing.noteId; })[0];
+        if (hit) { hit.text = text; hit.modified = now; }
+        else home.push({ id: 'note-' + now, text: text, color: '#fef9c3', created: now, modified: now });
+      } else {
+        home.push({ id: 'note-' + now, text: text, color: '#fef9c3', created: now, modified: now });
+      }
+      all[occId] = data;
+      return _persistOccasion(occId, data).then(function() {
+        _memCache = all;
+        closeMemoryEditor();
+        renderMemories();
+        if (typeof showToast === 'function') showToast('Saved', 'success');
+      });
+    }).catch(function(e) {
+      if (errEl) { errEl.textContent = (e && e.message) || String(e); errEl.style.display = 'block'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    });
+  }
+
+  function deleteMemoryNote() {
+    if (!_memEditing || !_memEditing.noteId) return;
+    var target = _memEditing;
+    _allOccasionData().then(function(all) {
+      var data = all[target.occasionId] || {};
+      var home = _memNoteHome(data, target.folderId);
+      var keep = home.filter(function(n) { return !n || n.id !== target.noteId; });
+      if (target.folderId) data.folders[target.folderId].planningNotes = keep;
+      else data.planningNotes = keep;
+      all[target.occasionId] = data;
+      return _persistOccasion(target.occasionId, data).then(function() {
+        _memCache = all;
+        closeMemoryEditor();
+        renderMemories();
+        if (typeof showToast === 'function') showToast('Note removed', 'success');
+      });
+    }).catch(function(e) {
+      if (typeof showToast === 'function') showToast('Could not remove it: ' + ((e && e.message) || e), 'error');
+    });
+  }
+
+  // Cloud first, then the local mirror -- in that order, so a write that the
+  // server refuses does not leave localStorage claiming it succeeded.
+  function _persistOccasion(occId, data) {
+    var toLocal = function() {
+      try {
+        var local = _localOccasionData();
+        local[occId] = data;
+        localStorage.setItem(OCCASION_DATA_KEY, JSON.stringify(local));
+      } catch (e) {}
+    };
+    if (typeof SBQ_OCC_DATA === 'undefined') { toLocal(); return Promise.resolve(); }
+    return Promise.resolve(SBQ_OCC_DATA.save(occId, data)).then(function(r) {
+      if (r && r.error) throw new Error(r.error.message);
+      toLocal();
+    });
   }
 
   /* ========== MOVE TO FOLDER MODAL (425) ========== */
@@ -77223,6 +77504,14 @@ var LiturgyModule = (function() {
     analyzeLectionaryUpload: analyzeLectionaryUpload,
     saveLectionaryReview: saveLectionaryReview,
     selectGeneralFolder: selectGeneralFolder,
+    // Memories
+    openMemories: openMemories,
+    loadMemories: loadMemories,
+    filterMemories: filterMemories,
+    openMemoryEditor: openMemoryEditor,
+    closeMemoryEditor: closeMemoryEditor,
+    saveMemoryNote: saveMemoryNote,
+    deleteMemoryNote: deleteMemoryNote,
     openLibraryFilter: openLibraryFilter,
     // Occasion year/folder system (434)
     selectOccFolder: selectOccFolder,
@@ -84104,6 +84393,27 @@ function filterLiturgyItems() {
   .lit-reading-slots-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
   .lit-reading-slots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
   .lit-reading-slots-stack { display: block; }
+  /* Memories */
+  .lit-mem-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 24px 20px 12px; flex-wrap: wrap; }
+  .lit-mem-title { font-size: 1.45rem; font-weight: 700; margin: 0 0 3px; color: #1f2933; }
+  .lit-mem-sub { margin: 0; font-size: 0.86rem; color: #6b7280; font-style: italic; font-family: 'Poppins', sans-serif; }
+  .lit-mem-body { padding: 0 20px 28px; }
+  .lit-mem-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; align-items: start; }
+  .lit-mem-note { border-radius: 14px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.06); display: flex; flex-direction: column; gap: 9px; }
+  .lit-mem-note-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .lit-mem-note-occ { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #4b5563; font-family: 'Poppins', sans-serif; }
+  .lit-mem-note-when { font-size: 0.68rem; color: #6b7280; white-space: nowrap; }
+  .lit-mem-note-text { font-size: 0.87rem; line-height: 1.6; color: #1f2933; white-space: pre-wrap; font-family: 'Poppins', sans-serif; }
+  .lit-mem-note-foot { display: flex; justify-content: flex-end; }
+  .lit-mem-note-btn { border: none; background: rgba(0,0,0,0.06); color: #4b5563; font-size: 0.72rem; font-weight: 600; padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+  .lit-mem-note-btn:hover { background: rgba(0,0,0,0.12); }
+  .lit-mem-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .lit-mem-media { display: block; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: white; text-decoration: none; transition: all 0.2s; }
+  .lit-mem-media:hover { border-color: #10b981; box-shadow: 0 3px 10px rgba(16,185,129,0.14); transform: translateY(-1px); }
+  .lit-mem-media img { width: 100%; height: 108px; object-fit: cover; display: block; }
+  .lit-mem-media-icon { display: flex; align-items: center; justify-content: center; height: 108px; background: #f3f4f6; color: #9ca3af; font-size: 1.6rem; }
+  .lit-mem-media-name { display: block; padding: 8px 10px; font-size: 0.76rem; color: #1f2933; font-family: 'Poppins', sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lit-mem-label { display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin-bottom: 6px; font-family: 'Poppins', sans-serif; }
   .lit-reading-slot { background: white; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: all 0.2s; }
   .lit-reading-slot:hover { border-color: #7c3aed; box-shadow: 0 3px 10px rgba(124,58,237,0.1); transform: translateY(-1px); }
   .lit-reading-slot-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #9ca3af; margin-bottom: 6px; }
