@@ -2860,6 +2860,7 @@
        rotation (most often a Pastor). Auto-Suggest never picks them; a PIC
        still can, by hand, any time. */
     .enabler-status-occasional  { background: #eef2ff; color: #3730a3; }
+    .enabler-status-guest       { background: #fdf2f8; color: #9d174d; }
     .enabler-role-chip {
       display: inline-flex; align-items: center;
       background: #f0fdfa; color: #0d9488; border: 1px solid #99f6e4;
@@ -2973,6 +2974,7 @@
     .roster-np-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
     .roster-np-tag.away        { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
     .roster-np-tag.occasional  { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
+    .roster-np-tag.guest       { background: #fdf2f8; color: #9d174d; border: 1px solid #fbcfe8; }
     .roster-np-tag.inactive    { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
     .roster-np-tag.suspended   { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
     @media (max-width: 768px) {
@@ -86758,7 +86760,19 @@ function filterLiturgyItems() {
   //               be renewed forever.
   //   inactive    resigned / no longer serving.
   //   suspended   stood down for a period.
-  var AUTOSUGGEST_SKIP_STATUS = { occasional: 1, inactive: 1, suspended: 1 };
+  // Guest sits beside Occasional here, and the difference between them is
+  // not what the computer does -- both are skipped -- but what the label
+  // tells a PIC. Occasional means "invite them when you need them": Bro.
+  // John Cheah preaches a few times a year. Guest means "came once, and
+  // probably will not again": a visiting Bishop, a pastor passing through.
+  // Both belong in the records and the statistics; only one is somebody you
+  // would think of when a slot needs filling.
+  //
+  // Before this existed the distinction was being written into the NAME --
+  // one preacher is recorded as "Pastor Jenna Bergeson (Guest - ELCA
+  // Thailand)" -- which is a workaround that makes the person unmatchable
+  // against any other spelling of themselves.
+  var AUTOSUGGEST_SKIP_STATUS = { occasional: 1, inactive: 1, suspended: 1, guest: 1 };
 
   // A suspension records an end month, and nothing ever read it back. That was
   // harmless while status was decoration, but a silent trap once status
@@ -86848,6 +86862,7 @@ function filterLiturgyItems() {
     var _meta = getMemberStatus(name) || {};
     var st = _meta.status;
     if (st === 'suspended' && _suspensionLapsed(_meta, year, month)) return null;
+    if (st === 'guest')      return { cls: 'guest',      label: 'Guest',      title: name + ' served as a guest. Auto-Suggest never picks them. Mark them Occasional or Regular if they join the rotation.' };
     if (st === 'occasional') return { cls: 'occasional', label: 'Occasional', title: name + ' serves by invitation. Auto-Suggest never picks them; assign by hand when they are able.' };
     if (st === 'inactive')   return { cls: 'inactive',   label: 'Inactive',   title: name + ' is marked inactive / resigned. Auto-Suggest skips them.' };
     if (st === 'suspended')  return { cls: 'suspended',  label: 'Stood down', title: name + ' is temporarily suspended. Auto-Suggest skips them.' };
@@ -89437,7 +89452,12 @@ function filterLiturgyItems() {
           // This is the switch for that case, put here because this panel is
           // already one tap from the name in the picker.
           var rotMeta = getMemberStatus(name) || {};
-          var isOccasional = rotMeta.status === 'occasional';
+          // Which of the three this person is right now. Anything else --
+          // Inactive, Suspended -- selects none of them, rather than
+          // leaving "Regular" lit under somebody who has resigned.
+          var rotNow = (rotMeta.status === 'occasional' || rotMeta.status === 'guest')
+            ? rotMeta.status
+            : ((!rotMeta.status || rotMeta.status === 'active' || rotMeta.status === 'newly_joined') ? 'active' : null);
           var rotTitle = document.createElement('div');
           rotTitle.style.cssText = 'font-size:11px;color:#1f2933;text-transform:uppercase;font-weight:800;letter-spacing:0.06em;margin-bottom:7px;';
           rotTitle.textContent = 'Rotation';
@@ -89447,9 +89467,10 @@ function filterLiturgyItems() {
           rotWrap.style.cssText = 'display:flex;gap:6px;margin-bottom:8px;';
           [
             { val: 'active',     label: 'Regular',    hint: 'Auto-Suggest may roster ' + name + ' as usual.' },
-            { val: 'occasional', label: 'Occasional', hint: 'Auto-Suggest will never pick ' + name + '. You can still assign them by hand any time.' }
+            { val: 'occasional', label: 'Occasional', hint: 'Auto-Suggest will never pick ' + name + '. You can still assign them by hand any time.' },
+            { val: 'guest',      label: 'Guest',      hint: name + ' served as a guest. Auto-Suggest never picks them, and their duties still count in the records.' }
           ].forEach(function(opt) {
-            var on = (opt.val === 'occasional') === isOccasional;
+            var on = opt.val === rotNow;
             var b = document.createElement('button');
             b.type = 'button';
             b.textContent = opt.label;
@@ -89463,13 +89484,15 @@ function filterLiturgyItems() {
               // Only ever moves between these two. Someone marked Inactive or
               // Suspended keeps that status -- this switch must not quietly
               // reinstate a person who was stood down for another reason.
-              if (m.status && m.status !== 'active' && m.status !== 'occasional' && m.status !== 'newly_joined') {
+              var SWITCHABLE = { active: 1, occasional: 1, newly_joined: 1, guest: 1 };
+              if (m.status && !SWITCHABLE[m.status]) {
                 self.showToast(name + ' is marked "' + ((self._statusMeta().labels[m.status]) || m.status) + '" -- change that in Enablers first.', 'warning');
                 return;
               }
               setMemberStatus(name, opt.val, m.note || '', m.joinedDate || '');
-              self.showToast(opt.val === 'occasional'
-                ? name + ' is now Occasional -- Auto-Suggest will skip them.'
+              self.showToast(
+                opt.val === 'occasional' ? name + ' is now Occasional -- Auto-Suggest will skip them.'
+                : opt.val === 'guest'    ? name + ' is marked a Guest -- Auto-Suggest will skip them, and their duties still count.'
                 : name + ' is back in the regular rotation.', 'success');
               refreshBody();
             };
@@ -89479,9 +89502,11 @@ function filterLiturgyItems() {
 
           var rotHint = document.createElement('div');
           rotHint.style.cssText = 'font-size:11px;color:#6b7280;line-height:1.45;margin-bottom:10px;';
-          rotHint.textContent = isOccasional
-            ? 'Auto-Suggest skips ' + name + '. Assign them by hand whenever they are able to serve.'
-            : 'Auto-Suggest rosters ' + name + ' in the normal rotation.';
+          rotHint.textContent =
+            rotNow === 'occasional' ? 'Auto-Suggest skips ' + name + '. Assign them by hand whenever they are able to serve.'
+            : rotNow === 'guest'    ? name + ' served as a guest. Auto-Suggest will not pick them until you make them Occasional or Regular; their past duties stay in the records either way.'
+            : rotNow === 'active'   ? 'Auto-Suggest rosters ' + name + ' in the normal rotation.'
+            : 'Set in Enablers: ' + name + ' is marked ' + ((self._statusMeta().labels[rotMeta.status]) || rotMeta.status) + '.';
           body.appendChild(rotHint);
 
           var rotDiv = document.createElement('div');
@@ -89650,8 +89675,8 @@ function filterLiturgyItems() {
     },
     _statusMeta: function() {
       return {
-        labels:{active:'Active',unavailable:'Currently Unavailable',suspended:'Temporarily Suspended',inactive:'Inactive / Resigned',newly_joined:'Newly Joined',occasional:'Occasional / By invitation'},
-        icons:{active:'fa-circle-check',unavailable:'fa-calendar-xmark',suspended:'fa-circle-pause',inactive:'fa-circle-xmark',newly_joined:'fa-star',occasional:'fa-user-clock'},
+        labels:{active:'Active',unavailable:'Currently Unavailable',suspended:'Temporarily Suspended',inactive:'Inactive / Resigned',newly_joined:'Newly Joined',occasional:'Occasional / By invitation',guest:'Guest / Served once'},
+        icons:{active:'fa-circle-check',unavailable:'fa-calendar-xmark',suspended:'fa-circle-pause',inactive:'fa-circle-xmark',newly_joined:'fa-star',occasional:'fa-user-clock',guest:'fa-user-tag'},
         cats:{preacher:'Preacher',liturgist:'Liturgist',usher:'Usher',reader:'Reader',communion:'Communion',altar:'Altar Guild',pianist:'Pianist',guitarist:'Guitarist',bassist:'Bassist',drummer:'Drummer',singer:'Singer',lcd:'LCD Operator',pa:'PA System',livestream:'Live Streaming',tech:'Tech',sundayschool:'Sunday School Teacher',flowerarrangement:'Flower Arrangement',general:'General'}
       };
     },
@@ -90585,7 +90610,7 @@ function filterLiturgyItems() {
       html += '<div id="enEditPanel_status">';
       html += '<div style="margin-bottom:8px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Status</label>';
       html += '<select id="enInd_status" onchange="RosterEngine._toggleEnablerStatusFields()" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;">';
-      ['active','occasional','newly_joined','suspended','inactive'].forEach(function(s){html+='<option value="'+s+'"'+(meta.status===s?' selected':'')+'>'+(sm.labels[s]||s)+'</option>';});
+      ['active','occasional','guest','newly_joined','suspended','inactive'].forEach(function(s){html+='<option value="'+s+'"'+(meta.status===s?' selected':'')+'>'+(sm.labels[s]||s)+'</option>';});
       html += '</select></div>';
       // Spelled out because the consequence is invisible otherwise -- the only
       // way to tell Auto-Suggest is skipping someone is that it stops picking
