@@ -3,13 +3,15 @@
 import { PitchEngine } from './pitchEngine';
 import type { SatbPart, SongNote } from './types';
 
-export type Difficulty = 'easy' | 'medium' | 'hard';
-
-export const CENT_TOLERANCE: Record<Difficulty, number> = {
-  easy: 100,
-  medium: 50,
-  hard: 25,
-};
+/** One standard for everyone, in cents.
+ *
+ *  Three tolerances meant three different games wearing one leaderboard: a
+ *  singer on Easy and a singer on Hard could post the same number for quite
+ *  different singing, and nobody comparing two scores could tell. Fifty cents
+ *  -- a quarter tone -- is what the old "medium" was, and what every singer
+ *  was in fact locked to for most of this game's life, so scores already
+ *  posted still mean what they meant. */
+export const CENT_TOLERANCE = 50;
 
 // An entrance within ONSET_PERFECT_SEC is simply on time; timing credit then
 // slides to nothing at ONSET_WINDOW_SEC. The old single 0.35s window was a
@@ -50,7 +52,6 @@ export interface ScoreEngineOptions {
   songDuration: number;
   playerId: string;
   sessionId: string;
-  difficulty?: Difficulty;
   flushIntervalMs?: number;
   /** Warm-up: score locally so the singer still gets every cue, but send
    * nothing. Points earned here reach no leaderboard and no stored round. */
@@ -102,7 +103,6 @@ export class ScoreEngine {
 
   constructor(options: ScoreEngineOptions) {
     this.opts = {
-      difficulty: 'medium',
       flushIntervalMs: 1000,
       practice: false,
       notes: [],
@@ -168,7 +168,7 @@ export class ScoreEngine {
     // an absolute value that looks identical to being always a little sharp.
     const signedCents = voiced ? PitchEngine.centsDiff(alignedPlayerHz, targetHz) : 0;
     const cents = voiced ? Math.abs(signedCents) : Infinity;
-    const tolerance = CENT_TOLERANCE[this.opts.difficulty];
+    const tolerance = CENT_TOLERANCE;
     const inTune = cents <= tolerance;
     // How well, not just whether. Full credit while inside PITCH_PERFECT_CENTS,
     // sliding to zero at the tolerance edge.
@@ -258,8 +258,8 @@ export class ScoreEngine {
     const hz = PitchEngine.denormalise(target, this.opts.part.rangeMin, this.opts.part.rangeMax);
     const cents = Math.abs(PitchEngine.centsDiff(playerHz, hz));
     this.legacyVoicedSec += dt;
-    if (cents < CENT_TOLERANCE[this.opts.difficulty]) this.legacyInTuneSec += dt;
-    const points = cents >= CENT_TOLERANCE[this.opts.difficulty] ? 0 : Math.round(10 * (1 - cents / CENT_TOLERANCE[this.opts.difficulty]));
+    if (cents < CENT_TOLERANCE) this.legacyInTuneSec += dt;
+    const points = cents >= CENT_TOLERANCE ? 0 : Math.round(10 * (1 - cents / CENT_TOLERANCE));
     if (points) { this.total += points; this.pending.push(points); this.opts.onScoreUpdate(points, this.total); }
     return points;
   }
