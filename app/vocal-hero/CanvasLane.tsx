@@ -167,6 +167,59 @@ export function CanvasLane({
       context.fillStyle = horizon;
       context.fillRect(0, drawHeight * .72, width, drawHeight * .28);
       context.restore();
+      // ---- the arena
+      //
+      // The notes travel right to left, so the distance is to the RIGHT: that
+      // is where the road goes away to, and where the lights of a hall would
+      // be. Lanes fan out from a vanishing point on the right edge and widen
+      // as they come toward the singer, which is the whole trick -- the pitch
+      // rows stay exactly where they were, perfectly linear and readable,
+      // while everything BEHIND them says depth.
+      const vanishX = width * 0.995, vanishY = drawHeight * 0.5;
+      context.save();
+      context.globalCompositeOperation = 'lighter';
+      for (let lane = -3; lane <= 3; lane++) {
+        const spread = lane * drawHeight * 0.33;
+        const fan = context.createLinearGradient(vanishX, vanishY, 0, vanishY + spread);
+        fan.addColorStop(0, withAlpha(colour, .22));
+        fan.addColorStop(.45, withAlpha(colour, .07));
+        fan.addColorStop(1, 'rgba(0,0,0,0)');
+        context.strokeStyle = fan;
+        context.lineWidth = lane === 0 ? 1.6 : 1;
+        context.beginPath();
+        context.moveTo(vanishX, vanishY);
+        context.lineTo(-20, vanishY + spread);
+        context.stroke();
+      }
+      // Rungs across the road, compressing toward the distance and sliding
+      // with the music, so the floor reads as travelling rather than sitting.
+      const sweep = (position % 1) / 1;
+      for (let rung = 0; rung < 9; rung++) {
+        const depth = (rung + sweep) / 9;             // 0 near the singer, 1 far away
+        const eased = Math.pow(depth, 2.4);
+        const rx = vanishX - (vanishX + 20) * (1 - eased);
+        const half = drawHeight * 0.52 * (1 - eased);
+        context.strokeStyle = withAlpha(colour, .16 * (1 - depth));
+        context.lineWidth = 1;
+        context.beginPath();
+        context.moveTo(rx, vanishY - half);
+        context.lineTo(rx, vanishY + half);
+        context.stroke();
+      }
+      // The hall beyond the road: lights, out of focus.
+      for (const speck of dust) {
+        if (speck.y > .34) continue;                   // only up in the rafters
+        const bx = width * (0.12 + speck.x * 0.88);
+        const by = drawHeight * speck.y * 0.9;
+        const flare = 2 + speck.size * 3;
+        const pulse = .45 + .55 * (.5 + .5 * Math.sin(seconds * speck.blink * .7 + speck.phase));
+        const bokeh = context.createRadialGradient(bx, by, 0, bx, by, flare * 3);
+        bokeh.addColorStop(0, withAlpha(speck.phase > 3 ? '#f0abfc' : '#67e8f9', .5 * pulse));
+        bokeh.addColorStop(1, 'rgba(0,0,0,0)');
+        context.fillStyle = bokeh;
+        context.fillRect(bx - flare * 3, by - flare * 3, flare * 6, flare * 6);
+      }
+      context.restore();
       // And a vignette to hold the light in the middle, so the staff rows at
       // the edges stay readable instead of washing out.
       const vignette = context.createRadialGradient(
@@ -347,9 +400,17 @@ export function CanvasLane({
           const y = yForMidi(hzToMidi(sample.hz), low, high, drawHeight);
           if (!drawing) { context.moveTo(x, y); drawing = true; } else context.lineTo(x, y);
         }
-        context.strokeStyle = 'rgba(110, 231, 183, .85)';
-        context.shadowColor = 'rgba(110, 231, 183, .5)';
-        context.shadowBlur = 8;
+        // Twice, so it has a core: a wide soft glow and a hot thin line
+        // through the middle of it. That is what makes a drawn stroke look lit
+        // rather than merely coloured.
+        context.strokeStyle = 'rgba(56, 189, 248, .45)';
+        context.shadowColor = 'rgba(56, 189, 248, .9)';
+        context.shadowBlur = 16;
+        context.lineWidth = 6;
+        context.stroke();
+        context.strokeStyle = 'rgba(224, 252, 255, .95)';
+        context.shadowBlur = 6;
+        context.lineWidth = 2;
         context.stroke();
         context.shadowBlur = 0;
       }
@@ -387,9 +448,26 @@ export function CanvasLane({
         placed.push(y);
         const isAimed = aimed?.midi === midi;
         const isOctave = ((midi % 12) + 12) % 12 === 0;
+        // A tab with a point on it, aimed down the road at the note it names.
+        // Loose text floating over a moving background was the one part of
+        // this lane that still looked like a spreadsheet.
+        const half = isAimed ? 9 : 7;
+        context.beginPath();
+        context.moveTo(1, y - half);
+        context.lineTo(gutter - 9, y - half);
+        context.lineTo(gutter - 1, y);
+        context.lineTo(gutter - 9, y + half);
+        context.lineTo(1, y + half);
+        context.closePath();
+        context.fillStyle = isAimed ? withAlpha(colour, .3) : 'rgba(10, 18, 36, .8)';
+        context.fill();
+        context.strokeStyle = isAimed ? withAlpha(colour, .95)
+          : isOctave ? 'rgba(148, 217, 255, .4)' : 'rgba(148, 163, 184, .22)';
+        context.lineWidth = isAimed ? 1.5 : 1;
+        context.stroke();
         context.font = isAimed ? '800 11px ui-sans-serif, system-ui' : '700 9px ui-sans-serif, system-ui';
-        context.fillStyle = isAimed ? withAlpha(colour, .95)
-          : isOctave ? 'rgba(148, 217, 255, .72)' : 'rgba(203, 213, 225, .45)';
+        context.fillStyle = isAimed ? '#ffffff'
+          : isOctave ? 'rgba(186, 230, 253, .85)' : 'rgba(203, 213, 225, .6)';
         context.fillText(midiNoteName(midi), 4, y + 3);
       }
 
@@ -416,6 +494,25 @@ export function CanvasLane({
       context.fillRect(cursorX - 5, 0, 10, 3);
       context.fillRect(cursorX - 5, drawHeight - 3, 10, 3);
       context.shadowBlur = 0;
+      // A microphone sitting at the foot of the beam: this is the spot the
+      // singing is measured at, and a picture says it faster than a label.
+      const puckY = drawHeight - 13;
+      context.beginPath();
+      context.ellipse(cursorX, puckY, 15, 9, 0, 0, Math.PI * 2);
+      context.fillStyle = 'rgba(8, 14, 30, .9)';
+      context.fill();
+      context.strokeStyle = withAlpha('#f6c65b', .8);
+      context.lineWidth = 1.2;
+      context.stroke();
+      context.fillStyle = '#ffe9a8';
+      roundRect(context, cursorX - 2, puckY - 5.5, 4, 7, 2);
+      context.fill();
+      context.beginPath();
+      context.arc(cursorX, puckY - 1, 4.6, 0.15 * Math.PI, 0.85 * Math.PI);
+      context.strokeStyle = '#ffe9a8';
+      context.lineWidth = 1.2;
+      context.stroke();
+      context.fillRect(cursorX - .7, puckY + 3.5, 1.4, 3);
 
       // ---- the voice, on the line where it belongs
       //
