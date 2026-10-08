@@ -26387,6 +26387,22 @@ SBQ.getSongUsage = function(songId) {
 // matches this codebase's existing convention of small duplicated helpers
 // across module boundaries rather than a cross-block global.
 var _nameNormForMerge = function(s) { return (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); };
+// The cell a service_date names.
+//
+// service_date is free text, and a bulk import once wrote full ISO stamps
+// where the app writes "Jan 4". Both name the SAME cell, so anything that
+// reads the roster has to agree on which -- getData, which draws the screen,
+// and getAllForYear, which counts duties. One copy, because two would drift
+// and the symptom of drift here is a duty counted twice.
+var _MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var _normSvcDate = function(s) {
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    var d = new Date(s);
+    if (!isNaN(d)) return _MONTH_ABBR[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  return s;
+};
 var SBQ_ROSTER = {
   _sb: function() { return getSupabaseClient(); },
 
@@ -26397,15 +26413,6 @@ var SBQ_ROSTER = {
     return _sbOnce('roster:' + month + ':' + year, function() {
       var sb = SBQ_ROSTER._sb();
       if (!sb) return Promise.reject(new Error('Supabase not ready'));
-      var _MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      function _normSvcDate(s) {
-        if (!s) return '';
-        if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
-          var d = new Date(s);
-          if (!isNaN(d)) return _MO[d.getUTCMonth()] + ' ' + d.getUTCDate();
-        }
-        return s;
-      }
       return sb.from('roster').select('*').eq('month', month).eq('year', year)
         .then(function(r) {
           if (r.error) throw new Error(r.error.message);
@@ -26978,6 +26985,18 @@ var SBQ_ROSTER = {
   // Ordered by id so the pages cannot overlap or skip. The select is a
   // superset of what every caller needs, so there is one read of this shape
   // rather than two that drift.
+  //
+  // ONE ROW PER CELL. service_date is free text and the app normalises an
+  // ISO stamp into "Jan 4" on read, so two stored rows can name the same
+  // cell. The screen only ever shows one of them, but this returned both and
+  // nothing downstream noticed: each was counted as a separate duty, so six
+  // people's 2026 totals were inflated by one -- and those totals are what
+  // runAutoSuggest uses to decide who serves next. An inflated count makes
+  // somebody look busier than they are and quietly sends the duty elsewhere.
+  //
+  // Collapsed here rather than in either caller, because both want the same
+  // thing -- what the roster SAYS, not how many rows happen to say it -- and
+  // a third caller would otherwise have to remember.
   getAllForYear: function(year) {
     var sb = SBQ_ROSTER._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
@@ -26993,10 +27012,39 @@ var SBQ_ROSTER = {
           var rows = r.data || [];
           out = out.concat(rows);
           // A short page is the last one. A full page might not be.
-          return rows.length < 1000 ? out : page(from + 1000);
+          return rows.length < 1000 ? SBQ_ROSTER._oneRowPerCell(out) : page(from + 1000);
         });
     };
     return page(0);
+  },
+
+  // Collapse rows that name the same cell, keeping one.
+  //
+  // Which one is not arbitrary: the canonical "MMM D" row wins, because that
+  // is the form the app writes and the form any future edit through the
+  // screen will produce -- the other is import residue. The database's own
+  // UNIQUE (month, year, role_id, service_date) means two rows colliding here
+  // must differ in their raw string, so at most one of them can be canonical
+  // and the rule never has to break a tie between equals. Where neither is
+  // canonical the later row wins, since the input is ordered by id.
+  //
+  // Where the two rows disagree about WHO served, this necessarily picks a
+  // side. That is still better than the alternative, which was to credit
+  // both: one of the two certainly did not serve, and crediting both is
+  // wrong for both of them.
+  _oneRowPerCell: function(rows) {
+    var canonical = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}$/;
+    var seen = {}, order = [];
+    rows.forEach(function(row) {
+      var key = row.year + '|' + row.month + '|' + row.role_id + '|' + _normSvcDate(row.service_date);
+      var held = seen[key];
+      if (held === undefined) { seen[key] = { row: row, at: order.length }; order.push(key); return; }
+      // Only a canonical row may displace one already held; otherwise the
+      // later row wins, which for equally non-canonical rows is the newer id.
+      if (canonical.test(String(row.service_date).trim())) held.row = row;
+      else if (!canonical.test(String(held.row.service_date).trim())) held.row = row;
+    });
+    return order.map(function(key) { return seen[key].row; });
   }
 };
 
