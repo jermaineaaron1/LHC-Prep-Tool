@@ -98,6 +98,13 @@ export function CanvasLane({
     const observer = new ResizeObserver(resize);
     observer.observe(box);
 
+    // Deterministic from the index, so the field is the same field every
+    // frame and only its position moves.
+    const dust = Array.from({ length: 80 }, (_, i) => {
+      const r = (n: number) => { const v = Math.sin(i * 12.9898 + n * 78.233) * 43758.5453; return v - Math.floor(v); };
+      return { x: r(1), y: r(2), size: .5 + r(3) * 1.7, speed: .3 + r(4) * 1.2, blink: .5 + r(5) * 1.9, phase: r(6) * 6.283 };
+    });
+
     let frame = 0;
     const draw = () => {
       const p = propsRef.current;
@@ -120,16 +127,54 @@ export function CanvasLane({
       bg.addColorStop(1, '#04060f');
       context.fillStyle = bg;
       context.fillRect(0, 0, width, drawHeight);
-      // A slow aurora behind everything, tinted to the voice. It moves at a
-      // tenth of walking pace -- enough that the screen is never dead, not
-      // enough to pull the eye off the notes.
-      const drift = Date.now() / 7000;
-      const glow = context.createRadialGradient(
-        width * (0.5 + 0.34 * Math.sin(drift)), drawHeight * (0.5 + 0.3 * Math.cos(drift * 0.8)), 8,
-        width * 0.5, drawHeight * 0.5, Math.max(width, drawHeight) * 0.75);
-      glow.addColorStop(0, withAlpha(colour, .1));
-      glow.addColorStop(1, 'rgba(0,0,0,0)');
-      context.fillStyle = glow;
+      // ---- the aurora
+      //
+      // One veil was a smudge. Three, in different colours, on different
+      // clocks, ADDED to one another rather than painted over -- that is what
+      // makes light look like light: where two veils cross they brighten, and
+      // the crossing wanders because no two share a period. Still dim enough
+      // that a notehead is the brightest thing on the screen, which is the
+      // only rule this background has to obey.
+      const seconds = Date.now() / 1000;
+      const veils = [
+        { hue: colour,    cx: .30 + .24 * Math.sin(seconds / 11),       cy: .32 + .22 * Math.cos(seconds / 13),       spread: .80, alpha: .17 },
+        { hue: '#22d3ee', cx: .72 + .22 * Math.sin(seconds / 9 + 2.1),  cy: .64 + .24 * Math.cos(seconds / 15 + 1.3), spread: .66, alpha: .13 },
+        { hue: '#a855f7', cx: .52 + .28 * Math.cos(seconds / 17 + 4.2), cy: .44 + .26 * Math.sin(seconds / 12 + 3.1), spread: .92, alpha: .12 },
+      ];
+      context.save();
+      context.globalCompositeOperation = 'lighter';
+      for (const veil of veils) {
+        const cx = width * veil.cx, cy = drawHeight * veil.cy;
+        const veilGlow = context.createRadialGradient(cx, cy, 4, cx, cy, Math.max(width, drawHeight) * veil.spread);
+        veilGlow.addColorStop(0, withAlpha(veil.hue, veil.alpha));
+        veilGlow.addColorStop(.5, withAlpha(veil.hue, veil.alpha * .34));
+        veilGlow.addColorStop(1, 'rgba(0,0,0,0)');
+        context.fillStyle = veilGlow;
+        context.fillRect(0, 0, width, drawHeight);
+      }
+      // Dust, drifting with the music. Depth costs eighty rectangles.
+      for (const speck of dust) {
+        const travelled = (speck.x * width - seconds * speck.speed * 9) % (width + 24);
+        const px = travelled < 0 ? travelled + width + 24 : travelled;
+        const twinkle = .3 + .7 * (.5 + .5 * Math.sin(seconds * speck.blink + speck.phase));
+        context.fillStyle = withAlpha('#dbeafe', .22 * twinkle);
+        context.fillRect(px, speck.y * drawHeight, speck.size, speck.size);
+      }
+      // A horizon under it all, in the voice's own colour.
+      const horizon = context.createLinearGradient(0, drawHeight * .72, 0, drawHeight);
+      horizon.addColorStop(0, 'rgba(0,0,0,0)');
+      horizon.addColorStop(1, withAlpha(colour, .12));
+      context.fillStyle = horizon;
+      context.fillRect(0, drawHeight * .72, width, drawHeight * .28);
+      context.restore();
+      // And a vignette to hold the light in the middle, so the staff rows at
+      // the edges stay readable instead of washing out.
+      const vignette = context.createRadialGradient(
+        width * .5, drawHeight * .5, Math.min(width, drawHeight) * .22,
+        width * .5, drawHeight * .5, Math.max(width, drawHeight) * .78);
+      vignette.addColorStop(0, 'rgba(0,0,0,0)');
+      vignette.addColorStop(1, 'rgba(2,4,12,.6)');
+      context.fillStyle = vignette;
       context.fillRect(0, 0, width, drawHeight);
 
       // Semitone rows, with the octaves picked out: a singer reads position
