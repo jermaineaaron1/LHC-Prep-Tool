@@ -305,7 +305,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
     </div>}
 
     <div className="mt-1 shrink-0 sm:mt-4"><KaraokeLyrics song={song} notes={allNotes} partIndex={lanePart} elapsed={position} compact={narrow} /></div>
-    <div className="mt-1 min-h-[120px] flex-1 sm:mt-4 sm:min-h-0 sm:flex-none"><CanvasLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} notes={allNotes} getPosition={() => positionRef.current} getPitchHz={() => pitchValueRef.current} getLevel={() => levelRef.current} trail={trailRef.current} lookAheadSeconds={7} height={280} fill={narrow} readout={narrow ? laneReadout : null} /></div>
+    <div className="mt-1 min-h-[120px] flex-1 sm:mt-4 sm:min-h-0 sm:flex-none"><CanvasLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} notes={allNotes} getPosition={() => positionRef.current} getPitchHz={() => pitchValueRef.current} getLevel={() => levelRef.current} trail={trailRef.current} lookAheadSeconds={7} height={380} fill={narrow} readout={narrow ? laneReadout : null} /></div>
 
     {/* The scrubber doubles as the loop display: a singer should be able to see
         the region they are repeating, not just be inside it. */}
