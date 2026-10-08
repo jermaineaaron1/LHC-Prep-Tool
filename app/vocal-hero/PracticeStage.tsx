@@ -225,7 +225,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
         pitchValueRef.current = sample.frequency;
         levelRef.current = sample.level ?? 0;
         if (performance.now() - paintRef.current > 90) { setPitch(sample.frequency); paintRef.current = performance.now(); }
-        if (sample.confidence > .78 && transportRef.current.isPlaying) pushTrail(trailRef.current, positionRef.current, sample.frequency);
+        if (sample.confidence > .78 && transportRef.current.isPlaying) pushTrail(trailRef.current, positionRef.current, sample.frequency, sample.level ?? 0);
       },
     });
     try { await engine.start(); pitchRef.current = engine; setMicReason(null); setMic('ready'); }

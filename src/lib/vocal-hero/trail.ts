@@ -8,8 +8,12 @@
  * two-hundred-line renderer nobody used.
  */
 
-/** One sample of what the singer sang, in song time. */
-export interface TrailSample { t: number; hz: number }
+/** One sample of what the singer sang, in song time.
+ *
+ * `level` is the input loudness at that instant, 0-1. The lane draws the
+ * voice as a ribbon whose WIDTH is that loudness, so a swell looks like a
+ * swell; samples recorded without it simply draw thin. */
+export interface TrailSample { t: number; hz: number; level?: number }
 
 /** The longest stretch of singing a lane will ever draw. */
 const TRAIL_MEMORY_SEC = 4;
@@ -21,8 +25,8 @@ const TRAIL_MEMORY_SEC = 4;
  * fresh array each time would be a steady drip of work for the collector on the
  * one thread that has to stay smooth.
  */
-export function pushTrail(trail: TrailSample[], songTime: number, hz: number): void {
-  trail.push({ t: songTime, hz });
+export function pushTrail(trail: TrailSample[], songTime: number, hz: number, level = 0): void {
+  trail.push({ t: songTime, hz, level });
   const cutoff = songTime - TRAIL_MEMORY_SEC;
   let drop = 0;
   while (drop < trail.length && trail[drop].t < cutoff) drop++;

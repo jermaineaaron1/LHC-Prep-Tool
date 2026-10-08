@@ -373,7 +373,7 @@ export default function VocalHeroHostPage() {
       if (soloPhaseRef.current === 'Live' && sample.confidence > .78) {
         const songTime = Math.max(0, soloElapsedRef.current - latencyRef.current);
         soloScoreRef.current?.scorePitch(sample.frequency, songTime);
-        pushTrail(trailRef.current, songTime, sample.frequency);
+        pushTrail(trailRef.current, songTime, sample.frequency, sample.level ?? 0);
       }
     } });
     soloPitchRef.current = engine;
