@@ -157,7 +157,10 @@ export function CanvasLane({
         const travelled = (speck.x * width - seconds * speck.speed * 9) % (width + 24);
         const px = travelled < 0 ? travelled + width + 24 : travelled;
         const twinkle = .3 + .7 * (.5 + .5 * Math.sin(seconds * speck.blink + speck.phase));
-        context.fillStyle = withAlpha('#dbeafe', .22 * twinkle);
+        // Faded out as it approaches the strike line, so the last stretch
+        // before a note is judged is clean glass.
+        const nearTheReading = Math.max(0, Math.min(1, (px - cursorX) / (width * .45)));
+        context.fillStyle = withAlpha('#dbeafe', .16 * twinkle * nearTheReading);
         context.fillRect(px, speck.y * drawHeight, speck.size, speck.size);
       }
       // A horizon under it all, in the voice's own colour.
@@ -178,17 +181,20 @@ export function CanvasLane({
       const vanishX = width * 0.995, vanishY = drawHeight * 0.5;
       context.save();
       context.globalCompositeOperation = 'lighter';
+      // Where the reading happens: from the strike line out to about half
+      // way. Nothing decorative may live here.
+      const clearOf = cursorX + (width - cursorX) * 0.46;
       for (let lane = -3; lane <= 3; lane++) {
         const spread = lane * drawHeight * 0.33;
-        const fan = context.createLinearGradient(vanishX, vanishY, 0, vanishY + spread);
-        fan.addColorStop(0, withAlpha(colour, .22));
-        fan.addColorStop(.45, withAlpha(colour, .07));
+        const fan = context.createLinearGradient(vanishX, vanishY, clearOf, vanishY + spread * 0.5);
+        fan.addColorStop(0, withAlpha(colour, .13));
+        fan.addColorStop(.6, withAlpha(colour, .04));
         fan.addColorStop(1, 'rgba(0,0,0,0)');
         context.strokeStyle = fan;
-        context.lineWidth = lane === 0 ? 1.6 : 1;
+        context.lineWidth = lane === 0 ? 1.3 : .9;
         context.beginPath();
         context.moveTo(vanishX, vanishY);
-        context.lineTo(-20, vanishY + spread);
+        context.lineTo(clearOf, vanishY + spread * 0.5);
         context.stroke();
       }
       // Rungs across the road, compressing toward the distance and sliding
@@ -197,9 +203,9 @@ export function CanvasLane({
       for (let rung = 0; rung < 9; rung++) {
         const depth = (rung + sweep) / 9;             // 0 near the singer, 1 far away
         const eased = Math.pow(depth, 2.4);
-        const rx = vanishX - (vanishX + 20) * (1 - eased);
-        const half = drawHeight * 0.52 * (1 - eased);
-        context.strokeStyle = withAlpha(colour, .16 * (1 - depth));
+        const rx = vanishX - (vanishX - clearOf) * (1 - eased);
+        const half = drawHeight * 0.3 * (1 - eased);
+        context.strokeStyle = withAlpha(colour, .1 * (1 - depth));
         context.lineWidth = 1;
         context.beginPath();
         context.moveTo(rx, vanishY - half);
@@ -208,13 +214,16 @@ export function CanvasLane({
       }
       // The hall beyond the road: lights, out of focus.
       for (const speck of dust) {
-        if (speck.y > .34) continue;                   // only up in the rafters
-        const bx = width * (0.12 + speck.x * 0.88);
-        const by = drawHeight * speck.y * 0.9;
-        const flare = 2 + speck.size * 3;
+        // The roof of the hall only: the top tenth, and only out in the
+        // distance. Lights the size of a notehead sitting on the staff were
+        // not atmosphere, they were smudges on the glass.
+        if (speck.y > .1) continue;
+        const bx = clearOf + (width - clearOf) * speck.x;
+        const by = drawHeight * speck.y * 1.6;
+        const flare = 1.2 + speck.size * 1.4;
         const pulse = .45 + .55 * (.5 + .5 * Math.sin(seconds * speck.blink * .7 + speck.phase));
         const bokeh = context.createRadialGradient(bx, by, 0, bx, by, flare * 3);
-        bokeh.addColorStop(0, withAlpha(speck.phase > 3 ? '#f0abfc' : '#67e8f9', .5 * pulse));
+        bokeh.addColorStop(0, withAlpha(speck.phase > 3 ? '#f0abfc' : '#67e8f9', .3 * pulse));
         bokeh.addColorStop(1, 'rgba(0,0,0,0)');
         context.fillStyle = bokeh;
         context.fillRect(bx - flare * 3, by - flare * 3, flare * 6, flare * 6);
