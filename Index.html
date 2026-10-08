@@ -2860,6 +2860,7 @@
        rotation (most often a Pastor). Auto-Suggest never picks them; a PIC
        still can, by hand, any time. */
     .enabler-status-occasional  { background: #eef2ff; color: #3730a3; }
+    .enabler-status-guest       { background: #fdf2f8; color: #9d174d; }
     .enabler-role-chip {
       display: inline-flex; align-items: center;
       background: #f0fdfa; color: #0d9488; border: 1px solid #99f6e4;
@@ -2973,6 +2974,7 @@
     .roster-np-tag { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
     .roster-np-tag.away        { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
     .roster-np-tag.occasional  { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
+    .roster-np-tag.guest       { background: #fdf2f8; color: #9d174d; border: 1px solid #fbcfe8; }
     .roster-np-tag.inactive    { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
     .roster-np-tag.suspended   { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
     @media (max-width: 768px) {
@@ -5712,185 +5714,56 @@
       <!-- =============== LITURGY NAVIGATION (shown when on Liturgy view) =============== -->
       <div id="liturgyStatsSection" class="relative px-3 flex-1 overflow-y-auto flex flex-col" style="display: none;">
 
-        <!-- LIBRARY -->
+        <!-- The Liturgy page, five ways in.
+
+             It had twenty-one. Three of them -- Calendar, Team Planning,
+             Checklists -- all called selectOccasion(null), so they landed
+             back on the dashboard; and Slide Library filtered on a `slides`
+             column that is empty on all 75 rows, so it was always blank.
+             The rest were content types, which belong on the content, not in
+             the furniture: they are filter chips inside the Library now. -->
         <div class="lit-nav-group">
-          <div class="lit-nav-group-label">Library</div>
+          <div class="lit-nav-group-label">Liturgy</div>
           <div class="lit-occ-row">
             <button class="lit-nav-occ-btn" data-libfilter="dashboard" onclick="LiturgyModule.selectOccasion(null)">
               <span class="lit-nav-dot" style="background:#7c3aed;"></span>
-              <i class="fa-solid fa-gauge" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Dashboard</span>
+              <i class="fa-solid fa-book-bible" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Readings</span>
             </button>
           </div>
           <div class="lit-occ-row">
             <button class="lit-nav-occ-btn" data-libfilter="all-services" onclick="LiturgyModule.showAllServices()">
               <span class="lit-nav-dot" style="background:#4a6da7;"></span>
-              <i class="fa-solid fa-list-check" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>All Services</span>
+              <i class="fa-solid fa-church" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Services</span>
             </button>
           </div>
           <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="calendar" onclick="LiturgyModule.selectOccasion(null)">
-              <span class="lit-nav-dot" style="background:#0ea5e9;"></span>
-              <i class="fa-solid fa-calendar-days" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Calendar</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- RESOURCES -->
-        <div class="lit-nav-group">
-          <div class="lit-nav-group-label">Resources</div>
-          <div class="lit-occ-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-liturgies" onclick="LiturgyModule.selectGeneralFolder('gen-liturgies')">
+            <button class="lit-nav-occ-btn" data-libfilter="liturgies" onclick="LiturgyModule.openLibraryFilter('liturgies')">
               <span class="lit-nav-dot" style="background:#f59e0b;"></span>
               <i class="fa-solid fa-scroll" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
               <span>Liturgies</span>
             </button>
           </div>
           <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="scripture-readings" onclick="LiturgyModule.openLibraryFilter('scripture-readings')">
-              <span class="lit-nav-dot" style="background:#16a34a;"></span>
-              <i class="fa-solid fa-book-bible" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Scripture Readings</span>
+            <button class="lit-nav-occ-btn" data-libfilter="memories" onclick="LiturgyModule.openMemories()">
+              <span class="lit-nav-dot" style="background:#10b981;"></span>
+              <i class="fa-solid fa-camera-retro" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Memories</span>
             </button>
           </div>
           <div class="lit-occ-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-prayers" onclick="LiturgyModule.selectGeneralFolder('gen-prayers')">
-              <span class="lit-nav-dot" style="background:#7c3aed;"></span>
-              <i class="fa-solid fa-hands-praying" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Prayers &amp; Creeds</span>
+            <button class="lit-nav-occ-btn" data-libfilter="library" onclick="LiturgyModule.openLibraryFilter('library')">
+              <span class="lit-nav-dot" style="background:#6b7280;"></span>
+              <i class="fa-solid fa-folder-open" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
+              <span>Library</span>
             </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="meditations" onclick="LiturgyModule.openLibraryFilter('meditations')">
-              <span class="lit-nav-dot" style="background:#ec4899;"></span>
-              <i class="fa-solid fa-heart" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Reflections &amp; Meditations</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="exegesis" onclick="LiturgyModule.openLibraryFilter('exegesis')">
-              <span class="lit-nav-dot" style="background:#0891b2;"></span>
-              <i class="fa-solid fa-magnifying-glass" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Exegesis Library</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="slides" onclick="LiturgyModule.openLibraryFilter('slides')">
-              <span class="lit-nav-dot" style="background:#374151;"></span>
-              <i class="fa-solid fa-images" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Slide Library</span>
-            </button>
+            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general',null)" title="Add to the library">+</button>
           </div>
         </div>
 
-        <!-- PLANNING -->
+        <!-- Kept open: the hidden count spans below close this group. -->
         <div class="lit-nav-group">
-          <div class="lit-nav-group-label">Planning</div>
-          <div class="lit-occ-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-planning" onclick="LiturgyModule.selectGeneralFolder('gen-planning')">
-              <span class="lit-nav-dot" style="background:#ec4899;"></span>
-              <i class="fa-solid fa-clipboard-list" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Planning Tools</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="team-planning" onclick="LiturgyModule.selectOccasion(null)">
-              <span class="lit-nav-dot" style="background:#16a34a;"></span>
-              <i class="fa-solid fa-users" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Team Planning</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="checklists" onclick="LiturgyModule.selectOccasion(null)">
-              <span class="lit-nav-dot" style="background:#4a6da7;"></span>
-              <i class="fa-solid fa-square-check" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Checklists</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="decor" onclick="LiturgyModule.openLibraryFilter('decor')">
-              <span class="lit-nav-dot" style="background:#d97706;"></span>
-              <i class="fa-solid fa-palette" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Decor Ideas</span>
-            </button>
-          </div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="presentation" onclick="LiturgyModule.openLibraryFilter('presentation')">
-              <span class="lit-nav-dot" style="background:#7c3aed;"></span>
-              <i class="fa-solid fa-display" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Presentation Ideas</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- FILES & LINKS -->
-        <div class="lit-nav-group">
-          <div class="lit-nav-group-label">Files &amp; Links</div>
-          <div class="lit-occ-row">
-            <button class="lit-nav-occ-btn" data-libfilter="links" onclick="LiturgyModule.openLibraryFilter('links')">
-              <span class="lit-nav-dot" style="background:#0ea5e9;"></span>
-              <i class="fa-solid fa-link" style="width:14px;opacity:0.8;font-size:0.75rem;"></i>
-              <span>Links &amp; Resources</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- GENERAL LIBRARY (6 fixed folders, separate from seasons) -->
-        <div class="lit-nav-group" style="border-top: 1px solid rgba(255,255,255,0.15); padding-top: 8px; margin-top: 4px;">
-          <div class="lit-nav-group-label" style="color: rgba(255,255,255,0.55); display:flex; align-items:center; justify-content:space-between;">
-            <span>── General Library ──</span>
-            <button class="lit-folder-plus-btn" style="opacity:1;width:16px;height:16px;font-size:0.65rem;" onclick="LiturgyModule.openQuickAddModal(null,null,'general',null)" title="Add to General Library">+</button>
-          </div>
-          <!-- Prayers -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-prayers" onclick="LiturgyModule.selectGeneralFolder('gen-prayers')">
-              <i class="fa-solid fa-hands-praying" style="color:#7c3aed;width:14px;font-size:0.75rem;"></i>
-              <span>Prayers</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-prayers')" title="Add to Prayers">+</button>
-          </div>
-          <!-- Announcements -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-announcements" onclick="LiturgyModule.selectGeneralFolder('gen-announcements')">
-              <i class="fa-solid fa-bullhorn" style="color:#0ea5e9;width:14px;font-size:0.75rem;"></i>
-              <span>Announcements</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-announcements')" title="Add to Announcements">+</button>
-          </div>
-          <!-- Liturgies -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-liturgies" onclick="LiturgyModule.selectGeneralFolder('gen-liturgies')">
-              <i class="fa-solid fa-scroll" style="color:#f59e0b;width:14px;font-size:0.75rem;"></i>
-              <span>Liturgies</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-liturgies')" title="Add to Liturgies">+</button>
-          </div>
-          <!-- Media / Memories -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-media" onclick="LiturgyModule.selectGeneralFolder('gen-media')">
-              <i class="fa-solid fa-photo-film" style="color:#10b981;width:14px;font-size:0.75rem;"></i>
-              <span>Media / Memories</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-media')" title="Add to Media/Memories">+</button>
-          </div>
-          <!-- Planning Notes -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-planning" onclick="LiturgyModule.selectGeneralFolder('gen-planning')">
-              <i class="fa-solid fa-clipboard-list" style="color:#ec4899;width:14px;font-size:0.75rem;"></i>
-              <span>Planning Notes</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-planning')" title="Add to Planning Notes">+</button>
-          </div>
-          <!-- Documents (all uploaded files) -->
-          <div class="lit-gen-folder-row">
-            <button class="lit-gen-folder-btn" data-gen-folder="gen-other" onclick="LiturgyModule.selectGeneralFolder('gen-other')">
-              <i class="fa-solid fa-folder-open" style="color:#6b7280;width:14px;font-size:0.75rem;"></i>
-              <span>Documents</span>
-            </button>
-            <button class="lit-gen-plus-btn" onclick="LiturgyModule.openQuickAddModal(null,null,'general','gen-other')" title="Add Document">+</button>
-          </div>
           <!-- Hidden backward-compat spans for updateCategoryCounts() -->
           <span id="countAll" style="display:none;"></span>
           <span id="countPrayer" style="display:none;"></span>
@@ -8255,6 +8128,21 @@
           </div>
 
           <!-- ===== CONTENT LIBRARY PANEL ===== -->
+          <!-- ===== MEMORIES ===== -->
+          <div id="liturgyMemoriesPanel" style="display:none;">
+            <div class="lit-mem-header">
+              <div>
+                <h1 class="font-cinzel lit-mem-title">Memories</h1>
+                <p class="lit-mem-sub">What we did, and what we learned doing it</p>
+              </div>
+              <button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openMemoryEditor(null)">
+                <i class="fa-solid fa-plus mr-1"></i>Add a note
+              </button>
+            </div>
+            <div id="memoriesFilterRow" class="lit-occ-content-filter-row" style="padding:0 20px 12px;"></div>
+            <div id="memoriesBody" class="lit-mem-body"></div>
+          </div>
+
           <div id="liturgyLibraryPanel" style="display:none;">
             <div class="lit-library-header">
               <button class="lit-back-btn" onclick="LiturgyModule.selectOccasion(null)" style="background:#f3f4f6;color:#374151;border-color:#e5e7eb;">
@@ -23357,7 +23245,9 @@ window.loadEditSongData = function(song) {
       var lookupKey = id + '__' + dateStr.trim();
       var value = rosterMap[lookupKey] || '';
       if (value && value !== 'TBD' && value !== '-') {
-        topRoles.push({ label: id === 'preacher' ? 'Preacher' : 'Liturgist', value: value });
+        var shown = (typeof window.LHC_addressedName === 'function')
+          ? window.LHC_addressedName(id, value) : value;
+        topRoles.push({ label: id === 'preacher' ? 'Preacher' : 'Liturgist', value: shown });
       }
     });
 
@@ -26843,6 +26733,7 @@ var SBQ_ROSTER = {
             suspendedFrom: row.suspended_from || '',
             suspendedTo: row.suspended_to || '',
             suspendedReason: row.suspended_reason || '',
+            addressAs: row.address_as || '',
             inactiveDate: row.inactive_date || '',
             team: row.team || ''
           };
@@ -26852,22 +26743,42 @@ var SBQ_ROSTER = {
   },
 
   // Save (upsert) member metadata
-  saveMemberMeta: function(name, status, note, joinedDate, suspendedFrom, suspendedTo, suspendedReason, inactiveDate, team) {
+  saveMemberMeta: function(name, status, note, joinedDate, suspendedFrom, suspendedTo, suspendedReason, inactiveDate, team, addressAs) {
     var sb = SBQ_ROSTER._sb();
     if (!sb) return Promise.reject(new Error('Supabase not ready'));
-    return sb.from('roster_member_meta')
-      .upsert({
-        name: name,
-        status: status || 'active',
-        note: note || '',
-        joined_date: joinedDate || null,
-        suspended_from: suspendedFrom || null,
-        suspended_to: suspendedTo || null,
-        suspended_reason: suspendedReason || null,
-        inactive_date: inactiveDate || null,
-        team: team || null
-      }, { onConflict: 'name' })
-      .then(function(r) { if (r.error) throw new Error(r.error.message); return { success: true }; });
+    var row = {
+      name: name,
+      status: status || 'active',
+      note: note || '',
+      joined_date: joinedDate || null,
+      suspended_from: suspendedFrom || null,
+      suspended_to: suspendedTo || null,
+      suspended_reason: suspendedReason || null,
+      inactive_date: inactiveDate || null,
+      team: team || null,
+      address_as: addressAs || null
+    };
+    var put = function(payload) {
+      return Promise.resolve(sb.from('roster_member_meta').upsert(payload, { onConflict: 'name' }));
+    };
+    return put(row).then(function(r) {
+      if (!r.error) return { success: true };
+      // The address_as column is added by a migration that is run by hand.
+      // Until somebody runs it, PostgREST rejects the whole upsert for the
+      // one unknown column -- which would take every member save down with
+      // it, including status changes that have nothing to do with this.
+      // So an unknown column costs the form of address, not the save.
+      if (!/address_as|PGRST204|Could not find/i.test(r.error.message || '')) {
+        throw new Error(r.error.message);
+      }
+      console.warn('roster_member_meta.address_as is missing -- run ' +
+        'migrations/2026-10-05_add_address_as_to_member_meta.sql. Saving without it.');
+      delete row.address_as;
+      return put(row).then(function(r2) {
+        if (r2.error) throw new Error(r2.error.message);
+        return { success: true, addressAsSkipped: true };
+      });
+    });
   },
 
   // Cascade-blank all roster cells where value = name (across all months/years)
@@ -70523,7 +70434,18 @@ var LiturgyModule = (function() {
   var _readingViewMode = 'day';          // 'day' | 'week' | 'month'
   var _lectionaryReadingsCache = {};     // { 'YYYY-MM-DD': [ {label, reference, translation, passageText, verseCount} ] }
   var _lectionaryPickerSlotIndex = null; // which slot openReadingSlotPicker() targets
+  var _lectionaryPickerDate = null;      // and which DATE -- a month view can edit any of them
   var READING_SLOT_LABELS = ['1st Reading', 'Psalm', '2nd Reading', 'Gospel'];
+  var _serviceDatesCache = {};           // { 2026: ['2026-01-04', ...] }
+  var _readingsWindowCache = {};         // { 'from|to': { iso: { role: ref } } }
+  var _serviceMetaCache = {};            // { 'from|to': { iso: { day, color } } }
+  var _readingRefsByDate = {};           // { iso: { role: ref } } -- flattened, for the reader
+  var _passageTextCache = {};            // { normalisedReference: {reference, translation, text, note} }
+  var _readingDatePrimed = false;        // has the opening date been chosen yet
+  var ALTAR_COLORS = {
+    white: '#e5e7eb', gold: '#fbbf24', red: '#dc2626', green: '#16a34a',
+    purple: '#7c3aed', violet: '#7c3aed', blue: '#2563eb', black: '#1f2933', rose: '#f472b6'
+  };
   var LIT_SEASON_STRIP = [
     { cls: 'advent', icon: 'fa-star', label: 'Advent' },
     { cls: 'christmas', icon: 'fa-fire', label: 'Christmas' },
@@ -70561,6 +70483,175 @@ var LiturgyModule = (function() {
     }
   };
 
+  // Readings: one store, and it is the roster ──────────────────
+  //
+  // The readings have always lived on the roster: four role rows per
+  // service date, 142 of them filled when this was written.
+  // lectionary_readings held exactly one row, which is why this page used
+  // to show four empty cards whatever date you picked -- it was reading a
+  // table nobody writes to, beside the table everybody writes to.
+  //
+  // So the Liturgy page does not get a copy. It becomes the place you read
+  // and edit the roster four scripture rows. That is what makes "the
+  // roster and the worship order pull from here" true rather than merely
+  // intended: there is only one set of rows left to pull.
+  //
+  // lectionary_readings keeps the job it is actually good at -- caching the
+  // fetched passage TEXT per date, so opening a reading is instant -- but
+  // the reference itself belongs to the roster.
+  var SBQ_READINGS = {
+    SLOTS: [
+      { role: 'reading1', label: '1st Reading' },
+      { role: 'psalm',    label: 'Psalm' },
+      { role: 'reading2', label: '2nd Reading' },
+      { role: 'gospel',   label: 'Gospel' }
+    ],
+    _MO: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+    _sb: function() { return getSupabaseClient(); },
+
+    // 'YYYY-MM-DD' -> the three columns the roster is keyed by.
+    isoToRoster: function(iso) {
+      var p = String(iso || '').split('-');
+      if (p.length !== 3) return null;
+      var y = +p[0], m = +p[1] - 1, d = +p[2];
+      if (isNaN(y) || isNaN(m) || isNaN(d) || m < 0 || m > 11) return null;
+      return { year: y, month: m, serviceDate: SBQ_READINGS._MO[m] + ' ' + d };
+    },
+
+    // "Oct 4" + the year column -> 'YYYY-MM-DD'. Older rows stored an ISO
+    // date already, so that form passes straight through.
+    rosterToIso: function(serviceDate, year) {
+      var s = String(serviceDate || '').trim();
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+      var m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2})$/);
+      if (!m || year === null || year === undefined || year === '') return '';
+      var abbr = m[1].charAt(0).toUpperCase() + m[1].slice(1, 3).toLowerCase();
+      var mi = SBQ_READINGS._MO.indexOf(abbr);
+      if (mi < 0) return '';
+      return year + '-' + String(mi + 1).padStart(2, '0') + '-' + String(+m[2]).padStart(2, '0');
+    },
+
+    // Every reading between two ISO dates, as { iso: { role: reference } }.
+    // Fetched by YEAR rather than by day: the roster is keyed by month and
+    // service_date is free text, so the window is narrowed here instead of
+    // in the query. A window never spans more than the two years it names.
+    getRange: function(fromIso, toIso) {
+      var sb = SBQ_READINGS._sb();
+      if (!sb) return Promise.resolve({});
+      var a = SBQ_READINGS.isoToRoster(fromIso), b = SBQ_READINGS.isoToRoster(toIso);
+      if (!a || !b) return Promise.resolve({});
+      var roles = SBQ_READINGS.SLOTS.map(function(s) { return s.role; });
+      var q = sb.from('roster').select('role_id, service_date, year, value')
+        .in('role_id', roles).neq('value', '');
+      q = (a.year === b.year) ? q.eq('year', a.year) : q.gte('year', a.year).lte('year', b.year);
+      return Promise.resolve(q).then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        var out = {};
+        (r.data || []).forEach(function(row) {
+          var iso = SBQ_READINGS.rosterToIso(row.service_date, row.year);
+          // ISO dates compare correctly as strings, which is the whole
+          // reason this page speaks ISO and converts only at the edges.
+          if (!iso || iso < fromIso || iso > toIso) return;
+          if (!out[iso]) out[iso] = {};
+          out[iso][row.role_id] = row.value || '';
+        });
+        return out;
+      });
+    },
+
+    // The service dates in a year -- every date the roster has any row for,
+    // not just the ones carrying readings. This is what "the next service"
+    // is picked from, so a Sunday with nothing filled in yet still counts.
+    getServiceDates: function(year) {
+      var sb = SBQ_READINGS._sb();
+      if (!sb) return Promise.resolve([]);
+      return Promise.resolve(sb.from('roster').select('service_date, year').eq('year', year))
+        .then(function(r) {
+          if (r.error) throw new Error(r.error.message);
+          var seen = {};
+          (r.data || []).forEach(function(row) {
+            var iso = SBQ_READINGS.rosterToIso(row.service_date, row.year);
+            if (iso) seen[iso] = true;
+          });
+          return Object.keys(seen).sort();
+        });
+    },
+
+    // The liturgical day and altar colour for each service in a window.
+    //
+    // Also roster rows -- role_id 'liturgical', holding a JSON STRING like
+    // {"day":"1st Sunday in Lent","color":"Purple"} -- so a service card can
+    // show what day it is beside what is being read. 44 of them in 2026.
+    getServiceMeta: function(fromIso, toIso) {
+      var sb = SBQ_READINGS._sb();
+      if (!sb) return Promise.resolve({});
+      var a = SBQ_READINGS.isoToRoster(fromIso), b = SBQ_READINGS.isoToRoster(toIso);
+      if (!a || !b) return Promise.resolve({});
+      var q = sb.from('roster').select('role_id, service_date, year, value')
+        .in('role_id', ['liturgical', 'service_type']).neq('value', '');
+      q = (a.year === b.year) ? q.eq('year', a.year) : q.gte('year', a.year).lte('year', b.year);
+      return Promise.resolve(q).then(function(r) {
+        if (r.error) throw new Error(r.error.message);
+        var out = {};
+        (r.data || []).forEach(function(row) {
+          var iso = SBQ_READINGS.rosterToIso(row.service_date, row.year);
+          if (!iso || iso < fromIso || iso > toIso) return;
+          if (!out[iso]) out[iso] = {};
+          if (row.role_id === 'service_type') { out[iso].serviceType = row.value; return; }
+          var v = row.value;
+          // One malformed row must not take the whole window down, so a
+          // value that will not parse is shown as the plain text it is.
+          if (typeof v === 'string') {
+            try { v = JSON.parse(v); } catch (e) { out[iso].day = row.value; return; }
+          }
+          if (v && typeof v === 'object') {
+            if (v.day) out[iso].day = v.day;
+            if (v.color) out[iso].color = v.color;
+          }
+        });
+        return out;
+      });
+    },
+
+    // Writing a reference writes the roster row -- and logs it the way a
+    // roster edit is logged, because that is what it is. It belongs in the
+    // cell history and the sidebar updates beside every other change, or
+    // the roster would quietly disagree with its own change log.
+    setReference: function(iso, slotIndex, reference) {
+      var sb = SBQ_READINGS._sb();
+      if (!sb) return Promise.reject(new Error('Supabase not ready'));
+      var slot = SBQ_READINGS.SLOTS[slotIndex];
+      var k = SBQ_READINGS.isoToRoster(iso);
+      if (!slot || !k) return Promise.reject(new Error('Bad reading slot or date'));
+      var value = String(reference == null ? '' : reference).trim();
+      return Promise.resolve(
+        sb.from('roster').select('value')
+          .eq('month', k.month).eq('year', k.year)
+          .eq('role_id', slot.role).eq('service_date', k.serviceDate).maybeSingle()
+      ).then(function(r) {
+        var oldVal = (r && r.data) ? (r.data.value || '') : '';
+        return Promise.resolve(sb.from('roster').upsert({
+          month: k.month, year: k.year,
+          role_id: slot.role, service_date: k.serviceDate,
+          value: value, updated_at: new Date().toISOString()
+        }, { onConflict: 'month,year,role_id,service_date' })).then(function(up) {
+          if (up && up.error) throw new Error(up.error.message);
+          if (oldVal === value) return value;
+          // A failed log must not undo a saved reading.
+          return Promise.resolve(sb.from('roster_changes').insert({
+            role_id: slot.role, service_date: k.serviceDate,
+            old_value: oldVal, new_value: value,
+            month: k.month, year: k.year,
+            changed_at: new Date().toISOString()
+          })).then(function() { return value; }, function(e) {
+            console.warn('Reading saved, change not logged:', e && e.message);
+            return value;
+          });
+        });
+      });
+    }
+  };
+
   // Sacred Library: season + favorites filters (additive, layered onto the
   // existing getFilteredItems pipeline -- General Library folder / folder
   // navigation / category filter all still work exactly as before).
@@ -70570,6 +70661,12 @@ var LiturgyModule = (function() {
   // pattern as season/favorites above. { mode:'category'|'tag'|'slides'|'external', value }
   var _libraryTagFilter = null;
   var LIBRARY_FILTER_MAP = {
+    'library':             { mode: 'all',        value: null, label: 'Library' },
+    // The liturgies that actually reach a projector. `projectable` is what
+    // the Worship Orders picker selects on, so this sidebar entry and that
+    // picker show the same 27 items -- which is the point: a liturgy you
+    // can find here is a liturgy you can put on the screen.
+    'liturgies':           { mode: 'projectable', value: null, label: 'Liturgies' },
     'scripture-readings': { mode: 'category', value: 'scripture', label: 'Scripture Readings' },
     'meditations':        { mode: 'tag',      value: 'content:meditations', label: 'Reflections & Meditations' },
     'exegesis':            { mode: 'tag',      value: 'exegesis', label: 'Exegesis Library' },
@@ -70622,8 +70719,26 @@ var LiturgyModule = (function() {
       return '<button type="button" class="lit-content-type-chip' + (active ? ' active' : '') + '" onclick="LiturgyModule.filterLibraryBySeason(\'' + s + '\')">' + SEASON_LABELS[s] + '</button>';
     }).join('');
     var favChip = '<button type="button" class="lit-content-type-chip lit-fav-chip' + (_libraryFavoritesOnly ? ' active' : '') + '" onclick="LiturgyModule.toggleLibraryFavoritesOnly()"><i class="fa-solid fa-star"></i> My Favorites</button>';
-    row.innerHTML = '<span class="lit-filter-row-label">Season:</span>' + seasonChips + '<span class="lit-filter-row-sep"></span>' + favChip;
+    // The content types that used to be their own sidebar rows. They are
+    // properties of an item, so they belong here beside the other filters
+    // rather than in the furniture.
+    var kindChips = LIBRARY_KIND_CHIPS.map(function(k) {
+      var def = LIBRARY_FILTER_MAP[k];
+      if (!def) return '';
+      var active = _libraryTagFilter && _libraryTagFilter.mode === def.mode && _libraryTagFilter.value === def.value;
+      return '<button type="button" class="lit-content-type-chip' + (active ? ' active' : '') +
+        '" onclick="LiturgyModule.openLibraryFilter(\'' + k + '\')">' + escapeHtml(def.label) + '</button>';
+    }).join('');
+    var allActive = !_libraryTagFilter || _libraryTagFilter.mode === 'all';
+    var allChip = '<button type="button" class="lit-content-type-chip' + (allActive ? ' active' : '') +
+      '" onclick="LiturgyModule.openLibraryFilter(\'library\')">All</button>';
+    row.innerHTML = '<span class="lit-filter-row-label">Show:</span>' + allChip + kindChips +
+      '<span class="lit-filter-row-sep"></span>' +
+      '<span class="lit-filter-row-label">Season:</span>' + seasonChips +
+      '<span class="lit-filter-row-sep"></span>' + favChip;
   }
+
+  var LIBRARY_KIND_CHIPS = ['liturgies', 'scripture-readings', 'meditations', 'exegesis', 'decor', 'presentation', 'links'];
   var liturgyFolders = {};
 
   // General Library — 6 fixed folders (separate from season storage)
@@ -70835,8 +70950,13 @@ var LiturgyModule = (function() {
     save: function(occasionId, data) {
       var sb = this._sb();
       if (!sb) return Promise.reject('No Supabase');
-      return sb.from('liturgy_occasion_data')
-        .upsert({ occasion_id: occasionId, data: data, updated_at: new Date().toISOString() }, { onConflict: 'occasion_id' });
+      // Wrapped: supabase-js hands back a THENABLE, not a Promise. It has
+      // .then but no .catch, so a caller attaching one directly throws a
+      // TypeError. Unwrapped this returned a real Promise on the failure
+      // path above and a thenable on the success path, so it would have
+      // broken only when Supabase was actually working.
+      return Promise.resolve(sb.from('liturgy_occasion_data')
+        .upsert({ occasion_id: occasionId, data: data, updated_at: new Date().toISOString() }, { onConflict: 'occasion_id' }));
     },
     loadAll: function() {
       var sb = this._sb();
@@ -70926,6 +71046,11 @@ var LiturgyModule = (function() {
       updateCategoryCounts();
       renderSidebarFolderTree();
       if (_currentOccasion) renderOccasionItems('');
+      // Memories lists the photographs and programmes too, and this is the
+      // load that brings them in -- it lands after the panel has painted, so
+      // without this the gallery stays empty until you navigate away and back.
+      var memPanel = document.getElementById('liturgyMemoriesPanel');
+      if (memPanel && memPanel.style.display !== 'none') renderMemories();
       console.log('LiturgyModule: loaded', liturgyItems.length, 'items from Supabase');
     }).catch(function(e) {
       console.warn('LiturgyModule: items load failed:', e);
@@ -71569,6 +71694,11 @@ var LiturgyModule = (function() {
       filtered = filtered.filter(function(item) {
         if (_libraryTagFilter.mode === 'category') return getCategoryForItem(item) === _libraryTagFilter.value;
         if (_libraryTagFilter.mode === 'tag') return (item.tags || []).indexOf(_libraryTagFilter.value) !== -1;
+        if (_libraryTagFilter.mode === 'all') return true;
+        if (_libraryTagFilter.mode === 'projectable') return !!item.projectable;
+        // Kept for the old Slide Library entry. The `slides` column is empty
+        // on every row, so this has always matched nothing -- use
+        // 'projectable' instead.
         if (_libraryTagFilter.mode === 'slides') return !!(item.slides && item.slides.length);
         if (_libraryTagFilter.mode === 'external') return item.storageProvider === 'external';
         return true;
@@ -74410,6 +74540,8 @@ var LiturgyModule = (function() {
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
+    var memPanel = document.getElementById('liturgyMemoriesPanel');
+    if (memPanel) memPanel.style.display = 'none';
     if (welcome)  welcome.style.display = '';
     if (occPanel) occPanel.style.display = 'none';
     if (libPanel) libPanel.style.display = 'none';
@@ -74420,108 +74552,461 @@ var LiturgyModule = (function() {
 
   function goToToday() { selectReadingDate(_todayISO()); }
 
+  // Where the dashboard opens.
+  //
+  // It used to open on today, and readings belong to services. Services are
+  // mostly Sundays, so on five days in seven "today" meant four empty cards
+  // and nothing to do -- the page looked broken on a Tuesday. It now opens on
+  // the next service the roster knows about, which on a Sunday is today.
+  //
+  // Falls back to today if the roster has nothing ahead, so a year that has
+  // not been filled in yet still lands somewhere sensible.
+  function _primeReadingDate() {
+    if (_readingDatePrimed) return Promise.resolve(_currentReadingDate);
+    _readingDatePrimed = true;
+    var today = _todayISO();
+    if (!_currentReadingDate) _currentReadingDate = today;
+    var year = +today.slice(0, 4);
+    return _serviceDatesFor(year).then(function(dates) {
+      var next = (dates || []).filter(function(d) { return d >= today; })[0];
+      if (next) { _currentReadingDate = next; return next; }
+      // Nothing left this year -- try the next one before giving up.
+      return _serviceDatesFor(year + 1).then(function(more) {
+        var n2 = (more || [])[0];
+        if (n2) _currentReadingDate = n2;
+        return _currentReadingDate;
+      });
+    }).catch(function() { return _currentReadingDate; });
+  }
+
   function selectReadingDate(dateStr) {
     _currentReadingDate = dateStr;
     renderReadingDateNav();
     renderReadingSlots();
   }
 
+  // One step of whatever is currently on screen: a day, a week, or a month.
+  // Stepping a month used to add 30 days, which drifts -- 31 January plus 30
+  // days is 2 March, and February never appeared at all.
   function changeReadingDate(dir) {
     var d = new Date(_currentReadingDate + 'T00:00:00');
-    var stepDays = _readingViewMode === 'day' ? 1 : _readingViewMode === 'week' ? 7 : 30;
-    d.setDate(d.getDate() + dir * stepDays);
+    if (_readingViewMode === 'month') {
+      // Anchor to the 1st first, or stepping from the 31st skips short months.
+      d = new Date(d.getFullYear(), d.getMonth() + dir, 1);
+    } else if (_readingViewMode === 'week') {
+      d.setDate(d.getDate() + dir * 7);
+    } else {
+      d.setDate(d.getDate() + dir);
+    }
     selectReadingDate(_isoFromDate(d));
   }
 
+  // Switching mode has to repaint the READINGS, not just the date label.
+  // Without that second call Day/Week/Month only changed how far the arrows
+  // jumped: the grid underneath kept showing one date, so Month looked
+  // identical to Day and seemed to do nothing.
   function setReadingViewMode(mode) {
+    if (_readingViewMode === mode) return;
     _readingViewMode = mode;
     renderReadingDateNav();
+    renderReadingSlots();
+  }
+
+  // The window a mode covers, as ISO bounds.
+  function _windowFor(dateStr, mode) {
+    var d = new Date(dateStr + 'T00:00:00');
+    if (mode === 'week') {
+      // Sunday to Saturday: a service week is the one built around its Sunday.
+      var s = new Date(d); s.setDate(d.getDate() - d.getDay());
+      var e = new Date(s); e.setDate(s.getDate() + 6);
+      return { from: _isoFromDate(s), to: _isoFromDate(e) };
+    }
+    if (mode === 'month') {
+      return {
+        from: _isoFromDate(new Date(d.getFullYear(), d.getMonth(), 1)),
+        to:   _isoFromDate(new Date(d.getFullYear(), d.getMonth() + 1, 0))
+      };
+    }
+    return { from: dateStr, to: dateStr };
+  }
+
+  function _windowLabel(dateStr, mode) {
+    var d = new Date(dateStr + 'T00:00:00');
+    if (mode === 'month') return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    if (mode === 'week') {
+      var w = _windowFor(dateStr, 'week');
+      var a = new Date(w.from + 'T00:00:00'), b = new Date(w.to + 'T00:00:00');
+      var aPart = a.getDate() + (a.getMonth() === b.getMonth() ? '' : ' ' + a.toLocaleDateString(undefined, { month: 'short' }));
+      return aPart + ' – ' + b.getDate() + ' ' + b.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    }
+    return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   }
 
   function renderReadingDateNav() {
     var nav = document.getElementById('lectionaryDateNav');
     if (!nav) return;
-    var d = new Date(_currentReadingDate + 'T00:00:00');
-    var dateLabel = d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     var modes = ['day', 'week', 'month'];
     nav.innerHTML =
       '<button class="lit-datenav-arrow" onclick="LiturgyModule.changeReadingDate(-1)" title="Previous"><i class="fa-solid fa-chevron-left"></i></button>' +
-      '<div class="lit-datenav-title">' + escapeHtml(dateLabel) + '</div>' +
+      '<div class="lit-datenav-title">' + escapeHtml(_windowLabel(_currentReadingDate, _readingViewMode)) + '</div>' +
       '<button class="lit-datenav-arrow" onclick="LiturgyModule.changeReadingDate(1)" title="Next"><i class="fa-solid fa-chevron-right"></i></button>' +
       '<div class="lit-datenav-modes">' +
         modes.map(function(m) {
-          return '<button class="' + (m === _readingViewMode ? 'active' : '') + '" onclick="LiturgyModule.setReadingViewMode(\'' + m + '\')">' + m.charAt(0).toUpperCase() + m.slice(1) + '</button>';
+          return '<button class="' + (m === _readingViewMode ? 'active' : '') + '" onclick="LiturgyModule.setReadingViewMode(\'' + m + '\')">' +
+            m.charAt(0).toUpperCase() + m.slice(1) + '</button>';
         }).join('') +
       '</div>';
+  }
+
+  function _serviceDatesFor(year) {
+    if (_serviceDatesCache[year]) return Promise.resolve(_serviceDatesCache[year]);
+    if (typeof SBQ_READINGS === 'undefined') return Promise.resolve([]);
+    return SBQ_READINGS.getServiceDates(year).then(function(d) {
+      _serviceDatesCache[year] = d || [];
+      return _serviceDatesCache[year];
+    }).catch(function(e) {
+      console.warn('LiturgyModule: service dates for ' + year + ' unavailable:', e && e.message);
+      return [];
+    });
+  }
+
+  // Every service date inside a window. A window can straddle new year, so
+  // both years are asked for rather than assuming one.
+  function _serviceDatesInWindow(w) {
+    var years = {};
+    years[w.from.slice(0, 4)] = true;
+    years[w.to.slice(0, 4)] = true;
+    return Promise.all(Object.keys(years).map(function(y) { return _serviceDatesFor(+y); }))
+      .then(function(lists) {
+        var out = [];
+        lists.forEach(function(l) {
+          (l || []).forEach(function(d) { if (d >= w.from && d <= w.to) out.push(d); });
+        });
+        return out.sort();
+      });
   }
 
   function renderReadingSlots() {
     var grid = document.getElementById('lectionaryReadingSlots');
     if (!grid) return;
-    var dateStr = _currentReadingDate;
-    if (_lectionaryReadingsCache[dateStr]) {
-      _renderReadingSlotsFromCache(dateStr);
+    var mode = _readingViewMode;
+    var w = _windowFor(_currentReadingDate, mode);
+    var key = w.from + '|' + w.to;
+
+    // Still the window on screen? Mode and date both have to match, or a
+    // slow request repaints a view the operator has already left.
+    var stillCurrent = function() {
+      if (_readingViewMode !== mode) return false;
+      var now = _windowFor(_currentReadingDate, _readingViewMode);
+      return now.from === w.from && now.to === w.to;
+    };
+
+    if (_readingsWindowCache[key] && _serviceMetaCache[key]) {
+      _serviceDatesInWindow(w).then(function(dates) {
+        if (stillCurrent()) _paintReadings(w, mode, _readingsWindowCache[key], _serviceMetaCache[key], dates);
+      });
       return;
     }
+
     grid.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Loading readings…</p></div>';
-    SBQ_LECTIONARY.loadReadingsForDate(dateStr).then(function(row) {
-      _lectionaryReadingsCache[dateStr] = (row && row.slots) || [];
-      if (_currentReadingDate === dateStr) _renderReadingSlotsFromCache(dateStr);
+    if (typeof SBQ_READINGS === 'undefined') {
+      grid.innerHTML = '<div class="liturgy-empty-state"><p>Readings are unavailable right now.</p></div>';
+      return;
+    }
+    Promise.all([
+      SBQ_READINGS.getRange(w.from, w.to),
+      SBQ_READINGS.getServiceMeta(w.from, w.to),
+      _serviceDatesInWindow(w)
+    ]).then(function(res) {
+      _readingsWindowCache[key] = res[0] || {};
+      _serviceMetaCache[key] = res[1] || {};
+      // Flattened for the passage reader, which needs a reference by date
+      // and slot without knowing which window it came from.
+      Object.keys(res[0] || {}).forEach(function(iso) { _readingRefsByDate[iso] = res[0][iso]; });
+      if (stillCurrent()) _paintReadings(w, mode, res[0] || {}, res[1] || {}, res[2] || []);
     }).catch(function(err) {
-      console.error('LiturgyModule: loadReadingsForDate failed', err);
-      _lectionaryReadingsCache[dateStr] = [];
-      if (_currentReadingDate === dateStr) _renderReadingSlotsFromCache(dateStr);
+      console.error('LiturgyModule: readings for ' + key + ' failed', err);
+      if (!stillCurrent()) return;
+      // A failure says so. Showing an empty grid would read as "no readings",
+      // which is the one thing it must not be mistaken for.
+      grid.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#dc2626;"></i>' +
+        '<p>Could not load the readings.</p>' +
+        '<p style="font-size:0.8rem;color:#9ca3af;">' + escapeHtml((err && err.message) || '') + '</p>' +
+        '<button class="lit-occ-add-item-btn" onclick="LiturgyModule.reloadReadings()">Try again</button></div>';
     });
   }
 
-  function _renderReadingSlotsFromCache(dateStr) {
+  // Drops the caches and repaints. Used by the retry button and after a write.
+  function reloadReadings() {
+    _readingsWindowCache = {};
+    _serviceMetaCache = {};
+    _serviceDatesCache = {};
+    renderReadingSlots();
+  }
+
+  function _paintReadings(w, mode, readings, meta, serviceDates) {
     var grid = document.getElementById('lectionaryReadingSlots');
     if (!grid) return;
-    var slots = _lectionaryReadingsCache[dateStr] || [];
-    grid.innerHTML = READING_SLOT_LABELS.map(function(label, idx) {
-      var slot = slots[idx];
-      if (slot && slot.reference) {
-        return '<div class="lit-reading-slot filled" onclick="LiturgyModule.openReadingSlotPicker(' + idx + ')">' +
-          '<div class="lit-reading-slot-label">' + escapeHtml(slot.label || label) + '</div>' +
-          '<div class="lit-reading-slot-ref">' + escapeHtml(slot.reference) + '</div>' +
+    // Day puts four slots straight into this container, so it is the grid.
+    // Week and Month put whole services in it, each carrying its own grid,
+    // so here it has to be a plain stack.
+    grid.className = (mode === 'day') ? 'lit-reading-slots-grid' : 'lit-reading-slots-stack';
+
+    // Which dates get a card: every service in the window, plus any date that
+    // carries readings even if the roster has no other row for it.
+    var seen = {};
+    (serviceDates || []).forEach(function(d) { seen[d] = true; });
+    Object.keys(readings || {}).forEach(function(d) { seen[d] = true; });
+    var dates = Object.keys(seen).sort();
+
+    if (mode === 'day') {
+      // Day view always shows the four slots, service or not: this is where a
+      // reading gets added to a date the roster does not know about yet.
+      grid.innerHTML = _readingSlotRow(_currentReadingDate, readings[_currentReadingDate] || {});
+      _paintDayContext(meta[_currentReadingDate], dates);
+      return;
+    }
+
+    if (!dates.length) {
+      grid.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-calendar-xmark"></i>' +
+        '<p>No services in this ' + (mode === 'week' ? 'week' : 'month') + '.</p></div>';
+      _paintDayContext(null, []);
+      return;
+    }
+
+    grid.innerHTML = dates.map(function(iso) {
+      return '<div class="lit-svc-block">' +
+          _serviceHeader(iso, meta[iso]) +
+          '<div class="lit-reading-slots-grid">' + _readingSlotRow(iso, readings[iso] || {}) + '</div>' +
         '</div>';
-      }
-      return '<div class="lit-reading-slot empty" onclick="LiturgyModule.openReadingSlotPicker(' + idx + ')">' +
-        '<div class="lit-reading-slot-label">' + escapeHtml(label) + '</div>' +
-        '<div class="lit-reading-slot-ref"><i class="fa-solid fa-plus mr-1"></i>Add reading</div>' +
+    }).join('');
+    _paintDayContext(null, []);
+  }
+
+  // In Day view the liturgical day sits under the date nav rather than on a
+  // per-service header, because there is only one service on screen.
+  function _paintDayContext(m, dates) {
+    var el = document.getElementById('lectionaryDayContext');
+    if (!el) return;
+    if (_readingViewMode !== 'day') { el.innerHTML = ''; return; }
+    var bits = [];
+    if (m && m.day) {
+      var col = ALTAR_COLORS[String(m.color || '').toLowerCase()] || '#94a3b8';
+      bits.push('<span class="lit-altar-dot" style="background:' + col + '"></span>' +
+        '<span class="lit-day-name">' + escapeHtml(m.day) + '</span>' +
+        (m.color ? '<span class="lit-altar-name">' + escapeHtml(m.color) + '</span>' : ''));
+    }
+    var isService = (dates || []).indexOf(_currentReadingDate) !== -1;
+    if (!isService) {
+      bits.push('<span class="lit-day-note">Not a service date — anything added here is still saved to the roster.</span>');
+    }
+    el.innerHTML = bits.join('');
+  }
+
+  function _serviceHeader(iso, m) {
+    var d = new Date(iso + 'T00:00:00');
+    var when = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+    var col = ALTAR_COLORS[String((m && m.color) || '').toLowerCase()] || '#94a3b8';
+    return '<div class="lit-svc-head">' +
+        '<button type="button" class="lit-svc-date" onclick="LiturgyModule.openReadingDay(' + "'" + iso + "'" + ')" title="Open this service on its own">' +
+          escapeHtml(when) + '</button>' +
+        ((m && m.day) ? '<span class="lit-altar-dot" style="background:' + col + '"></span>' +
+          '<span class="lit-day-name">' + escapeHtml(m.day) + '</span>' : '') +
+        ((m && m.serviceType) ? '<span class="lit-svc-type">' + escapeHtml(m.serviceType) + '</span>' : '') +
       '</div>';
+  }
+
+  // Jump from a week/month row into that single service.
+  function openReadingDay(iso) {
+    _readingViewMode = 'day';
+    selectReadingDate(iso);
+  }
+
+  function _readingSlotRow(iso, refs) {
+    return SBQ_READINGS.SLOTS.map(function(slot, idx) {
+      return _readingSlotCard(iso, idx, refs[slot.role]);
     }).join('');
   }
 
-  function openReadingSlotPicker(idx) {
+  function _readingSlotCard(iso, idx, ref) {
+    var label = READING_SLOT_LABELS[idx] || 'Reading';
+    var openPicker = 'LiturgyModule.openReadingSlotPicker(' + idx + ",'" + iso + "')";
+    if (ref) {
+      return '<div class="lit-reading-slot filled" role="button" tabindex="0" ' +
+          'onclick="LiturgyModule.openPassage(' + "'" + iso + "'" + ',' + idx + ')" ' +
+          'onkeydown="if(event.key===' + "'" + 'Enter' + "'" + '){LiturgyModule.openPassage(' + "'" + iso + "'" + ',' + idx + ')}" ' +
+          'title="Read ' + escapeHtml(ref) + '">' +
+          '<div class="lit-reading-slot-label">' + escapeHtml(label) + '</div>' +
+          '<div class="lit-reading-slot-ref">' + escapeHtml(ref) + '</div>' +
+          '<button type="button" class="lit-reading-slot-edit" title="Change this reading" ' +
+            'onclick="event.stopPropagation();' + openPicker + '"><i class="fa-solid fa-pen"></i></button>' +
+        '</div>';
+    }
+    return '<div class="lit-reading-slot empty" role="button" tabindex="0" onclick="' + openPicker + '">' +
+        '<div class="lit-reading-slot-label">' + escapeHtml(label) + '</div>' +
+        '<div class="lit-reading-slot-ref"><i class="fa-solid fa-plus mr-1"></i>Add reading</div>' +
+      '</div>';
+  }
+
+  // Kept for the Auto-Fill save path, which repaints by date after writing.
+  function _renderReadingSlotsFromCache(dateStr) {
+    if (dateStr && dateStr !== _currentReadingDate) return;
+    reloadReadings();
+  }
+
+  // Picking a reading. The date is passed explicitly so a week or month view
+  // can edit any service on screen, not only the one the nav happens to be on.
+  function openReadingSlotPicker(idx, iso) {
     _lectionaryPickerSlotIndex = idx;
+    _lectionaryPickerDate = iso || _currentReadingDate;
     openBibleBrowser('lectionary-slot', null, null);
   }
 
+  // Saving from the Bible Browser writes the ROSTER, because that is where
+  // readings live. The fetched text is kept per reference in memory so
+  // reopening it does not go back to the API.
   function bbSaveToLectionarySlot() {
     if (!bbState.passage || _lectionaryPickerSlotIndex === null) return;
     var idx = _lectionaryPickerSlotIndex;
-    var dateStr = _currentReadingDate;
-    var slotData = {
-      label: READING_SLOT_LABELS[idx] || 'Reading',
-      reference: bbState.passage.reference || '',
+    var dateStr = _lectionaryPickerDate || _currentReadingDate;
+    var reference = bbState.passage.reference || '';
+    _passageTextCache[bbNormaliseReference(reference)] = {
+      reference: reference,
       translation: bbState.passage.translation || '',
-      passageText: bbState.passage.text || '',
-      verseCount: bbState.passage.verseCount || 0
+      text: bbState.passage.text || '',
+      note: bbState.passage.note || ''
     };
-    SBQ_LECTIONARY.saveSlot(dateStr, idx, slotData).then(function(slots) {
-      _lectionaryReadingsCache[dateStr] = slots;
-      if (_currentReadingDate === dateStr) _renderReadingSlotsFromCache(dateStr);
+    SBQ_READINGS.setReference(dateStr, idx, reference).then(function() {
+      reloadReadings();
       closeBibleBrowser();
-      if (typeof showToast === 'function') showToast('Reading saved', 'success');
+      if (typeof showToast === 'function') showToast('Reading saved to the roster', 'success');
     }).catch(function(err) {
-      console.error('LiturgyModule: saveSlot failed', err);
+      console.error('LiturgyModule: setReference failed', err);
       if (typeof showToast === 'function') showToast('Could not save reading: ' + err.message, 'error');
     });
   }
 
+  // Clicking a reading opens the reading ──────────────────
+  //
+  // It used to open the Bible PICKER -- the same dialog an empty slot opens --
+  // so the obvious thing to do with a reading that is already there, read it,
+  // was the one thing the card would not do.
+  var _passageReader = { iso: null, idx: null };
+
+  function openPassage(iso, idx) {
+    _passageReader = { iso: iso, idx: idx };
+    _buildPassageReader();
+    _loadPassageIntoReader();
+  }
+
+  function closePassageReader() {
+    var m = document.getElementById('passageReaderModal');
+    if (m) m.remove();
+  }
+
+  // Move between the four readings of one service without closing the reader.
+  function passageReaderStep(dir) {
+    var refs = _readingRefsByDate[_passageReader.iso] || {};
+    var n = SBQ_READINGS.SLOTS.length;
+    for (var step = 1; step <= n; step++) {
+      var i = (_passageReader.idx + dir * step + n * step) % n;
+      if (refs[SBQ_READINGS.SLOTS[i].role]) {
+        _passageReader.idx = i;
+        _loadPassageIntoReader();
+        return;
+      }
+    }
+  }
+
+  function _buildPassageReader() {
+    closePassageReader();
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="passageReaderModal" class="modal show" onclick="if(event.target===this)LiturgyModule.closePassageReader()">' +
+        '<div class="modal-content passage-reader-modal">' +
+          '<div class="modal-header">' +
+            '<h2 id="passageReaderTitle"><i class="fa-solid fa-book-open mr-2"></i> Reading</h2>' +
+            '<button class="modal-close" onclick="LiturgyModule.closePassageReader()">&times;</button>' +
+          '</div>' +
+          '<div class="passage-reader-body" id="passageReaderBody"></div>' +
+          '<div class="passage-reader-foot" id="passageReaderFoot"></div>' +
+        '</div>' +
+      '</div>');
+  }
+
+  function _loadPassageIntoReader() {
+    var iso = _passageReader.iso, idx = _passageReader.idx;
+    var slot = SBQ_READINGS.SLOTS[idx];
+    var refs = _readingRefsByDate[iso] || {};
+    var reference = (slot && refs[slot.role]) || '';
+    var body = document.getElementById('passageReaderBody');
+    var title = document.getElementById('passageReaderTitle');
+    var foot = document.getElementById('passageReaderFoot');
+    if (!body) return;
+
+    var d = new Date(iso + 'T00:00:00');
+    var when = d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    if (title) {
+      title.innerHTML = '<i class="fa-solid fa-book-open mr-2"></i> ' +
+        escapeHtml((slot && slot.label) || 'Reading') +
+        '<span class="passage-reader-when">' + escapeHtml(when) + '</span>';
+    }
+
+    var filled = SBQ_READINGS.SLOTS.filter(function(s) { return refs[s.role]; }).length;
+    if (foot) {
+      foot.innerHTML =
+        (filled > 1
+          ? '<button class="modal-btn modal-btn-secondary" onclick="LiturgyModule.passageReaderStep(-1)"><i class="fa-solid fa-chevron-left mr-1"></i>Previous</button>' +
+            '<button class="modal-btn modal-btn-secondary" onclick="LiturgyModule.passageReaderStep(1)">Next<i class="fa-solid fa-chevron-right ml-1"></i></button>'
+          : '') +
+        '<button class="modal-btn modal-btn-secondary" onclick="LiturgyModule.openReadingSlotPicker(' + idx + ',' + "'" + iso + "'" + ')"><i class="fa-solid fa-pen mr-1"></i>Change</button>' +
+        '<button class="modal-btn modal-btn-primary" onclick="LiturgyModule.closePassageReader()">Done</button>';
+    }
+
+    if (!reference) {
+      body.innerHTML = '<div class="bible-passage-hint">Nothing is set for this reading yet.</div>';
+      return;
+    }
+
+    var key = bbNormaliseReference(reference);
+    var hit = _passageTextCache[key];
+    if (hit) { _paintPassage(body, reference, hit); return; }
+
+    // A reading that reads like a heading rather than a reference -- the
+    // scripture rows carry things like "Gospel Response" -- has no passage to
+    // fetch, and asking for one returns a confusing error.
+    if (!bbLooksLikeReference(reference)) {
+      body.innerHTML = '<div class="bible-passage-reference">' + escapeHtml(reference) + '</div>' +
+        '<div class="bible-passage-hint">This is not a passage reference, so there is nothing to look up.</div>';
+      return;
+    }
+
+    body.innerHTML = '<div class="bible-passage-loading"><i class="fa-solid fa-spinner fa-spin"></i> Loading ' + escapeHtml(reference) + '…</div>';
+    _fetchBiblePassagePromise(reference, 'esv').then(function(res) {
+      // Still the same reading? The reader can be stepped while this is out.
+      if (_passageReader.iso !== iso || _passageReader.idx !== idx) return;
+      if (!res || res.error) {
+        body.innerHTML = '<div class="bible-passage-reference">' + escapeHtml(reference) + '</div>' +
+          '<div class="bible-passage-error"><i class="fa-solid fa-exclamation-circle mr-1"></i> ' +
+          escapeHtml((res && res.error) || 'Could not load this passage.') + '</div>';
+        return;
+      }
+      _passageTextCache[key] = res;
+      _paintPassage(body, reference, res);
+    });
+  }
+
+  function _paintPassage(body, reference, res) {
+    // Verse numbers arrive as [12] and are shown as superscripts, the same way
+    // the Bible Browser shows them.
+    var text = escapeHtml(res.text || '').replace(/\[(\d+)\]/g, '<sup class="bible-verse-num">$1</sup>');
+    body.innerHTML =
+      '<div class="bible-passage-reference">' + escapeHtml(res.reference || reference) + '</div>' +
+      '<div class="bible-passage-translation">' + escapeHtml(res.translation || '') + '</div>' +
+      (res.note ? '<div class="bible-passage-note"><i class="fa-solid fa-circle-info"></i> ' + escapeHtml(res.note) + '</div>' : '') +
+      '<div class="bible-passage-text">' + text + '</div>';
+  }
+
   function renderLectionaryHome() {
-    if (!_currentReadingDate) _currentReadingDate = _todayISO();
     var container = document.getElementById('lectionaryHomeView');
     if (!container) return;
     container.innerHTML =
@@ -74529,8 +75014,8 @@ var LiturgyModule = (function() {
         '<div class="lit-welcome-header-inner">' +
           '<div class="lit-welcome-cross-icon"><i class="fa-solid fa-book-bible"></i></div>' +
           '<div>' +
-            '<h1 class="font-cinzel" style="font-size:1.5rem;font-weight:700;margin:0 0 4px;color:white;">Lectionary Reading</h1>' +
-            '<p style="margin:0;opacity:0.85;font-size:0.9rem;font-style:italic;color:white;">Seek, study, and respond to God&#39;s Word</p>' +
+            '<h1 class="font-cinzel" style="font-size:1.5rem;font-weight:700;margin:0 0 4px;color:white;">Readings</h1>' +
+            '<p style="margin:0;opacity:0.85;font-size:0.9rem;font-style:italic;color:white;">What the church is hearing, service by service</p>' +
           '</div>' +
         '</div>' +
         '<div class="lit-welcome-actions">' +
@@ -74539,33 +75024,23 @@ var LiturgyModule = (function() {
           '</button>' +
         '</div>' +
       '</div>' +
-      '<div class="lit-year-strip lit-year-strip-readonly">' +
-        LIT_SEASON_STRIP.map(function(s) {
-          return '<div class="lit-year-season ' + s.cls + '"><i class="fa-solid ' + s.icon + '"></i><span>' + s.label + '</span></div>';
-        }).join('') +
-      '</div>' +
       '<div class="lit-lectionary-body">' +
         '<div id="lectionaryDateNav" class="lit-reading-datenav"></div>' +
+        '<div id="lectionaryDayContext" class="lit-day-context"></div>' +
         '<div class="lit-reading-slots-panel">' +
           '<div class="lit-reading-slots-header">' +
-            '<h2 class="lit-occ-group-title" style="margin-bottom:0;"><i class="fa-solid fa-book-open mr-2" style="color:#7c3aed;"></i>This Week&#39;s Readings</h2>' +
+            '<h2 class="lit-occ-group-title" style="margin-bottom:0;"><i class="fa-solid fa-book-open mr-2" style="color:#7c3aed;"></i>Readings</h2>' +
             '<button type="button" class="lit-occ-add-item-btn" onclick="LiturgyModule.openLectionaryUploadModal()"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Auto-Fill from Bulletin</button>' +
           '</div>' +
           '<div id="lectionaryReadingSlots" class="lit-reading-slots-grid"></div>' +
         '</div>' +
-        '<div class="lit-reading-engage-panel">' +
-          '<h2 class="lit-occ-group-title"><i class="fa-solid fa-hand-holding-heart mr-2" style="color:#7c3aed;"></i>How would you like to engage?</h2>' +
-          '<div class="lit-engage-grid">' +
-            '<div class="lit-engage-card" onclick="LiturgyModule.showAllServices()">' +
-              '<div class="lit-engage-card-icon" style="background:rgba(124,58,237,0.12);color:#7c3aed;"><i class="fa-solid fa-music"></i></div>' +
-              '<div class="lit-engage-card-title">Worship Planning</div>' +
-              '<div class="lit-engage-card-desc">Find songs and plan worship elements</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
       '</div>';
     renderReadingDateNav();
-    renderReadingSlots();
+    // The opening date depends on the roster, so the first paint waits for it.
+    _primeReadingDate().then(function() {
+      renderReadingDateNav();
+      renderReadingSlots();
+    });
   }
 
   // ── AI-assisted "Auto-Fill from Bulletin" upload ──────────────────────
@@ -74798,6 +75273,8 @@ var LiturgyModule = (function() {
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
+    var memPanel = document.getElementById('liturgyMemoriesPanel');
+    if (memPanel) memPanel.style.display = 'none';
     if (!occasionId) {
       if (welcome)  welcome.style.display = '';
       if (occPanel) occPanel.style.display = 'none';
@@ -76328,6 +76805,8 @@ var LiturgyModule = (function() {
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
+    var memPanel = document.getElementById('liturgyMemoriesPanel');
+    if (memPanel) memPanel.style.display = 'none';
     if (welcome)  welcome.style.display = 'none';
     if (occPanel) occPanel.style.display = 'none';
     if (libPanel) libPanel.style.display = '';
@@ -76364,6 +76843,8 @@ var LiturgyModule = (function() {
     var welcome  = document.getElementById('liturgyWelcome');
     var occPanel = document.getElementById('liturgyOccasionPanel');
     var libPanel = document.getElementById('liturgyLibraryPanel');
+    var memPanel = document.getElementById('liturgyMemoriesPanel');
+    if (memPanel) memPanel.style.display = 'none';
     if (welcome)  welcome.style.display = 'none';
     if (occPanel) occPanel.style.display = 'none';
     if (libPanel) libPanel.style.display = '';
@@ -76372,6 +76853,359 @@ var LiturgyModule = (function() {
     renderLibraryFilterRow();
     renderItems();
     updateCategoryCounts();
+  }
+
+  /* ===== MEMORIES ────────────────────────────────────────────────────── */
+  //
+  // The planning notes were already here. Nine real ones, about real services
+  // -- which preachers took which of the seven last words, the year CCLC
+  // joined us, the Taize that opened Good Friday. They sat inside folders that
+  // carry no name field at all, and the occasion panel renders folders by
+  // name, so unnamed folders rendered as nothing and everything inside them
+  // was unreachable. Good Friday showed "No notes yet for this service" above
+  // six paragraphs about Good Friday.
+  //
+  // So this view does not render the folder layer. It reads every note out of
+  // every occasion, labels each with the service it belongs to and when it was
+  // written, and shows the newest first. The folders stay exactly where they
+  // are in storage -- a note is written back to the folder it came from -- but
+  // they stop being something anyone has to navigate.
+  var _memFilter = null;        // null = every service
+  var _memCache = null;         // the raw occasion data, as loaded
+  var _memEditing = null;       // { occasionId, folderId, noteId }, or null for a new one
+
+  function openMemories() {
+    _currentOccasion = null;
+    _currentGeneralFolder = null;
+    document.querySelectorAll('.lit-nav-occ-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-libfilter') === 'memories');
+    });
+    document.querySelectorAll('.lit-gen-folder-btn').forEach(function(btn) { btn.classList.remove('active'); });
+    var welcome  = document.getElementById('liturgyWelcome');
+    var occPanel = document.getElementById('liturgyOccasionPanel');
+    var libPanel = document.getElementById('liturgyLibraryPanel');
+    var memPanel = document.getElementById('liturgyMemoriesPanel');
+    if (welcome)  welcome.style.display = 'none';
+    if (occPanel) occPanel.style.display = 'none';
+    if (libPanel) libPanel.style.display = 'none';
+    if (memPanel) memPanel.style.display = '';
+    loadMemories();
+  }
+
+  // Supabase is the authority. localStorage is its synced mirror and is what
+  // the rest of this page reads, so a failed load still shows the notes rather
+  // than an empty screen that reads as "you never wrote any".
+  function _allOccasionData() {
+    if (typeof SBQ_OCC_DATA === 'undefined') return Promise.resolve(_localOccasionData());
+    return SBQ_OCC_DATA.loadAll().then(function(d) {
+      return (d && Object.keys(d).length) ? d : _localOccasionData();
+    }).catch(function(e) {
+      console.warn('Memories: cloud load failed, showing the local copy:', e && e.message);
+      return _localOccasionData();
+    });
+  }
+
+  function _localOccasionData() {
+    try { return JSON.parse(localStorage.getItem(OCCASION_DATA_KEY) || '{}'); }
+    catch (e) { return {}; }
+  }
+
+  // Every note in the building, wherever it was filed.
+  function _flattenMemories(all) {
+    var out = [];
+    var label = {};
+    OCCASIONS.forEach(function(o) { label[o.id] = o.label; });
+    Object.keys(all || {}).forEach(function(occId) {
+      var d = all[occId] || {};
+      var push = function(note, folderId) {
+        if (!note) return;
+        var text = (typeof note === 'string') ? note : (note.text || '');
+        // An empty sticky note is not a memory.
+        if (!String(text).trim()) return;
+        out.push({
+          id: (note && note.id) || '',
+          occasionId: occId,
+          occasionLabel: label[occId] || occId,
+          folderId: folderId || '',
+          text: String(text),
+          color: (note && note.color) || '#fef9c3',
+          when: (note && (note.modified || note.created)) || 0
+        });
+      };
+      (d.planningNotes || []).forEach(function(n) { push(n, ''); });
+      Object.keys(d.folders || {}).forEach(function(fid) {
+        ((d.folders[fid] || {}).planningNotes || []).forEach(function(n) { push(n, fid); });
+      });
+    });
+    return out.sort(function(a, b) { return b.when - a.when; });
+  }
+
+  // Photographs, programmes and anything else filed as media.
+  function _memoryMedia() {
+    // liturgyItems, not getAllItems() -- that one only exists on the module's
+    // public object, so inside here the name is undefined and a typeof guard
+    // on it quietly returns nothing at all.
+    return (liturgyItems || []).filter(function(i) {
+      return i.generalFolder === 'gen-media' || i.category === 'media';
+    });
+  }
+
+  function loadMemories() {
+    var body = document.getElementById('memoriesBody');
+    if (body && !_memCache) {
+      body.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Looking through the records…</p></div>';
+    }
+    return _allOccasionData().then(function(all) {
+      _memCache = all || {};
+      renderMemories();
+      return _memCache;
+    });
+  }
+
+  function filterMemories(occId) {
+    _memFilter = (_memFilter === occId) ? null : occId;
+    renderMemories();
+  }
+
+  function _memWhen(ms) {
+    if (!ms) return '';
+    var d = new Date(+ms);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function renderMemories() {
+    var body = document.getElementById('memoriesBody');
+    var filterRow = document.getElementById('memoriesFilterRow');
+    if (!body) return;
+    var notes = _flattenMemories(_memCache || {});
+    var media = _memoryMedia();
+
+    if (filterRow) {
+      // Only services that actually hold something get a chip. A filter that
+      // leads to an empty screen is not a filter, it is a dead end.
+      var counts = {};
+      var labels = {};
+      notes.forEach(function(n) {
+        counts[n.occasionId] = (counts[n.occasionId] || 0) + 1;
+        labels[n.occasionId] = n.occasionLabel;
+      });
+      var ids = Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; });
+      filterRow.innerHTML = ids.length
+        ? '<span class="lit-filter-row-label">Service:</span>' +
+          '<button type="button" class="lit-content-type-chip' + (_memFilter ? '' : ' active') +
+            '" onclick="LiturgyModule.filterMemories(null)">All · ' + notes.length + '</button>' +
+          ids.map(function(id) {
+            return '<button type="button" class="lit-content-type-chip' + (_memFilter === id ? ' active' : '') +
+              '" onclick="LiturgyModule.filterMemories(\'' + id + '\')">' +
+              escapeHtml(labels[id] || id) + ' · ' + counts[id] + '</button>';
+          }).join('')
+        : '';
+    }
+
+    var shown = _memFilter ? notes.filter(function(n) { return n.occasionId === _memFilter; }) : notes;
+
+    if (!shown.length && !media.length) {
+      body.innerHTML = '<div class="liturgy-empty-state"><i class="fa-solid fa-camera-retro"></i>' +
+        '<p>Nothing recorded yet.</p>' +
+        '<p style="font-size:0.82rem;color:#9ca3af;">How a service went, and photographs of it, belong here.</p></div>';
+      return;
+    }
+
+    var html = '';
+
+    if (shown.length) {
+      html += '<div class="lit-mem-grid">' + shown.map(function(n) {
+        var when = _memWhen(n.when);
+        return '<article class="lit-mem-note" style="background:' + escapeHtml(n.color) + ';">' +
+            '<header class="lit-mem-note-head">' +
+              '<span class="lit-mem-note-occ">' + escapeHtml(n.occasionLabel) + '</span>' +
+              (when ? '<span class="lit-mem-note-when">' + escapeHtml(when) + '</span>' : '') +
+            '</header>' +
+            '<div class="lit-mem-note-text">' + escapeHtml(n.text) + '</div>' +
+            '<footer class="lit-mem-note-foot">' +
+              '<button type="button" class="lit-mem-note-btn" title="Edit this note" onclick="LiturgyModule.openMemoryEditor(' +
+                '\'' + n.occasionId + '\',\'' + n.folderId + '\',\'' + n.id + '\')">' +
+                '<i class="fa-solid fa-pen"></i> Edit</button>' +
+            '</footer>' +
+          '</article>';
+      }).join('') + '</div>';
+    } else {
+      html += '<div class="liturgy-empty-state" style="padding:20px;"><p>No notes for this service yet.</p></div>';
+    }
+
+    if (media.length && !_memFilter) {
+      html += '<h2 class="lit-occ-group-title" style="margin:26px 0 12px;">' +
+        '<i class="fa-solid fa-images mr-2" style="color:#10b981;"></i>Photographs &amp; programmes</h2>' +
+        '<div class="lit-mem-media-grid">' + media.map(function(m) {
+          var url = m.fileUrl || m.lyricsUrl || '';
+          var isImg = /\.(png|jpe?g|gif|webp|avif)(\?|$)/i.test(url);
+          return '<a class="lit-mem-media" href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' +
+              (isImg
+                ? '<img src="' + escapeHtml(url) + '" alt="" loading="lazy">'
+                : '<span class="lit-mem-media-icon"><i class="fa-solid fa-file-lines"></i></span>') +
+              '<span class="lit-mem-media-name">' + escapeHtml(m.title || m.fileName || 'Untitled') + '</span>' +
+            '</a>';
+        }).join('') + '</div>';
+    }
+
+    body.innerHTML = html;
+  }
+
+  // ---- Writing one back -----------------------------------------------
+  //
+  // A note is saved to exactly where it came from, folder and all. The folder
+  // layer is hidden, not removed: rewriting the storage would be a migration,
+  // and a migration that loses one paragraph about Good Friday 2024 is worse
+  // than a folder nobody can see.
+  function openMemoryEditor(occasionId, folderId, noteId) {
+    _memEditing = occasionId
+      ? { occasionId: occasionId, folderId: folderId || '', noteId: noteId || '' }
+      : null;
+    var existing = '';
+    if (_memEditing) {
+      var found = _flattenMemories(_memCache || {}).filter(function(n) {
+        return n.occasionId === _memEditing.occasionId &&
+               n.folderId === _memEditing.folderId &&
+               n.id === _memEditing.noteId;
+      })[0];
+      existing = found ? found.text : '';
+    }
+    var occOptions = OCCASIONS.map(function(o) {
+      var sel = (_memEditing && _memEditing.occasionId === o.id) ? ' selected' : '';
+      return '<option value="' + o.id + '"' + sel + '>' + escapeHtml(o.label) + '</option>';
+    }).join('');
+
+    var old = document.getElementById('memoryEditorModal');
+    if (old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="memoryEditorModal" class="modal show" onclick="if(event.target===this)LiturgyModule.closeMemoryEditor()">' +
+        '<div class="modal-content" style="max-width:560px;width:100%;">' +
+          '<div class="modal-header">' +
+            '<h2><i class="fa-solid fa-camera-retro mr-2"></i> ' + (_memEditing ? 'Edit note' : 'Add a note') + '</h2>' +
+            '<button class="modal-close" onclick="LiturgyModule.closeMemoryEditor()">&times;</button>' +
+          '</div>' +
+          '<div style="padding:20px 24px;">' +
+            '<label class="lit-mem-label">Service</label>' +
+            '<select id="memEditorOcc" class="liturgy-form-input" style="width:100%;margin-bottom:14px;"' +
+              (_memEditing ? ' disabled' : '') + '>' + occOptions + '</select>' +
+            '<label class="lit-mem-label">What happened, and what is worth remembering</label>' +
+            '<textarea id="memEditorText" class="liturgy-form-input" rows="8" style="width:100%;resize:vertical;">' +
+              escapeHtml(existing) + '</textarea>' +
+            '<div id="memEditorError" class="bible-passage-error" style="display:none;margin-top:12px;"></div>' +
+          '</div>' +
+          '<div class="bible-browser-actions" style="padding:0 24px 20px;">' +
+            (_memEditing
+              ? '<button class="modal-btn modal-btn-secondary" style="margin-right:auto;color:#dc2626;" onclick="LiturgyModule.deleteMemoryNote()">Delete</button>'
+              : '') +
+            '<button class="modal-btn modal-btn-secondary" onclick="LiturgyModule.closeMemoryEditor()">Cancel</button>' +
+            '<button class="modal-btn modal-btn-primary" id="memEditorSave" onclick="LiturgyModule.saveMemoryNote()">Save</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>');
+    var ta = document.getElementById('memEditorText');
+    if (ta) ta.focus();
+  }
+
+  function closeMemoryEditor() {
+    var m = document.getElementById('memoryEditorModal');
+    if (m) m.remove();
+    _memEditing = null;
+  }
+
+  // Finds the array a note lives in, so an edit goes back exactly where it
+  // came from rather than to a tidier place of this function's choosing.
+  function _memNoteHome(data, folderId) {
+    if (!folderId) {
+      if (!Array.isArray(data.planningNotes)) data.planningNotes = [];
+      return data.planningNotes;
+    }
+    if (!data.folders) data.folders = {};
+    if (!data.folders[folderId]) data.folders[folderId] = {};
+    var f = data.folders[folderId];
+    if (!Array.isArray(f.planningNotes)) f.planningNotes = [];
+    return f.planningNotes;
+  }
+
+  function saveMemoryNote() {
+    var errEl = document.getElementById('memEditorError');
+    var btn = document.getElementById('memEditorSave');
+    var text = (document.getElementById('memEditorText') || {}).value || '';
+    if (!String(text).trim()) {
+      if (errEl) { errEl.textContent = 'Write something first.'; errEl.style.display = 'block'; }
+      return;
+    }
+    var occId = _memEditing
+      ? _memEditing.occasionId
+      : ((document.getElementById('memEditorOcc') || {}).value || '');
+    if (!occId) {
+      if (errEl) { errEl.textContent = 'Choose which service this belongs to.'; errEl.style.display = 'block'; }
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving…'; }
+
+    // Re-read before writing. The whole occasion row is upserted, so writing
+    // from a stale copy would drop anything saved since this view loaded.
+    _allOccasionData().then(function(all) {
+      var data = all[occId] || {};
+      var home = _memNoteHome(data, _memEditing ? _memEditing.folderId : '');
+      var now = Date.now();
+      if (_memEditing && _memEditing.noteId) {
+        var hit = home.filter(function(n) { return n && n.id === _memEditing.noteId; })[0];
+        if (hit) { hit.text = text; hit.modified = now; }
+        else home.push({ id: 'note-' + now, text: text, color: '#fef9c3', created: now, modified: now });
+      } else {
+        home.push({ id: 'note-' + now, text: text, color: '#fef9c3', created: now, modified: now });
+      }
+      all[occId] = data;
+      return _persistOccasion(occId, data).then(function() {
+        _memCache = all;
+        closeMemoryEditor();
+        renderMemories();
+        if (typeof showToast === 'function') showToast('Saved', 'success');
+      });
+    }).catch(function(e) {
+      if (errEl) { errEl.textContent = (e && e.message) || String(e); errEl.style.display = 'block'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    });
+  }
+
+  function deleteMemoryNote() {
+    if (!_memEditing || !_memEditing.noteId) return;
+    var target = _memEditing;
+    _allOccasionData().then(function(all) {
+      var data = all[target.occasionId] || {};
+      var home = _memNoteHome(data, target.folderId);
+      var keep = home.filter(function(n) { return !n || n.id !== target.noteId; });
+      if (target.folderId) data.folders[target.folderId].planningNotes = keep;
+      else data.planningNotes = keep;
+      all[target.occasionId] = data;
+      return _persistOccasion(target.occasionId, data).then(function() {
+        _memCache = all;
+        closeMemoryEditor();
+        renderMemories();
+        if (typeof showToast === 'function') showToast('Note removed', 'success');
+      });
+    }).catch(function(e) {
+      if (typeof showToast === 'function') showToast('Could not remove it: ' + ((e && e.message) || e), 'error');
+    });
+  }
+
+  // Cloud first, then the local mirror -- in that order, so a write that the
+  // server refuses does not leave localStorage claiming it succeeded.
+  function _persistOccasion(occId, data) {
+    var toLocal = function() {
+      try {
+        var local = _localOccasionData();
+        local[occId] = data;
+        localStorage.setItem(OCCASION_DATA_KEY, JSON.stringify(local));
+      } catch (e) {}
+    };
+    if (typeof SBQ_OCC_DATA === 'undefined') { toLocal(); return Promise.resolve(); }
+    return Promise.resolve(SBQ_OCC_DATA.save(occId, data)).then(function(r) {
+      if (r && r.error) throw new Error(r.error.message);
+      toLocal();
+    });
   }
 
   /* ========== MOVE TO FOLDER MODAL (425) ========== */
@@ -76689,12 +77523,25 @@ var LiturgyModule = (function() {
     setReadingViewMode: setReadingViewMode,
     openReadingSlotPicker: openReadingSlotPicker,
     bbSaveToLectionarySlot: bbSaveToLectionarySlot,
+    openPassage: openPassage,
+    closePassageReader: closePassageReader,
+    passageReaderStep: passageReaderStep,
+    openReadingDay: openReadingDay,
+    reloadReadings: reloadReadings,
     openLectionaryUploadModal: openLectionaryUploadModal,
     closeLectionaryUploadModal: closeLectionaryUploadModal,
     onLectUploadFileChosen: onLectUploadFileChosen,
     analyzeLectionaryUpload: analyzeLectionaryUpload,
     saveLectionaryReview: saveLectionaryReview,
     selectGeneralFolder: selectGeneralFolder,
+    // Memories
+    openMemories: openMemories,
+    loadMemories: loadMemories,
+    filterMemories: filterMemories,
+    openMemoryEditor: openMemoryEditor,
+    closeMemoryEditor: closeMemoryEditor,
+    saveMemoryNote: saveMemoryNote,
+    deleteMemoryNote: deleteMemoryNote,
     openLibraryFilter: openLibraryFilter,
     // Occasion year/folder system (434)
     selectOccFolder: selectOccFolder,
@@ -83575,11 +84422,62 @@ function filterLiturgyItems() {
   .lit-reading-slots-panel { margin-bottom: 30px; }
   .lit-reading-slots-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
   .lit-reading-slots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .lit-reading-slots-stack { display: block; }
+  /* Memories */
+  .lit-mem-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 24px 20px 12px; flex-wrap: wrap; }
+  .lit-mem-title { font-size: 1.45rem; font-weight: 700; margin: 0 0 3px; color: #1f2933; }
+  .lit-mem-sub { margin: 0; font-size: 0.86rem; color: #6b7280; font-style: italic; font-family: 'Poppins', sans-serif; }
+  .lit-mem-body { padding: 0 20px 28px; }
+  .lit-mem-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; align-items: start; }
+  .lit-mem-note { border-radius: 14px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.06); display: flex; flex-direction: column; gap: 9px; }
+  .lit-mem-note-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .lit-mem-note-occ { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #4b5563; font-family: 'Poppins', sans-serif; }
+  .lit-mem-note-when { font-size: 0.68rem; color: #6b7280; white-space: nowrap; }
+  .lit-mem-note-text { font-size: 0.87rem; line-height: 1.6; color: #1f2933; white-space: pre-wrap; font-family: 'Poppins', sans-serif; }
+  .lit-mem-note-foot { display: flex; justify-content: flex-end; }
+  .lit-mem-note-btn { border: none; background: rgba(0,0,0,0.06); color: #4b5563; font-size: 0.72rem; font-weight: 600; padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+  .lit-mem-note-btn:hover { background: rgba(0,0,0,0.12); }
+  .lit-mem-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .lit-mem-media { display: block; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: white; text-decoration: none; transition: all 0.2s; }
+  .lit-mem-media:hover { border-color: #10b981; box-shadow: 0 3px 10px rgba(16,185,129,0.14); transform: translateY(-1px); }
+  .lit-mem-media img { width: 100%; height: 108px; object-fit: cover; display: block; }
+  .lit-mem-media-icon { display: flex; align-items: center; justify-content: center; height: 108px; background: #f3f4f6; color: #9ca3af; font-size: 1.6rem; }
+  .lit-mem-media-name { display: block; padding: 8px 10px; font-size: 0.76rem; color: #1f2933; font-family: 'Poppins', sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lit-mem-label { display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin-bottom: 6px; font-family: 'Poppins', sans-serif; }
   .lit-reading-slot { background: white; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: all 0.2s; }
   .lit-reading-slot:hover { border-color: #7c3aed; box-shadow: 0 3px 10px rgba(124,58,237,0.1); transform: translateY(-1px); }
   .lit-reading-slot-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #9ca3af; margin-bottom: 6px; }
   .lit-reading-slot.filled .lit-reading-slot-ref { font-size: 0.92rem; font-weight: 600; color: #1f2933; font-family: 'Poppins', sans-serif; }
   .lit-reading-slot.empty { border-style: dashed; }
+  .lit-reading-slot { position: relative; }
+  .lit-reading-slot-edit { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border: none; border-radius: 7px; background: #f3f4f6; color: #6b7280; cursor: pointer; opacity: 0; transition: opacity 0.15s, background 0.15s; font-size: 0.7rem; }
+  .lit-reading-slot:hover .lit-reading-slot-edit, .lit-reading-slot:focus-within .lit-reading-slot-edit { opacity: 1; }
+  .lit-reading-slot-edit:hover { background: #ede9fe; color: #7c3aed; }
+  .lit-reading-slot.filled .lit-reading-slot-ref { padding-right: 26px; }
+  /* One service in a week or month view: a header, then its four readings. */
+  .lit-svc-block { margin-bottom: 18px; }
+  .lit-svc-head { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; flex-wrap: wrap; }
+  .lit-svc-date { border: 1.5px solid #e5e7eb; background: white; color: #1f2933; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 0.82rem; padding: 4px 11px; border-radius: 999px; cursor: pointer; transition: all 0.15s; }
+  .lit-svc-date:hover { border-color: #7c3aed; color: #7c3aed; }
+  .lit-altar-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 1px rgba(0,0,0,0.12); flex-shrink: 0; }
+  .lit-day-name { font-size: 0.82rem; font-weight: 600; color: #4b5563; font-family: 'Poppins', sans-serif; }
+  .lit-altar-name { font-size: 0.7rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.04em; }
+  .lit-svc-type { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #7c3aed; background: #ede9fe; padding: 2px 8px; border-radius: 999px; font-family: 'Poppins', sans-serif; }
+  .lit-day-context { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: -10px 0 18px; min-height: 18px; }
+  .lit-day-note { font-size: 0.78rem; color: #9ca3af; font-style: italic; font-family: 'Poppins', sans-serif; }
+  /* The passage reader -- opened by clicking a reading that is already set. */
+  .passage-reader-modal { max-width: 720px; width: 100%; display: flex; flex-direction: column; max-height: 88vh; }
+  .passage-reader-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+  .passage-reader-foot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding: 14px 24px; border-top: 1px solid #e5e7eb; background: #fafafa; border-radius: 0 0 14px 14px; }
+  .passage-reader-when { display: block; font-size: 0.72rem; font-weight: 500; color: #9ca3af; font-family: 'Poppins', sans-serif; text-transform: none; letter-spacing: 0; margin-top: 3px; }
+  .passage-reader-body .bible-passage-text { font-size: 1rem; line-height: 1.75; color: #1f2933; }
+  @media (max-width: 640px) {
+    .lit-datenav-modes { margin-left: 0; }
+    .lit-reading-datenav { flex-wrap: wrap; }
+    .lit-datenav-title { font-size: 0.86rem; white-space: normal; }
+    .passage-reader-foot { justify-content: stretch; }
+    .passage-reader-foot .modal-btn { flex: 1 1 auto; }
+  }
   .lit-reading-slot.empty .lit-reading-slot-ref { font-size: 0.85rem; color: #a78bfa; font-family: 'Poppins', sans-serif; }
   .lit-reading-engage-panel { margin-bottom: 10px; }
   .lit-engage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
@@ -85864,16 +86762,54 @@ function filterLiturgyItems() {
   }
 
   function setMemberStatus(name, status, note, joinedDate) {
-    ROSTER_MEMBER_STATUS[name] = { status: status || 'active', note: note || '', joinedDate: joinedDate || '' };
+    // Carried forward rather than rebuilt. This function is called from the
+    // rotation switch, which knows about status and nothing else -- and the
+    // save below writes the WHOLE row, so anything dropped here is blanked
+    // in the database a moment later.
+    var prev = ROSTER_MEMBER_STATUS[name] || {};
+    ROSTER_MEMBER_STATUS[name] = {
+      status: status || 'active', note: note || '', joinedDate: joinedDate || '',
+      addressAs: prev.addressAs || ''
+    };
     saveMemberStatus();
     if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveMemberMeta) {
-      SBQ_ROSTER.saveMemberMeta(name, status, note, joinedDate).catch(function(e) { console.warn('Member meta sync error:', e); });
+      SBQ_ROSTER.saveMemberMeta(name, status, note, joinedDate,
+        prev.suspendedFrom || '', prev.suspendedTo || '', prev.suspendedReason || '',
+        prev.inactiveDate || '', prev.team || '', prev.addressAs || ''
+      ).catch(function(e) { console.warn('Member meta sync error:', e); });
     }
   }
 
   function getMemberStatus(name) {
     return ROSTER_MEMBER_STATUS[name] || { status: 'active', note: '', joinedDate: '' };
   }
+
+  // "Bro" and "Sis" belong to the PREACHING, not to the person.
+  //
+  // Alwyn Lau preaches and also plays the piano: Bro Alwyn Lau in the pulpit,
+  // Alwyn Lau at the keyboard. So the form of address is applied by role at
+  // the moment of display, and never stored in the name.
+  //
+  // Storing it in the name is what this roster used to do, and it is how one
+  // person becomes several. "Alwyn Lau" and "Bro Alwyn Lau" were two
+  // different people to the database until they were merged -- separate duty
+  // counts, invisible to each other in the statistics. Benedict Muthusamy had
+  // four spellings; Ashley Teter had four.
+  function addressedName(roleId, value) {
+    if (roleId !== 'preacher') return value;
+    var v = String(value == null ? '' : value).trim();
+    if (!v) return value;
+    // A cell can hold two names, or a note. Prefixing that would produce
+    // nonsense like "Bro Alison Phan / Maria Tan".
+    if (/[\/,&]|\n/.test(v)) return value;
+    var how = String((getMemberStatus(v) || {}).addressAs || '').trim();
+    if (!how) return value;
+    // Already titled -- ordained, or somebody typed one in by hand.
+    if (/^(bro|sis|rev|pastor|ps|bishop|dr|mr|mrs|ms)\b\.?/i.test(v)) return value;
+    return how + ' ' + v;
+  }
+  // The share card and the home service card live in other modules.
+  window.LHC_addressedName = addressedName;
 
   // ── Who Auto-Suggest is allowed to roster ─────────────────────────────────
   // Until now Auto-Suggest only ever consulted the date-range unavailability
@@ -85890,7 +86826,19 @@ function filterLiturgyItems() {
   //               be renewed forever.
   //   inactive    resigned / no longer serving.
   //   suspended   stood down for a period.
-  var AUTOSUGGEST_SKIP_STATUS = { occasional: 1, inactive: 1, suspended: 1 };
+  // Guest sits beside Occasional here, and the difference between them is
+  // not what the computer does -- both are skipped -- but what the label
+  // tells a PIC. Occasional means "invite them when you need them": Bro.
+  // John Cheah preaches a few times a year. Guest means "came once, and
+  // probably will not again": a visiting Bishop, a pastor passing through.
+  // Both belong in the records and the statistics; only one is somebody you
+  // would think of when a slot needs filling.
+  //
+  // Before this existed the distinction was being written into the NAME --
+  // one preacher is recorded as "Pastor Jenna Bergeson (Guest - ELCA
+  // Thailand)" -- which is a workaround that makes the person unmatchable
+  // against any other spelling of themselves.
+  var AUTOSUGGEST_SKIP_STATUS = { occasional: 1, inactive: 1, suspended: 1, guest: 1 };
 
   // A suspension records an end month, and nothing ever read it back. That was
   // harmless while status was decoration, but a silent trap once status
@@ -85980,6 +86928,7 @@ function filterLiturgyItems() {
     var _meta = getMemberStatus(name) || {};
     var st = _meta.status;
     if (st === 'suspended' && _suspensionLapsed(_meta, year, month)) return null;
+    if (st === 'guest')      return { cls: 'guest',      label: 'Guest',      title: name + ' served as a guest. Auto-Suggest never picks them. Mark them Occasional or Regular if they join the rotation.' };
     if (st === 'occasional') return { cls: 'occasional', label: 'Occasional', title: name + ' serves by invitation. Auto-Suggest never picks them; assign by hand when they are able.' };
     if (st === 'inactive')   return { cls: 'inactive',   label: 'Inactive',   title: name + ' is marked inactive / resigned. Auto-Suggest skips them.' };
     if (st === 'suspended')  return { cls: 'suspended',  label: 'Stood down', title: name + ' is temporarily suspended. Auto-Suggest skips them.' };
@@ -87055,7 +88004,9 @@ function filterLiturgyItems() {
           var hasVal2 = v2 && v2 !== '__BLANK__' && typeof v2 !== 'object';
           totalCount++;
           if (hasVal2) filledCount++;
-          rows.push({ kind: 'single', label: role.label, value: hasVal2 ? v2 : null, pending: hasVal2 && STATE.rosterPendingCells.has(ck2), cellKey: ck2 });
+          rows.push({ kind: 'single', label: role.label,
+            value: hasVal2 ? addressedName(role.id, v2) : null,
+            pending: hasVal2 && STATE.rosterPendingCells.has(ck2), cellKey: ck2 });
         });
 
         var rowsHtml = rows.map(function(row) {
@@ -88535,7 +89486,7 @@ function filterLiturgyItems() {
         var rect = td.getBoundingClientRect();
         floatingPanel = document.createElement('div');
         floatingPanel.className = 'roster-name-panel';
-        floatingPanel.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:290px;max-width:calc(100vw - 16px);background:#fff;border:2px solid #f97316;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:10000;padding:0;overflow:hidden;';
+        floatingPanel.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:330px;max-width:calc(100vw - 16px);background:#fff;border:2px solid #f97316;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:10000;padding:0;overflow:hidden;';
         var panel = floatingPanel;
 
         // Header
@@ -88554,7 +89505,7 @@ function filterLiturgyItems() {
         panel.appendChild(header);
 
         var body = document.createElement('div');
-        body.style.cssText = 'padding:10px 12px;max-height:280px;overflow-y:auto;';
+        body.style.cssText = 'padding:12px 14px;max-height:min(68vh, 560px);overflow-y:auto;';
         panel.appendChild(body);
 
         var refreshBody = function() {
@@ -88569,9 +89520,14 @@ function filterLiturgyItems() {
           // This is the switch for that case, put here because this panel is
           // already one tap from the name in the picker.
           var rotMeta = getMemberStatus(name) || {};
-          var isOccasional = rotMeta.status === 'occasional';
+          // Which of the three this person is right now. Anything else --
+          // Inactive, Suspended -- selects none of them, rather than
+          // leaving "Regular" lit under somebody who has resigned.
+          var rotNow = (rotMeta.status === 'occasional' || rotMeta.status === 'guest')
+            ? rotMeta.status
+            : ((!rotMeta.status || rotMeta.status === 'active' || rotMeta.status === 'newly_joined') ? 'active' : null);
           var rotTitle = document.createElement('div');
-          rotTitle.style.cssText = 'font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.05em;margin-bottom:6px;';
+          rotTitle.style.cssText = 'font-size:11px;color:#1f2933;text-transform:uppercase;font-weight:800;letter-spacing:0.06em;margin-bottom:7px;';
           rotTitle.textContent = 'Rotation';
           body.appendChild(rotTitle);
 
@@ -88579,9 +89535,10 @@ function filterLiturgyItems() {
           rotWrap.style.cssText = 'display:flex;gap:6px;margin-bottom:8px;';
           [
             { val: 'active',     label: 'Regular',    hint: 'Auto-Suggest may roster ' + name + ' as usual.' },
-            { val: 'occasional', label: 'Occasional', hint: 'Auto-Suggest will never pick ' + name + '. You can still assign them by hand any time.' }
+            { val: 'occasional', label: 'Occasional', hint: 'Auto-Suggest will never pick ' + name + '. You can still assign them by hand any time.' },
+            { val: 'guest',      label: 'Guest',      hint: name + ' served as a guest. Auto-Suggest never picks them, and their duties still count in the records.' }
           ].forEach(function(opt) {
-            var on = (opt.val === 'occasional') === isOccasional;
+            var on = opt.val === rotNow;
             var b = document.createElement('button');
             b.type = 'button';
             b.textContent = opt.label;
@@ -88595,13 +89552,15 @@ function filterLiturgyItems() {
               // Only ever moves between these two. Someone marked Inactive or
               // Suspended keeps that status -- this switch must not quietly
               // reinstate a person who was stood down for another reason.
-              if (m.status && m.status !== 'active' && m.status !== 'occasional' && m.status !== 'newly_joined') {
+              var SWITCHABLE = { active: 1, occasional: 1, newly_joined: 1, guest: 1 };
+              if (m.status && !SWITCHABLE[m.status]) {
                 self.showToast(name + ' is marked "' + ((self._statusMeta().labels[m.status]) || m.status) + '" -- change that in Enablers first.', 'warning');
                 return;
               }
               setMemberStatus(name, opt.val, m.note || '', m.joinedDate || '');
-              self.showToast(opt.val === 'occasional'
-                ? name + ' is now Occasional -- Auto-Suggest will skip them.'
+              self.showToast(
+                opt.val === 'occasional' ? name + ' is now Occasional -- Auto-Suggest will skip them.'
+                : opt.val === 'guest'    ? name + ' is marked a Guest -- Auto-Suggest will skip them, and their duties still count.'
                 : name + ' is back in the regular rotation.', 'success');
               refreshBody();
             };
@@ -88611,9 +89570,11 @@ function filterLiturgyItems() {
 
           var rotHint = document.createElement('div');
           rotHint.style.cssText = 'font-size:11px;color:#6b7280;line-height:1.45;margin-bottom:10px;';
-          rotHint.textContent = isOccasional
-            ? 'Auto-Suggest skips ' + name + '. Assign them by hand whenever they are able to serve.'
-            : 'Auto-Suggest rosters ' + name + ' in the normal rotation.';
+          rotHint.textContent =
+            rotNow === 'occasional' ? 'Auto-Suggest skips ' + name + '. Assign them by hand whenever they are able to serve.'
+            : rotNow === 'guest'    ? name + ' served as a guest. Auto-Suggest will not pick them until you make them Occasional or Regular; their past duties stay in the records either way.'
+            : rotNow === 'active'   ? 'Auto-Suggest rosters ' + name + ' in the normal rotation.'
+            : 'Set in Enablers: ' + name + ' is marked ' + ((self._statusMeta().labels[rotMeta.status]) || rotMeta.status) + '.';
           body.appendChild(rotHint);
 
           var rotDiv = document.createElement('div');
@@ -88623,7 +89584,7 @@ function filterLiturgyItems() {
           // Existing periods
           if (periods.length) {
             var subTitle = document.createElement('div');
-            subTitle.style.cssText = 'font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.05em;margin-bottom:6px;';
+            subTitle.style.cssText = 'font-size:11px;color:#1f2933;text-transform:uppercase;font-weight:800;letter-spacing:0.06em;margin-bottom:7px;';
             subTitle.textContent = 'Current periods';
             body.appendChild(subTitle);
             periods.forEach(function(p, idx) {
@@ -88657,22 +89618,22 @@ function filterLiturgyItems() {
 
           // Add new period form
           var formTitle = document.createElement('div');
-          formTitle.style.cssText = 'font-size:10px;color:#9ca3af;text-transform:uppercase;font-weight:600;letter-spacing:0.05em;margin-bottom:6px;';
+          formTitle.style.cssText = 'font-size:11px;color:#1f2933;text-transform:uppercase;font-weight:800;letter-spacing:0.06em;margin-bottom:7px;';
           formTitle.textContent = 'Add unavailability period';
           body.appendChild(formTitle);
 
           var makeField = function(labelTxt, inputEl) {
             var wrap = document.createElement('div');
-            wrap.style.cssText = 'margin-bottom:6px;';
+            wrap.style.cssText = 'margin-bottom:9px;';
             var lbl = document.createElement('label');
-            lbl.style.cssText = 'display:block;font-size:11px;color:#6b7280;margin-bottom:2px;font-weight:500;';
+            lbl.style.cssText = 'display:block;font-size:11.5px;color:#4b5563;margin-bottom:4px;font-weight:600;';
             lbl.textContent = labelTxt;
             wrap.appendChild(lbl);
             wrap.appendChild(inputEl);
             body.appendChild(wrap);
           };
 
-          var inputStyle = 'width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:5px;font-size:12px;outline:none;box-sizing:border-box;font-family:inherit;';
+          var inputStyle = 'width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:12.5px;outline:none;box-sizing:border-box;font-family:inherit;';
           var startInput = document.createElement('input'); startInput.type = 'date'; startInput.style.cssText = inputStyle;
           var endInput = document.createElement('input'); endInput.type = 'date'; endInput.style.cssText = inputStyle;
           var reasonInput = document.createElement('input'); reasonInput.type = 'text'; reasonInput.placeholder = 'e.g. Vacation, Medical, Travel';
@@ -88782,8 +89743,8 @@ function filterLiturgyItems() {
     },
     _statusMeta: function() {
       return {
-        labels:{active:'Active',unavailable:'Currently Unavailable',suspended:'Temporarily Suspended',inactive:'Inactive / Resigned',newly_joined:'Newly Joined',occasional:'Occasional / By invitation'},
-        icons:{active:'fa-circle-check',unavailable:'fa-calendar-xmark',suspended:'fa-circle-pause',inactive:'fa-circle-xmark',newly_joined:'fa-star',occasional:'fa-user-clock'},
+        labels:{active:'Active',unavailable:'Currently Unavailable',suspended:'Temporarily Suspended',inactive:'Inactive / Resigned',newly_joined:'Newly Joined',occasional:'Occasional / By invitation',guest:'Guest / Served once'},
+        icons:{active:'fa-circle-check',unavailable:'fa-calendar-xmark',suspended:'fa-circle-pause',inactive:'fa-circle-xmark',newly_joined:'fa-star',occasional:'fa-user-clock',guest:'fa-user-tag'},
         cats:{preacher:'Preacher',liturgist:'Liturgist',usher:'Usher',reader:'Reader',communion:'Communion',altar:'Altar Guild',pianist:'Pianist',guitarist:'Guitarist',bassist:'Bassist',drummer:'Drummer',singer:'Singer',lcd:'LCD Operator',pa:'PA System',livestream:'Live Streaming',tech:'Tech',sundayschool:'Sunday School Teacher',flowerarrangement:'Flower Arrangement',general:'General'}
       };
     },
@@ -89717,7 +90678,7 @@ function filterLiturgyItems() {
       html += '<div id="enEditPanel_status">';
       html += '<div style="margin-bottom:8px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Status</label>';
       html += '<select id="enInd_status" onchange="RosterEngine._toggleEnablerStatusFields()" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;">';
-      ['active','occasional','newly_joined','suspended','inactive'].forEach(function(s){html+='<option value="'+s+'"'+(meta.status===s?' selected':'')+'>'+(sm.labels[s]||s)+'</option>';});
+      ['active','occasional','guest','newly_joined','suspended','inactive'].forEach(function(s){html+='<option value="'+s+'"'+(meta.status===s?' selected':'')+'>'+(sm.labels[s]||s)+'</option>';});
       html += '</select></div>';
       // Spelled out because the consequence is invisible otherwise -- the only
       // way to tell Auto-Suggest is skipping someone is that it stops picking
@@ -89740,6 +90701,13 @@ function filterLiturgyItems() {
       html += '<input id="enInd_inactDate" type="month" value="'+(meta.inactiveDate||'')+'" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;width:100%;box-sizing:border-box;"></div>';
       html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Note (optional)</label>';
       html += '<input id="enInd_note" type="text" value="'+self.escapeHtml(meta.note||'')+'" placeholder="Any notes..." style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;box-sizing:border-box;"></div>';
+      html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Address as (shown when preaching)</label>';
+      html += '<select id="enInd_addressAs" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;">';
+      [['','Not set'],['Bro','Bro'],['Sis','Sis']].forEach(function(a){
+        html += '<option value="'+a[0]+'"'+((meta.addressAs||'')===a[0]?' selected':'')+'>'+a[1]+'</option>';
+      });
+      html += '</select>';
+      html += '<div style="font-size:11px;color:#9ca3af;margin-top:3px;">For lay preachers. Shown only where this person is presented as the preacher, not in their other duties. Ordained ministers carry Rev / Pastor / Bishop in the name itself.</div></div>';
       html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:#6b7280;display:block;margin-bottom:3px;">Team (for Roster Auto-Suggest)</label>';
       html += '<select id="enInd_team" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;">';
       [['','Not set'],['traditional','Traditional'],['contemporary','Contemporary'],['both','Both']].forEach(function(t){
@@ -90112,6 +91080,7 @@ function filterLiturgyItems() {
       var inactEl     = document.getElementById('enInd_inactDate');
       var noteEl      = document.getElementById('enInd_note');
       var teamEl      = document.getElementById('enInd_team');
+      var addressEl   = document.getElementById('enInd_addressAs');
       if (!statusEl) return;
       var status          = statusEl.value;
       var note            = noteEl ? noteEl.value.trim() : '';
@@ -90121,7 +91090,9 @@ function filterLiturgyItems() {
       var suspendedReason = (suspRsnEl  && status==='suspended')  ? suspRsnEl.value.trim() : '';
       var inactiveDate    = (inactEl    && status==='inactive')   ? inactEl.value    : '';
       var team            = teamEl ? teamEl.value : '';
+      var addressAs       = addressEl ? addressEl.value : '';
       var meta = getMemberStatus(name) || {};
+      meta.addressAs       = addressAs;
       meta.status          = status;
       meta.note            = note;
       meta.joinedDate      = joinedDate;
@@ -92604,7 +93575,14 @@ function filterLiturgyItems() {
         return isTrulyEmpty(v) ? null : v;
       };
       // Returns a formatted duty line, or null if the cell has no real value
-      var LF = function(label, roleId) { var v = get(roleId); return v ? ('• *' + label + ':* ' + v) : null; };
+      var LF = function(label, roleId) {
+        var v = get(roleId);
+        if (!v) return null;
+        // Bro / Sis for a lay preacher, applied here rather than stored in
+        // the name -- the same person is plain in their other duties.
+        if (typeof window.LHC_addressedName === 'function') v = window.LHC_addressedName(roleId, v);
+        return '• *' + label + ':* ' + v;
+      };
 
       var div = String.fromCodePoint(0x2500).repeat(24);
 
