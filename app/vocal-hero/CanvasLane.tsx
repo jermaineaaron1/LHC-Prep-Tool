@@ -108,11 +108,28 @@ export function CanvasLane({
 
       context.clearRect(0, 0, width, drawHeight);
 
-      // ---- the road
-      const bg = context.createLinearGradient(0, 0, 0, drawHeight);
-      bg.addColorStop(0, '#070d1c');
-      bg.addColorStop(1, '#04070f');
+      // ---- the stage
+      //
+      // A flat slab of navy read as a spreadsheet with dots on it. The music
+      // arrives from the right, so the light does too: the road is darkest
+      // where notes enter and brightest where they are sung, which gives the
+      // eye somewhere to be without drawing anything that moves.
+      const bg = context.createLinearGradient(0, 0, width, drawHeight);
+      bg.addColorStop(0, '#0b1430');
+      bg.addColorStop(.35, '#070d20');
+      bg.addColorStop(1, '#04060f');
       context.fillStyle = bg;
+      context.fillRect(0, 0, width, drawHeight);
+      // A slow aurora behind everything, tinted to the voice. It moves at a
+      // tenth of walking pace -- enough that the screen is never dead, not
+      // enough to pull the eye off the notes.
+      const drift = Date.now() / 7000;
+      const glow = context.createRadialGradient(
+        width * (0.5 + 0.34 * Math.sin(drift)), drawHeight * (0.5 + 0.3 * Math.cos(drift * 0.8)), 8,
+        width * 0.5, drawHeight * 0.5, Math.max(width, drawHeight) * 0.75);
+      glow.addColorStop(0, withAlpha(colour, .1));
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      context.fillStyle = glow;
       context.fillRect(0, 0, width, drawHeight);
 
       // Semitone rows, with the octaves picked out: a singer reads position
@@ -175,12 +192,23 @@ export function CanvasLane({
           context.shadowBlur = active ? 26 : 14;
         }
         const body = past ? (hit ? '#65d6a4' : '#44566d') : colour;
+        // A lozenge with a light on it: bright lip along the top, the body
+        // beneath, a darker floor. Three stops instead of two is the whole
+        // difference between a painted rectangle and something with a shape.
         const gradient = context.createLinearGradient(x, y - h / 2, x, y + h / 2);
-        gradient.addColorStop(0, withAlpha(body, 1));
-        gradient.addColorStop(1, withAlpha(body, .72));
+        gradient.addColorStop(0, withAlpha('#ffffff', past ? .35 : .72));
+        gradient.addColorStop(.42, withAlpha(body, 1));
+        gradient.addColorStop(1, withAlpha(body, .6));
         context.fillStyle = gradient;
         roundRect(context, x, y - h / 2, w, h, Math.min(6, h / 2));
         context.fill();
+        // The note still to come leans into the light as it nears the line.
+        if (!past && nearness > .25) {
+          context.strokeStyle = withAlpha('#ffffff', .1 + nearness * .3);
+          context.lineWidth = 1;
+          roundRect(context, x + .5, y - h / 2 + .5, w - 1, h - 1, Math.min(6, h / 2));
+          context.stroke();
+        }
 
         // ---- the green proof
         // Exactly the stretch of this note the singer has hit so far turns
@@ -321,15 +349,27 @@ export function CanvasLane({
       }
 
       // ---- the strike line, drawn last so nothing covers it
-      const flare = context.createLinearGradient(cursorX - 30, 0, cursorX + 8, 0);
+      //
+      // It breathes: a sung note is being judged HERE, every moment, and a
+      // line that pulses says so without a word of explanation. Faster while
+      // a note is actually under it.
+      const singing = Boolean(aimed && position >= aimed.start && position < aimed.end);
+      const beat = 0.5 + 0.5 * Math.sin(Date.now() / (singing ? 150 : 420));
+      const flare = context.createLinearGradient(cursorX - 44, 0, cursorX + 14, 0);
       flare.addColorStop(0, 'rgba(246,198,91,0)');
-      flare.addColorStop(1, 'rgba(246,198,91,.20)');
+      flare.addColorStop(.75, `rgba(246,198,91,${(.10 + .10 * beat).toFixed(3)})`);
+      flare.addColorStop(1, `rgba(255,236,170,${(.26 + .16 * beat).toFixed(3)})`);
       context.fillStyle = flare;
-      context.fillRect(cursorX - 30, 0, 38, drawHeight);
-      context.fillStyle = '#f6c65b';
+      context.fillRect(cursorX - 44, 0, 58, drawHeight);
+      context.fillStyle = '#fff3c4';
       context.shadowColor = '#f6c65b';
-      context.shadowBlur = 16;
+      context.shadowBlur = 16 + 14 * beat;
       context.fillRect(cursorX - 1.5, 0, 3, drawHeight);
+      // Caps top and bottom, so the line reads as a built thing rather than a
+      // stray stroke.
+      context.fillStyle = '#f6c65b';
+      context.fillRect(cursorX - 5, 0, 10, 3);
+      context.fillRect(cursorX - 5, drawHeight - 3, 10, 3);
       context.shadowBlur = 0;
 
       // ---- the voice, on the line where it belongs
@@ -343,6 +383,14 @@ export function CanvasLane({
 
       if (hz > 0) {
         const y = Math.max(8, Math.min(drawHeight - 8, yForMidi(hzToMidi(hz), low, high, drawHeight)));
+        // A halo that swells when the pitch is right: the loudest thing the
+        // lane can say without words is "that one -- hold it".
+        const onTarget = aimed ? Math.abs(hzToMidi(hz) - aimed.midi) < 0.6 : false;
+        const halo = context.createRadialGradient(cursorX, y, 2, cursorX, y, onTarget ? 30 : 18);
+        halo.addColorStop(0, withAlpha(onTarget ? '#86efac' : colour, onTarget ? .55 : .3));
+        halo.addColorStop(1, 'rgba(0,0,0,0)');
+        context.fillStyle = halo;
+        context.fillRect(cursorX - 32, y - 32, 64, 64);
         context.beginPath();
         context.arc(cursorX, y, 7, 0, Math.PI * 2);
         context.fillStyle = '#07111d';
