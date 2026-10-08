@@ -67,6 +67,10 @@ function extractMethod(name, optional) {
 }
 
 const fn = extractMethod('getAllForYear', true);
+const dedupe = extractMethod('_oneRowPerCell', true);
+// The real normaliser, lifted from the source rather than reimplemented, so
+// this cannot pass against a copy that has drifted from the shipped one.
+const normSrc = (raw.match(/var _MONTH_ABBR =[\s\S]*?\nvar _normSvcDate = function[\s\S]*?\n\};/) || [''])[0];
 console.log('Extracted from ' + path.basename(INDEX) + ':');
 console.log('  getAllForYear @ ' + (fn ? 'line ' + fn.line : 'ABSENT') + '\n');
 
@@ -89,7 +93,10 @@ function makeClient(total, opts) {
     q.range = (from, to) => {
       calls.push([from, to]);
       const rows = [];
-      for (let i = from; i <= to && i < total; i++) rows.push({ id: i, value: 'p' + i, month: 0, role_id: 'r' });
+      // Distinct cells: getAllForYear now returns one row per cell, so rows
+      // that all named the same cell would collapse and this would be
+      // measuring deduplication instead of paging.
+      for (let i = from; i <= to && i < total; i++) rows.push({ id: i, value: 'p' + i, month: 0, year: 2026, role_id: 'r' + i, service_date: 'Jan 4' });
       const result = opts.failAt !== undefined && calls.length - 1 === opts.failAt
         ? { error: { message: 'boom' }, data: null }
         : { error: null, data: rows };
@@ -104,7 +111,11 @@ function build(total, opts) {
   const { client, calls } = makeClient(total, opts);
   const env = { SBQ_ROSTER: { _sb: () => client }, Promise: Promise, Error: Error };
   const keys = Object.keys(env);
-  const api = new Function(...keys, 'return {' + fn.text + '};')(...keys.map(k => env[k]));
+  const api = new Function(...keys,
+    normSrc + ';return {' + fn.text + (dedupe ? ',' + dedupe.text : '') + '};')(...keys.map(k => env[k]));
+  // getAllForYear collapses through its sibling, so the stand-in SBQ_ROSTER
+  // has to carry it the way the real object does.
+  if (dedupe) env.SBQ_ROSTER._oneRowPerCell = api._oneRowPerCell;
   return { api, calls };
 }
 
