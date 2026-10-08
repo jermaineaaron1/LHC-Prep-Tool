@@ -70950,8 +70950,13 @@ var LiturgyModule = (function() {
     save: function(occasionId, data) {
       var sb = this._sb();
       if (!sb) return Promise.reject('No Supabase');
-      return sb.from('liturgy_occasion_data')
-        .upsert({ occasion_id: occasionId, data: data, updated_at: new Date().toISOString() }, { onConflict: 'occasion_id' });
+      // Wrapped: supabase-js hands back a THENABLE, not a Promise. It has
+      // .then but no .catch, so a caller attaching one directly throws a
+      // TypeError. Unwrapped this returned a real Promise on the failure
+      // path above and a thenable on the success path, so it would have
+      // broken only when Supabase was actually working.
+      return Promise.resolve(sb.from('liturgy_occasion_data')
+        .upsert({ occasion_id: occasionId, data: data, updated_at: new Date().toISOString() }, { onConflict: 'occasion_id' }));
     },
     loadAll: function() {
       var sb = this._sb();
