@@ -283,7 +283,11 @@ export function CanvasLane({
         // 7px ignored the row entirely, so on a phone -- where eighteen
         // semitones can share 117px, a row every 5.4px -- neighbouring notes
         // were drawn overlapping and the line read as one smear of colour.
-        const h = Math.max(4, Math.min(13, rowPx * 0.82));
+        // Thirteen pixels was a hard ceiling: hand the lane twice the height
+        // and the notes stayed exactly as small, which is why the last three
+        // passes at "bolder" changed the colour of things and never the size.
+        // Now it takes nearly the whole row it is given.
+        const h = Math.max(9, Math.min(34, rowPx * 0.95));
         const past = note.end <= position;
         const active = position >= note.start && position < note.end;
         const hit = p.hitNotes?.[note.id];
@@ -294,9 +298,9 @@ export function CanvasLane({
         context.save();
         if (past) context.globalAlpha = hit ? .85 : .32;
 
-        if (active || (!past && nearness > .6)) {
-          context.shadowColor = withAlpha(colour, .9);
-          context.shadowBlur = active ? 26 : 14;
+        if (active || (!past && nearness > .45)) {
+          context.shadowColor = withAlpha(colour, .95);
+          context.shadowBlur = active ? 34 : 10 + nearness * 18;
         }
         const body = past ? (hit ? '#65d6a4' : '#44566d') : colour;
         // A lozenge with a light on it: bright lip along the top, the body
@@ -307,15 +311,16 @@ export function CanvasLane({
         gradient.addColorStop(.42, withAlpha(body, 1));
         gradient.addColorStop(1, withAlpha(body, .6));
         context.fillStyle = gradient;
-        roundRect(context, x, y - h / 2, w, h, Math.min(6, h / 2));
+        roundRect(context, x, y - h / 2, w, h, Math.min(9, h / 2));
         context.fill();
-        // The note still to come leans into the light as it nears the line.
-        if (!past && nearness > .25) {
-          context.strokeStyle = withAlpha('#ffffff', .1 + nearness * .3);
-          context.lineWidth = 1;
-          roundRect(context, x + .5, y - h / 2 + .5, w - 1, h - 1, Math.min(6, h / 2));
-          context.stroke();
-        }
+        // The rim: a hot bright edge all the way round, brightest on the note
+        // about to be sung. It is the whole difference between a coloured
+        // shape and a lit object, and it is what the reference had that this
+        // did not.
+        context.strokeStyle = past ? withAlpha('#ffffff', .16) : withAlpha('#ffffff', .45 + nearness * .45);
+        context.lineWidth = past ? 1 : 2;
+        roundRect(context, x + 1, y - h / 2 + 1, Math.max(2, w - 2), Math.max(2, h - 2), Math.min(8, Math.max(1, (h - 2) / 2)));
+        context.stroke();
 
         // ---- the green proof
         // Exactly the stretch of this note the singer has hit so far turns
@@ -376,12 +381,12 @@ export function CanvasLane({
         // the lane never used to say.
         if (p.showLyrics && h >= 7) {
           const room = w - 7;
-          const cap = Math.min(11, Math.floor(h + 1));
+          const cap = Math.min(15, Math.floor(h - 1));
           const name = midiNoteName(note.midi);
           const wanted = note.lyric ? [name + ' ' + note.lyric, name, note.lyric] : [name];
           let label = '', size = 0;
           for (const candidate of wanted) {
-            for (const px of [11, 10, 9, 8].filter(px => px <= cap)) {
+            for (const px of [15, 14, 13, 12, 11, 10, 9, 8].filter(px => px <= cap)) {
               context.font = `700 ${px}px ui-sans-serif, system-ui`;
               if (context.measureText(candidate).width <= room) { label = candidate; size = px; break; }
             }
@@ -431,7 +436,7 @@ export function CanvasLane({
       // every row the height can carry is named, over a fade so the notes
       // running underneath stay visible, and the row being aimed at is named
       // brightly whether or not it was its turn to be labelled.
-      const gutter = 32;
+      const gutter = 40;
       const fade = context.createLinearGradient(0, 0, gutter, 0);
       fade.addColorStop(0, 'rgba(4, 9, 20, .94)');
       fade.addColorStop(.65, 'rgba(4, 9, 20, .82)');
@@ -453,14 +458,14 @@ export function CanvasLane({
         const y = yForMidi(midi, low, high, drawHeight);
         // A name is worth nothing printed over another one. Below this gap the
         // pass simply draws fewer of them.
-        if (placed.some(other => Math.abs(other - y) < 11)) continue;
+        if (placed.some(other => Math.abs(other - y) < 15)) continue;
         placed.push(y);
         const isAimed = aimed?.midi === midi;
         const isOctave = ((midi % 12) + 12) % 12 === 0;
         // A tab with a point on it, aimed down the road at the note it names.
         // Loose text floating over a moving background was the one part of
         // this lane that still looked like a spreadsheet.
-        const half = isAimed ? 9 : 7;
+        const half = isAimed ? 12 : 10;
         context.beginPath();
         context.moveTo(1, y - half);
         context.lineTo(gutter - 9, y - half);
@@ -474,10 +479,10 @@ export function CanvasLane({
           : isOctave ? 'rgba(148, 217, 255, .4)' : 'rgba(148, 163, 184, .22)';
         context.lineWidth = isAimed ? 1.5 : 1;
         context.stroke();
-        context.font = isAimed ? '800 11px ui-sans-serif, system-ui' : '700 9px ui-sans-serif, system-ui';
+        context.font = isAimed ? '800 13px ui-sans-serif, system-ui' : '700 11px ui-sans-serif, system-ui';
         context.fillStyle = isAimed ? '#ffffff'
-          : isOctave ? 'rgba(186, 230, 253, .85)' : 'rgba(203, 213, 225, .6)';
-        context.fillText(midiNoteName(midi), 4, y + 3);
+          : isOctave ? 'rgba(186, 230, 253, .9)' : 'rgba(203, 213, 225, .72)';
+        context.fillText(midiNoteName(midi), 5, y + 4);
       }
 
       // ---- the strike line, drawn last so nothing covers it
