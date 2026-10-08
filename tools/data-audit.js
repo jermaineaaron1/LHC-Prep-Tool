@@ -288,9 +288,15 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
   //
   // Measured 2026-10-05: 6 such rows, all January 2026, all written within
   // one millisecond of each other -- a bulk import, not anyone's editing.
-  // October 2026 onward was clean, and the fix for the January rows needs a
-  // human to say who actually led those services, so they are reported here
-  // rather than repaired. What this guards is everything AFTER them.
+  // They were reported but left alone, because repairing them needed a human
+  // to say who actually led those services.
+  //
+  // Removed 2026-10-08 once somebody did: the canonical row is correct on
+  // both dates, which made four of them plain duplicates and the other two
+  // simply wrong. So there is no allowlist here any more -- every
+  // non-canonical date and every duplicated cell now fails, because there
+  // should not be any. tools/remove-iso-roster-rows.js is what removed them
+  // and backups/iso-roster-rows-2026-01.json is what they were.
   section('roster dates');
   const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const canonical = s => /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}$/.test(String(s).trim());
@@ -304,31 +310,10 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
     return String(s).trim();
   };
 
-  // Two January services arrived like this in a bulk import and were left
-  // alone deliberately: repairing them needs somebody to remember who led a
-  // service nine months ago, and the payoff is six duty counts off by one.
-  //
-  // They are listed here rather than ignored, but they do not fail the audit
-  // -- a check that is always red is a check nobody reads, and the whole
-  // point of this section is to catch the NEXT one. Anything outside these
-  // two dates, or a change in how many rows they hold, still fails.
-  const KNOWN_BAD_DATES = ['2026|Jan 4', '2026|Jan 11'];
-  const KNOWN_BAD_COUNT = 6;
-  const isKnown = r => KNOWN_BAD_DATES.indexOf(r.year + '|' + normSvc(r.service_date)) !== -1;
-
   const oddDates = roster.filter(r => !canonical(r.service_date));
-  const oddNew = oddDates.filter(r => !isKnown(r));
-  const oddKnown = oddDates.length - oddNew.length;
-  say(oddNew.length === 0, oddNew.length + ' NEW roster row(s) whose service_date is not "MMM D"');
-  oddNew.slice(0, 12).forEach(r => console.log(
+  say(oddDates.length === 0, oddDates.length + ' roster row(s) whose service_date is not "MMM D"');
+  oddDates.slice(0, 12).forEach(r => console.log(
     '       ' + r.year + '  ' + String(r.role_id).padEnd(12) + JSON.stringify(r.service_date) + '  ' + JSON.stringify(r.value)));
-  if (oddKnown) {
-    console.log('  note ' + oddKnown + ' known row(s) on 4 and 11 Jan 2026, left as they are by decision');
-  }
-  // If that number moves, something touched them and the decision no longer
-  // describes what is there.
-  say(oddKnown === KNOWN_BAD_COUNT || oddKnown === 0,
-    'the known January rows still number ' + KNOWN_BAD_COUNT + ' (found ' + oddKnown + ')');
 
   const cells = {};
   roster.forEach(r => {
@@ -340,13 +325,11 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
   // counting purposes, but it cannot make the screen flicker, so the two are
   // reported apart.
   const conflicting = dupCells.filter(k => new Set(cells[k].map(r => String(r.value))).size > 1);
-  const conflictNew = conflicting.filter(k => KNOWN_BAD_DATES.indexOf(k.split('|')[0] + '|' + k.split('|')[2]) === -1);
-  say(conflictNew.length === 0, conflictNew.length + ' NEW roster cell(s) holding CONFLICTING values (the screen picks one at random)');
+  say(conflicting.length === 0, conflicting.length + ' roster cell(s) holding CONFLICTING values (the screen picks one at random)');
   conflicting.sort().forEach(k => {
     const [y, role, date] = k.split('|');
-    const known = KNOWN_BAD_DATES.indexOf(y + '|' + date) !== -1;
-    console.log('  ' + (known ? 'note' : 'BAD ') + '   ' + y + ' ' + date.padEnd(8) + String(role).padEnd(12) +
-      cells[k].map(r => JSON.stringify(r.value)).join('  vs  ') + (known ? '   (known, left by decision)' : ''));
+    console.log('  BAD    ' + y + ' ' + date.padEnd(8) + String(role).padEnd(12) +
+      cells[k].map(r => JSON.stringify(r.value)).join('  vs  '));
   });
   const identical = dupCells.length - conflicting.length;
   if (identical) {
