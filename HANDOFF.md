@@ -1,6 +1,75 @@
 # HANDOFF.md — LHC Worship Prep
 
-_Last updated: 2026-08-18 by Claude Code_
+_Last updated: 2026-10-08 by Claude Code_
+
+---
+
+## 2026-10-08 — Audit round: a thenable that would only have broken when it worked (merged to `master`, PR #271)
+
+A full audit round over current `master`. Both existing suites were already
+green, so the round went after the classes they do not cover. **One real
+finding, one line changed.**
+
+### The finding
+
+`SBQ_OCC_DATA.save` returned the raw supabase-js query builder:
+
+```javascript
+save: function(occasionId, data) {
+  if (!sb) return Promise.reject('No Supabase');       // real Promise
+  return sb.from('liturgy_occasion_data').upsert(...); // THENABLE — no .catch
+}
+```
+
+A thenable has `.then` but **no `.catch`**, so a caller attaching one directly
+throws a `TypeError`. That is exactly what reached the live site from the
+order-delete path and was fixed there in `82f5155`.
+
+The shape here was worse than that one. The failure path returns a real
+`Promise.reject(...)` while the success path returned the thenable — so a
+`.catch` on it would have worked whenever Supabase was **missing** and thrown
+whenever Supabase was **actually working**.
+
+Nothing was biting: both callers survive it, one by chaining `.then().catch()`
+and the other by already wrapping it in `Promise.resolve(...)`. That second one
+was the tell — someone met the sharp edge and patched around it at the call
+site rather than at the source. Fixed at the source so the next caller cannot
+be caught out.
+
+### How it was found, and what that technique is worth
+
+By taking a recent production fix (`82f5155`) and hunting its **siblings**, on
+the principle that a bug which reached production usually has relatives. Worth
+repeating on future rounds.
+
+Thirteen candidates were flagged; twelve were false positives — inner
+`return sb.from(...)` statements inside `.then()` callbacks, which are correct,
+because returning a thenable from a `.then` is assimilated. `deleteOrder`,
+`deleteUnavailabilityPeriod`, `renameMember`, `mergeNames`, `saveAll`,
+`incrementUseCount`, `saveOccFolders` and `_sbSaveRecording` all return real
+Promises. `app/api/*` is clean.
+
+**The lesson from `82f5155` is still live:** its harness missed the bug because
+the stub returned a real Promise, which is more forgiving than the thing being
+stubbed. A harness can only be as honest as its fakes.
+
+### Checked and clean — recorded so the next round need not redo it
+
+- `npm run check` — exit 0, **334 assertions**, identical before and after the fix
+- `npm run audit` (live data) — "nothing wrong found". Informational only: 2
+  header-only slides, 4 songs with no lyrics, the known January roster rows
+  left by decision, and the `ZZTEST` songbook from an old session
+- `Index.html` / `dist/index.html` — byte-identical
+- Every inline `onclick` / `onchange` target resolves; **no dead buttons**
+- **Three duplicate static element ids, all benign**: `woSongOrderSections`
+  sits inside `#woWorshipOrder`, which `initializeSongOrder()` replaces
+  wholesale; `litDeleteConfirmOverlay` and `spmOrdersList` are each removed or
+  overwritten before being rebuilt. Recorded as *checked*, not as ambiguous
+- The documented historical bug classes are all currently sound: the single
+  `SBQ_SONGS.update()` call site does carry `lyrics` (the hidden field is
+  populated on modal open); all four `openEditSongModal` call sites pass the
+  song **object**, not an id; the one `showToast` wrapper has no caller that
+  needs the third argument
 
 ---
 
