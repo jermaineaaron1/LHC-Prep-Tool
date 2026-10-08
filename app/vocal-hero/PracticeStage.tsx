@@ -217,7 +217,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
     setMic('checking');
     const band = detectionRange(part, transpose, playableNotes(song));
     const engine = new PitchEngine({
-      bufferSize: 2048, confidenceThreshold: .86, smoothing: .5,
+      bufferSize: 2048, confidenceThreshold: .82, smoothing: .5,
       initialDeviceId: storedWorkingDevice(), onWorkingDevice: rememberWorkingDevice,
       minHz: PitchEngine.midiToHz(band.minMidi),
       maxHz: PitchEngine.midiToHz(band.maxMidi),
@@ -227,7 +227,9 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
         if (performance.now() - paintRef.current > 90) { setPitch(sample.frequency); paintRef.current = performance.now(); }
         // The trail is the singer's own line drawn back at them, so it holds
         // to the same standard as the score: a believed pitch, not a flicker.
-        if (sample.confidence > .86 && (sample.level ?? 0) > .006 && transportRef.current.isPlaying) pushTrail(trailRef.current, positionRef.current, sample.frequency);
+        // .82 rather than .86 -- the stricter figure was deaf to soft singing,
+        // which is most of what practice actually sounds like.
+        if (sample.confidence > .82 && (sample.level ?? 0) > .006 && transportRef.current.isPlaying) pushTrail(trailRef.current, positionRef.current, sample.frequency);
       },
     });
     try { await engine.start(); pitchRef.current = engine; setMicReason(null); setMic('ready'); }

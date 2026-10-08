@@ -358,7 +358,7 @@ export default function VocalHeroHostPage() {
     if (soloPitchRef.current?.isRunning) return true;
     setSoloMic('checking');
     const shift = transposeRef.current;
-    const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .86, smoothing: .5, initialDeviceId: storedWorkingDevice(), onWorkingDevice: rememberWorkingDevice, minHz: PitchEngine.midiToHz(detectionRange(part, shift, notesRef.current).minMidi), maxHz: PitchEngine.midiToHz(detectionRange(part, shift, notesRef.current).maxMidi), onPitch: sample => {
+    const engine = new PitchEngine({ bufferSize: 2048, confidenceThreshold: .82, smoothing: .5, initialDeviceId: storedWorkingDevice(), onWorkingDevice: rememberWorkingDevice, minHz: PitchEngine.midiToHz(detectionRange(part, shift, notesRef.current).minMidi), maxHz: PitchEngine.midiToHz(detectionRange(part, shift, notesRef.current).maxMidi), onPitch: sample => {
       if (performance.now() - soloLastPitchPaintRef.current > 33) { setSoloPitch(sample.frequency); soloLastPitchPaintRef.current = performance.now(); }
       // This sample is the sound of a moment already past: the beat took time to
       // reach the singer's ears, and their answer took time to reach the analyser.
@@ -367,7 +367,7 @@ export default function VocalHeroHostPage() {
       soloLevelRef.current = sample.level ?? 0;
       // Below this it is a room, not a singer: scoring it marks someone down
       // for the air conditioning.
-      if (soloPhaseRef.current === 'Live' && sample.confidence > .86 && (sample.level ?? 0) > .006) {
+      if (soloPhaseRef.current === 'Live' && sample.confidence > .82 && (sample.level ?? 0) > .006) {
         const songTime = Math.max(0, soloElapsedRef.current - latencyRef.current);
         soloScoreRef.current?.scorePitch(sample.frequency, songTime);
         pushTrail(trailRef.current, songTime, sample.frequency);
