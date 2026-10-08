@@ -239,6 +239,35 @@ export function CanvasLane({
       context.fillStyle = vignette;
       context.fillRect(0, 0, width, drawHeight);
 
+      // ---- the road
+      //
+      // Time is DEPTH. A note's distance is how long until it is sung, and the
+      // whole lane is drawn through one perspective divide.
+      //
+      // The near plane is the strike line, and that is what makes this safe:
+      // at distance zero the scale is exactly 1, so a note being sung sits on
+      // precisely the row it always did, and the pitch tabs down the left stay
+      // true to the pixel. Only the FUTURE compresses, where a singer needs the
+      // shape of the line coming and not a semitone measured by eye.
+      // Chosen together so the far end of the look-ahead lands just inside
+      // the right edge and the near end is exactly the strike line. A deeper
+      // divide than this crushed every note into the last fifth of the lane
+      // and none of them ever grew.
+      const VP_X = width * 1.5;
+      const VP_Y = drawHeight * 0.46;
+      const DEPTH = 1.5;
+      /** 1 at the strike line, smaller into the distance, larger as a sung note
+       *  flies past the singer. Capped, or a note just behind the line would
+       *  scale to infinity. */
+      const scaleAt = (distance: number) => distance >= 0
+        ? 1 / (1 + distance * DEPTH)
+        : Math.min(1.8, 1 - distance * 2.6);
+      const project = (time: number, midi: number) => {
+        const k = scaleAt((time - position) / look);
+        const flat = yForMidi(midi, low, high, drawHeight);
+        return { x: VP_X - (VP_X - cursorX) * k, y: VP_Y + (flat - VP_Y) * k, k };
+      };
+
       // Semitone rows, with the octaves picked out: a singer reads position
       // against these far faster than against a bare gradient. The names are
       // drawn later, over the notes, so nothing scrolls across them.
@@ -246,12 +275,20 @@ export function CanvasLane({
       for (let midi = Math.ceil(low); midi <= high; midi++) {
         const y = yForMidi(midi, low, high, drawHeight);
         const isOctave = ((midi % 12) + 12) % 12 === 0;
-        context.strokeStyle = isOctave ? 'rgba(148, 217, 255, .16)' : 'rgba(255,255,255,.045)';
+        // Each row is now a rail running away to the vanishing point. It leaves
+        // the near plane at exactly the height it always had.
+        const near = project(position - look * .22, midi);
+        const far = project(position + look, midi);
+        const rail = context.createLinearGradient(near.x, near.y, far.x, far.y);
+        rail.addColorStop(0, isOctave ? 'rgba(148, 217, 255, .3)' : 'rgba(255,255,255,.1)');
+        rail.addColorStop(1, isOctave ? 'rgba(148, 217, 255, .05)' : 'rgba(255,255,255,.015)');
+        context.strokeStyle = rail;
         context.lineWidth = 1;
         context.beginPath();
-        context.moveTo(0, Math.round(y) + .5);
-        context.lineTo(width, Math.round(y) + .5);
+        context.moveTo(near.x, near.y);
+        context.lineTo(far.x, far.y);
         context.stroke();
+        void y;
       }
 
       // ---- the row being aimed at
@@ -263,10 +300,19 @@ export function CanvasLane({
       const aimed = p.laneNotes.find(note => position >= note.start && position < note.end)
         ?? p.laneNotes.find(note => note.start >= position) ?? null;
       if (aimed) {
-        const aimY = yForMidi(aimed.midi, low, high, drawHeight);
+        // The lit row narrows with the road, so it reads as a lane on the floor
+        // rather than a stripe painted on the glass.
         const band = Math.max(9, rowPx * .92);
-        context.fillStyle = withAlpha(colour, .09);
-        context.fillRect(0, aimY - band / 2, width, band);
+        const near = project(position - look * .22, aimed.midi);
+        const far = project(position + look, aimed.midi);
+        context.fillStyle = withAlpha(colour, .1);
+        context.beginPath();
+        context.moveTo(near.x, near.y - band * near.k / 2);
+        context.lineTo(far.x, far.y - band * far.k / 2);
+        context.lineTo(far.x, far.y + band * far.k / 2);
+        context.lineTo(near.x, near.y + band * near.k / 2);
+        context.closePath();
+        context.fill();
       }
 
       // ---- notes
@@ -275,9 +321,13 @@ export function CanvasLane({
       const visible = p.laneNotes.filter(note => note.end >= position - 1.2 && note.start <= position + look);
 
       for (const note of visible) {
-        const x = xForTime(note.start, position, look, width);
-        const endX = xForTime(note.end, position, look, width);
-        const y = yForMidi(note.midi, low, high, drawHeight);
+        // Near end and far end, each with its own scale: a note is a slab lying
+        // on the road, wider and taller at the end closest to being sung.
+        const head = project(note.start, note.midi);
+        const tail = project(note.end, note.midi);
+        const x = head.x;
+        const endX = tail.x;
+        const y = head.y;
         const w = Math.max(6, endX - x - 2);
         // A note must never be taller than the row it sits in. The old floor of
         // 7px ignored the row entirely, so on a phone -- where eighteen
@@ -287,7 +337,8 @@ export function CanvasLane({
         // and the notes stayed exactly as small, which is why the last three
         // passes at "bolder" changed the colour of things and never the size.
         // Now it takes nearly the whole row it is given.
-        const h = Math.max(9, Math.min(34, rowPx * 0.95));
+        const h = Math.max(5, Math.min(34, rowPx * 0.95) * head.k);
+        const tailH = Math.max(4, Math.min(34, rowPx * 0.95) * tail.k);
         const past = note.end <= position;
         const active = position >= note.start && position < note.end;
         const hit = p.hitNotes?.[note.id];
@@ -307,19 +358,30 @@ export function CanvasLane({
         // beneath, a darker floor. Three stops instead of two is the whole
         // difference between a painted rectangle and something with a shape.
         const gradient = context.createLinearGradient(x, y - h / 2, x, y + h / 2);
+        void w;
         gradient.addColorStop(0, withAlpha('#ffffff', past ? .35 : .72));
         gradient.addColorStop(.42, withAlpha(body, 1));
         gradient.addColorStop(1, withAlpha(body, .6));
         context.fillStyle = gradient;
-        roundRect(context, x, y - h / 2, w, h, Math.min(9, h / 2));
+        // The slab itself: four corners, two of them further away.
+        const slab = () => {
+          context.beginPath();
+          context.moveTo(x, y - h / 2);
+          context.lineTo(endX, tail.y - tailH / 2);
+          context.lineTo(endX, tail.y + tailH / 2);
+          context.lineTo(x, y + h / 2);
+          context.closePath();
+        };
+        context.lineJoin = 'round';
+        slab();
         context.fill();
         // The rim: a hot bright edge all the way round, brightest on the note
         // about to be sung. It is the whole difference between a coloured
         // shape and a lit object, and it is what the reference had that this
         // did not.
         context.strokeStyle = past ? withAlpha('#ffffff', .16) : withAlpha('#ffffff', .45 + nearness * .45);
-        context.lineWidth = past ? 1 : 2;
-        roundRect(context, x + 1, y - h / 2 + 1, Math.max(2, w - 2), Math.max(2, h - 2), Math.min(8, Math.max(1, (h - 2) / 2)));
+        context.lineWidth = past ? 1 : Math.max(1, 2 * head.k);
+        slab();
         context.stroke();
 
         // ---- the green proof
@@ -336,7 +398,7 @@ export function CanvasLane({
           run.addColorStop(0, 'rgba(74, 222, 128, .98)');
           run.addColorStop(1, 'rgba(16, 185, 129, .85)');
           context.save();
-          roundRect(context, x, y - h / 2, w, h, Math.min(6, h / 2));
+          slab();
           context.clip();
           context.fillStyle = run;
           let runStart = -1, lastGood = -1;
@@ -365,7 +427,7 @@ export function CanvasLane({
           context.shadowBlur = 0;
           context.strokeStyle = '#ffffff';
           context.lineWidth = 2;
-          roundRect(context, x, y - h / 2, w, h, Math.min(6, h / 2));
+          slab();
           context.stroke();
         }
         context.restore();
@@ -382,6 +444,7 @@ export function CanvasLane({
         if (p.showLyrics && h >= 7) {
           const room = w - 7;
           const cap = Math.min(15, Math.floor(h - 1));
+          if (cap < 6) { context.restore(); continue; }
           const name = midiNoteName(note.midi);
           const wanted = note.lyric ? [name + ' ' + note.lyric, name, note.lyric] : [name];
           let label = '', size = 0;
@@ -410,9 +473,8 @@ export function CanvasLane({
         context.beginPath();
         for (const sample of samples) {
           if (sample.hz <= 0 || sample.t < position - 2.5 || sample.t > position) { drawing = false; continue; }
-          const x = xForTime(sample.t, position, look, width);
-          const y = yForMidi(hzToMidi(sample.hz), low, high, drawHeight);
-          if (!drawing) { context.moveTo(x, y); drawing = true; } else context.lineTo(x, y);
+          const at = project(sample.t, hzToMidi(sample.hz));
+          if (!drawing) { context.moveTo(at.x, at.y); drawing = true; } else context.lineTo(at.x, at.y);
         }
         // Twice, so it has a core: a wide soft glow and a hot thin line
         // through the middle of it. That is what makes a drawn stroke look lit
