@@ -365,9 +365,10 @@ export default function VocalHeroHostPage() {
       // Scoring it against the clock as it stands now would mark every note late.
       soloPitchValueRef.current = sample.frequency;
       soloLevelRef.current = sample.level ?? 0;
-      // Below this it is a room, not a singer: scoring it marks someone down
-      // for the air conditioning.
-      if (soloPhaseRef.current === 'Live' && sample.confidence > .82 && (sample.level ?? 0) > .006) {
+      // No loudness gate: the engine's own is adaptive to the room and has a
+      // floor at 0.002 precisely so a quiet singer still counts. A fixed one
+      // here only made the game deaf to anyone not belting.
+      if (soloPhaseRef.current === 'Live' && sample.confidence > .82) {
         const songTime = Math.max(0, soloElapsedRef.current - latencyRef.current);
         soloScoreRef.current?.scorePitch(sample.frequency, songTime);
         pushTrail(trailRef.current, songTime, sample.frequency);

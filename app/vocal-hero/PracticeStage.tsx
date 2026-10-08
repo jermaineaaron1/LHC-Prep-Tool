@@ -227,9 +227,13 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
         if (performance.now() - paintRef.current > 90) { setPitch(sample.frequency); paintRef.current = performance.now(); }
         // The trail is the singer's own line drawn back at them, so it holds
         // to the same standard as the score: a believed pitch, not a flicker.
-        // .82 rather than .86 -- the stricter figure was deaf to soft singing,
-        // which is most of what practice actually sounds like.
-        if (sample.confidence > .82 && (sample.level ?? 0) > .006 && transportRef.current.isPlaying) pushTrail(trailRef.current, positionRef.current, sample.frequency);
+        //
+        // No loudness gate here. The engine already has one, and it is a far
+        // better one: 2.5x the room floor it has learned, clamped to a minimum
+        // of 0.002 because that is where a soft singer in a quiet room lives.
+        // A flat 0.006 on top of that was three times its floor and threw away
+        // exactly the frames that adaptive floor was built to keep.
+        if (sample.confidence > .82 && transportRef.current.isPlaying) pushTrail(trailRef.current, positionRef.current, sample.frequency);
       },
     });
     try { await engine.start(); pitchRef.current = engine; setMicReason(null); setMic('ready'); }
