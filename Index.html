@@ -1323,6 +1323,10 @@
       border: 1px solid rgba(5,150,105,0.25);
     }
     .practice-game-iframe {
+      /* An iframe is transparent by default and so was the document inside it,
+         so this frame was a window onto its own parent. The game's backdrop,
+         kept here too so a frame that has not painted yet is still solid. */
+      background: #030611;
       width: 100%;
       height: calc(100vh - 110px);
       height: calc(100dvh - 110px);
@@ -3468,14 +3472,24 @@
         transition: transform 0.3s ease;
         box-shadow: 4px 0 20px rgba(0,0,0,0.3);
       }
+      /* display:flex keeps the drawer in the layout so it can slide, which
+         leaves the transform as the ONLY thing holding a fixed, z-index-1000
+         panel off screen. If that transform ever fails to apply, the whole
+         sidebar lands on top of the app. visibility cannot be defeated the
+         same way and still allows the slide: it returns the instant the
+         drawer opens, and waits for the slide to finish before hiding. */
       .sidebar-collapsed #playlistSidebar {
         display: flex !important;
         transform: translateX(-100%);
+        visibility: hidden;
         pointer-events: none;
+        transition: transform 0.3s ease, visibility 0s linear 0.3s;
       }
       .lhc-root:not(.sidebar-collapsed) #playlistSidebar {
         transform: translateX(0);
+        visibility: visible;
         pointer-events: auto;
+        transition: transform 0.3s ease, visibility 0s linear 0s;
       }
       /* Overlay backdrop when sidebar open on mobile */
       .lhc-root:not(.sidebar-collapsed)::before {
@@ -4952,11 +4966,15 @@
       .sidebar-collapsed #playlistSidebar {
         display: flex !important;
         transform: translateX(-100%) !important;
+        visibility: hidden !important;
         pointer-events: none !important;
+        transition: transform 0.3s ease, visibility 0s linear 0.3s !important;
       }
       .lhc-root:not(.sidebar-collapsed) #playlistSidebar {
         transform: translateX(0) !important;
+        visibility: visible !important;
         pointer-events: auto !important;
+        transition: transform 0.3s ease, visibility 0s linear 0s !important;
       }
       .lhc-root:not(.sidebar-collapsed)::before {
         content: '';
