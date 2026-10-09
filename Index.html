@@ -23135,6 +23135,14 @@ window.loadEditSongData = function(song) {
           var value = rosterMap[lookupKey] || '';
           if (typeof value === 'object' && value && value.day) value = value.day;
           if (typeof value === 'string' && (value === 'TBD' || value === '-' || value === '__BLANK__')) value = '';
+          // Bro / Sis for a lay preacher, applied here at the moment of
+          // display rather than stored in the name -- the same person is
+          // plain in their other duties, and the stored name stays the one
+          // the picker matches against. This card is the one place a
+          // preacher is presented that the original change missed.
+          if (value && typeof window.LHC_addressedName === 'function') {
+            value = window.LHC_addressedName(row.id, value);
+          }
           html += value ? '<td style="white-space:pre-line;">' + escapeHtml(value) + '</td>' : '<td class="home-roster-tbd">-</td>';
         });
         html += '</tr>';
