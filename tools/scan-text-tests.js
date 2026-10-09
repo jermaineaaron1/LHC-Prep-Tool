@@ -37,7 +37,9 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const ROUTE = path.join(ROOT, 'app/api/parse-song-sheet/route.ts');
 const SRC = fs.readFileSync(ROUTE, 'utf8');
-const ts = require(path.join(ROOT, 'node_modules', 'typescript'));
+// Resolved by name, not by path: a git worktree has no node_modules of its
+// own and finds the checkout's by walking up, which an absolute path defeats.
+const ts = require('typescript');
 
 // route.ts is stored CRLF; a function ends at the first close-brace in column 0.
 const CLOSE = SRC.includes('\r\n') ? '\r\n}' : '\n}';
