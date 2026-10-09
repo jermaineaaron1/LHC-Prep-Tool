@@ -139,6 +139,44 @@ check('null', api('preacher', null), null);
 check('undefined', api('preacher', undefined), undefined);
 check('a blank sentinel is not a name', api('preacher', '__BLANK__'), '__BLANK__');
 
+// ---------------------------------------------------------------------------
+// EVERY SURFACE THAT PRESENTS A PREACHER ACTUALLY CALLS IT
+//
+// Everything above passed while the home Upcoming Services card showed
+// "John Cheah" with no Bro in front of it. The function was tested
+// exhaustively and the wiring was not tested at all, so a surface that never
+// called it looked exactly like a surface that did. A correct function
+// nobody calls is still a bug.
+//
+// Each surface is located by a landmark in its own source and required to
+// apply the form of address somewhere inside itself.
+console.log('\nevery surface that presents a preacher applies it');
+{
+  const applies = text => /LHC_addressedName|addressedName\(/.test(text || '');
+
+  const home = extractFunction('renderHomeUpcomingServices');
+  check('the home Upcoming Services card', home !== null && applies(home), true);
+
+  const share = extractFunction('shareServiceGraphic');
+  check('the WhatsApp share graphic', share !== null && applies(share), true);
+
+  // These two are inside RosterEngine methods rather than named functions,
+  // so they are found by a landmark instead of by a function header.
+  const weekly = raw.indexOf("rows.push({ kind: 'single'");
+  check('the weekly card', weekly > 0 && applies(raw.slice(weekly - 400, weekly + 400)), true);
+
+  const message = raw.indexOf('var LF = function(label, roleId)');
+  check('the WhatsApp duty message', message > 0 && applies(raw.slice(message, message + 600)), true);
+
+  // And the one place it must NOT reach. The grid cell holds the STORED
+  // name: it is what the picker matches against and what gets written back,
+  // so addressing it there would put Bro into the database by the next save
+  // -- which is the whole thing this design exists to prevent.
+  const grid = raw.indexOf('editCell: function(');
+  check('but not the roster grid, which holds the stored name',
+    grid > 0 && !applies(raw.slice(grid, grid + 2000)), true);
+}
+
 console.log('\n' + '='.repeat(60));
 const pass = results.filter(Boolean).length;
 console.log(pass + '/' + results.length + ' checks passed');
