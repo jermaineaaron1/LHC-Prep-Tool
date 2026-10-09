@@ -105,7 +105,30 @@ export function CanvasLane({
       return { x: r(1), y: r(2), size: .5 + r(3) * 1.7, speed: .3 + r(4) * 1.2, blink: .5 + r(5) * 1.9, phase: r(6) * 6.283 };
     });
 
+    // Sparks thrown off the strike line when a note is landed. A game tells
+    // you that you got it; this one only ever stopped being wrong, which is a
+    // quieter and much less encouraging thing. Plain objects in a plain array,
+    // reused and compacted in place -- this runs inside the draw loop and must
+    // allocate nothing per frame.
+    type Spark = { x: number; y: number; dx: number; dy: number; life: number; hue: string };
+    const sparks: Spark[] = [];
+    const seen = new Set<string>();
+    // How long the singer held the right pitch on each note. The scored game
+    // hands down a verdict in hitNotes, but PRACTICE is unscored and gets no
+    // such list -- and practice is where most of the singing happens. So the
+    // lane keeps its own tally off the pitch it is already drawing, and a note
+    // held for a tenth of a second in tune counts as landed wherever you are.
+    const heldWell = new Map<string, number>();
+    const burst = (x: number, y: number, hue: string) => {
+      for (let i = 0; i < 14; i++) {
+        const angle = (Math.PI * 2 * i) / 14 + Math.random() * .4;
+        const speed = 40 + Math.random() * 120;
+        sparks.push({ x, y, dx: Math.cos(angle) * speed, dy: Math.sin(angle) * speed * .7, life: 1, hue });
+      }
+    };
+
     let frame = 0;
+    let lastFrameAt = performance.now();
     const draw = () => {
       const p = propsRef.current;
       const position = p.getPosition();
@@ -261,7 +284,11 @@ export function CanvasLane({
        *  scale to infinity. */
       const scaleAt = (distance: number) => distance >= 0
         ? 1 / (1 + distance * DEPTH)
-        : Math.min(1.8, 1 - distance * 2.6);
+        // Past the line a note is coming toward the singer and ought to grow,
+        // but only a little: 1.8x turned a 23px note on a 24px row into a 41px
+        // slab lying across its neighbours, which on a phone is what "the
+        // notes are colliding" looks like.
+        : Math.min(1.18, 1 - distance * 1.1);
       const project = (time: number, midi: number) => {
         const k = scaleAt((time - position) / look);
         const flat = yForMidi(midi, low, high, drawHeight);
@@ -337,11 +364,23 @@ export function CanvasLane({
         // and the notes stayed exactly as small, which is why the last three
         // passes at "bolder" changed the colour of things and never the size.
         // Now it takes nearly the whole row it is given.
-        const h = Math.max(5, Math.min(34, rowPx * 0.95) * head.k);
-        const tailH = Math.max(4, Math.min(34, rowPx * 0.95) * tail.k);
+        // The rule the flat lane had and the road lost: a note may never be
+        // taller than the row it sits in. Perspective decides how much of its
+        // row it takes; it does not get to borrow the row above.
+        const slabH = Math.min(34, rowPx * 0.95);
+        const h = Math.max(5, Math.min(slabH * head.k, rowPx));
+        const tailH = Math.max(4, Math.min(slabH * tail.k, rowPx));
         const past = note.end <= position;
         const active = position >= note.start && position < note.end;
         const hit = p.hitNotes?.[note.id];
+        // As it leaves, once, if it was sung. `seen` is per-lane and a lane
+        // outlives one run of a song, so a note already burst never bursts
+        // again on a loop -- the second time round is not a new landing.
+        if (note.end <= position && !seen.has(note.id)
+            && (hit || (heldWell.get(note.id) ?? 0) >= 6)) {
+          seen.add(note.id);
+          burst(cursorX, yForMidi(note.midi, low, high, drawHeight), '#86efac');
+        }
 
         // Approaching notes brighten as they near the line, so the eye is drawn
         // to what has to be sung next rather than to the whole road at once.
@@ -547,6 +586,31 @@ export function CanvasLane({
         context.fillText(midiNoteName(midi), 5, y + 4);
       }
 
+      // ---- the sparks
+      const now = performance.now();
+      const dt = Math.min(.05, (now - lastFrameAt) / 1000);
+      lastFrameAt = now;
+      if (sparks.length) {
+        context.save();
+        context.globalCompositeOperation = 'lighter';
+        let kept = 0;
+        for (const spark of sparks) {
+          spark.life -= dt * 1.9;
+          if (spark.life <= 0) continue;
+          spark.x += spark.dx * dt;
+          spark.y += spark.dy * dt;
+          spark.dy += 160 * dt;                       // they fall
+          sparks[kept++] = spark;
+          const size = 1 + spark.life * 2.4;
+          context.fillStyle = withAlpha(spark.hue, Math.min(1, spark.life));
+          context.beginPath();
+          context.arc(spark.x, spark.y, size, 0, Math.PI * 2);
+          context.fill();
+        }
+        sparks.length = kept;
+        context.restore();
+      }
+
       // ---- the strike line, drawn last so nothing covers it
       //
       // It breathes: a sung note is being judged HERE, every moment, and a
@@ -604,6 +668,10 @@ export function CanvasLane({
         // A halo that swells when the pitch is right: the loudest thing the
         // lane can say without words is "that one -- hold it".
         const onTarget = aimed ? Math.abs(hzToMidi(hz) - aimed.midi) < 0.6 : false;
+        // Same test the halo uses, remembered against the note it belongs to.
+        if (onTarget && aimed && position >= aimed.start && position < aimed.end) {
+          heldWell.set(aimed.id, (heldWell.get(aimed.id) ?? 0) + 1);
+        }
         const halo = context.createRadialGradient(cursorX, y, 2, cursorX, y, onTarget ? 30 : 18);
         halo.addColorStop(0, withAlpha(onTarget ? '#86efac' : colour, onTarget ? .55 : .3));
         halo.addColorStop(1, 'rgba(0,0,0,0)');
