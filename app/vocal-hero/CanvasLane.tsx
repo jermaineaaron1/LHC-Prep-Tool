@@ -481,21 +481,32 @@ export function CanvasLane({
         // they do not -- which is the thing a singer most needs and the thing
         // the lane never used to say.
         if (p.showLyrics && h >= 7) {
+          // The note being sung right now. Its syllable is the one lit on the
+          // banner above, so it gets the room to say so: a size larger, and
+          // the WORD kept ahead of the note name when only one of the two
+          // fits. Elsewhere the name comes first -- a singer reading ahead
+          // needs the pitch; a singer on the note already knows it and needs
+          // to see which syllable they are on.
+          const live = aimed?.id === note.id;
           const room = w - 7;
-          const cap = Math.min(15, Math.floor(h - 1));
+          const cap = Math.min(live ? 17 : 15, Math.floor(h - 1));
           if (cap < 6) { context.restore(); continue; }
           const name = midiNoteName(note.midi);
-          const wanted = note.lyric ? [name + ' ' + note.lyric, name, note.lyric] : [name];
+          const both = note.lyric ? [name + ' ' + note.lyric] : [];
+          const wanted = note.lyric
+            ? [...both, ...(live ? [note.lyric, name] : [name, note.lyric])]
+            : [name];
+          const weight = live ? 800 : 700;
           let label = '', size = 0;
           for (const candidate of wanted) {
-            for (const px of [15, 14, 13, 12, 11, 10, 9, 8].filter(px => px <= cap)) {
-              context.font = `700 ${px}px ui-sans-serif, system-ui`;
+            for (const px of [17, 16, 15, 14, 13, 12, 11, 10, 9, 8].filter(px => px <= cap)) {
+              context.font = `${weight} ${px}px ui-sans-serif, system-ui`;
               if (context.measureText(candidate).width <= room) { label = candidate; size = px; break; }
             }
             if (label) break;
           }
           if (label) {
-            context.font = `700 ${size}px ui-sans-serif, system-ui`;
+            context.font = `${weight} ${size}px ui-sans-serif, system-ui`;
             context.fillStyle = past && !hit ? 'rgba(226,232,240,.7)' : 'rgba(7,17,29,.92)';
             context.fillText(label, x + 4, y + size / 2 - 1);
           }

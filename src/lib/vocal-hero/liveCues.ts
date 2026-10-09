@@ -29,6 +29,9 @@ export interface KaraokeCue {
   currentLyric: string;
   nextText: string;
   waiting: boolean;
+  /** Seconds until this phrase begins, 0 once it has. Lets the banner count
+   * the singer in rather than saying "coming up" and leaving them to guess. */
+  startsIn: number;
   /** The line broken up so each fragment can be lit on its own. A single
    * clip across the whole block only works while the line fits on one row;
    * once it wraps, a horizontal clip lights the same fraction of every row. */
@@ -128,7 +131,7 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
   // Note lyrics are the sole gameplay source. For authored SATB arrangements
   // the chosen voice never borrows a phrase or lyric from another part.
   const events = lyricEvents(notes.filter(note => hasAuthoredSatb ? note.part === partIndex : note.part === partIndex || note.part === -1));
-  if (!events.length) return { text: 'Instrumental — listen for your entrance', progress: 0, currentLyric: '', nextText: '', waiting: true, segments: [] };
+  if (!events.length) return { text: 'Instrumental — listen for your entrance', progress: 0, currentLyric: '', nextText: '', waiting: true, startsIn: Infinity, segments: [] };
   const phrases = phraseGroups(events, song);
   let phraseIndex = phrases.findIndex(phrase => elapsed >= phrase[0].start - .35 && elapsed <= phrase[phrase.length - 1].end + .8);
   if (phraseIndex < 0) phraseIndex = phrases.findIndex(phrase => phrase[0].start > elapsed);
@@ -160,6 +163,7 @@ export function karaokeCue(song: Song, notes: SongNote[], partIndex: number, ela
     currentLyric,
     nextText: phrases[phraseIndex + 1] ? displayPhrase(phrases[phraseIndex + 1]).text : '',
     waiting: elapsed < phrase[0].start,
+    startsIn: Math.max(0, phrase[0].start - elapsed),
     segments,
   };
 }

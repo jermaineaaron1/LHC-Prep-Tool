@@ -304,7 +304,7 @@ export function PracticeStage({ song, onExit, initialLoop, initialPart }: { song
         style={{ borderColor: index === part ? COLOURS[index] : '#ffffff20', background: index === part ? `${COLOURS[index]}18` : 'transparent', color: index === part ? COLOURS[index] : '#94a3b8' }}>{voice}</button>)}
     </div>}
 
-    <div className="mt-1 shrink-0 sm:mt-4"><KaraokeLyrics song={song} notes={allNotes} partIndex={lanePart} elapsed={position} compact={narrow} /></div>
+    <div className="mt-1 shrink-0 sm:mt-4"><KaraokeLyrics song={song} notes={allNotes} partIndex={lanePart} elapsed={position} compact={narrow} colour={colour} /></div>
     <div className="mt-1 min-h-[120px] flex-1 sm:mt-4 sm:min-h-0 sm:flex-none"><CanvasLane partIndex={lanePart} partName={guide ? 'Melody guide' : VOICES[part]} colour={colour} notes={allNotes} getPosition={() => positionRef.current} getPitchHz={() => pitchValueRef.current} getLevel={() => levelRef.current} trail={trailRef.current} lookAheadSeconds={7} height={380} fill={narrow} readout={narrow ? laneReadout : null} /></div>
 
     {/* The scrubber doubles as the loop display: a singer should be able to see
