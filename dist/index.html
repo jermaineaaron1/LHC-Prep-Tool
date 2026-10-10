@@ -18655,6 +18655,27 @@ window.loadEditSongData = function(song) {
   }
   window._sfClearAndShowAll = _sfClearAndShowAll;
 
+  // Is the operator looking at a list of songs at this moment?
+  //
+  // renderSongs(false) with an empty search box does not just skip the
+  // repaint -- it EMPTIES the container and puts the "start typing" prompt
+  // back. That is right on a cold start and wrong after a save: the
+  // catalogue the operator was reading, and the song they had just edited,
+  // both vanished, and the only way back was to press Browse again. It read
+  // as the save being slow, because the change did not appear until they had
+  // navigated back to it.
+  //
+  // The empty state is the honest signal. It is hidden exactly when a list
+  // is being shown, including by showAllSongs(), which fills the container
+  // itself without going through renderSongs and so leaves STATE.filters.q
+  // empty behind it.
+  function _sfListIsShowing() {
+    var es = $('songEmptyState');
+    if (es && es.style.display === 'none') return true;
+    var c = $('songListContainer');
+    return !!(c && c.children && c.children.length);
+  }
+
   function renderSongs(forceShow) {
     var container = $('songListContainer');
     var emptyState = $('songEmptyState');
@@ -21408,6 +21429,61 @@ window.loadEditSongData = function(song) {
     });
   }
 
+  // Show a saved song straight away, instead of waiting for the catalogue.
+  //
+  // saveEditSong used to write the row and then call loadSongs(), which
+  // refetches EVERY song -- 119 KB with the lyrics of all 65 in it -- and
+  // only repaints when that lands. Worse, loadSongs() is not awaited, so the
+  // loader hid and the modal closed immediately while the list underneath
+  // still showed the old title. On the office wifi that gap is about a
+  // second. On a phone at church it is long enough to look like the save did
+  // not work, which is how somebody ends up pressing Save twice.
+  //
+  // The row that was just written is already known, so it is merged into the
+  // list and the list repaints at once. loadSongs() still runs afterwards,
+  // so anything the server knows that the form did not -- a use_count bumped
+  // by an order, an edit from another device -- still arrives.
+  //
+  // Returns false when the song is not in the list (a filter is on, or it is
+  // new), and the caller just falls back to the refetch.
+  function _applySavedSongLocally(saved) {
+    if (!saved || !saved.id || !STATE || !Array.isArray(STATE.songs)) return false;
+    var i = -1;
+    for (var n = 0; n < STATE.songs.length; n++) {
+      if (STATE.songs[n] && STATE.songs[n].id === saved.id) { i = n; break; }
+    }
+    if (i < 0) return false;
+    var prev = STATE.songs[i] || {};
+    var copy = function(v) { return Array.isArray(v) ? v.slice() : []; };
+    // Only the fields the form owns. Everything else -- useCount, lastUsed,
+    // dateAdded -- is carried over, because the form never knew them and
+    // writing a default here would blank them until the refetch landed.
+    var merged = {};
+    Object.keys(prev).forEach(function(k) { merged[k] = prev[k]; });
+    merged.title = saved.title || '';
+    merged.artist = saved.artist || '';
+    merged.theme = saved.theme || '';
+    merged.key = saved.key || '';
+    merged.tempo = saved.tempo || '';
+    // The list reads `category`; the column is `style`. Both are set here,
+    // the way normalizeSongFromSupabase sets both on the way in.
+    merged.category = saved.category || '';
+    merged.style = saved.category || '';
+    merged.era = saved.era || '';
+    merged.season = saved.season || '';
+    merged.scripture = saved.scripture || '';
+    merged.lyrics = saved.lyrics || '';
+    merged.youtube = copy(saved.youtube);
+    merged.attachments = copy(saved.attachments);
+    merged.timeSignature = saved.timeSignature || '';
+    merged.bpm = (saved.bpm == null || saved.bpm === '') ? '' : saved.bpm;
+    merged.serviceSuitability = copy(saved.serviceSuitability);
+    merged.display_style = (saved.display_style && typeof saved.display_style === 'object') ? saved.display_style : {};
+    merged.lastEdited = new Date().toISOString();
+    STATE.songs[i] = merged;
+    return true;
+  }
+
   function saveEditSong() {
     var songId = $('editSongId').value;
     var title = ($('editSongTitle').value || '').trim();
@@ -21454,6 +21530,13 @@ window.loadEditSongData = function(song) {
     SBQ_SONGS.update(songData).then(function(result) {
       showToast('Song updated successfully!', 'success');
       closeModal('editSongModal');
+      // Repaint from what was just written, before the refetch.
+      if (_applySavedSongLocally(songData)) {
+        renderSongs(_sfListIsShowing());
+        renderSongStats();
+        if (typeof WO !== 'undefined' && WO.lcdRefreshLibrary) WO.lcdRefreshLibrary();
+      }
+      // Still reconcile with the server, but nobody is waiting on it now.
       loadSongs();
     }).catch(function(err) {
       console.error(err);
@@ -22662,6 +22745,9 @@ window.loadEditSongData = function(song) {
       STATE.songs = songs || [];
       window.STATE = STATE;
       populateFilterDropdowns();
+      // Captured BEFORE anything repaints, so the reload keeps whatever was
+      // on screen instead of resetting to the prompt.
+      var _wasShowing = _sfListIsShowing();
       // Theme colours/descriptions and any themes created on another device.
       // Non-blocking: the picker already works from song data alone.
       if (typeof loadThemeMetadata === 'function') {
@@ -22669,7 +22755,7 @@ window.loadEditSongData = function(song) {
           if (list && list.length) populateThemeFilterDropdown(STATE.songMeta.themes);
         });
       }
-      renderSongs(false);
+      renderSongs(_wasShowing);
       renderSongStats();
       // Songs arrive asynchronously, so the LCD Projection Song Library panel
       // may already be on screen and rendered from an empty list. It also has
