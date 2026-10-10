@@ -31486,13 +31486,18 @@ var WO = (function() {
       // Last resort: generate slides from lyrics text
       if (slidesData.length === 0 && currentLyrics) {
         var parsed = parseLyricsIntoSlides(currentLyrics);
-        slidesData = parsed.map(function(slide, idx) {
-          return {
-            index: idx,
-            content: slide.lines.join('\n'),
-            background: ''
-          };
-        });
+        slidesData = parsed
+          .map(function(slide) {
+            return {
+              content: slide.lines.join('\n'),
+              // Kept. Dropping it is what turned a chords-only [Intro]
+              // into a slide with nothing on it.
+              header: slide.header || '',
+              background: ''
+            };
+          })
+          .filter(function(s) { return !_slideShowsNothing(s.content, s.header, s.background); })
+          .map(function(s, idx) { s.index = idx; return s; });
       }
 
       items.push({
@@ -31566,12 +31571,12 @@ var WO = (function() {
             lines = lineEls2.map(function(el) { return el.textContent; });
           }
           var headerEl = box.querySelector('.wo-slide-section-header');
-          slides.push({
-            index: idx,
-            content: lines.join('\n'),
-            header: headerEl ? headerEl.textContent.trim() : '',
-            background: box.getAttribute('data-background') || ''
-          });
+          var _c = lines.join('\n');
+          var _h = headerEl ? headerEl.textContent.trim() : '';
+          var _bg = box.getAttribute('data-background') || '';
+          if (_slideShowsNothing(_c, _h, _bg)) return;
+          // Numbered from what is kept, so removing one leaves no gap.
+          slides.push({ index: slides.length, content: _c, header: _h, background: _bg });
         });
 
         // Check if this song was already collected from songOrderSections
@@ -31637,12 +31642,16 @@ var WO = (function() {
           // it, bold/size/font applied to a liturgy slide saved as plain text
           // and silently vanished on the next load.
           var litHasRich = lineHtmls.some(function(h) { return /<[bBiIuU]\b|<span[^>]*style|<font/i.test(h); });
+          var _lc = lines.join('\n');
+          var _lh = headerEl ? headerEl.textContent.trim() : '';
+          var _lbg = box.getAttribute('data-background') || '';
+          if (_slideShowsNothing(_lc, _lh, _lbg)) return;
           slides.push({
-            index: idx,
-            content: lines.join('\n'),
+            index: slides.length,
+            content: _lc,
             richHtml: litHasRich ? lineHtmls.join('<br>') : null,
-            header: headerEl ? headerEl.textContent.trim() : '',
-            background: box.getAttribute('data-background') || ''
+            header: _lh,
+            background: _lbg
           });
         });
 
@@ -31683,11 +31692,14 @@ var WO = (function() {
             var lines = scrLineEls.map(function(el) { return el.textContent; });
             var scrHtmls = scrLineEls.map(function(el) { return el.innerHTML; });
             var scrHasRich = scrHtmls.some(function(h) { return /<[bBiIuU]\b|<span[^>]*style|<font/i.test(h); });
+            var _sc = lines.join('\n');
+            var _sbg = box.getAttribute('data-background') || '';
+            if (_slideShowsNothing(_sc, '', _sbg)) return;
             slides.push({
-              index: idx,
-              content: lines.join('\n'),
+              index: slides.length,
+              content: _sc,
               richHtml: scrHasRich ? scrHtmls.join('<br>') : null,
-              background: box.getAttribute('data-background') || ''
+              background: _sbg
             });
           });
         }
@@ -41507,6 +41519,24 @@ var WO = (function() {
     fullscreenEditingSongId = null;
   }
 
+  // A slide with no words, no header and no background projects a blank
+  // screen and nothing else.
+  //
+  // A song whose [Intro] holds only chords produces exactly this: the
+  // chords are stripped on the way to a slide and there is nothing left.
+  // One of those reached the 11 October service and was found by the data
+  // audit rather than by anyone looking at the screen, which is the problem
+  // with a blank slide -- it looks like the projector, not like the order.
+  //
+  // A header with no words is KEPT: "Intro" before the band starts is a
+  // real card. So is a background with no words, which is a deliberate
+  // image. Only all three missing at once is dead.
+  function _slideShowsNothing(content, header, background) {
+    return !String(content == null ? '' : content).trim() &&
+           !String(header == null ? '' : header).trim() &&
+           !String(background == null ? '' : background).trim();
+  }
+
   // Sync updated plain lyrics into all Service Order slide boxes for a given song (334/335)
   function syncSongToServiceOrder(songId, plainLyrics) {
     if (!songId || !plainLyrics) return;
@@ -41575,9 +41605,10 @@ var WO = (function() {
     var songSection = songOrderSections.find(function(s) { return s.id === songId; });
     if (songSection) {
       songSection.lyrics = plainLyrics;
-      songSection.slides = newSlides.map(function(slide, idx) {
-        return { index: idx, content: slide.lines.join('\n'), header: slide.header || '', background: '' };
-      });
+      songSection.slides = newSlides
+        .map(function(slide) { return { content: slide.lines.join('\n'), header: slide.header || '', background: '' }; })
+        .filter(function(s) { return !_slideShowsNothing(s.content, s.header, s.background); })
+        .map(function(s, idx) { s.index = idx; return s; });
     }
   }
 
