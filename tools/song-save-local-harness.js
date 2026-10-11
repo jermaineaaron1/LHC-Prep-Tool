@@ -180,6 +180,17 @@ check('youtube', e.youtube, []);
 check('display_style', e.display_style, {});
 check('  but useCount is still carried', e.useCount, 12);
 
+console.log('\nand saveEditSong actually uses it');
+// In isolation this merge can be flawless while saveEditSong ignores it and
+// goes back to waiting for the whole catalogue. Found by mutation testing on
+// a sibling harness: an unwired guard keeps every test green.
+check('the save applies it before repainting',
+  /if \(_applySavedSongLocally\(songData\)\) \{/.test(raw), true);
+check('  and repaints into the view that was on screen',
+  /renderSongs\(_sfListIsShowing\(\)\)/.test(raw), true);
+check('  while the background reload also preserves it',
+  /renderSongs\(_wasShowing\)/.test(raw), true);
+
 console.log('\n' + '='.repeat(60));
 const pass = results.filter(Boolean).length;
 console.log(pass + '/' + results.length + ' checks passed');

@@ -151,6 +151,16 @@ check('  and explains itself', /auto-suggest/i.test((gTag && gTag.title) || ''),
 STATUS = { O: { status: 'occasional' } };
 check('occasional keeps its own badge', (api.tag('O', 2026, 10) || {}).label, 'Occasional');
 
+console.log('\nand the exclusion is actually wired into Auto-Suggest');
+// Everything above runs isAutoSuggestExcluded in isolation, which says nothing
+// about whether Auto-Suggest consults it. Found by mutation testing on a
+// sibling harness: a guard that nothing calls leaves every test green while
+// the behaviour it describes has gone.
+check('runAutoSuggest calls it',
+  /if \(isAutoSuggestExcluded\(name, STATE\.rosterYear, STATE\.rosterMonth\)\) return false;/.test(raw), true);
+check('  and the badge is drawn where a name is picked',
+  /_rotationTagFor\(name, cellYear, STATE\.rosterMonth\)/.test(raw), true);
+
 console.log('\nit can actually be chosen and styled');
 check('Guest is in the Enablers status dropdown',
   /\['active','occasional','guest','newly_joined','suspended','inactive'\]/.test(raw), true);

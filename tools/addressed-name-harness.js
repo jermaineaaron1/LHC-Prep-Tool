@@ -177,6 +177,19 @@ console.log('\nevery surface that presents a preacher applies it');
     grid > 0 && !applies(raw.slice(grid, grid + 2000)), true);
 }
 
+console.log('\nand it is actually called where a preacher is presented');
+// Everything above runs addressedName in isolation. If no display site calls
+// it, every one of those checks still passes and Bro silently disappears.
+// Found by mutation testing on a sibling harness.
+check('the WhatsApp service share applies it',
+  /if \(typeof window\.LHC_addressedName === 'function'\) v = window\.LHC_addressedName\(roleId, v\);/.test(raw), true);
+check('the home service card applies it',
+  /window\.LHC_addressedName\(id, value\)/.test(raw), true);
+check('the weekly service card applies it',
+  /addressedName\(role\.id, v2\)/.test(raw), true);
+check('and the helper is published for the other scopes',
+  /window\.LHC_addressedName = addressedName;/.test(raw), true);
+
 console.log('\n' + '='.repeat(60));
 const pass = results.filter(Boolean).length;
 console.log(pass + '/' + results.length + ' checks passed');

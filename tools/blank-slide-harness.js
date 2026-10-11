@@ -152,6 +152,33 @@ if (!pruneFn) {
     pruneFn + '\nreturn _prunedSlides;')({}, { warn() {} });
   check('with no predicate loaded, nothing is dropped',
     noPredicate([mk('', '', ''), mk('a', '', '')]).length, 2);
+
+  // And it is actually wired in.
+  //
+  // Everything above tests the function in isolation, which says nothing about
+  // whether anything calls it. Found by mutation testing: replacing
+  // `slides: _prunedSlides(item.slides)` with `slides: item.slides || []` left
+  // this harness entirely green. A perfect guard that nothing invokes is the
+  // most expensive kind of green there is.
+  check('the row builder passes slides through it',
+    /slides:\s*_prunedSlides\(item\.slides\)/.test(raw), true);
+
+  // Narrowly: the object that becomes an order_items ROW. `slides: item.slides
+  // || []` is correct in the dozen places that build in-memory state, so a
+  // blanket ban on that shape is wrong -- the first version of this check
+  // asserted exactly that and failed against perfectly good source.
+  //
+  // The database row is identifiable: it is the one carrying order_id and
+  // last_edited.
+  // A window around order_id, rather than a braced match: the row object holds
+  // nested braces (`content: item.content || {}`), so [^{}]* cannot span it --
+  // the first version of this check tried that and failed on good source.
+  const at = raw.indexOf('order_id:       id,');
+  const rowBuilder = at < 0 ? '' : raw.slice(at, at + 1400);
+  check('  and that builder is the one writing order_items',
+    /last_edited:/.test(rowBuilder) && /slides:\s*_prunedSlides\(item\.slides\)/.test(rowBuilder), true);
+  check('the predicate is published for the other scope',
+    /window\.LHC_slideShowsNothing\s*=\s*_slideShowsNothing/.test(raw), true);
 }
 
 // ---- the parser itself, run for real -------------------------------------
