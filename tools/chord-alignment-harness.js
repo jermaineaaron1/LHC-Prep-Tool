@@ -131,6 +131,37 @@ const sizeOf = s => ((s.match(/font-size\s*:([^;]*)/) || [])[1] || '').trim();
   check('  the same size on both', sizeOf(c) === sizeOf(l), true);
 });
 
+// ---- the sheets must agree on the lyric colour ---------------------------
+//
+// Darkening the lyric line in the main stylesheet changed nothing on screen,
+// because two later sheets -- sb-songbook-polish-css and
+// sb-structural-makeover-css -- each set the colour again with !important,
+// to two different values. Measured on a phone, the colour in force was
+// #172b42 while the main sheet asked for #0f172a and the polish sheet asked
+// for #24334a. Three answers, and the last one loaded won.
+//
+// The failure is silent: the CSS reads as though it worked. So the rule is
+// not "use this colour" but "only say it once, or say the same thing".
+console.log('\nnothing overrides the lyric colour with a different one');
+{
+  const bang = [];
+  const re = /#songbookLiveModal\s+\.wo-lyrics-lyric-line\s*\{([^}]*)\}/g;
+  let m;
+  while ((m = re.exec(raw))) {
+    const c = (m[1].match(/(^|[;{\s])color\s*:\s*([^;!}]+)(!important)?/) || []);
+    if (c[2]) bang.push({ colour: c[2].trim().toLowerCase(), important: !!c[3] });
+  }
+  const colours = [...new Set(bang.map(b => b.colour))];
+  // check() here is (label, ok, detail) -- passing an array as `ok` makes the
+  // assertion vacuous, which is how the first version of this passed against
+  // source holding three different colours.
+  check('every rule that colours the lyric line agrees',
+    colours.length === 1, colours.join('  vs  ') || 'no rule sets it');
+  check('  and it is a dark one',
+    colours.length === 1 && /^#(0[0-9a-f]|1[0-7])/.test(colours[0]),
+    colours[0] || '(none)');
+}
+
 // And the songs WITHOUT chords are still free to use the chosen family --
 // that is the whole reason the forcing rule is scoped with :has().
 console.log('\nsongs with no chords still follow the family picker');
