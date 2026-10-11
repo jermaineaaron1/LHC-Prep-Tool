@@ -102,6 +102,35 @@ const offenders = lyricRules.filter(r => {
 check('none found', offenders.length === 0,
   offenders.length ? offenders.map(o => o.sel.slice(0, 50)).join(' | ') : lyricRules.length + ' lyric-line rules inspected');
 
+// ---- the Liturgy Book ----------------------------------------------------
+//
+// A second surface that draws chord charts, with its own CSS. Its comment
+// claimed it mirrored the songbook exactly; it did not. The chord line was
+// Courier at 0.82rem over a lyric line that inherited a proportional font at
+// 0.97rem -- different family AND different size, so nothing in that view was
+// ever actually aligned. Two surfaces, one rule, and only a test keeps the
+// second one honest.
+console.log('\nthe Liturgy Book draws chord charts too');
+function ruleBody(sel) {
+  const i = raw.indexOf(sel + ' {');
+  if (i < 0) return null;
+  return raw.slice(i + sel.length, raw.indexOf('}', i));
+}
+const famOf = s => ((s.match(/font-family\s*:([^;]*)/) || [])[1] || '').trim();
+const sizeOf = s => ((s.match(/font-size\s*:([^;]*)/) || [])[1] || '').trim();
+[['.lb2-song-chords-view .chord-line', '.lb2-song-chords-view .lyric-line', 'the chords view'],
+ ['.lb2-chord-line', '.lb2-lyric-line', 'the legacy pair']].forEach(([cs, ls, label]) => {
+  const c = ruleBody(cs), l = ruleBody(ls);
+  if (!c || !l) { check(label + ' found', false, true); return; }
+  check(label + ': both rows are monospace',
+    /monospace/i.test(famOf(c)) && /monospace/i.test(famOf(l)), true);
+  check('  neither names a proportional family',
+    !PROPORTIONAL.test(famOf(c)) && !PROPORTIONAL.test(famOf(l)), true);
+  check('  the same family on both', famOf(c) === famOf(l), true);
+  // The same font at two sizes is still a misaligned chart.
+  check('  the same size on both', sizeOf(c) === sizeOf(l), true);
+});
+
 // And the songs WITHOUT chords are still free to use the chosen family --
 // that is the whole reason the forcing rule is scoped with :has().
 console.log('\nsongs with no chords still follow the family picker');
