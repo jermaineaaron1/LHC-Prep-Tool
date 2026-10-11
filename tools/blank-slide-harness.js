@@ -115,6 +115,45 @@ console.log('\nwhat is kept is renumbered, so the rail counts straight');
 check('the collectors number from what has been kept',
   (raw.match(/index:\s*slides\.length/g) || []).length >= 3, true);
 
+// ---- the write boundary --------------------------------------------------
+//
+// Guarding the collectors was not enough, and the way it failed is the reason
+// this section exists. The blank slide was removed from the 11 October order;
+// the collector guard went live twenty minutes later; the slide was back four
+// minutes after that -- written by a page that still held it in memory, through
+// a path none of the three collectors owns.
+//
+// Slides reach the database from a dozen places. There is one door out, and
+// the guard has to be standing in it.
+console.log('\nthe write boundary prunes, whatever built the slide');
+const pruneFn = extractFunction('_prunedSlides');
+if (!pruneFn) {
+  check('_prunedSlides exists', false, true);
+} else {
+  const mk = (c, h, b) => ({ content: c, header: h, background: b, index: 0 });
+  const prune = new Function('window', 'console',
+    pruneFn + '\nreturn _prunedSlides;')({ LHC_slideShowsNothing: blank }, { warn() {} });
+
+  check('a blank slide is dropped', prune([mk('', '', ''), mk('words', '', '')]).length, 1);
+  check('a header-only slide is kept', prune([mk('', 'Intro', '')]).length, 1);
+  check('a background-only slide is kept', prune([mk('', '', 'bg.jpg')]).length, 1);
+  check('nothing to drop leaves the list alone', prune([mk('a', '', ''), mk('b', '', '')]).length, 2);
+
+  const renum = prune([mk('', '', ''), mk('a', '', ''), mk('b', '', '')]);
+  check('survivors are renumbered', renum.map(s => s.index), [0, 1]);
+  check('  and keep their content in order', renum.map(s => s.content), ['a', 'b']);
+  check('fields beyond the three survive renumbering',
+    prune([mk('', '', ''), Object.assign(mk('a', '', ''), { richHtml: '<b>a</b>' })])[0].richHtml, '<b>a</b>');
+  check('a non-array does not become one', prune(null), []);
+
+  // Dropping slides because the predicate had not loaded would be far worse
+  // than keeping a blank one, so that case saves what it was given.
+  const noPredicate = new Function('window', 'console',
+    pruneFn + '\nreturn _prunedSlides;')({}, { warn() {} });
+  check('with no predicate loaded, nothing is dropped',
+    noPredicate([mk('', '', ''), mk('a', '', '')]).length, 2);
+}
+
 // ---- the parser itself, run for real -------------------------------------
 //
 // This is where the bug actually came from. parseLyricsIntoSlides returns

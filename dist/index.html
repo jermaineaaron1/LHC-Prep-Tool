@@ -25572,6 +25572,41 @@ function _sbLoadLayoutsFromSupabase(songIds, callback) {
 // SBQ — Direct Supabase DB helpers for Orders (bypasses GAS proxy)
 // ~100ms vs ~2-3s via GAS round-trip.
 // ================================================================
+// Every slide that reaches the database passes through SBQ.saveOrder, which
+// is why the blank-slide guard lives here rather than in each of the dozen
+// places that build one.
+//
+// Guarding the three DOM collectors was not enough, and the way it failed is
+// worth keeping: the blank slide was removed from the 11 October order, the
+// guard went live twenty minutes later, and the slide was back four minutes
+// after that -- written by a page that still had it in memory and saved
+// itself through a path none of the three collectors owns.
+//
+// A slide with no words, no header and no background shows a blank screen.
+// A header with no words is a real card ("Intro" before the band starts) and
+// a background with no words is a deliberate image; both are kept.
+function _prunedSlides(slides) {
+  if (!Array.isArray(slides)) return [];
+  var blank = window.LHC_slideShowsNothing;
+  // If the predicate has not loaded, save what we were given. Dropping
+  // slides on a guess would be far worse than keeping a blank one.
+  if (typeof blank !== 'function') return slides;
+  var kept = slides.filter(function(s) {
+    return !blank(s && s.content, s && s.header, s && s.background);
+  });
+  if (kept.length === slides.length) return slides;
+  console.warn('[SBQ.saveOrder] dropped ' + (slides.length - kept.length) +
+    ' slide(s) with nothing on them');
+  // Renumbered, or the projector rail counts through the gap.
+  return kept.map(function(s, i) {
+    if (!s || typeof s !== 'object' || s.index === i) return s;
+    var copy = {};
+    Object.keys(s).forEach(function(k) { copy[k] = s[k]; });
+    copy.index = i;
+    return copy;
+  });
+}
+
 var SBQ = {
   _sb: function() { return getSupabaseClient(); },
 
@@ -25896,7 +25931,7 @@ var SBQ = {
             title:          item.title     || '',
             content:        item.content   || {},
             customizations: item.customizations || {},
-            slides:         item.slides    || [],
+            slides:         _prunedSlides(item.slides),
             // Always sent, never omitted. Under delete-and-reinsert an item that
             // had lost its backgrounds simply came back without the column set;
             // an upsert leaves absent columns alone, so omitting it here would
@@ -41536,6 +41571,9 @@ var WO = (function() {
            !String(header == null ? '' : header).trim() &&
            !String(background == null ? '' : background).trim();
   }
+  // SBQ.saveOrder is in another scope and needs the same answer. One
+  // definition, published, rather than a second copy to drift from it.
+  window.LHC_slideShowsNothing = _slideShowsNothing;
 
   // Sync updated plain lyrics into all Service Order slide boxes for a given song (334/335)
   function syncSongToServiceOrder(songId, plainLyrics) {
