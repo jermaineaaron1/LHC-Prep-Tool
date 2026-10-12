@@ -36,6 +36,17 @@ export const runtime = 'nodejs';
 // mid-scan and the reader sees a timeout rather than a result.
 export const maxDuration = 60;
 
+// How many photographs of one song may be read in a single request. Each page
+// is a full image in the same call, inside the same 54 second deadline, so
+// this is a time budget rather than a preference.
+const MAX_PAGES = 4;
+
+// Across all pages together. The single-page limit was 14MB; four pages of
+// that would be 56MB of base64 in one request body, which no deadline
+// survives. A phone photo is 2-4MB, so this is comfortable for real pages
+// and stops a set of scanner-resolution TIFFs before it starts.
+const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
+
 const MIME_TYPES: Record<string, string> = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -633,10 +644,33 @@ export async function POST(req: NextRequest) {
   const attempts: Array<{ model: string; ms: number; ok: boolean; err?: string }> = [];
   let escalation: { attempted: boolean; ms: number; taken: boolean } = { attempted: false, ms: 0, taken: false };
   try {
-    const { url, vocab } = await req.json();
-    if (!url || typeof url !== 'string') {
+    const { url, urls, vocab, mode } = await req.json();
+
+    // One song, several photographs of it. `urls` is the page list in reading
+    // order; `url` is the single-page form every caller used before this and
+    // still works unchanged.
+    const pageUrls: string[] = Array.isArray(urls) && urls.length
+      ? urls.filter((u: unknown): u is string => typeof u === 'string' && !!u)
+      : (typeof url === 'string' && url ? [url] : []);
+
+    if (!pageUrls.length) {
       return NextResponse.json({ error: 'url is required' }, { status: 400 });
     }
+
+    // Four pages is already a long hymn, and each one is a whole image the
+    // model has to read inside a 54 second budget. The cap is here rather
+    // than only in the browser because the browser is not the only caller.
+    if (pageUrls.length > MAX_PAGES) {
+      return NextResponse.json(
+        { error: `That is ${pageUrls.length} pages. Scan up to ${MAX_PAGES} at a time -- beyond that the read runs out of time and you lose the lot.` },
+        { status: 400 }
+      );
+    }
+
+    // 'document' keeps the pages as sheet music and reads only enough to file
+    // the song: title, composer, key. No lyrics, no chords, nothing to
+    // proofread. 'chords' is the transcribing scan and remains the default.
+    const readMode: 'chords' | 'document' = mode === 'document' ? 'document' : 'chords';
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -646,49 +680,118 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!isOwnStorage(url)) {
-      return NextResponse.json(
-        { error: 'That image is not one this app uploaded. Take or choose the photo again.' },
-        { status: 400 }
-      );
-    }
-
-    const ext = extFromUrl(url);
-    const mime = MIME_TYPES[ext];
-    if (!mime) {
-      return NextResponse.json(
-        { error: `Unsupported file type "${ext || 'unknown'}". Photograph or upload a JPG, PNG, WEBP, HEIC or PDF.` },
-        { status: 400 }
-      );
+    // Every page is checked before any is fetched. A set where page 3 is a
+    // foreign URL should be refused outright, not half-downloaded first.
+    for (const p of pageUrls) {
+      if (!isOwnStorage(p)) {
+        return NextResponse.json(
+          { error: 'That image is not one this app uploaded. Take or choose the photo again.' },
+          { status: 400 }
+        );
+      }
+      if (!MIME_TYPES[extFromUrl(p)]) {
+        return NextResponse.json(
+          { error: `Unsupported file type "${extFromUrl(p) || 'unknown'}". Photograph or upload a JPG, PNG, WEBP, HEIC or PDF.` },
+          { status: 400 }
+        );
+      }
     }
 
     // Its own try/catch: an unreachable host throws rather than returning a
     // response, and without this the outer handler reports it as the opaque
     // "Scan failed: fetch failed".
-    let fileBuffer: Buffer;
+    //
+    // Fetched in parallel. Four pages one after another is four round trips
+    // of the 15s timeout against a budget of 54, which would leave the model
+    // no room on a slow connection.
+    let pageFiles: Array<{ mime: string; buf: Buffer }>;
     const tFetch = Date.now();
     try {
-      const fileRes = await fetch(url, { signal: AbortSignal.timeout(15000) });
-      if (!fileRes.ok) {
-        return NextResponse.json({ error: `Could not download the image (status ${fileRes.status}).` }, { status: 502 });
-      }
-      fileBuffer = Buffer.from(await fileRes.arrayBuffer());
+      pageFiles = await Promise.all(pageUrls.map(async (p, i) => {
+        const res = await fetch(p, { signal: AbortSignal.timeout(15000) });
+        if (!res.ok) {
+          // Which page, because with four of them "status 404" is not enough
+          // to act on.
+          throw new Error(`Could not download page ${i + 1} of ${pageUrls.length} (status ${res.status}).`);
+        }
+        return { mime: MIME_TYPES[extFromUrl(p)], buf: Buffer.from(await res.arrayBuffer()) };
+      }));
       fetchMs = Date.now() - tFetch;
-    } catch {
-      return NextResponse.json({ error: 'Could not reach the uploaded image. Check the connection and try again.' }, { status: 502 });
+    } catch (e) {
+      const msg = e instanceof Error && /^Could not download page/.test(e.message)
+        ? e.message
+        : 'Could not reach the uploaded image. Check the connection and try again.';
+      return NextResponse.json({ error: msg }, { status: 502 });
     }
 
     // ~18MB of base64 is well inside the inline-data limit; a phone photo is
     // far smaller, but a scanned PDF can be large.
-    if (fileBuffer.byteLength > 14 * 1024 * 1024) {
+    const totalBytes = pageFiles.reduce((n, f) => n + f.buf.byteLength, 0);
+    if (totalBytes > MAX_TOTAL_BYTES) {
       return NextResponse.json(
-        { error: 'That file is too large to scan. Try a single page, or a photo rather than a scan.' },
+        {
+          error: pageFiles.length > 1
+            ? `Those ${pageFiles.length} pages come to ${(totalBytes / 1048576).toFixed(0)}MB, which is too much to read in one go. Try fewer pages, or photographs rather than high-resolution scans.`
+            : 'That file is too large to scan. Try a single page, or a photo rather than a scan.',
+        },
         { status: 413 }
       );
     }
 
     const v = vocab || {};
-    const promptText = [
+    const n = pageFiles.length;
+
+    // Said before anything else, because every instruction after it depends on
+    // the model not reading page 2 as a second song. The failure this guards
+    // against is quiet: two plausible half-songs instead of one whole one.
+    const pagesPreamble = n === 1 ? [] : [
+      `You are given ${n} images. They are pages 1 to ${n} of ONE song, in that order.`,
+      'Read them as a single continuous document:',
+      '  * A verse, chorus or line split by a page break is ONE verse, chorus or',
+      '    line. Join it back up. Do not start a new section because a new page',
+      '    started, and do not repeat a section header carried over from the',
+      '    previous page.',
+      '  * Verse numbering runs on across pages. If page 1 ends at verse 3, page',
+      '    2 begins at verse 4 -- never restart at 1.',
+      '  * Running heads, page numbers, hymn numbers and copyright footers repeat',
+      '    on every page. They are furniture, not lyrics. Leave them out.',
+      '  * Return ONE song, not one per page.',
+      '',
+    ];
+
+    // The pages are being kept as documents for the musician to open, so the
+    // only job here is to name the song and file it. Transcribing it would be
+    // work for a reviewer to check against a sheet they already have.
+    const documentPrompt = [
+      ...pagesPreamble,
+      n === 1
+        ? 'You are looking at a photograph of sheet music for a worship song.'
+        : 'You are looking at photographs of the sheet music for one worship song.',
+      'The music is being kept as a document, so do NOT transcribe it.',
+      '',
+      'Read ONLY what is needed to file the song:',
+      '  * title          exactly as printed',
+      '  * artist         composer, author, arranger or tune name as printed',
+      '  * key            from the key signature, or from printed chords if any',
+      '  * scripture, timeSignature, capo, bpm -- only where actually printed',
+      '',
+      'Leave `lyrics` null. Do not transcribe any words, not even the first line.',
+      'Set chordsFound and chordsSuggested both false.',
+      'Set hasMusicNotation true if you can see five-line staves with note heads.',
+      '',
+      'CONTROLLED VALUES -- choose from these exact lists or return null.',
+      list('Allowed keys', v.keys),
+      list('Allowed feels', v.tempos),
+      list('Allowed styles', v.styles),
+      list('Allowed seasons', v.seasons),
+      list('Allowed themes', v.themes),
+      '',
+      'Leave anything you are unsure of as null. A person is about to review this,',
+      'and a blank field costs them less than a wrong one.',
+    ].join('\n');
+
+    const chordPrompt = [
+      ...pagesPreamble,
       'You are reading a photograph of a worship song sheet for a Lutheran church.',
       'It is usually a chord sheet: lyrics with chord symbols printed above the words.',
       'It may instead be a plain lyrics sheet, or a music score with staves.',
@@ -862,6 +965,8 @@ export async function POST(req: NextRequest) {
       'wrong one.',
     ].join('\n');
 
+    const promptText = readMode === 'document' ? documentPrompt : chordPrompt;
+
     const ai = new GoogleGenAI({ apiKey });
 
     // Fall through models rather than retrying one: an overloaded model stays
@@ -890,8 +995,13 @@ export async function POST(req: NextRequest) {
       model,
       contents: [{
         role: 'user',
+        // Pages first and in order, then the instructions. The model reads
+        // the parts in sequence, so page order here IS the reading order the
+        // continuation rules above refer to.
         parts: [
-          { inlineData: { mimeType: mime, data: fileBuffer.toString('base64') } },
+          ...pageFiles.map(f => ({
+            inlineData: { mimeType: f.mime, data: f.buf.toString('base64') },
+          })),
           { text: promptText },
         ],
       }],
@@ -952,7 +1062,7 @@ export async function POST(req: NextRequest) {
         // Same stage timings a successful scan reports. Without them a failure
         // is a sentence with no evidence behind it, and working out whether the
         // models were slow or the service refused means reproducing it by hand.
-        timings: { totalMs: Date.now() - t0, fetchMs, bytes: fileBuffer.byteLength, attempts, escalation },
+        timings: { totalMs: Date.now() - t0, fetchMs, bytes: totalBytes, pages: pageFiles.length, attempts, escalation },
       }, { status: 503 });
     }
 
@@ -1153,7 +1263,8 @@ export async function POST(req: NextRequest) {
       timings: {
         totalMs: Date.now() - t0,
         fetchMs,
-        bytes: fileBuffer.byteLength,
+        bytes: totalBytes,
+        pages: pageFiles.length,
         attempts,
         escalation,
       },
