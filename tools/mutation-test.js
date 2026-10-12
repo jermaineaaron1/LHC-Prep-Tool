@@ -55,6 +55,25 @@ const CASES = [
   ['chord-alignment-harness.js', 'the lyric line gets a proportional font',
     s => s.replace(/(#songbookLiveModal \.sb-page-lyrics:has\(\.wo-lyrics-chord-line\) \.wo-lyrics-lyric-line \{\s*font-family: )[^;]+/,
                    '$1Arial, sans-serif')],
+  // Both rules at once, because either one alone keeps the other standing.
+  //
+  // This case exists because the harness once answered it wrongly. It scanned
+  // the whole file rather than the <style> blocks, so a line of JavaScript --
+  // classList.contains('wo-lyrics-chord-line') && ...contains('wo-lyrics-
+  // lyric-line') -- counted as a rule naming both classes. With both real
+  // rules gone it still announced "1 found" and went red on a different
+  // check. Caught, but pointing at the wrong thing.
+  //
+  // Two anchors worth keeping in mind here, both learned by getting them
+  // wrong: the replacement must not CONTAIN the class name, since matching is
+  // by substring ('.wo-lyrics-lyric-line-gone' still counts as a hit); and the
+  // pattern must match the RAW source, which separates these two selectors
+  // with ',\r\n    ', not the ', ' the harness prints after normalising.
+  ['chord-alignment-harness.js', 'nothing binds the two lines to one font any more',
+    s => s.replace(/(:has\(\.wo-lyrics-chord-line\)\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
+                   '$1.wo-lyrics-NOPE$2')
+          .replace(/(\.wo-lyrics-chord-line,\s*#songbookLiveModal\s+)\.wo-lyrics-lyric-line(\s*\{)/g,
+                   '$1.wo-lyrics-NOPE$2')],
 
   ['blank-slide-harness.js', 'the write boundary stops pruning',
     s => s.replace('slides:         _prunedSlides(item.slides),', 'slides:         item.slides || [],')],
