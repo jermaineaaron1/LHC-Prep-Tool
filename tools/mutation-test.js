@@ -271,6 +271,15 @@ const CASES = [
     s => s.replace('          label = window._docLabel(_stored);',
                    "          label = _stored.length > 30 ? _stored.substring(0, 30) + '...' : _stored;")],
 
+  // Both reported from a phone. Neither was in code written for the scan --
+  // they were in an older preview modal the new flow leads into.
+  ['multipage-scan-harness.js', 'the attachment preview opens behind the form again',
+    s => s.replace('<div id="previewModal" class="modal-overlay" style="z-index:10050;">',
+                   '<div id="previewModal" class="modal-overlay">')],
+  ['multipage-scan-harness.js', 'a photographed page goes back into the iframe',
+    s => s.replace('  var isImage = /\\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)(\\?|#|$)/i.test(url);',
+                   '  var isImage = false;')],
+
   ['lyric-line-class-harness.js', 'page-break markers count as lyric lines again',
     s => s.replace("return !!c && (c.contains('sb-a4-marker') || c.contains('sb-a4-guide') ||",
                    'return false && (c.contains(\'sb-a4-marker\') || c.contains(\'sb-a4-guide\') ||')],

@@ -10138,7 +10138,12 @@ I once was lost but now am found"
   </div>
 
   <!-- ==================== MODAL: DOCUMENT PREVIEW ==================== -->
-  <div id="previewModal" class="modal-overlay">
+  <!-- z-index: this preview is opened FROM the Add Song form, which carries an
+       inline z-index of 10005, with the chooser at 10006 and the page tray at
+       10007 above it. Left on the .modal-overlay default of 10000 it opened
+       BEHIND all three: the picture loaded and the form sat on top of it.
+       10050 clears that stack, and the edit form with it. -->
+  <div id="previewModal" class="modal-overlay" style="z-index:10050;">
     <div class="modal-content" style="width: min(900px, 95%); height: 80vh; display: flex; flex-direction: column; padding: 0;">
       <div class="flex items-center justify-between gap-4 p-4 border-b border-slate-200">
         <h3 id="previewModalTitle" class="font-cinzel text-lg font-bold text-slate-800">
@@ -10148,8 +10153,10 @@ I once was lost but now am found"
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
-      <div class="flex-1 overflow-hidden">
+      <div class="flex-1 overflow-hidden" style="position:relative;min-height:0;">
         <iframe id="previewFrame" class="w-full h-full border-0"></iframe>
+        <!-- Pictures are shown here, not in the iframe. See previewAttachment. -->
+        <div id="previewImageWrap" class="doc-preview-imgwrap" style="display:none;position:absolute;inset:0;"></div>
       </div>
     </div>
   </div>
@@ -16431,18 +16438,54 @@ function previewAttachment(url) {
   var modal = document.getElementById('previewModal');
   var frame = document.getElementById('previewFrame');
   var title = document.getElementById('previewModalTitle');
-  
-  if (url.includes('drive.google.com/file/d/')) {
-    var fileId = url.match(/\/d\/([^\/\?]+)/);
-    if (fileId) {
-      frame.src = 'https://drive.google.com/file/d/' + fileId[1] + '/preview';
-    }
-  } else if (url.includes('docs.google.com')) {
-    frame.src = url.replace('/edit', '/preview').replace('/view', '/preview');
+  var wrap  = document.getElementById('previewImageWrap');
+
+  // An image handed to an IFRAME is laid out at its natural size, pinned to
+  // the top left and scrolled: the browser is displaying a document, not
+  // fitting a picture. On a phone a 1800x2400 photograph of a hymn page
+  // therefore filled the frame with one magnified corner of itself. Reported
+  // from an actual phone as the picture being stretched, and the screenshot
+  // was a close-up of the edge of the paper.
+  //
+  // An <img> inside .doc-preview-imgwrap is told to fit, and does. That class
+  // already existed for the other document viewer, so it is reused rather
+  // than copied and the two cannot drift apart.
+  var isImage = /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)(\?|#|$)/i.test(url);
+
+  if (isImage && wrap) {
+    frame.src = 'about:blank';
+    frame.style.display = 'none';
+    wrap.style.display = 'flex';
+    wrap.innerHTML = '';
+    var img = document.createElement('img');
+    img.alt = 'Document preview';
+    // Set as a property rather than built into markup, so the URL cannot
+    // need escaping to be safe.
+    img.src = url;
+    // HEIC straight off an iPhone renders on that phone and almost nowhere
+    // else. Rather than show a broken picture, hand it back to the frame and
+    // let the browser do what it can.
+    img.onerror = function() {
+      wrap.style.display = 'none';
+      frame.style.display = '';
+      frame.src = url;
+    };
+    wrap.appendChild(img);
   } else {
-    frame.src = url;
+    if (wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
+    frame.style.display = '';
+    if (url.includes('drive.google.com/file/d/')) {
+      var fileId = url.match(/\/d\/([^\/\?]+)/);
+      if (fileId) {
+        frame.src = 'https://drive.google.com/file/d/' + fileId[1] + '/preview';
+      }
+    } else if (url.includes('docs.google.com')) {
+      frame.src = url.replace('/edit', '/preview').replace('/view', '/preview');
+    } else {
+      frame.src = url;
+    }
   }
-  
+
   title.innerHTML = '<i class="fa-solid fa-eye mr-2 text-indigo-500"></i> Document Preview';
   modal.classList.add('show');
 }
