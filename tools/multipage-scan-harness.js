@@ -103,6 +103,8 @@ function makeEnv(opts) {
   const toasts = [];
   const opened = [];
   const clicked = [];
+  const uploaded = [];
+  const deleted = [];
 
   const el = () => ({
     textContent: '', innerHTML: '', disabled: false, value: '',
@@ -137,8 +139,15 @@ function makeEnv(opts) {
     uploadToSupabase: (file) => {
       const i = Number(String(file.name).replace(/\D/g, '')) - 1;
       const delay = opts.settle ? opts.settle[i] : 0;
-      return new Promise(res => setTimeout(() => res({ url: 'https://store/p' + (i + 1) + '.jpg' }), delay));
+      uploaded.push(i + 1);
+      if (opts.failUpload === i) {
+        return new Promise((_, rej) => setTimeout(() => rej(new Error('upload failed')), delay));
+      }
+      return new Promise(res => setTimeout(
+        () => res({ url: 'https://store/p' + (i + 1) + '.jpg', path: 'song-scans/p' + (i + 1) + '.jpg' }), delay));
     },
+    deleteFromSupabase: p => deleted.push(p),
+    Image: function () { this.src = ''; },
     fetch: (url, init) => {
       posted.push({ url, body: JSON.parse(init.body) });
       return Promise.resolve({
@@ -152,7 +161,7 @@ function makeEnv(opts) {
   const names = Object.keys(env);
   const fn = new Function(...names, source + '\nreturn { nodes: arguments };');
   fn(...names.map(n => env[n]));
-  return { win, posted, toasts, opened, clicked, nodes };
+  return { win, posted, toasts, opened, clicked, nodes, uploaded, deleted };
 }
 
 const file = n => ({ name: 'page' + n + '.jpg' });
@@ -264,6 +273,62 @@ async function rest() {
       e.posted[0] && e.posted[0].body.mode, 'document');
   }
 
+  // ---- one scan per press ------------------------------------------------
+  //
+  // The tray hides on the first tap, but a double tap on a slow phone lands
+  // both before it does. That buys two uploads of every page and two reads of
+  // the same song -- money, and two sets of files in a production bucket.
+  console.log('\na double tap does not buy two scans');
+  {
+    const e = makeEnv({ settle: [30, 30] });
+    e.win.addSongScan('file', 'chords');
+    e.win.asHandleScanFile({ files: [file(1), file(2)] });
+    e.win.asRunScan();
+    e.win.asRunScan();            // the second tap
+    e.win.asRunScan();            // and a third, for good measure
+    await new Promise(r => setTimeout(r, 120));
+    check('each page uploaded once', e.uploaded.sort().join(','), '1,2');
+    check('  and the sheet was read once', e.posted.length, 1);
+  }
+  {
+    // ...but the guard must be released, or the next scan never runs.
+    const e = makeEnv({});
+    e.win.addSongScan('file', 'chords');
+    e.win.asHandleScanFile({ files: [file(1)] });
+    e.win.asRunScan();
+    await new Promise(r => setTimeout(r, 60));
+    e.win.addSongScan('file', 'chords');
+    e.win.asHandleScanFile({ files: [file(2)] });
+    e.win.asRunScan();
+    await new Promise(r => setTimeout(r, 60));
+    check('a second scan afterwards still works', e.posted.length, 2);
+  }
+
+  // ---- a failed scan takes its uploads with it ---------------------------
+  //
+  // The form that opens after a failure is empty, so nothing will ever
+  // reference the pages that did upload. Left alone they are litter in a
+  // production bucket, four pieces of it per failed four-page scan.
+  console.log('\na failed scan does not leave its pages behind');
+  {
+    const e = makeEnv({ failUpload: 1, settle: [0, 10, 0] });
+    e.win.addSongScan('file', 'chords');
+    e.win.asHandleScanFile({ files: [file(1), file(2), file(3)] });
+    e.win.asRunScan();
+    await new Promise(r => setTimeout(r, 120));
+    check('the pages that did upload are deleted',
+      e.deleted.sort(), ['song-scans/p1.jpg', 'song-scans/p3.jpg']);
+    check('  nothing was sent to the model', e.posted.length, 0);
+    check('  and the form still opens so the song can be typed in',
+      e.opened.length, 1);
+    check('  with the guard released for another try', (() => {
+      e.win.addSongScan('file', 'chords');
+      e.win.asHandleScanFile({ files: [file(1)] });
+      e.win.asRunScan();
+      return true;
+    })(), true);
+  }
+
   // ---- what comes back ---------------------------------------------------
   console.log('\nthe pages reach the form');
   {
@@ -304,6 +369,21 @@ async function rest() {
   check('  while a real chord scan still gets warned',
     /\} else if \(!d\.chordsFound\) \{\s*[\r\n]+\s*bits\.push\('<span class="asm-scan-warn">No chord symbols/.test(raw), true);
 
+  // The size limit was always there; four pages is what made it reachable.
+  // A twelve megapixel photograph is ~4MB, four of them 16MB, and base64
+  // adds a third on the way to the model against a 20MB request ceiling. The
+  // first version of multi-page raised the cap to 20MB, which put 26.7MB on
+  // the wire -- it passed every test here, because the test images are 80KB,
+  // and would have failed on the first real four-page scan.
+  console.log('\npages are shrunk before they are sent, and the cap sits under the ceiling');
+  check('a long-edge limit exists', /var AS_MAX_EDGE = \d+;/.test(raw), true);
+  check('  and downscaling runs before the upload',
+    /_asDownscale\(f\)\.then\(function\(small\) \{\s*[\r\n]+\s*return uploadToSupabase\(small, 'song-scans'\);/.test(raw), true);
+  check('  PDFs and already-small files are left alone',
+    /if \(!\/\^image\\\/\/\.test\(file\.type \|\| ''\) \|\| file\.size <= AS_SKIP_RESIZE_UNDER\)/.test(raw), true);
+  check('  and a re-encode that grew the file is discarded',
+    /if \(!blob \|\| blob\.size >= file\.size\) \{ resolve\(file\); return; \}/.test(raw), true);
+
   console.log('\nthe attachment names say which page is which');
   check('numbered only when there is more than one',
     /_scanUrls\.length > 1 \? ', p' \+ \(i \+ 1\) : ''/.test(raw), true);
@@ -330,6 +410,17 @@ async function rest() {
     check('a page cap exists', /const MAX_PAGES = \d+;/.test(rt), true);
     check('  and is enforced', /pageUrls\.length > MAX_PAGES/.test(rt), true);
     check('a total size cap exists', /totalBytes > MAX_TOTAL_BYTES/.test(rt), true);
+    // Raising this above the single-page limit it replaced is the mistake
+    // worth pinning: inlineData is base64, so 14MB of pages is 18.7MB on the
+    // wire and one request may carry 20MB. 20MB of pages is 26.7MB, and the
+    // model refuses the lot with an error that explains nothing.
+    const capMb = Number((rt.match(/const MAX_TOTAL_BYTES = (\d+) \* 1024 \* 1024;/) || [])[1]);
+    // check() here is (label, actual, expected). Passing a detail string as
+    // the third argument compares true against that string and fails -- which
+    // is how this very assertion first went red, and the same slip the chord
+    // harness was caught by. Numbers belong in the label.
+    check('  and it leaves room for base64: ' + capMb + 'MB -> ' + (capMb * 4 / 3).toFixed(1) + 'MB on the wire',
+      capMb > 0 && capMb * 4 / 3 < 20, true);
 
     // The storage check is what stops this endpoint fetching anything
     // reachable from the deployment and reading it back. With several pages

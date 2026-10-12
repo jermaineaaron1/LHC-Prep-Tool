@@ -132,6 +132,15 @@ const CASES = [
     s => s.replace('    _scanUrls.forEach(function(u, i) {', '    [_scanUrls[0]].forEach(function(u, i) {')],
   ['multipage-scan-harness.js', 'sheet music is reported as a chord scan that found nothing',
     s => s.replace("  var _docMode = d.__scanMode === 'document';", '  var _docMode = false;')],
+  // Without the guard a triple tap uploaded every page three times and read
+  // the sheet three times -- measured, not guessed.
+  ['multipage-scan-harness.js', 'a double tap buys a second scan',
+    s => s.replace('  if (_asScanning || !_asPages.length) return;', '  if (!_asPages.length) return;')],
+  ['multipage-scan-harness.js', 'a failed scan leaves its uploads in the bucket',
+    s => s.replace('    paths.forEach(function(p) { try { deleteFromSupabase(p); } catch (e) {} });', '')],
+  ['multipage-scan-harness.js', 'full-size photographs are uploaded unshrunk',
+    s => s.replace("    return _asDownscale(f).then(function(small) {\r\n      return uploadToSupabase(small, 'song-scans');\r\n    }).then(function(res) {",
+                   "    return uploadToSupabase(f, 'song-scans').then(function(res) {")],
   // The route's own checks are not mutated here: this tool swaps Index.html
   // only, and multipage-scan-harness reads route.ts straight off disk. Those
   // assertions still bite on a real change to the route -- they were proved

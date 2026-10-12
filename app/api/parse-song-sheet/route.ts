@@ -41,11 +41,17 @@ export const maxDuration = 60;
 // this is a time budget rather than a preference.
 const MAX_PAGES = 4;
 
-// Across all pages together. The single-page limit was 14MB; four pages of
-// that would be 56MB of base64 in one request body, which no deadline
-// survives. A phone photo is 2-4MB, so this is comfortable for real pages
-// and stops a set of scanner-resolution TIFFs before it starts.
-const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
+// Across ALL pages together, and it has to stay where the single-page limit
+// was rather than above it. inlineData is base64, which costs a third on top,
+// and one request may carry 20MB: 14MB of pages is 18.7MB on the wire, which
+// is what the original cap was chosen to sit under. Raising this to 20MB --
+// as the first version of multi-page did -- puts 26.7MB in the request and
+// the model refuses the lot, with an error that says nothing useful.
+//
+// Pages are downscaled in the browser before they get here, so four real
+// photographs come to a couple of megabytes. This is the backstop, not the
+// mechanism.
+const MAX_TOTAL_BYTES = 14 * 1024 * 1024;
 
 const MIME_TYPES: Record<string, string> = {
   jpg: 'image/jpeg',
