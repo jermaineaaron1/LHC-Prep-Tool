@@ -109,14 +109,44 @@ function rulesContaining(text, ...needles) {
   return out;
 }
 
+// Scan the STYLESHEETS, not the whole file.
+//
+// Scanning `raw` let a line of JavaScript be counted as a CSS rule:
+//
+//   if (current.classList.contains('wo-lyrics-chord-line') && next &&
+//       next.classList.contains('wo-lyrics-lyric-line'))
+//
+// The `if (...)` read as a selector and the block after it as a body.
+//
+// It did not make the harness blind -- delete both real rules and it still
+// went red, because the font-family check downstream found nothing. What it
+// did was report the wrong thing: "1 rule binds the pair" when the answer was
+// none, naming a line of JavaScript as the rule holding the chords in place.
+// A test that stops you at the right moment and then points somewhere else
+// costs more than the minute it saved.
+//
+// Dot-prefixing the needles does not fix it: nine places in the JavaScript
+// name these same classes as '.wo-lyrics-...' selectors. Taking only what sits
+// inside <style> tags does, and every sheet this file cares about -- including
+// sb-songbook-polish-css and sb-structural-makeover-css -- is a real one.
+const CSS = (raw.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [])
+  .map(b => b.slice(b.indexOf('>') + 1, b.lastIndexOf('<')))
+  .join('\n');
+
 // The rule that binds the two lines together: one selector list naming both
 // classes, with one font-family for the pair.
-const pairRules = rulesContaining(raw, 'wo-lyrics-chord-line', 'wo-lyrics-lyric-line');
+const pairRules = rulesContaining(CSS, 'wo-lyrics-chord-line', 'wo-lyrics-lyric-line');
 
 console.log('Reading ' + path.basename(INDEX) + ':');
-console.log('  rules naming BOTH the chord line and the lyric line: ' + pairRules.length + '\n');
+console.log('  stylesheet text: ' + (CSS.length / 1024).toFixed(0) + ' KB of ' +
+            (raw.length / 1024).toFixed(0) + ' KB');
+console.log('  CSS rules naming BOTH the chord line and the lyric line: ' + pairRules.length + '\n');
 
 console.log('the two lines are bound to one font');
+// An extraction that silently found nothing would make every CSS check below
+// vacuously true, which is the failure mode this whole file exists to avoid.
+check('the stylesheets were found at all', CSS.length > 50000,
+  (CSS.length / 1024).toFixed(0) + ' KB extracted');
 check('at least one rule sets the pair together', pairRules.length > 0,
   pairRules.length + ' found');
 
@@ -138,7 +168,7 @@ withFont.forEach((r, i) => {
 // (The .sb-page-lyrics container may be proportional -- that is the setting
 // that applies to songs with no chords at all, which is the point.)
 console.log('\nno songbook rule hands the lyric line a proportional font');
-const lyricRules = rulesContaining(raw, 'wo-lyrics-lyric-line', 'songbookLiveModal');
+const lyricRules = rulesContaining(CSS, 'wo-lyrics-lyric-line', 'songbookLiveModal');
 const offenders = lyricRules.filter(r => {
   const fam = (r.body.match(/font-family\s*:([^;]*)/) || [])[1];
   return fam && PROPORTIONAL.test(fam) && !/monospace/i.test(fam);
@@ -156,9 +186,9 @@ check('none found', offenders.length === 0,
 // second one honest.
 console.log('\nthe Liturgy Book draws chord charts too');
 function ruleBody(sel) {
-  const i = raw.indexOf(sel + ' {');
+  const i = CSS.indexOf(sel + ' {');
   if (i < 0) return null;
-  return raw.slice(i + sel.length, raw.indexOf('}', i));
+  return CSS.slice(i + sel.length, CSS.indexOf('}', i));
 }
 const famOf = s => ((s.match(/font-family\s*:([^;]*)/) || [])[1] || '').trim();
 const sizeOf = s => ((s.match(/font-size\s*:([^;]*)/) || [])[1] || '').trim();
@@ -191,7 +221,7 @@ console.log('\nnothing overrides the lyric colour with a different one');
   const bang = [];
   const re = /#songbookLiveModal\s+\.wo-lyrics-lyric-line\s*\{([^}]*)\}/g;
   let m;
-  while ((m = re.exec(raw))) {
+  while ((m = re.exec(CSS))) {
     const c = (m[1].match(/(^|[;{\s])color\s*:\s*([^;!}]+)(!important)?/) || []);
     if (c[2]) bang.push({ colour: c[2].trim().toLowerCase(), important: !!c[3] });
   }
