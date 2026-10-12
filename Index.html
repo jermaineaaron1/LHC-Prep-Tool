@@ -16349,6 +16349,30 @@ function parseFileUrl(url) {
   return info;
 }
 
+// Shorten a document label from the MIDDLE, keeping both ends.
+//
+// Cutting the tail is right for a sentence and wrong for these names, because
+// they are built so the part that tells them apart comes LAST:
+//
+//     "Holy, Holy, Holy — sheet music, p2"
+//
+// At thirty characters the page number is exactly what goes. Measured across
+// five real song titles, every page of a three-page sheet produced the SAME
+// label -- the document picker offered three identical rows, and the careful
+// naming was destroyed at the one place it was for.
+//
+// The same applies to any two files whose names differ only at the end, which
+// is most of the ways people number things.
+//
+// On window because the four places that need it are not all in one scope.
+window._docLabel = function(name, max) {
+  var str = String(name == null ? '' : name);
+  max = max || 30;
+  if (str.length <= max) return str;
+  var tail = Math.min(14, Math.floor(max / 2));
+  return str.slice(0, max - tail - 1) + '…' + str.slice(-tail);
+};
+
 function renderAttachments(mode) {
   var container = document.getElementById(mode + 'SongAttachments');
   if (!container) return;
@@ -16368,10 +16392,7 @@ function renderAttachments(mode) {
       displayType = window.songFileNames[att.url].type || displayType;
     }
 
-    // Truncate display name to first 30 characters
-    if (displayName && displayName.length > 30) {
-      displayName = displayName.substring(0, 30) + '...';
-    }
+    if (displayName) displayName = window._docLabel(displayName);
 
     // Get appropriate icon based on type
     var icon = att.icon;
@@ -21128,15 +21149,11 @@ window.loadEditSongData = function(song) {
         // Generic stored names carry no more than the fallback does, so they
         // do not displace it.
         if (_stored && !/^(google doc|google drive file|document|drive file|file|link)$/i.test(_stored.trim())) {
-          label = _stored.length > 30 ? _stored.substring(0, 30) + '…' : _stored;
+          label = window._docLabel(_stored);
         }
         // Check for actual title from songFileNames
         else if (window.songFileNames && window.songFileNames[url] && window.songFileNames[url].name) {
-          label = window.songFileNames[url].name;
-          // Truncate to 30 characters
-          if (label.length > 30) {
-            label = label.substring(0, 30) + '...';
-          }
+          label = window._docLabel(window.songFileNames[url].name);
         } else {
           // Fallback labels
           if (url.includes('docs.google.com')) label = 'Google Doc ' + (idx + 1);
@@ -21174,7 +21191,7 @@ window.loadEditSongData = function(song) {
               // Update the label in the popup if it still exists
               var item = popup.querySelector('.link-selector-item[data-idx="' + idx + '"] .link-label');
               if (item) {
-                var displayName = name.length > 30 ? name.substring(0, 30) + '...' : name;
+                var displayName = window._docLabel(name);
                 item.textContent = displayName;
               }
             }
