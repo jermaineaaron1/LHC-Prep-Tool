@@ -108,6 +108,9 @@ function makeEnv(opts) {
 
   const el = () => ({
     textContent: '', innerHTML: '', disabled: false, value: '',
+    // Real elements always have a style object; a stub without one turns
+    // `el.style.display = ...` into a TypeError that looks like a product bug.
+    style: {},
     classList: { toggle() {}, add() {}, remove() {} },
     click() { clicked.push(this._id); },
   });
@@ -397,6 +400,203 @@ async function rest() {
     /_isDoc \? 'sheet music' : 'scanned sheet'/.test(raw), true);
   check('every page is attached, not just the first',
     /_scanUrls\.forEach\(function\(u, i\) \{/.test(raw), true);
+
+  // ---- pages onto a song that already exists -----------------------------
+  //
+  // The 65 hymns already in the library get their sheets through this path,
+  // and until now it took one photograph at a time, at full size, named
+  // IMG_20261012_0933.jpg. Same tray now -- so the same two mistakes are
+  // available: losing page order across parallel uploads, and numbering that
+  // restarts at p1 when somebody adds two more pages next week.
+  console.log('\npages added to a song that already exists');
+  {
+    const fnSrc = (() => {
+      const a = raw.indexOf('function _asAttachPagesToSong(');
+      if (a < 0) return null;
+      let depth = 0, started = false;
+      for (let i = a; i < raw.length; i++) {
+        if (raw[i] === '{') { depth++; started = true; }
+        else if (raw[i] === '}') { depth--; if (started && depth === 0) return raw.slice(a, i + 1); }
+      }
+      return null;
+    })();
+
+    if (!fnSrc) {
+      check('_asAttachPagesToSong exists', false, true);
+    } else {
+      const run = (song, pageCount, settle) => new Promise(resolve => {
+        const batches = [];
+        const deleted = [];
+        const env = {
+          showLoader() {}, showToast() {},
+          _asDownscale: f => Promise.resolve(f),
+          uploadToSupabase: (f) => {
+            const i = Number(String(f.name).replace(/\D/g, '')) - 1;
+            if (settle[i] < 0) return new Promise((_, rej) => setTimeout(() => rej(new Error('upload failed')), 5));
+            return new Promise(r => setTimeout(
+              () => r({ url: 'https://store/d' + (i + 1) + '.jpg', path: 'song-docs/d' + (i + 1) }), settle[i]));
+          },
+          parseFileUrl: u => ({ url: u }),
+          deleteFromSupabase: p => deleted.push(p),
+          // Collect every call rather than resolving on the first. Resolving
+          // early counted one write even when the code made three, which is
+          // precisely the mutation this is here to catch -- and it did not.
+          _lpAttachDocs: (infos) => { batches.push(infos); },
+          _asClearPages() {}, Promise, setTimeout, Array, Number, String, Math,
+        };
+        const names = Object.keys(env);
+        const f = new Function(...names, 'var _asScanning = true;\n' + fnSrc + '\nreturn _asAttachPagesToSong;');
+        const pages = Array.from({ length: pageCount }, (_, i) => ({ name: 'pg' + (i + 1) + '.jpg' }));
+        f(...names.map(n => env[n]))(pages, song);
+        // Long enough for every upload to settle and any extra writes to land.
+        setTimeout(() => resolve({
+          calls: batches.length,
+          handed: batches.length ? batches[0] : [],
+          allHanded: batches.reduce((a, b) => a.concat(b), []),
+          deleted
+        }), 140);
+      });
+
+      // Page 1 slowest again, so a push-based collector would reorder them.
+      const fresh = await run({ title: 'Holy, Holy, Holy', attachments: [] }, 3, [50, 20, 0]);
+      check('one write, not one per page', fresh.calls, 1);
+      check('pages keep their order', fresh.handed.map(i => i.url),
+        ['https://store/d1.jpg', 'https://store/d2.jpg', 'https://store/d3.jpg']);
+      check('and are named for the song and the page', fresh.handed.map(i => i.name), [
+        'Holy, Holy, Holy — sheet music, p1',
+        'Holy, Holy, Holy — sheet music, p2',
+        'Holy, Holy, Holy — sheet music, p3'
+      ]);
+
+      const single = await run({ title: 'He Leadeth Me', attachments: [] }, 1, [0]);
+      check('a lone page is not called p1 of nothing', single.handed[0].name,
+        'He Leadeth Me — sheet music');
+
+      // Adding more later must carry on, not start again.
+      const more = await run({
+        title: 'Holy, Holy, Holy',
+        attachments: [
+          { name: 'Holy, Holy, Holy — sheet music, p1' },
+          { name: 'Holy, Holy, Holy — sheet music, p2' }
+        ]
+      }, 2, [10, 0]);
+      check('numbering carries on from the sheets already there',
+        more.handed.map(i => i.name), [
+          'Holy, Holy, Holy — sheet music, p3',
+          'Holy, Holy, Holy — sheet music, p4'
+        ]);
+
+      // A song whose other documents are not sheets must not be counted.
+      const mixed = await run({
+        title: 'Blessed Be Your Name',
+        attachments: [{ name: 'chords.pdf' }, { name: 'Google Drive File' }]
+      }, 1, [0]);
+      check('other kinds of document do not shift the numbering',
+        mixed.handed[0].name, 'Blessed Be Your Name — sheet music');
+
+      // A page that fails to upload must take the ones that did with it, or
+      // the song gets two of its three pages and nobody notices which.
+      const failed = await run({ title: 'Lead Kindly, Light', attachments: [] }, 3, [0, -1, 0]);
+      check('an upload that fails attaches nothing at all', failed.calls, 0);
+      check('  and deletes the pages that did go up',
+        failed.deleted.sort(), ['song-docs/d1', 'song-docs/d3']);
+    }
+  }
+
+  // ---- upload from device -----------------------------------------------
+  //
+  // The other half of the existing-song route, and the one that takes the
+  // PDFs and scans somebody already has. It shares the single-write and
+  // indexed-order properties with the camera path, and -- found by mutation
+  // testing, twice -- it shares the exact SOURCE LINES too, which meant a
+  // mutation aimed at the camera path silently landed here instead and
+  // nothing noticed. Two identical paths need two sets of teeth.
+  console.log('\nseveral documents uploaded from the device');
+  {
+    const fnSrc = (() => {
+      const a = raw.indexOf('window.lpHandleDocFile = function(input) {');
+      if (a < 0) return null;
+      let depth = 0, started = false;
+      for (let i = a; i < raw.length; i++) {
+        if (raw[i] === '{') { depth++; started = true; }
+        else if (raw[i] === '}') { depth--; if (started && depth === 0) return raw.slice(a, i + 1); }
+      }
+      return null;
+    })();
+
+    if (!fnSrc) {
+      check('lpHandleDocFile exists', false, true);
+    } else {
+      const run = (files, settle) => new Promise(resolve => {
+        const batches = [], deleted = [], toasts = [];
+        const win = {};
+        const env = {
+          window: win,
+          currentLyricsPreviewSong: { id: 's1', title: 'He Leadeth Me', attachments: [] },
+          showToast: m => toasts.push(m),
+          _asDownscale: f => Promise.resolve(f),
+          uploadToSupabase: (f) => {
+            const i = Number(String(f.name).replace(/\D/g, '')) - 1;
+            if (settle[i] < 0) return new Promise((_, rej) => setTimeout(() => rej(new Error('nope')), 5));
+            return new Promise(r => setTimeout(
+              () => r({ url: 'https://store/' + f.name, path: 'song-docs/' + f.name }), settle[i]));
+          },
+          parseFileUrl: u => ({ url: u }),
+          deleteFromSupabase: p => deleted.push(p),
+          _lpAttachDocs: (infos) => { batches.push(infos); },
+          Promise, setTimeout, Array, Number, String, Math,
+        };
+        const names = Object.keys(env);
+        new Function(...names, fnSrc + '\nreturn window.lpHandleDocFile;')(...names.map(n => env[n]));
+        win.lpHandleDocFile({ files, value: '' });
+        setTimeout(() => resolve({
+          calls: batches.length,
+          handed: batches.length ? batches[0] : [],
+          deleted, toasts
+        }), 140);
+      });
+
+      const f = n => ({ name: 'doc' + n + '.pdf' });
+      // Again with the first file slowest, so a push would reorder them.
+      const three = await run([f(1), f(2), f(3)], [50, 20, 0]);
+      check('three files, one write', three.calls, 1);
+      check('  in the order they were picked', three.handed.map(i => i.url),
+        ['https://store/doc1.pdf', 'https://store/doc2.pdf', 'https://store/doc3.pdf']);
+      // Somebody named these deliberately; a guessed label would be worse.
+      check('  keeping the names they already had', three.handed.map(i => i.name),
+        ['doc1.pdf', 'doc2.pdf', 'doc3.pdf']);
+
+      const broke = await run([f(1), f(2), f(3)], [0, -1, 0]);
+      check('one failure attaches nothing', broke.calls, 0);
+      check('  and removes what did upload', broke.deleted.sort(),
+        ['song-docs/doc1.pdf', 'song-docs/doc3.pdf']);
+    }
+  }
+
+  console.log('\nand the existing-song route is wired to all of it');
+  check('Add Doc camera opens the tray', /else if \(act === 'camera'\) lpScanSheetPages\(\);/.test(raw), true);
+  check('  which targets the song on screen', /_asTarget = 'song';\s*[\r\n]+\s*_asDocSong = song;/.test(raw), true);
+  check('  and asRunScan sends it down the attach path',
+    /if \(_asTarget === 'song'\) \{ _asAttachPagesToSong\(pages, _asDocSong\); return; \}/.test(raw), true);
+  check('upload from device takes several files',
+    /id="lpDocFileInput" multiple/.test(raw), true);
+  check('  downscaled like everything else',
+    /return _asDownscale\(f\)\.then\(function\(small\) \{\s*[\r\n]+\s*return uploadToSupabase\(small, 'song-docs'\);/.test(raw), true);
+  check('a single doc still goes through the same write',
+    /function _lpAttachDoc\(info\) \{\s*[\r\n]+\s*_lpAttachDocs\(\[info\]\);/.test(raw), true);
+
+  // ---- a cancelled scan ---------------------------------------------------
+  console.log('\na scan whose song was never saved does not keep its photographs');
+  check('the form close discards it',
+    /modalId === 'addSongModal' && typeof _asDiscardUnsavedScan === 'function'/.test(raw), true);
+  check('  a saved song clears the list first',
+    /window\._asPendingScanPaths = \[\];\s*[\r\n]+\s*closeModal\('addSongModal'\);/.test(raw), true);
+  // Deleting a file a real song points at breaks that song. Leaving one costs
+  // a megabyte. The check against the library is what keeps those apart.
+  check('  and nothing is deleted without checking the library first',
+    /SBQ_SONGS\.getAll\(\)\.then\(function\(songs\) \{[\s\S]{0,420}?inUse\.indexOf\(name\) !== -1[\s\S]{0,120}?return;/.test(raw), true);
+  check('  a library it cannot read means nothing is deleted',
+    /\}\)\.catch\(function\(\) \{\s*[\r\n]+\s*\/\/ Could not read the library/.test(raw), true);
 
   // ---- the route ---------------------------------------------------------
   //

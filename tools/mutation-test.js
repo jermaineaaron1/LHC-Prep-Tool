@@ -62,6 +62,9 @@ const SRC = fs.readFileSync(path.join(ROOT, 'Index.html'), 'utf8');
 const TMP = path.join(os.tmpdir(), 'lhc-mutant-' + process.pid + '.html');
 
 // [harness, what is being broken, the edit]
+// The cleanup line, as it appears after each of those comments.
+const CLEANUP = '\r\n    paths.forEach(function(p) { try { deleteFromSupabase(p); } catch (e) {} });';
+
 const CASES = [
   ['chord-alignment-harness.js', 'one lyric-line colour disagrees again',
     s => s.replace('#songbookLiveModal .wo-lyrics-lyric-line{color:#000000!important',
@@ -136,8 +139,16 @@ const CASES = [
   // the sheet three times -- measured, not guessed.
   ['multipage-scan-harness.js', 'a double tap buys a second scan',
     s => s.replace('  if (_asScanning || !_asPages.length) return;', '  if (!_asPages.length) return;')],
+  // Three functions now clean up after a failed upload, and the line is
+  // identical in each. A bare replace hits whichever comes first in the file,
+  // which is lpHandleDocFile -- not the one any of these tests exercise. That
+  // is how the first version of this case reported MISS against correct code.
   ['multipage-scan-harness.js', 'a failed scan leaves its uploads in the bucket',
-    s => s.replace('    paths.forEach(function(p) { try { deleteFromSupabase(p); } catch (e) {} });', '')],
+    s => s.replace('goes back for -- and a four page scan leaves four pieces of it.' + CLEANUP,
+                   'goes back for -- and a four page scan leaves four pieces of it.')],
+  ['multipage-scan-harness.js', 'a failed attach to an existing song leaves its uploads',
+    s => s.replace('// Nothing will reference these -- the attach never happened.' + CLEANUP,
+                   '// Nothing will reference these -- the attach never happened.')],
   ['multipage-scan-harness.js', 'full-size photographs are uploaded unshrunk',
     s => s.replace("    return _asDownscale(f).then(function(small) {\r\n      return uploadToSupabase(small, 'song-scans');\r\n    }).then(function(res) {",
                    "    return uploadToSupabase(f, 'song-scans').then(function(res) {")],
@@ -147,6 +158,27 @@ const CASES = [
   // by hand against a route with the storage check narrowed to page 1 -- but
   // they are not exercised automatically. Worth knowing before trusting a
   // green run to cover the route.
+
+  ['multipage-scan-harness.js', 'pages attached to an existing song lose their order',
+    s => s.replace('      infos[i] = info;          // by index, so the pages keep their order',
+                   '      infos.push(info);')],
+  ['multipage-scan-harness.js', 'page numbering restarts instead of carrying on',
+    s => s.replace("', p' + (had + i + 1)", "', p' + (i + 1)")],
+  // `_lpAttachDocs(infos, song);` appears identically in lpHandleDocFile and
+  // in _asAttachPagesToSong, and lpHandleDocFile comes first in the file. A
+  // bare replace therefore mutated the upload path while claiming to test the
+  // camera path -- reported MISS against entirely correct code. Each is
+  // anchored on the line above it, and both paths now have their own test.
+  ['multipage-scan-harness.js', 'each attached page gets its own write',
+    s => s.replace('    _asClearPages();\r\n    _lpAttachDocs(infos, song);',
+                   '    _asClearPages();\r\n    infos.forEach(function(x) { _lpAttachDocs([x], song); });')],
+  ['multipage-scan-harness.js', 'each uploaded document gets its own write',
+    s => s.replace('  })).then(function() {\r\n    _lpAttachDocs(infos, song);',
+                   '  })).then(function() {\r\n    infos.forEach(function(x) { _lpAttachDocs([x], song); });')],
+  ['multipage-scan-harness.js', 'uploaded documents lose the order they were picked in',
+    s => s.replace('      info.name = f.name;\r\n      infos[i] = info;', '      info.name = f.name;\r\n      infos.push(info);')],
+  ['multipage-scan-harness.js', 'an abandoned scan deletes without checking the library',
+    s => s.replace('      if (inUse.indexOf(name) !== -1 || inUse.indexOf(encodeURIComponent(name)) !== -1) return;', '')],
 
   ['memories-harness.js', 'notes inside folders stop being read',
     s => s.replace('      Object.keys(d.folders || {}).forEach(function(fid) {', '      [].forEach(function(fid) {')]
