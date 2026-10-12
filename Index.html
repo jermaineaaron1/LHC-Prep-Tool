@@ -6294,7 +6294,7 @@
             <button id="lyricsPreviewAddDocBtn" class="lhc-pill-button text-sm" style="background:#f0fdf4;border-color:#86efac;color:#15803d;" onclick="lyricsPreviewAddDoc()" title="Attach a music score or document link">
               <i class="fa-solid fa-paperclip mr-1"></i> Add Doc
             </button>
-            <input type="file" id="lpDocFileInput" style="display:none" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="lpHandleDocFile(this)">
+            <input type="file" id="lpDocFileInput" multiple style="display:none" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.webp" onchange="lpHandleDocFile(this)">
             <input type="file" id="lpDocCameraInput" style="display:none" accept="image/*" capture="environment" onchange="lpHandleDocFile(this)">
             <button id="lpAddVideoBtn" class="lhc-pill-button text-sm" title="Attach a YouTube video" onclick="lpAddVideoByLink()" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;">
               <i class="fa-brands fa-youtube mr-1"></i> Add Video
@@ -14411,7 +14411,7 @@ function _lpShowAddDocMenu() {
     '<div class="lp-adddoc-head">Add a document</div>' +
     '<button type="button" data-act="upload"><i class="fa-solid fa-arrow-up-from-bracket"></i><span><b>Upload from device</b><small>PDF, Word, image</small></span></button>' +
     '<button type="button" data-act="link"><i class="fa-solid fa-link"></i><span><b>Paste a link</b><small>Google Doc, Drive, any URL</small></span></button>' +
-    '<button type="button" data-act="camera"><i class="fa-solid fa-camera"></i><span><b>Scan with camera</b><small>Photograph a score</small></span></button>';
+    '<button type="button" data-act="camera"><i class="fa-solid fa-camera"></i><span><b>Scan with camera</b><small>Photograph a score, up to 4 pages</small></span></button>';
   document.body.appendChild(menu);
   // Clamp on both sides so a narrow phone cannot push it off-screen.
   var w = Math.min(268, window.innerWidth - 16);
@@ -14424,7 +14424,7 @@ function _lpShowAddDocMenu() {
       var act = b.getAttribute('data-act');
       menu.remove();
       if (act === 'upload') document.getElementById('lpDocFileInput').click();
-      else if (act === 'camera') document.getElementById('lpDocCameraInput').click();
+      else if (act === 'camera') lpScanSheetPages();
       else _lpAddDocByLink();
     };
   });
@@ -14449,22 +14449,35 @@ function _lpAddDocByLink() {
 
 // Shared by the upload and camera inputs -- one file handler, two entry points.
 window.lpHandleDocFile = function(input) {
-  var file = input.files && input.files[0];
+  var files = input.files ? Array.prototype.slice.call(input.files) : [];
   input.value = '';
-  if (!file) return;
+  if (!files.length) return;
   var song = currentLyricsPreviewSong;
   if (!song) return;
-  showToast('Uploading "' + file.name + '"…', 'info');
-  uploadToSupabase(file, 'song-docs').then(function(res) {
-    if (!res || res.error || !res.url) {
-      showToast('Upload failed: ' + ((res && res.error) || 'unknown error'), 'error');
-      return;
-    }
-    var info = (typeof parseFileUrl === 'function') ? parseFileUrl(res.url) : { url: res.url };
-    info.url = res.url;
-    info.name = file.name;   // the real filename beats a guessed label
-    _lpAttachDoc(info);
+  showToast(files.length === 1 ? 'Uploading \u201c' + files[0].name + '\u201d\u2026'
+                               : 'Uploading ' + files.length + ' files\u2026', 'info');
+
+  // A PDF or a Word file goes up as it is; a photograph is shrunk the same
+  // way the scan shrinks one, because a 4MB picture of a page helps nobody.
+  // The real filename is kept either way -- somebody chose these deliberately
+  // and a guessed label would be worse than what they picked.
+  var infos = new Array(files.length);
+  var paths = [];
+  Promise.all(files.map(function(f, i) {
+    return _asDownscale(f).then(function(small) {
+      return uploadToSupabase(small, 'song-docs');
+    }).then(function(res) {
+      if (!res || res.error || !res.url) throw new Error((res && res.error) || 'upload failed');
+      if (res.path) paths.push(res.path);
+      var info = (typeof parseFileUrl === 'function') ? parseFileUrl(res.url) : { url: res.url };
+      info.url = res.url;
+      info.name = f.name;
+      infos[i] = info;
+    });
+  })).then(function() {
+    _lpAttachDocs(infos, song);
   }).catch(function(err) {
+    paths.forEach(function(p) { try { deleteFromSupabase(p); } catch (e) {} });
     showToast('Upload failed: ' + ((err && err.message) || 'unknown error'), 'error');
   });
 };
@@ -14472,10 +14485,18 @@ window.lpHandleDocFile = function(input) {
 // Persists the attachment and refreshes everything that counts documents.
 // Success is only reported after the save resolves.
 function _lpAttachDoc(info) {
-  var song = currentLyricsPreviewSong;
-  if (!song || !info || !info.url) return;
+  _lpAttachDocs([info]);
+}
+
+// Several documents, ONE write. Attaching four pages with four round trips
+// is four chances for a half-finished set, and the row is rewritten whole
+// each time, so the last one home would win and the rest would vanish.
+function _lpAttachDocs(infos, targetSong) {
+  var song = targetSong || currentLyricsPreviewSong;
+  infos = (infos || []).filter(function(i) { return i && i.url; });
+  if (!song || !infos.length) return;
   var atts = Array.isArray(song.attachments) ? song.attachments.slice() : [];
-  atts.push(info);
+  infos.forEach(function(i) { atts.push(i); });
   SBQ_SONGS.updateFields(song.id, { attachments: atts }).then(function() {
     song.attachments = atts;
     if (window.STATE && Array.isArray(STATE.songs)) {
@@ -14486,7 +14507,9 @@ function _lpAttachDoc(info) {
     if (typeof window._lpSyncMediaBadges === 'function') window._lpSyncMediaBadges(song);
     if (typeof _lpRenderRailResources === 'function') _lpRenderRailResources(song);
     if (currentLyricsPreviewMode === 'resources') renderLyricsPreviewContent();
-    showToast('Document attached to "' + song.title + '"', 'success');
+    showToast(infos.length === 1
+      ? 'Document attached to "' + song.title + '"'
+      : infos.length + ' pages attached to "' + song.title + '"', 'success');
   }).catch(function(err) {
     showToast('Could not attach the document: ' + ((err && err.message) || 'unknown error'), 'error');
   });
@@ -14651,6 +14674,22 @@ var _asThumbs = [];     // object URLs, revoked when the tray closes
 var _asMode = 'chords'; // 'chords' reads the sheet, 'document' files it
 var _asWhich = 'camera';
 
+// Where the finished pages go. 'new' builds a song from them; 'song' hangs
+// them on a song that already exists.
+//
+// Adding sheets to the 65 hymns already in the library goes through the
+// second one, and until now that route took a single photograph at full
+// size and named it IMG_20261012_0933.jpg. Three pages meant doing it three
+// times. Same tray, same downscaling, same names -- there was no reason for
+// the two to differ beyond the order they were built in.
+var _asTarget = 'new';
+var _asDocSong = null;
+
+// Pages uploaded by the last scan, held until the song that would own them
+// is saved. saveNewSong clears it; anything still here when the form closes
+// belonged to a scan somebody abandoned.
+window._asPendingScanPaths = [];
+
 function _asClearPages() {
   _asThumbs.forEach(function(u) { try { URL.revokeObjectURL(u); } catch (e) {} });
   _asPages = [];
@@ -14666,10 +14705,26 @@ function _asTray(show) {
 // Add Doc routes use. `mode` decides what happens to the pages afterwards.
 window.addSongScan = function(which, mode) {
   closeAddSongChooser();
+  _asTarget = 'new';
+  _asDocSong = null;
   _asMode = (mode === 'document') ? 'document' : 'chords';
   _asWhich = (which === 'file') ? 'file' : 'camera';
   _asClearPages();
   var input = document.getElementById(_asWhich === 'camera' ? 'asScanCamera' : 'asScanFile');
+  if (input) input.click();
+};
+
+// Photograph pages onto a song that already exists. Always documents --
+// the song has its words already; what it is missing is the music.
+window.lpScanSheetPages = function() {
+  var song = (typeof currentLyricsPreviewSong !== 'undefined') ? currentLyricsPreviewSong : null;
+  if (!song) return;
+  _asTarget = 'song';
+  _asDocSong = song;
+  _asMode = 'document';
+  _asWhich = 'camera';
+  _asClearPages();
+  var input = document.getElementById('asScanCamera');
   if (input) input.click();
 };
 
@@ -14688,6 +14743,31 @@ window.asRemovePage = function(i) {
   _asRenderTray();
 };
 
+// Pages from a scan whose song was never saved.
+//
+// The list is checked against the library before anything is deleted, even
+// though saveNewSong clears it on the way past. Belt and braces on purpose:
+// leaving a file behind costs a megabyte, and deleting one a real song points
+// at breaks that song on a Sunday. Those are not the same mistake.
+function _asDiscardUnsavedScan() {
+  var paths = (window._asPendingScanPaths || []).slice();
+  window._asPendingScanPaths = [];
+  if (!paths.length) return;
+  if (typeof SBQ_SONGS === 'undefined' || !SBQ_SONGS.getAll) return;
+  SBQ_SONGS.getAll().then(function(songs) {
+    var inUse = JSON.stringify(songs || []);
+    paths.forEach(function(p) {
+      var name = String(p).split('/').pop();
+      if (!name) return;
+      if (inUse.indexOf(name) !== -1 || inUse.indexOf(encodeURIComponent(name)) !== -1) return;
+      try { deleteFromSupabase(p); } catch (e) {}
+    });
+  }).catch(function() {
+    // Could not read the library, so could not prove these are unused.
+    // Leave them: litter is cheaper than a broken song.
+  });
+}
+
 window.asCancelPages = function() {
   _asClearPages();
   _asTray(false);
@@ -14704,13 +14784,17 @@ window.asToggleScanMode = function() {
 function _asRenderTray() {
   var n = _asPages.length;
   var doc = _asMode === 'document';
+  var onSong = _asTarget === 'song' && _asDocSong;
 
   var title = document.getElementById('asptTitle');
-  if (title) title.textContent = doc ? 'Sheet music' : 'Chord sheet';
+  if (title) title.textContent = onSong ? 'Sheet music' : (doc ? 'Sheet music' : 'Chord sheet');
 
   var sub = document.getElementById('asptSub');
   if (sub) {
-    sub.textContent = doc
+    sub.textContent = onSong
+      ? (n === 1 ? 'The page is added to \u201c' + _asDocSong.title + '\u201d and opens from View Doc.'
+                 : 'All ' + n + ' pages are added to \u201c' + _asDocSong.title + '\u201d and open from View Doc.')
+      : doc
       ? (n === 1
           ? 'The page is kept as a document on the song. Only the title and key are read off it.'
           : 'The ' + n + ' pages are kept as documents on the song. Only the title and key are read off them.')
@@ -14743,13 +14827,18 @@ function _asRenderTray() {
   var go = document.getElementById('asptGoBtn');
   if (go) {
     go.classList.toggle('is-doc', doc);
-    go.textContent = doc
+    go.textContent = onSong
+      ? (n === 1 ? 'Add this page' : 'Add these ' + n + ' pages')
+      : doc
       ? (n === 1 ? 'Keep this page as sheet music' : 'Keep these ' + n + ' pages as sheet music')
       : (n === 1 ? 'Read this page' : 'Read these ' + n + ' pages');
   }
 
+  // There is nothing to switch to when the song already exists: it has its
+  // words, and a second transcription of them is not a thing anyone wants.
   var sw = document.getElementById('asptSwitchBtn');
   if (sw) {
+    sw.style.display = onSong ? 'none' : '';
     sw.textContent = doc
       ? 'Actually, read the chords and lyrics off ' + (n === 1 ? 'it' : 'them')
       : 'Actually, just keep ' + (n === 1 ? 'it' : 'them') + ' as sheet music';
@@ -14794,6 +14883,8 @@ window.asRunScan = function() {
   var mode = _asMode;
   var doc = mode === 'document';
   _asTray(false);
+
+  if (_asTarget === 'song') { _asAttachPagesToSong(pages, _asDocSong); return; }
 
   if (typeof showLoader === 'function') showLoader(true);
   showToast(
@@ -14846,6 +14937,10 @@ window.asRunScan = function() {
     // documents. In document mode that IS the point of the exercise.
     out.body.__scanUrls = urls;
     out.body.__scanMode = mode;
+    // Held until the song is saved. If the form is closed instead, these are
+    // photographs of a song that never existed and nothing will reference
+    // them.
+    window._asPendingScanPaths = paths;
     _asClearPages();
     openAddSongForm(out.body);
   }).catch(function(err) {
@@ -14861,6 +14956,48 @@ window.asRunScan = function() {
     openAddSongForm(null);
   });
 };
+
+// Upload the pages and hang them on a song that already exists. No parsing:
+// the song has its words, and this is the music to go with them.
+function _asAttachPagesToSong(pages, song) {
+  if (!song) { _asScanning = false; _asClearPages(); return; }
+  if (typeof showLoader === 'function') showLoader(true);
+  showToast(pages.length === 1 ? 'Adding the page\u2026' : 'Adding ' + pages.length + ' pages\u2026', 'info');
+
+  // Numbering carries on from the sheets the song already has, so adding two
+  // more pages next week does not produce a second p1.
+  var had = (song.attachments || []).filter(function(a) {
+    return /\u2014 sheet music/.test(a.name || '');
+  }).length;
+  var total = had + pages.length;
+
+  var infos = new Array(pages.length);
+  var paths = [];
+  Promise.all(pages.map(function(f, i) {
+    return _asDownscale(f).then(function(small) {
+      return uploadToSupabase(small, 'song-docs');
+    }).then(function(res) {
+      if (!res || res.error || !res.url) throw new Error((res && res.error) || 'upload failed');
+      if (res.path) paths.push(res.path);
+      var info = (typeof parseFileUrl === 'function') ? parseFileUrl(res.url) : { url: res.url };
+      info.url = res.url;
+      info.name = song.title + ' \u2014 sheet music' + (total > 1 ? ', p' + (had + i + 1) : '');
+      infos[i] = info;          // by index, so the pages keep their order
+    });
+  })).then(function() {
+    _asScanning = false;
+    if (typeof showLoader === 'function') showLoader(false);
+    _asClearPages();
+    _lpAttachDocs(infos, song);
+  }).catch(function(err) {
+    _asScanning = false;
+    if (typeof showLoader === 'function') showLoader(false);
+    // Nothing will reference these -- the attach never happened.
+    paths.forEach(function(p) { try { deleteFromSupabase(p); } catch (e) {} });
+    _asClearPages();
+    showToast('Could not add those pages: ' + ((err && err.message) || 'unknown error'), 'error');
+  });
+}
 
 // Lyrics live in three places and all three must agree:
 //
@@ -18602,6 +18739,11 @@ window.loadEditSongData = function(song) {
   function closeModal(modalId) {
     var modal = $(modalId);
     if (modal) modal.classList.remove('show');
+    // Closing the Add Song form without saving abandons the scan that filled
+    // it, and the photographs it uploaded are then referenced by nothing.
+    if (modalId === 'addSongModal' && typeof _asDiscardUnsavedScan === 'function') {
+      _asDiscardUnsavedScan();
+    }
   }
 
   function generateOrderTitle(date) {
@@ -22988,6 +23130,9 @@ window.loadEditSongData = function(song) {
     showLoader(true);
     SBQ_SONGS.create(songData).then(function(result) {
       showToast('Song added successfully!', 'success');
+      // The song owns the photographs now, so they are no longer pending --
+      // cleared BEFORE the close, which is what triggers the discard.
+      window._asPendingScanPaths = [];
       closeModal('addSongModal');
       
       // Clear form and reset song data
