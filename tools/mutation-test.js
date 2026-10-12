@@ -28,12 +28,26 @@
 // an anchor that has moved proves nothing, and silently passing would be the
 // same false comfort this tool exists to catch.
 //
-// DELIBERATELY NOT IN `npm run check`
-// It runs every harness several times over a 5MB file and takes minutes.
-// `check` has to stay fast enough that people run it before committing.
+// IT RUNS AS PART OF `npm run check`, AND LAST
+//
+// It was kept out at first because it runs every harness again over a 5MB
+// file, and while chord-alignment-harness alone took 127 seconds that came
+// to roughly six minutes. `check` has to stay fast enough that people run it
+// before committing, so the choice then was right.
+//
+// That harness is now 105 ms and the whole mutation pass is about 3 seconds
+// on top of a 9 second suite, so there is no longer anything to trade off.
+// It earned the place: it is what caught the @media-nested rule a rewrite
+// had silently stopped guarding, and the line of JavaScript the chord
+// harness was counting as a CSS rule.
+//
+// Last in the chain on purpose. A harness that is failing against real
+// source should say so in its own words first; this tool would also go red,
+// but "a mutation was caught" is a confusing way to hear it.
 //
 // USAGE
-//   npm run mutate
+//   npm run check     # includes this, at the end
+//   npm run mutate    # this on its own
 //   node tools/mutation-test.js
 //
 // Exit code 0 = every mutation was caught, 1 = at least one went unnoticed.
