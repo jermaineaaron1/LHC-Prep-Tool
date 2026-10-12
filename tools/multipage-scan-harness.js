@@ -393,6 +393,62 @@ async function rest() {
   check('the tray remove button is finger-sized on a phone',
     /\.aspt-page-del \{\s*[\r\n]+\s*width: 40px; height: 40px;/.test(raw), true);
 
+  // ---- and the names survive being displayed ----------------------------
+  //
+  // Naming the pages is only worth anything if the name reaches the eye. The
+  // document picker truncated at 30 characters from the END, and these names
+  // are built with the distinguishing part LAST, so the page number was
+  // exactly what went. Every page of every sheet produced the same label:
+  // a three-page hymn offered three identical rows to choose between, which
+  // is precisely the state the naming was added to fix.
+  console.log('\nthe page number survives being shown in a list');
+  {
+    const m = raw.match(/window\._docLabel = function[\s\S]*?\n\};/);
+    if (!m) {
+      check('_docLabel exists', false, true);
+    } else {
+      const docLabel = new Function('var window = {};' + m[0] + '\nreturn window._docLabel;')();
+      // Long titles are the hard case; short ones were never at risk.
+      ['He Leadeth Me', 'Holy, Holy, Holy', 'All Creatures of Our God and King'].forEach(t => {
+        const shown = [1, 2, 3].map(p => docLabel(t + ' — sheet music, p' + p));
+        check('three pages of "' + t.slice(0, 22) + '" are told apart',
+          new Set(shown).size, 3);
+        check('  and each still shows its page number',
+          shown.every((s, i) => s.endsWith('p' + (i + 1))), true);
+      });
+      check('a short name is left exactly as it is', docLabel('chords.pdf'), 'chords.pdf');
+      check('nothing blows up on a missing name', docLabel(null) + docLabel(undefined), '');
+      check('it does respect the limit', docLabel('x'.repeat(80)).length <= 31, true);
+    }
+
+    // All four places that shorten a document label must use it. Three were
+    // in the picker and one in the Add Song form's attachment list, and any
+    // one left behind puts the identical-rows bug back in that view.
+    // Scoped to the two functions that show DOCUMENT labels. A blanket ban on
+    // the pattern was wrong: renderYoutubeLinks truncates a video title the
+    // same way and should, because video titles differ at the START. The
+    // first version of this check failed against correct source for exactly
+    // that reason -- the same over-reach the blank-slide harness was caught
+    // by when it banned `slides: item.slides || []` everywhere.
+    const fnSrc = (name, opener) => {
+      const a = raw.indexOf(opener);
+      if (a < 0) return '';
+      let depth = 0, started = false;
+      for (let i = a; i < raw.length; i++) {
+        if (raw[i] === '{') { depth++; started = true; }
+        else if (raw[i] === '}') { depth--; if (started && depth === 0) return raw.slice(a, i + 1); }
+      }
+      return '';
+    };
+    const docViews = fnSrc('renderAttachments', 'function renderAttachments(mode) {') +
+                     fnSrc('showLinkSelectorPopup', 'function showLinkSelectorPopup(event, urls, type, title) {');
+    check('both document views were found', docViews.length > 400, true);
+    check('  and neither truncates a label by hand',
+      /substring\(0, 30\)/.test(docViews), false);
+    check('  they go through the helper instead',
+      (docViews.match(/window\._docLabel\(/g) || []).length >= 4, true);
+  }
+
   console.log('\nthe attachment names say which page is which');
   check('numbered only when there is more than one',
     /_scanUrls\.length > 1 \? ', p' \+ \(i \+ 1\) : ''/.test(raw), true);

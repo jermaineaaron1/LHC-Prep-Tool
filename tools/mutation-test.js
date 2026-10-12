@@ -261,6 +261,16 @@ const CASES = [
   ['local-card-render-harness.js', 'the off-screen render stage is left in the document',
     s => s.replace('              stage.remove();', '              ;')],
 
+  // Naming the pages buys nothing if the name is cut before the eye reaches
+  // it. Truncating from the end removed the page number from every page of
+  // every sheet -- three identical rows to choose between.
+  ['multipage-scan-harness.js', 'document labels are cut from the end again',
+    s => s.replace("  return str.slice(0, max - tail - 1) + '…' + str.slice(-tail);",
+                   "  return str.slice(0, max) + '…';")],
+  ['multipage-scan-harness.js', 'the document picker stops using the helper',
+    s => s.replace('          label = window._docLabel(_stored);',
+                   "          label = _stored.length > 30 ? _stored.substring(0, 30) + '...' : _stored;")],
+
   ['lyric-line-class-harness.js', 'page-break markers count as lyric lines again',
     s => s.replace("return !!c && (c.contains('sb-a4-marker') || c.contains('sb-a4-guide') ||",
                    'return false && (c.contains(\'sb-a4-marker\') || c.contains(\'sb-a4-guide\') ||')],
