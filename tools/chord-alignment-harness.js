@@ -59,12 +59,59 @@ function check(label, ok, detail) {
 // before a monospace entry would move the chords.
 const PROPORTIONAL = /\b(Arial Black|Arial|Helvetica|Georgia|Palatino|Times|Trebuchet|Verdana|Tahoma|Poppins|Lato|Cinzel|Playfair)\b/i;
 
+// Finding CSS rules without catastrophic backtracking.
+//
+// The obvious pattern -- /[^{}]*A[^{}]*B[^{}]*\{([^}]*)\}/g -- took 127
+// seconds over this 5MB file. That was 93% of the entire test suite, and the
+// reason `npm run check` had grown to over two minutes: every position that
+// fails to match re-walks those character classes.
+//
+// Scanning for a literal with indexOf and expanding to the braces around it
+// is linear, and does the same job in milliseconds.
+function rulesContaining(text, ...needles) {
+  const seen = new Set();
+  const out = [];
+  // Scanned from EVERY needle, not just the first, so a selector listing them
+  // in the other order is still found. Deduplicated by brace position.
+  for (const needle of needles) {
+    let i = 0;
+    while ((i = text.indexOf(needle, i)) !== -1) {
+      const open = text.indexOf('{', i);
+      i += needle.length;
+      if (open === -1) break;
+      if (seen.has(open)) continue;
+      // A selector begins after the nearest preceding brace or semicolon --
+      // including an OPENING brace, because a rule inside @media { ... } has
+      // no closing brace between it and the media query. Leaving '{' out of
+      // this list sent `start` back past the @media line, blew the length
+      // bound below, and silently skipped the rule: the mutation test caught
+      // it by breaking that exact rule and watching the harness stay green.
+      const start = Math.max(
+        text.lastIndexOf('}', open - 1),
+        text.lastIndexOf('{', open - 1),
+        text.lastIndexOf(';', open - 1),
+        0
+      ) + 1;
+      // A selector longer than this is not a selector -- the needle was in a
+      // comment or a string, and the next brace belongs to something else.
+      if (open - start > 600) continue;
+      const close = text.indexOf('}', open);
+      if (close === -1) break;
+      const sel = text.slice(start, open);
+      if (!needles.every(n => sel.includes(n))) continue;
+      seen.add(open);
+      out.push({
+        sel: sel.replace(/\s+/g, ' ').trim(),
+        body: text.slice(open + 1, close).replace(/\s+/g, ' ').trim()
+      });
+    }
+  }
+  return out;
+}
+
 // The rule that binds the two lines together: one selector list naming both
 // classes, with one font-family for the pair.
-const pairRules = [];
-const re = /([^{}]*wo-lyrics-chord-line[^{}]*wo-lyrics-lyric-line[^{}]*)\{([^}]*)\}/g;
-let m;
-while ((m = re.exec(raw))) pairRules.push({ sel: m[1].replace(/\s+/g, ' ').trim(), body: m[2].replace(/\s+/g, ' ').trim() });
+const pairRules = rulesContaining(raw, 'wo-lyrics-chord-line', 'wo-lyrics-lyric-line');
 
 console.log('Reading ' + path.basename(INDEX) + ':');
 console.log('  rules naming BOTH the chord line and the lyric line: ' + pairRules.length + '\n');
@@ -91,10 +138,7 @@ withFont.forEach((r, i) => {
 // (The .sb-page-lyrics container may be proportional -- that is the setting
 // that applies to songs with no chords at all, which is the point.)
 console.log('\nno songbook rule hands the lyric line a proportional font');
-const lyricRules = [];
-const re2 = /([^{}]*songbookLiveModal[^{}]*wo-lyrics-lyric-line[^{}]*)\{([^}]*)\}/g;
-let m2;
-while ((m2 = re2.exec(raw))) lyricRules.push({ sel: m2[1].replace(/\s+/g, ' ').trim(), body: m2[2].replace(/\s+/g, ' ').trim() });
+const lyricRules = rulesContaining(raw, 'wo-lyrics-lyric-line', 'songbookLiveModal');
 const offenders = lyricRules.filter(r => {
   const fam = (r.body.match(/font-family\s*:([^;]*)/) || [])[1];
   return fam && PROPORTIONAL.test(fam) && !/monospace/i.test(fam);
