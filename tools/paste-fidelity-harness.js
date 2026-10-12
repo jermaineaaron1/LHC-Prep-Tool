@@ -108,6 +108,74 @@ function check(label, actual, expected) {
   if (!ok) console.log('          expected ' + e + '\n          actual   ' + a);
 }
 
+// 0 - the classifier underneath, tested directly
+//
+// WHY THIS SECTION EXISTS, given everything below already passes
+//
+// sbIsChordLine was extracted by this harness and never called. It came
+// along only because sbIsInlineChordLine needs it, and that turns out to
+// hide it completely: the first thing sbIsInlineChordLine does is
+//
+//     if (sbIsChordLine(line)) return false;   // already a pure chord line
+//
+// Every lyric assertion below expects false. So a lyric WRONGLY judged to be
+// a pure chord line still produces false, and every one of those checks goes
+// green for entirely the wrong reason. Mutation testing proved it: the
+// density threshold and the prose-word veto could both be deleted and this
+// file noticed nothing.
+//
+// That matters because sbIsChordLine decides, on paste, which lines are
+// words and which are chords. Get it wrong in this direction and a verse is
+// filed as a chord row -- the words are not shown, and nobody is told.
+//
+// The expected values here were read off the running function, not off the
+// regex, so they record what it does rather than what it looks like it does.
+console.log('Scenario 0 - chord rows and lyric rows are told apart');
+{
+  [
+    ['G           G7        C        G', true],
+    ['D  A  Bm  G', true],
+    ['E', true],
+  ].forEach(([line, want]) =>
+    check('chords: "' + line.slice(0, 30) + '"', api.sbIsChordLine(line), want));
+
+  [
+    // Real hymn lines, each with at least one chord-shaped word in it.
+    ['Am I a soldier of the cross', false],
+    ['A mighty fortress is our God', false],
+    ['A wretch like me', false],
+    ['C above all powers', false],
+    ['Come, now is the time to worship', false],
+    ['Be still, my soul', false],
+    ['Great is Thy faithfulness', false],
+    ['Holy holy holy', false],
+    ['   ', false],
+  ].forEach(([line, want]) =>
+    check('words:  "' + line.slice(0, 30) + '"', api.sbIsChordLine(line), want));
+
+  // Two guards decide this, and the lines above are rejected by BOTH, so
+  // either one could be deleted without a single check moving. These four
+  // separate them. Do not tidy them away for looking like the ones above --
+  // they are the only reason this section has any teeth.
+  //
+  //   density      at least 0.6 of the words must be chord-shaped
+  //   prose veto   no word over four letters that is plainly not a chord
+  //
+  // Every word here is four letters or fewer, so the prose veto never fires
+  // and the density threshold is the only thing saying "these are words".
+  [
+    ['A day in the sun', false],
+    ['Am I to go', false],
+    ['E am I to go', false],
+  ].forEach(([line, want]) =>
+    check('density alone rejects: "' + line + '"', api.sbIsChordLine(line), want));
+
+  // And the other way round: three chords out of four words clears the
+  // density threshold comfortably, so only the prose veto rejects it.
+  check('the prose veto alone rejects: "G C D repeat"',
+    api.sbIsChordLine('G C D repeat'), false);
+}
+
 // 1 - lines that must be left exactly as they were typed
 console.log('Scenario 1 - an ordinary lyric is never mistaken for inline chords');
 {

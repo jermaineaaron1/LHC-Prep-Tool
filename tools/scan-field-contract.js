@@ -38,7 +38,12 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const HTML = fs.readFileSync(path.join(ROOT, 'Index.html'), 'utf8');
+// Takes a file argument like every other harness here, so tools/mutation-test
+// can point it at a mutated copy. Without it this one could never be proved to
+// fail: it read the real Index.html whatever it was handed, so every mutation
+// aimed at it reported a false pass.
+const _arg = process.argv.slice(2).find(a => !a.startsWith('--'));
+const HTML = fs.readFileSync(_arg || path.join(ROOT, 'Index.html'), 'utf8');
 
 let failures = 0;
 const pass = (msg) => console.log('  OK    ' + msg);

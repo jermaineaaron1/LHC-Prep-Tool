@@ -28,6 +28,24 @@
 // an anchor that has moved proves nothing, and silently passing would be the
 // same false comfort this tool exists to catch.
 //
+// WHAT THIS STILL CANNOT REACH
+//
+// It mutates Index.html and nothing else, so a harness reading a file under
+// app/api is beyond it however many cases are listed below:
+//
+//   calendar-pending-harness   reads app/api/calendar/route.ts
+//   scan-text-tests            reads app/api/parse-song-sheet/route.ts
+//   multipage-scan-harness     its route section, for the same reason
+//
+// Those assertions are not worthless -- they bite on a real edit to the
+// route, and the multipage ones were proved by hand -- but nothing here
+// exercises them, so a green run below says nothing about them.
+//
+// One related problem was fixed rather than documented: scan-field-contract
+// read Index.html from a hardcoded path and ignored the file it was handed,
+// so every mutation aimed at it was a guaranteed false pass. It takes an
+// argument now. Worth checking for in any new harness.
+//
 // IT RUNS AS PART OF `npm run check`, AND LAST
 //
 // It was kept out at first because it runs every harness again over a 5MB
@@ -55,7 +73,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const SRC = fs.readFileSync(path.join(ROOT, 'Index.html'), 'utf8');
@@ -180,39 +198,150 @@ const CASES = [
   ['multipage-scan-harness.js', 'an abandoned scan deletes without checking the library',
     s => s.replace('      if (inUse.indexOf(name) !== -1 || inUse.indexOf(encodeURIComponent(name)) !== -1) return;', '')],
 
+  // ---- the harnesses that had never been proved to fail -----------------
+  //
+  // Seventeen of the twenty-six in `npm run check` had no case here at all,
+  // while this one harness had fifteen. A harness nobody has broken on
+  // purpose is a harness nobody knows the strength of, and two of the ones
+  // that WERE checked turned out to be reporting the wrong thing.
+  //
+  // Every anchor below was confirmed to appear exactly once before being
+  // used -- the duplicated-line problem above cost two false MISS reports.
+
+  ['emoji-font-harness.js', 'a page with no icons still asks for the emoji font',
+    s => s.replace("if (!found || !found.length) return '';", 'if (false) return \'\';')],
+  ['emoji-font-harness.js', 'the stylesheet stops naming the characters it needs',
+    s => s.replace('encodeURIComponent(glyphs)', "''")],
+
+  ['render-failure-message-harness.js', 'running out of credits reads as an unknown error',
+    s => s.replace('/credit|quota|CREDITS_EXCEEDED/i.test(msg)', '/__never_matches__/i.test(msg)')],
+
+  ['share-empty-card-harness.js', 'an empty service card counts as filled',
+    s => s.replace('return isNaN(n) ? 1 : n;', 'return 1;')],
+
+  ['duty-count-dedupe-harness.js', 'the dedupe key stops normalising the service date',
+    s => s.replace("row.role_id + '|' + _normSvcDate(row.service_date)", "row.role_id + '|' + row.service_date")],
+
+  ['year-pagination-harness.js', 'the read stops after the first thousand rows',
+    s => s.replace('rows.length < 1000 ? SBQ_ROSTER._oneRowPerCell(out) : page(from + 1000)',
+                   'SBQ_ROSTER._oneRowPerCell(out)')],
+
+  ['subscribe-empty-warning-harness.js', 'an empty calendar stops warning anybody',
+    s => s.replace('if ((body.match(/BEGIN:VEVENT/g) || []).length) return;', 'return;')],
+
+  // sbIsChordLine is declared TWICE in Index.html, in two scopes, and the two
+  // use different rules -- 0.55 of the words in one, 0.6 plus a prose-word
+  // veto in the other. paste-fidelity deliberately extracts the LAST one,
+  // which is the paste path. The first version of this case mutated the
+  // other twin and reported MISS against a harness that was working
+  // perfectly. Mutate the one the harness actually reads.
+  ['paste-fidelity-harness.js', 'a lyric line with prose in it counts as chords',
+    s => s.replace('return (chordCount / tokens.length >= 0.6) && !hasProseWord && tokens.length >= 1;',
+                   'return (chordCount / tokens.length >= 0.6) && tokens.length >= 1;')],
+  ['paste-fidelity-harness.js', 'the chord-density threshold is dropped altogether',
+    s => s.replace('return (chordCount / tokens.length >= 0.6) && !hasProseWord && tokens.length >= 1;',
+                   'return chordCount > 0 && !hasProseWord && tokens.length >= 1;')],
+
+  ['order-save-contract.js', 'an explicit isNewOrder flag stops creating the row',
+    s => s.replace('var _isNewOrder = !payload.id || payload.isNewOrder === true;',
+                   'var _isNewOrder = !payload.id;')],
+
+  ['group-duty-credit-harness.js', 'the app forgets that "all teachers" is a group',
+    s => s.replace("var ROSTER_GROUP_LABELS = { 'all teachers': 'sundayschool' };",
+                   'var ROSTER_GROUP_LABELS = {};')],
+
+  ['bg-repin-harness.js', 'backgrounds are re-pinned to the slides that went away',
+    s => s.replace('      var ni = boxes.indexOf(e.box);\r\n      if (ni >= 0) rebuilt[ni] = e.bg;',
+                   '      var ni = boxes.indexOf(e.box);\r\n      rebuilt[ni] = e.bg;')],
+
+  ['section-undo-harness.js', 'removing a section stops offering Undo',
+    s => s.replace("    showToast('Section' + sectionTitle + ' removed', 'info', {",
+                   "    showToast('Section' + sectionTitle + ' removed', 'info'); if (false) ({")],
+
+  ['local-card-render-harness.js', 'the off-screen render stage is left in the document',
+    s => s.replace('              stage.remove();', '              ;')],
+
+  ['lyric-line-class-harness.js', 'page-break markers count as lyric lines again',
+    s => s.replace("return !!c && (c.contains('sb-a4-marker') || c.contains('sb-a4-guide') ||",
+                   'return false && (c.contains(\'sb-a4-marker\') || c.contains(\'sb-a4-guide\') ||')],
+
+  // scan-field-contract could not be mutated at all until it was taught to
+  // take a file argument: it read the real Index.html whatever it was handed,
+  // so anything aimed at it was a guaranteed false pass.
+  ['scan-field-contract.js', 'the edit form sets the key by assignment again',
+    s => s.replace("_asmSetKeyField(song.key, 'editSongKey')", "$('editSongKey').value = song.key")],
+  ['scan-field-contract.js', 'the save stops falling back to the key it opened with',
+    s => s.replace("key: $('editSongKey').value || _asmEditingKey", "key: $('editSongKey').value")],
+
+  ['order-delete-cleanup-harness.js', 'deleting an order leaves its projection settings',
+    s => s.replace("from('projection_settings').delete().eq('owner_id', id)",
+                   "from('projection_settings').select('owner_id').eq('owner_id', id)")],
+
   ['memories-harness.js', 'notes inside folders stop being read',
     s => s.replace('      Object.keys(d.folders || {}).forEach(function(fid) {', '      [].forEach(function(fid) {')]
 ];
 
 let caught = 0, missed = 0, stale = 0;
-console.log('mutation test: break it, and see whether the harness notices\n');
+console.log('mutation test: break it, and see whether the harness notices' + String.fromCharCode(10));
 
-for (const [harness, what, mutate] of CASES) {
+// Run the cases concurrently.
+//
+// Each one writes a 5MB file and spawns a node process that reads it, so
+// one at a time took 48 seconds -- longer than the entire rest of the suite
+// and enough to undo the work that got `npm run check` down from 136s. They
+// do not depend on each other, so there is no reason to queue them.
+//
+// Each case gets its OWN temp file. Sharing one path across parallel runs
+// would have every harness reading whichever mutation was written last.
+const LIMIT = Math.max(2, Math.min(8, (os.cpus() || { length: 4 }).length));
+
+function runCase(i) {
+  const [harness, what, mutate] = CASES[i];
   const mutated = mutate(SRC);
   if (mutated === SRC) {
     // The code moved and the mutation no longer applies, so this case is
     // testing nothing. Reported, not skipped.
-    console.log('  STALE ' + harness.padEnd(34) + what);
-    console.log('        the edit matched nothing -- update the anchor, it is proving nothing now');
-    stale++;
-    continue;
+    return Promise.resolve({ i, harness, what, verdict: 'stale' });
   }
-  fs.writeFileSync(TMP, mutated);
-  let exit = 0;
-  try {
-    execFileSync('node', [path.join(ROOT, 'tools', harness), TMP], { stdio: 'pipe' });
-  } catch (e) { exit = e.status || 1; }
-  if (exit !== 0) { caught++; console.log('  ok    ' + harness.padEnd(34) + what); }
-  else {
-    missed++;
-    console.log('  MISS  ' + harness.padEnd(34) + what);
-    console.log('        the harness stayed green with this broken. It is not guarding it.');
-  }
+  const tmp = TMP.replace(/\.html$/, '-' + i + '.html');
+  fs.writeFileSync(tmp, mutated);
+  return new Promise(resolve => {
+    execFile('node', [path.join(ROOT, 'tools', harness), tmp], (err) => {
+      try { fs.unlinkSync(tmp); } catch (e) {}
+      resolve({ i, harness, what, verdict: err ? 'caught' : 'missed' });
+    });
+  });
 }
 
-try { fs.unlinkSync(TMP); } catch (e) {}
+(async () => {
+  const results = new Array(CASES.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(LIMIT, CASES.length) }, async () => {
+    while (next < CASES.length) {
+      const i = next++;
+      results[i] = await runCase(i);
+    }
+  }));
 
-console.log('\n' + '='.repeat(66));
-console.log(caught + ' caught, ' + missed + ' missed, ' + stale + ' stale');
-if (!missed && !stale) console.log('Every guarded behaviour is actually guarded.');
-process.exit(missed || stale ? 1 : 0);
+  // Reported in the order they are written above, not the order they
+  // finished, so the output is the same every run.
+  for (const r of results) {
+    if (r.verdict === 'stale') {
+      console.log('  STALE ' + r.harness.padEnd(34) + r.what);
+      console.log('        the edit matched nothing -- update the anchor, it is proving nothing now');
+      stale++;
+    } else if (r.verdict === 'caught') {
+      caught++;
+      console.log('  ok    ' + r.harness.padEnd(34) + r.what);
+    } else {
+      missed++;
+      console.log('  MISS  ' + r.harness.padEnd(34) + r.what);
+      console.log('        the harness stayed green with this broken. It is not guarding it.');
+    }
+  }
+
+  console.log(String.fromCharCode(10) + '='.repeat(66));
+  console.log(caught + ' caught, ' + missed + ' missed, ' + stale + ' stale');
+  if (!missed && !stale) console.log('Every guarded behaviour is actually guarded.');
+  process.exit(missed || stale ? 1 : 0);
+})();
