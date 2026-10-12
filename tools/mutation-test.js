@@ -117,6 +117,28 @@ const CASES = [
   ['song-save-local-harness.js', 'the reload goes back to wiping the catalogue',
     s => s.replace('renderSongs(_wasShowing);', 'renderSongs(false);')],
 
+  // The reason the multi-page harness exists. Four pages upload in parallel;
+  // collecting the URLs as they arrive rather than by index scrambles the
+  // page order, and the model stitches them in whatever order it is handed.
+  // The song reads almost right, which is why only a test finds it.
+  ['multipage-scan-harness.js', 'page urls are collected as they arrive, not by page',
+    s => s.replace('  var urls = new Array(pages.length);', '  var urls = [];')
+          .replace('      urls[i] = res.url;', '      urls.push(res.url);')],
+  ['multipage-scan-harness.js', 'the page cap stops being applied',
+    s => s.replace('  var taken = picked.slice(0, Math.max(0, room));', '  var taken = picked;')],
+  ['multipage-scan-harness.js', 'the sheet-music mode never reaches the request',
+    s => s.replace('        mode: mode,', '')],
+  ['multipage-scan-harness.js', 'only the first page is kept as a document',
+    s => s.replace('    _scanUrls.forEach(function(u, i) {', '    [_scanUrls[0]].forEach(function(u, i) {')],
+  ['multipage-scan-harness.js', 'sheet music is reported as a chord scan that found nothing',
+    s => s.replace("  var _docMode = d.__scanMode === 'document';", '  var _docMode = false;')],
+  // The route's own checks are not mutated here: this tool swaps Index.html
+  // only, and multipage-scan-harness reads route.ts straight off disk. Those
+  // assertions still bite on a real change to the route -- they were proved
+  // by hand against a route with the storage check narrowed to page 1 -- but
+  // they are not exercised automatically. Worth knowing before trusting a
+  // green run to cover the route.
+
   ['memories-harness.js', 'notes inside folders stop being read',
     s => s.replace('      Object.keys(d.folders || {}).forEach(function(fid) {', '      [].forEach(function(fid) {')]
 ];

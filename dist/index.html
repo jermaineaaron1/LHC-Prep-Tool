@@ -9146,13 +9146,17 @@
         </button>
       </div>
       <p class="asc-sub">Start from a photo of a chord sheet, or fill the form in yourself.</p>
-      <button type="button" class="asc-opt is-primary" onclick="addSongScan(&#39;camera&#39;)">
+      <button type="button" class="asc-opt is-primary" onclick="addSongScan(&#39;camera&#39;,&#39;chords&#39;)">
         <span class="asc-ico"><i class="fa-solid fa-camera" aria-hidden="true"></i></span>
-        <span class="asc-txt"><b>Scan with camera</b><small>Photograph a chord sheet</small></span>
+        <span class="asc-txt"><b>Scan a chord sheet</b><small>Lyrics and chords, up to 4 pages</small></span>
       </button>
-      <button type="button" class="asc-opt" onclick="addSongScan(&#39;file&#39;)">
+      <button type="button" class="asc-opt" onclick="addSongScan(&#39;camera&#39;,&#39;document&#39;)">
+        <span class="asc-ico asc-ico-score"><i class="fa-solid fa-music" aria-hidden="true"></i></span>
+        <span class="asc-txt"><b>Photograph sheet music</b><small>Kept as a document to open, not transcribed</small></span>
+      </button>
+      <button type="button" class="asc-opt" onclick="addSongScan(&#39;file&#39;,&#39;chords&#39;)">
         <span class="asc-ico"><i class="fa-solid fa-image" aria-hidden="true"></i></span>
-        <span class="asc-txt"><b>Upload a picture</b><small>A photo or scan already on this device</small></span>
+        <span class="asc-txt"><b>Upload a picture</b><small>Photos or scans already on this device</small></span>
       </button>
       <button type="button" class="asc-opt" onclick="addSongManually()">
         <span class="asc-ico"><i class="fa-solid fa-keyboard" aria-hidden="true"></i></span>
@@ -9160,7 +9164,28 @@
       </button>
       <p class="asc-foot"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> A scan fills the form in for you to check. Nothing is saved until you press Save Song.</p>
       <input type="file" id="asScanCamera" accept="image/*" capture="environment" style="display:none" onchange="asHandleScanFile(this)">
-      <input type="file" id="asScanFile" accept="image/*,.pdf" style="display:none" onchange="asHandleScanFile(this)">
+      <input type="file" id="asScanFile" accept="image/*,.pdf" multiple style="display:none" onchange="asHandleScanFile(this)">
+    </div>  </div>
+
+  <!-- Pages collected for one scan, held in the browser until the scan is
+       actually run. Uploading each photo as it is taken would be simpler, but
+       a cancelled scan would then leave orphans in the storage bucket -- and
+       that bucket is production. -->
+  <div id="asPageTray" class="modal-overlay" style="z-index:10007;">
+    <div class="modal-content aspt-content">
+      <div class="asc-head">
+        <h3><i class="fa-solid fa-layer-group" aria-hidden="true"></i> <span id="asptTitle">Pages</span></h3>
+        <button type="button" class="asc-close" aria-label="Close" onclick="asCancelPages()">
+          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+        </button>
+      </div>
+      <p class="asc-sub" id="asptSub"></p>
+      <div id="asptPages" class="aspt-pages"></div>
+      <button type="button" class="aspt-add" id="asptAddBtn" onclick="asAddAnotherPage()">
+        <i class="fa-solid fa-plus" aria-hidden="true"></i> <span id="asptAddLabel">Add another page</span>
+      </button>
+      <button type="button" class="aspt-go" id="asptGoBtn" onclick="asRunScan()"></button>
+      <button type="button" class="aspt-switch" id="asptSwitchBtn" onclick="asToggleScanMode()"></button>
     </div>
   </div>
 
@@ -14557,24 +14582,182 @@ window.addSongManually = function() {
   openAddSongForm(null);
 };
 
+// ---- pages for one scan -------------------------------------------------
+//
+// A hymn runs over two or three pages more often than not, and photographing
+// them one song at a time meant three separate songs in the library. The
+// pages are collected here first and read together, so a verse split across
+// a page break comes back as one verse.
+//
+// They are held as Files and not uploaded until the scan is actually run. An
+// upload-as-you-go version is simpler, but backing out would leave orphans in
+// the storage bucket, and that bucket is the live one.
+var AS_MAX_PAGES = 4;
+var _asPages = [];      // File objects, in reading order
+var _asThumbs = [];     // object URLs, revoked when the tray closes
+var _asMode = 'chords'; // 'chords' reads the sheet, 'document' files it
+var _asWhich = 'camera';
+
+function _asClearPages() {
+  _asThumbs.forEach(function(u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+  _asPages = [];
+  _asThumbs = [];
+}
+
+function _asTray(show) {
+  var m = document.getElementById('asPageTray');
+  if (m) m.classList.toggle('show', !!show);
+}
+
 // Camera and file picker are two inputs into one handler, the same shape the
-// Add Doc routes use.
-window.addSongScan = function(which) {
+// Add Doc routes use. `mode` decides what happens to the pages afterwards.
+window.addSongScan = function(which, mode) {
   closeAddSongChooser();
-  var input = document.getElementById(which === 'camera' ? 'asScanCamera' : 'asScanFile');
+  _asMode = (mode === 'document') ? 'document' : 'chords';
+  _asWhich = (which === 'file') ? 'file' : 'camera';
+  _asClearPages();
+  var input = document.getElementById(_asWhich === 'camera' ? 'asScanCamera' : 'asScanFile');
   if (input) input.click();
 };
 
+window.asAddAnotherPage = function() {
+  if (_asPages.length >= AS_MAX_PAGES) return;
+  var input = document.getElementById(_asWhich === 'camera' ? 'asScanCamera' : 'asScanFile');
+  if (input) input.click();
+};
+
+window.asRemovePage = function(i) {
+  if (i < 0 || i >= _asPages.length) return;
+  try { URL.revokeObjectURL(_asThumbs[i]); } catch (e) {}
+  _asPages.splice(i, 1);
+  _asThumbs.splice(i, 1);
+  if (!_asPages.length) { _asTray(false); return; }
+  _asRenderTray();
+};
+
+window.asCancelPages = function() {
+  _asClearPages();
+  _asTray(false);
+};
+
+// Switching after the photographs are taken, rather than making the choice
+// again from the start. The two routes take the same pictures; only what
+// happens to them differs, and realising that halfway through is normal.
+window.asToggleScanMode = function() {
+  _asMode = (_asMode === 'document') ? 'chords' : 'document';
+  _asRenderTray();
+};
+
+function _asRenderTray() {
+  var n = _asPages.length;
+  var doc = _asMode === 'document';
+
+  var title = document.getElementById('asptTitle');
+  if (title) title.textContent = doc ? 'Sheet music' : 'Chord sheet';
+
+  var sub = document.getElementById('asptSub');
+  if (sub) {
+    sub.textContent = doc
+      ? (n === 1
+          ? 'The page is kept as a document on the song. Only the title and key are read off it.'
+          : 'The ' + n + ' pages are kept as documents on the song. Only the title and key are read off them.')
+      : (n === 1
+          ? 'Lyrics and chords are read off this page.'
+          : 'Read as one song: page 2 carries on from page 1.');
+  }
+
+  var grid = document.getElementById('asptPages');
+  if (grid) {
+    grid.innerHTML = _asPages.map(function(f, i) {
+      return '<div class="aspt-page">' +
+               '<img src="' + _asThumbs[i] + '" alt="Page ' + (i + 1) + '">' +
+               '<button type="button" class="aspt-page-del" aria-label="Remove page ' + (i + 1) + '"' +
+                 ' onclick="asRemovePage(' + i + ')"><i class="fa-solid fa-xmark"></i></button>' +
+               '<span class="aspt-page-n">Page ' + (i + 1) + '</span>' +
+             '</div>';
+    }).join('');
+  }
+
+  var add = document.getElementById('asptAddBtn');
+  var addLabel = document.getElementById('asptAddLabel');
+  if (add) add.disabled = n >= AS_MAX_PAGES;
+  if (addLabel) {
+    addLabel.textContent = n >= AS_MAX_PAGES
+      ? AS_MAX_PAGES + ' pages is the most that can be read at once'
+      : 'Add another page';
+  }
+
+  var go = document.getElementById('asptGoBtn');
+  if (go) {
+    go.classList.toggle('is-doc', doc);
+    go.textContent = doc
+      ? (n === 1 ? 'Keep this page as sheet music' : 'Keep these ' + n + ' pages as sheet music')
+      : (n === 1 ? 'Read this page' : 'Read these ' + n + ' pages');
+  }
+
+  var sw = document.getElementById('asptSwitchBtn');
+  if (sw) {
+    sw.textContent = doc
+      ? 'Actually, read the chords and lyrics off ' + (n === 1 ? 'it' : 'them')
+      : 'Actually, just keep ' + (n === 1 ? 'it' : 'them') + ' as sheet music';
+  }
+}
+
+// Every page arrives here, whether photographed one at a time or picked
+// several at once. Nothing is read yet -- the pages go into the tray and the
+// person decides when the set is complete.
 window.asHandleScanFile = function(input) {
-  var file = input.files && input.files[0];
+  var picked = input.files ? Array.prototype.slice.call(input.files) : [];
   input.value = '';
-  if (!file) return;
+
+  // Backing out of the camera or the picker. On the first page there is
+  // nothing to show, so the whole thing is simply abandoned; on a later one
+  // the pages already taken are still there and the tray comes back.
+  if (!picked.length) {
+    if (_asPages.length) { _asRenderTray(); _asTray(true); }
+    else _asClearPages();
+    return;
+  }
+
+  var room = AS_MAX_PAGES - _asPages.length;
+  var taken = picked.slice(0, Math.max(0, room));
+  taken.forEach(function(f) {
+    _asPages.push(f);
+    _asThumbs.push(URL.createObjectURL(f));
+  });
+  if (picked.length > taken.length) {
+    showToast('Only the first ' + AS_MAX_PAGES + ' pages were kept \u2014 that is the most that can be read in one go.', 'info');
+  }
+
+  _asRenderTray();
+  _asTray(true);
+};
+
+// Uploads the pages, then reads them as one song.
+window.asRunScan = function() {
+  if (!_asPages.length) return;
+  var pages = _asPages.slice();
+  var mode = _asMode;
+  var doc = mode === 'document';
+  _asTray(false);
+
   if (typeof showLoader === 'function') showLoader(true);
-  showToast('Reading the sheet\u2026', 'info');
-  var _asScanUrl = '';
-  uploadToSupabase(file, 'song-scans').then(function(res) {
-    if (!res || res.error || !res.url) throw new Error((res && res.error) || 'upload failed');
-    _asScanUrl = res.url;
+  showToast(
+    doc ? (pages.length === 1 ? 'Filing the sheet music\u2026' : 'Filing ' + pages.length + ' pages\u2026')
+        : (pages.length === 1 ? 'Reading the sheet\u2026' : 'Reading ' + pages.length + ' pages\u2026'),
+    'info'
+  );
+
+  // Uploaded in parallel but written to a fixed index, so the page order the
+  // person arranged is the order the model reads them in. Collecting the URLs
+  // with push() would hand back whichever upload finished first.
+  var urls = new Array(pages.length);
+  Promise.all(pages.map(function(f, i) {
+    return uploadToSupabase(f, 'song-scans').then(function(res) {
+      if (!res || res.error || !res.url) throw new Error((res && res.error) || 'upload failed');
+      urls[i] = res.url;
+    });
+  })).then(function() {
     // The vocabularies travel with the request, taken from the live library, so
     // the scan can only return values that already exist here.
     var meta = (window.LHC_STATE && LHC_STATE.songMeta) || {};
@@ -14582,7 +14765,8 @@ window.asHandleScanFile = function(input) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        url: res.url,
+        urls: urls,
+        mode: mode,
         vocab: {
           keys: meta.keys || [],
           tempos: meta.tempos || [],
@@ -14597,13 +14781,17 @@ window.asHandleScanFile = function(input) {
   }).then(function(out) {
     if (typeof showLoader === 'function') showLoader(false);
     if (!out.ok) throw new Error(out.body && out.body.error ? out.body.error : 'scan failed');
-    // The photo travels with the song: a musician who wants the actual sheet
-    // music, not just the chords and words, opens it from the song's documents.
-    out.body.__scanUrl = _asScanUrl;
+    // The photos travel with the song: a musician who wants the actual sheet
+    // music, not just the chords and words, opens them from the song's
+    // documents. In document mode that IS the point of the exercise.
+    out.body.__scanUrls = urls;
+    out.body.__scanMode = mode;
+    _asClearPages();
     openAddSongForm(out.body);
   }).catch(function(err) {
     if (typeof showLoader === 'function') showLoader(false);
     showToast('Could not read that sheet: ' + ((err && err.message) || 'unknown error'), 'error');
+    _asClearPages();
     // A failed scan still leaves you able to type the song in.
     openAddSongForm(null);
   });
@@ -14817,8 +15005,9 @@ function _asmApplyScan(d) {
   _asmUnstored = [];
   try {
     var keep = {};
-    Object.keys(d || {}).forEach(function(k) { if (k !== '__scanUrl') keep[k] = d[k]; });
-    window._asmLastScan = { at: Date.now(), scanUrl: d.__scanUrl || null, scan: keep };
+    Object.keys(d || {}).forEach(function(k) { if (k.indexOf('__scan') !== 0) keep[k] = d[k]; });
+    var _u = d.__scanUrls || (d.__scanUrl ? [d.__scanUrl] : []);
+    window._asmLastScan = { at: Date.now(), scanUrl: _u[0] || null, scanUrls: _u, mode: d.__scanMode || 'chords', scan: keep };
   } catch (e) { window._asmLastScan = null; }
   if (_asmSetScanned('newSongTitle', d.title)) filled.push('title');
   if (_asmSetScanned('newSongArtist', d.artist)) filled.push('artist');
@@ -14841,18 +15030,28 @@ function _asmApplyScan(d) {
     _asmSetChordNote(d);
   }
 
-  // Keep the photograph as one of the song's documents. Added after the form
-  // has been cleared, or the clear would drop it. It saves with the song, so
-  // the sheet music is one tap away on the song page afterwards.
-  if (d.__scanUrl) {
-    var info = (typeof parseFileUrl === 'function') ? parseFileUrl(d.__scanUrl) : { url: d.__scanUrl };
-    info.url = d.__scanUrl;
-    info.name = ((d.title || 'Song') + ' — scanned sheet');
+  // Keep the photographs as the song's documents. Added after the form has
+  // been cleared, or the clear would drop them. They save with the song, so
+  // the sheet music is one tap away on the song page afterwards -- which in
+  // document mode is the whole purpose, not a side effect.
+  var _scanUrls = d.__scanUrls || (d.__scanUrl ? [d.__scanUrl] : []);
+  if (_scanUrls.length) {
+    var _isDoc = d.__scanMode === 'document';
+    var _base = (d.title || 'Song') + ' — ' + (_isDoc ? 'sheet music' : 'scanned sheet');
     if (!window.songData) window.songData = {};
     if (!window.songData.new) window.songData.new = { youtube: [], attachments: [], lyrics: '' };
-    window.songData.new.attachments.push(info);
+    _scanUrls.forEach(function(u, i) {
+      var info = (typeof parseFileUrl === 'function') ? parseFileUrl(u) : { url: u };
+      info.url = u;
+      // Numbered only when there is more than one, so a single page does not
+      // read as "page 1 of something missing".
+      info.name = _base + (_scanUrls.length > 1 ? ', p' + (i + 1) : '');
+      window.songData.new.attachments.push(info);
+    });
     if (typeof renderAttachments === 'function') renderAttachments('new');
-    filled.push('the photo, kept as a document');
+    filled.push(_scanUrls.length === 1
+      ? 'the photo, kept as a document'
+      : 'all ' + _scanUrls.length + ' pages, kept as documents');
   }
 
   var b = document.getElementById('asmScanBanner');
@@ -14860,9 +15059,24 @@ function _asmApplyScan(d) {
   var conf = (d.confidence || 'low').toLowerCase();
   var tone = conf === 'high' ? 'is-high' : conf === 'medium' ? 'is-med' : 'is-low';
   var bits = [];
-  bits.push('<b>Scanned from your photo.</b> Check every field before saving.');
+  // Document mode is not a chord scan that came back empty, and must not read
+  // as one. Both chord flags are false either way, so without this the banner
+  // would announce "no chord symbols were printed" about a page that was never
+  // going to be transcribed -- which reads as a failure, and would send
+  // somebody back to photograph it again more carefully.
+  var _docMode = d.__scanMode === 'document';
+  if (_docMode) {
+    bits.push('<b>Kept as sheet music.</b> '
+      + (_scanUrls.length === 1 ? 'The page is' : 'All ' + _scanUrls.length + ' pages are')
+      + ' attached to this song. Only the title and key were read off '
+      + (_scanUrls.length === 1 ? 'it' : 'them') + '.');
+  } else {
+    bits.push('<b>Scanned from your photo.</b> Check every field before saving.');
+  }
   bits.push('<span class="asm-scan-filled">Filled: ' + (filled.length ? escapeHtml(filled.join(', ')) : 'nothing legible') + '</span>');
-  if (d.chordsSuggested) {
+  if (_docMode) {
+    // Nothing below applies: no chords were sought, so none are missing.
+  } else if (d.chordsSuggested) {
     bits.push('<span class="asm-scan-suggested">The chords below were <b>not</b> on the sheet' + (d.key ? ' &mdash; they were worked out from the key of ' + escapeHtml(d.key) : '') + '. Play them through before you use them.</span>');
     // An out-of-key chord in a suggestion is a mistake rather than a choice,
     // and it is named so the reviewer knows where to look first.
@@ -96845,6 +97059,45 @@ window.LHC_Install = (function() {
   .asc-txt small { font-size: .74rem; color: var(--sf-muted, #5f6b91); }
   .asc-foot { margin: 10px 0 0; display: flex; gap: 7px; align-items: flex-start; font-size: .72rem; line-height: 1.35; color: var(--sf-muted, #5f6b91); }
   .asc-foot i { margin-top: 2px; color: var(--sf-blue-deep, #3b5bdb); }
+  /* The sheet-music route is a different kind of thing from the two scans
+     that read a page, and the colour is the quickest way to say so. */
+  .asc-ico-score { background: linear-gradient(155deg, #0d9488, #14b8a6); }
+
+  /* ---- the page tray ---- */
+  #asPageTray .aspt-content { width: min(440px, 94vw); padding: 16px; border-radius: 18px; background: #fff; }
+  .aspt-pages { display: flex; flex-wrap: wrap; gap: 10px; margin: 2px 0 12px; }
+  .aspt-page { position: relative; width: 84px; }
+  .aspt-page img {
+    width: 84px; height: 108px; object-fit: cover; display: block;
+    border: 1px solid var(--sf-line, #e3e8f4); border-radius: 10px; background: #f6f8fd;
+  }
+  .aspt-page-n {
+    display: block; margin-top: 4px; text-align: center;
+    font-size: .7rem; font-weight: 700; color: var(--sf-muted, #5f6b91);
+  }
+  .aspt-page-del {
+    position: absolute; top: -7px; right: -7px; width: 26px; height: 26px;
+    border-radius: 999px; border: 1px solid #fecaca; background: #fff; color: #dc2626;
+    cursor: pointer; font-size: .72rem; line-height: 1; display: grid; place-items: center;
+  }
+  .aspt-add {
+    display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+    margin-bottom: 10px; padding: 11px; border-radius: 12px; cursor: pointer;
+    border: 1px dashed var(--sf-line, #c7d0e6); background: #fff;
+    font-family: inherit; font-size: .84rem; color: var(--sf-blue-deep, #3b5bdb);
+  }
+  .aspt-add:disabled { opacity: .45; cursor: default; }
+  .aspt-go {
+    width: 100%; padding: 13px; border: 0; border-radius: 12px; cursor: pointer;
+    font-family: inherit; font-size: .9rem; font-weight: 700; color: #fff;
+    background: linear-gradient(155deg, var(--sf-blue-deep, #3b5bdb), var(--sf-violet, #7048e8));
+  }
+  .aspt-go.is-doc { background: linear-gradient(155deg, #0d9488, #14b8a6); }
+  .aspt-switch {
+    display: block; width: 100%; margin-top: 9px; padding: 4px; border: 0; background: none;
+    cursor: pointer; font-family: inherit; font-size: .74rem; color: var(--sf-muted, #5f6b91);
+    text-decoration: underline;
+  }
 
   /* The review banner, and the marks on the fields the scan filled. */
   .asm-scan-banner {
