@@ -14593,6 +14593,59 @@ window.addSongManually = function() {
 // upload-as-you-go version is simpler, but backing out would leave orphans in
 // the storage bucket, and that bucket is the live one.
 var AS_MAX_PAGES = 4;
+
+// Phone cameras produce twelve megapixel photographs and a page of music
+// needs nothing like that. Four of them at 4MB each is 16MB, and base64
+// inflates that by a third on the way to the model, which is past what one
+// request may carry -- so without this a four page scan of REAL photographs
+// would be refused, while the small test images it was built against sailed
+// through. The limit was there before; four pages is what made it reachable.
+//
+// 2400px on the long edge is roughly 200dpi for A4. That is better than most
+// phone photographs actually resolve once focus and lighting are accounted
+// for, and it matters beyond the scan: in sheet-music mode the picture IS the
+// thing being kept, so it has to stay worth reading on a music stand.
+var AS_MAX_EDGE = 2400;
+var AS_SKIP_RESIZE_UNDER = 900 * 1024;
+
+function _asDownscale(file) {
+  // A PDF is not a canvas image, and a file already small enough is better
+  // left exactly as it came than round-tripped through a re-encode that can
+  // only lose something.
+  if (!/^image\//.test(file.type || '') || file.size <= AS_SKIP_RESIZE_UNDER) {
+    return Promise.resolve(file);
+  }
+  return new Promise(function(resolve) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function() {
+      try {
+        var scale = Math.min(1, AS_MAX_EDGE / Math.max(img.width, img.height));
+        if (scale >= 1) { URL.revokeObjectURL(url); resolve(file); return; }
+        var c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        c.toBlob(function(blob) {
+          URL.revokeObjectURL(url);
+          // A re-encode that came out no smaller has bought nothing and may
+          // have cost sharpness, so the original wins.
+          if (!blob || blob.size >= file.size) { resolve(file); return; }
+          resolve(new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.9);
+      } catch (e) { URL.revokeObjectURL(url); resolve(file); }
+    };
+    // Some browsers cannot decode HEIC. Those go up untouched -- the server
+    // and the model both accept them.
+    img.onerror = function() { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
+// One scan at a time. The tray hides on the first tap, but a double tap on a
+// slow phone lands both before it does, and that buys two uploads of every
+// page and two reads of the same song.
+var _asScanning = false;
 var _asPages = [];      // File objects, in reading order
 var _asThumbs = [];     // object URLs, revoked when the tray closes
 var _asMode = 'chords'; // 'chords' reads the sheet, 'document' files it
@@ -14735,7 +14788,8 @@ window.asHandleScanFile = function(input) {
 
 // Uploads the pages, then reads them as one song.
 window.asRunScan = function() {
-  if (!_asPages.length) return;
+  if (_asScanning || !_asPages.length) return;
+  _asScanning = true;
   var pages = _asPages.slice();
   var mode = _asMode;
   var doc = mode === 'document';
@@ -14752,10 +14806,15 @@ window.asRunScan = function() {
   // person arranged is the order the model reads them in. Collecting the URLs
   // with push() would hand back whichever upload finished first.
   var urls = new Array(pages.length);
+  // Kept so a scan that falls over can take its own uploads with it.
+  var paths = [];
   Promise.all(pages.map(function(f, i) {
-    return uploadToSupabase(f, 'song-scans').then(function(res) {
+    return _asDownscale(f).then(function(small) {
+      return uploadToSupabase(small, 'song-scans');
+    }).then(function(res) {
       if (!res || res.error || !res.url) throw new Error((res && res.error) || 'upload failed');
       urls[i] = res.url;
+      if (res.path) paths.push(res.path);
     });
   })).then(function() {
     // The vocabularies travel with the request, taken from the live library, so
@@ -14779,6 +14838,7 @@ window.asRunScan = function() {
   }).then(function(r) {
     return r.json().then(function(body) { return { ok: r.ok, body: body }; });
   }).then(function(out) {
+    _asScanning = false;
     if (typeof showLoader === 'function') showLoader(false);
     if (!out.ok) throw new Error(out.body && out.body.error ? out.body.error : 'scan failed');
     // The photos travel with the song: a musician who wants the actual sheet
@@ -14789,7 +14849,12 @@ window.asRunScan = function() {
     _asClearPages();
     openAddSongForm(out.body);
   }).catch(function(err) {
+    _asScanning = false;
     if (typeof showLoader === 'function') showLoader(false);
+    // The form that opens below is empty, so nothing will ever reference
+    // these. Left alone they are litter in a production bucket that nobody
+    // goes back for -- and a four page scan leaves four pieces of it.
+    paths.forEach(function(p) { try { deleteFromSupabase(p); } catch (e) {} });
     showToast('Could not read that sheet: ' + ((err && err.message) || 'unknown error'), 'error');
     _asClearPages();
     // A failed scan still leaves you able to type the song in.
@@ -14984,6 +15049,12 @@ function _asmRecordCorrection(saved) {
       recordedAt: new Date().toISOString(),
       songId: saved.id || null,
       scanUrl: last.scanUrl,
+      // Every page, not just the first. This record is the only way the scan
+      // ever improves -- somebody reading the corrections and spotting a
+      // pattern -- and for a three page hymn the other two pages are most of
+      // the evidence for why a correction was needed.
+      scanUrls: last.scanUrls || (last.scanUrl ? [last.scanUrl] : []),
+      mode: last.mode || 'chords',
       scan: last.scan,
       saved: savedSubset
     };
