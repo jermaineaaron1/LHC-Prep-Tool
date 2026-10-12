@@ -384,6 +384,12 @@ async function rest() {
   check('  and a re-encode that grew the file is discarded',
     /if \(!blob \|\| blob\.size >= file\.size\) \{ resolve\(file\); return; \}/.test(raw), true);
 
+  // The button throws a page away, so it follows the same rule as every other
+  // destructive control in this file: a phone-sized target. 26px was below
+  // the standard the codebase already set for itself.
+  check('the tray remove button is finger-sized on a phone',
+    /\.aspt-page-del \{\s*[\r\n]+\s*width: 40px; height: 40px;/.test(raw), true);
+
   console.log('\nthe attachment names say which page is which');
   check('numbered only when there is more than one',
     /_scanUrls\.length > 1 \? ', p' \+ \(i \+ 1\) : ''/.test(raw), true);
