@@ -287,6 +287,25 @@ const CASES = [
     s => s.replace('    if (held.indexOf(name) !== -1 || held.indexOf(encodeURIComponent(name)) !== -1) return;',
                    '    if (false) return;')],
 
+  // The transposer is handed every line, chord row or not. Without the
+  // chord-line test it rewrites the words: "A mighty fortress is our God"
+  // becomes "G mighty fortress is our God", saved, in the song's own lyrics.
+  ['suggested-chord-key-harness.js', 'the words get transposed along with the chords',
+    s => s.replace("    if (!(typeof isChordLineGlobal === 'function' && isChordLineGlobal(line))) return line;", '')],
+  // Replacing chord text in place moves every chord after one that changed
+  // width: C becomes Bb and the rest of the row slides a column right,
+  // while the words underneath stay exactly where they were.
+  ['suggested-chord-key-harness.js', 'chords drift off their column when one gets wider',
+    s => s.replace('    if (out.length > 0 && col <= out.length) col = out.length + 1;'+String.fromCharCode(13,10)+"    out += new Array(col - out.length + 1).join(' ') + moved;",
+                   "    out += (out.length ? ' ' : '') + moved;")],
+  ['suggested-chord-key-harness.js', 'the long way round between keys',
+    s => s.replace('  return d > 6 ? d - 12 : d;', '  return d;')],
+  ['suggested-chord-key-harness.js', 'a flat key is spelled with sharps again',
+    s => s.replace('  if (!m || !FLAT_KEY_ROOTS[m[1]]) return line;', '  return line;')],
+  ['suggested-chord-key-harness.js', 'chords read off a sheet are offered for moving too',
+    s => s.replace('_asmSuggestedFromKey = d.chordsSuggested ? (d.key || null) : null;',
+                   '_asmSuggestedFromKey = d.key || null;')],
+
   ['lyric-line-class-harness.js', 'page-break markers count as lyric lines again',
     s => s.replace("return !!c && (c.contains('sb-a4-marker') || c.contains('sb-a4-guide') ||",
                    'return false && (c.contains(\'sb-a4-marker\') || c.contains(\'sb-a4-guide\') ||')],
