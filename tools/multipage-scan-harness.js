@@ -654,6 +654,55 @@ async function rest() {
   check('  a library it cannot read means nothing is deleted',
     /\}\)\.catch\(function\(\) \{\s*[\r\n]+\s*\/\/ Could not read the library/.test(raw), true);
 
+  // ---- previewing a page that was just scanned ---------------------------
+  //
+  // Both of these were reported from a phone, not found here, and neither
+  // was in code written for the scan -- they were in an older preview modal
+  // that the new flow happens to lead into. That is the shape of this whole
+  // feature's bugs: the parts I built were fine, the joins were not.
+  console.log('\nthe attachment preview, opened from the Add Song form');
+  {
+    // 1. It opened BEHIND the form. The form carries an inline z-index and
+    //    the preview was left on the .modal-overlay default, so the picture
+    //    loaded underneath it.
+    const zOf = (re) => {
+      const m = raw.match(re);
+      return m ? Number(m[1]) : NaN;
+    };
+    const zPreview = zOf(/id="previewModal" class="modal-overlay" style="z-index:(\d+);"/);
+    const zForm    = zOf(/id="addSongModal" class="modal-overlay" style="z-index:(\d+);"/);
+    const zTray    = zOf(/id="asPageTray" class="modal-overlay" style="z-index:(\d+);"/);
+    check('the preview declares a z-index at all', zPreview > 0, true);
+    check('  above the Add Song form (' + zPreview + ' vs ' + zForm + ')', zPreview > zForm, true);
+    check('  and above the page tray (' + zPreview + ' vs ' + zTray + ')', zPreview > zTray, true);
+
+    // 2. It put the image in an IFRAME, which lays it out at natural size
+    //    pinned top-left. A 1800x2400 photograph on a 375px phone therefore
+    //    showed one magnified corner of the page.
+    const fn = (() => {
+      const a = raw.indexOf('function previewAttachment(url) {');
+      if (a < 0) return '';
+      let d = 0, started = false;
+      for (let i = a; i < raw.length; i++) {
+        if (raw[i] === '{') { d++; started = true; }
+        else if (raw[i] === '}') { d--; if (started && d === 0) return raw.slice(a, i + 1); }
+      }
+      return '';
+    })();
+    check('previewAttachment was found', fn.length > 200, true);
+    check('  it tells an image from a document', /var isImage = \/\\\.\(jpe\?g\|png/.test(fn), true);
+    check('  an image goes to an <img>, not the frame',
+      /wrap\.appendChild\(img\);/.test(fn) && /frame\.style\.display = 'none';/.test(fn), true);
+    check('  which is told to fit, by the class the other viewer uses',
+      /id="previewImageWrap" class="doc-preview-imgwrap"/.test(raw), true);
+    check('  and a document still goes to the frame',
+      /frame\.src = url\.replace\('\/edit', '\/preview'\)/.test(fn), true);
+    // HEIC renders on an iPhone and almost nowhere else; a broken picture
+    // would be worse than whatever the browser makes of it.
+    check('  an image that will not decode falls back to the frame',
+      /img\.onerror = function\(\) \{/.test(fn), true);
+  }
+
   // ---- the route ---------------------------------------------------------
   //
   // Source-level, because the route is a Next handler that needs a running
