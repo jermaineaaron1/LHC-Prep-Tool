@@ -9451,6 +9451,9 @@
                  banner explains this too, but it sits at the top of a five-step
                  form and nobody reading the lyrics can see it. -->
             <div id="newSongChordNote" class="asm-chord-note hidden"></div>
+            <!-- Shown when the key is changed after the scan SUGGESTED chords
+                 in a different one. See _asmCheckKeyAgainstChords. -->
+            <div id="newSongKeyMismatch" class="asm-chord-note hidden"></div>
             <input type="hidden" id="newSongLyricsData" value="">
             <div class="preview-section" style="margin-top:10px;">
               <div class="preview-buttons">
@@ -15084,7 +15087,56 @@ function _asmSetChordNote(d) {
   el.innerHTML = html;
 }
 
+// Offered when the key no longer matches the chords underneath it. A note
+// with a button, not an automatic rewrite: moving somebody's chords without
+// being asked is worse than leaving them, and the person changing the key is
+// right there looking at it.
+function _asmCheckKeyAgainstChords() {
+  var el = document.getElementById('newSongKeyMismatch');
+  if (!el) return;
+  var chosen = (document.getElementById('newSongKey') || {}).value || '';
+  var steps = _asmSuggestedFromKey ? window._keyDistance(_asmSuggestedFromKey, chosen) : null;
+  if (!_asmSuggestedFromKey || !chosen || steps === null || steps === 0) {
+    el.className = 'asm-chord-note hidden';
+    el.innerHTML = '';
+    return;
+  }
+  el.className = 'asm-chord-note is-suggested';
+  el.innerHTML =
+    '<i class="fa-solid fa-sliders"></i> The chords below were suggested in <b>' +
+    escapeHtml(_asmSuggestedFromKey) + '</b>, but the key now says <b>' + escapeHtml(chosen) +
+    '</b>. They will not match. ' +
+    '<button type="button" class="asm-transpose-btn" onclick="_asmTransposeSuggestedChords()">' +
+    'Move the chords to ' + escapeHtml(chosen) + '</button>';
+}
+window._asmCheckKeyAgainstChords = _asmCheckKeyAgainstChords;
+
+function _asmTransposeSuggestedChords() {
+  var chosen = (document.getElementById('newSongKey') || {}).value || '';
+  var steps = _asmSuggestedFromKey ? window._keyDistance(_asmSuggestedFromKey, chosen) : null;
+  if (steps === null || steps === 0) return;
+  var current = (window.songData && window.songData.new && window.songData.new.lyrics) || '';
+  var moved = window._transposeChordLinesOnly(current, steps, chosen);
+  if (moved === current) {
+    if (typeof showToast === 'function') showToast('No chord lines to move.', 'info');
+    return;
+  }
+  _asmSetNewLyrics(moved);
+  // The chords are now in the chosen key, so there is nothing left to warn
+  // about -- and nothing to offer if the key is changed again except from
+  // here.
+  _asmSuggestedFromKey = chosen;
+  _asmCheckKeyAgainstChords();
+  if (typeof showToast === 'function') {
+    showToast('Chords moved to ' + chosen + '.', 'success');
+  }
+}
+window._asmTransposeSuggestedChords = _asmTransposeSuggestedChords;
+
 function _asmClearScanBanner() {
+  _asmSuggestedFromKey = null;
+  var _km = document.getElementById('newSongKeyMismatch');
+  if (_km) { _km.className = 'asm-chord-note hidden'; _km.innerHTML = ''; }
   var b = document.getElementById('asmScanBanner');
   if (b) { b.style.display = 'none'; b.innerHTML = ''; }
   var cn = document.getElementById('newSongChordNote');
@@ -15145,6 +15197,20 @@ function _asmSetKeyField(value, elId) {
 // the banner can say so: a reading that is silently dropped is worse than one
 // that never happened, because nobody knows to go and add it.
 var _asmUnstored = [];
+
+// The key the SUGGESTED chords were written in, so changing the key field
+// afterwards can offer to bring them along.
+//
+// This is a real hole found in the library rather than a hypothetical: a
+// hymn was scanned from a page with no printed chords, the model proposed a
+// set in G and said so, the key was then corrected to F -- and the chords
+// stayed in G. The song is filed in F with G, C, A7 and D in the lyrics, so
+// anybody playing from it is a tone out. The banner had said the chords were
+// suggested; nothing connected that to the key being changed.
+//
+// Only ever set when the chords were SUGGESTED. Chords actually read off a
+// sheet are evidence, and a key typed over them does not make them wrong.
+var _asmSuggestedFromKey = null;
 
 // What the last scan proposed, held until the song is saved so the two can be
 // recorded together. The pair is the only thing that teaches this feature
@@ -15262,6 +15328,7 @@ function _asmApplyScan(d) {
     setThemeSelection('new', d.themes.join(', '));
     filled.push('themes');
   }
+  _asmSuggestedFromKey = d.chordsSuggested ? (d.key || null) : null;
   if (d.lyrics) {
     _asmSetNewLyrics(d.lyrics);
     filled.push(d.chordsFound ? 'lyrics with chords' : d.chordsSuggested ? 'lyrics with suggested chords' : 'lyrics');
@@ -15291,6 +15358,13 @@ function _asmApplyScan(d) {
       ? 'the photo, kept as a document'
       : 'all ' + _scanUrls.length + ' pages, kept as documents');
   }
+
+  // Watching the key field, so changing it after the scan can offer to bring
+  // the chords with it. Assigned rather than added, so re-scanning does not
+  // stack listeners.
+  var _keyEl = document.getElementById('newSongKey');
+  if (_keyEl) _keyEl.onchange = _asmCheckKeyAgainstChords;
+  _asmCheckKeyAgainstChords();
 
   var b = document.getElementById('asmScanBanner');
   if (!b) return;
@@ -17995,6 +18069,85 @@ function transposeLine(line, semitones) {
     return pre + transposeChord(inner, semitones) + suf;
   });
 }
+
+// Semitones from one key to the other, by the SHORTER way round.
+// G to F is two down, not ten up: the same notes, but a chord chart full of
+// elevenths is not what anybody wants to read.
+function _keyDistance(fromKey, toKey) {
+  var norm = function(k) {
+    var m = String(k || '').trim().match(/^([A-G][#b]?)/);
+    if (!m) return null;
+    return FLAT_TO_SHARP[m[1]] || m[1];
+  };
+  var a = norm(fromKey), b = norm(toKey);
+  if (!a || !b) return null;
+  var ia = CHORD_NOTES.indexOf(a), ib = CHORD_NOTES.indexOf(b);
+  if (ia < 0 || ib < 0) return null;
+  var d = (ib - ia + 12) % 12;
+  return d > 6 ? d - 12 : d;
+}
+
+// Which way to spell the black notes.
+//
+// CHORD_NOTES is all sharps, so transposing into F gives A#. That is the
+// right pitch and the wrong name: in F every musician writes Bb, and a chart
+// full of A# reads as a mistake even though it sounds correct.
+//
+// Both spellings are two characters, so respelling cannot disturb the
+// column a chord sits in -- which is the whole basis of a chord sheet.
+var SHARP_TO_FLAT = { 'C#': 'Db', 'D#': 'Eb', 'F#': 'Gb', 'G#': 'Ab', 'A#': 'Bb' };
+var FLAT_KEY_ROOTS = { 'F': 1, 'Bb': 1, 'Eb': 1, 'Ab': 1, 'Db': 1, 'Gb': 1 };
+
+function _spellChordsForKey(line, key) {
+  var m = String(key || '').trim().match(/^([A-G][#b]?)/);
+  if (!m || !FLAT_KEY_ROOTS[m[1]]) return line;
+  return String(line).replace(/([A-G]#)/g, function(whole, note) {
+    return SHARP_TO_FLAT[note] || whole;
+  });
+}
+
+// Move the CHORD lines of a lyrics block and leave the words alone.
+//
+// transposeLine shifts any token beginning A-G, which is right for a chord
+// row and catastrophic for a lyric: "A mighty fortress is our God" would
+// become "G mighty fortress is our God". So only lines that actually are
+// chords may be handed to it, and isChordLineGlobal is what decides.
+// Transpose one chord row and keep every chord over the column it started in.
+//
+// A chord sheet puts chords where they are by leading spaces, so rewriting
+// the text in place moves everything after any chord that changed WIDTH. C
+// becomes Bb -- one character becomes two -- and every chord after it slides
+// a column right; on a four-chord line that is several syllables of drift by
+// the end of it. The words never move, so the chords simply stop matching.
+//
+// Each chord is therefore written back at the column it came from. A chord
+// that genuinely does not fit before the next one pushes it right by the
+// least possible, keeping one space between them, because two chords run
+// together are worse than one slightly late.
+function _transposeChordRowKeepingColumns(line, semitones, targetKey) {
+  var out = '';
+  var re = /\S+/g;
+  var m;
+  while ((m = re.exec(line)) !== null) {
+    var moved = transposeLine(m[0], semitones);
+    if (targetKey) moved = _spellChordsForKey(moved, targetKey);
+    var col = m.index;
+    if (out.length > 0 && col <= out.length) col = out.length + 1;
+    out += new Array(col - out.length + 1).join(' ') + moved;
+  }
+  return out;
+}
+
+function _transposeChordLinesOnly(text, semitones, targetKey) {
+  if (!text || !semitones) return text;
+  return String(text).split('\n').map(function(line) {
+    if (!(typeof isChordLineGlobal === 'function' && isChordLineGlobal(line))) return line;
+    return _transposeChordRowKeepingColumns(line, semitones, targetKey);
+  }).join('\n');
+}
+window._keyDistance = _keyDistance;
+window._spellChordsForKey = _spellChordsForKey;
+window._transposeChordLinesOnly = _transposeChordLinesOnly;
 
 function transposeChords(direction) {
   var textarea = document.getElementById('lyricsEditorTextarea');
@@ -97370,6 +97523,12 @@ window.LHC_Install = (function() {
   .asc-txt small { font-size: .74rem; color: var(--sf-muted, #5f6b91); }
   .asc-foot { margin: 10px 0 0; display: flex; gap: 7px; align-items: flex-start; font-size: .72rem; line-height: 1.35; color: var(--sf-muted, #5f6b91); }
   .asc-foot i { margin-top: 2px; color: var(--sf-blue-deep, #3b5bdb); }
+  .asm-transpose-btn {
+    display: inline-block; margin-left: 6px; padding: 4px 10px; border-radius: 8px;
+    border: 1px solid #c7a35b; background: #fff8e8; color: #8a6412;
+    font-family: inherit; font-size: .74rem; font-weight: 700; cursor: pointer;
+  }
+  .asm-transpose-btn:hover { background: #fdf0d2; }
   /* The sheet-music route is a different kind of thing from the two scans
      that read a page, and the colour is the quickest way to say so. */
   .asc-ico-score { background: linear-gradient(155deg, #0d9488, #14b8a6); }
