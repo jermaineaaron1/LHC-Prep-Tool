@@ -280,6 +280,13 @@ const CASES = [
     s => s.replace('  var isImage = /\\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)(\\?|#|$)/i.test(url);',
                    '  var isImage = false;')],
 
+  ['multipage-scan-harness.js', 'a page removed before saving is left in the bucket',
+    s => s.replace('    if (held.indexOf(name) !== -1 || held.indexOf(encodeURIComponent(name)) !== -1) return;',
+                   '    return;')],
+  ['multipage-scan-harness.js', 'saving deletes the pages the song actually kept',
+    s => s.replace('    if (held.indexOf(name) !== -1 || held.indexOf(encodeURIComponent(name)) !== -1) return;',
+                   '    if (false) return;')],
+
   ['lyric-line-class-harness.js', 'page-break markers count as lyric lines again',
     s => s.replace("return !!c && (c.contains('sb-a4-marker') || c.contains('sb-a4-guide') ||",
                    'return false && (c.contains(\'sb-a4-marker\') || c.contains(\'sb-a4-guide\') ||')],

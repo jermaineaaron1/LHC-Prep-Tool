@@ -14756,6 +14756,29 @@ window.asRemovePage = function(i) {
 // though saveNewSong clears it on the way past. Belt and braces on purpose:
 // leaving a file behind costs a megabyte, and deleting one a real song points
 // at breaks that song on a Sunday. Those are not the same mistake.
+// Delete the scan pages a saved song did NOT keep.
+//
+// removeAttachment only splices the in-memory list, so a page taken out of
+// the form before saving -- the one that came out blurred, which is most
+// multi-page scans -- stayed in the bucket with nothing referencing it.
+//
+// Matched against the attachments actually written, not against a fresh read
+// of the library. A read that had not yet caught up with the row just
+// inserted would delete the pages of the song that was just saved, and that
+// is the one mistake here that breaks something somebody needs on a Sunday.
+function _asDiscardPagesNotIn(kept) {
+  var paths = (window._asPendingScanPaths || []).slice();
+  window._asPendingScanPaths = [];
+  if (!paths.length) return;
+  var held = JSON.stringify(kept || []);
+  paths.forEach(function(p) {
+    var name = String(p).split('/').pop();
+    if (!name) return;
+    if (held.indexOf(name) !== -1 || held.indexOf(encodeURIComponent(name)) !== -1) return;
+    try { deleteFromSupabase(p); } catch (e) {}
+  });
+}
+
 function _asDiscardUnsavedScan() {
   var paths = (window._asPendingScanPaths || []).slice();
   window._asPendingScanPaths = [];
@@ -23190,9 +23213,11 @@ window.loadEditSongData = function(song) {
     showLoader(true);
     SBQ_SONGS.create(songData).then(function(result) {
       showToast('Song added successfully!', 'success');
-      // The song owns the photographs now, so they are no longer pending --
-      // cleared BEFORE the close, which is what triggers the discard.
-      window._asPendingScanPaths = [];
+      // The song owns the photographs it kept; anything the scan uploaded
+      // that it did NOT keep is a page removed from the form before saving,
+      // and nothing will ever reference it. Clears the pending list either
+      // way, so the discard on close has nothing left to do.
+      _asDiscardPagesNotIn(songData.attachments);
       closeModal('addSongModal');
       
       // Clear form and reset song data

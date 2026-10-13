@@ -645,8 +645,55 @@ async function rest() {
   console.log('\na scan whose song was never saved does not keep its photographs');
   check('the form close discards it',
     /modalId === 'addSongModal' && typeof _asDiscardUnsavedScan === 'function'/.test(raw), true);
-  check('  a saved song clears the list first',
-    /window\._asPendingScanPaths = \[\];\s*[\r\n]+\s*closeModal\('addSongModal'\);/.test(raw), true);
+  check('  a saved song hands its pages over before the close',
+    /_asDiscardPagesNotIn\(songData\.attachments\);\s*[\r\n]+\s*closeModal\('addSongModal'\);/.test(raw), true);
+
+  // A page removed from the form before saving.
+  //
+  // removeAttachment only splices the in-memory list, so the file it had
+  // already uploaded stayed in the bucket with nothing pointing at it -- and
+  // on a three-page scan, removing the blurred one is the normal case.
+  //
+  // The decision is made against the attachments actually WRITTEN, never a
+  // fresh read of the library: a read that had not caught up with the row
+  // just inserted would delete the pages of the song just saved.
+  {
+    const src = (() => {
+      const a = raw.indexOf('function _asDiscardPagesNotIn(kept) {');
+      if (a < 0) return '';
+      let d = 0, started = false;
+      for (let i = a; i < raw.length; i++) {
+        if (raw[i] === '{') { d++; started = true; }
+        else if (raw[i] === '}') { d--; if (started && d === 0) return raw.slice(a, i + 1); }
+      }
+      return '';
+    })();
+    if (!src) {
+      check('_asDiscardPagesNotIn exists', false, true);
+    } else {
+      const run = (pending, kept) => {
+        const deleted = [];
+        const win = { _asPendingScanPaths: pending.slice() };
+        new Function('window', 'deleteFromSupabase', 'JSON', 'String',
+          src + '\nreturn _asDiscardPagesNotIn;')(win, p => deleted.push(p), JSON, String)(kept);
+        return { deleted, left: win._asPendingScanPaths };
+      };
+      const P = ['song-scans/a_p1.jpg', 'song-scans/b_p2.jpg', 'song-scans/c_p3.jpg'];
+
+      const kept2 = run(P, [{ url: 'https://s/song-scans/a_p1.jpg' }, { url: 'https://s/song-scans/c_p3.jpg' }]);
+      check('the page taken out of the form is deleted', kept2.deleted, ['song-scans/b_p2.jpg']);
+      check('  and the two the song kept are not', kept2.deleted.length, 1);
+      check('  the pending list is emptied either way', kept2.left, []);
+
+      check('a song that kept everything loses nothing',
+        run(P, P.map(p => ({ url: 'https://s/' + p }))).deleted, []);
+      check('a song that kept nothing loses all three',
+        run(P, []).deleted.length, 3);
+      check('an encoded url still counts as keeping the page',
+        run(['song-scans/x y.jpg'], [{ url: 'https://s/song-scans/x%20y.jpg' }]).deleted, []);
+      check('nothing pending means nothing happens', run([], []).deleted, []);
+    }
+  }
   // Deleting a file a real song points at breaks that song. Leaving one costs
   // a megabyte. The check against the library is what keeps those apart.
   check('  and nothing is deleted without checking the library first',
