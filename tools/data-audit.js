@@ -364,6 +364,90 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
   console.log('  ' + noLyrics.length + ' song(s) with no lyrics (informational)');
   noLyrics.slice(0, 8).forEach(s => console.log('       ' + s.title + ' [' + s.id + ']'));
 
+  // ---- the key a song is filed under, against the chords written in it ----
+  //
+  // A hymn scanned from a page with no printed chords had a set SUGGESTED in
+  // G, was then filed by hand as F, and nothing reconciled the two: the song
+  // sat in the library in F with G, C, A7 and D over the words. Nobody finds
+  // that until they play it.
+  //
+  // Reported, never counted as a failure. Borrowed chords and a modulation
+  // halfway through are both ordinary, so this can only ever say "worth a
+  // look" -- the moment it starts crying wolf people stop reading the audit.
+  // The threshold is deliberately mean: the filed key has to fit BADLY in its
+  // own right, not merely worse than some alternative.
+  section('the key each song is filed under vs the chords in it');
+  {
+    const NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+    const FLAT = { Db:'C#', Eb:'D#', Gb:'F#', Ab:'G#', Bb:'A#', Cb:'B', Fb:'E' };
+    const MAJOR = [0,2,4,5,7,9,11], MINOR = [0,2,3,5,7,8,10];
+    const rootOf = c => {
+      const m = String(c).match(/^([A-G][#b]?)/);
+      if (!m) return null;
+      const i = NOTES.indexOf(FLAT[m[1]] || m[1]);
+      return i < 0 ? null : i;
+    };
+    // "Am", "F#m", "E min" are minor. Scoring those against the MAJOR scale
+    // made a song that was 6/6 correct look like a 3/6 problem while this
+    // check was being written.
+    const isMinor = k => /^[A-G][#b]?\s*m(in(or)?)?\b/i.test(String(k).trim());
+    const scaleOf = k => {
+      const r = rootOf(k);
+      if (r === null) return null;
+      return (isMinor(k) ? MINOR : MAJOR).map(x => (r + x) % 12);
+    };
+    const scoreOf = (roots, k) => {
+      const sc = scaleOf(k);
+      return sc ? roots.filter(x => sc.includes(x)).length : -1;
+    };
+    const chordsIn = lyrics => {
+      const out = [];
+      String(lyrics || '').split(/\r?\n/).forEach(line => {
+        const t = line.trim();
+        if (!t || /^\[.*\]$/.test(t)) return;
+        const toks = t.split(/\s+/);
+        const hits = toks.filter(w => /^[A-G][#b]?(m|maj|min|sus[24]?|add\d*|dim|aug|M)?\d*(\/[A-G][#b]?)?$/.test(w));
+        // A line with a long word that is not a chord is a lyric, whatever
+        // else is on it.
+        if (toks.some(w => w.length > 4 && !/^[A-G]/.test(w))) return;
+        if (hits.length && hits.length / toks.length >= 0.6) out.push(...hits);
+      });
+      return out;
+    };
+
+    const CANDIDATES = [];
+    NOTES.forEach(n => { CANDIDATES.push(n); CANDIDATES.push(n + 'm'); });
+
+    let looked = 0;
+    const odd = [];
+    songs.forEach(s => {
+      if (!s.key) return;
+      const roots = [...new Set(chordsIn(s.lyrics).map(rootOf).filter(x => x !== null))];
+      if (roots.length < 4) return;        // too few chords to judge anything
+      looked++;
+      const mine = scoreOf(roots, s.key);
+      let best = -1;
+      CANDIDATES.forEach(k => { const v = scoreOf(roots, k); if (v > best) best = v; });
+      const pct = mine / roots.length;
+      if (pct < 0.6 && best - mine >= 3) {
+        odd.push({ s, fit: mine + '/' + roots.length, pct: Math.round(pct * 100) });
+      }
+    });
+
+    console.log('  ' + looked + ' song(s) had enough chords to judge');
+    if (!odd.length) {
+      console.log('  ok   none filed under a key its chords disagree with');
+    } else {
+      console.log('  ' + odd.length + ' worth a look (informational, not a failure):');
+      odd.forEach(o => {
+        console.log('       ' + o.s.title + ' [' + o.s.id + ']');
+        console.log('         filed as ' + o.s.key + ', but only ' + o.fit +
+                    ' of its chord roots (' + o.pct + '%) belong to that key');
+        console.log('         chords: ' + [...new Set(chordsIn(o.s.lyrics))].join(' ').slice(0, 72));
+      });
+    }
+  }
+
   console.log('\n' + '='.repeat(66));
   console.log(problems === 0 ? 'data audit: nothing wrong found' : 'data audit: ' + problems + ' problem area(s)');
 
