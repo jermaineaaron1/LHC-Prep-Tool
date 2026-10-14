@@ -339,10 +339,21 @@ font-family: "Poppins" (UI elements)
 ```bash
 npm run check     # offline test harnesses -- run before every commit
 npm run audit     # reads the LIVE database and reports damaged data
+npm run links     # opens every document and video link in the library
 ```
 
-`npm run check` is offline and deterministic. `npm run audit` talks to
-production, which is why it is deliberately kept out of `check`.
+Three rings, and each is kept out of the one before it on purpose.
+
+`npm run check` is offline and deterministic, so it can be run before every
+commit without thinking. `npm run audit` talks to production, which is why it
+is not in `check`. `npm run links` makes a request per link to Google, YouTube
+and whatever chord sites the songs point at -- about seventy-five of them --
+so it is not in `audit` either: an audit that is slow and chatty with other
+people's servers is an audit people stop running.
+
+Run `links` when it matters rather than routinely: before Advent, before a big
+service, after somebody tidies the shared Drive folder. `npm run links -- docs`
+or `-- videos` narrows it.
 
 Harnesses in `tools/` slice the real function out of `Index.html` and run it
 against `tools/minidom.js`. Each takes `--expect-broken` as a negative control,
