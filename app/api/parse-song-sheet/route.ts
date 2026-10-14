@@ -27,6 +27,7 @@
 // (https://aistudio.google.com/apikey), no paid plan needed.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { isOwnStorage } from '../_lib/isOwnStorage';
 import { applyLearnedRules } from './learned-rules';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -96,19 +97,6 @@ const RESPONSE_SCHEMA = {
 // describes them back. Restricting it to our own storage bucket closes that,
 // and means an image must be uploaded through the app before it can be
 // scanned at all.
-function isOwnStorage(url: string): boolean {
-  let u: URL;
-  try { u = new URL(url); } catch { return false; }
-  if (u.protocol !== 'https:') return false;
-  const configured = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  let allowedHost = '';
-  try { allowedHost = configured ? new URL(configured).hostname : ''; } catch { allowedHost = ''; }
-  // Fall back to the shape of a Supabase storage host so a missing env var
-  // cannot silently open this up to the whole internet.
-  return allowedHost
-    ? u.hostname === allowedHost
-    : /^[a-z0-9-]+\.supabase\.co$/i.test(u.hostname);
-}
 
 // A chord line is one whose every token is chord-shaped. Used both to verify
 // the model's chordsFound claim and to know which line to keep aligned when

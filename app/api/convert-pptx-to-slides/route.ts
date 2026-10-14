@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isOwnStorage } from '../_lib/isOwnStorage';
 import { getSlidesAccessToken } from '../_lib/rosterCalendar';
 
 export const runtime = 'nodejs';
@@ -39,16 +40,12 @@ const SLIDES_MIME = 'application/vnd.google-apps.presentation';
 
 // Guard against being pointed at arbitrary hosts: this only ever converts a
 // file this app itself uploaded to Supabase storage.
-function isAllowedSource(raw: string): boolean {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (u.protocol !== 'https:') return false;
-  return u.hostname.endsWith('.supabase.co') || u.hostname.endsWith('.supabase.in');
-}
+//
+// Was `hostname.endsWith('.supabase.co')`, which admitted ANY Supabase
+// project rather than ours -- anybody with a free account could host a file
+// and have this server fetch it. The shared guard pins it to the project in
+// NEXT_PUBLIC_SUPABASE_URL.
+const isAllowedSource = isOwnStorage;
 
 interface DriveFile {
   id?: string;
