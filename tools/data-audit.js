@@ -351,9 +351,23 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
   section('leftover test material');
   const testish = /zztest|\btest\b|asdf|qwerty|abcdef/i;
   const to = orders.filter(o => testish.test(o.id) || testish.test(o.title || ''));
-  const ti = items.filter(it => testish.test(it.id) || testish.test(it.title || ''));
+  // An item belonging to a test order is test material whatever it is called.
+  //
+  // This used to match on the item's OWN id and title only, which meant a
+  // ZZTEST order holding a real hymn reported "items: 0" -- and that is what
+  // it did: the one order here held a copy of "Alas! and Did My Saviour
+  // Bleed", so the line under the order said nothing would go with it. A
+  // count that understates what a delete takes is worse than no count.
+  const testOrderIds = new Set(to.map(o => o.id));
+  const ti = items.filter(it =>
+    testish.test(it.id) || testish.test(it.title || '') || testOrderIds.has(it.order_id));
   const ts = songs.filter(s => testish.test(s.id) || testish.test(s.title || ''));
-  console.log('  orders: ' + to.length); to.forEach(o => console.log('       ' + o.id + '  ' + o.title));
+  console.log('  orders: ' + to.length);
+  to.forEach(o => {
+    const mine = items.filter(it => it.order_id === o.id).length;
+    console.log('       ' + o.id + '  ' + o.title +
+                '  (' + mine + ' item' + (mine === 1 ? '' : 's') + ' would go with it)');
+  });
   console.log('  items:  ' + ti.length); ti.slice(0, 10).forEach(o => console.log('       ' + o.id + '  ' + o.title));
   console.log('  songs:  ' + ts.length); ts.forEach(o => console.log('       ' + o.id + '  ' + o.title));
 
