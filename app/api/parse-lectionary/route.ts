@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
+import { isOwnStorage } from '../_lib/isOwnStorage';
 
 export const runtime = 'nodejs';
 
@@ -52,6 +53,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'AI-assisted lectionary extraction is not configured on this server (missing GEMINI_API_KEY). Use the manual reading picker instead.' },
         { status: 500 }
+      );
+    }
+
+    // Checked BEFORE the extension, because the extension constrains nothing
+    // here: http://169.254.169.254/latest/meta-data/x.pdf passes it. Without
+    // this the route fetches anything reachable from the deployment and hands
+    // it to a model that reports back what it says. Probed against the live
+    // site before this was added, it fetched example.com and returned the
+    // status, and attempted the link-local address.
+    if (!isOwnStorage(url)) {
+      return NextResponse.json(
+        { error: 'That file is not one this app uploaded. Upload the bulletin again and retry.' },
+        { status: 400 }
       );
     }
 
