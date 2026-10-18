@@ -130,6 +130,59 @@ console.log('\nfairness still outranks the shuffle');
 }
 
 // ---------------------------------------------------------------------------
+// The clearing is RUN here, not read.
+//
+// It shipped once doing nothing at all: Array.prototype.slice.call(aSet)
+// returns [] for a Set, so the loop never iterated, every cell stayed full,
+// and the button reported "nothing to auto-fill". The textual check further
+// down this very file passed the whole time, because the code looked right.
+// Hence: execute it.
+console.log('\nclearing drafts, actually executed');
+{
+  const src = raw.match(/function _clearDraftsInScope\(activeRoleDefs, datesToFill\) \{[\s\S]*?\n  \}/);
+  check('the clearing is a function a test can call', !!src, true);
+  if (src) {
+    const run = (edits, pending, roles, dates) => {
+      const STATE = { rosterEdits: new Map(Object.entries(edits)), rosterPendingCells: new Set(pending) };
+      const fn = new Function('STATE', src[0] + '\nreturn _clearDraftsInScope;')(STATE);
+      const prior = fn(roles.map(id => ({ id })), dates.map(d => ({ dateStr: d })));
+      return { prior, left: Object.fromEntries(STATE.rosterEdits), stillPending: [...STATE.rosterPendingCells] };
+    };
+
+    let r = run(
+      { 'preacher__Nov_1': 'Bishop Thomas Low', 'liturgist__Nov_1': 'Allan Yip' },
+      ['preacher__Nov_1', 'liturgist__Nov_1'], ['preacher', 'liturgist'], ['Nov 1']);
+    check('drafts in scope are actually removed', Object.keys(r.left), []);
+    check('and handed back so undo can restore them', r.prior.size, 2);
+    check('and dropped from the pending set', r.stillPending, []);
+
+    // Neither a confirmed name nor a typed one is ever in rosterPendingCells,
+    // so neither can be cleared. This is the guarantee that matters most.
+    r = run(
+      { 'preacher__Nov_1': 'Confirmed Person', 'liturgist__Nov_1': 'Draft Person' },
+      ['liturgist__Nov_1'], ['preacher', 'liturgist'], ['Nov 1']);
+    check('a confirmed cell survives', r.left['preacher__Nov_1'], 'Confirmed Person');
+    check('while the draft beside it goes', 'liturgist__Nov_1' in r.left, false);
+
+    r = run(
+      { 'preacher__Nov_1': 'A', 'preacher__Nov_8': 'B' },
+      ['preacher__Nov_1', 'preacher__Nov_8'], ['preacher'], ['Nov 1']);
+    check('a date outside the run is left alone', r.left['preacher__Nov_8'], 'B');
+
+    r = run(
+      { 'preacher__Nov_1': 'A', 'usher1__Nov_1': 'B' },
+      ['preacher__Nov_1', 'usher1__Nov_1'], ['preacher'], ['Nov 1']);
+    check('a duty outside the run is left alone', r.left['usher1__Nov_1'], 'B');
+
+    r = run({}, ['preacher__Nov_1'], ['preacher'], ['Nov 1']);
+    check('a pending key with nothing in it is skipped', r.prior.size, 0);
+
+    r = run({ 'ssteacher1__Nov_22': 'X' }, ['ssteacher1__Nov_22'], ['ssteacher1'], ['Nov 22']);
+    check('a two-word date still matches', Object.keys(r.left), []);
+  }
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nhow it is wired into the run');
 {
   const fn = raw.slice(raw.indexOf('runAutoSuggest: function'));
@@ -146,18 +199,15 @@ console.log('\nhow it is wired into the run');
   check('below when they last served', cmp.indexOf('lastServedMonth[ka]') < cmp.indexOf('_afShuffle'), true);
   check('and the alphabet is still the final word', cmp.indexOf('_afShuffle') < cmp.indexOf('localeCompare'), true);
 
-  // Clearing drafts: only drafts, only in scope, and never while previewing.
-  check('a re-run clears its own drafts', /priorDrafts/.test(body), true);
-  check('taking them from the pending set only',
-    /rosterPendingCells\)\.forEach|rosterPendingCells\.forEach/.test(body), true);
-  check('and only for the duties being filled', /inScopeRole\[bits\[0\]\]/.test(body), true);
-  check('and only for the dates being filled', /inScopeDate\[bits\[1\]\]/.test(body), true);
-  // A preview must not touch the roster at all, so the clearing has to sit
-  // behind the previewOnly guard rather than beside it. Checked by slicing
-  // between the two landmarks instead of by a fixed-width window, which
-  // would fail the next time a comment was added.
-  const clearing = body.slice(body.indexOf('var priorDrafts'), body.indexOf('priorDrafts.set'));
-  check('a preview changes nothing', /if \(!previewOnly\)/.test(clearing), true);
+  // What the clearing DOES is executed above; only its wiring is read here.
+  // Scope and the confirmed-cell guarantee are deliberately not re-asserted
+  // textually -- a reading of code that looked right is exactly what let the
+  // Set bug ship.
+  check('the run clears its own drafts', /_clearDraftsInScope\(/.test(body), true);
+  // A preview must touch nothing, so the call has to be behind the guard.
+  const callLine = (body.match(/^.*_clearDraftsInScope\(.*$/m) || [''])[0];
+  check('and a preview gets an empty map instead',
+    /previewOnly\s*\?\s*new Map\(\)\s*:/.test(callLine), true);
   check('undo still steps back to the draft that was there', /_priorValue\(cellKey\)/.test(body), true);
 
   // The guarantee that matters most: a confirmed or hand-typed cell is not a
