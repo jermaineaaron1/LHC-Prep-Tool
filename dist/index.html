@@ -71517,7 +71517,11 @@ var LiturgyModule = (function() {
     rosterToIso: function(serviceDate, year) {
       var s = String(serviceDate || '').trim();
       if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-      var m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2})$/);
+      // The trailing part allows a second service on one date -- "Dec 31 PM"
+      // is the Watchnight, which shares 31 December with a Sunday morning
+      // service roughly one year in seven. Both map to the same ISO date,
+      // because that is the day they are both on.
+      var m = s.match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2})(?:\s+\S+)?$/);
       if (!m || year === null || year === undefined || year === '') return '';
       var abbr = m[1].charAt(0).toUpperCase() + m[1].slice(1, 3).toLowerCase();
       var mi = SBQ_READINGS._MO.indexOf(abbr);
@@ -88390,8 +88394,21 @@ function filterLiturgyItems() {
       // December -- it is what the service is -- so it carries its own
       // service type and does not wait to be told. White, because the night
       // still belongs to Christmas.
+      // Roughly one December in seven, the 31st IS a Sunday -- 2028, 2034,
+      // 2045. There is a morning service that day and a Watchnight that
+      // night, and they are two services, so they get two columns.
+      //
+      // Which means Watchnight needs a key of its own: every roster cell is
+      // keyed roleId__Dec_31, and two services sharing that key would be one
+      // column wearing two names. It carries 'Dec 31 PM' in every year, not
+      // only the Sunday ones -- a key that changed shape depending on the
+      // weekday would be a far nastier thing to debug than a constant one.
+      //
+      // The hour is real rather than decorative: days are sorted by their
+      // date, and at midnight the morning service and the Watchnight would
+      // tie and fall back on the order they happened to be pushed in.
       if (month === 11) {
-        specialDays.push({date:new Date(year,11,31), name:'Watchnight Service', displayName:'WATCHNIGHT (Dec 31)', color:'White', type:'special', fixedServiceType:'Traditional'});
+        specialDays.push({date:new Date(year,11,31,20,0,0), dateStr:'Dec 31 PM', name:'Watchnight Service', displayName:'WATCHNIGHT (Dec 31)', color:'White', type:'special', fixedServiceType:'Traditional'});
       }
       
       return specialDays;
@@ -88440,8 +88457,15 @@ function filterLiturgyItems() {
       
       var specialDays = this.getSpecialDays(year, month);
       specialDays.forEach(function(special) {
+        // A special that brought its own dateStr is a SEPARATE service, not
+        // a renaming of the day it lands on: the Watchnight does not replace
+        // the Sunday morning service it shares a date with. Everything else
+        // still folds in, which is what keeps Christmas Eve from appearing
+        // twice when it falls on a Sunday.
         var existingIdx = -1;
-        days.forEach(function(d, idx) { if (d.date.getDate() === special.date.getDate()) existingIdx = idx; });
+        if (!special.dateStr) {
+          days.forEach(function(d, idx) { if (d.date.getDate() === special.date.getDate()) existingIdx = idx; });
+        }
         if (existingIdx >= 0) {
           days[existingIdx].name = special.name;
           days[existingIdx].displayName = special.displayName;
@@ -88449,7 +88473,7 @@ function filterLiturgyItems() {
           days[existingIdx].type = 'special';
           days[existingIdx].fixedServiceType = special.fixedServiceType;
         } else {
-          days.push({date:special.date, dateStr:self.MONTHS_SHORT[month]+' '+special.date.getDate(), name:special.name, displayName:special.displayName, color:special.color, type:'special', fixedServiceType:special.fixedServiceType});
+          days.push({date:special.date, dateStr:special.dateStr || (self.MONTHS_SHORT[month]+' '+special.date.getDate()), name:special.name, displayName:special.displayName, color:special.color, type:'special', fixedServiceType:special.fixedServiceType});
         }
       });
       days.sort(function(a, b) { return a.date - b.date; });

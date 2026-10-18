@@ -128,17 +128,40 @@ console.log('\nit is a traditional service, in every year');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\nwhen the 31st is a Sunday it is one service, not two');
+console.log('\nwhen the 31st is a Sunday that is two services');
 {
-  // 2028: 31 December is a Sunday. The same rule Christmas Eve already
-  // follows -- a special day absorbs the Sunday rather than sitting beside
-  // a duplicate column for the same date.
+  // There is a morning service and a Watchnight that night, and they are
+  // two services. Christmas Eve on a Sunday is NOT the same case -- that is
+  // one service with a name -- so it must still fold into a single column,
+  // which is checked here too.
   const dec2028 = RE.getServiceDays(2028, 11);
   check('31 Dec 2028 is a Sunday', new Date(2028, 11, 31).getDay(), 0);
-  check('and appears exactly once',
-    dec2028.filter(d => d.date.getDate() === 31).length, 1);
-  check('as the Watchnight',
-    dec2028.find(d => d.date.getDate() === 31).name, 'Watchnight Service');
+  const onThe31st = dec2028.filter(d => d.date.getDate() === 31);
+  check('and gets two columns', onThe31st.length, 2);
+  check('the morning service first', onThe31st[0].type, 'sunday');
+  check('the Watchnight after it', onThe31st[1].name, 'Watchnight Service');
+
+  // They can be two columns only because they have two keys: every roster
+  // cell is roleId__<dateStr>, so one key would be one column wearing two
+  // names and the evening duties would overwrite the morning's.
+  check('with keys that cannot collide',
+    onThe31st[0].dateStr !== onThe31st[1].dateStr, true);
+  check('the morning keeps the plain date', onThe31st[0].dateStr, 'Dec 31');
+  check('and the Watchnight is the evening one', onThe31st[1].dateStr, 'Dec 31 PM');
+
+  // The key never changes shape with the weekday. One that was 'Dec 31' in
+  // some years and 'Dec 31 PM' in others would be far worse to debug than a
+  // constant one, and would strand the data saved under the other spelling.
+  const allYears = [];
+  for (let y = 2024; y <= 2045; y++) allYears.push(y);
+  check('and is the same in every year',
+    allYears.filter(y => watchnightIn(y, 11).dateStr !== 'Dec 31 PM'), []);
+
+  // What must NOT change: a named Sunday is still one service.
+  const eveOnSunday = allYears.filter(y => new Date(y, 11, 24).getDay() === 0);
+  check('some years put Christmas Eve on a Sunday', eveOnSunday.length > 0, true);
+  check('and it is still one column', eveOnSunday.filter(y =>
+    RE.getServiceDays(y, 11).filter(d => d.date.getDate() === 24).length !== 1), []);
 }
 
 // ---------------------------------------------------------------------------
@@ -170,8 +193,11 @@ console.log('\nthe grid is told to use it');
   check('and never overwrites a choice already made', /if \(hasType\) return;/.test(block), true);
   check('communion is excluded from contemporary services only',
     /communion1: \['contemporary'\]/.test(raw), true);
-  check('the type is carried through the Sunday merge',
-    /days\[existingIdx\]\.fixedServiceType = special\.fixedServiceType/.test(raw), true);
+  // Watchnight takes the other branch now, so the merge line is not asserted
+  // as though it were exercised. What IS asserted is the rule that makes the
+  // split work at all.
+  check('a special with its own key is never folded into another day',
+    /if \(!special\.dateStr\) \{/.test(raw), true);
 }
 
 // ---------------------------------------------------------------------------

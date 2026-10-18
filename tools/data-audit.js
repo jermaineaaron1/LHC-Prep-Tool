@@ -299,7 +299,9 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
   // and backups/iso-roster-rows-2026-01.json is what they were.
   section('roster dates');
   const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const canonical = s => /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}$/.test(String(s).trim());
+  // "Dec 31 PM" is the Watchnight: a second service on a date that already
+  // has one, which needs a key of its own or the two would share a column.
+  const canonical = s => /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}( PM)?$/.test(String(s).trim());
   // The same normalisation the app does on read, so collisions are counted
   // the way the roster screen actually sees them.
   const normSvc = s => {
@@ -311,7 +313,7 @@ function say(ok, msg) { console.log('  ' + (ok ? 'ok   ' : 'BAD  ') + msg); if (
   };
 
   const oddDates = roster.filter(r => !canonical(r.service_date));
-  say(oddDates.length === 0, oddDates.length + ' roster row(s) whose service_date is not "MMM D"');
+  say(oddDates.length === 0, oddDates.length + ' roster row(s) whose service_date is not "MMM D" (or "MMM D PM")');
   oddDates.slice(0, 12).forEach(r => console.log(
     '       ' + r.year + '  ' + String(r.role_id).padEnd(12) + JSON.stringify(r.service_date) + '  ' + JSON.stringify(r.value)));
 
