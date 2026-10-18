@@ -93187,6 +93187,47 @@ function filterLiturgyItems() {
         if (!activeRoleDefs.length) { this.showToast('Select at least one duty', 'warning'); return; }
       }
 
+      // ── Pressing it again means "try again" ──────────────────────────
+      // Auto-Suggest never overwrites a filled cell, which is right for a
+      // name somebody typed and wrong for its own drafts: once it had run,
+      // every cell it was allowed to touch was full, so pressing it a second
+      // time did nothing at all and looked broken.
+      //
+      // So its own UNCONFIRMED suggestions are cleared first and the run
+      // starts from the same blank slate it had the first time. Confirmed
+      // cells and anything entered by hand are never in this set and are
+      // never touched.
+      //
+      // Cleared rather than overwritten in place, because the drafts are not
+      // just output -- they are also input. They feed the monthly tally, the
+      // one-duty-a-day check and the back-to-back guard. Left standing, every
+      // drafted person would look busy to the run replacing them, and each
+      // press would hand back a worse roster than the last.
+      //
+      // What they held is kept so Undo still steps back to the previous
+      // draft rather than to an empty cell.
+      var priorDrafts = new Map();
+      if (!previewOnly) {
+        var inScopeRole = {};
+        activeRoleDefs.forEach(function(r) { inScopeRole[r.id] = true; });
+        var inScopeDate = {};
+        datesToFill.forEach(function(day) { inScopeDate[day.dateStr.replace(/\s/g, '_')] = true; });
+        Array.prototype.slice.call(STATE.rosterPendingCells).forEach(function(key) {
+          var bits = key.split('__');
+          if (!inScopeRole[bits[0]] || !inScopeDate[bits[1]]) return;
+          var had = STATE.rosterEdits.get(key);
+          if (had === undefined) return;
+          priorDrafts.set(key, had);
+          STATE.rosterEdits.delete(key);
+          STATE.rosterPendingCells.delete(key);
+        });
+      }
+      // What a cell held before this run, for the undo entry: the draft that
+      // has just been cleared, or whatever is still sitting there.
+      function _priorValue(cellKey) {
+        return priorDrafts.has(cellKey) ? priorDrafts.get(cellKey) : STATE.rosterEdits.get(cellKey);
+      }
+
       // Normalize a name for identity comparisons only (clash/cap/back-to-
       // back bookkeeping) -- never for the value actually written to a
       // cell. Different role dropdowns can hold the same real person with
@@ -93194,6 +93235,35 @@ function filterLiturgyItems() {
       // this, that same person could be double-booked on one date or slip
       // past the 2x/month cap under two different spellings.
       function _afKey(name) { return (name || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
+
+      // ── Why two presses give two answers ─────────────────────────────
+      // Every tier below -- who is already serving, the curated list, the
+      // pairings, the monthly cap, the back-to-back guard, the per-role and
+      // per-month counts -- decides the roster. Only when two people come
+      // through all of that EXACTLY equal did the old code fall back to
+      // alphabetical order, which is why the same press gave the same answer
+      // and why Alison Phan was always asked before Sharon Wee.
+      //
+      // A salt per run replaces that last tiebreak. Fairness is untouched: a
+      // better candidate still wins. Among equals it is now a coin toss, and
+      // a different toss each time.
+      //
+      // The key is computed ONCE per name per run and then compared, never
+      // drawn inside the comparator. A comparator that answers differently
+      // for the same pair is not an ordering, and sort() is entitled to
+      // return nonsense when given one.
+      var _shuffleSalt = Math.random();
+      var _shuffleKeys = {};
+      function _afShuffle(key) {
+        if (_shuffleKeys[key] !== undefined) return _shuffleKeys[key];
+        var h = 2166136261 ^ Math.floor(_shuffleSalt * 4294967295);
+        for (var i = 0; i < key.length; i++) {
+          h ^= key.charCodeAt(i);
+          h = (h * 16777619) >>> 0;
+        }
+        _shuffleKeys[key] = h;
+        return h;
+      }
 
       // Tally each person's existing duty count THIS month (manual entries
       // and any earlier auto-suggest run already in rosterEdits) -- both
@@ -93318,7 +93388,7 @@ function filterLiturgyItems() {
                   markDuty(_afKey(liturgistVal), role.id);
                   return;
                 }
-                _rPushUndo(cellKey, existing, liturgistVal, false, true);
+                _rPushUndo(cellKey, _priorValue(cellKey), liturgistVal, priorDrafts.has(cellKey), true);
                 STATE.rosterEdits.set(cellKey, liturgistVal);
                 STATE.rosterPendingCells.add(cellKey);
                 STATE.rosterCellTimestamps.set(cellKey, new Date().toISOString());
@@ -93501,6 +93571,10 @@ function filterLiturgyItems() {
               var la = lastServedMonth[ka] === undefined ? -Infinity : lastServedMonth[ka];
               var lb = lastServedMonth[kb] === undefined ? -Infinity : lastServedMonth[kb];
               if (la !== lb) return la - lb;
+              // Dead equal on every count that matters. Shuffle, then fall
+              // back to the alphabet so the ordering is still total.
+              var ha = _afShuffle(ka), hb = _afShuffle(kb);
+              if (ha !== hb) return ha - hb;
               return a.localeCompare(b);
             });
 
@@ -93541,7 +93615,7 @@ function filterLiturgyItems() {
             if (previewOnly) {
               previewList.push({ date: dateStr, roleId: role.id, roleLabel: role.label, name: winner, reason: reason, warning: warning });
             } else {
-              _rPushUndo(cellKey, existing, winner, false, true);
+              _rPushUndo(cellKey, _priorValue(cellKey), winner, priorDrafts.has(cellKey), true);
               STATE.rosterEdits.set(cellKey, winner);
               STATE.rosterPendingCells.add(cellKey);
               STATE.rosterCellTimestamps.set(cellKey, new Date().toISOString());
