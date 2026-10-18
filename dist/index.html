@@ -86472,6 +86472,39 @@ function filterLiturgyItems() {
   // singer row -- she fills Singer 2, then Singer 3 is also required to be
   // her, cannot be, and is left blank. So a rule whose named partner is
   // already standing in a sibling slot has been honoured, and stops applying.
+  // Clear Auto-Suggest's own unconfirmed drafts for the duties and dates a
+  // run is about to cover, and hand back what they held.
+  //
+  // Only cells in rosterPendingCells are touched, which is what keeps a
+  // confirmed or hand-typed name safe: neither is ever in that set.
+  //
+  // This lived inline inside runAutoSuggest and shipped doing nothing. It
+  // read Array.prototype.slice.call(theSet) -- slice works on array-LIKE
+  // objects, and a Set has size rather than length or indices, so it handed
+  // back an empty array and the loop ran zero times. Every cell stayed full,
+  // the fill loop skipped them all, and the button said "nothing to
+  // auto-fill". Out here it can be run by a test rather than read by one.
+  function _clearDraftsInScope(activeRoleDefs, datesToFill) {
+    var priorDrafts = new Map();
+    var inScopeRole = {};
+    (activeRoleDefs || []).forEach(function(r) { inScopeRole[r.id] = true; });
+    var inScopeDate = {};
+    (datesToFill || []).forEach(function(day) { inScopeDate[day.dateStr.replace(/\s/g, '_')] = true; });
+    // A snapshot, because the Set is written to inside the loop.
+    Array.from(STATE.rosterPendingCells).forEach(function(key) {
+      var cut = key.indexOf('__');
+      if (cut < 0) return;
+      var roleId = key.slice(0, cut), dateKey = key.slice(cut + 2);
+      if (!inScopeRole[roleId] || !inScopeDate[dateKey]) return;
+      var had = STATE.rosterEdits.get(key);
+      if (had === undefined) return;
+      priorDrafts.set(key, had);
+      STATE.rosterEdits.delete(key);
+      STATE.rosterPendingCells.delete(key);
+    });
+    return priorDrafts;
+  }
+
   function _firingPairings(roleId, team, dateKeySuffix) {
     var out = [];
     var mine = _dutySiblings(roleId);
@@ -93206,22 +93239,7 @@ function filterLiturgyItems() {
       //
       // What they held is kept so Undo still steps back to the previous
       // draft rather than to an empty cell.
-      var priorDrafts = new Map();
-      if (!previewOnly) {
-        var inScopeRole = {};
-        activeRoleDefs.forEach(function(r) { inScopeRole[r.id] = true; });
-        var inScopeDate = {};
-        datesToFill.forEach(function(day) { inScopeDate[day.dateStr.replace(/\s/g, '_')] = true; });
-        Array.prototype.slice.call(STATE.rosterPendingCells).forEach(function(key) {
-          var bits = key.split('__');
-          if (!inScopeRole[bits[0]] || !inScopeDate[bits[1]]) return;
-          var had = STATE.rosterEdits.get(key);
-          if (had === undefined) return;
-          priorDrafts.set(key, had);
-          STATE.rosterEdits.delete(key);
-          STATE.rosterPendingCells.delete(key);
-        });
-      }
+      var priorDrafts = previewOnly ? new Map() : _clearDraftsInScope(activeRoleDefs, datesToFill);
       // What a cell held before this run, for the undo entry: the draft that
       // has just been cleared, or whatever is still sitting there.
       function _priorValue(cellKey) {
