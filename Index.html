@@ -88382,6 +88382,17 @@ function filterLiturgyItems() {
       if (month === 11) {
         specialDays.push({date:new Date(year,11,25), name:'Christmas Day', displayName:'CHRISTMAS DAY (Dec 25)', color:'White', type:'special'});
       }
+
+      // Watchnight (Dec 31)
+      //
+      // The year closes with a traditional service with communion. Unlike
+      // the Sundays either side of it, that is not a choice anybody makes in
+      // December -- it is what the service is -- so it carries its own
+      // service type and does not wait to be told. White, because the night
+      // still belongs to Christmas.
+      if (month === 11) {
+        specialDays.push({date:new Date(year,11,31), name:'Watchnight Service', displayName:'WATCHNIGHT (Dec 31)', color:'White', type:'special', fixedServiceType:'Traditional'});
+      }
       
       return specialDays;
     },
@@ -88436,8 +88447,9 @@ function filterLiturgyItems() {
           days[existingIdx].displayName = special.displayName;
           days[existingIdx].color = special.color;
           days[existingIdx].type = 'special';
+          days[existingIdx].fixedServiceType = special.fixedServiceType;
         } else {
-          days.push({date:special.date, dateStr:self.MONTHS_SHORT[month]+' '+special.date.getDate(), name:special.name, displayName:special.displayName, color:special.color, type:'special'});
+          days.push({date:special.date, dateStr:self.MONTHS_SHORT[month]+' '+special.date.getDate(), name:special.name, displayName:special.displayName, color:special.color, type:'special', fixedServiceType:special.fixedServiceType});
         }
       });
       days.sort(function(a, b) { return a.date - b.date; });
@@ -93774,7 +93786,17 @@ function filterLiturgyItems() {
         var key = 'service_type__' + day.dateStr.replace(/\s/g, '_');
         var existingVal = STATE.rosterEdits.get(key);
         var hasType = existingVal === 'Traditional' || existingVal === 'Contemporary';
-        if (hasType || day.type !== 'sunday' || sundayOrdinal > 4) return;
+        if (hasType) return;
+        // A service whose type is not a choice says so itself, and is filled
+        // in here alongside the Sunday pattern rather than by a PIC saying
+        // "traditional" about Watchnight again every December. Still only
+        // when the cell is empty: a deliberate choice is never overwritten.
+        if (day.fixedServiceType) {
+          var fixedTd = document.querySelector('td[data-key="' + key + '"]');
+          if (fixedTd) self.setServiceType(fixedTd, day.fixedServiceType);
+          return;
+        }
+        if (day.type !== 'sunday' || sundayOrdinal > 4) return;
         var autoType = (sundayOrdinal === 1 || sundayOrdinal === 3) ? 'Traditional' : 'Contemporary';
         var td = document.querySelector('td[data-key="' + key + '"]');
         if (td) self.setServiceType(td, autoType);
