@@ -86443,18 +86443,66 @@ function filterLiturgyItems() {
   // Roles are processed in ROLES order, so Liturgist is settled before the
   // band and Singer 1 before Singer 2 -- and a cell a PIC typed in by hand
   // counts exactly the same, which is the common case.
+  // Every duty slot in the same group. Singer 1-4 are one group, Usher 1-2
+  // another; Preacher is a group of one. Cached because this is asked once
+  // per rule per slot per date and the answer cannot change mid-run.
+  var _dutySiblingCache = {};
+  function _dutySiblings(roleId) {
+    var cat = getRoleCategory(roleId);
+    if (_dutySiblingCache[cat]) return _dutySiblingCache[cat];
+    var roles = (window.RosterEngine && RosterEngine.ROLES) || [];
+    var out = roles.filter(function(r) {
+      return r.type === 'role' && getRoleCategory(r.id) === cat;
+    }).map(function(r) { return r.id; });
+    if (!out.length) out = [roleId];
+    if (roles.length) _dutySiblingCache[cat] = out;   // don't cache an empty ROLES
+    return out;
+  }
+
+  // Which "who goes with whom" rules apply to the slot being filled.
+  //
+  // A rule is about PEOPLE, not about rows. "If Audrey sings, Charisse sings"
+  // is a statement about the music, and which of four identical singer rows
+  // each lands in is an accident of the grid. So both ends match by GROUP:
+  // the rule fires when its person is on any slot of the watched duty, and it
+  // can be answered from any slot of the duty it constrains.
+  //
+  // The part that is easy to get wrong: a group rule is satisfied ONCE. Match
+  // group-wise without that and a strict rule demands Charisse in every
+  // singer row -- she fills Singer 2, then Singer 3 is also required to be
+  // her, cannot be, and is left blank. So a rule whose named partner is
+  // already standing in a sibling slot has been honoured, and stops applying.
   function _firingPairings(roleId, team, dateKeySuffix) {
     var out = [];
+    var mine = _dutySiblings(roleId);
+    var readSlot = function(slot) {
+      var v = STATE.rosterEdits.get(slot + '__' + dateKeySuffix);
+      if (!v || v === '__BLANK__' || typeof v === 'object') return null;
+      return v;
+    };
     ROSTER_DUTY_PAIRINGS.forEach(function(rule) {
-      if (rule.thenRole !== roleId) return;
+      if (mine.indexOf(rule.thenRole) === -1) return;
       if (rule.serviceType && rule.serviceType !== 'all' && rule.serviceType !== team) return;
       if (!rule.thenPeople || !rule.thenPeople.length) return;
-      var v = STATE.rosterEdits.get(rule.whenRole + '__' + dateKeySuffix);
-      if (!v || v === '__BLANK__' || typeof v === 'object') return;
-      var here = splitCellPeople(v).some(function(person) {
-        return _nameNorm(person) === _nameNorm(rule.whenPerson);
+
+      var fires = _dutySiblings(rule.whenRole).some(function(slot) {
+        var v = readSlot(slot);
+        return !!v && splitCellPeople(v).some(function(person) {
+          return _nameNorm(person) === _nameNorm(rule.whenPerson);
+        });
       });
-      if (here) out.push(rule);
+      if (!fires) return;
+
+      var answered = mine.some(function(slot) {
+        if (slot === roleId) return false;
+        var v = readSlot(slot);
+        return !!v && splitCellPeople(v).some(function(person) {
+          return rule.thenPeople.some(function(n) { return _nameNorm(n) === _nameNorm(person); });
+        });
+      });
+      if (answered) return;
+
+      out.push(rule);
     });
     return out;
   }
@@ -86964,6 +87012,10 @@ function filterLiturgyItems() {
       '#dutySet .ds-radio{display:flex;align-items:flex-start;gap:8px;font-size:.88rem;margin-bottom:6px;cursor:pointer;}' +
       '#dutySet .ds-people{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:4px 10px;margin-top:8px;max-height:210px;overflow-y:auto;border-top:1px solid #f0ece0;padding-top:8px;}' +
       '#dutySet .ds-people label{display:flex;align-items:center;gap:7px;font-size:.85rem;cursor:pointer;}' +
+      '#dutySet .ds-people label.ds-gone{color:#8a9a90;}' +
+      '#dutySet .ds-gone-tag{font-size:.64rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;' +
+        'color:#9a6b2f;background:rgba(234,179,8,.14);border:1px solid rgba(234,179,8,.3);' +
+        'border-radius:99px;padding:1px 6px;white-space:nowrap;}' +
       '#dutySet .ds-rule{display:flex;align-items:flex-start;gap:8px;font-size:.85rem;line-height:1.45;padding:7px 9px;background:#f6f4ec;border:1px solid #e6e2d6;border-radius:8px;margin-bottom:6px;}' +
       '#dutySet .ds-rule span{flex:1;}' +
       '#dutySet .ds-rule-x{border:0;background:none;color:#9a3b2f;font-size:1.05rem;line-height:1;cursor:pointer;padding:0 3px;flex:0 0 auto;}' +
@@ -86994,9 +87046,29 @@ function filterLiturgyItems() {
   function _dsDutyLabel(roleId) {
     return (window.RosterEngine && RosterEngine._roleWord) ? RosterEngine._roleWord(roleId) : roleId;
   }
-  function _dsPeopleFor(roleId) {
+  // Resigned, stood-down, guest and occasional members are never chosen by
+  // Auto-Suggest. Offering them here invited a PIC to tick a name that could
+  // never be picked -- and because a ticked list is a RESTRICTION, a list of
+  // people who have all left is a duty that silently stops being filled.
+  //
+  // Anyone already on the saved list is kept rather than vanished, flagged
+  // in the pane instead. Dropping a stored name from the list on screen
+  // would quietly change what the duty is set to the next time Save was
+  // pressed, which is not a thing a filter should do.
+  function _dsExcluded(name) {
+    if (typeof window.LHC_autoSuggestExcluded !== 'function') return false;
+    var now = new Date();
+    var y = (typeof STATE !== 'undefined' && STATE.rosterYear) || now.getFullYear();
+    var m = (typeof STATE !== 'undefined' && STATE.rosterMonth !== null && STATE.rosterMonth !== undefined)
+      ? STATE.rosterMonth : now.getMonth();
+    return !!window.LHC_autoSuggestExcluded(name, y, m);
+  }
+  function _dsPeopleFor(roleId, keep) {
     var cat = getRoleCategory(roleId);
+    var kept = {};
+    (keep || []).forEach(function(n) { kept[_nameNorm(n)] = true; });
     return (ROSTER_NAME_OPTIONS[cat] || []).slice()
+      .filter(function(n) { return kept[_nameNorm(n)] || !_dsExcluded(n); })
       .sort(function(a, b) { return a.localeCompare(b); });
   }
   function _dsRow(roleId, team) { return ROSTER_DUTY_SETTINGS[roleId + '__' + team] || null; }
@@ -87015,6 +87087,20 @@ function filterLiturgyItems() {
     return ROSTER_DUTY_PAIRINGS.some(function(r) { return r.whenRole === roleId; });
   }
 
+  // Leaving a pane with an unsaved edit used to raise the browser's own
+  // confirm() box: unstyled, centred on the window, and it announces the
+  // site's hostname before it asks the question. The decision is the same,
+  // put the way the rest of the app talks -- and it no longer blocks the
+  // page, so the Save button stays reachable, which is usually what somebody
+  // who just made a change actually wants.
+  function _dsAskDiscard(what, proceed) {
+    if (typeof window.showToast !== 'function') { proceed(); return; }   // no toast, no trap
+    window.showToast('Unsaved changes to ' + what + '. Press Save to keep them.', 'warning', {
+      action: 'Discard', duration: 7000,
+      onAction: function() { _dsDirty = false; proceed(); }
+    });
+  }
+
   function _dsRenderList() {
     var box = document.getElementById('dsList');
     if (!box) return;
@@ -87031,9 +87117,12 @@ function filterLiturgyItems() {
     }).join('');
     Array.prototype.forEach.call(box.querySelectorAll('button'), function(b) {
       b.addEventListener('click', function() {
-        if (_dsDirty && !confirm('Discard the unsaved change to ' + _dsDutyLabel(_dsRole) + '?')) return;
-        _dsRole = b.getAttribute('data-r'); _dsDirty = false;
-        _dsRenderList(); _dsRenderPane();
+        var go = function() {
+          _dsRole = b.getAttribute('data-r'); _dsDirty = false;
+          _dsRenderList(); _dsRenderPane();
+        };
+        if (_dsDirty) { _dsAskDiscard(_dsDutyLabel(_dsRole), go); return; }
+        go();
       });
     });
   }
@@ -87365,11 +87454,83 @@ function filterLiturgyItems() {
   }
 
   // Save and Use default act on one duty; there is no duty on the overview.
+  var _dsResetArmed = false;
+
+  // Duties that come in identical rows -- four singers, two ushers, three
+  // communion assistants -- are nearly always set up the same way, and
+  // setting each one by hand is both tedious and exactly how they drift
+  // apart. This copies the open tab's setup across the rest of the group.
+  //
+  // It copies who may be picked and the monthly limit. It does NOT copy
+  // "runs on this service", because that is the one thing these rows
+  // legitimately disagree about: this church wants two singers at a
+  // traditional service and three at a contemporary one, so each slot keeps
+  // its own answer. Nor does it copy pairing rules, which name a person and
+  // a slot -- duplicating those would invent rules nobody wrote.
+  function _dsCopyToSiblings() {
+    // Slots that do not run on this service are skipped. There is no third
+    // singer at a traditional service and no fourth at either, and writing a
+    // list of approved people onto a row that is never filled is clutter
+    // that later reads as a rule somebody meant.
+    var others = _dutySiblings(_dsRole).filter(function(id) {
+      return id !== _dsRole && _autoFillRoleApplies(id, _dsTeam);
+    });
+    if (!others.length) {
+      var n = document.getElementById('dsNote');
+      if (n) n.textContent = 'No other ' + _dsDutyLabel(_dsRole).replace(/\s*\d+$/, '').toLowerCase() +
+        ' slot runs on a ' + _dsTeam + ' service, so there is nothing to copy to.';
+      return;
+    }
+    var src = _dsRow(_dsRole, _dsTeam) || {};
+    var note = document.getElementById('dsNote');
+    var writes = [];
+    others.forEach(function(id) {
+      var existing = _dsRow(id, _dsTeam) || {};
+      var patch = {
+        people: (src.people && src.people.length) ? src.people.slice() : null,
+        monthlyCap: (src.monthlyCap === undefined) ? null : src.monthlyCap,
+        applies: (existing.applies === undefined) ? null : existing.applies
+      };
+      ROSTER_DUTY_SETTINGS[id + '__' + _dsTeam] = {
+        roleId: id, serviceType: _dsTeam,
+        people: patch.people, monthlyCap: patch.monthlyCap, applies: patch.applies
+      };
+      if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.saveDutySetting) {
+        writes.push(SBQ_ROSTER.saveDutySetting(id, _dsTeam, patch, null));
+      }
+    });
+    localStorage.setItem('lhc_roster_duty_settings', JSON.stringify(ROSTER_DUTY_SETTINGS));
+    _dsRenderList();
+    var what = others.length + ' other ' + _dsDutyLabel(_dsRole).replace(/\s*\d+$/, '').toLowerCase() +
+      (others.length === 1 ? ' slot' : ' slots');
+    if (note) note.textContent = 'Copying to ' + what + '...';
+    Promise.all(writes).then(function() {
+      if (note) note.textContent = 'Copied to ' + what + '. Every PIC sees this.';
+    }).catch(function(e) {
+      if (note) note.textContent = 'Copied on this device only -- could not reach the server.';
+      console.warn('copy duty setting failed:', e);
+    });
+  }
+
   function _dsSyncFoot() {
     var overview = _dsRole === '__all__';
     var save = document.getElementById('dsSave'), reset = document.getElementById('dsReset');
+    var copy = document.getElementById('dsCopy');
     if (save) save.style.display = overview ? 'none' : '';
     if (reset) reset.style.display = overview ? 'none' : '';
+    if (copy) {
+      var others = overview ? [] : _dutySiblings(_dsRole).filter(function(id) {
+        return id !== _dsRole && _autoFillRoleApplies(id, _dsTeam);
+      });
+      copy.style.display = others.length ? '' : 'none';
+      if (others.length) {
+        var group = _dsDutyLabel(_dsRole).replace(/\s*\d+$/, '').toLowerCase();
+        copy.textContent = 'Copy to the other ' + group + 's';
+        copy.title = 'Copies who may be picked and the monthly limit from ' +
+          _dsDutyLabel(_dsRole) + ' to the other ' + group + ' slots, for ' + _dsTeam +
+          ' services. Leaves each slot’s “runs on this service” alone.';
+      }
+    }
   }
 
   function _dsRenderPane() {
@@ -87382,7 +87543,7 @@ function filterLiturgyItems() {
       return;
     }
     var row = _dsRow(_dsRole, _dsTeam) || {};
-    var people = _dsPeopleFor(_dsRole);
+    var people = _dsPeopleFor(_dsRole, row.people);
     var restricted = !!(row.people && row.people.length);
     var chosen = {};
     (row.people || []).forEach(function(n) { chosen[_nameNorm(n)] = true; });
@@ -87391,8 +87552,15 @@ function filterLiturgyItems() {
 
     var peopleHtml = people.length
       ? people.map(function(n) {
-          return '<label><input type="checkbox" value="' + escapeHtmlModal(n) + '"' +
-            (chosen[_nameNorm(n)] ? ' checked' : '') + '>' + escapeHtmlModal(n) + '</label>';
+          // Only ever reached by a name already ON the list: the filter keeps
+          // those and drops the rest. Saying so beats letting a PIC wonder
+          // why one name is there and their other resigned members are not.
+          var gone = _dsExcluded(n);
+          return '<label' + (gone ? ' class="ds-gone" title="Auto-Suggest will not pick ' +
+              escapeHtmlModal(n) + ' — they are no longer in the rotation. Untick to tidy the list."' : '') +
+            '><input type="checkbox" value="' + escapeHtmlModal(n) + '"' +
+            (chosen[_nameNorm(n)] ? ' checked' : '') + '>' + escapeHtmlModal(n) +
+            (gone ? '<span class="ds-gone-tag">not in rotation</span>' : '') + '</label>';
         }).join('')
       : '<span class="ds-hint">Nobody is on this duty&rsquo;s list yet. Add names from a roster cell first.</span>';
 
@@ -87424,8 +87592,9 @@ function filterLiturgyItems() {
 
     Array.prototype.forEach.call(pane.querySelectorAll('.ds-tabs button'), function(b) {
       b.addEventListener('click', function() {
-        if (_dsDirty && !confirm('Discard the unsaved change?')) return;
-        _dsTeam = b.getAttribute('data-t'); _dsDirty = false; _dsRenderPane();
+        var go = function() { _dsTeam = b.getAttribute('data-t'); _dsDirty = false; _dsRenderPane(); };
+        if (_dsDirty) { _dsAskDiscard(_dsDutyLabel(_dsRole) + ' (' + _dsTeam + ')', go); return; }
+        go();
       });
     });
     Array.prototype.forEach.call(pane.querySelectorAll('input'), function(el) {
@@ -87509,7 +87678,19 @@ function filterLiturgyItems() {
 
   function _dsReset() {
     if (!_dsRole) return;
-    if (!confirm('Put ' + _dsDutyLabel(_dsRole) + ' (' + _dsTeam + ') back to the built-in behaviour?')) return;
+    if (!_dsResetArmed) {
+      _dsResetArmed = true;
+      var what = _dsDutyLabel(_dsRole) + ' (' + _dsTeam + ')';
+      if (typeof window.showToast === 'function') {
+        window.showToast('This puts ' + what + ' back to the built-in behaviour.', 'warning', {
+          action: 'Use default', duration: 7000,
+          onAction: function() { _dsReset(); }
+        });
+        setTimeout(function() { _dsResetArmed = false; }, 7000);
+        return;
+      }
+    }
+    _dsResetArmed = false;
     delete ROSTER_DUTY_SETTINGS[_dsRole + '__' + _dsTeam];
     var sent = [];
     if (typeof SBQ_ROSTER !== 'undefined' && SBQ_ROSTER.deleteDutySetting) {
@@ -87558,6 +87739,7 @@ function filterLiturgyItems() {
           '<button class="ds-x" id="dsClose" aria-label="Close">&times;</button></div>' +
         '<div class="ds-body"><div class="ds-list" id="dsList"></div><div class="ds-pane" id="dsPane"></div></div>' +
         '<div class="ds-foot"><span class="grow" id="dsNote">A dot marks a duty you have changed.</span>' +
+          '<button class="ds-btn ghost" id="dsCopy">Copy to the others</button>' +
           '<button class="ds-btn ghost" id="dsReset">Use default</button>' +
           '<button class="ds-btn" id="dsSave">Save</button></div>' +
       '</div>';
@@ -87565,10 +87747,15 @@ function filterLiturgyItems() {
     if (!_dsRole) { var first = _dsDuties()[0]; _dsRole = first ? first.id : null; }
     _dsRenderList(); _dsRenderPane();
     document.getElementById('dsClose').addEventListener('click', function() {
-      if (_dsDirty && !confirm('Close without saving this change?')) return;
-      if (ov.parentNode) ov.parentNode.removeChild(ov);
+      var shut = function() { if (ov.parentNode) ov.parentNode.removeChild(ov); };
+      if (_dsDirty) { _dsAskDiscard(_dsDutyLabel(_dsRole) + ' (' + _dsTeam + ')', shut); return; }
+      shut();
     });
     document.getElementById('dsSave').addEventListener('click', _dsSave);
+    document.getElementById('dsCopy').addEventListener('click', function() {
+      if (_dsDirty) { _dsAskDiscard(_dsDutyLabel(_dsRole) + ' (' + _dsTeam + ')', _dsCopyToSiblings); return; }
+      _dsCopyToSiblings();
+    });
     document.getElementById('dsReset').addEventListener('click', _dsReset);
   }
   window.openDutySettings = openDutySettings;
@@ -87912,6 +88099,11 @@ function filterLiturgyItems() {
     if (!AUTOSUGGEST_SKIP_STATUS[meta.status]) return false;
     return !_suspensionLapsed(meta, year, month);
   }
+  // The Auto-Suggest settings screen is a separate module and needs the same
+  // answer: a duty's "who may pick" list should not offer somebody the
+  // algorithm will never choose. Published rather than duplicated, because
+  // two copies of this rule would disagree the first time a status was added.
+  window.LHC_autoSuggestExcluded = isAutoSuggestExcluded;
 
   // Badge shown beside a name wherever it is picked, so the exclusion is
   // visible to whoever is filling the cell instead of only inside Enablers.
